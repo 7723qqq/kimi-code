@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { Events } from '../shared/bridge';
 import { onSettingsChange, VSCodeSettings } from './config/vscode-settings';
 import { KimiWebviewProvider } from './KimiWebviewProvider';
+import { activateExtensionTelemetry, deactivateExtensionTelemetry } from './telemetry';
 import { updateLoginContext } from './utils/context';
 
 let outputChannel: vscode.OutputChannel | undefined;
@@ -11,7 +12,9 @@ let provider: KimiWebviewProvider | undefined;
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel('Kimi Code');
   const remoteInfo = vscode.env.remoteName ? ` (remote: ${vscode.env.remoteName})` : '';
-  log(`Kimi Code ${VSCodeSettings.getExtensionConfig().version} activating${remoteInfo}`);
+  const version = VSCodeSettings.getExtensionConfig().version;
+  log(`Kimi Code ${version} activating${remoteInfo}`);
+  context.subscriptions.push(activateExtensionTelemetry({ version, log }));
 
   provider = new KimiWebviewProvider(
     context.extensionUri,
@@ -111,8 +114,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 export async function deactivate(): Promise<void> {
   log('Kimi Code deactivating');
-  await provider?.shutdown();
-  provider = undefined;
+  try {
+    await provider?.shutdown();
+  } finally {
+    provider = undefined;
+    await deactivateExtensionTelemetry();
+  }
 }
 
 function log(message: string): void {

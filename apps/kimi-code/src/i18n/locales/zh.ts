@@ -50,6 +50,7 @@ export default {
         '本次调用使用的智能体配置文件（仅 v2 引擎）。从智能体目录自动发现或通过 --agent-file 加载。',
       agentFile: '从 Markdown 文件加载智能体定义并选用（仅 v2 引擎）。',
       upgradeYes: '跳过确认提示，直接安装更新。',
+      installDesktop: '打印 Kimi Code 桌面端页面地址并在浏览器中打开。',
       exportOutput: '输出 ZIP 路径。',
       exportYes: '跳过上一个会话的确认。',
       exportSessionId: '要导出的会话 ID。默认为最近的会话。',

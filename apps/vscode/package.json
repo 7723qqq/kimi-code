@@ -287,6 +287,7 @@
     "@fontsource-variable/inter": "5.2.8",
     "@moonshot-ai/i18n-shared": "workspace:^",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
+    "@moonshot-ai/kimi-telemetry": "workspace:^",
     "@moonshot-ai/kimi-code-sdk": "workspace:^",
     "@radix-ui/react-accordion": "^1.2.12",
     "@tabler/icons-react": "^3.36.0",

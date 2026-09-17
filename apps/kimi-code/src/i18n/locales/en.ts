@@ -51,6 +51,7 @@ export default {
         'Agent profile to use for this invocation (v2 engine only). Custom profiles are discovered from agent directories or loaded via --agent-file.',
       agentFile: 'Load an agent definition from a Markdown file and select it (v2 engine only).',
       upgradeYes: 'Skip the confirmation prompt and install the update directly.',
+      installDesktop: 'Print the Kimi Code desktop app page and open it in your browser.',
       exportOutput: 'Output ZIP path.',
       exportYes: 'Skip previous-session confirmation.',
       exportSessionId: 'Session id to export. Defaults to the most recent session.',

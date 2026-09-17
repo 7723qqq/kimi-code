@@ -276,8 +276,8 @@
       "sha": "f728cb158c42b0b27a14be799c37174a37a8d9e9",
       "date": "2026-09-10",
       "subject": "fix(agent-core-v2): rebuild session and search indexes on storage failures, journal session-index freshness (#3694)",
-      "verdict": "tracked",
-      "note": "Rust session/sqlite_store.rs has no rebuild/reindex path on storage failure.",
+      "verdict": "not-applicable",
+      "note": "Split resolution, both halves accounted for. (1) The minidb half - a lock-aware wipe of derived stores during rebuild (commit's own 'fix(minidb): wipe derived stores under their own locks during rebuild') - shipped with the 2.0.0 merge itself: packages/minidb/src/wipe.ts, src/cluster/wipe.ts and src/error-classification.ts are tracked, and the merge-conflict resolutions in lifecycle.ts / mini-db.ts / generation-builder.ts preserved BOTH the fork's allowDestructiveRebuild gate and upstream's wipeStoreDir policy (verified by agent-8's merge pass and the passing minidb suite, 560 tests). (2) The agent-core-v2 half - rebuilding session and search INDEXES on unrecoverable storage failures, the dirty journal, index-freshness tracking - has no counterpart to port: the engine's search is a SQL LIKE query executed directly on the messages table (sqlite_store.rs:1361 search_messages, LIKE on m.content and s.title), there is no derived session/search index anywhere in packages/kimi-agent (rg for session_index / SearchIndex / full-text index returns nothing), and the session transcript is re-folded from the event store on read (sqlite_store.rs:1674 fold_projection) rather than cached. A query that reads the source of truth cannot go stale, so 'rebuild the index on storage failure' has nothing to apply to; the fork's search-index-verification need was likewise already handled when 1336be3877 was recorded ported. The one residual scenario upstream guards - a corrupted store - is handled by the fork's own corruption-safety work (see the memory-store-corruption-safety changeset), not by index rebuild.",
       "roadmap": "§6.2"
     },
     {

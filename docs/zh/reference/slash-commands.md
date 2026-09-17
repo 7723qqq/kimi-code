@@ -43,7 +43,7 @@
 | `/add-dir [<path>]` | — | 为当前会话添加额外的工作目录。不带路径（或传入 `list`）运行时列出已配置的目录。添加时可选择是否将目录记入项目的 `.kimi-code/local.toml` | 否 |
 | `/web` | — | 在 web UI 中打开当前会话：选择一个运行中的实例进行连接，或在 TUI 退出后新开一个前台服务器。参见 [`kimi web`](./kimi-command.md#kimi-web) | 是 |
 | `/remote-control` | `/rc` | 为当前会话开启远程控制隧道。需要 `remote-control` 实验特性开关 | 是 |
-| `/desktop` | `/install-desktop` | 在浏览器中打开 Kimi Code 桌面端页面（地址随当前区域而定：`https://www.kimi.com/code` 或 `https://www.kimi.ai/code`）。参见 [`kimi install-app`](./kimi-command.md#kimi-install-app) | 是 |
+| `/desktop` | `/install-desktop` | 在浏览器中打开 Kimi Code 桌面端页面（地址随当前区域而定：`https://www.kimi.com/code` 或 `https://www.kimi.ai/code`）。参见 [`kimi install-desktop`](./kimi-command.md#kimi-install-desktop) | 是 |
 
 ## 模式与运行控制
 

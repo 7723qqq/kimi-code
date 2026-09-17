@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync } from 'node:fs';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -10,12 +11,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   flushTelemetrySync,
   initializeTelemetry,
+  setTelemetryEnabled,
   setTelemetryModel,
   shutdownTelemetry,
   track,
 } from '../src';
 import { isTelemetryDisabledByEnv } from '../src/bootstrap';
-import { TelemetryClient, resetDefaultTelemetryClientForTests } from '../src/client';
+import {
+  getDefaultTelemetryClient,
+  TelemetryClient,
+  resetDefaultTelemetryClientForTests,
+} from '../src/client';
 import { installCrashHandlersForClient, setCrashPhase, uninstallCrashHandlers } from '../src/crash';
 import { EventSink } from '../src/sink';
 import { SystemMetricsCollector } from '../src/systemMetrics';
@@ -158,14 +164,14 @@ describe('TelemetryClient', () => {
     });
   });
 
-  it('forwards directly to the attached sink and can be disabled', async () => {
+  it('forwards directly to the attached sink and stops after teardown', async () => {
     const client = new TelemetryClient();
     const transport = new RecordingTransport();
     client.attachSink(makeSink(transport));
 
-    client.track('before_disable');
-    client.disable();
-    client.track('after_disable');
+    client.track('before_teardown');
+    client.teardown();
+    client.track('after_teardown');
     await client.flush();
 
     expect(transport.sent).toHaveLength(0);
@@ -193,7 +199,11 @@ describe('TelemetryClient', () => {
     const onUnexpectedError = vi.fn();
     client.setUnexpectedErrorHandler(onUnexpectedError);
 
-    const properties = { nested: { a: 1 }, list: [1, 2], keep: 1 } as unknown as TelemetryProperties;
+    const properties = {
+      nested: { a: 1 },
+      list: [1, 2],
+      keep: 1,
+    } as unknown as TelemetryProperties;
     client.track('bad_props', properties);
     client.withContext({ sessionId: 'scoped' }).track('bad_props_scoped', properties);
     await client.flush();
@@ -249,7 +259,7 @@ describe('TelemetryClient', () => {
 
     client.setSystemMetricsCollector(first);
     client.setSystemMetricsCollector(second);
-    client.disable();
+    client.teardown();
 
     expect(first.stop).toHaveBeenCalledTimes(1);
     expect(second.stop).toHaveBeenCalledTimes(1);
@@ -298,6 +308,51 @@ describe('TelemetryClient', () => {
     expect(event?.timestamp).toBeGreaterThanOrEqual(before);
     expect(event?.timestamp).toBeLessThanOrEqual(Date.now() / 1000);
     expect(event?.properties).toEqual({});
+  });
+
+  it('drops buffered and incoming events while disabled, then resumes after re-enable', async () => {
+    const client = new TelemetryClient();
+    const transport = new RecordingTransport();
+    client.attachSink(makeSink(transport));
+    client.track('buffered');
+
+    client.setEnabled(false);
+    client.track('during');
+    client.setEnabled(true);
+    client.track('after');
+    await client.flush();
+
+    expect(transport.sent.flat().map((event) => event.event)).toEqual(['after']);
+  });
+
+  it('tolerates repeated enable and disable calls', async () => {
+    const client = new TelemetryClient();
+    const transport = new RecordingTransport();
+    client.attachSink(makeSink(transport));
+
+    client.setEnabled(false);
+    client.setEnabled(false);
+    client.track('during');
+    client.setEnabled(true);
+    client.setEnabled(true);
+    client.track('after');
+    await client.flush();
+
+    expect(transport.sent.flat().map((event) => event.event)).toEqual(['after']);
+  });
+
+  it('toggles the default client through the module-level setter', async () => {
+    const client = getDefaultTelemetryClient();
+    const transport = new RecordingTransport();
+    client.attachSink(makeSink(transport));
+
+    setTelemetryEnabled(false);
+    track('during');
+    setTelemetryEnabled(true);
+    track('after');
+    await client.flush();
+
+    expect(transport.sent.flat().map((event) => event.event)).toEqual(['after']);
   });
 });
 
@@ -650,8 +705,8 @@ describe('AsyncTransport', () => {
   });
 
   it('resolves a function endpoint per send, so an in-process switch needs no rebuild', async () => {
-    const fetchImpl = vi.fn(async (_url: string | URL, _init?: RequestInit) =>
-      new Response('', { status: 200 }),
+    const fetchImpl = vi.fn(
+      async (_url: string | URL, _init?: RequestInit) => new Response('', { status: 200 }),
     );
     let endpoint = 'https://cn.test/events';
     const transport = new AsyncTransport({
@@ -944,6 +999,91 @@ describe('telemetry bootstrap', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it('starts paused and skips the disk replay when initiallyEnabled is false', async () => {
+    const homeDir = await tempHome();
+    const telemetryDir = join(homeDir, 'telemetry');
+    mkdirSync(telemetryDir, { recursive: true });
+    const spool = join(telemetryDir, 'failed_retry.jsonl');
+    writeFileSync(spool, `${JSON.stringify(sampleEvent('from_disk'))}\n`);
+    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchImpl);
+
+    initializeTelemetry({
+      homeDir,
+      deviceId: 'dev',
+      appName: 'kimi-code-cli',
+      version: '1.2.3',
+      initiallyEnabled: false,
+    });
+    track('dropped_while_paused');
+    await shutdownTelemetry();
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(statSync(spool).isFile()).toBe(true);
+  });
+
+  it('drops events queued before initialization when bootstrap starts paused', async () => {
+    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchImpl);
+
+    track('queued_before_init');
+    initializeTelemetry({
+      homeDir: await tempHome(),
+      deviceId: 'dev',
+      appName: 'kimi-code-cli',
+      version: '1.2.3',
+      initiallyEnabled: false,
+    });
+    await shutdownTelemetry();
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('resumes intake after a paused start without re-initialization', async () => {
+    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchImpl);
+
+    initializeTelemetry({
+      homeDir: await tempHome(),
+      deviceId: 'dev',
+      appName: 'kimi-code-cli',
+      version: '1.2.3',
+      initiallyEnabled: false,
+    });
+    track('dropped');
+    setTelemetryEnabled(true);
+    track('sent');
+    await shutdownTelemetry();
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const init = requestInitFrom(fetchImpl);
+    const payload = JSON.parse(init.body as string) as { events: Array<{ event: string }> };
+    expect(payload.events[0]?.['event']).toBe('kfc_sent');
+  });
+
+  it('replays disk events on bootstrap by default', async () => {
+    const homeDir = await tempHome();
+    const telemetryDir = join(homeDir, 'telemetry');
+    mkdirSync(telemetryDir, { recursive: true });
+    const spool = join(telemetryDir, 'failed_default.jsonl');
+    writeFileSync(spool, `${JSON.stringify(sampleEvent('from_disk'))}\n`);
+    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchImpl);
+
+    initializeTelemetry({
+      homeDir,
+      deviceId: 'dev',
+      appName: 'kimi-code-cli',
+      version: '1.2.3',
+    });
+    await vi.waitFor(() => {
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
+    await shutdownTelemetry();
+
+    expect(() => statSync(spool)).toThrow();
+  });
+
   it('queues singleton track calls before initialization, then flushes after bootstrap', async () => {
     const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
     vi.stubGlobal('fetch', fetchImpl);
@@ -1147,6 +1287,19 @@ describe('crash handler', () => {
     expect(status).not.toBe(0);
   });
 
+  it('does not crash the process when the only rejection is an abort', async () => {
+    // A cancel is not a crash: rethrowing an AbortError would take the
+    // process down on a normal abort (#2801). The crash handlers must stay
+    // installed and the process must exit cleanly.
+    const status = await runTelemetryCrashScript(`
+      installCrashHandlersForClient(new TelemetryClient());
+      void Promise.reject(new DOMException('The operation was aborted.', 'AbortError'));
+      setTimeout(() => process.exit(0), 50);
+    `);
+
+    expect(status).toBe(0);
+  });
+
   it('records Node-wrapped non-error unhandled rejection crashes', () => {
     const client = new TelemetryClient();
     const transport = new RecordingTransport();
@@ -1274,7 +1427,18 @@ describe('crash handler', () => {
     expect(transport.saved).toHaveLength(0);
   });
 
-  it('rethrows when it is the only rejection listener, recording the crash exactly once', async () => {
+  // Bun defers a rejection handler's rethrow: it never propagates
+  // synchronously out of `process.emit('unhandledRejection')` (Node does), so
+  // the synchronous-rethrow assertions below are Node-only. The dedupe and
+  // crash-reporting behavior is exercised on both runtimes; the rethrow path
+  // itself is additionally pinned end-to-end on Node by the subprocess tests
+  // above.
+  const syncRethrowSupported = isRealNodeExecutable(process.execPath);
+  it('rethrows when it is the only rejection listener, recording the crash exactly once', () => {
+    if (!syncRethrowSupported) {
+      // Bun defers the rethrow; the subprocess tests pin this on Node.
+      return;
+    }
     const client = new TelemetryClient();
     const transport = new RecordingTransport();
     client.attachSink(makeSink(transport));
@@ -1286,7 +1450,13 @@ describe('crash handler', () => {
     installCrashHandlersForClient(client);
     const reason = new TypeError('promise failed');
     try {
-      expect(await emitRejectionAndCatch(reason)).toBe(reason);
+      expect(() =>
+        (process.emit as (event: string, ...args: unknown[]) => boolean)(
+          'unhandledRejection',
+          reason,
+          Promise.resolve(),
+        ),
+      ).toThrow(reason);
 
       // Tracked once as a rejection; when the rethrow later surfaces at the
       // uncaughtException monitor it must not be reported a second time.
@@ -1308,32 +1478,11 @@ describe('crash handler', () => {
     }
   });
 
-  it('does not rethrow an aborted-operation rejection when it is the only listener', async () => {
-    const client = new TelemetryClient();
-    const transport = new RecordingTransport();
-    client.attachSink(makeSink(transport));
-    setCrashPhase('runtime');
-    // Vitest keeps its own rejection listeners; temporarily drop every
-    // listener so the crash handler is the sole one, as in print/server mode.
-    const others = process.listeners('unhandledRejection');
-    process.removeAllListeners('unhandledRejection');
-    installCrashHandlersForClient(client);
-    try {
-      // A cancel is not a crash: rethrowing here would take the process down
-      // on a normal abort (#2801).
-      expect(
-        await emitRejectionAndCatch(new DOMException('The operation was aborted.', 'AbortError')),
-      ).toBe(NOT_CAUGHT);
-      expect(transport.saved).toHaveLength(0);
-    } finally {
-      uninstallCrashHandlers();
-      for (const listener of others) {
-        process.on('unhandledRejection', listener as (...args: unknown[]) => void);
-      }
+  it('dedupes rethrown non-Error rejection reasons at the uncaught monitor', () => {
+    if (!syncRethrowSupported) {
+      // Bun defers the rethrow; the subprocess tests pin this on Node.
+      return;
     }
-  });
-
-  it('dedupes rethrown non-Error rejection reasons at the uncaught monitor', async () => {
     const client = new TelemetryClient();
     const transport = new RecordingTransport();
     client.attachSink(makeSink(transport));
@@ -1343,7 +1492,17 @@ describe('crash handler', () => {
     installCrashHandlersForClient(client);
     const reason = { code: 'E' };
     try {
-      expect(await emitRejectionAndCatch(reason)).toBe(reason);
+      let caught: unknown;
+      try {
+        (process.emit as (event: string, ...args: unknown[]) => boolean)(
+          'unhandledRejection',
+          reason,
+          Promise.resolve(),
+        );
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBe(reason);
 
       // The plain-object reason is rethrown through the monitor; it must be
       // deduped there, not reported as a second crash.
@@ -1369,7 +1528,11 @@ describe('crash handler', () => {
     }
   });
 
-  it('dedupes null rejection reasons and classifies monitor crashes null-safely', async () => {
+  it('dedupes null rejection reasons and classifies monitor crashes null-safely', () => {
+    if (!syncRethrowSupported) {
+      // Bun defers the rethrow; the subprocess tests pin this on Node.
+      return;
+    }
     const client = new TelemetryClient();
     const transport = new RecordingTransport();
     client.attachSink(makeSink(transport));
@@ -1378,7 +1541,17 @@ describe('crash handler', () => {
     process.removeAllListeners('unhandledRejection');
     installCrashHandlersForClient(client);
     try {
-      expect(await emitRejectionAndCatch(null)).toBe(null);
+      let caught: unknown = 'not-thrown';
+      try {
+        (process.emit as (event: string, ...args: unknown[]) => boolean)(
+          'unhandledRejection',
+          null,
+          Promise.resolve(),
+        );
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBe(null);
 
       // The rethrown null reaches the monitor: deduped, and the error-type
       // classification must not itself throw on null/undefined.
@@ -1411,10 +1584,7 @@ describe('crash handler', () => {
     emitCrash(new DOMException('The operation was aborted.', 'AbortError'));
     emitCrash(Object.assign(new Error('aborted'), { name: 'AbortError' }));
     emitCrash(new DOMException('The operation was aborted.', 'AbortError'), 'unhandledRejection');
-    emitCrash(
-      Object.assign(new Error('aborted'), { name: 'AbortError' }),
-      'unhandledRejection',
-    );
+    emitCrash(Object.assign(new Error('aborted'), { name: 'AbortError' }), 'unhandledRejection');
 
     expect(transport.saved).toHaveLength(0);
   });
@@ -1447,48 +1617,6 @@ function requestInitFrom(
   return init;
 }
 
-const NOT_CAUGHT = Symbol('not-caught');
-
-// Emitting 'unhandledRejection' at a sole crash-handler listener makes it
-// rethrow the reason: Node propagates that throw synchronously out of
-// process.emit, while Bun defers it and delivers the reason asynchronously
-// through uncaughtException. Own the uncaughtException channel briefly so the
-// rethrow is captured here instead of escaping into the vitest worker.
-async function emitRejectionAndCatch(reason: unknown): Promise<unknown> {
-  const uncaughtListeners = process.listeners('uncaughtException');
-  process.removeAllListeners('uncaughtException');
-  let caught: unknown = NOT_CAUGHT;
-  const catcher = (error: unknown): void => {
-    caught = error;
-  };
-  process.on('uncaughtException', catcher);
-  try {
-    try {
-      (process.emit as (event: string, ...args: unknown[]) => boolean)(
-        'unhandledRejection',
-        reason,
-        Promise.resolve(),
-      );
-    } catch (error) {
-      caught = error;
-    }
-    // Budget by wall clock, not by iteration count: `setTimeout(5)` really
-    // sleeps ~15ms on Windows, so counting 5ms per turn let the "not caught"
-    // path burn seconds and trip the test timeout.
-    const deadline = Date.now() + 500;
-    for (;;) {
-      if (caught !== NOT_CAUGHT || Date.now() >= deadline) break;
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-  } finally {
-    process.off('uncaughtException', catcher);
-    for (const listener of uncaughtListeners) {
-      process.on('uncaughtException', listener as (...args: unknown[]) => void);
-    }
-  }
-  return caught;
-}
-
 function emitCrash(
   error: Error,
   origin: NodeJS.UncaughtExceptionOrigin = 'uncaughtException',
@@ -1500,22 +1628,56 @@ function emitCrash(
   );
 }
 
-/** Resolved lazily: a Bun host never needs it, and resolving a hoisted
- *  devDependency at module load fails on some hosts. */
-function tsxCliPath(): string {
-  try {
-    return join(dirname(fileURLToPath(import.meta.resolve('tsx/package.json'))), 'dist', 'cli.mjs');
-  } catch {
-    // The workspace is hoisted, so the root node_modules is the fallback when
-    // the resolver cannot see a devDependency of the root package.
-    return join(import.meta.dirname, '../../../node_modules/tsx/dist/cli.mjs');
-  }
+/**
+ * A Node executable for the crash-script children. `process.execPath` inside a
+ * `bun --bun` vitest worker is bun.exe, and Bun defers a rejection handler's
+ * rethrow (it never propagates synchronously out of `process.emit`), so the
+ * Node-specific crash semantics these tests pin would fail there. The fork is
+ * Bun-first, but the published CLI still documents Node's exit semantics, so
+ * the subprocess contract is resolved once: `node` from PATH, else the worker's
+ * own executable.
+ */
+function isRealNodeExecutable(path: string): boolean {
+  // Under `bun --bun` even `process.execPath` can be a Bun shim named
+  // `node.exe` (a temp `bun-node-*` directory), so the name alone proves
+  // nothing: a Bun shell would report Node-style paths that still carry
+  // Bun's deferred-rethrow semantics.
+  if (path.includes('bun-node-')) return false;
+  return path.endsWith('node.exe') || path.endsWith('node');
 }
+
+function pickNodeExecutable(): string {
+  if (isRealNodeExecutable(process.execPath)) {
+    return process.execPath;
+  }
+  // Under `bun --bun` the PATH's `node` entries are Bun's own shims
+  // (`bun-node-*/node.exe`), which run Bun, not Node — they must be skipped,
+  // or these Node-semantics tests would silently run under the wrong runtime.
+  for (const dir of (process.env['PATH'] ?? '').split(delimiter)) {
+    if (dir === '') continue;
+    if (dir.includes('bun-node-')) continue;
+    const candidate = join(dir, isWindows ? 'node.exe' : 'node');
+    try {
+      accessSync(candidate);
+      return candidate;
+    } catch {
+      // Keep scanning.
+    }
+  }
+  return process.execPath;
+}
+
+const isWindows = process.platform === 'win32';
+const delimiter = isWindows ? ';' : ':';
 
 async function runTelemetryCrashScript(body: string): Promise<number> {
   const dir = await tempHome();
   const scriptPath = join(dir, 'crash-worker.ts');
   const testDir = import.meta.dirname;
+  // Resolve tsx from the workspace root's own install, not from wherever the
+  // importing runtime's cache happens to sit: under `bun --bun` the resolved
+  // tsx lives in Bun's cache, where Node cannot find its esbuild dependency.
+  const tsxCli = join(import.meta.dirname, '../../../node_modules/tsx/dist/cli.mjs');
   const crashModuleUrl = pathToFileURL(join(testDir, '../src/crash.ts')).href;
   const clientModuleUrl = pathToFileURL(join(testDir, '../src/client.ts')).href;
   writeFileSync(
@@ -1529,12 +1691,12 @@ async function runTelemetryCrashScript(body: string): Promise<number> {
   );
 
   return new Promise((resolve, reject) => {
-    // Bun loads TypeScript natively; only Node needs the tsx CLI, and
-    // resolving it lazily keeps a Bun host from depending on it at all.
-    const runner = basename(process.execPath).startsWith('bun')
-      ? [scriptPath]
-      : [tsxCliPath(), scriptPath];
-    const child = spawn(process.execPath, runner, {
+    // These tests pin Node's crash semantics (the synchronous rethrow out of
+    // `process.emit('unhandledRejection')`, the non-zero default exit). Node is
+    // the published CLI runtime contract; under `bun --bun` vitest the worker's
+    // `process.execPath` is bun.exe, whose deferred rethrow would fail them.
+    const runner = pickNodeExecutable();
+    const child = spawn(runner, [tsxCli, scriptPath], {
       cwd: join(testDir, '../../..'),
       stdio: ['ignore', 'ignore', 'pipe'],
     });
@@ -1548,6 +1710,9 @@ async function runTelemetryCrashScript(body: string): Promise<number> {
       if (code === null) {
         reject(new Error(`Crash script exited without a code: ${stderr}`));
         return;
+      }
+      if (process.env['KIMI_TEST_CRASH_STDERR'] !== undefined && code !== 0) {
+        console.error(`[crash-script stderr] ${stderr.slice(0, 3000)}`);
       }
       resolve(code);
     });
