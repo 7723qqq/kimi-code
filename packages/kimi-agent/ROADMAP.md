@@ -92,7 +92,7 @@
 | 子模块 / 职责 | TypeScript 源码（GitHub 原型） | Rust 引擎实现 | 对齐状态 | 架构深度分析与技术细节 |
 |---|---|---|:---:|---|
 | **ACP 协议宿主** | `packages/acp-server/` | `kimi-agent/src/acp/mod.rs`<br>`src/acp/types.rs` | ⚠️ **部分对齐** | 原生 Agent Client Protocol (ACP) 规范实现，支持 Stdio 与网络通道，零 Node 依赖。**2026-09-15 审计修正**（证据均为本轮独立抽验）：`stopReason` 用 `format!("{:?}")`（`src/server/engine.rs:1250`，测试断言 `"EndTurn"`，见 `:1770`），发的是 Rust 枚举名而非 ACP 的 `end_turn`/`cancelled`/`refusal`，严格客户端解析失败且被取消的回合不显示 cancelled；`$/cancel_request` 全仓零命中（取消请求得 -32601，回合继续消耗 token，只有 `session/cancel` 通知生效）；`terminal/kill` 仅定义无调用点（`src/acp/channel.rs:209-212`），客户端终端里挂死的命令无法终止；`additionalDirectories` 在 `src/acp` 零命中，编辑器传入的额外根目录被静默丢弃；Bash 反向改道硬编码 `sh -c`/`cmd /C` 且 `cwd=None`（`src/acp/permission.rs:89-105`），命令跑在客户端终端默认目录而非会话 cwd，`env` 与 4MiB 上限丢失；`session/set_model` 返回 -32601、`set_config_option` 只认 mode。反向 RPC 实为 **9** 个（原写 10/11）。工单见 §6.5。 |
-| **Stdio JSON-RPC** | `apps/kimi-code/src/cli/rust-engine.ts` | `kimi-agent/src/rpc/types.rs`<br>`src/main.rs` | ✅ **100% 原生** | 提供严格匹配 LSP/JSON-RPC 2.0 规范的 Stdio 双向通讯层，作为无 NAPI 运行环境的保底通道。 |
+| **Stdio JSON-RPC** | 无（仓内无 TS 调用方） | `kimi-agent/src/rpc/types.rs`<br>`src/main.rs` | ⚠️ **Rust 侧就绪，TS 侧未接线** | Rust 侧提供严格匹配 LSP/JSON-RPC 2.0 规范的 Stdio 双向通讯层；但仓内没有任何 TypeScript 客户端调用它——`apps/kimi-code/src/cli/rust-engine.ts` 只是 bundle 存在性检查，不是 RPC 客户端。实际运行路径是 napi addon（`session-handle.ts` → `NapiSessionTransport`）。 |
 | **客户端 SDK 门面** | `packages/klient/src/` | — | ✅ **已退役** | `packages/klient` 已按 P159 物理删除（连同 `agent-core-v2` / `acp-server` / `kap-server`）。消费方直连 Rust REST/WebSocket/NAPI。见本文件 §4 与「工作区状态」。 |
 
 ### 板块 9：多智能体协作与 13 大领域高级特性

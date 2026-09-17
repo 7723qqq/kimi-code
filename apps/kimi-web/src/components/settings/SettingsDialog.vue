@@ -52,7 +52,7 @@ const props = defineProps<{
   /** Server version reported by GET /api/v1/meta. */
   serverVersion?: string;
   /** Backend engine generation from GET /api/v1/meta ('v1' legacy, 'v2' kap-server). */
-  backend?: 'v1' | 'v2';
+  backend?: 'v1' | 'v2' | 'rust';
 }>();
 
 const emit = defineEmits<{
@@ -93,7 +93,7 @@ const tabs: { id: SettingsTab; labelKey: string }[] = [
 ];
 
 const daemonEndpoint = serverEndpointLabel();
-const backendLabel = computed(() => (props.backend === 'v2' ? 'v2 (kap-server)' : 'v1 (server)'));
+const backendLabel = computed(() => `${props.backend} (server)`);
 const permissionModes = ['manual', 'yolo', 'auto'] as const;
 // Reuse the Composer's permission labels (status.permission*) so the
 // default-permission names stay in sync with the toolbar.

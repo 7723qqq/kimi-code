@@ -67,8 +67,6 @@ export default {
         'Bind host. Omit for {{host}} (local); pass --host for {{lanHost}} (all interfaces), or --host <host> for a specific address. The bearer token is printed at startup.',
       serverRunOptionAllowedHost:
         'Extra Host header values to allow through the DNS-rebinding check. Repeatable or comma-separated; a leading dot matches a domain suffix (e.g. .example.com).',
-      serverRunOptionInsecureNoTls:
-        'Allow a non-loopback bind without a TLS-terminating reverse proxy. Defaults to true; only relevant for non-loopback binds.',
       serverRunOptionAllowRemoteShutdown:
         'On a non-loopback bind, keep POST /api/v1/shutdown enabled (default: disabled → 404).',
       serverRunOptionAllowRemoteTerminals:
@@ -79,11 +77,13 @@ export default {
       serverRunOptionDebugEndpoints:
         'Mount /api/v1/debug/* routes for test introspection. OFF by default; production callers leave this unset.',
       serverRunOptionNoOpen: 'Do not open the web UI in the default browser.',
-      providerApiKey: 'Registry API key. Falls back to KIMI_REGISTRY_API_KEY.',
+      providerApiKey:
+        'Registry API key. Prefer KIMI_PROVIDER_API_KEY, or pass "-" to read it from stdin; a key given here is visible in the process list.',
       providerListJson: 'Emit the raw providers/models config as JSON.',
       providerCatalogFilter: 'Case-insensitive id/name substring filter.',
       providerCatalogJson: 'Emit the matching catalog slice as JSON.',
-      providerCatalogApiKey: 'API key for the provider. Falls back to KIMI_REGISTRY_API_KEY.',
+      providerCatalogApiKey:
+        'API key for the provider. Prefer KIMI_PROVIDER_API_KEY, or pass "-" to read it from stdin; a key given here is visible in the process list.',
       providerCatalogDefaultModel: 'Mark the imported model as default_model after import.',
       providerCatalogBaseUrl:
         'Override the catalog endpoint. Required when the catalog declares none (or an env placeholder).',
@@ -1331,6 +1331,8 @@ export default {
       loginSuccess: 'Logged in to {{provider}}.',
       loginFailedMsg: 'Login failed: {{message}}',
       // sub/provider.ts
+      providerApiKeyMissing:
+        'Missing API key. Set KIMI_PROVIDER_API_KEY, or pass --api-key <key> (--api-key - reads it from stdin).',
       providerUrlRequired: 'Registry URL is required.',
       providerFetchFailed: 'Failed to fetch registry{{suffix}}: {{error}}',
       providerNoUsable: 'Registry at {{url}} contained no usable providers.',

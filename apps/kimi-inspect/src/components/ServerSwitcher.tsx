@@ -1,5 +1,5 @@
 /**
- * Header server switcher — lists the locally discovered kap-servers (dev
+ * Header server switcher — lists the locally discovered servers (dev
  * middleware `/__inspect/servers`) and switches the connection between them
  * without a reload. Discovered picks are not persisted as a full connection
  * config; only the picked URL is remembered so a reload re-picks it while the
@@ -23,7 +23,7 @@ export function ServerSwitcher() {
   return (
     <select
       className="rounded border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 font-mono text-[10px] text-neutral-300 outline-none focus:border-sky-600"
-      title={`Local kap-servers (${data.home})`}
+      title={t('server.localServers', { home: data.home })}
       value={current?.id ?? '__custom'}
       onChange={(e) => {
         const target = data.servers.find((s) => s.id === e.target.value);

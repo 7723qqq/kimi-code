@@ -158,8 +158,8 @@ interface WireMeta {
   capabilities: Record<string, boolean>;
   open_in_apps?: string[];
   dangerous_bypass_auth?: boolean;
-  /** Engine generation serving the API; older (v1) servers omit the field. */
-  backend?: 'v1' | 'v2';
+  /** Backend engine serving the API; older (v1) servers omit the field. */
+  backend?: 'v1' | 'v2' | 'rust';
 }
 
 interface WireAbortResult {
@@ -391,8 +391,8 @@ export class DaemonKimiWebApi implements KimiWebApi {
     capabilities: Record<string, boolean>;
     openInApps: string[];
     dangerousBypassAuth: boolean;
-    /** Engine generation: 'v2' = kap-server / agent-core-v2; absent ⇒ 'v1'. */
-    backend: 'v1' | 'v2';
+    /** Backend engine reported by `/meta`; the native Rust server reports `'rust'`. */
+    backend: 'v1' | 'v2' | 'rust';
   }> {
     const data = await this.http.get<WireMeta>('/meta');
     return {
@@ -402,7 +402,7 @@ export class DaemonKimiWebApi implements KimiWebApi {
       capabilities: data.capabilities,
       openInApps: Array.isArray(data.open_in_apps) ? data.open_in_apps : [],
       dangerousBypassAuth: data.dangerous_bypass_auth === true,
-      backend: data.backend === 'v2' ? 'v2' : 'v1',
+      backend: data.backend ?? 'v1',
     };
   }
 

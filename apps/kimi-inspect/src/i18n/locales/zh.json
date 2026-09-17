@@ -7,11 +7,11 @@
   },
   "connection": {
     "title": "Kimi Inspect",
-    "description": "连接到 kap-server (/api/v2)。将 URL 留空以使用同源开发代理 ({{target}})。",
+    "description": "连接到服务器 (/api/v2)。将 URL 留空以使用同源开发代理 ({{target}})。",
     "discovered": "在本机上发现",
     "discoveredHome": "在本机上发现 ({{home}})",
     "connecting": "连接到 {{url}}…",
-    "discovering": "正在发现本地 kap-server…",
+    "discovering": "正在发现本地服务器…",
     "serverUrl": "服务器 URL",
     "urlPlaceholder": "http://127.0.0.1:58627（留空 = 开发代理）",
     "tokenLabel": "Bearer token（可选）",
@@ -78,7 +78,7 @@
   },
   "server": {
     "proxy": " ⇄ 代理",
-    "localServers": "本地 kap-server（{{home}}）",
+    "localServers": "本地服务器（{{home}}）",
     "custom": "自定义：{{url}}",
     "pid": " ⇄ pid {{pid}}"
   },

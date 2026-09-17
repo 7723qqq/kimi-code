@@ -29,8 +29,8 @@ This is a Bun monorepo. The most relevant entry points are:
 - `apps/vscode` — VS Code extension
 - `apps/vis` — session debug visualizer
 - `packages/node-sdk` — public TypeScript SDK (`@moonshot-ai/kimi-code-sdk`)
-- `packages/agent-core-v2` — the agent engine (v2, DI Scope architecture); `packages/agent-core` is v1 and being phased out
-- `packages/klient`, `kap-server`, `protocol`, `transcript`, `kosong`, `kaos`, `oauth`, `telemetry` — internal engine packages
+- `packages/kimi-agent` — the Rust agent engine (napi addon + standalone `kimi-agent-cli`); the former TypeScript engine packages (`agent-core-v2`, `klient`, `kap-server`, `acp-server`) have been removed
+- `packages/protocol`, `transcript`, `kosong`, `kaos`, `oauth`, `telemetry`, `minidb`, `pi-tui`, `tree-sitter-bash` — internal engine packages
 - `docs/` — VitePress bilingual docs site
 
 For the full project map, see [AGENTS.md](AGENTS.md).

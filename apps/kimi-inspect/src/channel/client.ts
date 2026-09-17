@@ -10,9 +10,9 @@
  *   await client.session('s1').service(ISessionMetadata).read();
  *   await client.session('s1').agent('main').service(IAgentLoopService).cancelFromUser();
  *
- * The `agent-core-v2` service token is the whole key: its type parameter `T`
- * types the returned proxy, and its decorator id (`String(id)`) is the channel
- * name in the URL. Calls ride HTTP (`ProxyChannel`). There is no event
+ * The service token is the whole key: its type parameter `T` types the
+ * returned proxy, and its decorator id (`String(id)`) is the channel name in
+ * the URL. Calls ride HTTP (`ProxyChannel`). There is no event
  * transport: no WS event socket (`/api/v2/ws`) exists, so the UI reads
  * Service state on demand. (The transcript's own `/api/v1/ws` block-grade
  * channel lives in `src/transcript/` and is unrelated to this client.)

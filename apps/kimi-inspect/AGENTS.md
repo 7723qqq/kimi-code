@@ -1,6 +1,6 @@
 # kimi-inspect Agent Guide
 
-Web inspector for the kap-server `/api/v1/debug` RPC surface — workspace/session browser, per-session chat, and Service panels (data + trigger buttons) for the Session and Agent scopes.
+Web inspector for the `/api/v1/debug` RPC surface served by the native `kimi-agent --serve` server — workspace/session browser, per-session chat, and Service panels (data + trigger buttons) for the Session and Agent scopes.
 
 ## Top-level views
 
@@ -21,7 +21,7 @@ The **Session scope** lives in the same right dock as the `Session` tab (`src/co
 
 ## Channel layer
 
-Built on its own old-klient-style channel layer (`src/channel/`: the VS Code `ProxyChannel` model — service-bound `IChannel`, HTTP `ProxyChannel` for calls routed to `/api/v1/debug`), typed by `agent-core-v2` Service interfaces; `GET /api/v1/debug/channels` loads the whole wire protocol 1:1 (every scoped Service, no whitelist). There is no Service-event push channel: panels fetch/refresh on demand (`Sidebar` polls react-query on a 15 s interval), and a connection failure shows a blocking "Debug surface unavailable" screen instead of falling back anywhere.
+Built on its own old-klient-style channel layer (`src/channel/`: the VS Code `ProxyChannel` model — service-bound `IChannel`, HTTP `ProxyChannel` for calls routed to `/api/v1/debug`), typed by the local mirror of the retired `agent-core-v2` Service interfaces (`src/compat/v2.ts`); `GET /api/v1/debug/channels` loads the whole wire protocol 1:1 (every scoped Service, no whitelist). There is no Service-event push channel: panels fetch/refresh on demand (`Sidebar` polls react-query on a 15 s interval), and a connection failure shows a blocking "Debug surface unavailable" screen instead of falling back anywhere.
 
 ## Session activity
 
@@ -29,7 +29,7 @@ Session-level coarse status is the one exception to no-push: `src/activity/` hol
 
 ## Dev server
 
-The Vite dev server proxies `/api` to a running kap-server (`KIMI_SERVER_URL`, default `http://127.0.0.1:58627`) and exposes `GET /__inspect/servers` (`vite/serverDiscovery.ts`), which scans the local kap-server instance registry (`~/.kimi-code/server/instances` + legacy `lock`) and the home token so the app can zero-config auto-connect and switch servers from the header dropdown at runtime.
+The Vite dev server proxies `/api` to a running server (`KIMI_SERVER_URL`, default `http://127.0.0.1:58627`) and exposes `GET /__inspect/servers` (`vite/serverDiscovery.ts`), which scans the server instance registry (`~/.kimi-code/server/instances` + legacy `lock`) and the home token so the app can zero-config auto-connect and switch servers from the header dropdown at runtime. Current builds run the server in the foreground and do not write that registry, so discovery usually finds nothing — set `KIMI_SERVER_URL` explicitly.
 
 ## Chat view
 

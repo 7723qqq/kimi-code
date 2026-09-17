@@ -29,8 +29,8 @@ Kimi Code 对 CLI/TUI 行为、agent 工作流和公开 API 已有自己的主�
 - `apps/vscode` — VS Code 插件
 - `apps/vis` — 会话调试可视化工具
 - `packages/node-sdk` — 公开 TypeScript SDK（`@moonshot-ai/kimi-code-sdk`）
-- `packages/agent-core-v2` — 当前的 agent 引擎（v2，DI Scope 架构）；`packages/agent-core` 为 v1，正在逐步废弃
-- `packages/klient`、`kap-server`、`protocol`、`transcript`、`kosong`、`kaos`、`oauth`、`telemetry` — 内部引擎包
+- `packages/kimi-agent` — Rust agent 引擎（napi addon + 独立 `kimi-agent-cli`）；此前的 TypeScript 引擎包（`agent-core-v2`、`klient`、`kap-server`、`acp-server`）已删除
+- `packages/protocol`、`transcript`、`kosong`、`kaos`、`oauth`、`telemetry`、`minidb`、`pi-tui`、`tree-sitter-bash` — 内部引擎包
 - `docs/` — VitePress 双语文档站
 
 完整项目地图见 [AGENTS.md](AGENTS.md)。
@@ -67,7 +67,7 @@ bun install
 
 ### 原生构建（自包含二进制）
 
-原生构建用 Bun 把 CLI 编译为单文件可执行文件。需要 Bun >= 1.4（`curl -fsSL https://bun.sh/install | bash`；详见 [bun.sh](https://bun.sh)），构建脚本本身也运行在 Bun 上；Rust 工具链必需，因为要嵌入 `kimi-native-tools` 的 `.node` 二进制。
+原生构建用 Bun 把 CLI 编译为单文件可执行文件。需要 Bun >= 1.4（`curl -fsSL https://bun.sh/install | bash`；详见 [bun.sh](https://bun.sh)），构建脚本本身也运行在 Bun 上；Rust 工具链必需，因为要嵌入 `kimi-agent` 的 `.node` 二进制。
 
 在 `apps/kimi-code` 下运行：
 
@@ -98,7 +98,7 @@ bun scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
 
 ### Nix 构建
 
-`nix-build.yml` 在纯净沙箱中构建 CLI。依赖来自一个固定输出派生（`flake.nix` 中的 `bunDeps`）：它物化 hoisted 的 `node_modules` 树，以及两个 napi 包（`kimi-native-tools`、`kimi-agent`）的 cargo vendor 目录；主派生随后离线编译。编辑 `flake.nix` 或原生构建步骤时需要知道的沙箱特性：
+`nix-build.yml` 在纯净沙箱中构建 CLI。依赖来自一个固定输出派生（`flake.nix` 中的 `bunDeps`）：它物化 hoisted 的 `node_modules` 树，以及 napi 包（`kimi-agent`）的 cargo vendor 目录；主派生随后离线编译。编辑 `flake.nix` 或原生构建步骤时需要知道的沙箱特性：
 
 - 沙箱中没有 `/usr/bin/env`——请用 `node <js入口>` 调用 node-gyp 和 napi CLI，不要用它们的 bin 启动器。
 - FOD 输出不得包含 `/nix/store/...` 字符串：绝不让 `cargo vendor` 把它建议的配置写进输出，也不要把 store 路径插值进安装脚本。

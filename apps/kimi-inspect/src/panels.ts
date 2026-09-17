@@ -11,7 +11,7 @@
  * that used to drive `refreshOn` refetches went away with the v2 socket
  * (`/api/v2/ws`).
  *
- * The proxies are typed by the real `agent-core-v2` contracts at the call
+ * The proxies are typed by the local mirror in `./compat/v2` at the call
  * site, but panels treat them as `AnyService` so one descriptor shape covers
  * every Service.
  */

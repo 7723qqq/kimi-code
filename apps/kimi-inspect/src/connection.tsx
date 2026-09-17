@@ -6,7 +6,7 @@
  *   1. deep link `?url=` / `?token=` or a previously saved manual config
  *      (persisted in localStorage);
  *   2. zero-config discovery: on startup the dev middleware
- *      (`/__inspect/servers`) lists every local kap-server with the home
+ *      (`/__inspect/servers`) lists every local server with the home
  *      token — the app connects straight to the remembered / proxy / first
  *      instance, persisting nothing but the picked URL (so a reload re-picks
  *      it while it is still alive, and never resurrects a stale port);
@@ -15,7 +15,8 @@
  * session so it lands on the connect screen instead of reconnecting.
  *
  * The client is built only after `probeDebugSurface` confirms the server
- * mounts `/api/v1/debug` (kap-server started with `--debug-endpoints` on a
+ * mounts `/api/v1/debug` (the native `kimi-agent --serve` server started with
+ * `--debug-endpoints` on a
  * loopback bind). There is no fallback surface — when the probe fails the
  * connection stops on a dedicated error screen (with retry / reconfigure)
  * instead of silently degrading.
@@ -101,7 +102,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
   const [suppressDiscovery, setSuppressDiscovery] = useState(false);
 
   // Discovery bootstrap: with nothing explicit configured, scan the local
-  // kap-server instance registry (via the dev middleware) and auto-connect.
+  // server instance registry (via the dev middleware) and auto-connect.
   useEffect(() => {
     if (config !== null || suppressDiscovery) return;
     let cancelled = false;
@@ -119,8 +120,9 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
     };
   }, [config, suppressDiscovery]);
 
-  // Debug-surface probe: the app talks ONLY to `/api/v1/debug` (kap-server
-  // `--debug-endpoints`, loopback). The client is built once the probe for
+  // Debug-surface probe: the app talks ONLY to `/api/v1/debug` (native
+  // `kimi-agent --serve` with `--debug-endpoints`, loopback). The client is
+  // built once the probe for
   // this exact config has succeeded; a failure is kept and rendered as a
   // blocking error screen (no fallback surface exists anymore).
   const [probe, setProbe] = useState<{
@@ -219,7 +221,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
         </div>
       ) : discovering && !suppressDiscovery ? (
         <div className="flex h-screen items-center justify-center">
-          <div className="text-sm text-neutral-500">Discovering local kap-servers…</div>
+          <div className="text-sm text-neutral-500">{t('connection.discovering')}</div>
         </div>
       ) : (
         <ConnectScreen onConnect={connect} initial={readInitialConfig()} />
@@ -255,9 +257,9 @@ function DebugSurfaceError({
           {t('connection.debugSurfaceUnavailable')}
         </h1>
         <p className="mb-3 text-xs leading-relaxed text-neutral-400">
-          Kimi Inspect talks to kap-server exclusively over the debug RPC surface (
+          Kimi Inspect talks to the server exclusively over the debug RPC surface (
           <code className="text-neutral-300">/api/v1/debug</code>), and{' '}
-          <code className="text-neutral-300">{baseUrl}</code> does not serve it. Start kap-server
+          <code className="text-neutral-300">{baseUrl}</code> does not serve it. Start the server
           with <code className="text-neutral-300">--debug-endpoints</code> on a loopback bind and
           retry.
         </p>
@@ -305,7 +307,7 @@ function ConnectScreen({
       >
         <h1 className="mb-1 text-lg font-semibold text-neutral-100">Kimi Inspect</h1>
         <p className="mb-5 text-xs text-neutral-500">
-          Connect to a kap-server started with{' '}
+          Connect to a server started with{' '}
           <code className="text-neutral-400">--debug-endpoints</code> (
           <code className="text-neutral-400">/api/v1/debug</code>). Leave the URL empty to use the
           same-origin dev proxy

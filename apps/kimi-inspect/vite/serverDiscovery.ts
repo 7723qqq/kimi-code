@@ -1,19 +1,22 @@
 /**
- * Local kap-server discovery — a dev/preview middleware that lets the browser
- * see and reach every kap-server running on this machine without typing a URL
+ * Local server discovery — a dev/preview middleware that lets the browser
+ * see and reach every server running on this machine without typing a URL
  * or a token.
  *
- * kap-server already self-registers for peer discovery
- * (`packages/kap-server/src/instanceRegistry.ts`):
+ * The registry it reads is a legacy artifact of the retired `packages/kap-server`
+ * (`instanceRegistry.ts`), which self-registered for peer discovery:
  *   current builds  `<kimi home>/server/instances/<serverId>.json`
  *   pre-registry builds  `<kimi home>/server/lock`
- * and persists the bearer token at `<kimi home>/server.token` (one token per
- * home, shared by every instance). The browser cannot read those files, but
- * this Vite process can, so `GET /__inspect/servers` answers with the live
- * instances (pid-liveness filtered), the dev-proxy target, and the token.
+ * The bearer token lives at `<kimi home>/server.token` (one token per home,
+ * shared by every instance). Current builds run the native `kimi-agent --serve`
+ * server in the foreground and do not write the registry, so this middleware
+ * usually finds nothing — set `KIMI_SERVER_URL` to point at a running server.
+ * The browser cannot read those files, but this Vite process can, so
+ * `GET /__inspect/servers` answers with the live instances (pid-liveness
+ * filtered), the dev-proxy target, and the token.
  *
  * The registry/lock file formats are deliberately reimplemented here (~100
- * lines) instead of importing kap-server: the inspector must stay free of
+ * lines) instead of importing the server: the inspector must stay free of
  * server-side dependencies.
  *
  * Security: dev/preview only, bound to loopback by Vite defaults. It hands

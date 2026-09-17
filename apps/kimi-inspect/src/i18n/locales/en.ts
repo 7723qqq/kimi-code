@@ -8,11 +8,11 @@ export default {
   connection: {
     title: 'Kimi Inspect',
     description:
-      'Connect to a kap-server (/api/v2). Leave the URL empty to use the same-origin dev proxy ({{target}}).',
+      'Connect to a server (/api/v2). Leave the URL empty to use the same-origin dev proxy ({{target}}).',
     discovered: 'Discovered on this machine',
     discoveredHome: 'Discovered on this machine ({{home}})',
     connecting: 'Connecting to {{url}}…',
-    discovering: 'Discovering local kap-servers…',
+    discovering: 'Discovering local servers…',
     serverUrl: 'Server URL',
     urlPlaceholder: 'http://127.0.0.1:58627 (empty = dev proxy)',
     tokenLabel: 'Bearer token (optional)',
@@ -81,7 +81,7 @@ export default {
   },
   server: {
     proxy: ' ⇄ proxy',
-    localServers: 'Local kap-servers ({{home}})',
+    localServers: 'Local servers ({{home}})',
     custom: 'custom: {{url}}',
     pid: ' ⇄ pid {{pid}}',
   },

@@ -66,8 +66,6 @@ export default {
         '绑定的主机。省略时绑定 {{host}}（仅本机）；传入 --host 绑定 {{lanHost}}（所有接口），或 --host <host> 绑定指定地址。启动时会打印令牌。',
       serverRunOptionAllowedHost:
         '允许通过 DNS 反绑检查的额外 Host 头值。可重复或逗号分隔；前导点号匹配域名后缀（例如 .example.com）。',
-      serverRunOptionInsecureNoTls:
-        '允许非回环绑定不使用 TLS 反向代理。默认为 true，仅对非回环绑定有效。',
       serverRunOptionAllowRemoteShutdown:
         '在非回环绑定上保持 POST /api/v1/shutdown 启用（默认：禁用 → 404）。',
       serverRunOptionAllowRemoteTerminals:
@@ -78,11 +76,13 @@ export default {
       serverRunOptionDebugEndpoints:
         '挂载 /api/v1/debug/* 路由用于测试自省。默认关闭；生产环境请勿启用。',
       serverRunOptionNoOpen: '不在默认浏览器中打开 Web UI。',
-      providerApiKey: '注册表 API 密钥。回退到 KIMI_REGISTRY_API_KEY。',
+      providerApiKey:
+        '注册表 API 密钥。推荐使用 KIMI_PROVIDER_API_KEY，或传 "-" 从标准输入读取；直接在此传入的密钥会出现在进程列表中。',
       providerListJson: '以 JSON 格式输出原始提供商/模型配置。',
       providerCatalogFilter: '不区分大小写的 ID/名称子串过滤器。',
       providerCatalogJson: '以 JSON 格式输出匹配的目录片段。',
-      providerCatalogApiKey: '提供商的 API 密钥。回退到 KIMI_REGISTRY_API_KEY。',
+      providerCatalogApiKey:
+        '提供商的 API 密钥。推荐使用 KIMI_PROVIDER_API_KEY，或传 "-" 从标准输入读取；直接在此传入的密钥会出现在进程列表中。',
       providerCatalogDefaultModel: '将导入的模型标记为默认模型。',
       providerCatalogBaseUrl: '覆盖目录端点。当目录未声明端点（或包含环境变量占位符）时必须提供。',
     },
@@ -1289,6 +1289,8 @@ export default {
       loginSuccess: '已登录到 {{provider}}。',
       loginFailedMsg: '登录失败：{{message}}',
       // sub/provider.ts
+      providerApiKeyMissing:
+        '缺少 API 密钥。请设置 KIMI_PROVIDER_API_KEY，或传入 --api-key <key>（--api-key - 从标准输入读取）。',
       providerUrlRequired: '注册表 URL 不能为空。',
       providerFetchFailed: '获取注册表失败{{suffix}}：{{error}}',
       providerNoUsable: '{{url}} 上的注册表不包含可用的提供商。',

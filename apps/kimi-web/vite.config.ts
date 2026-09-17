@@ -8,10 +8,10 @@ import Icons from 'unplugin-icons/vite';
 import { defineConfig, type Plugin } from 'vite';
 
 const webPort = Number(process.env.WEB_PORT) || 5175;
-// Dev-proxy backend presets: `default` is the kap-server started by the root
-// `pnpm dev:server` (port 58627); `multi` is a second kap-server instance
-// started with `pnpm dev:v2` (port 58628 — instances share the home dir, so
-// both can run at once) for multi-instance debugging. Override with
+// Dev-proxy backend presets: `default` is the native server started by the root
+// `bun run dev:server` (port 58627); `multi` is a second instance (port 58628)
+// for multi-instance debugging — nothing in the repo starts it for you, so run
+// a second server yourself. Override with
 // KIMI_BACKEND_DEFAULT_URL / KIMI_BACKEND_MULTI_URL.
 const backendPresets = {
   default: process.env.KIMI_BACKEND_DEFAULT_URL || 'http://127.0.0.1:58627',
@@ -95,11 +95,12 @@ function backendSwitcherPlugin(): Plugin {
 //      `router`; a fresh copy of this object is consulted per HTTP request,
 //      and the object itself per WS upgrade);
 //   2. strips the browser `Origin` header on the forwarded request. The proxy
-//      rewrites `Host` to the server (changeOrigin) but leaves `Origin`
-//      pointing at the Vite origin — and kap-server's WS upgrade path
-//      rejects any present Origin whose host ≠ Host with 403. An Origin-less
-//      request is treated as a non-browser client (and the browser never
-//      needs CORS here: it talks to its own origin).
+//      rewrites `Host` to the server (changeOrigin), which satisfies the
+//      server's DNS-rebinding guard — it compares `Host` against the addresses
+//      the server is reachable at (`packages/kimi-agent/src/server/host_guard.rs`)
+//      and answers 403 otherwise. The server does not read `Origin`; stripping
+//      it makes the forwarded request look like a non-browser client (and the
+//      browser never needs CORS here: it talks to its own origin).
 const apiProxyOptions = {
   target: serverTarget,
   changeOrigin: true,

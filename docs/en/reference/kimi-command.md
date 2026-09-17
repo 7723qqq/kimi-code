@@ -171,9 +171,10 @@ Multiple instances can share one home directory: each registers itself under `~/
 | --- | --- |
 | `--port <port>` | Bind port; defaults to `58627`; a busy port is retried with `+1` |
 | `--host [host]` | Bind host; omit for `127.0.0.1` (this machine only), pass a bare `--host` for `0.0.0.0` (all interfaces) |
-| `--allowed-host <host...>` | Extra Host header values allowed through the DNS-rebinding check; repeatable or comma-separated |
+| `--allowed-host <host...>` | Extra Host header values allowed through the DNS-rebinding check; repeatable or comma-separated. `KIMI_CODE_ALLOWED_HOSTS` adds more, comma-separated |
 | `--log-level <level>` | Enable server logs at the selected level; omitted by default |
-| `--debug-endpoints` | Mount `/api/v1/debug/*` routes (off by default) |
+| `--debug-endpoints` | Mount `/api/v1/debug/*` routes (off by default, loopback binds only) |
+| `--allow-remote-shutdown` | Keep `POST /api/v1/shutdown` registered on a non-loopback bind (off by default, so the route 404s there) |
 | `--dangerous-bypass-auth` | Disable bearer-token auth on all REST and WebSocket routes so the web UI connects without a token; only for trusted networks or behind an authenticating proxy |
 | `--web-title <title>` | Custom browser tab title for the web UI; defaults to the workspace directory name |
 | `--no-open` | Do not open the browser once the server is ready |
@@ -314,13 +315,13 @@ Bulk-import all providers from a custom registry (`api.json`). The command fetch
 | Parameter / Option | Description |
 | --- | --- |
 | `<url>` | Registry URL |
-| `--api-key <key>` | Bearer token for accessing the registry. Falls back to the `KIMI_REGISTRY_API_KEY` environment variable if not provided; required |
+| `--api-key <key>` | Bearer token for accessing the registry. Prefer the `KIMI_PROVIDER_API_KEY` environment variable, or pass `-` to read the key from stdin (the channel a program reads input from); `KIMI_REGISTRY_API_KEY` still works as a fallback. A key passed directly here is visible in the process list; required |
 
 ```sh
 kimi provider add https://registry.example.com/v1/models/api.json --api-key YOUR_KEY
 
 # Or via environment variable (suitable for CI / .envrc)
-KIMI_REGISTRY_API_KEY=YOUR_KEY kimi provider add https://registry.example.com/v1/models/api.json
+KIMI_PROVIDER_API_KEY=YOUR_KEY kimi provider add https://registry.example.com/v1/models/api.json
 ```
 
 If a provider ID already exists, it is removed and re-created. The default model is not set automatically; you can select one later with `-m` or `/model` in the TUI.
@@ -366,7 +367,7 @@ Import a known provider directly from the catalog by ID. The protocol type, base
 | Parameter / Option | Description |
 | --- | --- |
 | `<providerId>` | Provider ID in the catalog, e.g., `anthropic`, `openai` |
-| `--api-key <key>` | Provider API key. Falls back to `KIMI_REGISTRY_API_KEY` if not provided; required |
+| `--api-key <key>` | Provider API key. Prefer `KIMI_PROVIDER_API_KEY`, or pass `-` to read the key from stdin; `KIMI_REGISTRY_API_KEY` still works as a fallback. A key passed directly here is visible in the process list; required |
 | `--default-model <modelId>` | Optional — set `default_model` to `<providerId>/<modelId>` after import |
 | `--base-url <url>` | Override the catalog endpoint; required when the catalog declares none (or only an env placeholder) |
 | `--url <url>` | Override the catalog URL; defaults to `https://models.dev/api.json` |

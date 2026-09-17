@@ -71,7 +71,7 @@ const props = withDefaults(
     /** Current workspace sort mode — drives the section-header sort button. */
     workspaceSortMode: WorkspaceSortMode;
     /** Backend engine generation from /meta — dev-only badge next to the brand. */
-    backend?: 'v1' | 'v2';
+    backend?: 'v1' | 'v2' | 'rust';
     attentionBySession?: Record<string, number>;
     /** Per-session pending counts split by kind, for the coloured tags. */
     pendingBySession?: Record<string, { approvals: number; questions: number }>;
@@ -1034,7 +1034,8 @@ onBeforeUnmount(() => {
   font-weight: 500;
   color: var(--color-text-muted);
 }
-.ch-backend-kind.is-v2 {
+.ch-backend-kind.is-v2,
+.ch-backend-kind.is-rust {
   color: var(--color-accent);
 }
 .ch-backend-ep {
