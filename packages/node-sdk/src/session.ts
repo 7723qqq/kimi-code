@@ -53,9 +53,9 @@ export interface SessionOptions {
 
 /**
  * The capability surface (built-in product capabilities: kimi-cu,
- * kimi-webbridge) exists only on the v2 engine — v1 has no capability
- * domain. Feature-detect structurally so a Session backed by v1 fails with
- * a clear message instead of a confusing missing-method error.
+ * kimi-webbridge) has no transport on the base class. Feature-detect
+ * structurally so a Session backed by a client without it fails with a clear
+ * message instead of a confusing missing-method error.
  */
 interface CapabilityRpcSurface {
   listCapabilities(): Promise<readonly CapabilityStatus[]>;
@@ -150,8 +150,8 @@ export class Session {
    * Submit one prompt with one or more skill activations bundled into the
    * same user message: the skills are validated up front (an unknown name
    * rejects the whole submission), rendered ahead of the prompt in the same
-   * turn, and the bundle undoes as a single anchor. Requires the
-   * agent-core-v2 engine.
+   * turn, and the bundle undoes as a single anchor. Requires the native
+   * engine client.
    */
   async promptWithSkills(
     input: string | PromptInput,
@@ -427,7 +427,7 @@ export class Session {
 
   /**
    * Contributed commands registered with this session's interactive agent
-   * (agent-core-v2 only — a v1-backed session reports the empty set).
+   * (native engine client only — the base client reports the empty set).
    */
   async listCommands(): Promise<readonly AgentCommandInfo[]> {
     this.ensureOpen();
@@ -645,7 +645,7 @@ export class Session {
     await this.rpc.setPluginEnabled(id, enabled);
   }
 
-  /** Built-in capabilities with layered readiness (v2 engine only). */
+  /** Built-in capabilities with layered readiness (native engine client only). */
   async listCapabilities(): Promise<readonly CapabilityStatus[]> {
     this.ensureOpen();
     return capabilityRpc(this.rpc).listCapabilities();
@@ -729,8 +729,8 @@ export class Session {
   }
 
   /**
-   * Run a contributed command engine-side (agent-core-v2 only — a v1-backed
-   * client rejects with `not_implemented`). Unknown names reject with the
+   * Run a contributed command engine-side (native engine client only — the
+   * base client rejects with `not_implemented`). Unknown names reject with the
    * engine's `request.invalid` error.
    */
   async runCommand(name: string, args?: string): Promise<void> {

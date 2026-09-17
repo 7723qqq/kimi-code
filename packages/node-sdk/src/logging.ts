@@ -9,11 +9,10 @@
  * Trimmed vs the v1 original: the per-session log routing
  * (`RootLogger.attachSession` and the session-sink machinery) is dropped —
  * nothing in the SDK surface attaches session logs after the v1 client's
- * removal (the v2 engine owns its own session logs), so entries carrying a
- * `sessionId` context fall through to the global sink exactly like v1's
- * un-routed entries. `resolveGlobalLogPath` / `resolveLoggingConfig` come
- * from `@moonshot-ai/agent-core-v2` (identical shape and values); `pathe` →
- * `node:path`.
+ * removal, so entries carrying a `sessionId` context fall through to the
+ * global sink exactly like v1's un-routed entries. `resolveGlobalLogPath` /
+ * `resolveLoggingConfig` are localized here as well (identical shape and
+ * values); `pathe` → `node:path`.
  */
 import { appendFileSync, closeSync, fsyncSync, mkdirSync, openSync } from 'node:fs';
 import { mkdir, open, rename, stat, unlink } from 'node:fs/promises';

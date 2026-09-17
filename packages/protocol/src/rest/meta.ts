@@ -37,12 +37,11 @@ export const metaResponseSchema = z.object({
    */
   dangerous_bypass_auth: z.boolean(),
   /**
-   * Backend engine generation serving this API. `'v2'` is the DI × Scope
-   * engine (`@moonshot-ai/kap-server` / `agent-core-v2`); older servers omit
-   * the field (treat absence as v1). Lets clients identify the backend without
-   * probing routes.
+   * Backend engine serving this API, as reported by the server. The native
+   * Rust server reports `'rust'`; older servers omit the field. Lets clients
+   * identify the backend without probing routes.
    */
-  backend: z.enum(['v1', 'v2']).optional(),
+  backend: z.enum(['v1', 'v2', 'rust']).optional(),
 });
 
 export type MetaResponse = z.infer<typeof metaResponseSchema>;

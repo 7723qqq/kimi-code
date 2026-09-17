@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { FileTokenStorage, type TokenInfo } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createKimiHarness, type KimiError, type KimiHarness } from '#/index';
+import { createKimiHarness, type KimiError, type KimiHarness, type Session } from '#/index';
 import { makeTempDir, removeTempDirs, waitForSDKEvent } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
 
@@ -130,6 +130,52 @@ describe('Session.setModel', () => {
     }
   });
 
+  it('rolls the model back when the rebuild fails', async () => {
+    // `applyRebuiltSetting` must restore the previous field: without the
+    // rollback a failed `setModel` left `meta.model` naming a model the engine
+    // never switched to, so the TUI reported a change that had not happened.
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-model-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-model-work-');
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await createSessionWithFailingRebuild(harness, workDir);
+
+      await expect(session.setModel('no-such-model')).rejects.toThrow();
+
+      await expect(session.getStatus()).resolves.toMatchObject({ model: 'initial-model' });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('keeps the session handle alive when the rebuild fails', async () => {
+    // `rebuildHandle` used to dispose the old engine handle *before* building
+    // the new one, so a build that threw left `meta.handle` undefined: every
+    // later prompt reported `session.not_found` ("cannot prompt unknown or
+    // closed session") for a session that was still live and still listed.
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-model-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-model-work-');
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await createSessionWithFailingRebuild(harness, workDir);
+
+      await expect(session.setModel('no-such-model')).rejects.toThrow();
+
+      // The prompt is admitted instead of being rejected as an unknown
+      // session. `prompt` only resolves once the turn is enqueued — the turn
+      // itself then fails at the provider, asynchronously.
+      const failure = await session.prompt('hello').then(
+        () => undefined,
+        (error: unknown) => error as { code?: string },
+      );
+      expect(failure).toBeUndefined();
+    } finally {
+      await harness.close();
+    }
+  });
+
   it('rejects after the session is closed', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-model-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-model-work-');
@@ -149,6 +195,35 @@ describe('Session.setModel', () => {
     }
   });
 });
+
+/**
+ * Creates a session whose next `rebuildHandle` is guaranteed to fail. The
+ * provider points at a closed port, and `rustSelfContained` makes the engine
+ * refuse the host LLM proxy, so an alias that resolves to no native LLM fails
+ * the rebuild. `rustSelfContained` is set after the session exists — it would
+ * fail `createSession` too.
+ */
+async function createSessionWithFailingRebuild(
+  harness: KimiHarness,
+  workDir: string,
+): Promise<Session> {
+  await harness.setConfig({
+    providers: {
+      local: { type: 'openai', apiKey: 'sk-test', baseUrl: 'http://127.0.0.1:1/v1' },
+    },
+    models: {
+      'initial-model': { provider: 'local', model: 'initial-model', maxContextSize: 262144 },
+    },
+    defaultProvider: 'local',
+  });
+  const session = await harness.createSession({
+    id: 'ses_model_rebuild_fail',
+    workDir,
+    model: 'initial-model',
+  });
+  await harness.setConfig({ agent: { rustSelfContained: true } });
+  return session;
+}
 
 async function configureLocalProvider(harness: KimiHarness): Promise<void> {
   await harness.setConfig({

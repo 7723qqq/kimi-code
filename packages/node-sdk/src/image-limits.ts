@@ -1,11 +1,10 @@
 /**
  * Owner-scoped resolution of the `[image]` config limits.
  *
- * The v2 engine no longer ships an `ImageLimits` class (its image-compress
- * module resolves module-level configured defaults). The SDK keeps the
- * per-owner instance pattern so a harness can resolve compression limits
- * from its own config file: precedence per value is env var > owning config
- * > built-in default.
+ * The engine ships no `ImageLimits` class (it resolves the limits from
+ * config). The SDK keeps the per-owner instance pattern so a harness can
+ * resolve compression limits from its own config file: precedence per value is
+ * env var > owning config > built-in default.
  */
 
 export interface ImageLimitsConfig {

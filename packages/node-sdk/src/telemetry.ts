@@ -1,9 +1,7 @@
 /**
  * Localized telemetry primitives — the v1 core's `TelemetryClient` contract,
  * copied so the SDK keeps its public telemetry surface without importing
- * `agent-core`. New code should prefer the v2 `ITelemetryService`
- * (`@moonshot-ai/agent-core-v2`); these shapes are kept for the SDK's public
- * API compatibility.
+ * `agent-core`. These shapes are kept for the SDK's public API compatibility.
  */
 export type TelemetryPropertyValue = boolean | number | string | undefined | null;
 

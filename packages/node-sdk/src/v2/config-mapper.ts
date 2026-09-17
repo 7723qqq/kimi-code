@@ -1,8 +1,7 @@
 /**
- * v2 config shape mapping — pure functions that project the agent-core-v2
- * engine's per-domain config view (`IConfigService.getAll()` /
- * `inspect().userValue` / `diagnostics()`) onto the v1 `KimiConfig` /
- * `ConfigDiagnostics` shapes the SDK contract returns.
+ * v2 config shape mapping — pure functions that project a per-domain config
+ * view onto the v1 `KimiConfig` / `ConfigDiagnostics` shapes the SDK contract
+ * returns.
  *
  * Why a mapping layer exists: v1 loads config.toml as ONE zod-validated
  * document (`KimiConfigSchema`), while v2 registers one config section per
@@ -47,11 +46,10 @@ const KIMI_CONFIG_DOMAINS = [
 ] as const;
 
 /**
- * Pick the v1-shaped fields out of the v2 engine's resolved config
- * (`config.getAll()` — the effective view: file values plus env overlays
- * plus registered section defaults). Domains v2 knows but v1 does not
- * (`cron`, `tools`, `extraAgentDirs`, ...) are dropped,
- * mirroring how v1's schema strips unknown top-level keys.
+ * Pick the v1-shaped fields out of a resolved config view (the effective
+ * view: file values plus env overlays plus registered section defaults).
+ * Domains outside v1's schema (`cron`, `tools`, `extraAgentDirs`, ...) are
+ * dropped, mirroring how v1's schema strips unknown top-level keys.
  */
 export function resolvedConfigToKimiConfig(resolved: Record<string, unknown>): KimiConfig {
   const config: Record<string, unknown> = {};
@@ -64,7 +62,7 @@ export function resolvedConfigToKimiConfig(resolved: Record<string, unknown>): K
   return config as KimiConfig;
 }
 
-/** Structural minimum of the v2 engine's `ConfigDiagnostic`. */
+/** Structural minimum of a structured config diagnostic. */
 export interface V2ConfigDiagnostic {
   readonly domain?: string;
   readonly severity: string;
@@ -75,7 +73,7 @@ export interface V2ConfigDiagnostic {
  * v1 reports diagnostics as flat warning strings; v2 carries structured
  * `{domain, severity, message}` entries. The SDK contract is the v1 shape,
  * so the message texts are the warnings (severity/domain stay available to
- * v2-native callers through the klient facade).
+ * callers that read the structured entries directly).
  */
 export function diagnosticsToConfigDiagnostics(
   diagnostics: readonly V2ConfigDiagnostic[],
@@ -94,10 +92,10 @@ export interface ProviderRemovalPlan {
 /**
  * Compute the v1 cascade for removing a provider: drop the provider entry,
  * drop every model whose `provider` points at it, and clear the default
- * pointers when they dangle. The v2 engine's own `providerService.delete`
- * only clears the default-provider pointer, so the SDK replays the full v1
- * cascade through the config facade. Inputs are the USER-layer values
- * (`inspect().userValue`), matching v1's disk-config write base.
+ * pointers when they dangle. The engine's own provider removal drops only the
+ * provider entry, so the SDK replays the full v1 cascade through the config
+ * facade. Inputs are the USER-layer values, matching v1's disk-config write
+ * base.
  *
  * The `[secondary_model]` section is deliberately left untouched: it is the
  * user's own configuration, and an entry whose model no longer resolves
@@ -137,8 +135,7 @@ export function planProviderRemoval(input: {
  * persistence): drop the provider entry, every model pointing at it, and the
  * default pointers when they dangle. Hosts that stage a removal and fold it
  * into a later atomic write (instead of persisting it immediately) build on
- * this — the same role the v2 engine's `shapeWithoutProvider` plays for its
- * own refresh path.
+ * this.
  */
 export function removeProviderFromConfig(config: KimiConfig, providerId: string): KimiConfig {
   const plan = planProviderRemoval({

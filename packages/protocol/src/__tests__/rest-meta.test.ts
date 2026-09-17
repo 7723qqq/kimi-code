@@ -72,6 +72,11 @@ describe('metaResponseSchema', () => {
     expect(parsed.backend).toBe('v2');
   });
 
+  it('accepts backend = rust (the native server)', () => {
+    const parsed = metaResponseSchema.parse({ ...sample, backend: 'rust' });
+    expect(parsed.backend).toBe('rust');
+  });
+
   it('accepts a missing backend (treated as v1)', () => {
     const parsed = metaResponseSchema.parse(sample);
     expect(parsed.backend).toBeUndefined();

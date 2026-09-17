@@ -1,16 +1,13 @@
 /**
- * The inline/reconnect MCP config validation for the v2 client's
+ * The inline/reconnect MCP config validation for the native client's
  * session-level MCP methods (`sdk-rpc-client-v2.ts`), which ride the
  * session's own connection manager and have no engine service behind them.
  * The validators keep v1's exact error text for the session RPC paths, and
  * validation keeps using the SDK's localized `McpServerConfigSchema`.
  *
  * Persisting session-level adds to the user-level `mcp.json` no longer
- * happens here: `addSessionMcpServer`'s `persist: true` path writes through
- * the engine's App-scope `IMcpConfigStore` — the single writer of that file —
- * and the unified management plane (CRUD facade, connection probe,
- * inspection, OAuth orchestration) delegates to the engine's
- * `IMcpManagementService`.
+ * happens here: `addSessionMcpServer`'s `persist: true` path delegates to
+ * `addGlobalMcpServer`.
  */
 import { ErrorCodes, KimiError } from '#/error-protocol';
 import {

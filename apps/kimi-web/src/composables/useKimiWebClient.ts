@@ -246,12 +246,11 @@ export interface ExtendedState extends KimiClientState {
    */
   dangerousBypassAuth: boolean;
   /**
-   * Engine generation of the connected server: `'v2'` = kap-server /
-   * agent-core-v2, `'v1'` = an older (legacy) server binary. Read from `/meta`
-   * (`backend` field; older servers omit it ⇒ v1). Drives the dev-mode
-   * backend badge in the Sidebar.
+   * Backend engine of the connected server, read from `/meta`'s `backend`
+   * field (the native Rust server reports `'rust'`; older servers omit it).
+   * Drives the dev-mode backend badge in the Sidebar.
    */
-  backend: 'v1' | 'v2';
+  backend: 'v1' | 'v2' | 'rust';
   workspaceName: string;
   connection: ConnectionState;
   permission: PermissionMode;
@@ -1907,7 +1906,7 @@ const loadMoreMessagesError = computed<boolean>(() => {
   return sid ? (rawState.messagesLoadMoreErrorBySession[sid] ?? false) : false;
 });
 const serverVersion = computed<string>(() => rawState.serverVersion);
-const backend = computed<'v1' | 'v2'>(() => rawState.backend);
+const backend = computed<'v1' | 'v2' | 'rust'>(() => rawState.backend);
 const dangerousBypassAuth = computed<boolean>(() => rawState.dangerousBypassAuth);
 
 /**

@@ -871,7 +871,7 @@ export interface KimiWebApi {
     capabilities: Record<string, boolean>;
     openInApps: string[];
     dangerousBypassAuth: boolean;
-    backend: 'v1' | 'v2';
+    backend: 'v1' | 'v2' | 'rust';
   }>;
   listSessions(
     input?: PageRequest & {

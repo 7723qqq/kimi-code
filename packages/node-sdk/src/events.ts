@@ -15,7 +15,7 @@ export type { SessionMetaUpdatedEvent } from '@moonshot-ai/protocol';
 
 // Approval / question reverse-RPC payloads. These keep the legacy wire shapes
 // the SDK exposes to hosts through `setApprovalHandler` / `setQuestionHandler`
-// (the v2 engine parks approvals in its interaction kernel; the SDK bridges
+// (the engine parks approvals in its interaction kernel; the SDK bridges
 // them to these shapes). Localized copies of the v1 definitions so the SDK
 // does not import `agent-core`.
 export type ApprovalDecision = 'approved' | 'rejected' | 'cancelled';

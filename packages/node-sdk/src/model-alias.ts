@@ -1,8 +1,7 @@
 /**
  * Localized model-alias helper — `effectiveModelAlias` from the v1 core,
  * copied so the SDK keeps the public helper without importing `agent-core`.
- * The v2 engine has no equivalent surface (its config is section-based); the
- * CLI's model pickers / status bars consume this through the SDK.
+ * The CLI's model pickers / status bars consume this through the SDK.
  */
 import {
   BUDGET_THINKING_EFFORTS,

@@ -268,8 +268,8 @@ export abstract class SDKRpcClientBase {
   /**
    * One keyset page of the session listing (`limit` / `before` in
    * `ListSessionsOptions`). The base implementation serves the whole filtered
-   * set as a single terminal page — the v1 engine has no paged listing;
-   * `SDKRpcClientV2` overrides this with real index paging.
+   * set as a single terminal page; `SDKRpcClientNative` overrides this with
+   * real keyset paging.
    */
   async listSessionsPage(input: ListSessionsOptions = {}): Promise<SessionSummaryPage> {
     const items = await this.listSessions(input);
@@ -282,9 +282,9 @@ export abstract class SDKRpcClientBase {
   }
 
   /**
-   * Workspace-trust state for `workDir`. The v1 engine has no trust concept,
-   * so the base implementation reports an always-trusted workspace and the
-   * trust write is a no-op; only the v2 client overrides these.
+   * Workspace-trust state for `workDir`. The base class has no trust concept,
+   * so it reports an always-trusted workspace and the trust write is a no-op;
+   * `SDKRpcClientNative` overrides these.
    */
   async getWorkspaceTrustInfo(workDir: string): Promise<WorkspaceTrustInfo> {
     void workDir;
@@ -304,14 +304,14 @@ export abstract class SDKRpcClientBase {
   }
 
   /**
-   * v2-only capability (`ISessionTitleService`); the v1 engine has no title
-   * generation, so the base fails loudly and `SDKRpcClientV2` overrides it.
+   * Title generation has no transport on the base class, so it fails loudly
+   * and `SDKRpcClientNative` overrides it.
    */
   async generateSessionTitle(input: GenerateSessionTitleInput): Promise<string | undefined> {
     void input;
     throw new KimiError(
       ErrorCodes.NOT_IMPLEMENTED,
-      'generateSessionTitle is only available on the agent-core-v2 engine.',
+      'generateSessionTitle is only available on the native engine client.',
     );
   }
 
@@ -377,9 +377,9 @@ export abstract class SDKRpcClientBase {
 
   /**
    * Upload media bytes to the engine's daemon file store; pair the returned
-   * meta with `buildDaemonFileUrl` to reference the file from a prompt. Only
-   * the v2 client wires this (through the klient files facade) — the v1
-   * client has no file service and throws `not_implemented`.
+   * meta with `buildDaemonFileUrl` to reference the file from a prompt. The
+   * base class has no file service and throws `not_implemented`;
+   * `SDKRpcClientNative` wires this.
    */
   uploadFile(_data: Uint8Array, _options: UploadFileOptions): Promise<FileMeta> {
     throw new KimiError(
@@ -538,15 +538,15 @@ export abstract class SDKRpcClientBase {
   }
 
   /**
-   * Grouped skill activation + prompt submission. Only the v2 engine
-   * (`SDKRpcClientV2`) implements it; the v1 route has no combined-submission
-   * RPC, so the base fails loudly instead of degrading into N+1 turns.
+   * Grouped skill activation + prompt submission. The base class has no
+   * combined-submission transport, so it fails loudly instead of degrading
+   * into N+1 turns; `SDKRpcClientNative` overrides it.
    */
   async promptWithSkills(input: SessionPromptWithSkillsRpcInput): Promise<void> {
     void input;
     throw new KimiError(
       ErrorCodes.NOT_IMPLEMENTED,
-      'promptWithSkills requires the agent-core-v2 engine.',
+      'promptWithSkills requires the native engine client.',
     );
   }
 
@@ -701,7 +701,7 @@ export abstract class SDKRpcClientBase {
     void input;
     throw new KimiError(
       ErrorCodes.NOT_IMPLEMENTED,
-      'setTowerMode is only available on the agent-core-v2 engine.',
+      'setTowerMode is only available on the native engine client.',
     );
   }
 
@@ -761,7 +761,7 @@ export abstract class SDKRpcClientBase {
     void input;
     throw new KimiError(
       ErrorCodes.NOT_IMPLEMENTED,
-      'getTodos is only available on the agent-core-v2 engine.',
+      'getTodos is only available on the native engine client.',
     );
   }
 
@@ -849,18 +849,17 @@ export abstract class SDKRpcClientBase {
   }
 
   /**
-   * App-global plugin command list, no session required. The v1 engine only
-   * exposes plugin commands through a live session, so the base returns an
-   * empty list; the v2 client overrides with the app-global live view.
+   * App-global plugin command list, no session required. The base class only
+   * exposes plugin commands through a live session, so it returns an empty
+   * list.
    */
   async listPluginCommandsGlobal(): Promise<readonly PluginCommandDef[]> {
     return [];
   }
 
   /**
-   * Workspace-root file suggestions, no session required. The v1 engine has
-   * no equivalent capability, so the base reports `undefined`; the v2 client
-   * overrides with the workspace handler's fs service.
+   * Workspace-root file suggestions, no session required. The base class has
+   * no equivalent capability and reports `undefined`.
    */
   async suggestFiles(workDir: string, input: SuggestFilesInput): Promise<SuggestFilesResult | undefined> {
     void workDir;
@@ -975,10 +974,8 @@ export abstract class SDKRpcClientBase {
   }
 
   /**
-   * Workspace-level MCP server list, no session required. The v2 engine owns
-   * one shared connection set per workspace handler, so `/mcp` is inspectable
-   * before the first session exists; the v1 engine only exposes MCP through
-   * a live session and the base returns an empty list.
+   * Workspace-level MCP server list, no session required. The base class only
+   * exposes MCP through a live session and returns an empty list.
    */
   async listWorkspaceMcpServers(workDir: string): Promise<readonly McpServerInfo[]> {
     void workDir;
@@ -1078,11 +1075,10 @@ export abstract class SDKRpcClientBase {
   }
 
   /**
-   * Contributed commands of the session's interactive agent. The
-   * contributed-command seam exists only in the agent-core-v2 engine, so the
-   * base implementation reports the empty set and rejects runs with a coded
-   * error (same shape as `replaceConfigSections`); only the v2 client
-   * overrides these.
+   * Contributed commands of the session's interactive agent. The base class
+   * has no contributed-command transport, so it reports the empty set and
+   * rejects runs with a coded error (same shape as `replaceConfigSections`);
+   * `SDKRpcClientNative` overrides these.
    */
   async listCommands(input: SessionIdRpcInput): Promise<readonly AgentCommandInfo[]> {
     void input;
