@@ -262,6 +262,100 @@ fn guard_sync_panic<T>(f: impl FnOnce() -> napi::Result<T>) -> napi::Result<T> {
         .map_err(|_| napi::Error::from_reason("internal panic in sync napi export"))?
 }
 
+/// Catch a panic in an async napi export so the JS promise rejects instead of
+/// hanging.
+///
+/// `env.execute_tokio_future` runs the body on the tokio runtime, where a panic
+/// is caught by the task boundary: the deferred is never resolved and the JS
+/// promise waits forever. `Cargo.toml` sets no `panic = "abort"`, so the panic
+/// unwinds and can be caught here.
+async fn guard_async_panic<T>(
+    body: impl std::future::Future<Output = napi::Result<T>>,
+) -> napi::Result<T> {
+    use futures_util::FutureExt;
+    std::panic::AssertUnwindSafe(body)
+        .catch_unwind()
+        .await
+        .map_err(|_| napi::Error::from_reason("internal panic in async napi export"))?
+}
+
+/// Removes a registry entry when the scope that registered it ends.
+///
+/// The explicit `remove` after the awaited work is not enough: an early `?`
+/// return skips it, and a napi future dropped by the JS side never reaches it
+/// at all — either way the entry outlives the turn it described.
+struct MapEntryGuard<V: 'static> {
+    map: &'static LazyLock<Mutex<HashMap<String, V>>>,
+    key: String,
+}
+
+impl<V: 'static> MapEntryGuard<V> {
+    fn insert(map: &'static LazyLock<Mutex<HashMap<String, V>>>, key: String, value: V) -> Self {
+        map.lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key.clone(), value);
+        Self { map, key }
+    }
+}
+
+impl<V: 'static> Drop for MapEntryGuard<V> {
+    fn drop(&mut self) {
+        self.map
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.key);
+    }
+}
+
+/// Parse a host-supplied JSON field, reporting the drop instead of silently
+/// substituting an empty value.
+///
+/// A malformed `blocks_json` / `tool_calls_json` used to erase the message's
+/// content with no trace anywhere, which reads as the model having said
+/// nothing.
+fn parse_host_json<T: serde::de::DeserializeOwned + Default>(
+    json: Option<&str>,
+    what: &str,
+    role: &str,
+) -> T {
+    let Some(json) = json else {
+        return T::default();
+    };
+    match serde_json::from_str(json) {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(%role, "dropping unparseable {what}: {error}");
+            T::default()
+        }
+    }
+}
+
+/// Project the host's tool table onto the engine's, failing on a schema that
+/// does not parse.
+///
+/// `unwrap_or_default()` used to turn a malformed schema into `Value::Null`,
+/// which rode into the request body verbatim (`llm/openai.rs`,
+/// `llm/anthropic.rs`, `llm/google_genai.rs`): the provider then rejected the
+/// whole turn with a 400 that named no tool, and nothing was logged.
+fn tool_defs_from_wire(tools: &[JsToolDef]) -> napi::Result<Vec<ToolInfo>> {
+    tools
+        .iter()
+        .map(|t| {
+            let input_schema = serde_json::from_str(&t.input_schema).map_err(|error| {
+                napi::Error::from_reason(format!(
+                    "tool schema parse failed for tool `{}`: {error}",
+                    t.name
+                ))
+            })?;
+            Ok(ToolInfo {
+                name: t.name.clone(),
+                description: t.description.clone(),
+                input_schema,
+            })
+        })
+        .collect()
+}
+
 // ── NapiHostCallbacks ──────────────────────────────────────────────────────
 
 /// Implements [`HostCallbacks`] using napi [`ThreadsafeFunction`]s so the
@@ -1292,7 +1386,7 @@ pub fn run_turn_rust(
     // The future is Send because JsFunction has been converted to TSFN
     // and dropped from scope before the async block.
     env.execute_tokio_future(
-        async move {
+        guard_async_panic(async move {
             run_turn_rust_impl(
                 params,
                 llm_chat_tsfn,
@@ -1309,7 +1403,7 @@ pub fn run_turn_rust(
                 auth_token_tsfn,
             )
             .await
-        },
+        }),
         |env: &mut Env, val: JsRunTurnResult| js_object_from_run_turn_result(env, val),
     )
 }
@@ -1378,9 +1472,11 @@ async fn build_engine_pipeline(
     // external tools execute in-process. A server that fails to connect is
     // skipped rather than failing the turn.
     let mut mcp_manager = None;
-    if let Some(mcp_configs) = params.mcp_servers.as_ref().filter(|c| !c.is_empty()) {
+    let plugin_mcp = plugin_mcp_configs();
+    let host_mcp = params.mcp_servers.as_deref().unwrap_or_default();
+    if !host_mcp.is_empty() || !plugin_mcp.is_empty() {
         let mgr = Arc::new(crate::mcp::McpManager::new());
-        for cfg in mcp_configs {
+        for cfg in host_mcp {
             let recipe = match cfg.transport.as_str() {
                 "stdio" => {
                     cfg.command
@@ -1420,6 +1516,52 @@ async fn build_engine_pipeline(
                 disabled_tools: cfg.disabled_tools.clone(),
                 startup_timeout_ms: cfg.startup_timeout_ms.map(u64::from),
                 tool_timeout_ms: cfg.tool_timeout_ms.map(u64::from),
+            };
+            let _ = mgr.configure(&cfg.name, recipe, options).await;
+        }
+        // Enabled plugins contribute their own MCP servers. A server the user
+        // disabled for that plugin never reaches here (`plugin_mcp_configs`
+        // filters it), and the name is namespaced so two plugins can declare
+        // the same server name.
+        for cfg in &plugin_mcp {
+            let recipe = match cfg.transport.as_str() {
+                "stdio" => {
+                    cfg.command
+                        .as_ref()
+                        .map(|cmd| crate::mcp::manager::McpServerRecipe::Stdio {
+                            command: cmd.clone(),
+                            args: cfg.args.clone(),
+                            env: cfg.env.clone(),
+                            cwd: cfg.cwd.clone(),
+                        })
+                }
+                "sse" => cfg
+                    .url
+                    .as_ref()
+                    .map(|url| crate::mcp::manager::McpServerRecipe::Sse {
+                        url: url.clone(),
+                        headers: cfg.headers.clone(),
+                        bearer_token_env_var: None,
+                    }),
+                "http" => cfg
+                    .url
+                    .as_ref()
+                    .map(|url| crate::mcp::manager::McpServerRecipe::Http {
+                        url: url.clone(),
+                        headers: cfg.headers.clone(),
+                        bearer_token_env_var: None,
+                    }),
+                _ => None,
+            };
+            let Some(recipe) = recipe else {
+                continue;
+            };
+            let options = crate::mcp::manager::McpServerOptions {
+                enabled: true,
+                enabled_tools: None,
+                disabled_tools: None,
+                startup_timeout_ms: None,
+                tool_timeout_ms: None,
             };
             let _ = mgr.configure(&cfg.name, recipe, options).await;
         }
@@ -1572,7 +1714,9 @@ async fn build_engine_pipeline(
             .image_max_edge_px
             .and_then(|value| u32::try_from(value).ok()),
         model_capabilities: params.model_capabilities.clone(),
-        skill_dirs: Vec::new(),
+        // Enabled plugins contribute skill roots; the host's own
+        // `extra_skill_dirs` arrive through the config the host resolved.
+        skill_dirs: plugin_skill_dirs(),
         background: crate::storage::BackgroundLimits::from_wire(
             params
                 .kill_grace_period_ms
@@ -1644,10 +1788,10 @@ async fn run_turn_rust_impl(
     let turn_id = params.turn_id.clone();
     let cancellation = Arc::new(AtomicBool::new(false));
     let parent_cancel = crate::subagent::types::ParentCancel::from_flag(cancellation.clone());
-    CANCEL_MAP
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(turn_id.clone(), parent_cancel.clone());
+    // The guard, not a trailing `remove`: the pipeline build below can return
+    // early with `?`, and a dropped napi future never reaches a trailing
+    // statement at all.
+    let _cancel_guard = MapEntryGuard::insert(&CANCEL_MAP, turn_id.clone(), parent_cancel.clone());
 
     let pipeline = build_engine_pipeline(
         &params,
@@ -1688,29 +1832,20 @@ async fn run_turn_rust_impl(
         .map(|m| LLMMessage {
             role: m.role.clone(),
             content: m.content.clone(),
-            blocks: m
-                .blocks_json
-                .as_deref()
-                .and_then(|j| serde_json::from_str(j).ok())
-                .unwrap_or_default(),
-            tool_calls: m
-                .tool_calls_json
-                .as_deref()
-                .and_then(|j| serde_json::from_str(j).ok())
-                .unwrap_or_default(),
+            blocks: parse_host_json(m.blocks_json.as_deref(), "message blocks", &m.role),
+            tool_calls: parse_host_json(
+                m.tool_calls_json.as_deref(),
+                "message tool calls",
+                &m.role,
+            ),
             tool_call_id: m.tool_call_id.clone(),
         })
         .collect();
 
-    let tool_defs: Vec<ToolInfo> = params
-        .tools
-        .iter()
-        .map(|t| ToolInfo {
-            name: t.name.clone(),
-            description: t.description.clone(),
-            input_schema: serde_json::from_str(&t.input_schema).unwrap_or_default(),
-        })
-        .collect();
+    // A malformed schema used to become `Value::Null` and ride into the request
+    // body verbatim, where the provider rejected the whole turn with a 400 that
+    // named no tool. Fail here instead, naming the tool.
+    let tool_defs = tool_defs_from_wire(&params.tools)?;
 
     let goal = params.goal.map(|g| GoalContext {
         goal_id: g.goal_id,
@@ -1765,11 +1900,6 @@ async fn run_turn_rust_impl(
         Some(context) => run_turn_with_telemetry(input, context, &callbacks).await,
         None => run_turn_continued(input, &callbacks).await,
     };
-
-    CANCEL_MAP
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .remove(&turn_id);
 
     let result = result.map_err(|e| napi::Error::from_reason(format!("run_turn failed: {e}")))?;
 
@@ -1838,8 +1968,9 @@ fn js_object_from_run_turn_result(env: &mut Env, val: JsRunTurnResult) -> napi::
 
 /// Live sessions keyed by id. One CLI process runs one session today; the
 /// registry keeps the surface uniform for tests and future multi-session
-/// hosts. A disposed session's pump task parks forever on its wakeup channel
-/// (bounded: one session per process) — teardown joins it in M2.
+/// hosts. `session_dispose` signals the session's pump to stop, so a disposed
+/// session's task — and the conversation it holds — is released rather than
+/// parked for the life of the process.
 static SESSION_REGISTRY: LazyLock<Mutex<HashMap<String, SessionEntry>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -1979,7 +2110,7 @@ pub fn create_engine_session(
     let auth_token_tsfn = make_tsfn(auth_token_cb)?;
 
     env.execute_tokio_future(
-        async move {
+        guard_async_panic(async move {
             let agent_cancel_slot: Arc<
                 std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>,
             > = Arc::new(std::sync::Mutex::new(None));
@@ -2094,7 +2225,7 @@ pub fn create_engine_session(
                     },
                 );
             Ok(session_id)
-        },
+        }),
         |env, id: String| env.create_string(&id),
     )
 }
@@ -2351,16 +2482,24 @@ pub fn session_get_history(session_id: String) -> napi::Result<String> {
     })
 }
 
-/// Drop the session handle. The engine-owned pump task parks forever once the
-/// process has no other session reference (bounded: one session per process
-/// today); a joined teardown belongs to the ownership flip.
+/// Drop the session handle: the pump task is signalled to stop and the
+/// conversation it owns is released with it. Pending outcome receivers are
+/// dropped too, so a JS `session_turn_outcome` awaiting one rejects instead of
+/// hanging on a pump that will never run again.
 #[napi]
 pub fn session_dispose(session_id: String) -> napi::Result<()> {
     guard_sync_panic(|| {
-        SESSION_REGISTRY
+        let entry = SESSION_REGISTRY
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(&session_id);
+        if let Some(entry) = entry {
+            entry.session.shutdown();
+        }
+        SESSION_OUTCOMES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|(session, _), _| session != &session_id);
         Ok(())
     })
 }
@@ -2414,15 +2553,17 @@ pub fn session_release_quiescence(session_id: String) -> napi::Result<()> {
 /// [`SUBAGENT_MANAGER`] runtime.
 #[napi]
 pub fn session_start_btw(env: Env, session_id: String) -> napi::Result<JsObject> {
-    let history = session_entry(&session_id)?.session.snapshot_history();
-    env.execute_tokio_future(
-        async move {
-            crate::subagent::start_btw(&SUBAGENT_MANAGER, &history)
-                .await
-                .map_err(napi::Error::from_reason)
-        },
-        |env, agent_id: String| env.create_string(&agent_id),
-    )
+    guard_sync_panic(move || {
+        let history = session_entry(&session_id)?.session.snapshot_history();
+        env.execute_tokio_future(
+            async move {
+                crate::subagent::start_btw(&SUBAGENT_MANAGER, &history)
+                    .await
+                    .map_err(napi::Error::from_reason)
+            },
+            |env, agent_id: String| env.create_string(&agent_id),
+        )
+    })
 }
 
 /// Run one btw side-channel turn (v2 `/btw` panel). The turn runs on the
@@ -2438,54 +2579,53 @@ pub fn session_btw_prompt(
     agent_id: String,
     prompt: String,
 ) -> napi::Result<JsObject> {
-    // The session must be live, but the side channel owns its conversation:
-    // the turn runs on the shared subagent runtime, outside the session's
-    // turn queue.
-    session_entry(&session_id)?;
-    let manager = SUBAGENT_MANAGER.clone();
-    env.execute_tokio_future(
-        async move {
-            // Register a parent-cancel under the agent id so
-            // `session_btw_cancel` can abort the run mid-turn.
-            let cancel = crate::subagent::types::ParentCancel::new();
-            CANCEL_MAP
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(agent_id.clone(), cancel.clone());
-            let outcome = manager
-                .resume_foreground_turn(&agent_id, &prompt, Some(&cancel))
-                .await;
-            CANCEL_MAP
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .remove(&agent_id);
-            match outcome {
-                Some(Ok(crate::subagent::manager::ForegroundTurnOutcome::Completed(result))) => {
-                    let content = result
-                        .messages
-                        .iter()
-                        .rev()
-                        .find(|m| m.role == "assistant")
-                        .map(|m| m.content.clone())
-                        .unwrap_or_default();
-                    Ok((content, format!("{:?}", result.stop_reason)))
+    guard_sync_panic(move || {
+        // The session must be live, but the side channel owns its conversation:
+        // the turn runs on the shared subagent runtime, outside the session's
+        // turn queue.
+        session_entry(&session_id)?;
+        let manager = SUBAGENT_MANAGER.clone();
+        env.execute_tokio_future(
+            async move {
+                // Register a parent-cancel under the agent id so
+                // `session_btw_cancel` can abort the run mid-turn. The guard
+                // removes it on every exit path, including a dropped future.
+                let cancel = crate::subagent::types::ParentCancel::new();
+                let _cancel_guard =
+                    MapEntryGuard::insert(&CANCEL_MAP, agent_id.clone(), cancel.clone());
+                let outcome = manager
+                    .resume_foreground_turn(&agent_id, &prompt, Some(&cancel))
+                    .await;
+                match outcome {
+                    Some(Ok(crate::subagent::manager::ForegroundTurnOutcome::Completed(
+                        result,
+                    ))) => {
+                        let content = result
+                            .messages
+                            .iter()
+                            .rev()
+                            .find(|m| m.role == "assistant")
+                            .map(|m| m.content.clone())
+                            .unwrap_or_default();
+                        Ok((content, format!("{:?}", result.stop_reason)))
+                    }
+                    Some(Ok(crate::subagent::manager::ForegroundTurnOutcome::ParentCancelled)) => {
+                        Ok((String::new(), "Aborted".to_string()))
+                    }
+                    Some(Err(message)) => Err(napi::Error::from_reason(message)),
+                    None => Err(napi::Error::from_reason(format!(
+                        "unknown btw side-channel instance: {agent_id}"
+                    ))),
                 }
-                Some(Ok(crate::subagent::manager::ForegroundTurnOutcome::ParentCancelled)) => {
-                    Ok((String::new(), "Aborted".to_string()))
-                }
-                Some(Err(message)) => Err(napi::Error::from_reason(message)),
-                None => Err(napi::Error::from_reason(format!(
-                    "unknown btw side-channel instance: {agent_id}"
-                ))),
-            }
-        },
-        |env, (content, stop_reason): (String, String)| {
-            let mut obj = env.create_object()?;
-            obj.set_named_property("content", env.create_string_from_std(content)?)?;
-            obj.set_named_property("stopReason", env.create_string_from_std(stop_reason)?)?;
-            Ok(obj)
-        },
-    )
+            },
+            |env, (content, stop_reason): (String, String)| {
+                let mut obj = env.create_object()?;
+                obj.set_named_property("content", env.create_string_from_std(content)?)?;
+                obj.set_named_property("stopReason", env.create_string_from_std(stop_reason)?)?;
+                Ok(obj)
+            },
+        )
+    })
 }
 
 /// Abort a running btw side-channel turn (v2 `/btw` panel cancel). Triggers
@@ -2542,27 +2682,25 @@ pub fn session_compact(
     session_id: String,
     instruction: Option<String>,
 ) -> napi::Result<JsObject> {
-    let entry = session_entry(&session_id)?;
-    let flag = Arc::new(AtomicBool::new(false));
-    COMPACTION_CANCEL
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(session_id.clone(), flag.clone());
-    env.execute_tokio_future(
-        async move {
-            let result = compact_session_with_summary(&entry, instruction, &flag).await;
-            COMPACTION_CANCEL
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .remove(&session_id);
-            result
-        },
-        |env, report: serde_json::Value| {
-            env.create_string_from_std(
-                serde_json::to_string(&report).unwrap_or_else(|e| e.to_string()),
-            )
-        },
-    )
+    guard_sync_panic(move || {
+        let entry = session_entry(&session_id)?;
+        let flag = Arc::new(AtomicBool::new(false));
+        env.execute_tokio_future(
+            async move {
+                // The guard removes the cancel flag on every exit path,
+                // including a dropped future — a leaked flag would make the
+                // next compaction look already-cancelled.
+                let _cancel_guard =
+                    MapEntryGuard::insert(&COMPACTION_CANCEL, session_id.clone(), flag.clone());
+                compact_session_with_summary(&entry, instruction, &flag).await
+            },
+            |env, report: serde_json::Value| {
+                env.create_string_from_std(
+                    serde_json::to_string(&report).unwrap_or_else(|e| e.to_string()),
+                )
+            },
+        )
+    })
 }
 
 /// Abort the compaction `session_compact` is running; true when one was in
@@ -2643,6 +2781,206 @@ async fn compact_session_with_summary(
     }))
 }
 
+/// The plugin registry lives in the same SQLite store the standalone server
+/// uses (`<data_dir>/sessions.db`), so the CLI and `kimi web` read one install
+/// state. The host calls [`init_plugin_store`] once with its data dir; every
+/// plugin export below answers from the manager it installs.
+static PLUGIN_MANAGER: LazyLock<Mutex<Option<Arc<crate::server::plugins::PluginManager>>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+/// Open the plugin registry against `<data_dir>/sessions.db`. `marketplace_dir`
+/// is the directory holding `marketplace.json` (the host resolves it), so a
+/// relative catalog `source` resolves to a real plugin root. Idempotent: a
+/// second call replaces the manager, which is harmless because the state lives
+/// in the file, not in the manager.
+#[napi]
+pub fn init_plugin_store(data_dir: String, marketplace_dir: Option<String>) -> napi::Result<()> {
+    guard_sync_panic(|| {
+        let db_path = std::path::Path::new(&data_dir).join("sessions.db");
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        }
+        let store = crate::session::sqlite_store::SqliteSessionStore::open(&db_path)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        let manager = crate::server::plugins::PluginManager::new(Arc::new(store))
+            .with_marketplace_dir(marketplace_dir.map(std::path::PathBuf::from))
+            .with_home_dir(Some(std::path::PathBuf::from(&data_dir)));
+        *PLUGIN_MANAGER.lock().unwrap_or_else(|p| p.into_inner()) = Some(Arc::new(manager));
+        Ok(())
+    })
+}
+
+fn plugin_manager() -> napi::Result<Arc<crate::server::plugins::PluginManager>> {
+    PLUGIN_MANAGER
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
+        .ok_or_else(|| {
+            napi::Error::from_reason(
+                "plugin store not initialized; call initPluginStore(dataDir) first",
+            )
+        })
+}
+
+/// The enabled plugins' skill roots, read from the process-wide registry.
+/// Empty when the host never called [`init_plugin_store`], so a process without
+/// plugins scans exactly what it did before.
+fn plugin_skill_dirs() -> Vec<std::path::PathBuf> {
+    PLUGIN_MANAGER
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_ref()
+        .map(|manager| manager.plugin_skill_dirs())
+        .unwrap_or_default()
+}
+
+/// The enabled plugins' MCP servers, read from the process-wide registry.
+fn plugin_mcp_configs() -> Vec<crate::server::plugins::PluginMcpConfig> {
+    PLUGIN_MANAGER
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_ref()
+        .map(|manager| manager.plugin_mcp_configs())
+        .unwrap_or_default()
+}
+
+/// Drop the plugin registry and close its SQLite connection. The host calls
+/// this on shutdown: Windows keeps a lock on an open database, which blocks
+/// removing the data directory.
+#[napi]
+pub fn close_plugin_store() -> napi::Result<()> {
+    guard_sync_panic(|| {
+        *PLUGIN_MANAGER.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        Ok(())
+    })
+}
+
+/// Every installed plugin as a JSON array of `PluginSummary` wires
+/// (`id` / `name` / `version` / `enabled` / `description` / `source`).
+#[napi]
+pub fn plugin_list() -> napi::Result<String> {
+    guard_sync_panic(|| {
+        let plugins = plugin_manager()?.list_plugins();
+        serde_json::to_string(&plugins).map_err(|e| napi::Error::from_reason(e.to_string()))
+    })
+}
+
+/// Install a plugin from a catalog id, a catalog `source`, or a remote archive
+/// URL, answering its `PluginSummary` wire as JSON — or `null` for a source the
+/// catalog does not know, so the caller can report "unknown plugin" instead of
+/// inventing an install record. A remote source is downloaded and extracted
+/// into `<dataDir>/plugins/<id>` first.
+#[napi]
+pub fn plugin_install(id: String) -> napi::Result<Option<String>> {
+    guard_sync_panic(|| {
+        let manager = plugin_manager()?;
+        let installed = manager
+            .install_plugin_from(&id)
+            .map_err(napi::Error::from_reason)?;
+        let Some((id, _)) = installed else {
+            return Ok(None);
+        };
+        manager
+            .list_plugins()
+            .into_iter()
+            .find(|plugin| plugin.id == id)
+            .map(|summary| {
+                serde_json::to_string(&summary).map_err(|e| napi::Error::from_reason(e.to_string()))
+            })
+            .transpose()
+    })
+}
+
+/// Enable or disable an installed plugin. `false` means the id is neither
+/// installed nor catalogued.
+#[napi]
+pub fn plugin_set_enabled(id: String, enabled: bool) -> napi::Result<bool> {
+    guard_sync_panic(|| {
+        plugin_manager()?
+            .set_plugin_enabled(&id, enabled)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
+    })
+}
+
+/// Remove an installed plugin. `false` means it was not installed.
+#[napi]
+pub fn plugin_remove(id: String) -> napi::Result<bool> {
+    guard_sync_panic(|| {
+        plugin_manager()?
+            .remove_plugin(&id)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
+    })
+}
+
+/// Full detail for one installed plugin as a JSON `PluginInfo` wire — the
+/// catalog entry, the install state, and everything the manifest contributes
+/// (commands, MCP servers, skill/hook counts). `null` when the id is not
+/// installed.
+#[napi]
+pub fn plugin_info(id: String) -> napi::Result<Option<String>> {
+    guard_sync_panic(|| {
+        plugin_manager()?
+            .plugin_info(&id)
+            .map(|info| {
+                serde_json::to_string(&info).map_err(|e| napi::Error::from_reason(e.to_string()))
+            })
+            .transpose()
+    })
+}
+
+/// Every command the enabled plugins contribute, as a JSON array of
+/// `PluginCommandDef` wires (`pluginId` / `name` / `description` / `body` /
+/// `path`), in plugin-id order.
+#[napi]
+pub fn plugin_commands() -> napi::Result<String> {
+    guard_sync_panic(|| {
+        let commands = plugin_manager()?.enabled_commands();
+        serde_json::to_string(&commands).map_err(|e| napi::Error::from_reason(e.to_string()))
+    })
+}
+
+/// Enable or disable one MCP server a plugin declares. `false` means the
+/// plugin does not declare a server by that name.
+#[napi]
+pub fn plugin_set_mcp_server_enabled(
+    id: String,
+    server: String,
+    enabled: bool,
+) -> napi::Result<bool> {
+    guard_sync_panic(|| {
+        plugin_manager()?
+            .set_mcp_server_enabled(&id, &server, enabled)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
+    })
+}
+
+/// Re-read the catalog and every installed manifest, answering a JSON
+/// `ReloadSummary` (`{ added, removed, errors }`).
+#[napi]
+pub fn plugin_reload() -> napi::Result<String> {
+    guard_sync_panic(|| {
+        let summary = plugin_manager()?.reload();
+        serde_json::to_string(&summary).map_err(|e| napi::Error::from_reason(e.to_string()))
+    })
+}
+
+/// Workspace-root file suggestions for the host's mention picker — the
+/// `POST /api/v1/fs::suggest` payload (`{ items, truncated }`) as JSON, so the
+/// napi transport and the HTTP server answer from one implementation
+/// (`server::fs_routes::search_files`). `limit` defaults to 50.
+#[napi]
+pub fn fs_suggest(work_dir: String, query: String, limit: Option<u32>) -> napi::Result<String> {
+    guard_sync_panic(|| {
+        let (items, truncated) = crate::server::fs_routes::search_files(
+            std::path::Path::new(&work_dir),
+            query.trim(),
+            limit.unwrap_or(50) as usize,
+        );
+        serde_json::to_string(&serde_json::json!({ "items": items, "truncated": truncated }))
+            .map_err(|e| napi::Error::from_reason(e.to_string()))
+    })
+}
+
 /// Every registered background task's entry wire, oldest first, output
 /// omitted — the JSON array the standalone server serves from its task
 /// runner (`GET /api/v1/tasks`, server/mod.rs). The runner is the one the
@@ -2681,22 +3019,24 @@ pub fn background_task_stop(
     id: String,
     reason: Option<String>,
 ) -> napi::Result<JsObject> {
-    let runner = SUBAGENT_MANAGER.get_task_runner_sync().ok_or_else(|| {
-        napi::Error::from_reason("no background task runner is active in this process")
-    })?;
-    env.execute_tokio_future(
-        async move {
-            runner
-                .stop(&id, reason.as_deref())
-                .await
-                .map_err(napi::Error::from_reason)
-        },
-        |env, wire: serde_json::Value| {
-            env.create_string_from_std(
-                serde_json::to_string(&wire).unwrap_or_else(|e| e.to_string()),
-            )
-        },
-    )
+    guard_sync_panic(move || {
+        let runner = SUBAGENT_MANAGER.get_task_runner_sync().ok_or_else(|| {
+            napi::Error::from_reason("no background task runner is active in this process")
+        })?;
+        env.execute_tokio_future(
+            async move {
+                runner
+                    .stop(&id, reason.as_deref())
+                    .await
+                    .map_err(napi::Error::from_reason)
+            },
+            |env, wire: serde_json::Value| {
+                env.create_string_from_std(
+                    serde_json::to_string(&wire).unwrap_or_else(|e| e.to_string()),
+                )
+            },
+        )
+    })
 }
 
 #[cfg(test)]
@@ -2769,5 +3109,74 @@ mod tests {
             registry.contains_key(&(base + total - 1)),
             "the newest payload must survive"
         );
+    }
+
+    static TEST_GUARD_MAP: LazyLock<Mutex<HashMap<String, u32>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+
+    fn early_return_with_guard() -> Result<(), ()> {
+        let _guard = MapEntryGuard::insert(&TEST_GUARD_MAP, "early".to_string(), 1);
+        Err(())
+    }
+
+    /// The explicit `remove` after the awaited work is skipped by an early `?`
+    /// return and never runs at all when the napi future is dropped, so the
+    /// registration has to be released by scope exit.
+    #[test]
+    fn the_map_entry_guard_removes_on_every_exit_path() {
+        {
+            let _guard = MapEntryGuard::insert(&TEST_GUARD_MAP, "scope".to_string(), 7);
+            assert_eq!(TEST_GUARD_MAP.lock().unwrap().get("scope"), Some(&7));
+        }
+        assert!(!TEST_GUARD_MAP.lock().unwrap().contains_key("scope"));
+
+        assert!(early_return_with_guard().is_err());
+        assert!(!TEST_GUARD_MAP.lock().unwrap().contains_key("early"));
+    }
+
+    /// A malformed tool schema used to become `Value::Null` and reach the
+    /// provider, which rejected the whole request with a 400 naming no tool.
+    #[test]
+    fn a_malformed_tool_schema_fails_naming_the_tool() {
+        let tools = vec![JsToolDef {
+            name: "Read".into(),
+            description: "read a file".into(),
+            input_schema: "{not json".into(),
+        }];
+        let error = tool_defs_from_wire(&tools).expect_err("a bad schema must not pass");
+        assert!(
+            error.reason.contains("Read"),
+            "the error must name the tool: {}",
+            error.reason
+        );
+    }
+
+    #[test]
+    fn a_well_formed_tool_schema_is_passed_through() {
+        let tools = vec![JsToolDef {
+            name: "Read".into(),
+            description: "read a file".into(),
+            input_schema: r#"{"type":"object"}"#.into(),
+        }];
+        let defs = tool_defs_from_wire(&tools).expect("a valid schema must pass");
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].name, "Read");
+        assert_eq!(defs[0].input_schema["type"], "object");
+    }
+
+    /// A malformed `blocks_json` used to erase the message's content with no
+    /// trace; the fallback stays empty, but the drop is now reported.
+    #[test]
+    fn unparseable_host_json_falls_back_to_empty() {
+        let blocks: Vec<serde_json::Value> =
+            parse_host_json(Some("{not json"), "message blocks", "assistant");
+        assert!(blocks.is_empty());
+
+        let blocks: Vec<serde_json::Value> =
+            parse_host_json(Some(r#"[{"type":"text"}]"#), "message blocks", "assistant");
+        assert_eq!(blocks.len(), 1);
+
+        let blocks: Vec<serde_json::Value> = parse_host_json(None, "message blocks", "assistant");
+        assert!(blocks.is_empty());
     }
 }

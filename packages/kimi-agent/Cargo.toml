@@ -74,6 +74,9 @@ tower-lsp = "0.20"
 lsp-types = "0.95"
 rquickjs = { version = "0.9", features = ["full-async", "futures", "macro", "array-buffer"], optional = true }
 portable-pty = "0.9"
+# Plugin archives: a catalog `source` that is a GitHub repo or a zip URL is
+# downloaded and extracted into the managed plugin root.
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

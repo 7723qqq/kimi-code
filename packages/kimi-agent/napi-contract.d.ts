@@ -38,6 +38,13 @@ export const BASH_MAX_TIMEOUT: number
 export declare function cancelTurn(turnId: string): void
 
 /**
+ * Drop the plugin registry and close its SQLite connection. The host calls
+ * this on shutdown: Windows keeps a lock on an open database, which blocks
+ * removing the data directory.
+ */
+export declare function closePluginStore(): void
+
+/**
  * Knobs for the compaction algorithm.
  *
  * `max_recent_user_messages` uses `u32::MAX` as a stand-in for TS
@@ -111,6 +118,14 @@ export interface FileTypeResult {
 }
 
 /**
+ * Workspace-root file suggestions for the host's mention picker — the
+ * `POST /api/v1/fs::suggest` payload (`{ items, truncated }`) as JSON, so the
+ * napi transport and the HTTP server answer from one implementation
+ * (`server::fs_routes::search_files`). `limit` defaults to 50.
+ */
+export declare function fsSuggest(workDir: string, query: string, limit?: number | undefined | null): string
+
+/**
  * Called by JS to fetch the payload for a given callback ID.
  * Returns the JSON-serialized request payload, or null if not found.
  */
@@ -151,6 +166,15 @@ export interface ImageDimensions {
   width: number
   height: number
 }
+
+/**
+ * Open the plugin registry against `<data_dir>/sessions.db`. `marketplace_dir`
+ * is the directory holding `marketplace.json` (the host resolves it), so a
+ * relative catalog `source` resolves to a real plugin root. Idempotent: a
+ * second call replaces the manager, which is harmless because the state lives
+ * in the file, not in the manager.
+ */
+export declare function initPluginStore(dataDir: string, marketplaceDir?: string | undefined | null): void
 
 /**
  * Initialise tracing from `KIMI_AGENT_TRACE` / `KIMI_AGENT_TRACE_FORMAT`.
@@ -1273,6 +1297,57 @@ export interface NativeWriteChunkResult {
  */
 export declare function nativeWriteToolOutputChunk(text: string, currentNchars: number, maxChars: number, maxLineLength: number | undefined | null, alreadyTruncated: boolean): NativeWriteChunkResult
 
+/**
+ * Every command the enabled plugins contribute, as a JSON array of
+ * `PluginCommandDef` wires (`pluginId` / `name` / `description` / `body` /
+ * `path`), in plugin-id order.
+ */
+export declare function pluginCommands(): string
+
+/**
+ * Full detail for one installed plugin as a JSON `PluginInfo` wire — the
+ * catalog entry, the install state, and everything the manifest contributes
+ * (commands, MCP servers, skill/hook counts). `null` when the id is not
+ * installed.
+ */
+export declare function pluginInfo(id: string): string | null
+
+/**
+ * Install a plugin from a catalog id, a catalog `source`, or a remote archive
+ * URL, answering its `PluginSummary` wire as JSON — or `null` for a source the
+ * catalog does not know, so the caller can report "unknown plugin" instead of
+ * inventing an install record. A remote source is downloaded and extracted
+ * into `<dataDir>/plugins/<id>` first.
+ */
+export declare function pluginInstall(id: string): string | null
+
+/**
+ * Every installed plugin as a JSON array of `PluginSummary` wires
+ * (`id` / `name` / `version` / `enabled` / `description` / `source`).
+ */
+export declare function pluginList(): string
+
+/**
+ * Re-read the catalog and every installed manifest, answering a JSON
+ * `ReloadSummary` (`{ added, removed, errors }`).
+ */
+export declare function pluginReload(): string
+
+/** Remove an installed plugin. `false` means it was not installed. */
+export declare function pluginRemove(id: string): boolean
+
+/**
+ * Enable or disable an installed plugin. `false` means the id is neither
+ * installed nor catalogued.
+ */
+export declare function pluginSetEnabled(id: string, enabled: boolean): boolean
+
+/**
+ * Enable or disable one MCP server a plugin declares. `false` means the
+ * plugin does not declare a server by that name.
+ */
+export declare function pluginSetMcpServerEnabled(id: string, server: string, enabled: boolean): boolean
+
 /** Maximum output bytes for read operations. */
 export const READ_MAX_BYTES: number
 
@@ -1385,9 +1460,10 @@ export declare function sessionClearHistory(sessionId: string): void
 export declare function sessionCompact(sessionId: string, instruction?: string | undefined | null): object
 
 /**
- * Drop the session handle. The engine-owned pump task parks forever once the
- * process has no other session reference (bounded: one session per process
- * today); a joined teardown belongs to the ownership flip.
+ * Drop the session handle: the pump task is signalled to stop and the
+ * conversation it owns is released with it. Pending outcome receivers are
+ * dropped too, so a JS `session_turn_outcome` awaiting one rejects instead of
+ * hanging on a pump that will never run again.
  */
 export declare function sessionDispose(sessionId: string): void
 

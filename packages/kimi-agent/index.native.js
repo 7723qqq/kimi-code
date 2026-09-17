@@ -789,6 +789,129 @@ function nativeReadEngineState(workspaceRoot, domain) {
 // ============================================================================
 
 // ============================================================================
+// Plugins — the install registry and the content installed plugins contribute
+// ============================================================================
+
+/**
+ * Open the plugin registry against `<dataDir>/sessions.db`, the same store the
+ * standalone server uses, so the CLI and `kimi web` read one install state.
+ * `marketplaceDir` is the directory holding `marketplace.json`; pass null to
+ * let the engine fall back to its cwd-relative lookup. Idempotent.
+ * @param {string} dataDir - Kimi home / data directory.
+ * @param {string | null} [marketplaceDir] - Directory holding marketplace.json.
+ * @returns {void}
+ */
+function initPluginStore(dataDir, marketplaceDir) {
+  return binding.initPluginStore(dataDir, marketplaceDir);
+}
+
+/**
+ * Drop the plugin registry and close its SQLite connection. Call on shutdown:
+ * Windows keeps a lock on an open database, which blocks removing the data
+ * directory.
+ * @returns {void}
+ */
+function closePluginStore() {
+  return binding.closePluginStore();
+}
+
+/**
+ * Every installed plugin as a JSON array of `PluginSummary` wires.
+ * @returns {string}
+ */
+function pluginList() {
+  return binding.pluginList();
+}
+
+/**
+ * Install a plugin by catalog id or catalog `source`; its `PluginSummary` wire
+ * as JSON, or null for an id the catalog does not know.
+ * @param {string} id - Catalog id or `source`.
+ * @returns {string | null}
+ */
+function pluginInstall(id) {
+  return binding.pluginInstall(id);
+}
+
+/**
+ * Full detail for one installed plugin as a JSON `PluginInfo` wire — catalog
+ * entry, install state, and the commands / MCP servers / skill and hook counts
+ * its manifest contributes. Null when the id is not installed.
+ * @param {string} id - Catalog id.
+ * @returns {string | null}
+ */
+function pluginInfo(id) {
+  return binding.pluginInfo(id);
+}
+
+/**
+ * Enable or disable an installed plugin. False means the id is neither
+ * installed nor catalogued.
+ * @param {string} id - Catalog id.
+ * @param {boolean} enabled - Desired state.
+ * @returns {boolean}
+ */
+function pluginSetEnabled(id, enabled) {
+  return binding.pluginSetEnabled(id, enabled);
+}
+
+/**
+ * Enable or disable one MCP server a plugin declares. False means the plugin
+ * does not declare a server by that name.
+ * @param {string} id - Catalog id.
+ * @param {string} server - Server name from the manifest.
+ * @param {boolean} enabled - Desired state.
+ * @returns {boolean}
+ */
+function pluginSetMcpServerEnabled(id, server, enabled) {
+  return binding.pluginSetMcpServerEnabled(id, server, enabled);
+}
+
+/**
+ * Remove an installed plugin. False means it was not installed.
+ * @param {string} id - Catalog id.
+ * @returns {boolean}
+ */
+function pluginRemove(id) {
+  return binding.pluginRemove(id);
+}
+
+/**
+ * Re-read the catalog and every installed manifest, as a JSON `ReloadSummary`
+ * (`{ added, removed, errors }`).
+ * @returns {string}
+ */
+function pluginReload() {
+  return binding.pluginReload();
+}
+
+/**
+ * Every command the enabled plugins contribute, as a JSON array of
+ * `PluginCommandDef` wires, in plugin-id order.
+ * @returns {string}
+ */
+function pluginCommands() {
+  return binding.pluginCommands();
+}
+
+// ============================================================================
+// File suggestions — the workspace search the mention picker reads
+// ============================================================================
+
+/**
+ * Workspace-root file suggestions as a JSON `{ items, truncated }` payload —
+ * the same search the HTTP server serves from `POST /api/v1/fs::suggest`.
+ * Each item carries `match_positions` (UTF-16 offsets into `path`).
+ * @param {string} workDir - Workspace root to search.
+ * @param {string} query - Substring to match; an empty query lists the root.
+ * @param {number} [limit] - Maximum items (default 50).
+ * @returns {string}
+ */
+function fsSuggest(workDir, query, limit) {
+  return binding.fsSuggest(workDir, query, limit);
+}
+
+// ============================================================================
 // Background tasks — the engine pipeline's task runner (process-global)
 // ============================================================================
 
@@ -926,6 +1049,21 @@ module.exports = {
 
   // LLM Stream (incremental)
   nativeLlmStreamStreaming,
+
+  // Plugins
+  initPluginStore,
+  closePluginStore,
+  pluginList,
+  pluginInstall,
+  pluginInfo,
+  pluginSetEnabled,
+  pluginSetMcpServerEnabled,
+  pluginRemove,
+  pluginReload,
+  pluginCommands,
+
+  // File suggestions
+  fsSuggest,
 
   // Background tasks
   backgroundTaskList,

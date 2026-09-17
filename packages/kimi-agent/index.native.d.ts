@@ -634,6 +634,73 @@ export function nativeWebSearch(
 ): Promise<NativeWebSearchResult>;
 
 // ============================================================================
+// Plugins — the install registry and the content installed plugins contribute
+// ============================================================================
+
+/**
+ * Open the plugin registry against `<dataDir>/sessions.db`, the same store the
+ * standalone server uses. `marketplaceDir` is the directory holding
+ * `marketplace.json`; pass null to let the engine fall back to its
+ * cwd-relative lookup. Idempotent.
+ */
+export function initPluginStore(dataDir: string, marketplaceDir?: string | null): void;
+
+/**
+ * Drop the plugin registry and close its SQLite connection. Call on shutdown:
+ * Windows keeps a lock on an open database, which blocks removing the data
+ * directory.
+ */
+export function closePluginStore(): void;
+
+/** Every installed plugin as a JSON array of `PluginSummary` wires. */
+export function pluginList(): string;
+
+/**
+ * Install a plugin by catalog id or catalog `source`; its `PluginSummary` wire
+ * as JSON, or null for an id the catalog does not know.
+ */
+export function pluginInstall(id: string): string | null;
+
+/**
+ * Full detail for one installed plugin as a JSON `PluginInfo` wire. Null when
+ * the id is not installed.
+ */
+export function pluginInfo(id: string): string | null;
+
+/** Enable or disable an installed plugin. False means the id is unknown. */
+export function pluginSetEnabled(id: string, enabled: boolean): boolean;
+
+/**
+ * Enable or disable one MCP server a plugin declares. False means the plugin
+ * does not declare a server by that name.
+ */
+export function pluginSetMcpServerEnabled(
+  id: string,
+  server: string,
+  enabled: boolean,
+): boolean;
+
+/** Remove an installed plugin. False means it was not installed. */
+export function pluginRemove(id: string): boolean;
+
+/** Re-read the catalog and every installed manifest, as a JSON `ReloadSummary`. */
+export function pluginReload(): string;
+
+/** Every command the enabled plugins contribute, as a JSON array of wires. */
+export function pluginCommands(): string;
+
+// ============================================================================
+// File suggestions — the workspace search the mention picker reads
+// ============================================================================
+
+/**
+ * Workspace-root file suggestions as a JSON `{ items, truncated }` payload —
+ * the same search the HTTP server serves from `POST /api/v1/fs::suggest`.
+ * Each item carries `match_positions` (UTF-16 offsets into `path`).
+ */
+export function fsSuggest(workDir: string, query: string, limit?: number): string;
+
+// ============================================================================
 // Background tasks — the engine pipeline's task runner (process-global)
 // ============================================================================
 
