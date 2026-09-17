@@ -19,6 +19,9 @@ import type {
   JsonObject,
   PromptOrigin,
   ResumedAgentState,
+  SuggestFilesInput,
+  SuggestFilesItem,
+  SuggestFilesResult,
   ToolCall,
 } from '#/types';
 import {
@@ -58,6 +61,7 @@ import { ErrorCodes, KimiError } from '#/error-protocol';
 import { flushDiagnosticLogs, getRootLogger, resolveLoggingConfig } from '#/logging';
 import {
   SDKRpcClientBase,
+  type ActivatePluginCommandRpcInput,
   type ActivateSkillRpcInput,
   type ImportContextRpcInput,
   type ReloadSessionRpcInput,
@@ -105,7 +109,10 @@ import type {
   McpTestResult,
   PermissionMode,
   PluginCommandDef,
+  PluginInfo,
+  PluginSummary,
   PromptPart,
+  ReloadSummary,
   RenameSessionInput,
   ResumeSessionInput,
   ResumedSessionSummary,
@@ -370,6 +377,20 @@ function posixPath(path: string): string {
   return path.replaceAll('\\', '/');
 }
 
+/**
+ * Expand a plugin command body against its arguments (v2
+ * `expandCommandArguments`): `$ARGUMENTS` is replaced in place, and a body
+ * without the placeholder gets the args appended as an `ARGUMENTS:` trailer so
+ * they are never dropped.
+ */
+function expandCommandArguments(body: string, args: string): string {
+  const replaced = body.replaceAll('$ARGUMENTS', args);
+  if (!body.includes('$ARGUMENTS') && args.length > 0) {
+    return `${replaced}\n\nARGUMENTS: ${args}`;
+  }
+  return replaced;
+}
+
 /** v1's `requiredWorkDir`: reject blank and normalize to the canonical spelling. */
 function normalizeRequiredWorkDir(operation: string, workDir: unknown): string {
   if (typeof workDir !== 'string' || workDir.trim() === '') {
@@ -597,6 +618,15 @@ interface StoredMcpServerConfig {
 export interface SDKRpcClientNativeOptions {
   readonly homeDir?: string | undefined;
   readonly configPath?: string | undefined;
+  /**
+   * Data directory of the app-scope engine store (`<dir>/sessions.db`), the
+   * SQLite database the plugin registry lives in. Defaults to
+   * `<homeDir>/agent`, which is where the CLI hosts the native server
+   * (`rust-server-runner` passes `--data-dir <home>/agent`); a host that runs
+   * the server against a different `--data-dir` sets this so the CLI and the
+   * server read one install state instead of two that silently disagree.
+   */
+  readonly engineDataDir?: string | undefined;
   readonly identity?: KimiHostIdentity | undefined;
   readonly auth?: KimiAuthFacade | undefined;
   readonly onOAuthRefresh?: ((outcome: OAuthRefreshOutcome) => void) | undefined;
@@ -711,6 +741,27 @@ Popular sections that people usually write in \`AGENTS.md\` are:
 - Testing instructions
 - Security considerations`;
 
+/**
+ * The directory holding `marketplace.json`, so the engine can resolve a
+ * relative catalog `source` to a real plugin root. `KIMI_CODE_PLUGIN_MARKETPLACE_DIR`
+ * pins it (tests, and installs that ship the catalog elsewhere); otherwise a
+ * repo checkout is found by walking up from the cwd and from this module. A
+ * packaged install has neither, so this answers `undefined` and the engine
+ * falls back to its own cwd-relative lookup.
+ */
+function resolvePluginMarketplaceDir(): string | undefined {
+  const override = process.env['KIMI_CODE_PLUGIN_MARKETPLACE_DIR'];
+  if (override !== undefined && override !== '') return override;
+  const candidates = [
+    join(process.cwd(), 'plugins'),
+    resolve(import.meta.dirname, '../../../../plugins'),
+  ];
+  for (const dir of candidates) {
+    if (existsSync(join(dir, 'marketplace.json'))) return dir;
+  }
+  return undefined;
+}
+
 function resolveMcpServersForEngine(servers: Record<string, StoredMcpServerConfig>): Array<{
   name: string;
   transport: string;
@@ -762,6 +813,8 @@ function resolveMcpServersForEngine(servers: Record<string, StoredMcpServerConfi
 export class SDKRpcClientNative extends SDKRpcClientBase {
   readonly homeDir: string;
   readonly configPath: string;
+  /** Data dir of the app-scope engine store (`<dir>/sessions.db`). */
+  readonly engineDataDir: string;
   readonly identity: KimiHostIdentity | undefined;
   readonly telemetry: TelemetryClient;
   readonly auth: KimiAuthFacade;
@@ -769,6 +822,8 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   private readonly liveSessions = new Map<string, NativeSessionMeta>();
   private readonly sessionBaseDir: string;
+  /** Set once `initPluginStore` has opened the engine's plugin registry. */
+  private pluginStoreReady = false;
   /** Sessions whose in-flight compaction was cancelled from the host. */
   private readonly compactionCancels = new Set<string>();
   /**
@@ -786,6 +841,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     this.identity = assertKimiHostIdentity(options.identity);
     this.homeDir = resolveKimiHome(options.homeDir);
     this.configPath = resolveConfigPath({ homeDir: this.homeDir, configPath: options.configPath });
+    this.engineDataDir = options.engineDataDir ?? join(this.homeDir, 'agent');
     this.telemetry = options.telemetry ?? { track: () => {} };
     this.skillDirs = options.skillDirs ?? [];
     this.auth =
@@ -1636,14 +1692,21 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   override async addAdditionalDir(input: AddAdditionalDirInput): Promise<AddAdditionalDirResult> {
     const meta = this.requireSession(input.id);
     if (!meta.additionalDirs.includes(input.path)) {
-      meta.additionalDirs.push(input.path);
-      meta.updatedAt = Date.now();
-      this.persistMeta(meta);
       // The extra roots are baked into the engine handle at build time — the
       // native toolset's sandbox is constructed from `meta.additionalDirs` —
       // so a newly authorized directory only takes effect after a rebuild.
-      // Same contract as setModel / setPermission: carry the history over.
-      await this.rebuildHandle(meta);
+      // Same contract as setModel / setPermission: carry the history over, and
+      // drop the root again when the rebuild fails.
+      const previous = meta.additionalDirs;
+      meta.additionalDirs = [...previous, input.path];
+      try {
+        await this.rebuildHandle(meta);
+      } catch (error) {
+        meta.additionalDirs = previous;
+        throw error;
+      }
+      // `rebuildHandle` already stamped `meta.updatedAt`.
+      this.persistMeta(meta);
     }
     return {
       additionalDirs: [...meta.additionalDirs],
@@ -2083,27 +2146,25 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   override async setModel(input: SetSessionModelRpcInput): Promise<SetSessionModelRpcResult> {
     const meta = this.requireSession(input.sessionId);
-    meta.model = input.model;
     // The native LLM (model / thinking budget) is baked into the engine handle
     // at build time, so a model change rebuilds it, carrying the history over.
-    await this.rebuildHandle(meta);
+    await this.applyRebuiltSetting(meta, 'model', input.model);
     this.emitStatusUpdated(meta);
-    return { model: meta.model };
+    // Reached only when the rebuild succeeded, so the handle runs `input.model`.
+    return { model: input.model };
   }
 
   override async setThinking(input: SetSessionThinkingRpcInput): Promise<void> {
     const meta = this.requireSession(input.sessionId);
-    meta.thinkingEffort = input.effort;
-    await this.rebuildHandle(meta);
+    await this.applyRebuiltSetting(meta, 'thinkingEffort', input.effort);
     this.emitStatusUpdated(meta);
   }
 
   override async setPermission(input: SetSessionPermissionRpcInput): Promise<void> {
     const meta = this.requireSession(input.sessionId);
-    meta.permissionMode = input.mode;
     // The permission mode lives in the policy snapshot the engine's
     // PermissionEngine was built from, so changing it rebuilds the handle.
-    await this.rebuildHandle(meta);
+    await this.applyRebuiltSetting(meta, 'permissionMode', input.mode);
     this.emitStatusUpdated(meta);
   }
 
@@ -2121,8 +2182,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   override async setSwarmMode(input: SetSessionSwarmModeRpcInput): Promise<void> {
     const meta = this.requireSession(input.sessionId);
-    meta.swarmMode = input.enabled;
-    await this.rebuildHandle(meta);
+    await this.applyRebuiltSetting(meta, 'swarmMode', input.enabled);
     this.emitStatusUpdated(meta);
   }
 
@@ -2691,12 +2751,12 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   }
 
   /**
-   * Deterministic title derivation over the live engine history (v2
-   * `ISessionTitleService`): the engine applies the first_turn / user_prompts
-   * rule to the session's cross-turn history. A generated title lands as
-   * `titleKind: 'generated'`; without `force` an existing generated or
-   * host-custom title is returned as-is. `source=digest` needs the managed
-   * chat_title channel and rejects engine-side.
+   * Deterministic title derivation over the live engine history: the engine
+   * applies the first_turn / user_prompts rule to the session's cross-turn
+   * history. A generated title lands as `titleKind: 'generated'`; without
+   * `force` an existing generated or host-custom title is returned as-is.
+   * `source=digest` needs the managed chat_title channel and rejects
+   * engine-side.
    */
   override async generateSessionTitle(
     input: GenerateSessionTitleInput,
@@ -3103,8 +3163,47 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     });
   }
 
+  override async suggestFiles(
+    workDir: string,
+    input: SuggestFilesInput,
+  ): Promise<SuggestFilesResult | undefined> {
+    // The engine's own search (`server::fs_routes::search_files`), reached
+    // through the addon so the host and the HTTP server rank identically. The
+    // wire spells the highlight frame `match_positions`; the public shape is
+    // camelCase.
+    const { fsSuggest } = await import('@moonshot-ai/kimi-agent/native');
+    const raw = JSON.parse(fsSuggest(workDir, input.query, input.limit ?? 50)) as {
+      items: readonly {
+        path: string;
+        name: string;
+        kind: string;
+        match_positions?: readonly number[];
+      }[];
+      truncated: boolean;
+    };
+    return {
+      items: raw.items.map((item) => ({
+        path: item.path,
+        name: item.name,
+        kind: item.kind as SuggestFilesItem['kind'],
+        matchPositions: item.match_positions ?? [],
+      })),
+      truncated: raw.truncated,
+    };
+  }
+
   override async listWorkspaceMcpServers(_workDir: string): Promise<readonly McpServerInfo[]> {
-    return [];
+    // No session exists yet, so nothing is connected and the engine holds no
+    // registry to read. Report what a session would start, from the same
+    // `mcp.json` the engine is handed at creation (`resolveMcpServersForEngine`).
+    // Status is `pending`: the engine connects these when it builds a session
+    // pipeline, so claiming `connected` here would be a lie.
+    return resolveMcpServersForEngine(this.loadGlobalMcpConfig()).map((server) => ({
+      name: server.name,
+      transport: server.transport,
+      status: 'pending' as const,
+      toolCount: 0,
+    }));
   }
 
   override async addSessionMcpServer(input: {
@@ -3376,8 +3475,148 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     );
   }
 
+  /**
+   * Open the engine's plugin registry against the SQLite store the app-scope
+   * engine uses (`<engineDataDir>/sessions.db`), so the CLI and the hosted
+   * server read one install state. Idempotent; every plugin method below calls
+   * it first.
+   */
+  private async ensurePluginStore(): Promise<void> {
+    if (this.pluginStoreReady) return;
+    const { initPluginStore } = await import('@moonshot-ai/kimi-agent/native');
+    initPluginStore(this.engineDataDir, resolvePluginMarketplaceDir());
+    this.pluginStoreReady = true;
+  }
+
+  override async listPlugins(): Promise<readonly PluginSummary[]> {
+    await this.ensurePluginStore();
+    const { pluginList } = await import('@moonshot-ai/kimi-agent/native');
+    return JSON.parse(pluginList()) as readonly PluginSummary[];
+  }
+
+  override async installPlugin(source: string): Promise<PluginSummary> {
+    await this.ensurePluginStore();
+    const { pluginInstall } = await import('@moonshot-ai/kimi-agent/native');
+    // The catalog keys installs by id, but a caller may hand over the catalog
+    // `source` (the TUI resolves a path or URL before calling); the engine
+    // matches either.
+    const raw = pluginInstall(source.trim());
+    if (raw === null || raw === undefined) {
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        `Unknown plugin "${source}" — it is not in the marketplace catalog.`,
+      );
+    }
+    return JSON.parse(raw) as PluginSummary;
+  }
+
+  override async getPluginInfo(id: string): Promise<PluginInfo> {
+    await this.ensurePluginStore();
+    const { pluginInfo } = await import('@moonshot-ai/kimi-agent/native');
+    const raw = pluginInfo(id);
+    if (raw === null || raw === undefined) {
+      throw new KimiError(ErrorCodes.REQUEST_INVALID, `Plugin "${id}" is not installed.`);
+    }
+    return JSON.parse(raw) as PluginInfo;
+  }
+
+  override async setPluginEnabled(id: string, enabled: boolean): Promise<void> {
+    await this.ensurePluginStore();
+    const { pluginSetEnabled } = await import('@moonshot-ai/kimi-agent/native');
+    if (!pluginSetEnabled(id, enabled)) {
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        `Plugin "${id}" is neither installed nor in the marketplace catalog.`,
+      );
+    }
+  }
+
+  override async setPluginMcpServerEnabled(
+    id: string,
+    server: string,
+    enabled: boolean,
+  ): Promise<void> {
+    await this.ensurePluginStore();
+    const { pluginSetMcpServerEnabled } = await import('@moonshot-ai/kimi-agent/native');
+    if (!pluginSetMcpServerEnabled(id, server, enabled)) {
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        `Plugin "${id}" does not declare an MCP server named "${server}".`,
+      );
+    }
+  }
+
+  override async removePlugin(id: string): Promise<void> {
+    await this.ensurePluginStore();
+    const { pluginRemove } = await import('@moonshot-ai/kimi-agent/native');
+    if (!pluginRemove(id)) {
+      throw new KimiError(ErrorCodes.REQUEST_INVALID, `Plugin "${id}" is not installed.`);
+    }
+  }
+
+  override async reloadPlugins(): Promise<ReloadSummary> {
+    await this.ensurePluginStore();
+    const { pluginReload } = await import('@moonshot-ai/kimi-agent/native');
+    return JSON.parse(pluginReload()) as ReloadSummary;
+  }
+
   override async listPluginCommands(): Promise<readonly PluginCommandDef[]> {
-    return [];
+    // Plugin commands are app-global: the engine reads them from the installed
+    // plugins' manifests, not from a session.
+    return this.listPluginCommandsGlobal();
+  }
+
+  override async listPluginCommandsGlobal(): Promise<readonly PluginCommandDef[]> {
+    await this.ensurePluginStore();
+    const { pluginCommands } = await import('@moonshot-ai/kimi-agent/native');
+    return JSON.parse(pluginCommands()) as readonly PluginCommandDef[];
+  }
+
+  /**
+   * Expand a plugin command's body into the prompt it submits. Mirrors the v2
+   * `expandCommandArguments` contract: `$ARGUMENTS` is substituted in place,
+   * and a body without the placeholder gets the args appended as an
+   * `ARGUMENTS:` trailer rather than losing them.
+   */
+  override async activatePluginCommand(input: ActivatePluginCommandRpcInput): Promise<void> {
+    const meta = this.requireSession(input.sessionId);
+    const defs = await this.listPluginCommandsGlobal();
+    const def = defs.find(
+      (command) => command.pluginId === input.pluginId && command.name === input.commandName,
+    );
+    if (def === undefined) {
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        `Plugin command "${input.pluginId}:${input.commandName}" was not found`,
+      );
+    }
+    const body = def.body ?? def.prompt ?? '';
+    const commandArgs = input.args ?? '';
+    const expanded = expandCommandArguments(body, commandArgs);
+    const activationId = `plugin_${randomUUID()}`;
+    this.receiveEvent({
+      sessionId: meta.id,
+      agentId: 'main',
+      type: 'plugin_command.activated',
+      activationId,
+      pluginId: input.pluginId,
+      commandName: input.commandName,
+      commandArgs,
+      trigger: 'user-slash',
+    });
+    this.applyPromptMetadata(
+      meta,
+      promptMetadataTextFromText(
+        commandArgs.length === 0
+          ? `/${input.pluginId}:${input.commandName}`
+          : `/${input.pluginId}:${input.commandName} ${commandArgs}`,
+      ),
+    );
+    return this.prompt({
+      sessionId: meta.id,
+      input: [{ type: 'text', text: expanded }],
+      skipPromptMetadata: true,
+    });
   }
 
   override async getExperimentalFeatures(): Promise<readonly ExperimentalFeatureState[]> {
@@ -3459,20 +3698,53 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
    * over via getHistory / setHistory so context survives. Disposing the old
    * handle cancels any in-flight turn — setters are a user-initiated
    * reconfiguration and the TUI blocks them while a turn is running.
+   *
+   * The new handle is built *before* the old one is disposed. The engine keys
+   * its registry by a process-local id (`session-<n>`), so the two never
+   * collide — and a build that throws leaves the session on its previous
+   * handle. Disposing first left `meta.handle` undefined, and every later
+   * prompt then reported `session.not_found` ("cannot prompt unknown or closed
+   * session") for a session that was still live and still listed.
    */
   private async rebuildHandle(meta: NativeSessionMeta): Promise<void> {
-    const history = meta.handle ? await meta.handle.getHistory().catch(() => []) : [];
-    if (meta.handle) {
-      await meta.handle.dispose().catch(() => {});
-      meta.handle = undefined;
-    }
+    const previous = meta.handle;
+    const history = previous ? await previous.getHistory().catch(() => []) : [];
     const handle = await this.buildHandle(meta);
-    if (history.length > 0) {
-      await handle.setHistory(history);
+    try {
+      if (history.length > 0) {
+        await handle.setHistory(history);
+      }
+    } catch (error) {
+      // The replacement never took over; drop it rather than leaking a live
+      // engine session the host can no longer address.
+      await handle.dispose().catch(() => {});
+      throw error;
     }
     meta.handle = handle;
     meta.updatedAt = Date.now();
     await this.persistHistory(meta);
+    await previous?.dispose().catch(() => {});
+  }
+
+  /**
+   * Apply a setting that is baked into the engine handle at build time, and
+   * roll the field back when the rebuild fails. Without the rollback a failed
+   * `setModel` left `meta.model` naming a model the engine never switched to,
+   * so the TUI reported a change that had not happened.
+   */
+  private async applyRebuiltSetting<K extends keyof NativeSessionMeta>(
+    meta: NativeSessionMeta,
+    key: K,
+    value: NativeSessionMeta[K],
+  ): Promise<void> {
+    const previous = meta[key];
+    meta[key] = value;
+    try {
+      await this.rebuildHandle(meta);
+    } catch (error) {
+      meta[key] = previous;
+      throw error;
+    }
   }
 
   private persistMeta(meta: NativeSessionMeta): void {
@@ -3762,13 +4034,19 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       }
     }
     this.liveSessions.clear();
+    if (this.pluginStoreReady) {
+      // Release the SQLite handle: Windows keeps a lock on an open database,
+      // which blocks removing the data directory.
+      const { closePluginStore } = await import('@moonshot-ai/kimi-agent/native');
+      closePluginStore();
+      this.pluginStoreReady = false;
+    }
     await flushDiagnosticLogs();
   }
 }
 
 export function createKimiHarnessNative(options: SDKRpcClientNativeOptions): KimiHarness {
-  const rpc = new SDKRpcClientNative(options);
-  return new KimiHarness(rpc, {
+  const rpc = new SDKRpcClientNative(options);  return new KimiHarness(rpc, {
     identity: rpc.identity,
     uiMode: options.uiMode,
     homeDir: rpc.homeDir,

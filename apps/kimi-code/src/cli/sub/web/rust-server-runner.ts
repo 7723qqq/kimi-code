@@ -9,6 +9,7 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
+import { KIMI_CODE_ENGINE_DATA_DIR_NAME } from '#/constant/app';
 import { getDataDir } from '#/utils/paths';
 import type { StartForegroundHooks } from './run';
 import type { ParsedServerOptions } from './shared';
@@ -62,11 +63,23 @@ export function buildRustServerArgs(
     args.push('--no-auth');
   }
 
+  if (options.debugEndpoints) {
+    args.push('--debug-endpoints');
+  }
+
+  if (options.allowRemoteShutdown) {
+    args.push('--allow-remote-shutdown');
+  }
+
+  for (const host of options.allowedHosts) {
+    args.push('--allowed-host', host);
+  }
+
   if (webAssetsDir && existsSync(webAssetsDir)) {
     args.push('--web-assets', webAssetsDir);
   }
 
-  const effectiveDataDir = dataDir ?? join(getDataDir(), 'agent');
+  const effectiveDataDir = dataDir ?? join(getDataDir(), KIMI_CODE_ENGINE_DATA_DIR_NAME);
   args.push('--data-dir', effectiveDataDir);
 
   return args;

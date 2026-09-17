@@ -1,7 +1,7 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { findKimiAgentAddon } from '@moonshot-ai/kimi-agent/session-handle';
 
@@ -30,6 +30,7 @@ describe.skipIf(!hasNativeAddon)('createKimiHarnessNative (Rust EngineSessionHan
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await harness.close();
     rmSync(homeDir, { recursive: true, force: true });
   });
@@ -104,6 +105,124 @@ describe.skipIf(!hasNativeAddon)('createKimiHarnessNative (Rust EngineSessionHan
     await expect(ended).resolves.toMatchObject({ reason: 'failed' });
     await session.close();
   }, 15_000);
+
+  it('suggests workspace files with match positions from the engine search', async () => {
+    writeFileSync(join(homeDir, 'alpha.txt'), 'a');
+    writeFileSync(join(homeDir, 'beta.txt'), 'b');
+
+    const result = await harness.suggestFiles(homeDir, { query: 'alpha', limit: 20 });
+
+    expect(result).toBeDefined();
+    expect(result?.items).toHaveLength(1);
+    expect(result?.items[0]).toMatchObject({
+      path: 'alpha.txt',
+      name: 'alpha.txt',
+      kind: 'file',
+      matchPositions: [0, 1, 2, 3, 4],
+    });
+    expect(result?.truncated).toBe(false);
+  });
+
+  it('lists the configured MCP servers before a session exists', async () => {
+    writeFileSync(
+      join(homeDir, 'mcp.json'),
+      JSON.stringify({ mcpServers: { example: { command: 'node', args: ['server.mjs'] } } }),
+    );
+
+    const servers = await harness.listWorkspaceMcpServers(homeDir);
+
+    expect(servers).toHaveLength(1);
+    expect(servers[0]).toMatchObject({
+      name: 'example',
+      transport: 'stdio',
+      status: 'pending',
+    });
+  });
+
+  it('installs a plugin and exposes the commands its manifest declares', async () => {
+    const marketplaceDir = join(homeDir, 'marketplace');
+    const pluginRoot = join(marketplaceDir, 'official', 'demo');
+    mkdirSync(join(pluginRoot, 'commands'), { recursive: true });
+    writeFileSync(
+      join(marketplaceDir, 'marketplace.json'),
+      JSON.stringify({
+        version: '1',
+        plugins: [
+          {
+            id: 'demo',
+            tier: 'official',
+            displayName: 'Demo',
+            description: 'A demo plugin',
+            source: './official/demo',
+          },
+        ],
+      }),
+    );
+    writeFileSync(
+      join(pluginRoot, 'kimi.plugin.json'),
+      JSON.stringify({
+        name: 'demo',
+        version: '1.0.0',
+        commands: [{ path: './commands/review.md' }],
+      }),
+    );
+    writeFileSync(
+      join(pluginRoot, 'commands', 'review.md'),
+      '---\ndescription: Review the diff\n---\n\nReview $ARGUMENTS\n',
+    );
+    vi.stubEnv('KIMI_CODE_PLUGIN_MARKETPLACE_DIR', marketplaceDir);
+
+    expect(await harness.listPlugins()).toEqual([]);
+
+    const installed = await harness.installPlugin('demo');
+    expect(installed).toMatchObject({ id: 'demo', enabled: true });
+
+    const info = await harness.getPluginInfo('demo');
+    expect(info).toMatchObject({ id: 'demo', commandCount: 1, state: 'ok' });
+    expect(info.commands?.[0]).toMatchObject({
+      pluginId: 'demo',
+      name: 'review',
+      description: 'Review the diff',
+      body: 'Review $ARGUMENTS',
+    });
+
+    const commands = await harness.listPluginCommands();
+    expect(commands).toHaveLength(1);
+    expect(commands[0]?.name).toBe('review');
+
+    // The summary the panel renders carries the same live state and counts as
+    // the detail view; without them every count read as undefined.
+    expect((await harness.listPlugins())[0]).toMatchObject({
+      id: 'demo',
+      state: 'ok',
+      commandCount: 1,
+    });
+
+    // An unknown command is refused by name, not silently submitted.
+    const session = await harness.createSession({ workDir: homeDir });
+    await expect(
+      session.activatePluginCommand('demo', 'nope', ''),
+    ).rejects.toThrow(/was not found/);
+
+    // A known one submits the expanded body as a turn.
+    const ended = waitForTurnEnded(session);
+    await expect(session.activatePluginCommand('demo', 'review', 'src/')).resolves.toBeUndefined();
+    await expect(ended).resolves.toMatchObject({ reason: 'failed' });
+    await session.close();
+
+    // Disabling the plugin drops its commands from the slash-command source.
+    await harness.setPluginEnabled('demo', false);
+    expect(await harness.listPluginCommands()).toEqual([]);
+
+    await harness.removePlugin('demo');
+    expect(await harness.listPlugins()).toEqual([]);
+
+    // The registry landed in the app-scope engine store — the same
+    // `<home>/agent/sessions.db` the hosted server opens, not a second store
+    // under `<home>` that only the CLI would see.
+    expect(existsSync(join(homeDir, 'agent', 'sessions.db'))).toBe(true);
+    expect(existsSync(join(homeDir, 'sessions.db'))).toBe(false);
+  });
 });
 
 function waitForTurnEnded(session: {

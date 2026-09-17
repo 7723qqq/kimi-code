@@ -654,8 +654,8 @@ export type BeginGlobalMcpServerAuthResult =
     };
 
 /**
- * Trust state of a workspace directory. Only meaningful on the agent-core-v2
- * engine; the v1 engine has no workspace-trust concept and reports
+ * Trust state of a workspace directory. Only meaningful on the native engine
+ * client; the base client has no workspace-trust concept and reports
  * `{ trusted: true, gatedMcpServers: [] }`.
  */
 export interface WorkspaceTrustMcpServerInfo {
@@ -675,7 +675,7 @@ export interface WorkspaceTrustInfo {
 
 /**
  * File-suggestion query against a workspace root, no session required. Only
- * meaningful on the agent-core-v2 engine; the v1 engine has no equivalent
+ * meaningful on the native engine client; the base client has no equivalent
  * and reports `undefined`.
  */
 export interface SuggestFilesInput {
@@ -737,6 +737,14 @@ export interface KimiHarnessOptions {
   readonly identity?: KimiHostIdentity | undefined;
   readonly homeDir?: string | undefined;
   readonly configPath?: string | undefined;
+  /**
+   * Data directory of the app-scope engine store (`<dir>/sessions.db`), the
+   * SQLite database the plugin registry lives in. Defaults to
+   * `<homeDir>/agent`, where the CLI hosts the native server; set it when the
+   * server runs against a different `--data-dir` so both read one install
+   * state.
+   */
+  readonly engineDataDir?: string | undefined;
   readonly autoLoadConfig?: boolean | undefined;
   readonly uiMode?: string;
   readonly skillDirs?: readonly string[];
@@ -950,9 +958,8 @@ export interface SessionStatus {
  * The engine's canonical title state: `replaceable` (a prompt-derived easy
  * title auto generation may overwrite), `generated` (an auto-generated title
  * already landed), `custom` (a user-set title that is never overwritten).
- * Only populated by the v2 engine on live / resumed sessions (read off the
- * metadata document); v1 backends leave it undefined, and the v2 list path
- * does not project it.
+ * Only populated on live / resumed sessions (read off the metadata document);
+ * the list path does not project it.
  */
 export type SessionTitleKind = 'replaceable' | 'generated' | 'custom';
 
@@ -988,8 +995,7 @@ export type AgentType = 'main' | 'sub';
 /**
  * One agent's snapshot within a resumed session — the v1 shape, kept as the
  * SDK's public contract: `toolStore` and `background` are v1-only concepts
- * (the v2 engine reports `tasks` instead of `background` and has no
- * tool-store projection), so the v2 client folds them from the agent wire.
+ * with no engine projection.
  */
 export interface ResumedAgentState {
   readonly type: AgentType;

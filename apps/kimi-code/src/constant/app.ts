@@ -46,6 +46,9 @@ export const NPM_PACKAGE_NAME = '@moonshot-ai/kimi-code';
 // App-owned data paths. SDK/core runtime config is intentionally not routed here.
 export const KIMI_CODE_HOME_ENV = 'KIMI_CODE_HOME';
 export const KIMI_CODE_DATA_DIR_NAME = '.kimi-code';
+// The app-scope engine store: the native server keeps `sessions.db` (and the
+// plugin registry that shares it) under `<home>/agent`.
+export const KIMI_CODE_ENGINE_DATA_DIR_NAME = 'agent';
 export const KIMI_CODE_LOG_DIR_NAME = 'logs';
 export const KIMI_CODE_CACHE_DIR_NAME = 'cache';
 export const KIMI_CODE_UPDATE_DIR_NAME = 'updates';
