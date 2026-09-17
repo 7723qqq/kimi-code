@@ -119,7 +119,16 @@ test(
         const lockPath = path.join(dir, `db-${i}.lock`);
         const lock = new LockFile(lockPath);
         assert.equal(await lock.acquire(), true);
-        await Promise.all([lock.renew(), lock.release()]);
+        // The property under test is the RACE: the serializer must run renew to
+        // completion before release unlinks, so release can never be followed by
+        // renew re-publishing the lock. A renew that cannot land its rename is a
+        // different failure — on Windows an on-access scanner holds the freshly
+        // written temp for a moment and the rename exhausts its budget — and it
+        // cannot affect the property: renew that never replaced the line leaves
+        // the lock exactly as release found it. Tolerating the rejection here
+        // keeps the assertion on the race, with the ghost-lock check below as
+        // the thing that must hold either way.
+        await Promise.all([lock.renew().catch(() => {}), lock.release()]);
         assert.equal(lock.held, false);
         assert.equal(
           await fs.stat(lockPath).then(
@@ -135,6 +144,29 @@ test(
     }
   },
 );
+
+test('renew() leaves no temp behind when the rename cannot land', async () => {
+  const dir = await tmpDir();
+  try {
+    // Make the destination unreplaceable: a non-empty DIRECTORY at the lock
+    // path, which rename cannot replace on any platform. The failing renew
+    // must still clean up its temp — open()'s stale-temp sweep never matches
+    // LockFile temps (they can be in flight in another process), so each
+    // failure accumulated one. `renew()` is a no-op unless held, so the
+    // instance is marked held to reach the rename.
+    const blockedPath = path.join(dir, 'blocked.lock');
+    await fs.mkdir(blockedPath);
+    await fs.writeFile(path.join(blockedPath, 'blocker'), 'x');
+    const blocked = new LockFile(blockedPath);
+    blocked.held = true;
+
+    await blocked.renew().catch(() => {});
+    const leftovers = (await fs.readdir(dir)).filter((f) => f.startsWith('blocked.lock.tmp-'));
+    assert.deepEqual(leftovers, [], 'no orphaned renew temp');
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
 
 test('renew() keeps the owner token, so release() still recognizes the lock', async () => {
   const dir = await tmpDir();

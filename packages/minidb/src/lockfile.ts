@@ -346,7 +346,15 @@ export class LockFile {
       // readFile/stat of it (EPERM) — the helper rides out such transients.
       // The budget matches the helper's default: a scanner holding the file
       // for longer than the tighter 20-retry window made renew fail outright.
-      await renameReplace(tmp, this.path);
+      // The temp is cleaned up on EVERY outcome: a rename that exhausts its
+      // retries used to leave `db.lock.tmp-<pid>-<seq>` behind, and open()'s
+      // stale-temp sweep deliberately never matches LockFile temps (they may
+      // be in flight in another process), so each failure accumulated one.
+      try {
+        await renameReplace(tmp, this.path);
+      } finally {
+        await fs.unlink(tmp).catch(() => {});
+      }
     });
   }
 
