@@ -21,7 +21,9 @@ struct SubscriberEntry {
 #[derive(Default)]
 pub struct EventBus {
     next_id: AtomicU64,
-    subscribers: RwLock<Vec<SubscriberEntry>>,
+    /// Entries are `Arc`ed so `publish` can snapshot the list with refcount
+    /// bumps instead of deep copies — it runs once per engine event.
+    subscribers: RwLock<Vec<Arc<SubscriberEntry>>>,
 }
 
 impl EventBus {
@@ -39,11 +41,11 @@ impl EventBus {
     {
         let id = Subscription(self.next_id.fetch_add(1, Ordering::Relaxed));
         let mut subs = self.subscribers.write().unwrap();
-        subs.push(SubscriberEntry {
+        subs.push(Arc::new(SubscriberEntry {
             id,
             handler: Arc::new(handler),
             filter: None,
-        });
+        }));
         id
     }
 
@@ -54,11 +56,11 @@ impl EventBus {
     {
         let id = Subscription(self.next_id.fetch_add(1, Ordering::Relaxed));
         let mut subs = self.subscribers.write().unwrap();
-        subs.push(SubscriberEntry {
+        subs.push(Arc::new(SubscriberEntry {
             id,
             handler: Arc::new(handler),
             filter: Some(event_type.into()),
-        });
+        }));
         id
     }
 
@@ -93,8 +95,13 @@ impl EventBus {
     }
 
     /// Publish an event to all matching subscribers.
+    ///
+    /// The subscriber list is snapshotted before any handler runs: a handler
+    /// that subscribes or unsubscribes on this thread would otherwise deadlock
+    /// on the write lock this read guard holds. The snapshot is a list of
+    /// `Arc`s, so the hot path pays refcount bumps, not a deep copy.
     pub fn publish(&self, event: &EngineEvent) {
-        let subs = self.subscribers.read().unwrap();
+        let subs: Vec<Arc<SubscriberEntry>> = self.subscribers.read().unwrap().clone();
         let ev_type = event.event_type();
         for sub in subs.iter() {
             if let Some(ref filter) = sub.filter
@@ -173,5 +180,38 @@ mod tests {
             note: None,
         });
         assert_eq!(tool_events.load(Ordering::Relaxed), 1);
+    }
+
+    /// A handler that re-enters the bus used to self-deadlock: `publish` held
+    /// the subscriber read lock while invoking handlers, and `subscribe` /
+    /// `unsubscribe` take the write lock.
+    #[test]
+    fn a_handler_may_subscribe_and_unsubscribe_during_publish() {
+        let bus = Arc::new(EventBus::new());
+        let calls = Arc::new(AtomicUsize::new(0));
+
+        let bus_for_handler = Arc::clone(&bus);
+        let calls_for_handler = Arc::clone(&calls);
+        let own = bus.subscribe(move |_| {
+            let nested = bus_for_handler.subscribe({
+                let calls = Arc::clone(&calls_for_handler);
+                move |_| {
+                    calls.fetch_add(1, Ordering::Relaxed);
+                }
+            });
+            assert!(bus_for_handler.unsubscribe(nested));
+            calls_for_handler.fetch_add(1, Ordering::Relaxed);
+        });
+
+        bus.publish(&EngineEvent::LlmStepBegin {
+            turn_id: "turn-1".into(),
+            step: 1,
+        });
+        // The nested subscriber was added after the snapshot, so it is not
+        // invoked by this publish; only the outer handler ran.
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        assert_eq!(bus.subscriber_count(), 1);
+        assert!(bus.unsubscribe(own));
+        assert_eq!(bus.subscriber_count(), 0);
     }
 }

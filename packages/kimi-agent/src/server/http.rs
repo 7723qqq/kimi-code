@@ -100,9 +100,7 @@ pub async fn serve(addr: &str, server: Arc<HttpServer>) -> io::Result<ServerHand
     // so reaching a non-loopback interface requires a credential. The CLI-level
     // check is convenience; this one is the gate.
     let host = addr.rsplit_once(':').map_or(addr, |(host, _)| host);
-    let loopback =
-        matches!(host, "127.0.0.1" | "localhost" | "::1" | "[::1]") || host.starts_with("127.");
-    if !loopback && server.auth().is_disabled() {
+    if !crate::server::is_loopback_host(host) && server.auth().is_disabled() {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!("refusing to bind {addr} without authentication"),
@@ -153,6 +151,15 @@ async fn serve_connection(mut stream: TcpStream, server: Arc<HttpServer>) -> io:
 
     if ws::is_upgrade(&received.request) {
         let Received { request, leftover } = received;
+        // The handshake never reaches `handle_request`, so the DNS-rebinding
+        // guard has to be applied here too — otherwise a rebinding page could
+        // simply open a WebSocket instead of a REST call.
+        if !server.host_allowed(request.header("host")) {
+            let response = HttpResponse::forbidden(crate::server::host_guard::rejection_message(
+                request.header("host"),
+            ));
+            return write_response(&mut stream, &response).await;
+        }
         let (decision, selected_protocol) = server.auth().check_upgrade(
             request.header("authorization"),
             request.header("sec-websocket-protocol"),

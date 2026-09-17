@@ -51,6 +51,19 @@ pub const SUBSCRIBER_QUEUE_DEPTH: usize = 256;
 /// the oldest event still buffered.
 pub const LANE_HISTORY_CAP: usize = 16_384;
 
+/// Upper bound on the number of live lanes. Each lane holds up to
+/// `LANE_HISTORY_CAP` events *with their cached envelopes*, so an unbounded
+/// lane map is an unbounded leak in a long-lived `--serve` process: every
+/// session id ever seen used to keep its ring for the life of the process.
+/// Past this cap the least recently used lane is dropped.
+pub const LANE_CAP: usize = 512;
+
+/// A lane is only evicted once it has been idle this long. A session that is
+/// still publishing must never lose its numbering to a burst of new sessions:
+/// the pipeline holds the lane's `Arc<EventBus>`, so a second lane for the same
+/// session would number a parallel stream from 1.
+pub const LANE_IDLE_EVICT_MS: u64 = 10 * 60 * 1000;
+
 const STATE_OPEN: u8 = 0;
 const STATE_OVERFLOW: u8 = 1;
 const STATE_DETACHED: u8 = 2;
@@ -122,14 +135,24 @@ struct Lane {
     /// as a bounded ring (`LANE_HISTORY_CAP`) so a long-lived server's memory
     /// stays bounded. A connection that attaches mid-turn replays this buffer
     /// so its cursor starts as far back as the ring still reaches; until a
-    /// persistent journal exists it is the only replay source, which is also
-    /// why the lanes themselves are never evicted.
+    /// persistent journal exists it is the only replay source, which is why an
+    /// evicted lane's stream cannot be resumed — the client sees a new epoch
+    /// instead.
     history: Mutex<VecDeque<Arc<SequencedEvent>>>,
     /// `publish` only takes the bus's *read* lock, so two concurrent publishers on
     /// one session could each take a number and then deliver out of order. Taking
     /// this around the stamp-and-forward step is what makes `seq` mean what it
     /// claims: consecutive, and in the order a connection receives them.
     order: Mutex<()>,
+    /// Millisecond timestamp of the last publish or `bus_for` lookup, for the
+    /// LRU eviction that keeps the lane map bounded (`LANE_CAP`).
+    last_used_ms: AtomicU64,
+}
+
+impl Lane {
+    fn touch(&self) {
+        self.last_used_ms.store(now_ms(), Ordering::Relaxed);
+    }
 }
 
 /// One connection's inbound queue, written by every lane it can see.
@@ -186,7 +209,10 @@ impl EventHub {
 
     /// Set a persister callback to record every sequenced wire event to persistent storage.
     pub fn set_persister(&self, persister: EventPersister) {
-        *self.persister.write().unwrap() = Some(persister);
+        *self
+            .persister
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(persister);
     }
 
     /// The bus a session's turns publish onto, creating the lane on first use.
@@ -200,17 +226,27 @@ impl EventHub {
         let existing = self
             .lanes
             .read()
-            .unwrap()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .get(session_id)
-            .map(|lane| lane.bus.clone());
+            .map(|lane| {
+                lane.touch();
+                lane.bus.clone()
+            });
         if let Some(bus) = existing {
             return bus;
         }
-        let mut lanes = self.lanes.write().unwrap();
+        let mut lanes = self
+            .lanes
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         // Another publisher may have won the race while this thread waited for
         // the write lock; that lane is the one to use, not a second numbering.
         if let Some(lane) = lanes.get(session_id) {
+            lane.touch();
             return lane.bus.clone();
+        }
+        if lanes.len() >= LANE_CAP {
+            evict_idle_lane(&mut lanes, now_ms());
         }
 
         let lane = Arc::new(Lane {
@@ -220,11 +256,13 @@ impl EventHub {
             next_seq: AtomicU64::new(0),
             history: Mutex::new(VecDeque::new()),
             order: Mutex::new(()),
+            last_used_ms: AtomicU64::new(now_ms()),
         });
         let forward = Arc::clone(&lane);
         let slots = Arc::clone(&self.slots);
         let persister = Arc::clone(&self.persister);
         lane.bus.subscribe(move |event| {
+            forward.touch();
             let _ordered = forward
                 .order
                 .lock()
@@ -245,7 +283,10 @@ impl EventHub {
                 history.pop_front();
             }
             drop(history);
-            if let Some(ref p) = *persister.read().unwrap() {
+            if let Some(ref p) = *persister
+                .read()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+            {
                 p(&sequenced);
             }
             deliver(&slots, sequenced);
@@ -261,7 +302,10 @@ impl EventHub {
         initial_seq: u64,
     ) -> (u64, Arc<str>) {
         let _bus = self.bus_for(session_id);
-        let lanes = self.lanes.read().unwrap();
+        let lanes = self
+            .lanes
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let lane = lanes.get(session_id).expect("lane was just ensured");
         let _ = lane.next_seq.fetch_max(initial_seq, Ordering::Relaxed);
         (
@@ -270,11 +314,19 @@ impl EventHub {
         )
     }
 
-    /// Which sessions have a lane. Lanes are never evicted: dropping one would
-    /// silently restart that session's numbering and discard the buffered
-    /// history a late-attaching connection would otherwise replay.
+    /// Which sessions have a lane. Lanes are evicted once they are both idle
+    /// (`LANE_IDLE_EVICT_MS`) and past the `LANE_CAP` bound, so this is the set
+    /// of recently active sessions rather than every session ever seen.
+    /// Dropping a lane restarts that session's numbering under a fresh epoch,
+    /// which is how a client holding the old cursor detects the restart.
     pub fn lane_session_ids(&self) -> Vec<String> {
-        let mut ids: Vec<String> = self.lanes.read().unwrap().keys().cloned().collect();
+        let mut ids: Vec<String> = self
+            .lanes
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .keys()
+            .cloned()
+            .collect();
         ids.sort();
         ids
     }
@@ -282,18 +334,27 @@ impl EventHub {
     /// Whether a lane exists for `session_id` — a plain map lookup, for callers
     /// that would otherwise clone and sort every lane id just to test membership.
     pub fn lane_exists(&self, session_id: &str) -> bool {
-        self.lanes.read().unwrap().contains_key(session_id)
+        self.lanes
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .contains_key(session_id)
     }
 
     /// How many lanes have been opened, for observability.
     pub fn lane_count(&self) -> usize {
-        self.lanes.read().unwrap().len()
+        self.lanes
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .len()
     }
 
     /// Return the cursor `(seq, epoch)` for a given session, ensuring a lane exists.
     pub fn ensure_lane_cursor(&self, session_id: &str) -> (u64, Arc<str>) {
         let _bus = self.bus_for(session_id);
-        let lanes = self.lanes.read().unwrap();
+        let lanes = self
+            .lanes
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let lane = lanes.get(session_id).expect("lane was just ensured");
         (
             lane.next_seq.load(Ordering::Relaxed),
@@ -303,7 +364,10 @@ impl EventHub {
 
     /// Return the current cursor `(seq, epoch)` for a given session, if its lane exists.
     pub fn session_cursor(&self, session_id: &str) -> Option<(u64, Arc<str>)> {
-        let lanes = self.lanes.read().unwrap();
+        let lanes = self
+            .lanes
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         lanes.get(session_id).map(|lane| {
             (
                 lane.next_seq.load(Ordering::Relaxed),
@@ -314,7 +378,10 @@ impl EventHub {
 
     /// Replay buffered events for a session with seq > `since_seq`.
     pub fn replay_for(&self, session_id: &str, since_seq: u64) -> Vec<Arc<SequencedEvent>> {
-        let lanes = self.lanes.read().unwrap();
+        let lanes = self
+            .lanes
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let Some(lane) = lanes.get(session_id) else {
             return Vec::new();
         };
@@ -365,7 +432,7 @@ impl EventHub {
         // means every lane's live events flow here from this instant; the
         // history snapshot below then overlaps the live queue for anything
         // published during the snapshot, which recv() de-duplicates by seq.
-        self.slots.write().unwrap().push(Arc::new(Slot {
+        let slot = Arc::new(Slot {
             id,
             sender,
             state: state_sender,
@@ -374,10 +441,17 @@ impl EventHub {
             connected_at: chrono::Utc::now().timestamp_millis() as u64,
             client_hello: Arc::clone(&client_hello),
             subscriptions: Arc::clone(&subscriptions),
-        }));
+        });
+        self.slots
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(slot);
 
         let lanes: Vec<Arc<Lane>> = {
-            let lanes = self.lanes.read().unwrap();
+            let lanes = self
+                .lanes
+                .read()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             let mut lanes: Vec<Arc<Lane>> = lanes.values().cloned().collect();
             lanes.sort_by(|a, b| a.session_id.cmp(&b.session_id));
             lanes
@@ -417,7 +491,7 @@ impl EventHub {
     pub fn connections(&self) -> Vec<ConnectionInfo> {
         self.slots
             .read()
-            .unwrap()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
             .iter()
             .map(|slot| ConnectionInfo {
                 id: slot.id,
@@ -439,7 +513,10 @@ impl EventHub {
     /// Live connection count, for observability and for proving a closed
     /// connection released its slot.
     pub fn subscriber_count(&self) -> usize {
-        self.slots.read().unwrap().len()
+        self.slots
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .len()
     }
 }
 
@@ -447,9 +524,36 @@ fn new_epoch() -> String {
     format!("epoch-{:016x}", fastrand::u64(..))
 }
 
+fn now_ms() -> u64 {
+    chrono::Utc::now().timestamp_millis() as u64
+}
+
+/// Drop the least recently used lane that has been idle for at least
+/// `LANE_IDLE_EVICT_MS`, so the lane map stays bounded without ever taking the
+/// numbering away from a session that is still publishing. When every lane is
+/// recent the map is allowed to exceed `LANE_CAP`: the excess is then bounded
+/// by how many sessions are concurrently active, not by how many have ever
+/// been seen.
+fn evict_idle_lane(lanes: &mut HashMap<String, Arc<Lane>>, now: u64) {
+    let oldest = lanes
+        .iter()
+        .filter(|(_, lane)| {
+            now.saturating_sub(lane.last_used_ms.load(Ordering::Relaxed)) >= LANE_IDLE_EVICT_MS
+        })
+        .min_by_key(|(_, lane)| lane.last_used_ms.load(Ordering::Relaxed))
+        .map(|(id, _)| id.clone());
+    if let Some(id) = oldest {
+        lanes.remove(&id);
+    }
+}
+
 /// Hand one event to every live connection, never blocking.
 fn deliver(slots: &Slots, event: Arc<SequencedEvent>) {
-    for slot in slots.read().unwrap().iter() {
+    for slot in slots
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .iter()
+    {
         if slot.sender.try_send(Arc::clone(&event)).is_ok() {
             continue;
         }
@@ -578,7 +682,10 @@ impl Drop for WsSubscription {
     fn drop(&mut self) {
         // Runs on the connection task, never inside a lane handler, so taking
         // the write lock here is safe.
-        let mut slots = self.slots.write().unwrap();
+        let mut slots = self
+            .slots
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(pos) = slots.iter().position(|slot| slot.id == self.id) {
             slots.swap_remove(pos);
         }
@@ -835,5 +942,69 @@ mod tests {
         }
         assert_eq!(count, LANE_HISTORY_CAP);
         assert_eq!(last_seq, total as u64);
+    }
+
+    /// Age every lane so the idle window has passed, oldest first.
+    fn age_lanes(hub: &EventHub) {
+        for (index, id) in hub.lane_session_ids().iter().enumerate() {
+            let lanes = hub
+                .lanes
+                .read()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            lanes
+                .get(id)
+                .expect("lane id came from the map")
+                .last_used_ms
+                .store(index as u64, Ordering::Relaxed);
+        }
+    }
+
+    /// The lane map used to grow for the life of the process: every session id
+    /// ever seen kept its ring of up to `LANE_HISTORY_CAP` events with their
+    /// cached envelopes.
+    #[tokio::test]
+    async fn an_idle_lane_is_evicted_once_the_cap_is_reached() {
+        let hub = EventHub::new();
+        for index in 0..LANE_CAP {
+            hub.bus_for(&format!("sess-{index:04}"));
+        }
+        assert_eq!(hub.lane_count(), LANE_CAP);
+        age_lanes(&hub);
+
+        hub.bus_for("sess-new");
+
+        assert_eq!(
+            hub.lane_count(),
+            LANE_CAP,
+            "the new lane replaced an idle one"
+        );
+        assert!(hub.lane_exists("sess-new"));
+        assert!(
+            !hub.lane_exists("sess-0000"),
+            "the least recently used lane must go first"
+        );
+    }
+
+    /// Eviction must never take the numbering away from a session that is still
+    /// publishing: the pipeline holds that lane's bus, so a replacement lane
+    /// would number a parallel stream from 1.
+    #[tokio::test]
+    async fn a_recently_used_lane_survives_the_cap() {
+        let hub = EventHub::new();
+        for index in 0..LANE_CAP {
+            hub.bus_for(&format!("sess-{index:04}"));
+        }
+        age_lanes(&hub);
+        // sess-0000 is the oldest by timestamp, but it just published.
+        hub.bus_for("sess-0000").publish(&step_event(1));
+
+        hub.bus_for("sess-new");
+
+        assert!(hub.lane_exists("sess-0000"), "an active lane was evicted");
+        assert_eq!(hub.lane_count(), LANE_CAP);
+        assert!(
+            !hub.lane_exists("sess-0001"),
+            "the oldest *idle* lane is the one that goes"
+        );
     }
 }

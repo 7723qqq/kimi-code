@@ -176,9 +176,10 @@ impl ServerAuth {
         if method != "GET" && method != "HEAD" {
             return false;
         }
-        // Non-API routes (static assets, SPA fallback, schemas) are reachable without credentials,
-        // matching kap-server's defaultIsBypassed: !path.startsWith('/api/').
-        if !path.starts_with("/api/") && !path.starts_with("/api") {
+        // Non-API routes (static assets, SPA fallback, schemas) are reachable without credentials.
+        // kap-server's defaultIsBypassed uses `!path.startsWith('/api/')`; dropping the trailing
+        // slash here also bypasses the bare `/api` path.
+        if !path.starts_with("/api") {
             return true;
         }
         matches!(path, "/api/v1/healthz" | "/api/v1/health" | "/health")

@@ -147,6 +147,13 @@ impl HttpResponse {
         Self::json(400, &serde_json::json!({ "error": msg.into() }))
     }
 
+    /// Construct a 403 Forbidden response — a request this server refuses to
+    /// answer on origin grounds (the DNS-rebinding `Host` check), not on
+    /// credentials.
+    pub fn forbidden(msg: impl Into<String>) -> Self {
+        Self::json(403, &serde_json::json!({ "error": msg.into() }))
+    }
+
     /// Construct a 401 Unauthorized response adhering to standard RFC 9110 / RFC 6750
     /// Bearer authentication challenge and kap-server envelope conventions.
     pub fn unauthorized(msg: impl Into<String>) -> Self {

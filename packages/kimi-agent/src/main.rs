@@ -80,6 +80,19 @@ struct Cli {
     #[arg(long, value_name = "PATH")]
     web_assets: Option<std::path::PathBuf>,
 
+    /// Mount the `/api/v1/debug/*` reflection surface (loopback binds only)
+    #[arg(long)]
+    debug_endpoints: bool,
+
+    /// Extra `Host` header value to accept (repeatable or comma-separated).
+    /// `KIMI_CODE_ALLOWED_HOSTS` adds more, comma-separated.
+    #[arg(long, value_name = "HOST")]
+    allowed_host: Vec<String>,
+
+    /// Keep `POST /api/v1/shutdown` registered on a non-loopback bind
+    #[arg(long)]
+    allow_remote_shutdown: bool,
+
     /// Run as an Agent Client Protocol (ACP) server over stdio
     #[arg(long)]
     acp: bool,
@@ -1149,8 +1162,7 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
     let host = address
         .rsplit_once(':')
         .map_or(address.as_str(), |(host, _)| host);
-    let loopback =
-        matches!(host, "127.0.0.1" | "localhost" | "::1") || host.strip_prefix("127.").is_some();
+    let loopback = kimi_agent::server::is_loopback_host(host);
     let (auth, token_path) = if cli.no_auth {
         if !loopback {
             anyhow::bail!("--no-auth only allows a loopback address, refusing to serve {address}");
@@ -1265,11 +1277,31 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         kimi_agent::server::engine::ServerEngine::new(spec, hub.clone(), store.clone()),
         &config,
     );
+    // The DNS-rebinding allowlist: `--allowed-host` (repeatable, each value
+    // possibly comma-separated) plus `KIMI_CODE_ALLOWED_HOSTS`. The loopback
+    // names and the bind address are always allowed and are not listed here.
+    let mut allowed_hosts: Vec<String> = cli
+        .allowed_host
+        .iter()
+        .flat_map(|raw| kimi_agent::server::host_guard::split_allowed_hosts(raw))
+        .collect();
+    if let Ok(raw) = std::env::var("KIMI_CODE_ALLOWED_HOSTS") {
+        allowed_hosts.extend(kimi_agent::server::host_guard::split_allowed_hosts(&raw));
+    }
+
     let mut server = kimi_agent::server::HttpServer::with_hub(store, hub)
         .with_engine(engine)
         .with_auth(auth)
         .with_config(config.clone())
-        .with_config_write_path(source.clone());
+        .with_config_write_path(source.clone())
+        .with_plugin_home(std::path::PathBuf::from(&cli.data_dir))
+        .with_bind_host(host)
+        .with_host_guard(kimi_agent::server::host_guard::HostGuard::new(
+            host,
+            allowed_hosts,
+        ))
+        .with_debug_endpoints(cli.debug_endpoints)
+        .with_allow_remote_shutdown(cli.allow_remote_shutdown);
 
     // `[mcp_servers]` from config.toml: the REPL connects them at startup;
     // the daemon must too, or one file behaves differently per entry point.
