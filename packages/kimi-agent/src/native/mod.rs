@@ -9,7 +9,7 @@ mod compaction;
 mod edit;
 mod encoding;
 mod escape;
-mod fetch_url;
+pub(crate) mod fetch_url;
 mod file_cache;
 pub mod file_type;
 mod glob;

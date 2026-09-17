@@ -165,25 +165,27 @@ fn fetch_url_inner(config: &FetchUrlConfig) -> Result<FetchUrlResult, String> {
 /// attacker cannot swap the address between the validation step and the
 /// actual connect (the same defence the TS fallback path in
 /// `local-fetch-url.ts` applies by connecting to the address it checked).
-struct PinnedHosts {
+pub(crate) struct PinnedHosts {
     entries: Arc<Mutex<HashMap<String, Vec<SocketAddr>>>>,
 }
 
 impl PinnedHosts {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             entries: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    fn pin(&self, host: &str, port: u16, addrs: Vec<SocketAddr>) {
+    pub(crate) fn pin(&self, host: &str, port: u16, addrs: Vec<SocketAddr>) {
         let key = format!("{host}:{port}");
         self.entries.lock().unwrap().insert(key, addrs);
     }
 
     /// The resolver handed to ureq: only hosts pinned by a prior validated
     /// resolution may ever be connected to. Any other lookup fails hard.
-    fn resolver(&self) -> impl Fn(&str) -> io::Result<Vec<SocketAddr>> + Send + Sync + 'static {
+    pub(crate) fn resolver(
+        &self,
+    ) -> impl Fn(&str) -> io::Result<Vec<SocketAddr>> + Send + Sync + 'static {
         let entries = self.entries.clone();
         move |netloc: &str| {
             let map = entries.lock().unwrap();
@@ -198,7 +200,11 @@ impl PinnedHosts {
     }
 }
 
-fn validate_url(url_str: &str, allow_private: bool, pinned: &PinnedHosts) -> Result<(), String> {
+pub(crate) fn validate_url(
+    url_str: &str,
+    allow_private: bool,
+    pinned: &PinnedHosts,
+) -> Result<(), String> {
     let parsed = Url::parse(url_str).map_err(|e| format!("Invalid URL: {e}"))?;
 
     match parsed.scheme() {
@@ -328,7 +334,7 @@ fn is_redirect(status: u16) -> bool {
     matches!(status, 301 | 302 | 303 | 307 | 308)
 }
 
-fn resolve_redirect(base_url: &str, location: &str) -> Result<String, String> {
+pub(crate) fn resolve_redirect(base_url: &str, location: &str) -> Result<String, String> {
     let base = Url::parse(base_url).map_err(|e| format!("Invalid base URL: {e}"))?;
     let resolved = base
         .join(location)

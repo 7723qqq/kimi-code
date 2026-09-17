@@ -363,7 +363,10 @@ pub async fn build_engine_pipeline(
                             spec.background.max_running_tasks,
                         );
                         toolset = toolset.with_task_runner(runner.clone());
-                        subagent_manager.set_task_runner_sync(runner.clone());
+                        // The async setter: `set_task_runner_sync` can lose the
+                        // runner to a concurrent reader, and a lost runner is
+                        // permanent for the process.
+                        subagent_manager.set_task_runner(runner.clone()).await;
                     }
                     let sandbox_policy = if let Some(ref policy) = spec.sandbox_policy {
                         Some(policy.clone())

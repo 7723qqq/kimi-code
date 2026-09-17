@@ -407,6 +407,11 @@ struct SessionContext {
 pub struct EngineSession {
     core: Arc<Mutex<Core>>,
     wakeup: Arc<Notify>,
+    /// Set by [`EngineSession::shutdown`]; the pump checks it at the top of its
+    /// loop and returns, dropping its `Arc<Mutex<Core>>` — and with it the whole
+    /// conversation. Without this the pump parked on `wakeup` forever and kept
+    /// the history alive for the life of the process.
+    shutdown: Arc<AtomicBool>,
     steer_queue: Arc<Mutex<Vec<LLMMessage>>>,
     /// Steer-queue-decorated callbacks (for event dispatch + state bridge).
     callbacks: Arc<dyn HostCallbacks>,
@@ -455,15 +460,29 @@ impl EngineSession {
             media_dropped: Default::default(),
         });
         let wakeup = Arc::new(Notify::new());
+        let shutdown = Arc::new(AtomicBool::new(false));
         let callbacks = ctx.callbacks.clone();
-        tokio::spawn(pump(core.clone(), ctx, wakeup.clone()));
+        tokio::spawn(pump(core.clone(), ctx, wakeup.clone(), shutdown.clone()));
         Self {
             core,
             wakeup,
+            shutdown,
             steer_queue,
             callbacks,
             agent_cancel_slot: config.agent_cancel_slot,
         }
+    }
+
+    /// Stop the pump task and release what it owns. The pump returns at the top
+    /// of its loop — after an in-flight turn finishes — and drops its
+    /// `Arc<Mutex<Core>>`, so the conversation history is freed with it instead
+    /// of staying alive for the life of the process. Idempotent.
+    pub fn shutdown(&self) {
+        self.shutdown.store(true, Ordering::SeqCst);
+        // The pump may be parked on the wakeup. `notify_one` stores a permit
+        // when it is not, so the next `notified()` returns immediately and the
+        // loop then sees the flag — no lost wakeup either way.
+        self.wakeup.notify_one();
     }
 
     /// Enqueue a prompt. The turn id is assigned synchronously (monotonic,
@@ -828,8 +847,18 @@ impl Drop for QuiescenceGuard {
     }
 }
 
-async fn pump(core: Arc<Mutex<Core>>, ctx: Arc<SessionContext>, wakeup: Arc<Notify>) {
+async fn pump(
+    core: Arc<Mutex<Core>>,
+    ctx: Arc<SessionContext>,
+    wakeup: Arc<Notify>,
+    shutdown: Arc<AtomicBool>,
+) {
     loop {
+        // A disposed session's pump must not outlive it: parked on `wakeup` it
+        // held `core` — the whole conversation — for the life of the process.
+        if shutdown.load(Ordering::SeqCst) {
+            return;
+        }
         // Start the next runnable turn when idle. Cancelled entries are
         // dropped (their receipts were resolved at cancel time).
         let next = {
@@ -1902,6 +1931,31 @@ mod tests {
             tokio::task::yield_now().await;
         }
         panic!("condition not met after yield loop");
+    }
+
+    /// A disposed session must not keep its pump — and through it the whole
+    /// conversation — alive for the life of the process.
+    #[tokio::test]
+    async fn shutdown_releases_the_pump_and_the_conversation() {
+        let server = Arc::new(RpcServer::new());
+        let session = make_session(
+            Arc::new(ScriptedLlm::simple(Vec::new())),
+            rpc_callbacks(server),
+        )
+        .await;
+        session.set_history(vec![msg("user", "hello")]);
+        assert!(
+            Arc::strong_count(&session.core) >= 2,
+            "the pump holds the core while the session is live"
+        );
+
+        session.shutdown();
+        wait_until(|| Arc::strong_count(&session.core) == 1).await;
+        assert_eq!(
+            session.history_len(),
+            1,
+            "history stays readable until drop"
+        );
     }
 
     /// `[background].print_background_mode` wire mapping: only `drain` /

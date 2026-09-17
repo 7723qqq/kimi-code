@@ -524,15 +524,38 @@ pub fn handle_read(work_dir: &Path, body: &Value) -> HttpResponse {
     }))
 }
 
-/// Handle `fs:search`.
-pub fn handle_search(work_dir: &Path, body: &Value) -> HttpResponse {
-    let query = body
-        .get("query")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim();
-    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
+/// Character offsets in `path` where `query` matched, as UTF-16 code-unit
+/// indices — the frame the Web UI and the VS Code mention picker highlight in
+/// (`match_positions` on the wire). Empty when the query is empty or absent.
+fn match_positions(path: &str, query: &str) -> Vec<usize> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let path_chars: Vec<char> = path.chars().collect();
+    let query_chars: Vec<char> = query.chars().collect();
+    if query_chars.len() > path_chars.len() {
+        return Vec::new();
+    }
+    let fold = |c: char| c.to_lowercase().next().unwrap_or(c);
+    let needle: Vec<char> = query_chars.iter().map(|c| fold(*c)).collect();
+    for start in 0..=(path_chars.len() - query_chars.len()) {
+        if (0..needle.len()).all(|i| fold(path_chars[start + i]) == needle[i]) {
+            let unit_start: usize = path_chars[..start].iter().map(|c| c.len_utf16()).sum();
+            let unit_len: usize = path_chars[start..start + needle.len()]
+                .iter()
+                .map(|c| c.len_utf16())
+                .sum();
+            return (unit_start..unit_start + unit_len).collect();
+        }
+    }
+    Vec::new()
+}
 
+/// Search `work_dir` for paths matching `query`, returning `(items, truncated)`.
+///
+/// Shared by the `fs:search` / `fs::suggest` HTTP routes and the `fs_suggest`
+/// napi export, so the host and the Web UI see one ranking and one match frame.
+pub fn search_files(work_dir: &Path, query: &str, limit: usize) -> (Vec<Value>, bool) {
     let mut items = Vec::new();
     if query.is_empty() {
         if let Ok(read_dir) = std::fs::read_dir(work_dir) {
@@ -545,6 +568,7 @@ pub fn handle_search(work_dir: &Path, body: &Value) -> HttpResponse {
                         "path": path,
                         "name": name,
                         "kind": kind,
+                        "match_positions": [],
                     }));
                 }
                 if items.len() >= limit {
@@ -577,11 +601,13 @@ pub fn handle_search(work_dir: &Path, body: &Value) -> HttpResponse {
                     let size = std::fs::metadata(work_dir.join(&path))
                         .map(|m| m.len())
                         .unwrap_or(0);
+                    let positions = match_positions(&path, query);
                     items.push(json!({
                         "path": path,
                         "name": name,
                         "kind": "file",
                         "size": size,
+                        "match_positions": positions,
                     }));
                     if items.len() >= limit {
                         break;
@@ -609,11 +635,13 @@ pub fn handle_search(work_dir: &Path, body: &Value) -> HttpResponse {
                             if rel.to_lowercase().contains(&q_lower) {
                                 let name = entry.file_name().to_string_lossy().to_string();
                                 let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                                let positions = match_positions(&rel, query);
                                 items.push(json!({
                                     "path": rel,
                                     "name": name,
                                     "kind": "file",
                                     "size": size,
+                                    "match_positions": positions,
                                 }));
                                 if items.len() >= limit {
                                     break;
@@ -629,9 +657,22 @@ pub fn handle_search(work_dir: &Path, body: &Value) -> HttpResponse {
         }
     }
 
+    let truncated = items.len() >= limit;
+    (items, truncated)
+}
+
+/// Handle `fs:search`.
+pub fn handle_search(work_dir: &Path, body: &Value) -> HttpResponse {
+    let query = body
+        .get("query")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(50) as usize;
+    let (items, truncated) = search_files(work_dir, query, limit);
     HttpResponse::ok(&json!({
         "items": items,
-        "truncated": items.len() >= limit,
+        "truncated": truncated,
     }))
 }
 
@@ -941,6 +982,39 @@ mod tests {
         assert_eq!(entry["kind"], "file");
         assert_eq!(entry["size"], 3);
         assert_eq!(entry["is_binary"], false);
+    }
+
+    #[test]
+    fn match_positions_frames_the_hit_in_the_path() {
+        // Offsets index the whole path, in UTF-16 code units — the frame the
+        // VS Code mention picker highlights in.
+        assert_eq!(match_positions("src/app.ts", "app"), vec![4, 5, 6]);
+        assert_eq!(match_positions("src/app.ts", "APP"), vec![4, 5, 6]);
+        assert_eq!(match_positions("src/app.ts", "zzz"), Vec::<usize>::new());
+        assert_eq!(match_positions("src/app.ts", ""), Vec::<usize>::new());
+        // A non-BMP char before the hit shifts the offsets by two units.
+        assert_eq!(match_positions("a😀b.ts", "b"), vec![3]);
+    }
+
+    #[test]
+    fn search_files_reports_items_and_truncation() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root = temp_dir.path();
+        std::fs::write(root.join("alpha.txt"), "a").unwrap();
+        std::fs::write(root.join("beta.txt"), "b").unwrap();
+
+        // No git repo here, so the walk fallback answers.
+        let (items, truncated) = search_files(root, "alpha", 50);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["path"], "alpha.txt");
+        assert_eq!(items[0]["match_positions"], json!([0, 1, 2, 3, 4]));
+        assert!(!truncated);
+
+        // The empty query lists the directory and reports the cap as truncation.
+        let (items, truncated) = search_files(root, "", 1);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["match_positions"], json!([]));
+        assert!(truncated);
     }
 
     #[test]

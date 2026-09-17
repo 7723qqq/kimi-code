@@ -699,10 +699,25 @@ worktree root the tower assigns you as your full authority scope.";
     }
 
     /// Inject or update TaskRunner synchronously if possible.
+    ///
+    /// `try_write` fails whenever any reader holds the lock, and a dropped
+    /// runner is permanent: `background_task_list` / `background_task_stop`
+    /// read it back through [`Self::get_task_runner_sync`] for the rest of the
+    /// process, so a single contended instant used to kill the `TaskList` /
+    /// `TaskStop` tools until the next pipeline build. Retry briefly, then say
+    /// so — [`Self::set_task_runner`] is the lossless path.
     pub fn set_task_runner_sync(&self, runner: Arc<crate::storage::TaskRunner>) {
-        if let Ok(mut guard) = self.task_runner.try_write() {
-            *guard = Some(runner);
+        for _ in 0..8 {
+            if let Ok(mut guard) = self.task_runner.try_write() {
+                *guard = Some(runner);
+                return;
+            }
+            std::thread::yield_now();
         }
+        tracing::warn!(
+            "task runner not attached: the subagent manager's runner lock was contended; \
+             background TaskList/TaskStop will report no runner until the next pipeline build"
+        );
     }
 
     /// Get the attached TaskRunner if present.

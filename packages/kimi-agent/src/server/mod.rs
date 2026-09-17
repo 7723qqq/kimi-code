@@ -32,9 +32,9 @@
 //!   `subscriptions`, `cascade`) is backed by the live store / hub / engine —
 //!   the scope and DI shapes are mapped from those, not a v2 DI ledger.
 //!
-//! `kimi-agent --serve` is the active `/api/v1` surface; the deprecated
-//! `packages/kap-server` remains only as the fallback for installations
-//! without the native binary.
+//! `kimi-agent --serve` is the only `/api/v1` surface: `packages/kap-server`
+//! has been retired and removed, and `--legacy-server` / `KIMI_LEGACY_SERVER=1`
+//! now fail loudly instead of falling back.
 
 pub mod activity;
 pub mod auth;
@@ -45,6 +45,7 @@ pub mod file_launch;
 pub mod files;
 pub mod fs_routes;
 pub mod fs_watch;
+pub mod host_guard;
 pub mod http;
 pub mod hub;
 pub mod interaction;
@@ -52,6 +53,7 @@ pub mod media;
 pub mod message_events;
 pub mod model_catalog;
 pub mod oauth;
+pub mod plugin_archive;
 pub mod plugins;
 pub mod prompt_queue;
 pub mod provider_refresh;
@@ -77,10 +79,21 @@ use tokio::sync::Mutex;
 use crate::cron::scheduler::{CronEntry, CronScheduler};
 use crate::server::auth::ServerAuth;
 use crate::server::engine::ServerEngine;
+use crate::server::host_guard::HostGuard;
 use crate::server::hub::EventHub;
 use crate::server::router::{HttpRequest, HttpResponse};
 use crate::session::sqlite_store::SqliteSessionStore;
 use crate::storage::task_runner::TaskRunner;
+
+/// True when `host` names this machine only.
+///
+/// `--serve` uses it to decide whether the loopback-only routes are mounted at
+/// all, and [`http::serve`] uses it to refuse an unauthenticated non-loopback
+/// bind. A wildcard bind (`0.0.0.0`, `::`) is deliberately *not* loopback: it
+/// is reachable from the network, which is the whole point of the distinction.
+pub fn is_loopback_host(host: &str) -> bool {
+    matches!(host, "127.0.0.1" | "localhost" | "::1" | "[::1]") || host.starts_with("127.")
+}
 
 pub struct HttpServer {
     store: Arc<SqliteSessionStore>,
@@ -124,6 +137,21 @@ pub struct HttpServer {
     /// Cancelled by `POST /api/v1/shutdown`; the `http::serve` accept loop
     /// selects on it so the request actually stops the server.
     shutdown: tokio_util::sync::CancellationToken,
+    /// Whether the listener is on a loopback address. An in-process server
+    /// (`HttpServer::new`, tests) is loopback by definition; `--serve` sets
+    /// this from the address it was given.
+    loopback_bind: bool,
+    /// `--debug-endpoints`: mount the `/api/v1/debug/*` reflection surface.
+    /// Off unless asked for — it is a test-introspection tool, not a product
+    /// route.
+    debug_endpoints: bool,
+    /// `--allow-remote-shutdown`: keep `POST /api/v1/shutdown` registered on a
+    /// non-loopback bind.
+    allow_remote_shutdown: bool,
+    /// The DNS-rebinding guard. `None` disables the check: an in-process server
+    /// has no bind address to compare against and no browser to rebind, and the
+    /// product entry (`--serve`) always installs one.
+    host_guard: Option<HostGuard>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -240,7 +268,63 @@ impl HttpServer {
             remote_control_state: Arc::new(Mutex::new(RemoteControlStatusWire::off())),
             remote_control_runtime: Arc::new(tokio::sync::Mutex::new(None)),
             shutdown: tokio_util::sync::CancellationToken::new(),
+            loopback_bind: true,
+            debug_endpoints: false,
+            allow_remote_shutdown: false,
+            host_guard: None,
         }
+    }
+
+    /// Record the address the listener is bound to. It decides whether the
+    /// loopback-only routes (`/api/v1/debug/*`, `POST /api/v1/shutdown`) are
+    /// mounted at all.
+    #[must_use]
+    pub fn with_bind_host(mut self, host: &str) -> Self {
+        self.loopback_bind = is_loopback_host(host);
+        self
+    }
+
+    /// Mount the `/api/v1/debug/*` reflection surface. Still gated on a
+    /// loopback bind, so this alone does not expose it on a network bind.
+    #[must_use]
+    pub fn with_debug_endpoints(mut self, enabled: bool) -> Self {
+        self.debug_endpoints = enabled;
+        self
+    }
+
+    /// Keep `POST /api/v1/shutdown` registered on a non-loopback bind.
+    #[must_use]
+    pub fn with_allow_remote_shutdown(mut self, enabled: bool) -> Self {
+        self.allow_remote_shutdown = enabled;
+        self
+    }
+
+    /// Install the DNS-rebinding guard. `--serve` always does; an in-process
+    /// server leaves it off, since it has no bind address to compare against.
+    #[must_use]
+    pub fn with_host_guard(mut self, guard: HostGuard) -> Self {
+        self.host_guard = Some(guard);
+        self
+    }
+
+    /// Whether a request's `Host` passes the DNS-rebinding guard. Always true
+    /// when no guard is installed.
+    pub fn host_allowed(&self, host: Option<&str>) -> bool {
+        self.host_guard
+            .as_ref()
+            .is_none_or(|guard| guard.allows(host))
+    }
+
+    /// `/api/v1/debug/*` is a test-introspection surface: mounted only when
+    /// asked for *and* only where the caller is already on this machine.
+    fn debug_endpoints_enabled(&self) -> bool {
+        self.debug_endpoints && self.loopback_bind
+    }
+
+    /// `POST /api/v1/shutdown` stops the accept loop, so a non-loopback bind
+    /// registers it only behind an explicit opt-in.
+    fn shutdown_enabled(&self) -> bool {
+        self.loopback_bind || self.allow_remote_shutdown
     }
 
     /// Signal the accept loop (and `--serve`) to stop. In-flight connections
@@ -378,6 +462,18 @@ impl HttpServer {
         if let Some(engine) = &self.engine {
             engine.set_mcp_manager(manager);
         }
+        self
+    }
+
+    /// Point the plugin registry at the Kimi home, so a remote plugin has
+    /// somewhere to be installed (`<home>/plugins/<id>`).
+    #[must_use]
+    pub fn with_plugin_home(mut self, home: PathBuf) -> Self {
+        self.plugin_manager = Arc::new(
+            plugins::PluginManager::new(self.store.clone())
+                .with_marketplace_dir(plugins::default_marketplace_dir())
+                .with_home_dir(Some(home)),
+        );
         self
     }
 
@@ -1407,6 +1503,13 @@ impl HttpServer {
         let path = req.path.trim_end_matches('/');
         let method = req.method.to_uppercase();
 
+        // Before the credential: the guard is about *where* the request came
+        // from, not who sent it. A rebinding page carries no token of its own,
+        // so answering 401 first would only tell it the port is live.
+        if !self.host_allowed(req.header("host")) {
+            return HttpResponse::forbidden(host_guard::rejection_message(req.header("host")));
+        }
+
         // The one REST authority: health and the schema documents answer
         // unauthenticated, matching kap-server, and everything that can read or
         // mutate state does not.
@@ -1425,8 +1528,11 @@ impl HttpServer {
             return static_files::serve_static_file(assets_dir, &req.path);
         }
 
-        // Debug RPC and reflection surface for kimi-inspect
-        if path.starts_with("/api/v1/debug")
+        // Debug RPC and reflection surface for kimi-inspect. Not mounted by
+        // default: it reflects the server's internals, so it is a test tool
+        // that has to be asked for, and only on a loopback bind.
+        if self.debug_endpoints_enabled()
+            && path.starts_with("/api/v1/debug")
             && let Some(resp) = debug::handle_debug_route(self, req).await
         {
             return resp;
@@ -1585,7 +1691,9 @@ impl HttpServer {
                     .collect();
                 HttpResponse::ok(&json!({ "connections": connections }))
             }
-            ("POST", "/api/v1/shutdown") => {
+            // Unregistered (so a 404) on a non-loopback bind unless the server
+            // was started with `--allow-remote-shutdown`.
+            ("POST", "/api/v1/shutdown") if self.shutdown_enabled() => {
                 self.request_shutdown();
                 HttpResponse::ok(&json!({
                     "status": "shutting_down",
@@ -2791,22 +2899,25 @@ impl HttpServer {
                 let Some(id) = id else {
                     return HttpResponse::bad_request("Missing plugin id");
                 };
-                // Install through the catalog: an unknown id is a 404, and the
-                // recorded version comes from the catalog (or the existing
-                // record), never from a hardcoded literal.
-                match self.plugin_manager.install_plugin(id) {
-                    Ok(Some(info)) => HttpResponse::ok(&json!({
+                // Install from a catalog id, a catalog `source`, a local root,
+                // or a remote archive URL. A remote source is downloaded here,
+                // so the recorded install has content behind it; an unknown id
+                // is a 404, and the recorded version comes from the catalog or
+                // the archive's own manifest, never from a hardcoded literal.
+                match self.plugin_manager.install_plugin_from(id) {
+                    Ok(Some((id, info))) => HttpResponse::ok(&json!({
                         "id": id,
                         "enabled": info.enabled,
                         "version": info.version,
                         "installed": true
                     })),
                     Ok(None) => HttpResponse::not_found(),
-                    Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
+                    Err(e) => HttpResponse::bad_request(e),
                 }
             }
             ("GET", "/api/v1/skills") => {
-                let extra = self.config().await.extra_skill_dirs_paths();
+                let mut extra = self.config().await.extra_skill_dirs_paths();
+                extra.extend(self.plugin_manager.plugin_skill_dirs());
                 let skills = crate::skills::scan_all_skills_with_extra(None, &extra);
                 HttpResponse::ok(&json!({ "skills": skills }))
             }
@@ -3043,7 +3154,8 @@ impl HttpServer {
                     Err(e) => return HttpResponse::internal_error(format!("Database error: {e}")),
                 };
                 let root_path = std::path::PathBuf::from(&ws.root);
-                let extra = self.config().await.extra_skill_dirs_paths();
+                let mut extra = self.config().await.extra_skill_dirs_paths();
+                extra.extend(self.plugin_manager.plugin_skill_dirs());
                 let skills = crate::skills::scan_all_skills_with_extra(Some(&root_path), &extra);
                 HttpResponse::ok(&json!({ "skills": skills }))
             }
@@ -4282,7 +4394,8 @@ impl HttpServer {
                 } else {
                     None
                 };
-                let extra = self.config().await.extra_skill_dirs_paths();
+                let mut extra = self.config().await.extra_skill_dirs_paths();
+                extra.extend(self.plugin_manager.plugin_skill_dirs());
                 let skills = crate::skills::scan_all_skills_with_extra(ws_root.as_deref(), &extra);
                 HttpResponse::ok(&json!({
                     "sessionId": session_id,
@@ -4317,7 +4430,8 @@ impl HttpServer {
                 } else {
                     None
                 };
-                let extra = self.config().await.extra_skill_dirs_paths();
+                let mut extra = self.config().await.extra_skill_dirs_paths();
+                extra.extend(self.plugin_manager.plugin_skill_dirs());
                 let skills = crate::skills::scan_all_skills_with_extra(ws_root.as_deref(), &extra);
                 if !skills.iter().any(|s| s.name == skill_name) {
                     return HttpResponse::json(
@@ -6468,6 +6582,135 @@ mod tests {
             token.is_cancelled(),
             "POST /shutdown must stop the accept loop"
         );
+    }
+
+    #[test]
+    fn loopback_hosts_are_recognized_and_wildcards_are_not() {
+        for host in ["127.0.0.1", "127.0.0.53", "localhost", "::1", "[::1]"] {
+            assert!(is_loopback_host(host), "{host} is loopback");
+        }
+        for host in ["0.0.0.0", "::", "192.168.1.5", "kimi.internal", ""] {
+            assert!(!is_loopback_host(host), "{host} is not loopback");
+        }
+    }
+
+    #[tokio::test]
+    async fn debug_routes_need_the_flag_and_a_loopback_bind() {
+        let request = || HttpRequest {
+            method: "GET".into(),
+            path: "/api/v1/debug/channels".into(),
+            query: None,
+            headers: HashMap::new(),
+            body: Vec::new(),
+        };
+
+        // Off by default: the reflection surface is not a product route.
+        let off = HttpServer::in_memory().unwrap();
+        assert_eq!(off.handle_request(&request()).await.status, 404);
+
+        // Asked for, on loopback: mounted.
+        let on = HttpServer::in_memory().unwrap().with_debug_endpoints(true);
+        assert_eq!(on.handle_request(&request()).await.status, 200);
+
+        // Asked for, but reachable from the network: still not mounted.
+        let remote = HttpServer::in_memory()
+            .unwrap()
+            .with_debug_endpoints(true)
+            .with_bind_host("0.0.0.0");
+        assert_eq!(remote.handle_request(&request()).await.status, 404);
+    }
+
+    #[tokio::test]
+    async fn shutdown_is_unregistered_on_a_non_loopback_bind() {
+        let request = || HttpRequest {
+            method: "POST".into(),
+            path: "/api/v1/shutdown".into(),
+            query: None,
+            headers: HashMap::new(),
+            body: Vec::new(),
+        };
+
+        let remote = HttpServer::in_memory().unwrap().with_bind_host("0.0.0.0");
+        let token = remote.shutdown_token();
+        assert_eq!(remote.handle_request(&request()).await.status, 404);
+        assert!(!token.is_cancelled(), "a 404 must not stop the server");
+
+        let opted_in = HttpServer::in_memory()
+            .unwrap()
+            .with_bind_host("0.0.0.0")
+            .with_allow_remote_shutdown(true);
+        let token = opted_in.shutdown_token();
+        assert_eq!(opted_in.handle_request(&request()).await.status, 200);
+        assert!(token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn a_host_outside_the_allowlist_is_refused_before_the_credential() {
+        let server = HttpServer::in_memory()
+            .unwrap()
+            .with_host_guard(HostGuard::new(
+                "127.0.0.1",
+                vec!["kimi.example".to_string()],
+            ));
+
+        let with_host = |host: Option<&str>| {
+            let mut headers = HashMap::new();
+            if let Some(host) = host {
+                headers.insert("host".to_string(), host.to_string());
+            }
+            HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/health".into(),
+                query: None,
+                headers,
+                body: Vec::new(),
+            }
+        };
+
+        // `/health` answers unauthenticated, so a 403 here can only come from
+        // the host guard.
+        assert_eq!(
+            server
+                .handle_request(&with_host(Some("127.0.0.1:58627")))
+                .await
+                .status,
+            200
+        );
+        assert_eq!(
+            server
+                .handle_request(&with_host(Some("kimi.example")))
+                .await
+                .status,
+            200
+        );
+
+        let refused = server
+            .handle_request(&with_host(Some("evil.example")))
+            .await;
+        assert_eq!(refused.status, 403);
+        let body = String::from_utf8_lossy(&refused.body);
+        assert!(body.contains("--allowed-host"), "{body}");
+        assert!(body.contains("KIMI_CODE_ALLOWED_HOSTS"), "{body}");
+
+        // A missing `Host` is refused too: HTTP/1.1 requires it.
+        assert_eq!(server.handle_request(&with_host(None)).await.status, 403);
+    }
+
+    #[tokio::test]
+    async fn an_in_process_server_without_a_guard_ignores_the_host_header() {
+        let server = HttpServer::in_memory().unwrap();
+        let mut headers = HashMap::new();
+        headers.insert("host".to_string(), "evil.example".to_string());
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v1/health".into(),
+                query: None,
+                headers,
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res.status, 200);
     }
 
     #[tokio::test]
@@ -9452,6 +9695,44 @@ max_context_size = 128000
         assert!(
             val_new["result"]["sessionId"].is_string(),
             "session/new must create a session: {val_new}"
+        );
+    }
+
+    /// `POST /api/v1/plugins` must reach the download path for a remote source,
+    /// not merely record a catalog row: a URL install that cannot be fetched has
+    /// to fail loudly instead of reporting `installed: true` with nothing behind
+    /// it. The loopback URL is refused by the SSRF guard before any connection.
+    #[tokio::test]
+    async fn test_http_plugin_install_from_a_url_downloads() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let home = tempfile::tempdir().unwrap();
+        let server = HttpServer::new(store.clone()).with_plugin_home(home.path().to_path_buf());
+
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/plugins".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "id": "http://127.0.0.1:9/plugin.zip" }))
+                    .unwrap(),
+            })
+            .await;
+        assert_eq!(
+            res.status, 400,
+            "a refused download is not a successful install"
+        );
+        let val: Value = serde_json::from_slice(&res.body).unwrap();
+        assert!(
+            val["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("private"),
+            "the SSRF guard must be the refusal: {val}"
+        );
+        assert!(
+            !home.path().join("plugins").exists(),
+            "a refused download must leave no managed copy"
         );
     }
 

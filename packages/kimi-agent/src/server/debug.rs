@@ -952,7 +952,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_debug_surface_endpoints() {
-        let server = HttpServer::in_memory().unwrap();
+        let server = HttpServer::in_memory().unwrap().with_debug_endpoints(true);
 
         // 1. GET /api/v1/debug/channels
         let res_channels = server
@@ -1038,7 +1038,7 @@ mod tests {
     /// direction silently breaks the inspector's panels, so this is the gate.
     #[tokio::test]
     async fn debug_channel_descriptor_matches_dispatch() {
-        let server = HttpServer::in_memory().unwrap();
+        let server = HttpServer::in_memory().unwrap().with_debug_endpoints(true);
         let channels = describe_all_channels();
         let mut advertised: Vec<(String, String)> = Vec::new();
         for service in channels.as_array().unwrap() {
@@ -1110,7 +1110,7 @@ mod tests {
     /// and a live WS connection bumps `globalListeners`.
     #[tokio::test]
     async fn debug_event_subscriptions_reflect_live_hub() {
-        let server = HttpServer::in_memory().unwrap();
+        let server = HttpServer::in_memory().unwrap().with_debug_endpoints(true);
         let _bus_sub = server.hub().bus_for("sess-live").subscribe(|_| {});
         let _conn = server.hub().attach();
 
@@ -1139,7 +1139,7 @@ mod tests {
     /// the registered services and a created session appears as a child node.
     #[tokio::test]
     async fn debug_ledger_tree_reflects_live_scopes() {
-        let server = HttpServer::in_memory().unwrap();
+        let server = HttpServer::in_memory().unwrap().with_debug_endpoints(true);
         server
             .store()
             .create_session("sess-tree", Some("Tree session"))
@@ -1170,7 +1170,7 @@ mod tests {
     /// and `pending` reports a live waiting question.
     #[tokio::test]
     async fn debug_cascade_history_and_pending_are_real() {
-        let server = HttpServer::in_memory().unwrap();
+        let server = HttpServer::in_memory().unwrap().with_debug_endpoints(true);
         server.store().create_session("sess-cas", None).unwrap();
         server.interaction_manager().register_question(
             "sess-cas",
@@ -1228,7 +1228,7 @@ mod tests {
 
     #[tokio::test]
     async fn debug_inspect_and_catalog_reflect_configured_values() {
-        let server = HttpServer::in_memory().unwrap();
+        let server = HttpServer::in_memory().unwrap().with_debug_endpoints(true);
         let mut config = crate::config::KimiConfig::default();
         config.thinking.effort = Some("high".into());
         config.providers.insert(
@@ -1352,7 +1352,7 @@ mod tests {
     /// resumed while refusing an unknown one.
     #[tokio::test]
     async fn debug_model_records_and_session_resume_are_real() {
-        let server = HttpServer::in_memory().unwrap();
+        let server = HttpServer::in_memory().unwrap().with_debug_endpoints(true);
         let config: crate::config::KimiConfig = r#"
 default_provider = "acme"
 
@@ -1418,7 +1418,7 @@ model = "gpt-y"
     /// reachable provider.
     #[tokio::test]
     async fn debug_model_ping_never_fakes_a_pong() {
-        let no_engine = HttpServer::in_memory().unwrap();
+        let no_engine = HttpServer::in_memory().unwrap().with_debug_endpoints(true);
         let res = post(
             &no_engine,
             "/api/v1/debug/modelCatalog/ping",
@@ -1434,7 +1434,8 @@ model = "gpt-y"
         let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
         let hub = Arc::new(crate::server::hub::EventHub::new());
         let server = HttpServer::with_hub(store.clone(), hub.clone())
-            .with_engine(engine_without_a_model(store, hub));
+            .with_engine(engine_without_a_model(store, hub))
+            .with_debug_endpoints(true);
         let res = post(
             &server,
             "/api/v1/debug/modelCatalog/ping",
@@ -1455,7 +1456,7 @@ model = "gpt-y"
     async fn test_debug_inspect_snapshots_and_unknown_404() {
         let temp_dir = tempfile::tempdir().unwrap();
         let root = temp_dir.path().to_string_lossy().to_string();
-        let server = HttpServer::in_memory().unwrap();
+        let server = HttpServer::in_memory().unwrap().with_debug_endpoints(true);
 
         let ws = server
             .store()
