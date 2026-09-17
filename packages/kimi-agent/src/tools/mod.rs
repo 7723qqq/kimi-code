@@ -87,6 +87,49 @@ const BASH_TASK_MAX_SECONDS: u64 = 86_400;
 /// per interval; intervening chunks are dropped from the UI stream only —
 /// the final result always carries the full output).
 const PROGRESS_MIN_INTERVAL_MS: u64 = 50;
+
+/// Per-stream progress gate. The interval is tracked per stream and the first
+/// chunk of a stream always passes: with one shared gate, whichever stream
+/// wrote first consumed the whole window, so a banner on stderr arriving just
+/// ahead of the command's real stdout swallowed that output from the live
+/// stream completely.
+struct ProgressThrottle {
+    stdout: std::sync::Mutex<Option<std::time::Instant>>,
+    stderr: std::sync::Mutex<Option<std::time::Instant>>,
+}
+
+impl ProgressThrottle {
+    fn new() -> Self {
+        Self {
+            stdout: std::sync::Mutex::new(None),
+            stderr: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// Whether a chunk on `kind` may be forwarded now, arming the stream's
+    /// window when it says yes.
+    fn admit(&self, kind: &str) -> bool {
+        let slot = match kind {
+            "stderr" => &self.stderr,
+            _ => &self.stdout,
+        };
+        let now = std::time::Instant::now();
+        let Ok(mut last) = slot.lock() else {
+            return false;
+        };
+        match *last {
+            Some(previous)
+                if now.duration_since(previous).as_millis() < PROGRESS_MIN_INTERVAL_MS as u128 =>
+            {
+                false
+            }
+            _ => {
+                *last = Some(now);
+                true
+            }
+        }
+    }
+}
 /// Cap on captured Bash output (matches the JS tool's truncation scale).
 const BASH_MAX_OUTPUT_BYTES: usize = 256 * 1024;
 
@@ -2645,15 +2688,9 @@ impl NativeToolset {
                     // Stream output and report it as `event.task.progress`, so
                     // the Web task card updates live instead of only at settle.
                     // Throttled the same way foreground Bash is.
-                    let last_emit = std::sync::Mutex::new(
-                        std::time::Instant::now() - Duration::from_millis(PROGRESS_MIN_INTERVAL_MS),
-                    );
+                    let last_emit = ProgressThrottle::new();
                     let emit = |stream: &str, chunk: &[u8]| {
-                        let Ok(mut last) = last_emit.lock() else {
-                            return;
-                        };
-                        if last.elapsed().as_millis() >= PROGRESS_MIN_INTERVAL_MS as u128 {
-                            *last = std::time::Instant::now();
+                        if last_emit.admit(stream) {
                             progress_runner.emit_progress(
                                 &progress_task_id,
                                 &String::from_utf8_lossy(chunk),
@@ -2785,18 +2822,12 @@ impl NativeToolset {
         // as a killed command — never fall back to the host, which would
         // re-execute it.
         use tokio::io::AsyncReadExt;
-        let last_emit = std::sync::Mutex::new(
-            std::time::Instant::now() - Duration::from_millis(PROGRESS_MIN_INTERVAL_MS),
-        );
+        let throttle = ProgressThrottle::new();
         let emit = |kind: &str, text: &str| {
-            let Ok(mut last) = last_emit.lock() else {
-                return;
-            };
-            if last.elapsed().as_millis() >= PROGRESS_MIN_INTERVAL_MS as u128 {
-                *last = std::time::Instant::now();
-                if let Some(cb) = on_update {
-                    cb(kind, text);
-                }
+            if throttle.admit(kind)
+                && let Some(cb) = on_update
+            {
+                cb(kind, text);
             }
         };
         let waited = tokio::time::timeout(timeout, async {
@@ -3858,15 +3889,30 @@ mod tests {
     /// Locate a bash for native-Bash tests; `None` skips them (Windows CI
     /// without Git Bash on PATH keeps the host fallback contract anyway).
     fn find_bash() -> Option<String> {
-        for candidate in ["bash", "C:\\Program Files\\Git\\bin\\bash.exe"] {
-            let ok = std::process::Command::new(candidate)
+        // `KIMI_SHELL_PATH` first (the documented pin), then the usual
+        // locations. The probe runs a command and checks the *output*, not just
+        // the exit status: on Windows the WSL launcher
+        // (`…\WindowsApps\bash.exe`) sits ahead of MSYS2 on PATH, exits 0, and
+        // then answers in UTF-16 with a proxy warning instead of the command's
+        // stdout — which silently broke the streaming assertions below.
+        let candidates = [
+            std::env::var("KIMI_SHELL_PATH").ok(),
+            Some("bash".to_string()),
+            Some("C:\\Program Files\\Git\\bin\\bash.exe".to_string()),
+            Some("C:\\msys64\\usr\\bin\\bash.exe".to_string()),
+        ];
+        for candidate in candidates.into_iter().flatten() {
+            let ok = std::process::Command::new(&candidate)
                 .arg("-c")
-                .arg("exit 0")
+                .arg("echo kimi-bash-probe")
                 .output()
-                .map(|o| o.status.success())
+                .map(|out| {
+                    out.status.success()
+                        && String::from_utf8_lossy(&out.stdout).contains("kimi-bash-probe")
+                })
                 .unwrap_or(false);
             if ok {
-                return Some(candidate.to_string());
+                return Some(candidate);
             }
         }
         None
@@ -5429,6 +5475,30 @@ m2
                 .any(|(kind, text)| kind == "stdout" && text.contains("hello-stream")),
             "at least one stdout chunk carries the output: {seen:?}"
         );
+    }
+
+    #[test]
+    fn progress_throttle_admits_the_first_chunk_of_each_stream() {
+        let throttle = ProgressThrottle::new();
+        // A stderr banner landing first must not consume stdout's window: the
+        // shared-gate version dropped the command's real output from the live
+        // stream entirely (regression: bash_streams_output_chunks...).
+        assert!(throttle.admit("stderr"), "first stderr chunk is admitted");
+        assert!(throttle.admit("stdout"), "first stdout chunk is admitted");
+        assert!(!throttle.admit("stderr"), "stderr is now inside its window");
+        assert!(!throttle.admit("stdout"), "stdout is inside its own window");
+    }
+
+    #[test]
+    fn progress_throttle_reopens_each_stream_after_the_interval() {
+        let throttle = ProgressThrottle::new();
+        assert!(throttle.admit("stdout"));
+        std::thread::sleep(Duration::from_millis(PROGRESS_MIN_INTERVAL_MS + 10));
+        assert!(
+            throttle.admit("stdout"),
+            "window reopens after the interval"
+        );
+        assert!(throttle.admit("stderr"), "stderr keeps its own window");
     }
 
     #[tokio::test]
