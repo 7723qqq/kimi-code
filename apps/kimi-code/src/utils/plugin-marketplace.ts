@@ -1,11 +1,11 @@
 /**
  * `#/utils/plugin-marketplace` — CLI-side wrapper over the shared plugin
- * marketplace client/parser (`@moonshot-ai/agent-core-v2`,
- * `app/plugin/marketplace`). The shared module owns catalog reading, the
- * lenient entry normalization, source resolution, and version derivation;
- * this wrapper adds only the CLI's configured-source resolution (option →
- * env → production default), the source-checkout fallback for offline dev,
- * and the caller-supplied built-in capability entry injection.
+ * marketplace client/parser (`@moonshot-ai/kimi-code-sdk`). The shared module
+ * owns catalog reading, the lenient entry normalization, source resolution,
+ * and version derivation; this wrapper adds only the CLI's configured-source
+ * resolution (option → env → production default), the source-checkout
+ * fallback for offline dev, and the caller-supplied built-in capability entry
+ * injection.
  */
 
 import { stat } from 'node:fs/promises';

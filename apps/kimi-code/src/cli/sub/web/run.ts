@@ -3,9 +3,7 @@
  *
  * The server always runs in the current process, attached to the terminal,
  * and shuts down cleanly on SIGINT/SIGTERM. `--no-open` skips the browser.
- * Multiple instances can share the home directory: each registers itself in
- * the instance registry and takes the next free port (see kap-server's
- * `startServer`).
+ * The bind address comes from `--host` / `--port` (default 58627).
  */
 
 import { existsSync } from 'node:fs';
@@ -164,7 +162,6 @@ export function buildWebCommand(
       '--allowed-host <host...>',
       'Extra Host header value to allow through the DNS-rebinding check. Repeat or comma-separate; a leading dot matches a domain suffix (e.g. .example.com).',
     )
-    .option('--insecure-no-tls', t('cli.optionDescriptions.serverRunOptionInsecureNoTls'), true)
     .option(
       '--allow-remote-shutdown',
       'On a non-loopback bind, keep POST /api/v1/shutdown enabled (default: route is disabled → 404).',
@@ -335,12 +332,12 @@ export async function startServerForeground(
 }
 
 /**
- * Resolve the web assets directory passed to kap-server. In dev mode
- * (`KIMI_CODE_DEV_SERVER=1`, set by the repo's `dev:server` / `dev:kap-server*`
- * scripts) a missing `dist-web` build is tolerated: the server starts API-only
- * and the web UI is expected to come from a Vite dev server (the web UI source lives in the code-app repo).
- * Outside dev mode the directory is always returned and kap-server keeps
- * failing fast when the assets are missing.
+ * Resolve the web assets directory passed to the native server. In dev mode
+ * (`KIMI_CODE_DEV_SERVER=1`, set by the repo's `dev:server` script) a missing
+ * `dist-web` build is tolerated: the server starts API-only and the web UI is
+ * expected to come from a Vite dev server (the web UI source lives in the
+ * code-app repo). Outside dev mode the directory is always returned and the
+ * native server keeps failing fast when the assets are missing.
  */
 export function serverWebAssetsDir(
   env: NodeJS.ProcessEnv = process.env,

@@ -145,6 +145,7 @@ function makeDeps(
       exitCodes.push(code);
       throw new ExitCalled(code);
     }) as ProviderDeps['exit'],
+    readStdin: () => Promise.resolve(''),
     ...overrides,
   };
   return { deps, stdout, stderr, exitCodes };
@@ -391,6 +392,42 @@ describe('kimi provider add', () => {
     );
   });
 
+  it('reads the api key from KIMI_PROVIDER_API_KEY when --api-key is omitted', async () => {
+    const fetchMock = mockRegistryFetch();
+    const { harness } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, exitCodes } = makeDeps(harness, {
+      env: { KIMI_PROVIDER_API_KEY: 'sk-provider-env' },
+    });
+
+    await tryRun(() => handleProviderAdd(deps, REGISTRY_URL, {}));
+
+    expect(exitCodes).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      REGISTRY_URL,
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer sk-provider-env' }),
+      }),
+    );
+  });
+
+  it('reads the api key from stdin when --api-key is "-"', async () => {
+    const fetchMock = mockRegistryFetch();
+    const { harness } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, exitCodes } = makeDeps(harness, {
+      readStdin: () => Promise.resolve('sk-from-stdin\n'),
+    });
+
+    await tryRun(() => handleProviderAdd(deps, REGISTRY_URL, { apiKey: '-' }));
+
+    expect(exitCodes).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      REGISTRY_URL,
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer sk-from-stdin' }),
+      }),
+    );
+  });
+
   it('exits 1 with a clear message when no api key is supplied anywhere', async () => {
     const fetchMock = mockRegistryFetch();
     const { harness } = makeHarness({ providers: {} } as KimiConfig);
@@ -563,6 +600,31 @@ describe('registerProviderCommand', () => {
     );
     expect(Object.keys(current().providers).toSorted()).toEqual(['kohub', 'kohub-responses']);
     expect(stdout.join('')).toContain('Imported 2 providers');
+  });
+
+  it('accepts "--api-key -" and reads the key from stdin', async () => {
+    const fetchMock = mockRegistryFetch();
+    const { harness } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, exitCodes } = makeDeps(harness, {
+      readStdin: () => Promise.resolve('sk-stdin-cli\n'),
+    });
+
+    const program = new Command('kimi');
+    registerProviderCommand(program, deps);
+
+    await tryRun(() =>
+      program.parseAsync(['node', 'kimi', 'provider', 'add', REGISTRY_URL, '--api-key', '-'], {
+        from: 'node',
+      }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      REGISTRY_URL,
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer sk-stdin-cli' }),
+      }),
+    );
   });
 
   it('reports write failures on stderr and exits 1 instead of crashing', async () => {

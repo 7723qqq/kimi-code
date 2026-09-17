@@ -98,7 +98,6 @@ describe('kimi web', () => {
     expect(longs).toContain('--port');
     expect(longs).toContain('--host');
     expect(longs).toContain('--allowed-host');
-    expect(longs).toContain('--insecure-no-tls');
     expect(longs).toContain('--allow-remote-shutdown');
     expect(longs).toContain('--dangerous-bypass-auth');
     expect(longs).toContain('--log-level');
@@ -523,7 +522,6 @@ describe('`kimi web` option threading', () => {
       {
         port: '59000',
         host: '0.0.0.0',
-        insecureNoTls: true,
         allowedHost: ['.example.com'],
         dangerousBypassAuth: true,
         debugEndpoints: true,
@@ -538,14 +536,13 @@ describe('`kimi web` option threading', () => {
       port: 59000,
       logLevel: 'silent',
       debugEndpoints: true,
-      insecureNoTls: true,
       allowRemoteShutdown: true,
       dangerousBypassAuth: true,
       allowedHosts: ['.example.com'],
     });
   });
 
-  it('defaults the host to 127.0.0.1 and insecureNoTls to true', async () => {
+  it('defaults the host to 127.0.0.1', async () => {
     const { handleWebCommand } = await import('#/cli/sub/web/run');
     const { runner, calls } = makeRunner();
     const { stdout, stderr } = makeIo();
@@ -557,7 +554,6 @@ describe('`kimi web` option threading', () => {
 
     expect(calls.options).toMatchObject({
       host: '127.0.0.1',
-      insecureNoTls: true,
       logLevel: 'silent',
     });
   });
@@ -572,7 +568,7 @@ describe('`kimi web` option threading', () => {
       { startServerForeground: runner, openUrl: vi.fn(), stdout, stderr },
     );
 
-    expect(calls.options).toMatchObject({ host: '0.0.0.0', insecureNoTls: true });
+    expect(calls.options).toMatchObject({ host: '0.0.0.0' });
   });
 
   it('passes --log-level through to the runner', async () => {

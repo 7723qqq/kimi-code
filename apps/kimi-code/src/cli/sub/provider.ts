@@ -36,6 +36,7 @@ import type { Command } from 'commander';
 import { createKimiCodeHostIdentity, createKimiCodeUserAgent } from '#/cli/version';
 import { t } from '#/i18n';
 import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
+import { readStdinText } from '#/utils/process/stdin';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -47,6 +48,7 @@ export interface ProviderDeps {
   readonly stderr: WritableLike;
   readonly env: NodeJS.ProcessEnv;
   readonly exit: (code: number) => never;
+  readonly readStdin: () => Promise<string>;
 }
 
 interface AddOptions {
@@ -75,9 +77,9 @@ export async function handleProviderAdd(
   url: string,
   opts: AddOptions,
 ): Promise<void> {
-  const apiKey = resolveApiKey(opts.apiKey, deps.env);
+  const apiKey = await resolveApiKey(opts.apiKey, deps);
   if (apiKey === undefined) {
-    deps.stderr.write('Missing API key. Pass --api-key <key> or set KIMI_REGISTRY_API_KEY.\n');
+    deps.stderr.write(t('tui.statusMessages.providerApiKeyMissing') + '\n');
     deps.exit(1);
   }
 
@@ -309,9 +311,9 @@ export async function handleCatalogAdd(
   providerId: string,
   opts: CatalogAddOptions,
 ): Promise<void> {
-  const apiKey = resolveApiKey(opts.apiKey, deps.env);
+  const apiKey = await resolveApiKey(opts.apiKey, deps);
   if (apiKey === undefined) {
-    deps.stderr.write('Missing API key. Pass --api-key <key> or set KIMI_REGISTRY_API_KEY.\n');
+    deps.stderr.write(t('tui.statusMessages.providerApiKeyMissing') + '\n');
     deps.exit(1);
   }
 
@@ -591,6 +593,7 @@ function resolveDeps(overrides: Partial<ProviderDeps> = {}): ResolvedProviderDep
     stderr: overrides.stderr ?? process.stderr,
     env: overrides.env ?? process.env,
     exit: overrides.exit ?? ((code: number) => process.exit(code)),
+    readStdin: overrides.readStdin ?? readStdinText,
     // The v2 harness boots an engine whose watchers hold the event loop open;
     // close it so a one-shot command can exit. No-op for injected harnesses.
     close: async () => {
@@ -599,10 +602,25 @@ function resolveDeps(overrides: Partial<ProviderDeps> = {}): ResolvedProviderDep
   };
 }
 
-function resolveApiKey(flag: string | undefined, env: NodeJS.ProcessEnv): string | undefined {
+/**
+ * Resolve the API key without requiring it as an argv value, which any other
+ * local user can read off the process list (`ps`, Task Manager). `--api-key -`
+ * reads it from stdin; otherwise `KIMI_PROVIDER_API_KEY` (or the older
+ * `KIMI_REGISTRY_API_KEY`) supplies it from the environment.
+ */
+async function resolveApiKey(
+  flag: string | undefined,
+  deps: ProviderDeps,
+): Promise<string | undefined> {
+  if (flag === '-') {
+    const fromStdin = (await deps.readStdin()).trim();
+    return fromStdin.length > 0 ? fromStdin : undefined;
+  }
   if (typeof flag === 'string' && flag.length > 0) return flag;
-  const fromEnv = env['KIMI_REGISTRY_API_KEY'];
+  const fromEnv = deps.env['KIMI_PROVIDER_API_KEY'];
   if (typeof fromEnv === 'string' && fromEnv.length > 0) return fromEnv;
+  const legacyEnv = deps.env['KIMI_REGISTRY_API_KEY'];
+  if (typeof legacyEnv === 'string' && legacyEnv.length > 0) return legacyEnv;
   return undefined;
 }
 

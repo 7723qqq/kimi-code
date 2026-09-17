@@ -11,6 +11,7 @@ import {
   type GoogleGeminiModelDef,
 } from './google-models';
 import type { ManagedKimiConfigShape, ManagedKimiModelAlias } from './managed-kimi-code';
+import { redactString } from './redact';
 import { FileTokenStorage, type TokenStorage } from './storage';
 import type { TokenInfo } from './types';
 
@@ -163,7 +164,7 @@ export class GoogleOAuthManager {
         await this.saveToken(refreshed);
         return refreshed.accessToken;
       } catch (error) {
-        console.warn(`[google-oauth] Token refresh failed: ${errorText(error)}`);
+        console.warn(`[google-oauth] Token refresh failed: ${redactString(errorText(error))}`);
         try {
           // Refresh failed (e.g. imported client token). Try re-reading Antigravity credentials
           const synced = await this.importAntigravityCredentials();
@@ -183,7 +184,7 @@ export class GoogleOAuthManager {
           );
         }
         throw new OAuthUnauthorizedError(
-          `Google (Gemini) access token refresh failed (${errorText(error)}); run /login to re-authenticate.`,
+          `Google (Gemini) access token refresh failed (${redactString(errorText(error))}); run /login to re-authenticate.`,
         );
       }
     }

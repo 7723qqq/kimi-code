@@ -760,6 +760,29 @@ export class KimiTUI {
     }
     void this.refreshSkillCommands(this.session);
     void this.refreshPluginCommands(this.session);
+    this.prewarmSessionInBackground();
+  }
+
+  /**
+   * Assemble the lazy session in the background so the first message does not
+   * pay for it. The engine connects MCP servers at `createSession` time, and a
+   * stdio server that boots a language runtime costs seconds before it answers
+   * `initialize`; doing it here overlaps that with the user reading the banner
+   * and typing.
+   *
+   * `ensureSession` shares one in-flight promise, so a message sent while this
+   * runs joins it instead of creating a second session. Skipped when a session
+   * already exists (resume) or no model is bound yet (login required) — the
+   * first message reports that failure through the normal path.
+   */
+  private prewarmSessionInBackground(): void {
+    if (this.session !== undefined) return;
+    if (this.state.appState.model.trim().length === 0) return;
+    void this.ensureSession().catch((error) => {
+      // Best-effort: the first message retries through the same path and
+      // reports the failure there.
+      log.warn('session pre-warm failed', { error: String(error) });
+    });
   }
 
   private async showSessionWarnings(session: Session): Promise<void> {
@@ -2544,7 +2567,7 @@ export class KimiTUI {
   }
 
   /**
-   * agent-core-v2 startup gate: before any session is created, ask whether to
+   * Workspace-trust startup gate: before any session is created, ask whether to
    * trust this folder when the workspace is not trusted yet (project-level MCP
    * servers stay disabled while untrusted). Best-effort throughout — a failed
    * check or trust write never blocks startup. Choosing "don't trust" (or Esc)

@@ -1,22 +1,13 @@
 /**
  * `kimi acp` sub-command.
  *
- * Starts the Agent Client Protocol (ACP) server backed directly by the
- * DI × Scope agent engine (`agent-core-v2`) over stdio, so ACP-compatible
- * clients can drive a kimi-code session.
+ * Spawns the native `kimi-agent-cli --acp` process, which implements the Agent
+ * Client Protocol (ACP) server over stdio in Rust (`packages/kimi-agent/src/acp/`),
+ * so ACP-compatible clients can drive a kimi-code session. The TypeScript side
+ * only locates the binary and hands it the terminal.
  *
- * Wire-up:
- *  - `--login` pivots into the shared device-code login flow (the entry point
- *    ACP clients hit via the first-class `AuthMethodTerminal` path, re-invoking
- *    the agent binary with the advertised `args:['--login']`).
- *  - `KIMI_CODE_HOME` (if set) is forwarded into `authMethods[0].env` so the
- *    login subprocess writes its token under the same data root the server
- *    reads from, and `process.argv[1]` is advertised as the legacy
- *    `_meta['terminal-auth'].command` fallback.
- *
- * `@moonshot-ai/acp-server` (and its `agent-core-v2` engine) is loaded via a
- * lazy dynamic import so parsing the CLI does not initialize the ACP engine —
- * mirroring the `kimi server run` v2 routing in `#/cli/sub/server/run.ts`.
+ * `--login` pivots into the shared device-code login flow instead of starting
+ * the server.
  */
 
 import { spawn } from 'node:child_process';

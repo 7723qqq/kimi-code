@@ -17,7 +17,6 @@ describe('rust-server-runner', () => {
     port: 58627,
     logLevel: 'silent',
     debugEndpoints: false,
-    insecureNoTls: true,
     allowRemoteShutdown: false,
     dangerousBypassAuth: false,
     allowedHosts: [],
@@ -40,6 +39,31 @@ describe('rust-server-runner', () => {
         '/tmp/data',
       );
       expect(args).toContain('--no-auth');
+    });
+
+    it('omits the security gates when they are off', () => {
+      const args = buildRustServerArgs(defaultOptions, undefined, '/tmp/data');
+      expect(args).not.toContain('--debug-endpoints');
+      expect(args).not.toContain('--allow-remote-shutdown');
+      expect(args).not.toContain('--allowed-host');
+    });
+
+    it('forwards the debug, shutdown and allowed-host gates', () => {
+      const args = buildRustServerArgs(
+        {
+          ...defaultOptions,
+          debugEndpoints: true,
+          allowRemoteShutdown: true,
+          allowedHosts: ['kimi.example', '.corp.example'],
+        },
+        undefined,
+        '/tmp/data',
+      );
+      expect(args).toContain('--debug-endpoints');
+      expect(args).toContain('--allow-remote-shutdown');
+      expect(args).toContain('--allowed-host');
+      expect(args).toContain('kimi.example');
+      expect(args).toContain('.corp.example');
     });
   });
 

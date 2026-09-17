@@ -136,7 +136,7 @@ describe('/undo todo panel refresh', () => {
     const { host, setTodoList } = hostWithTodos(entries, {
       undoHistory: vi.fn(async () => {}),
       getTodos: vi.fn(async () => {
-        throw new Error('getTodos is only available on the agent-core-v2 engine.');
+        throw new Error('getTodos is only available on the native engine client.');
       }),
     });
 

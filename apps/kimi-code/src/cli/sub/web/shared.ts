@@ -38,8 +38,6 @@ export interface ParsedServerOptions {
   port: number;
   logLevel: ServerLogLevel;
   debugEndpoints: boolean;
-  /** Allow a non-loopback bind without a TLS-terminating reverse proxy. */
-  insecureNoTls: boolean;
   /** Allow `POST /api/v1/shutdown` on a non-loopback bind. */
   allowRemoteShutdown: boolean;
   /** Disable bearer-token auth on every route (`--dangerous-bypass-auth`). */
@@ -55,8 +53,6 @@ export interface ServerCliOptions {
   port?: string;
   logLevel?: string;
   debugEndpoints?: boolean;
-  /** Allow a non-loopback bind without TLS (`--insecure-no-tls`). */
-  insecureNoTls?: boolean;
   /** Allow remote shutdown on a non-loopback bind (`--allow-remote-shutdown`). */
   allowRemoteShutdown?: boolean;
   /** Disable bearer-token auth on every route (`--dangerous-bypass-auth`). */
@@ -73,7 +69,6 @@ export function parseServerOptions(opts: ServerCliOptions): ParsedServerOptions 
     port: parsePort(opts.port, '--port', DEFAULT_SERVER_PORT),
     logLevel: parseLogLevel(opts.logLevel ?? DEFAULT_FOREGROUND_LOG_LEVEL),
     debugEndpoints: opts.debugEndpoints === true,
-    insecureNoTls: opts.insecureNoTls !== false,
     allowRemoteShutdown: opts.allowRemoteShutdown === true,
     dangerousBypassAuth: opts.dangerousBypassAuth === true,
     allowedHosts: parseAllowedHostArgs(opts.allowedHost),
