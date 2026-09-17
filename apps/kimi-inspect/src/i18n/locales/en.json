@@ -94,6 +94,16 @@
     "archived": "archived",
     "createSessionFailed": "create session failed: {{message}}"
   },
+  "navRail": {
+    "chat": "Chat",
+    "search": "Search",
+    "modelCatalog": "Model Catalog",
+    "appServices": "App Services",
+    "workspaceServices": "Workspace Services",
+    "filesystemSuggest": "Filesystem Suggest",
+    "bashParser": "Bash Parser",
+    "di": "DI"
+  },
   "modelCatalog": {
     "title": "Model Catalog",
     "counts": "{{providers}} providers · {{models}} models",

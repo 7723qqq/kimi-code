@@ -319,6 +319,51 @@ describe('KimiTUI startup', () => {
     expect(transcript).toContain('No session yet — one will be created on your first message.');
   });
 
+  it('pre-warms the lazy session so the first message does not pay for it', async () => {
+    const harness = makeHarness(makeSession(), {
+      getConfig: vi.fn(async () => ({
+        models: {
+          k2: { model: 'moonshot-v1', maxContextSize: 200 },
+        },
+        defaultModel: 'k2',
+      })),
+    });
+    const driver = makeDriver(harness, { ...makeStartupInput({ model: 'k2' }) });
+
+    await expect(driver.init()).resolves.toBe(false);
+    expect(harness.createSession).not.toHaveBeenCalled();
+
+    await (
+      driver as unknown as { finishStartup(shouldReplayHistory: boolean): Promise<void> }
+    ).finishStartup(false);
+
+    // Fire-and-forget: the session is assembled while the user reads the
+    // banner, so the first message joins the in-flight creation instead of
+    // starting a second one.
+    await vi.waitFor(() => expect(harness.createSession).toHaveBeenCalledTimes(1));
+    await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
+    expect(harness.createSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not pre-warm before a model is bound', async () => {
+    const harness = makeHarness(makeSession(), {
+      getConfig: vi.fn(async () => ({ models: {} })),
+    });
+    const driver = makeDriver(harness, { ...makeStartupInput() });
+
+    await expect(driver.init()).resolves.toBe(false);
+    expect(driver.state.appState.model).toBe('');
+
+    await (
+      driver as unknown as { finishStartup(shouldReplayHistory: boolean): Promise<void> }
+    ).finishStartup(false);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Creating a session without a model throws; the first message reports
+    // that through the normal path instead of startup showing it.
+    expect(harness.createSession).not.toHaveBeenCalled();
+  });
+
   it('shows config defaults in appState before the lazy session exists (v2)', async () => {
     const harness = makeHarness(makeSession(), {
       getConfig: vi.fn(async () => ({

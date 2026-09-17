@@ -17,6 +17,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { serviceByName } from '../channel';
 import { useConnection } from '../connection';
+import { t } from '../i18n';
 import type { AnyService } from '../panels';
 import { ErrorLine } from '../ui';
 import { ScopePanelsScrollspy } from './ServicePanels';
@@ -80,7 +81,7 @@ export function WorkspaceServicesView() {
           <ScopePanelsScrollspy
             key={workspaceId}
             scope="workspace"
-            title="Workspace Services"
+            title={t('navRail.workspaceServices')}
             proxyFor={proxyFor}
           />
         )}

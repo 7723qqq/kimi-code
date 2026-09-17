@@ -2,9 +2,15 @@
  * Left icon rail — the app-level view switcher. Icon-only by design; view
  * names live in tooltips. Adding a view is one `VIEWS` entry here plus its
  * render branch in `App`.
+ *
+ * Each entry carries the locale KEY rather than a resolved string: the rail is
+ * a module-level constant, so resolving at module scope would freeze the
+ * tooltip at whatever locale was active when the module first loaded.
  */
 
 import type { ReactNode } from 'react';
+
+import { t, type TranslationKey } from '../i18n';
 
 export type AppView =
   | 'chat'
@@ -18,7 +24,7 @@ export type AppView =
 
 interface ViewDef {
   readonly id: AppView;
-  readonly title: string;
+  readonly titleKey: TranslationKey;
   readonly icon: ReactNode;
 }
 
@@ -36,7 +42,7 @@ const iconProps = {
 const VIEWS: readonly ViewDef[] = [
   {
     id: 'chat',
-    title: 'Chat',
+    titleKey: 'navRail.chat',
     icon: (
       <svg {...iconProps}>
         <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -45,7 +51,7 @@ const VIEWS: readonly ViewDef[] = [
   },
   {
     id: 'search',
-    title: 'Search',
+    titleKey: 'navRail.search',
     icon: (
       <svg {...iconProps}>
         <circle cx="11" cy="11" r="8" />
@@ -55,7 +61,7 @@ const VIEWS: readonly ViewDef[] = [
   },
   {
     id: 'models',
-    title: 'Model Catalog',
+    titleKey: 'navRail.modelCatalog',
     icon: (
       <svg {...iconProps}>
         <path d="M12 2 2 7l10 5 10-5-10-5z" />
@@ -66,7 +72,7 @@ const VIEWS: readonly ViewDef[] = [
   },
   {
     id: 'services',
-    title: 'App Services',
+    titleKey: 'navRail.appServices',
     icon: (
       <svg {...iconProps}>
         <rect x="2" y="2" width="20" height="8" rx="2" />
@@ -78,7 +84,7 @@ const VIEWS: readonly ViewDef[] = [
   },
   {
     id: 'workspace',
-    title: 'Workspace Services',
+    titleKey: 'navRail.workspaceServices',
     icon: (
       <svg {...iconProps}>
         <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
@@ -87,7 +93,7 @@ const VIEWS: readonly ViewDef[] = [
   },
   {
     id: 'suggest',
-    title: 'Filesystem Suggest',
+    titleKey: 'navRail.filesystemSuggest',
     icon: (
       <svg {...iconProps}>
         <path d="M4 4h6l2 2h8v14H4z" />
@@ -97,7 +103,7 @@ const VIEWS: readonly ViewDef[] = [
   },
   {
     id: 'bash',
-    title: 'Bash Parser',
+    titleKey: 'navRail.bashParser',
     icon: (
       <svg {...iconProps}>
         <polyline points="4 17 10 11 4 5" />
@@ -107,7 +113,7 @@ const VIEWS: readonly ViewDef[] = [
   },
   {
     id: 'di',
-    title: 'DI',
+    titleKey: 'navRail.di',
     icon: (
       <svg {...iconProps}>
         <circle cx="18" cy="5" r="3" />
@@ -133,8 +139,8 @@ export function NavRail({
         <button
           key={v.id}
           type="button"
-          title={v.title}
-          aria-label={v.title}
+          title={t(v.titleKey)}
+          aria-label={t(v.titleKey)}
           onClick={() => {
             onChange(v.id);
           }}

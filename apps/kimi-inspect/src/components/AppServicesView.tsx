@@ -12,6 +12,7 @@ import { useCallback } from 'react';
 
 import { serviceByName } from '../channel';
 import { useConnection } from '../connection';
+import { t } from '../i18n';
 import type { AnyService } from '../panels';
 import { ScopePanelsScrollspy } from './ServicePanels';
 
@@ -23,5 +24,5 @@ export function AppServicesView() {
     [klient],
   );
 
-  return <ScopePanelsScrollspy scope="app" title="App Services" proxyFor={proxyFor} />;
+  return <ScopePanelsScrollspy scope="app" title={t('navRail.appServices')} proxyFor={proxyFor} />;
 }
