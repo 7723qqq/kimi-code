@@ -71,6 +71,10 @@ pub struct EnginePipeline {
     /// The pipeline's cross-turn record of omitted media (v2
     /// `media.budgetDropped`).
     pub media_dropped: crate::llm::media_budget::DroppedMedia,
+    /// The pipeline's own background-task runner (native tools over a
+    /// workspace state store). `None` when native tools are off or the store
+    /// could not open — hosts install the #3717 liveness predicate on it.
+    pub task_runner: Option<Arc<crate::storage::TaskRunner>>,
 }
 
 /// One concurrent provider for the MultiLLM race. The chain needs only these
@@ -258,6 +262,10 @@ pub async fn build_engine_pipeline(
     // The pool's default model, hoisted out of the native-tool arm so the
     // engine can reach it without downcasting the callback chain.
     let mut secondary_llm: Option<Arc<dyn LLM>> = None;
+    // Hoisted so hosts can install the liveness predicate (#3717) after the
+    // build: the runner is per-pipeline here (workspace state store), and the
+    // host knows the session this pipeline serves.
+    let mut pipeline_task_runner: Option<Arc<crate::storage::TaskRunner>> = None;
     let callbacks: Arc<dyn HostCallbacks> =
         match (spec.native_tools, spec.workspace_root.as_deref()) {
             (true, Some(root)) => match NativeToolset::new(root, spec.shell_path.as_deref()) {
@@ -372,6 +380,7 @@ pub async fn build_engine_pipeline(
                         // runner to a concurrent reader, and a lost runner is
                         // permanent for the process.
                         subagent_manager.set_task_runner(runner.clone()).await;
+                        pipeline_task_runner = Some(runner.clone());
                     }
                     let sandbox_policy = if let Some(ref policy) = spec.sandbox_policy {
                         Some(policy.clone())
@@ -456,6 +465,7 @@ pub async fn build_engine_pipeline(
         mcp_manager,
         media: crate::llm::media_resolver::MediaResolver::new(),
         media_dropped: Default::default(),
+        task_runner: pipeline_task_runner,
     })
 }
 

@@ -2316,13 +2316,34 @@ pub fn create_engine_session(
             .await;
 
             let session_id = format!("session-{}", SESSION_NEXT_ID.fetch_add(1, Ordering::SeqCst));
+            // #3717 late-settle silence: the registry holds the only strong
+            // handle, so once `session_dispose` removes the entry the `Weak`
+            // dies and late task settles for this host session go silent —
+            // the drain (the pump) is gone with it.
+            let host_session_id = params.session_id.clone().unwrap_or_default();
+            let session = Arc::new(session);
+            if let Some(runner) = pipeline.task_runner.clone() {
+                let weak = Arc::downgrade(&session);
+                runner.set_liveness_check(Arc::new(move |session: Option<&str>| {
+                    let Some(live) = weak.upgrade() else {
+                        return false;
+                    };
+                    if live.is_shutdown() {
+                        return false;
+                    }
+                    match session {
+                        None => true,
+                        Some(s) => s == host_session_id.as_str(),
+                    }
+                }));
+            }
             SESSION_REGISTRY
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .insert(
                     session_id.clone(),
                     SessionEntry {
-                        session: Arc::new(session),
+                        session,
                         turn_event_count: pipeline.turn_event_count,
                         native_tool_count: pipeline.native_tool_count,
                         llm_transport: pipeline.llm.transport().to_string(),

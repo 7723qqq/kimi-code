@@ -662,15 +662,19 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
    「谁先排空谁拿到」正是本次要消除的跨会话泄漏；它留在队列里等服务级消费者。代价：宿主不传
    `session_id` 的 stdio `session/create` 路径（`main.rs:354`，仓内无 TS 调用方）不再有 steer 回合，
    因为该路径的任务同样没有会话归属。
-   **未落地（#3717 的事件一半）**：结算路径仍无条件发 `event.task.completed` /
-   `background.task.terminated`（`storage/task_runner.rs:617-630`），会话拆除后迟到的结算照样广播。
-   上游用 `sessionEventBus.isAgentActive(agent)`（`eventBusService.ts`）做存活判据，**Rust 没有等价物**：
-   `SESSION_REGISTRY`（`main.rs:1463`、`napi_bindings.rs:1803`）虽在 `session_dispose` 里移除条目
-   （`main.rs:691`、`napi_bindings.rs:2309`），但它在 bin crate 里、`TaskRunner` 够不到，且键是引擎
-   自造的 `session-{n}` 而通知带的是宿主 `params.session_id`（stdio 路径干脆是 `None`）；`EventHub`
-   的车道**从不驱逐**（`server/hub.rs:126` 自述），`lane_exists` 不是存活；`subscriber_count` 数的是
-   WS 连接；`ServerEngine.active_turns` 只表示「有回合在跑」；`EngineSession` 没有 closed/disposed
-   标志（`session_dispose` 只摘注册表条目，pump 永久 park）。**不新造信号**，故此项留待会话存活源。
+   **事件一半已落地（2026-09-18，`TaskRunner` 存活谓词注入）**：`TaskRunner::set_liveness_check`
+   （`storage/task_runner.rs`，与 `set_event_sink` 并列的宿主注入）——谓词 = "该任务的会话还活着吗"，
+   `settle_task` 在**通知入队与两个终态事件前各查一次**，会话已死则完全静默（对应 v2
+   `recordTaskTerminated` 的 dispatch 门 + `notifyAgentTask` 早退）；状态桥镜像（`persist_wire`）与
+   任务条目本身不受影响——任务照常终结、照常可查。**存活源按宿主各自实现**：server 用会话行的存在性
+   （`HttpServer::install_task_liveness`，与 prompt 路由 404 门同一个 `get_session` 检查；
+   `with_task_runner` 换 runner 时重装），stdio/napi 用**会话句柄本身**——`EngineSession::is_shutdown()`
+   （新增，读 pump 的 shutdown 标志）+ 与 `SESSION_REGISTRY` 条目共享所有权的 `Weak`，
+   `session_dispose` 摘条目即 `Weak` 失效（v2 `isAgentActive` 的 identity 语义对应物）。
+   谓词未注入 = 永远存活（旧行为），REPL 等未接线宿主不受影响。测试：
+   `settle_stays_silent_when_the_host_reports_the_session_dead`、`liveness_gate_is_per_session`（spawn
+   期事实不受门控——只有结算路径被门）、`without_a_liveness_predicate_the_settle_path_keeps_firing`、
+   `late_settle_for_a_deleted_session_stays_silent`（server 级：活会话照常广播+入队，已删会话静默）。
    验证：`storage::task_runner::tests::notifications_are_scoped_to_the_settling_tasks_session`、
    `storage::task_runner::tests::unattributed_notifications_are_never_drained_by_a_session`、
    `session::tests::test_print_steer_ignores_another_sessions_notifications`（真实 print 结算路径：

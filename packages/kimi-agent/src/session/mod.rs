@@ -499,6 +499,13 @@ impl EngineSession {
         self.wakeup.notify_one();
     }
 
+    /// Whether [`Self::shutdown`] was called. The liveness predicate for
+    /// background tasks (#3717): a shut-down session's late task settles must
+    /// stay silent — its pump, the notification drain, is gone.
+    pub fn is_shutdown(&self) -> bool {
+        self.shutdown.load(Ordering::SeqCst)
+    }
+
     /// Enqueue a prompt. The turn id is assigned synchronously (monotonic,
     /// never reused — cancelled queued turns consume their id, matching v2's
     /// reserved-id clock), so the caller can cancel by id immediately.

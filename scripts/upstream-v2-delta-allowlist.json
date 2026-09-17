@@ -5,6 +5,13 @@
   "recordedAt": "2026-09-17",
   "entries": [
     {
+      "sha": "c250a31d06",
+      "date": "2026-09-18",
+      "subject": "#3717 late task settlements stay silent after session teardown",
+      "verdict": "ported",
+      "note": "TaskRunner gains a host-injected liveness predicate (`set_liveness_check`, v2 `taskService.lifecycleActive` / `sessionEventBus.isAgentActive`): `settle_task` gates the notification enqueue and both terminal events (`event.task.completed` / `background.task.terminated`) on it, so a settle landing after the owning session is gone announces and queues nothing. The state-bridge mirror (`persist_wire`) and the entry itself are unaffected — the task still terminates and stays queryable. Host wiring: the server answers with the session row's existence (the same check the prompt route's 404 gate uses, `HttpServer::install_task_liveness`, also re-installed on `with_task_runner` replacements); the stdio/napi hosts answer with the session handle itself — `EngineSession::is_shutdown()` plus a `Weak` sharing ownership with the session registry, so `session_dispose`'s removal is decisive. No predicate installed = the legacy always-fire behavior, so hosts that never opted in are unaffected. Tests: `settle_stays_silent_when_the_host_reports_the_session_dead`, `liveness_gate_is_per_session`, `without_a_liveness_predicate_the_settle_path_keeps_firing` (task_runner), `late_settle_for_a_deleted_session_stays_silent` (server)."
+    },
+    {
       "sha": "1fddc16e3ea2de4c26a18acd764380adf9e2ed64",
       "date": "2026-09-18",
       "subject": "fix(agent-core-v2): drop the outside-working-directory access ban from the system prompt (#3879)",

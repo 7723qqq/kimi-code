@@ -179,6 +179,11 @@ pub struct TaskRunner {
     /// `event.task.completed` / `background.task.terminated` on settle, with
     /// the task's session for lane routing. Absent = purely local runner.
     event_sink: Mutex<Option<TaskEventSink>>,
+    /// Host-injected liveness predicate (v2 `taskService.lifecycleActive`):
+    /// `Some(task_session) -> bool`. `false` = the owning session is gone
+    /// (pump disposed), so a late settle announces nothing and queues
+    /// nothing. Absent = no gating (the legacy always-fire behavior).
+    liveness_check: Mutex<Option<TaskLivenessCheck>>,
     /// How long [`Self::stop`] waits for a cooperative exit
     /// (`[background].kill_grace_period_ms`); defaults to [`STOP_GRACE`].
     /// Mutable so a shared runner can pick the value up after construction
@@ -188,6 +193,11 @@ pub struct TaskRunner {
     /// (`[background].max_running_tasks`); `0` is unlimited.
     max_running: AtomicUsize,
 }
+
+/// A host-injected liveness predicate: `Some(task session id) -> alive?`.
+/// The `None` lane (server-level tasks) is always alive — it has no session
+/// lifecycle to outlive.
+pub type TaskLivenessCheck = Arc<dyn Fn(Option<&str>) -> bool + Send + Sync>;
 
 /// A task completion event queued by [`TaskRunner::settle_task`] and
 /// drained via [`TaskRunner::take_pending_notifications`]. Mirrors v2's
@@ -218,6 +228,7 @@ impl TaskRunner {
             store,
             pending_notifications: Mutex::new(Vec::new()),
             event_sink: Mutex::new(None),
+            liveness_check: Mutex::new(None),
             kill_grace: Mutex::new(STOP_GRACE),
             max_running: AtomicUsize::new(0),
         }
@@ -258,6 +269,25 @@ impl TaskRunner {
     /// out to the task's session lane — or `global` when the task has none).
     pub fn set_event_sink(&self, sink: TaskEventSink) {
         *self.event_sink.lock().unwrap() = Some(sink);
+    }
+
+    /// Install the liveness predicate (v2 `taskService.lifecycleActive`): the
+    /// host answers "is this task's session still alive?" — for the server a
+    /// session-row lookup, for the stdio/napi hosts a session-registry
+    /// membership test. Late settles for a dead session go fully silent
+    /// (no terminal events, no queued notification), matching v2's
+    /// `recordTaskTerminated` + `notifyAgentTask` early return.
+    pub fn set_liveness_check(&self, check: TaskLivenessCheck) {
+        *self.liveness_check.lock().unwrap() = Some(check);
+    }
+
+    /// The liveness gate for one task's session: absent predicate = always
+    /// alive (legacy behavior), `None` session = server-level (alive).
+    fn session_alive(&self, session_id: Option<&str>) -> bool {
+        match self.liveness_check.lock().unwrap().as_ref() {
+            None => true,
+            Some(check) => check(session_id),
+        }
     }
 
     /// Emit one live output chunk for a running task on its session lane
@@ -658,38 +688,49 @@ impl TaskRunner {
         // Queue a completion notification for delivery (v2
         // `task.notificationDelivery`). Consumers (host, repl, engine
         // injection) drain via `take_pending_notifications`.
-        self.pending_notifications
-            .lock()
-            .unwrap()
-            .push(TaskNotification {
-                task_id: id.to_string(),
-                description,
-                status,
-                output_preview: output_preview.clone(),
-                ended_at,
-                session_id: session_id.clone(),
-            });
-        // Terminal facts, both vocabularies (mappers + projector).
-        let session = session_id.as_deref();
-        self.fire_event(
-            session,
-            serde_json::json!({
-                "type": "event.task.completed",
-                "task_id": id,
-                "status": status.as_str(),
-                "output_preview": output_preview,
-                "output_bytes": output_bytes,
-            }),
-        );
-        self.fire_event(
-            session,
-            serde_json::json!({
-                "type": "background.task.terminated",
-                "task_id": id,
-                "status": status.as_str(),
-                "kind": kind,
-            }),
-        );
+        // #3717 late-settle silence: the drain happens on the owning
+        // session's pump, so when the host reports that session gone the
+        // notification has no future reader — queueing it just leaks. v2
+        // gates `notifyAgentTask` on `lifecycleActive()` the same way.
+        if self.session_alive(session_id.as_deref()) {
+            self.pending_notifications
+                .lock()
+                .unwrap()
+                .push(TaskNotification {
+                    task_id: id.to_string(),
+                    description,
+                    status,
+                    output_preview: output_preview.clone(),
+                    ended_at,
+                    session_id: session_id.clone(),
+                });
+        }
+        // Terminal facts, both vocabularies (mappers + projector). Same
+        // liveness gate as v2's `recordTaskTerminated`: a session teardown
+        // must not be answered by terminal events for tasks it will never
+        // see.
+        if self.session_alive(session_id.as_deref()) {
+            let session = session_id.as_deref();
+            self.fire_event(
+                session,
+                serde_json::json!({
+                    "type": "event.task.completed",
+                    "task_id": id,
+                    "status": status.as_str(),
+                    "output_preview": output_preview,
+                    "output_bytes": output_bytes,
+                }),
+            );
+            self.fire_event(
+                session,
+                serde_json::json!({
+                    "type": "background.task.terminated",
+                    "task_id": id,
+                    "status": status.as_str(),
+                    "kind": kind,
+                }),
+            );
+        }
     }
 
     /// Drain the completion notifications **of one session**: only
@@ -1521,5 +1562,146 @@ mod tests {
         );
         // The notification is still queued, not dropped by a foreign drain.
         assert_eq!(runner.pending_notifications.lock().unwrap().len(), 1);
+    }
+
+    /// Late-settle silence (#3717 / v2 `taskService.lifecycleActive`): once
+    /// the host reports the session gone, the settle path must announce
+    /// nothing and queue nothing — the pump that would drain the notification
+    /// is gone, so a queued completion just leaks. The entry itself still
+    /// settles and stays queryable: v2's shape where the task terminates but
+    /// its notification is dropped.
+    #[tokio::test]
+    async fn settle_stays_silent_when_the_host_reports_the_session_dead() {
+        let (_tmp, runner) = runner();
+        let events: CapturedEvents = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = events.clone();
+        runner.set_event_sink(Arc::new(move |session, event| {
+            sink.lock()
+                .unwrap()
+                .push((session.map(str::to_string), event));
+        }));
+        runner.set_liveness_check(Arc::new(|session: Option<&str>| match session {
+            // Server-level tasks have no session lifecycle to outlive.
+            None => true,
+            Some(s) => s != "sess-gone",
+        }));
+
+        runner
+            .spawn_task_with_meta(
+                TaskSpawnMeta {
+                    session_id: Some("sess-gone"),
+                    kind: "bash",
+                    subagent_type: None,
+                },
+                "task-gone".into(),
+                "job".into(),
+                async { "done".to_string() },
+            )
+            .unwrap();
+        assert!(matches!(
+            runner.wait("task-gone", 2000).await,
+            TaskWaitResult::Completed(_)
+        ));
+
+        // The entry still settled (the state bridge mirror is unaffected).
+        assert_eq!(runner.entry("task-gone").unwrap()["status"], "completed");
+        // ...but neither terminal vocabulary fired, and no completion was
+        // queued for a drain that will never come.
+        let settled = |ty: &str| events.lock().unwrap().iter().any(|(_, e)| e["type"] == ty);
+        assert!(!settled("event.task.completed"));
+        assert!(!settled("background.task.terminated"));
+        assert!(
+            runner
+                .take_pending_notifications(Some("sess-gone"))
+                .is_empty()
+        );
+        assert!(runner.take_pending_notifications(None).is_empty());
+    }
+
+    /// The gate is a per-session rule, not a global kill switch: a live
+    /// session's settle still fires both vocabularies and queues its
+    /// notification, while a dead session's settle goes silent. Spawn-time
+    /// facts are not gated — the task did start; only its terminal effects
+    /// depend on whether anyone is left to receive them.
+    #[tokio::test]
+    async fn liveness_gate_is_per_session() {
+        let (_tmp, runner) = runner();
+        let events: CapturedEvents = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = events.clone();
+        runner.set_event_sink(Arc::new(move |session, event| {
+            sink.lock()
+                .unwrap()
+                .push((session.map(str::to_string), event));
+        }));
+        runner.set_liveness_check(Arc::new(|session: Option<&str>| match session {
+            None => true,
+            Some(s) => s != "sess-dead",
+        }));
+
+        for (id, session) in [("task-alive", "sess-alive"), ("task-dead", "sess-dead")] {
+            runner
+                .spawn_task_with_meta(
+                    TaskSpawnMeta {
+                        session_id: Some(session),
+                        kind: "bash",
+                        subagent_type: None,
+                    },
+                    id.into(),
+                    format!("job {id}"),
+                    async { "done".to_string() },
+                )
+                .unwrap();
+        }
+        assert!(matches!(
+            runner.wait("task-alive", 2000).await,
+            TaskWaitResult::Completed(_)
+        ));
+        assert!(matches!(
+            runner.wait("task-dead", 2000).await,
+            TaskWaitResult::Completed(_)
+        ));
+
+        let settled = |lane: &str, ty: &str| {
+            events
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(s, e)| s.as_deref() == Some(lane) && e["type"] == ty)
+        };
+        assert!(settled("sess-alive", "event.task.completed"));
+        assert!(settled("sess-alive", "background.task.terminated"));
+        assert!(!settled("sess-dead", "event.task.completed"));
+        assert!(!settled("sess-dead", "background.task.terminated"));
+        assert!(
+            settled("sess-dead", "event.task.created"),
+            "spawn facts are not gated — only the settle path is"
+        );
+        assert_eq!(runner.pending_notification_count(Some("sess-alive")), 1);
+        assert_eq!(runner.pending_notification_count(Some("sess-dead")), 0);
+    }
+
+    /// No predicate installed = the pre-gate behavior: hosts that never opted
+    /// in keep receiving terminal events and notifications, so the existing
+    /// wiring (repl, tests, in-process runners) is unaffected.
+    #[tokio::test]
+    async fn without_a_liveness_predicate_the_settle_path_keeps_firing() {
+        let (_tmp, runner) = runner();
+        runner
+            .spawn_task_with_meta(
+                TaskSpawnMeta {
+                    session_id: Some("sess-legacy"),
+                    kind: "bash",
+                    subagent_type: None,
+                },
+                "task-legacy".into(),
+                "job".into(),
+                async { "done".to_string() },
+            )
+            .unwrap();
+        assert!(matches!(
+            runner.wait("task-legacy", 2000).await,
+            TaskWaitResult::Completed(_)
+        ));
+        assert_eq!(runner.pending_notification_count(Some("sess-legacy")), 1);
     }
 }

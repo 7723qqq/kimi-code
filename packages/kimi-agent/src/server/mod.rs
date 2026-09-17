@@ -203,6 +203,13 @@ impl HttpServer {
                 .bus_for(&lane)
                 .publish(&crate::events::EngineEvent::Custom(event));
         }));
+        // #3717 late-settle silence: server-side tasks settle while their
+        // session may already be gone (a closed web client left a run
+        // behind). The session row is the liveness source — the same check
+        // the prompt route's 404 gate uses — so an archived/deleted
+        // session's late settle neither announces nor queues anything.
+        // `with_task_runner` installs the same predicate on replacements.
+        Self::install_task_liveness(&store, &task_runner);
         let store_persister = store.clone();
         hub.set_persister(Arc::new(
             move |seq_ev: &crate::server::hub::SequencedEvent| {
@@ -577,6 +584,7 @@ impl HttpServer {
 
     #[must_use]
     pub fn with_task_runner(mut self, task_runner: Arc<TaskRunner>) -> Self {
+        Self::install_task_liveness(&self.store, &task_runner);
         self.subagent_manager
             .set_task_runner_sync(task_runner.clone());
         if let Some(engine) = &self.engine {
@@ -586,6 +594,21 @@ impl HttpServer {
         }
         self.task_runner = task_runner;
         self
+    }
+
+    /// The #3717 liveness predicate on a server task runner: a session row's
+    /// existence is "alive" (the same check the prompt route's 404 gate
+    /// uses), so a deleted/archived session's late task settles stay silent.
+    /// Idempotent — it only overwrites the predicate field on the runner.
+    fn install_task_liveness(store: &Arc<SqliteSessionStore>, runner: &Arc<TaskRunner>) {
+        let liveness_store = store.clone();
+        runner.set_liveness_check(Arc::new(move |session: Option<&str>| match session {
+            None => true,
+            Some(session_id) => liveness_store
+                .get_session(session_id)
+                .map(|found| found.is_some())
+                .unwrap_or(false),
+        }));
     }
 
     pub fn task_runner(&self) -> Arc<TaskRunner> {
@@ -6068,6 +6091,7 @@ mod tests {
         assert!(turns[1].origin.is_none());
     }
 
+    #[tokio::test]
     async fn test_http_sessions_crud_and_prompt() {
         let server = HttpServer::in_memory().unwrap();
 
@@ -6628,6 +6652,77 @@ mod tests {
         assert_eq!(res_detach.status, 200);
         let val_detach: Value = serde_json::from_slice(&res_detach.body).unwrap();
         assert_eq!(val_detach["detached"], false);
+    }
+
+    /// #3717 late-settle silence, server wiring: the session row is the
+    /// liveness source, so a task attributed to a deleted session settles
+    /// without firing either terminal vocabulary, while a live session's
+    /// task still announces on its lane and queues its notification.
+    #[tokio::test]
+    async fn late_settle_for_a_deleted_session_stays_silent() {
+        let server = HttpServer::in_memory().unwrap();
+        server.store.create_session("sess-live", None).unwrap();
+        let runner = server.task_runner();
+
+        let (created_live, terminated_live) = {
+            let events: Arc<std::sync::Mutex<Vec<Value>>> =
+                Arc::new(std::sync::Mutex::new(Vec::new()));
+            let sink = events.clone();
+            runner.set_event_sink(Arc::new(move |_session, event| {
+                sink.lock().unwrap().push(event);
+            }));
+            runner
+                .spawn_task_with_meta(
+                    crate::storage::TaskSpawnMeta {
+                        session_id: Some("sess-live"),
+                        kind: "bash",
+                        subagent_type: None,
+                    },
+                    "task-live".into(),
+                    "job".into(),
+                    async { "done".to_string() },
+                )
+                .unwrap();
+            assert!(matches!(
+                runner.wait("task-live", 2000).await,
+                crate::storage::task_runner::TaskWaitResult::Completed(_)
+            ));
+
+            // The live session's completion went out and its notification
+            // queued for the drain.
+            let fired = |ty: &str| events.lock().unwrap().iter().any(|e| e["type"] == ty);
+            (fired("event.task.completed"), {
+                assert_eq!(runner.pending_notification_count(Some("sess-live")), 1);
+                fired("background.task.terminated")
+            })
+        };
+        assert!(created_live && terminated_live);
+
+        // A session that no longer exists (row gone): settle stays silent.
+        runner
+            .spawn_task_with_meta(
+                crate::storage::TaskSpawnMeta {
+                    session_id: Some("sess-gone"),
+                    kind: "bash",
+                    subagent_type: None,
+                },
+                "task-gone".into(),
+                "job".into(),
+                async { "done".to_string() },
+            )
+            .unwrap();
+        assert!(matches!(
+            runner.wait("task-gone", 2000).await,
+            crate::storage::task_runner::TaskWaitResult::Completed(_)
+        ));
+        // The entry still settled and stays queryable on the tasks surface.
+        assert_eq!(runner.entry("task-gone").unwrap()["status"], "completed");
+        assert_eq!(runner.pending_notification_count(Some("sess-gone")), 0);
+        assert!(
+            runner
+                .take_pending_notifications(Some("sess-gone"))
+                .is_empty()
+        );
     }
 
     #[tokio::test]
