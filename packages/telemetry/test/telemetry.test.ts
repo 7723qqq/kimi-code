@@ -1286,6 +1286,31 @@ describe('crash handler', () => {
     }
   });
 
+  it('does not rethrow an aborted-operation rejection when it is the only listener', async () => {
+    const client = new TelemetryClient();
+    const transport = new RecordingTransport();
+    client.attachSink(makeSink(transport));
+    setCrashPhase('runtime');
+    // Vitest keeps its own rejection listeners; temporarily drop every
+    // listener so the crash handler is the sole one, as in print/server mode.
+    const others = process.listeners('unhandledRejection');
+    process.removeAllListeners('unhandledRejection');
+    installCrashHandlersForClient(client);
+    try {
+      // A cancel is not a crash: rethrowing here would take the process down
+      // on a normal abort (#2801).
+      expect(
+        await emitRejectionAndCatch(new DOMException('The operation was aborted.', 'AbortError')),
+      ).toBe(NOT_CAUGHT);
+      expect(transport.saved).toHaveLength(0);
+    } finally {
+      uninstallCrashHandlers();
+      for (const listener of others) {
+        process.on('unhandledRejection', listener as (...args: unknown[]) => void);
+      }
+    }
+  });
+
   it('dedupes rethrown non-Error rejection reasons at the uncaught monitor', async () => {
     const client = new TelemetryClient();
     const transport = new RecordingTransport();
@@ -1425,7 +1450,12 @@ async function emitRejectionAndCatch(reason: unknown): Promise<unknown> {
     } catch (error) {
       caught = error;
     }
-    for (let waited = 0; caught === NOT_CAUGHT && waited < 2000; waited += 5) {
+    // Budget by wall clock, not by iteration count: `setTimeout(5)` really
+    // sleeps ~15ms on Windows, so counting 5ms per turn let the "not caught"
+    // path burn seconds and trip the test timeout.
+    const deadline = Date.now() + 500;
+    for (;;) {
+      if (caught !== NOT_CAUGHT || Date.now() >= deadline) break;
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
   } finally {
