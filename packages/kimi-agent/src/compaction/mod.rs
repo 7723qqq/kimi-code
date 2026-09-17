@@ -29,6 +29,13 @@ pub const DEFAULT_MAX_CONTEXT_TOKENS: u32 = 128 * 1024;
 /// whole omitted prefix.
 pub const DEFAULT_COMPACTION_MAX_ATTEMPTS: u32 = 5;
 
+/// v2 `DEFAULT_COMPACTION_CONFIG.maxOverflowCompactionAttempts`
+/// (strategy.ts:23): one turn may compact-and-retry after a context overflow
+/// this many times in a row before the turn is failed. v2's companion
+/// `maxCompactionPerTurn` is `Infinity` by default and has no production setter,
+/// so this is the only overflow brake that actually fires.
+pub const DEFAULT_MAX_OVERFLOW_COMPACTION_ATTEMPTS: u32 = 3;
+
 /// Knobs for the compaction algorithm, mirroring `DEFAULT_COMPACTION_CONFIG`
 /// in `packages/agent-core-v2/src/agent/fullCompaction/strategy.ts`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -53,6 +60,12 @@ pub struct CompactionConfig {
     /// `loopControl.compactionMaxAttempts`); `None` keeps
     /// [`DEFAULT_COMPACTION_MAX_ATTEMPTS`].
     pub max_attempts: Option<u32>,
+    /// How many times in a row one turn may recover from a context overflow by
+    /// compacting and retrying the step (v2 `maxOverflowCompactionAttempts`,
+    /// `strategy.ts:23`). The counter resets as soon as a step completes, so
+    /// this bounds only the case the recovery cannot fix: a context that stays
+    /// above the window no matter how it is shrunk.
+    pub max_overflow_compaction_attempts: u32,
 }
 
 impl Default for CompactionConfig {
@@ -65,6 +78,7 @@ impl Default for CompactionConfig {
             max_recent_user_messages: u32::MAX,
             max_recent_size_ratio: 0.2,
             max_attempts: None,
+            max_overflow_compaction_attempts: DEFAULT_MAX_OVERFLOW_COMPACTION_ATTEMPTS,
         }
     }
 }
@@ -222,9 +236,31 @@ pub fn compute_compact_count_manual(messages: &[LLMMessage], config: &Compaction
     0
 }
 
+/// Status codes whose overflow wording v2 trusts. `isContextOverflowStatusError`
+/// (human/llm/errors.ts:279-283) refuses every other code before it looks at the
+/// message, so a 500 whose body happens to contain `max_tokens` is a server
+/// fault rather than an overflow.
+const OVERFLOW_KEYWORD_STATUSES: [u16; 3] = [400, 413, 422];
+
+/// How full the window must already be before a bare 413 is still read as an
+/// overflow. v2 `OVERFLOW_STATUS_RECOVERY_RATIO` (fullCompactionService.ts:79).
+const OVERFLOW_STATUS_RECOVERY_RATIO: f64 = 0.5;
+
 /// Classify whether an LLM error string indicates that the context length / window was exceeded.
-/// Mirrors `CONTEXT_OVERFLOW_MESSAGE_PATTERNS` in `agent-core-v2` / `kosong`.
+///
+/// Mirrors `CONTEXT_OVERFLOW_MESSAGE_PATTERNS` in `agent-core-v2` / `kosong`,
+/// behind the status gate v2 puts in front of it (`isContextOverflowStatusError`):
+/// the wording table is consulted only for a 400/413/422, or for an error that
+/// carries no status at all — an in-stream provider error such as OpenAI's
+/// `context_length_exceeded`, which v2 classifies by code and stamps with a
+/// synthetic 400 (`errorFromOpenAIResponsesEvent`). Any other status is
+/// rejected outright.
 pub fn is_context_overflow_error(error: &str) -> bool {
+    if let Some(code) = crate::llm::http::llm_http_status(error)
+        && !OVERFLOW_KEYWORD_STATUSES.contains(&code)
+    {
+        return false;
+    }
     let lower = error.to_lowercase();
     lower.contains("context_length_exceeded")
         || lower.contains("context_length")
@@ -239,10 +275,50 @@ pub fn is_context_overflow_error(error: &str) -> bool {
         || lower.contains("exceeds the maximum size")
 }
 
-/// Placeholder text standing in for the compacted prefix. The TS side
-/// generates a real LLM summary (`createCompactionSummaryMessage` in
-/// `compactionHandoff.ts`); the Rust engine has no summarizer, so it
-/// inserts a fixed marker instead.
+/// Whether a failed LLM call should trigger emergency compaction.
+///
+/// Mirrors v2 `shouldRecoverFromContextOverflow` (fullCompactionService.ts:305-318),
+/// minus the branches the Rust engine cannot reach: v2's first branch tests a
+/// coded `context.overflow` error, and there is no typed error channel here.
+/// Two ways in remain —
+///
+/// 1. wording that names a context overflow (see
+///    [`is_context_overflow_error`]); or
+/// 2. an HTTP 413 whose request already filled at least
+///    [`OVERFLOW_STATUS_RECOVERY_RATIO`] of the model's window. This is what
+///    covers a gateway that answers 413 with an opaque body: the size, not the
+///    text, is the evidence.
+///
+/// A 413 for a small request is a proxy rejecting it (a body limit, an auth
+/// wrapper), and compacting for that would only throw context away — which is
+/// why the size gate exists instead of accepting every 413. With no known
+/// window there is nothing to compare against, so only branch 1 applies.
+pub fn should_recover_from_context_overflow(
+    error: &str,
+    estimated_request_tokens: u32,
+    max_context_tokens: Option<u32>,
+) -> bool {
+    if is_context_overflow_error(error) {
+        return true;
+    }
+    if crate::llm::http::llm_http_status(error) != Some(413) {
+        return false;
+    }
+    let Some(max) = max_context_tokens.filter(|max| *max > 0) else {
+        return false;
+    };
+    let threshold = (f64::from(max) * OVERFLOW_STATUS_RECOVERY_RATIO) as u32;
+    estimated_request_tokens >= threshold
+}
+
+/// Placeholder text standing in for the compacted prefix, matching the TS
+/// `createCompactionSummaryMessage` marker.
+///
+/// This is the *fallback*, not the only path: the synchronous
+/// [`compact_messages`] has no LLM to call and always inserts the marker,
+/// while the asynchronous `*_with_summary` entry points ask
+/// [`summarize_with_llm`] for a real summary and land here only when the
+/// summarizer returns nothing usable.
 pub(crate) fn summary_placeholder(omitted: usize) -> String {
     format!(
         "[Earlier conversation compacted: {omitted} messages were summarized away \
@@ -1003,6 +1079,7 @@ mod tests {
             max_recent_user_messages: u32::MAX,
             max_recent_size_ratio: 0.5,
             max_attempts: None,
+            max_overflow_compaction_attempts: DEFAULT_MAX_OVERFLOW_COMPACTION_ATTEMPTS,
         };
 
         let count = compute_compact_count(&messages, &config);
@@ -1090,6 +1167,7 @@ mod tests {
             max_recent_user_messages: u32::MAX,
             max_recent_size_ratio: 0.5,
             max_attempts: None,
+            max_overflow_compaction_attempts: DEFAULT_MAX_OVERFLOW_COMPACTION_ATTEMPTS,
         };
         let count_a = compute_compact_count(&messages, &config_a);
         assert_eq!(
@@ -1116,6 +1194,7 @@ mod tests {
             max_recent_user_messages: u32::MAX,
             max_recent_size_ratio: 0.5,
             max_attempts: None,
+            max_overflow_compaction_attempts: DEFAULT_MAX_OVERFLOW_COMPACTION_ATTEMPTS,
         };
         let count_b = compute_compact_count(&messages, &config_b);
         assert_eq!(count_b, 3, "compacts up to index 3 (sys + u1 + a1)");
@@ -1288,6 +1367,7 @@ mod tests {
             max_recent_user_messages: u32::MAX,
             max_recent_size_ratio: 0.5,
             max_attempts: None,
+            max_overflow_compaction_attempts: DEFAULT_MAX_OVERFLOW_COMPACTION_ATTEMPTS,
         };
         assert_eq!(compute_compact_count(&messages, &cfg_recent), 7);
 
@@ -1302,6 +1382,7 @@ mod tests {
             max_recent_user_messages: 1,
             max_recent_size_ratio: 0.5,
             max_attempts: None,
+            max_overflow_compaction_attempts: DEFAULT_MAX_OVERFLOW_COMPACTION_ATTEMPTS,
         };
         assert_eq!(compute_compact_count(&messages, &cfg_user), 7);
 
@@ -1314,6 +1395,7 @@ mod tests {
             max_recent_user_messages: u32::MAX,
             max_recent_size_ratio: 0.02, // 2 tokens max for recent tail
             max_attempts: None,
+            max_overflow_compaction_attempts: DEFAULT_MAX_OVERFLOW_COMPACTION_ATTEMPTS,
         };
         // Each message is >= 3 tokens, so first message already hits 2-token budget
         assert_eq!(compute_compact_count(&messages, &cfg_ratio), 7);
@@ -1400,6 +1482,126 @@ mod tests {
                 "non-overflow error '{}' must not trigger overflow detection",
                 err
             );
+        }
+    }
+
+    /// v2 gates the wording table on the status code
+    /// (`isContextOverflowStatusError`): only 400/413/422 may be read as an
+    /// overflow, and an error carrying no status is classified on its own
+    /// terms — the in-stream provider-error path.
+    #[test]
+    fn test_context_overflow_wording_is_status_gated() {
+        for status in [400, 413, 422] {
+            assert!(
+                is_context_overflow_error(&format!(
+                    "llm http status {status} Too Many Requests: context_length_exceeded"
+                )),
+                "a {status} that names the overflow must be detected"
+            );
+        }
+        // The wording is there, but the status says this is a server fault.
+        assert!(!is_context_overflow_error(
+            "llm http status 500 Internal Server Error: max_tokens rejected by backend"
+        ));
+        assert!(!is_context_overflow_error(
+            "llm http status 401 Unauthorized: prompt is too long for this plan"
+        ));
+        // No status at all: the in-stream `context_length_exceeded` code path.
+        assert!(is_context_overflow_error(
+            "llm provider stream error: context_length_exceeded"
+        ));
+    }
+
+    /// A 413 with an opaque body is still an overflow when the request had
+    /// already filled half the window — v2's size-based branch, which is what
+    /// covers gateways that never echo the wording.
+    #[test]
+    fn test_bare_413_recovers_only_near_the_window() {
+        let opaque = "llm http status 413 Payload Too Large: <html>nginx</html>";
+        assert!(should_recover_from_context_overflow(
+            opaque,
+            100_000,
+            Some(200_000)
+        ));
+        // Half the window exactly: v2's `>=` on the ratio.
+        assert!(should_recover_from_context_overflow(
+            opaque,
+            100_000,
+            Some(200_000)
+        ));
+        // One token under the ratio: a proxy rejecting a small request.
+        assert!(!should_recover_from_context_overflow(
+            opaque,
+            99_999,
+            Some(200_000)
+        ));
+        // Nothing to compare against, or a nonsensical window.
+        assert!(!should_recover_from_context_overflow(opaque, 100_000, None));
+        assert!(!should_recover_from_context_overflow(
+            opaque,
+            100_000,
+            Some(0)
+        ));
+    }
+
+    /// The three shapes that used to slip through: a gateway 413, a proxy 413
+    /// and a bare status line, none of which name the overflow.
+    #[test]
+    fn test_opaque_413_shapes_recover_near_the_window() {
+        for err in [
+            "llm http status 413 Payload Too Large: <html><body>413</body></html>",
+            "llm http status 413 Request Entity Too Large: proxy refused the request",
+            "llm http status 413: ",
+        ] {
+            assert!(
+                !is_context_overflow_error(err),
+                "none of these name the overflow: {err}"
+            );
+            assert!(
+                should_recover_from_context_overflow(err, 190_000, Some(200_000)),
+                "a full window behind an opaque 413 must still recover: {err}"
+            );
+            assert!(
+                !should_recover_from_context_overflow(err, 1_000, Some(200_000)),
+                "a small request behind a 413 is a proxy limit, not an overflow: {err}"
+            );
+        }
+    }
+
+    /// The size gate is specific to 413: other statuses recover on wording
+    /// alone, and never on size.
+    #[test]
+    fn test_overflow_recovery_ignores_size_for_non_413_statuses() {
+        assert!(should_recover_from_context_overflow(
+            "llm http status 400 Bad Request: context length exceeded",
+            1,
+            Some(200_000)
+        ));
+        assert!(!should_recover_from_context_overflow(
+            "llm http status 500 Internal Server Error: backend exploded",
+            199_999,
+            Some(200_000)
+        ));
+        // A 429 near the window is a rate limit, not an overflow.
+        assert!(!should_recover_from_context_overflow(
+            "llm http status 429 Too Many Requests: slow down",
+            199_999,
+            Some(200_000)
+        ));
+    }
+
+    /// The recovery decision is the wording test plus the size branch — it must
+    /// not lose a case the wording test already accepts.
+    #[test]
+    fn test_overflow_recovery_supersedes_the_wording_test() {
+        for err in [
+            "context_length_exceeded",
+            "model error: context length reached",
+            "request payload exceeds the maximum size allowed",
+            "llm http status 400: context_length_exceeded",
+        ] {
+            assert!(is_context_overflow_error(err));
+            assert!(should_recover_from_context_overflow(err, 0, None));
         }
     }
 
@@ -1595,6 +1797,7 @@ mod tests {
             max_recent_user_messages: u32::MAX,
             max_recent_size_ratio: 0.5,
             max_attempts: None,
+            max_overflow_compaction_attempts: DEFAULT_MAX_OVERFLOW_COMPACTION_ATTEMPTS,
         }
     }
 

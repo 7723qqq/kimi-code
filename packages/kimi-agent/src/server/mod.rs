@@ -8864,6 +8864,7 @@ max_context_size = 128000
         let appr_req = crate::rpc::types::PermissionCheckRequest {
             tool_name: "Bash".into(),
             tool_call_id: "call_bash_1".into(),
+            turn_id: "turn-inter".into(),
             arguments: json!({ "command": "cargo build" }),
         };
         let (aid, rx_a) =
@@ -8902,6 +8903,7 @@ max_context_size = 128000
         let appr_req_deny = crate::rpc::types::PermissionCheckRequest {
             tool_name: "Write".into(),
             tool_call_id: "call_write_1".into(),
+            turn_id: "turn-inter".into(),
             arguments: json!({ "path": "/root/important.conf" }),
         };
         let (aid_deny, rx_deny) =
@@ -8944,6 +8946,7 @@ max_context_size = 128000
         let appr_req = crate::rpc::types::PermissionCheckRequest {
             tool_name: "Bash".into(),
             tool_call_id: "call_fc".into(),
+            turn_id: "turn-fc".into(),
             arguments: json!({ "command": "rm -rf /" }),
         };
 

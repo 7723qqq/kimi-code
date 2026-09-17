@@ -16,8 +16,8 @@
 | 子模块 / 职责 | TypeScript 源码（GitHub 原型） | Rust 引擎实现 | 对齐状态 | 架构深度分析与技术细节 |
 |---|---|---|:---:|---|
 | **Turn 主循环驱动** | `agent-core-v2/src/agent/loop/loopService.ts`<br>`stepRequestQueue.ts` | `kimi-agent/src/turn_loop/run_turn.rs`<br>`src/turn_loop/turn_step.rs` | ✅ **100% 原生** | Rust 具备完全自主的 step 循环驱动，单轮支持最大步数约束（None = unbounded 镜像 JS）、TokenUsage 5 维细分累计、`finish_reason` 映射（length/max_tokens → MaxTokens、content_filter → Filtered）。通过 `check:engine-zero-js-loop` 验证 JS 循环 11 个函数零调用。 |
-| **并发工具调度** | `agent-core-v2/src/agent/loop/toolExecutor.ts` | `kimi-agent/src/turn_loop/tool_scheduler.rs` | ✅ **100% 原生** | 基于 `infer_tool_accesses` 静态推断资源冲突，构建并发批次。写写冲突、写读冲突严格串行化，只读工具并发放行；Bash 命令推断为工作区整树写访问（`write_tree_access`）。 |
-| **故障退避与重试** | `agent-core-v2/src/agent/stepRetry/stepRetryService.ts` | `kimi-agent/src/turn_loop/retry.rs` | ✅ **100% 原生** | 指数退避加 ±25% Jitter（两侧均非 Full Jitter），错误分类对齐 v2 `isRetryableGenerateError`：可重试集 {408, 409, 429, 500..=599}（Rust 额外含 425），429 配额/欠费文案豁免（kimi-errors.ts 判据）；重试次数可经 `RunTurnInput.max_attempts` 配置，默认 10 对齐 v2 `DEFAULT_MAX_RETRY_ATTEMPTS`。 |
+| **并发工具调度** | `agent-core-v2/src/agent/toolExecutor/toolExecutor.ts` | `kimi-agent/src/turn_loop/tool_scheduler.rs` | ✅ **100% 原生** | 基于 `infer_tool_accesses` 静态推断资源冲突，构建并发批次。写写冲突、写读冲突严格串行化，只读工具并发放行；Bash 推断为全资源独占（`all_access()`，与 v2 未声明兜底一致），`write_tree_access("/")` 只用于 tower merge/teardown。 |
+| **故障退避与重试** | `agent-core-v2/src/_base/utils/retry.ts` | `kimi-agent/src/turn_loop/retry.rs` | ✅ **100% 原生** | 指数退避，基数 500ms、上限 32,000ms，抖动为**单侧** `+[0, 25%]`（对齐 v2 `retryBackoffDelay`：`base + Math.random() * 0.25 * base`；v2 无下限）。错误分类对齐 v2 `isRetryableGenerateError`：可重试集 {408, 409, 429, 500..=599}（Rust 额外含 425），429 配额/欠费文案豁免（kimi-errors.ts 判据）；重试次数可经 `RunTurnInput.max_attempts` 配置，默认 10 对齐 v2 `DEFAULT_MAX_RETRY_ATTEMPTS`。 |
 | **后台异步任务** | `agent-core-v2/src/agent/loop/nativeBackgroundAgentTask.ts` | `kimi-agent/src/storage/task_runner.rs` | ✅ **100% 原生** | 原生 `tokio::spawn` 托管后台任务，生命周期状态机为 Running/Completed/Killed（非 v2 的 Pending/Running/Completed/Failed），支持协作取消与 5s 宽限。后台 bash/子代理任务全部经 TaskRunner 注册（TaskStop/TaskOutput 全覆盖），并携带父 session 与任务类型向对应 WebSocket lane 广播 `event.task.created/completed` 与 `background.task.started/terminated` 双词汇生命周期事件。 |
 
 ### 板块 2：多 Provider LLM 抽象与流式传输
@@ -149,7 +149,7 @@
 |---|---|---|---|
 | 工具结果 stopTurn | 任一结果 `stopTurn:true` → turn 以 completed 收尾（loopService.ts:2117-2119） | 字段整体丢弃，goal/plan 工具无法止轮 | `ToolExecuteResponse`/`ExecutableToolResult` 全链路透传，`run_turn` 以 EndTurn 收尾；update-goal/set-goal-budget/exit-plan-mode 按 TS 条件置位 |
 | 批内跳过 stopBatchAfterThis | 任一工具 stopTurn/stopBatchAfterThis → 批内后续工具跳过执行（toolExecutorService.ts:380,450） | 后续工具仍继续执行，直至所有工具结束 | `tool_scheduler::execute_scheduled` 捕获 `stop_turn` 后自动短路，后续批次全量填充 v2 标准跳过文案 `Tool skipped because a previous tool call stopped the turn.` |
-| 重试遥测事件 TurnStepRetrying | 每次重试持久化/派发 `TurnStepRetrying`（stepRetryService.ts:151-163） | 仅在最终结果有 `llm_retries` 计数 | `turn_step.rs` 每次指数退避前结构化派发 `TurnStepRetrying` 事件（精确携带 failed_attempt, next_attempt, max_attempts, delay_ms） |
+| 重试遥测事件 TurnStepRetrying | 每次重试派发 `TurnStepRetrying`，载荷含 failedAttempt / nextAttempt / maxAttempts / delayMs 与 `retryErrorFields`（errorName / errorMessage / statusCode）（loopService.ts:1571-1585，载荷定义 turnEvents.ts:163） | 仅在最终结果有 `llm_retries` 计数 | `turn_step.rs` 每次指数退避前结构化派发 `TurnStepRetrying` 事件，载荷携带 failed_attempt / next_attempt / max_attempts / delay_ms 及 error_name / error_message / status_code |
 | 子代理冷恢复 (#3478) | 服务重启后从历史快照重建代理作用域与历史并恢复对话 | 仅查内存 `foreground_histories`，重启后无法 resume | `SubagentManager` 对接 `SqliteSessionStore`，未命中时自动从 SQLite 反序列化重建状态并无缝续接对话 |
 | NAPI 通道沙箱策略透传 | NAPI 层根据 sandbox_mode 构建沙箱守卫 | `sandbox_policy` 恒为 None | `napi_bindings.rs` 显式由 `params.sandbox_mode` 与 `workspace_root` 派生 `SandboxExecutionPolicy` 并透传至 pipeline |
 | REST 服务端缺失域覆盖 | 支持 providers/catalog, prompts, /api/v2, plugins, skills, acp | 多个端点返回 404 | 补齐 `GET /api/v1/providers`, `GET /api/v1/catalog/providers`, `POST /api/v1/models/{tail}`, `GET/POST /api/v1/prompts`, `GET /api/v2/sessions`, `POST /api/v1/plugins`, `GET /api/v1/skills`, `POST /api/v1/acp` 等 |
@@ -355,9 +355,26 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
 
 已加机械化门禁 `scripts/check-upstream-v2-delta.mjs`（接在 CI `lint` 作业）：列出 merge base
 之后所有触及被删除包的提交，要求每一个都在 `scripts/upstream-v2-delta-allowlist.json` 中带有明确
-裁定（`ported` / `tracked` / `not-applicable`；`pending` 或未记录即失败）。当前快照（2026-09-15
-二次复核，merge base 不变、上游推进到 `a7bdabbe82`）：
-`ported=14 | tracked=13 | not-applicable=13`（40 条）。
+裁定（`ported` / `tracked` / `not-applicable`；`pending` 或未记录即失败）。当前快照（2026-09-17
+三次复核，merge base 不变、上游推进到 `25dd4ce973`，即 `@moonshot-ai/kimi-code@2.0.0` 之后）：
+`ported=21 | tracked=11 | not-applicable=21`（53 条）。
+
+**2026-09-17 追加发现之二：allowlist 的裁定本身会过期。** `b1807253c3`（#3728 permission_mode 提醒）
+的 note 至今写着"the whole permission_mode reminder injection is absent from the fork"，而该实现
+2026-09-15 就已落地（`src/injection/permission_mode.rs` + `run_turn.rs:605,731`），裁定已就地更正为
+`ported`。⇒ 复核对账时**必须拿代码验证裁定，不能信任 note 的措辞**；每轮复核把 `tracked` 条目逐条
+回代码里查一遍，能指出行号的直接改判 `ported`。
+
+**2026-09-17 追加发现：ref 过期会让门禁静默缩小检查范围。** 门禁读的是本地
+`refs/remotes/upstream/main`；该 ref 若停在 `ee2cac102b`（09-12），检查区间就只剩 22 条并报
+「all triaged」绿灯，而真实区间（`25dd4ce973`，09-17）是 53 条 —— 未分类的 `31f1b6824d`
+（#3846）就是这么漏掉的。门禁在 ref **缺失**时会拒绝通过，但 ref **存在而过期**时不会。
+因此每次复核前必须显式取一次远端并核对提交号：
+
+```sh
+git fetch upstream main:refs/remotes/upstream/main --force
+git log -1 --format='%h %cs %s' refs/remotes/upstream/main
+```
 
 同时必须记住：`scripts/scan-parity.mjs` 的比对源**全部是 fork 自有声明**
 （`packages/protocol/src/rest/*.ts` 注释清单、`ws-event-contract.json`、`tool-name-contract.json`、
@@ -386,14 +403,32 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
    **已知交互**：host 在 plan 模式下把 snapshot mode 写成 `plan`（引擎读作 `PermissionMode::Unknown`，
    权限链按 manual 处理），因此 auto ↔ plan 切换会各发一次 exit/enter 提醒——这与引擎实际执行的
    权限语义一致，但与 v2（plan 是独立轴、不触碰 permission mode）不同。
-2. **#3734 流式 attempt 状态未在重试时失效**：`turn_loop/retry.rs`（279 行 / 4 个 pub 项）没有
-   attempt-state 失效逻辑，`context_tokens.invalidate()` 属 token 记账而非流式增量。先确认 Rust
-   是否存在"被弃用 attempt 的增量泄漏到重试后消息"的路径，再决定是否移植。
-3. **#3694 存储失败重建索引 / #3697 steer 打断后台等待 / #3688 MCP 附件原件保留 /
-   #3648 tower 可靠性**：
+2. ~~**#3734 流式 attempt 状态未在重试时失效**~~ **已解决（2026-09-17）**。复核结论：Rust 原本
+   **没有**这条路径，但缺的不是"修 bug"而是**整套机制**，故按"缺的补上"落地为三部分：
+   ① turn 作用域 id 账本 `src/turn_loop/tool_call_id.rs`（逐字移植 v2 `ToolCallIdNormalizer`：`seed_from`
+   一次性从历史认领、`begin_response`、`remap_streamed_id`（带稳定 stream slot）、`remap_finalized_ids`、
+   `rollback`、`remapped` 原始→分配映射）；② **流式 tool-call 增量原本整条线不存在**（`EngineEvent::ToolCallDelta`
+   有消费者没有生产者），本次补上生产者：`StreamDelta::ToolCall`（`src/llm/wire.rs`）由 openai
+   `tool_calls[i].function.arguments` 分片（`openai.rs:434`）、anthropic `input_json_delta`（`anthropic.rs:570`）、
+   openai-responses `response.function_call_arguments.delta`（`openai_responses.rs:316`）产出；google-genai
+   以整块 `args` 返回，故本就不产生分片。`Accumulator::take_tool_call_deltas`（`http.rs:52`）取出，
+   `NativeHttpLlm::emit_delta`（`http.rs:214`）在出口对分片 id 归一化，收尾时对进入历史的调用做同一套映射，
+   使**分片与最终调用同 id**；宿主侧 v3 live 把 `tool_call` part 映射为 `ServerMessage::ToolCallDelta`
+   （`server/v3/live.rs:376`），不再被误投影成空的 assistant delta（ws v1 / transcript / REPL / ACP 的类型守卫
+   对本 part 类型无副作用）。③ 失败即作废：`AttemptLedger`（`http.rs:909`）每次请求开一份
+   （`http.rs:390-393`），**任何失败出口经 `Drop` 回滚本 attempt 的认领**，仅成功时 `commit`（`http.rs:573`）——
+   对应 v2 `onAttemptRetry` 的语义（v2 的"请求层重试"在本引擎即"每次 `chat_impl` 开一份 attempt"）。
+   账本由 turn 安装到传输层（`run_turn.rs:768-776` → `LLM::set_tool_call_ids`，`http.rs:947`）。
+   **已知差异**：v2 会把原始 id 盖到调用上（`ToolCall.rawId`）以便按 provider 策略回映射；本引擎没有该策略
+   （历史与 provider 拿到的都是分配后的 id），故 raw→assigned 只留在账本的 `remapped` 列表里——
+   为不存在的消费者给 `ToolCall` 加字段会波及 193 处字面量。provider 尚未给出 id 的分片**不外发**
+   （`http.rs:214`）：空 id 由 step 的 P61 兜底生成，先发一个空 id 的实体永远无法与最终调用合流。
+   验证：`src/llm/http.rs` 新增 3 项（分片/最终同 id、失败释放、账本 commit/rollback）+ `tool_call_id` 12 项
+   单测（对齐 v2 `toolCallIdNormalizer.test.ts`）。
+3. **#3694 存储失败重建索引 / #3648 tower 可靠性**：
    已在 allowlist 记为 `tracked`，但尚未逐条与 Rust 实现比对，需要单独一轮 triage。
    （原列的 #3681 `[models]` 告警已落地，见第 14 条；#3720 / #3717 已拆出，见第 15 条；
-   #3606 模型目录运行时已落地，见第 16 条。）
+   #3606 模型目录运行时已落地，见第 16 条；**#3697 与 #3688 已从本条移出并落地**，见 §6.2。）
 4. **#3532 v3 扁平实体消息协议（WS + history API）——已决定全量移植（2026-09-15）**：上游用
    `transport/ws/` 下的 `v1`/`v3`/`debug` 三代并存命名，v3 即「扁平实体」代际（提交
    `64505e36e3`，design revision 1094）：26 个 server 消息变体 + 2 个 client 帧，实体按
@@ -568,9 +603,24 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
     `compaction::tests::test_compaction_config_attempt_cap_reaches_the_summarizer`、
     `turn_loop::run_turn::tests::test_compaction_attempt_cap_reaches_the_turn_loop_summarizer`
     （真实 turn 循环 + 真实溢出恢复路径，断言摘要器只被调用 1 次）。
-12. **#3749 AI 会话标题**：`auto_session_title` 开关在 fork 原生注册表里本就不存在，但它门控的
-    AI 标题路径未实现——`derive_session_title` 直接拒绝 `source=digest`
-    （`session/sqlite_store.rs:1777`），`fetchChatTitle` 无消费者。
+12. ~~**#3749 AI 会话标题**~~ **已解决（2026-09-17）**。开关那一半本就已缺席（fork 原生注册表里没有
+    `auto_session_title`，正是毕业后的状态）；它门控的 AI 标题路径现已引擎侧落地。
+    新增 `packages/kimi-agent/src/session/title.rs`，对齐 `sessionTitleService` +
+    `agentTitlePromptSourceService`：`compose_title_input` 按上游常量组装三种 source 的
+    `chat_content`（`first_turn` / `digest` / `user_prompts`，含 digest 的首尾省略），
+    `fetch_chat_title` 说 `packages/oauth` 的 `fetchChatTitle` 早已声明的线格式——
+    `POST {base}/tools` 带 `{method:'chat_title',params:{chat_content}}`，应答 `{title}`，8 秒超时。
+    凭据取自 LLM 的 managed seam（`media_target` + `media_upload_credential`），它按 `auth_provider`
+    门控，即引擎侧对应 v2 `modelSource === 'oauth-catalog'` 的标记；静态 API key 的会话对 `digest`
+    报具名错误，而不是悄悄退回确定性标题。两个标题入口（`session/generate_title` RPC 与 napi
+    `session_generate_title`，后者改为 async）都走 `generate_session_title`；宿主的 source 校验与
+    `SessionTitleSource` 接受 `digest`。
+    **顺带修掉一个潜伏 panic**：`derive_session_title` 原先按**字节**截断，切在多字节码点中间会 panic
+    （CJK 提示词立刻触发）。
+    验证：`session::title` 11 项（三种 source 的组装、digest 省略、码点安全截断、managed 门控、
+    以及对着 loopback 服务器的真实 HTTP 线格式）。
+    **未端到端验证**：成功拿到托管标题需要托管 OAuth 会话，本机没有该凭据。
+    allowlist `6126472c7a` 由 `tracked` 改判 `ported`。
 13. ~~**#3778 已完成 subagent scope 的 LRU 驱逐**~~ **已解决（2026-09-15 后续变更）**。落地为
     `subagent/manager.rs`：两个环境变量按上游默认值与校验解析（`KIMI_CODE_SUBAGENT_SCOPE_CACHE_SIZE`
     默认 32、`0`/负数 = 不驱逐；`KIMI_CODE_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS` 默认 15000；非法值让首次
@@ -739,14 +789,70 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
     ④ **预算只覆盖 image/video/audio 的内联形态**，与 v2 的 image/video 一致（audio 在 v2 不计，
     fork 把 audio 的 data URL 也计入了——这是 fork 多出的一项，不是缺失）。
 
+18. ~~**#3838 取消操作把 AbortError 抛成进程崩溃（live 包，未移植）**~~ **已解决（2026-09-17）**。
+    `packages/telemetry/src/crash.ts` 的 sole-listener 分支改为 `if (soleListener && !isAbortError(reason))`，
+    并补上上游那段 AbortError 注释；该文件现与 `upstream/main` **逐字一致**（`git diff --no-index` 空）。
+    另一半（agent-core-v2 的 xstate2 abort 管线）无 Rust 对应物，不移植。
+    验证：`telemetry.test.ts` 新增 `does not rethrow an aborted-operation rejection when it is the only listener`
+    （清空 vitest 自己的 listener 让 crash handler 成为唯一 listener，断言 AbortError 既不上报也不 rethrow，
+    返回 `NOT_CAUGHT` 哨兵）；allowlist `f4e5822164` 由 `tracked` 改判 `ported`。
+
+19. **#3764 prompt / skill-activation 的 client metadata 与 display_text（未移植）**：上游在 prompt 与
+    skill activation 的 origin 上存一个不透明 metadata 对象，随 prompt 事件、transcript 投影、snapshot 与
+    history 重建一路携带，并在「每个 entry 都提供」时用 `display_text` 生成会话标题、undo 标签与 fork 标题；
+    该 metadata 不进模型内容。fork 现状：`rg "display_text|client_metadata|clientMetadata" packages/kimi-agent/src`
+    为空，标题派生只读 prompt 正文（`packages/node-sdk/src/native/sdk-rpc-client-native.ts`
+    的 `promptMetadataTextFromPrompt`），没有 metadata 通道。**验收**：RunTurnInput → origin → history
+    能携带并回显该对象，宿主提供的 `display_text` 优先决定标题（allowlist: `41eac5d2e7`）。
+
+20. ~~**#3840 Windows 8.3 短路径的 watch 归一化（未移植）**~~ **不适用（2026-09-17 复核）**。
+    上游的缺陷是 libuv 专属的：变更通知按长路径到达，而 watch root 以 8.3 形式注册，于是 libuv
+    `fs-event.c` 断言 `!_wcsnicmp(filename, dir, dirlen)` 直接终止进程。fork 的
+    `packages/kimi-agent/src/server/fs_watch.rs` 是**定时轮询** `tokio::fs::metadata`，没有 OS watcher、
+    没有 libuv，该断言不可达。上游修复的两个行为面 fork 本就满足：事件按注册时的路径原样回显
+    （正是上游要映射回去的结果），且 8.3 路径解析到同一文件——本机实测
+    `C:/Users/ADMINI~1/.kimi-code/mcp.json` 与 `C:/Users/Administrator/.kimi-code/mcp.json` 的 inode
+    （281474977003976）与 mtime（1789609827）完全一致，轮询两种写法看到同一个 mtime。
+    该提交的后续修复（`..cache` 这类以两点开头的子项算作 root 内）同样不适用：fork 不比较相对路径。
+    allowlist `9c5e9b4863` 由 `tracked` 改判 `not-applicable`。
+
+21. **#3832 被 steer 的用户 slash skill activation 未记录（TS 侧 + 引擎侧）**：上游
+    `packages/transcript/src/contract/{origin,schema}.ts` 增加 `skill_activation` origin 变体
+    （trigger user-slash + skillName + skillArgs），fork 仍是只有 `user` 变体
+    （`rg "skill_activation" packages/transcript/src/contract/` 为空，该包停在合并时的上游 0.0.2）。
+    当前仓内无任何包 import `@moonshot-ai/transcript`，因此尚不可见；Rust 引擎投影自己的 origin
+    （`server/transcript/model.rs:81` `UserOriginKind`、`:308` `TranscriptUserOrigin`），
+    被 steer 的 slash activation 也要进到那里。**验收**：TS 契约随上游合并落地，且引擎 origin 投影
+    覆盖 steer 路径的 skill activation（allowlist: `1c7e996aa8`）。
+
 ### 6.2 本轮已修复（含证据）
 
 | 上游 | 修复 | 证据 |
 |---|---|---|
 | #3714 `rm -rf` 仅 `/tmp`、`/temp` 免审 | `RM_SAFE_TEMP_ROOTS` + `is_safe_temp_rm_operand` + `rm` 操作数收集（`--` 之后全为操作数），并把上游 `literalText` 的 `UNSAFE_OPERAND` 字面量判据折叠进操作数检查 | `src/native/permission_engine/dangerous_command.rs`；新增 `test_rm_rf_temp_paths_are_exempt`（7 个免审用例）与 `test_rm_rf_outside_temp_paths_stay_dangerous`（9 个危险用例） |
 | #3657 移除 wall-clock 时间预算上限 | 删除 `MAX_REASONABLE_TIME_BUDGET_MS`，只校验 `>= 1s` 且有限；工具描述逐字对齐上游 `set-goal-budget.md:15-17` | `src/goal/mod.rs`、`src/tools/goal_tools.rs`；新增 `test_set_budget_accepts_durations_above_the_former_24h_ceiling`，`storage/state_store.rs` 改为断言亚秒预算被拒 |
+| #3734 重试时作废已流式的 attempt 状态 | 见 §6.1 第 2 条：补上 v2 的整套机制——turn 作用域 id 账本（`src/turn_loop/tool_call_id.rs`）、**流式 tool-call 增量生产者**（`src/llm/wire.rs` 的 `StreamDelta::ToolCall`；openai/anthropic/responses 三协议产出，google 无分片）、出口 id 归一化（`src/llm/http.rs:214`）、失败即回滚的 attempt 守卫（`src/llm/http.rs:909`，`Drop` 回滚、成功才 `commit`）、v3 宿主映射（`src/server/v3/live.rs:376`） | `streamed_tool_call_fragments_share_the_finalized_id`、`failed_request_releases_the_tool_call_ids_it_streamed`、`attempt_ledger_commits_or_releases`（`src/llm/http.rs`）；`src/turn_loop/tool_call_id.rs` 12 项 |
+| #3688 MCP 结果里的媒体被压成文本预览、原件不留存 | 新增 `src/mcp/output.rs`（`convertMCPContentBlock` + `mcpResultToExecutableOutput` 的移植）：文本/图片/音频/视频/resource/resource_link 逐类映射，内联媒体先落库再交付；`FileStore::save_with_id`（内容寻址 `f_mcp_<sha256>`，幂等去重）与 `blob_path`、`resolve_attachment_reference`（`src/server/files.rs:90,226,316`）；原件以 `kimi-file://<id>` 引用 + 本地路径写进通知（v2 原文），媒体本体以 `ContentBlock::MediaRef` 走 `ToolDelivery`，由请求解析器按模型能力内联；超过 10MB 的单块/无对应家族的 resource blob **不交付但仍留存**；通知超 4096 字符则把清单本身存成附件并换成指针；转换逐块响应取消探测。`tools/mod.rs:1527` 先尝试按附件引用解析路径，使 `Read`/`ReadMediaFile` 能打开通知里给的原件 | `src/mcp/output.rs` 8 项、`src/server/files.rs` 2 项、`src/mcp/manager.rs` 的 `test_mcp_media_is_preserved_and_delivered_as_a_reference`（新增 `image` mock 模式） |
+| #3697 steer 打断后台等待的**前置件**：`WaitFor` 在生产路径上根本不阻塞 | triage 先证伪了上游前提——引擎把 `WaitFor` 摊成**同步**的 `StateStore::task_wait`（`src/storage/state_store.rs:703`，其注释自承"REPL 尚无后台任务 runner"），而所有引擎路径都经 `StateStoreCallbacks`（`src/pipeline/mod.rs:273`、`src/server/engine.rs:939`）到达它：5 秒等待在 6ms 内返回 `timed_out`（迁移前用真实生产链探针实测）。**没有阻塞就无从打断**，故先补阻塞：`NativeToolset::execute_tool_streaming` 把自己持有的 `task_runner`（即 spawn 后台 Bash/Agent 的那个 runner）传进 `execute_task_wait`，`TaskRunner::wait_interruptible` 真挂起在任务的 `done` 上；状态桥保留为**本 runner 不认识的任务**的宿主兜底（服务端每轮重建 pipeline，上一轮的任务属另一个 runner）。顺带补上 fork 缺失的 **wait-any**：`task_id` 变可选（v2 `WaitForInputSchema`）、`TaskRunner::wait_any`、`no_tasks` 报告、以及 v2 的 `[still_running]` 尾段 | `src/storage/task_runner.rs`（`wait_interruptible`/`wait_any`/`TaskWaitResult::Interrupted`）、`src/tools/task_tools.rs`（`execute_task_wait` 的 runner 路由 + `render_wait_no_tasks`/`push_still_running`）；6 项 runner 单测 + 8 项 tool 单测；探针实测 1009ms/1000ms（迁移前 6ms）、完成唤醒 169ms |
+| #3697 steer 打断后台等待（v2 `steerController`） | 在阻塞等待之上落地：`ParentCancel` 槽与 P55 取消槽并列，穿过 `NativeToolset`/`PipelineHost`/`SessionConfig`；会话 pump 每轮发布新信号（服务端按 session 发布），**在 steer 真正并入轮次处触发**（`session::admit_locked` 的 ActiveOrNewTurn 分支、`ServerEngine::enqueue_steer`），并在轮次取走 steer 时刷新（`SteerQueueCallbacks::drain_steers`），对应 v2"不再有未丢弃 steer 时重建 `steerController`"；空 drain 不刷新。`WaitFor` 据此渲染 v2 的 `formatInterrupted`（`wait_status: interrupted` + `reason: steer`，非错误，任务继续运行）。TUI 渲染器识别 `interrupted` | `src/tools/mod.rs`（`effective_steer`/`with_steer_slot_if`）、`src/session/mod.rs`（`steer_slot`、`drain_steers` 刷新、`admit_locked` 触发）、`src/server/engine.rs`（`steer_slots` 映射）；`src/session/mod.rs` 2 项 + `src/tools/task_tools.rs` 的 `test_wait_with_a_runner_ends_on_the_steer_signal`；探针：30s 等待在 164ms 被信号结束且任务仍 `running` |
+| #3846 MCP **工具调用**返回 401 → 服务器标记 `needs-auth` | 上游只在连接期翻转，调用期的 401 此前只报一句 `MCP execution error`。新增 `McpManager::mark_needs_auth`（`src/mcp/manager.rs:397`）与 `call_tool` 的 unauthorized 分叉（`:943`）：状态门（仅 `connected`/`needs-auth`）、发起方 client 绑定（`Arc::ptr_eq`）、关闭 client + 清缓存工具、错误文案改为可操作提示。并发授予窗口需要连接时刻，故新增 `ServerState.connected_at_ms`（`:96`，连接成功处 `:1174`）与 `oauth_clock`（`:379`）；OAuth 侧新增 `obtained_at_ms`（`src/mcp/oauth/service.rs:34`，由 `store_tokens` `:117` 与刷新 `:224` 打戳）、`is_concurrent_grant`（10 秒窗口，`:67`）、`peek_rejected_grant`（`:134`）、比较后清除 `clear_tokens_if_current`（`:148`）。**与上游的差异**：上游文案指向 `<server>__authenticate` 工具，本引擎没有该工具，故改写为 `/mcp-config login <name>`（与连接期翻转既有文案一致）；上游 `isUnauthorizedLikeError` 里对 `McpError` 的排除在 Rust 侧是结构性的——应用级工具失败以 `Ok` + `is_error` 返回，只有传输层错误会进 sniff | `test_tool_call_401_flips_server_to_needs_auth`、`test_concurrent_grant_survives_a_call_401`（`src/mcp/manager.rs:2674,2756`）；`test_store_tokens_stamps_obtained_at_once`、`test_concurrent_grant_window`、`test_clear_tokens_if_current`、`test_peek_rejected_grant`（`src/mcp/oauth/service.rs:401,430,466,497`）；mock 模式 `401-on-call`（`src/mcp/http.rs:176,275`） |
 
 验证：`cargo test --features cli --lib` → **2349 passed / 0 failed / 1 ignored**（2026-09-15）。
+追加验证（2026-09-17，本轮 #3846 + #3734 移植）：`cargo check --lib` 无告警；`cargo test --lib mcp` →
+**99 passed / 0 failed**（含新增 6 项）；`cargo test --lib llm::http::tests::` → **30 passed / 1 failed**，
+唯一失败为前期既有的 `chat_fails_cleanly_on_unreachable_endpoint`（单独复跑同样失败，位于在途改动中的
+`llm/http.rs`，与本轮无关）。
+追加验证（2026-09-17，本轮 #3734 流式化 + #3688 附件留存）：`cargo test --lib` → **2608 passed / 2 failed**
+（既有环境失败 1 条 + `acp::test_acp_prompt_reports_acp_stop_reason` 并发抖动，单独复跑通过）；
+`cargo test --lib mcp::` 92 项、`server::` 351 项、`tools::` 647 项全绿。
+追加验证（2026-09-17，本轮 #3697 阻塞等待 + steer 打断）：`cargo check --lib` 与
+`cargo clippy --lib -- -D warnings` 均无告警，`cargo fmt --check` 干净；`cargo test --lib` →
+**2628 passed / 0 failed / 1 ignored**（上轮 2 条失败均已消失；净增的 20 项为 #3697 新增：
+`storage::task_runner` 6 项、`tools::task_tools` 8 项、`session` 2 项、`server::engine` 2 项，
+另 2 项为上轮遗留计入）。顺带修掉 3 条既有 clippy 告警（`mcp/manager.rs` 两处、`mcp/oauth/service.rs`
+一处，均在上轮在途改动中，CI 的 `-D warnings` 会拦下）。
+迁移前用真实生产链探针复现了前提缺失（5s 等待 6ms 返回 `timed_out`），落地后同一探针测得
+1009ms/1000ms、完成唤醒 169ms、30s 等待被信号在 164ms 结束且任务仍 `running`。
 
 ### 6.3 文档失真清单（本轮已就地更正）
 

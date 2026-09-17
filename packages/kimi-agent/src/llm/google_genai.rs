@@ -390,6 +390,13 @@ impl StreamAccumulator {
         Self::default()
     }
 
+    /// No incremental tool-call arguments exist on this protocol: a
+    /// `functionCall` part carries its `args` whole, so there is never a
+    /// fragment to forward (the finalized call still reaches the host).
+    pub fn take_tool_call_deltas(&mut self) -> Vec<StreamDelta> {
+        Vec::new()
+    }
+
     /// Feed one stream chunk. Returns text or thinking delta if present.
     pub fn feed(&mut self, v: &Value) -> Option<StreamDelta> {
         if let Some(usage) = v.get("usageMetadata") {

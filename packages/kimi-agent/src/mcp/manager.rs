@@ -7,9 +7,10 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 
 use crate::mcp::client::McpClient;
-use crate::mcp::types::{McpContent, McpTool};
+use crate::mcp::types::McpTool;
 use crate::native::tool_naming::qualify_mcp_tool_name;
-use crate::turn_loop::types::ExecutableToolResult;
+use crate::server::files::FileStore;
+use crate::turn_loop::types::{ExecutableToolResult, ToolDelivery};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McpToolSummary {
@@ -87,6 +88,13 @@ struct ServerState {
     /// Every tool the server advertised (v2 `rawTools`), including the ones
     /// the filter hides from the model; `/mcp inspect` reads this.
     raw_tools: Vec<McpTool>,
+    /// Whether this server's tools are disclosed on demand rather than in the
+    /// top-level tool list (v2 `disclosure: 'deferred'`).
+    deferred: bool,
+    /// When the live connection was established (v2 `entry.connectedAt`,
+    /// connection-manager.ts:37). Compared against a stored grant's obtain
+    /// time to tell a concurrent login from the credential a 401 rejected.
+    connected_at_ms: Option<i64>,
 }
 
 /// Per-server tool visibility (v2 `computeEnabledNames` plus `config.enabled`).
@@ -143,6 +151,12 @@ pub struct McpServerOptions {
     pub disabled_tools: Option<Vec<String>>,
     pub startup_timeout_ms: Option<u64>,
     pub tool_timeout_ms: Option<u64>,
+    /// Keep this server's tools out of the top-level tool list and load them on
+    /// demand through `select_tools` (v2 per-server `deferred`). The caller
+    /// applies the gate — the `tool_select` flag plus the model's
+    /// `dynamically_loaded_tools` capability — before setting it; the manager
+    /// only records the disclosure this server was registered with.
+    pub deferred: bool,
 }
 
 impl Default for McpServerOptions {
@@ -153,6 +167,7 @@ impl Default for McpServerOptions {
             disabled_tools: None,
             startup_timeout_ms: None,
             tool_timeout_ms: None,
+            deferred: false,
         }
     }
 }
@@ -207,9 +222,25 @@ pub struct McpManager {
     in_flight: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Notify>>>>,
     /// OAuth credentials for remote servers (v2 `McpOAuthService`).
     oauth: Arc<RwLock<Option<Arc<crate::mcp::oauth::McpOAuthService>>>>,
+    /// Where media an MCP server returns is preserved (v2
+    /// `McpConnectionManagerOptions.attachmentStore`, upstream #3688). The
+    /// default store is the daemon's own blob store, which is what the request
+    /// media resolver reads a `kimi-file://` reference back from.
+    attachments: Arc<RwLock<FileStore>>,
     /// Status-change listeners (v2 `listeners`, connection-manager.ts:360-378).
     status_listeners: Arc<Mutex<Vec<(McpStatusSubscription, McpStatusListener)>>>,
     next_status_id: std::sync::atomic::AtomicU64,
+    /// Initial-load readiness (v2 `connectAll` / `waitForInitialLoad`,
+    /// connection-manager.ts:170-181, :235-241). Starts `true` — "nothing to
+    /// wait for" — because a manager built by the server/REPL path connects
+    /// through [`Self::spawn_from_config`], which awaits its own connects, and
+    /// one built by `add_client`/`configure` has no initial load at all.
+    /// [`Self::connect_all`] clears it, then sets it once the connects settle.
+    ///
+    /// `watch` rather than `Notify`: a notify that lands before the wait would
+    /// be lost, and the wait is usually entered after the load already ended.
+    ready_tx: tokio::sync::watch::Sender<bool>,
+    ready_rx: tokio::sync::watch::Receiver<bool>,
 }
 
 impl Default for McpManager {
@@ -220,6 +251,7 @@ impl Default for McpManager {
 
 impl McpManager {
     pub fn new() -> Self {
+        let (ready_tx, ready_rx) = tokio::sync::watch::channel(true);
         Self {
             clients: Arc::new(RwLock::new(HashMap::new())),
             cached_tools: Arc::new(RwLock::new(HashMap::new())),
@@ -229,9 +261,50 @@ impl McpManager {
             defaults: Arc::new(RwLock::new(crate::config::McpTimeoutConfig::default())),
             in_flight: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             oauth: Arc::new(RwLock::new(None)),
+            attachments: Arc::new(RwLock::new(FileStore::new())),
             status_listeners: Arc::new(Mutex::new(Vec::new())),
             next_status_id: std::sync::atomic::AtomicU64::new(1),
+            ready_tx,
+            ready_rx,
         }
+    }
+
+    /// Start connecting every server and return immediately (v2 `connectAll`,
+    /// connection-manager.ts:170-181). The returned handle settles when every
+    /// connect has, and flips [`Self::wait_for_initial_load`] back to ready.
+    ///
+    /// Session creation uses this instead of awaiting each `configure`: the
+    /// tool table reads the manager live (`callbacks.rs::list_tools`), so a
+    /// server that connects later still contributes its tools.
+    pub fn connect_all(
+        self: &Arc<Self>,
+        servers: Vec<(String, McpServerRecipe, McpServerOptions)>,
+    ) -> tokio::task::JoinHandle<()> {
+        // Cleared before the spawn so a consumer that reads readiness between
+        // the two cannot observe "ready" while the connects are still running.
+        self.ready_tx.send_replace(false);
+        let manager = self.clone();
+        tokio::spawn(async move {
+            let tasks = servers.into_iter().map(|(name, recipe, options)| {
+                let manager = manager.clone();
+                async move {
+                    let _ = manager.configure(&name, recipe, options).await;
+                }
+            });
+            futures_util::future::join_all(tasks).await;
+            manager.ready_tx.send_replace(true);
+        })
+    }
+
+    /// Await the initial load started by [`Self::connect_all`] (v2
+    /// `waitForInitialLoad`, connection-manager.ts:235-241). Returns at once
+    /// when the load already finished, and when none was ever started.
+    pub async fn wait_for_initial_load(&self) {
+        if *self.ready_rx.borrow() {
+            return;
+        }
+        let mut rx = self.ready_rx.clone();
+        let _ = rx.wait_for(|ready| *ready).await;
     }
 
     /// Register a status-change listener (v2 `onStatusChange`,
@@ -303,8 +376,114 @@ impl McpManager {
         *self.oauth.write().await = Some(service);
     }
 
+    /// Point attachment preservation at an explicit store (tests, or a host
+    /// that keeps session blobs somewhere else).
+    pub async fn set_attachment_store(&self, store: FileStore) {
+        *self.attachments.write().await = store;
+    }
+
     async fn oauth_service(&self) -> Option<Arc<crate::mcp::oauth::McpOAuthService>> {
         self.oauth.read().await.clone()
+    }
+
+    /// The clock status transitions compare against: the OAuth service's when
+    /// one is installed, system time otherwise (v2
+    /// `this.oauthService?.now() ?? Date.now()`, connection-manager.ts:382).
+    async fn oauth_clock(&self) -> i64 {
+        match self.oauth_service().await {
+            Some(service) => service.now(),
+            None => chrono::Utc::now().timestamp_millis(),
+        }
+    }
+
+    /// Flip a server to `needs-auth` after a *call* was rejected with 401 and
+    /// report whether the entry moved (v2 `markNeedsAuth`,
+    /// connection-manager.ts:307-347). A live entry only reaches this from
+    /// `connected` — a call cannot be made against anything else — but
+    /// `needs-auth` is accepted so a second rejected call is idempotent.
+    ///
+    /// `client` binds the report to the connection it came from: a call that
+    /// failed on a client that has since been replaced must not flip the live
+    /// entry (v2 `entry.client !== client`). A grant obtained within the
+    /// concurrency window is treated as a login that landed alongside this
+    /// connection, so it neither flips the entry nor gets invalidated.
+    pub async fn mark_needs_auth(
+        &self,
+        name: &str,
+        error: &str,
+        client: Option<&Arc<McpClient>>,
+    ) -> bool {
+        let oauth = self.oauth_service().await;
+        let (recipe, status, connected_at_ms) = {
+            let servers = self.servers.read().await;
+            let Some(state) = servers.get(name) else {
+                return false;
+            };
+            (
+                state.recipe.clone(),
+                state.status.clone(),
+                state.connected_at_ms,
+            )
+        };
+        if status != "connected" && status != "needs-auth" {
+            return false;
+        }
+        if !should_mark_needs_auth(&recipe, oauth.is_some(), error) {
+            return false;
+        }
+        if status == "needs-auth" {
+            return true;
+        }
+        if let Some(client) = client {
+            let live = self.clients.read().await.get(name).cloned();
+            if !live.is_some_and(|live| Arc::ptr_eq(&live, client)) {
+                return false;
+            }
+        }
+        let key = match &recipe {
+            McpServerRecipe::Sse { url, .. } | McpServerRecipe::Http { url, .. } => {
+                crate::mcp::oauth::mcp_oauth_store_key(name, url).ok()
+            }
+            _ => None,
+        };
+        let rejected = match (&key, oauth.as_ref()) {
+            (Some(key), Some(service)) => service.peek_rejected_grant(key, connected_at_ms),
+            _ => None,
+        };
+        if rejected.as_ref().is_some_and(|(_, concurrent)| *concurrent) {
+            return false;
+        }
+        // Close the live client and drop its tools before flipping, so the
+        // entry cannot keep serving a tool list the model can no longer call.
+        if let Some(dead) = self.clients.write().await.remove(name) {
+            dead.close().await;
+        }
+        {
+            let mut cached = self.cached_tools.write().await;
+            cached.retain(|_, (srv, _)| srv != name);
+        }
+        if let Some(state) = self.servers.write().await.get_mut(name) {
+            state.status = "needs-auth".into();
+            state.error = Some(format!(
+                "{name} requires OAuth — run /mcp-config login {name}"
+            ));
+            state.raw_tools.clear();
+        }
+        // The rejected credential must not be replayed on the next connect,
+        // but only while it is still the one that failed: a login that landed
+        // in between owns the store now. Cleanup failures are non-fatal — the
+        // entry is already needs-auth either way.
+        if let (Some((tokens, _)), Some(service), Some(key)) = (rejected, oauth.as_ref(), key)
+            && let Err(e) = service.clear_tokens_if_current(&key, &tokens)
+        {
+            tracing::warn!(
+                server = %name,
+                reason = %e,
+                "mcp oauth token invalidation failed"
+            );
+        }
+        self.emit_status(name).await;
+        true
     }
 
     /// Inject `Authorization: Bearer <token>` from the OAuth store when the
@@ -476,6 +655,22 @@ impl McpManager {
             });
         }
         infos
+    }
+
+    /// The names of the tools whose server was registered as deferred (v2
+    /// `disclosure: 'deferred'`). The top-level tool table drops these and
+    /// `select_tools` offers them instead, so a deferred server's schemas stop
+    /// occupying context until the model asks for them.
+    pub async fn deferred_tool_names(&self) -> HashSet<String> {
+        let servers = self.servers.read().await;
+        let cached = self.cached_tools.read().await;
+        cached
+            .iter()
+            .filter(|(name, (server, _))| {
+                name.starts_with("mcp__") && servers.get(server).is_some_and(|state| state.deferred)
+            })
+            .map(|(name, _)| name.clone())
+            .collect()
     }
 
     /// Return the list of connected MCP servers, their transport types and discovered tools.
@@ -652,61 +847,12 @@ impl McpManager {
         Some(state.raw_tools.iter().map(tool_to_json).collect())
     }
 
-    /// Render an MCP content block to a text representation. Text blocks
-    /// pass through verbatim; image / audio / video blocks become a notice
-    /// with the mime type and a base64 preview (truncated); resource blocks
-    /// include the uri and text. Used because the tool-result wire type
-    /// (`ExecutableToolResult.content: String`) cannot yet carry
-    /// `ContentPart` — non-text blocks must not be silently dropped.
-    fn render_mcp_content(c: &McpContent, preview_bytes: usize) -> String {
-        match c.content_type.as_str() {
-            "text" | "string" => c.text.clone().unwrap_or_default(),
-            "image" | "audio" | "video" => {
-                let mime = c.mime_type.as_deref().unwrap_or("<unknown>");
-                let data = c.data.as_deref().unwrap_or("");
-                let preview: String = data.chars().take(preview_bytes).collect();
-                let total = data.len();
-                if preview_bytes >= total {
-                    format!(
-                        "[MCP {kind} (mime={mime}, {total} bytes base64) data:<{data}>]",
-                        kind = c.content_type
-                    )
-                } else {
-                    format!(
-                        "[MCP {kind} (mime={mime}, {total} bytes base64, preview first {preview_bytes}) data:<{preview}…>]",
-                        kind = c.content_type
-                    )
-                }
-            }
-            "resource" => match &c.resource {
-                Some(value) => {
-                    let uri = value
-                        .get("uri")
-                        .and_then(Value::as_str)
-                        .unwrap_or("<missing uri>");
-                    let text = value
-                        .get("text")
-                        .and_then(Value::as_str)
-                        .unwrap_or("<no text>");
-                    format!("[MCP resource uri={uri} text=<{text}>]")
-                }
-                None => "[MCP resource with empty payload]".to_string(),
-            },
-            unknown => {
-                let mime = c.mime_type.as_deref().unwrap_or("");
-                format!(
-                    "[MCP unknown content type={unknown} mime={mime} text=<{}>]",
-                    c.text.as_deref().unwrap_or("")
-                )
-            }
-        }
-    }
-
     /// Call an MCP tool dynamically.
     pub async fn call_tool(
         &self,
         tool_name: &str,
         arguments: &Value,
+        cancelled: Option<&(dyn Fn() -> bool + Sync)>,
     ) -> Option<ExecutableToolResult> {
         let (server_name, mcp_tool) = {
             let cached = self.cached_tools.read().await;
@@ -720,16 +866,18 @@ impl McpManager {
 
         match client.call_tool(&mcp_tool.name, arguments).await {
             Ok(res) => {
-                // Render every content block to text so non-text variants
-                // (image/audio/resource) are never silently dropped — the
-                // full `ExecutableToolResult.content: String` wire type
-                // can't carry `ContentPart`s yet, so non-text blocks fall
-                // back to a descriptive notice with a data preview.
-                const NON_TEXT_PREVIEW_BYTES: usize = 120;
-                let mut text_parts = Vec::new();
-                for c in &res.content {
-                    text_parts.push(Self::render_mcp_content(c, NON_TEXT_PREVIEW_BYTES));
-                }
+                // Media is preserved and handed to the model as a reference the
+                // request resolver turns into whatever the active model can
+                // take; an original the model never sees is still retrievable
+                // (v2 `mcpResultToExecutableOutput`, upstream #3688).
+                let attachments = self.attachments.read().await.clone();
+                let converted = crate::mcp::output::mcp_result_to_output(
+                    &res,
+                    Some(&attachments),
+                    None,
+                    cancelled,
+                );
+                let mut text_parts = vec![converted.content];
                 if res.structured_content.is_some() || res.meta.is_some() {
                     let mut extras = serde_json::Map::new();
                     if let Some(sc) = res.structured_content {
@@ -746,20 +894,42 @@ impl McpManager {
                     ));
                 }
                 Some(ExecutableToolResult {
-                    delivery: None,
+                    delivery: (!converted.delivery.is_empty()).then_some(ToolDelivery {
+                        blocks: converted.delivery,
+                    }),
                     stop_turn: false,
                     content: text_parts.join("\n"),
                     is_error: res.is_error,
                     note: Some(format!("mcp:{}", server_name)),
                 })
             }
-            Err(e) => Some(ExecutableToolResult {
-                delivery: None,
-                stop_turn: false,
-                content: format!("MCP execution error: {e}"),
-                is_error: true,
-                note: Some(format!("mcp:{}", server_name)),
-            }),
+            Err(e) => {
+                // A 401 on a *call* means the stored credential was rejected,
+                // not that the arguments were wrong: flip the server to
+                // `needs-auth` and hand back an actionable message instead of
+                // a bare execution error (v2 `throwIfUnauthorized`,
+                // agent/mcp/tools/mcp.ts:78-91). Application-level tool
+                // failures never reach this branch — the transport reports
+                // them as `Ok` with `is_error` set — so v2's "ignore McpError"
+                // sniff filter has no work to do here.
+                let unauthorized = self.mark_needs_auth(&server_name, &e, Some(&client)).await;
+                let content = if unauthorized {
+                    format!(
+                        "MCP server \"{server_name}\" rejected the call with 401 Unauthorized and \
+                         is now marked needs-auth. Run /mcp-config login {server_name} to complete \
+                         the OAuth login, then retry the original call."
+                    )
+                } else {
+                    format!("MCP execution error: {e}")
+                };
+                Some(ExecutableToolResult {
+                    delivery: None,
+                    stop_turn: false,
+                    content,
+                    is_error: true,
+                    note: Some(format!("mcp:{}", server_name)),
+                })
+            }
         }
     }
 
@@ -784,6 +954,12 @@ impl McpManager {
                     disabled_tools: conf.disabled_tools.clone(),
                     startup_timeout_ms: conf.startup_timeout_ms,
                     tool_timeout_ms: conf.tool_timeout_ms,
+                    // The CLI config path has no model in hand, so the
+                    // `tool_select` + `dynamically_loaded_tools` gate cannot be
+                    // applied here — every server is disclosed inline, which is
+                    // also what `Default` records. The napi path, which does
+                    // know the gate, passes the host's verdict instead.
+                    deferred: false,
                 };
                 Some(self.configure(name, recipe, options))
             })
@@ -837,6 +1013,8 @@ impl McpManager {
                 },
                 error: None,
                 raw_tools: Vec::new(),
+                deferred: options.deferred,
+                connected_at_ms: None,
             },
         );
         self.emit_status(name).await;
@@ -961,9 +1139,11 @@ impl McpManager {
             Ok(Err(e)) => return Err(e),
             Err(_) => return Err(format!("Timed out after {}ms", startup.as_millis())),
         }
+        let connected_at_ms = self.oauth_clock().await;
         if let Some(state) = self.servers.write().await.get_mut(name) {
             state.status = "connected".into();
             state.error = None;
+            state.connected_at_ms = Some(connected_at_ms);
         }
         self.emit_status(name).await;
         Ok(())
@@ -1276,7 +1456,7 @@ mod tests {
 
         // 1. Call via plain alias
         let res_plain = manager
-            .call_tool("github_sample_tool", &json!({ "query": "kimi" }))
+            .call_tool("github_sample_tool", &json!({ "query": "kimi" }), None)
             .await
             .expect("call_tool via plain alias failed");
 
@@ -1292,6 +1472,7 @@ mod tests {
             .call_tool(
                 "mcp__github__github_sample_tool",
                 &json!({ "query": "kimi_namespaced" }),
+                None,
             )
             .await
             .expect("call_tool via qualified name failed");
@@ -1304,7 +1485,7 @@ mod tests {
         assert_eq!(res_namespaced.note.as_deref(), Some("mcp:github"));
 
         // 3. Call unknown tool returns None
-        let res_missing = manager.call_tool("unknown_tool", &json!({})).await;
+        let res_missing = manager.call_tool("unknown_tool", &json!({}), None).await;
         assert!(res_missing.is_none());
     }
 
@@ -1386,6 +1567,7 @@ mod tests {
             .call_tool(
                 "mcp__calc_server__calculate",
                 &json!({ "expression": "10+32" }),
+                None,
             )
             .await
             .expect("tool call failed");
@@ -1396,7 +1578,7 @@ mod tests {
 
         // Application-level error tool call
         let err_res = manager
-            .call_tool("mcp__calc_server__trigger_tool_error", &json!({}))
+            .call_tool("mcp__calc_server__trigger_tool_error", &json!({}), None)
             .await
             .expect("tool call failed");
         assert!(err_res.is_error);
@@ -1532,6 +1714,70 @@ mod tests {
         for entry in &entries {
             assert_eq!(entry.status, "failed", "both hanging servers time out");
         }
+    }
+
+    /// `connect_all` starts the connects and returns without waiting for them
+    /// (v2 `connectAll`, connection-manager.ts:170-181). Session creation uses
+    /// it so a slow server no longer blocks the session; the readiness it
+    /// flips is what the tool table awaits instead.
+    #[tokio::test]
+    async fn test_connect_all_returns_before_the_connects_settle() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        // Accept and hold every connection open without ever responding, so
+        // the connect can only end through its startup timeout.
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((socket, _)) = listener.accept().await {
+                held.push(socket);
+            }
+        });
+
+        let manager = Arc::new(McpManager::new());
+        let start = std::time::Instant::now();
+        manager.connect_all(vec![(
+            "slow".to_string(),
+            McpServerRecipe::Sse {
+                url: format!("http://{addr}/sse"),
+                headers: HashMap::new(),
+                bearer_token_env_var: None,
+            },
+            McpServerOptions {
+                startup_timeout_ms: Some(300),
+                ..Default::default()
+            },
+        )]);
+        assert!(
+            start.elapsed() < Duration::from_millis(150),
+            "connect_all blocked for {:?}; it must only start the connects",
+            start.elapsed()
+        );
+
+        manager.wait_for_initial_load().await;
+        assert!(
+            start.elapsed() >= Duration::from_millis(250),
+            "readiness settled before the connect could time out"
+        );
+
+        // Once settled, waiting again is free.
+        let after = std::time::Instant::now();
+        manager.wait_for_initial_load().await;
+        assert!(after.elapsed() < Duration::from_millis(50));
+    }
+
+    /// A manager that never started an initial load must not block a consumer
+    /// awaiting readiness. The server/REPL path connects through
+    /// `spawn_from_config` (which awaits its own connects) and the napi path
+    /// can register clients directly, so readiness has to start as "nothing to
+    /// wait for" — otherwise `list_tools` would hang forever on those managers.
+    #[tokio::test]
+    async fn test_wait_for_initial_load_returns_without_a_load() {
+        let manager = McpManager::new();
+        let start = std::time::Instant::now();
+        tokio::time::timeout(Duration::from_secs(1), manager.wait_for_initial_load())
+            .await
+            .expect("a manager with no initial load must not block");
+        assert!(start.elapsed() < Duration::from_millis(100));
     }
 
     /// Reconnecting a server whose endpoint died must surface `failed` with
@@ -2128,7 +2374,7 @@ mod tests {
         assert_eq!(entries[0].tool_count, 1);
 
         let res = manager
-            .call_tool("mcp__http-srv__echo", &json!({}))
+            .call_tool("mcp__http-srv__echo", &json!({}), None)
             .await
             .expect("tool call failed");
         assert!(!res.is_error);
@@ -2366,6 +2612,7 @@ mod tests {
                     expires_at_ms: None,
                     token_endpoint: None,
                     client_id: None,
+                    obtained_at_ms: None,
                 },
             )
             .unwrap();
@@ -2390,6 +2637,218 @@ mod tests {
         assert_eq!(
             requests[0].authorization.as_deref(),
             Some("Bearer oauth-token")
+        );
+    }
+
+    /// A 401 on a *tool call* — the handshake already succeeded — flips the
+    /// server to `needs-auth`, drops its tools, clears the rejected grant and
+    /// hands the caller an actionable message (v2 `markNeedsAuth` from the
+    /// tool wrapper, connection-manager.ts:307-347 + tools/mcp.ts:78-91, #3846).
+    #[tokio::test]
+    async fn test_tool_call_401_flips_server_to_needs_auth() {
+        let (url, _seen, _shutdown) =
+            crate::mcp::http::test_helpers::spawn_mock_http_server("401-on-call").await;
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(crate::mcp::oauth::McpOAuthFileStore::new(dir.path()));
+        let key = crate::mcp::oauth::mcp_oauth_store_key("stale-srv", &url).unwrap();
+        // Obtained well before this connection, so it is the credential the
+        // 401 rejects rather than a login landing alongside the connect.
+        store
+            .write(
+                &key,
+                &crate::mcp::oauth::McpOAuthTokens {
+                    access_token: "stale-token".into(),
+                    refresh_token: None,
+                    expires_at_ms: None,
+                    token_endpoint: None,
+                    client_id: None,
+                    obtained_at_ms: Some(chrono::Utc::now().timestamp_millis() - 60_000),
+                },
+            )
+            .unwrap();
+        let manager = McpManager::new();
+        manager
+            .set_oauth_service(Arc::new(crate::mcp::oauth::McpOAuthService::new(
+                store.clone(),
+            )))
+            .await;
+        manager
+            .configure(
+                "stale-srv",
+                McpServerRecipe::Http {
+                    url,
+                    headers: HashMap::new(),
+                    bearer_token_env_var: None,
+                },
+                McpServerOptions::default(),
+            )
+            .await
+            .expect("the handshake succeeds even though every call is rejected");
+        assert!(manager.handles("mcp__stale-srv__echo").await);
+
+        let result = manager
+            .call_tool("mcp__stale-srv__echo", &json!({}), None)
+            .await
+            .expect("a failed call still returns a tool result");
+
+        assert!(result.is_error);
+        assert!(
+            result.content.contains("401 Unauthorized"),
+            "unexpected content: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("/mcp-config login stale-srv"),
+            "the message must name the remedy: {}",
+            result.content
+        );
+
+        let entries = manager.server_entries().await;
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].status, "needs-auth");
+        assert_eq!(entries[0].tool_count, 0);
+        assert!(
+            !manager.handles("mcp__stale-srv__echo").await,
+            "a needs-auth server must stop advertising tools"
+        );
+        assert!(
+            store
+                .read::<crate::mcp::oauth::McpOAuthTokens>(&key)
+                .is_none(),
+            "the rejected grant must not be replayed on the next connect"
+        );
+
+        // A second call finds no tool at all: the flip dropped both the client
+        // and the cached tool, so the model cannot retry into the dead server.
+        assert!(
+            manager
+                .call_tool("mcp__stale-srv__echo", &json!({}), None)
+                .await
+                .is_none()
+        );
+        assert_eq!(manager.server_entries().await[0].status, "needs-auth");
+    }
+
+    /// A grant obtained moments ago — at or after this connection — is a login
+    /// landing concurrently, so the old connection's 401 must neither flip the
+    /// entry nor invalidate that credential (v2 `isConcurrentGrant`).
+    #[tokio::test]
+    async fn test_concurrent_grant_survives_a_call_401() {
+        let (url, _seen, _shutdown) =
+            crate::mcp::http::test_helpers::spawn_mock_http_server("401-on-call").await;
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(crate::mcp::oauth::McpOAuthFileStore::new(dir.path()));
+        let key = crate::mcp::oauth::mcp_oauth_store_key("racing-srv", &url).unwrap();
+        let manager = McpManager::new();
+        manager
+            .set_oauth_service(Arc::new(crate::mcp::oauth::McpOAuthService::new(
+                store.clone(),
+            )))
+            .await;
+        manager
+            .configure(
+                "racing-srv",
+                McpServerRecipe::Http {
+                    url,
+                    headers: HashMap::new(),
+                    bearer_token_env_var: None,
+                },
+                McpServerOptions::default(),
+            )
+            .await
+            .expect("an unauthenticated handshake still succeeds");
+        assert!(manager.handles("mcp__racing-srv__echo").await);
+
+        // The user completes the OAuth login while this connection is live.
+        store
+            .write(
+                &key,
+                &crate::mcp::oauth::McpOAuthTokens {
+                    access_token: "fresh-token".into(),
+                    refresh_token: None,
+                    expires_at_ms: None,
+                    token_endpoint: None,
+                    client_id: None,
+                    obtained_at_ms: Some(chrono::Utc::now().timestamp_millis()),
+                },
+            )
+            .unwrap();
+
+        let result = manager
+            .call_tool("mcp__racing-srv__echo", &json!({}), None)
+            .await
+            .expect("a failed call still returns a tool result");
+
+        assert!(result.is_error);
+        assert!(
+            result.content.starts_with("MCP execution error:"),
+            "a concurrent login must not be reported as needs-auth: {}",
+            result.content
+        );
+        let entries = manager.server_entries().await;
+        assert_eq!(entries[0].status, "connected");
+        assert!(
+            manager.handles("mcp__racing-srv__echo").await,
+            "the tool list must survive a rejected call"
+        );
+        assert_eq!(
+            store
+                .read::<crate::mcp::oauth::McpOAuthTokens>(&key)
+                .map(|t| t.access_token),
+            Some("fresh-token".to_string()),
+            "a concurrent grant must not be invalidated"
+        );
+    }
+
+    /// An image an MCP server returns is preserved into the attachment store
+    /// and handed to the model as a reference the resolver can inline, instead
+    /// of being flattened into a text preview (v2 #3688).
+    #[tokio::test]
+    async fn test_mcp_media_is_preserved_and_delivered_as_a_reference() {
+        let (url, _seen, _shutdown) =
+            crate::mcp::http::test_helpers::spawn_mock_http_server("image").await;
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::server::files::FileStore::with_root(dir.path().to_path_buf());
+        let manager = McpManager::new();
+        manager.set_attachment_store(store.clone()).await;
+        manager
+            .configure(
+                "media-srv",
+                McpServerRecipe::Http {
+                    url,
+                    headers: HashMap::new(),
+                    bearer_token_env_var: None,
+                },
+                McpServerOptions::default(),
+            )
+            .await
+            .expect("connect succeeds");
+
+        let result = manager
+            .call_tool("mcp__media-srv__echo", &json!({}), None)
+            .await
+            .expect("the call returns a result");
+
+        assert!(
+            result.content.contains("Original attachment saved at:"),
+            "the notice must name the preserved original: {}",
+            result.content
+        );
+        let delivery = result
+            .delivery
+            .expect("the image must be delivered to the model");
+        assert!(
+            matches!(
+                delivery.blocks.first(),
+                Some(crate::rpc::types::ContentBlock::MediaRef { .. })
+            ),
+            "the image must ride as a reference: {:?}",
+            delivery.blocks
+        );
+        assert_eq!(
+            store.list().unwrap().len(),
+            1,
+            "the original must be on disk"
         );
     }
 

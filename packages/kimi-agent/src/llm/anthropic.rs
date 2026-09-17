@@ -430,11 +430,20 @@ pub struct StreamAccumulator {
     blocks: Vec<Option<PartialBlock>>,
     finish_reason: Option<String>,
     usage: TokenUsage,
+    /// Tool-call argument fragments the last [`Self::feed`] carried, drained by
+    /// the caller through [`Self::take_tool_call_deltas`].
+    pending_tool_calls: Vec<StreamDelta>,
 }
 
 impl StreamAccumulator {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Drain the tool-call argument fragments the last [`Self::feed`] carried,
+    /// in arrival order.
+    pub fn take_tool_call_deltas(&mut self) -> Vec<StreamDelta> {
+        std::mem::take(&mut self.pending_tool_calls)
     }
 
     /// Resolve the block slot for a streamed index, or `None` when the index
@@ -551,12 +560,18 @@ impl StreamAccumulator {
                         None
                     }
                     Some("input_json_delta") => {
-                        if let Some(Some(PartialBlock::ToolUse { input_json, .. })) =
+                        if let Some(Some(PartialBlock::ToolUse { id, input_json, .. })) =
                             self.blocks.get_mut(index)
                             && let Some(fragment) =
                                 delta.get("partial_json").and_then(|x| x.as_str())
                         {
                             input_json.push_str(fragment);
+                            let id = id.clone();
+                            self.pending_tool_calls.push(StreamDelta::ToolCall {
+                                id,
+                                index: Some(index),
+                                arguments: fragment.to_string(),
+                            });
                         }
                         None
                     }

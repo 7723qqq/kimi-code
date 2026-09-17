@@ -87,7 +87,23 @@ impl AcpChannel {
             return Err("ACP client is not connected".into());
         }
         match rx.await {
-            Ok(value) => Ok(value),
+            Ok(value) => {
+                if let Some(result) = value.get("result") {
+                    return Ok(result.clone());
+                }
+                if let Some(error) = value.get("error") {
+                    let code = error
+                        .get("code")
+                        .and_then(serde_json::Value::as_i64)
+                        .unwrap_or(-32603);
+                    let message = error
+                        .get("message")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("Unknown client error");
+                    return Err(format!("ACP client error ({code}): {message}"));
+                }
+                Err("Invalid ACP response: expected result or error".to_string())
+            }
             Err(_) => Err("ACP client disconnected before answering".into()),
         }
     }
@@ -288,7 +304,7 @@ mod tests {
             channel
                 .resolve(
                     id,
-                    serde_json::json!({ "outcome": { "outcome": "cancelled" } })
+                    serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": { "outcome": { "outcome": "cancelled" } } })
                 )
                 .await
         );
@@ -296,6 +312,53 @@ mod tests {
         let answer = pending.await.unwrap().expect("request resolves");
         assert_eq!(answer["outcome"]["outcome"], "cancelled");
         assert!(!channel.resolve(id, serde_json::json!({})).await);
+    }
+
+    #[tokio::test]
+    async fn client_responses_are_unwrapped_through_dispatcher() {
+        for (body, expected) in [
+            (
+                serde_json::json!({ "result": { "content": "alpha" } }),
+                Ok(serde_json::json!({ "content": "alpha" })),
+            ),
+            (
+                serde_json::json!({ "result": null }),
+                Ok(serde_json::Value::Null),
+            ),
+            (
+                serde_json::json!({ "error": { "code": -32603, "message": "client failed" } }),
+                Err("ACP client error (-32603): client failed".to_string()),
+            ),
+            (
+                serde_json::json!({ "result": { "content": "alpha" }, "error": { "code": -32603, "message": "client failed" } }),
+                Ok(serde_json::json!({ "content": "alpha" })),
+            ),
+            (
+                serde_json::json!({}),
+                Err("Invalid ACP response: expected result or error".to_string()),
+            ),
+        ] {
+            let server = crate::acp::AcpServer::in_memory().unwrap();
+            let channel = server.channel();
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+            server.set_notification_sink(tx);
+            let pending = tokio::spawn(async move {
+                channel
+                    .request(
+                        "fs/read_text_file",
+                        serde_json::json!({ "sessionId": "s1", "path": "/work/example.txt" }),
+                    )
+                    .await
+            });
+            let AcpOutbound::Request(request) = rx.recv().await.unwrap() else {
+                panic!("expected reverse request");
+            };
+            let mut response = body;
+            response["jsonrpc"] = serde_json::json!("2.0");
+            response["id"] = request.id.unwrap();
+            assert!(server.handle_line(&response.to_string()).await.is_none());
+            assert_eq!(pending.await.unwrap(), expected);
+        }
     }
 
     #[tokio::test]
@@ -333,7 +396,14 @@ mod tests {
         match outbound {
             AcpOutbound::Request(request) => {
                 let id = request.id.unwrap().as_u64().unwrap();
-                assert!(channel.resolve(id, answer).await);
+                assert!(
+                    channel
+                        .resolve(
+                            id,
+                            serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": answer })
+                        )
+                        .await
+                );
                 (request.method, request.params.unwrap_or_default())
             }
             other => panic!("unexpected message: {other:?}"),

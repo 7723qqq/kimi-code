@@ -1479,13 +1479,15 @@ export declare function sessionEnqueueTurn(sessionId: string, prompt: string, ad
 export declare function sessionExtendHistory(sessionId: string, historyJson: string): void
 
 /**
- * Derive the session title from the live cross-turn history — the
- * deterministic first_turn / user_prompts sources of
- * `SqliteSessionStore::generate_title` applied to the embedded session's
- * in-memory history. Returns null when no user prompt exists yet; the
- * `digest` source is rejected (it needs the managed chat_title channel).
+ * The session title from the live cross-turn history (v2 `generateTitle`).
+ *
+ * `first_turn` / `user_prompts` derive it deterministically; `digest` asks
+ * the managed platform through the `chat_title` tool, which needs an
+ * OAuth-managed model — a session on a static API key rejects that source
+ * rather than silently falling back to the deterministic title. Resolves
+ * null when the history cannot supply an input.
  */
-export declare function sessionGenerateTitle(sessionId: string, source?: string | undefined | null): string | null
+export declare function sessionGenerateTitle(sessionId: string, source?: string | undefined | null): object
 
 /**
  * The session's current cross-turn history as a JSON `LLMMessage[]` — the

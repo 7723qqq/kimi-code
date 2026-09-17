@@ -3,8 +3,9 @@
  * `[finished]` / `[completed_during_wait]` / `[still_running]` sections),
  * so the collapsed body shows what the wait came back with instead of the
  * raw key-value dump: the finished task with its outcome, plus counts of
- * tasks that finished alongside or are still running. A timeout is not an
- * error (the tool says so itself), so it renders in the warning tone.
+ * tasks that finished alongside or are still running. A timeout and a
+ * steer interruption are not errors (the tool says so itself), so neither
+ * renders in the error tone.
  */
 
 import { Text, type Component } from '@moonshot-ai/pi-tui';
@@ -20,7 +21,7 @@ import type { ResultRenderer } from './types';
 const DESCRIPTION_MAX = 72;
 const RUNNING_SAMPLES = 3;
 
-type WaitForStatus = 'completed' | 'timed_out' | 'no_tasks';
+type WaitForStatus = 'completed' | 'timed_out' | 'no_tasks' | 'interrupted';
 
 interface WaitForResultView {
   readonly status: WaitForStatus;
@@ -57,9 +58,9 @@ export function buildWaitForHeader(options: {
   const { toolCall, result, bullet, chip } = options;
   if (toolCall.name !== 'WaitFor') return undefined;
 
-  const taskId = typeof toolCall.args['task_id'] === 'string' ? toolCall.args['task_id'] : undefined;
-  const argText =
-    taskId === undefined ? '' : currentTheme.dimFg('textDim', ` (${taskId})`);
+  const taskId =
+    typeof toolCall.args['task_id'] === 'string' ? toolCall.args['task_id'] : undefined;
+  const argText = taskId === undefined ? '' : currentTheme.dimFg('textDim', ` (${taskId})`);
 
   if (result === undefined) {
     const label =
@@ -77,7 +78,11 @@ export function buildWaitForHeader(options: {
   if (status === 'no_tasks') {
     return `${bullet}${currentTheme.boldFg('primary', 'No background tasks running')}${chip}`;
   }
-  const label = taskId === undefined ? 'Waited for a background task' : 'Waited for background task';
+  if (status === 'interrupted') {
+    return `${bullet}${currentTheme.boldFg('primary', 'Wait interrupted by new input')}${argText}${chip}`;
+  }
+  const label =
+    taskId === undefined ? 'Waited for a background task' : 'Waited for background task';
   return `${bullet}${currentTheme.boldFg('primary', label)}${argText}${chip}`;
 }
 
@@ -92,7 +97,8 @@ function glanceLines(view: WaitForResultView): string[] {
   switch (view.status) {
     case 'no_tasks':
       return [];
-    case 'timed_out': {
+    case 'timed_out':
+    case 'interrupted': {
       if (view.runningCount === 0) return [];
       const summary = `${pluralizeTasks(view.runningCount)} still running`;
       if (view.runningSamples.length === 0) return [summary];
@@ -124,12 +130,20 @@ function pluralizeTasks(count: number): string {
 
 export function parseWaitForOutput(output: string): WaitForResultView | undefined {
   const status = field(output, 'wait_status');
-  if (status !== 'completed' && status !== 'timed_out' && status !== 'no_tasks') return undefined;
+  if (
+    status !== 'completed' &&
+    status !== 'timed_out' &&
+    status !== 'no_tasks' &&
+    status !== 'interrupted'
+  ) {
+    return undefined;
+  }
   const waitedMs = Number(field(output, 'waited_ms') ?? 0);
   const finished = section(output, 'finished');
   const duringWait = section(output, 'completed_during_wait');
   const stillRunning = section(output, 'still_running');
-  const runningCount = stillRunning === undefined ? 0 : countField(stillRunning, 'active_background_tasks');
+  const runningCount =
+    stillRunning === undefined ? 0 : countField(stillRunning, 'active_background_tasks');
   return {
     status,
     waitedMs: Number.isFinite(waitedMs) ? waitedMs : 0,

@@ -290,6 +290,14 @@ pub struct McpServerConfig {
     /// Single tool-call timeout in milliseconds (v2 per-server `toolTimeoutMs`).
     #[serde(default, alias = "toolTimeoutMs")]
     pub tool_timeout_ms: Option<u64>,
+    /// Keep this server's tools out of the model's top-level tool list and let
+    /// it load them on demand through `select_tools` (v2 per-server
+    /// `deferred`). Takes effect only when the `tool_select` experimental flag
+    /// is on *and* the model declares `dynamically_loaded_tools`; otherwise the
+    /// field is ignored and the tools are exposed inline, which is also the
+    /// default when it is absent.
+    #[serde(default)]
+    pub deferred: Option<bool>,
 }
 
 /// Global MCP defaults, mirroring the v2 `[mcp]` config section

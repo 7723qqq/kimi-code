@@ -256,11 +256,20 @@ pub struct StreamAccumulator {
     /// function-call arguments, `response.failed`). The transport must turn
     /// this into an `Err`, never into a silently completed empty answer.
     error: Option<String>,
+    /// Tool-call argument fragments the last [`Self::feed`] carried, drained by
+    /// the caller through [`Self::take_tool_call_deltas`].
+    pending_tool_calls: Vec<StreamDelta>,
 }
 
 impl StreamAccumulator {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Drain the tool-call argument fragments the last [`Self::feed`] carried,
+    /// in arrival order.
+    pub fn take_tool_call_deltas(&mut self) -> Vec<StreamDelta> {
+        std::mem::take(&mut self.pending_tool_calls)
     }
 
     /// Feed an SSE event object from the responses stream.
@@ -300,6 +309,16 @@ impl StreamAccumulator {
             "response.function_call_arguments.delta" => {
                 if let Some(delta) = v.get("delta").and_then(|d| d.as_str()) {
                     self.current_call_args.push_str(delta);
+                    // The call's id is announced before its arguments stream, so
+                    // it is available here; without it the fragment could not be
+                    // addressed to the tool-call entity.
+                    if let Some(id) = self.current_call_id.clone() {
+                        self.pending_tool_calls.push(StreamDelta::ToolCall {
+                            id,
+                            index: None,
+                            arguments: delta.to_string(),
+                        });
+                    }
                 }
             }
             "response.output_item.done" => {

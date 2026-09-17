@@ -217,6 +217,9 @@ pub fn gate_delta(
             guard.reset();
             Some(StreamDelta::Text(text))
         }
+        // A tool-call fragment belongs to neither channel: the guard neither
+        // observes nor suppresses it.
+        other => Some(other),
     }
 }
 

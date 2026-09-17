@@ -6,6 +6,7 @@
 //! reqwest client, credentials, SSE decoding, and delta forwarding.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
@@ -44,6 +45,16 @@ impl Accumulator {
             Self::Responses(acc) => acc.feed(value),
             Self::Anthropic(acc) => acc.feed(value),
             Self::Google(acc) => acc.feed(value),
+        }
+    }
+
+    /// Tool-call argument fragments the last `feed` produced, in arrival order.
+    fn take_tool_call_deltas(&mut self) -> Vec<StreamDelta> {
+        match self {
+            Self::OpenAI(acc) => acc.take_tool_call_deltas(),
+            Self::Responses(acc) => acc.take_tool_call_deltas(),
+            Self::Anthropic(acc) => acc.take_tool_call_deltas(),
+            Self::Google(acc) => acc.take_tool_call_deltas(),
         }
     }
 
@@ -97,6 +108,11 @@ pub struct NativeHttpLlm {
     /// fetch instead of each triggering an OAuth refresh. Async because the
     /// round-trip it serializes is itself async.
     fetch_gate: tokio::sync::Mutex<()>,
+    /// The turn's tool-call-id ledger (v2 `ToolCallIdNormalizer`), installed by
+    /// the turn through [`LLM::set_tool_call_ids`]. Every request opens one
+    /// attempt on it.
+    tool_call_ids:
+        std::sync::Mutex<Option<Arc<crate::turn_loop::tool_call_id::ToolCallIdNormalizer>>>,
 }
 
 impl NativeHttpLlm {
@@ -123,7 +139,17 @@ impl NativeHttpLlm {
             auth: None,
             cached_token: std::sync::Mutex::new(None),
             fetch_gate: tokio::sync::Mutex::new(()),
+            tool_call_ids: std::sync::Mutex::new(None),
         }
+    }
+
+    fn tool_call_ledger(
+        &self,
+    ) -> Option<Arc<crate::turn_loop::tool_call_id::ToolCallIdNormalizer>> {
+        self.tool_call_ids
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Attach a streaming event sink. Deltas are forwarded to it as
@@ -185,7 +211,36 @@ impl NativeHttpLlm {
         }
     }
 
-    fn emit_delta(&self, delta: StreamDelta) {
+    fn emit_delta(
+        &self,
+        delta: StreamDelta,
+        ids: Option<&crate::turn_loop::tool_call_id::ToolCallIdResponseNormalizer>,
+    ) {
+        // A streamed fragment carries the id the finalized call will carry, so
+        // the host addresses one tool-call entity for both. A fragment whose
+        // provider sent no id yet is withheld rather than forwarded with an
+        // empty id: the step mints the id on finalization, and a phantom
+        // entity with no id would never be joined to it.
+        let delta = match (delta, ids) {
+            (
+                StreamDelta::ToolCall {
+                    id,
+                    index,
+                    arguments,
+                },
+                Some(ids),
+            ) if !id.trim().is_empty() => {
+                let slot = index.map(crate::turn_loop::tool_call_id::StreamSlot::Index);
+                let assigned = ids.remap_streamed_id(&id, slot.as_ref());
+                StreamDelta::ToolCall {
+                    id: assigned,
+                    index,
+                    arguments,
+                }
+            }
+            (StreamDelta::ToolCall { .. }, _) => return,
+            (delta, _) => delta,
+        };
         if let Some(ref sink) = self.sink {
             sink(serde_json::json!({
                 "type": "llm.delta",
@@ -200,7 +255,10 @@ impl NativeHttpLlm {
         }
     }
 
-    async fn chat_impl(&self, params: LLMChatParams) -> Result<LLMChatResponse, String> {
+    async fn chat_impl(
+        &self,
+        params: LLMChatParams,
+    ) -> Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>> {
         let wire = to_wire(&params.messages);
         let is_anthropic = self.config.protocol == "anthropic";
         let is_responses = matches!(
@@ -287,17 +345,26 @@ impl NativeHttpLlm {
         }
         let t_headers = started_at.elapsed();
         if !status.is_success() {
-            // The provider may ask for a specific wait; carry it out-of-band
-            // so the retry layer can honour it instead of burning its
-            // attempts at its own pace.
-            let retry_after = response
+            // The provider may ask for a specific wait; carry it on the typed
+            // error so the retry layer can honour it instead of burning its
+            // attempts at its own pace. Two sources, header first:
+            //   * the standard `Retry-After` header (whole seconds);
+            //   * Google, which does not use that header at all and puts the
+            //     wait in the body as a `RetryInfo` detail (v2
+            //     `parseRetryInfoDelayMs`, google-genai/format.ts:304).
+            let header_retry_after = response
                 .headers()
                 .get("retry-after")
                 .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.trim().parse::<u64>().ok());
-            let brief = read_brief_body(response).await;
-            let suffix = retry_after.map_or(String::new(), |s| format!(" (retry-after {s}s)"));
-            return Err(format!("llm http status {status}: {brief}{suffix}"));
+                .and_then(|v| v.trim().parse::<u64>().ok())
+                .map(Duration::from_secs);
+            let (brief, body_retry_after) = read_error_body(response).await;
+            let retry_after = header_retry_after.or(body_retry_after);
+            return Err(Box::new(crate::llm::LlmError::http(
+                status.as_u16(),
+                &brief,
+                retry_after,
+            )));
         }
 
         let mut acc = if is_anthropic {
@@ -312,6 +379,19 @@ impl NativeHttpLlm {
                     .with_reasoning_key(self.config.reasoning_key.as_deref()),
             )
         };
+
+        // One request is one attempt. Its tool-call ids are claimed on the
+        // turn's ledger as its fragments stream out, and every failure path
+        // below hands those claims back through the guard's `Drop`, so the
+        // retry reuses the provider's raw ids instead of minting `__2`
+        // variants of a response the turn never kept (v2 #3734: the requester
+        // opens a response per attempt and the turn rolls the discarded one
+        // back).
+        let mut attempt = AttemptLedger::new(
+            self.tool_call_ledger()
+                .as_ref()
+                .map(|ledger| ledger.begin_response()),
+        );
 
         let content_type = response
             .headers()
@@ -385,12 +465,15 @@ impl NativeHttpLlm {
                 && let Some(delta) =
                     crate::llm::thinking_guard::gate_delta(&mut thinking_guard, delta)
             {
-                self.emit_delta(delta);
+                self.emit_delta(delta, attempt.ids());
+            }
+            for delta in acc.take_tool_call_deltas() {
+                self.emit_delta(delta, attempt.ids());
             }
         }
 
         if let Some(message) = in_band_error {
-            return Err(format!("llm provider stream error: {message}"));
+            return Err(format!("llm provider stream error: {message}").into());
         }
 
         // Failures the accumulator recorded itself (truncated Responses
@@ -398,7 +481,7 @@ impl NativeHttpLlm {
         // here would run tools with fabricated empty arguments or complete
         // the turn with an empty answer.
         if let Some(message) = acc.take_error() {
-            return Err(format!("llm provider stream error: {message}"));
+            return Err(format!("llm provider stream error: {message}").into());
         }
 
         // Hyper returns a connection to the pool only after its body is read
@@ -424,18 +507,23 @@ impl NativeHttpLlm {
             );
         }
 
-        let response = acc.finish();
+        let mut response = acc.finish();
+        // The calls that enter history carry the ids their fragments streamed
+        // under, so the host joins one tool-call entity for the whole call
+        // (v2 `remapFinalizedCalls`). An id the provider left empty is skipped:
+        // the step mints it, and claiming "" here would only take the slot.
+        if let Some(ids) = attempt.ids() {
+            crate::turn_loop::tool_call_id::remap_response_tool_calls(&mut response, ids);
+        }
 
         // A stream that produced no usable events is a transport failure, not an
         // empty answer. Returning `Ok` here is what turned a misconfigured
         // endpoint into "the model said nothing", with no error anywhere for the
         // retry layer or the user to act on.
         if n_events == 0 {
-            return Err(empty_stream_error(
-                &content_type,
-                n_malformed,
-                first_malformed.as_deref(),
-            ));
+            return Err(
+                empty_stream_error(&content_type, n_malformed, first_malformed.as_deref()).into(),
+            );
         }
         if response.content.is_empty()
             && response.tool_calls.is_empty()
@@ -443,7 +531,8 @@ impl NativeHttpLlm {
         {
             return Err(format!(
                 "llm stream ended without content, tool calls or a finish reason ({n_events} event(s), {n_malformed} unparsable frame(s), content-type \"{content_type}\"). The endpoint answered 200 but nothing usable was decoded."
-            ));
+            )
+            .into());
         }
 
         // Report the finished step (content + tool calls + usage) so the
@@ -467,6 +556,8 @@ impl NativeHttpLlm {
             },
         }));
 
+        // The request succeeded: the ids it claimed are the turn's.
+        attempt.commit();
         Ok(response)
     }
 
@@ -640,9 +731,31 @@ const ERROR_BODY_MAX_BYTES: usize = 16 * 1024;
 /// `AbortError` is never classified as a retryable provider error.
 const CANCELLED_MESSAGE: &str = "llm cancelled: request aborted";
 
+/// Whether a failure is the caller's own cancellation rather than a provider
+/// fault. v2's `AbortError` carries the same meaning through a typed `name`, so
+/// the retry layer and the telemetry payload both need to recognise it.
+pub fn is_cancelled_error(error: &str) -> bool {
+    error.starts_with(CANCELLED_MESSAGE)
+}
+
 /// Prefix for a response that is not an SSE stream at all. Re-exported from the
 /// native stream module so both transports classify it identically.
 const NOT_AN_SSE_ENDPOINT_PREFIX: &str = crate::native::NOT_AN_SSE_ENDPOINT_PREFIX;
+
+/// The HTTP status the transport stamped into an error string, when the failure
+/// is status-coded.
+///
+/// Status failures are rendered as `llm http status {code}: {brief}` (see the
+/// response check in this module), so the classification layers read the code
+/// back out instead of re-deriving it from a body that only happens to look
+/// right. `None` means no status ever reached the error — an in-stream provider
+/// error, a transport fault or a decode failure — and such a failure has to be
+/// classified on its own terms rather than assumed to be an HTTP one.
+pub fn llm_http_status(error: &str) -> Option<u16> {
+    let rest = error.strip_prefix("llm http status ")?;
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
+}
 
 /// Keeps a diagnosis readable: the first frame of a non-SSE body is the useful
 /// part, and a catch-all gateway can answer with a megabyte of HTML.
@@ -689,7 +802,14 @@ fn transport_error_message(e: &reqwest::Error) -> String {
 
 /// Read the start of an error body, bounded, for inclusion in the error
 /// message.
-async fn read_brief_body(response: reqwest::Response) -> String {
+/// Read the error body once and return both the excerpt that goes into the
+/// error message and any wait the provider embedded in it.
+///
+/// The wait has to come off the *untruncated* buffer: Google's `RetryInfo`
+/// detail can sit past the excerpt cut, and a wait that is silently dropped
+/// means the retry layer backs off on its own schedule against a provider that
+/// just told it to wait longer.
+async fn read_error_body(response: reqwest::Response) -> (String, Option<Duration>) {
     let mut stream = response;
     let mut buf: Vec<u8> = Vec::new();
     while buf.len() < ERROR_BODY_MAX_BYTES {
@@ -698,7 +818,52 @@ async fn read_brief_body(response: reqwest::Response) -> String {
             _ => break,
         }
     }
-    String::from_utf8_lossy(&buf).chars().take(500).collect()
+    let text = String::from_utf8_lossy(&buf);
+    (
+        text.chars().take(500).collect(),
+        parse_google_retry_info_delay(&text),
+    )
+}
+
+/// The wait Google reports for a throttled or overloaded request.
+///
+/// v2 `parseRetryInfoDelayMs` (google-genai/format.ts:324-348). Google does not
+/// send a `Retry-After` header; the wait rides in the body as an entry of
+/// `error.details[]` typed `google.rpc.RetryInfo`, whose `retryDelay` is a
+/// protobuf duration string (`"7s"`, fractional seconds allowed).
+///
+/// `None` when the body is not JSON, carries no `RetryInfo` entry, or states a
+/// delay that cannot be read — the caller then falls back to plain backoff.
+fn parse_google_retry_info_delay(body: &str) -> Option<Duration> {
+    let json_start = body.find('{')?;
+    let parsed: serde_json::Value = serde_json::from_str(&body[json_start..]).ok()?;
+    let details = parsed.get("error")?.get("details")?.as_array()?;
+    for detail in details {
+        let type_url = detail.get("@type").and_then(|v| v.as_str()).unwrap_or("");
+        if !type_url.ends_with("google.rpc.RetryInfo") {
+            continue;
+        }
+        let Some(delay) = detail.get("retryDelay").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if let Some(wait) = parse_protobuf_duration(delay) {
+            return Some(wait);
+        }
+    }
+    None
+}
+
+/// Parse a protobuf duration string (`"7s"`, `"1.5s"`) into a [`Duration`].
+///
+/// v2 rounds to whole milliseconds (`Math.round(seconds * 1000)`); this keeps
+/// millisecond precision instead of rounding, so a provider that asks for
+/// 1.5s gets 1.5s rather than a truncation it did not agree to.
+fn parse_protobuf_duration(text: &str) -> Option<Duration> {
+    let seconds: f64 = text.trim().strip_suffix('s')?.parse().ok()?;
+    if !seconds.is_finite() || seconds < 0.0 {
+        return None;
+    }
+    Some(Duration::from_secs_f64(seconds))
 }
 
 /// Quota/arrears detection mirroring v2 `classifyKimiQuotaError`
@@ -724,9 +889,50 @@ fn is_quota_exhaustion_error(error: &str) -> bool {
     QUOTA_MARKERS.iter().any(|m| lower.contains(m))
 }
 
+/// Rolls an attempt's tool-call-id claims back unless the attempt commits.
+/// `chat_impl` has several failure exits; the guard makes "the request failed,
+/// release what it claimed" the default instead of a rule every exit has to
+/// remember (v2 #3734).
+struct AttemptLedger {
+    ids: Option<crate::turn_loop::tool_call_id::ToolCallIdResponseNormalizer>,
+    committed: bool,
+}
+
+impl AttemptLedger {
+    fn new(ids: Option<crate::turn_loop::tool_call_id::ToolCallIdResponseNormalizer>) -> Self {
+        Self {
+            ids,
+            committed: false,
+        }
+    }
+
+    fn ids(&self) -> Option<&crate::turn_loop::tool_call_id::ToolCallIdResponseNormalizer> {
+        self.ids.as_ref()
+    }
+
+    fn commit(&mut self) {
+        self.committed = true;
+    }
+}
+
+impl Drop for AttemptLedger {
+    fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
+        if let Some(ids) = &self.ids {
+            ids.rollback();
+        }
+    }
+}
+
 impl LLM for NativeHttpLlm {
     fn system_prompt(&self) -> &str {
         &self.system_prompt
+    }
+
+    fn set_tool_call_ids(&self, ledger: Arc<crate::turn_loop::tool_call_id::ToolCallIdNormalizer>) {
+        *self.tool_call_ids.lock().unwrap_or_else(|e| e.into_inner()) = Some(ledger);
     }
 
     fn model_name(&self) -> &str {
@@ -770,7 +976,7 @@ impl LLM for NativeHttpLlm {
         // the body for keywords would retry a 400 whose text happens to
         // contain "connection", or a 401 that mentions a session timeout —
         // requests that can never succeed no matter how often they repeat.
-        if error.starts_with(CANCELLED_MESSAGE) {
+        if is_cancelled_error(error) {
             return false;
         }
         // A body that is not SSE at all is a configuration error, not a
@@ -778,9 +984,11 @@ impl LLM for NativeHttpLlm {
         if error.starts_with(NOT_AN_SSE_ENDPOINT_PREFIX) {
             return false;
         }
-        if let Some(rest) = error.strip_prefix("llm http status ") {
-            let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-            let code: u16 = digits.parse().unwrap_or(0);
+        if error.starts_with("llm http status ") {
+            // The prefix is present, so this is a status-coded failure: the
+            // code decides, and the keyword list below is never consulted for
+            // it. An unparseable code classifies as non-retryable.
+            let code = llm_http_status(error).unwrap_or(0);
             // The code set mirrors v2 `isRetryableGenerateError`
             // (kosong/contract/errors.ts:234-251): [408, 409, 429, 500..=599]
             // plus the 425 Rust adds for retry-later transports. The quota
@@ -830,13 +1038,12 @@ impl LLM for NativeHttpLlm {
         &self,
         params: LLMChatParams,
     ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>> {
-        Box::pin(async move {
-            self.chat_impl(params)
-                .await
-                .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
-                    Box::new(std::io::Error::other(e))
-                })
-        })
+        // The error is boxed as-is rather than flattened into an `io::Error`:
+        // a status-coded failure is a [`crate::llm::LlmError`], and the retry
+        // layer downcasts it to read the provider's `retryAfterMs` / status
+        // instead of re-parsing the rendered message (v2 reads the fields).
+        // Wrapping it would throw that type away.
+        Box::pin(async move { self.chat_impl(params).await })
     }
 }
 
@@ -899,6 +1106,230 @@ mod tests {
         assert_eq!(
             google_api_base("https://x.example.com/vertex"),
             "https://x.example.com/vertex/v1beta"
+        );
+    }
+
+    /// v2 `parseRetryInfoDelayMs` (google-genai/format.ts:324-348).
+    #[test]
+    fn google_retry_info_delay_is_read_from_the_error_details() {
+        let body = r#"{"error":{"code":429,"message":"Resource exhausted","details":[
+            {"@type":"type.googleapis.com/google.rpc.Help","links":[]},
+            {"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"7s"}]}}"#;
+        assert_eq!(
+            parse_google_retry_info_delay(body),
+            Some(Duration::from_secs(7))
+        );
+
+        // Fractional seconds survive — the reason the wait is typed rather than
+        // re-parsed from a whole-second suffix.
+        let fractional = r#"{"error":{"details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"1.5s"}]}}"#;
+        assert_eq!(
+            parse_google_retry_info_delay(fractional),
+            Some(Duration::from_millis(1500))
+        );
+
+        // The type URL is matched by suffix, so a different host prefix works.
+        let prefixed = r#"{"error":{"details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"3s"}]}}"#;
+        assert_eq!(
+            parse_google_retry_info_delay(prefixed),
+            Some(Duration::from_secs(3))
+        );
+    }
+
+    #[test]
+    fn google_retry_info_absent_or_unreadable_yields_nothing() {
+        // Not JSON at all.
+        assert_eq!(
+            parse_google_retry_info_delay("<html>502 Bad Gateway</html>"),
+            None
+        );
+        // JSON without the detail.
+        assert_eq!(
+            parse_google_retry_info_delay(r#"{"error":{"code":500,"message":"boom"}}"#),
+            None
+        );
+        // A detail of another type must not be mistaken for RetryInfo.
+        assert_eq!(
+            parse_google_retry_info_delay(
+                r#"{"error":{"details":[{"@type":"type.googleapis.com/google.rpc.Help"}]}}"#
+            ),
+            None
+        );
+        // A delay that is not a protobuf duration, and one that is negative.
+        assert_eq!(
+            parse_google_retry_info_delay(
+                r#"{"error":{"details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"soon"}]}}"#
+            ),
+            None
+        );
+        assert_eq!(
+            parse_google_retry_info_delay(
+                r#"{"error":{"details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"-1s"}]}}"#
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn protobuf_duration_parsing_keeps_sub_second_precision() {
+        assert_eq!(parse_protobuf_duration("7s"), Some(Duration::from_secs(7)));
+        assert_eq!(
+            parse_protobuf_duration(" 1.5s "),
+            Some(Duration::from_millis(1500))
+        );
+        assert_eq!(parse_protobuf_duration("0s"), Some(Duration::ZERO));
+        // Anything that is not `<number>s` is not a duration.
+        assert_eq!(parse_protobuf_duration("7"), None);
+        assert_eq!(parse_protobuf_duration("s"), None);
+        assert_eq!(parse_protobuf_duration("infinity"), None);
+    }
+
+    /// A streamed tool-call fragment goes out under the id its finalized call
+    /// enters history with, and an id the restored history already holds is
+    /// disambiguated in both (v2 `remapStreamedId` + `remapFinalizedCalls`).
+    #[tokio::test]
+    async fn streamed_tool_call_fragments_share_the_finalized_id() {
+        let (addr, server) = spawn_fixed_200_server(
+            "text/event-stream",
+            concat!(
+                "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"Read\",\"arguments\":\"{\\\"pa\"}}]}}]}\n\n",
+                "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"th\\\":\\\"a.txt\\\"}\"}}]}}]}\n\n",
+                "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
+                "data: [DONE]\n\n",
+            ),
+        )
+        .await;
+
+        let frames = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = frames.clone();
+        let llm = NativeHttpLlm::new(
+            config("openai", &format!("http://{addr}/v1")),
+            String::new(),
+        )
+        .with_sink(Arc::new(move |event| {
+            sink.lock().unwrap().push(event);
+        }));
+
+        // The restored history already carries `call_1`: the provider replaying
+        // it must not create a second call with the same id.
+        let ledger = Arc::new(crate::turn_loop::tool_call_id::ToolCallIdNormalizer::new());
+        ledger.seed_from(&[crate::turn_loop::types::LLMMessage {
+            role: "assistant".into(),
+            content: String::new(),
+            blocks: Vec::new(),
+            tool_calls: vec![crate::turn_loop::types::ToolCall {
+                id: "call_1".into(),
+                name: "Read".into(),
+                arguments: serde_json::json!({}),
+                extras: None,
+            }],
+            tool_call_id: None,
+        }]);
+        llm.set_tool_call_ids(Arc::clone(&ledger));
+
+        let response = chat_once(&llm).await.expect("the stream succeeds");
+        server.abort();
+
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(
+            response.tool_calls[0].id, "call_1__2",
+            "the finalized call must carry the disambiguated id"
+        );
+        let parts: Vec<serde_json::Value> = frames
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|frame| frame.get("part").cloned())
+            .filter(|part| part.get("type").and_then(|t| t.as_str()) == Some("tool_call"))
+            .collect();
+        assert_eq!(parts.len(), 2, "both fragments must be forwarded");
+        for part in &parts {
+            assert_eq!(
+                part.get("id").and_then(|v| v.as_str()),
+                Some("call_1__2"),
+                "a fragment must carry the id its call enters history with"
+            );
+        }
+        assert_eq!(
+            parts[0].get("arguments").and_then(|v| v.as_str()),
+            Some("{\"pa")
+        );
+        assert_eq!(
+            parts[1].get("arguments").and_then(|v| v.as_str()),
+            Some("th\":\"a.txt\"}")
+        );
+    }
+
+    /// A request that fails after streaming releases the ids it claimed, so the
+    /// retry reuses the provider's raw ids instead of minting `__2` variants of
+    /// a response nothing kept (v2 #3734).
+    #[tokio::test]
+    async fn failed_request_releases_the_tool_call_ids_it_streamed() {
+        let (addr, server) = spawn_fixed_200_server(
+            "text/event-stream",
+            concat!(
+                "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"Read\",\"arguments\":\"{\"}}]}}]}\n\n",
+                "data: {\"error\":{\"message\":\"upstream exploded\"}}\n\n",
+            ),
+        )
+        .await;
+        let llm = NativeHttpLlm::new(
+            config("openai", &format!("http://{addr}/v1")),
+            String::new(),
+        );
+        let ledger = Arc::new(crate::turn_loop::tool_call_id::ToolCallIdNormalizer::new());
+        llm.set_tool_call_ids(Arc::clone(&ledger));
+
+        chat_once(&llm)
+            .await
+            .expect_err("the in-band error must fail the request");
+        server.abort();
+
+        assert!(
+            !ledger.is_taken("call_1"),
+            "the failed attempt must hand its claim back"
+        );
+        assert_eq!(
+            ledger.begin_response().remap_streamed_id("call_1", None),
+            "call_1",
+            "the retry must reuse the provider's raw id"
+        );
+    }
+
+    /// The guard behind it: an attempt that commits keeps its claims, one that
+    /// is dropped without committing releases them.
+    #[test]
+    fn attempt_ledger_commits_or_releases() {
+        let ledger = Arc::new(crate::turn_loop::tool_call_id::ToolCallIdNormalizer::new());
+
+        let mut committed = AttemptLedger::new(Some(ledger.begin_response()));
+        assert_eq!(
+            committed.ids().unwrap().remap_streamed_id("call_1", None),
+            "call_1"
+        );
+        committed.commit();
+        drop(committed);
+        assert!(
+            ledger.is_taken("call_1"),
+            "a committed attempt keeps its ids"
+        );
+
+        {
+            let attempt = AttemptLedger::new(Some(ledger.begin_response()));
+            assert_eq!(
+                attempt.ids().unwrap().remap_streamed_id("call_2", None),
+                "call_2"
+            );
+        }
+        assert!(
+            !ledger.is_taken("call_2"),
+            "a dropped attempt releases its ids"
+        );
+
+        // A replayed committed id is still disambiguated.
+        assert_eq!(
+            ledger.begin_response().remap_streamed_id("call_1", None),
+            "call_1__2"
         );
     }
 
@@ -1227,6 +1658,95 @@ mod tests {
         })
         .await
         .map_err(|e| e.to_string())
+    }
+
+    /// Google does not send a `Retry-After` header; the wait rides in the body
+    /// as a `google.rpc.RetryInfo` detail, which the transport used to drop
+    /// entirely. It must now reach the retry layer as a typed field — the whole
+    /// point of carrying an [`crate::llm::LlmError`] instead of a bare string,
+    /// since only the field keeps the sub-second precision the rendered
+    /// `(retry-after Ns)` suffix rounds away.
+    #[tokio::test]
+    async fn google_retry_info_reaches_the_retry_layer_as_a_typed_wait() {
+        let body = r#"{"error":{"code":429,"message":"Resource exhausted","status":"RESOURCE_EXHAUSTED","details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"1.5s"}]}}"#;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                let _ = sock.read(&mut buf).await;
+                let response = format!(
+                    "HTTP/1.1 429 Too Many Requests\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = sock.write_all(response.as_bytes()).await;
+                let _ = sock.shutdown().await;
+            }
+        });
+        let llm = NativeHttpLlm::new(
+            config("google-genai", &format!("http://{addr}")),
+            String::new(),
+        );
+        let err = llm
+            .chat(LLMChatParams {
+                cancel: None,
+                messages: Arc::from(Vec::new()),
+                tools: Arc::from(Vec::new()),
+            })
+            .await
+            .expect_err("a 429 must not be Ok");
+
+        let typed = err
+            .downcast_ref::<crate::llm::LlmError>()
+            .expect("the transport must hand the retry layer a typed error, not a bare string");
+        assert_eq!(typed.status_code(), Some(429));
+        assert_eq!(typed.retry_after(), Some(Duration::from_millis(1500)));
+        // The rendered text is unchanged, so every string consumer still works.
+        assert!(
+            typed.to_string().starts_with("llm http status 429"),
+            "{typed}"
+        );
+        assert!(llm.is_retryable_error(&typed.to_string()));
+        server.abort();
+    }
+
+    /// A `Retry-After` header wins over the body, and is whole seconds.
+    #[tokio::test]
+    async fn retry_after_header_is_honoured_over_the_body() {
+        let body = r#"{"error":{"code":429,"message":"slow down"}}"#;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                let _ = sock.read(&mut buf).await;
+                let response = format!(
+                    "HTTP/1.1 429 Too Many Requests\r\ncontent-type: application/json\r\nretry-after: 30\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = sock.write_all(response.as_bytes()).await;
+                let _ = sock.shutdown().await;
+            }
+        });
+        let llm = NativeHttpLlm::new(
+            config("openai", &format!("http://{addr}/v1")),
+            String::new(),
+        );
+        let err = llm
+            .chat(LLMChatParams {
+                cancel: None,
+                messages: Arc::from(Vec::new()),
+                tools: Arc::from(Vec::new()),
+            })
+            .await
+            .expect_err("a 429 must not be Ok");
+        let typed = err
+            .downcast_ref::<crate::llm::LlmError>()
+            .expect("typed error");
+        assert_eq!(typed.retry_after(), Some(Duration::from_secs(30)));
+        server.abort();
     }
 
     /// An empty 200 body must be an error the retry layer can act on, not an

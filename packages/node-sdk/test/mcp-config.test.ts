@@ -14,6 +14,7 @@ import { mcpOAuthStoreKey } from '@moonshot-ai/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createKimiHarness, KimiHarness, SDKRpcClientBase } from '#/index';
+import type { McpServerInfo } from '#/index';
 
 import { startMcpAuthStatusServer } from './mcp-auth-status-server';
 import { TEST_IDENTITY } from './test-identity';
@@ -47,6 +48,23 @@ async function makeTempDir(): Promise<string> {
 async function writeMcpConfig(homeDir: string, value: unknown): Promise<void> {
   await mkdir(homeDir, { recursive: true });
   await writeFile(join(homeDir, 'mcp.json'), JSON.stringify(value), 'utf-8');
+}
+
+/**
+ * The engine connects MCP servers in the background, so a freshly created
+ * session's roster is `pending` until they settle. Poll until no entry is
+ * pending, then hand the settled roster back.
+ */
+async function waitForMcpSettled(session: {
+  listMcpServers(): Promise<readonly McpServerInfo[]>;
+}): Promise<readonly McpServerInfo[]> {
+  const deadline = Date.now() + 10_000;
+  let servers = await session.listMcpServers();
+  while (Date.now() < deadline && servers.some((server) => server.status === 'pending')) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    servers = await session.listMcpServers();
+  }
+  return servers;
 }
 
 /**
@@ -219,7 +237,7 @@ describe('standard MCP config shape (transport inferred)', () => {
     try {
       const session = await harness.createSession({ id: 'ses_sdk_mcp_inferred', workDir });
 
-      await expect(session.listMcpServers()).resolves.toMatchObject([
+      await expect(waitForMcpSettled(session)).resolves.toMatchObject([
         { name: 'probe', transport: 'stdio', status: 'connected', toolCount: 4 },
       ]);
     } finally {

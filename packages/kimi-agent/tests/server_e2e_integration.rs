@@ -203,6 +203,7 @@ async fn server_e2e_http_rest_full_roundtrip() {
     let appr_req = kimi_agent::rpc::types::PermissionCheckRequest {
         tool_name: "Bash".into(),
         tool_call_id: "call_bash_e2e".into(),
+        turn_id: "turn-e2e".into(),
         arguments: json!({ "command": "npm test" }),
     };
     let (approval_id, rx_a) =

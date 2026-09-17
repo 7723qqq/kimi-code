@@ -59,7 +59,8 @@ impl TaskStatus {
 }
 
 /// The outcome of [`TaskRunner::wait`]: the task settled, the wait
-/// elapsed while the task was still running, or no such task exists.
+/// elapsed while the task was still running, a signal cut it short, or no
+/// such task exists.
 #[derive(Debug)]
 pub enum TaskWaitResult {
     /// The task reached a terminal state; carries the settled entry wire.
@@ -67,6 +68,9 @@ pub enum TaskWaitResult {
     /// The wait elapsed before the task finished; carries the current
     /// (still-running) entry wire.
     TimedOut(Value),
+    /// An interrupt signal (a steering message) ended the wait early; the
+    /// waited task is untouched and still running.
+    Interrupted,
     /// No task with this id is registered.
     NotFound,
 }
@@ -502,6 +506,19 @@ impl TaskRunner {
     /// returns the current entry without waiting, and a timeout is not
     /// an error — the caller decides whether to wait again).
     pub async fn wait(&self, id: &str, timeout_ms: u64) -> TaskWaitResult {
+        self.wait_interruptible(id, timeout_ms, None).await
+    }
+
+    /// [`Self::wait`] with an interrupt signal: the wait ends early, as
+    /// [`TaskWaitResult::Interrupted`], the moment `signal` fires — leaving
+    /// the waited task running. A signal that already fired ends the wait
+    /// before it parks, so a trigger racing the call is never missed.
+    pub async fn wait_interruptible(
+        &self,
+        id: &str,
+        timeout_ms: u64,
+        signal: Option<&crate::subagent::types::ParentCancel>,
+    ) -> TaskWaitResult {
         let done = {
             let tasks = self.tasks.lock().unwrap();
             let Some(entry) = tasks.get(id) else {
@@ -517,17 +534,57 @@ impl TaskRunner {
             let entry = tasks.get(id).unwrap();
             return TaskWaitResult::TimedOut(self.entry_wire(entry));
         }
-        let result = tokio::time::timeout(Duration::from_millis(timeout_ms), done).await;
-        let tasks = self.tasks.lock().unwrap();
-        let entry = tasks.get(id).unwrap();
-        let wire = self.entry_wire(entry);
-        // A task that settled just as the timeout fired reports the
-        // terminal state, matching v2's post-race status check.
-        if result.is_ok() || entry.status != TaskStatus::Running {
-            TaskWaitResult::Completed(wire)
-        } else {
-            TaskWaitResult::TimedOut(wire)
+        if signal.is_some_and(|signal| signal.triggered()) {
+            return TaskWaitResult::Interrupted;
         }
+        let deadline = tokio::time::sleep(Duration::from_millis(timeout_ms));
+        tokio::pin!(deadline);
+        let interrupted = async {
+            match signal {
+                Some(signal) => signal.wait().await,
+                None => std::future::pending::<()>().await,
+            }
+        };
+        tokio::select! {
+            _ = done => {
+                let tasks = self.tasks.lock().unwrap();
+                let entry = tasks.get(id).unwrap();
+                TaskWaitResult::Completed(self.entry_wire(entry))
+            }
+            _ = &mut deadline => {
+                let tasks = self.tasks.lock().unwrap();
+                let entry = tasks.get(id).unwrap();
+                let wire = self.entry_wire(entry);
+                // A task that settled just as the timeout fired reports the
+                // terminal state, matching v2's post-race status check.
+                if entry.status != TaskStatus::Running {
+                    TaskWaitResult::Completed(wire)
+                } else {
+                    TaskWaitResult::TimedOut(wire)
+                }
+            }
+            _ = interrupted => TaskWaitResult::Interrupted,
+        }
+    }
+
+    /// Wait for the first of `ids` to settle, up to `timeout_ms` (v2
+    /// `WaitFor.waitAny`). Every id is raced under the same deadline and
+    /// signal, so an interrupt or a timeout applies to the whole wait.
+    /// `NotFound` when `ids` is empty.
+    pub async fn wait_any(
+        &self,
+        ids: &[String],
+        timeout_ms: u64,
+        signal: Option<&crate::subagent::types::ParentCancel>,
+    ) -> TaskWaitResult {
+        if ids.is_empty() {
+            return TaskWaitResult::NotFound;
+        }
+        let waits = ids
+            .iter()
+            .map(|id| self.wait_interruptible(id, timeout_ms, signal).boxed());
+        let (first, _index, _rest) = futures_util::future::select_all(waits).await;
+        first
     }
 
     /// Every registered task's entry wire, oldest first; the output
@@ -1132,6 +1189,174 @@ mod tests {
         assert!(err.contains("Task not found: nope"));
         assert_eq!(runner.get_output("nope"), None);
         assert_eq!(runner.entry("nope"), None);
+    }
+
+    #[tokio::test]
+    async fn wait_interruptible_ends_early_and_leaves_the_task_running() {
+        let (_tmp, runner) = runner();
+        let (release, held) = tokio::sync::oneshot::channel::<()>();
+        runner
+            .spawn_task("task-1".into(), "long".into(), async move {
+                let _ = held.await;
+                "done".to_string()
+            })
+            .unwrap();
+
+        let signal = crate::subagent::types::ParentCancel::new();
+        let trigger = signal.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            trigger.trigger();
+        });
+
+        let started = std::time::Instant::now();
+        assert!(matches!(
+            runner
+                .wait_interruptible("task-1", 30_000, Some(&signal))
+                .await,
+            TaskWaitResult::Interrupted
+        ));
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the signal must end the wait, not the timeout"
+        );
+        assert_eq!(
+            runner.entry("task-1").unwrap()["status"],
+            "running",
+            "an interrupted wait must not settle the task"
+        );
+        let _ = release.send(());
+    }
+
+    #[tokio::test]
+    async fn wait_interruptible_returns_at_once_for_an_already_fired_signal() {
+        // The trigger can land before the wait parks; the pre-check is what
+        // keeps that from turning into a full-timeout wait.
+        let (_tmp, runner) = runner();
+        runner
+            .spawn_task(
+                "task-1".into(),
+                "long".into(),
+                std::future::pending::<String>(),
+            )
+            .unwrap();
+        let signal = crate::subagent::types::ParentCancel::new();
+        signal.trigger();
+        let started = std::time::Instant::now();
+        assert!(matches!(
+            runner
+                .wait_interruptible("task-1", 30_000, Some(&signal))
+                .await,
+            TaskWaitResult::Interrupted
+        ));
+        assert!(started.elapsed() < Duration::from_secs(5));
+        runner.stop("task-1", None).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn wait_interruptible_takes_the_terminal_state_over_a_racing_signal() {
+        // A task that settled and a steer that fired are not distinguishable by
+        // the caller's intent, so the settled task's result must win: the
+        // completed report carries output a bare "interrupted" would drop.
+        let (_tmp, runner) = runner();
+        runner
+            .spawn_task("task-1".into(), "quick".into(), async {
+                "done".to_string()
+            })
+            .unwrap();
+        // Let it settle first, so the status check — not the signal — decides.
+        match runner.wait("task-1", 5000).await {
+            TaskWaitResult::Completed(wire) => assert_eq!(wire["status"], "completed"),
+            other => panic!("expected completed, got {other:?}"),
+        }
+        let signal = crate::subagent::types::ParentCancel::new();
+        signal.trigger();
+        match runner
+            .wait_interruptible("task-1", 30_000, Some(&signal))
+            .await
+        {
+            TaskWaitResult::Completed(wire) => assert_eq!(wire["status"], "completed"),
+            other => panic!("expected completed, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn wait_any_returns_the_first_task_to_settle() {
+        let (_tmp, runner) = runner();
+        let (release_slow, held_slow) = tokio::sync::oneshot::channel::<()>();
+        runner
+            .spawn_task("slow".into(), "slow".into(), async move {
+                let _ = held_slow.await;
+                "slow output".to_string()
+            })
+            .unwrap();
+        let (release_fast, held_fast) = tokio::sync::oneshot::channel::<()>();
+        runner
+            .spawn_task("fast".into(), "fast".into(), async move {
+                let _ = held_fast.await;
+                "fast output".to_string()
+            })
+            .unwrap();
+
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let _ = release_fast.send(());
+        });
+        match runner
+            .wait_any(&["slow".to_string(), "fast".to_string()], 30_000, None)
+            .await
+        {
+            TaskWaitResult::Completed(wire) => {
+                assert_eq!(wire["taskId"], "fast");
+                assert_eq!(wire["output"], "fast output");
+            }
+            other => panic!("expected completed, got {other:?}"),
+        }
+        assert_eq!(runner.entry("slow").unwrap()["status"], "running");
+        let _ = release_slow.send(());
+    }
+
+    #[tokio::test]
+    async fn wait_any_times_out_and_reports_not_found_for_no_ids() {
+        let (_tmp, runner) = runner();
+        runner
+            .spawn_task(
+                "task-1".into(),
+                "long".into(),
+                std::future::pending::<String>(),
+            )
+            .unwrap();
+        match runner.wait_any(&["task-1".to_string()], 50, None).await {
+            TaskWaitResult::TimedOut(wire) => assert_eq!(wire["status"], "running"),
+            other => panic!("expected timed out, got {other:?}"),
+        }
+        assert!(matches!(
+            runner.wait_any(&[], 50, None).await,
+            TaskWaitResult::NotFound
+        ));
+        runner.stop("task-1", None).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn wait_any_honors_the_interrupt_signal() {
+        let (_tmp, runner) = runner();
+        runner
+            .spawn_task(
+                "task-1".into(),
+                "long".into(),
+                std::future::pending::<String>(),
+            )
+            .unwrap();
+        let signal = crate::subagent::types::ParentCancel::new();
+        signal.trigger();
+        assert!(matches!(
+            runner
+                .wait_any(&["task-1".to_string()], 30_000, Some(&signal))
+                .await,
+            TaskWaitResult::Interrupted
+        ));
+        assert_eq!(runner.entry("task-1").unwrap()["status"], "running");
+        runner.stop("task-1", None).await.unwrap();
     }
 
     #[tokio::test]

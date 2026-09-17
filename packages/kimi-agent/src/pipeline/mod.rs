@@ -164,6 +164,9 @@ pub struct PipelineHost {
     /// Stdio session entry only: lets a newly spawned turn publish its cancel
     /// handle so `session/cancel` can reach the turn it replaced.
     pub parent_cancel_slot: Option<Arc<Mutex<Option<ParentCancel>>>>,
+    /// Session entry only: the slot a steering message fires to end a blocking
+    /// `WaitFor` early, so the toolset's wait can observe the interrupt.
+    pub steer_slot: Option<Arc<Mutex<Option<ParentCancel>>>>,
     /// Already-connected MCP manager to attach to the native toolset, so
     /// external tools execute in-process. `None` → the toolset carries no MCP
     /// clients. Which servers to connect and when is the entry's policy: the
@@ -212,6 +215,7 @@ pub async fn build_engine_pipeline(
         subagent_manager,
         parent_cancel,
         parent_cancel_slot,
+        steer_slot,
         mcp_manager,
         event_bus,
     } = host;
@@ -306,6 +310,7 @@ pub async fn build_engine_pipeline(
                         .with_subagents(subagent_manager.clone())
                         .with_agent_context(spec.subagent_timeout_ms, parent_cancel)
                         .with_parent_cancel_slot_if(parent_cancel_slot)
+                        .with_steer_slot_if(steer_slot)
                         .with_image_limits(spec.image_read_byte_budget, spec.image_max_edge_px)
                         .with_model_capabilities(effective_model_capabilities(spec))
                         .with_bash_auto_background(spec.background.bash_auto_background_on_timeout)
@@ -685,6 +690,7 @@ mod tests {
             subagent_manager: manager,
             parent_cancel: None,
             parent_cancel_slot: None,
+            steer_slot: None,
             mcp_manager: None,
             event_bus: None,
         }

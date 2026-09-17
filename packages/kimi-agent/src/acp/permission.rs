@@ -440,10 +440,19 @@ impl HostCallbacks for AcpPermissionHost {
         let approved_tools = self.approved_tools.clone();
         Box::pin(async move {
             let tool_name = request.tool_name.clone();
+            // v2 `buildPermissionToolCallUpdate`: the approval prompt names the
+            // same `${turnId}:${rawId}` wire id the tool card was created
+            // under, so the client attaches the prompt to that card. A request
+            // without a turn id (an older host) falls back to the raw id.
+            let tool_call_id = if request.turn_id.is_empty() {
+                request.tool_call_id.clone()
+            } else {
+                crate::acp::events_map::acp_tool_call_id(&request.turn_id, &request.tool_call_id)
+            };
             let params = json!({
                 "sessionId": session_id,
                 "toolCall": {
-                    "toolCallId": request.tool_call_id,
+                    "toolCallId": tool_call_id,
                     "title": request.tool_name,
                     "kind": infer_tool_kind(&request.tool_name),
                     "status": "pending",
@@ -535,6 +544,7 @@ mod tests {
         let request = PermissionCheckRequest {
             tool_name: "Write".into(),
             tool_call_id: "call_1".into(),
+            turn_id: "turn-1".into(),
             arguments: json!({ "path": "a.txt" }),
         };
 
@@ -552,6 +562,9 @@ mod tests {
                 assert_eq!(acp_request.method, "session/request_permission");
                 let params = acp_request.params.clone().expect("params");
                 assert_eq!(params["sessionId"], "sess-1");
+                // v2 `buildPermissionToolCallUpdate`: the prompt names the same
+                // `${turnId}:${rawId}` wire id the tool card was created under.
+                assert_eq!(params["toolCall"]["toolCallId"], "turn-1:call_1");
                 assert_eq!(params["toolCall"]["title"], "Write");
                 assert_eq!(params["toolCall"]["kind"], "edit");
                 assert_eq!(params["toolCall"]["status"], "pending");
@@ -564,7 +577,7 @@ mod tests {
         assert!(channel
             .resolve(
                 id,
-                json!({ "outcome": { "outcome": "selected", "optionId": APPROVE_ALWAYS_OPTION_ID } })
+                json!({ "jsonrpc": "2.0", "id": id, "result": { "outcome": { "outcome": "selected", "optionId": APPROVE_ALWAYS_OPTION_ID } } })
             )
             .await);
 
@@ -596,6 +609,7 @@ mod tests {
         let request = PermissionCheckRequest {
             tool_name: "Bash".into(),
             tool_call_id: "call_2".into(),
+            turn_id: "turn-1".into(),
             arguments: json!({ "command": "rm -rf /" }),
         };
 
@@ -611,7 +625,7 @@ mod tests {
             other => panic!("unexpected outbound message: {other:?}"),
         };
         channel
-            .resolve(id, json!({ "outcome": { "outcome": "cancelled" } }))
+            .resolve(id, json!({ "jsonrpc": "2.0", "id": id, "result": { "outcome": { "outcome": "cancelled" } } }))
             .await;
 
         let decision = pending.await.unwrap().expect("decision");
@@ -664,7 +678,12 @@ mod tests {
             }
             other => panic!("unexpected outbound: {other:?}"),
         };
-        channel.resolve(id, json!({ "content": "file body" })).await;
+        channel
+            .resolve(
+                id,
+                json!({ "jsonrpc": "2.0", "id": id, "result": { "content": "file body" } }),
+            )
+            .await;
         let response = pending.await.unwrap().unwrap();
         assert_eq!(response.content, "file body");
         assert!(!response.is_error);
@@ -690,7 +709,9 @@ mod tests {
             }
             other => panic!("unexpected outbound: {other:?}"),
         };
-        channel.resolve(id, json!({})).await;
+        channel
+            .resolve(id, json!({ "jsonrpc": "2.0", "id": id, "result": {} }))
+            .await;
         let response = pending.await.unwrap().unwrap();
         assert!(!response.is_error);
         assert!(response.content.contains("src/a.txt"));
@@ -760,7 +781,9 @@ mod tests {
                 }
                 other => panic!("unexpected outbound: {other:?}"),
             };
-            channel.resolve(id, answer).await;
+            channel
+                .resolve(id, json!({ "jsonrpc": "2.0", "id": id, "result": answer }))
+                .await;
         }
         assert_eq!(
             methods,
@@ -857,15 +880,17 @@ mod tests {
             match methods.last().map(String::as_str) {
                 Some("terminal/create") => {
                     channel
-                        .resolve(id, json!({ "terminalId": "term-hang" }))
+                        .resolve(id, json!({ "jsonrpc": "2.0", "id": id, "result": { "terminalId": "term-hang" } }))
                         .await;
                 }
                 Some("terminal/wait_for_exit") => hanging_wait = Some(id),
                 Some("terminal/output") => {
-                    channel.resolve(id, json!({ "output": "partial\n" })).await;
+                    channel.resolve(id, json!({ "jsonrpc": "2.0", "id": id, "result": { "output": "partial\n" } })).await;
                 }
                 _ => {
-                    channel.resolve(id, json!({})).await;
+                    channel
+                        .resolve(id, json!({ "jsonrpc": "2.0", "id": id, "result": {} }))
+                        .await;
                 }
             }
         }
@@ -950,7 +975,7 @@ mod tests {
         channel
             .resolve(
                 id,
-                json!({ "action": "accept", "content": { "q0": "Fast" } }),
+                json!({ "jsonrpc": "2.0", "id": id, "result": { "action": "accept", "content": { "q0": "Fast" } } }),
             )
             .await;
         let response = pending.await.unwrap().unwrap();
@@ -991,7 +1016,7 @@ mod tests {
         channel
             .resolve(
                 id,
-                json!({ "outcome": { "outcome": "selected", "optionId": "q0_opt_1" } }),
+                json!({ "jsonrpc": "2.0", "id": id, "result": { "outcome": { "outcome": "selected", "optionId": "q0_opt_1" } } }),
             )
             .await;
         let response = pending.await.unwrap().unwrap();
@@ -1012,7 +1037,7 @@ mod tests {
             other => panic!("unexpected outbound: {other:?}"),
         };
         channel
-            .resolve(id, json!({ "outcome": { "outcome": "cancelled" } }))
+            .resolve(id, json!({ "jsonrpc": "2.0", "id": id, "result": { "outcome": { "outcome": "cancelled" } } }))
             .await;
         let response = pending.await.unwrap().unwrap();
         assert!(response.answers.is_empty());

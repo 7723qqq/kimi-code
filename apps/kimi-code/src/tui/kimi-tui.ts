@@ -764,11 +764,15 @@ export class KimiTUI {
   }
 
   /**
-   * Assemble the lazy session in the background so the first message does not
-   * pay for it. The engine connects MCP servers at `createSession` time, and a
-   * stdio server that boots a language runtime costs seconds before it answers
-   * `initialize`; doing it here overlaps that with the user reading the banner
-   * and typing.
+   * Build the lazy session in the background so the process-wide MCP connect
+   * starts at startup instead of on the first message.
+   *
+   * The engine connects MCP servers once per process, keyed by the resolved
+   * server set, and a stdio server that boots a language runtime costs seconds
+   * before it answers `initialize`. Starting it here overlaps that with the
+   * user reading the banner and typing — the fork's stand-in for v2's
+   * workspace-open connect (`WorkspaceMcpService`'s constructor). Later
+   * sessions reuse the same connections, so `/new` does not pay again.
    *
    * `ensureSession` shares one in-flight promise, so a message sent while this
    * runs joins it instead of creating a second session. Skipped when a session

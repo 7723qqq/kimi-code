@@ -230,6 +230,10 @@ pub struct CompactionReport {
 pub struct StoredMessage {
     pub message: LLMMessage,
     pub created_at: i64,
+    /// The turn row this message belongs to — the store's own `turn-<random>`
+    /// key, which is exactly the id the live ACP / WS stream namespaces tool
+    /// calls with, so a replay can rebuild matching `toolCallId`s.
+    pub turn_id: String,
 }
 
 /// Execution metadata of one persisted turn, without its messages.
@@ -1050,7 +1054,7 @@ impl SqliteSessionStore {
     ) -> Result<Vec<StoredMessage>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT role, content, tool_calls, tool_call_id, blocks, created_at FROM messages WHERE session_id = ?1 ORDER BY id ASC",
+            "SELECT role, content, tool_calls, tool_call_id, blocks, created_at, turn_id FROM messages WHERE session_id = ?1 ORDER BY id ASC",
         )?;
         let rows = stmt.query_map(params![session_id], |row| {
             Ok(StoredMessage {
@@ -1068,6 +1072,7 @@ impl SqliteSessionStore {
                     tool_call_id: row.get(3)?,
                 },
                 created_at: row.get(5)?,
+                turn_id: row.get(6)?,
             })
         })?;
 
@@ -1765,19 +1770,31 @@ impl EventStore for SqliteSessionStore {
 /// Deterministic title derivation from a conversation's user prompts (v2
 /// `title/generate` source=first_turn|user_prompts): the first non-empty
 /// user message, whitespace-normalized, truncated to 60 chars. The `digest`
-/// source requires the managed chat_title channel and is rejected here.
+/// source is the managed `chat_title` call and lives in
+/// [`crate::session::title::generate_session_title`]; it is rejected here so a
+/// caller reaching this function directly cannot silently get the
+/// deterministic title instead.
 /// Free-standing so the napi embedded-session path (which owns its history
 /// in memory, not in this store) applies the identical rule.
 pub fn derive_session_title(
     history: &[LLMMessage],
     source: Option<&str>,
 ) -> Result<Option<String>, String> {
-    match source.unwrap_or("first_turn") {
+    match source.unwrap_or("user_prompts") {
+        // Digest needs the managed `chat_title` call, which is async and needs
+        // the session's LLM — neither is available here. Route the caller to
+        // the entry point that has them instead of silently returning a title
+        // derived from the wrong source.
         "digest" => {
-            return Err("source=digest requires the managed chat_title channel, which the native engine does not wire yet".into())
+            return Err(
+                "source=digest is the managed chat_title call; use session::title::generate_session_title".into(),
+            )
         }
         "first_turn" | "user_prompts" => {}
-        other => return Err(format!("unknown title source: {other}")),
+        // v2 `composeTitleInput` falls through to the prompt list for anything
+        // that is not `first_turn` or `digest`, so an unrecognised source
+        // degrades to `user_prompts` rather than failing the request.
+        _ => {}
     }
     let prompt = history
         .iter()
@@ -1787,13 +1804,14 @@ pub fn derive_session_title(
     let Some(prompt) = prompt else {
         return Ok(None);
     };
-    let mut title: String = prompt
+    let title: String = prompt
         .chars()
         .map(|c| if c.is_whitespace() { ' ' } else { c })
         .collect();
-    title = title.trim().to_string();
-    title.truncate(60);
-    Ok(Some(title))
+    let title = title.trim();
+    // Character-wise: `String::truncate` counts bytes and panics when the cut
+    // lands inside a code point, which a CJK prompt reaches immediately.
+    Ok(Some(title.chars().take(60).collect()))
 }
 
 #[cfg(test)]

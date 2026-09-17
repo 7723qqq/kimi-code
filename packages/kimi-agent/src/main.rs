@@ -281,7 +281,8 @@ async fn main() -> anyhow::Result<()> {
             // bridge) and the LLM selection are built once per context.
             // One-shot turns have no session, so the manager is dropped.
             let (pipeline, _) =
-                build_engine_pipeline(&input, server.clone(), Some(cancel.clone()), None).await?;
+                build_engine_pipeline(&input, server.clone(), Some(cancel.clone()), None, None)
+                    .await?;
             let llm = pipeline.llm;
             let callbacks = pipeline.callbacks;
             let turn_event_count = pipeline.turn_event_count;
@@ -386,11 +387,15 @@ async fn main() -> anyhow::Result<()> {
                 // tool reads the live signal from it.
                 let agent_cancel_slot: Arc<Mutex<Option<ParentCancel>>> =
                     Arc::new(Mutex::new(None));
+                // #3697: the turn's steer signal, refreshed per turn by the
+                // pump and fired when a prompt steers into the running turn.
+                let steer_slot: Arc<Mutex<Option<ParentCancel>>> = Arc::new(Mutex::new(None));
                 let (pipeline, subagent_manager) = build_engine_pipeline(
                     &input,
                     server.clone(),
                     None,
                     Some(agent_cancel_slot.clone()),
+                    Some(steer_slot.clone()),
                 )
                 .await?;
 
@@ -435,6 +440,7 @@ async fn main() -> anyhow::Result<()> {
                     goal: goal_provider,
                     on_before_turn: None,
                     agent_cancel_slot: Some(agent_cancel_slot),
+                    steer_slot: Some(steer_slot),
                     hook_guard: pipeline.hook_guard.clone(),
                     // `[background]` print policy: the host passes it only for
                     // print runs, so every other entry keeps the engine's
@@ -464,6 +470,11 @@ async fn main() -> anyhow::Result<()> {
                             turn_event_count: pipeline.turn_event_count,
                             native_tool_count: pipeline.native_tool_count,
                             llm_transport: pipeline.llm.transport().to_string(),
+                            // Kept for operations that run outside a turn and
+                            // need the provider's managed seam — the AI title
+                            // (`session/generate_title` source=digest) reads
+                            // its base URL and bearer token from here.
+                            llm: pipeline.llm.clone(),
                             subagent_manager,
                             quiescence_guard: Arc::new(Mutex::new(None)),
                         },
@@ -824,10 +835,12 @@ async fn main() -> anyhow::Result<()> {
                 .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
             let entry = session_entry(&input.session_id)?;
             let history = entry.session.snapshot_history();
-            let title = kimi_agent::session::sqlite_store::derive_session_title(
+            let title = kimi_agent::session::title::generate_session_title(
                 &history,
                 input.source.as_deref(),
+                entry.llm.as_ref(),
             )
+            .await
             .map_err(types::JsonRpcError::internal_error)?;
             serde_json::to_value(title).map_err(|e| {
                 types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
@@ -997,6 +1010,7 @@ async fn build_engine_pipeline(
     server: Arc<RpcServer>,
     parent_cancel: Option<ParentCancel>,
     parent_cancel_slot: Option<Arc<Mutex<Option<ParentCancel>>>>,
+    steer_slot: Option<Arc<Mutex<Option<ParentCancel>>>>,
 ) -> Result<(EnginePipeline, Arc<SubagentManager>), types::JsonRpcError> {
     // `[subagent]`/`[background]` print defaults (docs config-files.md): an
     // *unset* wall-clock timeout means "no timeout" in print mode — the
@@ -1094,6 +1108,7 @@ async fn build_engine_pipeline(
             subagent_manager: subagent_manager.clone(),
             parent_cancel,
             parent_cancel_slot,
+            steer_slot,
             mcp_manager: None,
             event_bus: None,
         },
@@ -1502,6 +1517,9 @@ struct SessionEntry {
     turn_event_count: Arc<AtomicU32>,
     native_tool_count: Arc<AtomicU32>,
     llm_transport: String,
+    /// The session's LLM, kept for operations that run outside a turn and need
+    /// the provider's managed seam (the AI title's `chat_title` call).
+    llm: Arc<dyn LLM>,
     /// The pipeline's subagent manager (runtime registered): btw
     /// side-channel turns and background-task queries run against it.
     subagent_manager: Arc<SubagentManager>,

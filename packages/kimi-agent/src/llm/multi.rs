@@ -53,6 +53,10 @@ pub struct ProviderResult {
 pub struct MultiLLM {
     providers: Vec<LlmProvider>,
     label: String,
+    /// The turn's tool-call-id ledger. Each racer is a host proxy, so the
+    /// engine normalizes the calls the winning racer returned.
+    tool_call_ids:
+        std::sync::Mutex<Option<Arc<crate::turn_loop::tool_call_id::ToolCallIdNormalizer>>>,
 }
 
 impl MultiLLM {
@@ -65,7 +69,11 @@ impl MultiLLM {
         } else {
             format!("{} + {} others", providers[0].model, providers.len() - 1)
         };
-        Self { providers, label }
+        Self {
+            providers,
+            label,
+            tool_call_ids: std::sync::Mutex::new(None),
+        }
     }
 
     pub fn provider_count(&self) -> usize {
@@ -255,6 +263,10 @@ impl LLM for MultiLLM {
             .unwrap_or(false)
     }
 
+    fn set_tool_call_ids(&self, ledger: Arc<crate::turn_loop::tool_call_id::ToolCallIdNormalizer>) {
+        *self.tool_call_ids.lock().unwrap_or_else(|e| e.into_inner()) = Some(ledger);
+    }
+
     fn chat(
         &self,
         params: LLMChatParams,
@@ -262,7 +274,23 @@ impl LLM for MultiLLM {
         '_,
         Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>,
     > {
-        Box::pin(async move { self.first_past_the_post(params).await })
+        Box::pin(async move {
+            let mut response = self.first_past_the_post(params).await?;
+            // Every racer is a host proxy: the fragments never entered the
+            // engine, so the winner's calls are normalized here.
+            let ledger = self
+                .tool_call_ids
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            if let Some(ledger) = ledger {
+                crate::turn_loop::tool_call_id::remap_response_tool_calls(
+                    &mut response,
+                    &ledger.begin_response(),
+                );
+            }
+            Ok(response)
+        })
     }
 }
 

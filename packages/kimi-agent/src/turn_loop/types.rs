@@ -108,6 +108,17 @@ pub trait LLM: Send + Sync {
     fn media_upload_credential(&self) -> Option<crate::llm::files_upload::CredentialFuture<'_>> {
         None
     }
+    /// Install the turn's tool-call-id ledger (v2 `ToolCallIdNormalizer`).
+    /// A transport that streams tool calls opens one response per request on
+    /// it, so the fragments it forwards and the calls it finalizes share ids,
+    /// and a request that fails hands its claims back before the retry
+    /// re-sends. The default is a no-op, which is what a stub with fixed ids
+    /// wants.
+    fn set_tool_call_ids(
+        &self,
+        _ledger: Arc<crate::turn_loop::tool_call_id::ToolCallIdNormalizer>,
+    ) {
+    }
     /// Send a chat request and get a response.
     fn chat(
         &self,
@@ -324,8 +335,26 @@ impl ToolResourceAccess {
     }
 
     fn normalize_path(path: &str) -> String {
+        // v2 `normalizePath` (toolContract.ts:228) does three things:
+        //   `path.replaceAll('\\', '/').replaceAll(/\/+/g, '/')` then
+        //   `toLowerCase()`, then strip one trailing slash.
+        // The slash-collapse step is what makes `a//b` and `a/b` compare equal;
+        // without it two writers on the same file look disjoint and get
+        // scheduled in parallel. The fold is full Unicode (`toLowerCase`, not
+        // `toLocaleLowerCase`) so a path differing only in the case of a
+        // non-ASCII character still folds together on a case-insensitive
+        // filesystem.
         let normalized = path.replace('\\', "/");
-        let folded = normalized.to_ascii_lowercase();
+        let collapsed =
+            normalized
+                .chars()
+                .fold(String::with_capacity(normalized.len()), |mut acc, ch| {
+                    if ch != '/' || !acc.ends_with('/') {
+                        acc.push(ch);
+                    }
+                    acc
+                });
+        let folded = collapsed.to_lowercase();
         if folded.len() > 1 && folded.ends_with('/') {
             folded[..folded.len() - 1].to_string()
         } else {
@@ -537,7 +566,10 @@ mod tests {
     fn test_normalize_path_backslashes() {
         let path = "C:\\\\Users\\\\test\\\\file.txt";
         let normalized = ToolResourceAccess::normalize_path(path);
-        assert_eq!(normalized, "c://users//test//file.txt");
+        // This previously asserted `"c://users//test//file.txt"` — the doubled
+        // separators a bare backslash→slash swap leaves behind, which is the
+        // deviation v2 `normalizePath` does not have.
+        assert_eq!(normalized, "c:/users/test/file.txt");
     }
 
     #[test]
@@ -720,6 +752,65 @@ mod tests {
             recursive: false,
         };
         assert!(ToolResourceAccess::file_accesses_overlap(&a, &b));
+    }
+
+    /// v2 `normalizePath` collapses runs of slashes (toolContract.ts:228).
+    /// Without that step `a//b` and `a/b` name the same file but compare
+    /// unequal, so two writers on one path were scheduled in parallel.
+    #[test]
+    fn test_normalize_path_collapses_repeated_slashes() {
+        assert_eq!(
+            ToolResourceAccess::normalize_path("C:/proj//file.ts"),
+            ToolResourceAccess::normalize_path("C:/proj/file.ts")
+        );
+        assert_eq!(
+            ToolResourceAccess::normalize_path("/a///b////c"),
+            ToolResourceAccess::normalize_path("/a/b/c")
+        );
+        assert_eq!(
+            ToolResourceAccess::normalize_path("C:\\\\proj\\\\\\file.ts"),
+            "c:/proj/file.ts"
+        );
+    }
+
+    /// The end-to-end consequence: a doubled separator must not hide a write
+    /// conflict.
+    #[test]
+    fn test_write_write_conflict_across_repeated_slashes() {
+        let a = write_file_access("C:/proj//file.ts");
+        let b = write_file_access("C:/proj/file.ts");
+        assert!(a.conflicts_with(&b));
+        assert!(b.conflicts_with(&a));
+    }
+
+    /// Same for the tree case, where the overlap test uses prefix matching.
+    #[test]
+    fn test_recursive_overlap_across_repeated_slashes() {
+        let a = write_tree_access("/project//");
+        let b = write_tree_access("/project/sub");
+        assert!(a.conflicts_with(&b));
+        assert!(b.conflicts_with(&a));
+    }
+
+    /// The fold is full Unicode, matching v2's `toLowerCase()`.
+    #[test]
+    fn test_normalize_path_folds_non_ascii_case() {
+        assert_eq!(
+            ToolResourceAccess::normalize_path("/tmp/Ä.txt"),
+            ToolResourceAccess::normalize_path("/tmp/ä.txt")
+        );
+    }
+
+    /// Collapsing must not turn distinct paths into one.
+    #[test]
+    fn test_repeated_slash_collapse_keeps_paths_distinct() {
+        assert_ne!(
+            ToolResourceAccess::normalize_path("/a//b"),
+            ToolResourceAccess::normalize_path("/a/bc")
+        );
+        let a = write_file_access("/proj//file.ts");
+        let b = write_file_access("/proj/file.ts.bak");
+        assert!(!a.conflicts_with(&b));
     }
 }
 

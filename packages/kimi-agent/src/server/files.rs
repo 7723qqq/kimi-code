@@ -83,6 +83,19 @@ pub struct FileStore {
     root: Option<PathBuf>,
 }
 
+/// Resolve a tool argument that names a preserved attachment to the blob it
+/// lives in. Accepts a `kimi-file://<id>` reference (what an attachment notice
+/// hands the model) and a bare store id; anything else is left to the caller's
+/// normal path resolution (v2 `fileReadSource`, upstream #3688).
+pub fn resolve_attachment_reference(store: &FileStore, value: &str) -> Option<PathBuf> {
+    let id = crate::llm::media_resolver::parse_daemon_file_url(value).unwrap_or(value);
+    if !is_file_id(id) {
+        return None;
+    }
+    let path = store.blob_path(id)?;
+    path.is_file().then_some(path)
+}
+
 impl FileStore {
     /// The store under `KIMI_CODE_HOME` (or `~/.kimi-code`), matching the
     /// credential layout.
@@ -203,6 +216,106 @@ impl FileStore {
         metas.push(meta.clone());
         Self::write_index(&index_path, &metas).map_err(internal)?;
         Ok(meta)
+    }
+
+    /// Store `bytes` under a caller-chosen id, replacing any entry with that
+    /// id. The id must already look like a file id (`f_…`), and writing one
+    /// that is already present is a no-op beyond refreshing the index entry —
+    /// which is what makes a content-addressed id (v2's `f_mcp_<sha256>`)
+    /// dedupe: the same attachment preserved twice occupies one blob.
+    pub fn save_with_id(
+        &self,
+        id: &str,
+        name: &str,
+        media_type: &str,
+        expires_in_sec: Option<u64>,
+        bytes: &[u8],
+    ) -> Result<FileMeta, FileError> {
+        if !is_file_id(id) {
+            return Err(internal(format!("not a file id: {id}")));
+        }
+        let (blob_dir, index_path) = self
+            .paths()
+            .ok_or_else(|| internal("cannot resolve the file store location"))?;
+        std::fs::create_dir_all(&blob_dir)
+            .map_err(|error| internal(format!("cannot create {}: {error}", blob_dir.display())))?;
+        let blob = blob_dir.join(id);
+        if blob.is_file() {
+            // The id is content-addressed, so the bytes already on disk are the
+            // ones this call would write. Leave them, and leave an existing
+            // index entry alone: a repeat preservation is a no-op.
+            let mut metas = Self::read_index(&index_path);
+            Self::prune(&blob_dir, &mut metas);
+            if let Some(existing) = metas.iter().find(|existing| existing.id == id) {
+                return Ok(existing.clone());
+            }
+            let size = std::fs::metadata(&blob)
+                .map(|metadata| metadata.len())
+                .unwrap_or(bytes.len() as u64);
+            let meta = FileMeta {
+                id: id.to_string(),
+                name: if name.is_empty() {
+                    "attachment".to_string()
+                } else {
+                    name.to_string()
+                },
+                media_type: if media_type.is_empty() {
+                    "application/octet-stream".to_string()
+                } else {
+                    media_type.to_string()
+                },
+                size,
+                created_at: now_rfc3339(),
+                expires_at: None,
+            };
+            metas.push(meta.clone());
+            Self::write_index(&index_path, &metas).map_err(internal)?;
+            return Ok(meta);
+        }
+
+        let tmp = blob.with_extension(format!("tmp.{}", fastrand::u32(..)));
+        std::fs::write(&tmp, bytes)
+            .map_err(|error| internal(format!("cannot write {}: {error}", tmp.display())))?;
+        if let Err(error) = std::fs::rename(&tmp, &blob) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(internal(format!(
+                "cannot store {}: {error}",
+                blob.display()
+            )));
+        }
+
+        let meta = FileMeta {
+            id: id.to_string(),
+            name: if name.is_empty() {
+                "attachment".to_string()
+            } else {
+                name.to_string()
+            },
+            media_type: if media_type.is_empty() {
+                "application/octet-stream".to_string()
+            } else {
+                media_type.to_string()
+            },
+            size: bytes.len() as u64,
+            created_at: now_rfc3339(),
+            expires_at: expires_in_sec
+                .map(|seconds| chrono::Utc::now() + chrono::Duration::seconds(seconds as i64))
+                .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
+        };
+
+        let mut metas = Self::read_index(&index_path);
+        Self::prune(&blob_dir, &mut metas);
+        metas.retain(|existing| existing.id != meta.id);
+        metas.push(meta.clone());
+        Self::write_index(&index_path, &metas).map_err(internal)?;
+        Ok(meta)
+    }
+
+    /// The blob path a stored id lives at, without reading the index — what a
+    /// caller hands to a path-based tool (`Read`, `ReadMediaFile`).
+    pub fn blob_path(&self, id: &str) -> Option<PathBuf> {
+        let (blob_dir, _) = self.paths()?;
+        Some(blob_dir.join(id))
     }
 
     /// Every live entry, pruning expired ones first.
@@ -476,6 +589,59 @@ pub fn content_disposition(name: &str, media_type: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// A `kimi-file://<id>` reference resolves to the stored blob, a bare id
+    /// too, and anything else is not this function's business.
+    #[test]
+    fn test_resolve_attachment_reference() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FileStore::with_root(dir.path().to_path_buf());
+        let meta = store
+            .save_with_id("f_mcp_test", "attachment.png", "image/png", None, b"bytes")
+            .unwrap();
+
+        let by_reference =
+            resolve_attachment_reference(&store, &format!("kimi-file://{}", meta.id)).unwrap();
+        assert!(by_reference.is_file());
+        assert_eq!(
+            by_reference,
+            resolve_attachment_reference(&store, &meta.id).unwrap()
+        );
+        // A query suffix is dropped: the prompt intake appends the saved path.
+        assert!(
+            resolve_attachment_reference(&store, &format!("kimi-file://{}?x=1", meta.id)).is_some()
+        );
+        // Not a reference, not an id, not stored.
+        assert!(resolve_attachment_reference(&store, "src/main.rs").is_none());
+        assert!(resolve_attachment_reference(&store, "kimi-file://f_nope").is_none());
+    }
+
+    /// Storing the same id twice keeps one blob and one index entry.
+    #[test]
+    fn test_save_with_id_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = FileStore::with_root(dir.path().to_path_buf());
+        store
+            .save_with_id("f_dup", "first", "image/png", None, b"one")
+            .unwrap();
+        store
+            .save_with_id("f_dup", "second", "image/png", None, b"two")
+            .unwrap();
+
+        let entries = store.list().unwrap();
+        assert_eq!(entries.len(), 1);
+        // A repeat preservation is a no-op: the id is content-addressed, so the
+        // stored bytes and the record that describes them are the first ones.
+        assert_eq!(entries[0].name, "first");
+        let (_, path) = store.get("f_dup").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"one");
+        // An id that does not look like one is refused outright.
+        assert!(
+            store
+                .save_with_id("nope", "x", "text/plain", None, b"x")
+                .is_err()
+        );
+    }
+
     use super::*;
 
     fn temp_store(tag: &str) -> FileStore {

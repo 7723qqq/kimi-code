@@ -139,6 +139,12 @@ fn parse_model(item: &Value) -> Result<Option<DiscoveredModel>, String> {
     if supports_tool_use {
         capabilities.push("tool_use".into());
     }
+    // v2 `capabilitiesForModel` adds this from `supports_dynamic_tools`; it is
+    // the model-side half of the on-demand tool-loading gate (the other half
+    // is the `tool_select` experimental flag).
+    if item.get("supports_dynamic_tools").and_then(Value::as_bool) == Some(true) {
+        capabilities.push("dynamically_loaded_tools".into());
+    }
 
     let (support_efforts, default_effort) = parse_think_efforts(item.get("think_efforts"));
     Ok(Some(DiscoveredModel {

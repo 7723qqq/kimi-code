@@ -349,6 +349,7 @@ mod tests {
         .map(|(role, content)| StoredMessage {
             message: LLMMessage::new(role, content),
             created_at: 1,
+            turn_id: "turn-test".to_string(),
         })
         .collect::<Vec<_>>();
         let all = crate::server::v3::projection::project_history("s1", "main", &[], &messages);

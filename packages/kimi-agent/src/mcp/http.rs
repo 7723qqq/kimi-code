@@ -171,8 +171,11 @@ pub(crate) mod test_helpers {
     ///
     /// `mode` selects the response framing: `"json"` replies with a JSON body,
     /// `"sse"` replies with an SSE stream, `"status"` fails every request with
-    /// HTTP 500, `"hang"` accepts the connection without ever replying, and
-    /// `"bad-schema"` advertises a tool whose inputSchema is not an object.
+    /// HTTP 500, `"hang"` accepts the connection without ever replying,
+    /// `"bad-schema"` advertises a tool whose inputSchema is not an object,
+    /// `"401-on-call"` completes the handshake normally but rejects every
+    /// `tools/call` with HTTP 401, and `"image"` answers `tools/call` with an
+    /// image content block instead of text.
     ///
     /// The returned vector records every request in arrival order.
     pub async fn spawn_mock_http_server(
@@ -270,6 +273,14 @@ pub(crate) mod test_helpers {
                                 .get("method")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or_default();
+                            if mode == "401-on-call" && method == "tools/call" {
+                                let _ = socket
+                                    .write_all(
+                                        b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n",
+                                    )
+                                    .await;
+                                return;
+                            }
                             let result = match method {
                                 "initialize" => json!({
                                     "protocolVersion": STREAMABLE_HTTP_PROTOCOL_VERSION,
@@ -302,10 +313,23 @@ pub(crate) mod test_helpers {
                                         })
                                     }
                                 }
-                                "tools/call" => json!({
-                                    "content": [{ "type": "text", "text": "ok" }],
-                                    "isError": false
-                                }),
+                                "tools/call" => {
+                                    if mode == "image" {
+                                        json!({
+                                            "content": [{
+                                                "type": "image",
+                                                "mimeType": "image/png",
+                                                "data": "iVBORw0KGgo="
+                                            }],
+                                            "isError": false
+                                        })
+                                    } else {
+                                        json!({
+                                            "content": [{ "type": "text", "text": "ok" }],
+                                            "isError": false
+                                        })
+                                    }
+                                }
                                 _ => json!({}),
                             };
                             let payload =

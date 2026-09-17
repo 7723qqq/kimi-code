@@ -16,6 +16,7 @@ use std::time::Instant;
 
 use crate::callbacks::HostCallbacks;
 use crate::rpc::types::{StateReadRequest, StateWriteRequest};
+use crate::storage::TaskWaitResult;
 use crate::tools::task_format;
 use crate::turn_loop::types::ExecutableToolResult;
 
@@ -304,15 +305,23 @@ fn render_task_stop(value: &Value, task_id: &str, reason: &str) -> ExecutableToo
     ok_result(lines.join("\n"))
 }
 
-/// Execute the TaskWait tool natively: `state_write` a blocking wait
-/// action and render the v2-aligned outcome. The host blocks until the
-/// task finishes or the timeout elapses; a non-terminal status in the
-/// returned snapshot (or a timeout error) renders the v2 timeout report.
+/// Execute the TaskWait tool natively.
+///
+/// With a task runner attached — every production path, since the pipeline
+/// builds one and hands it to the toolset — the wait itself happens here,
+/// against the same runner that spawned the tasks. It blocks until the task
+/// settles, the timeout elapses, or a steering message interrupts it.
+///
+/// Without a runner (a host that owns background tasks itself / a toolset
+/// built without one) the v2 state-bridge `{action: "wait"}` write is issued
+/// and the host's response is rendered, as before.
 pub async fn execute_task_wait(
     callbacks: &dyn HostCallbacks,
+    runner: Option<&crate::storage::TaskRunner>,
+    steer: Option<&crate::subagent::types::ParentCancel>,
     args: &Value,
 ) -> ExecutableToolResult {
-    let task_id = match parse_task_id(args, "TaskWait") {
+    let task_id = match parse_optional_task_id(args) {
         Ok(task_id) => task_id,
         Err(message) => return err_result(message),
     };
@@ -322,6 +331,28 @@ pub async fn execute_task_wait(
     };
     let timeout_ms = timeout_s * 1000;
     let started = Instant::now();
+    if let Some(runner) = runner {
+        // Only a task this runner actually knows can be waited on natively.
+        // A task registered by another runner — the server rebuilds its
+        // pipeline per turn, so a task from an earlier turn lives in a runner
+        // this toolset never saw — is still reported by the state bridge, so
+        // fall through for it rather than answering "not found".
+        let known = match task_id.as_deref() {
+            Some(id) => runner.entry(id).is_some(),
+            None => true,
+        };
+        if known {
+            return wait_with_runner(runner, steer, task_id.as_deref(), timeout_ms, started).await;
+        }
+    }
+    let Some(task_id) = task_id else {
+        // A wait-any over the bridge would need the host to enumerate its own
+        // running tasks; the host-owned shape has always been keyed by id.
+        return err_result(
+            "Invalid TaskWait arguments: `task_id` is required when the host owns background tasks."
+                .into(),
+        );
+    };
     let request = StateWriteRequest {
         domain: "task".into(),
         key: "task".into(),
@@ -339,9 +370,83 @@ pub async fn execute_task_wait(
             .to_string(),
     };
     match callbacks.state_write(request).await {
-        Ok(response) => render_task_wait(&response.value, &task_id, timeout_ms, waited_ms(started)),
+        Ok(response) => render_task_wait(
+            &response.value,
+            Some(&task_id),
+            timeout_ms,
+            waited_ms(started),
+            &[],
+        ),
         Err(error) => map_wait_error(error, &task_id, timeout_ms, waited_ms(started)),
     }
+}
+
+/// Perform the wait against the engine's own task runner. The wait targets the
+/// requested task, or — with no `task_id` — every task running at call time
+/// (v2 `waitAny`), ending as soon as the first one settles.
+async fn wait_with_runner(
+    runner: &crate::storage::TaskRunner,
+    steer: Option<&crate::subagent::types::ParentCancel>,
+    task_id: Option<&str>,
+    timeout_ms: u64,
+    started: Instant,
+) -> ExecutableToolResult {
+    let targets: Vec<String> = match task_id {
+        Some(id) => {
+            if runner.entry(id).is_none() {
+                return err_result(format!("Task not found: {id}"));
+            }
+            vec![id.to_string()]
+        }
+        None => {
+            let running = running_wires(runner);
+            if running.is_empty() {
+                return ok_result(render_wait_no_tasks(timeout_ms));
+            }
+            running
+                .iter()
+                .filter_map(|entry| entry.get("taskId").and_then(|v| v.as_str()))
+                .map(str::to_string)
+                .collect()
+        }
+    };
+    let result = match task_id {
+        Some(_) => {
+            runner
+                .wait_interruptible(&targets[0], timeout_ms, steer)
+                .await
+        }
+        None => runner.wait_any(&targets, timeout_ms, steer).await,
+    };
+    let waited = waited_ms(started);
+    let still_running = running_wires(runner);
+    match result {
+        TaskWaitResult::Interrupted => {
+            render_wait_interrupted(task_id, timeout_ms, waited, &still_running)
+        }
+        TaskWaitResult::NotFound => {
+            err_result(format!("Task not found: {}", task_id.unwrap_or("")))
+        }
+        // `Completed` always carries a terminal entry and `TimedOut` a
+        // still-running one, so the shared renderer picks the right report.
+        TaskWaitResult::Completed(entry) | TaskWaitResult::TimedOut(entry) => {
+            render_task_wait(&entry, task_id, timeout_ms, waited, &still_running)
+        }
+    }
+}
+
+/// The wire entries of the tasks still running, oldest first.
+fn running_wires(runner: &crate::storage::TaskRunner) -> Vec<Value> {
+    runner
+        .list()
+        .into_iter()
+        .filter(|entry| {
+            entry
+                .get("status")
+                .and_then(|s| s.as_str())
+                .is_none_or(|status| !is_terminal_status(status))
+        })
+        .collect()
 }
 
 /// Render the host's wait response as the v2 `WaitFor` outcome: a
@@ -349,32 +454,42 @@ pub async fn execute_task_wait(
 /// timeout report (a timeout is not an error).
 fn render_task_wait(
     value: &Value,
-    task_id: &str,
+    requested_task_id: Option<&str>,
     timeout_ms: u64,
     waited_ms: u64,
+    still_running: &[Value],
 ) -> ExecutableToolResult {
     let Some(obj) = value.as_object() else {
         return err_result("Invalid task state from host: expected a task output snapshot.".into());
     };
     let status = obj.get("status").and_then(|s| s.as_str()).unwrap_or("");
+    // The settled task may not be the requested one (wait-any), so the entry's
+    // own id wins.
+    let task_id = obj
+        .get("taskId")
+        .or_else(|| obj.get("id"))
+        .and_then(|v| v.as_str())
+        .or(requested_task_id)
+        .unwrap_or("");
     if is_terminal_status(status) {
-        render_wait_completed(value, task_id, timeout_ms, waited_ms)
+        render_wait_completed(value, task_id, timeout_ms, waited_ms, still_running)
     } else {
-        render_wait_timeout(task_id, timeout_ms, waited_ms)
+        render_wait_timeout(requested_task_id, timeout_ms, waited_ms, still_running)
     }
 }
 
 /// v2 `WaitFor.formatCompleted`: wait metadata, `[finished]` task report
 /// (metadata lines + truncation note + `[output]` preview when the host
-/// included the output snapshot).
+/// included the output snapshot), then the tasks that are still running.
 fn render_wait_completed(
     value: &Value,
     task_id: &str,
     timeout_ms: u64,
     waited_ms: u64,
+    still_running: &[Value],
 ) -> ExecutableToolResult {
     let mut lines = vec![
-        wait_metadata("completed", task_id, timeout_ms, waited_ms),
+        wait_metadata("completed", None, Some(task_id), timeout_ms, waited_ms),
         String::new(),
         "[finished]".into(),
         render_task_entry(value),
@@ -387,26 +502,98 @@ fn render_wait_completed(
         lines.push("[output]".into());
         lines.push(output_preview(value));
     }
+    push_still_running(&mut lines, still_running);
     ok_result(lines.join("\n"))
 }
 
 /// v2 `WaitFor.formatTimeout`: the timeout report. A timeout is not an
 /// error — the tool returns it as a success result.
-fn render_wait_timeout(task_id: &str, timeout_ms: u64, waited_ms: u64) -> ExecutableToolResult {
-    ok_result(format!(
-        "{}\n\nThe wait ended before the task finished — a timeout is not an error. Call TaskWait again to keep waiting, or continue with other work; completion also arrives via automatic notification.",
-        wait_metadata("timed_out", task_id, timeout_ms, waited_ms)
-    ))
+fn render_wait_timeout(
+    task_id: Option<&str>,
+    timeout_ms: u64,
+    waited_ms: u64,
+    still_running: &[Value],
+) -> ExecutableToolResult {
+    let mut lines = vec![
+        wait_metadata("timed_out", None, task_id, timeout_ms, waited_ms),
+        String::new(),
+        "The wait ended before the task finished — a timeout is not an error. Call TaskWait again to keep waiting, or continue with other work; completion also arrives via automatic notification.".into(),
+    ];
+    push_still_running(&mut lines, still_running);
+    ok_result(lines.join("\n"))
 }
 
-/// v2 `formatPlainObject({waitStatus, taskId, waitedMs, timeoutMs})`.
-fn wait_metadata(status: &str, task_id: &str, timeout_ms: u64, waited_ms: u64) -> String {
-    task_format::format_plain_object_entries(&[
-        ("waitStatus", &Value::String(status.into())),
-        ("taskId", &Value::String(task_id.into())),
-        ("waitedMs", &Value::from(waited_ms)),
-        ("timeoutMs", &Value::from(timeout_ms)),
-    ])
+/// v2 `WaitFor.formatInterrupted`: a steering message ended the wait. Not an
+/// error — the tasks were left running and still report on completion.
+fn render_wait_interrupted(
+    task_id: Option<&str>,
+    timeout_ms: u64,
+    waited_ms: u64,
+    still_running: &[Value],
+) -> ExecutableToolResult {
+    let mut lines = vec![
+        wait_metadata("interrupted", Some("steer"), task_id, timeout_ms, waited_ms),
+        String::new(),
+        "New input ended this wait early. Read the new input before deciding what to do next. Background tasks have not been stopped; completion still arrives via automatic notification.".into(),
+    ];
+    push_still_running(&mut lines, still_running);
+    ok_result(lines.join("\n"))
+}
+
+/// v2 `WaitFor` when the wait-any form is called with nothing running.
+fn render_wait_no_tasks(timeout_ms: u64) -> String {
+    format!(
+        "{}\n\nNo background tasks are running, so there is nothing to wait for. Finished tasks report back via automatic notification.",
+        wait_metadata("no_tasks", None, None, timeout_ms, 0)
+    )
+}
+
+/// v2 `WaitFor`'s shared `[still_running]` tail: the v2-aligned task list of
+/// everything still running after the wait ended.
+fn push_still_running(lines: &mut Vec<String>, still_running: &[Value]) {
+    if still_running.is_empty() {
+        return;
+    }
+    lines.push(String::new());
+    lines.push("[still_running]".into());
+    lines.push(format!("active_background_tasks: {}", still_running.len()));
+    let records: Vec<String> = still_running.iter().map(render_task_entry).collect();
+    lines.push(records.join("\n---\n"));
+}
+
+/// v2 `formatPlainObject({waitStatus, reason?, taskId?, waitedMs, timeoutMs})`.
+/// `taskId` is omitted for the wait-any forms, where no single task was named.
+fn wait_metadata(
+    status: &str,
+    reason: Option<&str>,
+    task_id: Option<&str>,
+    timeout_ms: u64,
+    waited_ms: u64,
+) -> String {
+    let mut entries: Vec<(&str, Value)> = vec![("waitStatus", Value::String(status.into()))];
+    if let Some(reason) = reason {
+        entries.push(("reason", Value::String(reason.into())));
+    }
+    if let Some(task_id) = task_id {
+        entries.push(("taskId", Value::String(task_id.into())));
+    }
+    entries.push(("waitedMs", Value::from(waited_ms)));
+    entries.push(("timeoutMs", Value::from(timeout_ms)));
+    let refs: Vec<(&str, &Value)> = entries.iter().map(|(k, v)| (*k, v)).collect();
+    task_format::format_plain_object_entries(&refs)
+}
+
+/// Parse the optional `task_id` argument: absent / null is the wait-any form;
+/// a present value must be a non-empty string.
+fn parse_optional_task_id(args: &Value) -> Result<Option<String>, String> {
+    match args.get("task_id") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(task_id)) if !task_id.is_empty() => Ok(Some(task_id.clone())),
+        Some(_) => Err(
+            "Invalid TaskWait arguments: `task_id` must be a non-empty string when provided."
+                .into(),
+        ),
+    }
 }
 
 /// Parse the required `task_id` argument (non-empty string).
@@ -468,7 +655,7 @@ fn map_wait_error(
     } else {
         let lower = error.to_lowercase();
         if lower.contains("timed out") || lower.contains("timeout") {
-            render_wait_timeout(task_id, timeout_ms, waited_ms)
+            render_wait_timeout(Some(task_id), timeout_ms, waited_ms, &[])
         } else {
             err_result(error)
         }
@@ -605,7 +792,7 @@ Guidelines:
 
 const TASK_WAIT_DESCRIPTION: &str = r#"Wait for background tasks to finish without ending the current turn.
 
-Use this when your next step depends on the result of a running background task (a sub-agent, a background bash command, or a background AskUserQuestion). The call suspends inside the current turn until the task finishes or the timeout elapses, then returns the outcome so you can keep working in the same turn. While waiting, no LLM requests are made.
+Use this when your next step depends on the result of a running background task (a sub-agent, a background bash command, or a background AskUserQuestion). The call suspends inside the current turn until the task finishes, the timeout elapses, or a steering message arrives, then returns the outcome so you can keep working in the same turn. While waiting, no LLM requests are made.
 
 Guidelines:
 
@@ -613,6 +800,8 @@ Guidelines:
 - `timeout` is required, in seconds, capped at 600. To wait longer, call TaskWait again; waking up periodically also lets you re-evaluate the situation.
 - A timeout is not an error: the tool reports the timeout and you decide whether to wait again or do other work meanwhile; completion also arrives via automatic notification.
 - With `task_id`, the wait ends when that task finishes. An unknown `task_id` is an error; a task that has already finished returns immediately.
+- Without `task_id`, the wait ends as soon as any background task that was running at call time finishes; with nothing running it returns immediately.
+- Steering ends the wait early (a `wait_status: interrupted` report): read the new input, then decide whether to wait again. Background tasks keep running and still notify you on completion.
 - Waiting has no side effects on the waited tasks: TaskWait never stops a task, and interrupting the wait (for example, a user interruption) leaves every task running.
 - A finished task's result is delivered exactly once: tasks reported by TaskWait do not also produce an automatic completion notification.
 - You can only wait for background tasks started by this agent; task IDs belonging to other agents are unknown here."#;
@@ -635,10 +824,10 @@ fn task_wait_def(name: &str) -> crate::turn_loop::types::ToolInfo {
                 },
                 "task_id": {
                     "type": "string",
-                    "description": "The background task ID to wait for."
+                    "description": "The background task ID to wait for. When omitted, the wait ends as soon as any background task that was running at call time finishes."
                 }
             },
-            "required": ["timeout", "task_id"],
+            "required": ["timeout"],
             "additionalProperties": false
         }),
     }
@@ -1201,6 +1390,8 @@ mod tests {
             scripted(read_ok(Value::Null), write_ok(sample_snapshot()));
         let result = execute_task_wait(
             &callbacks,
+            None,
+            None,
             &serde_json::json!({ "task_id": "task-1", "timeout": 30 }),
         )
         .await;
@@ -1226,7 +1417,7 @@ mod tests {
 
     #[test]
     fn test_wait_completed_render_golden() {
-        let rendered = render_task_wait(&sample_snapshot(), "task-1", 30000, 1234);
+        let rendered = render_task_wait(&sample_snapshot(), Some("task-1"), 30000, 1234, &[]);
         assert!(!rendered.is_error);
         assert_eq!(
             rendered.content,
@@ -1263,7 +1454,7 @@ mod tests {
             "startedAt": 1700000000000u64,
             "endedAt": 1700000001000u64
         });
-        let rendered = render_task_wait(&entry, "task-1", 30000, 1234);
+        let rendered = render_task_wait(&entry, Some("task-1"), 30000, 1234, &[]);
         assert!(!rendered.is_error);
         assert_eq!(
             rendered.content,
@@ -1286,7 +1477,7 @@ mod tests {
     fn test_wait_non_terminal_status_renders_timeout() {
         let mut snapshot = sample_snapshot();
         snapshot["status"] = serde_json::json!("running");
-        let rendered = render_task_wait(&snapshot, "task-1", 30000, 30000);
+        let rendered = render_task_wait(&snapshot, Some("task-1"), 30000, 30000, &[]);
         assert!(!rendered.is_error);
         assert_eq!(
             rendered.content,
@@ -1307,6 +1498,8 @@ mod tests {
         );
         let result = execute_task_wait(
             &callbacks,
+            None,
+            None,
             &serde_json::json!({ "task_id": "task-1", "timeout": 30 }),
         )
         .await;
@@ -1323,6 +1516,8 @@ mod tests {
         );
         let result = execute_task_wait(
             &callbacks,
+            None,
+            None,
             &serde_json::json!({ "task_id": "task-9", "timeout": 30 }),
         )
         .await;
@@ -1341,7 +1536,7 @@ mod tests {
             serde_json::json!({ "task_id": "task-1", "timeout": 601 }),
             serde_json::json!({ "task_id": "task-1", "timeout": "30" }),
         ] {
-            let result = execute_task_wait(&callbacks, &bad).await;
+            let result = execute_task_wait(&callbacks, None, None, &bad).await;
             assert!(result.is_error, "args: {bad}");
             assert!(result.content.contains("Invalid TaskWait arguments"));
         }
@@ -1357,6 +1552,8 @@ mod tests {
         );
         let result = execute_task_wait(
             &callbacks,
+            None,
+            None,
             &serde_json::json!({ "task_id": "task-1", "timeout": 30 }),
         )
         .await;
@@ -1372,11 +1569,228 @@ mod tests {
         );
         let result = execute_task_wait(
             &callbacks,
+            None,
+            None,
             &serde_json::json!({ "task_id": "task-1", "timeout": 30 }),
         )
         .await;
         assert!(result.is_error);
         assert!(result.content.contains("something else broke"));
+    }
+
+    // ── TaskWait over the engine's own runner ─────────────────────────
+
+    /// A runner with one held task, plus the release handle.
+    fn held_runner() -> (
+        tempfile::TempDir,
+        Arc<crate::storage::TaskRunner>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let runner = Arc::new(crate::storage::TaskRunner::for_workspace(dir.path()).unwrap());
+        let (release, held) = tokio::sync::oneshot::channel::<()>();
+        runner
+            .spawn_task("task-1".into(), "held task".into(), async move {
+                let _ = held.await;
+                "HELD-OUTPUT".to_string()
+            })
+            .unwrap();
+        (dir, runner, release)
+    }
+
+    #[tokio::test]
+    async fn test_wait_with_a_runner_blocks_until_the_timeout() {
+        // The regression this guards: the engine used to route the wait through
+        // a synchronous local store, so a 5s wait on a running task returned in
+        // milliseconds reporting `timed_out`. A real wait must consume the
+        // timeout.
+        let (_dir, runner, release) = held_runner();
+        let (callbacks, read_received, write_received) =
+            scripted(read_ok(Value::Null), write_ok(Value::Null));
+        let started = std::time::Instant::now();
+        let result = execute_task_wait(
+            &callbacks,
+            Some(&runner),
+            None,
+            &serde_json::json!({ "task_id": "task-1", "timeout": 1 }),
+        )
+        .await;
+        assert!(!result.is_error);
+        assert!(
+            started.elapsed() >= std::time::Duration::from_millis(900),
+            "the wait must suspend; elapsed {:?}",
+            started.elapsed()
+        );
+        assert!(result.content.starts_with("wait_status: timed_out"));
+        // The still-running tail names the task that was waited on.
+        assert!(result.content.contains("[still_running]"));
+        assert!(result.content.contains("task_id: task-1"));
+        // The native path must not consult the state bridge at all.
+        assert!(read_received.lock().unwrap().is_none());
+        assert!(write_received.lock().unwrap().is_none());
+        let _ = release.send(());
+    }
+
+    #[tokio::test]
+    async fn test_wait_with_a_runner_reports_a_settled_task() {
+        let (_dir, runner, release) = held_runner();
+        let (callbacks, _, _) = scripted(read_ok(Value::Null), write_ok(Value::Null));
+        let settle = runner.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            let _ = release.send(());
+        });
+        let result = execute_task_wait(
+            &callbacks,
+            Some(&runner),
+            None,
+            &serde_json::json!({ "task_id": "task-1", "timeout": 30 }),
+        )
+        .await;
+        assert!(!result.is_error);
+        assert_eq!(
+            result.content.lines().next().unwrap(),
+            "wait_status: completed"
+        );
+        assert!(result.content.contains("[finished]"));
+        assert!(result.content.contains("HELD-OUTPUT"));
+        assert_eq!(settle.entry("task-1").unwrap()["status"], "completed");
+    }
+
+    #[tokio::test]
+    async fn test_wait_with_a_runner_ends_on_the_steer_signal() {
+        let (_dir, runner, release) = held_runner();
+        let (callbacks, _, _) = scripted(read_ok(Value::Null), write_ok(Value::Null));
+        let steer = crate::subagent::types::ParentCancel::new();
+        let trigger = steer.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            trigger.trigger();
+        });
+        let started = std::time::Instant::now();
+        let result = execute_task_wait(
+            &callbacks,
+            Some(&runner),
+            Some(&steer),
+            &serde_json::json!({ "task_id": "task-1", "timeout": 30 }),
+        )
+        .await;
+        assert!(!result.is_error, "an interruption is not an error");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "the steer must end the wait, not the timeout"
+        );
+        let lines: Vec<&str> = result.content.lines().collect();
+        assert_eq!(lines[0], "wait_status: interrupted");
+        assert_eq!(lines[1], "reason: steer");
+        assert!(result.content.contains("New input ended this wait early"));
+        assert_eq!(
+            runner.entry("task-1").unwrap()["status"],
+            "running",
+            "steering must not stop the task"
+        );
+        let _ = release.send(());
+    }
+
+    #[tokio::test]
+    async fn test_wait_without_a_task_id_waits_for_any() {
+        let (_dir, runner, release) = held_runner();
+        let (callbacks, _, _) = scripted(read_ok(Value::Null), write_ok(Value::Null));
+        let result = execute_task_wait(
+            &callbacks,
+            Some(&runner),
+            None,
+            &serde_json::json!({ "timeout": 5 }),
+        )
+        .await;
+        // Nothing settles, so the wait-any times out and lists the runner.
+        assert!(!result.is_error);
+        assert!(result.content.starts_with("wait_status: timed_out"));
+        // The wait-any form names no single task in its metadata.
+        assert!(!result.content.contains("\ntask_id: task-1\nwaited_ms"));
+        assert!(result.content.contains("[still_running]"));
+        let _ = release.send(());
+    }
+
+    #[tokio::test]
+    async fn test_wait_any_with_no_running_tasks_reports_no_tasks() {
+        let dir = tempfile::tempdir().unwrap();
+        let runner = Arc::new(crate::storage::TaskRunner::for_workspace(dir.path()).unwrap());
+        let (callbacks, _, _) = scripted(read_ok(Value::Null), write_ok(Value::Null));
+        let result = execute_task_wait(
+            &callbacks,
+            Some(&runner),
+            None,
+            &serde_json::json!({ "timeout": 5 }),
+        )
+        .await;
+        assert!(!result.is_error);
+        assert!(result.content.starts_with("wait_status: no_tasks\n"));
+        assert!(result.content.contains("nothing to wait for"));
+    }
+
+    #[tokio::test]
+    async fn test_wait_with_a_runner_surfaces_the_bridge_not_found() {
+        // A task unknown to this runner is not necessarily nonexistent (the
+        // server's runner is rebuilt per turn), so the lookup falls through to
+        // the state bridge — which is what actually answers "not found".
+        let dir = tempfile::tempdir().unwrap();
+        let runner = Arc::new(crate::storage::TaskRunner::for_workspace(dir.path()).unwrap());
+        let (callbacks, _, write_received) = scripted(
+            read_ok(Value::Null),
+            Err("State write error: [-32002] task not found: nope".into()),
+        );
+        let result = execute_task_wait(
+            &callbacks,
+            Some(&runner),
+            None,
+            &serde_json::json!({ "task_id": "nope", "timeout": 5 }),
+        )
+        .await;
+        assert!(result.is_error);
+        assert_eq!(result.content, "Task not found: nope");
+        assert_eq!(
+            write_received.lock().unwrap().as_ref().unwrap().value["action"],
+            "wait"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_wait_falls_back_to_the_bridge_for_an_unknown_task() {
+        // The server rebuilds its pipeline per turn, so a task from an earlier
+        // turn lives in a runner this toolset never saw. The state bridge is
+        // still the authority for it — routing it to the runner must not turn a
+        // reportable task into "not found".
+        let dir = tempfile::tempdir().unwrap();
+        let runner = Arc::new(crate::storage::TaskRunner::for_workspace(dir.path()).unwrap());
+        let (callbacks, _, write_received) =
+            scripted(read_ok(Value::Null), write_ok(sample_snapshot()));
+        let result = execute_task_wait(
+            &callbacks,
+            Some(&runner),
+            None,
+            &serde_json::json!({ "task_id": "task-1", "timeout": 30 }),
+        )
+        .await;
+        assert!(!result.is_error);
+        assert_eq!(
+            result.content.lines().next().unwrap(),
+            "wait_status: completed"
+        );
+        assert_eq!(
+            write_received.lock().unwrap().as_ref().unwrap().value["action"],
+            "wait"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_wait_any_without_a_runner_requires_a_task_id() {
+        let (callbacks, _, write_received) = scripted(read_ok(Value::Null), write_ok(Value::Null));
+        let result =
+            execute_task_wait(&callbacks, None, None, &serde_json::json!({ "timeout": 5 })).await;
+        assert!(result.is_error);
+        assert!(result.content.contains("`task_id` is required"));
+        assert!(write_received.lock().unwrap().is_none());
     }
 
     // ── Tool defs ─────────────────────────────────────────────────────
@@ -1420,8 +1834,11 @@ mod tests {
     fn test_task_wait_tool_def_matches_v2_schema() {
         let def = task_wait_tool_def();
         assert_eq!(def.name, "TaskWait");
+        // v2 `WaitForInputSchema`: `task_id` is optional — omitting it waits for
+        // any task running at call time.
         assert_eq!(def.input_schema["required"][0], "timeout");
-        assert_eq!(def.input_schema["required"][1], "task_id");
+        assert_eq!(def.input_schema["required"].as_array().unwrap().len(), 1);
+        assert!(def.input_schema["properties"]["task_id"].is_object());
         assert_eq!(def.input_schema["properties"]["timeout"]["maximum"], 600);
         assert!(def.description.contains("Wait for background tasks"));
     }

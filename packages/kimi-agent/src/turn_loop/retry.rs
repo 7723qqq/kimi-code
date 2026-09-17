@@ -9,6 +9,13 @@ use std::time::Duration;
 /// `RunTurnInput::max_attempts` (`loopControl.maxAttemptsPerStep`).
 pub const DEFAULT_MAX_RETRY_ATTEMPTS: u32 = 10;
 
+/// v2 `BASE_DELAY_MS` (_base/utils/retry.ts:5): the first retry waits 500ms,
+/// not the 1000ms this used to start from.
+pub const DEFAULT_BASE_DELAY_MS: u64 = 500;
+
+/// v2 `MAX_DELAY_MS` (_base/utils/retry.ts:6).
+pub const DEFAULT_MAX_DELAY_MS: u64 = 32_000;
+
 /// Whether an env switch is set to a truthy value (v2 `parseBooleanEnv`):
 /// `1` / `true` / `yes` / `on`, case-insensitive; anything else — including an
 /// unset variable — is false.
@@ -46,31 +53,66 @@ impl Default for RetryConfig {
     fn default() -> Self {
         Self {
             max_attempts: DEFAULT_MAX_RETRY_ATTEMPTS,
-            base_delay_ms: 1000,
-            max_delay_ms: 30000,
+            base_delay_ms: DEFAULT_BASE_DELAY_MS,
+            max_delay_ms: DEFAULT_MAX_DELAY_MS,
         }
     }
 }
 
 /// Calculate the delay for a retry attempt using exponential backoff with jitter.
+///
+/// Mirrors v2 `retryBackoffDelay` (_base/utils/retry.ts:16-19):
+/// `min(BASE * 2^index, MAX)` plus a **one-sided** jitter of `[0, 25%]` —
+/// `base + Math.random() * 0.25 * base`. `attempt` here is 1-based (the number
+/// of the attempt that just failed, see `execute_loop_step_with_retry`), so
+/// `attempt - 1` is v2's 0-based `attemptIndex`.
+///
+/// Centring the jitter instead — as this used to — makes a retry fire up to
+/// 25% earlier than v2 would, which is a real behaviour difference for a
+/// rate-limited provider, not a stylistic one.
 pub fn retry_delay(attempt: u32, config: &RetryConfig) -> Duration {
     let delay = config.base_delay_ms * 2u64.pow(attempt.saturating_sub(1));
     let delay = delay.min(config.max_delay_ms);
-    // Add jitter: ±25%
-    let jitter = fastrand::i64(-(delay as i64 / 4)..=(delay as i64 / 4));
-    Duration::from_millis((delay as i64 + jitter).max(100) as u64)
+    let jitter = fastrand::u64(0..=(delay / 4));
+    Duration::from_millis(delay + jitter)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// v2 `retryBackoffDelay` as an explicit range: `min(base * 2^index, max)`
+    /// through the same value plus a full `25%` jitter.
+    ///
+    /// Expectations are derived from the formula rather than written out, so a
+    /// constant change cannot leave a test asserting a number that no longer
+    /// means anything — the failure mode that let the two-sided jitter sit here
+    /// unnoticed (every test above simply restated the implementation).
+    fn v2_range(config: &RetryConfig, attempt: u32) -> (u64, u64) {
+        let nominal =
+            (config.base_delay_ms * 2u64.pow(attempt.saturating_sub(1))).min(config.max_delay_ms);
+        (nominal, nominal + nominal / 4)
+    }
+
+    fn assert_within_v2_range(config: &RetryConfig, attempt: u32) -> u64 {
+        let (min, max) = v2_range(config, attempt);
+        let ms = retry_delay(attempt, config).as_millis() as u64;
+        assert!(
+            (min..=max).contains(&ms),
+            "attempt {attempt}: delay {ms} outside v2 range [{min}, {max}]"
+        );
+        ms
+    }
+
     #[test]
     fn test_retry_config_defaults() {
         let config = RetryConfig::default();
+        assert_eq!(config.max_attempts, DEFAULT_MAX_RETRY_ATTEMPTS);
         assert_eq!(config.max_attempts, 10);
-        assert_eq!(config.base_delay_ms, 1000);
-        assert_eq!(config.max_delay_ms, 30000);
+        assert_eq!(config.base_delay_ms, DEFAULT_BASE_DELAY_MS);
+        assert_eq!(config.base_delay_ms, 500);
+        assert_eq!(config.max_delay_ms, DEFAULT_MAX_DELAY_MS);
+        assert_eq!(config.max_delay_ms, 32_000);
     }
 
     /// v2 `parseBooleanEnv` parity: `1`/`true`/`yes`/`on` are truthy (case
@@ -95,34 +137,23 @@ mod tests {
     #[test]
     fn test_retry_delay_first_attempt() {
         let config = RetryConfig::default();
-        let delay = retry_delay(1, &config);
-        let ms = delay.as_millis() as u64;
-        assert!(
-            (750..=1250).contains(&ms),
-            "attempt 1: delay must be in [750, 1250], got {ms}"
-        );
+        // v2 index 0 → 500, + [0, 125].
+        assert_eq!(v2_range(&config, 1), (500, 625));
+        assert_within_v2_range(&config, 1);
     }
 
     #[test]
     fn test_retry_delay_second_attempt() {
         let config = RetryConfig::default();
-        let delay = retry_delay(2, &config);
-        let ms = delay.as_millis() as u64;
-        assert!(
-            (1500..=2500).contains(&ms),
-            "attempt 2: delay must be in [1500, 2500], got {ms}"
-        );
+        assert_eq!(v2_range(&config, 2), (1000, 1250));
+        assert_within_v2_range(&config, 2);
     }
 
     #[test]
     fn test_retry_delay_third_attempt() {
         let config = RetryConfig::default();
-        let delay = retry_delay(3, &config);
-        let ms = delay.as_millis() as u64;
-        assert!(
-            (3000..=5000).contains(&ms),
-            "attempt 3: delay must be in [3000, 5000], got {ms}"
-        );
+        assert_eq!(v2_range(&config, 3), (2000, 2500));
+        assert_within_v2_range(&config, 3);
     }
 
     #[test]
@@ -132,24 +163,24 @@ mod tests {
             base_delay_ms: 1000,
             max_delay_ms: 5000,
         };
-        let delay = retry_delay(5, &config);
-        let ms = delay.as_millis() as u64;
-        assert!(
-            (3750..=6250).contains(&ms),
-            "capped delay must be in [3750, 6250], got {ms}"
-        );
+        // 1000 * 2^4 = 16000, capped to 5000, + [0, 1250].
+        assert_eq!(v2_range(&config, 5), (5000, 6250));
+        assert_within_v2_range(&config, 5);
     }
 
+    /// v2 has no floor: `retryBackoffDelay` returns whatever the formula gives.
+    /// The 100ms floor this used to apply existed only to stop the old
+    /// *two-sided* jitter from underflowing a `u64` cast — with a one-sided
+    /// jitter there is nothing to guard, so the floor is gone and a zero base
+    /// means a zero wait, exactly as in v2.
     #[test]
-    fn test_retry_delay_zero_base_delay() {
+    fn test_retry_delay_zero_base_delay_matches_v2() {
         let config = RetryConfig {
             max_attempts: 3,
             base_delay_ms: 0,
             max_delay_ms: 1000,
         };
-        let delay = retry_delay(1, &config);
-        let ms = delay.as_millis() as u64;
-        assert_eq!(ms, 100, "should floor at 100ms minimum");
+        assert_eq!(retry_delay(1, &config).as_millis(), 0);
     }
 
     #[test]
@@ -160,16 +191,13 @@ mod tests {
             max_delay_ms: 2000,
         };
         for attempt in 1..=10 {
-            let delay = retry_delay(attempt, &config);
-            let ms = delay.as_millis() as u64;
-            let expected_max = (config.base_delay_ms * 2u64.pow(attempt.saturating_sub(1)))
-                .min(config.max_delay_ms) as i64;
-            let with_jitter = expected_max + expected_max / 4;
-            let cap = with_jitter.max(100) as u64;
+            let (min, max) = v2_range(&config, attempt);
             assert!(
-                ms <= cap,
-                "attempt {attempt}: delay {ms} exceeded cap {cap}"
+                max <= 2500,
+                "attempt {attempt}: the 25% jitter must not push past max + 25%"
             );
+            let ms = assert_within_v2_range(&config, attempt);
+            assert!(ms >= min);
         }
     }
 
@@ -183,14 +211,30 @@ mod tests {
         assert!(delays.len() >= 2, "jitter should produce varied delays");
     }
 
+    /// The jitter is one-sided: v2 never retries *earlier* than the nominal
+    /// backoff. This is the assertion the old suite was missing — every delay
+    /// it checked also admitted a value 25% below nominal.
+    #[test]
+    fn test_retry_delay_never_undercuts_the_nominal_backoff() {
+        let config = RetryConfig::default();
+        for attempt in 1..=12 {
+            let nominal = (config.base_delay_ms * 2u64.pow(attempt - 1)).min(config.max_delay_ms);
+            let ms = retry_delay(attempt, &config).as_millis() as u64;
+            assert!(
+                ms >= nominal,
+                "attempt {attempt}: {ms} undercuts the nominal {nominal}; \
+                 v2 jitters upward only"
+            );
+        }
+    }
+
     #[test]
     fn test_retry_delay_non_zero() {
         let config = RetryConfig::default();
         for attempt in 1..=10 {
-            let delay = retry_delay(attempt, &config);
             assert!(
-                delay.as_millis() >= 100,
-                "attempt {attempt}: delay must respect minimum 100ms floor"
+                retry_delay(attempt, &config).as_millis() >= 500,
+                "attempt {attempt}: the default config never waits less than the 500ms base"
             );
         }
     }
@@ -202,36 +246,30 @@ mod tests {
             base_delay_ms: 500,
             max_delay_ms: 10000,
         };
-        let delay = retry_delay(3, &config);
-        let ms = delay.as_millis() as u64;
-        assert!(
-            (1500..=2500).contains(&ms),
-            "custom config attempt 3: delay must be in [1500, 2500], got {ms}"
-        );
+        // 500 * 2^2 = 2000, + [0, 500].
+        assert_eq!(v2_range(&config, 3), (2000, 2500));
+        assert_within_v2_range(&config, 3);
     }
 
     #[test]
     fn test_retry_delay_attempt_zero() {
         let config = RetryConfig::default();
-        let delay = retry_delay(0, &config);
-        // attempt 0 → saturating_sub(1) = 0 → 1000 * 1 = 1000, jitter ±250
-        let ms = delay.as_millis() as u64;
-        assert!(
-            (750..=1250).contains(&ms),
-            "attempt 0: delay must be in [750, 1250], got {ms}"
-        );
+        // `saturating_sub(1)` keeps attempt 0 on the base delay, like v2 index 0.
+        assert_eq!(v2_range(&config, 0), (500, 625));
+        assert_within_v2_range(&config, 0);
     }
 
+    /// A small base still jitters upward only — the old floor at 100ms used to
+    /// swallow this case entirely.
     #[test]
-    fn test_retry_delay_jitter_lower_bound() {
+    fn test_retry_delay_small_base() {
         let config = RetryConfig {
             max_attempts: 3,
             base_delay_ms: 50,
             max_delay_ms: 1000,
         };
-        let delay = retry_delay(1, &config);
-        // base=50, jitter ±12 → 38..62, floored to 100
-        assert_eq!(delay.as_millis(), 100, "should floor at 100ms minimum");
+        assert_eq!(v2_range(&config, 1), (50, 62));
+        assert_within_v2_range(&config, 1);
     }
 
     #[test]
@@ -243,13 +281,11 @@ mod tests {
         };
         let mut prev_max = 0;
         for attempt in 1..=5 {
-            let delay = retry_delay(attempt, &config).as_millis() as u64;
-            let nominal = config.base_delay_ms * 2u64.pow(attempt - 1);
-            let min_expected = (nominal * 3) / 4;
-            let max_expected = (nominal * 5) / 4;
+            let ms = retry_delay(attempt, &config).as_millis() as u64;
+            let (min_expected, max_expected) = v2_range(&config, attempt);
             assert!(
-                delay >= min_expected && delay <= max_expected,
-                "attempt {attempt}: delay {delay} outside [{min_expected}, {max_expected}]"
+                ms >= min_expected && ms <= max_expected,
+                "attempt {attempt}: delay {ms} outside [{min_expected}, {max_expected}]"
             );
             if attempt > 1 {
                 assert!(
@@ -266,18 +302,13 @@ mod tests {
         let config = RetryConfig {
             max_attempts: 3,
             base_delay_ms: 1000,
-            max_delay_ms: 30000,
+            max_delay_ms: 32_000,
         };
-        let delays: Vec<_> = (1..=3).map(|a| retry_delay(a, &config)).collect();
-        // Each delay should be distinct (due to jitter or base growth)
-        // delay 3 (base 4000) > delay 2 (base 2000) > delay 1 (base 1000) in expectation
-        // We can't guarantee strict ordering due to jitter, but we can verify
-        // that delay 3's jitter range is above delay 1's jitter range
-        let d1 = delays[0].as_millis();
-        let d3 = delays[2].as_millis();
-        // d3 base = 4000, min with jitter = 3000; d1 base = 1000, max with jitter = 1250
-        // So d3 should always be >= d1
-        assert!(d3 >= d1, "d3={d3} should be >= d1={d1}");
+        let d1 = retry_delay(1, &config).as_millis();
+        let d3 = retry_delay(3, &config).as_millis();
+        // d1 ∈ [1000, 1250], d3 ∈ [4000, 5000] — disjoint, so the ordering is
+        // guaranteed even with the jitter.
+        assert!(d3 > d1, "d3={d3} should exceed d1={d1}");
     }
 
     #[test]
@@ -288,16 +319,20 @@ mod tests {
             max_delay_ms: 8000,
         };
         for attempt in 1..=10 {
-            let delay = retry_delay(attempt, &config);
-            let ms = delay.as_millis() as u64;
-            assert!(
-                ms >= 100,
-                "attempt {attempt}: delay must respect 100ms floor"
-            );
-            assert!(
-                ms <= 10000,
-                "attempt {attempt}: delay {ms} must not exceed max_delay + 25% jitter"
-            );
+            let (min, max) = v2_range(&config, attempt);
+            let ms = retry_delay(attempt, &config).as_millis() as u64;
+            assert!((min..=max).contains(&ms), "attempt {attempt}: {ms}");
+            assert!(ms <= 10_000, "attempt {attempt}: {ms} past max + 25%");
         }
+    }
+
+    /// The default cap must land exactly on v2's `MAX_DELAY_MS`: at the
+    /// attempt where the exponential reaches it, the nominal is 32_000.
+    #[test]
+    fn test_default_backoff_saturates_at_v2_max() {
+        let config = RetryConfig::default();
+        // 500 * 2^6 = 32_000, so index 6 (attempt 7) is the first to saturate.
+        assert_eq!(v2_range(&config, 7), (32_000, 40_000));
+        assert_eq!(v2_range(&config, 12).0, 32_000);
     }
 }

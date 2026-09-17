@@ -2,8 +2,16 @@
   "note": "Verdicts for upstream commits touching packages this fork deleted. Regenerate with `bun scripts/check-upstream-v2-delta.mjs --update`; see scripts/check-upstream-v2-delta.mjs for the gate itself. `tracked` = accepted debt recorded in packages/kimi-agent/ROADMAP.md §6; `not-applicable` = internal refactor with no observable engine behavior to port.",
   "upstreamRef": "upstream/main",
   "recordedMergeBase": "6954d2c8bf94a5c7fc29cc6ae35b15d042cc4dcb",
-  "recordedAt": "2026-09-15",
+  "recordedAt": "2026-09-17",
   "entries": [
+    {
+      "sha": "31f1b6824d1900aeea71b69c824c6354a0dd9019",
+      "date": "2026-09-17",
+      "subject": "fix(agent-core-v2): mark MCP servers needs-auth when a tool call returns 401 (#3846)",
+      "verdict": "ported",
+      "roadmap": "§6.1",
+      "note": "Ported into the Rust engine. `McpManager::mark_needs_auth` (packages/kimi-agent/src/mcp/manager.rs:397) flips a live entry to `needs-auth` after a *call* is rejected: status gate (`connected`/`needs-auth`, manager.rs:409-416), `should_mark_needs_auth` reuse (manager.rs:1235), originating-client binding via `Arc::ptr_eq` (manager.rs:423-428), concurrent-grant guard (manager.rs:436-438), close client + drop cached tools (manager.rs:441-448), error `{name} requires OAuth - run /mcp-config login {name}` plus `raw_tools.clear()` (manager.rs:449-455), compare-and-clear of the rejected grant (manager.rs:459-469), then `emit_status`. `McpManager::call_tool` invokes it on the transport-error branch and returns the actionable message instead of `MCP execution error:` (manager.rs:943-956). `ServerState.connected_at_ms` (manager.rs:96, set at manager.rs:1174) and `oauth_clock` (manager.rs:379) supply the connection time the concurrency window compares against. OAuth side: `McpOAuthTokens.obtained_at_ms` (src/mcp/oauth/service.rs:34) stamped by `store_tokens` (service.rs:117) and by refresh (service.rs:224), `same_grant` (service.rs:49), `is_concurrent_grant` with the 10 s grace window (service.rs:67), `peek_rejected_grant` (service.rs:134), `clear_tokens_if_current` (service.rs:148), and the device-login grant stamped at src/mcp/oauth/device.rs:132. Fork divergence: v2's message points at the `<server>__authenticate` tool, which this engine does not expose - the port names `/mcp-config login <name>`, the flow the CLI actually has (the same text the connect-time flip already used). v2's `isUnauthorizedLikeError` McpError exclusion is structural here: application-level tool failures arrive as `Ok` with `is_error` set, so only transport errors reach the sniff. Tests: manager.rs:2674 `test_tool_call_401_flips_server_to_needs_auth`, manager.rs:2756 `test_concurrent_grant_survives_a_call_401`; service.rs:401/430/466/497; mock mode `401-on-call` at src/mcp/http.rs:176,275."
+    },
     {
       "sha": "5653c739b9c0dbafd1e4b3d36edeb0fe44ec71f4",
       "date": "2026-09-15",
@@ -135,9 +143,8 @@
       "sha": "6126472c7af421070f09c470c5750455dd277657",
       "date": "2026-09-14",
       "subject": "feat(agent-core-v2): graduate AI session titles from experimental (#3749)",
-      "verdict": "tracked",
-      "note": "The auto_session_title flag is already absent from the fork's native registry, but the AI title path it gated is unimplemented: derive_session_title rejects source=digest (session/sqlite_store.rs:1777) and fetchChatTitle has no consumer.",
-      "roadmap": "§6.1"
+      "verdict": "ported",
+      "note": "Ported 2026-09-17. The flag half was already absent from the fork's native registry (the post-graduation state); the AI title path it gated is now implemented engine-side. New `packages/kimi-agent/src/session/title.rs` mirrors `sessionTitleService` + `agentTitlePromptSourceService`: `compose_title_input` builds the `chat_content` for all three sources with upstream's constants (first_turn / digest / user_prompts, including the digest head+tail elision), and `fetch_chat_title` speaks the wire shape `packages/oauth`'s `fetchChatTitle` already declared — `POST {base}/tools` with `{method:'chat_title',params:{chat_content}}` answering `{title}`, 8s timeout. The credential comes from the LLM's managed seam (`media_target` + `media_upload_credential`), which is gated on `auth_provider` — the engine's marker for v2's `modelSource === 'oauth-catalog'`; a session on a static key rejects `digest` with a named error instead of silently returning the deterministic title. Both title handlers (`session/generate_title` RPC and the napi `session_generate_title`, now async) route through `generate_session_title`; the host's source validation and `SessionTitleSource` accept `digest`. Also fixed a latent panic: `derive_session_title` truncated by byte, which panics when the cut lands inside a code point (a CJK prompt reaches it immediately). Tests: 11 in `session::title` (composition per source, digest elision, code-point-safe truncation, the managed-provider gate, and the real HTTP wire against a loopback server). Not exercised end to end: a successful managed title needs a managed OAuth session, which this machine has no credentials for."
     },
     {
       "sha": "7d7e8de80cfc0c52577b5ba787bfcd917a1c6ef8",
@@ -150,16 +157,16 @@
       "sha": "ee2cac102b835fcd7adb3d4b9bc3d62b0b71cdfd",
       "date": "2026-09-12",
       "subject": "fix(agent-core-v2): invalidate streamed attempt state when the llm requester retries below the turn (#3734)",
-      "verdict": "tracked",
-      "note": "Rust turn_loop/retry.rs has no attempt-state invalidation; streamed deltas from a discarded attempt may survive into the retry.",
+      "verdict": "ported",
+      "note": "Ported. v2's fix has three parts and all three now exist in the engine. (1) Turn ledger: `src/turn_loop/tool_call_id.rs` ports `ToolCallIdNormalizer` + `ToolCallIdResponseNormalizer` verbatim (`seed_from` one-shot from history :92, `begin_response` :109, `remap_streamed_id` with a stable stream slot :148, `remap_finalized_ids` :177, `rollback` :207, `is_taken` :118, `remapped` for the raw->assigned trail). (2) Streamed claims: the transport now forwards tool-call argument fragments at all - `StreamDelta::ToolCall` (src/llm/wire.rs) is produced by openai (`tool_calls[i].function.arguments` fragments, openai.rs:434), anthropic (`input_json_delta`, anthropic.rs:570) and openai-responses (`response.function_call_arguments.delta`, openai_responses.rs:316); google-genai carries args whole and therefore yields none. `Accumulator::take_tool_call_deltas` (http.rs:52) drains them, `NativeHttpLlm::emit_delta` (http.rs:214) normalizes each fragment's id against the attempt before forwarding, and the finalize step remaps the calls that enter history so a fragment and its finalized call share one id. The turn installs the ledger on the transport (`run_turn.rs:768-776`, `LLM::set_tool_call_ids`, http.rs:947). (3) Attempt invalidation: `AttemptLedger` (http.rs:909) is opened per request (http.rs:390-393) and rolls the attempt's claims back on every failure path via `Drop`, committing only on success (http.rs:573) - v2's `onAttemptRetry` semantics, with the requester-level retry being this engine's per-request open in `chat_impl`. Host side: the v3 live projection maps a `tool_call` part to `ServerMessage::ToolCallDelta` (src/server/v3/live.rs:376) instead of silently projecting it as an empty assistant delta; ws v1, the transcript projector, the REPL and ACP's `part_text`/`part_think` guards ignore the part type rather than mis-typing it. Fork divergence: v2 also stamps `ToolCall.rawId` on the rewritten call so a provider-id policy can map history ids back on the next request; this engine has no such policy (the assigned id is what history and the provider both carry), so the raw->assigned trail lives in the normalizer's `remapped` list instead of on the call - adding the field would have touched 193 `ToolCall` literals for a consumer that does not exist here. A fragment whose provider sent no id yet is withheld rather than forwarded with an empty id (http.rs:214), because the step mints those ids (P61) and a phantom entity could never be joined to the minted one. Tests: `streamed_tool_call_fragments_share_the_finalized_id`, `failed_request_releases_the_tool_call_ids_it_streamed`, `attempt_ledger_commits_or_releases` (src/llm/http.rs), plus 12 normalizer tests in src/turn_loop/tool_call_id.rs ported from v2's packages/agent-core-v2/src/human/test/llm/toolCallIdNormalizer.test.ts.",
       "roadmap": "§6.2"
     },
     {
       "sha": "b1807253c34e12b0ecf60c9b4da3890d0c80ce72",
       "date": "2026-09-11",
       "subject": "feat(agent-core-v2): add KIMI_CODE_PERMISSION_MODE_REMINDER env to disable auto-mode reminders (#3728)",
-      "verdict": "tracked",
-      "note": "The whole permission_mode reminder injection is absent from the fork (engine and app); the env flag is only its switch.",
+      "verdict": "ported",
+      "note": "Ported on 2026-09-15; this entry's `tracked` verdict was stale and is corrected here. `packages/kimi-agent/src/injection/permission_mode.rs`: env const `PERMISSION_MODE_REMINDER_ENV` (:17), `reminder_env_enabled` (:39) reproducing v2 `parseBooleanEnv` semantics (only an explicit 0/false/no/off disables it; unset or unrecognized leaves the injection on), the two reminder texts verbatim from v2 `permission-mode-auto-enter-reminder.md` / `permission-mode-auto-exit-reminder.md` (:21,28), `PermissionModeTracker` (:57) mirroring `PermissionModeInjection.reminder` transitions (silent when the mode is unchanged and already injected; enter on entering auto; exit on leaving auto), `register_permission_mode_injection` and `scan_permission_mode_baseline` (:116) recovering v2's `permissionMode.lastMode` plus this engine's own `injectedPositions` from history. Wired into the turn loop: baseline scan at `src/turn_loop/run_turn.rs:605-606`, registration with `input.permission_mode` at :731-734. Tests: `injection::permission_mode` 8 (env gate, reminder texts, tracker enter/stay/exit, baseline scan, unknown/non-auto skip, registry injection, re-announce) plus `run_turn.rs:4535` `test_permission_mode_reminders_follow_the_mode_transitions` and `pipeline::tests::pipeline_carries_the_policy_snapshot_mode`. Recorded divergence (ROADMAP §6.1 item 1): the host writes snapshot mode `plan` for plan mode, which the engine reads as `PermissionMode::Unknown` and handles as manual, so auto<->plan transitions each emit an exit/enter reminder - consistent with the permission semantics the engine actually executes, but unlike v2 where plan is a separate axis.",
       "roadmap": "§6.1"
     },
     {
@@ -247,8 +254,8 @@
       "sha": "5e452fc2ddf5a0d9feedfbf3c7cdde4246fc44b6",
       "date": "2026-09-10",
       "subject": "fix(agent-core-v2): let steer interrupt background task waits (#3697)",
-      "verdict": "tracked",
-      "note": "Rust steer handling is goal-steering text only; no evidence a steer interrupts a background-task wait.",
+      "verdict": "ported",
+      "note": "Ported, on top of the blocking wait it requires. Triage first found the premise missing: the engine flattened WaitFor into a *synchronous* `StateStore::task_wait` (src/storage/state_store.rs, whose own comment says the REPL has no runner), and every engine path reaches it through `StateStoreCallbacks` (src/pipeline/mod.rs, src/server/engine.rs), so a 5s wait returned in 6ms reporting `timed_out` — verified with a throwaway probe over the production chain before any port. Nothing blocked, so there was nothing to interrupt. (1) The wait is real: `NativeToolset::execute_tool_streaming` passes its own `task_runner` — the very runner that spawns background Bash/Agent tasks — into `execute_task_wait`, and `TaskRunner::wait_interruptible` blocks on the task's `done` future until it settles, the timeout fires, or the signal fires. The state bridge stays the host-owned fallback for a task this runner does not know. (2) The steer signal (v2 `steerController`): a `ParentCancel` slot beside the P55 cancel slot, on `NativeToolset`/`PipelineHost`/`SessionConfig`, published fresh per turn by the session pump (and per session by `ServerEngine`), fired where the steer actually joins the turn (`admit_locked`'s ActiveOrNewTurn arm; `ServerEngine::enqueue_steer`), and refreshed when the turn drains it (`SteerQueueCallbacks::drain_steers`) — v2's `steerController = new AbortController()` once no undropped steer remains. An empty drain leaves it alone. (3) `WaitFor` then renders v2's `formatInterrupted`: `wait_status: interrupted` + `reason: steer`, a non-error result, the tasks left running. (4) Wait-any arrives with it, which the fork lacked: `task_id` is optional (v2 `WaitForInputSchema`), `TaskRunner::wait_any` races every task running at call time, `no_tasks` renders when none are, and the new `[still_running]` tail is appended to the completed/timed_out/interrupted reports as v2 does. (5) The TUI renderer learned the `interrupted` status. Evidence: probes over the production chain measured the wait at 1009ms/1000ms (was 6ms), completion waking at 169ms, and a 30s wait ending at 164ms on the signal with the task still `running`; tests: 6 in src/storage/task_runner.rs, 8 in src/tools/task_tools.rs, 2 in src/session/mod.rs, plus the existing 120 TUI renderer tests. Divergences: the engine's runner is per-pipeline rather than v2's per-agent service, so the bridge fallback covers a task an earlier turn's runner registered; `ParentCancel` is reused as the signal (flag + `Notify`) instead of a new type.",
       "roadmap": "§6.2"
     },
     {
@@ -263,8 +270,8 @@
       "sha": "9f7e68e8bdb70d3e5cde5a924740e357ede2fc40",
       "date": "2026-09-10",
       "subject": "fix(mcp): preserve original attachments omitted from model output (#3688)",
-      "verdict": "tracked",
-      "note": "Rust preserves structuredContent/_meta but has no session-attachment original preservation.",
+      "verdict": "ported",
+      "note": "Ported. The engine used to flatten every non-text MCP block into a text preview, so media never reached the model and no original survived. Now: (1) `src/mcp/output.rs` (new) ports `convertMCPContentBlock` (text/image/audio/video/resource/resource_link, the same dropped-block and oversized-part notices; convert_block :228) and `mcpResultToExecutableOutput` (`mcp_result_to_output` :385). (2) Preservation: inline media is decoded and stored under a content-addressed id, `FileStore::save_with_id` (src/server/files.rs:226, id `f_mcp_<sha256>`, idempotent so a repeat is a no-op and one blob holds one original) with `blob_path` (:316); the model gets `attachment_notice` (:162) - path, `kimi-file://<id>` reference and session-relative path, v2's wording - and the media itself rides as `ContentBlock::MediaRef` in `ToolDelivery`, so the request resolver decides per model what it can take (this is the engine-native equivalent of v2's inline/gate/compress pipeline, which the resolver plus the ported media budget already own). (3) Nothing is lost when a block is not delivered: an oversized binary part (>10 MB, `MCP_MAX_BINARY_PART_BYTES`) and a resource blob whose mime no family covers are still preserved, and the notice says they were dropped. (4) Bounded notices: above 4096 chars (`MCP_MAX_INLINE_NOTICES_CHARS` :30) the list is itself stored as a `text/plain` attachment and replaced by the pointer block `bound_notices` (:493) builds, exactly like v2. (5) Cancellation: the conversion takes a cancel probe and checks it per block, and `McpManager::call_tool` (src/mcp/manager.rs:851) passes the turn's probe through from the tool executor (src/tools/mod.rs:1527). (6) The reference is actionable: `resolve_attachment_reference` (src/server/files.rs:90) turns a `kimi-file://<id>` reference or a bare store id into the blob path, and the engine's tool path resolver consults it first (src/tools/mod.rs:1527), so `Read`/`ReadMediaFile` can open what a notice names. Wiring: `McpManager::set_attachment_store` (:381) with a default store at `FileStore::new()`, matching the media resolver's own default. Divergences: v2 re-encodes MCP images through `compressImageContentParts` with a `persistOriginal` annotation - here the request resolver and the media budget own inline-size policy, so the MCP path preserves and hands over references instead of re-encoding; `ExecutableToolResult` has no `truncated` field, so 'an original was withheld' is carried by the notices (the fork's truncation service owns its own `truncated`); v2 additionally threads a session id into the store path, while this engine's store is the daemon-wide blob store the resolver already reads. Tests: 8 in src/mcp/output.rs (text passthrough, preserve-and-reference, dedupe reusing one reference, oversized-part preservation, undelivered resource blob, notice spill pointer, no-store inline fallback, cancellation), 2 in src/server/files.rs (`save_with_id` idempotency, reference resolution), and the endpoint test `test_mcp_media_is_preserved_and_delivered_as_a_reference` (src/mcp/manager.rs) over the new `image` mock mode (src/mcp/http.rs).",
       "roadmap": "§6.2"
     },
     {
@@ -312,6 +319,87 @@
       "subject": "refactor(agent-core-v2): single producer for turn and step ids (#3662)",
       "verdict": "not-applicable",
       "note": "Rust receives turn_id from the caller and owns step ids internally; no duplicate-producer risk."
+    },
+    {
+      "sha": "bd06178913d2cc4ebd229ecee6714081105e5ae1",
+      "date": "2026-09-17",
+      "subject": "fix(kap-server): avoid duplicating steered prompt content (#3853)",
+      "verdict": "not-applicable",
+      "note": "kap-server transcript projector fix (coreEventMap / coreBinding). The Rust engine has its own transcript implementation (packages/kimi-agent/src/server/transcript/, server/v3/) fed from the turn loop, not from a kap-server projector, and no package in this fork imports @moonshot-ai/transcript. The steer-then-project duplication this fixes has no Rust path."
+    },
+    {
+      "sha": "0cf413f7759c314766ba30250a9875ac1af1185e",
+      "date": "2026-09-16",
+      "subject": "fix(kap-server): open a new turn for abort-reissued steers in cold transcripts (#3844)",
+      "verdict": "not-applicable",
+      "note": "kap-server transcriptService.ts plus packages/transcript groupTurns. History rebuild in the engine lives in server/v3/history.rs and turn boundaries come from the live turn loop, not from this TS grouper; nothing imports @moonshot-ai/transcript here."
+    },
+    {
+      "sha": "da31c472a2f10c969b879c0c760888f80affb041",
+      "date": "2026-09-16",
+      "subject": "feat(agent-core-v2): add skill scopes and mark custom-theme as tui-only (#3843)",
+      "verdict": "not-applicable",
+      "note": "Skill-catalog metadata (scope / tuiOnly on builtin skills) consumed by the TS slash surface. The Rust engine does not read the TS catalog — skill discovery is packages/kimi-agent/src/skills/ over SKILL.md — and the retired-package half is the catalog entry itself. The live-file half (apps/kimi-code/src/tui/commands/skills.ts) is not a retired-package delta and arrives with a normal upstream merge."
+    },
+    {
+      "sha": "9c5e9b48634be1dfae921fb48f9afc3a23ffd1ad",
+      "date": "2026-09-16",
+      "subject": "fix(agent-core-v2): watch Windows 8.3 short paths through their long form (#3840)",
+      "verdict": "not-applicable",
+      "roadmap": "§6.1",
+      "note": "Re-triaged 2026-09-17: the defect is libuv-specific and the fork has no libuv watcher. Upstream's crash is `Assertion failed: !_wcsnicmp(filename, dir, dirlen)` in libuv's fs-event.c, reached because change notifications arrive under the long path while the watch root was registered in 8.3 form. packages/kimi-agent/src/server/fs_watch.rs polls `tokio::fs::metadata` on a timer instead — no OS watcher, no libuv, so that assertion is unreachable. The two behavioural halves are already satisfied: the fork echoes the requested path verbatim (the mapping-back upstream adds), and an 8.3 path resolves to the same file as its long form, so the poll sees the same mtime either way (verified on this machine: `C:/Users/ADMINI~1/.kimi-code/mcp.json` and `C:/Users/Administrator/.kimi-code/mcp.json` report inode 281474977003976 and mtime 1789609827). The commit's follow-up fix (children named `..cache` counted as inside the root) is likewise moot: the fork compares no relative paths."
+    },
+    {
+      "sha": "41eac5d2e71b0e1cd5648e910a4ae8b6139adc73",
+      "date": "2026-09-16",
+      "subject": "feat(kap-server): keep client metadata on prompts and skill activations (#3764)",
+      "verdict": "tracked",
+      "roadmap": "§6.1",
+      "note": "Opaque client metadata on a prompt / skill-activation origin, carried through prompt events, transcript projection, snapshots and history rebuilds, plus `display_text` entries driving session titles, undo labels and fork titles. Not ported: `rg \"display_text|client_metadata|clientMetadata\" packages/kimi-agent/src` is empty, and the host-side title derivation (packages/node-sdk/src/native/sdk-rpc-client-native.ts promptMetadataTextFromPrompt) reads the prompt text with no metadata channel. ROADMAP §6.1 work item: thread the metadata object through RunTurnInput → origin → history so a host-supplied display_text wins for titles."
+    },
+    {
+      "sha": "cafd9b5a65509fe57332cbc0eb1fb19f0443fb0e",
+      "date": "2026-09-16",
+      "subject": "fix(kap-server): rebuild chat transcript after undo (#3837)",
+      "verdict": "not-applicable",
+      "note": "kap-server transcript rebuild-on-undo plus the undoService participation hook. The Rust engine owns undo in the turn loop and rebuilds history in server/v3/history.rs from its own session store, so the kap-server projector path this fixes does not exist here."
+    },
+    {
+      "sha": "1c7e996aa8bdd7a6f32447f1d89e43c0646b41bc",
+      "date": "2026-09-16",
+      "subject": "fix(kap-server): record user slash skill activations steered into a running turn (#3832)",
+      "verdict": "tracked",
+      "roadmap": "§6.1",
+      "note": "The live half is real and missing here: packages/transcript/src/contract/{origin,schema}.ts gained a `skill_activation` origin variant (trigger user-slash + skillName + skillArgs), and this fork still has only the `user` variant (`rg \"skill_activation\" packages/transcript/src/contract/` is empty) — the package sits at upstream 0.0.2, untouched since the merge. Nothing in-tree imports @moonshot-ai/transcript yet, so it is not user-visible; the Rust engine projects its own origins (server/transcript/model.rs:81 UserOriginKind, :308 TranscriptUserOrigin) and a steered slash activation must reach those too. The TS half arrives with the next upstream merge; ROADMAP §6.1 carries the engine-side item."
+    },
+    {
+      "sha": "f4e5822164800ec138f77b0f323e2374963bfe19",
+      "date": "2026-09-16",
+      "subject": "fix(agent-core-v2): stop aborted-operation errors from escaping to process crashes (#3838)",
+      "verdict": "ported",
+      "roadmap": "§6.1",
+      "note": "Ported 2026-09-17. packages/telemetry/src/crash.ts now guards the sole-listener rethrow with `!isAbortError(reason)` and carries upstream's matching comment; the file is byte-identical to upstream/main. Test: telemetry.test.ts `does not rethrow an aborted-operation rejection when it is the only listener`. The agent-core-v2 half is xstate2 abort plumbing with no Rust counterpart."
+    },
+    {
+      "sha": "8660a07b3a0b7984971371d77f316e802e5e83fe",
+      "date": "2026-09-16",
+      "subject": "fix(tower): subagent cards still showing \"completed\" during rework (#3833)",
+      "verdict": "not-applicable",
+      "note": "kap-server coreEventMap projection of tower rework state. The Rust engine feeds tower / subagent cards from its own event stream (packages/kimi-agent/src/server/subagent/manager.rs → WS events) and has no coreEventMap projection; this status mapping is a kap-server-only concern."
+    },
+    {
+      "sha": "402ee71c1a38addf424d3977064c7103728417db",
+      "date": "2026-09-16",
+      "subject": "feat(kap-server): accept text parts in skill activation attachments (#3831)",
+      "verdict": "not-applicable",
+      "note": "Retired-package half is kap-server/src/protocol/rest-skill.ts widening the attachment part union to accept text. The live REST contract here is the Rust server (packages/kimi-agent/src/server/), whose skill routes carry their own typed body; scripts/scan-parity.mjs cross-checks REST endpoints across the two sides and reports no delta for this route."
+    },
+    {
+      "sha": "2bb6e12c7e3ecc19521d21fcffc832075ed13200",
+      "date": "2026-09-16",
+      "subject": "fix: prevent duplicate steer messages in transcript clients (#3828)",
+      "verdict": "not-applicable",
+      "note": "agent-core-v2 loopService de-duplication of steer prompts for the TS transcript clients. The Rust engine queues a steer in ServerEngine::enqueue_steer (packages/kimi-agent/src/server/engine.rs:558) and drains it once per step head (drain_steers); the message is moved out of the queue on drain, so the double-emit this fixes has no Rust path."
     }
   ]
 }

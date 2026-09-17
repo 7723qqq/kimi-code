@@ -13,6 +13,15 @@ use crate::turn_loop::types::{ContentBlock, LLMMessage, ToolCall};
 pub enum StreamDelta {
     Text(String),
     Think(String),
+    /// One tool-call argument fragment, forwarded while the call is still
+    /// streaming. `index` is the provider's slot for the call, so successive
+    /// fragments of one call can be assigned a single id; the id is what the
+    /// turn's ledger normalizes before the fragment leaves the engine.
+    ToolCall {
+        id: String,
+        index: Option<usize>,
+        arguments: String,
+    },
 }
 
 impl StreamDelta {
@@ -25,6 +34,16 @@ impl StreamDelta {
         match self {
             StreamDelta::Text(text) => serde_json::json!({ "type": "text", "text": text }),
             StreamDelta::Think(think) => serde_json::json!({ "type": "think", "think": think }),
+            StreamDelta::ToolCall {
+                id,
+                index,
+                arguments,
+            } => serde_json::json!({
+                "type": "tool_call",
+                "id": id,
+                "index": index,
+                "arguments": arguments,
+            }),
         }
     }
 }

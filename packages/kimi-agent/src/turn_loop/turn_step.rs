@@ -12,10 +12,29 @@ fn boxed_err(s: String) -> Box<dyn std::error::Error + Send + Sync> {
     Box::new(std::io::Error::other(s))
 }
 
+/// What the retry layer learned from a failed attempt.
+///
+/// Carries the fields v2 attaches to `TurnStepRetrying` through
+/// `retryErrorFields` (_base/utils/retry.ts:46-52) plus the wait the provider
+/// asked for. The Rust transport reports failures as strings, so the name and
+/// status are recovered from the text rather than from a typed error.
+struct RetryDecision {
+    /// v2 `RetryErrorFields.errorName`: the failure class, so a consumer can
+    /// tell a cancelled request from a throttled one without parsing prose.
+    error_name: &'static str,
+    /// v2 `RetryErrorFields.errorMessage`.
+    error_message: String,
+    /// v2 `RetryErrorFields.statusCode`; `None` when no HTTP status reached
+    /// the error (in-stream provider error, transport fault, decode failure).
+    status_code: Option<u16>,
+    /// The wait the provider asked for, if it asked for one.
+    wait_hint: Option<Duration>,
+}
+
 /// Classify an LLM error: decide whether to return it or continue retrying.
 ///
-/// Returns `Ok(())` if the error is retryable and attempts remain,
-/// or `Err(boxed_error)` if the error should be propagated.
+/// Returns the [`RetryDecision`] if the error is retryable and attempts
+/// remain, or `Err(boxed_error)` if the error should be propagated.
 ///
 /// This is a standalone function (not an async block) so that the non-`Send`
 /// `Box<dyn Error>` is consumed and dropped before any `.await` in the caller.
@@ -25,7 +44,15 @@ fn classify_llm_error(
     attempt: u32,
     config: &RetryConfig,
     infinite_retry: bool,
-) -> Result<Option<Duration>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<RetryDecision, Box<dyn std::error::Error + Send + Sync>> {
+    // Read the provider metadata off the typed error when the transport set it
+    // (v2 keeps `retryAfterMs` / `statusCode` on the error object and every
+    // classifier reads the fields). `retry_after_hint` stays as the fallback
+    // for failures raised by paths that only have a string — the host proxy and
+    // the racing multi-LLM build their own errors.
+    let typed = err.downcast_ref::<crate::llm::LlmError>();
+    let typed_retry_after = typed.and_then(crate::llm::LlmError::retry_after);
+    let typed_status = typed.and_then(crate::llm::LlmError::status_code);
     let err_str = err.to_string();
     // `err` is dropped here (end of function scope for the parameter).
     if !llm.is_retryable_error(&err_str) {
@@ -40,14 +67,34 @@ fn classify_llm_error(
             "LLM call failed after {attempt} attempts: {err_str}"
         )));
     }
-    Ok(retry_after_hint(&err_str))
+    let status_code = typed_status.or_else(|| crate::llm::http::llm_http_status(&err_str));
+    // v2's `errorName` is the JS error class name; the closest analogue here is
+    // the failure family the transport already encodes in the text.
+    let error_name = if crate::llm::http::is_cancelled_error(&err_str) {
+        "AbortError"
+    } else if status_code.is_some() {
+        "APIStatusError"
+    } else if err_str.starts_with("llm transport error ") {
+        "TransportError"
+    } else {
+        "Error"
+    };
+    Ok(RetryDecision {
+        error_name,
+        error_message: err_str.clone(),
+        status_code,
+        wait_hint: typed_retry_after.or_else(|| retry_after_hint(&err_str)),
+    })
 }
 
-/// A wait the provider asked for, carried in the error text by the transport.
+/// A wait the provider asked for, recovered from the error text.
 ///
-/// Retrying sooner than that is wasted: the request will be throttled again,
-/// and one exhausted retry budget is spent on requests that were always going
-/// to be rejected.
+/// **Fallback only.** A failure from the native HTTP transport carries the wait
+/// on [`crate::llm::LlmError`], which the caller reads first; this path exists
+/// for errors that are still bare strings — the host proxy and the racing
+/// multi-LLM. Retrying sooner than the provider asked is wasted: the request
+/// will be throttled again, and one exhausted retry budget is spent on requests
+/// that were always going to be rejected.
 pub(crate) fn retry_after_hint(error: &str) -> Option<Duration> {
     let marker = " (retry-after ";
     let start = error.rfind(marker)? + marker.len();
@@ -149,11 +196,11 @@ pub fn execute_loop_step_with_retry<'a>(
                 Some(params) => params,
                 None => build_params(),
             };
-            let (break_resp, return_err, wait_hint) = match llm.chat(call_params).await {
+            let (break_resp, return_err, retry_decision) = match llm.chat(call_params).await {
                 Ok(resp) => (Some(resp), None, None),
                 Err(err) => {
                     match classify_llm_error(err, llm, attempt, &retry_config, infinite_retry) {
-                        Ok(hint) => (None, None, hint),
+                        Ok(decision) => (None, None, Some(decision)),
                         Err(e) => (None, Some(e), None),
                     }
                 }
@@ -164,8 +211,10 @@ pub fn execute_loop_step_with_retry<'a>(
             if let Some(e) = return_err {
                 return Err(e);
             }
-            let delay = step_delay(retry_delay(attempt, &retry_config), wait_hint);
-            // v2 TurnStepRetrying telemetry event parity (stepRetryService.ts:151-163)
+            let decision = retry_decision.expect("a retryable failure carries its decision");
+            let delay = step_delay(retry_delay(attempt, &retry_config), decision.wait_hint);
+            // v2 `TurnStepRetrying` telemetry event parity
+            // (loopService.ts:1571-1585, payload in turnEvents.ts:163).
             tracing::warn!(
                 turn_id = turn_id,
                 step = step,
@@ -174,6 +223,9 @@ pub fn execute_loop_step_with_retry<'a>(
                 max_attempts = retry_config.max_attempts,
                 infinite_retry = infinite_retry,
                 delay_ms = delay.as_millis() as u64,
+                error_name = decision.error_name,
+                status_code = decision.status_code,
+                error_message = %decision.error_message,
                 "TurnStepRetrying"
             );
             if let Some(telemetry) = telemetry {
@@ -186,6 +238,12 @@ pub fn execute_loop_step_with_retry<'a>(
                     "max_attempts": retry_config.max_attempts,
                     "infinite_retry": infinite_retry,
                     "delay_ms": delay.as_millis() as u64,
+                    // v2 carries the failure itself, not just the fact of a
+                    // retry — without these a consumer cannot tell a throttled
+                    // request from a timed-out one.
+                    "error_name": decision.error_name,
+                    "error_message": decision.error_message,
+                    "status_code": decision.status_code,
                 }));
             }
             // A cancellation landing during the backoff wait aborts the step
@@ -354,6 +412,151 @@ mod tests {
             execute_loop_step_with_retry("t1", 1, &llm, &[], &[], &[], &config, None, None).await;
         assert!(result.is_err());
         assert_eq!(llm.calls.load(Ordering::SeqCst), 1);
+    }
+
+    /// A test LLM that always fails with a fixed status-coded error.
+    struct StatusLlm {
+        system_prompt: String,
+        model_name: String,
+        error: String,
+    }
+
+    impl StatusLlm {
+        fn new(error: &str) -> Self {
+            Self {
+                system_prompt: "test".into(),
+                model_name: "status".into(),
+                error: error.into(),
+            }
+        }
+    }
+
+    impl LLM for StatusLlm {
+        fn system_prompt(&self) -> &str {
+            &self.system_prompt
+        }
+        fn model_name(&self) -> &str {
+            &self.model_name
+        }
+        fn is_retryable_error(&self, error: &str) -> bool {
+            // The production classifier's rule: 429 is retryable.
+            crate::llm::http::llm_http_status(error) == Some(429)
+        }
+        fn chat(
+            &self,
+            _params: LLMChatParams,
+        ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+        {
+            let error = self.error.clone();
+            Box::pin(async move { Err(error.into()) })
+        }
+    }
+
+    /// v2's `TurnStepRetrying` payload carries the failure itself
+    /// (`retryErrorFields`: errorName / errorMessage / statusCode), not just the
+    /// fact that a retry happened — a consumer cannot tell a throttled request
+    /// from a timed-out one without them.
+    #[tokio::test]
+    async fn turn_step_retrying_carries_the_v2_error_fields() {
+        let llm =
+            StatusLlm::new("llm http status 429 Too Many Requests: slow down (retry-after 7s)");
+        let config = RetryConfig {
+            max_attempts: 2,
+            base_delay_ms: 1,
+            max_delay_ms: 10,
+        };
+        let events: Arc<std::sync::Mutex<Vec<serde_json::Value>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&events);
+        let telemetry = move |event: serde_json::Value| {
+            sink.lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(event);
+        };
+
+        let _ = execute_loop_step_with_retry(
+            "t1",
+            3,
+            &llm,
+            &[],
+            &[],
+            &[],
+            &config,
+            None,
+            Some(&telemetry),
+        )
+        .await;
+
+        let recorded = events
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        assert_eq!(
+            recorded.len(),
+            1,
+            "one backoff before giving up: {recorded:?}"
+        );
+        let event = &recorded[0];
+        assert_eq!(event["event"], "TurnStepRetrying");
+        assert_eq!(event["step"], 3);
+        assert_eq!(event["failed_attempt"], 1);
+        assert_eq!(event["next_attempt"], 2);
+        assert_eq!(event["max_attempts"], 2);
+        // The provider's wait wins over the 1ms backoff.
+        assert_eq!(event["delay_ms"], 7000);
+        assert_eq!(event["error_name"], "APIStatusError");
+        assert_eq!(event["status_code"], 429);
+        assert!(
+            event["error_message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("slow down"),
+            "the failure text must ride along: {event}"
+        );
+    }
+
+    /// The failure family is reported, so a cancelled request is distinguishable
+    /// from a provider fault without reading prose.
+    #[tokio::test]
+    async fn turn_step_retrying_names_a_cancelled_failure() {
+        let llm = StatusLlm::new("llm cancelled: request aborted");
+        let config = RetryConfig {
+            max_attempts: 2,
+            base_delay_ms: 1,
+            max_delay_ms: 10,
+        };
+        let events: Arc<std::sync::Mutex<Vec<serde_json::Value>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&events);
+        let telemetry = move |event: serde_json::Value| {
+            sink.lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(event);
+        };
+        // `StatusLlm` only retries 429s, so this one propagates — the point is
+        // the classifier's name mapping, asserted directly.
+        let _ = execute_loop_step_with_retry(
+            "t1",
+            1,
+            &llm,
+            &[],
+            &[],
+            &[],
+            &config,
+            None,
+            Some(&telemetry),
+        )
+        .await;
+        assert!(
+            events.lock().unwrap().is_empty(),
+            "a cancellation never retries"
+        );
+        assert!(crate::llm::http::is_cancelled_error(
+            "llm cancelled: request aborted"
+        ));
+        assert!(!crate::llm::http::is_cancelled_error(
+            "llm http status 429: slow down"
+        ));
     }
 
     #[tokio::test]

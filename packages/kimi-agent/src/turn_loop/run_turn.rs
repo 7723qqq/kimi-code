@@ -713,6 +713,10 @@ pub fn run_turn<'a>(
         // The attempt cap rides the same host-resolved context (v2 #3750).
         let mut compaction_config = crate::compaction::config_for_window(input.max_context_tokens);
         compaction_config.max_attempts = input.compaction_max_attempts;
+        // v2 `consecutiveOverflowCompactions` (`resetForTurn`,
+        // fullCompactionService.ts:462-466): how many times in a row this turn
+        // has compacted in response to an overflow without a step completing.
+        let mut consecutive_overflow_compactions: u32 = 0;
 
         // Turn-level injection registry. The built-in date-change and
         // workspace-AGENTS.md reminders are registered by `with_defaults`;
@@ -752,6 +756,24 @@ pub fn run_turn<'a>(
             Some(shared) => MediaBudget::shared(shared),
             None => MediaBudget::default(),
         };
+
+        // Tool-call-id ledger for this turn (v2 `ToolCallIdNormalizer`, #3734).
+        // Seeded from the history this turn starts with: every id already
+        // recorded there — restored from disk or assigned by an earlier
+        // continuation pass — is taken, so a provider that replays an id gets
+        // it disambiguated instead of corrupting the tool-result linkage.
+        // Seeding is one-shot, so ids claimed by the steps below are only
+        // released by an attempt rollback.
+        let tool_call_ids =
+            std::sync::Arc::new(crate::turn_loop::tool_call_id::ToolCallIdNormalizer::new());
+        tool_call_ids.seed_from(&messages);
+        // The transport opens one attempt per request on this ledger, so the
+        // fragments it streams carry the ids its finalized calls will carry,
+        // and a request that fails releases its claims before the retry re-sends
+        // (v2 #3734: the requester is handed the turn's normalizer).
+        input
+            .llm
+            .set_tool_call_ids(std::sync::Arc::clone(&tool_call_ids));
 
         for step_num in 0..max_steps {
             steps = step_num + 1;
@@ -915,29 +937,42 @@ pub fn run_turn<'a>(
             // Delegate LLM call (with retry) to turn_step module.
             // Convert the 'static error to the turn's 'a-bounded error type.
             let telemetry = |event: serde_json::Value| callbacks.telemetry(event);
-            let request_messages = budgeted_request(
-                &mut media_budget,
-                input.media,
-                input.llm,
-                &messages,
-                callbacks.as_ref(),
-            )
-            .await;
-            let step_result = match execute_loop_step_with_retry(
-                &turn_id,
-                step_num,
-                input.llm,
-                &request_messages,
-                input.tools,
-                &step_tool_defs,
-                &retry_config,
-                Some(turn_cancel.token()),
-                Some(&telemetry),
-            )
-            .await
-            {
-                Ok(res) => res,
-                Err(e) => {
+            // v2 `recoverFromContextOverflow` (fullCompactionService.ts:468-478)
+            // does not give up on the first overflow: it compacts and **retries
+            // the step**, and `recordOverflowRecovery` allows
+            // `maxOverflowCompactionAttempts` (3) consecutive rounds before the
+            // turn fails. One attempt — what this used to do — fails a turn that
+            // v2 recovers on its second or third try.
+            //
+            // The counter is per-step-run, and reset below as soon as a step
+            // completes: the window evidently fits again, so the next overflow
+            // starts a fresh budget (v2 `afterStep`).
+            let step_result = 'overflow_recovery: loop {
+                let request_messages = budgeted_request(
+                    &mut media_budget,
+                    input.media,
+                    input.llm,
+                    &messages,
+                    callbacks.as_ref(),
+                )
+                .await;
+                let call = execute_loop_step_with_retry(
+                    &turn_id,
+                    step_num,
+                    input.llm,
+                    &request_messages,
+                    input.tools,
+                    &step_tool_defs,
+                    &retry_config,
+                    Some(turn_cancel.token()),
+                    Some(&telemetry),
+                )
+                .await;
+                let e = match call {
+                    Ok(res) => break 'overflow_recovery res,
+                    Err(e) => e,
+                };
+                {
                     let err_str = e.to_string();
                     // A cancellation landing mid-step (the LLM transport
                     // aborted the in-flight request) is a clean abort or budget exhaustion, not a
@@ -966,69 +1001,61 @@ pub fn run_turn<'a>(
                             messages.clone(),
                         ));
                     }
-                    if crate::compaction::is_context_overflow_error(&err_str) {
-                        let force_compacted =
-                            crate::compaction::force_compact_messages_with_summary(
-                                &messages,
-                                &compaction_config,
-                                input.llm,
-                                None,
-                                Some(turn_cancel.token()),
-                            )
-                            .await;
-                        if force_compacted.len() < messages.len() {
-                            tracing::warn!(
-                                turn_id = %turn_id,
-                                step = step_num,
-                                before = messages.len(),
-                                after = force_compacted.len(),
-                                "recovered from context overflow via emergency compaction"
-                            );
-                            messages = force_compacted;
-                            context_tokens.invalidate();
-                            // v2 `compactionRearmPending`, as above.
-                            let at = continuation_anchor(&messages);
-                            messages
-                                .insert(at, crate::compaction::compaction_continuation_message());
-                            let request_messages = budgeted_request(
-                                &mut media_budget,
-                                input.media,
-                                input.llm,
-                                &messages,
-                                callbacks.as_ref(),
-                            )
-                            .await;
-                            match execute_loop_step_with_retry(
-                                &turn_id,
-                                step_num,
-                                input.llm,
-                                &request_messages,
-                                input.tools,
-                                &step_tool_defs,
-                                &retry_config,
-                                Some(turn_cancel.token()),
-                                Some(&telemetry),
-                            )
-                            .await
-                            {
-                                Ok(res) => res,
-                                Err(retry_err) => {
-                                    return Err(Box::new(std::io::Error::other(
-                                        retry_err.to_string(),
-                                    ))
-                                        as Box<dyn std::error::Error + 'a>);
-                                }
-                            }
-                        } else {
-                            return Err(Box::new(std::io::Error::other(err_str))
-                                as Box<dyn std::error::Error + 'a>);
-                        }
-                    } else {
+                    if !crate::compaction::should_recover_from_context_overflow(
+                        &err_str,
+                        crate::compaction::estimate_messages_tokens(&messages),
+                        input.max_context_tokens,
+                    ) {
                         return Err(Box::new(std::io::Error::other(err_str))
                             as Box<dyn std::error::Error + 'a>);
                     }
+                    // v2 `recordOverflowRecovery`: count the round, then refuse
+                    // once the budget is spent. The error text mirrors v2's
+                    // `Compaction failed to bring the context under the model
+                    // window after N attempts.` so a host can recognise it.
+                    consecutive_overflow_compactions += 1;
+                    let max_attempts = compaction_config.max_overflow_compaction_attempts;
+                    if consecutive_overflow_compactions > max_attempts {
+                        return Err(Box::new(std::io::Error::other(format!(
+                            "Compaction failed to bring the context under the model window after \
+                             {max_attempts} attempts."
+                        )))
+                            as Box<dyn std::error::Error + 'a>);
+                    }
+                    let force_compacted = crate::compaction::force_compact_messages_with_summary(
+                        &messages,
+                        &compaction_config,
+                        input.llm,
+                        None,
+                        Some(turn_cancel.token()),
+                    )
+                    .await;
+                    // A compaction that removed nothing cannot change the next
+                    // request, so retrying would just burn the remaining
+                    // attempts on an identical prompt.
+                    if force_compacted.len() >= messages.len() {
+                        return Err(Box::new(std::io::Error::other(err_str))
+                            as Box<dyn std::error::Error + 'a>);
+                    }
+                    tracing::warn!(
+                        turn_id = %turn_id,
+                        step = step_num,
+                        before = messages.len(),
+                        after = force_compacted.len(),
+                        attempt = consecutive_overflow_compactions,
+                        max_attempts = max_attempts,
+                        "recovered from context overflow via emergency compaction"
+                    );
+                    messages = force_compacted;
+                    context_tokens.invalidate();
+                    // v2 `compactionRearmPending`, as above.
+                    let at = continuation_anchor(&messages);
+                    messages.insert(at, crate::compaction::compaction_continuation_message());
                 }
             };
+            // The step produced a result, so the window fits: v2 `afterStep`
+            // clears the consecutive-overflow counter here.
+            consecutive_overflow_compactions = 0;
 
             total_usage.accumulate(&step_result.usage);
             llm_retries += step_result.attempts.saturating_sub(1);
@@ -5260,10 +5287,15 @@ mod tests {
     /// v2 #3750: the host's `loopControl.compactionMaxAttempts` reaches the
     /// summarizer through the turn loop, so a failing emergency compaction
     /// stops at the configured request count instead of the engine default.
+    ///
+    /// The step overflows exactly once and then fails for an unrelated reason,
+    /// so exactly one compaction round runs and the per-round cap is the only
+    /// thing that could produce a second summarizer request.
     #[tokio::test]
     async fn test_compaction_attempt_cap_reaches_the_turn_loop_summarizer() {
         struct FailingSummarizerLlm {
             summarizer_calls: AtomicU32,
+            step_calls: AtomicU32,
         }
         impl LLM for FailingSummarizerLlm {
             fn system_prompt(&self) -> &str {
@@ -5273,8 +5305,8 @@ mod tests {
                 "cap-model"
             }
             fn is_retryable_error(&self, error: &str) -> bool {
-                // Only the summarizer's 500 is retryable; the step's overflow
-                // must fail straight through so the test does not sit in the
+                // Only the summarizer's 500 is retryable; the step errors must
+                // fail straight through so the test does not sit in the
                 // step-retry backoff.
                 error.contains("500")
             }
@@ -5295,13 +5327,24 @@ mod tests {
                     .is_some_and(|message| message.content.contains("conversation summarizer"));
                 if is_summarizer {
                     self.summarizer_calls.fetch_add(1, Ordering::SeqCst);
+                    return Box::pin(async move {
+                        Err(Box::new(std::io::Error::other(
+                            "llm http status 500 summarizer unavailable",
+                        ))
+                            as Box<dyn std::error::Error + Send + Sync>)
+                    });
                 }
+                let step = self.step_calls.fetch_add(1, Ordering::SeqCst);
+                let message = if step == 0 {
+                    // First step: a context overflow, so the emergency
+                    // compaction path runs.
+                    "llm http status 400 Bad Request: context_length_exceeded"
+                } else {
+                    // The retried step fails for a reason compaction cannot
+                    // help with, ending the turn after one round.
+                    "llm http status 401 Unauthorized: bad key"
+                };
                 Box::pin(async move {
-                    let message = if is_summarizer {
-                        "llm http status 500 summarizer unavailable"
-                    } else {
-                        "llm http status 400 Bad Request: context_length_exceeded"
-                    };
                     Err(Box::new(std::io::Error::other(message))
                         as Box<dyn std::error::Error + Send + Sync>)
                 })
@@ -5310,6 +5353,7 @@ mod tests {
 
         let llm = FailingSummarizerLlm {
             summarizer_calls: AtomicU32::new(0),
+            step_calls: AtomicU32::new(0),
         };
         let server = Arc::new(RpcServer::new());
         let callbacks = rpc_callbacks(server);
@@ -5363,6 +5407,137 @@ mod tests {
             llm.summarizer_calls.load(Ordering::SeqCst),
             1,
             "the configured cap bounds the summarizer requests"
+        );
+        assert_eq!(
+            llm.step_calls.load(Ordering::SeqCst),
+            2,
+            "one step attempt plus one retry after the emergency compaction"
+        );
+    }
+
+    /// v2 `recoverFromContextOverflow` (fullCompactionService.ts:468-478)
+    /// compacts and **retries the step**, allowing
+    /// `maxOverflowCompactionAttempts` (3) consecutive rounds before the turn
+    /// fails. Recovering exactly once — what the loop used to do — fails a turn
+    /// v2 recovers on its second or third attempt.
+    #[tokio::test]
+    async fn context_overflow_recovery_retries_the_step() {
+        struct AlwaysOverflowLlm {
+            summarizer_calls: AtomicU32,
+            step_calls: AtomicU32,
+        }
+        impl LLM for AlwaysOverflowLlm {
+            fn system_prompt(&self) -> &str {
+                "sys"
+            }
+            fn model_name(&self) -> &str {
+                "overflow-model"
+            }
+            fn is_retryable_error(&self, _error: &str) -> bool {
+                // Neither failure is retried by the step layer, so the only
+                // repetition this test can observe is the overflow recovery.
+                false
+            }
+            fn transport(&self) -> &'static str {
+                "native-http"
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let is_summarizer = params
+                    .messages
+                    .first()
+                    .is_some_and(|message| message.content.contains("conversation summarizer"));
+                let message = if is_summarizer {
+                    self.summarizer_calls.fetch_add(1, Ordering::SeqCst);
+                    // Summarise successfully so the compaction actually shrinks
+                    // the history and the next round has something to do.
+                    return Box::pin(async move {
+                        Ok(LLMChatResponse {
+                            content: "summary of the omitted prefix".into(),
+                            thinking: vec![],
+                            tool_calls: vec![],
+                            finish_reason: Some("stop".into()),
+                            usage: TokenUsage {
+                                input_tokens: 1,
+                                output_tokens: 1,
+                                total_tokens: 2,
+                                ..Default::default()
+                            },
+                        })
+                    });
+                } else {
+                    self.step_calls.fetch_add(1, Ordering::SeqCst);
+                    "llm http status 400 Bad Request: context_length_exceeded".to_string()
+                };
+                Box::pin(async move {
+                    Err(Box::new(std::io::Error::other(message))
+                        as Box<dyn std::error::Error + Send + Sync>)
+                })
+            }
+        }
+
+        let llm = AlwaysOverflowLlm {
+            summarizer_calls: AtomicU32::new(0),
+            step_calls: AtomicU32::new(0),
+        };
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server);
+
+        // A history long enough that a compaction still has a prefix to remove
+        // on the second round.
+        let mut messages = vec![LLMMessage {
+            role: "system".into(),
+            content: "sys".into(),
+            ..Default::default()
+        }];
+        for index in 0..12 {
+            messages.push(LLMMessage {
+                role: if index % 2 == 0 { "user" } else { "assistant" }.into(),
+                content: format!("turn {index} with enough text to be worth compacting"),
+                ..Default::default()
+            });
+        }
+
+        let input = RunTurnInput {
+            turn_id: "test-overflow-retry".into(),
+            llm: &llm,
+            messages,
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: Some(100_000),
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+        };
+
+        assert!(run_turn(input, &callbacks).await.is_err());
+        let step_calls = llm.step_calls.load(Ordering::SeqCst);
+        let rounds = llm.summarizer_calls.load(Ordering::SeqCst);
+        // Each recovery round compacts (one summarizer request) and retries the
+        // step, so the rounds are what distinguishes this from the old
+        // single-shot recovery: that one produced exactly one round.
+        assert!(
+            rounds >= 2,
+            "the overflow recovery must repeat, not give up after one round; \
+             saw {rounds} round(s) and {step_calls} step call(s)"
+        );
+        assert!(
+            rounds <= 3,
+            "the recovery is bounded by maxOverflowCompactionAttempts (3); saw {rounds}"
+        );
+        assert_eq!(
+            step_calls,
+            rounds + 1,
+            "each round retries the step exactly once"
         );
     }
 

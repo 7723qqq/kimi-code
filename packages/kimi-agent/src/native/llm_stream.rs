@@ -514,6 +514,20 @@ fn decode_google_event(
             think: Some(think),
             ..Default::default()
         }],
+        // This protocol reports a `functionCall` with its args whole, so it
+        // never yields a fragment; the arm keeps the mapping total for any
+        // transport that later streams one.
+        StreamDelta::ToolCall {
+            id,
+            index,
+            arguments,
+        } => vec![StreamedPart {
+            part_type: "function".into(),
+            id: Some(id),
+            arguments_part: Some(arguments),
+            stream_index: index.map(|i| i as u32),
+            ..Default::default()
+        }],
     }
 }
 

@@ -679,6 +679,7 @@ mod tests {
             PermissionCheckRequest {
                 tool_name: "Bash".into(),
                 tool_call_id: "call_bash_sig".into(),
+                turn_id: "turn-sig".into(),
                 arguments: serde_json::json!({ "command": "ls" }),
             },
             "Run test command",
@@ -738,6 +739,7 @@ mod tests {
             PermissionCheckRequest {
                 tool_name: "Bash".into(),
                 tool_call_id: "call_bash_kind".into(),
+                turn_id: "turn-kind".into(),
                 arguments: serde_json::json!({ "command": "ls" }),
             },
             "Run test command",
@@ -804,6 +806,7 @@ mod tests {
         let req_allow = PermissionCheckRequest {
             tool_name: "Read".into(),
             tool_call_id: "call_read_1".into(),
+            turn_id: "turn-appr".into(),
             arguments: json!({ "path": "/tmp/safe.txt" }),
         };
         let (aid_allow, mut rx_allow) =
@@ -824,6 +827,7 @@ mod tests {
         let req_deny = PermissionCheckRequest {
             tool_name: "Bash".into(),
             tool_call_id: "call_cmd".into(),
+            turn_id: "turn-appr".into(),
             arguments: json!({ "command": "rm -rf /tmp/foo" }),
         };
         let (aid_deny, mut rx_deny) =
@@ -859,6 +863,7 @@ mod tests {
         let appr_a = PermissionCheckRequest {
             tool_name: "Bash".into(),
             tool_call_id: "c_appr_a".into(),
+            turn_id: "turn-a".into(),
             arguments: json!({}),
         };
         let (_aid_a, mut rx_appr_a) = manager.register_approval("sess-A", appr_a, "action A");
@@ -877,6 +882,7 @@ mod tests {
         let appr_b = PermissionCheckRequest {
             tool_name: "Bash".into(),
             tool_call_id: "c_appr_b".into(),
+            turn_id: "turn-b".into(),
             arguments: json!({}),
         };
         let (_aid_b, mut rx_appr_b) = manager.register_approval("sess-B", appr_b, "action B");

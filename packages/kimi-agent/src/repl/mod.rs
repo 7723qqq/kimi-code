@@ -147,9 +147,23 @@ impl HostCallbacks for ReplDummyHostCallbacks {
                             .get("timeout_ms")
                             .and_then(|v| v.as_u64())
                             .unwrap_or(30_000);
-                        let entry = match runner.wait(id, timeout_ms).await {
+                        // No id is the wait-any form: the wait ends as soon as
+                        // any task running at call time settles.
+                        let result = if id.is_empty() {
+                            runner
+                                .wait_any(&runner.running_ids(), timeout_ms, None)
+                                .await
+                        } else {
+                            runner.wait(id, timeout_ms).await
+                        };
+                        let entry = match result {
                             crate::storage::task_runner::TaskWaitResult::Completed(entry)
                             | crate::storage::task_runner::TaskWaitResult::TimedOut(entry) => entry,
+                            crate::storage::task_runner::TaskWaitResult::Interrupted => {
+                                return Err(
+                                    "State write error: [-32005] task wait was interrupted".into(),
+                                );
+                            }
                             crate::storage::task_runner::TaskWaitResult::NotFound => {
                                 return Err(format!(
                                     "State write error: [-32002] Task not found: {id}"
@@ -572,6 +586,9 @@ pub async fn start_repl(
         // REPL spawns subagents through its own invoke_subagent family; the
         // foreground `Agent` context has no session cancel slot to consult.
         agent_cancel_slot: None,
+        // The REPL never steers into a running turn (a further prompt is a new
+        // turn), so there is no mid-turn signal to fire.
+        steer_slot: None,
         hook_guard: Some(hook_guard.clone()),
         // Print mode (`kimi -p`) only: an interactive session's turn receipt
         // must never wait on background tasks.

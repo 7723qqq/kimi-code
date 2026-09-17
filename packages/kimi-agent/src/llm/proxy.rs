@@ -17,6 +17,10 @@ pub struct HostLlmProxy {
     /// Set when this call is one of several racing providers, so the host can
     /// be told to drop it once another provider wins.
     request_id: Option<String>,
+    /// The turn's tool-call-id ledger. The host streams this transport, so the
+    /// engine only normalizes the calls the host returns.
+    tool_call_ids:
+        std::sync::Mutex<Option<Arc<crate::turn_loop::tool_call_id::ToolCallIdNormalizer>>>,
 }
 
 impl HostLlmProxy {
@@ -26,6 +30,7 @@ impl HostLlmProxy {
             model_name,
             callbacks: None,
             request_id: None,
+            tool_call_ids: std::sync::Mutex::new(None),
         }
     }
 
@@ -50,6 +55,10 @@ impl HostLlmProxy {
 impl LLM for HostLlmProxy {
     fn system_prompt(&self) -> &str {
         &self.system_prompt
+    }
+
+    fn set_tool_call_ids(&self, ledger: Arc<crate::turn_loop::tool_call_id::ToolCallIdNormalizer>) {
+        *self.tool_call_ids.lock().unwrap_or_else(|e| e.into_inner()) = Some(ledger);
     }
 
     fn model_name(&self) -> &str {
@@ -162,13 +171,29 @@ impl LLM for HostLlmProxy {
                 input_cache_creation: response.usage.input_cache_creation,
             };
 
-            Ok(LLMChatResponse {
+            let mut result = LLMChatResponse {
                 content: response.content,
                 thinking: response.thinking,
                 tool_calls,
                 finish_reason: response.finish_reason,
                 usage,
-            })
+            };
+
+            // The host streamed this request, so the engine never saw the
+            // fragments: normalize the calls the host returned against the
+            // turn's ledger instead, keeping what enters history unique.
+            let ledger = self
+                .tool_call_ids
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            if let Some(ledger) = ledger {
+                crate::turn_loop::tool_call_id::remap_response_tool_calls(
+                    &mut result,
+                    &ledger.begin_response(),
+                );
+            }
+            Ok(result)
         })
     }
 }

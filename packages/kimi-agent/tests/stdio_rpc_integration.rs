@@ -1840,8 +1840,19 @@ fn session_generate_title_empty_history_returns_null() {
     client.shutdown();
 }
 
+/// `digest` is a first-class title source in v2 — `SessionTitleSource =
+/// 'user_prompts' | 'first_turn' | 'digest'` (sessionTitle.ts:3) — not a
+/// rejected one. It is the only source that needs the managed `chat_title`
+/// channel, and v2 answers `undefined` rather than throwing whenever that
+/// channel or the input is unavailable (`generateTitleOnce` /
+/// `generateAndApply`, sessionTitleService.ts:79-105), so a session with no
+/// history yields a null title exactly as the default source does.
+///
+/// This test previously asserted that digest was rejected, which was true while
+/// the engine had no managed channel wired (`derive_session_title` returned an
+/// error saying so). Now that the channel exists, that premise is gone.
 #[test]
-fn session_generate_title_rejects_digest_source() {
+fn session_generate_title_accepts_digest_source() {
     let mut client = RpcClient::start();
     require_binary!(client);
     let client = client.as_mut().unwrap();
@@ -1854,10 +1865,43 @@ fn session_generate_title_rejects_digest_source() {
             serde_json::json!({ "session_id": session_id, "source": "digest" }),
         )
         .expect("session/generate_title response within 10s");
-    let err = resp.get("error").expect("digest source must be rejected");
     assert!(
-        err["message"].as_str().unwrap_or("").contains("digest"),
-        "digest rejection message expected, got: {resp}"
+        resp.get("error").is_none(),
+        "digest is a supported source, not a rejected one: {resp}"
+    );
+    assert!(
+        resp["result"].is_null(),
+        "no history means no digest input, so no title — not an error: {resp}"
+    );
+
+    client.shutdown();
+}
+
+/// v2 `composeTitleInput` (sessionTitleService.ts:169-194) falls through to the
+/// prompt list for any source that is not `first_turn` or `digest`, so an
+/// unrecognised source degrades to `user_prompts` instead of failing the
+/// request.
+#[test]
+fn session_generate_title_degrades_an_unknown_source() {
+    let mut client = RpcClient::start();
+    require_binary!(client);
+    let client = client.as_mut().unwrap();
+    let workspace = tempfile::tempdir().expect("unique workspace dir");
+    let session_id = stdio_create_session(client, "title-unknown", workspace.path());
+
+    let resp = client
+        .request(
+            "session/generate_title",
+            serde_json::json!({ "session_id": session_id, "source": "no_such_source" }),
+        )
+        .expect("session/generate_title response within 10s");
+    assert!(
+        resp.get("error").is_none(),
+        "an unrecognised source degrades to user_prompts, it does not fail: {resp}"
+    );
+    assert!(
+        resp["result"].is_null(),
+        "the degraded source has no prompts to work from: {resp}"
     );
 
     client.shutdown();

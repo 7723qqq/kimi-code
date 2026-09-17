@@ -786,6 +786,7 @@ impl HostCallbacks for NativeToolCallbacks {
                             .check_permission(PermissionCheckRequest {
                                 tool_name: request.tool_name.clone(),
                                 tool_call_id: request.tool_call_id.clone(),
+                                turn_id: request.turn_id.clone(),
                                 arguments: request.arguments.clone(),
                             })
                             .await?
@@ -796,6 +797,7 @@ impl HostCallbacks for NativeToolCallbacks {
                     .check_permission(PermissionCheckRequest {
                         tool_name: request.tool_name.clone(),
                         tool_call_id: request.tool_call_id.clone(),
+                        turn_id: request.turn_id.clone(),
                         arguments: request.arguments.clone(),
                     })
                     .await?
@@ -1138,6 +1140,14 @@ impl HostCallbacks for NativeToolCallbacks {
                 }
             }
             if let Some(mcp) = mcp_mgr {
+                // v2 awaits MCP readiness at `onWillBeginStep`
+                // (mcpService.ts:70-73): the tool table must not be assembled
+                // before the servers have answered, or the model would be
+                // offered a tool list that silently omits them. The wait is
+                // free once the initial load has settled — which it usually
+                // has, because the manager is process-wide and its connect
+                // started when the first session was built.
+                mcp.wait_for_initial_load().await;
                 for tool in mcp.list_tool_infos().await {
                     if seen.insert(tool.name.clone()) {
                         tools.push(tool);

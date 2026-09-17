@@ -235,6 +235,13 @@ pub mod methods {
 pub struct PermissionCheckRequest {
     pub tool_name: String,
     pub tool_call_id: String,
+    /// Turn the tool call belongs to. The approval prompt names the same
+    /// `${turn_id}:${tool_call_id}` wire id the tool card was created under
+    /// (`acp::events_map::acp_tool_call_id`), so the client attaches the
+    /// prompt to that card. `#[serde(default)]` keeps a request that carries
+    /// no turn id on the raw tool-call id.
+    #[serde(default)]
+    pub turn_id: String,
     pub arguments: serde_json::Value,
 }
 
@@ -1424,9 +1431,17 @@ mod tests {
         let perm = PermissionCheckRequest {
             tool_name: "Write".into(),
             tool_call_id: "c2".into(),
+            turn_id: "turn-1".into(),
             arguments: serde_json::json!({"path": "a"}),
         };
         assert_eq!(serde_json::to_value(&perm).unwrap()["tool_name"], "Write");
+        // A producer that carries no turn id still deserializes; the approval
+        // prompt then falls back to the raw tool-call id.
+        let bare: PermissionCheckRequest = serde_json::from_value(serde_json::json!({
+            "tool_name": "Write", "tool_call_id": "c2", "arguments": {}
+        }))
+        .unwrap();
+        assert!(bare.turn_id.is_empty());
         let decision = PermissionDecision::deny("no");
         assert_eq!(
             serde_json::to_value(&decision).unwrap(),

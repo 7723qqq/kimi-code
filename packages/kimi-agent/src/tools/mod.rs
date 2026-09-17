@@ -408,6 +408,12 @@ pub struct NativeToolset {
     /// current turn's [`ParentCancel`]. Takes precedence over the static
     /// `parent_cancel`; lets a session-built toolset see per-turn signals.
     parent_cancel_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
+    /// Session-wide slot holding the current turn's *steer* signal: fired when
+    /// a steering message joins the running turn, and refreshed once that turn
+    /// has consumed it. Distinct from `parent_cancel_slot` — steering ends a
+    /// blocking `WaitFor` early without cancelling the turn or its tasks (v2
+    /// `steerSignal`, #3697).
+    steer_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
     /// Host callbacks for interactive tools (AskUserQuestion). `None` means
     /// the tool falls back to the host path, which owns the interaction
     /// runtime anyway.
@@ -534,6 +540,7 @@ impl NativeToolset {
             subagent_timeout_ms: None,
             parent_cancel: None,
             parent_cancel_slot: None,
+            steer_slot: None,
             callbacks: None,
             github_credentials: None,
             caller_agent_id: None,
@@ -798,6 +805,16 @@ impl NativeToolset {
         self
     }
 
+    /// Attach the session-wide steer slot (#3697): the per-turn signal a
+    /// steering message fires to end a blocking `WaitFor` early.
+    pub fn with_steer_slot_if(
+        mut self,
+        slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
+    ) -> Self {
+        self.steer_slot = slot;
+        self
+    }
+
     /// The live parent cancel signal: the session slot wins (per-turn
     /// refresh), the static value is the per-turn-wired fallback.
     fn effective_parent_cancel(&self) -> Option<crate::subagent::types::ParentCancel> {
@@ -808,6 +825,14 @@ impl NativeToolset {
             }
         }
         self.parent_cancel.clone()
+    }
+
+    /// The live steer signal for this turn, when a steering-capable session
+    /// wired one.
+    fn effective_steer(&self) -> Option<crate::subagent::types::ParentCancel> {
+        let slot = self.steer_slot.as_ref()?;
+        let guard = slot.lock().unwrap_or_else(|e| e.into_inner());
+        guard.as_ref().cloned()
     }
 
     /// Attach the host callbacks for interactive tools (AskUserQuestion).
@@ -1055,7 +1080,9 @@ impl NativeToolset {
             }
             "taskwait" | "task_wait" | "waitfor" | "wait_for" => {
                 let callbacks = self.callbacks.as_deref()?;
-                Some(task_tools::execute_task_wait(callbacks, args).await)
+                let runner = self.task_runner.as_deref();
+                let steer = self.effective_steer();
+                Some(task_tools::execute_task_wait(callbacks, runner, steer.as_ref(), args).await)
             }
             "exitplanmode" | "exit_plan_mode" => {
                 let callbacks = self.callbacks.as_deref()?;
@@ -1350,7 +1377,12 @@ impl NativeToolset {
                 if let Some(ref mcp) = self.mcp_manager
                     && mcp.handles(tool_name).await
                 {
-                    return mcp.call_tool(tool_name, args).await;
+                    // The conversion walks every block and can preserve
+                    // megabytes of media: a turn that was aborted must stop it
+                    // (v2 passes its AbortSignal into the same conversion).
+                    let cancelled = self.effective_parent_cancel();
+                    let probe = move || cancelled.as_ref().is_some_and(|cancel| cancel.triggered());
+                    return mcp.call_tool(tool_name, args, Some(&probe)).await;
                 }
                 None
             }
@@ -1514,6 +1546,17 @@ impl NativeToolset {
         bridge: &crate::native::shell_path_bridge::ShellPathBridge,
         path: &str,
     ) -> Option<PathBuf> {
+        // A preserved attachment is addressed by reference rather than by a
+        // workspace path: `kimi-file://<id>` — what an attachment notice hands
+        // the model — names a blob in the attachment store (v2 `fileReadSource`,
+        // upstream #3688). Anything that is not a store id falls through to the
+        // ordinary resolution below.
+        if let Some(blob) = crate::server::files::resolve_attachment_reference(
+            &crate::server::files::FileStore::new(),
+            path,
+        ) {
+            return Some(blob);
+        }
         // Reads are not path-gated: v2's sandbox only covers writes
         // (`sandboxWriteGuard`), and gating reads here turned every
         // out-of-workspace read into a silent host fallback — the host has no

@@ -38,6 +38,8 @@ export interface ManagedKimiCodeModelInfo {
   readonly supportsVideoIn: boolean;
   readonly supportsToolUse?: boolean;
   readonly supportsThinkingType?: SupportsThinkingType;
+  /** The service declares message-level tool declarations (v2 `supports_dynamic_tools`). */
+  readonly supportsDynamicTools?: boolean;
   readonly supportEfforts?: readonly string[];
   readonly defaultEffort?: string;
   readonly displayName?: string | undefined;
@@ -249,6 +251,7 @@ function capabilitiesForModel(model: ManagedKimiCodeModelInfo): string[] | undef
   if (model.supportsImageIn) caps.add('image_in');
   if (model.supportsVideoIn) caps.add('video_in');
   if (model.supportsToolUse ?? true) caps.add('tool_use');
+  if (model.supportsDynamicTools === true) caps.add('dynamically_loaded_tools');
   return caps.size > 0 ? [...caps] : undefined;
 }
 
@@ -449,6 +452,7 @@ function toModelInfo(item: unknown): ManagedKimiCodeModelInfo | undefined {
       (rawCaps?.includes('video_in') ?? false),
     supportsToolUse,
     supportsThinkingType: parseSupportsThinkingType(item['supports_thinking_type']),
+    supportsDynamicTools: item['supports_dynamic_tools'] === true,
     supportEfforts: thinkEfforts.supportEfforts,
     defaultEffort: thinkEfforts.defaultEffort,
     displayName: normalizedDisplayName,

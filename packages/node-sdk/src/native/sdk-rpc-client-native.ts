@@ -613,6 +613,8 @@ interface StoredMcpServerConfig {
   bearerTokenEnvVar?: string;
   enabled?: boolean;
   name?: string;
+  /** Keep this server's tools out of the top-level list; load them via `select_tools`. */
+  deferred?: boolean;
 }
 
 export interface SDKRpcClientNativeOptions {
@@ -770,6 +772,7 @@ function resolveMcpServersForEngine(servers: Record<string, StoredMcpServerConfi
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  deferred?: boolean;
 }> {
   const result: Array<{
     name: string;
@@ -779,6 +782,7 @@ function resolveMcpServersForEngine(servers: Record<string, StoredMcpServerConfi
     env?: Record<string, string>;
     url?: string;
     headers?: Record<string, string>;
+    deferred?: boolean;
   }> = [];
 
   for (const [name, srv] of Object.entries(servers)) {
@@ -797,6 +801,7 @@ function resolveMcpServersForEngine(servers: Record<string, StoredMcpServerConfi
         command: srv.command,
         ...(srv.args ? { args: srv.args } : {}),
         ...(srv.env ? { env: srv.env } : {}),
+        ...(srv.deferred === true ? { deferred: true } : {}),
       });
     } else if ((transport === 'http' || transport === 'sse') && srv.url) {
       result.push({
@@ -804,6 +809,7 @@ function resolveMcpServersForEngine(servers: Record<string, StoredMcpServerConfi
         transport: 'sse',
         url: srv.url,
         ...(srv.headers ? { headers: srv.headers } : {}),
+        ...(srv.deferred === true ? { deferred: true } : {}),
       });
     }
   }
@@ -2751,12 +2757,11 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   }
 
   /**
-   * Deterministic title derivation over the live engine history: the engine
-   * applies the first_turn / user_prompts rule to the session's cross-turn
-   * history. A generated title lands as `titleKind: 'generated'`; without
+   * Title generation over the live engine history: the engine applies the
+   * first_turn / user_prompts rule to the session's cross-turn history, or
+   * asks the managed platform through the `chat_title` tool when `source` is
+   * `digest`. A generated title lands as `titleKind: 'generated'`; without
    * `force` an existing generated or host-custom title is returned as-is.
-   * `source=digest` needs the managed chat_title channel and rejects
-   * engine-side.
    */
   override async generateSessionTitle(
     input: GenerateSessionTitleInput,
@@ -2768,16 +2773,18 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         `cannot generate a title for unknown or closed session "${input.id}"`,
       );
     }
-    // `digest` needs the managed chat_title channel and rejects engine-side;
-    // fail fast with a named error instead of a native round-trip.
     if (
       input.source !== undefined &&
       input.source !== 'first_turn' &&
-      input.source !== 'user_prompts'
+      input.source !== 'user_prompts' &&
+      input.source !== 'digest'
     ) {
+      // The three checks above exhaust the declared union, so this branch is
+      // only reachable from an untyped caller; `String` keeps the message
+      // honest without widening the parameter.
       throw new KimiError(
         ErrorCodes.REQUEST_INVALID,
-        `unsupported title source "${input.source}": expected 'first_turn' or 'user_prompts'`,
+        `unsupported title source "${String(input.source)}": expected 'first_turn', 'user_prompts' or 'digest'`,
       );
     }
     if (!input.force && (meta.titleKind === 'generated' || meta.titleKind === 'custom')) {

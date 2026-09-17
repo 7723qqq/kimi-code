@@ -221,7 +221,7 @@ impl AcpServer {
     /// Auth gate (v2 `ensureAuthed`, server.ts:625-646): throws `auth_required`
     /// (`-32000`) unless authed or `disable_auth`. The Rust engine has no
     /// runtime auth state, so "authed" is exactly "an engine (model) is
-    /// attached" 鈥?the no-engine path cannot run turns and is refused up front.
+    /// attached" — the no-engine path cannot run turns and is refused up front.
     fn ensure_authed(&self) -> Result<(), (i64, String)> {
         if self.disable_auth || self.engine.is_some() {
             Ok(())
@@ -296,7 +296,7 @@ impl AcpServer {
     }
 
     /// Dispatch one raw line. A response to a server-initiated request
-    /// (`{"id":N,"result"鈥`) resolves the waiting back-channel call instead
+    /// (`{"id":N,"result"…}`) resolves the waiting back-channel call instead
     /// of being treated as a client request.
     pub async fn handle_line(&self, raw: &str) -> Option<JsonRpcResponse> {
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw)
@@ -825,19 +825,34 @@ impl AcpServer {
                     .and_then(|v| v.as_str());
 
                 match session_id {
-                    Some(sid) => match self.store.load_session_history(sid) {
+                    Some(sid) => match self.store.load_session_messages(sid) {
                         Ok(history) => {
                             // Replay the persisted history as an ordered batch
                             // of `session/update` chunks, then answer with the
                             // mode state (v2 `loadSession` + `replay.ts`).
-                            for message in &history {
-                                // v2 `replay.ts` projects a tool result as a
-                                // `tool_call_update` and the two message roles
-                                // as text chunks.
+                            //
+                            // v2 `replay.ts`: an assistant message's tool calls
+                            // replay as `tool_call` creates and the `tool`-role
+                            // results as `tool_call_update` terminals. Both
+                            // sides namespace the wire id with the turn the row
+                            // was persisted under (`acp_tool_call_id`), so a
+                            // replayed update lands on the card its create
+                            // opened. A result whose create is not in this
+                            // slice (a compacted session) is skipped rather
+                            // than orphaning a card the client never saw.
+                            let mut created_calls: std::collections::HashSet<String> =
+                                std::collections::HashSet::new();
+                            for stored in &history {
+                                let message = &stored.message;
                                 if message.role == "tool" {
-                                    let Some(tool_call_id) = message.tool_call_id.as_deref() else {
+                                    let Some(raw_id) = message.tool_call_id.as_deref() else {
                                         continue;
                                     };
+                                    let tool_call_id =
+                                        events_map::acp_tool_call_id(&stored.turn_id, raw_id);
+                                    if !created_calls.contains(&tool_call_id) {
+                                        continue;
+                                    }
                                     self.channel.notify(
                                         "session/update",
                                         json!({
@@ -846,27 +861,66 @@ impl AcpServer {
                                                 "sessionUpdate": "tool_call_update",
                                                 "toolCallId": tool_call_id,
                                                 "status": "completed",
+                                                "content": [{
+                                                    "type": "content",
+                                                    "content": {
+                                                        "type": "text",
+                                                        "text": message.content,
+                                                    },
+                                                }],
                                                 "rawOutput": message.content,
                                             },
                                         }),
                                     );
                                     continue;
                                 }
+                                // v2 `replay.ts` order within an assistant
+                                // message: the text chunk first, then one
+                                // `tool_call` create per requested call.
                                 let update = match message.role.as_str() {
                                     "user" => "user_message_chunk",
                                     "assistant" => "agent_message_chunk",
-                                    _ => continue,
+                                    _ => "",
                                 };
-                                self.channel.notify(
-                                    "session/update",
-                                    json!({
-                                        "sessionId": sid,
-                                        "update": {
-                                            "sessionUpdate": update,
-                                            "content": { "type": "text", "text": message.content },
-                                        },
-                                    }),
-                                );
+                                if !update.is_empty() && !message.content.is_empty() {
+                                    self.channel.notify(
+                                        "session/update",
+                                        json!({
+                                            "sessionId": sid,
+                                            "update": {
+                                                "sessionUpdate": update,
+                                                "content": { "type": "text", "text": message.content },
+                                            },
+                                        }),
+                                    );
+                                }
+                                for call in &message.tool_calls {
+                                    let tool_call_id =
+                                        events_map::acp_tool_call_id(&stored.turn_id, &call.id);
+                                    created_calls.insert(tool_call_id.clone());
+                                    self.channel.notify(
+                                        "session/update",
+                                        json!({
+                                            "sessionId": sid,
+                                            "update": {
+                                                "sessionUpdate": "tool_call",
+                                                "toolCallId": tool_call_id,
+                                                "title": call.name,
+                                                "kind": events_map::infer_tool_kind(&call.name),
+                                                "status": "in_progress",
+                                                "rawInput": call.arguments,
+                                                "content": [{
+                                                    "type": "content",
+                                                    "content": {
+                                                        "type": "text",
+                                                        "text": serde_json::to_string(&call.arguments)
+                                                            .unwrap_or_default(),
+                                                    },
+                                                }],
+                                            },
+                                        }),
+                                    );
+                                }
                             }
                             JsonRpcResponse::success(
                                 req.id,
@@ -887,7 +941,7 @@ impl AcpServer {
                     ),
                 }
             }
-            // `session/resume` re-attaches without replaying history 鈥?that is
+            // `session/resume` re-attaches without replaying history — that is
             // the whole difference from `session/load` (v2 `resumeSession`,
             // server.ts:312-321).
             "session/resume" => {
@@ -1113,7 +1167,13 @@ impl AcpServer {
                 let value = params.and_then(|p| p.get("value")).and_then(|v| v.as_str());
                 match config_id {
                     Some("mode") => match self.apply_session_mode(session_id, value) {
-                        Ok(mode) => JsonRpcResponse::success(req.id, json!({ "modeId": mode })),
+                        Ok(_) => {
+                            let session_id = session_id.unwrap_or_default();
+                            JsonRpcResponse::success(
+                                req.id,
+                                json!({ "configOptions": self.config_options(session_id) }),
+                            )
+                        }
                         Err((code, message)) => JsonRpcResponse::error(req.id, code, message),
                     },
                     Some("model") => match self.apply_session_model(session_id, value) {
@@ -1280,7 +1340,7 @@ fn acp_blocks_to_media(blocks: &[serde_json::Value]) -> Vec<crate::rpc::types::C
 /// Flatten ACP content blocks into the plain prompt text the engine takes.
 /// Text blocks pass through, text resources keep their uri provenance,
 /// resource links become inline references, and audio / blob / unknown blocks
-/// are dropped 鈥?the engine prompt pipeline is text-only.
+/// are dropped — the engine prompt pipeline is text-only.
 fn acp_blocks_to_text(blocks: &[serde_json::Value]) -> String {
     let mut parts: Vec<String> = Vec::new();
     for block in blocks {
@@ -2059,7 +2119,14 @@ mod tests {
             "params": { "sessionId": sid, "configId": "mode", "value": "auto" }
         });
         let resp = server.handle_message(&mode_req.to_string()).await.unwrap();
-        assert_eq!(resp.result.unwrap()["modeId"], "auto");
+        let options = resp.result.unwrap()["configOptions"].clone();
+        let mode_option = options
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|option| option["id"] == "mode")
+            .expect("the mode option is advertised");
+        assert_eq!(mode_option["currentValue"], "auto");
         assert_eq!(
             server.store.get_state("metadata", &sid).unwrap().unwrap()["permission_mode"],
             "auto"
@@ -2096,6 +2163,64 @@ mod tests {
         assert_eq!(
             resp.error.unwrap().message,
             "Unsupported configId: nonsense"
+        );
+    }
+
+    /// The forwarding seam must carry the *raw* event shapes the turn loop
+    /// publishes, not just the typed variants. `run_turn` emits `llm.delta`
+    /// with no turn id and tool events that use `tool_name` + a string
+    /// `turn_id`; those are the payloads a live turn puts on the bus.
+    #[tokio::test]
+    async fn test_raw_turn_events_are_forwarded_to_the_client() {
+        let server = AcpServer::in_memory().unwrap();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AcpOutbound>();
+        server.set_notification_sink(tx);
+
+        let bus = Arc::new(EventBus::new());
+        let _subscription = server.forward_session_events("sess-1", &bus);
+
+        bus.publish_json(json!({
+            "type": "llm.delta",
+            "part": { "type": "text", "text": "hi" },
+        }));
+        bus.publish_json(json!({
+            "type": "tool.call.started",
+            "turn_id": "turn-1",
+            "tool_call_id": "call_1",
+            "tool_name": "Read",
+            "args": { "path": "a.txt" },
+        }));
+        bus.publish_json(json!({
+            "type": "tool.native",
+            "turn_id": "turn-1",
+            "tool_call_id": "call_1",
+            "tool_name": "Read",
+            "arguments": { "path": "a.txt" },
+            "content": "file body",
+            "is_error": false,
+            "note": null,
+        }));
+
+        let mut updates = Vec::new();
+        while let Ok(message) = rx.try_recv() {
+            if let AcpOutbound::Notification(note) = message {
+                updates.push(note.params.unwrap_or_default());
+            }
+        }
+        assert_eq!(
+            updates.len(),
+            3,
+            "every raw turn event must produce a session/update: {updates:?}"
+        );
+        assert_eq!(updates[0]["update"]["sessionUpdate"], "agent_message_chunk");
+        assert_eq!(updates[0]["update"]["content"]["text"], "hi");
+        assert_eq!(updates[1]["update"]["sessionUpdate"], "tool_call");
+        assert_eq!(updates[1]["update"]["toolCallId"], "turn-1:call_1");
+        assert_eq!(updates[2]["update"]["sessionUpdate"], "tool_call_update");
+        assert_eq!(updates[2]["update"]["status"], "completed");
+        assert_eq!(
+            updates[2]["update"]["content"][0]["content"]["text"],
+            "file body"
         );
     }
 
@@ -2205,7 +2330,7 @@ mod tests {
             err.message
         );
 
-        // 4. Load session history 鈥?replayed as `session/update` chunks, the
+        // 4. Load session history — replayed as `session/update` chunks, the
         // response carries the mode state (v2 `loadSession`).
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AcpOutbound>();
         server.set_notification_sink(tx);
@@ -2276,7 +2401,17 @@ mod tests {
         server.store.create_session("sess-tools", None).unwrap();
         let messages = vec![
             crate::turn_loop::types::LLMMessage::user("run it"),
-            crate::turn_loop::types::LLMMessage::assistant("ok"),
+            crate::turn_loop::types::LLMMessage {
+                role: "assistant".into(),
+                content: "on it".into(),
+                tool_calls: vec![crate::turn_loop::types::ToolCall {
+                    id: "call-1".into(),
+                    name: "Read".into(),
+                    arguments: json!({ "path": "a.txt" }),
+                    extras: None,
+                }],
+                ..Default::default()
+            },
             crate::turn_loop::types::LLMMessage {
                 role: "tool".into(),
                 content: "tool output".into(),
@@ -2301,11 +2436,27 @@ mod tests {
                 updates.push(note.params.unwrap());
             }
         }
-        assert_eq!(updates.len(), 3);
-        assert_eq!(updates[2]["update"]["sessionUpdate"], "tool_call_update");
-        assert_eq!(updates[2]["update"]["toolCallId"], "call-1");
-        assert_eq!(updates[2]["update"]["status"], "completed");
-        assert_eq!(updates[2]["update"]["rawOutput"], "tool output");
+        // user chunk, assistant chunk, tool_call create, tool_call_update.
+        assert_eq!(updates.len(), 4, "unexpected replay: {updates:?}");
+        assert_eq!(updates[0]["update"]["sessionUpdate"], "user_message_chunk");
+        assert_eq!(updates[1]["update"]["sessionUpdate"], "agent_message_chunk");
+        // The create carries the turn-namespaced id and the parsed args.
+        assert_eq!(updates[2]["update"]["sessionUpdate"], "tool_call");
+        assert_eq!(updates[2]["update"]["toolCallId"], "t1:call-1");
+        assert_eq!(updates[2]["update"]["title"], "Read");
+        assert_eq!(updates[2]["update"]["kind"], "read");
+        assert_eq!(updates[2]["update"]["status"], "in_progress");
+        assert_eq!(updates[2]["update"]["rawInput"]["path"], "a.txt");
+        // The terminal lands on the same wire id the create opened.
+        assert_eq!(updates[3]["update"]["sessionUpdate"], "tool_call_update");
+        assert_eq!(updates[3]["update"]["toolCallId"], "t1:call-1");
+        assert_eq!(updates[3]["update"]["status"], "completed");
+        assert_eq!(updates[3]["update"]["rawOutput"], "tool output");
+        assert_eq!(
+            updates[3]["update"]["content"][0]["type"],
+            json!("content"),
+            "tool content must carry the ACP wrapper"
+        );
     }
 
     /// `session/list` projects storage rows into the ACP `SessionInfo` shape,
@@ -2919,6 +3070,67 @@ mod tests {
         .unwrap();
         assert!(resp.error.is_none(), "unexpected error: {resp:?}");
         assert_eq!(resp.result.unwrap()["stopReason"], "end_turn");
+
+        mock.abort();
+    }
+
+    /// A real turn must stream its output to the client. This is the
+    /// end-to-end counterpart of `test_raw_turn_events_are_forwarded_to_the_client`:
+    /// it drives the actual engine through `session/prompt` and asserts the
+    /// client received the model's text, so a mapper that silently drops every
+    /// production event shape fails here instead of passing unit tests that
+    /// hand-build their input.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_real_turn_streams_session_updates() {
+        let (base_url, mock) = spawn_completing_openai_server().await;
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let engine = engine_with_native_llm(&store, &base_url);
+        let server = Arc::new(AcpServer::with_engine(store, engine));
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AcpOutbound>();
+        server.set_notification_sink(tx);
+
+        let new_req = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "session/new", "params": {}
+        });
+        let sid = server
+            .handle_message(&new_req.to_string())
+            .await
+            .unwrap()
+            .result
+            .unwrap()["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let prompt = json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "session/prompt",
+            "params": { "sessionId": sid, "prompt": "hello" }
+        });
+        let resp = tokio::time::timeout(
+            std::time::Duration::from_secs(20),
+            server.handle_message(&prompt.to_string()),
+        )
+        .await
+        .expect("the turn must settle")
+        .unwrap();
+        assert!(resp.error.is_none(), "unexpected error: {resp:?}");
+
+        let mut updates = Vec::new();
+        while let Ok(message) = rx.try_recv() {
+            if let AcpOutbound::Notification(note) = message {
+                updates.push(note.params.unwrap_or_default());
+            }
+        }
+        assert!(
+            updates.iter().any(
+                |update| update["update"]["sessionUpdate"] == "agent_message_chunk"
+                    && update["update"]["content"]["text"] == "hi"
+            ),
+            "the model's text must reach the client as agent_message_chunk: {updates:?}"
+        );
 
         mock.abort();
     }

@@ -24,7 +24,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex, Weak};
 use std::time::Duration;
 
 use napi::{
@@ -41,6 +41,7 @@ use crate::callbacks::{
     HOST_AUTH_TOKEN_TIMEOUT, HOST_LIST_TOOLS_TIMEOUT, HOST_LLM_TIMEOUT, HOST_TOOL_TIMEOUT,
     HostCallbacks,
 };
+use crate::mcp::manager::{McpServerOptions, McpServerRecipe};
 use crate::pipeline::{self, EnginePipeline, PipelineHost, PipelineProvider, PipelineSpec};
 use crate::rpc::types::{
     AskQuestionRequest, AskQuestionResponse, AuthTokenResponse, BoxFuture, CheckpointRequest,
@@ -1017,6 +1018,9 @@ pub struct JsMcpServerConfig {
     pub startup_timeout_ms: Option<u32>,
     /// Single tool-call timeout in milliseconds (v2 `toolTimeoutMs`).
     pub tool_timeout_ms: Option<u32>,
+    /// Keep this server's tools out of the top-level tool list and load them
+    /// on demand through `select_tools` (v2 per-server `deferred`).
+    pub deferred: Option<bool>,
 }
 
 /// A subagent profile from the host's session catalog snapshot (P46).
@@ -1434,17 +1438,131 @@ struct EngineCallbackTsfns {
     cancellation: Option<Arc<AtomicBool>>,
 }
 
+/// One resolved MCP server handed to [`shared_mcp_manager`]: its name, how to
+/// spawn it, and its per-server options.
+type McpServerSpec = (String, McpServerRecipe, McpServerOptions);
+
+/// The process-wide MCP managers, keyed by the resolved server set.
+///
+/// `Weak` on purpose: the cache must never be the reason a manager (and the
+/// child processes it owns) stays alive. Sessions hold the strong references,
+/// so the entry goes stale once the last session is disposed and the next
+/// lookup drops it.
+static MCP_MANAGERS: LazyLock<Mutex<HashMap<String, Weak<crate::mcp::McpManager>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// The manager for `servers`, connecting it on first use.
+///
+/// Two sessions built from the same configuration share one manager, so `/new`
+/// reuses the live connections instead of re-spawning every server (v2's
+/// workspace-scoped manager, workspaceMcpService.ts:61-83). A changed
+/// configuration hashes to a different key and gets its own manager; the old
+/// one is dropped once its sessions are gone.
+fn shared_mcp_manager(servers: Vec<McpServerSpec>) -> Arc<crate::mcp::McpManager> {
+    let key = mcp_servers_key(&servers);
+    let mut cache = MCP_MANAGERS.lock().unwrap_or_else(|e| e.into_inner());
+    // Drop the entries whose sessions are gone before deciding, so a stale
+    // entry can never shadow a fresh manager for the same configuration.
+    cache.retain(|_, weak| weak.strong_count() > 0);
+    if let Some(existing) = cache.get(&key).and_then(Weak::upgrade) {
+        return existing;
+    }
+    let manager = Arc::new(crate::mcp::McpManager::new());
+    manager.connect_all(servers);
+    cache.insert(key, Arc::downgrade(&manager));
+    manager
+}
+
+/// A stable fingerprint of a resolved server set.
+///
+/// `env` and `headers` are maps, so they are sorted before hashing: an
+/// unordered walk would give one configuration two different keys and defeat
+/// the cache.
+fn mcp_servers_key(servers: &[McpServerSpec]) -> String {
+    let mut parts: Vec<String> = servers
+        .iter()
+        .map(|(name, recipe, options)| {
+            let body = match recipe {
+                McpServerRecipe::Stdio {
+                    command,
+                    args,
+                    env,
+                    cwd,
+                } => format!(
+                    "stdio|{command}|{}|{}|{}",
+                    args.join("\u{1f}"),
+                    sorted_pairs(env),
+                    cwd.as_deref().unwrap_or("")
+                ),
+                McpServerRecipe::Sse {
+                    url,
+                    headers,
+                    bearer_token_env_var,
+                } => format!(
+                    "sse|{url}|{}|{}",
+                    sorted_pairs(headers),
+                    bearer_token_env_var.as_deref().unwrap_or("")
+                ),
+                McpServerRecipe::Http {
+                    url,
+                    headers,
+                    bearer_token_env_var,
+                } => format!(
+                    "http|{url}|{}|{}",
+                    sorted_pairs(headers),
+                    bearer_token_env_var.as_deref().unwrap_or("")
+                ),
+                McpServerRecipe::Mock => "mock".to_string(),
+            };
+            format!(
+                "{name}\u{1e}{body}\u{1e}{}|{}|{}|{}|{}",
+                options.enabled,
+                sorted_list(options.enabled_tools.as_deref()),
+                sorted_list(options.disabled_tools.as_deref()),
+                options.startup_timeout_ms.unwrap_or(0),
+                options.tool_timeout_ms.unwrap_or(0),
+            )
+        })
+        .collect();
+    parts.sort();
+    parts.join("\u{1d}")
+}
+
+fn sorted_pairs(map: &HashMap<String, String>) -> String {
+    let mut pairs: Vec<(&String, &String)> = map.iter().collect();
+    pairs.sort();
+    pairs
+        .into_iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn sorted_list(values: Option<&[String]>) -> String {
+    let Some(values) = values else {
+        return String::new();
+    };
+    let mut names: Vec<&String> = values.iter().collect();
+    names.sort();
+    names
+        .iter()
+        .map(|name| name.as_str())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 /// The addon entry's view of the shared engine pipeline
 /// (`kimi_agent::pipeline`). The chain itself — counting wrapper, native-tool
 /// wrapper and its guards, LLM selection — lives there once; this normalizes
 /// `JsRunTurnParams` into a `PipelineSpec` and applies the addon's host policy:
-/// the process-wide subagent manager refreshed per turn, no cancel slot, and an
-/// MCP manager connected from `params.mcp_servers`.
+/// the process-wide subagent manager refreshed per turn, no cancel slot, and the
+/// process-wide MCP manager resolved from `params.mcp_servers`.
 async fn build_engine_pipeline(
     params: &JsRunTurnParams,
     tsfns: EngineCallbackTsfns,
     parent_cancel: Option<crate::subagent::types::ParentCancel>,
     parent_cancel_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
+    steer_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
 ) -> napi::Result<EnginePipeline> {
     // Session profile catalog snapshot (P46): refresh the process-wide
     // manager's definitions per turn so the native `Agent` tool sees the
@@ -1468,105 +1586,88 @@ async fn build_engine_pipeline(
         SUBAGENT_MANAGER.register_profile_snapshot(&wires).await;
     }
 
-    // Native MCP servers (P73): connect them before the toolset is built so
-    // external tools execute in-process. A server that fails to connect is
-    // skipped rather than failing the turn.
-    let mut mcp_manager = None;
+    // Native MCP servers (P73): the manager is process-wide and keyed by the
+    // resolved server set, so every session built from the same configuration
+    // shares one set of connections (v2's workspace-scoped
+    // `WorkspaceMcpService`, workspaceMcpService.ts:61-83). Building one per
+    // session re-spawned every server on `/new` — a stdio server that boots a
+    // language runtime cost seconds each time.
+    //
+    // The connects are started, not awaited: the tool table reads the manager
+    // live (`callbacks.rs::list_tools`), so a server that connects later still
+    // contributes its tools, and the turn awaits readiness there (v2
+    // `onWillBeginStep`, mcpService.ts:70-73). A server that fails to connect
+    // is skipped rather than failing the turn.
     let plugin_mcp = plugin_mcp_configs();
     let host_mcp = params.mcp_servers.as_deref().unwrap_or_default();
-    if !host_mcp.is_empty() || !plugin_mcp.is_empty() {
-        let mgr = Arc::new(crate::mcp::McpManager::new());
-        for cfg in host_mcp {
-            let recipe = match cfg.transport.as_str() {
-                "stdio" => {
-                    cfg.command
-                        .as_ref()
-                        .map(|cmd| crate::mcp::manager::McpServerRecipe::Stdio {
-                            command: cmd.clone(),
-                            args: cfg.args.clone().unwrap_or_default(),
-                            env: cfg.env.clone().unwrap_or_default(),
-                            cwd: cfg.cwd.clone(),
-                        })
-                }
-                "sse" => cfg
-                    .url
-                    .as_ref()
-                    .map(|url| crate::mcp::manager::McpServerRecipe::Sse {
-                        url: url.clone(),
-                        headers: cfg.headers.clone().unwrap_or_default(),
-                        bearer_token_env_var: cfg.bearer_token_env_var.clone(),
-                    }),
-                "http" => cfg
-                    .url
-                    .as_ref()
-                    .map(|url| crate::mcp::manager::McpServerRecipe::Http {
-                        url: url.clone(),
-                        headers: cfg.headers.clone().unwrap_or_default(),
-                        bearer_token_env_var: cfg.bearer_token_env_var.clone(),
-                    }),
-                "mock" => Some(crate::mcp::manager::McpServerRecipe::Mock),
-                _ => None,
-            };
-            let Some(recipe) = recipe else {
-                continue;
-            };
-            let options = crate::mcp::manager::McpServerOptions {
+    let mut servers: Vec<McpServerSpec> = Vec::new();
+    for cfg in host_mcp {
+        let recipe = match cfg.transport.as_str() {
+            "stdio" => cfg.command.as_ref().map(|cmd| McpServerRecipe::Stdio {
+                command: cmd.clone(),
+                args: cfg.args.clone().unwrap_or_default(),
+                env: cfg.env.clone().unwrap_or_default(),
+                cwd: cfg.cwd.clone(),
+            }),
+            "sse" => cfg.url.as_ref().map(|url| McpServerRecipe::Sse {
+                url: url.clone(),
+                headers: cfg.headers.clone().unwrap_or_default(),
+                bearer_token_env_var: cfg.bearer_token_env_var.clone(),
+            }),
+            "http" => cfg.url.as_ref().map(|url| McpServerRecipe::Http {
+                url: url.clone(),
+                headers: cfg.headers.clone().unwrap_or_default(),
+                bearer_token_env_var: cfg.bearer_token_env_var.clone(),
+            }),
+            "mock" => Some(McpServerRecipe::Mock),
+            _ => None,
+        };
+        let Some(recipe) = recipe else {
+            continue;
+        };
+        servers.push((
+            cfg.name.clone(),
+            recipe,
+            McpServerOptions {
                 enabled: cfg.enabled.unwrap_or(true),
                 enabled_tools: cfg.enabled_tools.clone(),
                 disabled_tools: cfg.disabled_tools.clone(),
                 startup_timeout_ms: cfg.startup_timeout_ms.map(u64::from),
                 tool_timeout_ms: cfg.tool_timeout_ms.map(u64::from),
-            };
-            let _ = mgr.configure(&cfg.name, recipe, options).await;
-        }
-        // Enabled plugins contribute their own MCP servers. A server the user
-        // disabled for that plugin never reaches here (`plugin_mcp_configs`
-        // filters it), and the name is namespaced so two plugins can declare
-        // the same server name.
-        for cfg in &plugin_mcp {
-            let recipe = match cfg.transport.as_str() {
-                "stdio" => {
-                    cfg.command
-                        .as_ref()
-                        .map(|cmd| crate::mcp::manager::McpServerRecipe::Stdio {
-                            command: cmd.clone(),
-                            args: cfg.args.clone(),
-                            env: cfg.env.clone(),
-                            cwd: cfg.cwd.clone(),
-                        })
-                }
-                "sse" => cfg
-                    .url
-                    .as_ref()
-                    .map(|url| crate::mcp::manager::McpServerRecipe::Sse {
-                        url: url.clone(),
-                        headers: cfg.headers.clone(),
-                        bearer_token_env_var: None,
-                    }),
-                "http" => cfg
-                    .url
-                    .as_ref()
-                    .map(|url| crate::mcp::manager::McpServerRecipe::Http {
-                        url: url.clone(),
-                        headers: cfg.headers.clone(),
-                        bearer_token_env_var: None,
-                    }),
-                _ => None,
-            };
-            let Some(recipe) = recipe else {
-                continue;
-            };
-            let options = crate::mcp::manager::McpServerOptions {
-                enabled: true,
-                enabled_tools: None,
-                disabled_tools: None,
-                startup_timeout_ms: None,
-                tool_timeout_ms: None,
-            };
-            let _ = mgr.configure(&cfg.name, recipe, options).await;
-        }
-        mcp_manager = Some(mgr);
+                deferred: cfg.deferred.unwrap_or(false),
+            },
+        ));
     }
+    // Enabled plugins contribute their own MCP servers. A server the user
+    // disabled for that plugin never reaches here (`plugin_mcp_configs`
+    // filters it), and the name is namespaced so two plugins can declare the
+    // same server name.
+    for cfg in &plugin_mcp {
+        let recipe = match cfg.transport.as_str() {
+            "stdio" => cfg.command.as_ref().map(|cmd| McpServerRecipe::Stdio {
+                command: cmd.clone(),
+                args: cfg.args.clone(),
+                env: cfg.env.clone(),
+                cwd: cfg.cwd.clone(),
+            }),
+            "sse" => cfg.url.as_ref().map(|url| McpServerRecipe::Sse {
+                url: url.clone(),
+                headers: cfg.headers.clone(),
+                bearer_token_env_var: None,
+            }),
+            "http" => cfg.url.as_ref().map(|url| McpServerRecipe::Http {
+                url: url.clone(),
+                headers: cfg.headers.clone(),
+                bearer_token_env_var: None,
+            }),
+            _ => None,
+        };
+        let Some(recipe) = recipe else {
+            continue;
+        };
+        servers.push((cfg.name.clone(), recipe, McpServerOptions::default()));
+    }
+    let mcp_manager = (!servers.is_empty()).then(|| shared_mcp_manager(servers));
 
     // `[subagent]`/`[background]` print defaults (docs config-files.md): an
     // *unset* wall-clock timeout means "no timeout" in print mode — the
@@ -1756,6 +1857,7 @@ async fn build_engine_pipeline(
             subagent_manager: SUBAGENT_MANAGER.clone(),
             parent_cancel,
             parent_cancel_slot,
+            steer_slot,
             mcp_manager,
             event_bus: None,
         },
@@ -1814,6 +1916,9 @@ async fn run_turn_rust_impl(
             cancellation: Some(cancellation.clone()),
         },
         Some(parent_cancel.clone()),
+        None,
+        // The legacy one-shot entry owns no steer queue: nothing steers into
+        // it mid-turn, so there is no signal to fire.
         None,
     )
     .await?;
@@ -2114,6 +2219,10 @@ pub fn create_engine_session(
             let agent_cancel_slot: Arc<
                 std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>,
             > = Arc::new(std::sync::Mutex::new(None));
+            // #3697: the turn's steer signal, shared with the toolset through
+            // the pipeline and refreshed per turn by the session pump.
+            let steer_slot: Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>> =
+                Arc::new(std::sync::Mutex::new(None));
             let pipeline = build_engine_pipeline(
                 &params,
                 EngineCallbackTsfns {
@@ -2134,6 +2243,7 @@ pub fn create_engine_session(
                 },
                 None,
                 Some(agent_cancel_slot.clone()),
+                Some(steer_slot.clone()),
             )
             .await?;
 
@@ -2195,6 +2305,7 @@ pub fn create_engine_session(
                 goal: goal_provider,
                 on_before_turn: None,
                 agent_cancel_slot: Some(agent_cancel_slot),
+                steer_slot: Some(steer_slot),
                 hook_guard: pipeline.hook_guard.clone(),
                 print_background: print_background_policy(&params),
                 // The host's session id is also the task-notification key: the
@@ -2649,22 +2760,33 @@ pub fn session_btw_cancel(agent_id: String) -> napi::Result<bool> {
     })
 }
 
-/// Derive the session title from the live cross-turn history — the
-/// deterministic first_turn / user_prompts sources of
-/// `SqliteSessionStore::generate_title` applied to the embedded session's
-/// in-memory history. Returns null when no user prompt exists yet; the
-/// `digest` source is rejected (it needs the managed chat_title channel).
+/// The session title from the live cross-turn history (v2 `generateTitle`).
+///
+/// `first_turn` / `user_prompts` derive it deterministically; `digest` asks
+/// the managed platform through the `chat_title` tool, which needs an
+/// OAuth-managed model — a session on a static API key rejects that source
+/// rather than silently falling back to the deterministic title. Resolves
+/// null when the history cannot supply an input.
 #[napi]
 pub fn session_generate_title(
+    env: Env,
     session_id: String,
     source: Option<String>,
-) -> napi::Result<Option<String>> {
-    guard_sync_panic(|| {
-        let entry = session_entry(&session_id)?;
-        let history = entry.session.snapshot_history();
-        crate::session::sqlite_store::derive_session_title(&history, source.as_deref())
-            .map_err(napi::Error::from_reason)
-    })
+) -> napi::Result<JsObject> {
+    let entry = session_entry(&session_id)?;
+    let history = entry.session.snapshot_history();
+    let llm = entry.llm.clone();
+    env.execute_tokio_future(
+        async move {
+            crate::session::title::generate_session_title(&history, source.as_deref(), llm.as_ref())
+                .await
+                .map_err(napi::Error::from_reason)
+        },
+        |env, title: Option<String>| match title {
+            Some(title) => env.create_string(&title).map(|value| value.into_unknown()),
+            None => env.get_null().map(|null| null.into_unknown()),
+        },
+    )
 }
 
 /// Manually compact the session's cross-turn history with an LLM-written
@@ -3063,6 +3185,42 @@ mod tests {
             reasoning_key: None,
             off_effort: None,
         }
+    }
+
+    /// Two sessions built from the same configuration share one manager, so
+    /// `/new` reuses the live connections instead of re-spawning every server
+    /// (v2's workspace-scoped manager, workspaceMcpService.ts:61-83).
+    #[tokio::test]
+    async fn test_shared_mcp_manager_reuses_one_manager_per_configuration() {
+        let demo = || {
+            vec![(
+                "demo".to_string(),
+                McpServerRecipe::Mock,
+                McpServerOptions::default(),
+            )]
+        };
+
+        let first = shared_mcp_manager(demo());
+        let second = shared_mcp_manager(demo());
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "one configuration, one manager"
+        );
+
+        // The key covers the whole resolved server, not just its name: the
+        // same name with different options is a different manager.
+        let other = shared_mcp_manager(vec![(
+            "demo".to_string(),
+            McpServerRecipe::Mock,
+            McpServerOptions {
+                enabled: false,
+                ..Default::default()
+            },
+        )]);
+        assert!(
+            !Arc::ptr_eq(&first, &other),
+            "the same name with different options must not share a manager"
+        );
     }
 
     /// A model that declares an input cap below its window compacts against the

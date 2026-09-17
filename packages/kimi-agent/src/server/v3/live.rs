@@ -359,22 +359,45 @@ impl LiveTranslator {
 
             EngineEvent::LlmDelta { part, .. } => {
                 self.begin_step();
-                let message_id = match part.get("type").and_then(Value::as_str) {
-                    Some("thinking") => thinking_entity_id(self.turn, self.step),
-                    _ => assistant_entity_id(self.turn, self.step),
-                };
-                let text = part
-                    .get("text")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                vec![ServerMessage::AssistantDelta(AssistantDeltaMessage {
-                    session_id: self.session_id.clone(),
-                    agent_id: self.agent_id.clone(),
-                    timestamp: now,
-                    message_id,
-                    text,
-                })]
+                // A streamed argument fragment addresses the tool-call entity,
+                // not the assistant text entity: without this arm the fragment
+                // would project as an assistant delta with empty text.
+                if part.get("type").and_then(Value::as_str) == Some("tool_call") {
+                    let tool_call_id = part
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    let input_text = part
+                        .get("arguments")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    vec![ServerMessage::ToolCallDelta(ToolCallDeltaMessage {
+                        session_id: self.session_id.clone(),
+                        agent_id: self.agent_id.clone(),
+                        timestamp: now,
+                        tool_call_id,
+                        input_text,
+                    })]
+                } else {
+                    let message_id = match part.get("type").and_then(Value::as_str) {
+                        Some("thinking") => thinking_entity_id(self.turn, self.step),
+                        _ => assistant_entity_id(self.turn, self.step),
+                    };
+                    let text = part
+                        .get("text")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    vec![ServerMessage::AssistantDelta(AssistantDeltaMessage {
+                        session_id: self.session_id.clone(),
+                        agent_id: self.agent_id.clone(),
+                        timestamp: now,
+                        message_id,
+                        text,
+                    })]
+                }
             }
 
             EngineEvent::LlmStepEnd { .. } => {

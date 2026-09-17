@@ -328,11 +328,21 @@ pub struct StreamAccumulator {
     /// (`[models.<alias>].reasoning_key`); the built-in probe list is the
     /// fallback when the model declares none.
     reasoning_key: Option<String>,
+    /// Tool-call argument fragments the last [`Self::feed`] carried, drained by
+    /// the caller through [`Self::take_tool_call_deltas`]. Kept out of `feed`'s
+    /// return value so a text-only chunk allocates nothing.
+    pending_tool_calls: Vec<StreamDelta>,
 }
 
 impl StreamAccumulator {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Drain the tool-call argument fragments the last [`Self::feed`] carried,
+    /// in arrival order.
+    pub fn take_tool_call_deltas(&mut self) -> Vec<StreamDelta> {
+        std::mem::take(&mut self.pending_tool_calls)
     }
 
     /// Declare the model's reasoning field: it is then the only field read, so
@@ -395,21 +405,37 @@ impl StreamAccumulator {
         if let Some(tcs) = delta.get("tool_calls").and_then(|t| t.as_array()) {
             for tc in tcs {
                 let index = tc.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
+                let id_fragment = tc.get("id").and_then(|x| x.as_str());
+                let function = tc.get("function");
+                let name_fragment = function
+                    .and_then(|f| f.get("name"))
+                    .and_then(|x| x.as_str());
+                let arguments_fragment = function
+                    .and_then(|f| f.get("arguments"))
+                    .and_then(|x| x.as_str());
                 // An out-of-range index is dropped rather than honoured: it
                 // would otherwise grow the vec without bound.
                 let Some(slot) = self.tool_call_slot(index) else {
                     continue;
                 };
-                if let Some(id) = tc.get("id").and_then(|x| x.as_str()) {
+                if let Some(id) = id_fragment {
                     slot.id.push_str(id);
                 }
-                if let Some(func) = tc.get("function") {
-                    if let Some(name) = func.get("name").and_then(|x| x.as_str()) {
-                        slot.name.push_str(name);
-                    }
-                    if let Some(args) = func.get("arguments").and_then(|x| x.as_str()) {
-                        slot.arguments.push_str(args);
-                    }
+                if let Some(name) = name_fragment {
+                    slot.name.push_str(name);
+                }
+                if let Some(args) = arguments_fragment {
+                    slot.arguments.push_str(args);
+                }
+                // The fragment goes out with the id accumulated so far: the id
+                // itself arrives once, the arguments keep coming.
+                if let Some(args) = arguments_fragment {
+                    let id = slot.id.clone();
+                    self.pending_tool_calls.push(StreamDelta::ToolCall {
+                        id,
+                        index: Some(index),
+                        arguments: args.to_string(),
+                    });
                 }
             }
         }

@@ -1,4 +1,5 @@
 pub mod anthropic;
+pub mod error;
 pub mod files_upload;
 pub mod google_genai;
 pub mod http;
@@ -10,3 +11,5 @@ pub mod openai_responses;
 pub mod proxy;
 pub mod thinking_guard;
 pub mod wire;
+
+pub use error::LlmError;

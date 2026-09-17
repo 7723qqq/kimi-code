@@ -550,6 +550,7 @@ mod tests {
                 ..Default::default()
             },
             created_at,
+            turn_id: "turn-test".to_string(),
         }
     }
 

@@ -31,11 +31,11 @@ export type SessionAdmission =
   | 'activeTurnOnly';
 
 /**
- * The `title/generate` source selector the engine accepts (`first_turn` |
- * `user_prompts`); `digest` needs the managed chat_title channel and is
- * rejected engine-side.
+ * The `title/generate` source selector the engine accepts: `first_turn` and
+ * `user_prompts` derive the title from the history, `digest` asks the managed
+ * platform through the `chat_title` tool and needs an OAuth-managed model.
  */
-export type SessionTitleSource = 'first_turn' | 'user_prompts';
+export type SessionTitleSource = 'first_turn' | 'user_prompts' | 'digest';
 
 /** The engine's `/compact` report (v2 `CompactionResult`). */
 export interface SessionCompactionReport {
@@ -154,7 +154,10 @@ export interface SessionNativeModule {
     prompt: string,
   ): Promise<{ content: string; stopReason: string }>;
   sessionBtwCancel(agentId: string): boolean;
-  sessionGenerateTitle(sessionId: string, source?: SessionTitleSource): string | null;
+  sessionGenerateTitle(
+    sessionId: string,
+    source?: SessionTitleSource,
+  ): Promise<string | null>;
   sessionCompact(sessionId: string, instruction?: string): Promise<string>;
   sessionCancelCompaction(sessionId: string): boolean;
   getCallbackPayload(id: number): string | null;
@@ -389,7 +392,7 @@ export class EngineSessionHandle {
   /**
    * Derive the session title from the live cross-turn history; null when no
    * user prompt exists yet. `source` is the v2 `title/generate` selector;
-   * `digest` is rejected engine-side, so it is not a valid input here.
+   * `digest` asks the managed platform and needs an OAuth-managed model.
    */
   async generateTitle(source?: SessionTitleSource): Promise<string | null> {
     if (!this.transport.generateTitle) {
@@ -636,7 +639,7 @@ class NapiSessionTransport implements SessionTransport {
   }
 
   async generateTitle(sessionId: string, source?: SessionTitleSource): Promise<string | null> {
-    return this.mod.sessionGenerateTitle(sessionId, source) ?? null;
+    return (await this.mod.sessionGenerateTitle(sessionId, source)) ?? null;
   }
 
   async compact(sessionId: string, instruction?: string): Promise<SessionCompactionReport> {

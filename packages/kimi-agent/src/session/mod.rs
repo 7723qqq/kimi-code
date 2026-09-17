@@ -25,6 +25,7 @@
 
 pub mod patch;
 pub mod sqlite_store;
+pub mod title;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -199,6 +200,12 @@ pub struct SessionConfig {
     /// itself is built once per session. `None` = no native agent context.
     pub agent_cancel_slot:
         Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
+    /// Session-wide slot the pump refreshes per turn with that turn's *steer*
+    /// signal (#3697). Fired when a steering message joins the running turn,
+    /// refreshed once that turn has drained it: a blocking `WaitFor` ends early
+    /// on the fire, without cancelling the turn or stopping its tasks. `None` =
+    /// no steer interruption.
+    pub steer_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
     /// Turn-lifecycle hook dispatch (`UserPromptSubmit` / `PreCompact` /
     /// `Stop`); `None` skips those dispatches.
     pub hook_guard: Option<Arc<crate::tools::external_hooks::HookGuard>>,
@@ -385,6 +392,8 @@ struct SessionContext {
     permission_mode: Option<crate::permission::PermissionMode>,
     /// P55: see [`SessionConfig::agent_cancel_slot`].
     agent_cancel_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
+    /// See [`SessionConfig::steer_slot`].
+    steer_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
     /// Turn-lifecycle hook dispatch; see [`SessionConfig::hook_guard`].
     hook_guard: Option<Arc<crate::tools::external_hooks::HookGuard>>,
     /// Print-mode background policy; see [`SessionConfig::print_background`].
@@ -418,6 +427,9 @@ pub struct EngineSession {
     /// P55: shared with the pump (per-turn refresh) and `cancel_turn`
     /// (trigger), and with the native toolset's agent context.
     agent_cancel_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
+    /// #3697: shared with the pump (per-turn refresh), the steer admission
+    /// (trigger) and the native toolset's `WaitFor`.
+    steer_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
 }
 
 impl EngineSession {
@@ -438,10 +450,10 @@ impl EngineSession {
         let steer_queue = Arc::new(Mutex::new(Vec::new()));
         let ctx = Arc::new(SessionContext {
             llm: config.llm,
-            callbacks: Arc::new(SteerQueueCallbacks {
-                inner: config.callbacks,
-                steer_queue: steer_queue.clone(),
-            }),
+            callbacks: Arc::new(
+                SteerQueueCallbacks::new(config.callbacks, steer_queue.clone())
+                    .with_steer_slot(config.steer_slot.clone()),
+            ),
             tool_defs: config.tool_defs,
             goal: config.goal,
             on_before_turn: config.on_before_turn,
@@ -451,6 +463,7 @@ impl EngineSession {
             compaction_max_attempts: config.compaction_max_attempts,
             permission_mode: config.permission_mode,
             agent_cancel_slot: config.agent_cancel_slot.clone(),
+            steer_slot: config.steer_slot.clone(),
             hook_guard: config.hook_guard.clone(),
             print_background: config.print_background,
             session_id: config.session_id,
@@ -470,6 +483,7 @@ impl EngineSession {
             steer_queue,
             callbacks,
             agent_cancel_slot: config.agent_cancel_slot,
+            steer_slot: config.steer_slot,
         }
     }
 
@@ -518,6 +532,7 @@ impl EngineSession {
             outcome_tx,
             None,
             &self.steer_queue,
+            &self.steer_slot,
             &self.wakeup,
         )?;
         Ok(TurnReceipt {
@@ -537,6 +552,7 @@ impl EngineSession {
         outcome_tx: oneshot::Sender<Result<TurnOutcome, String>>,
         preallocated_id: Option<u64>,
         steer_queue: &Mutex<Vec<LLMMessage>>,
+        steer_slot: &Option<Arc<Mutex<Option<crate::subagent::types::ParentCancel>>>>,
         wakeup: &Notify,
     ) -> Result<u64, String> {
         match request.admission {
@@ -570,6 +586,16 @@ impl EngineSession {
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
                         .push(request.prompt);
+                    // Fire the turn's steer signal (#3697, v2
+                    // `steerController.abort`): a blocking `WaitFor` ends now
+                    // and hands the model the new input, instead of holding the
+                    // turn until the waited task finishes or times out.
+                    if let Some(slot) = steer_slot
+                        && let Some(signal) =
+                            slot.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+                    {
+                        signal.trigger();
+                    }
                     Ok(active)
                 } else if request.admission == Admission::ActiveTurnOnly {
                     Err("Step request requires an active turn".to_string())
@@ -715,6 +741,7 @@ impl EngineSession {
         Some(QuiescenceGuard {
             core: self.core.clone(),
             steer_queue: self.steer_queue.clone(),
+            steer_slot: self.steer_slot.clone(),
             wakeup: self.wakeup.clone(),
         })
     }
@@ -800,6 +827,7 @@ impl EngineSession {
 pub struct QuiescenceGuard {
     core: Arc<Mutex<Core>>,
     steer_queue: Arc<Mutex<Vec<LLMMessage>>>,
+    steer_slot: Option<Arc<Mutex<Option<crate::subagent::types::ParentCancel>>>>,
     wakeup: Arc<Notify>,
 }
 
@@ -839,6 +867,7 @@ impl Drop for QuiescenceGuard {
                     outcome,
                     Some(turn_id),
                     &self.steer_queue,
+                    &self.steer_slot,
                     &self.wakeup,
                 );
             }
@@ -915,6 +944,12 @@ async fn pump(
                 crate::subagent::types::ParentCancel::from_flag(cancel.clone()),
             );
         }
+        // A fresh steer signal per turn (#3697): the previous turn's fired
+        // signal must not end this turn's first `WaitFor`.
+        if let Some(slot) = &ctx.steer_slot {
+            *slot.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some(crate::subagent::types::ParentCancel::new());
+        }
         ctx.callbacks.turn_event(TurnEvent::Prompt {
             turn_id,
             input,
@@ -976,6 +1011,9 @@ async fn pump(
             core.active_turn_id = None;
             core.active_cancel = None;
             if let Some(slot) = &ctx.agent_cancel_slot {
+                *slot.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            }
+            if let Some(slot) = &ctx.steer_slot {
                 *slot.lock().unwrap_or_else(|e| e.into_inner()) = None;
             }
             if let Ok(TurnOutcome::Ran(result)) = &outcome {
@@ -1657,6 +1695,10 @@ async fn run_session_turn(
 pub(crate) struct SteerQueueCallbacks {
     inner: Arc<dyn HostCallbacks>,
     steer_queue: Arc<Mutex<Vec<LLMMessage>>>,
+    /// #3697: the turn's steer slot. Draining a steer refreshes it, so the
+    /// turn that consumed the message can wait again instead of tripping over
+    /// the interrupt that just ended its previous wait.
+    steer_slot: Option<Arc<Mutex<Option<crate::subagent::types::ParentCancel>>>>,
 }
 
 impl SteerQueueCallbacks {
@@ -1664,7 +1706,21 @@ impl SteerQueueCallbacks {
         inner: Arc<dyn HostCallbacks>,
         steer_queue: Arc<Mutex<Vec<LLMMessage>>>,
     ) -> Self {
-        Self { inner, steer_queue }
+        Self {
+            inner,
+            steer_queue,
+            steer_slot: None,
+        }
+    }
+
+    /// [`Self::new`] with the session's steer slot, so draining refreshes the
+    /// turn's steer signal.
+    pub(crate) fn with_steer_slot(
+        mut self,
+        steer_slot: Option<Arc<Mutex<Option<crate::subagent::types::ParentCancel>>>>,
+    ) -> Self {
+        self.steer_slot = steer_slot;
+        self
     }
 }
 
@@ -1715,8 +1771,19 @@ impl HostCallbacks for SteerQueueCallbacks {
         &self,
     ) -> futures_util::future::BoxFuture<'static, Result<Vec<LLMMessage>, String>> {
         let queue = self.steer_queue.clone();
+        let slot = self.steer_slot.clone();
         Box::pin(async move {
             let drained = std::mem::take(&mut *queue.lock().unwrap_or_else(|e| e.into_inner()));
+            // The turn has now consumed the steering messages, so refresh its
+            // steer signal (v2 `loopService`: a fresh `steerController` once no
+            // undropped steer nudge remains). Without this the next `WaitFor`
+            // would observe the already-fired signal and abort instantly.
+            if !drained.is_empty()
+                && let Some(slot) = &slot
+            {
+                *slot.lock().unwrap_or_else(|e| e.into_inner()) =
+                    Some(crate::subagent::types::ParentCancel::new());
+            }
             Ok(drained)
         })
     }
@@ -1903,6 +1970,16 @@ mod tests {
     }
 
     async fn make_session(llm: Arc<dyn LLM>, callbacks: Arc<dyn HostCallbacks>) -> EngineSession {
+        make_session_with_steer(llm, callbacks, None).await
+    }
+
+    /// [`make_session`] with a steer slot (#3697), so a test can observe the
+    /// per-turn signal the pump publishes and steer firings refresh.
+    async fn make_session_with_steer(
+        llm: Arc<dyn LLM>,
+        callbacks: Arc<dyn HostCallbacks>,
+        steer_slot: Option<Arc<Mutex<Option<crate::subagent::types::ParentCancel>>>>,
+    ) -> EngineSession {
         let config = SessionConfig {
             llm,
             callbacks,
@@ -1915,6 +1992,7 @@ mod tests {
             goal: None,
             on_before_turn: None,
             agent_cancel_slot: None,
+            steer_slot,
             hook_guard: None,
             print_background: None,
             session_id: None,
@@ -2052,6 +2130,7 @@ mod tests {
             goal: None,
             on_before_turn: None,
             agent_cancel_slot: None,
+            steer_slot: None,
             hook_guard: None,
             print_background: Some(PrintBackgroundPolicy {
                 mode: PrintBackgroundMode::Steer,
@@ -2135,6 +2214,7 @@ mod tests {
             goal: None,
             on_before_turn: None,
             agent_cancel_slot: None,
+            steer_slot: None,
             hook_guard: None,
             print_background: Some(PrintBackgroundPolicy {
                 mode: PrintBackgroundMode::Steer,
@@ -2215,6 +2295,7 @@ mod tests {
             goal: Some(goal),
             on_before_turn: None,
             agent_cancel_slot: None,
+            steer_slot: None,
             hook_guard: None,
             print_background: Some(PrintBackgroundPolicy {
                 mode: PrintBackgroundMode::Drain,
@@ -2470,6 +2551,109 @@ mod tests {
         let o2 = r2.outcome().await.unwrap();
         assert!(matches!(o1, TurnOutcome::Ran(_)));
         assert!(matches!(o2, TurnOutcome::Ran(_)));
+    }
+
+    #[tokio::test]
+    async fn test_steer_fires_the_turn_signal_and_draining_refreshes_it() {
+        // #3697: a steering message fires the running turn's signal so a
+        // blocking `WaitFor` can end early; once the turn has drained the
+        // message the signal is refreshed, so the next wait is not aborted by
+        // the steer that already ended the previous one.
+        let server = Arc::new(RpcServer::new());
+        let queue: Arc<Mutex<Vec<LLMMessage>>> = Arc::new(Mutex::new(Vec::new()));
+        let slot: Arc<Mutex<Option<crate::subagent::types::ParentCancel>>> = Arc::new(Mutex::new(
+            Some(crate::subagent::types::ParentCancel::new()),
+        ));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(
+            SteerQueueCallbacks::new(rpc_callbacks(server), queue.clone())
+                .with_steer_slot(Some(slot.clone())),
+        );
+        let current = || {
+            slot.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .unwrap()
+                .clone()
+        };
+        assert!(!current().triggered(), "a turn starts unfired");
+
+        // A steer joins the active turn: queued, and the signal fires.
+        queue
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(msg("user", "steer-me"));
+        current().trigger();
+        assert!(current().triggered());
+
+        // Draining it hands the message to the turn and refreshes the signal.
+        let drained = callbacks.drain_steers().await.unwrap();
+        assert_eq!(drained.len(), 1);
+        assert!(
+            !current().triggered(),
+            "draining must refresh the signal for the next wait"
+        );
+
+        // An empty drain must not refresh: nothing was consumed, so a wait that
+        // the steer already ended keeps observing the fire.
+        current().trigger();
+        let drained = callbacks.drain_steers().await.unwrap();
+        assert!(drained.is_empty());
+        assert!(
+            current().triggered(),
+            "an empty drain must leave the signal alone"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_steering_into_the_active_turn_fires_the_signal() {
+        let (llm, gates) = ScriptedLlm::with_gate(vec![text_response("steered")]);
+        let server = Arc::new(RpcServer::new());
+        let slot: Arc<Mutex<Option<crate::subagent::types::ParentCancel>>> =
+            Arc::new(Mutex::new(None));
+        let session =
+            make_session_with_steer(Arc::new(llm), rpc_callbacks(server), Some(slot.clone())).await;
+
+        let mut r1 = session
+            .enqueue_turn(TurnRequest::user(msg("user", "first"), Admission::NewTurn))
+            .unwrap();
+        wait_until(|| session.status().active_turn_id == Some(r1.turn_id)).await;
+        wait_until(|| {
+            slot.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .is_some()
+        })
+        .await;
+        let signal = slot
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .unwrap()
+            .clone();
+        assert!(
+            !signal.triggered(),
+            "the turn starts with an unfired signal"
+        );
+
+        let mut r2 = session
+            .enqueue_turn(TurnRequest::user(
+                msg("user", "steer-me"),
+                Admission::ActiveOrNewTurn,
+            ))
+            .unwrap();
+        assert_eq!(r2.turn_id, r1.turn_id);
+        assert!(
+            signal.triggered(),
+            "steering into the active turn must fire its signal"
+        );
+
+        gates.into_iter().next().unwrap().send(()).unwrap();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), r1.outcome())
+            .await
+            .expect("turn 1 never settled");
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), r2.outcome())
+            .await
+            .expect("the steer receipt never settled");
     }
 
     #[tokio::test]

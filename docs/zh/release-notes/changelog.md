@@ -6,6 +6,59 @@ outline: 2
 
 本页记录 Kimi Code CLI 每个版本的变更内容。
 
+## 2.0.0（2026-09-17）
+
+### 新功能
+
+- 新增 `/desktop` 斜杠命令（别名 `/install-desktop`）与 `kimi install-app` 子命令，用于在浏览器中打开 Kimi Code 桌面端页面。
+- 终端中支持将 mermaid 代码块渲染为图形。可在 `/settings` → Mermaid diagrams 关闭，或在 [`tui.toml`](../configuration/config-files.md#tui-toml) 的 `[markdown]` 段设置 `mermaid = "off"`。
+
+### 优化
+
+- 内置浏览器插件更名为「Kimi Browser Extension」，插件面板、插件市场与文档同步更新。
+- 终端对话历史中的 diff 代码块支持语法高亮。
+
+### 修复
+
+- 修复 steer 运行中的轮次时的多个问题：steer 消息与 User 消息重复出现、斜杠命令与附件需重载后才出现在对话历史中，以及撤销 steer 消息后消息丢失或重复出现。
+- steer 运行中的轮次时，原始提示词保持可见，不再被 steer 文本替换。
+- 修复了一些已知问题。更详细的变更记录见 [GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md)。
+
+## 0.43.1（2026-09-15）
+
+### 优化
+
+- 升级终端 UI 引擎：折行 Markdown 表格中的链接颜色恢复正常，`@` 文件补全按预期顺序列出条目，Linux X11 下新增原生剪贴板支持。
+
+### 修复
+
+- 修复大型 agent swarm 逐轮变慢的问题，并及时释放子 agent 占用的内存与事件循环开销，多子 agent 并发时会话保持流畅。
+- 子 agent 运行期间按 `Ctrl-C` 现在只中断子 agent，不再直接退出整个 CLI。
+- 修复了一些已知问题。更详细的变更记录见 [GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md)。
+
+## 0.43.0（2026-09-14）
+
+### 新功能
+
+- 会话选择器支持删除会话：按 `Ctrl-X` 选中会话，再按 `y` 确认。
+- 新增 `loop_control.compaction_max_attempts` 配置项，用于设置压缩请求失败后的最大总尝试次数（默认 `5`），详见 [`loop_control`](../configuration/config-files.md#loop-control)。
+- 新增 `KIMI_CODE_PERMISSION_MODE_REMINDER` 环境变量，设为 `0` 后不再向模型上下文注入自动权限模式提醒。
+- `kimi upgrade`（别名 `kimi update`）新增 `-y, --yes` 选项，跳过确认提示直接安装更新。
+
+### 优化
+
+- Web 版会话标题改为自动生成：首轮对话结束后生成，可在重命名处重新生成，无需实验性开关。
+- Web 版设置页结构调整：Account 移到 General 之后，Agent 更名为 Agents & Sessions 并纳入消息折叠，Advanced 更名为 About，数据与隐私设置移入 General。
+- 目标（goal）时间预算不再受 24 小时上限约束，会话关闭期间的时间也不计入预算。
+- 现在可以用 steer 消息打断后台任务等待。
+- 仅针对 `/tmp` 或 `/temp` 路径的 `rm -rf` 命令不再弹出确认提示。
+
+### 修复
+
+- 修复 Web 版多处卡顿、无响应与加载卡住的问题，包括长会话流式输出时、以及渲染公式、链接、工具结果、日志内容和含大量方括号与反斜杠的会话时。
+- 修复 Web 版若干界面缺陷：新建会话时发送按钮持续禁用、历史会话被误标为未读并触发「轮次完成」通知，以及设置页分段控件闪烁、开关滑块变形、鼠标未移动就弹出提示等。
+- 修复了一些已知问题。更详细的变更记录见 [GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md)。
+
 ## 0.42.0（2026-09-09）
 
 ### 新功能

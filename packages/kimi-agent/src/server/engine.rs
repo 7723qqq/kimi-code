@@ -245,6 +245,11 @@ pub struct ServerEngine {
     /// Per-session steering prompts queued while a turn is running; the turn
     /// drains them at each step head (`SteerQueueCallbacks::drain_steers`).
     steer_queues: Mutex<HashMap<String, Arc<Mutex<Vec<LLMMessage>>>>>,
+    /// Per-session steer signal (#3697): fired by [`Self::enqueue_steer`], so a
+    /// blocking `WaitFor` in the running turn ends early. The pipeline is
+    /// rebuilt per turn, so the slot — like the queue — is held here and
+    /// threaded into each turn's toolset.
+    steer_slots: Mutex<HashMap<String, Arc<Mutex<Option<crate::subagent::types::ParentCancel>>>>>,
     /// The server's live config handle, so a session model override can be
     /// re-resolved to its provider (base URL / key) rather than only renaming
     /// the model on the engine's base transport.
@@ -296,6 +301,7 @@ impl ServerEngine {
             subagent_manager: Arc::new(SubagentManager::with_store(store)),
             oauth_manager: Mutex::new(None),
             steer_queues: Mutex::new(HashMap::new()),
+            steer_slots: Mutex::new(HashMap::new()),
             config_source: Mutex::new(None),
             host_factory: Mutex::new(None),
             status_hashes: Mutex::new(HashMap::new()),
@@ -563,6 +569,16 @@ impl ServerEngine {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .push(message);
+        // #3697: end the turn's blocking `WaitFor` now, so the model reads the
+        // new input instead of holding the turn until the waited task settles.
+        if let Some(signal) = self
+            .steer_slot(session_id)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            signal.trigger();
+        }
         true
     }
 
@@ -581,6 +597,20 @@ impl ServerEngine {
         queues
             .entry(session_id.to_string())
             .or_insert_with(|| Arc::new(Mutex::new(Vec::new())))
+            .clone()
+    }
+
+    /// This session's steer signal slot, created on first use. [`Self::execute`]
+    /// publishes a fresh signal into it per turn and the `ActiveGuard` clears
+    /// it, mirroring the queue's lifetime.
+    fn steer_slot(
+        &self,
+        session_id: &str,
+    ) -> Arc<Mutex<Option<crate::subagent::types::ParentCancel>>> {
+        let mut slots = self.steer_slots.lock().unwrap_or_else(|e| e.into_inner());
+        slots
+            .entry(session_id.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(None)))
             .clone()
     }
 
@@ -1039,6 +1069,7 @@ impl ServerEngine {
                 subagent_manager: self.subagent_manager.clone(),
                 parent_cancel: None,
                 parent_cancel_slot: None,
+                steer_slot: Some(self.steer_slot(session_id)),
                 mcp_manager: self.mcp_manager_for(session_id),
                 // This session's lane, so the turn's events carry its session id
                 // and its seq. Every connection still sees every lane.
@@ -1155,6 +1186,12 @@ impl ServerEngine {
         }
         self.publish_work_changed(session_id, true, None);
         self.publish_status_updated(session_id).await;
+        // #3697: a fresh steer signal for this turn, so a signal fired by an
+        // earlier turn cannot end this turn's first `WaitFor`.
+        *self
+            .steer_slot(session_id)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(crate::subagent::types::ParentCancel::new());
         // The activity phase machine follows the turn from here: running →
         // streaming / tool_call / retrying (via the callback decorator) →
         // ended or interrupted.
@@ -1162,10 +1199,13 @@ impl ServerEngine {
         activity.turn_started(turn_number);
         // Innermost decorator: drains this session's steering queue at every
         // step head, so a `POST /prompts:steer` lands in the running turn.
-        let callbacks: Arc<dyn HostCallbacks> = Arc::new(crate::session::SteerQueueCallbacks::new(
-            callbacks.clone(),
-            self.steer_queue(session_id),
-        ));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(
+            crate::session::SteerQueueCallbacks::new(
+                callbacks.clone(),
+                self.steer_queue(session_id),
+            )
+            .with_steer_slot(Some(self.steer_slot(session_id))),
+        );
         // Outermost decorator: every step boundary, streaming delta and tool
         // execution the turn produces moves the session's activity phase
         // before the underlying chain sees the event.
@@ -1205,6 +1245,13 @@ impl ServerEngine {
                     .lock()
                     .unwrap_or_else(|e| e.into_inner());
                 queues.remove(&self.session_id);
+                drop(queues);
+                let mut slots = self
+                    .engine
+                    .steer_slots
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                slots.remove(&self.session_id);
             }
         }
         let _guard = ActiveGuard {
@@ -1861,6 +1908,7 @@ model = "gpt-x"
             .check_permission(PermissionCheckRequest {
                 tool_name: "Bash".into(),
                 tool_call_id: "c".into(),
+                turn_id: "turn-1".into(),
                 arguments: serde_json::json!({}),
             })
             .await
@@ -2142,5 +2190,46 @@ model = "gpt-x"
         let mcp = Arc::new(McpManager::new());
         let engine = engine.with_mcp_manager(mcp);
         assert!(engine.mcp_manager().is_some());
+    }
+
+    #[test]
+    fn enqueue_steer_refuses_and_leaves_the_signal_alone_when_no_turn_runs() {
+        // Nothing to steer without an active turn, and a refused steer must not
+        // fire the signal for whatever turn comes next.
+        let engine = engine();
+        let signal = crate::subagent::types::ParentCancel::new();
+        *engine
+            .steer_slot("sess-steer")
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(signal.clone());
+
+        assert!(!engine.enqueue_steer("sess-steer", LLMMessage::user("steer-me")));
+        assert_eq!(engine.queued_steer_count("sess-steer"), 0);
+        assert!(!signal.triggered());
+    }
+
+    #[test]
+    fn enqueue_steer_queues_and_fires_the_turn_signal() {
+        let engine = engine();
+        let signal = crate::subagent::types::ParentCancel::new();
+        *engine
+            .steer_slot("sess-steer")
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(signal.clone());
+        engine
+            .active_turns
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                "sess-steer".to_string(),
+                Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            );
+
+        assert!(engine.enqueue_steer("sess-steer", LLMMessage::user("steer-me")));
+        assert_eq!(engine.queued_steer_count("sess-steer"), 1);
+        assert!(
+            signal.triggered(),
+            "a steer joining the running turn must fire its signal"
+        );
     }
 }
