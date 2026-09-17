@@ -249,6 +249,10 @@ pub struct TurnRecord {
     pub started_at: i64,
     pub completed_at: Option<i64>,
     pub usage: Option<crate::rpc::types::TokenUsage>,
+    /// The prompt origin the turn was opened with (`v2 PromptOrigin`): `None`
+    /// for turns persisted before the column existed. The v3 projector maps
+    /// it to the turn entity's origin instead of assuming `user`.
+    pub origin: Option<Value>,
 }
 
 impl CompactionReport {
@@ -300,6 +304,7 @@ impl SqliteSessionStore {
                 started_at INTEGER NOT NULL,
                 completed_at INTEGER,
                 usage TEXT,
+                origin TEXT,
                 FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
             );
 
@@ -405,6 +410,15 @@ impl SqliteSessionStore {
         }
         if !session_columns.contains("parent_session_id") {
             let _ = conn.execute("ALTER TABLE sessions ADD COLUMN parent_session_id TEXT", []);
+        }
+
+        let turn_columns: std::collections::HashSet<String> = {
+            let mut stmt = conn.prepare("PRAGMA table_info(turns)")?;
+            let names = stmt.query_map([], |row| row.get::<_, String>(1))?;
+            names.filter_map(std::result::Result::ok).collect()
+        };
+        if !turn_columns.contains("origin") {
+            let _ = conn.execute("ALTER TABLE turns ADD COLUMN origin TEXT", []);
         }
 
         Ok(Self {
@@ -723,7 +737,7 @@ impl SqliteSessionStore {
             )?;
         }
         if !history.is_empty() {
-            self.save_turn(new_session_id, "turn-fork", 1, &history, None)?;
+            self.save_turn(new_session_id, "turn-fork", 1, &history, None, None)?;
         }
         Ok(true)
     }
@@ -1014,7 +1028,7 @@ impl SqliteSessionStore {
         )
         .map_err(|e| e.to_string())?;
         drop(conn);
-        self.save_turn(session_id, COMPACT_TURN_ID, 1, &compacted, None)
+        self.save_turn(session_id, COMPACT_TURN_ID, 1, &compacted, None, None)
             .map_err(|e| e.to_string())?;
         Ok(report)
     }
@@ -1087,7 +1101,7 @@ impl SqliteSessionStore {
     pub fn list_turns(&self, session_id: &str) -> Result<Vec<TurnRecord>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT turn_id, turn_number, status, started_at, completed_at, usage
+            "SELECT turn_id, turn_number, status, started_at, completed_at, usage, origin
              FROM turns WHERE session_id = ?1 ORDER BY turn_number ASC",
         )?;
         let rows = stmt.query_map(params![session_id], |row| {
@@ -1099,6 +1113,9 @@ impl SqliteSessionStore {
                 started_at: row.get(3)?,
                 completed_at: row.get(4)?,
                 usage: usage.and_then(|s| serde_json::from_str(&s).ok()),
+                origin: row
+                    .get::<_, Option<String>>(6)?
+                    .and_then(|s| serde_json::from_str(&s).ok()),
             })
         })?;
 
@@ -1117,6 +1134,7 @@ impl SqliteSessionStore {
         turn_number: u32,
         messages: &[LLMMessage],
         usage: Option<&TokenUsage>,
+        origin: Option<&Value>,
     ) -> Result<(), rusqlite::Error> {
         let mut conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().timestamp_millis();
@@ -1131,14 +1149,15 @@ impl SqliteSessionStore {
 
         let usage_json = usage.map(|u| serde_json::to_string(u).unwrap_or_default());
 
+        let origin_json = origin.map(|o| serde_json::to_string(o).unwrap_or_default());
         tx.execute(
-            "INSERT INTO turns (turn_id, session_id, turn_number, status, started_at, completed_at, usage)
-             VALUES (?1, ?2, ?3, 'completed', ?4, ?4, ?5)
+            "INSERT INTO turns (turn_id, session_id, turn_number, status, started_at, completed_at, usage, origin)
+             VALUES (?1, ?2, ?3, 'completed', ?4, ?4, ?5, ?6)
              ON CONFLICT(turn_id) DO UPDATE SET
                 status = 'completed',
                 completed_at = ?4,
                 usage = coalesce(?5, usage)",
-            params![turn_id, session_id, turn_number, now, usage_json],
+            params![turn_id, session_id, turn_number, now, usage_json, origin_json],
         )?;
 
         {
@@ -1850,7 +1869,7 @@ mod tests {
             input_cache_read: 5,
         };
         store
-            .save_turn("sess-1", "turn-1", 1, &msgs, Some(&usage))
+            .save_turn("sess-1", "turn-1", 1, &msgs, Some(&usage), None)
             .unwrap();
 
         // Verify loaded messages
@@ -1886,7 +1905,7 @@ mod tests {
             LLMMessage::assistant("Second answer"),
         ];
         store
-            .save_turn("sess-1", "turn-2", 2, &msgs_turn2, None)
+            .save_turn("sess-1", "turn-2", 2, &msgs_turn2, None, None)
             .unwrap();
         let loaded2 = store.load_session_history("sess-1").unwrap();
         assert_eq!(loaded2.len(), 4);
@@ -2042,7 +2061,7 @@ mod tests {
         ];
 
         store
-            .save_turn("sess-structured", "turn-1", 1, &msgs, None)
+            .save_turn("sess-structured", "turn-1", 1, &msgs, None, None)
             .unwrap();
 
         let loaded = store.load_session_history("sess-structured").unwrap();
@@ -2097,7 +2116,7 @@ mod tests {
             LLMMessage::assistant("assistant reply"),
         ];
         store
-            .save_turn("sess-orig", "turn-1", 1, &msgs, None)
+            .save_turn("sess-orig", "turn-1", 1, &msgs, None, None)
             .unwrap();
 
         // Fork to sess-fork with explicit title
@@ -2123,6 +2142,7 @@ mod tests {
                 "turn-2",
                 2,
                 &[LLMMessage::user("isolated prompt")],
+                None,
                 None,
             )
             .unwrap();
@@ -2231,7 +2251,7 @@ mod tests {
             LLMMessage::assistant("Exporting now"),
         ];
         store
-            .save_turn("sess-exp", "turn-1", 1, &msgs, None)
+            .save_turn("sess-exp", "turn-1", 1, &msgs, None, None)
             .unwrap();
 
         // Export existing
@@ -2250,7 +2270,14 @@ mod tests {
 
         // Add second turn and export again
         store
-            .save_turn("sess-exp", "turn-2", 2, &[LLMMessage::user("turn 2")], None)
+            .save_turn(
+                "sess-exp",
+                "turn-2",
+                2,
+                &[LLMMessage::user("turn 2")],
+                None,
+                None,
+            )
             .unwrap();
         let export2 = store.export_session("sess-exp").unwrap().unwrap();
         assert_eq!(export2.turns_count, 2);
@@ -2339,6 +2366,7 @@ mod tests {
                     LLMMessage::assistant("I have added an index to the table."),
                 ],
                 None,
+                None,
             )
             .unwrap();
         store
@@ -2347,6 +2375,7 @@ mod tests {
                 "t2",
                 1,
                 &[LLMMessage::user("Fix the null pointer crash.")],
+                None,
                 None,
             )
             .unwrap();
@@ -2437,7 +2466,14 @@ mod tests {
         // 7. Snippet extraction with query in middle of long string
         let long_text = "start_prefix ".repeat(15) + "CRITICAL_KEYWORD" + &" end_suffix".repeat(15);
         store
-            .save_turn("sess-1", "t3", 2, &[LLMMessage::user(&long_text)], None)
+            .save_turn(
+                "sess-1",
+                "t3",
+                2,
+                &[LLMMessage::user(&long_text)],
+                None,
+                None,
+            )
             .unwrap();
         let snippet_hits = store
             .search_messages("CRITICAL_KEYWORD", None, None, 1, 0)
@@ -2620,14 +2656,18 @@ mod tests {
         let store = SqliteSessionStore::in_memory().unwrap();
         store.create_session("sess-plan", None).unwrap();
         let msgs = vec![crate::turn_loop::types::LLMMessage::user("hi")];
-        store.save_turn("sess-plan", "t1", 1, &msgs, None).unwrap();
-        store.save_turn("sess-plan", "t2", 2, &msgs, None).unwrap();
+        store
+            .save_turn("sess-plan", "t1", 1, &msgs, None, None)
+            .unwrap();
+        store
+            .save_turn("sess-plan", "t2", 2, &msgs, None, None)
+            .unwrap();
 
         assert_eq!(store.plan_undo_turns("sess-plan", 1).unwrap(), vec![2]);
         assert_eq!(store.plan_undo_turns("sess-plan", 5).unwrap(), vec![2, 1]);
 
         store
-            .save_turn("sess-plan", COMPACT_TURN_ID, 3, &msgs, None)
+            .save_turn("sess-plan", COMPACT_TURN_ID, 3, &msgs, None, None)
             .unwrap();
         let err = store.plan_undo_turns("sess-plan", 1).unwrap_err();
         assert!(err.contains("undo refused"), "unexpected error: {err}");
@@ -2645,13 +2685,27 @@ mod tests {
 
         // After turn 1, next is 2
         store
-            .save_turn("sess-seq", "t1", 1, &[LLMMessage::user("first")], None)
+            .save_turn(
+                "sess-seq",
+                "t1",
+                1,
+                &[LLMMessage::user("first")],
+                None,
+                None,
+            )
             .unwrap();
         assert_eq!(store.next_turn_number("sess-seq").unwrap(), 2);
 
         // After jump to turn 5, next is 6
         store
-            .save_turn("sess-seq", "t5", 5, &[LLMMessage::user("fifth")], None)
+            .save_turn(
+                "sess-seq",
+                "t5",
+                5,
+                &[LLMMessage::user("fifth")],
+                None,
+                None,
+            )
             .unwrap();
         assert_eq!(store.next_turn_number("sess-seq").unwrap(), 6);
     }
@@ -2662,13 +2716,13 @@ mod tests {
         store.create_session("sess-undo", None).unwrap();
 
         store
-            .save_turn("sess-undo", "t1", 1, &[LLMMessage::user("1")], None)
+            .save_turn("sess-undo", "t1", 1, &[LLMMessage::user("1")], None, None)
             .unwrap();
         store
-            .save_turn("sess-undo", "t2", 2, &[LLMMessage::user("2")], None)
+            .save_turn("sess-undo", "t2", 2, &[LLMMessage::user("2")], None, None)
             .unwrap();
         store
-            .save_turn("sess-undo", "t3", 3, &[LLMMessage::user("3")], None)
+            .save_turn("sess-undo", "t3", 3, &[LLMMessage::user("3")], None, None)
             .unwrap();
 
         assert_eq!(store.load_session_history("sess-undo").unwrap().len(), 3);
@@ -2697,7 +2751,14 @@ mod tests {
 
         // 1. Session with <= 2 messages returns 0
         store
-            .save_turn("sess-compact", "t1", 1, &[LLMMessage::user("hi")], None)
+            .save_turn(
+                "sess-compact",
+                "t1",
+                1,
+                &[LLMMessage::user("hi")],
+                None,
+                None,
+            )
             .unwrap();
         assert_eq!(
             store.compact_session("sess-compact", None).unwrap(),
@@ -2715,6 +2776,7 @@ mod tests {
                         LLMMessage::user(format!("User message {i}")),
                         LLMMessage::assistant(format!("Assistant message {i}")),
                     ],
+                    None,
                     None,
                 )
                 .unwrap();
@@ -2772,6 +2834,7 @@ mod tests {
                         LLMMessage::assistant(format!("Assistant message {i}")),
                     ],
                     None,
+                    None,
                 )
                 .unwrap();
         }
@@ -2800,7 +2863,7 @@ mod tests {
         let short = SqliteSessionStore::in_memory().unwrap();
         short.create_session("sess-short", None).unwrap();
         short
-            .save_turn("sess-short", "t1", 1, &[LLMMessage::user("hi")], None)
+            .save_turn("sess-short", "t1", 1, &[LLMMessage::user("hi")], None, None)
             .unwrap();
         assert_eq!(
             short
@@ -2816,7 +2879,14 @@ mod tests {
         store.create_session("sess-del", Some("To Delete")).unwrap();
 
         store
-            .save_turn("sess-del", "t1", 1, &[LLMMessage::user("hello")], None)
+            .save_turn(
+                "sess-del",
+                "t1",
+                1,
+                &[LLMMessage::user("hello")],
+                None,
+                None,
+            )
             .unwrap();
 
         store
@@ -2897,7 +2967,7 @@ mod tests {
             LLMMessage::assistant("reply 1"),
         ];
         store
-            .save_turn("sess-undo", "t1", 1, &msgs_t1, None)
+            .save_turn("sess-undo", "t1", 1, &msgs_t1, None, None)
             .unwrap();
 
         // Save Turn 2
@@ -2906,7 +2976,7 @@ mod tests {
             LLMMessage::assistant("reply 2"),
         ];
         store
-            .save_turn("sess-undo", "t2", 2, &msgs_t2, None)
+            .save_turn("sess-undo", "t2", 2, &msgs_t2, None, None)
             .unwrap();
 
         // Save Turn 3
@@ -2915,7 +2985,7 @@ mod tests {
             LLMMessage::assistant("reply 3"),
         ];
         store
-            .save_turn("sess-undo", "t3", 3, &msgs_t3, None)
+            .save_turn("sess-undo", "t3", 3, &msgs_t3, None, None)
             .unwrap();
 
         let history_before = store.load_session_history("sess-undo").unwrap();

@@ -249,6 +249,7 @@ async fn server_e2e_http_rest_full_roundtrip() {
                 "Searching for integration keywords in e2e test.",
             )],
             None,
+            None,
         )
         .unwrap();
 

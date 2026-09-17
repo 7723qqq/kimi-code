@@ -663,13 +663,32 @@ impl HttpServer {
         };
         // The item carries no status; `admit` stamps it (`running` when it
         // starts a turn, `queued` behind the active prompt).
-        let item = json!({
+        // Client metadata rides the request as an opaque object; the route
+        // wraps it in the one-element array v2's `clientMetadata` is, echoes it
+        // on the prompt item, and persists it as the turn's origin payload
+        // (#3764). It never reaches the model content.
+        let client_metadata = match body.get("metadata") {
+            None | Some(Value::Null) => None,
+            Some(value) if !value.is_object() => {
+                return HttpResponse::bad_request("Field 'metadata' must be an object");
+            }
+            Some(value) => Some(json!([value])),
+        };
+        let mut item = json!({
             "prompt_id": prompt_id.clone(),
             "user_message_id": format!("msg-{prompt_id}"),
             "content": wire_content,
             "created_at": chrono::Utc::now().to_rfc3339(),
         });
-        let (item, run) = self.prompt_queue.admit(session_id, item, prompt, blocks);
+        if let Some(metadata) = &client_metadata {
+            item["metadata"] = metadata[0].clone();
+        }
+        let origin = client_metadata
+            .as_ref()
+            .map(|metadata| json!({ "kind": "user", "clientMetadata": metadata }));
+        let (item, run) = self
+            .prompt_queue
+            .admit(session_id, item, prompt, blocks, origin.clone());
         crate::server::prompt_queue::publish_prompt_event(
             &self.hub,
             session_id,
@@ -683,6 +702,7 @@ impl HttpServer {
                 "status": item.get("status").cloned().unwrap_or(Value::Null),
                 "content": item.get("content").cloned().unwrap_or_else(|| json!([])),
                 "createdAt": item.get("created_at").cloned().unwrap_or(Value::Null),
+                "metadata": item.get("metadata").cloned().unwrap_or(Value::Null),
             }),
         );
         if let Some(run) = run {
@@ -777,8 +797,11 @@ impl HttpServer {
         item: Value,
         prompt: String,
         blocks: Vec<crate::rpc::types::ContentBlock>,
+        origin: Option<Value>,
     ) {
-        let (_item, run) = self.prompt_queue.admit(session_id, item, prompt, blocks);
+        let (_item, run) = self
+            .prompt_queue
+            .admit(session_id, item, prompt, blocks, origin);
         let Some(run) = run else {
             return;
         };
@@ -5499,7 +5522,9 @@ impl HttpServer {
                 };
                 let mut steered_items: Vec<Value> = Vec::new();
                 let mut unsteered = Vec::new();
-                for (item, prompt, blocks) in self.prompt_queue.take_queued(session_id, &ids) {
+                for (item, prompt, blocks, origin) in
+                    self.prompt_queue.take_queued(session_id, &ids)
+                {
                     let message = crate::turn_loop::types::LLMMessage {
                         role: "user".to_string(),
                         content: prompt.clone(),
@@ -5510,7 +5535,7 @@ impl HttpServer {
                     if engine.enqueue_steer(session_id, message) {
                         steered_items.push(item);
                     } else {
-                        unsteered.push((item, prompt, blocks));
+                        unsteered.push((item, prompt, blocks, origin));
                     }
                 }
                 if !steered_items.is_empty() {
@@ -5543,8 +5568,8 @@ impl HttpServer {
                 }
                 // A steer that found no running turn must not drop the prompt:
                 // run it (or queue behind whatever is actually active).
-                for (item, prompt, blocks) in unsteered {
-                    self.run_or_queue_prompt(engine, session_id, item, prompt, blocks);
+                for (item, prompt, blocks, origin) in unsteered {
+                    self.run_or_queue_prompt(engine, session_id, item, prompt, blocks, origin);
                 }
                 HttpResponse::ok(&json!({ "steered": true, "prompt_ids": ids }))
             }
@@ -5583,7 +5608,7 @@ impl HttpServer {
                     .and_then(|item| item["prompt_id"].as_str().map(str::to_string))
                     .unwrap_or_default();
                 let mut unsteered = Vec::new();
-                for (item, prompt, blocks) in self
+                for (item, prompt, blocks, origin) in self
                     .prompt_queue
                     .take_queued(session_id, std::slice::from_ref(&prompt_id))
                 {
@@ -5609,11 +5634,11 @@ impl HttpServer {
                             }),
                         );
                     } else {
-                        unsteered.push((item, prompt, blocks));
+                        unsteered.push((item, prompt, blocks, origin));
                     }
                 }
-                for (item, prompt, blocks) in unsteered {
-                    self.run_or_queue_prompt(engine, session_id, item, prompt, blocks);
+                for (item, prompt, blocks, origin) in unsteered {
+                    self.run_or_queue_prompt(engine, session_id, item, prompt, blocks, origin);
                 }
                 HttpResponse::ok(&json!({ "steered": true, "prompt_ids": [prompt_id] }))
             }
@@ -6001,6 +6026,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_turn_origin_persists_and_projects() {
+        // #3764: the origin the route builds from the request's `metadata`
+        // lands in the turns table and comes back through list_turns, so the
+        // v3 projection can carry it instead of assuming `user`.
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store.create_session("sess-origin", Some("origin")).unwrap();
+        let origin = json!({
+            "kind": "user",
+            "clientMetadata": [{ "surface": "web", "threadId": "abc" }],
+        });
+        store
+            .save_turn(
+                "sess-origin",
+                "turn-1",
+                1,
+                &[crate::turn_loop::types::LLMMessage::user("hello")],
+                None,
+                Some(&origin),
+            )
+            .unwrap();
+        let turns = store.list_turns("sess-origin").unwrap();
+        assert_eq!(turns.len(), 1);
+        let saved = turns[0].origin.as_ref().unwrap();
+        assert_eq!(saved["kind"], "user");
+        assert_eq!(saved["clientMetadata"][0]["threadId"], "abc");
+
+        // A turn saved without an origin reads back as None (pre-#3764 rows).
+        store
+            .save_turn(
+                "sess-origin",
+                "turn-2",
+                2,
+                &[crate::turn_loop::types::LLMMessage::user("second")],
+                None,
+                None,
+            )
+            .unwrap();
+        let turns = store.list_turns("sess-origin").unwrap();
+        assert_eq!(turns.len(), 2);
+        assert!(turns[1].origin.is_none());
+    }
+
     async fn test_http_sessions_crud_and_prompt() {
         let server = HttpServer::in_memory().unwrap();
 
@@ -6342,6 +6409,7 @@ mod tests {
                 "t1",
                 1,
                 &[crate::turn_loop::types::LLMMessage::user("hi")],
+                None,
                 None,
             )
             .unwrap();
@@ -7424,6 +7492,7 @@ max_context_size = 128000
                     "Please export me",
                 )],
                 None,
+                None,
             )
             .unwrap();
 
@@ -8482,10 +8551,10 @@ max_context_size = 128000
             crate::turn_loop::types::LLMMessage::assistant("second reply"),
         ];
         store
-            .save_turn("sess-dual", "turn-1", 1, &msgs[..2], None)
+            .save_turn("sess-dual", "turn-1", 1, &msgs[..2], None, None)
             .unwrap();
         store
-            .save_turn("sess-dual", "turn-2", 2, &msgs[2..], None)
+            .save_turn("sess-dual", "turn-2", 2, &msgs[2..], None, None)
             .unwrap();
 
         store
@@ -9748,7 +9817,7 @@ max_context_size = 128000
                 "pagination probe message {i}"
             ))];
             store
-                .save_turn("sess-p", &format!("t{i}"), i + 1, &msgs, None)
+                .save_turn("sess-p", &format!("t{i}"), i + 1, &msgs, None, None)
                 .unwrap();
         }
         let server = HttpServer::new(store.clone());
@@ -10634,8 +10703,8 @@ max_context_size = 128000
             .unwrap();
 
         let msgs = vec![crate::turn_loop::types::LLMMessage::user("hi")];
-        store.save_turn(sid, "t1", 1, &msgs, None).unwrap();
-        store.save_turn(sid, "t2", 2, &msgs, None).unwrap();
+        store.save_turn(sid, "t1", 1, &msgs, None, None).unwrap();
+        store.save_turn(sid, "t2", 2, &msgs, None, None).unwrap();
         std::fs::write(temp.path().join("a.txt"), "after-1").unwrap();
         std::fs::write(temp.path().join("b.txt"), "after-2").unwrap();
         store
@@ -10689,6 +10758,7 @@ max_context_size = 128000
                         crate::turn_loop::types::LLMMessage::user(format!("u{i} {filler}")),
                         crate::turn_loop::types::LLMMessage::assistant(format!("a{i} {filler}")),
                     ],
+                    None,
                     None,
                 )
                 .unwrap();
@@ -10806,6 +10876,7 @@ max_context_size = 128000
                         crate::turn_loop::types::LLMMessage::user(format!("u{i} {filler}")),
                         crate::turn_loop::types::LLMMessage::assistant(format!("a{i} {filler}")),
                     ],
+                    None,
                     None,
                 )
                 .unwrap();
@@ -11109,7 +11180,7 @@ max_context_size = 128000
         ];
         server
             .store
-            .save_turn(sid, "turn-1", 1, &messages, None)
+            .save_turn(sid, "turn-1", 1, &messages, None, None)
             .unwrap();
 
         let transcript = server
@@ -11426,6 +11497,7 @@ max_context_size = 128000
                     number,
                     &[message("user", prompt), message("assistant", answer)],
                     None,
+                    None,
                 )
                 .unwrap();
         }
@@ -11536,7 +11608,7 @@ max_context_size = 128000
         ];
         server
             .store
-            .save_turn(session_id, "turn-c", 3, &[user, assistant], None)
+            .save_turn(session_id, "turn-c", 3, &[user, assistant], None, None)
             .unwrap();
 
         let res = history_request(&server, session_id, Some("after_step=2.1&page_size=1")).await;

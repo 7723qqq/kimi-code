@@ -951,3 +951,10 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
   `subagent.message`。
 - 两条路径**并存**：swarm 的结构化结果仍可能以 `failed` + 文案表达打断，
   `isUserCancelledSubagentError` 保留兜底。
+
+18. **#3762 provider 凭据 `api_key_env`（TS 侧 + 引擎侧）**：上游 `c5ad17f06a`
+    重排了 provider 凭据解析（oauth 包新增 `provider-credential.ts`，80 个文件），
+    支持 `api_key_env` 让凭据从环境变量读取。本 fork 的凭据路径同样经
+    `packages/oauth`，合并会保持与上游同步；但该提交与退役引擎的凭据读取纠缠，
+    需要单独一轮对照 fork 的凭据流再移植。**验收**：`[providers.*]` 支持
+    `api_key_env`，凭据从指定环境变量读取且优先级与上游一致。

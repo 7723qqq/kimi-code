@@ -761,7 +761,7 @@ impl AcpServer {
                                 let bus = engine.hub().bus_for(sid);
                                 let subscription = self.forward_session_events(sid, &bus);
                                 let result = engine
-                                    .run_turn_with_media(sid, turn_number, history, &p, media)
+                                    .run_turn_with_media(sid, turn_number, history, &p, media, None)
                                     .await;
                                 bus.unsubscribe(subscription);
                                 self.end_prompt(&request_key);
@@ -2421,7 +2421,7 @@ mod tests {
         ];
         server
             .store
-            .save_turn("sess-tools", "t1", 1, &messages, None)
+            .save_turn("sess-tools", "t1", 1, &messages, None, None)
             .unwrap();
 
         let load = json!({
@@ -2547,7 +2547,7 @@ mod tests {
         use crate::turn_loop::types::LLMMessage;
         server
             .store
-            .save_turn(&sid, "turn-1", 1, &[LLMMessage::user("hi")], None)
+            .save_turn(&sid, "turn-1", 1, &[LLMMessage::user("hi")], None, None)
             .expect("the seed turn must persist");
 
         // resume: mode state only, no replayed chunks.

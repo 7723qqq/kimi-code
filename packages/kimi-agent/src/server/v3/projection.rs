@@ -93,9 +93,20 @@ impl TurnContext {
                     _ => TurnStatus::Completed,
                 })
                 .unwrap_or(TurnStatus::Completed),
+            // The persisted origin (v2 `PromptOrigin`) decides the kind; a
+            // turn recorded before the column existed, or by a path that
+            // carries none (fork/compaction helpers), falls back to the old
+            // shape: compaction by its sentinel id, everything else `user`.
             origin: match record.map(|r| r.turn_id.as_str()) {
                 Some(COMPACT_TURN_ID) => TurnOrigin::Compaction,
-                _ => TurnOrigin::User,
+                _ => match record.and_then(|r| r.origin.as_ref()) {
+                    Some(origin) => origin
+                        .get("kind")
+                        .and_then(|kind| kind.as_str())
+                        .map(TurnOrigin::from_kind)
+                        .unwrap_or(TurnOrigin::User),
+                    None => TurnOrigin::User,
+                },
             },
             started_at: iso(started),
             ended_at: completed.and_then(iso),
@@ -562,6 +573,7 @@ mod tests {
             started_at: started,
             completed_at: completed,
             usage: None,
+            origin: None,
         }
     }
 
@@ -758,6 +770,7 @@ mod tests {
             started_at: 1_700_000_000_000,
             completed_at: Some(1_700_000_002_500),
             usage: Some(usage),
+            origin: None,
         }];
         let messages = [stored("user", "go", 1_700_000_000_000)];
 
@@ -789,6 +802,7 @@ mod tests {
             started_at: 1_700_000_000_000,
             completed_at: None,
             usage: None,
+            origin: None,
         }];
         let entities = project_history("s1", "main", &turns, &[stored("user", "summary", 1)]);
         assert_eq!(turn_of(&entities[0]).origin, TurnOrigin::Compaction);

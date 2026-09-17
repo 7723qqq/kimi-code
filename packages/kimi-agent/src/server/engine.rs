@@ -38,6 +38,7 @@ use crate::subagent::SubagentManager;
 use crate::tools::{memory_filing, memory_store};
 use crate::turn_loop::run_turn::run_turn_continued;
 use crate::turn_loop::types::{LLM, LLMMessage, RunTurnInput};
+use serde_json::Value;
 
 /// A host for standalone server execution with optional interactive interaction
 /// support (questions and approvals).
@@ -1027,7 +1028,7 @@ impl ServerEngine {
         history: Vec<LLMMessage>,
         prompt: &str,
     ) -> Result<TurnReport, EngineError> {
-        self.run_turn_with_media(session_id, turn_number, history, prompt, Vec::new())
+        self.run_turn_with_media(session_id, turn_number, history, prompt, Vec::new(), None)
             .await
     }
 
@@ -1040,6 +1041,7 @@ impl ServerEngine {
         history: Vec<LLMMessage>,
         prompt: &str,
         media: Vec<ContentBlock>,
+        origin: Option<Value>,
     ) -> Result<TurnReport, EngineError> {
         let mut history = history;
         // A self-contained engine must refuse the host-proxy fallback rather
@@ -1123,6 +1125,7 @@ impl ServerEngine {
             prompt,
             media,
             pipeline.secondary_llm.clone(),
+            origin,
         )
         .await
     }
@@ -1158,6 +1161,7 @@ impl ServerEngine {
             prompt,
             Vec::new(),
             None,
+            None,
         )
         .await
     }
@@ -1174,6 +1178,7 @@ impl ServerEngine {
         prompt: &str,
         media: Vec<ContentBlock>,
         secondary_llm: Option<Arc<dyn LLM>>,
+        origin: Option<Value>,
     ) -> Result<TurnReport, EngineError> {
         let turn_id = format!("turn-{}", fastrand::u64(..));
         let cancel = Arc::new(AtomicBool::new(false));
@@ -1342,6 +1347,7 @@ impl ServerEngine {
                 turn_number,
                 &transcript,
                 Some(&result.usage),
+                origin.as_ref(),
             )
             .map_err(EngineError::Store)?;
 
@@ -2149,6 +2155,7 @@ model = "gpt-x"
                 "turn-status",
                 1,
                 &[LLMMessage::user("abcd")],
+                None,
                 None,
             )
             .unwrap();

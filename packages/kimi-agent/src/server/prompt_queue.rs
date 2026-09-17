@@ -21,6 +21,7 @@ struct Entry {
     item: Value,
     prompt: String,
     blocks: Vec<ContentBlock>,
+    origin: Option<Value>,
 }
 
 /// The model input handed back to the turn loop when a prompt is admitted or
@@ -29,6 +30,9 @@ pub struct RunInput {
     pub prompt_id: String,
     pub prompt: String,
     pub blocks: Vec<ContentBlock>,
+    /// The request's `metadata` as `[metadata]` (v2 `clientMetadata`), `None`
+    /// when the client sent none. Persisted as the turn's origin payload.
+    pub origin: Option<Value>,
 }
 
 #[derive(Default)]
@@ -57,6 +61,7 @@ impl PromptQueue {
         item: Value,
         prompt: String,
         blocks: Vec<ContentBlock>,
+        origin: Option<Value>,
     ) -> (Value, Option<RunInput>) {
         let mut state = self.lock();
         let mut item = item;
@@ -70,6 +75,7 @@ impl PromptQueue {
                     item: item.clone(),
                     prompt,
                     blocks,
+                    origin,
                 });
             (item, None)
         } else {
@@ -78,6 +84,7 @@ impl PromptQueue {
                 prompt_id: item_id(&item),
                 prompt: prompt.clone(),
                 blocks: blocks.clone(),
+                origin: origin.clone(),
             };
             state.active.insert(
                 session_id.to_string(),
@@ -85,6 +92,7 @@ impl PromptQueue {
                     item: item.clone(),
                     prompt,
                     blocks,
+                    origin,
                 },
             );
             (item, Some(run))
@@ -124,6 +132,7 @@ impl PromptQueue {
             prompt_id: item_id(&next.item),
             prompt: next.prompt.clone(),
             blocks: next.blocks.clone(),
+            origin: next.origin.clone(),
         };
         let mut next = next;
         next.item["status"] = json!("running");
@@ -149,14 +158,14 @@ impl PromptQueue {
         &self,
         session_id: &str,
         ids: &[String],
-    ) -> Vec<(Value, String, Vec<ContentBlock>)> {
+    ) -> Vec<(Value, String, Vec<ContentBlock>, Option<Value>)> {
         let mut state = self.lock();
         let mut taken = Vec::new();
         if let Some(queue) = state.queued.get_mut(session_id) {
             let mut remaining = Vec::new();
             for entry in queue.drain(..) {
                 if ids.iter().any(|wanted| wanted == &item_id(&entry.item)) {
-                    taken.push((entry.item, entry.prompt, entry.blocks));
+                    taken.push((entry.item, entry.prompt, entry.blocks, entry.origin));
                 } else {
                     remaining.push(entry);
                 }
@@ -231,6 +240,7 @@ pub async fn run_prompt_loop(
                 history,
                 &run.prompt,
                 run.blocks.clone(),
+                run.origin.clone(),
             )
             .await;
         if outcome.is_err() {
@@ -274,11 +284,11 @@ mod tests {
     #[test]
     fn first_prompt_runs_second_queues() {
         let queue = PromptQueue::new();
-        let (first, run) = queue.admit("s1", item("p1"), "p1".into(), Vec::new());
+        let (first, run) = queue.admit("s1", item("p1"), "p1".into(), Vec::new(), None);
         assert_eq!(first["status"], "running");
         assert_eq!(run.unwrap().prompt_id, "p1");
 
-        let (second, run) = queue.admit("s1", item("p2"), "p2".into(), Vec::new());
+        let (second, run) = queue.admit("s1", item("p2"), "p2".into(), Vec::new(), None);
         assert_eq!(second["status"], "queued");
         assert!(run.is_none());
 
@@ -289,10 +299,42 @@ mod tests {
     }
 
     #[test]
+    fn client_metadata_rides_the_item_and_the_run() {
+        // #3764: the route wraps the request's `metadata` as a one-element
+        // `clientMetadata` array inside the origin; the item echoes it for the
+        // REST response and the run carries the origin to persistence.
+        let queue = PromptQueue::new();
+        let mut base = item("p1");
+        base["metadata"] = json!({ "surface": "web", "threadId": "abc" });
+        let origin = json!({
+            "kind": "user",
+            "clientMetadata": [{ "surface": "web", "threadId": "abc" }],
+        });
+        let (admitted, run) = queue.admit("s1", base, "p1".into(), Vec::new(), Some(origin));
+        assert_eq!(admitted["metadata"]["threadId"], "abc");
+        let run = run.unwrap();
+        let origin = run.origin.unwrap();
+        assert_eq!(origin["kind"], "user");
+        assert_eq!(origin["clientMetadata"][0]["surface"], "web");
+
+        // A queued prompt keeps its origin until it is promoted.
+        let mut queued_base = item("p2");
+        queued_base["metadata"] = json!({ "surface": "web" });
+        let origin2 = json!({ "kind": "user", "clientMetadata": [{ "surface": "web" }] });
+        let (_queued, none) =
+            queue.admit("s1", queued_base, "p2".into(), Vec::new(), Some(origin2));
+        assert!(none.is_none());
+
+        let next = queue.advance("s1").expect("p2 promoted");
+        let origin = next.origin.unwrap();
+        assert_eq!(origin["clientMetadata"][0]["surface"], "web");
+    }
+
+    #[test]
     fn advancing_promotes_then_idles() {
         let queue = PromptQueue::new();
-        queue.admit("s1", item("p1"), "p1".into(), Vec::new());
-        queue.admit("s1", item("p2"), "p2".into(), Vec::new());
+        queue.admit("s1", item("p1"), "p1".into(), Vec::new(), None);
+        queue.admit("s1", item("p2"), "p2".into(), Vec::new(), None);
 
         let next = queue.advance("s1").expect("p2 promoted");
         assert_eq!(next.prompt, "p2");
@@ -307,9 +349,9 @@ mod tests {
     #[test]
     fn take_queued_moves_only_requested_ids() {
         let queue = PromptQueue::new();
-        queue.admit("s1", item("p1"), "p1".into(), Vec::new());
-        queue.admit("s1", item("p2"), "p2".into(), Vec::new());
-        queue.admit("s1", item("p3"), "p3".into(), Vec::new());
+        queue.admit("s1", item("p1"), "p1".into(), Vec::new(), None);
+        queue.admit("s1", item("p2"), "p2".into(), Vec::new(), None);
+        queue.admit("s1", item("p3"), "p3".into(), Vec::new(), None);
 
         let taken = queue.take_queued("s1", &["p2".to_string()]);
         assert_eq!(taken.len(), 1);
@@ -322,7 +364,7 @@ mod tests {
     #[test]
     fn set_active_status_marks_blocked() {
         let queue = PromptQueue::new();
-        queue.admit("s1", item("p1"), "p1".into(), Vec::new());
+        queue.admit("s1", item("p1"), "p1".into(), Vec::new(), None);
         queue.set_active_status("s1", "blocked");
         assert_eq!(queue.active_item("s1").unwrap()["status"], "blocked");
     }

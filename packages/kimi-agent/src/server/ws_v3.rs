@@ -763,6 +763,7 @@ mod tests {
                 1,
                 &[crate::turn_loop::types::LLMMessage::user("hello")],
                 None,
+                None,
             )
             .unwrap();
         let hub = server.hub();
@@ -814,6 +815,7 @@ mod tests {
                 "turn-1",
                 1,
                 &[crate::turn_loop::types::LLMMessage::user("kept")],
+                None,
                 None,
             )
             .unwrap();

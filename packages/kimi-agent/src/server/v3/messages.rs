@@ -435,6 +435,24 @@ pub enum TurnOrigin {
     Other,
 }
 
+impl TurnOrigin {
+    /// The kind tag of an origin recorded in the `turns.origin` column. Only
+    /// the data-free kinds are recognizable; `task` needs a task id the turn
+    /// record does not carry, so it (and any unknown kind) falls back to
+    /// `user` — the shape every recorded turn had before the column existed.
+    pub fn from_kind(kind: &str) -> Self {
+        match kind {
+            "cron" => TurnOrigin::Cron,
+            "hook" => TurnOrigin::Hook,
+            "compaction" => TurnOrigin::Compaction,
+            "side" => TurnOrigin::Side,
+            "goal" => TurnOrigin::Goal,
+            "other" => TurnOrigin::Other,
+            _ => TurnOrigin::User,
+        }
+    }
+}
+
 /// Origin of a user message.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
