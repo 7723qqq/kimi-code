@@ -22,7 +22,6 @@ use super::errors::McpError;
 /// Protocol version that introduced the Streamable HTTP transport.
 pub const STREAMABLE_HTTP_PROTOCOL_VERSION: &str = "2025-03-26";
 const SESSION_ID_HEADER: &str = "mcp-session-id";
-const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct McpHttpTransport {
     url: String,
@@ -32,7 +31,7 @@ pub struct McpHttpTransport {
     session_id: Mutex<Option<String>>,
     next_id: AtomicU64,
     /// Per-request timeout resolved from `toolTimeoutMs`; `None` keeps the
-    /// 30s built-in.
+    /// shared built-in default (`client_shared::DEFAULT_REQUEST_TIMEOUT`).
     request_timeout: Option<Duration>,
     /// Set by an explicit `shutdown`; the stateless POST transport has no
     /// stream to abort, but callers after close must fail fast.
@@ -121,7 +120,7 @@ impl McpHttpTransport {
             "params": params,
         });
 
-        let budget = Budget::new(self.request_timeout.unwrap_or(DEFAULT_REQUEST_TIMEOUT));
+        let budget = Budget::for_request(self.request_timeout);
         let resp = self.post(&payload, budget).await?;
 
         let status = resp.status();
@@ -160,7 +159,7 @@ impl McpHttpTransport {
             "method": method,
             "params": params,
         });
-        let budget = Budget::new(self.request_timeout.unwrap_or(DEFAULT_REQUEST_TIMEOUT));
+        let budget = Budget::for_request(self.request_timeout);
         let resp = self.post(&payload, budget).await?;
         let status = resp.status();
         if !status.is_success() {

@@ -13,6 +13,18 @@ const POST_READ_TIMEOUT: Duration = Duration::from_secs(30);
 /// lifetime (legacy SSE transports stay open for the whole session).
 const STREAM_READ_TIMEOUT: Duration = Duration::from_secs(300);
 
+/// Per-request backstop when no `toolTimeoutMs` is configured, shared by the
+/// stdio, HTTP and SSE transports.
+///
+/// v2 resolves the tool timeout as `config.toolTimeoutMs ?? defaults.toolTimeoutMs`
+/// (`mcpCore/connection-manager.ts:390`) and hands the possibly-`undefined`
+/// result to every transport (`mcpCore/client-shared.ts:58`), so the MCP SDK's
+/// `DEFAULT_REQUEST_TIMEOUT_MSEC = 60000` applies — and that is the value the
+/// user docs already promise (`docs/en/configuration/config-files.md` `[mcp]
+/// tool_timeout_ms` → `60000`). Before this was shared, the remote transports
+/// silently applied 30s: both v2-divergent and a doc/behavior mismatch.
+pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// Build the reqwest client used by an MCP HTTP/SSE transport.
 ///
 /// `stream = true` selects the loose idle timeout the GET event stream needs;
@@ -63,6 +75,13 @@ impl Budget {
             deadline: tokio::time::Instant::now() + wait,
         }
     }
+
+    /// The budget for one request: the resolved `toolTimeoutMs`, or the shared
+    /// v2 default when nothing is configured. Every transport enters here so no
+    /// transport can drift to its own default again.
+    pub fn for_request(configured: Option<Duration>) -> Self {
+        Self::new(configured.unwrap_or(DEFAULT_REQUEST_TIMEOUT))
+    }
 }
 
 /// Whether `target` shares an origin (scheme + host + port) with `base`.
@@ -96,6 +115,18 @@ mod tests {
         assert!(validate_http_url("file:///etc/passwd").is_err());
         assert!(validate_http_url("ftp://example.test/mcp").is_err());
         assert!(validate_http_url("not a url").is_err());
+    }
+
+    /// An unset `toolTimeoutMs` must give every transport the same 60s backstop,
+    /// matching v2 leaving the value to the MCP SDK default. Changing this
+    /// number is a user-visible behavior change, not a cleanup.
+    #[test]
+    fn test_unset_tool_timeout_falls_back_to_the_v2_default() {
+        assert_eq!(Budget::for_request(None).wait, Duration::from_secs(60));
+        assert_eq!(
+            Budget::for_request(Some(Duration::from_millis(150))).wait,
+            Duration::from_millis(150)
+        );
     }
 
     #[test]

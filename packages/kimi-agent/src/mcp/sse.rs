@@ -27,7 +27,8 @@ pub struct McpSseTransport {
     pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
     next_id: AtomicU64,
     /// Per-request timeout resolved from `toolTimeoutMs` (v2
-    /// `toolCallTimeoutMs`); `None` keeps the 30s built-in.
+    /// `toolCallTimeoutMs`); `None` keeps the shared built-in default
+    /// (`client_shared::DEFAULT_REQUEST_TIMEOUT`).
     request_timeout: Option<Duration>,
     /// Listener fired when the SSE stream dies on its own after the handshake
     /// (v2 `unexpectedCloseListener`, client-sse.ts:54). At most one listener;
@@ -45,9 +46,6 @@ pub struct McpSseTransport {
     /// point checks this flag instead.
     closed: Arc<AtomicBool>,
 }
-
-/// Built-in per-request timeout when no `toolTimeoutMs` is configured.
-const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 impl McpSseTransport {
     /// Connect to an MCP server via SSE and spawn the background event listener loop.
@@ -301,7 +299,7 @@ impl McpSseTransport {
                 .ok_or_else(|| McpError::closed("No target post URL configured for MCP SSE"))?
         };
 
-        let budget = Budget::new(self.request_timeout.unwrap_or(DEFAULT_REQUEST_TIMEOUT));
+        let budget = Budget::for_request(self.request_timeout);
 
         let (tx, rx) = oneshot::channel();
         // Register and re-check the closed flag as one step: the reader that
@@ -379,7 +377,7 @@ impl McpSseTransport {
             .post(
                 &target_url,
                 &payload,
-                Budget::new(self.request_timeout.unwrap_or(DEFAULT_REQUEST_TIMEOUT)),
+                Budget::for_request(self.request_timeout),
             )
             .await?;
         let status = resp.status();

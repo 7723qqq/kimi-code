@@ -10,6 +10,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, oneshot};
 
+use crate::mcp::client_shared::DEFAULT_REQUEST_TIMEOUT;
 use crate::mcp::errors::McpError;
 use crate::mcp::http::McpHttpTransport;
 use crate::mcp::sse::McpSseTransport;
@@ -59,9 +60,6 @@ pub struct McpClient {
     /// (v2 `pendingUnexpectedClose`, client-stdio.ts:51).
     pending_close_reason: Arc<Mutex<Option<String>>>,
 }
-
-/// Built-in request timeout when no `toolTimeoutMs` is configured.
-const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Fire the unexpected-close listener with `reason`, or buffer it for replay
 /// when a listener registers later (v2 `fireUnexpectedClose`,
