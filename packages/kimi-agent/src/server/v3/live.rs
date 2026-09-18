@@ -1127,6 +1127,13 @@ mod tests {
                 cost: None,
             })
         );
+        // The client sees JSON, not the struct: pin the wire shape too, since a
+        // renamed field would serialize cleanly and still lose the numbers.
+        let wire = serde_json::to_value(&entities[0]).unwrap();
+        assert_eq!(
+            wire["usage"],
+            json!({ "input_tokens": 120, "output_tokens": 30, "cached_tokens": 900 })
+        );
     }
 
     #[test]
