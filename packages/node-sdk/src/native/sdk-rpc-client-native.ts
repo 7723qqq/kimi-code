@@ -442,6 +442,51 @@ function isUntitledTitle(title: string): boolean {
   return title.trim().length === 0 || title === 'New Session';
 }
 
+/**
+ * One prompt-metadata record per submitted entry (prompt, steer, or skill
+ * activation, v2 #3764), appended by {@link SDKRpcClientNative.applyPromptMetadata}
+ * in submission order. `displayText` is the raw client string; `text` is what
+ * the entry contributed to the session metadata — the sanitized `displayText`
+ * when the caller supplied one, else the sanitized content-derived text
+ * (`undefined` when that sanitizes to empty).
+ */
+interface NativePromptMetadataRecord {
+  readonly text: string | undefined;
+  readonly hasDisplayText: boolean;
+  readonly displayText?: string;
+}
+
+/**
+ * The #3764 displayText set judgment behind upstream's undo-label
+ * (`undoService.reconcileLastPrompt`) and fork-title
+ * (`forkTurnSlice.promptMetadataFromTurnRecord`) derivations: a derivation
+ * may use the client displayTexts only when EVERY prompt entry provides one —
+ * a single entry without `displayText` falls the whole derivation back to the
+ * existing text-derived metadata, never a per-entry mix.
+ *
+ * The native SDK has no undo-label or fork-title decision points yet
+ * (`undoHistory` truncates history without relabeling, `forkSession` takes its
+ * title from the caller, `generateSessionTitle` delegates to the engine's own
+ * title source), so this exported helper is the wiring seam for those
+ * derivations: pass the session's `NativeSessionMeta.promptMetadata` records
+ * in submission order and use the returned sanitized join; `undefined` means
+ * "fall back to the existing text derivation". Exported for that consumer and
+ * for tests; `applyPromptMetadata` produces the records.
+ */
+export function displayTextForUndoOrForkLabel(
+  records: readonly NativePromptMetadataRecord[],
+): string | undefined {
+  if (records.length === 0 || records.some((record) => !record.hasDisplayText)) {
+    return undefined;
+  }
+  return promptMetadataTextFromText(
+    records
+      .map((record) => record.displayText)
+      .filter((text): text is string => text !== undefined)
+      .join('\n'),
+  );
+}
+
 /** Byte-identical with the v1 import-context guidance text. */
 const IMPORT_CONTEXT_GUIDANCE =
   'This is a prior conversation history that may be relevant to the current session. ' +
@@ -654,6 +699,15 @@ interface NativeSessionMeta {
   messageCount: number;
   /** Last turn id seen from the engine; kept on meta so it survives a rebuild. */
   currentTurnId: number;
+  /**
+   * Per-entry prompt-metadata records in submission order (#3764), one per
+   * prompt / steer / skill activation that carried metadata. Feeds the
+   * displayText set judgment for undo-label / fork-title derivations
+   * (`displayTextForUndoOrForkLabel`). In-memory only: the derivations it
+   * serves run live, and the durable lastPrompt/title stay on
+   * {@link PersistedSessionMeta}.
+   */
+  promptMetadata: NativePromptMetadataRecord[];
   /** User-layer session metadata (v2 `session.custom`), merged by updateSessionMetadata. */
   custom: Record<string, unknown>;
   /** Workspace-level additional directories added via addAdditionalDir. */
@@ -928,6 +982,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       lastPrompt: undefined,
       busy: false,
       messageCount: 0,
+      promptMetadata: [],
       custom: input.metadata !== undefined ? { ...input.metadata } : {},
       additionalDirs: [],
       ...initialRuntimeState(config, input.model ?? config.defaultModel),
@@ -1418,6 +1473,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         busy: false,
         messageCount: 0,
         currentTurnId: 0,
+        promptMetadata: [],
         custom: persisted?.custom ?? {},
         additionalDirs: persisted?.additionalDirs ?? [],
         model: persisted?.model ?? config.defaultModel,
@@ -1862,11 +1918,14 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // rejects the turn, not the submission). Subagents (like btw) leave the
     // session-level metadata alone.
     if (!input.skipPromptMetadata) {
-      // v2 #3764: a client-supplied displayText feeds the title/lastPrompt
-      // metadata instead of the raw input text.
+      // v2 #3764: this entry's displayText wins for the metadata when the
+      // client supplied one; the raw input text is the fallback. The record
+      // appended here feeds the all-entries displayText judgment for the
+      // undo-label / fork-title derivations.
       this.applyPromptMetadata(
         meta,
-        input.clientMetadata?.displayText ?? promptMetadataTextFromPrompt(input.input),
+        promptMetadataTextFromPrompt(input.input),
+        input.clientMetadata?.displayText,
       );
     }
     try {
@@ -1947,11 +2006,17 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     meta.updatedAt = Date.now();
 
     const prompt = this.toSessionPrompt(input.input);
-    // v2 #3764: displayText metadata wins for the last-prompt metadata.
-    this.applyPromptMetadata(
-      meta,
-      input.clientMetadata?.displayText ?? promptMetadataTextFromPrompt(input.input),
-    );
+    // v2 #3764: this entry's displayText wins for the metadata when the
+    // client supplied one; the raw input text is the fallback. Skipped when
+    // the caller already applied the metadata (the busy skill activation
+    // resubmits here after applying its own entry's metadata).
+    if (!input.skipPromptMetadata) {
+      this.applyPromptMetadata(
+        meta,
+        promptMetadataTextFromPrompt(input.input),
+        input.clientMetadata?.displayText,
+      );
+    }
     const turnId = await meta.handle.enqueueTurn(prompt, 'activeOrNewTurn');
     if (!meta.busy) {
       meta.busy = true;
@@ -2902,12 +2967,16 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       skillSource,
     });
     // The activation updates the prompt-derived metadata like a prompt whose
-    // text is the slash command itself — with a client-supplied displayText
-    // winning over the raw slash text (v2 #3764).
+    // text is the slash command itself — with this entry's displayText
+    // winning over the raw slash text when the client supplied one (v2
+    // #3764). Applied exactly once here, like upstream's single
+    // `promptMetadataTextFromSkill` application: the busy path below
+    // resubmits the rendered prompt as a steer with the metadata step
+    // skipped, so the steered activation keeps this entry's metadata.
     this.applyPromptMetadata(
       meta,
-      input.clientMetadata?.displayText ??
-        promptMetadataTextFromText(`/${name}${args ? ` ${args}` : ''}`),
+      promptMetadataTextFromText(`/${name}${args ? ` ${args}` : ''}`),
+      input.clientMetadata?.displayText,
     );
     // A turn already running steers the activation into it (v2 #3832: the
     // steered activation gets a transcript frame via the same event); a
@@ -2917,6 +2986,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       return this.steer({
         sessionId: meta.id,
         input: [{ type: 'text', text: rendered }],
+        skipPromptMetadata: true,
       });
     }
     return this.prompt({
@@ -3866,8 +3936,33 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
    * Apply the prompt-derived metadata update (v2 `applyPromptMetadataUpdate`):
    * lastPrompt always, and the title only while it is still the untitled
    * default and not host-customized. Emits `session.meta.updated`.
+   *
+   * #3764 per-entry preference: when this entry's client supplied a
+   * `displayText`, its sanitized form is the metadata the entry contributes —
+   * it never mixes with `fallbackText` (the entry's sanitized content-derived
+   * text), and an entry without one falls back to `fallbackText`. Every call
+   * also appends one {@link NativePromptMetadataRecord} to
+   * `meta.promptMetadata` so the displayText set judgment behind the
+   * undo-label / fork-title derivations
+   * ({@link displayTextForUndoOrForkLabel}) sees the entries in submission
+   * order; an entry carrying neither a `displayText` nor metadata text is not
+   * recorded. The record keeps the raw `displayText` even when it sanitizes
+   * to empty: the flag records what the client provided, not what survived
+   * redaction.
    */
-  private applyPromptMetadata(meta: NativeSessionMeta, text: string | undefined): void {
+  private applyPromptMetadata(
+    meta: NativeSessionMeta,
+    fallbackText: string | undefined,
+    displayText?: string,
+  ): void {
+    const text = displayText !== undefined ? promptMetadataTextFromText(displayText) : fallbackText;
+    if (displayText !== undefined || fallbackText !== undefined) {
+      meta.promptMetadata.push({
+        text,
+        hasDisplayText: displayText !== undefined,
+        ...(displayText !== undefined ? { displayText } : {}),
+      });
+    }
     if (text === undefined) return;
     const patch: { lastPrompt: string; title?: string } = { lastPrompt: text };
     if (!meta.isCustomTitle && isUntitledTitle(meta.title)) {
