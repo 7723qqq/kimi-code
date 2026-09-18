@@ -846,8 +846,29 @@ max_context_size = 200000
         expect(resolveNativeLlmForAlias(config, 'nokey/alias')).toBeUndefined();
       });
 
-      it('ignores a blank api_key_env name', () => {
-        const config = parseConfigString(
+      it('does not resolve an empty api_key_env name and passes a blank one through', () => {
+        const empty = parseConfigString(
+          `
+default_model = "blank/alias"
+
+[providers.blank]
+type = "openai"
+base_url = "https://blank.test/v1"
+api_key_env = ""
+
+[models."blank/alias"]
+provider = "blank"
+model = "wire-model"
+max_context_size = 200000
+`,
+          'resolver-empty-env.toml',
+        );
+
+        // Rust's `filter(|e| !e.is_empty())` is an emptiness test, not a
+        // blankness one: an empty name is no channel and does not resolve.
+        expect(resolveNativeLlmForAlias(empty, 'blank/alias')).toBeUndefined();
+
+        const blank = parseConfigString(
           `
 default_model = "blank/alias"
 
@@ -864,9 +885,13 @@ max_context_size = 200000
           'resolver-blank-env.toml',
         );
 
-        // A blank name is no channel: resolving it would put an empty variable
-        // name on the wire, which surfaces as an unfixable "not set" error.
-        expect(resolveNativeLlmForAlias(config, 'blank/alias')).toBeUndefined();
+        // A whitespace-only name survives that filter and travels verbatim,
+        // exactly as the standalone CLI builds it — the transport is what
+        // rejects it at request time.
+        expect(resolveNativeLlmForAlias(blank, 'blank/alias')).toMatchObject({
+          apiKey: '',
+          apiKeyEnv: '  ',
+        });
       });
     });
 

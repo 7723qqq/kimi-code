@@ -182,7 +182,7 @@ export function resolveNativeLlmForAlias(
   const effective =
     modelConfig === undefined ? undefined : effectiveModelAlias(modelConfig, provider.type);
 
-  // Credential derivation, mirrored case for case from the Rust authority
+  // Credential derivation, mirrored from the Rust authority
   // (`config/mod.rs::extract_native_llm`): the standalone CLI resolves the
   // provider through this same ladder, so any divergence here is a silent
   // behaviour split between the TUI and that path. Exactly one channel
@@ -194,14 +194,20 @@ export function resolveNativeLlmForAlias(
   // An env-bound provider (neither static key nor OAuth) resolves at startup
   // and reads its credential from the named variable per request; without any
   // channel at all the model cannot serve a request and does not resolve.
+  //
+  // One deliberate difference: the *model* key is tested for blankness here
+  // (`nonBlank`, the fork's pre-existing rule), where Rust tests for
+  // emptiness. The two agree on every real key and differ only on a
+  // whitespace-only one, which Rust would send as the credential verbatim.
+  // The provider key uses the same non-empty test as Rust.
   const modelApiKey = nonBlank(modelConfig?.apiKey);
   const modelOAuth = modelConfig?.oauth;
   const providerApiKey = typeof provider.apiKey === 'string' ? provider.apiKey : '';
   const providerOAuth = provider.oauth;
-  // Rust filters a blank env name only in the env-only branch; filtering it in
-  // both keeps an empty name off the wire, where it would surface as an
-  // unfixable "environment variable is not set" instead of being ignored.
-  const providerApiKeyEnv = nonBlank(provider.apiKeyEnv);
+  // Rust's env name is filtered for emptiness, not for blankness
+  // (`filter(|e| !e.is_empty())`), and only in the env-only branch: the
+  // static-key branch clones the provider's name through verbatim.
+  const providerApiKeyEnv = provider.apiKeyEnv;
 
   let apiKey = '';
   let authProvider: string | undefined;
@@ -215,7 +221,7 @@ export function resolveNativeLlmForAlias(
     apiKeyEnv = providerApiKeyEnv;
   } else if (providerOAuth !== undefined) {
     authProvider = providerName;
-  } else if (providerApiKeyEnv !== undefined) {
+  } else if (providerApiKeyEnv !== undefined && providerApiKeyEnv.length > 0) {
     apiKeyEnv = providerApiKeyEnv;
   } else {
     return undefined;
