@@ -315,6 +315,23 @@ model = "fast"
 max_context_size = 200000
 `;
 
+  // An env-bound provider: no static key, no OAuth, only the variable name.
+  // Shared by the `api_key_env` resolver cases and the pool wire case below,
+  // which is the one hop that would otherwise go unguarded.
+  const ENV_PROVIDER_TOML = `
+default_model = "env/alias"
+
+[providers.env]
+type = "openai"
+base_url = "https://env.test/v1"
+api_key_env = "EXAMPLE_PROVIDER_KEY"
+
+[models."env/alias"]
+provider = "env"
+model = "wire-model"
+max_context_size = 200000
+`;
+
   it('resolves the [secondary_model] pool into the engine wire shape', () => {
     const config = parseConfigString(
       `${POOL_TOML}
@@ -345,6 +362,25 @@ default_effort = "high"
       base_url: 'https://example.test/v1',
       reasoning_effort: 'high',
     });
+  });
+
+  it('forwards api_key_env into the pool wire shape', () => {
+    const config = parseConfigString(
+      `${ENV_PROVIDER_TOML}
+[secondary_model]
+default_model = "env/alias"
+`,
+      'secondary-env.toml',
+    );
+
+    // `nativeLlmWire` is the one hop nothing else pins: the resolver cases
+    // assert the `JsNativeLlmConfig` it returns and scan-parity reads the
+    // interface declaration, so only this checks what actually reaches the
+    // engine. JSON.stringify drops an `undefined` here, and the engine reads
+    // the loss as `None` — the credential channel would silently disappear.
+    const llm = resolveSecondaryModelPool(config, true)?.models[0]?.llm;
+    expect(llm).toMatchObject({ api_key: '', api_key_env: 'EXAMPLE_PROVIDER_KEY' });
+    expect(llm?.['auth_provider']).toBeUndefined();
   });
 
   it('treats a lone default_model as a single-entry pool', () => {
@@ -730,20 +766,6 @@ oauth_host = "https://auth.example.test"
     // provider resolves even though no key is in the file. Rust's
     // `extract_native_llm` is the authority for the whole ladder below.
     describe('api_key_env', () => {
-      const ENV_PROVIDER_TOML = `
-default_model = "env/alias"
-
-[providers.env]
-type = "openai"
-base_url = "https://env.test/v1"
-api_key_env = "EXAMPLE_PROVIDER_KEY"
-
-[models."env/alias"]
-provider = "env"
-model = "wire-model"
-max_context_size = 200000
-`;
-
       it('resolves an env-only provider and carries the variable name', () => {
         const config = parseConfigString(ENV_PROVIDER_TOML, 'resolver-env.toml');
 
