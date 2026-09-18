@@ -503,6 +503,22 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
    state_entries、checkpoints、workspaces、session_file_history、wire_events），所以上游的
    `interaction` 实体在 fork 里**只有 live 态**（`server/interaction.rs`），历史折叠无源；要补齐
    必须新增持久化，或明确声明 history 不返回 interaction（客户端需容忍）。
+   **2026-09-18 状态更正（P4 客户端）**：本条开头「`apps/kimi-inspect` 也停在旧协议（缺
+   `channel.ts`/`plan.ts`）」与 P4 括号里「需在 `packages/protocol` 补 v3 实体联合类型与
+   `HistoryResponse`」两处旧表述均已被推翻。kimi-inspect 已迁移 v3（`dc0b534959`）：chat 视图、audit
+   面板与 plan 卡改读 `/api/v3/ws` + turn 分页 history 的 v3 实体流，关键文件
+   `apps/kimi-inspect/src/transcript/{channel,plan,ws,store}.ts`（`channel.ts` 的 ChatChannel 按
+   (session, agent) 持有 store、REST 管线与 socket，每个 ack 后做 `before_turn` 重收与 `after_step`
+   追平；`ws.ts` 是 `/api/v3/ws` 客户端；`plan.ts` 从消息流投影 plan 卡）。同提交还给
+   `packages/protocol/src/v3.ts` 补上逐变体命名类型（usage/timing/retry、`userMessageOrigin`、
+   session_state 的 goal/modes）并经浏览器安全的 `./v3` 子路径导出；实体联合（26 变体）与 history
+   契约（10 变体子集 + `v3HistoryResponseSchema`）由同日更早的 `f72d7e644e`/`6c6e141419` 落地——
+   协议包这一项随迁完成，不再欠账。P4 剩余项收窄为两类：**kimi-web 与 `apps/kimi-code` `web` 子命令
+   所服务的 dist-web 客户端**按 bundle 策略自 code-app 同步，不在本仓以源码接 v3（单列，见根
+   AGENTS.md「Web UI」节；实测当前 bundle 未引用 v3 端点）；以及**引擎侧留白**（P3 端点留白清单）：
+   实时 turn 的 `usage` 为空、`config.warning` 无来源、慢消费者未接 `WS_SLOW_CONSUMER 42903`、
+   `in_flight` 未接历史路由（另有全局 lane 未广播，见 P3）。验证：`packages/protocol` 562 项、
+   `apps/kimi-inspect` 115 项测试全绿（含 v3 store 与协议契约套件）。
 5. ~~**ACP 宿主的部分对齐项（板块 8，已就地标注）**~~ **已解决（2026-09-16 后续变更）**。原列七项：
    `stopReason` 非 ACP 枚举（高）、`$/cancel_request` 缺失（中高）、`terminal/kill` 死代码（中）、
    `additionalDirectories` 被静默丢弃（中）、Bash 反向改道 `cwd=None` + 硬编码 shell（高）、
