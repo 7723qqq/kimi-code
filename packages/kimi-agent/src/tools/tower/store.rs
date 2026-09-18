@@ -1695,8 +1695,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         git::git(root, &["init", "-q"]).await.unwrap();
-        git::git(root, &["config", "user.email", "t@e.test"]).await;
-        git::git(root, &["config", "user.name", "t"]).await;
+        let _ = git::git(root, &["config", "user.email", "t@e.test"]).await;
+        let _ = git::git(root, &["config", "user.name", "t"]).await;
         std::fs::write(root.join("f.txt"), "base").unwrap();
         git::git(root, &["add", "."]).await.unwrap();
         git::git(root, &["commit", "-qm", "init"]).await.unwrap();

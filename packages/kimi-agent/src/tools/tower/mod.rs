@@ -46,6 +46,31 @@ fn ok_result(msg: impl Into<String>) -> ExecutableToolResult {
 
 const TOWER_WORKER_PROFILE: &str = "tower-worker";
 
+/// Resolve a resume id against the tower roster (v2 `towerService` Agent
+/// veto's `store.resolveAgent`): `Ok(Some(entry))` when the id sits in the
+/// roster, `Ok(None)` when the tower state is readable but the id is not a
+/// member, `Err(())` when there is no tower to consult (missing cwd, missing
+/// or unreadable state.json) — the caller silently lets the resume through
+/// instead of failing a call the tower cannot vouch for. The last
+/// registration wins (agent ids restart per session, so a stale entry can
+/// share a live id).
+pub async fn tower_resume_target(
+    cwd: Option<std::path::PathBuf>,
+    agent_id: &str,
+) -> Result<Option<TowerRosterEntry>, ()> {
+    let cwd = cwd.ok_or(())?;
+    let repo_root = resolve_tower_repo_root(&cwd.to_string_lossy());
+    let store = TowerStore::new(PathBuf::from(repo_root));
+    let state = store.load().await.map_err(|_| ())?;
+    Ok(state
+        .roster
+        .agents
+        .iter()
+        .rev()
+        .find(|a| a.agent_id == agent_id)
+        .cloned())
+}
+
 fn spawn_detached_run(
     manager: Arc<SubagentManager>,
     callbacks: Arc<dyn crate::callbacks::HostCallbacks>,
