@@ -1326,6 +1326,10 @@ impl NativeToolset {
                 let mgr = self.subagent_manager.as_ref()?;
                 agent_tool::execute_agent(
                     mgr,
+                    // The toolset's canonical root feeds the tower resume
+                    // gate's roster lookup (P2-2): the session's workspace,
+                    // not the process cwd.
+                    Some(&self.root),
                     args,
                     self.subagent_timeout_ms,
                     self.effective_parent_cancel().as_ref(),
