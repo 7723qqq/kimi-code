@@ -343,6 +343,11 @@ pub(crate) fn usage_json(usage: &crate::rpc::types::TokenUsage) -> serde_json::V
 /// explicit `run_in_background=true`, or an unreadable tower state (missing
 /// `state.json` counts as no tower, so a false positive never blocks a
 /// plain resume).
+///
+/// `cwd` (P2-2) is the base the roster lookup resolves the tower repo root
+/// from: the toolset passes its canonical workspace root so the gate reads
+/// the session's tower state rather than the process cwd's; no-toolset call
+/// sites fall back to `std::env::current_dir()`.
 async fn tower_resume_denial(
     cwd: Option<std::path::PathBuf>,
     profile_name: &str,
@@ -381,6 +386,7 @@ async fn tower_resume_denial(
 /// scopes) so the call falls back verbatim.
 async fn execute_resume(
     manager: &Arc<SubagentManager>,
+    root: Option<&std::path::Path>,
     args: &serde_json::Value,
     resume_id: &str,
     timeout_ms: Option<u64>,
@@ -403,7 +409,10 @@ async fn execute_resume(
     let run_in_background = args.get("run_in_background").and_then(|v| v.as_bool());
     let task_runner = manager.get_task_runner().await;
     if let Some(reason) = tower_resume_denial(
-        std::env::current_dir().ok(),
+        // P2-2: the toolset's canonical workspace root when the host wired
+        // one, else the process cwd as before (no-toolset call sites).
+        root.map(std::path::Path::to_path_buf)
+            .or_else(|| std::env::current_dir().ok()),
         &profile_name,
         resume_id,
         run_in_background,
@@ -705,8 +714,15 @@ async fn run_resume_in_background(
 
 /// Execute the `Agent` tool natively (foreground core). Returns `None`
 /// when the call must fall back to the host — see the module docs.
+///
+/// `root` is the toolset's canonical workspace root, threaded into the tower
+/// resume gate's roster lookup: the gate must consult the tower state of the
+/// workspace the session actually runs in, not wherever the process happens
+/// to have its cwd. `None` — host-less calls — keeps the pre-P2-2 process
+/// cwd lookup.
 pub async fn execute_agent(
     manager: &Arc<SubagentManager>,
+    root: Option<&std::path::Path>,
     args: &serde_json::Value,
     timeout_ms: Option<u64>,
     parent_cancel: Option<&ParentCancel>,
@@ -724,6 +740,7 @@ pub async fn execute_agent(
     if let Some(resume_id) = string_arg(args, "resume") {
         return execute_resume(
             manager,
+            root,
             args,
             &resume_id,
             timeout_ms,
@@ -1232,6 +1249,7 @@ mod tests {
             .await;
         let first = execute_agent(
             &manager,
+            None,
             &serde_json::json!({ "subagent_type": "research", "prompt": "go" }),
             None,
             None,
@@ -1248,6 +1266,7 @@ mod tests {
 
         let second = execute_agent(
             &manager,
+            None,
             &serde_json::json!({ "resume": agent_id, "prompt": "continue" }),
             None,
             None,
@@ -1269,6 +1288,7 @@ mod tests {
         let manager = manager_with(Arc::new(SummaryLlm)).await;
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({ "resume": "agent-unknown", "prompt": "x" }),
             None,
             None,
@@ -1338,6 +1358,82 @@ mod tests {
         assert!(denial.contains("worker-3648"), "{denial}");
         assert!(denial.contains("run_in_background=true"), "{denial}");
         assert!(denial.contains("resume=\"subagent-42\""), "{denial}");
+    }
+
+    /// P2-2 regression: the roster lookup resolves the tower repo root from
+    /// the *passed* root, not the process cwd. With the tower state living
+    /// under `root` and the process cwd parked somewhere tower-less, the gate
+    /// must still deny (it used to consult the cwd's tower and let the resume
+    /// through), and the fallback without a root keeps reading the cwd.
+    #[tokio::test]
+    async fn tower_resume_denial_uses_passed_root_not_process_cwd() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_root = dir.path().to_path_buf();
+        let store = crate::tools::tower::store::TowerStore::new(repo_root.clone());
+        let state_dir = store
+            .abs(crate::tools::tower::paths::STATE_FILE)
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        tokio::fs::create_dir_all(state_dir).await.unwrap();
+        let state = crate::tools::tower::types::TowerState {
+            version: 1,
+            base: "main".into(),
+            mode: "branch".into(),
+            created_at: "2026-09-18T00:00:00Z".into(),
+            session_id: Some("session-1".into()),
+            roster: crate::tools::tower::types::TowerRoster {
+                agents: vec![crate::tools::tower::types::TowerRosterEntry {
+                    name: "worker-p22".into(),
+                    agent_id: "subagent-p22".into(),
+                    session_id: Some("session-1".into()),
+                    kind: crate::tools::tower::types::TowerAgentKind::Worker,
+                    mission_id: Some("M1".into()),
+                    review_target: None,
+                    worktree: None,
+                    branch: None,
+                    spawned_at: "2026-09-18T00:00:00Z".into(),
+                    status: None,
+                }],
+            },
+            missions: Vec::new(),
+        };
+        store.save(&state).await.unwrap();
+
+        // The process cwd sits in a second, tower-less temp dir.
+        let prev_cwd = std::env::current_dir().unwrap();
+        let towerless = tempfile::tempdir().unwrap();
+        std::env::set_current_dir(towerless.path()).unwrap();
+        // The env change must survive panics in the assertions below.
+        struct Restore(std::path::PathBuf);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                let _ = std::env::set_current_dir(&self.0);
+            }
+        }
+        let _restore = Restore(prev_cwd);
+
+        // With the canonical root passed, the gate denies even though the cwd
+        // has no tower state at all — the roster is found via `root`.
+        let denial = tower_resume_denial(
+            Some(repo_root.clone()),
+            "research",
+            "subagent-p22",
+            Some(false),
+            true,
+        )
+        .await
+        .expect("roster resolves through the passed root, not the cwd");
+        assert!(denial.contains("worker-p22"), "{denial}");
+
+        // Without a root (no-toolset call site), the fallback reads the
+        // process cwd — tower-less here, so nothing is gated.
+        assert!(
+            tower_resume_denial(None, "research", "subagent-p22", Some(false), true)
+                .await
+                .is_none(),
+            "the cwd fallback keeps the pre-P2-2 behavior"
+        );
     }
 
     /// A non-roster resume path is untouched: the gate stays silent for a
@@ -1507,6 +1603,7 @@ mod tests {
             .await;
         let first = execute_agent(
             &manager,
+            None,
             &serde_json::json!({ "subagent_type": "tower-worker", "prompt": "go" }),
             None,
             None,
@@ -1524,6 +1621,7 @@ mod tests {
 
         let second = execute_agent(
             &manager,
+            None,
             &serde_json::json!({ "resume": agent_id, "prompt": "continue", "run_in_background": true }),
             None,
             None,
@@ -1612,6 +1710,7 @@ mod tests {
             .await;
         let first = execute_agent(
             &manager,
+            None,
             &serde_json::json!({ "subagent_type": "tower-worker", "prompt": "go" }),
             None,
             None,
@@ -1631,9 +1730,17 @@ mod tests {
 
         // First background resume: registered, and its fresh task id is the
         // one the running shape advertises (TaskList/TaskStop key off it).
-        let second = execute_agent(&manager, &resume_args("continue"), None, None, None, None)
-            .await
-            .expect("native resume for a held conversation");
+        let second = execute_agent(
+            &manager,
+            None,
+            &resume_args("continue"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("native resume for a held conversation");
         assert!(!second.is_error, "{}", second.content);
         let first_task_id = second
             .content
@@ -1664,9 +1771,17 @@ mod tests {
 
         // Second background resume of the SAME agent: must register and run,
         // not silently no-op behind a duplicate-id rejection.
-        let third = execute_agent(&manager, &resume_args("once more"), None, None, None, None)
-            .await
-            .expect("second background resume is a native resume");
+        let third = execute_agent(
+            &manager,
+            None,
+            &resume_args("once more"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("second background resume is a native resume");
         assert!(
             !third.is_error,
             "duplicate task registration must not fail the call: {}",
@@ -1756,6 +1871,7 @@ mod tests {
             .await;
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({ "subagent_type": "research", "prompt": "go" }),
             None,
             None,
@@ -1801,6 +1917,7 @@ mod tests {
             .await;
         let first = execute_agent(
             &manager,
+            None,
             &serde_json::json!({ "subagent_type": "research", "prompt": "go" }),
             None,
             None,
@@ -1817,6 +1934,7 @@ mod tests {
 
         let second = execute_agent(
             &manager,
+            None,
             &serde_json::json!({ "resume": agent_id, "prompt": "more" }),
             None,
             None,
@@ -1851,6 +1969,7 @@ mod tests {
         let manager = manager_with(Arc::new(SummaryLlm)).await;
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({
                 "subagent_type": "research",
                 "prompt": "find the loop",
@@ -1889,6 +2008,7 @@ mod tests {
             .await;
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({ "prompt": "do it", "description": "x" }),
             None,
             None,
@@ -1905,6 +2025,7 @@ mod tests {
         let manager = manager_with(Arc::new(SummaryLlm)).await;
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({ "subagent_type": "plugin-reviewer", "prompt": "x" }),
             None,
             None,
@@ -1924,6 +2045,7 @@ mod tests {
         assert!(
             execute_agent(
                 &manager,
+                None,
                 &serde_json::json!({ "resume": "agent-9", "prompt": "x" }),
                 None,
                 None,
@@ -1944,6 +2066,7 @@ mod tests {
         register_looper(&manager).await;
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({ "subagent_type": "looper", "prompt": "loop forever" }),
             Some(300),
             None,
@@ -1997,6 +2120,7 @@ mod tests {
         let manager = manager_with(Arc::new(SleepyLlm)).await;
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({ "subagent_type": "research", "prompt": "go" }),
             Some(0),
             None,
@@ -2025,6 +2149,7 @@ mod tests {
         });
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({ "subagent_type": "looper", "prompt": "loop until aborted" }),
             Some(60_000),
             Some(&parent_cancel),
@@ -2225,6 +2350,7 @@ mod tests {
             .await;
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({ "subagent_type": "explore", "prompt": "scan it" }),
             None,
             None,
@@ -2267,6 +2393,7 @@ mod tests {
             .await;
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({ "subagent_type": "coder", "prompt": "do it" }),
             None,
             None,
@@ -2311,6 +2438,7 @@ mod tests {
             .await;
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({ "subagent_type": "coder", "prompt": "do it" }),
             None,
             None,
@@ -2343,6 +2471,7 @@ mod tests {
             .await;
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({
                 "subagent_type": "research",
                 "prompt": "go",
@@ -2406,6 +2535,7 @@ mod tests {
             .scope(parent_history, async {
                 execute_agent(
                     &manager,
+                    None,
                     &serde_json::json!({
                         "prompt": "continue from fork",
                         "description": "forked child",
@@ -2484,6 +2614,7 @@ mod tests {
 
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({
                 "run_in_background": true,
                 "prompt": "background work",
@@ -2538,6 +2669,7 @@ mod tests {
 
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({
                 "run_in_background": true,
                 "prompt": "loop in background",
@@ -2608,6 +2740,7 @@ mod tests {
 
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({
                 "subagent_type": "coder",
                 "prompt": "hard task",
@@ -2636,6 +2769,7 @@ mod tests {
 
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({
                 "subagent_type": "coder",
                 "prompt": "quality task",
@@ -2667,6 +2801,7 @@ mod tests {
 
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({
                 "subagent_type": "coder",
                 "prompt": "task",
@@ -2703,6 +2838,7 @@ mod tests {
 
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({
                 "subagent_type": "coder",
                 "prompt": "task",
@@ -2732,6 +2868,7 @@ mod tests {
 
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({
                 "subagent_type": "coder",
                 "prompt": "task",
@@ -2762,6 +2899,7 @@ mod tests {
 
         let result = execute_agent(
             &manager,
+            None,
             &serde_json::json!({
                 "subagent_type": "coder",
                 "prompt": "task",
