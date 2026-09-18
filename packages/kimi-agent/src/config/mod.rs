@@ -593,6 +593,15 @@ pub struct KimiConfig {
         default
     )]
     pub merge_all_available_skills: Option<bool>,
+    /// `[models]` entries that cannot resolve, collected by
+    /// [`KimiConfig::from_file`] on the real load path (v2 #3681). Not a
+    /// config-file key: the server stages them and broadcasts
+    /// `event.config.warning` once the global lane is live, which is what
+    /// gives the v3 `config.warning` entity its producer. Empty for a config
+    /// built by parsing alone ([`std::str::FromStr`] cannot see the raw TOML
+    /// an entry's shape lives in).
+    #[serde(skip)]
+    pub config_warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -659,11 +668,19 @@ impl std::str::FromStr for KimiConfig {
 
 impl KimiConfig {
     /// Load configuration from a specific file path.
+    ///
+    /// The malformed-`[models]`-entry warnings are both logged and staged on
+    /// the returned config ([`KimiConfig::config_warnings`]): logging alone
+    /// left the v3 `config.warning` entity — and the `event.config.warning`
+    /// its global translator reads — with no producer anywhere in the engine.
+    /// Config load happens before the server exists, so the list has to travel
+    /// with the config until there is a lane to broadcast it on.
     pub fn from_file(path: &Path) -> Result<Self, String> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| format!("Failed to read config at {}: {e}", path.display()))?;
-        let config: Self = content.parse()?;
-        for warning in Self::malformed_model_entries(&content) {
+        let mut config: Self = content.parse()?;
+        config.config_warnings = Self::malformed_model_entries(&content);
+        for warning in &config.config_warnings {
             tracing::warn!(path = %path.display(), "{warning}");
         }
         Ok(config)
@@ -2135,6 +2152,64 @@ model = "kimi-k2"
         // produces nothing rather than a second error.
         assert!(KimiConfig::malformed_model_entries("default_model = \"k2\"\n").is_empty());
         assert!(KimiConfig::malformed_model_entries("not = = toml").is_empty());
+    }
+
+    /// The same warnings the load path logs are staged on the config, which is
+    /// what gives the server something to broadcast as `event.config.warning`
+    /// (and the v3 `config.warning` entity) once a lane exists.
+    #[test]
+    fn from_file_stages_the_malformed_model_entry_warnings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+[models.good]
+provider = "kimi"
+model = "kimi-k2"
+
+[models.typo]
+provider = "kimi"
+max_context_size = 1000
+"#,
+        )
+        .unwrap();
+
+        let config = KimiConfig::from_file(&path).unwrap();
+        assert_eq!(
+            config.config_warnings.len(),
+            1,
+            "{:?}",
+            config.config_warnings
+        );
+        assert!(
+            config.config_warnings[0].contains("[models] entry 'typo' is missing"),
+            "{}",
+            config.config_warnings[0]
+        );
+
+        // A file whose `[models]` entries all resolve stages nothing, so the
+        // server has no empty warning entity to broadcast.
+        std::fs::write(
+            &path,
+            "[models.good]\nprovider = \"kimi\"\nmodel = \"kimi-k2\"\n",
+        )
+        .unwrap();
+        assert!(
+            KimiConfig::from_file(&path)
+                .unwrap()
+                .config_warnings
+                .is_empty()
+        );
+
+        // Parsing alone cannot see the raw TOML an entry's shape lives in, so
+        // the staged list stays empty on that path.
+        assert!(
+            KimiConfig::from_str("[models.typo]\nprovider = \"kimi\"\n")
+                .unwrap()
+                .config_warnings
+                .is_empty()
+        );
     }
 
     #[test]
