@@ -547,12 +547,12 @@ const NATIVE_EXPERIMENTAL_FLAGS: readonly NativeExperimentalFlag[] = [
     surface: 'core',
   },
   {
-    id: 'secondary-model',
-    title: 'Secondary model for subagents',
+    id: 'notify_user',
+    title: 'Updates panel (NotifyUser tool events)',
     description:
-      'Let newly spawned subagents use a separately configured secondary model by default, with an explicit primary-model override for quality-sensitive tasks.',
-    env: 'KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL',
-    defaultEnabled: true,
+      'Show an experimental Updates panel with paginated progress messages from the main agent and subagents via the NotifyUser tool.',
+    env: 'KIMI_CODE_EXPERIMENTAL_NOTIFY_USER',
+    defaultEnabled: false,
     surface: 'core',
   },
 ];
@@ -1291,15 +1291,10 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       },
     };
 
-    // The `[secondary_model]` pool rides the session params as JSON; a
-    // malformed section throws here, so the session fails at startup naming
-    // the offending alias.
-    const secondaryModel = resolveSecondaryModelPool(
-      config,
-      isExperimentalFlagEnabled(config, 'secondary-model'),
-      process.env,
-      defaultHeaders,
-    );
+    // The `[secondary_model]` pool is always on (0.42.0 promoted the
+    // experiment). It rides the session params as JSON; a malformed section
+    // throws here, so the session fails at startup naming the offending alias.
+    const secondaryModel = resolveSecondaryModelPool(config, true, process.env, defaultHeaders);
     const policySnapshot = buildPolicySnapshot(config, workDir);
     // The session's live permission / plan mode overrides the config-derived
     // snapshot default: setPermission / setPlanMode mutate meta, and a rebuild
@@ -1317,6 +1312,11 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     const imageReadByteBudget = resolveImageReadByteBudget(config);
     const imageMaxEdgePx = resolveImageMaxEdgePx(config);
     const modelCapabilities = resolveModelCapabilities(config, meta.model);
+    // Progressive tool disclosure (v2 `toolSelectService.enabled()`): the
+    // flag alone is not enough — the advertised table is only shaped when the
+    // model also declares `dynamically_loaded_tools`, but the flag is what
+    // the engine's gate reads.
+    const toolSelect = isExperimentalFlagEnabled(config, 'tool_select');
     const background = resolveBackgroundLimits(config);
     // Print mode (`kimi -p`): the host resolves only which `[background]`
     // values apply — the engine owns the settle behavior.
@@ -1371,6 +1371,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       imageReadByteBudget: imageReadByteBudget ?? undefined,
       imageMaxEdgePx: imageMaxEdgePx ?? undefined,
       modelCapabilities: modelCapabilities ?? undefined,
+      toolSelect,
       // `[background]` knobs: the engine applies them to its own task runner
       // and Bash tool, so the file behaves the same on every entry point.
       killGracePeriodMs: background?.killGracePeriodMs,
@@ -1861,7 +1862,12 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // rejects the turn, not the submission). Subagents (like btw) leave the
     // session-level metadata alone.
     if (!input.skipPromptMetadata) {
-      this.applyPromptMetadata(meta, promptMetadataTextFromPrompt(input.input));
+      // v2 #3764: a client-supplied displayText feeds the title/lastPrompt
+      // metadata instead of the raw input text.
+      this.applyPromptMetadata(
+        meta,
+        input.clientMetadata?.displayText ?? promptMetadataTextFromPrompt(input.input),
+      );
     }
     try {
       const turnId = await meta.handle.enqueueTurn(prompt, 'newTurn');
@@ -1941,7 +1947,11 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     meta.updatedAt = Date.now();
 
     const prompt = this.toSessionPrompt(input.input);
-    this.applyPromptMetadata(meta, promptMetadataTextFromPrompt(input.input));
+    // v2 #3764: displayText metadata wins for the last-prompt metadata.
+    this.applyPromptMetadata(
+      meta,
+      input.clientMetadata?.displayText ?? promptMetadataTextFromPrompt(input.input),
+    );
     const turnId = await meta.handle.enqueueTurn(prompt, 'activeOrNewTurn');
     if (!meta.busy) {
       meta.busy = true;
@@ -2892,8 +2902,23 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       skillSource,
     });
     // The activation updates the prompt-derived metadata like a prompt whose
-    // text is the slash command itself.
-    this.applyPromptMetadata(meta, promptMetadataTextFromText(`/${name}${args ? ` ${args}` : ''}`));
+    // text is the slash command itself — with a client-supplied displayText
+    // winning over the raw slash text (v2 #3764).
+    this.applyPromptMetadata(
+      meta,
+      input.clientMetadata?.displayText ??
+        promptMetadataTextFromText(`/${name}${args ? ` ${args}` : ''}`),
+    );
+    // A turn already running steers the activation into it (v2 #3832: the
+    // steered activation gets a transcript frame via the same event); a
+    // fresh `newTurn` enqueue here would queue a second turn behind a busy
+    // session instead of joining the running one.
+    if (meta.busy) {
+      return this.steer({
+        sessionId: meta.id,
+        input: [{ type: 'text', text: rendered }],
+      });
+    }
     return this.prompt({
       sessionId: meta.id,
       input: [{ type: 'text', text: rendered }],

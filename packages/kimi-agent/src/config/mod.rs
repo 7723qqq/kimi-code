@@ -20,6 +20,8 @@ pub struct ProviderConfig {
     pub provider_type: Option<String>,
     #[serde(rename = "api_key", default)]
     pub api_key: Option<String>,
+    #[serde(default)]
+    pub api_key_env: Option<String>,
     #[serde(rename = "base_url", default)]
     pub base_url: Option<String>,
     #[serde(rename = "max_tokens", default)]
@@ -598,6 +600,12 @@ pub struct ResolvedNativeLlm {
     pub protocol: String,
     pub base_url: String,
     pub api_key: String,
+    /// Name of the environment variable the credential is read from at
+    /// request time (`[providers.*].api_key_env`); passed through to the
+    /// transport's `api_key_env` channel. `None` when the provider carries a
+    /// static key or an OAuth binding.
+    #[serde(default)]
+    pub api_key_env: Option<String>,
     /// OAuth-managed auth: the provider name the transport asks for a bearer
     /// token instead of using `api_key`. `None` when the provider carries a
     /// static key.
@@ -824,16 +832,22 @@ impl KimiConfig {
             .filter(|key| !key.is_empty());
         let model_oauth = alias.and_then(|alias| alias.oauth.as_ref());
         let provider_api_key = provider.api_key.clone().unwrap_or_default();
-        let (api_key, auth_provider) = if let Some(key) = model_api_key {
-            (key, None)
+        let (api_key, auth_provider, api_key_env) = if let Some(key) = model_api_key {
+            (key, None, None)
         } else if model_oauth.is_some() {
-            (String::new(), Some(provider_name.to_string()))
+            (String::new(), Some(provider_name.to_string()), None)
         } else if !provider_api_key.is_empty() {
-            (provider_api_key, None)
+            (provider_api_key, None, provider.api_key_env.clone())
         } else if provider.oauth.is_some() {
-            (String::new(), Some(provider_name.to_string()))
+            (String::new(), Some(provider_name.to_string()), None)
         } else {
-            return None;
+            // An env-bound provider without a static key still resolves: the
+            // transport reads the credential from the named variable at
+            // request time (v2 `provider.apiKeyEnv`), so startup does not
+            // require it to be set yet. Without any credential channel the
+            // model cannot serve a request and does not resolve.
+            let env_name = provider.api_key_env.as_deref().filter(|e| !e.is_empty())?;
+            (String::new(), None, Some(env_name.to_string()))
         };
 
         let p_type = provider
@@ -869,6 +883,7 @@ impl KimiConfig {
             protocol: protocol.into(),
             base_url,
             api_key,
+            api_key_env,
             auth_provider,
             model: wire_model.into(),
             max_tokens: provider.max_tokens,
@@ -1448,6 +1463,7 @@ fn native_llm_config(
         protocol: resolved.protocol,
         base_url: resolved.base_url,
         api_key: resolved.api_key,
+        api_key_env: None,
         model: resolved.model,
         max_tokens: resolved.max_tokens,
         custom_headers: Default::default(),
@@ -1548,6 +1564,24 @@ pattern = "Write(secret.txt)"
 decision = "allow"
 pattern = "Read(*)"
 "#;
+
+    #[test]
+    fn provider_env_binding_survives_config_roundtrip() {
+        let config = KimiConfig::from_str(
+            "[providers.example]\ntype = \"openai\"\napi_key_env = \"EXAMPLE_API_KEY\"\n",
+        )
+        .unwrap();
+        let provider = &config.providers["example"];
+        let value = serde_json::to_value(provider).unwrap();
+        assert_eq!(value["api_key_env"], "EXAMPLE_API_KEY");
+        assert!(provider.api_key.is_none());
+        let encoded = toml::to_string(provider).unwrap();
+        let restored: ProviderConfig = toml::from_str(&encoded).unwrap();
+        assert_eq!(
+            serde_json::to_value(restored).unwrap()["api_key_env"],
+            "EXAMPLE_API_KEY"
+        );
+    }
 
     #[test]
     fn test_parse_sample_config() {

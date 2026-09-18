@@ -673,6 +673,27 @@ impl McpManager {
             .collect()
     }
 
+    /// Blocking variant of [`Self::deferred_tool_names`] for the tool-table
+    /// shaping path, which runs both on and off the async runtime (tests,
+    /// the sync `shape_tool_table` builder). `try_read` on a read-only
+    /// cache snapshot: contended writes are rare and a miss degrades to
+    /// "no deferred tools", the pre-disclosure behaviour.
+    pub fn deferred_tool_names_blocking(&self) -> HashSet<String> {
+        let servers = self.servers.try_read();
+        let cached = self.cached_tools.try_read();
+        if let (Ok(servers), Ok(cached)) = (servers, cached) {
+            cached
+                .iter()
+                .filter(|(name, (server, _))| {
+                    name.starts_with("mcp__") && servers.get(server).is_some_and(|s| s.deferred)
+                })
+                .map(|(name, _)| name.clone())
+                .collect()
+        } else {
+            HashSet::new()
+        }
+    }
+
     /// Return the list of connected MCP servers, their transport types and discovered tools.
     pub async fn server_entries(&self) -> Vec<McpServerEntry> {
         let clients = self.clients.read().await;

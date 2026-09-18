@@ -618,6 +618,17 @@ impl NativeHttpLlm {
     /// The credential for this request: the cached OAuth token (fetched once,
     /// then reused until a 401/403 forces a refresh) or the static key.
     async fn credential(&self) -> Result<String, String> {
+        if let Some(env_name) = self.config.api_key_env.as_deref() {
+            if !self.config.api_key.trim().is_empty() || self.config.auth_provider.is_some() {
+                return Err("config.invalid: api_key_env is mutually exclusive with api_key and auth_provider".into());
+            }
+            return std::env::var(env_name)
+                .ok()
+                .filter(|key| !key.trim().is_empty())
+                .ok_or_else(|| format!(
+                    "config.invalid: api_key_env {env_name:?} environment variable is not set or is empty (a Unicode value is required)"
+                ));
+        }
         if self.config.auth_provider.is_some() {
             let fetch = self.auth.as_ref().ok_or_else(|| {
                 format!(
@@ -1338,6 +1349,7 @@ mod tests {
             protocol: protocol.into(),
             base_url: base_url.into(),
             api_key: "test-key".into(),
+            api_key_env: None,
             model: "test-model".into(),
             max_tokens: None,
             custom_headers: HashMap::new(),
@@ -1874,6 +1886,103 @@ mod tests {
             "initial fetch + exactly one forced refresh"
         );
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn api_key_env_missing_is_config_invalid_without_fallback() {
+        let env_name = format!("KIMI_TEST_MISSING_KEY_{}", ulid::Ulid::new());
+        assert!(std::env::var_os(&env_name).is_none());
+        let mut wire = serde_json::json!({
+            "protocol": "openai",
+            "base_url": "http://127.0.0.1:1/v1",
+            "model": "test-model",
+            "api_key": "",
+            "api_key_env": env_name,
+        });
+        let cfg: NativeLlmConfig = serde_json::from_value(wire.take()).unwrap();
+        let llm = NativeHttpLlm::new(cfg, String::new());
+        let error = llm
+            .credential()
+            .await
+            .expect_err("missing environment key must not fall back");
+        assert!(error.starts_with("config.invalid:"), "{error}");
+        assert!(error.contains(&env_name), "{error}");
+        assert!(error.contains("not set or is empty"), "{error}");
+    }
+
+    struct CredentialEnv {
+        name: String,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl CredentialEnv {
+        fn new() -> Self {
+            let name = format!("KIMI_TEST_RUNTIME_KEY_{}", ulid::Ulid::new());
+            let previous = std::env::var_os(&name);
+            Self { name, previous }
+        }
+
+        fn set(&self, value: Option<&str>) {
+            // This test owns a unique variable, never a provider/global name.
+            unsafe {
+                match value {
+                    Some(value) => std::env::set_var(&self.name, value),
+                    None => std::env::remove_var(&self.name),
+                }
+            }
+        }
+    }
+
+    impl Drop for CredentialEnv {
+        fn drop(&mut self) {
+            unsafe {
+                match &self.previous {
+                    Some(value) => std::env::set_var(&self.name, value),
+                    None => std::env::remove_var(&self.name),
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn api_key_env_reads_each_time_and_rejects_removed_or_blank_values() {
+        let env = CredentialEnv::new();
+        let mut cfg = config("openai", "http://127.0.0.1:1/v1");
+        cfg.api_key.clear();
+        cfg.api_key_env = Some(env.name.clone());
+        let llm = NativeHttpLlm::new(cfg, String::new());
+        env.set(Some("example-first-key"));
+        assert_eq!(llm.credential().await.unwrap(), "example-first-key");
+        env.set(Some("example-second-key"));
+        assert_eq!(llm.credential().await.unwrap(), "example-second-key");
+        for value in [None, Some(""), Some(" \t ")] {
+            env.set(value);
+            let error = llm.credential().await.unwrap_err();
+            assert!(error.starts_with("config.invalid:"), "{error}");
+            assert!(error.contains("not set or is empty"), "{error}");
+            assert!(!error.contains("example-second-key"), "{error}");
+        }
+        assert!(llm.config.api_key.is_empty());
+        assert!(llm.cached_token_value().is_none());
+    }
+
+    #[tokio::test]
+    async fn api_key_env_rejects_inline_and_oauth_conflicts_before_lookup() {
+        let env = CredentialEnv::new();
+        for oauth in [false, true] {
+            let mut cfg = config("openai", "http://127.0.0.1:1/v1");
+            cfg.api_key_env = Some(env.name.clone());
+            if oauth {
+                cfg.api_key.clear();
+                cfg.auth_provider = Some("example-provider".into());
+            }
+            let llm = NativeHttpLlm::new(cfg, String::new());
+            let error = llm.credential().await.unwrap_err();
+            assert!(error.starts_with("config.invalid:"), "{error}");
+            assert!(error.contains("mutually exclusive"), "{error}");
+            assert!(!error.contains("not set or is empty"), "{error}");
+            assert!(!error.contains("test-key"), "{error}");
+        }
     }
 
     #[tokio::test]

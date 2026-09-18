@@ -131,6 +131,8 @@ The shipped `apps/kimi-code/dist-web` bundle is a committed, prebuilt bundle syn
 
 **Sync convention: replace, never overlay.** A Vite build emits content-hashed filenames, so copying a new bundle over the old one leaves every previous generation behind — the directory once accumulated 616 files / 44 MB across a dozen stale entry chunks, and nothing in the repo detected it because `scripts/check-web-assets.mjs` only verifies that the assets `index.html` names still exist. Delete `apps/kimi-code/dist-web/` first, then copy the fresh bundle in, then commit; the diff should show the old generation removed, not merely a new one added. To audit an existing directory, walk reachability from `index.html` (and `boot.js`) and delete what the walk cannot reach — a reference *count* is not enough, since a whole dead generation cross-references itself.
 
+**Never rebuild `dist-web` from `apps/kimi-web`.** The fork's `apps/kimi-web` source is a stale snapshot: the 0.40–0.43 web features (Plugins settings panel, the 0.43 settings restructure and About agreements, composer media rail, selection quote-to-chat, frontmatter cards, tower mode in web, …) were developed in the separate code-app repo and shipped through the committed bundle only — they do not exist in `apps/kimi-web`. A build from that source silently drops them. Treat `apps/kimi-web` as a dev-sandbox against `bun run dev:server`, and take `dist-web` solely from code-app syncs.
+
 #### `apps/vscode` — VS Code Extension
 
 Full-featured VS Code extension (`kimi-code` in marketplace). React 19 webview UI with TailwindCSS 4, communicates with the main kimi-code server over local REST/WS.

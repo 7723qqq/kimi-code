@@ -1157,6 +1157,11 @@ impl HostCallbacks for NativeToolCallbacks {
             if let Some(filter) = &filter {
                 tools.retain(|tool| filter.allows(&tool.name));
             }
+            // Progressive tool disclosure (v2 `shapeTools`): with the
+            // `tool_select` switch on and the model declaring
+            // `dynamically_loaded_tools`, deferred MCP tools leave the table
+            // and `select_tools` is advertised instead.
+            let tools = toolset.shape_tool_table(tools);
             Ok(ListToolsResponse { tools })
         })
     }

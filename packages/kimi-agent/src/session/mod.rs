@@ -222,6 +222,10 @@ pub struct SessionConfig {
     /// The process-wide task runner the print settle waits on. `None` outside
     /// a wired pipeline, where the wait is a no-op.
     pub task_runner: Option<Arc<crate::storage::TaskRunner>>,
+    /// The pipeline's native toolset, when native tools are on. Carries the
+    /// progressive-tool-disclosure announcement state; `None` outside a
+    /// wired pipeline.
+    pub toolset: Option<Arc<crate::tools::NativeToolset>>,
 }
 
 /// What a print-mode (`kimi -p`) session does once its main turn ends while
@@ -400,6 +404,8 @@ struct SessionContext {
     print_background: Option<PrintBackgroundPolicy>,
     /// The runner the print settle polls; see [`SessionConfig::task_runner`].
     task_runner: Option<Arc<crate::storage::TaskRunner>>,
+    /// Disclosure announcement state; see [`SessionConfig::toolset`].
+    toolset: Option<Arc<crate::tools::NativeToolset>>,
     /// Cross-turn settle budget of the current print run; see [`PrintRunState`].
     print_run: std::sync::Mutex<PrintRunState>,
     /// Resolves the media references a turn carries (v2
@@ -468,6 +474,7 @@ impl EngineSession {
             print_background: config.print_background,
             session_id: config.session_id,
             task_runner: config.task_runner.clone(),
+            toolset: config.toolset.clone(),
             print_run: std::sync::Mutex::new(PrintRunState::default()),
             media: crate::llm::media_resolver::MediaResolver::new(),
             media_dropped: Default::default(),
@@ -1688,6 +1695,7 @@ async fn run_session_turn(
         hook_guard: ctx.hook_guard.clone(),
         media: Some(&ctx.media),
         media_dropped: Some(ctx.media_dropped.clone()),
+        toolset: ctx.toolset.clone(),
     };
     let result = run_turn_continued(input, &ctx.callbacks)
         .await
@@ -2004,6 +2012,7 @@ mod tests {
             print_background: None,
             session_id: None,
             task_runner: None,
+            toolset: None,
         };
         EngineSession::new(config).await
     }
@@ -2146,6 +2155,7 @@ mod tests {
             }),
             session_id: Some("sess-steer".into()),
             task_runner: Some(runner),
+            toolset: None,
         };
         let session = EngineSession::new(config).await;
 
@@ -2230,6 +2240,7 @@ mod tests {
             }),
             session_id: Some("sess-mine".into()),
             task_runner: Some(runner.clone()),
+            toolset: None,
         };
         let session = EngineSession::new(config).await;
 
@@ -2311,6 +2322,7 @@ mod tests {
             }),
             session_id: Some("sess-goal".into()),
             task_runner: Some(Arc::new(crate::storage::TaskRunner::new(None))),
+            toolset: None,
         };
         let session = EngineSession::new(config).await;
 

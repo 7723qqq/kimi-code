@@ -95,6 +95,7 @@ mod tests {
                 source: "project".into(),
                 path: "path/1".into(),
                 disable_model_invocation: true,
+                scopes: None,
             },
             SkillDescriptor {
                 name: "hidden-2".into(),
@@ -102,6 +103,7 @@ mod tests {
                 source: "user".into(),
                 path: "path/2".into(),
                 disable_model_invocation: true,
+                scopes: None,
             },
         ];
         assert_eq!(render_skills_markdown(&hidden_skills), "");
@@ -117,6 +119,7 @@ mod tests {
                 source: "PROJECT".into(),
                 path: "G:/ws/skills/proj-tool".into(),
                 disable_model_invocation: false,
+                scopes: None,
             },
             // Disabled skill in project scope must be omitted
             SkillDescriptor {
@@ -125,6 +128,7 @@ mod tests {
                 source: "project".into(),
                 path: "G:/ws/skills/secret-tool".into(),
                 disable_model_invocation: true,
+                scopes: None,
             },
             // User scope
             SkillDescriptor {
@@ -133,6 +137,7 @@ mod tests {
                 source: "user".into(),
                 path: "C:/Users/name/.skills/user-helper".into(),
                 disable_model_invocation: false,
+                scopes: None,
             },
             // Built-in scope with empty description fallback
             SkillDescriptor {
@@ -141,6 +146,7 @@ mod tests {
                 source: "BuiltIn".into(),
                 path: "builtin://exec".into(),
                 disable_model_invocation: false,
+                scopes: None,
             },
             // Extra scope (any unrecognized source string)
             SkillDescriptor {
@@ -149,6 +155,7 @@ mod tests {
                 source: "marketplace".into(),
                 path: "plugins/marketplace/custom".into(),
                 disable_model_invocation: false,
+                scopes: None,
             },
         ];
 
@@ -189,6 +196,7 @@ mod tests {
             source: "user".into(),
             path: "path/user".into(),
             disable_model_invocation: false,
+            scopes: None,
         }];
 
         let md = render_skills_markdown(&skills);
