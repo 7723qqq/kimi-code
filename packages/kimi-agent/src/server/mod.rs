@@ -8161,6 +8161,9 @@ max_context_size = 1000
         let server = HttpServer::in_memory().unwrap();
         let mut sub = server.hub().attach();
         let server = server.with_config(config);
+        // The seeded config is what the routes serve, so the warning list and
+        // the config view come from one load rather than two that could differ.
+        assert_eq!(server.config().await.config_warnings.len(), 1);
 
         let ev = sub.recv().await.unwrap();
         assert_eq!(&*ev.session_id, "global");
