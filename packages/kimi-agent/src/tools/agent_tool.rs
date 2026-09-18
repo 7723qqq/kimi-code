@@ -547,6 +547,9 @@ async fn execute_resume(
 /// TaskRunner when one is present so the task is listed and stoppable — the
 /// `task_runner` argument is always `Some` on the call sites this helper
 /// serves (the tower gate below falls back to foreground without one).
+/// The task id is freshly minted per registration — the agent id is stable
+/// across resumes, and TaskRunner keeps settled entries, so reusing it would
+/// make every later resume a rejected duplicate.
 async fn run_resume_in_background(
     manager: &Arc<SubagentManager>,
     callbacks: Arc<dyn crate::callbacks::HostCallbacks>,
@@ -629,27 +632,64 @@ async fn run_resume_in_background(
             .await
             .and_then(|r| r.session_id.clone())
             .filter(|session| !session.is_empty());
-        let _ = runner.spawn_task_with_meta(
+        // A resume reuses the agent's stable id, so the task id must be
+        // freshly minted: TaskRunner rejects duplicate ids and keeps settled
+        // entries, so the second background resume of the same agent under
+        // the agent id would be silently swallowed (v2 `generateTaskId`
+        // mints a fresh id per registration; the bash background path uses
+        // the same `task_{fastrand}` pattern).
+        let task_id = format!("task_{}", fastrand::u64(..));
+        let registered = runner.spawn_task_with_meta(
             crate::storage::TaskSpawnMeta {
                 session_id: session_id.as_deref(),
                 kind: "subagent",
                 subagent_type: Some(&profile),
             },
-            resume_id.to_string(),
+            task_id.clone(),
             format!("Resume {profile}: {prompt}"),
             bg_future,
         );
-    } else {
-        tokio::spawn(bg_future);
+        if let Err(error) = registered {
+            return ExecutableToolResult {
+                delivery: None,
+                stop_turn: false,
+                content: format!("failed to register the background resume task: {error}"),
+                is_error: true,
+                note: None,
+            };
+        }
+        return ExecutableToolResult {
+            delivery: None,
+            stop_turn: false,
+            content: [
+                format!("task_id: {task_id}"),
+                "status: running".into(),
+                format!("agent_id: {resume_id}"),
+                format!("actual_subagent_type: {profile_name}"),
+                "automatic_notification: true".into(),
+                String::new(),
+                "next_step: The completion arrives automatically in a later turn — do NOT wait, \
+                 poll, or call TaskOutput on it; continue with other work or hand back to the user."
+                    .into(),
+                format!(
+                    "resume_hint: To continue or recover this same subagent later, call \
+                     Agent(resume=\"{resume_id}\", run_in_background=true, prompt=\"...\"). \
+                     The parameter is agent_id (\"{resume_id}\"), NOT task_id (\"{task_id}\")."
+                ),
+            ]
+            .join("\n"),
+            is_error: false,
+            note: None,
+        };
     }
+    tokio::spawn(bg_future);
 
     ExecutableToolResult {
         delivery: None,
         stop_turn: false,
         content: [
-            format!("task_id: {resume_id}"),
-            "status: running".into(),
             format!("agent_id: {resume_id}"),
+            "status: running".into(),
             format!("actual_subagent_type: {profile_name}"),
             "automatic_notification: true".into(),
             String::new(),
@@ -1503,6 +1543,13 @@ mod tests {
             "{}",
             second.content
         );
+        // Without a task runner there is no task entry, so the running shape
+        // carries only the stable agent id.
+        assert!(
+            !second.content.contains("task_id:"),
+            "no runner, no task id: {}",
+            second.content
+        );
         // The call returns without awaiting the resumed turn.
         assert_eq!(llm.call_count(), 1, "the resumed turn has not run yet");
 
@@ -1533,6 +1580,133 @@ mod tests {
             "exactly one completed event: {events:?}"
         );
         assert_eq!(completed[0]["result_summary"], "follow-up answer");
+    }
+
+    /// The regression for the round-1 review P1-1: background resume tasks
+    /// are registered under a *fresh* task id, because TaskRunner keeps
+    /// settled entries and rejects duplicate ids — under the stable agent id
+    /// the second background resume of the same tower agent used to be a
+    /// silently swallowed no-op. Both resumes here must actually run.
+    #[tokio::test]
+    async fn second_background_resume_of_the_same_agent_still_runs() {
+        let recorder = Arc::new(EventRecorder::new());
+        let llm = Arc::new(RecordingPromptLlm::new(vec![
+            "first pass findings".into(),
+            "second pass answer".into(),
+            "third pass answer".into(),
+        ]));
+        let manager = manager_with_callbacks(llm.clone(), recorder.clone()).await;
+        let runner = Arc::new(crate::storage::TaskRunner::new(None));
+        manager.set_task_runner(runner.clone()).await;
+        manager
+            .register_definition(crate::subagent::types::SubagentDefinition {
+                name: "tower-worker".into(),
+                description: "d".into(),
+                system_prompt: "You are a tower worker.".into(),
+                tools: vec![],
+                disallowed_tools: vec![],
+                prompt_prefix: None,
+                summary_policy: None,
+                model: None,
+            })
+            .await;
+        let first = execute_agent(
+            &manager,
+            &serde_json::json!({ "subagent_type": "tower-worker", "prompt": "go" }),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("first turn runs natively");
+        assert!(!first.is_error);
+        let agent_id = recorder.events.lock().unwrap()[0]["subagent_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        recorder.events.lock().unwrap().clear();
+
+        let resume_args = |prompt: &str| serde_json::json!({ "resume": agent_id, "prompt": prompt, "run_in_background": true });
+
+        // First background resume: registered, and its fresh task id is the
+        // one the running shape advertises (TaskList/TaskStop key off it).
+        let second = execute_agent(&manager, &resume_args("continue"), None, None, None, None)
+            .await
+            .expect("native resume for a held conversation");
+        assert!(!second.is_error, "{}", second.content);
+        let first_task_id = second
+            .content
+            .lines()
+            .find(|l| l.starts_with("task_id: "))
+            .map(|l| l["task_id: ".len()..].to_string())
+            .expect("runner arm advertises a fresh task id");
+        assert_ne!(
+            first_task_id, agent_id,
+            "the task id must not reuse the stable agent id"
+        );
+        assert!(
+            second.content.contains(&format!("agent_id: {agent_id}")),
+            "the agent id stays in the shape: {}",
+            second.content
+        );
+        // The registered task exists and eventually settles as completed.
+        for _ in 0..50 {
+            if llm.call_count() == 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(matches!(
+            runner.wait(&first_task_id, 5000).await,
+            crate::storage::TaskWaitResult::Completed(_)
+        ));
+
+        // Second background resume of the SAME agent: must register and run,
+        // not silently no-op behind a duplicate-id rejection.
+        let third = execute_agent(&manager, &resume_args("once more"), None, None, None, None)
+            .await
+            .expect("second background resume is a native resume");
+        assert!(
+            !third.is_error,
+            "duplicate task registration must not fail the call: {}",
+            third.content
+        );
+        let second_task_id = third
+            .content
+            .lines()
+            .find(|l| l.starts_with("task_id: "))
+            .map(|l| l["task_id: ".len()..].to_string())
+            .expect("the second resume also advertises a task id");
+        assert_ne!(
+            second_task_id, first_task_id,
+            "every registration mints its own task id"
+        );
+        for _ in 0..50 {
+            if llm.call_count() == 3 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert_eq!(llm.call_count(), 3, "the second resumed turn actually ran");
+        assert!(matches!(
+            runner.wait(&second_task_id, 5000).await,
+            crate::storage::TaskWaitResult::Completed(_)
+        ));
+        // Both turns reported their own completion to the host.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let events = recorder.events.lock().unwrap();
+        let completed: Vec<&serde_json::Value> = events
+            .iter()
+            .filter(|e| e["type"] == "subagent.completed")
+            .collect();
+        assert_eq!(
+            completed.len(),
+            2,
+            "one completion per background resume: {events:?}"
+        );
+        assert_eq!(completed[0]["result_summary"], "second pass answer");
+        assert_eq!(completed[1]["result_summary"], "third pass answer");
     }
 
     /// A finish_reason of `length` maps to a MaxTokens stop — v2 fails the
