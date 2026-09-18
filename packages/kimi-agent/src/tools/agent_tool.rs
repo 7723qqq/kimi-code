@@ -28,6 +28,10 @@ pub const DEFAULT_PROFILE_NAME: &str = "coder";
 /// The default foreground timeout (v2 `DEFAULT_SUBAGENT_TIMEOUT_MS`: 2h).
 pub const DEFAULT_SUBAGENT_TIMEOUT_MS: u64 = 2 * 60 * 60 * 1000;
 
+/// The tower worker profile (`tools/tower/mod.rs`'s `TOWER_WORKER_PROFILE`):
+/// the only profile `TowerSpawn` spawns, so it gates the tower resume check.
+const TOWER_WORKER_PROFILE: &str = "tower-worker";
+
 /// The v2 stopped messages (`agent/tools/agent/agent.ts`), byte-identical.
 const SUBAGENT_STOPPED_MESSAGE: &str = "The subagent was stopped before it finished.";
 const USER_INTERRUPTED_SUBAGENT_MESSAGE: &str =
@@ -328,6 +332,50 @@ pub(crate) fn usage_json(usage: &crate::rpc::types::TokenUsage) -> serde_json::V
     })
 }
 
+/// The tower resume gate (v2 `towerService`'s foreground-resume veto,
+/// #3648): the denial message when the resumed agent is a tower agent —
+/// its profile is the tower worker profile *or* its id sits in the tower
+/// roster — and the resume is not backgrounded. The v2 exception stays:
+/// with no background execution on the host table (`is_background_available`
+/// false — no `TaskList`/`TaskOutput`/`TaskStop`), a foreground resume is the
+/// only form the tool accepts, so it is not denied. `None` means the resume
+/// proceeds as before: a plain profile with an empty roster query, an
+/// explicit `run_in_background=true`, or an unreadable tower state (missing
+/// `state.json` counts as no tower, so a false positive never blocks a
+/// plain resume).
+async fn tower_resume_denial(
+    cwd: Option<std::path::PathBuf>,
+    profile_name: &str,
+    resume_id: &str,
+    run_in_background: Option<bool>,
+    is_background_available: bool,
+) -> Option<String> {
+    if run_in_background == Some(true) {
+        return None;
+    }
+    if !is_background_available {
+        return None;
+    }
+    let roster_hit = match crate::tools::tower::tower_resume_target(cwd, resume_id).await {
+        Ok(hit) => hit,
+        // No tower (or no cwd): the tower cannot vouch for any id, so no
+        // foreground resume is refused here.
+        Err(()) => return None,
+    };
+    if profile_name != TOWER_WORKER_PROFILE && roster_hit.is_none() {
+        return None;
+    }
+    let entry_name = roster_hit
+        .map(|entry| entry.name)
+        .unwrap_or_else(|| resume_id.to_string());
+    Some(format!(
+        "Resuming tower agent \"{entry_name}\" in the foreground would freeze the tower until \
+         it finishes — pass run_in_background=true instead: \
+         Agent(resume=\"{resume_id}\", run_in_background=true, prompt=\"...\"); \
+         its completion (and any inbox traffic) will wake you."
+    ))
+}
+
 /// Execute a native `resume`: continue a conversation the manager still
 /// holds. Returns `None` when the id is unknown (host-owned persistent
 /// scopes) so the call falls back verbatim.
@@ -345,6 +393,49 @@ async fn execute_resume(
         Ok(prompt) => prompt,
         Err(error) => return Some(error),
     };
+
+    // Tower resume discipline (v2 `towerService` Agent veto, #3648): the main
+    // agent never needs a tower agent's return value inline — its output flows
+    // back through the tower protocol files — while a foreground resume blocks
+    // the whole turn and jams the fleet. A roster agent resumed in the
+    // foreground is therefore refused with the background hint, unless the
+    // host's table has no Task runner (no `TaskList`) to background it with.
+    let run_in_background = args.get("run_in_background").and_then(|v| v.as_bool());
+    let task_runner = manager.get_task_runner().await;
+    if let Some(reason) = tower_resume_denial(
+        std::env::current_dir().ok(),
+        &profile_name,
+        resume_id,
+        run_in_background,
+        task_runner.is_some(),
+    )
+    .await
+    {
+        return Some(ExecutableToolResult {
+            delivery: None,
+            stop_turn: false,
+            content: reason,
+            is_error: true,
+            note: None,
+        });
+    }
+
+    if run_in_background == Some(true) {
+        // The background helper emits its own spawned+started pair, so no
+        // foreground one here.
+        return Some(
+            run_resume_in_background(
+                manager,
+                runtime.callbacks.clone(),
+                task_runner,
+                resume_id,
+                &profile_name,
+                &prompt,
+                tool_call_id,
+            )
+            .await,
+        );
+    }
 
     emit_spawned_started(
         runtime.callbacks.as_ref(),
@@ -447,6 +538,129 @@ async fn execute_resume(
         is_error,
         note: None,
     })
+}
+
+/// A background resume (P58 semantics on the resume path): the continued
+/// turn runs detached; the completion flows back through the
+/// `subagent.completed` / `subagent.failed` lifecycle events, which the host
+/// turns into the usual synthetic notification turn. Registered in the
+/// TaskRunner when one is present so the task is listed and stoppable — the
+/// `task_runner` argument is always `Some` on the call sites this helper
+/// serves (the tower gate below falls back to foreground without one).
+async fn run_resume_in_background(
+    manager: &Arc<SubagentManager>,
+    callbacks: Arc<dyn crate::callbacks::HostCallbacks>,
+    task_runner: Option<Arc<crate::storage::TaskRunner>>,
+    resume_id: &str,
+    profile_name: &str,
+    prompt: &str,
+    tool_call_id: Option<&str>,
+) -> ExecutableToolResult {
+    emit_spawned_started(
+        callbacks.as_ref(),
+        resume_id,
+        profile_name,
+        tool_call_id,
+        None,
+        true,
+    );
+    let mgr = manager.clone();
+    let cb = callbacks.clone();
+    let agent = resume_id.to_string();
+    let bg_prompt = prompt.to_string();
+    let profile = profile_name.to_string();
+    let bg_future = async move {
+        // No parent cancel: a background subagent outlives this turn and is
+        // stopped through the task runner, not the turn's cancel signal
+        // (the v2 registerTask arms no signal for detached tasks).
+        let outcome = mgr.resume_foreground_turn(&agent, &bg_prompt, None).await;
+        match outcome {
+            Some(Ok(ForegroundTurnOutcome::Completed(turn))) => {
+                if matches!(turn.stop_reason, LoopTurnStopReason::Aborted) {
+                    cb.emit_event(serde_json::json!({
+                        "type": "subagent.failed",
+                        "subagent_id": agent,
+                        "error": SUBAGENT_STOPPED_MESSAGE,
+                    }));
+                    SUBAGENT_STOPPED_MESSAGE.to_string()
+                } else {
+                    let summary = crate::subagent::manager::final_assistant_summary(&turn.messages);
+                    cb.emit_event(serde_json::json!({
+                        "type": "subagent.completed",
+                        "subagent_id": agent,
+                        "result_summary": summary,
+                        "usage": usage_json(&turn.usage),
+                    }));
+                    summary
+                }
+            }
+            Some(Ok(ForegroundTurnOutcome::ParentCancelled)) => {
+                cb.emit_event(serde_json::json!({
+                    "type": "subagent.cancelled",
+                    "subagent_id": agent,
+                }));
+                USER_INTERRUPTED_SUBAGENT_MESSAGE.to_string()
+            }
+            Some(Err(message)) => {
+                cb.emit_event(serde_json::json!({
+                    "type": "subagent.failed",
+                    "subagent_id": agent,
+                    "error": message.clone(),
+                }));
+                format!("Error: {message}")
+            }
+            None => {
+                let message = "resume state was lost".to_string();
+                cb.emit_event(serde_json::json!({
+                    "type": "subagent.failed",
+                    "subagent_id": agent,
+                    "error": message,
+                }));
+                message
+            }
+        }
+    };
+
+    if let Some(runner) = task_runner {
+        // Session attribution rides the runtime the pipeline built for
+        // this turn — background task events land on the right lane.
+        let session_id = manager
+            .runtime()
+            .await
+            .and_then(|r| r.session_id.clone())
+            .filter(|session| !session.is_empty());
+        let _ = runner.spawn_task_with_meta(
+            crate::storage::TaskSpawnMeta {
+                session_id: session_id.as_deref(),
+                kind: "subagent",
+                subagent_type: Some(&profile),
+            },
+            resume_id.to_string(),
+            format!("Resume {profile}: {prompt}"),
+            bg_future,
+        );
+    } else {
+        tokio::spawn(bg_future);
+    }
+
+    ExecutableToolResult {
+        delivery: None,
+        stop_turn: false,
+        content: [
+            format!("task_id: {resume_id}"),
+            "status: running".into(),
+            format!("agent_id: {resume_id}"),
+            format!("actual_subagent_type: {profile_name}"),
+            "automatic_notification: true".into(),
+            String::new(),
+            "next_step: The completion arrives automatically in a later turn — do NOT wait, \
+             poll, or call TaskOutput on it; continue with other work or hand back to the user."
+                .into(),
+        ]
+        .join("\n"),
+        is_error: false,
+        note: None,
+    }
 }
 
 /// Execute the `Agent` tool natively (foreground core). Returns `None`
@@ -1023,6 +1237,302 @@ mod tests {
         )
         .await;
         assert!(result.is_none(), "unknown resume ids fall back to the host");
+    }
+
+    /// A tower worker's foreground resume is refused with the background
+    /// hint (v2 `towerService` veto, #3648): the tower never needs a worker's
+    /// return value inline, and a blocking resume jams the whole fleet.
+    #[tokio::test]
+    async fn tower_roster_foreground_resume_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo_root = dir.path().to_path_buf();
+        let store = crate::tools::tower::store::TowerStore::new(repo_root.clone());
+        let state_dir = store
+            .abs(crate::tools::tower::paths::STATE_FILE)
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        tokio::fs::create_dir_all(state_dir).await.unwrap();
+        let roster = crate::tools::tower::types::TowerRoster {
+            agents: vec![crate::tools::tower::types::TowerRosterEntry {
+                name: "worker-3648".into(),
+                agent_id: "subagent-42".into(),
+                session_id: Some("session-1".into()),
+                kind: crate::tools::tower::types::TowerAgentKind::Worker,
+                mission_id: Some("M1".into()),
+                review_target: None,
+                worktree: Some("wt-1".into()),
+                branch: Some("feat/x".into()),
+                spawned_at: "2026-09-18T00:00:00Z".into(),
+                status: None,
+            }],
+        };
+        let state = crate::tools::tower::types::TowerState {
+            version: 1,
+            base: "main".into(),
+            mode: "branch".into(),
+            created_at: "2026-09-18T00:00:00Z".into(),
+            session_id: Some("session-1".into()),
+            roster,
+            missions: Vec::new(),
+        };
+        store.save(&state).await.unwrap();
+
+        // The roster hit answers through the exposed resolver, and the gate
+        // produces the run_in_background hint for a tower profile.
+        let target =
+            crate::tools::tower::tower_resume_target(Some(repo_root.clone()), "subagent-42")
+                .await
+                .expect("roster state is readable")
+                .expect("roster member resolves");
+        assert_eq!(target.name, "worker-3648");
+        let denial = tower_resume_denial(
+            Some(repo_root),
+            "tower-worker",
+            "subagent-42",
+            Some(false),
+            true,
+        )
+        .await
+        .expect("foreground tower resume is denied");
+        assert!(denial.contains("worker-3648"), "{denial}");
+        assert!(denial.contains("run_in_background=true"), "{denial}");
+        assert!(denial.contains("resume=\"subagent-42\""), "{denial}");
+    }
+
+    /// A non-roster resume path is untouched: the gate stays silent for a
+    /// plain profile, a non-member id, and an explicit background call.
+    #[tokio::test]
+    async fn non_tower_foreground_resume_is_unchanged() {
+        // No roster file anywhere: the gate passes everything through.
+        let cwd = tempfile::tempdir().unwrap().path().to_path_buf();
+        assert!(
+            tower_resume_denial(
+                Some(cwd.clone()),
+                "tower-worker",
+                "subagent-42",
+                Some(false),
+                true
+            )
+            .await
+            .is_none(),
+            "no tower state.json = no gate"
+        );
+        // A roster member with run_in_background=true goes through.
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::tools::tower::store::TowerStore::new(dir.path());
+        let state_dir = store
+            .abs(crate::tools::tower::paths::STATE_FILE)
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        tokio::fs::create_dir_all(state_dir).await.unwrap();
+        let mut state = crate::tools::tower::types::TowerState {
+            version: 1,
+            base: "main".into(),
+            mode: "branch".into(),
+            created_at: "2026-09-18T00:00:00Z".into(),
+            session_id: Some("session-1".into()),
+            roster: crate::tools::tower::types::TowerRoster::default(),
+            missions: Vec::new(),
+        };
+        state
+            .roster
+            .agents
+            .push(crate::tools::tower::types::TowerRosterEntry {
+                name: "worker-3648".into(),
+                agent_id: "subagent-42".into(),
+                session_id: Some("session-1".into()),
+                kind: crate::tools::tower::types::TowerAgentKind::Worker,
+                mission_id: None,
+                review_target: None,
+                worktree: None,
+                branch: None,
+                spawned_at: "2026-09-18T00:00:00Z".into(),
+                status: None,
+            });
+        store.save(&state).await.unwrap();
+        assert!(
+            tower_resume_denial(
+                Some(dir.path().to_path_buf()),
+                "tower-worker",
+                "subagent-42",
+                Some(true),
+                true
+            )
+            .await
+            .is_none(),
+            "background resume is allowed"
+        );
+        // A non-tower profile is only the tower's business when its id sits
+        // in the roster: "research" + roster member subagent-42 is denied
+        // through the roster arm, "research" + unknown id is not gated.
+        let denial = tower_resume_denial(
+            Some(dir.path().to_path_buf()),
+            "research",
+            "subagent-42",
+            Some(false),
+            true,
+        )
+        .await
+        .expect("a roster member is denied whatever its profile");
+        assert!(denial.contains("worker-3648"), "{denial}");
+        assert!(
+            tower_resume_denial(
+                Some(dir.path().to_path_buf()),
+                "research",
+                "subagent-999",
+                Some(false),
+                true
+            )
+            .await
+            .is_none(),
+            "a plain profile outside the roster is not gated"
+        );
+        // No background availability (no TaskList/TaskOutput/TaskStop on the
+        // host table): v2 lets the foreground resume through rather than
+        // leaving the agent unrecovered.
+        assert!(
+            tower_resume_denial(
+                Some(dir.path().to_path_buf()),
+                "tower-worker",
+                "subagent-42",
+                Some(false),
+                false
+            )
+            .await
+            .is_none(),
+            "without a task runner the foreground resume is the only form"
+        );
+        // An unknown id is not a roster member, so a plain profile stays
+        // allowed...
+        assert!(
+            crate::tools::tower::tower_resume_target(
+                Some(dir.path().to_path_buf()),
+                "subagent-999"
+            )
+            .await
+            .expect("roster state is readable")
+            .is_none()
+        );
+        assert!(
+            tower_resume_denial(
+                Some(dir.path().to_path_buf()),
+                "research",
+                "subagent-999",
+                Some(false),
+                true
+            )
+            .await
+            .is_none(),
+            "a plain profile outside the roster is not denied"
+        );
+        // ...but the tower-worker profile alone denies: the profile hit is
+        // enough (mission spec: profile hit OR roster membership).
+        let denial = tower_resume_denial(
+            Some(dir.path().to_path_buf()),
+            "tower-worker",
+            "subagent-999",
+            Some(false),
+            true,
+        )
+        .await
+        .expect("tower profile foreground resume is denied");
+        assert!(denial.contains("run_in_background=true"), "{denial}");
+    }
+
+    /// The mandated recovery form actually runs: `Agent(resume=…,
+    /// run_in_background=true)` returns immediately with the running shape
+    /// (no duplicate spawned/started pair) and the resumed turn completes
+    /// detached, reporting one `subagent.completed`.
+    #[tokio::test]
+    async fn background_resume_runs_detached_and_reports_once() {
+        let recorder = Arc::new(EventRecorder::new());
+        let llm = Arc::new(RecordingPromptLlm::new(vec![
+            "first pass findings".into(),
+            "follow-up answer".into(),
+        ]));
+        let manager = manager_with_callbacks(llm.clone(), recorder.clone()).await;
+        manager
+            .register_definition(crate::subagent::types::SubagentDefinition {
+                name: "tower-worker".into(),
+                description: "d".into(),
+                system_prompt: "You are a tower worker.".into(),
+                tools: vec![],
+                disallowed_tools: vec![],
+                prompt_prefix: None,
+                summary_policy: None,
+                model: None,
+            })
+            .await;
+        let first = execute_agent(
+            &manager,
+            &serde_json::json!({ "subagent_type": "tower-worker", "prompt": "go" }),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("first turn runs natively");
+        assert!(!first.is_error);
+        let agent_id = recorder.events.lock().unwrap()[0]["subagent_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        recorder.events.lock().unwrap().clear();
+
+        let second = execute_agent(
+            &manager,
+            &serde_json::json!({ "resume": agent_id, "prompt": "continue", "run_in_background": true }),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("native resume for a held conversation");
+        assert!(!second.is_error, "{}", second.content);
+        assert!(
+            second.content.contains("status: running"),
+            "{}",
+            second.content
+        );
+        assert!(
+            second.content.contains("automatic_notification: true"),
+            "{}",
+            second.content
+        );
+        // The call returns without awaiting the resumed turn.
+        assert_eq!(llm.call_count(), 1, "the resumed turn has not run yet");
+
+        // The detached turn completes and reports exactly one terminal event.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        for _ in 0..50 {
+            if llm.call_count() == 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert_eq!(llm.call_count(), 2, "the resumed turn ran");
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let events = recorder.events.lock().unwrap();
+        let spawned: Vec<&serde_json::Value> = events
+            .iter()
+            .filter(|e| e["type"] == "subagent.spawned")
+            .collect();
+        assert_eq!(spawned.len(), 1, "exactly one spawned event: {events:?}");
+        assert_eq!(spawned[0]["run_in_background"], true);
+        let completed: Vec<&serde_json::Value> = events
+            .iter()
+            .filter(|e| e["type"] == "subagent.completed")
+            .collect();
+        assert_eq!(
+            completed.len(),
+            1,
+            "exactly one completed event: {events:?}"
+        );
+        assert_eq!(completed[0]["result_summary"], "follow-up answer");
     }
 
     /// A finish_reason of `length` maps to a MaxTokens stop — v2 fails the
