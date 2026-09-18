@@ -469,9 +469,16 @@ interface NativePromptMetadataRecord {
  * title from the caller, `generateSessionTitle` delegates to the engine's own
  * title source), so this exported helper is the wiring seam for those
  * derivations: pass the session's `NativeSessionMeta.promptMetadata` records
- * in submission order and use the returned sanitized join; `undefined` means
- * "fall back to the existing text derivation". Exported for that consumer and
- * for tests; `applyPromptMetadata` produces the records.
+ * in submission order and use the returned sanitized join. `undefined` has two
+ * distinct causes, mirroring upstream (v2 `promptMetadataText.ts` +
+ * `applyPromptMetadataUpdate`): a record without `displayText` (or an empty
+ * set) falls the derivation back to the existing text-derived metadata, while
+ * an all-`displayText` set whose sanitized join is empty (reachable with e.g.
+ * every entry `displayText: ''`) means upstream applies NO metadata update at
+ * all — a consumer must not fall back to text derivation there. The two are
+ * told apart with `records.every((record) => record.hasDisplayText)` on the
+ * records the caller already holds. Exported for that consumer and for tests;
+ * `applyPromptMetadata` produces the records.
  */
 export function displayTextForUndoOrForkLabel(
   records: readonly NativePromptMetadataRecord[],
@@ -3957,11 +3964,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   ): void {
     const text = displayText !== undefined ? promptMetadataTextFromText(displayText) : fallbackText;
     if (displayText !== undefined || fallbackText !== undefined) {
-      meta.promptMetadata.push({
-        text,
-        hasDisplayText: displayText !== undefined,
-        ...(displayText !== undefined ? { displayText } : {}),
-      });
+      meta.promptMetadata.push({ text, hasDisplayText: displayText !== undefined, displayText });
     }
     if (text === undefined) return;
     const patch: { lastPrompt: string; title?: string } = { lastPrompt: text };
