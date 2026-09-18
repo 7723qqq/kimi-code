@@ -75,6 +75,11 @@ pub struct EnginePipeline {
     /// workspace state store). `None` when native tools are off or the store
     /// could not open — hosts install the #3717 liveness predicate on it.
     pub task_runner: Option<Arc<crate::storage::TaskRunner>>,
+    /// The native toolset, when native tools are on. The turn loop reads the
+    /// progressive-tool-disclosure announcement from it (v2
+    /// `toolSelectAnnouncementsService`); the toolset keeps the announced
+    /// set, so the diff spans turns within a session.
+    pub toolset: Option<Arc<crate::tools::NativeToolset>>,
 }
 
 /// One concurrent provider for the MultiLLM race. The chain needs only these
@@ -129,6 +134,11 @@ pub struct PipelineSpec {
     /// `[experimental].tower`). Gates the advertised Tower* tool table; the
     /// worker write-scope guard above is a separate, per-worker concern.
     pub tower_enabled: bool,
+    /// Whether progressive tool disclosure is on (`[experimental].
+    /// tool_select`, v2 `TOOL_SELECT_FLAG_ID`). Together with the model's
+    /// `dynamically_loaded_tools` capability it gates the `select_tools`
+    /// advertisement and the per-server `deferred` MCP disclosure.
+    pub tool_select: bool,
     pub sandbox_mode: Option<String>,
     pub sandbox_policy: Option<crate::tools::sandbox::SandboxExecutionPolicy>,
     pub caller_agent_id: Option<String>,
@@ -266,6 +276,9 @@ pub async fn build_engine_pipeline(
     // build: the runner is per-pipeline here (workspace state store), and the
     // host knows the session this pipeline serves.
     let mut pipeline_task_runner: Option<Arc<crate::storage::TaskRunner>> = None;
+    // Hoisted alongside it: the disclosure announcement diff state lives on
+    // the toolset and must span turns, so the pipeline carries the handle.
+    let mut pipeline_toolset: Option<Arc<crate::tools::NativeToolset>> = None;
     let callbacks: Arc<dyn HostCallbacks> =
         match (spec.native_tools, spec.workspace_root.as_deref()) {
             (true, Some(root)) => match NativeToolset::new(root, spec.shell_path.as_deref()) {
@@ -321,6 +334,11 @@ pub async fn build_engine_pipeline(
                         .with_steer_slot_if(steer_slot)
                         .with_image_limits(spec.image_read_byte_budget, spec.image_max_edge_px)
                         .with_model_capabilities(effective_model_capabilities(spec))
+                        // Progressive tool disclosure reads both halves of the
+                        // gate at table-shaping time: the flag here, the
+                        // model's `dynamically_loaded_tools` capability on the
+                        // toolset's own capability set.
+                        .with_tool_select_enabled(spec.tool_select)
                         .with_bash_auto_background(spec.background.bash_auto_background_on_timeout)
                         .with_bash_task_timeout(spec.background.bash_task_timeout_s)
                         .with_callbacks(base_callbacks.clone())
@@ -382,6 +400,12 @@ pub async fn build_engine_pipeline(
                         subagent_manager.set_task_runner(runner.clone()).await;
                         pipeline_task_runner = Some(runner.clone());
                     }
+                    // Hoist the toolset for the pipeline's disclosure
+                    // announcement provider — the announced-set state must
+                    // span turns, which only a pipeline-held handle gives.
+                    let toolset = Arc::new(toolset);
+                    pipeline_toolset = Some(toolset.clone());
+                    let toolset = toolset;
                     let sandbox_policy = if let Some(ref policy) = spec.sandbox_policy {
                         Some(policy.clone())
                     } else if let Some(ref mode_str) = spec.sandbox_mode {
@@ -399,7 +423,7 @@ pub async fn build_engine_pipeline(
                     };
                     Arc::new(NativeToolCallbacks {
                         inner: base_callbacks.clone(),
-                        toolset: Arc::new(toolset),
+                        toolset,
                         native_count: native_tool_count.clone(),
                         truncator: truncator.clone(),
                         permission_engine,
@@ -466,6 +490,7 @@ pub async fn build_engine_pipeline(
         media: crate::llm::media_resolver::MediaResolver::new(),
         media_dropped: Default::default(),
         task_runner: pipeline_task_runner,
+        toolset: pipeline_toolset,
     })
 }
 
@@ -682,6 +707,7 @@ mod tests {
             todo_tool_veto: None,
             tower_worktree_root: None,
             tower_enabled: false,
+            tool_select: false,
             sandbox_mode: None,
             sandbox_policy: None,
             caller_agent_id: None,

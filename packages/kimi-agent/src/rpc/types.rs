@@ -548,6 +548,14 @@ pub struct NativeLlmConfig {
     pub base_url: String,
     /// Bearer token (OpenAI) or x-api-key (Anthropic).
     pub api_key: String,
+    /// Name of the environment variable the credential is read from at
+    /// request time (v2 `provider.apiKeyEnv`). Mutually exclusive with an
+    /// inline `api_key` and with `auth_provider`; a missing, empty, or
+    /// non-unicode variable fails the request as `config.invalid` — it never
+    /// falls back to any other credential. The key itself is never stored on
+    /// the config.
+    #[serde(default)]
+    pub api_key_env: Option<String>,
     /// Model name sent to the provider.
     pub model: String,
     /// `max_tokens` for the Anthropic Messages API (required there).
@@ -658,6 +666,7 @@ impl std::fmt::Debug for NativeLlmConfig {
             .field("protocol", &self.protocol)
             .field("base_url", &self.base_url)
             .field("api_key", &"[redacted]")
+            .field("api_key_env", &self.api_key_env)
             .field("model", &self.model)
             .field("max_tokens", &self.max_tokens)
             .field("custom_headers", &self.custom_headers)

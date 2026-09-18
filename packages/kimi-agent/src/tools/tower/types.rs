@@ -23,6 +23,10 @@ pub struct TowerRosterEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
     pub spawned_at: String,
+    /// `dead` once a detached run finished with a failure outcome (failed,
+    /// timed out, killed, or lost); absent while the agent may still be alive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

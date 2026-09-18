@@ -981,6 +981,11 @@ pub struct RunTurnInput<'a> {
     /// stateless, so the caller owns the record and the budget writes every
     /// new omission through to it).
     pub media_dropped: Option<crate::llm::media_budget::DroppedMedia>,
+    /// The pipeline's native toolset, when native tools are on. The
+    /// turn-start disclosure announcement (v2 `toolSelectAnnouncementsService`)
+    /// reads the deferred set and the announced diff from it; `None` skips
+    /// the provider — host-proxy turns and subagent turns.
+    pub toolset: Option<std::sync::Arc<crate::tools::NativeToolset>>,
 }
 
 /// Host-injected context for the engine's turn telemetry (M1c). The host

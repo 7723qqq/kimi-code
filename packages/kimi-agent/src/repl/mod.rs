@@ -397,6 +397,7 @@ pub async fn start_repl(
             protocol: native_llm_def.protocol,
             base_url: native_llm_def.base_url,
             api_key: native_llm_def.api_key,
+            api_key_env: None,
             model: native_llm_def.model.clone(),
             max_tokens: native_llm_def.max_tokens,
             custom_headers: native_llm_def.custom_headers,
@@ -596,6 +597,7 @@ pub async fn start_repl(
         // The REPL has no host session id, so it drains no task notifications.
         session_id: None,
         task_runner: None,
+        toolset: None,
     };
     let engine_session = crate::session::EngineSession::new(session_config).await;
 
