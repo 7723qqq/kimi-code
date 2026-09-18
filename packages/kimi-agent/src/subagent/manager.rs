@@ -514,6 +514,7 @@ async fn run_one(
         hook_guard: None,
         media: Some(&runtime.media),
         media_dropped: Some(runtime.media_dropped.clone()),
+        toolset: None,
     };
     let run_future = crate::turn_loop::run_turn::run_turn(run_input, callbacks);
     tokio::pin!(run_future);
@@ -951,6 +952,7 @@ worktree root the tower assigns you as your full authority scope.";
                 hook_guard: None,
                 media: None,
                 media_dropped: None,
+                toolset: None,
             };
 
             let run_result = crate::tools::CALLER_AGENT_ID
@@ -1089,6 +1091,12 @@ worktree root the tower assigns you as your full authority scope.";
 
         let messages = if let Some(history) = inherited_history {
             let mut msgs = crate::subagent::fork::close_trailing_open_tool_exchange(&history);
+            // The fork context notice rides as a `<system-reminder>` injection
+            // ahead of the task prompt (v2 #3412), not concatenated into the
+            // prompt text.
+            msgs.push(crate::injection::injection_message(
+                crate::injection::wrap_system_reminder(crate::subagent::fork::FORK_CONTEXT_NOTICE),
+            ));
             msgs.push(crate::turn_loop::types::LLMMessage {
                 role: "user".into(),
                 content: format!("{}\n\nTask: {}", def.system_prompt, prompt),
@@ -1623,6 +1631,7 @@ worktree root the tower assigns you as your full authority scope.";
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
         let run_result = crate::tools::CALLER_AGENT_ID
             .scope(

@@ -526,6 +526,7 @@ impl ServerEngine {
             protocol: native.protocol,
             base_url: native.base_url,
             api_key: native.api_key,
+            api_key_env: None,
             model: native.model,
             max_tokens: native.max_tokens,
             custom_headers: native.custom_headers,
@@ -1125,6 +1126,7 @@ impl ServerEngine {
             prompt,
             media,
             pipeline.secondary_llm.clone(),
+            pipeline.toolset.clone(),
             origin,
         )
         .await
@@ -1162,6 +1164,7 @@ impl ServerEngine {
             Vec::new(),
             None,
             None,
+            None,
         )
         .await
     }
@@ -1178,6 +1181,7 @@ impl ServerEngine {
         prompt: &str,
         media: Vec<ContentBlock>,
         secondary_llm: Option<Arc<dyn LLM>>,
+        toolset: Option<Arc<crate::tools::NativeToolset>>,
         origin: Option<Value>,
     ) -> Result<TurnReport, EngineError> {
         let turn_id = format!("turn-{}", fastrand::u64(..));
@@ -1300,6 +1304,10 @@ impl ServerEngine {
             hook_guard,
             media: Some(&self.media),
             media_dropped: Some(self.media_dropped_for(session_id)),
+            // The toolset this pipeline just built: its disclosed-tool
+            // announcement state must span the session's turns, and it is the
+            // same handle the turn loop's select_tools arm executes through.
+            toolset,
         };
 
         // Flatten the loop error before any later await: `Box<dyn StdError>`
@@ -1525,6 +1533,7 @@ fn clone_spec(spec: &PipelineSpec) -> PipelineSpec {
         todo_tool_veto: spec.todo_tool_veto.clone(),
         tower_worktree_root: spec.tower_worktree_root.clone(),
         tower_enabled: spec.tower_enabled,
+        tool_select: spec.tool_select,
         sandbox_mode: spec.sandbox_mode.clone(),
         sandbox_policy: spec.sandbox_policy.clone(),
         secondary_model: spec.secondary_model.clone(),
@@ -1564,6 +1573,7 @@ mod tests {
             todo_tool_veto: None,
             tower_worktree_root: None,
             tower_enabled: false,
+            tool_select: false,
             sandbox_mode: None,
             sandbox_policy: None,
             caller_agent_id: None,

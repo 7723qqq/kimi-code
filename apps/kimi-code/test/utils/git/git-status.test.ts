@@ -51,7 +51,7 @@ describe('git status cache', () => {
       if (args.includes('status')) {
         return {
           status: 0,
-          stdout: '## main...origin/main [ahead 2, behind 1]\n M src/app.ts\n',
+          stdout: '## main...origin/main [ahead 2, behind 1]\0 M src/app.ts\0',
         };
       }
       if (args.includes('diff')) {
@@ -96,6 +96,29 @@ describe('git status cache', () => {
     expect(mocks.execFile).toHaveBeenCalledTimes(1);
   });
 
+  it('parses the -z porcelain records so non-ASCII paths never affect the dirty flag', () => {
+    mocks.spawnSync.mockImplementation((_cmd: string, args: string[]) => {
+      if (args.includes('-z')) {
+        return {
+          status: 0,
+          // A C-quoted-looking path arrives verbatim under -z; line-oriented
+          // parsing would have misread the octal escapes as path segments.
+          stdout: '## main...origin/main\0 M 中文目录/文件名.txt\0?? "quoted\\303\\251.txt"\0',
+        };
+      }
+      if (args.includes('rev-parse')) return { status: 0, stdout: 'true\n' };
+      if (args.includes('branch')) return { status: 0, stdout: 'main\n' };
+      return { status: 1, stdout: '' };
+    });
+
+    expect(createGitStatusCache('/tmp/repo').getStatus()).toMatchObject({
+      branch: 'main',
+      dirty: true,
+      ahead: 0,
+      behind: 0,
+    });
+  });
+
   it('reads uncommitted diff line counts and current pull request metadata', async () => {
     const onChange = vi.fn();
     mocks.execFile.mockImplementation(
@@ -118,7 +141,7 @@ describe('git status cache', () => {
       if (args.includes('status')) {
         return {
           status: 0,
-          stdout: '## feature/footer...origin/feature/footer\n M src/app.ts\n',
+          stdout: '## feature/footer...origin/feature/footer\0 M src/app.ts\0',
         };
       }
       if (args.includes('diff')) {
@@ -174,7 +197,7 @@ describe('git status cache', () => {
       if (args.includes('status')) {
         return {
           status: 0,
-          stdout: '## main...origin/main\n M src/app.ts\n',
+          stdout: '## main...origin/main\0 M src/app.ts\0',
         };
       }
       if (args.includes('diff')) {

@@ -20,14 +20,57 @@ pub struct SkillDescriptor {
     pub path: String,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub disable_model_invocation: bool,
+    /// UI-scope whitelist (v2 `SkillScope`: `tui` | `web`, #3843). `None`
+    /// keeps the skill visible everywhere; a scope list restricts it to
+    /// clients whose own mode appears in the list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scopes: Option<Vec<String>>,
+}
+
+/// Skill scope values (v2 `SkillScope`, #3843): `tui` | `web`. `None` keeps
+/// the skill visible everywhere.
+pub type SkillScopes = Option<Vec<String>>;
+
+/// Parse `scopes` from a frontmatter value: a bracketed list
+/// (`[tui, web]`), a comma-separated bare form (`tui, web`), or a single
+/// token. Unknown tokens are dropped; an empty result stays `None`.
+fn parse_scopes_value(val: &str) -> SkillScopes {
+    let cleaned = val.trim().trim_start_matches('[').trim_end_matches(']');
+    let scopes: Vec<String> = cleaned
+        .split(',')
+        .map(|token| {
+            token
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'')
+                .to_lowercase()
+        })
+        .filter(|token| matches!(token.as_str(), "tui" | "web"))
+        .collect();
+    if scopes.is_empty() {
+        None
+    } else {
+        Some(scopes)
+    }
 }
 
 /// Parse metadata from Markdown content with optional YAML frontmatter.
 pub fn parse_skill_metadata(content: &str, fallback_name: &str) -> (String, String, bool) {
+    let (name, description, disable_model_invocation, _scopes) =
+        parse_skill_metadata_with_scopes(content, fallback_name);
+    (name, description, disable_model_invocation)
+}
+
+/// [`parse_skill_metadata`] plus the `scopes` frontmatter field.
+pub fn parse_skill_metadata_with_scopes(
+    content: &str,
+    fallback_name: &str,
+) -> (String, String, bool, SkillScopes) {
     let trimmed = content.trim_start();
     let mut name = fallback_name.to_string();
     let mut description = String::new();
     let mut disable_model_invocation = false;
+    let mut scopes: SkillScopes = None;
 
     if let Some(rest) = trimmed.strip_prefix("---")
         && let Some(end_idx) = rest.find("\n---")
@@ -49,6 +92,8 @@ pub fn parse_skill_metadata(content: &str, fallback_name: &str) -> (String, Stri
                 && val.trim().eq_ignore_ascii_case("true")
             {
                 disable_model_invocation = true;
+            } else if let Some(val) = line.strip_prefix("scopes:") {
+                scopes = parse_scopes_value(val);
             }
         }
     }
@@ -69,7 +114,7 @@ pub fn parse_skill_metadata(content: &str, fallback_name: &str) -> (String, Stri
         }
     }
 
-    (name, description, disable_model_invocation)
+    (name, description, disable_model_invocation, scopes)
 }
 
 fn scan_directory(
@@ -102,7 +147,8 @@ fn scan_directory(
             if skill_file.is_file()
                 && let Ok(content) = std::fs::read_to_string(&skill_file)
             {
-                let (name, desc, disable_inv) = parse_skill_metadata(&content, &file_name);
+                let (name, desc, disable_inv, scopes) =
+                    parse_skill_metadata_with_scopes(&content, &file_name);
                 let normalized_key = name.to_lowercase();
                 if seen.insert(normalized_key) {
                     let path_str = skill_file.to_string_lossy().replace('\\', "/");
@@ -112,6 +158,7 @@ fn scan_directory(
                         source: source.to_string(),
                         path: path_str,
                         disable_model_invocation: disable_inv,
+                        scopes,
                     });
                 }
             }
@@ -121,7 +168,8 @@ fn scan_directory(
         {
             let base_name = file_name.trim_end_matches(".md");
             if let Ok(content) = std::fs::read_to_string(entry.path()) {
-                let (name, desc, disable_inv) = parse_skill_metadata(&content, base_name);
+                let (name, desc, disable_inv, scopes) =
+                    parse_skill_metadata_with_scopes(&content, base_name);
                 let normalized_key = name.to_lowercase();
                 if seen.insert(normalized_key) {
                     let path_str = entry.path().to_string_lossy().replace('\\', "/");
@@ -131,6 +179,7 @@ fn scan_directory(
                         source: source.to_string(),
                         path: path_str,
                         disable_model_invocation: disable_inv,
+                        scopes,
                     });
                 }
             }
@@ -147,6 +196,7 @@ pub fn builtin_skills() -> Vec<SkillDescriptor> {
             source: "builtin".into(),
             path: "builtin://check-kimi-code-docs".into(),
             disable_model_invocation: false,
+            scopes: None,
         },
         SkillDescriptor {
             name: "update-config".into(),
@@ -154,6 +204,7 @@ pub fn builtin_skills() -> Vec<SkillDescriptor> {
             source: "builtin".into(),
             path: "builtin://update-config".into(),
             disable_model_invocation: false,
+            scopes: None,
         },
         SkillDescriptor {
             name: "write-goal".into(),
@@ -161,6 +212,17 @@ pub fn builtin_skills() -> Vec<SkillDescriptor> {
             source: "builtin".into(),
             path: "builtin://write-goal".into(),
             disable_model_invocation: false,
+            scopes: None,
+        },
+        // v2 #3843: the theme editor drives TUI-only dialog flows, so it is
+        // marked tui-scoped and web clients drop it from their palettes.
+        SkillDescriptor {
+            name: "custom-theme".into(),
+            description: "Create a custom color theme for the terminal UI. Define your own palette as a JSON file in ~/.kimi-code/themes/, or generate one interactively.".into(),
+            source: "builtin".into(),
+            path: "builtin://custom-theme".into(),
+            disable_model_invocation: false,
+            scopes: Some(vec!["tui".into()]),
         },
     ]
 }
@@ -288,5 +350,50 @@ This is the first paragraph describing the skill.
 
         // Builtins should also be included
         assert!(list.iter().any(|s| s.name == "check-kimi-code-docs"));
+    }
+
+    #[test]
+    fn test_parse_scopes_frontmatter() {
+        // Bracketed list, bare list, and single-token forms all parse.
+        let (.., scopes) = parse_skill_metadata_with_scopes(
+            "---\nname: s\ndescription: d\nscopes: [tui]\n---\nbody",
+            "s",
+        );
+        assert_eq!(scopes, Some(vec!["tui".into()]));
+
+        let (.., scopes) = parse_skill_metadata_with_scopes(
+            "---\nname: s\ndescription: d\nscopes: [tui, web]\n---\nbody",
+            "s",
+        );
+        assert_eq!(scopes, Some(vec!["tui".into(), "web".into()]));
+
+        let (.., scopes) = parse_skill_metadata_with_scopes(
+            "---\nname: s\ndescription: d\nscopes: web\n---\nbody",
+            "s",
+        );
+        assert_eq!(scopes, Some(vec!["web".into()]));
+
+        // Unknown tokens are dropped; nothing valid stays None.
+        let (.., scopes) = parse_skill_metadata_with_scopes(
+            "---\nname: s\ndescription: d\nscopes: [cli, ide]\n---\nbody",
+            "s",
+        );
+        assert_eq!(scopes, None);
+    }
+
+    #[test]
+    fn test_custom_theme_builtin_is_tui_scoped() {
+        let list = builtin_skills();
+        let theme = list
+            .iter()
+            .find(|s| s.name == "custom-theme")
+            .expect("custom-theme builtin");
+        assert_eq!(theme.scopes, Some(vec!["tui".into()]));
+        // The unscoped builtins stay visible everywhere.
+        let docs = list
+            .iter()
+            .find(|s| s.name == "check-kimi-code-docs")
+            .unwrap();
+        assert_eq!(docs.scopes, None);
     }
 }

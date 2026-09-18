@@ -186,7 +186,10 @@ function readStatus(
   diffDeleted: number;
 } {
   try {
-    const result = spawnSync(git, ['-C', workDir, 'status', '--porcelain', '-b'], {
+    // `-z` output keeps paths verbatim (no core.quotePath C-quoting); only the
+    // record count matters for the dirty flag, the `## ` branch header rides
+    // in the first NUL-separated record.
+    const result = spawnSync(git, ['-C', workDir, 'status', '--porcelain', '-b', '-z'], {
       encoding: 'utf8',
       timeout: SPAWN_TIMEOUT_MS,
       maxBuffer: 4 * 1024 * 1024,
@@ -198,14 +201,14 @@ function readStatus(
     let dirty = false;
     let ahead = 0;
     let behind = 0;
-    for (const line of result.stdout.split('\n')) {
-      if (line.startsWith('## ')) {
-        const m = AHEAD_BEHIND_RE.exec(line);
+    for (const record of result.stdout.split('\0')) {
+      if (record.startsWith('## ')) {
+        const m = AHEAD_BEHIND_RE.exec(record);
         if (m) {
           ahead = Number.parseInt(m[1] ?? '0', 10) || 0;
           behind = Number.parseInt(m[2] ?? '0', 10) || 0;
         }
-      } else if (line.trim().length > 0) {
+      } else if (record.trim().length > 0) {
         dirty = true;
       }
     }

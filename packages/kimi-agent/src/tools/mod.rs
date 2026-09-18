@@ -443,6 +443,11 @@ pub struct NativeToolset {
     /// `&self` signature; persists for the pipeline's lifetime, so
     /// `already_available` is meaningful across turns.
     loaded_tools: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    /// The loadable names already announced via `<tools_added>` (v2
+    /// `foldAnnouncedToolNames`): the turn-start announcement diffs the
+    /// current deferred set against this, so a mid-session MCP change
+    /// announces only the delta instead of the full list every turn.
+    announced_tools: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// The user's global `[tools]` enable/disable lists (v2 tool policy):
     /// applied to the advertised table and enforced again before execution.
     tools_filter: Option<tool_policy::ToolsFilter>,
@@ -459,6 +464,12 @@ pub struct NativeToolset {
     /// and an image read is allowed (v2 `isUnknownCapability`); a declared
     /// set without `image_in` refuses it.
     model_capabilities: Option<Vec<String>>,
+    /// Whether progressive tool disclosure is active (v2 `toolSelectService`
+    /// `enabled()`: the `tool_select` experimental flag). When on, the
+    /// advertised table drops this toolset's deferred MCP tools and
+    /// advertises `select_tools` instead; a call to a deferred-but-unloaded
+    /// tool is refused with load guidance.
+    tool_select_enabled: bool,
     /// `[background].bash_auto_background_on_timeout`: migrate a timed-out
     /// foreground Bash call to the background instead of killing it.
     /// Defaults to `true`.
@@ -549,11 +560,13 @@ impl NativeToolset {
             file_history: Arc::new(std::sync::Mutex::new(None)),
             turn_id: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             loaded_tools: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
+            announced_tools: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
             tools_filter: None,
             secondary_model: None,
             image_read_byte_budget: None,
             image_max_edge_px: None,
             model_capabilities: None,
+            tool_select_enabled: false,
             bash_auto_background: true,
             bash_task_timeout_s: None,
             provider: None,
@@ -608,6 +621,70 @@ impl NativeToolset {
     pub fn with_model_capabilities(mut self, capabilities: Option<Vec<String>>) -> Self {
         self.model_capabilities = capabilities.filter(|caps| !caps.is_empty());
         self
+    }
+
+    /// Progressive tool disclosure switch (v2 `toolSelectService.enabled()`:
+    /// the `tool_select` experimental flag). When on, the advertised tool
+    /// table drops this toolset's deferred MCP tools and offers
+    /// `select_tools` instead.
+    #[must_use]
+    pub fn with_tool_select_enabled(mut self, enabled: bool) -> Self {
+        self.tool_select_enabled = enabled;
+        self
+    }
+
+    /// Whether progressive tool disclosure is active for this toolset.
+    pub fn tool_select_enabled(&self) -> bool {
+        self.tool_select_enabled
+    }
+
+    /// The turn-start disclosure announcement (v2
+    /// `toolSelectAnnouncementsService`): on every new turn, diff the current
+    /// deferred tool set against what was already announced and render the
+    /// `<tools_added>`/`<tools_removed>` block. `None` when disclosure is off
+    /// or nothing changed. The announced set lives on the toolset, so the
+    /// diff spans turns within a session.
+    pub fn take_disclosure_announcement(&self) -> Option<String> {
+        if !self.tool_select_enabled || !self.declares_capability("dynamically_loaded_tools") {
+            return None;
+        }
+        let loadable = self
+            .mcp_manager
+            .as_ref()
+            .map(|mcp| mcp.deferred_tool_names_blocking())
+            .unwrap_or_default();
+        let mut announced = self
+            .announced_tools
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let added: Vec<String> = loadable
+            .iter()
+            .filter(|name| !announced.contains(*name))
+            .cloned()
+            .collect();
+        let removed: Vec<String> = announced
+            .iter()
+            .filter(|name| !loadable.contains(*name))
+            .cloned()
+            .collect();
+        if added.is_empty() && removed.is_empty() {
+            return None;
+        }
+        for name in &added {
+            announced.insert(name.clone());
+        }
+        for name in &removed {
+            announced.remove(name);
+        }
+        crate::tools::select_tools::render_loadable_tools_announcement(&added, &removed)
+    }
+
+    /// The model-declared capability probe shared by the media and
+    /// disclosure gates.
+    fn declares_capability(&self, name: &str) -> bool {
+        self.model_capabilities
+            .as_deref()
+            .is_some_and(|caps| caps.iter().any(|cap| cap == name))
     }
 
     /// `[background].bash_auto_background_on_timeout`: whether a timed-out
@@ -772,6 +849,81 @@ impl NativeToolset {
     /// Get the attached McpManager if any.
     pub fn mcp_manager(&self) -> Option<&std::sync::Arc<crate::mcp::McpManager>> {
         self.mcp_manager.as_ref()
+    }
+
+    /// Shape the advertised tool table for progressive tool disclosure (v2
+    /// `toolSelectService.shapeTools`): when the disclosure switch is on and
+    /// the model declares `dynamically_loaded_tools`, the deferred MCP tools
+    /// come out of the table and the `select_tools` loader is advertised in
+    /// their place; when it is off, the table passes through unchanged
+    /// (`select_tools` stays unadvertised — the model cannot see or call it).
+    pub fn shape_tool_table(
+        &self,
+        mut tools: Vec<crate::turn_loop::types::ToolInfo>,
+    ) -> Vec<crate::turn_loop::types::ToolInfo> {
+        if !self.tool_select_enabled || !self.declares_capability("dynamically_loaded_tools") {
+            return tools;
+        }
+        let deferred = self
+            .mcp_manager
+            .as_ref()
+            .map(|mcp| mcp.deferred_tool_names_blocking())
+            .unwrap_or_default();
+        // Nothing is deferred: disclosure has nothing to fold, so the
+        // loader is not advertised either (v2 keeps `select_tools` out of
+        // the table whenever there are no dynamically loadable tools).
+        if deferred.is_empty() {
+            tools.retain(|tool| tool.name != crate::tools::select_tools::SELECT_TOOLS_TOOL_NAME);
+            return tools;
+        }
+        tools.retain(|tool| {
+            tool.name == crate::tools::select_tools::SELECT_TOOLS_TOOL_NAME
+                || !deferred.contains(&tool.name)
+        });
+        if tools
+            .iter()
+            .all(|tool| tool.name != crate::tools::select_tools::SELECT_TOOLS_TOOL_NAME)
+        {
+            tools.push(crate::turn_loop::types::ToolInfo {
+                name: crate::tools::select_tools::SELECT_TOOLS_TOOL_NAME.to_string(),
+                description: crate::tools::select_tools::SELECT_TOOLS_DESCRIPTION.to_string(),
+                input_schema: crate::tools::select_tools::select_tools_schema(),
+            });
+        }
+        tools
+    }
+
+    /// The full catalogue a `select_tools` call may load from: every
+    /// advertised tool **plus** the deferred ones the table hides (v2
+    /// `loadableToolNames`). Execution stays refused until the model loads a
+    /// deferred name, so this set describes availability, not advertisement.
+    pub async fn full_tool_catalogue(&self) -> std::collections::HashSet<String> {
+        let mut names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        if let Some(mcp) = &self.mcp_manager {
+            mcp.wait_for_initial_load().await;
+            for tool in mcp.list_tool_infos().await {
+                names.insert(tool.name);
+            }
+        }
+        names.extend(
+            crate::tools::tool_policy::native_tool_defs(
+                self.github_credentials().is_some(),
+                false,
+                None,
+                self.secondary_model.as_deref(),
+            )
+            .into_iter()
+            .map(|tool| tool.name),
+        );
+        // Host-registered tools join too: the shaped table filters them only
+        // when their names collide with the toolset's, so the loader must
+        // accept them as available.
+        if let Some(callbacks) = &self.callbacks
+            && let Ok(response) = callbacks.list_tools().await
+        {
+            names.extend(response.tools.into_iter().map(|tool| tool.name));
+        }
+        names
     }
 
     /// Attach the foreground `Agent` tool's turn context (P46): the host's
@@ -974,6 +1126,36 @@ impl NativeToolset {
             });
         }
 
+        // Progressive tool disclosure (v2 `shouldIntercept`): with the
+        // disclosure switch on, a call to a deferred MCP tool the model has
+        // not loaded yet is refused with load guidance instead of executed —
+        // the table hid it, so the call came from memory and running it would
+        // defeat the point of keeping its schema out of the request.
+        if self.tool_select_enabled
+            && tool_name.starts_with("mcp__")
+            && !tool_name.starts_with(crate::tools::select_tools::SELECT_TOOLS_TOOL_NAME)
+        {
+            let deferred = self
+                .mcp_manager
+                .as_ref()
+                .map(|mcp| mcp.deferred_tool_names_blocking())
+                .unwrap_or_default();
+            let loaded_ok = self
+                .loaded_tools
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains(tool_name);
+            if deferred.contains(tool_name) && !loaded_ok {
+                return Some(ExecutableToolResult {
+                    delivery: None,
+                    stop_turn: false,
+                    content: select_tools::not_loaded_tool_output(tool_name),
+                    is_error: true,
+                    note: Some("tool_select".into()),
+                });
+            }
+        }
+
         match tool_name.to_ascii_lowercase().as_str() {
             "read" => {
                 // An image read is delivered to the model as media (v2
@@ -1117,27 +1299,14 @@ impl NativeToolset {
                 }
             }
             "select_tools" | "selecttools" => {
-                let callbacks = self.callbacks.as_deref()?;
                 // A failed enumeration is not an empty catalogue. Collapsing it
                 // to an empty set made every requested name look like a typo the
                 // model had made, hiding the RPC failure behind "unknown tool".
-                let available: std::collections::HashSet<String> = match callbacks
-                    .list_tools()
-                    .await
-                {
-                    Ok(resp) => resp.tools.into_iter().map(|t| t.name).collect(),
-                    Err(error) => {
-                        return Some(ExecutableToolResult {
-                            delivery: None,
-                            stop_turn: false,
-                            content: format!(
-                                "Could not enumerate the connected tools ({error}). No tools were selected; retry once the connection is healthy."
-                            ),
-                            is_error: true,
-                            note: None,
-                        });
-                    }
-                };
+                // The catalogue is the FULL set (advertised plus the deferred
+                // tools the table hides — v2 `loadableToolNames`), not the
+                // shaped table `list_tools` serves: the shapes are the very
+                // tools a `select_tools` call exists to load.
+                let available = self.full_tool_catalogue().await;
                 // The loaded set is the toolset's shared, session-scoped one:
                 // a fresh set per call made `already_available` unreachable and
                 // reported every requested tool as newly loaded.
@@ -3927,6 +4096,144 @@ mod tests {
             second.delivery.is_none(),
             "nothing new was loaded, so no announcement"
         );
+    }
+
+    /// A deferred server's tools leave the advertised table and
+    /// `select_tools` appears in their place — but only when the model
+    /// declares `dynamically_loaded_tools` (v2 `shapeTools`).
+    #[tokio::test]
+    async fn disclosure_shapes_the_tool_table_and_announces_on_new_turns() {
+        let (_dir, mut ts) = setup();
+        let manager = std::sync::Arc::new(crate::mcp::McpManager::new());
+        manager
+            .configure(
+                "github",
+                crate::mcp::manager::McpServerRecipe::Mock,
+                crate::mcp::manager::McpServerOptions {
+                    deferred: true,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        manager
+            .add_client(crate::mcp::client::McpClient::mock("github"))
+            .await;
+        ts = ts
+            .with_mcp(manager.clone())
+            .with_model_capabilities(Some(vec!["dynamically_loaded_tools".into()]))
+            .with_tool_select_enabled(true);
+
+        // A native table plus the deferred MCP tool: only select_tools and
+        // the native side may remain.
+        let shaped = ts.shape_tool_table(vec![
+            tool_info("Read"),
+            tool_info("mcp__github__github_sample_tool"),
+        ]);
+        let names: Vec<&str> = shaped.iter().map(|t| t.name.as_str()).collect();
+        assert!(names.contains(&"Read"), "{names:?}");
+        assert!(names.contains(&"select_tools"), "{names:?}");
+        assert!(
+            !names.contains(&"mcp__github__github_sample_tool"),
+            "the deferred tool must leave the table: {names:?}"
+        );
+
+        // The first new turn announces the deferred tool as added.
+        let first = ts.take_disclosure_announcement().expect("announcement");
+        assert!(first.contains("<tools_added>"), "{first}");
+        assert!(first.contains("mcp__github__github_sample_tool"), "{first}");
+        // The second turn has nothing new: no announcement.
+        assert!(ts.take_disclosure_announcement().is_none());
+    }
+
+    /// Without the capability or the flag, the table passes through
+    /// unchanged and no announcement is produced (v2 `enabled()` gate).
+    #[tokio::test]
+    async fn disclosure_stays_off_without_capability_or_flag() {
+        let (_dir, ts) = setup();
+        let manager = std::sync::Arc::new(crate::mcp::McpManager::new());
+        manager
+            .configure(
+                "github",
+                crate::mcp::manager::McpServerRecipe::Mock,
+                crate::mcp::manager::McpServerOptions {
+                    deferred: true,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        manager
+            .add_client(crate::mcp::client::McpClient::mock("github"))
+            .await;
+        // Flag on but the capability missing:
+        let ts = ts.with_mcp(manager.clone()).with_tool_select_enabled(true);
+        let shaped = ts.shape_tool_table(vec![tool_info("mcp__github__github_sample_tool")]);
+        assert_eq!(shaped.len(), 1);
+        assert_eq!(shaped[0].name, "mcp__github__github_sample_tool");
+        assert!(ts.take_disclosure_announcement().is_none());
+
+        // Capability on but the flag off:
+        let ts = ts
+            .with_model_capabilities(Some(vec!["dynamically_loaded_tools".into()]))
+            .with_tool_select_enabled(false);
+        let shaped = ts.shape_tool_table(vec![tool_info("mcp__github__github_sample_tool")]);
+        assert_eq!(shaped[0].name, "mcp__github__github_sample_tool");
+        assert!(ts.take_disclosure_announcement().is_none());
+    }
+
+    /// A call to a deferred-but-unloaded MCP tool is refused with load
+    /// guidance instead of executed (v2 `shouldIntercept`).
+    #[tokio::test]
+    async fn disclosure_refuses_a_call_to_a_deferred_unloaded_tool() {
+        let (_dir, ts) = setup();
+        let manager = std::sync::Arc::new(crate::mcp::McpManager::new());
+        manager
+            .configure(
+                "github",
+                crate::mcp::manager::McpServerRecipe::Mock,
+                crate::mcp::manager::McpServerOptions {
+                    deferred: true,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        manager
+            .add_client(crate::mcp::client::McpClient::mock("github"))
+            .await;
+        let ts = ts
+            .with_mcp(manager)
+            .with_model_capabilities(Some(vec!["dynamically_loaded_tools".into()]))
+            .with_tool_select_enabled(true);
+
+        let refused = ts
+            .execute_tool("mcp__github__github_sample_tool", &json!({}))
+            .await
+            .expect("the toolset handles the deferred name");
+        assert!(refused.is_error, "{}", refused.content);
+        assert!(
+            refused
+                .content
+                .contains("Call select_tools with [\"mcp__github__github_sample_tool\"]"),
+            "{}",
+            refused.content
+        );
+
+        // After loading through select_tools, the call goes through.
+        let load = ts
+            .execute_tool(
+                "select_tools",
+                &json!({ "names": ["mcp__github__github_sample_tool"] }),
+            )
+            .await
+            .expect("select_tools is a native tool");
+        assert!(!load.is_error, "{}", load.content);
+        let executed = ts
+            .execute_tool("mcp__github__github_sample_tool", &json!({}))
+            .await
+            .expect("now loaded, the toolset still handles it");
+        assert!(!executed.is_error, "{}", executed.content);
     }
 
     /// Locate a bash for native-Bash tests; `None` skips them (Windows CI

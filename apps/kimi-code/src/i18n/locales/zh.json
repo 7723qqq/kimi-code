@@ -47,6 +47,7 @@
       "agent": "本次调用使用的智能体配置文件（仅 v2 引擎）。从智能体目录自动发现或通过 --agent-file 加载。",
       "agentFile": "从 Markdown 文件加载智能体定义并选用（仅 v2 引擎）。",
       "upgradeYes": "跳过确认提示，直接安装更新。",
+      "installDesktop": "打印 Kimi Code 桌面端页面地址并在浏览器中打开。",
       "exportOutput": "输出 ZIP 路径。",
       "exportYes": "跳过上一个会话的确认。",
       "exportSessionId": "要导出的会话 ID。默认为最近的会话。",
@@ -568,12 +569,12 @@
       },
       "permissionSelector": {
         "title": "选择权限模式",
-        "manual": "手动",
-        "manualDesc": "自行审批每个操作。",
-        "auto": "自动",
-        "autoDesc": "自动运行所有操作（包括有风险的操作）。",
-        "yolo": "YOLO",
-        "yoloDesc": "AI 决定哪些操作需要你的审批。"
+        "manual": "总是询问",
+        "manualDesc": "仅自动读取；其余每个操作都先征得你的批准。",
+        "yolo": "按需询问",
+        "yoloDesc": "常规编辑与命令自动运行；高风险操作、提问与计划仍会询问。",
+        "auto": "从不询问",
+        "autoDesc": "绝不打断你；所有操作自动运行并自动决策。"
       },
       "localeSelector": {
         "title": "选择语言 / Select language",
@@ -650,8 +651,8 @@
             "description": "在独立的 worker 线程中运行全局搜索索引 MiniDB（打开、WAL 回放、同步、查询），而不是在服务器主线程中运行。"
           },
           "secondary-model": {
-            "title": "子代理副模型",
-            "description": "让新启动的子代理默认使用单独配置的副模型，并可显式指定 primary 模型以应对质量敏感的任务。"
+            "title": "子代理副模型（始终开启）",
+            "description": "子代理副模型池自 0.42.0 起始终开启；此条目仅用于展示已退役的 opt-out 开关。"
           },
           "subagent_backends": {
             "title": "外部子代理后端",
