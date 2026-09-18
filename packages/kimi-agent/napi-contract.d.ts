@@ -270,6 +270,15 @@ export interface JsNativeLlmConfig {
   /** API base URL including the version segment (e.g. `.../v1`). */
   baseUrl: string
   apiKey: string
+  /**
+   * Name of the environment variable the transport reads the credential
+   * from at request time (`[providers.*].api_key_env`). Set only when the
+   * provider carries neither a static key nor an OAuth binding; an empty
+   * `api_key` with this name and no `auth_provider` is the env-only channel
+   * the transport's `credential()` accepts. Absent means the credential is
+   * the static `api_key`.
+   */
+  apiKeyEnv?: string
   model: string
   maxTokens?: number
   /**
