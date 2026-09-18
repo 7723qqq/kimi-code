@@ -3,6 +3,13 @@
 //! Mirrors v2 `app/mcpConfig/oauthStore.ts:22-103`: AES-256-GCM with a 12-byte
 //! IV, a key derived from `hostname:machineId:username:kimi-code-mcp-oauth-v1`,
 //! and a hex-encoded `{iv, tag, data}` blob on disk.
+//!
+//! Threat model: this protects credentials at rest against casually reading
+//! the file off disk (backup leakage, shared volumes, accidental sync). Any
+//! process running as the same user on the same machine can recompute the
+//! key, so it is not a boundary against local malware.
+
+use std::sync::OnceLock;
 
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{AeadCore, Aes256Gcm, Nonce};
@@ -28,10 +35,23 @@ fn username() -> String {
     whoami::username()
 }
 
+/// Cached machine id: the probes spawn a process (`reg.exe` / `ioreg`) or hit
+/// the disk, and the value never changes within a process.
+static MACHINE_ID: OnceLock<Option<String>> = OnceLock::new();
+
+/// Cached derived key: every credential encrypt/decrypt used to rerun the
+/// probes (spawning `reg.exe` on Windows on every call).
+static DERIVED_KEY: OnceLock<[u8; 32]> = OnceLock::new();
+
 /// Machine id, matching the v2 probe order (`oauthStore.ts:28-53`): the Windows
 /// registry `MachineGuid`, then `/etc/machine-id`, then the macOS IOPlatform
-/// UUID. Missing ids fall back to the sentinel `no-machine-id`.
-fn machine_id() -> Option<String> {
+/// UUID. Missing ids fall back to the sentinel `no-machine-id`. Computed once
+/// per process and cached.
+fn machine_id() -> Option<&'static str> {
+    MACHINE_ID.get_or_init(probe_machine_id).as_deref()
+}
+
+fn probe_machine_id() -> Option<String> {
     if cfg!(windows) {
         let output = std::process::Command::new("reg.exe")
             .args([
@@ -82,18 +102,21 @@ fn machine_id() -> Option<String> {
 }
 
 /// Derive the 32-byte AES key (v2 `deriveKey`, `oauthStore.ts:63-73`).
+/// Cached after the first call.
 pub fn derive_key() -> [u8; 32] {
-    let raw = format!(
-        "{}:{}:{}:{}",
-        hostname(),
-        machine_id().unwrap_or_else(|| "no-machine-id".into()),
-        username(),
-        KEY_CONTEXT
-    );
-    let digest = Sha256::digest(raw.as_bytes());
-    let mut key = [0u8; 32];
-    key.copy_from_slice(&digest);
-    key
+    *DERIVED_KEY.get_or_init(|| {
+        let raw = format!(
+            "{}:{}:{}:{}",
+            hostname(),
+            machine_id().unwrap_or("no-machine-id"),
+            username(),
+            KEY_CONTEXT
+        );
+        let digest = Sha256::digest(raw.as_bytes());
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&digest);
+        key
+    })
 }
 
 fn hex(bytes: &[u8]) -> String {

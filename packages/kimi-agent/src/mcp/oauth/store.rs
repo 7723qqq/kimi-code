@@ -42,9 +42,20 @@ impl McpOAuthFileStore {
         let blob = crypto::encrypt(&plaintext)?;
         let body = serde_json::to_vec(&blob).map_err(|e| e.to_string())?;
         let path = self.path(key);
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, &body).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+        // A per-write random temp name: a fixed `.json.tmp` lets two processes
+        // writing the same key interleave and clobber each other's staging
+        // file before either rename lands.
+        let tmp = path.with_extension(format!("json.tmp.{}", fastrand::u64(..)));
+        // Both legs clean the staging file up: a half-written envelope would
+        // otherwise linger next to the live credentials.
+        if let Err(e) = write_private(&tmp, &body) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e.to_string());
+        }
+        if let Err(e) = std::fs::rename(&tmp, &path) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e.to_string());
+        }
         Ok(())
     }
 
@@ -73,6 +84,27 @@ impl McpOAuthFileStore {
         keys.sort();
         keys
     }
+}
+
+/// Write a credential file with owner-only permissions from the moment the
+/// inode exists. Mirrors `server/auth.rs`'s `write_private`: the mode is set
+/// before any byte lands, so a shared volume never sees a world-readable
+/// secret, and the rename that follows carries the mode with the file.
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> Result<(), std::io::Error> {
+    use std::io::Write;
+
+    let mut file = std::fs::File::create(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    #[cfg(not(unix))]
+    {
+        // No POSIX mode bits to set: the file inherits the directory's ACL.
+    }
+    file.write_all(bytes)?;
+    file.sync_all()
 }
 
 #[cfg(test)]
@@ -137,5 +169,26 @@ mod tests {
         store.write("srv", &tokens("a")).unwrap();
         std::fs::write(dir.path().join("srv.json"), b"not json").unwrap();
         assert_eq!(store.read::<Tokens>("srv"), None);
+    }
+
+    /// The credential file must not be readable by group or other.
+    #[cfg(unix)]
+    #[test]
+    fn test_store_writes_owner_only_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = McpOAuthFileStore::new(dir.path());
+        store.write("srv", &tokens("a")).unwrap();
+
+        let mode = std::fs::metadata(dir.path().join("srv.json"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(
+            mode & 0o077,
+            0,
+            "credential file is group/other readable: {mode:#o}"
+        );
     }
 }

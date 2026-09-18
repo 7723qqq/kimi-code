@@ -7,6 +7,7 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 
 use crate::mcp::client::McpClient;
+use crate::mcp::errors::McpError;
 use crate::mcp::types::McpTool;
 use crate::native::tool_naming::qualify_mcp_tool_name;
 use crate::server::files::FileStore;
@@ -350,24 +351,11 @@ impl McpManager {
             };
             to_public_entry(name, state)
         };
-        if entry.status == "failed" || entry.status == "needs-auth" {
-            tracing::error!(
-                server = %entry.name,
-                transport = %entry.transport,
-                status = %entry.status,
-                reason = ?entry.error,
-                "mcp server unavailable"
-            );
-        }
         let listeners = self
             .status_listeners
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        for (_, listener) in listeners.iter() {
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                listener(entry.clone());
-            }));
-        }
+        fan_out_status(&listeners, &entry);
     }
 
     /// Install the OAuth credential service used for remote servers
@@ -410,7 +398,7 @@ impl McpManager {
     pub async fn mark_needs_auth(
         &self,
         name: &str,
-        error: &str,
+        error: &McpError,
         client: Option<&Arc<McpClient>>,
     ) -> bool {
         let oauth = self.oauth_service().await;
@@ -428,7 +416,7 @@ impl McpManager {
         if status != "connected" && status != "needs-auth" {
             return false;
         }
-        if !should_mark_needs_auth(&recipe, oauth.is_some(), error) {
+        if !should_mark_needs_auth(&recipe, oauth.is_some(), error.is_unauthorized()) {
             return false;
         }
         if status == "needs-auth" {
@@ -541,7 +529,7 @@ impl McpManager {
     /// the full advertised list for inspection (v2 `rawTools`). Discovery
     /// failures surface to the caller so the connect path can mark the entry
     /// `failed` instead of `connected` with zero tools.
-    async fn register_client(&self, mut client: McpClient) -> Result<usize, String> {
+    async fn register_client(&self, mut client: McpClient) -> Result<usize, McpError> {
         let name = client.server_name().to_string();
         if let Some(timeouts) = self.timeouts.read().await.get(&name).cloned() {
             client.set_tool_timeout(timeouts.tool);
@@ -552,10 +540,10 @@ impl McpManager {
         // server (v2 `assertMcpInputSchema`, mcpCore/types.ts:44-55).
         for tool in &tools {
             if !tool.input_schema.is_object() {
-                return Err(format!(
+                return Err(McpError::transport(format!(
                     "Invalid inputSchema for MCP tool \"{}\": schema must be a JSON object",
                     tool.name
-                ));
+                )));
             }
         }
         let filter = {
@@ -596,9 +584,12 @@ impl McpManager {
                     continue;
                 }
                 count += 1;
+                // Only the qualified name is indexed: v2 registers the
+                // `mcp__<server>__<tool>` form exclusively, and a plain-name
+                // alias across servers was last-writer-wins — the model could
+                // have its call routed to the wrong server. The model tool
+                // table only ever advertises qualified names.
                 cached.insert(qualified_name, (name.clone(), tool.clone()));
-                // Also index by plain tool name if not conflicting
-                cached.insert(tool.name.clone(), (name.clone(), tool.clone()));
             }
             if !collisions.is_empty() {
                 tracing::warn!(
@@ -639,8 +630,8 @@ impl McpManager {
         let mut seen = HashSet::new();
         let mut infos = Vec::new();
         for (name, (server, tool)) in cached.iter() {
-            // Prefer the namespaced `mcp__<server>__<tool>` form; skip the
-            // plain-name alias when it duplicates a namespaced entry.
+            // The index holds qualified names only; the prefix test is the
+            // invariant that keeps a plain name from ever reaching the model.
             if !name.starts_with("mcp__") || !seen.insert(name.clone()) {
                 continue;
             }
@@ -795,34 +786,31 @@ impl McpManager {
 
     /// Remove a registered or connected MCP server.
     pub async fn remove_server(&self, name: &str) -> bool {
-        let mut servers = self.servers.write().await;
-        let mut clients = self.clients.write().await;
-        let mut cached = self.cached_tools.write().await;
-
-        let removed_server = servers.remove(name).is_some();
-        let removed_client = if let Some(client) = clients.remove(name) {
-            client.close().await;
-            true
-        } else {
-            false
-        };
-        cached.retain(|_, (s, _)| s != name);
-        drop(cached);
-        drop(clients);
-        drop(servers);
+        // Take everything out under the locks first, then close the client
+        // without holding them: a kill must not freeze the whole manager while
+        // other tasks wait on the client/server maps.
+        let removed_server = self.servers.write().await.remove(name).is_some();
+        let removed_client = self.clients.write().await.remove(name);
+        self.cached_tools
+            .write()
+            .await
+            .retain(|_, (s, _)| s != name);
         self.filters.write().await.remove(name);
         self.timeouts.write().await.remove(name);
-        removed_server || removed_client
+        let had_client = removed_client.is_some();
+        if let Some(client) = removed_client {
+            client.close().await;
+        }
+        removed_server || had_client
     }
 
     /// Close a server but keep its entry as `removed` (v2 `markRemoved`,
     /// connection-manager.ts:221-232): the tools disappear while the name
     /// stays visible so callers can report that the server was removed.
     pub async fn mark_removed(&self, name: &str) -> bool {
-        let client = { self.clients.write().await.remove(name) };
-        if let Some(client) = client {
-            client.close().await;
-        } else if !self.servers.read().await.contains_key(name) {
+        let client = self.clients.write().await.remove(name);
+        let known = client.is_some() || self.servers.read().await.contains_key(name);
+        if !known {
             return false;
         }
         self.cached_tools
@@ -835,6 +823,10 @@ impl McpManager {
             state.raw_tools.clear();
         }
         self.emit_status(name).await;
+        // Close after the state flip and without holding any map lock.
+        if let Some(client) = client {
+            client.close().await;
+        }
         true
     }
 
@@ -1042,19 +1034,16 @@ impl McpManager {
         if !options.enabled {
             return Ok(());
         }
-        match self.connect_one(name).await {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                self.mark_connect_failure(name, &e).await;
-                Err(e)
-            }
-        }
+        // connect_one marks the entry failed/needs-auth itself; its returned
+        // error already carries any captured child stderr.
+        self.connect_one(name).await
     }
 
-    /// Mark a failed connect on the entry: `needs-auth` when the failure
-    /// looks like a 401 on a server without a static credential, otherwise
-    /// `failed` (v2 `connectOne` catch branch + `shouldMarkNeedsAuth`).
-    async fn mark_connect_failure(&self, name: &str, error: &str) {
+    /// Mark a failed connect on the entry: `needs-auth` when the failure is a
+    /// 401 on a server without a static credential, otherwise `failed`
+    /// (v2 `connectOne` catch branch + `shouldMarkNeedsAuth`). `display` is
+    /// the (possibly stderr-augmented) text stored on the entry.
+    async fn mark_connect_failure(&self, name: &str, error: &McpError, display: &str) {
         let oauth_installed = self.oauth_service().await.is_some();
         let recipe = self
             .servers
@@ -1063,12 +1052,16 @@ impl McpManager {
             .get(name)
             .map(|s| s.recipe.clone());
         let status = match recipe {
-            Some(recipe) if should_mark_needs_auth(&recipe, oauth_installed, error) => "needs-auth",
+            Some(recipe)
+                if should_mark_needs_auth(&recipe, oauth_installed, error.is_unauthorized()) =>
+            {
+                "needs-auth"
+            }
             _ => "failed",
         };
         if let Some(state) = self.servers.write().await.get_mut(name) {
             state.status = status.into();
-            state.error = Some(error.to_string());
+            state.error = Some(display.to_string());
         }
         self.emit_status(name).await;
     }
@@ -1089,6 +1082,10 @@ impl McpManager {
                 .map(|t| t.startup)
                 .unwrap_or_else(|| Duration::from_millis(DEFAULT_MCP_STARTUP_TIMEOUT_MS))
         };
+        // Captured before the client moves into `register_client`, so a
+        // discovery failure can still carry the child's diagnostics
+        // (v2 `formatStartupError`, connection-manager.ts:545-574).
+        let mut stderr_tail = String::new();
         let connect = async {
             let client = match &recipe {
                 McpServerRecipe::Sse {
@@ -1097,7 +1094,8 @@ impl McpManager {
                     bearer_token_env_var,
                 } => {
                     let mut headers =
-                        resolve_bearer_headers("SSE", headers, bearer_token_env_var.as_deref())?;
+                        resolve_bearer_headers("SSE", headers, bearer_token_env_var.as_deref())
+                            .map_err(McpError::transport)?;
                     self.apply_oauth_header(name, url, &mut headers).await;
                     McpClient::connect_sse(name, url, headers).await?
                 }
@@ -1107,7 +1105,8 @@ impl McpManager {
                     bearer_token_env_var,
                 } => {
                     let mut headers =
-                        resolve_bearer_headers("HTTP", headers, bearer_token_env_var.as_deref())?;
+                        resolve_bearer_headers("HTTP", headers, bearer_token_env_var.as_deref())
+                            .map_err(McpError::transport)?;
                     self.apply_oauth_header(name, url, &mut headers).await;
                     McpClient::connect_http(name, url, headers).await?
                 }
@@ -1128,37 +1127,50 @@ impl McpManager {
                 }
                 McpServerRecipe::Mock => McpClient::mock(name),
             };
-            // A discovery failure must mark the entry `failed`, not
-            // `connected` with zero tools (v2 `connectOne` catch branch). A
-            // stdio child's captured stderr is appended to the error so the
-            // failure text carries the server's diagnostics (v2
-            // `formatStartupError`, connection-manager.ts:545-574). The
-            // snapshot is taken before `register_client` moves the client.
-            let stderr_tail = client.stderr_snapshot();
-            match self.register_client(client).await {
-                Ok(count) => {
-                    // Watch for the transport dying after the handshake (v2
-                    // `watchForUnexpectedClose`, connection-manager.ts:321-341).
-                    if let Some(client_arc) = self.clients.read().await.get(name).cloned() {
-                        self.watch_unexpected_close(name, client_arc).await;
-                    }
-                    Ok(count)
-                }
-                Err(e) => {
-                    if stderr_tail.is_empty() {
-                        Err(e)
-                    } else {
-                        Err(format!("{e}\nstderr: {}", stderr_tail.trim_end()))
-                    }
-                }
+            stderr_tail = client.stderr_snapshot();
+            let count = self.register_client(client).await?;
+            // Watch for the transport dying after the handshake (v2
+            // `watchForUnexpectedClose`, connection-manager.ts:321-341).
+            if let Some(client_arc) = self.clients.read().await.get(name).cloned() {
+                self.watch_unexpected_close(name, client_arc).await;
             }
+            Ok::<usize, McpError>(count)
         };
         // v2 wraps connect + tool discovery in `withTimeout` and reports
         // `Timed out after <ms>ms` (connection-manager.ts:594-611).
         match tokio::time::timeout(startup, connect).await {
-            Ok(Ok(_)) => {}
-            Ok(Err(e)) => return Err(e),
-            Err(_) => return Err(format!("Timed out after {}ms", startup.as_millis())),
+            Ok(Ok(_)) => {
+                // The transport may have died in the gap between discovery
+                // finishing and this status write; never overwrite that
+                // failure with `connected`.
+                let closed = self
+                    .clients
+                    .read()
+                    .await
+                    .get(name)
+                    .is_some_and(|client| client.is_closed());
+                if closed {
+                    let error = McpError::closed("MCP server closed during the handshake");
+                    let display = error.to_string();
+                    self.mark_connect_failure(name, &error, &display).await;
+                    return Err(display);
+                }
+            }
+            Ok(Err(error)) => {
+                let display = if stderr_tail.is_empty() {
+                    error.to_string()
+                } else {
+                    format!("{error}\nstderr: {}", stderr_tail.trim_end())
+                };
+                self.mark_connect_failure(name, &error, &display).await;
+                return Err(display);
+            }
+            Err(_) => {
+                let display = format!("Timed out after {}ms", startup.as_millis());
+                let error = McpError::timeout(display.clone());
+                self.mark_connect_failure(name, &error, &display).await;
+                return Err(display);
+            }
         }
         let connected_at_ms = self.oauth_clock().await;
         if let Some(state) = self.servers.write().await.get_mut(name) {
@@ -1217,9 +1229,7 @@ impl McpManager {
                         to_public_entry(&name, state)
                     };
                     let listeners = listeners.lock().unwrap_or_else(|e| e.into_inner());
-                    for (_, listener) in listeners.iter() {
-                        listener(entry.clone());
-                    }
+                    fan_out_status(&listeners, &entry);
                 });
             }))
             .await;
@@ -1292,25 +1302,24 @@ impl McpManager {
         }
         // Close the live client (dropping it kills the stdio child) and
         // clear its cached tools, mirroring the v2 close-then-pending order.
-        if let Some(dead) = self.clients.write().await.remove(name) {
-            dead.close().await;
-        }
-        let mut cached = self.cached_tools.write().await;
-        cached.retain(|_, (srv, _)| srv != name);
-        drop(cached);
+        // The close happens outside the map locks so it cannot block the
+        // manager while the child is being killed.
+        let dead = self.clients.write().await.remove(name);
+        self.cached_tools
+            .write()
+            .await
+            .retain(|_, (srv, _)| srv != name);
         if let Some(state) = self.servers.write().await.get_mut(name) {
             state.status = "pending".into();
             state.error = None;
             state.raw_tools.clear();
         }
-        self.emit_status(name).await;
-        match self.connect_one(name).await {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                self.mark_connect_failure(name, &e).await;
-                Err(e)
-            }
+        if let Some(dead) = dead {
+            dead.close().await;
         }
+        self.emit_status(name).await;
+        // connect_one marks the failure state itself.
+        self.connect_one(name).await
     }
 }
 
@@ -1320,6 +1329,31 @@ fn tool_to_json(tool: &McpTool) -> Value {
         "description": tool.description,
         "inputSchema": tool.input_schema,
     })
+}
+
+/// Fan one public entry out to every status listener. Failed / needs-auth
+/// transitions are logged first, and a panicking listener must not break the
+/// connection manager (v2 wraps listener calls in try/catch). The single
+/// shared fan-out keeps `emit_status` and the unexpected-close watcher
+/// identical (logging + panic isolation included).
+fn fan_out_status(
+    listeners: &[(McpStatusSubscription, McpStatusListener)],
+    entry: &McpServerEntry,
+) {
+    if entry.status == "failed" || entry.status == "needs-auth" {
+        tracing::error!(
+            server = %entry.name,
+            transport = %entry.transport,
+            status = %entry.status,
+            reason = ?entry.error,
+            "mcp server unavailable"
+        );
+    }
+    for (_, listener) in listeners {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            listener(entry.clone());
+        }));
+    }
 }
 
 /// The public view of a server entry (v2 `toPublicEntry`,
@@ -1344,12 +1378,16 @@ fn to_public_entry(name: &str, state: &ServerState) -> McpServerEntry {
     }
 }
 
-/// Whether a connect failure should flip the entry into `needs-auth` instead
-/// of `failed` (v2 `shouldMarkNeedsAuth`, connection-manager.ts:383-393):
+/// Whether a failure should flip the entry into `needs-auth` instead of
+/// `failed` (v2 `shouldMarkNeedsAuth`, connection-manager.ts:383-393):
 /// only remote servers without a static credential participate in the OAuth
-/// flow, and only when the failure looks like a 401 / Unauthorized.
-fn should_mark_needs_auth(recipe: &McpServerRecipe, oauth_installed: bool, error: &str) -> bool {
-    if !oauth_installed {
+/// flow, and only when the transport classified the failure as HTTP 401.
+fn should_mark_needs_auth(
+    recipe: &McpServerRecipe,
+    oauth_installed: bool,
+    unauthorized: bool,
+) -> bool {
+    if !oauth_installed || !unauthorized {
         return false;
     }
     let (headers, bearer_token_env_var) = match recipe {
@@ -1374,13 +1412,7 @@ fn should_mark_needs_auth(recipe: &McpServerRecipe, oauth_installed: bool, error
     if !headers.is_empty() {
         return false;
     }
-    is_unauthorized_like_error(error)
-}
-
-/// v2 `isUnauthorizedLikeError` (connection-manager.ts:473-483): Rust errors
-/// are plain strings, so the name/code checks collapse into message sniffing.
-fn is_unauthorized_like_error(error: &str) -> bool {
-    error.contains("401") || error.to_ascii_lowercase().contains("unauthorized")
+    true
 }
 
 /// A configured server is remote when it has a URL, otherwise stdio when it
@@ -1470,40 +1502,34 @@ mod tests {
         let client = McpClient::mock("github");
         manager.add_client(client).await;
 
-        // Verify discovery both by plain alias and qualified name
-        assert!(manager.handles("github_sample_tool").await);
+        // Only the qualified name exists: plain aliases were removed
+        // (last-writer-wins across servers could misroute a model call).
         assert!(manager.handles("mcp__github__github_sample_tool").await);
+        assert!(!manager.handles("github_sample_tool").await);
         assert!(!manager.handles("nonexistent_tool").await);
 
-        // 1. Call via plain alias
-        let res_plain = manager
-            .call_tool("github_sample_tool", &json!({ "query": "kimi" }), None)
-            .await
-            .expect("call_tool via plain alias failed");
-
-        assert!(!res_plain.is_error);
-        assert_eq!(
-            res_plain.content,
-            "Mock execution of github_sample_tool with {\"query\":\"kimi\"}"
-        );
-        assert_eq!(res_plain.note.as_deref(), Some("mcp:github"));
-
-        // 2. Call via namespaced name
-        let res_namespaced = manager
+        // 1. Call via the qualified name
+        let res_qualified = manager
             .call_tool(
                 "mcp__github__github_sample_tool",
-                &json!({ "query": "kimi_namespaced" }),
+                &json!({ "query": "kimi" }),
                 None,
             )
             .await
             .expect("call_tool via qualified name failed");
 
-        assert!(!res_namespaced.is_error);
+        assert!(!res_qualified.is_error);
         assert_eq!(
-            res_namespaced.content,
-            "Mock execution of github_sample_tool with {\"query\":\"kimi_namespaced\"}"
+            res_qualified.content,
+            "Mock execution of github_sample_tool with {\"query\":\"kimi\"}"
         );
-        assert_eq!(res_namespaced.note.as_deref(), Some("mcp:github"));
+        assert_eq!(res_qualified.note.as_deref(), Some("mcp:github"));
+
+        // 2. A bare tool name is not routable to an MCP server
+        let res_plain = manager
+            .call_tool("github_sample_tool", &json!({ "query": "kimi" }), None)
+            .await;
+        assert!(res_plain.is_none(), "plain tool names must not be routed");
 
         // 3. Call unknown tool returns None
         let res_missing = manager.call_tool("unknown_tool", &json!({}), None).await;
@@ -1577,10 +1603,10 @@ mod tests {
         let manager = McpManager::new();
         manager.add_client(client).await;
 
-        // Discovered tools are indexed
-        assert!(manager.handles("calculate").await);
+        // Discovered tools are indexed by qualified name only (no plain alias)
+        assert!(!manager.handles("calculate").await);
         assert!(manager.handles("mcp__calc_server__calculate").await);
-        assert!(manager.handles("echo").await);
+        assert!(!manager.handles("echo").await);
         assert!(manager.handles("mcp__calc_server__echo").await);
 
         // Call tool over SSE
@@ -2095,6 +2121,50 @@ mod tests {
         assert_eq!(infos[0].description, "calc");
     }
 
+    /// Two servers exposing a tool with the same plain name both keep their
+    /// distinct qualified names, and each qualified call routes to its own
+    /// server (regression for the last-writer-wins plain alias).
+    #[tokio::test]
+    async fn test_same_tool_name_on_two_servers_routes_by_qualified_name() {
+        let manager = McpManager::new();
+        manager
+            .add_client(McpClient::mock_with_tools(
+                "alpha",
+                vec![McpTool {
+                    name: "ping".into(),
+                    description: Some("alpha ping".into()),
+                    input_schema: json!({ "type": "object" }),
+                }],
+            ))
+            .await;
+        manager
+            .add_client(McpClient::mock_with_tools(
+                "beta",
+                vec![McpTool {
+                    name: "ping".into(),
+                    description: Some("beta ping".into()),
+                    input_schema: json!({ "type": "object" }),
+                }],
+            ))
+            .await;
+
+        assert!(manager.handles("mcp__alpha__ping").await);
+        assert!(manager.handles("mcp__beta__ping").await);
+        let infos = manager.list_tool_infos().await;
+        assert_eq!(infos.len(), 2, "both qualified tools are advertised");
+
+        let alpha = manager
+            .call_tool("mcp__alpha__ping", &json!({}), None)
+            .await
+            .expect("alpha call must resolve");
+        assert_eq!(alpha.note.as_deref(), Some("mcp:alpha"));
+        let beta = manager
+            .call_tool("mcp__beta__ping", &json!({}), None)
+            .await
+            .expect("beta call must resolve");
+        assert_eq!(beta.note.as_deref(), Some("mcp:beta"));
+    }
+
     /// `enabled: false` keeps the server listed as `disabled` and never
     /// connects it (v2 connection-manager.ts:193-204).
     #[tokio::test]
@@ -2163,10 +2233,14 @@ mod tests {
         let dir = std::env::temp_dir();
         let (cmd, args, script) = if cfg!(windows) {
             let path = dir.join(format!("kimi_mcp_die_mgr_{}.bat", std::process::id()));
+            // Read each request line before answering (the client sends
+            // initialize, then an initialized notification, then tools/list):
+            // echoing both replies up front races the second request's
+            // registration and the response gets dropped.
             std::fs::write(
                 &path,
                 format!(
-                    "@echo {init}\r\n@echo {list}\r\n@ping -n 2 127.0.0.1 >nul\r\n@exit /b 0\r\n"
+                    "@echo off\r\nset /p _=\r\n@echo {init}\r\nset /p _=\r\nset /p _=\r\n@echo {list}\r\n@ping -n 2 127.0.0.1 >nul\r\n@exit /b 0\r\n"
                 ),
             )
             .expect("write die script");
@@ -2182,7 +2256,9 @@ mod tests {
             // unmatched response is dropped, so the handshake never completes.
             std::fs::write(
                 &path,
-                format!("read -r _; echo '{init}'\nread -r _; echo '{list}'\nsleep 1\nexit 0\n"),
+                format!(
+                    "read -r _; echo '{init}'\nread -r _\nread -r _; echo '{list}'\nsleep 1\nexit 0\n"
+                ),
             )
             .expect("write die script");
             ("sh", vec![path.to_string_lossy().into_owned()], path)
@@ -2875,7 +2951,7 @@ mod tests {
 
     /// v2 `shouldMarkNeedsAuth` decision matrix (connection-manager.ts:383-393):
     /// only remote servers without a static credential flip to `needs-auth`,
-    /// and only on 401 / Unauthorized-like failures.
+    /// and only on a classified HTTP 401 (never on message text sniffing).
     #[test]
     fn test_should_mark_needs_auth_matrix() {
         let http = McpServerRecipe::Http {
@@ -2901,22 +2977,17 @@ mod tests {
         };
 
         // No OAuth service installed → never needs-auth.
-        assert!(!should_mark_needs_auth(&http, false, "401"));
+        assert!(!should_mark_needs_auth(&http, false, true));
         // stdio servers never participate in the OAuth flow.
-        assert!(!should_mark_needs_auth(&stdio, true, "401"));
+        assert!(!should_mark_needs_auth(&stdio, true, true));
         // A pinned static credential means the 401 is a bad header.
-        assert!(!should_mark_needs_auth(&with_headers, true, "401"));
-        assert!(!should_mark_needs_auth(&with_bearer, true, "401"));
-        // Remote without credentials + 401 / Unauthorized → needs-auth.
-        assert!(should_mark_needs_auth(&http, true, "401"));
-        assert!(should_mark_needs_auth(
-            &http,
-            true,
-            "UnauthorizedError: token expired"
-        ));
-        assert!(should_mark_needs_auth(&http, true, "HTTP 401 Unauthorized"));
-        // Other failures stay failed.
-        assert!(!should_mark_needs_auth(&http, true, "connection refused"));
+        assert!(!should_mark_needs_auth(&with_headers, true, true));
+        assert!(!should_mark_needs_auth(&with_bearer, true, true));
+        // Remote without credentials + a classified 401 → needs-auth.
+        assert!(should_mark_needs_auth(&http, true, true));
+        // Non-401 failures (500, connection refused, timeout, …) stay failed,
+        // even if their text happens to contain "401" or "Unauthorized".
+        assert!(!should_mark_needs_auth(&http, true, false));
     }
 
     /// A static `headers` block on a 401 server must surface `failed`, not

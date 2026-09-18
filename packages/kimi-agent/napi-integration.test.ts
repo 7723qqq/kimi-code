@@ -2218,8 +2218,13 @@ describe.skipIf(!nativeEntry)('EngineSessionHandle quiescence (M1c via handle)',
     await handle.dispose();
   });
 
-  it('initializes native MCP servers via mcpServers param', async () => {
-    const handle = await EngineSessionHandle.create(
+  /**
+   * A session whose only MCP server is the `mock` transport. It answers every
+   * call with fabricated results, so the napi path honours it only while
+   * `KIMI_NATIVE_ALLOW_MOCK_MCP` is set (src/napi_bindings.rs).
+   */
+  function createMockMcpSession() {
+    return EngineSessionHandle.create(
       {
         turnId: 'mcp_test',
         systemPrompt: 'test',
@@ -2245,10 +2250,45 @@ describe.skipIf(!nativeEntry)('EngineSessionHandle quiescence (M1c via handle)',
         executeTool: async () => JSON.stringify({ content: 'ok', is_error: false }),
       },
     );
+  }
 
-    const turnId = await handle.enqueueTurn({ role: 'user', content: 'test mcp' }, 'newTurn');
-    const outcome = await handle.turnOutcome(turnId);
-    expect(outcome.status).toBe('ran');
+  /** The roster entry for `test_mcp`, once the session's connect has settled. */
+  async function mockMcpRosterEntry(handle: EngineSessionHandle) {
+    for (let i = 0; i < 100; i += 1) {
+      const entry = (await handle.mcpServers()).find(
+        (server) => (server as { name?: string }).name === 'test_mcp',
+      );
+      if (entry) return entry as { name: string; status: string; tool_count: number };
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    return undefined;
+  }
+
+  it('initializes native MCP servers via mcpServers param', async () => {
+    process.env.KIMI_NATIVE_ALLOW_MOCK_MCP = '1';
+    try {
+      const handle = await createMockMcpSession();
+
+      // The server must actually be registered and connected: a turn that runs
+      // with the server silently dropped would pass either way.
+      const entry = await mockMcpRosterEntry(handle);
+      expect(entry?.status).toBe('connected');
+      expect(entry?.tool_count).toBeGreaterThan(0);
+
+      const turnId = await handle.enqueueTurn({ role: 'user', content: 'test mcp' }, 'newTurn');
+      const outcome = await handle.turnOutcome(turnId);
+      expect(outcome.status).toBe('ran');
+      await handle.dispose();
+    } finally {
+      delete process.env.KIMI_NATIVE_ALLOW_MOCK_MCP;
+    }
+  });
+
+  it('refuses a mock transport without the test opt-in', async () => {
+    const handle = await createMockMcpSession();
+    // No roster entry at all: the unenabled transport never reaches the
+    // manager, so a mistyped or fabricated transport cannot feed the model.
+    await expect(handle.mcpServers()).resolves.toEqual([]);
     await handle.dispose();
   });
 });

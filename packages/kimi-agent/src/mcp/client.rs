@@ -10,6 +10,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, oneshot};
 
+use crate::mcp::errors::McpError;
 use crate::mcp::http::McpHttpTransport;
 use crate::mcp::sse::McpSseTransport;
 use crate::mcp::types::*;
@@ -126,7 +127,7 @@ impl McpClient {
         server_name: &str,
         url: &str,
         headers: HashMap<String, String>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, McpError> {
         let transport = McpHttpTransport::connect(url, headers).await?;
         let client = Self {
             server_name: server_name.to_string(),
@@ -146,7 +147,7 @@ impl McpClient {
         server_name: &str,
         sse_url: &str,
         headers: HashMap<String, String>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, McpError> {
         let sse_transport = McpSseTransport::connect(sse_url, headers).await?;
 
         // Bridge the transport's unexpected-close signal into the client-level
@@ -191,7 +192,7 @@ impl McpClient {
         args: &[&str],
         env: &HashMap<String, String>,
         cwd: Option<&str>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, McpError> {
         let mut cmd = Command::new(command);
         cmd.args(args)
             .envs(env)
@@ -208,24 +209,24 @@ impl McpClient {
             cmd.current_dir(dir);
         }
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("Failed to spawn MCP server '{command}': {e}"))?;
+        let mut child = cmd.spawn().map_err(|e| {
+            McpError::transport(format!("Failed to spawn MCP server '{command}': {e}"))
+        })?;
 
         let stdin = child
             .stdin
             .take()
-            .ok_or_else(|| "Failed to capture MCP child stdin".to_string())?;
+            .ok_or_else(|| McpError::transport("Failed to capture MCP child stdin"))?;
 
         let stdout = child
             .stdout
             .take()
-            .ok_or_else(|| "Failed to capture MCP child stdout".to_string())?;
+            .ok_or_else(|| McpError::transport("Failed to capture MCP child stdout"))?;
 
         let stderr = child
             .stderr
             .take()
-            .ok_or_else(|| "Failed to capture MCP child stderr".to_string())?;
+            .ok_or_else(|| McpError::transport("Failed to capture MCP child stderr"))?;
 
         let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>> =
             Arc::new(Mutex::new(HashMap::new()));
@@ -326,7 +327,10 @@ impl McpClient {
             if tail.is_empty() {
                 return Err(e);
             }
-            return Err(format!("{e}\nstderr: {}", tail.trim_end()));
+            return Err(McpError::transport(format!(
+                "{e}\nstderr: {}",
+                tail.trim_end()
+            )));
         }
 
         Ok(client)
@@ -336,10 +340,23 @@ impl McpClient {
         &self.server_name
     }
 
-    /// Whether the server connection has died (stdio stdout EOF). Status
-    /// views use this to stop advertising the entry as connected.
+    /// Whether the server connection is gone: a stdio child whose stdout
+    /// reached EOF, or a transport the caller closed. Status views use this to
+    /// stop advertising the entry as connected, and `ensure_open` uses it to
+    /// refuse calls that would only wait out their timeout.
     pub fn is_closed(&self) -> bool {
         self.closed.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn ensure_open(&self) -> Result<(), McpError> {
+        if self.is_closed() {
+            Err(McpError::closed(format!(
+                "MCP server \"{}\" is closed",
+                self.server_name
+            )))
+        } else {
+            Ok(())
+        }
     }
 
     /// Register a listener that fires when the transport closes on its own —
@@ -377,13 +394,19 @@ impl McpClient {
         self.tool_timeout
     }
 
-    /// Close the client: kill the stdio child process. Dropping the client
-    /// would achieve the same eventually; an explicit close makes reconnect
-    /// bookkeeping deterministic.
+    /// Close the client: kill the stdio child, stop the SSE reader, or mark the
+    /// HTTP transport closed. Dropping the client would achieve the same
+    /// eventually; an explicit close makes reconnect bookkeeping
+    /// deterministic.
     pub async fn close(&self) {
-        if let McpTransport::Stdio { _process, .. } = &self.transport {
-            let mut child = _process.lock().await;
-            let _ = child.kill().await;
+        match &self.transport {
+            McpTransport::Stdio { _process, .. } => {
+                let mut child = _process.lock().await;
+                let _ = child.kill().await;
+            }
+            McpTransport::Sse(sse) => sse.shutdown().await,
+            McpTransport::Http(http) => http.shutdown().await,
+            McpTransport::Mock { .. } => {}
         }
         self.closed.store(true, std::sync::atomic::Ordering::SeqCst);
     }
@@ -397,7 +420,8 @@ impl McpClient {
         }
     }
 
-    async fn send_request(&self, method: &str, params: Value) -> Result<Value, String> {
+    async fn send_request(&self, method: &str, params: Value) -> Result<Value, McpError> {
+        self.ensure_open()?;
         match &self.transport {
             McpTransport::Mock { .. } => Ok(serde_json::json!({})),
             McpTransport::Sse(sse) => sse.send_request(method, params).await,
@@ -419,41 +443,79 @@ impl McpClient {
 
                 let line = req.to_string();
 
-                let mut stdin_lock = stdin.lock().await;
-                stdin_lock
-                    .write_all(format!("{line}\n").as_bytes())
-                    .await
-                    .map_err(|e| format!("Failed to write to MCP stdin: {e}"))?;
-                stdin_lock
-                    .flush()
-                    .await
-                    .map_err(|e| format!("Failed to flush MCP stdin: {e}"))?;
-                drop(stdin_lock);
+                let write_result = async {
+                    let mut stdin_lock = stdin.lock().await;
+                    stdin_lock
+                        .write_all(format!("{line}\n").as_bytes())
+                        .await
+                        .map_err(|e| {
+                            McpError::transport(format!("Failed to write to MCP stdin: {e}"))
+                        })?;
+                    stdin_lock
+                        .flush()
+                        .await
+                        .map_err(|e| McpError::transport(format!("Failed to flush MCP stdin: {e}")))
+                }
+                .await;
+                if let Err(e) = write_result {
+                    // Never leave a dead sender in the pending table: the
+                    // stdout EOF drain eventually clears it, but the next
+                    // request must not wait for its timeout in the meantime.
+                    pending.lock().await.remove(&id);
+                    return Err(e);
+                }
 
                 let wait = self.tool_timeout.unwrap_or(DEFAULT_REQUEST_TIMEOUT);
                 match tokio::time::timeout(wait, rx).await {
                     Ok(Ok(val)) => {
                         if let Some(err) = val.get("error") {
-                            return Err(format!("MCP error: {err}"));
+                            return Err(McpError::json_rpc(format!("MCP error: {err}")));
                         }
                         Ok(val.get("result").cloned().unwrap_or(Value::Null))
                     }
-                    Ok(Err(_)) => Err("MCP child closed stdout prematurely".into()),
+                    Ok(Err(_)) => Err(McpError::closed("MCP child closed stdout prematurely")),
                     Err(_) => {
                         let mut pend = pending.lock().await;
                         pend.remove(&id);
-                        Err(format!(
+                        Err(McpError::timeout(format!(
                             "MCP request timed out after {}ms",
                             wait.as_millis()
-                        ))
+                        )))
                     }
                 }
             }
         }
     }
 
+    /// Send a JSON-RPC notification (no id, no response): over stdio it is a
+    /// line on child stdin, over HTTP/SSE a POST the server acknowledges.
+    async fn send_notification(&self, method: &str, params: Value) -> Result<(), McpError> {
+        match &self.transport {
+            McpTransport::Mock { .. } => Ok(()),
+            McpTransport::Sse(sse) => sse.send_notification(method, params).await,
+            McpTransport::Http(http) => http.send_notification(method, params).await,
+            McpTransport::Stdio { stdin, .. } => {
+                let envelope = serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "method": method,
+                    "params": params,
+                });
+                let mut stdin_lock = stdin.lock().await;
+                stdin_lock
+                    .write_all(format!("{}\n", envelope).as_bytes())
+                    .await
+                    .map_err(|e| McpError::transport(format!("Failed to write MCP stdin: {e}")))?;
+                stdin_lock
+                    .flush()
+                    .await
+                    .map_err(|e| McpError::transport(format!("Failed to flush MCP stdin: {e}")))?;
+                Ok(())
+            }
+        }
+    }
+
     /// Perform MCP `initialize` handshake.
-    pub async fn initialize(&self) -> Result<(), String> {
+    pub async fn initialize(&self) -> Result<(), McpError> {
         // Streamable HTTP only exists from 2025-03-26 on; the legacy stdio and
         // HTTP+SSE transports keep advertising 2024-11-05.
         let protocol_version = match &self.transport {
@@ -467,16 +529,27 @@ impl McpClient {
             },
             "clientInfo": {
                 "name": "kimi-agent-native",
-                "version": "0.1.0"
+                "version": env!("CARGO_PKG_VERSION")
             }
         });
 
         self.send_request("initialize", params).await?;
+        // The MCP lifecycle requires `notifications/initialized` right after a
+        // successful initialize (the TS SDK sends it implicitly; the hand
+        // written JSON-RPC transports must do it themselves). A notification
+        // failure is non-fatal — the server's next request is what reveals an
+        // unusable connection — and must not hide the successful handshake.
+        if let Err(e) = self
+            .send_notification("notifications/initialized", serde_json::json!({}))
+            .await
+        {
+            tracing::debug!(server = %self.server_name, reason = %e, "MCP initialized notification failed");
+        }
         Ok(())
     }
 
     /// List available tools exposed by the MCP server (`tools/list`).
-    pub async fn list_tools(&self) -> Result<Vec<McpTool>, String> {
+    pub async fn list_tools(&self) -> Result<Vec<McpTool>, McpError> {
         if let McpTransport::Mock { tools } = &self.transport {
             return Ok(tools.clone());
         }
@@ -488,7 +561,8 @@ impl McpClient {
             .get("tools")
             .cloned()
             .unwrap_or_else(|| Value::Array(Vec::new()));
-        serde_json::from_value(tools_val).map_err(|e| format!("Failed to parse tools list: {e}"))
+        serde_json::from_value(tools_val)
+            .map_err(|e| McpError::transport(format!("Failed to parse tools list: {e}")))
     }
 
     /// Call an MCP tool (`tools/call`).
@@ -496,7 +570,7 @@ impl McpClient {
         &self,
         name: &str,
         arguments: &Value,
-    ) -> Result<McpToolCallResult, String> {
+    ) -> Result<McpToolCallResult, McpError> {
         if matches!(self.transport, McpTransport::Mock { .. }) {
             return Ok(McpToolCallResult {
                 content: vec![McpContent {
@@ -515,7 +589,8 @@ impl McpClient {
         });
 
         let res = self.send_request("tools/call", params).await?;
-        serde_json::from_value(res).map_err(|e| format!("Failed to parse tool call result: {e}"))
+        serde_json::from_value(res)
+            .map_err(|e| McpError::transport(format!("Failed to parse tool call result: {e}")))
     }
 }
 
@@ -611,9 +686,10 @@ mod tests {
             .await
             .expect_err("expected JSON-RPC error");
         assert_eq!(
-            rpc_err,
+            rpc_err.to_string(),
             "MCP Server Error: {\"code\":-32601,\"message\":\"Tool 'nonexistent_tool' not found\"}"
         );
+        assert!(matches!(rpc_err, McpError::JsonRpc { .. }));
     }
 
     #[tokio::test]
@@ -628,7 +704,7 @@ mod tests {
         .await;
 
         assert!(res.is_err());
-        let err = res.err().unwrap();
+        let err = res.err().unwrap().to_string();
         assert!(
             err.contains("Failed to spawn MCP server 'definitely_nonexistent_command_9999'"),
             "unexpected error message: {err}"
@@ -645,7 +721,10 @@ mod tests {
 
         let res = McpClient::spawn_stdio("exit_early", cmd, &args, &HashMap::new(), None).await;
         assert!(res.is_err());
-        assert_eq!(res.err().unwrap(), "MCP child closed stdout prematurely");
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            "MCP child closed stdout prematurely"
+        );
     }
 
     #[tokio::test]
@@ -658,7 +737,10 @@ mod tests {
 
         let res = McpClient::spawn_stdio("junk_stdout", cmd, &args, &HashMap::new(), None).await;
         assert!(res.is_err());
-        assert_eq!(res.err().unwrap(), "MCP child closed stdout prematurely");
+        assert_eq!(
+            res.err().unwrap().to_string(),
+            "MCP child closed stdout prematurely"
+        );
     }
 
     /// A tool call that never gets a reply must fail with the resolved
@@ -698,7 +780,59 @@ mod tests {
             .call_tool("anything", &json!({}))
             .await
             .expect_err("tool call must time out");
-        assert_eq!(err, "MCP request timed out after 150ms");
+        assert_eq!(err.to_string(), "MCP request timed out after 150ms");
+
+        let _ = std::fs::remove_file(script);
+    }
+
+    /// A call on a closed client must be refused at once rather than written to
+    /// a transport that can no longer answer. Without the client-side check, a
+    /// stdio request landed in the pending table of a dead child and waited out
+    /// the full 30s built-in timeout.
+    #[tokio::test]
+    async fn test_call_on_a_closed_client_is_refused() {
+        let reply = r#"{"jsonrpc":"2.0","id":1,"result":{}}"#;
+        let dir = std::env::temp_dir();
+        let (cmd, args, script) = if cfg!(windows) {
+            let path = dir.join(format!("kimi_mcp_closed_{}.bat", std::process::id()));
+            std::fs::write(
+                &path,
+                format!("@echo {reply}\r\n@ping -n 30 127.0.0.1 >nul\r\n"),
+            )
+            .expect("write closed-server script");
+            (
+                "cmd",
+                vec!["/c".to_string(), path.to_string_lossy().into_owned()],
+                path,
+            )
+        } else {
+            let path = dir.join(format!("kimi_mcp_closed_{}.sh", std::process::id()));
+            std::fs::write(&path, format!("echo '{reply}'\nsleep 30\n"))
+                .expect("write closed-server script");
+            ("sh", vec![path.to_string_lossy().into_owned()], path)
+        };
+        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+
+        let client = McpClient::spawn_stdio("closing", cmd, &arg_refs, &HashMap::new(), None)
+            .await
+            .expect("initialize handshake should succeed");
+        client.close().await;
+
+        let started = std::time::Instant::now();
+        let err = client
+            .call_tool("anything", &json!({}))
+            .await
+            .expect_err("a closed client must refuse the call");
+        let elapsed = started.elapsed();
+        assert!(
+            err.to_string().contains("is closed"),
+            "unexpected error: {err}"
+        );
+        assert!(matches!(err, McpError::Closed(_)));
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "refusal must be immediate, took {elapsed:?}"
+        );
 
         let _ = std::fs::remove_file(script);
     }

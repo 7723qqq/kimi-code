@@ -245,6 +245,11 @@ export interface JsMcpServerConfig {
   startupTimeoutMs?: number
   /** Single tool-call timeout in milliseconds (v2 `toolTimeoutMs`). */
   toolTimeoutMs?: number
+  /**
+   * Keep this server's tools out of the top-level tool list and load them
+   * on demand through `select_tools` (v2 per-server `deferred`).
+   */
+  deferred?: boolean
 }
 
 export interface JsMessage {
@@ -446,8 +451,8 @@ export interface JsRunTurnParams {
    */
   towerEnabled?: boolean
   /**
-   * Host-resolved progressive tool disclosure (`[experimental].tool_select`).
-   * `false`/absent keeps every tool advertised inline.
+   * Host-resolved progressive tool disclosure (`[experimental].
+   * tool_select`). `None`/`false` keeps every tool advertised inline.
    */
   toolSelect?: boolean
   sandboxMode?: string

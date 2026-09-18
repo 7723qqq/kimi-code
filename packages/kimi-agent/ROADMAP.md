@@ -856,6 +856,10 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
 | #3697 steer 打断后台等待的**前置件**：`WaitFor` 在生产路径上根本不阻塞 | triage 先证伪了上游前提——引擎把 `WaitFor` 摊成**同步**的 `StateStore::task_wait`（`src/storage/state_store.rs:703`，其注释自承"REPL 尚无后台任务 runner"），而所有引擎路径都经 `StateStoreCallbacks`（`src/pipeline/mod.rs:273`、`src/server/engine.rs:939`）到达它：5 秒等待在 6ms 内返回 `timed_out`（迁移前用真实生产链探针实测）。**没有阻塞就无从打断**，故先补阻塞：`NativeToolset::execute_tool_streaming` 把自己持有的 `task_runner`（即 spawn 后台 Bash/Agent 的那个 runner）传进 `execute_task_wait`，`TaskRunner::wait_interruptible` 真挂起在任务的 `done` 上；状态桥保留为**本 runner 不认识的任务**的宿主兜底（服务端每轮重建 pipeline，上一轮的任务属另一个 runner）。顺带补上 fork 缺失的 **wait-any**：`task_id` 变可选（v2 `WaitForInputSchema`）、`TaskRunner::wait_any`、`no_tasks` 报告、以及 v2 的 `[still_running]` 尾段 | `src/storage/task_runner.rs`（`wait_interruptible`/`wait_any`/`TaskWaitResult::Interrupted`）、`src/tools/task_tools.rs`（`execute_task_wait` 的 runner 路由 + `render_wait_no_tasks`/`push_still_running`）；6 项 runner 单测 + 8 项 tool 单测；探针实测 1009ms/1000ms（迁移前 6ms）、完成唤醒 169ms |
 | #3697 steer 打断后台等待（v2 `steerController`） | 在阻塞等待之上落地：`ParentCancel` 槽与 P55 取消槽并列，穿过 `NativeToolset`/`PipelineHost`/`SessionConfig`；会话 pump 每轮发布新信号（服务端按 session 发布），**在 steer 真正并入轮次处触发**（`session::admit_locked` 的 ActiveOrNewTurn 分支、`ServerEngine::enqueue_steer`），并在轮次取走 steer 时刷新（`SteerQueueCallbacks::drain_steers`），对应 v2"不再有未丢弃 steer 时重建 `steerController`"；空 drain 不刷新。`WaitFor` 据此渲染 v2 的 `formatInterrupted`（`wait_status: interrupted` + `reason: steer`，非错误，任务继续运行）。TUI 渲染器识别 `interrupted` | `src/tools/mod.rs`（`effective_steer`/`with_steer_slot_if`）、`src/session/mod.rs`（`steer_slot`、`drain_steers` 刷新、`admit_locked` 触发）、`src/server/engine.rs`（`steer_slots` 映射）；`src/session/mod.rs` 2 项 + `src/tools/task_tools.rs` 的 `test_wait_with_a_runner_ends_on_the_steer_signal`；探针：30s 等待在 164ms 被信号结束且任务仍 `running` |
 | #3846 MCP **工具调用**返回 401 → 服务器标记 `needs-auth` | 上游只在连接期翻转，调用期的 401 此前只报一句 `MCP execution error`。新增 `McpManager::mark_needs_auth`（`src/mcp/manager.rs:397`）与 `call_tool` 的 unauthorized 分叉（`:943`）：状态门（仅 `connected`/`needs-auth`）、发起方 client 绑定（`Arc::ptr_eq`）、关闭 client + 清缓存工具、错误文案改为可操作提示。并发授予窗口需要连接时刻，故新增 `ServerState.connected_at_ms`（`:96`，连接成功处 `:1174`）与 `oauth_clock`（`:379`）；OAuth 侧新增 `obtained_at_ms`（`src/mcp/oauth/service.rs:34`，由 `store_tokens` `:117` 与刷新 `:224` 打戳）、`is_concurrent_grant`（10 秒窗口，`:67`）、`peek_rejected_grant`（`:134`）、比较后清除 `clear_tokens_if_current`（`:148`）。**与上游的差异**：上游文案指向 `<server>__authenticate` 工具，本引擎没有该工具，故改写为 `/mcp-config login <name>`（与连接期翻转既有文案一致）；上游 `isUnauthorizedLikeError` 里对 `McpError` 的排除在 Rust 侧是结构性的——应用级工具失败以 `Ok` + `is_error` 返回，只有传输层错误会进 sniff | `test_tool_call_401_flips_server_to_needs_auth`、`test_concurrent_grant_survives_a_call_401`（`src/mcp/manager.rs:2674,2756`）；`test_store_tokens_stamps_obtained_at_once`、`test_concurrent_grant_window`、`test_clear_tokens_if_current`、`test_peek_rejected_grant`（`src/mcp/oauth/service.rs:401,430,466,497`）；mock 模式 `401-on-call`（`src/mcp/http.rs:176,275`） |
+| 本批复核（无上游号） | MCP 传输错误从字符串改为结构化 `McpError`（`src/mcp/errors.rs:12`：`HttpStatus`/`JsonRpc`/`Timeout`/`Closed`/`Transport`，`is_unauthorized` 只认 `HttpStatus{401}`，`:55`）。此前 `needs-auth` 靠 `error.contains("401")` 判定，任何文案里带 401 的消息（含 `timed out after 401ms`）都会误翻；`should_mark_needs_auth` 现收 `unauthorized: bool`（`src/mcp/manager.rs`），`mark_needs_auth`/`mark_connect_failure` 收 `&McpError`。`Display` 逐字保留旧文案，状态面板与既有断言不受影响 | `src/mcp/errors.rs` 3 项；`test_should_mark_needs_auth_matrix`（401 判定改由分类驱动，文本含 "401" 的非 HTTP 错误明确断言为不翻） |
+| 本批复核 | MCP 超时预算：`client_shared::build_http_client(stream)`（`src/mcp/client_shared.rs:22`）给普通 POST 与长生命 SSE 分别设 connect/idle 超时，且**不设总超时**（reqwest 的 `timeout` 覆盖整个响应体，会给合法长连接流判死刑）；`Budget{wait, deadline}`（`:54`）让一次调用的 POST 腿与响应腿共用**同一条**截止线 —— 此前两腿各拿一份 `wait`，最坏 2× 配置值。复核查出的两处真缺陷：SSE 的 POST 完全没有截止线（`timeout` 只包住等 SSE 回复那一段，endpoint 只接连接不回话时挂到 socket 层），以及**传输已死后的新请求**会登记进没人再清的 pending 表而白等满 30s —— 修法是把 `closed` 置位与「清 pending」放进 reader 退出的同一临界区、调用方「插入 + 复检」放进同一临界区（`src/mcp/sse.rs:46,151,248,313`），stdio 侧由 `McpClient::ensure_open`（`src/mcp/client.rs:351`）覆盖子进程自己崩掉的情形 | `test_sse_transport_post_is_bounded_by_request_timeout`、`test_sse_transport_refuses_calls_after_shutdown`、`test_sse_transport_shutdown_is_silent_and_fails_pending`（`src/mcp/sse.rs`）；`test_call_on_a_closed_client_is_refused`（`src/mcp/client.rs`）；`test_http_transport_timeout`。**三条行为测试在修复前均挂满 30s** |
+| 本批复核 | MCP 工具索引只保留 `mcp__<server>__<tool>` 限定名（`src/mcp/manager.rs:587`）：此前额外按裸工具名建索引，跨服务器时 last-writer-wins，`handles()` 对裸名返回真、模型工具表却只播限定名，路由可被引到错误的服务器。同时把状态广播收敛为单一 `fan_out_status`（`:1339`），使 `emit_status` 与意外关闭监视器共享同一份「失败记 error 日志 + 监听器 panic 隔离」；`remove_server`/`mark_removed`/`reconnect` 改为先取锁摘除、**释放锁后再 kill** 客户端 | `test_same_tool_name_on_two_servers_routes_by_qualified_name`、`test_mcp_manager_discovery_and_call`（断言裸名不可路由）、`test_panicking_listener_does_not_break_emit` |
+| 本批复核 | 三处只在测试里成立的路径收口：host 侧 `transport: "mock"` 需 `KIMI_NATIVE_ALLOW_MOCK_MCP` 显式开启（`src/napi_bindings.rs:1454`），拼错的 transport 不再静默注册一个向模型喂伪造结果的服务器（跳过时记 warn）；URL 校验从「语法能解析」收紧为「必须 http(s)」（`client_shared.rs:37`），SSE `endpoint` 事件回传的跨源地址不再带走 `Authorization`（`:73`，POST 构造处剥离）；OAuth 凭据落盘改为**先建 inode 再设 0600 后写字节**（`src/mcp/oauth/store.rs:93`，沿用 `server/auth.rs:243` 的写法），原先写完才收紧，共享卷上存在世界可读窗口；失败路径清掉 staging 文件 | `test_validate_http_url_rejects_non_http_schemes_and_garbage`、`test_same_origin_matches_scheme_host_and_port`、`test_store_writes_owner_only_permissions`（`#[cfg(unix)]`）；napi 侧 `initializes native MCP servers via mcpServers param`（设变量并断言真的注册上）与 `refuses a mock transport without the test opt-in`（不设变量时必须完全不进 roster） |
 
 验证：`cargo test --features cli --lib` → **2349 passed / 0 failed / 1 ignored**（2026-09-15）。
 追加验证（2026-09-17，本轮 #3846 + #3734 移植）：`cargo check --lib` 无告警；`cargo test --lib mcp` →
@@ -873,6 +877,19 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
 一处，均在上轮在途改动中，CI 的 `-D warnings` 会拦下）。
 迁移前用真实生产链探针复现了前提缺失（5s 等待 6ms 返回 `timed_out`），落地后同一探针测得
 1009ms/1000ms、完成唤醒 169ms、30s 等待被信号在 164ms 结束且任务仍 `running`。
+追加验证（2026-09-18，本轮 MCP 传输复核）：`cargo fmt --check` 干净、
+`cargo clippy --all-targets --features cli -- -D warnings` 通过、`cargo test --features cli`
+→ lib **2680 passed / 0 failed / 1 ignored** + 各集成套件（7 / 2 / 2 / 28）全绿；
+`bun run vitest run napi-integration.test.ts` → **56 passed**，跑在 `bun run build` 重新编译的
+`.node` 上（旧的 `kimi_agent.win32-x64-msvc.node` 早于整批改动，拿它测只会得出假结论）。
+两条环境事实，避免后续轮次误判：**（1）本批 Rust 改动进入工作树时既没跑 `cargo fmt` 也没过
+clippy**（5 个文件格式不合规、1 条 `to_string_in_format_args`），二者都是 CI 门禁项，红在合入前
+不会被本地 vitest/cargo test 暴露；**（2）`mcp::manager::tests::test_unexpected_close_marks_failed_and_emits`
+在 Windows 上负载敏感** —— 一次运行里它打满 30s 启动超时（同批其余 106 项 5.5s 跑完），同一份源码
+两次复跑均绿，其夹具是生成的 `.bat`（`set /p` 逐行消费 stdin），抖源在 cmd.exe 侧。**未核实项**：
+真实远程 MCP 服务器（外网 OAuth / 调用期 401）没有跑过，全部证据来自本地 mock 传输与真 socket
+夹具；`McpError::Display` 保留的历史文案在 stdio 侧是 `MCP error: `、HTTP/SSE 侧是
+`MCP Server Error: `，前缀不一致系本批之前既有且刻意保留（状态面板与测试依赖），本轮未统一。
 
 ### 6.3 文档失真清单（本轮已就地更正）
 
@@ -978,6 +995,10 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
     `packages/oauth`，合并会保持与上游同步；但该提交与退役引擎的凭据读取纠缠，
     需要单独一轮对照 fork 的凭据流再移植。**验收**：`[providers.*]` 支持
     `api_key_env`，凭据从指定环境变量读取且优先级与上游一致。
+    **现状（2026-09-18 复核）**：TS 侧那一腿在未合并的 `feat/api-key-env-rust-ts`
+    分支上；main 上 `bun scripts/scan-parity.mjs` 已因本条报错
+    （`api_key_env is in ResolvedNativeLlm but not in JsNativeLlmConfig`），即引擎侧
+    napi 结构还没有该字段 —— 门禁在 main 上不干净，合入本条前无法转绿。
 
 19. **0.40–2.0.0 核查裁定的 fork/upstream 行为差异（2026-09-17，本轮核查新增）**：对
     `apps/kimi-code/CHANGELOG.md` 0.40.0–2.0.0 七个版本逐条核查后，三条声明与上游实现路径
@@ -997,3 +1018,13 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
       merge 前的 dirty-checkout 门禁（`tower/store.rs` merge gate）保护。mission 隔离
       语义下这是更保守的行为；如需对齐，须把「主检出脏状态快照」接到 worktree 创建，
       并同步 TowerMerge 的拒绝条件。
+
+20. **MCP 默认请求超时三个传输不一致（2026-09-18 复核新增，待定方向）**：未配置
+    `toolTimeoutMs` 时，stdio 走 `src/mcp/client.rs:64` 的 60s，http/sse 走
+    `src/mcp/http.rs:25` 与 `src/mcp/sse.rs:50` 的 30s —— 三处注释文字相同，值不同。
+    **v2 是对照**：`mcpCore/client-shared.ts:58` 在 `toolCallTimeoutMs` 未设时传
+    `{ timeout: undefined }`，落到 MCP SDK 的 `DEFAULT_REQUEST_TIMEOUT_MSEC = 60000`，
+    三种传输一律 60s。即 **stdio 的 60s 才是对齐侧，30s 是漂移侧**：远程服务器只有一半
+    耐心。**不要把方向搞反**（2 比 3 的多数不等于正确）。抬到 60s 恢复 v2 语义，压到
+    30s 是收紧可观察行为 —— 属行为语义变更，需维护者裁定后再动。**验收**：三个传输在未
+    配置 `toolTimeoutMs` 时的默认截止一致，且与所选方向的 v2 依据写进本条。

@@ -6,13 +6,18 @@
 //! a `Mcp-Session-Id` handed back by the server is echoed on later requests.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
 use serde_json::Value;
 use tokio::sync::Mutex;
+
+use super::client_shared;
+use super::client_shared::Budget;
+use super::errors::McpError;
 
 /// Protocol version that introduced the Streamable HTTP transport.
 pub const STREAMABLE_HTTP_PROTOCOL_VERSION: &str = "2025-03-26";
@@ -29,16 +34,17 @@ pub struct McpHttpTransport {
     /// Per-request timeout resolved from `toolTimeoutMs`; `None` keeps the
     /// 30s built-in.
     request_timeout: Option<Duration>,
+    /// Set by an explicit `shutdown`; the stateless POST transport has no
+    /// stream to abort, but callers after close must fail fast.
+    closed: Arc<AtomicBool>,
 }
 
 impl McpHttpTransport {
-    pub async fn connect(url: &str, headers: HashMap<String, String>) -> Result<Self, String> {
-        // Fail at connect time on an unusable URL instead of at first call.
-        url::Url::parse(url).map_err(|e| format!("Invalid MCP HTTP url '{url}': {e}"))?;
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(60))
-            .build()
-            .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
+    pub async fn connect(url: &str, headers: HashMap<String, String>) -> Result<Self, McpError> {
+        // Fail at connect time on a non-http(s) or unparseable URL instead of
+        // at first call.
+        client_shared::validate_http_url(url).map_err(McpError::transport)?;
+        let client = client_shared::build_http_client(false).map_err(McpError::transport)?;
         Ok(Self {
             url: url.to_string(),
             headers,
@@ -46,6 +52,7 @@ impl McpHttpTransport {
             session_id: Mutex::new(None),
             next_id: AtomicU64::new(1),
             request_timeout: None,
+            closed: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -54,16 +61,23 @@ impl McpHttpTransport {
         self.request_timeout = timeout;
     }
 
-    /// POST one JSON-RPC message and return its `result`.
-    pub async fn send_request(&self, method: &str, params: Value) -> Result<Value, String> {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let payload = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": method,
-            "params": params,
-        });
+    /// Mark the transport closed. In-flight POSTs finish their own round trip;
+    /// no new request may start afterwards.
+    pub async fn shutdown(&self) {
+        self.closed.store(true, Ordering::SeqCst);
+    }
 
+    fn ensure_open(&self) -> Result<(), McpError> {
+        if self.closed.load(Ordering::SeqCst) {
+            Err(McpError::closed("MCP HTTP transport is closed"))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// POST one JSON-RPC envelope, recording the session id and bounding the
+    /// round trip with the caller's deadline.
+    async fn post(&self, payload: &Value, budget: Budget) -> Result<reqwest::Response, McpError> {
         let mut req = self
             .client
             .post(&self.url)
@@ -76,11 +90,15 @@ impl McpHttpTransport {
             req = req.header(SESSION_ID_HEADER, session);
         }
 
-        let wait = self.request_timeout.unwrap_or(DEFAULT_REQUEST_TIMEOUT);
-        let resp = tokio::time::timeout(wait, req.json(&payload).send())
-            .await
-            .map_err(|_| timeout_message(wait))?
-            .map_err(|e| format!("Failed to post to MCP HTTP endpoint '{}': {e}", self.url))?;
+        let resp = match tokio::time::timeout_at(budget.deadline, req.json(payload).send()).await {
+            Ok(send_result) => send_result.map_err(|e| {
+                McpError::transport(format!(
+                    "Failed to post to MCP HTTP endpoint '{}': {e}",
+                    self.url
+                ))
+            })?,
+            Err(_) => return Err(McpError::timeout(timeout_message(budget.wait))),
+        };
 
         if let Some(session) = resp
             .headers()
@@ -89,10 +107,29 @@ impl McpHttpTransport {
         {
             *self.session_id.lock().await = Some(session.to_string());
         }
+        Ok(resp)
+    }
+
+    /// POST one JSON-RPC message and return its `result`.
+    pub async fn send_request(&self, method: &str, params: Value) -> Result<Value, McpError> {
+        self.ensure_open()?;
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let payload = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+            "params": params,
+        });
+
+        let budget = Budget::new(self.request_timeout.unwrap_or(DEFAULT_REQUEST_TIMEOUT));
+        let resp = self.post(&payload, budget).await?;
 
         let status = resp.status();
         if !status.is_success() {
-            return Err(format!("MCP HTTP request failed with status HTTP {status}"));
+            return Err(McpError::http_status(
+                status.as_u16(),
+                format!("MCP HTTP request failed with status HTTP {status}"),
+            ));
         }
 
         let is_event_stream = resp
@@ -101,14 +138,38 @@ impl McpHttpTransport {
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.to_ascii_lowercase().contains("text/event-stream"));
         if is_event_stream {
-            read_sse_response(resp, id, wait).await
+            read_sse_response(resp, id, budget).await
         } else {
-            let body = tokio::time::timeout(wait, resp.json::<Value>())
-                .await
-                .map_err(|_| timeout_message(wait))?
-                .map_err(|e| format!("Failed to parse MCP HTTP response: {e}"))?;
+            let body = match tokio::time::timeout_at(budget.deadline, resp.json::<Value>()).await {
+                Ok(parse_result) => parse_result.map_err(|e| {
+                    McpError::transport(format!("Failed to parse MCP HTTP response: {e}"))
+                })?,
+                Err(_) => return Err(McpError::timeout(timeout_message(budget.wait))),
+            };
             unwrap_json_rpc(body)
         }
+    }
+
+    /// POST a JSON-RPC notification (no id). Streamable HTTP servers answer
+    /// these with 2xx (often 202 Accepted with an empty body); the body is
+    /// intentionally not read as a JSON-RPC response.
+    pub async fn send_notification(&self, method: &str, params: Value) -> Result<(), McpError> {
+        self.ensure_open()?;
+        let payload = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+        });
+        let budget = Budget::new(self.request_timeout.unwrap_or(DEFAULT_REQUEST_TIMEOUT));
+        let resp = self.post(&payload, budget).await?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(McpError::http_status(
+                status.as_u16(),
+                format!("MCP notification failed with status HTTP {status}"),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -121,18 +182,19 @@ fn timeout_message(wait: Duration) -> String {
 async fn read_sse_response(
     resp: reqwest::Response,
     id: u64,
-    wait: Duration,
-) -> Result<Value, String> {
+    budget: Budget,
+) -> Result<Value, McpError> {
     let mut stream = resp.bytes_stream().eventsource();
-    let deadline = tokio::time::Instant::now() + wait;
     loop {
-        let item = tokio::time::timeout_at(deadline, stream.next())
+        let item = tokio::time::timeout_at(budget.deadline, stream.next())
             .await
-            .map_err(|_| timeout_message(wait))?;
+            .map_err(|_| McpError::timeout(timeout_message(budget.wait)))?;
         let Some(item) = item else {
-            return Err("MCP HTTP SSE stream closed before a response arrived".into());
+            return Err(McpError::closed(
+                "MCP HTTP SSE stream closed before a response arrived",
+            ));
         };
-        let event = item.map_err(|e| format!("MCP HTTP SSE error: {e}"))?;
+        let event = item.map_err(|e| McpError::transport(format!("MCP HTTP SSE error: {e}")))?;
         if !event.event.is_empty() && event.event != "message" {
             continue;
         }
@@ -145,9 +207,9 @@ async fn read_sse_response(
     }
 }
 
-fn unwrap_json_rpc(value: Value) -> Result<Value, String> {
+fn unwrap_json_rpc(value: Value) -> Result<Value, McpError> {
     if let Some(err) = value.get("error") {
-        return Err(format!("MCP Server Error: {err}"));
+        return Err(McpError::json_rpc(format!("MCP Server Error: {err}")));
     }
     Ok(value.get("result").cloned().unwrap_or(Value::Null))
 }
@@ -160,9 +222,12 @@ pub(crate) mod test_helpers {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::sync::oneshot;
 
-    /// One recorded request, so tests can assert header propagation.
+    /// One recorded request, so tests can assert header propagation and the
+    /// initialize/initialized request sequence.
     #[derive(Debug, Clone)]
     pub struct RecordedRequest {
+        pub method: String,
+        pub has_id: bool,
         pub session: Option<String>,
         pub authorization: Option<String>,
     }
@@ -248,11 +313,6 @@ pub(crate) mod test_helpers {
                                     Ok(n) => body.extend_from_slice(&chunk[..n]),
                                 }
                             }
-                            seen.lock().await.push(RecordedRequest {
-                                session,
-                                authorization,
-                            });
-
                             if mode == "status" {
                                 let _ = socket
                                     .write_all(b"HTTP/1.1 500 Error\r\nContent-Length: 0\r\n\r\n")
@@ -273,6 +333,21 @@ pub(crate) mod test_helpers {
                                 .get("method")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or_default();
+                            seen.lock().await.push(RecordedRequest {
+                                method: method.to_string(),
+                                has_id: json.get("id").is_some(),
+                                session,
+                                authorization,
+                            });
+
+                            // Notifications (e.g. notifications/initialized)
+                            // get a 202 with no body.
+                            if json.get("id").is_none() {
+                                let _ = socket
+                                    .write_all(b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n")
+                                    .await;
+                                return;
+                            }
                             if mode == "401-on-call" && method == "tools/call" {
                                 let _ = socket
                                     .write_all(
@@ -392,13 +467,37 @@ mod tests {
         assert!(!res.is_error);
         assert_eq!(res.content[0].text.as_deref(), Some("ok"));
 
-        // initialize carried no session id; every later request echoes the one
-        // the server handed back.
+        // initialize carried no session id; the initialized notification and
+        // every later request echo the one the server handed back.
         let requests = seen.lock().await.clone();
-        assert_eq!(requests.len(), 3, "initialize + tools/list + tools/call");
-        assert_eq!(requests[0].session, None);
-        assert_eq!(requests[1].session.as_deref(), Some("sess-1"));
-        assert_eq!(requests[2].session.as_deref(), Some("sess-1"));
+        assert!(requests.iter().any(|r| r.method == "initialize"));
+        assert!(
+            requests
+                .iter()
+                .any(|r| r.method == "notifications/initialized")
+        );
+        assert!(requests.iter().any(|r| r.method == "tools/list"));
+        assert!(requests.iter().any(|r| r.method == "tools/call"));
+        let initialize = requests
+            .iter()
+            .position(|r| r.method == "initialize")
+            .unwrap();
+        let initialized = requests
+            .iter()
+            .position(|r| r.method == "notifications/initialized")
+            .unwrap();
+        assert!(initialize < initialized);
+        assert_eq!(requests[initialize].session, None);
+        assert_eq!(requests[initialized].session.as_deref(), Some("sess-1"));
+        assert_eq!(
+            requests
+                .iter()
+                .find(|r| r.method == "tools/list")
+                .unwrap()
+                .session
+                .as_deref(),
+            Some("sess-1")
+        );
     }
 
     /// An SSE-framed reply is read until the matching message arrives.
@@ -426,10 +525,12 @@ mod tests {
             Ok(_) => panic!("500 must fail the handshake"),
             Err(e) => e,
         };
+        let message = err.to_string();
         assert!(
-            err.contains("MCP HTTP request failed with status HTTP 500"),
-            "unexpected error: {err}"
+            message.contains("MCP HTTP request failed with status HTTP 500"),
+            "unexpected error: {message}"
         );
+        assert!(matches!(err, McpError::HttpStatus { status: 500, .. }));
     }
 
     /// A server that accepts the connection but never replies must fail with
@@ -445,7 +546,8 @@ mod tests {
             .send_request("initialize", json!({}))
             .await
             .expect_err("request must time out");
-        assert_eq!(err, "MCP request timed out after 150ms");
+        assert_eq!(err.to_string(), "MCP request timed out after 150ms");
+        assert!(matches!(err, McpError::Timeout(_)));
     }
 
     /// A malformed URL fails at connect time.
@@ -455,6 +557,47 @@ mod tests {
             Ok(_) => panic!("invalid url must fail"),
             Err(e) => e,
         };
-        assert!(err.starts_with("Invalid MCP HTTP url 'not-a-url'"), "{err}");
+        assert!(
+            err.to_string().starts_with("Invalid MCP url 'not-a-url'"),
+            "{err}"
+        );
+
+        let err = match McpHttpTransport::connect("file:///etc/passwd", HashMap::new()).await {
+            Ok(_) => panic!("file url must fail"),
+            Err(e) => e,
+        };
+        assert!(err.to_string().contains("unsupported scheme"), "{err}");
+    }
+
+    /// The handshake is `initialize` (request, with id) immediately followed
+    /// by `notifications/initialized` (notification, no id).
+    #[tokio::test]
+    async fn test_http_handshake_sends_initialized_notification() {
+        let (url, seen, _shutdown) = spawn_mock_http_server("json").await;
+        let _client = McpClient::connect_http("http-srv", &url, HashMap::new())
+            .await
+            .expect("HTTP connect failed");
+
+        let requests = seen.lock().await.clone();
+        let init = requests
+            .iter()
+            .find(|r| r.method == "initialize")
+            .expect("initialize request recorded");
+        assert!(init.has_id, "initialize must carry an id");
+        let notification = requests
+            .iter()
+            .find(|r| r.method == "notifications/initialized")
+            .expect("initialized notification recorded");
+        assert!(
+            !notification.has_id,
+            "notifications/initialized must not carry an id"
+        );
+        assert!(
+            requests.iter().position(|r| r.method == "initialize")
+                < requests
+                    .iter()
+                    .position(|r| r.method == "notifications/initialized"),
+            "initialize must precede the initialized notification"
+        );
     }
 }

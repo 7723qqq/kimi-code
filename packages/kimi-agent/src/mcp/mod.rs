@@ -4,6 +4,8 @@
 //! external MCP servers directly from the native Rust agent engine.
 
 pub mod client;
+pub mod client_shared;
+pub mod errors;
 pub mod http;
 pub mod manager;
 pub mod oauth;

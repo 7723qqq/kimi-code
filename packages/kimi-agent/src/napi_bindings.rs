@@ -1445,6 +1445,17 @@ struct EngineCallbackTsfns {
 /// spawn it, and its per-server options.
 type McpServerSpec = (String, McpServerRecipe, McpServerOptions);
 
+/// Whether host-supplied `transport: "mock"` configurations are accepted.
+///
+/// The mock transport answers every call with fabricated results, so it must
+/// never be reachable from a production configuration — a typo in `transport`
+/// otherwise silently registers a server that feeds invented tool output to
+/// the model. Integration tests opt in with `KIMI_NATIVE_ALLOW_MOCK_MCP=1`.
+fn allow_mock_mcp_transport() -> bool {
+    std::env::var("KIMI_NATIVE_ALLOW_MOCK_MCP")
+        .is_ok_and(|value| matches!(value.trim(), "1" | "true"))
+}
+
 /// The process-wide MCP managers, keyed by the resolved server set.
 ///
 /// `Weak` on purpose: the cache must never be the reason a manager (and the
@@ -1622,10 +1633,17 @@ async fn build_engine_pipeline(
                 headers: cfg.headers.clone().unwrap_or_default(),
                 bearer_token_env_var: cfg.bearer_token_env_var.clone(),
             }),
-            "mock" => Some(McpServerRecipe::Mock),
+            "mock" if allow_mock_mcp_transport() => Some(McpServerRecipe::Mock),
             _ => None,
         };
         let Some(recipe) = recipe else {
+            // Without this the server simply vanishes from the roster, and a
+            // mistyped `transport` is indistinguishable from a working config.
+            tracing::warn!(
+                server = %cfg.name,
+                transport = %cfg.transport,
+                "skipping MCP server: unsupported or unenabled transport"
+            );
             continue;
         };
         servers.push((
@@ -1666,6 +1684,11 @@ async fn build_engine_pipeline(
             _ => None,
         };
         let Some(recipe) = recipe else {
+            tracing::warn!(
+                server = %cfg.name,
+                transport = %cfg.transport,
+                "skipping plugin MCP server: unsupported transport"
+            );
             continue;
         };
         servers.push((cfg.name.clone(), recipe, McpServerOptions::default()));
