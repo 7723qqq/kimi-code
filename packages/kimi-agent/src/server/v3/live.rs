@@ -1107,7 +1107,9 @@ mod tests {
         translator.translate(&started(3, None), NOW);
 
         assert!(
-            translator.translate(&usage_updated(120, 30, 900), NOW).is_empty(),
+            translator
+                .translate(&usage_updated(120, 30, 900), NOW)
+                .is_empty(),
             "usage changes no entity by itself"
         );
 
