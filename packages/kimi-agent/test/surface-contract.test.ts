@@ -17,6 +17,11 @@
  *
  * Skips when the native binding cannot be loaded (CI jobs without a native
  * build); the check only means something against a real binary.
+ *
+ * Must run under `bun --bun`: under a Node runtime, Bun's CJS interop degrades
+ * — the wrapper loads as empty `module.exports` (or the load fails outright),
+ * so the true surface is invisible. A load failure or a missing `__binding`
+ * both skip the suite.
  */
 
 import { createRequire } from 'node:module';
@@ -81,8 +86,15 @@ const UNWRAPPED_BINDINGS = new Set([
   'sessionCancelCompaction',
 ]);
 
-describe.skipIf(wrapper === undefined)('native tools export surface contract', () => {
-  const raw = (wrapper as Record<string, unknown>)['__binding'] as Record<string, unknown>;
+// Under a Node runtime Bun's CJS interop degrades: the load can throw outright
+// or resolve to empty exports, so a missing `__binding` is treated the same as
+// a failed load. vitest still executes a skipped suite's body during
+// collection, so the derivations below must tolerate `wrapper === undefined`.
+const surfaceAvailable = wrapper !== undefined && wrapper['__binding'] !== undefined;
+
+describe.skipIf(!surfaceAvailable)('native tools export surface contract', () => {
+  const wrapperExports = wrapper ?? {};
+  const raw = (wrapperExports['__binding'] ?? {}) as Record<string, unknown>;
   const source = readFileSync(join(pkgDir, 'index.native.js'), 'utf8');
   const dts = readFileSync(join(pkgDir, 'index.native.d.ts'), 'utf8');
 
@@ -90,8 +102,8 @@ describe.skipIf(wrapper === undefined)('native tools export surface contract', (
     [...source.matchAll(/\bbinding\.(\w+)/g)].map((match) => match[1] as string),
   );
   const rawFunctionNames = Object.keys(raw).filter((name) => typeof raw[name] === 'function');
-  const wrapperFunctionNames = Object.keys(wrapper as Record<string, unknown>).filter(
-    (name) => typeof (wrapper as Record<string, unknown>)[name] === 'function',
+  const wrapperFunctionNames = Object.keys(wrapperExports).filter(
+    (name) => typeof wrapperExports[name] === 'function',
   );
   const declared = new Set(
     [...dts.matchAll(/export (?:declare )?(?:async )?(?:function|const) (\w+)/g)].map(
@@ -131,7 +143,7 @@ describe.skipIf(wrapper === undefined)('native tools export surface contract', (
   });
 
   it('wrapper exports stay within the declared surface (no extra runtime keys)', () => {
-    const extra = Object.keys(wrapper as Record<string, unknown>).filter(
+    const extra = Object.keys(wrapperExports).filter(
       (name) => !declared.has(name) && name !== '__binding',
     );
     expect(extra).toEqual([]);
