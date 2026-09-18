@@ -445,6 +445,11 @@ export interface JsRunTurnParams {
    * probe.
    */
   towerEnabled?: boolean
+  /**
+   * Host-resolved progressive tool disclosure (`[experimental].tool_select`).
+   * `false`/absent keeps every tool advertised inline.
+   */
+  toolSelect?: boolean
   sandboxMode?: string
   callerAgentId?: string
   sessionId?: string

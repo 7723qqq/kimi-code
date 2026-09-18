@@ -952,10 +952,8 @@ impl SqliteSessionStore {
     /// summarization hint (v2 `rest-session.ts:131-137`); it is recorded with
     /// the checkpoint.
     ///
-    /// Folds the omitted prefix into the fixed placeholder. Callers that hold
-    /// an LLM use [`Self::compact_session_with_summary`] instead, so the
-    /// compacted history carries a written summary rather than a notice that
-    /// something was removed.
+    /// Without a summary, only a no-op can succeed. Callers that hold an LLM
+    /// use [`Self::compact_session_with_summary`] to replace history safely.
     pub fn compact_session(
         &self,
         session_id: &str,
@@ -966,8 +964,8 @@ impl SqliteSessionStore {
 
     /// [`Self::compact_session`] with a caller-supplied summary text.
     ///
-    /// `summary` is the LLM-written replacement for the omitted prefix; `None`
-    /// keeps the placeholder. The split point is recomputed here rather than
+    /// `summary` is the LLM-written replacement for the omitted prefix; missing
+    /// or blank summaries are rejected before writing any history or checkpoint. The split point is recomputed here rather than
     /// taken from the caller, so a summary produced from a stale history
     /// cannot desynchronize the count from the messages it replaces.
     pub fn compact_session_with_summary(
@@ -983,13 +981,14 @@ impl SqliteSessionStore {
             return Ok(CompactionReport::skipped());
         }
         let config = crate::compaction::CompactionConfig::default();
-        let compacted = match summary {
-            Some(text) => {
-                let count = crate::compaction::compute_compact_count_manual(&history, &config);
-                crate::compaction::apply_compaction_with_summary(&history, count, text)
-            }
-            None => crate::compaction::force_compact_messages_manual(&history, &config),
-        };
+        let count = crate::compaction::compute_compact_count_manual(&history, &config);
+        if count == 0 {
+            return Ok(CompactionReport::skipped());
+        }
+        let summary = summary
+            .filter(|text| !text.trim().is_empty())
+            .ok_or_else(|| crate::compaction::CompactionError::EmptySummary.to_string())?;
+        let compacted = crate::compaction::apply_compaction_with_summary(&history, count, summary);
         if compacted.len() >= history.len() {
             return Ok(CompactionReport::skipped());
         }
@@ -2785,7 +2784,11 @@ mod tests {
         assert!(pre_len >= 29);
 
         let report = store
-            .compact_session("sess-compact", Some("keep decisions"))
+            .compact_session_with_summary(
+                "sess-compact",
+                Some("keep decisions"),
+                Some("The user requested numbered messages.".into()),
+            )
             .unwrap();
         let removed = report.removed;
         assert!(removed > 0);
@@ -2837,6 +2840,19 @@ mod tests {
                     None,
                 )
                 .unwrap();
+        }
+
+        let original = store.load_session_history("sess-summary").unwrap();
+        for summary in [None, Some(String::new()), Some(" \n\t".to_string())] {
+            assert!(
+                store
+                    .compact_session_with_summary("sess-summary", None, summary)
+                    .is_err()
+            );
+            assert_eq!(
+                serde_json::to_value(store.load_session_history("sess-summary").unwrap()).unwrap(),
+                serde_json::to_value(&original).unwrap(),
+            );
         }
 
         let report = store

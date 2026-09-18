@@ -49,6 +49,7 @@ const TOWER_WORKER_PROFILE: &str = "tower-worker";
 fn spawn_detached_run(
     manager: Arc<SubagentManager>,
     callbacks: Arc<dyn crate::callbacks::HostCallbacks>,
+    store: Arc<TowerStore>,
     agent_id: &str,
     prompt: &str,
     parent_cancel: Option<crate::subagent::types::ParentCancel>,
@@ -79,6 +80,15 @@ fn spawn_detached_run(
                         "subagent_id": agent,
                         "error": "The tower worker was stopped before it finished.",
                     }));
+                    // Record the death in the tower protocol so TowerStatus can
+                    // flag the orphaned mission and suggest the resume hint.
+                    if let Err(e) = store.mark_agent_dead(&agent).await {
+                        callbacks.emit_event(serde_json::json!({
+                            "type": "subagent.failed",
+                            "subagent_id": agent,
+                            "error": format!("failed to record the dead roster entry: {e}"),
+                        }));
+                    }
                 } else {
                     let summary = crate::subagent::manager::final_assistant_summary(&turn.messages);
                     callbacks.emit_event(serde_json::json!({
@@ -95,6 +105,7 @@ fn spawn_detached_run(
                     "subagent_id": agent,
                     "error": "The tower worker was stopped by the user before it finished.",
                 }));
+                let _ = store.mark_agent_dead(&agent).await;
             }
             Err(err) => {
                 if err.contains("rate limit") || err.contains("429") {
@@ -105,6 +116,7 @@ fn spawn_detached_run(
                     "subagent_id": agent,
                     "error": err,
                 }));
+                let _ = store.mark_agent_dead(&agent).await;
             }
         }
     });
@@ -373,6 +385,7 @@ pub async fn execute_tower_spawn(
                 worktree: Some(mission.worktree.clone()),
                 branch: Some(mission.branch.clone()),
                 spawned_at,
+                status: None,
             };
             if let Err(e) = store.register_agent(entry).await {
                 return Some(err_result(e));
@@ -390,6 +403,7 @@ pub async fn execute_tower_spawn(
             spawn_detached_run(
                 manager.clone(),
                 runtime.callbacks.clone(),
+                Arc::new(store.clone()),
                 &agent_id,
                 &prompt,
                 parent_cancel.cloned(),
@@ -450,6 +464,7 @@ pub async fn execute_tower_spawn(
                 worktree: None,
                 branch: None,
                 spawned_at,
+                status: None,
             };
             if let Err(e) = store.register_agent(entry).await {
                 return Some(err_result(e));
@@ -467,6 +482,7 @@ pub async fn execute_tower_spawn(
             spawn_detached_run(
                 manager.clone(),
                 runtime.callbacks.clone(),
+                Arc::new(store.clone()),
                 &agent_id,
                 &prompt,
                 parent_cancel.cloned(),
@@ -1014,11 +1030,41 @@ pub async fn execute_tower_status(cwd: &Path, caller_agent_id: &str) -> Executab
     if state.roster.agents.is_empty() {
         sections.push("(no agents spawned yet)".to_string());
     } else {
+        let dead: Vec<&TowerRosterEntry> = state
+            .roster
+            .agents
+            .iter()
+            .filter(|a| a.status.as_deref() == Some("dead"))
+            .collect();
         for a in &state.roster.agents {
+            if a.status.as_deref() == Some("dead") {
+                sections.push(format!(
+                    "- {} ({:?}) — agent_id: {} — DEAD (failed, timed out, killed, or lost)",
+                    a.name, a.kind, a.agent_id
+                ));
+            } else {
+                sections.push(format!(
+                    "- {} ({:?}) — agent_id: {}",
+                    a.name, a.kind, a.agent_id
+                ));
+            }
+        }
+        if !dead.is_empty() {
+            let dead_missions: Vec<&str> = dead
+                .iter()
+                .filter_map(|a| a.mission_id.as_deref())
+                .collect();
+            sections.push(String::new());
             sections.push(format!(
-                "- {} ({:?}) — agent_id: {}",
-                a.name, a.kind, a.agent_id
+                "⚠ {} roster agent(s) died — their missions and worktrees are preserved. Recover with Agent(resume=\"<agent_id>\", prompt=\"...\") or TowerSpawn fresh workers; do not merge from a dead agent's branch without re-review.",
+                dead.len()
             ));
+            if !dead_missions.is_empty() {
+                sections.push(format!(
+                    "⚠ Missions whose owner died: {}",
+                    dead_missions.join(", ")
+                ));
+            }
         }
     }
 

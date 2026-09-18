@@ -136,6 +136,7 @@ async fn main() -> anyhow::Result<()> {
                     protocol: native.protocol,
                     base_url: native.base_url,
                     api_key: native.api_key,
+                    api_key_env: native.api_key_env,
                     model: native.model,
                     max_tokens: native.max_tokens,
                     custom_headers: native.custom_headers,
@@ -177,6 +178,7 @@ async fn main() -> anyhow::Result<()> {
                 sandbox_policy: None,
                 todo_tool_veto: None,
                 tower_worktree_root: None,
+                tool_select: false,
                 tower_enabled: kimi_agent::tools::tower::paths::tower_enabled(
                     kimi_agent::tools::tower::paths::tower_env_switch(),
                     kimi_agent::tools::tower::paths::tower_config_flag(&config),
@@ -322,6 +324,7 @@ async fn main() -> anyhow::Result<()> {
                 hook_guard: pipeline.hook_guard.clone(),
                 media: Some(&pipeline.media),
                 media_dropped: Some(pipeline.media_dropped.clone()),
+                toolset: pipeline.toolset.clone(),
             };
 
             let result = match input.telemetry {
@@ -454,6 +457,7 @@ async fn main() -> anyhow::Result<()> {
                     // The host's session id is also the task-notification key:
                     // the print settle drains only this session's completions.
                     session_id: input.session_id.clone(),
+                    toolset: None,
                     task_runner: subagent_manager.get_task_runner_sync(),
                 })
                 .await;
@@ -1069,6 +1073,7 @@ async fn build_engine_pipeline(
         tools_veto: params.tools_veto.clone(),
         todo_tool_veto: params.todo_tool_veto.clone(),
         tower_worktree_root: params.tower_worktree_root.clone(),
+        tool_select: false,
         tower_enabled: params.tower_enabled.unwrap_or_else(|| {
             kimi_agent::tools::tower::paths::tower_enabled(
                 kimi_agent::tools::tower::paths::tower_env_switch(),
@@ -1249,6 +1254,7 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
             protocol: native.protocol,
             base_url: native.base_url,
             api_key: native.api_key,
+            api_key_env: native.api_key_env,
             model: native.model,
             max_tokens: native.max_tokens,
             custom_headers: native.custom_headers,
@@ -1283,6 +1289,7 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         tools_veto: None,
         todo_tool_veto: None,
         tower_worktree_root: None,
+        tool_select: false,
         tower_enabled: kimi_agent::tools::tower::paths::tower_enabled(
             kimi_agent::tools::tower::paths::tower_env_switch(),
             kimi_agent::tools::tower::paths::tower_config_flag(&config),
@@ -1612,6 +1619,7 @@ async fn run_self_test() -> anyhow::Result<()> {
         hook_guard: None,
         media: None,
         media_dropped: None,
+        toolset: None,
     };
 
     // Create a minimal server for the test

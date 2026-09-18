@@ -425,8 +425,8 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
    （`http.rs:214`）：空 id 由 step 的 P61 兜底生成，先发一个空 id 的实体永远无法与最终调用合流。
    验证：`src/llm/http.rs` 新增 3 项（分片/最终同 id、失败释放、账本 commit/rollback）+ `tool_call_id` 12 项
    单测（对齐 v2 `toolCallIdNormalizer.test.ts`）。
-3. **#3694 存储失败重建索引 / #3648 tower 可靠性**：
-   已在 allowlist 记为 `tracked`，但尚未逐条与 Rust 实现比对，需要单独一轮 triage。
+3. ~~**#3694 存储失败重建索引 / #3648 tower 可靠性**：已在 allowlist 记为 `tracked`，但尚未逐条与 Rust 实现比对，需要单独一轮 triage。~~
+   **已 triage（2026-09-18）**。#3694 **不适用**：上游修的是「派生索引」（会话索引镜像 + 搜索索引）在不可恢复存储失败后的重建；fork 引擎的 SQLite 是唯一事实源，搜索是对 messages 表的实时查询，没有任何派生镜像需要重建。#3648 **部分落地**：幂等 teardown（git 已不知道的 worktree 报告 already-removed 而非整体失败，`tower/git.rs` `worktree_remove`，2 项测试）与「分支仅剩 closed 记录时拒绝 merge」门禁（`tower/store.rs` merge 前置检查，1 项测试）已落地；roster resume 强制 `run_in_background` 与唤醒合并通知仍缺（属 agent_tool 路径），其余部分维持待办。
    （原列的 #3681 `[models]` 告警已落地，见第 14 条；#3720 / #3717 已拆出，见第 15 条；
    #3606 模型目录运行时已落地，见第 16 条；**#3697 与 #3688 已从本条移出并落地**，见 §6.2。）
 4. **#3532 v3 扁平实体消息协议（WS + history API）——已决定全量移植（2026-09-15）**：上游用
@@ -568,7 +568,7 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
    （worker id 为随机 `subagent-<u64>`，`subagent/manager.rs:812`），本轮按规则移植。
    验证：`tools::tower::store::tests` 4 项（最后注册优先、注册退休同 id 旧条目、重名仍被拒且不退休、
    `is_initialized` 仅对缺失文件返回 false）。
-9. **#3667 动态工具与 MCP 延迟披露**：三部分全缺——官方模型的 `dynamically_loaded_tools`
+9. ~~**#3667 动态工具与 MCP 延迟披露**：三部分全缺~~ **已接线（2026-09-18，三件全部就位并接通生产路径）**：
    能力（`server/provider_refresh.rs:83-141`）、每服务器 `deferred` 字段
    （`config/mod.rs:155-198`）、`select_tools` 的广告位（可执行但从未进入
    `tools/tool_policy.rs:128-165` 的工具表；`tools/select_tools.rs:19-26` 明确写着延迟披露
@@ -801,7 +801,7 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
     （清空 vitest 自己的 listener 让 crash handler 成为唯一 listener，断言 AbortError 既不上报也不 rethrow，
     返回 `NOT_CAUGHT` 哨兵）；allowlist `f4e5822164` 由 `tracked` 改判 `ported`。
 
-19. **#3764 prompt / skill-activation 的 client metadata 与 display_text（未移植）**：上游在 prompt 与
+19. ~~**#3764 prompt / skill-activation 的 client metadata 与 display_text（未移植）**~~ **已落地（2026-09-18，宿主侧通道）**。上游在 prompt 与
     skill activation 的 origin 上存一个不透明 metadata 对象，随 prompt 事件、transcript 投影、snapshot 与
     history 重建一路携带，并在「每个 entry 都提供」时用 `display_text` 生成会话标题、undo 标签与 fork 标题；
     该 metadata 不进模型内容。fork 现状：`rg "display_text|client_metadata|clientMetadata" packages/kimi-agent/src`
@@ -820,7 +820,7 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
     该提交的后续修复（`..cache` 这类以两点开头的子项算作 root 内）同样不适用：fork 不比较相对路径。
     allowlist `9c5e9b4863` 由 `tracked` 改判 `not-applicable`。
 
-21. **#3832 被 steer 的用户 slash skill activation 未记录（TS 侧 + 引擎侧）**：上游
+21. ~~**#3832 被 steer 的用户 slash skill activation 未记录（TS 侧 + 引擎侧）**~~ **已落地（2026-09-18，宿主侧 steer 语义）**。上游
     `packages/transcript/src/contract/{origin,schema}.ts` 增加 `skill_activation` origin 变体
     （trigger user-slash + skillName + skillArgs），fork 仍是只有 `user` 变体
     （`rg "skill_activation" packages/transcript/src/contract/` 为空，该包停在合并时的上游 0.0.2）。
@@ -962,3 +962,22 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
     `packages/oauth`，合并会保持与上游同步；但该提交与退役引擎的凭据读取纠缠，
     需要单独一轮对照 fork 的凭据流再移植。**验收**：`[providers.*]` 支持
     `api_key_env`，凭据从指定环境变量读取且优先级与上游一致。
+
+19. **0.40–2.0.0 核查裁定的 fork/upstream 行为差异（2026-09-17，本轮核查新增）**：对
+    `apps/kimi-code/CHANGELOG.md` 0.40.0–2.0.0 七个版本逐条核查后，三条声明与上游实现路径
+    绑定过深，裁定为**有意不移植的差异**，记录如下以免后续核查再报：
+    - **`[database]` 配置段 + `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` /
+      `KIMI_CODE_SEARCH_WORKER`（上游 0.42.0）**：minidb 会话索引读模型与搜索 worker 是
+      退役 TS 引擎的架构（agent-core-v2 的 IQueryStore / MiniDB 派生读模型）；fork 引擎的
+      等价能力由 Rust 侧 SQLite 会话存储 + 进程内搜索承担。为不存在的代码路径加配置开关
+      只会造死配置。上游若把该能力重做到引擎侧，再对照移植。
+    - **用户级 skill 目录 fs watcher（上游 0.42.0 #3608）**：上游用文件系统监听实现
+      `~/.kimi-code/skills`、`~/.agents/skills` 的免重启热刷新；fork 通过「每次目录请求
+      全量重扫 + TUI 主动刷新」达成同一可观测结果（`sdk-rpc-client-native.ts` 的
+      listWorkspaceSkills 每次调用重扫）。真 watcher 的跨平台生命周期成本高于收益。
+    - **tower worker 从基检出未提交变更启动（上游 0.40.0 #3346）**：上游让 worker
+      worktree 继承基检出的 uncommitted changes；fork 的 worktree 只从 base 分支已提交
+      状态创建（`tower/git.rs` 的 `worktree_add`），未提交内容留在主检出、由
+      merge 前的 dirty-checkout 门禁（`tower/store.rs` merge gate）保护。mission 隔离
+      语义下这是更保守的行为；如需对齐，须把「主检出脏状态快照」接到 worktree 创建，
+      并同步 TowerMerge 的拒绝条件。

@@ -38,6 +38,7 @@ fn state_lock_for(root: &Path) -> Arc<Mutex<()>> {
     map.entry(root.to_path_buf()).or_default().clone()
 }
 
+#[derive(Clone)]
 pub struct TowerStore {
     pub repo_root: PathBuf,
 }
@@ -378,6 +379,26 @@ impl TowerStore {
             ));
         }
         state.roster.agents.push(entry);
+        self.save(&state).await
+    }
+
+    /// Flag a roster entry as dead after its detached run ended in a failure
+    /// outcome (failed, timed out, killed, or lost). Idempotent: an entry that
+    /// was already retired or re-registered under a new id is left alone.
+    pub async fn mark_agent_dead(&self, agent_id: &str) -> Result<(), String> {
+        let mut state = self.load().await?;
+        let Some(entry) = state
+            .roster
+            .agents
+            .iter_mut()
+            .find(|a| a.agent_id == agent_id)
+        else {
+            return Ok(());
+        };
+        if entry.status.as_deref() == Some("dead") {
+            return Ok(());
+        }
+        entry.status = Some("dead".into());
         self.save(&state).await
     }
 
@@ -985,6 +1006,27 @@ impl TowerStore {
         branch: &str,
     ) -> Result<(String, Vec<(String, Vec<String>)>, bool), String> {
         let mut state = self.load().await?;
+        // Branch → mission resolution (v2 #3648): every record for the branch
+        // closed (merged/abandoned) means a merge would flip a historical
+        // mission's state — refuse; the work must land under a fresh mission.
+        // Otherwise the latest open record wins.
+        let has_any_record = state.missions.iter().any(|m| m.branch == branch);
+        let has_open_record = state
+            .missions
+            .iter()
+            .any(|m| m.branch == branch && m.status.is_open());
+        if has_any_record && !has_open_record {
+            self.append_log(
+                TOWER_NAME,
+                "merge.blocked",
+                &[("branch", branch), ("reason", "no-open-mission")],
+                None,
+            )
+            .await?;
+            return Err(format!(
+                "merge blocked: every mission record for {branch} is closed (merged or abandoned) — a merge never flips a historical mission's state; re-plan the work under a fresh mission title"
+            ));
+        }
         let unmerged_deps: Vec<String> = {
             let Some(m) = state.missions.iter().find(|m| m.branch == branch) else {
                 return Err(format!("no tower mission owns branch \"{branch}\""));
@@ -1161,6 +1203,19 @@ impl TowerStore {
             return Err(format!(
                 "merge blocked: the main checkout is on \"{checked_out}\", not the recorded base \"{}\" — switch it back (`git checkout {}`) and retry; nothing was merged",
                 state.base, state.base
+            ));
+        }
+        if is_worktree_dirty(&self.repo_root).await {
+            self.append_log(
+                TOWER_NAME,
+                "merge.blocked",
+                &[("branch", branch), ("reason", "dirty-checkout")],
+                None,
+            )
+            .await?;
+            return Err(format!(
+                "merge blocked: the main checkout has uncommitted changes — commit or stash them first; merging on top of a dirty checkout would mix unrelated edits into {}. Nothing was merged.",
+                state.base
             ));
         }
 
@@ -1488,6 +1543,7 @@ async fn read_git_dir(cwd: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::tower::git;
     use crate::tools::tower::types::TowerAgentKind;
 
     fn entry(name: &str, agent_id: &str) -> TowerRosterEntry {
@@ -1501,6 +1557,7 @@ mod tests {
             worktree: None,
             branch: None,
             spawned_at: "2026-09-15T00:00:00Z".into(),
+            status: None,
         }
     }
 
@@ -1588,6 +1645,87 @@ mod tests {
         let state = store.load().await.unwrap();
         assert_eq!(state.roster.agents.len(), 1);
         assert_eq!(state.roster.agents[0].agent_id, "agent-0");
+    }
+
+    #[tokio::test]
+    async fn mark_agent_dead_flags_the_entry_and_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_in(dir.path()).await;
+        store
+            .save(&state_with(vec![entry("worker-a", "agent-0")]))
+            .await
+            .unwrap();
+
+        store.mark_agent_dead("agent-0").await.unwrap();
+        let state = store.load().await.unwrap();
+        assert_eq!(state.roster.agents[0].status.as_deref(), Some("dead"));
+
+        // Marking again is a no-op, not an error or a duplicate flag.
+        store.mark_agent_dead("agent-0").await.unwrap();
+        let state = store.load().await.unwrap();
+        assert_eq!(state.roster.agents[0].status.as_deref(), Some("dead"));
+
+        // An unknown or already-retired agent id is silently ignored.
+        store.mark_agent_dead("agent-missing").await.unwrap();
+    }
+
+    fn mission(id: &str, branch: &str, status: TowerMissionStatus) -> TowerMission {
+        TowerMission {
+            id: id.into(),
+            title: format!("Mission {id}"),
+            slug: format!("mission-{id}"),
+            kind: crate::tools::tower::types::TowerMissionKind::Build,
+            scope: vec!["src/**".into()],
+            branch: branch.into(),
+            worktree: format!("wt-{id}"),
+            deps: Vec::new(),
+            status,
+            owner: None,
+            tasks: Vec::new(),
+            notes: Vec::new(),
+            blockers: Vec::new(),
+        }
+    }
+
+    /// Merging a branch whose only mission record is closed (merged or
+    /// abandoned) is refused — a merge never flips a historical mission's
+    /// state (v2 #3648).
+    #[tokio::test]
+    async fn merge_refuses_a_branch_whose_only_mission_record_is_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        git::git(root, &["init", "-q"]).await.unwrap();
+        git::git(root, &["config", "user.email", "t@e.test"]).await;
+        git::git(root, &["config", "user.name", "t"]).await;
+        std::fs::write(root.join("f.txt"), "base").unwrap();
+        git::git(root, &["add", "."]).await.unwrap();
+        git::git(root, &["commit", "-qm", "init"]).await.unwrap();
+        let store = store_in(root).await;
+        // `init` normally creates the comms tree; the test saves state
+        // directly, so the log directory must exist for merge's blocking
+        // append_log calls.
+        tokio::fs::create_dir_all(store.abs(crate::tools::tower::paths::LOG_DIR))
+            .await
+            .unwrap();
+        let mut state = state_with(Vec::new());
+        state
+            .missions
+            .push(mission("M1", "feat/done", TowerMissionStatus::Merged));
+        state
+            .missions
+            .push(mission("M2", "feat/gone", TowerMissionStatus::Abandoned));
+        store.save(&state).await.unwrap();
+
+        let err = store.merge("feat/done").await.unwrap_err();
+        assert!(err.contains("closed"), "got: {err}");
+        assert!(err.contains("fresh mission"), "got: {err}");
+
+        let err = store.merge("feat/gone").await.unwrap_err();
+        assert!(err.contains("closed"), "got: {err}");
+
+        // No mission for the branch at all still errors distinctly.
+        let err = store.merge("feat/unknown").await.unwrap_err();
+        assert!(err.contains("no tower mission owns branch"), "got: {err}");
     }
 
     /// Only a missing state file means "uninitialized". An existing but

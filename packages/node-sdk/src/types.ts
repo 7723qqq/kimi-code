@@ -343,9 +343,21 @@ export interface BundledSkillActivation {
   readonly skillSource?: SkillSource;
 }
 
+/**
+ * Opaque client metadata carried on prompt submissions and skill
+ * activations (v2 #3764). It never enters model content; when every prompt
+ * entry provides a `displayText`, clients prefer it for session titles,
+ * undo labels, and fork titles.
+ */
+export interface ClientPromptMetadata {
+  readonly displayText?: string;
+  readonly [key: string]: unknown;
+}
+
 export interface UserPromptOrigin {
   readonly kind: 'user';
   readonly skillActivations?: readonly BundledSkillActivation[];
+  readonly clientMetadata?: ClientPromptMetadata;
 }
 
 export interface SkillActivationOrigin {
@@ -357,6 +369,7 @@ export interface SkillActivationOrigin {
   readonly skillType?: string;
   readonly skillPath?: string;
   readonly skillSource?: SkillSource;
+  readonly clientMetadata?: ClientPromptMetadata;
 }
 
 export interface PluginCommandOrigin {

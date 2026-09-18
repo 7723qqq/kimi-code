@@ -417,6 +417,7 @@ pub fn run_turn_continued<'a>(
         hook_guard,
         media,
         media_dropped,
+        toolset,
     } = input;
     Box::pin(async move {
         let mut messages = messages;
@@ -447,6 +448,7 @@ pub fn run_turn_continued<'a>(
                 hook_guard: hook_guard.take(),
                 media,
                 media_dropped: media_dropped.clone(),
+                toolset: toolset.clone(),
             };
             let mut result = run_turn(iter_input, callbacks).await?;
             steps += result.steps;
@@ -740,6 +742,17 @@ pub fn run_turn<'a>(
                 goal_plan_state.clone(),
             );
         }
+        // Progressive tool disclosure (v2 `toolSelectAnnouncementsService`):
+        // every new turn re-announces the deferred tool set — added names the
+        // model has not seen yet, removed names whose servers went away. The
+        // provider is turn-gated (`is_new_turn`), matching v2's variant gate.
+        if let Some(toolset) = &input.toolset {
+            let toolset = toolset.clone();
+            injection_registry.register(
+                "tool_select",
+                Box::new(move |_ctx| toolset.take_disclosure_announcement()),
+            );
+        }
 
         // Tool-call dedup guard (v2 `toolDedupeService` mirror, G-6 #2):
         // same-step repeats share the original's result instead of executing,
@@ -871,7 +884,7 @@ pub fn run_turn<'a>(
                 None,
                 Some(turn_cancel.token()),
             )
-            .await
+            .await?
             {
                 tracing::debug!(
                     turn_id = %turn_id,
@@ -1029,7 +1042,7 @@ pub fn run_turn<'a>(
                         None,
                         Some(turn_cancel.token()),
                     )
-                    .await;
+                    .await?;
                     // A compaction that removed nothing cannot change the next
                     // request, so retrying would just burn the remaining
                     // attempts on an identical prompt.
@@ -1732,6 +1745,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await;
@@ -1789,6 +1803,7 @@ mod tests {
             hook_guard: Some(guard),
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await;
@@ -1857,6 +1872,7 @@ mod tests {
             hook_guard: Some(stop_hook_guard()),
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let turn = run_turn(input, &callbacks).await.unwrap();
@@ -1908,6 +1924,7 @@ mod tests {
             hook_guard: Some(guard),
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let turn = run_turn(input, &callbacks).await.unwrap();
@@ -1951,6 +1968,7 @@ mod tests {
             hook_guard: Some(stop_hook_guard()),
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let turn = run_turn_continued(input, &callbacks).await.unwrap();
@@ -2019,6 +2037,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let turn = run_turn(input, &callbacks).await.unwrap();
@@ -2079,6 +2098,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let _ = run_turn(input, &callbacks).await;
@@ -2170,6 +2190,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let turn = run_turn(input, &callbacks).await.unwrap();
@@ -2267,6 +2288,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await;
@@ -2313,6 +2335,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await;
@@ -2363,6 +2386,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await;
@@ -2435,6 +2459,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
         let turn = run_turn(input, &callbacks).await.unwrap();
         assert!(matches!(turn.stop_reason, LoopTurnStopReason::MaxTokens));
@@ -2467,6 +2492,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
         let turn = run_turn(input, &callbacks).await.unwrap();
         assert!(matches!(turn.stop_reason, LoopTurnStopReason::MaxTokens));
@@ -2499,6 +2525,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
         let turn = run_turn(input, &callbacks).await.unwrap();
         assert!(matches!(turn.stop_reason, LoopTurnStopReason::Filtered));
@@ -2583,6 +2610,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
         let turn = run_turn(input, &callbacks).await.unwrap();
         assert_eq!(turn.steps, 3);
@@ -2685,6 +2713,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
         let turn = run_turn(input, &callbacks).await.unwrap();
         assert_eq!(turn.usage.input_tokens, 18);
@@ -2787,6 +2816,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
         run_turn(input, &callbacks).await.unwrap();
         let requests = llm.requests.lock().unwrap();
@@ -2901,6 +2931,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
         run_turn(input, &callbacks).await.unwrap();
         let requests = llm.requests.lock().unwrap();
@@ -3020,6 +3051,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
         let result = run_turn(input, &callbacks).await.unwrap();
 
@@ -3138,6 +3170,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
         run_turn(input, &callbacks).await.unwrap();
 
@@ -3225,6 +3258,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
         let result = run_turn(input, &callbacks).await.unwrap();
 
@@ -3341,6 +3375,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -3408,6 +3443,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await;
@@ -3466,6 +3502,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -3518,6 +3555,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -3573,6 +3611,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &capturing).await.unwrap();
@@ -3637,6 +3676,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -3692,6 +3732,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -3786,6 +3827,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await;
@@ -3837,6 +3879,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -3942,6 +3985,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks)
@@ -4006,6 +4050,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks)
@@ -4049,6 +4094,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -4147,6 +4193,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -4226,6 +4273,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -4366,7 +4414,14 @@ mod tests {
                 Box::pin(async move {
                     *captured.lock().unwrap() = params.messages.to_vec();
                     Ok(LLMChatResponse {
-                        content: String::new(),
+                        content: if params.messages[0]
+                            .content
+                            .contains("conversation summarizer")
+                        {
+                            "Earlier user and assistant discussed the task.".into()
+                        } else {
+                            String::new()
+                        },
                         thinking: vec![],
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
@@ -4423,6 +4478,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -4432,14 +4488,13 @@ mod tests {
         assert_eq!(
             captured.len(),
             5,
-            "system + placeholder + recent user + continuation reminder + injections"
+            "system + summary + recent user + continuation reminder + injections"
         );
         assert_eq!(captured[0].role, "system");
         assert_eq!(captured[1].role, "user");
         assert_eq!(
-            captured[1].content,
-            crate::compaction::summary_placeholder(2),
-            "placeholder must carry exact summary format with omitted count"
+            captured[1].content, "Earlier user and assistant discussed the task.",
+            "the generated summary must replace the omitted history"
         );
         assert_eq!(captured[2].content, big, "most recent message preserved");
         assert_eq!(
@@ -4525,6 +4580,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -4574,6 +4630,7 @@ mod tests {
                 hook_guard: None,
                 media: None,
                 media_dropped: None,
+                toolset: None,
             }
         }
 
@@ -4674,6 +4731,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
         let telemetry = TelemetryContext {
             mode: "agent".into(),
@@ -4737,6 +4795,7 @@ mod tests {
             hook_guard: Some(stop_hook_guard()),
             media: None,
             media_dropped: None,
+            toolset: None,
         };
         let telemetry = TelemetryContext {
             mode: "agent".into(),
@@ -4797,6 +4856,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
         let telemetry = TelemetryContext {
             mode: "agent".into(),
@@ -4951,6 +5011,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
         run_turn(input, &callbacks).await.unwrap();
 
@@ -5043,6 +5104,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
         run_turn(input, &callbacks).await.unwrap();
 
@@ -5131,6 +5193,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
         run_turn(input, &callbacks).await.unwrap();
 
@@ -5173,13 +5236,9 @@ mod tests {
                         ))
                             as Box<dyn std::error::Error + Send + Sync>)
                     } else if count == 1 {
-                        // Second call is the summarizer invoked by
-                        // `force_compact_messages_with_summary`. Return empty
-                        // content so it falls back to `summary_placeholder`,
-                        // preserving the exact placeholder format the next
-                        // assertion checks.
+                        // The summarizer produces the replacement text.
                         Ok(LLMChatResponse {
-                            content: String::new(),
+                            content: "Earlier user and assistant discussed the task.".into(),
                             thinking: vec![],
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
@@ -5190,14 +5249,14 @@ mod tests {
                         assert_eq!(
                             params.messages.len(),
                             7,
-                            "expected exact 7 messages: system + placeholder + u2 + a2 + u3 + continuation reminder + date reminder"
+                            "expected exact 7 messages: system + summary + u2 + a2 + u3 + continuation reminder + date reminder"
                         );
                         assert_eq!(params.messages[0].role, "system");
                         assert_eq!(params.messages[1].role, "user");
                         assert_eq!(
                             params.messages[1].content,
-                            crate::compaction::summary_placeholder(2),
-                            "placeholder must match exact summary format with 2 omitted messages"
+                            "Earlier user and assistant discussed the task.",
+                            "the generated summary must replace the omitted history"
                         );
                         assert_eq!(params.messages[2].content, "u2");
                         assert_eq!(params.messages[3].content, "a2");
@@ -5273,6 +5332,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let result = run_turn(input, &callbacks).await.unwrap();
@@ -5400,9 +5460,14 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
-        assert!(run_turn(input, &callbacks).await.is_err());
+        let error = run_turn(input, &callbacks).await.unwrap_err();
+        assert!(
+            error.to_string().contains("summarizer unavailable"),
+            "{error}"
+        );
         assert_eq!(
             llm.summarizer_calls.load(Ordering::SeqCst),
             1,
@@ -5410,8 +5475,8 @@ mod tests {
         );
         assert_eq!(
             llm.step_calls.load(Ordering::SeqCst),
-            2,
-            "one step attempt plus one retry after the emergency compaction"
+            1,
+            "failed summarization must not retry a step with destroyed history"
         );
     }
 
@@ -5517,6 +5582,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         assert!(run_turn(input, &callbacks).await.is_err());
@@ -5624,6 +5690,7 @@ mod tests {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         let turn = run_turn(input, &callbacks).await.unwrap();

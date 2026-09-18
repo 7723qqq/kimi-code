@@ -461,6 +461,7 @@ impl KimiEngine {
             hook_guard: None,
             media: None,
             media_dropped: None,
+            toolset: None,
         };
 
         // 4. 驱动原生 run_turn 循环

@@ -602,12 +602,13 @@ export default {
       },
       permissionSelector: {
         title: 'Select permission mode',
-        manual: 'Manual',
-        manualDesc: 'Approve every action yourself.',
-        auto: 'Auto',
-        autoDesc: 'Run all actions automatically, including risky ones.',
-        yolo: 'YOLO',
-        yoloDesc: 'AI decides which actions need your approval.',
+        manual: 'Always Ask',
+        manualDesc: 'Auto-read only; everything else needs your approval first.',
+        yolo: 'Ask When Needed',
+        yoloDesc:
+          'Routine edits and commands run automatically; risky actions, questions, and plans still ask.',
+        auto: 'Never Ask',
+        autoDesc: 'Never interrupts you; everything runs and is decided automatically.',
       },
       approvalPanel: {
         headerForBash: 'Run this command?',
@@ -683,9 +684,9 @@ export default {
               'Run the global search-index MiniDB (open, WAL replay, sync, queries) in a dedicated worker thread instead of the server main thread.',
           },
           'secondary-model': {
-            title: 'Secondary model for subagents',
+            title: 'Secondary model for subagents (always on)',
             description:
-              'Let newly spawned subagents use a separately configured secondary model by default, with an explicit primary-model override for quality-sensitive tasks.',
+              'The subagent model pool is always on since 0.42.0; this entry is kept only so a stored [experimental] secondary-model = false still documents the retired opt-out.',
           },
           subagent_backends: {
             title: 'External subagent backends',
