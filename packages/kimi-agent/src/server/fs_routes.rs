@@ -134,48 +134,34 @@ pub fn file_to_fs_entry(work_dir: &Path, full_path: &Path) -> Result<Value, std:
 }
 
 /// Handle `fs:git_status` (or `fs:gitStatus`).
-pub fn handle_git_status(work_dir: &Path) -> HttpResponse {
-    let output = std::process::Command::new("git")
-        .args(["status", "--porcelain=v2", "--branch"])
-        .current_dir(work_dir)
-        .output();
+/// Parsed fields of a `git status --porcelain=v2 -z` output blob.
+struct GitStatusFields {
+    branch: String,
+    ahead: u64,
+    behind: u64,
+    entries: HashMap<String, Value>,
+}
 
-    let Ok(out) = output else {
-        return HttpResponse::ok(&json!({
-            "branch": "",
-            "ahead": 0,
-            "behind": 0,
-            "entries": {},
-            "additions": 0,
-            "deletions": 0,
-            "pullRequest": Value::Null,
-        }));
-    };
-
-    if !out.status.success() {
-        return HttpResponse::ok(&json!({
-            "branch": "",
-            "ahead": 0,
-            "behind": 0,
-            "entries": {},
-            "additions": 0,
-            "deletions": 0,
-            "pullRequest": Value::Null,
-        }));
-    }
-
-    let text = String::from_utf8_lossy(&out.stdout);
+/// Parse the `-z` porcelain=v2 records. NUL-terminated output keeps paths with
+/// spaces, quotes, and non-ASCII characters verbatim — line-oriented parsing
+/// combined with git's core.quotePath C-quoting mangled such paths into bogus
+/// quoted directory segments (upstream #3415).
+fn parse_git_status_z(text: &str) -> GitStatusFields {
     let mut branch = String::new();
     let mut ahead = 0;
     let mut behind = 0;
     let mut entries = HashMap::new();
 
-    for line in text.lines() {
-        if let Some(b) = line.strip_prefix("# branch.head ") {
+    for record in text.split('\0') {
+        let record = record.trim_start_matches('\n');
+        if record.is_empty() {
+            continue;
+        }
+        if let Some(b) = record.strip_prefix("# branch.head ") {
             if b != "(detached)" {
                 branch = b.trim().to_string();
             }
-        } else if let Some(ab) = line.strip_prefix("# branch.ab ") {
+        } else if let Some(ab) = record.strip_prefix("# branch.ab ") {
             for part in ab.split_whitespace() {
                 if let Some(a) = part.strip_prefix('+') {
                     ahead = a.parse().unwrap_or(0);
@@ -183,37 +169,86 @@ pub fn handle_git_status(work_dir: &Path) -> HttpResponse {
                     behind = b.parse().unwrap_or(0);
                 }
             }
-        } else if line.starts_with('1') || line.starts_with('2') {
-            // e.g. 1 M. N... 100644 100644 100644 ... src/main.rs
-            let parts: Vec<&str> = line.split_whitespace().collect();
+        } else if record.starts_with('1') {
+            // "1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>"
+            let parts: Vec<&str> = record.split(' ').collect();
             if parts.len() >= 9 {
                 let xy = parts[1];
                 let path = parts[8..].join(" ");
                 let status = if xy.starts_with('A') {
                     "added"
-                } else if xy.starts_with('D') || xy.ends_with('D') {
+                } else if xy.starts_with('D') {
                     "deleted"
-                } else if xy.starts_with('R') {
-                    "renamed"
                 } else {
                     "modified"
                 };
                 entries.insert(path, json!({ "status": status }));
             }
-        } else if line.starts_with('?') {
-            // Untracked: ? src/new_file.rs
-            if let Some(path) = line.strip_prefix("? ") {
+        } else if record.starts_with('2') {
+            // Rename: "2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path>",
+            // with the original path arriving as the next NUL-separated record.
+            let parts: Vec<&str> = record.split(' ').collect();
+            if parts.len() >= 10 {
+                let xy = parts[1];
+                let path = parts[9..].join(" ");
+                let status = if xy.starts_with('D') {
+                    "deleted"
+                } else {
+                    "renamed"
+                };
+                entries.insert(path, json!({ "status": status }));
+            }
+        } else if record.starts_with('?') {
+            // Untracked: "? <path>"
+            if let Some(path) = record.strip_prefix("? ") {
                 entries.insert(path.trim().to_string(), json!({ "status": "untracked" }));
             }
-        } else if line.starts_with('u') {
-            // Unmerged: u ...
-            let parts: Vec<&str> = line.split_whitespace().collect();
+        } else if record.starts_with('u') {
+            // Unmerged: "u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>"
+            let parts: Vec<&str> = record.split(' ').collect();
             if parts.len() >= 11 {
                 let path = parts[10..].join(" ");
                 entries.insert(path, json!({ "status": "conflict" }));
             }
         }
     }
+
+    GitStatusFields {
+        branch,
+        ahead,
+        behind,
+        entries,
+    }
+}
+
+pub fn handle_git_status(work_dir: &Path) -> HttpResponse {
+    let output = std::process::Command::new("git")
+        .args(["status", "--porcelain=v2", "--branch", "-z"])
+        .current_dir(work_dir)
+        .output();
+
+    let out = match output {
+        Ok(out) if out.status.success() => out,
+        _ => {
+            return HttpResponse::ok(&json!({
+                "branch": "",
+                "ahead": 0,
+                "behind": 0,
+                "entries": {},
+                "additions": 0,
+                "deletions": 0,
+                "pullRequest": Value::Null,
+            }));
+        }
+    };
+
+    let text = String::from_utf8_lossy(&out.stdout);
+    let GitStatusFields {
+        branch,
+        ahead,
+        behind,
+        entries,
+    } = parse_git_status_z(&text);
 
     let mut additions = 0;
     let mut deletions = 0;
@@ -952,6 +987,55 @@ pub fn handle_fs_content(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_git_status_z_verbatim_paths() {
+        // Real git -z output: every record, header records included, is
+        // NUL-terminated with no LF separators.
+        let raw = concat!(
+            "# branch.oid 1234\0",
+            "# branch.head main\0",
+            "# branch.ab +1 -2\0",
+            "1 .M N... 100644 100644 100644 <hH> <hI> src/main.rs\0",
+            "2 RM N... 100644 100644 100644 <hH> <hI> R100 新文档笔记测试.txt\0old name.txt\0",
+            "? 未跟踪 目录/笔记.md\0",
+            "u UU N... 100644 100644 100644 100644 <h1> <h2> <h3> 冲突.txt\0",
+        );
+        let parsed = parse_git_status_z(raw);
+        assert_eq!(parsed.branch, "main");
+        assert_eq!(parsed.ahead, 1);
+        assert_eq!(parsed.behind, 2);
+        assert_eq!(
+            parsed.entries["src/main.rs"]["status"], "modified",
+            "ordinary modification is classified"
+        );
+        assert!(
+            parsed.entries.contains_key("新文档笔记测试.txt"),
+            "C-quoted rename path is decoded to its real name, not bogus segments: {:?}",
+            parsed.entries.keys().collect::<Vec<_>>()
+        );
+        assert_eq!(parsed.entries["新文档笔记测试.txt"]["status"], "renamed");
+        assert!(
+            parsed.entries.contains_key("未跟踪 目录/笔记.md"),
+            "untracked path with space and non-ASCII stays verbatim"
+        );
+        assert!(
+            parsed.entries.contains_key("冲突.txt"),
+            "unmerged path stays verbatim"
+        );
+    }
+
+    #[test]
+    fn test_parse_git_status_z_empty_and_failure_shapes() {
+        let parsed = parse_git_status_z("");
+        assert_eq!(parsed.branch, "");
+        assert_eq!(parsed.ahead, 0);
+        assert_eq!(parsed.behind, 0);
+        assert!(parsed.entries.is_empty());
+
+        let parsed = parse_git_status_z("# branch.head (detached)\0");
+        assert_eq!(parsed.branch, "", "detached HEAD yields no branch name");
+    }
 
     #[test]
     fn test_resolve_safe_path_boundaries() {

@@ -1752,7 +1752,8 @@ mod tests {
         let messages_sent = llm.messages_sent.lock().unwrap();
         assert_eq!(messages_sent.len(), 1);
         let sent_messages = &messages_sent[0];
-        // sent_messages has: system message (from run_turn), then the 4 forked messages
+        // sent_messages has: system message (from run_turn), then the 5 forked
+        // messages (inherited history + the fork-context system reminder)
         let user_idx = sent_messages
             .iter()
             .position(|m| m.content == "parent prompt")
@@ -1769,9 +1770,20 @@ mod tests {
             sent_messages[user_idx + 2].content,
             crate::subagent::INHERITED_IN_FLIGHT_TOOL_OUTPUT
         );
+        // The fork-context notice rides as a <system-reminder> injection
+        // between the inherited history and the task prompt (v2 #3412).
         assert_eq!(sent_messages[user_idx + 3].role, "user");
+        assert!(crate::injection::is_system_reminder(
+            &sent_messages[user_idx + 3].content
+        ));
         assert!(
             sent_messages[user_idx + 3]
+                .content
+                .contains(crate::subagent::fork::FORK_CONTEXT_NOTICE.trim())
+        );
+        assert_eq!(sent_messages[user_idx + 4].role, "user");
+        assert!(
+            sent_messages[user_idx + 4]
                 .content
                 .contains("continue from fork")
         );

@@ -4205,39 +4205,58 @@ impl HttpServer {
                 // fixed placeholder. The NAPI path has always summarized; this
                 // endpoint did not, so the same "compact" action produced
                 // different history depending on which client asked for it.
-                let summary = match self.engine.as_ref() {
-                    Some(engine) => match engine.session_llm(session_id).await {
-                        Some(llm) => match self.store.load_session_history(session_id) {
-                            Ok(history) => {
-                                let config = crate::compaction::CompactionConfig {
-                                    max_attempts: engine.compaction_max_attempts(),
-                                    ..crate::compaction::CompactionConfig::default()
-                                };
-                                let count = crate::compaction::compute_compact_count_manual(
-                                    &history, &config,
-                                );
-                                if count == 0 {
-                                    None
-                                } else {
-                                    crate::compaction::summarize_with_llm(
-                                        &history[1..count as usize],
-                                        llm.as_ref(),
-                                        instruction,
-                                        None,
-                                        config.max_attempts,
-                                    )
-                                    .await
-                                }
-                            }
-                            Err(e) => {
-                                return HttpResponse::internal_error(format!(
-                                    "Database error: {e}"
-                                ));
-                            }
-                        },
-                        None => None,
-                    },
-                    None => None,
+                //
+                // A summary is mandatory once the split is non-trivial (the
+                // store rejects blank ones), so the prerequisites are resolved
+                // BEFORE the history is touched and each failure carries its
+                // own status: no engine or no bound model is a server
+                // configuration problem (503, matching the steer route), while
+                // a summarizer that ran and failed is a request failure (500).
+                let engine = match self.engine.as_ref() {
+                    Some(engine) => engine,
+                    None => {
+                        return HttpResponse::json(
+                            503,
+                            &json!({ "error": "no engine configured for this server" }),
+                        );
+                    }
+                };
+                let llm = match engine.session_llm(session_id).await {
+                    Some(llm) => llm,
+                    None => {
+                        return HttpResponse::json(
+                            503,
+                            &json!({
+                                "error": "no model is bound to this session; compact requires a model to write the summary",
+                            }),
+                        );
+                    }
+                };
+                let history = match self.store.load_session_history(session_id) {
+                    Ok(history) => history,
+                    Err(e) => return HttpResponse::internal_error(format!("Database error: {e}")),
+                };
+                let config = crate::compaction::CompactionConfig {
+                    max_attempts: engine.compaction_max_attempts(),
+                    ..crate::compaction::CompactionConfig::default()
+                };
+                let count = crate::compaction::compute_compact_count_manual(&history, &config);
+                let summary = if count == 0 {
+                    // Nothing to fold: the store's own no-op path reports it.
+                    None
+                } else {
+                    match crate::compaction::summarize_with_llm(
+                        &history[1..count as usize],
+                        llm.as_ref(),
+                        instruction,
+                        None,
+                        config.max_attempts,
+                    )
+                    .await
+                    {
+                        Ok(summary) => Some(summary),
+                        Err(error) => return HttpResponse::internal_error(error.to_string()),
+                    }
                 };
                 match self
                     .store
@@ -6342,6 +6361,7 @@ mod tests {
                 todo_tool_veto: None,
                 tower_worktree_root: None,
                 tower_enabled: false,
+                tool_select: false,
                 sandbox_mode: None,
                 sandbox_policy: None,
                 caller_agent_id: None,
@@ -8785,9 +8805,13 @@ max_context_size = 128000
                 body: Vec::new(),
             })
             .await;
-        assert_eq!(res_compact_colon.status, 200);
+        // 7. :compact — a summary is mandatory now, so a server with no
+        // engine refuses before touching history. Both syntaxes must carry
+        // the same refusal (the dedicated 503 contract is covered by
+        // test_http_compact_without_summarizer_preserves_history).
+        assert_eq!(res_compact_colon.status, 503);
         let compact_val: Value = serde_json::from_slice(&res_compact_colon.body).unwrap();
-        assert_eq!(compact_val["compacted"], true);
+        assert_eq!(compact_val["error"], "no engine configured for this server");
 
         // 8. :undo
         let res_undo_colon = server
@@ -10833,10 +10857,8 @@ max_context_size = 128000
         );
     }
 
-    /// `POST :compact` accepts the v2 `instruction` hint, reports token
-    /// counts, and publishes `compaction.started` / `compaction.completed`.
     #[tokio::test]
-    async fn test_http_compact_publishes_events_and_reports_tokens() {
+    async fn test_http_compact_without_summarizer_preserves_history() {
         let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
         let hub = Arc::new(EventHub::new());
         let server = HttpServer::with_hub(store.clone(), hub.clone());
@@ -10859,6 +10881,8 @@ max_context_size = 128000
                 .unwrap();
         }
 
+        let original_history =
+            serde_json::to_value(store.load_session_history(sid).unwrap()).unwrap();
         let seen = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
         let collector = seen.clone();
         hub.bus_for(sid).subscribe(move |event| {
@@ -10879,29 +10903,26 @@ max_context_size = 128000
                 body: serde_json::to_vec(&json!({ "instruction": "keep decisions" })).unwrap(),
             })
             .await;
-        assert_eq!(res.status, 200);
-        let body: Value = serde_json::from_slice(&res.body).unwrap();
-        assert_eq!(body["compacted"], true);
-        assert!(body["removed"].as_u64().unwrap() > 0);
+        // No engine is bound, so the mandatory-summary prerequisites fail
+        // before any history is touched: a 503 naming the configuration
+        // problem, not a mid-request 500. History is untouched and no
+        // completion event is published.
+        assert_eq!(res.status, 503);
         assert!(
-            body["tokensBefore"].as_u64().unwrap() > body["tokensAfter"].as_u64().unwrap(),
-            "compaction must shrink the token count: {body}"
+            serde_json::from_slice::<Value>(&res.body).unwrap()["error"]
+                .as_str()
+                .unwrap()
+                .contains("no engine"),
         );
-
+        assert_eq!(
+            serde_json::to_value(store.load_session_history(sid).unwrap()).unwrap(),
+            original_history,
+        );
         let events = seen.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let started = events
-            .iter()
-            .find(|event| event["type"] == "compaction.started")
-            .expect("compaction.started must be published");
-        assert_eq!(started["instruction"], "keep decisions");
-        let completed = events
-            .iter()
-            .find(|event| event["type"] == "compaction.completed")
-            .expect("compaction.completed must be published");
-        assert_eq!(completed["sessionId"], sid);
         assert!(
-            completed["tokensBefore"].as_u64().unwrap()
-                > completed["tokensAfter"].as_u64().unwrap()
+            !events
+                .iter()
+                .any(|event| event["type"] == "compaction.completed")
         );
     }
 
@@ -11003,6 +11024,7 @@ max_context_size = 128000
                 todo_tool_veto: None,
                 tower_worktree_root: None,
                 tower_enabled: false,
+                tool_select: false,
                 sandbox_mode: None,
                 sandbox_policy: None,
                 caller_agent_id: None,

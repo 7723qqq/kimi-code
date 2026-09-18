@@ -314,11 +314,8 @@ pub fn should_recover_from_context_overflow(
 /// Placeholder text standing in for the compacted prefix, matching the TS
 /// `createCompactionSummaryMessage` marker.
 ///
-/// This is the *fallback*, not the only path: the synchronous
-/// [`compact_messages`] has no LLM to call and always inserts the marker,
-/// while the asynchronous `*_with_summary` entry points ask
-/// [`summarize_with_llm`] for a real summary and land here only when the
-/// summarizer returns nothing usable.
+/// Only the synchronous legacy helpers insert this marker. Summary-producing
+/// APIs propagate failures without replacing history.
 pub(crate) fn summary_placeholder(omitted: usize) -> String {
     format!(
         "[Earlier conversation compacted: {omitted} messages were summarized away \
@@ -377,27 +374,26 @@ fn summarization_prompt(omitted: &[LLMMessage], instruction: Option<&str>) -> Ve
     ]
 }
 
-/// Call the LLM to summarize `omitted` messages, retrying retryable failures
-/// with exponential backoff.
-///
-/// Returns `Some(summary)` when the LLM responds with non-empty content,
-/// `None` on error, cancellation, or empty content (the caller falls back to
-/// [`summary_placeholder`]). The summarizer call sends no tools — the model
-/// should only produce text. Retries honor the provider's `Retry-After`
-/// request, abort during the backoff wait, and — with
-/// `KIMI_CODE_INFINITE_RETRY` set (v2 #3240) — never exhaust their budget.
-/// `max_attempts` is the host's total-request cap (v2 #3750
-/// `loopControl.compactionMaxAttempts`); `None` keeps
-/// [`DEFAULT_COMPACTION_MAX_ATTEMPTS`].
+#[derive(Debug, thiserror::Error)]
+pub enum CompactionError {
+    #[error("compaction cancelled")]
+    Cancelled,
+    #[error("The compaction response did not contain a usable summary.")]
+    EmptySummary,
+    #[error(transparent)]
+    Provider(Box<dyn std::error::Error + Send + Sync>),
+}
+
+/// Generate a usable summary before any history is replaced. Empty responses
+/// retry with the oldest message and leading tool results removed, as in v2.
 pub async fn summarize_with_llm(
     omitted: &[LLMMessage],
     llm: &dyn LLM,
     instruction: Option<&str>,
     cancel: Option<&CancellationToken>,
     max_attempts: Option<u32>,
-) -> Option<String> {
-    let prompt: std::sync::Arc<[LLMMessage]> =
-        std::sync::Arc::from(summarization_prompt(omitted, instruction));
+) -> Result<String, CompactionError> {
+    let mut history = omitted;
     let retry_config = RetryConfig {
         max_attempts: max_attempts.unwrap_or(DEFAULT_COMPACTION_MAX_ATTEMPTS),
         ..RetryConfig::default()
@@ -405,65 +401,74 @@ pub async fn summarize_with_llm(
     let infinite = crate::turn_loop::retry::infinite_retry_enabled();
     let mut attempt: u32 = 0;
     loop {
+        if cancel.is_some_and(CancellationToken::is_cancelled) {
+            return Err(CompactionError::Cancelled);
+        }
         attempt += 1;
         let params = LLMChatParams {
-            messages: std::sync::Arc::clone(&prompt),
+            messages: std::sync::Arc::from(summarization_prompt(history, instruction)),
             tools: std::sync::Arc::from(Vec::new()),
             cancel: cancel.cloned(),
         };
-        match llm.chat(params).await {
+        let response = match cancel {
+            Some(token) => tokio::select! {
+                biased;
+                _ = token.cancelled() => return Err(CompactionError::Cancelled),
+                response = llm.chat(params) => response,
+            },
+            None => llm.chat(params).await,
+        };
+        if cancel.is_some_and(CancellationToken::is_cancelled) {
+            return Err(CompactionError::Cancelled);
+        }
+        match response {
             Ok(response) => {
                 let trimmed = response.content.trim();
-                return if trimmed.is_empty() {
-                    None
-                } else {
-                    Some(trimmed.to_string())
-                };
+                if !trimmed.is_empty() {
+                    return Ok(trimmed.to_string());
+                }
+                if attempt >= retry_config.max_attempts || history.len() <= 1 {
+                    return Err(CompactionError::EmptySummary);
+                }
+                history = &history[1..];
+                while history
+                    .first()
+                    .is_some_and(|message| message.role == "tool")
+                {
+                    history = &history[1..];
+                }
+                if history.is_empty() {
+                    return Err(CompactionError::EmptySummary);
+                }
             }
             Err(err) => {
                 let err_str = err.to_string();
-                if !llm.is_retryable_error(&err_str) {
-                    return None;
+                if crate::llm::http::is_cancelled_error(&err_str) {
+                    return Err(CompactionError::Cancelled);
                 }
-                if !infinite && attempt >= retry_config.max_attempts {
-                    tracing::warn!(
-                        attempt,
-                        error = %err_str,
-                        "compaction summarizer exhausted its retries; falling back to the placeholder"
-                    );
-                    return None;
+                if !llm.is_retryable_error(&err_str)
+                    || (!infinite && attempt >= retry_config.max_attempts)
+                {
+                    return Err(CompactionError::Provider(err));
                 }
                 let delay = step_delay(
                     retry_delay(attempt, &retry_config),
                     retry_after_hint(&err_str),
                 );
-                tracing::warn!(
-                    attempt,
-                    next_attempt = attempt + 1,
-                    delay_ms = delay.as_millis() as u64,
-                    error = %err_str,
-                    "compaction summarizer retrying"
-                );
-                let cancelled = match cancel {
+                match cancel {
                     Some(token) => tokio::select! {
-                        _ = token.cancelled() => true,
-                        _ = tokio::time::sleep(delay) => false,
+                        biased;
+                        _ = token.cancelled() => return Err(CompactionError::Cancelled),
+                        _ = tokio::time::sleep(delay) => {},
                     },
-                    None => {
-                        tokio::time::sleep(delay).await;
-                        false
-                    }
-                };
-                if cancelled {
-                    return None;
+                    None => tokio::time::sleep(delay).await,
                 }
             }
         }
     }
 }
 
-/// Unconditionally compact `messages` with a real LLM summary, falling back
-/// to [`summary_placeholder`] when the summarizer returns nothing.
+/// Unconditionally compact `messages` only after a usable LLM summary succeeds.
 ///
 /// Like [`force_compact_messages`] but the compacted prefix is replaced by a
 /// user message carrying the LLM-generated summary instead of a fixed
@@ -474,16 +479,15 @@ pub async fn force_compact_messages_with_summary(
     llm: &dyn LLM,
     instruction: Option<&str>,
     cancel: Option<&CancellationToken>,
-) -> Vec<LLMMessage> {
+) -> Result<Vec<LLMMessage>, CompactionError> {
     let count = compute_compact_count(messages, config);
     if count == 0 {
-        return messages.to_vec();
+        return Ok(messages.to_vec());
     }
     let omitted = &messages[1..count as usize];
-    let summary = summarize_with_llm(omitted, llm, instruction, cancel, config.max_attempts)
-        .await
-        .unwrap_or_else(|| summary_placeholder(omitted.len()));
-    apply_compaction_with_summary(messages, count, summary)
+    let summary =
+        summarize_with_llm(omitted, llm, instruction, cancel, config.max_attempts).await?;
+    Ok(apply_compaction_with_summary(messages, count, summary))
 }
 
 /// Manual compaction (`POST :compact`) with a real LLM summary.
@@ -496,16 +500,15 @@ pub async fn force_compact_messages_manual_with_summary(
     llm: &dyn LLM,
     instruction: Option<&str>,
     cancel: Option<&CancellationToken>,
-) -> Vec<LLMMessage> {
+) -> Result<Vec<LLMMessage>, CompactionError> {
     let count = compute_compact_count_manual(messages, config);
     if count == 0 {
-        return messages.to_vec();
+        return Ok(messages.to_vec());
     }
     let omitted = &messages[1..count as usize];
-    let summary = summarize_with_llm(omitted, llm, instruction, cancel, config.max_attempts)
-        .await
-        .unwrap_or_else(|| summary_placeholder(omitted.len()));
-    apply_compaction_with_summary(messages, count, summary)
+    let summary =
+        summarize_with_llm(omitted, llm, instruction, cancel, config.max_attempts).await?;
+    Ok(apply_compaction_with_summary(messages, count, summary))
 }
 
 /// Threshold-gated compaction with a real LLM summary.
@@ -520,7 +523,7 @@ pub async fn compact_messages_with_summary(
     llm: &dyn LLM,
     instruction: Option<&str>,
     cancel: Option<&CancellationToken>,
-) -> Option<Vec<LLMMessage>> {
+) -> Result<Option<Vec<LLMMessage>>, CompactionError> {
     compact_messages_with_summary_at(
         messages,
         estimate_messages_tokens(messages),
@@ -542,11 +545,13 @@ pub async fn compact_messages_with_summary_at(
     llm: &dyn LLM,
     instruction: Option<&str>,
     cancel: Option<&CancellationToken>,
-) -> Option<Vec<LLMMessage>> {
+) -> Result<Option<Vec<LLMMessage>>, CompactionError> {
     if !should_compact(used_tokens, config) {
-        return None;
+        return Ok(None);
     }
-    Some(force_compact_messages_with_summary(messages, config, llm, instruction, cancel).await)
+    Ok(Some(
+        force_compact_messages_with_summary(messages, config, llm, instruction, cancel).await?,
+    ))
 }
 
 /// Project `count` leading messages into a summary, keeping the system
@@ -1810,23 +1815,23 @@ mod tests {
         ];
         let llm = SummarizerMockLlm::ok("  Summary of earlier conversation.  ");
         let result = summarize_with_llm(&omitted, &llm, None, None, None).await;
-        assert_eq!(result, Some("Summary of earlier conversation.".into()));
+        assert_eq!(result.unwrap(), "Summary of earlier conversation.");
     }
 
     #[tokio::test]
-    async fn test_summarize_with_llm_returns_none_on_empty_content() {
+    async fn test_summarize_with_llm_returns_error_on_empty_content() {
         let omitted = vec![msg("user", "user-1"), msg("assistant", "assistant-1")];
         let llm = SummarizerMockLlm::ok("");
         let result = summarize_with_llm(&omitted, &llm, None, None, None).await;
-        assert_eq!(result, None);
+        assert!(result.is_err());
     }
 
     #[tokio::test]
-    async fn test_summarize_with_llm_returns_none_on_error() {
+    async fn test_summarize_with_llm_returns_error_on_error() {
         let omitted = vec![msg("user", "user-1"), msg("assistant", "assistant-1")];
         let llm = SummarizerMockLlm::error();
         let result = summarize_with_llm(&omitted, &llm, None, None, None).await;
-        assert_eq!(result, None);
+        assert!(result.is_err());
     }
 
     #[tokio::test]
@@ -1885,8 +1890,9 @@ mod tests {
         let messages = compactable_messages();
         let config = compacting_config();
         let llm = SummarizerMockLlm::ok("LLM summary of the conversation.");
-        let compacted =
-            force_compact_messages_with_summary(&messages, &config, &llm, None, None).await;
+        let compacted = force_compact_messages_with_summary(&messages, &config, &llm, None, None)
+            .await
+            .unwrap();
         let count = compute_compact_count(&messages, &config);
         assert_eq!(compacted.len(), messages.len() - count as usize + 2);
         assert_eq!(compacted[0].role, "system");
@@ -1897,31 +1903,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_force_compact_with_summary_falls_back_on_empty_content() {
+    async fn test_force_compact_with_summary_returns_error_on_empty_content() {
         let messages = compactable_messages();
         let config = compacting_config();
         let llm = SummarizerMockLlm::ok("");
         let compacted =
             force_compact_messages_with_summary(&messages, &config, &llm, None, None).await;
-        let count = compute_compact_count(&messages, &config);
-        assert_eq!(
-            compacted[1].content,
-            summary_placeholder(count as usize - 1)
-        );
+        assert!(compacted.is_err());
     }
 
     #[tokio::test]
-    async fn test_force_compact_with_summary_falls_back_on_error() {
+    async fn test_force_compact_with_summary_returns_error_on_error() {
         let messages = compactable_messages();
         let config = compacting_config();
         let llm = SummarizerMockLlm::error();
         let compacted =
             force_compact_messages_with_summary(&messages, &config, &llm, None, None).await;
-        let count = compute_compact_count(&messages, &config);
-        assert_eq!(
-            compacted[1].content,
-            summary_placeholder(count as usize - 1)
-        );
+        assert!(compacted.is_err());
     }
 
     #[tokio::test]
@@ -1929,8 +1927,9 @@ mod tests {
         let messages = vec![msg("system", "sys"), msg("user", "hi")];
         let config = compacting_config();
         let llm = SummarizerMockLlm::ok("unused");
-        let compacted =
-            force_compact_messages_with_summary(&messages, &config, &llm, None, None).await;
+        let compacted = force_compact_messages_with_summary(&messages, &config, &llm, None, None)
+            .await
+            .unwrap();
         assert_messages_eq(&compacted, &messages);
     }
 
@@ -1939,7 +1938,9 @@ mod tests {
         let messages = compactable_messages();
         let config = small_config(100_000);
         let llm = SummarizerMockLlm::ok("unused");
-        let compacted = compact_messages_with_summary(&messages, &config, &llm, None, None).await;
+        let compacted = compact_messages_with_summary(&messages, &config, &llm, None, None)
+            .await
+            .unwrap();
         assert!(compacted.is_none(), "below threshold must be a no-op");
     }
 
@@ -1950,6 +1951,7 @@ mod tests {
         let llm = SummarizerMockLlm::ok("Real summary.");
         let compacted = compact_messages_with_summary(&messages, &config, &llm, None, None)
             .await
+            .unwrap()
             .expect("above threshold must compact");
         assert_ne!(compacted.len(), messages.len());
         assert_eq!(compacted[1].content, "Real summary.");
@@ -1968,6 +1970,7 @@ mod tests {
             None,
         )
         .await
+        .unwrap()
         .expect("above threshold must compact");
         assert_eq!(compacted[1].content, "Instruction-aware summary.");
         assert!(
@@ -1983,7 +1986,9 @@ mod tests {
         let config = compacting_config();
         let llm = SummarizerMockLlm::ok("Manual summary.");
         let compacted =
-            force_compact_messages_manual_with_summary(&messages, &config, &llm, None, None).await;
+            force_compact_messages_manual_with_summary(&messages, &config, &llm, None, None)
+                .await
+                .unwrap();
         let count = compute_compact_count_manual(&messages, &config);
         assert!(count >= 2, "manual compaction must remove messages");
         assert_eq!(compacted.len(), messages.len() - count as usize + 2);
@@ -1995,6 +2000,7 @@ mod tests {
             compacted.len()
                 < force_compact_messages_with_summary(&messages, &config, &llm, None, None)
                     .await
+                    .unwrap()
                     .len(),
             "manual compaction must keep a smaller tail than auto compaction"
         );
@@ -2017,7 +2023,9 @@ mod tests {
         assert_eq!(compute_compact_count_manual(&messages, &config), 0);
         let llm = SummarizerMockLlm::ok("unused");
         let compacted =
-            force_compact_messages_manual_with_summary(&messages, &config, &llm, None, None).await;
+            force_compact_messages_manual_with_summary(&messages, &config, &llm, None, None)
+                .await
+                .unwrap();
         assert_messages_eq(&compacted, &messages);
         assert_eq!(
             llm.call_count(),
@@ -2031,7 +2039,7 @@ mod tests {
         let omitted = vec![msg("user", "user-1"), msg("assistant", "assistant-1")];
         let llm = SummarizerMockLlm::transient("Recovered summary.", 1);
         let result = summarize_with_llm(&omitted, &llm, None, None, None).await;
-        assert_eq!(result, Some("Recovered summary.".into()));
+        assert_eq!(result.unwrap(), "Recovered summary.");
         assert_eq!(llm.call_count(), 2, "one retry after the transient failure");
     }
 
@@ -2043,7 +2051,7 @@ mod tests {
         let omitted = vec![msg("user", "user-1"), msg("assistant", "assistant-1")];
         let llm = SummarizerMockLlm::transient("never reached", u32::MAX);
         let result = summarize_with_llm(&omitted, &llm, None, None, Some(2)).await;
-        assert_eq!(result, None);
+        assert!(result.is_err());
         assert_eq!(
             llm.call_count(),
             2,
@@ -2063,24 +2071,20 @@ mod tests {
         let llm = SummarizerMockLlm::transient("never reached", u32::MAX);
         let compacted =
             force_compact_messages_with_summary(&messages, &config, &llm, None, None).await;
-        assert_eq!(llm.call_count(), 1, "one request, then the placeholder");
-        let count = compute_compact_count(&messages, &config);
-        assert_eq!(
-            compacted[1].content,
-            summary_placeholder(count as usize - 1)
-        );
+        assert_eq!(llm.call_count(), 1, "one request, then an error");
+        assert!(compacted.is_err());
     }
 
     #[tokio::test]
-    async fn test_summarizer_cancel_during_backoff_returns_none() {
+    async fn test_summarizer_cancel_during_backoff_returns_error() {
         let omitted = vec![msg("user", "user-1"), msg("assistant", "assistant-1")];
         let llm = SummarizerMockLlm::transient("never reached", u32::MAX);
         let cancel = CancellationToken::new();
         cancel.cancel();
         let started = std::time::Instant::now();
         let result = summarize_with_llm(&omitted, &llm, None, Some(&cancel), None).await;
-        assert_eq!(result, None);
-        assert_eq!(llm.call_count(), 1, "cancel must not trigger more attempts");
+        assert!(result.is_err());
+        assert_eq!(llm.call_count(), 0, "cancel must not start a request");
         assert!(
             started.elapsed() < std::time::Duration::from_millis(500),
             "cancel during backoff must return immediately, took {:?}",

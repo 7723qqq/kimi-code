@@ -22,8 +22,8 @@
       "sha": "c5ad17f06aa12702d2b30dff63acba9ed08f688d",
       "date": "2026-09-17",
       "subject": "feat(agent-core-v2): support api_key_env for provider credentials (#3762)",
-      "verdict": "tracked",
-      "note": "api_key_env for provider credentials. The fork's provider credential path runs through packages/oauth (managed-kimi-code / refreshProviderModels), which the merge keeps in sync with upstream, but this commit reshapes provider credential resolution across oauth and the retired engine (80 files). Needs its own triage round against the fork's credential flow before porting; recorded as debt with the upstream commit as the reference."
+      "verdict": "ported",
+      "note": "api_key_env for provider credentials, completed 2026-09-18: `ResolvedNativeLlm` now carries `api_key_env`, `KimiConfig::extract_native_llm` resolves the env channel (model key > model oauth > provider static key > provider oauth > provider api_key_env > unresolved), and `main.rs`'s two PipelineSpec constructors pass it to the transport, which already consumed it (`llm/http.rs:621`: env read per request, inline-key and auth_provider conflicts refused, missing/blank variable fails as `config.invalid`). Tests: `llm/http.rs` api_key_env suite (missing env, per-request reads, conflict rejection)."
     },
     {
       "sha": "86e08208e3445171f6500c948234d7e3a0684324",

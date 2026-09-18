@@ -72,6 +72,20 @@ pub async fn worktree_add(cwd: &Path, path: &Path, branch: &str, base: &str) -> 
 
 pub async fn worktree_remove(cwd: &Path, path: &Path) -> Result<(), String> {
     let path_str = path.to_str().ok_or("invalid path")?;
+    // Idempotent teardown (v2 #3648): a worktree git no longer knows about is
+    // reported as already removed instead of failing the whole teardown.
+    if !path.exists() {
+        let prunable = try_git(cwd, &["worktree", "list", "--porcelain"]).await;
+        let known = prunable.as_deref().is_some_and(|out| {
+            out.split('\n').any(|line| {
+                line.strip_prefix("worktree ")
+                    .is_some_and(|wt| wt.trim() == path_str)
+            })
+        });
+        if !known {
+            return Ok(());
+        }
+    }
     git(cwd, &["worktree", "remove", "--force", path_str]).await?;
     Ok(())
 }
@@ -95,4 +109,47 @@ pub async fn diff_name_only(cwd: &Path, base: &str, ref_name: &str) -> Result<Ve
         .filter(|l| !l.is_empty())
         .collect();
     Ok(files)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Idempotent teardown (v2 #3648): removing a worktree path git no longer
+    /// knows about succeeds instead of failing the whole teardown.
+    #[tokio::test]
+    async fn worktree_remove_succeeds_when_the_path_is_already_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        git(root, &["init", "-q"]).await.unwrap();
+
+        let missing = root.join("worktrees/never-created");
+        // The path does not exist and git knows no such worktree: the remove
+        // is a no-op success.
+        assert!(!missing.exists());
+        worktree_remove(root, &missing).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn worktree_remove_still_fails_on_a_live_worktree_with_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        git(root, &["init", "-q"]).await.unwrap();
+        git(root, &["config", "user.email", "t@e.test"]).await;
+        git(root, &["config", "user.name", "t"]).await;
+        std::fs::write(root.join("f.txt"), "base").unwrap();
+        git(root, &["add", "."]).await.unwrap();
+        git(root, &["commit", "-qm", "init"]).await.unwrap();
+        // The default branch may be master or main depending on git config;
+        // resolve it instead of assuming.
+        let head = git(root, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .await
+            .unwrap();
+
+        let wt = root.join("worktrees/wt-a");
+        worktree_add(root, &wt, "wt-branch", &head).await.unwrap();
+        // A live, clean worktree removes fine.
+        worktree_remove(root, &wt).await.unwrap();
+        assert!(!wt.exists());
+    }
 }

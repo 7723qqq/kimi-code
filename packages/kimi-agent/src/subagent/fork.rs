@@ -20,6 +20,10 @@ pub const FORK_WITH_MODEL_UNAVAILABLE: &str =
     "model must match the caller's model or 'primary' when fork is enabled.";
 pub const PRIMARY_SUBAGENT_MODEL_CHOICE: &str = "primary";
 
+/// Injected as a `<system-reminder>` message ahead of the task prompt in a
+/// forked subagent's inherited history (upstream `spawn.ts` `FORK_CONTEXT_NOTICE`).
+pub const FORK_CONTEXT_NOTICE: &str = "The conversation above is not your own history: it is a one-time snapshot inherited from the agent that forked you. Treat it as reference material only — you are an independent subagent, not a continuation of that agent. Do the task below directly yourself, then report the result.";
+
 /// Validate arguments for a fork-enabled subagent invocation against caller's profile.
 ///
 /// Mirrors `forkIncompatibility` in `upstream/main:packages/agent-core-v2/src/session/subagent/spawn.ts`.
@@ -218,6 +222,21 @@ mod tests {
         assert_eq!(closed[2].content, "contents");
         assert_eq!(closed[3].tool_call_id.as_deref(), Some("call_agent"));
         assert_eq!(closed[3].content, INHERITED_IN_FLIGHT_TOOL_OUTPUT);
+    }
+
+    #[test]
+    fn test_fork_context_notice_is_system_reminder() {
+        // The fork notice rides as an injection message wrapped in the
+        // <system-reminder> envelope (v2 #3412), the same shape the engine's
+        // injection layer produces via wrap_system_reminder.
+        let msg = crate::injection::injection_message(crate::injection::wrap_system_reminder(
+            FORK_CONTEXT_NOTICE,
+        ));
+        assert_eq!(msg.role, "user");
+        assert!(crate::injection::is_system_reminder(&msg.content));
+        assert!(msg.content.starts_with("<system-reminder>\n"));
+        assert!(msg.content.ends_with("\n</system-reminder>"));
+        assert!(msg.content.contains(FORK_CONTEXT_NOTICE.trim()));
     }
 
     #[test]

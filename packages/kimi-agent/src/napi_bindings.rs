@@ -911,6 +911,9 @@ pub struct JsRunTurnParams {
     /// `[experimental].tower`). `None` falls back to the engine's own env
     /// probe.
     pub tower_enabled: Option<bool>,
+    /// Host-resolved progressive tool disclosure (`[experimental].
+    /// tool_select`). `None`/`false` keeps every tool advertised inline.
+    pub tool_select: Option<bool>,
     pub sandbox_mode: Option<String>,
     pub caller_agent_id: Option<String>,
     pub session_id: Option<String>,
@@ -1727,6 +1730,7 @@ async fn build_engine_pipeline(
             protocol: cfg.protocol.clone(),
             base_url: cfg.base_url.clone(),
             api_key: cfg.api_key.clone(),
+            api_key_env: None,
             model: cfg.model.clone(),
             max_tokens: cfg.max_tokens,
             custom_headers: cfg.custom_headers.clone().unwrap_or_default(),
@@ -1794,6 +1798,11 @@ async fn build_engine_pipeline(
                 None,
             )
         }),
+        // The host resolves `[experimental].tool_select` itself (the same
+        // precedence as every experimental flag: env > config > master env >
+        // default); falling back to `false` keeps a direct napi caller on the
+        // pre-disclosure behaviour: every tool advertised inline.
+        tool_select: params.tool_select.unwrap_or(false),
         sandbox_mode: params.sandbox_mode.clone(),
         sandbox_policy: params.sandbox_mode.as_deref().map(|mode_str| {
             let mode = crate::tools::sandbox::SandboxMode::parse(mode_str);
@@ -1993,6 +2002,7 @@ async fn run_turn_rust_impl(
         hook_guard: hook_guard.clone(),
         media: Some(&pipeline.media),
         media_dropped: Some(pipeline.media_dropped.clone()),
+        toolset: pipeline.toolset.clone(),
     };
 
     let telemetry_context = params.telemetry.map(|t| TelemetryContext {
@@ -2312,6 +2322,7 @@ pub fn create_engine_session(
                 // print settle drains only this session's completions.
                 session_id: params.session_id.clone(),
                 task_runner: SUBAGENT_MANAGER.get_task_runner_sync(),
+                toolset: pipeline.toolset.clone(),
             })
             .await;
 
@@ -2900,7 +2911,8 @@ async fn compact_session_with_summary(
         instruction.as_deref(),
         Some(cancel.token()),
     )
-    .await;
+    .await
+    .map_err(|error| napi::Error::from_reason(error.to_string()))?;
     if flag.load(Ordering::Relaxed) {
         return Err(napi::Error::from_reason("compaction cancelled"));
     }

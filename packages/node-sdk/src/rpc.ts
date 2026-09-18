@@ -61,6 +61,7 @@ import type {
   SessionUsage,
   PromptInput,
   PromptSkillActivation,
+  ClientPromptMetadata,
   RenameSessionInput,
   ResumeSessionInput,
   ResumedSessionSummary,
@@ -88,6 +89,12 @@ export interface SessionPromptRpcInput {
   readonly promptId?: string;
   /** When true, skip overwriting prompt-derived session metadata (used by skill activation). */
   readonly skipPromptMetadata?: boolean;
+  /**
+   * Opaque client metadata stored on the prompt origin (v2 #3764). When
+   * provided, its `displayText` feeds the session title and last-prompt
+   * metadata instead of the raw input text.
+   */
+  readonly clientMetadata?: ClientPromptMetadata;
 }
 
 export interface SessionPromptWithSkillsRpcInput extends SessionPromptRpcInput {
@@ -144,6 +151,11 @@ export interface SetSessionTowerModeRpcInput extends SessionIdRpcInput {
 export interface ActivateSkillRpcInput extends SessionIdRpcInput {
   readonly name: string;
   readonly args?: string | undefined;
+  /**
+   * Opaque client metadata stored on the skill-activation origin (v2
+   * #3764). `displayText` feeds the session title / last-prompt metadata.
+   */
+  readonly clientMetadata?: ClientPromptMetadata;
 }
 
 export interface ActivatePluginCommandRpcInput extends SessionIdRpcInput {

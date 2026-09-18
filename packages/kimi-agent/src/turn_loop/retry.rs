@@ -71,10 +71,12 @@ impl Default for RetryConfig {
 /// 25% earlier than v2 would, which is a real behaviour difference for a
 /// rate-limited provider, not a stylistic one.
 pub fn retry_delay(attempt: u32, config: &RetryConfig) -> Duration {
-    let delay = config.base_delay_ms * 2u64.pow(attempt.saturating_sub(1));
-    let delay = delay.min(config.max_delay_ms);
+    let delay = config
+        .base_delay_ms
+        .saturating_mul(2u64.saturating_pow(attempt.saturating_sub(1)))
+        .min(config.max_delay_ms);
     let jitter = fastrand::u64(0..=(delay / 4));
-    Duration::from_millis(delay + jitter)
+    Duration::from_millis(delay) + Duration::from_millis(jitter)
 }
 
 #[cfg(test)]
@@ -198,6 +200,56 @@ mod tests {
             );
             let ms = assert_within_v2_range(&config, attempt);
             assert!(ms >= min);
+        }
+    }
+
+    #[test]
+    fn high_retry_counts_keep_the_capped_backoff() {
+        let config = RetryConfig::default();
+        for attempt in [7, 56, 57, 63, 64, 65, 128, 1024, u32::MAX] {
+            let delay = retry_delay(attempt, &config).as_millis();
+            assert!(
+                (32_000..=40_000).contains(&delay),
+                "attempt {attempt}: {delay}"
+            );
+        }
+    }
+
+    #[test]
+    fn high_retry_counts_preserve_zero_and_custom_delays() {
+        for (base_delay_ms, max_delay_ms, min, max) in [
+            (0, 32_000, 0, 0),
+            (500, 0, 0, 0),
+            (1, 2000, 2000, 2500),
+            (u64::MAX, 2000, 2000, 2500),
+        ] {
+            let config = RetryConfig {
+                base_delay_ms,
+                max_delay_ms,
+                ..RetryConfig::default()
+            };
+            for attempt in [63, 65, u32::MAX] {
+                let delay = retry_delay(attempt, &config).as_millis();
+                assert!(
+                    (min..=max).contains(&delay),
+                    "base {base_delay_ms}, attempt {attempt}: {delay}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn jitter_does_not_overflow_at_the_largest_delay() {
+        let config = RetryConfig {
+            base_delay_ms: u64::MAX,
+            max_delay_ms: u64::MAX,
+            ..RetryConfig::default()
+        };
+        let min = u128::from(u64::MAX);
+        let max = min + min / 4;
+        for attempt in [1, 2, 65, u32::MAX] {
+            let delay = retry_delay(attempt, &config).as_millis();
+            assert!((min..=max).contains(&delay), "attempt {attempt}: {delay}");
         }
     }
 
