@@ -371,7 +371,13 @@ impl HttpServer {
             config.background.kill_grace_period_ms,
             config.resolve_background_max_running_tasks(),
         );
+        let warnings = config.config_warnings.clone();
         self.config_override = Arc::new(Mutex::new(Some(config)));
+        // Seeded from the file the server was started with, before any
+        // subscriber exists: the global lane's replay ring hands the entity to
+        // whoever attaches first, which is the only ordering available here —
+        // config load happens before there is a hub to broadcast on.
+        self.publish_startup_config_warnings(&warnings);
         self
     }
 
@@ -803,6 +809,49 @@ impl HttpServer {
                 "unchanged": result.get("unchanged").cloned().unwrap_or_else(|| json!([])),
                 "failed": result.get("failed").cloned().unwrap_or_else(|| json!([])),
             })));
+    }
+
+    /// Publish `event.config.warning` on the global lane for the `[models]`
+    /// entries the loaded `config.toml` could not resolve (v2 #3681).
+    ///
+    /// This is the producer the v3 `config.warning` entity was missing: the
+    /// global translator reads `warnings[].message` off this event and turns it
+    /// into the entity, and the v1 broadcaster passes the event through as-is.
+    /// Both vocabularies carry the same shape, so one publish serves both.
+    /// `domain` is left off — the fork's only warning source is the config
+    /// file itself, and upstream treats the field as optional.
+    ///
+    /// Always publishes, `warnings: []` included, because the entity is an
+    /// upsert ([`crate::server::v3::messages::ConfigWarningMessage`]): an empty
+    /// list means "no warnings now" and is what clears a client's stale
+    /// advisory after the file is fixed. Upstream's
+    /// `publishConfigWarnings` (`.tmp/v2-ref` `kap-server/src/start.ts`) does
+    /// the same — it is wired to the diagnostics-change event with no empty
+    /// check, and only the startup call filters.
+    fn publish_config_warnings(&self, warnings: &[String]) {
+        self.hub
+            .bus_for("global")
+            .publish(&crate::events::EngineEvent::Custom(json!({
+                "type": "event.config.warning",
+                "warnings": warnings
+                    .iter()
+                    .map(|message| json!({ "message": message }))
+                    .collect::<Vec<Value>>(),
+            })));
+    }
+
+    /// The startup call: publish the loaded file's warnings, if it has any.
+    ///
+    /// A clean load stays silent rather than publishing `[]`. Upstream guards
+    /// the same way at startup (`start.ts`: the `ready` handler publishes only
+    /// when some diagnostic is a warning), because a fresh daemon has no stale
+    /// advisory to clear — and the global lane's replay ring would otherwise
+    /// hand every future attacher an empty entity that says nothing.
+    fn publish_startup_config_warnings(&self, warnings: &[String]) {
+        if warnings.is_empty() {
+            return;
+        }
+        self.publish_config_warnings(warnings);
     }
 
     /// The fan-out handle connections attach to and turns publish through.
@@ -1663,9 +1712,21 @@ impl HttpServer {
             }
             ("POST", "/api/v1/config:reload") | ("POST", "/api/v1/config/reload") => {
                 *self.config_override.lock().await = None;
-                let config = crate::config::KimiConfig::discover()
-                    .map(|(c, _)| c)
-                    .unwrap_or_default();
+                // Re-read the file the server pinned when it has one — the same
+                // precedence the provider routes use (`provider_write.rs`
+                // `effective_config`, `provider_refresh.rs`) — so a reload picks
+                // up the file this server is actually using rather than a
+                // re-discovery that could land on a different one.
+                let config = match self.config_write_path() {
+                    Some(path) => crate::config::KimiConfig::from_file(&path).unwrap_or_default(),
+                    None => crate::config::KimiConfig::discover()
+                        .map(|(c, _)| c)
+                        .unwrap_or_default(),
+                };
+                // Published even when the list is empty: the entity is an upsert,
+                // so `warnings: []` is what clears the advisory a previously
+                // broken `config.toml` left on the client.
+                self.publish_config_warnings(&config.config_warnings);
                 HttpResponse::ok(&json!({
                     "status": "reloaded",
                     "config": format_config_response(&config)
@@ -8095,6 +8156,147 @@ max_context_size = 128000
         assert_eq!(value["changed"][0]["added"], 2);
         assert_eq!(value["unchanged"][0], "other");
         assert!(value["failed"].as_array().unwrap().is_empty());
+    }
+
+    /// The v3 `config.warning` entity's producer: a `config.toml` with a
+    /// malformed `[models]` entry reaches the global lane as
+    /// `event.config.warning`, the event the global translator turns into the
+    /// entity. The warning is captured at config load, which happens before
+    /// the server exists, so this exercises the staging seam too.
+    #[tokio::test]
+    async fn a_malformed_model_entry_reaches_the_global_lane_as_a_config_warning() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+default_model = "typo"
+
+[models.typo]
+provider = "kimi"
+max_context_size = 1000
+"#,
+        )
+        .unwrap();
+        let config = crate::config::KimiConfig::from_file(&path).unwrap();
+        assert_eq!(config.config_warnings.len(), 1);
+
+        let server = HttpServer::in_memory().unwrap();
+        let mut sub = server.hub().attach();
+        let server = server.with_config(config);
+        // The seeded config is what `config()` reads back, so the warning list
+        // and the config view come from one load rather than two that could
+        // differ.
+        assert_eq!(server.config().await.config_warnings.len(), 1);
+
+        let ev = sub.recv().await.unwrap();
+        assert_eq!(&*ev.session_id, "global");
+        assert_eq!(ev.event.event_type(), "event.config.warning");
+        let crate::events::EngineEvent::Custom(value) = &ev.event else {
+            panic!("expected Custom event, got {:?}", ev.event);
+        };
+        // The shape the global translator reads: `warnings[].message`.
+        let warnings = value["warnings"].as_array().unwrap();
+        assert_eq!(warnings.len(), 1, "{value}");
+        assert!(
+            warnings[0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("[models] entry 'typo' is missing"),
+            "{value}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A config that loaded cleanly must not publish an empty warning entity
+    /// *at startup*: a fresh daemon has no stale advisory to clear, and the
+    /// entity would sit in the global lane's replay ring saying nothing.
+    /// (The reload path is the opposite — see the test below.)
+    #[tokio::test]
+    async fn a_clean_config_publishes_no_config_warning_at_startup() {
+        let server = HttpServer::in_memory()
+            .unwrap()
+            .with_config(Default::default());
+
+        // Nothing is on the global lane, so the subscription's replay is empty
+        // and `recv` only returns on a publish. Any event would prove the
+        // publish happened; a timeout proves none did.
+        let mut sub = server.hub().attach();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), sub.recv())
+                .await
+                .is_err(),
+            "a clean config must not broadcast a config.warning"
+        );
+    }
+
+    /// The clear-the-stale-advisory path the reload route exists for: a server
+    /// started on a broken `config.toml` warns, and reloading a repaired file
+    /// publishes `warnings: []` so the client drops the advisory it is holding.
+    /// Upstream has the same asymmetry — `publishConfigWarnings`
+    /// (`.tmp/v2-ref` `kap-server/src/start.ts`) publishes on every
+    /// diagnostics change with no empty check, and only its startup call
+    /// filters.
+    #[tokio::test]
+    async fn reloading_a_repaired_config_publishes_an_empty_warning_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let broken = r#"
+default_model = "typo"
+
+[models.typo]
+provider = "kimi"
+max_context_size = 1000
+"#;
+        std::fs::write(&path, broken).unwrap();
+
+        let server = HttpServer::in_memory()
+            .unwrap()
+            .with_config_write_path(path.clone());
+        let mut sub = server.hub().attach();
+        let server = server.with_config(crate::config::KimiConfig::from_file(&path).unwrap());
+
+        // Startup: the broken entry is announced.
+        let ev = sub.recv().await.unwrap();
+        assert_eq!(ev.event.event_type(), "event.config.warning");
+        let crate::events::EngineEvent::Custom(value) = &ev.event else {
+            panic!("expected Custom event, got {:?}", ev.event);
+        };
+        assert_eq!(value["warnings"].as_array().unwrap().len(), 1, "{value}");
+
+        // The user fixes the file and reloads.
+        std::fs::write(
+            &path,
+            "[models.good]\nprovider = \"kimi\"\nmodel = \"kimi-k2\"\n",
+        )
+        .unwrap();
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/config:reload".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res.status, 200);
+
+        let ev = tokio::time::timeout(std::time::Duration::from_secs(2), sub.recv())
+            .await
+            .expect("a reload of a repaired config must publish, not go silent")
+            .unwrap();
+        assert_eq!(&*ev.session_id, "global");
+        assert_eq!(ev.event.event_type(), "event.config.warning");
+        let crate::events::EngineEvent::Custom(value) = &ev.event else {
+            panic!("expected Custom event, got {:?}", ev.event);
+        };
+        assert!(
+            value["warnings"].as_array().unwrap().is_empty(),
+            "a repaired config must clear the client's advisory: {value}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[tokio::test]
