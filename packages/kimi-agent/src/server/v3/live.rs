@@ -41,7 +41,7 @@ use super::messages::{
     ServerMessage, SessionStateMessage, SessionStatus, StepMessage, StepStatus, StreamStatus,
     TaskKind, TaskMessage, TaskStatus, ThinkingDeltaMessage, ToolCallDeltaMessage, ToolCallMessage,
     ToolCallStatus, ToolProgressKind, ToolProgressPayload, TurnMessage, TurnOrigin, TurnStatus,
-    UserMessage, UserMessageStatus,
+    TurnUsage, UserMessage, UserMessageStatus,
 };
 use super::projection::{
     assistant_entity_id, iso, step_entity_id, thinking_entity_id, turn_entity_id, user_entity_id,
@@ -61,6 +61,10 @@ pub struct LiveTranslator {
     /// Set when a tool round begins, so the text that follows opens the next step
     /// instead of extending the one the tool call belonged to.
     step_closed: bool,
+    /// The turn's most recent token accounting, captured from
+    /// `event.session.usage_updated`. The event fires before the turn ends, so the
+    /// snapshot `TurnEnded` emits carries it; `TurnStarted` clears it.
+    turn_usage: Option<TurnUsage>,
 }
 
 impl LiveTranslator {
@@ -72,6 +76,7 @@ impl LiveTranslator {
             step: 0,
             started_at: None,
             step_closed: false,
+            turn_usage: None,
         }
     }
 
@@ -485,6 +490,15 @@ impl LiveTranslator {
                 call.output = value.get("content").cloned();
                 vec![ServerMessage::ToolCall(call)]
             }
+            // Live token accounting. It changes no entity on its own — the turn
+            // snapshot is what reports it, at the end of the turn — so this only
+            // remembers the counters for the next `turn_snapshot`.
+            Some("event.session.usage_updated") => {
+                if let Some(usage) = value.get("usage") {
+                    self.turn_usage = parse_turn_usage(usage);
+                }
+                Vec::new()
+            }
             _ => Vec::new(),
         }
     }
@@ -498,6 +512,7 @@ impl LiveTranslator {
         self.step = 0;
         self.step_closed = false;
         self.started_at = Some(now);
+        self.turn_usage = None;
     }
 
     /// Give the following text a step to belong to, opening one if the turn has
@@ -533,7 +548,7 @@ impl LiveTranslator {
             attachment_ids: None,
             started_at: iso(started_at),
             ended_at: ended_at.and_then(iso),
-            usage: None,
+            usage: self.turn_usage.clone(),
             duration_ms: ended_at.map(|end| (end - started_at).max(0)),
         }
     }
@@ -665,6 +680,20 @@ impl LiveTranslator {
 
 fn parse_turn(turn_id: &str, fallback: i64) -> i64 {
     turn_id.parse().unwrap_or(fallback)
+}
+
+/// `event.session.usage_updated`'s `usage` payload, mapped the same way
+/// `projection.rs` maps stored usage: `cached_tokens` carries the cache *reads*,
+/// because v3 has no field for cache writes.
+fn parse_turn_usage(usage: &Value) -> Option<TurnUsage> {
+    let count = |key: &str| usage.get(key).and_then(Value::as_i64);
+    let parsed = TurnUsage {
+        input_tokens: count("input_tokens"),
+        output_tokens: count("output_tokens"),
+        cached_tokens: count("cache_read_tokens"),
+        cost: None,
+    };
+    (parsed.input_tokens.is_some() || parsed.output_tokens.is_some()).then_some(parsed)
 }
 
 fn session_status_of(status: &str) -> SessionStatus {
@@ -1041,6 +1070,102 @@ mod tests {
         assert!(
             entities.is_empty(),
             "there is no turn number to name the message after"
+        );
+    }
+
+    fn usage_updated(input: i64, output: i64, cache_read: i64) -> EngineEvent {
+        EngineEvent::Custom(json!({
+            "type": "event.session.usage_updated",
+            "usage": {
+                "input_tokens": input,
+                "output_tokens": output,
+                "cache_read_tokens": cache_read,
+                "cache_creation_tokens": 7,
+                "context_tokens": 42,
+                "turn_count": 3,
+            },
+            "delta": {
+                "input_tokens": input,
+                "output_tokens": output,
+                "cache_read_tokens": cache_read,
+                "cache_creation_tokens": 7,
+            },
+        }))
+    }
+
+    fn ended(turn: u64) -> EngineEvent {
+        EngineEvent::TurnEnded {
+            agent_id: "main".into(),
+            turn_id: turn,
+            reason: "completed".into(),
+        }
+    }
+
+    #[test]
+    fn the_turn_that_ended_reports_the_usage_the_stream_captured() {
+        let mut translator = LiveTranslator::new("s1", "main");
+        translator.translate(&started(3, None), NOW);
+
+        assert!(
+            translator
+                .translate(&usage_updated(120, 30, 900), NOW)
+                .is_empty(),
+            "usage changes no entity by itself"
+        );
+
+        let entities = translator.translate(&ended(3), NOW + 10);
+
+        let ServerMessage::Turn(turn) = &entities[0] else {
+            panic!("expected a turn");
+        };
+        assert_eq!(
+            turn.usage,
+            Some(TurnUsage {
+                input_tokens: Some(120),
+                output_tokens: Some(30),
+                cached_tokens: Some(900),
+                cost: None,
+            })
+        );
+        // The client sees JSON, not the struct: pin the wire shape too, since a
+        // renamed field would serialize cleanly and still lose the numbers.
+        let wire = serde_json::to_value(&entities[0]).unwrap();
+        assert_eq!(
+            wire["usage"],
+            json!({ "input_tokens": 120, "output_tokens": 30, "cached_tokens": 900 })
+        );
+    }
+
+    #[test]
+    fn a_later_usage_update_replaces_the_earlier_one() {
+        let mut translator = LiveTranslator::new("s1", "main");
+        translator.translate(&started(3, None), NOW);
+        translator.translate(&usage_updated(120, 30, 900), NOW);
+        translator.translate(&usage_updated(400, 50, 100), NOW);
+
+        let entities = translator.translate(&ended(3), NOW + 10);
+
+        let ServerMessage::Turn(turn) = &entities[0] else {
+            panic!("expected a turn");
+        };
+        assert_eq!(turn.usage.as_ref().unwrap().output_tokens, Some(50));
+    }
+
+    #[test]
+    fn a_new_turn_does_not_inherit_the_previous_turns_usage() {
+        let mut translator = LiveTranslator::new("s1", "main");
+        translator.translate(&started(3, None), NOW);
+        translator.translate(&usage_updated(120, 30, 900), NOW);
+        translator.translate(&ended(3), NOW + 10);
+
+        let reopened = translator.translate(&started(4, None), NOW + 20);
+
+        let ServerMessage::Turn(turn) = &reopened[0] else {
+            panic!("expected a turn");
+        };
+        assert_eq!(
+            turn.usage, None,
+            "the running turn has not spent anything yet"
         );
     }
 }
