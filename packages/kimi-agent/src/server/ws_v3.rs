@@ -30,7 +30,8 @@
 //! upstream's `GlobalMessageTranslator` serves.
 //!
 //! Still deliberate gaps: the workspace lane (`event.workspace.*`) has no
-//! producer in this fork yet, and plugin/capability changes fire no events.
+//! producer in this fork yet, and capability is a static ACP initialize list
+//! with no change semantics to broadcast.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -53,7 +54,7 @@ use super::v3::history::{HistoryQuery, paginate_history};
 use super::v3::live::LiveTranslator;
 use super::v3::messages::{
     AckMessage, ClientMessage, ConfigMessage, ConfigWarningMessage, ErrorMessage, HelloMessage,
-    ModelCatalogMessage, ServerMessage, SubscribeMessage, UnsubscribeMessage,
+    ModelCatalogMessage, PluginMessage, ServerMessage, SubscribeMessage, UnsubscribeMessage,
 };
 use super::v3::projection::project_history;
 use super::ws::{
@@ -388,6 +389,9 @@ impl Connection<'_> {
                     vec![ServerMessage::ModelCatalog(ModelCatalogMessage {
                         timestamp: now,
                     })]
+                }
+                Some("event.plugin.changed") => {
+                    vec![ServerMessage::Plugin(PluginMessage { timestamp: now })]
                 }
                 _ => Vec::new(),
             },
@@ -1118,6 +1122,32 @@ mod tests {
             saw_error,
             "the slow consumer must be told why its stream ended"
         );
+        handle.shutdown();
+    }
+
+    // A plugin mutation publishes event.plugin.changed on the global lane;
+    // a v3 subscriber folds it into the bare `plugin` bump entity.
+    #[tokio::test]
+    async fn a_plugin_mutation_publishes_the_plugin_entity_to_v3_clients() {
+        let server = Arc::new(crate::server::HttpServer::in_memory().unwrap());
+        let (mut client, handle) = WsClient::connect(&server, V3_WS_PATH).await;
+        let _hello = client.next_text().await;
+
+        // No subscribe: global entities are daemon state.
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/plugins/kimi-webbridge:enable".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res.status, 200);
+
+        let plugin = client.next_json().await;
+        assert_eq!(plugin["type"], "plugin", "{plugin}");
+        assert!(plugin.get("timestamp").is_some());
         handle.shutdown();
     }
 

@@ -482,8 +482,12 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
    （`ws_v3` 溢出臂 + `hub.rs` `state_rx`/`closed()`；测试 `a_slow_consumer_gets_the_42903_error_frame_before_the_close`）；
    `in_flight` 已接入 history 路由——`ServerEngine.in_flight` 注册表由每回合
    `MessageCallbacks::with_step_tracker` 在 `llm.step.begin` 更新、回合结束清除，路由响应带出
-   与 live 增量同一套 turn/step 实体 id（测试 `v3_history_route_reports_the_live_streaming_position`）。
-   仍缺：`workspace`/`plugin`/`capability` 事件无生产者）→
+   与 live 增量同一套 turn/step 实体 id（测试 `v3_history_route_reports_the_live_streaming_position`）；
+   **第三轮（同日）**：`event.plugin.changed` 已有生产者——插件 install/enable/disable/remove
+   路由成功后经 `publish_plugin_changed()` 全局发布，v3 折叠为 `plugin` bare-bump 实体
+   （测试 `a_plugin_mutation_publishes_the_plugin_entity_to_v3_clients`）。
+   仍缺：`workspace`/`capability` 事件无生产者——workspace 实体要等 fork 实现工作区生命周期变更，
+   capability 在引擎侧是 ACP initialize 的**静态**清单、没有变更语义可广播（结构性留白，非缺口））→
    P4 客户端（kimi-inspect、kimi-web、`apps/kimi-code` 的
    `web` 子命令；TUI/stdio 走 NAPI，不在内。另需在 `packages/protocol` 补 v3 实体联合类型与
    `HistoryResponse`：当前只有端点声明行，没有可供客户端导入的类型）。

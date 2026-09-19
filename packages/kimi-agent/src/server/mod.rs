@@ -811,6 +811,18 @@ impl HttpServer {
             })));
     }
 
+    /// Publish `event.plugin.changed` after a plugin mutation (install /
+    /// remove / enable / disable): the payload is a bare bump — v3 clients
+    /// re-fetch the plugin list, the same contract as upstream's
+    /// `PluginMessage` global entity.
+    pub(crate) fn publish_plugin_changed(&self) {
+        self.hub
+            .bus_for("global")
+            .publish(&crate::events::EngineEvent::Custom(json!({
+                "type": "event.plugin.changed",
+            })));
+    }
+
     /// Publish `event.config.warning` on the global lane for the `[models]`
     /// entries the loaded `config.toml` could not resolve (v2 #3681).
     ///
@@ -3013,13 +3025,21 @@ impl HttpServer {
                 // so the recorded install has content behind it; an unknown id
                 // is a 404, and the recorded version comes from the catalog or
                 // the archive's own manifest, never from a hardcoded literal.
+                // Install from a catalog id, a catalog `source`, a local root,
+                // or a remote archive URL. A remote source is downloaded here,
+                // so the recorded install has content behind it; an unknown id
+                // is a 404, and the recorded version comes from the catalog or
+                // the archive's own manifest, never from a hardcoded literal.
                 match self.plugin_manager.install_plugin_from(id) {
-                    Ok(Some((id, info))) => HttpResponse::ok(&json!({
-                        "id": id,
-                        "enabled": info.enabled,
-                        "version": info.version,
-                        "installed": true
-                    })),
+                    Ok(Some((id, info))) => {
+                        self.publish_plugin_changed();
+                        HttpResponse::ok(&json!({
+                            "id": id,
+                            "enabled": info.enabled,
+                            "version": info.version,
+                            "installed": true
+                        }))
+                    }
                     Ok(None) => HttpResponse::not_found(),
                     Err(e) => HttpResponse::bad_request(e),
                 }
@@ -3082,23 +3102,32 @@ impl HttpServer {
                     // `Ok(false)` = unknown plugin id: neither installed nor in
                     // the catalog. Answer 404 rather than recording a fake entry.
                     "enable" => match self.plugin_manager.set_plugin_enabled(id, true) {
-                        Ok(true) => HttpResponse::ok(
-                            &json!({ "ok": true, "pluginId": id, "enabled": true }),
-                        ),
+                        Ok(true) => {
+                            self.publish_plugin_changed();
+                            HttpResponse::ok(
+                                &json!({ "ok": true, "pluginId": id, "enabled": true }),
+                            )
+                        }
                         Ok(false) => HttpResponse::not_found(),
                         Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                     },
                     "disable" => match self.plugin_manager.set_plugin_enabled(id, false) {
-                        Ok(true) => HttpResponse::ok(
-                            &json!({ "ok": true, "pluginId": id, "enabled": false }),
-                        ),
+                        Ok(true) => {
+                            self.publish_plugin_changed();
+                            HttpResponse::ok(
+                                &json!({ "ok": true, "pluginId": id, "enabled": false }),
+                            )
+                        }
                         Ok(false) => HttpResponse::not_found(),
                         Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                     },
                     "remove" => match self.plugin_manager.remove_plugin(id) {
-                        Ok(true) => HttpResponse::ok(
-                            &json!({ "ok": true, "pluginId": id, "removed": true }),
-                        ),
+                        Ok(true) => {
+                            self.publish_plugin_changed();
+                            HttpResponse::ok(
+                                &json!({ "ok": true, "pluginId": id, "removed": true }),
+                            )
+                        }
                         Ok(false) => HttpResponse::not_found(),
                         Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                     },
