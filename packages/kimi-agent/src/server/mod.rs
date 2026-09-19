@@ -2191,6 +2191,12 @@ impl HttpServer {
                 }
             }
             ("GET", "/api/v2/sessions") => {
+                // The official Web bundle's `listSessionsV2` contract
+                // (upstream `routes/v2/sessions.ts` `v2SessionPageSchema`):
+                // domain-grouped items plus total/has_more/next_page_token.
+                // Page-token pagination is accepted for compatibility and
+                // answered as a single complete page (the fork's session
+                // count is small); `page_token` stays null.
                 let sessions = self.store.list_sessions().unwrap_or_default();
                 let engine = self.engine.as_ref();
                 let items: Vec<Value> = sessions
@@ -2211,28 +2217,90 @@ impl HttpServer {
                                 c.get("model").and_then(|m| m.as_str()).map(str::to_string)
                             })
                             .or_else(|| engine.map(|e| e.model_name().to_string()));
+                        let workspace_cwd = s
+                            .workspace_id
+                            .as_deref()
+                            .and_then(|wid| self.store.get_workspace(wid).ok().flatten())
+                            .map(|w| w.root);
                         json!({
-                            "session_id": s.session_id,
-                            "title": s.title,
-                            "created_at": s.created_at,
-                            "updated_at": s.updated_at,
-                            "archived": s.archived,
-                            "workspace_id": s.workspace_id,
+                            "id": s.session_id,
+                            "workspace": {
+                                "id": s.workspace_id,
+                                "cwd": workspace_cwd,
+                            },
                             "meta": {
-                                "session_id": s.session_id,
-                                "has_prompt": has_prompt
+                                "title": s.title,
+                                "last_prompt": Value::Null,
+                                "created_at": s.created_at,
+                                "updated_at": s.updated_at,
+                                "archived": s.archived,
+                                "archived_at": Value::Null,
+                                "has_prompt": has_prompt,
                             },
                             "activity": {
-                                "status": if busy { "busy" } else { "idle" },
+                                // v2ActivityStatusSchema vocabulary
+                                // (running/approval/question/failed/idle):
+                                // the bundle's mapper maps `running` → busy
+                                // and `approval`/`question` → pending
+                                // interactions.
+                                "status": if busy { "running" } else { "idle" },
                                 "model": model
                             }
                         })
                     })
                     .collect();
+                let total = items.len();
                 HttpResponse::ok(&json!({
                     "items": items,
-                    "total": items.len(),
-                    "page_token": Value::Null
+                    "total": total,
+                    "has_more": false,
+                    "next_page_token": Value::Null
+                }))
+            }
+            // Batch archive/restore (upstream `routes/v2/sessions.ts`): the
+            // official Web bundle posts `{ ids: [...] }` and folds per-item
+            // results; a missing session folds into its own item instead of
+            // failing the whole batch.
+            ("POST", "/api/v2/sessions:archive") | ("POST", "/api/v2/sessions:restore") => {
+                let restore = req.path.ends_with(":restore");
+                let body: Value = match serde_json::from_slice(&req.body) {
+                    Ok(v) => v,
+                    Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
+                };
+                let Some(ids) = body.get("ids").and_then(Value::as_array) else {
+                    return HttpResponse::bad_request("Missing ids");
+                };
+                if ids.len() > 5000 {
+                    return HttpResponse::json(
+                        422,
+                        &json!({ "code": crate::server::envelope::error_codes::VALIDATION_FAILED, "msg": "ids exceeds 5000" }),
+                    );
+                }
+                let results: Vec<Value> = ids
+                    .iter()
+                    .filter_map(|id| id.as_str())
+                    .map(|id| {
+                        let outcome = if restore {
+                            self.store.restore_session(id)
+                        } else {
+                            self.store.archive_session(id)
+                        };
+                        match outcome {
+                            Ok(true) => json!({ "id": id, "ok": true }),
+                            Ok(false) => json!({
+                                "id": id,
+                                "ok": false,
+                                "error": "session not found"
+                            }),
+                            Err(e) => json!({ "id": id, "ok": false, "error": e.to_string() }),
+                        }
+                    })
+                    .collect();
+                let succeeded = results.iter().filter(|r| r["ok"] == json!(true)).count();
+                HttpResponse::ok(&json!({
+                    "results": results,
+                    "succeeded": succeeded,
+                    "failed": results.len() - succeeded
                 }))
             }
             // Tools endpoints
@@ -12050,5 +12118,109 @@ max_context_size = 1000
         let res = get_history(&server, session_id).await;
         let body: Value = serde_json::from_slice(&res.body).unwrap();
         assert!(body["data"].get("in_flight").is_none());
+    }
+
+    // The official Web bundle's listSessionsV2/archiveSessions/restoreSessions
+    // contract (upstream routes/v2/sessions.ts): a domain-grouped page plus
+    // per-item batch results.
+    #[tokio::test]
+    async fn v2_sessions_contract_serves_the_official_web_bundle() {
+        let server = HttpServer::in_memory().unwrap();
+        server
+            .store
+            .save_turn(
+                "sess-v2-a",
+                "turn-1",
+                1,
+                &[crate::turn_loop::types::LLMMessage::user("hi")],
+                None,
+                None,
+            )
+            .unwrap();
+
+        // GET /api/v2/sessions answers the v2SessionPageSchema envelope with
+        // domain-grouped items.
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v2/sessions".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res.status, 200);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(
+            body["total"],
+            body["items"].as_array().map(|i| i.len()).unwrap()
+        );
+        assert_eq!(body["has_more"], false);
+        assert!(body["next_page_token"].is_null());
+        let first = &body["items"][0];
+        assert_eq!(first["id"], "sess-v2-a");
+        // Title may be null for a session created without one; the bundle
+        // falls back to last_prompt then the id prefix.
+        assert!(first["meta"]["title"].is_null() || first["meta"]["title"].is_string());
+        assert!(first["meta"]["archived"].is_boolean());
+        assert!(
+            ["running", "approval", "question", "failed", "idle"]
+                .contains(&first["activity"]["status"].as_str().unwrap())
+        );
+
+        // Batch archive: {ids} in, per-item results out — a missing session
+        // folds into its own item instead of failing the batch.
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v2/sessions:archive".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({
+                    "ids": ["sess-v2-a", "sess-v2-missing"]
+                }))
+                .unwrap(),
+            })
+            .await;
+        assert_eq!(res.status, 200);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["succeeded"], 1);
+        assert_eq!(body["failed"], 1);
+        assert_eq!(body["results"][0]["ok"], true);
+        assert_eq!(body["results"][1]["ok"], false);
+
+        // The archived flag is visible on the item after the batch.
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v2/sessions".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        let archived = body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["id"] == "sess-v2-a")
+            .unwrap()["meta"]["archived"]
+            .clone();
+        assert_eq!(archived, true);
+
+        // Restore flips it back.
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v2/sessions:restore".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "ids": ["sess-v2-a"] })).unwrap(),
+            })
+            .await;
+        assert_eq!(res.status, 200);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["succeeded"], 1);
     }
 }
