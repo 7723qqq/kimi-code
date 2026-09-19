@@ -1311,10 +1311,26 @@ impl NativeToolset {
                 // a fresh set per call made `already_available` unreachable and
                 // reported every requested tool as newly loaded.
                 let mut loaded = self.loaded_tools.lock().unwrap_or_else(|e| e.into_inner());
+                // Statically callable = in the catalogue but not behind the
+                // deferred-disclosure gate (upstream #3885
+                // `isStaticCallable`): the model can call these directly and
+                // passing them to select_tools is a category error, not a
+                // lookup miss.
+                let deferred = self
+                    .mcp_manager
+                    .as_ref()
+                    .map(|mcp| mcp.deferred_tool_names_blocking())
+                    .unwrap_or_default();
+                let callable: std::collections::HashSet<String> = available
+                    .iter()
+                    .filter(|name| !deferred.contains(*name))
+                    .cloned()
+                    .collect();
                 Some(select_tools::execute_select_tools(
                     args,
                     &available,
                     &mut loaded,
+                    &callable,
                 ))
             }
             "team" => {
