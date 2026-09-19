@@ -778,6 +778,78 @@ impl TaskRunner {
             .count()
     }
 
+    /// Inject a synthetic wake notification for `session_id`, **coalesced**:
+    /// a pending wake with the same task id is replaced in place (text and
+    /// timestamp refreshed) so a burst of sends becomes one notification per
+    /// drain — v2 `towerService`'s coalesced tower wake. The session pump
+    /// drains it like any task notification and turns it into a follow-up
+    /// turn, which is what actually wakes the tower.
+    ///
+    /// Mirrors `settle_task`'s two channels: the terminal events fire on the
+    /// session lane (gated on liveness, so a dead session is not announced
+    /// to) and the notification queues for the print/steer drain. No task
+    /// entry is created — the wake is not a task and stays out of
+    /// TaskList/TaskOutput.
+    pub fn enqueue_wake(&self, session_id: &str, task_id: &str, description: String) {
+        if !self.session_alive(Some(session_id)) {
+            return;
+        }
+        let mut queue = self.pending_notifications.lock().unwrap();
+        let now = now_ms();
+        let description = match queue.iter_mut().find(|notification| {
+            notification.task_id == task_id
+                && notification.session_id.as_deref() == Some(session_id)
+        }) {
+            Some(existing) => {
+                existing.description = description;
+                existing.ended_at = now;
+                existing.description.clone()
+            }
+            None => {
+                queue.push(TaskNotification {
+                    task_id: task_id.to_string(),
+                    description: description.clone(),
+                    status: TaskStatus::Completed,
+                    output_preview: None,
+                    ended_at: now,
+                    session_id: Some(session_id.to_string()),
+                });
+                description
+            }
+        };
+        drop(queue);
+        self.fire_event(
+            Some(session_id),
+            serde_json::json!({
+                "type": "event.task.completed",
+                "task_id": task_id,
+                "status": "completed",
+                "output_preview": description,
+                "output_bytes": 0,
+            }),
+        );
+        self.fire_event(
+            Some(session_id),
+            serde_json::json!({
+                "type": "background.task.terminated",
+                "task_id": task_id,
+                "status": "completed",
+                "kind": "other",
+            }),
+        );
+    }
+
+    /// Drop a pending wake: leaving tower mode must not answer the session
+    /// with a stale "check your inbox" notification (v2 drops queued tower
+    /// inbox wakes on exit).
+    pub fn cancel_wake(&self, session_id: &str, task_id: &str) {
+        let mut queue = self.pending_notifications.lock().unwrap();
+        queue.retain(|notification| {
+            !(notification.task_id == task_id
+                && notification.session_id.as_deref() == Some(session_id))
+        });
+    }
+
     /// The task entry as the state bridge wire value: `taskId` /
     /// `description` / `status` / `startedAt` / `endedAt` / `stopReason`
     /// plus the `output` snapshot when settled (the renderers filter the
@@ -1703,5 +1775,45 @@ mod tests {
             TaskWaitResult::Completed(_)
         ));
         assert_eq!(runner.pending_notification_count(Some("sess-legacy")), 1);
+    }
+
+    #[tokio::test]
+    async fn tower_wake_coalesces_into_one_notification_per_batch() {
+        let (_tmp, runner) = runner();
+        runner.enqueue_wake(
+            "sess-main",
+            "tower-inbox-wake",
+            "Workers sent new message(s) to the tower.".into(),
+        );
+        runner.enqueue_wake(
+            "sess-main",
+            "tower-inbox-wake",
+            "Workers sent 2 new message(s) to the tower.".into(),
+        );
+        // The second enqueue replaced the first: one pending wake, refreshed.
+        assert_eq!(runner.pending_notification_count(Some("sess-main")), 1);
+        let drained = runner.take_pending_notifications(Some("sess-main"));
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].task_id, "tower-inbox-wake");
+        assert_eq!(
+            drained[0].description,
+            "Workers sent 2 new message(s) to the tower."
+        );
+    }
+
+    #[tokio::test]
+    async fn tower_wake_is_scoped_and_cancelable() {
+        let (_tmp, runner) = runner();
+        runner.enqueue_wake(
+            "sess-main",
+            "tower-inbox-wake",
+            "Workers sent new message(s) to the tower.".into(),
+        );
+        // Another session's drain takes nothing (task notifications are
+        // per-session and the wake is no exception).
+        assert_eq!(runner.pending_notification_count(Some("sess-other")), 0);
+        // Exiting tower mode drops the queued wake.
+        runner.cancel_wake("sess-main", "tower-inbox-wake");
+        assert_eq!(runner.pending_notification_count(Some("sess-main")), 0);
     }
 }

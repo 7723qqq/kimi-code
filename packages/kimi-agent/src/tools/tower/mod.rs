@@ -11,7 +11,8 @@ use std::sync::Arc;
 
 use crate::subagent::SubagentManager;
 use crate::tools::tower::paths::{
-    MISSIONS_DIR, WORKTREES_DIR, mission_file_name, resolve_tower_repo_root,
+    BROADCAST_NAME, MISSIONS_DIR, TOWER_NAME, WORKTREES_DIR, mission_file_name,
+    resolve_tower_repo_root,
 };
 use crate::tools::tower::rate_limit::TowerRateLimit;
 use crate::tools::tower::store::TowerStore;
@@ -691,8 +692,9 @@ pub async fn execute_tower_merge(
 pub async fn execute_tower_teardown(
     cwd: &Path,
     caller_agent_id: &str,
-    _session_id: &str,
+    session_id: &str,
     raw_args: &str,
+    task_runner: Option<&crate::storage::TaskRunner>,
 ) -> ExecutableToolResult {
     if caller_agent_id != "main" {
         return err_result(TOWER_MAIN_AGENT_ONLY);
@@ -715,6 +717,12 @@ pub async fn execute_tower_teardown(
 
     match store.teardown(args.force.unwrap_or(false)).await {
         Ok(report) => {
+            // v2 drops queued tower inbox wakes on exit: a teardown must not
+            // be followed by a stale "check your inbox" turn for a tower
+            // that no longer exists.
+            if let Some(runner) = task_runner {
+                runner.cancel_wake(session_id, TOWER_WAKE_TASK_ID);
+            }
             let mut lines = vec!["tower teardown:".to_string()];
             for item in report {
                 lines.push(format!("- {item}"));
@@ -727,10 +735,16 @@ pub async fn execute_tower_teardown(
     }
 }
 
+/// The synthetic task id the coalesced tower wake travels under (v2
+/// `towerService` wakes the tower when workers message it; the fork rides
+/// the task-notification channel the session pump already drains).
+pub const TOWER_WAKE_TASK_ID: &str = "tower-inbox-wake";
+
 pub async fn execute_tower_send(
     cwd: &Path,
     caller_agent_id: &str,
     raw_args: &str,
+    task_runner: Option<&crate::storage::TaskRunner>,
 ) -> ExecutableToolResult {
     let repo_root = resolve_tower_repo_root(&cwd.to_string_lossy());
     let store = TowerStore::new(PathBuf::from(repo_root));
@@ -757,7 +771,30 @@ pub async fn execute_tower_send(
 
     let to = input.to.clone();
     match store.send(&caller, input).await {
-        Ok(rel) => ok_result(format!("message sent to {to}\nfile: {rel}")),
+        Ok(rel) => {
+            // Tower wake (v2 `towerService`: workers messaging the tower —
+            // or broadcasting — wake it, coalesced into one notification per
+            // batch). A worker's message only writes an inbox file; without
+            // the wake the tower sits idle until someone happens to resume
+            // it. The wake rides the shared task runner as a synthetic
+            // notification for the session that ran TowerInit, so the
+            // session pump turns it into a follow-up turn. Main's own sends
+            // never wake it, and an init without a session id (no host
+            // session recorded) skips the wake rather than guessing.
+            if caller != TOWER_NAME && (to == TOWER_NAME || to == BROADCAST_NAME)
+                && let (Some(runner), Some(main_session)) =
+                    (task_runner, state.session_id.as_deref())
+            {
+                runner.enqueue_wake(
+                    main_session,
+                    TOWER_WAKE_TASK_ID,
+                    "Workers sent new message(s) to the tower — run TowerInbox \
+to read them and act on any requests."
+                        .to_string(),
+                );
+            }
+            ok_result(format!("message sent to {to}\nfile: {rel}"))
+        }
         Err(e) => err_result(e),
     }
 }

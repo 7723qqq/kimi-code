@@ -1543,6 +1543,12 @@ fn render_task_notifications(notifications: &[crate::storage::TaskNotification])
     notifications
         .iter()
         .map(|notification| {
+            // The tower wake is already a self-contained instruction (v2's
+            // coalesced tower wake): rendering it as a "background task"
+            // would tell the model a task finished when none did.
+            if notification.task_id == crate::tools::tower::TOWER_WAKE_TASK_ID {
+                return notification.description.clone();
+            }
             let mut block = format!(
                 "Background task {} ({}) finished: {}",
                 notification.task_id,

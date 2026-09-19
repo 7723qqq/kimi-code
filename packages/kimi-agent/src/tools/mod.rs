@@ -1516,14 +1516,28 @@ impl NativeToolset {
                 let caller = caller.as_str();
                 let session = self.session_id.as_deref().unwrap_or("session-main");
                 Some(
-                    tower::execute_tower_teardown(&self.root, caller, session, &args.to_string())
-                        .await,
+                    tower::execute_tower_teardown(
+                        &self.root,
+                        caller,
+                        session,
+                        &args.to_string(),
+                        self.task_runner.as_deref(),
+                    )
+                    .await,
                 )
             }
             "towersend" | "tower_send" => {
                 let caller = self.effective_caller_agent_id();
                 let caller = caller.as_str();
-                Some(tower::execute_tower_send(&self.root, caller, &args.to_string()).await)
+                Some(
+                    tower::execute_tower_send(
+                        &self.root,
+                        caller,
+                        &args.to_string(),
+                        self.task_runner.as_deref(),
+                    )
+                    .await,
+                )
             }
             "towerinbox" | "tower_inbox" => {
                 let caller = self.effective_caller_agent_id();
@@ -7241,6 +7255,92 @@ m2
                 writes.lock().unwrap().is_empty(),
                 "plan mode must survive a failed tower init"
             );
+        }
+
+        /// A worker's TowerSend to the tower wakes the main session through
+        /// the shared task runner (v2 `towerService`'s coalesced wake,
+        /// #3648): one pending notification for the session that ran
+        /// TowerInit, drained into a follow-up turn by the session pump.
+        /// Main's own sends wake nothing, and teardown drops a queued wake.
+        #[tokio::test]
+        async fn worker_tower_send_wakes_the_main_session() {
+            let dir = init_repo();
+            let runner = Arc::new(crate::storage::TaskRunner::new(None));
+            let (callbacks, _) = host(false);
+            let main = NativeToolset::new(dir.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_callbacks(callbacks)
+                .with_session_id("session-main")
+                .with_task_runner(runner.clone());
+
+            let init = main
+                .execute_tool("TowerInit", &json!({}))
+                .await
+                .expect("TowerInit is native");
+            assert!(!init.is_error, "{}", init.content);
+
+            // Register a worker directly in the store (a real spawn builds
+            // worktrees and detached runs the wake test does not need).
+            let store = TowerStore::new(dir.path().to_path_buf());
+            store
+                .register_agent(crate::tools::tower::types::TowerRosterEntry {
+                    name: "worker-1".into(),
+                    agent_id: "w1".into(),
+                    session_id: None,
+                    kind: crate::tools::tower::types::TowerAgentKind::Worker,
+                    mission_id: None,
+                    review_target: None,
+                    worktree: None,
+                    branch: None,
+                    spawned_at: chrono::Utc::now().to_rfc3339(),
+                    status: None,
+                })
+                .await
+                .expect("worker registration");
+
+            let (worker_callbacks, _) = host(false);
+            let worker = NativeToolset::new(dir.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_callbacks(worker_callbacks)
+                .with_caller_agent_id("w1")
+                .with_task_runner(runner.clone());
+
+            let sent = worker
+                .execute_tool(
+                    "TowerSend",
+                    &json!({ "to": "tower", "subject": "review-request", "body": "branch is ready" }),
+                )
+                .await
+                .expect("TowerSend is native");
+            assert!(!sent.is_error, "{}", sent.content);
+            assert_eq!(runner.pending_notification_count(Some("session-main")), 1);
+
+            // A second worker message coalesces: still one wake.
+            let sent2 = worker
+                .execute_tool(
+                    "TowerSend",
+                    &json!({ "to": "tower", "subject": "follow-up", "body": "also ready" }),
+                )
+                .await
+                .expect("TowerSend is native");
+            assert!(!sent2.is_error, "{}", sent2.content);
+            assert_eq!(runner.pending_notification_count(Some("session-main")), 1);
+
+            // Main's own sends wake nothing.
+            let main_send = main
+                .execute_tool(
+                    "TowerSend",
+                    &json!({ "to": "worker-1", "subject": "note", "body": "carry on" }),
+                )
+                .await
+                .expect("TowerSend is native");
+            assert!(!main_send.is_error, "{}", main_send.content);
+            assert_eq!(runner.pending_notification_count(Some("session-main")), 1);
+
+            let drained = runner.take_pending_notifications(Some("session-main"));
+            assert_eq!(drained.len(), 1);
+            assert_eq!(drained[0].task_id, crate::tools::tower::TOWER_WAKE_TASK_ID);
+            assert!(drained[0].description.contains("TowerInbox"), "{}", drained[0].description);
         }
     }
 }

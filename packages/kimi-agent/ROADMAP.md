@@ -426,7 +426,7 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
    验证：`src/llm/http.rs` 新增 3 项（分片/最终同 id、失败释放、账本 commit/rollback）+ `tool_call_id` 12 项
    单测（对齐 v2 `toolCallIdNormalizer.test.ts`）。
 3. ~~**#3694 存储失败重建索引 / #3648 tower 可靠性**：已在 allowlist 记为 `tracked`，但尚未逐条与 Rust 实现比对，需要单独一轮 triage。~~
-   **已 triage（2026-09-18）**。#3694 **不适用**：上游修的是「派生索引」（会话索引镜像 + 搜索索引）在不可恢复存储失败后的重建；fork 引擎的 SQLite 是唯一事实源，搜索是对 messages 表的实时查询，没有任何派生镜像需要重建。#3648 **部分落地**：幂等 teardown（git 已不知道的 worktree 报告 already-removed 而非整体失败，`tower/git.rs` `worktree_remove`，2 项测试）与「分支仅剩 closed 记录时拒绝 merge」门禁（`tower/store.rs` merge 前置检查，1 项测试）已落地；roster resume 强制 `run_in_background` 与唤醒合并通知仍缺（属 agent_tool 路径），其余部分维持待办。
+   **已 triage（2026-09-18）**。#3694 **不适用**：上游修的是「派生索引」（会话索引镜像 + 搜索索引）在不可恢复存储失败后的重建；fork 引擎的 SQLite 是唯一事实源，搜索是对 messages 表的实时查询，没有任何派生镜像需要重建。#3648 **已全部落地（唤醒半件 2026-09-19 补齐）**：幂等 teardown（git 已不知道的 worktree 报告 already-removed 而非整体失败，`tower/git.rs` `worktree_remove`，2 项测试）、「分支仅剩 closed 记录时拒绝 merge」门禁（`tower/store.rs` merge 前置检查，1 项测试）、roster resume 的前台否决（`agent_tool.rs` `tower_resume_denial`，`14b6600bfe`，P2-2 补 toolset 根）均已落地；**唤醒合并通知**亦已落地（2026-09-19）：worker 向 tower（或广播）发送后，`execute_tower_send` 经共享 TaskRunner 注入合成通知（`enqueue_wake`，同一 task id 在队列中**原位合并**——一批消息一条唤醒；过 liveness 门、发 `event.task.completed`/`background.task.terminated` 双词汇事件），主会话 pump 把它排成后续回合；`TowerTeardown` 经 `cancel_wake` 丢弃排队唤醒（v2 exit-drop 语义）。渲染对 wake 特判（不伪装成「后台任务完成」）。测试：`tower_wake_coalesces_into_one_notification_per_batch`、`tower_wake_is_scoped_and_cancelable`（task_runner）、`worker_tower_send_wakes_the_main_session`（真实 git 仓库 + 双 toolset dispatch）。
    （原列的 #3681 `[models]` 告警已落地，见第 14 条；#3720 / #3717 已拆出，见第 15 条；
    #3606 模型目录运行时已落地，见第 16 条；**#3697 与 #3688 已从本条移出并落地**，见 §6.2。）
 4. **#3532 v3 扁平实体消息协议（WS + history API）——已决定全量移植（2026-09-15）**：上游用
@@ -1006,16 +1006,16 @@ clippy**（5 个文件格式不合规、1 条 `to_string_in_format_args`），�
   `SkillSummary` 上补可选字段（引擎未发，取值为 `undefined` 时语义即「所有界面可见」，
   与上游默认一致），TUI 侧的过滤逻辑已经就位；真正要做的是让引擎的技能目录产出该字段。
 
-17. **#3843 skill scopes 未落地（引擎侧）**：上游 `da31c472a2` 让内置技能可声明
-    `scopes` 白名单（`tui` | `web`），无 `scopes` 即处处可见；值穿过 `SkillSummary`、
-    klient RPC 契约与 kap-server REST wire，TUI slash 命令据此过滤，HTTP 客户端（code-app）
-    据此丢掉不属于自己 UI 模式的技能（如 `/custom-theme` 不再泄进 web）。**本 fork 的现状**：
-    `packages/node-sdk/src/types.ts` 的 `SkillSummary` 已补可选 `scopes` 字段（合并时补，
-    引擎尚未产出，取 `undefined` 即「处处可见」，与上游默认语义一致），
-    `apps/kimi-code/src/tui/commands/skills.ts` 的 `isVisibleOnTui()` 过滤也已就位；
-    缺的是**引擎技能目录产出该字段**（`packages/kimi-agent` 的技能目录 RPC 响应，
-    以及内置技能的 `scopes` 声明来源）。**验收**：引擎的技能列表响应带 `scopes`
-    （或明确省略），且带 `scopes: ["tui"]` 的技能不出现在 web/ACP 客户端。
+17. ~~**#3843 skill scopes 未落地（引擎侧）**~~ **已落地（2026-09-19 复核更正）**。复核发现本条
+    描述已过时——引擎侧当时随 tower 任务落地（`21403bf956` 引入字段 + 快照提交入 main）：
+    `skills/mod.rs` 的 `SkillDescriptor.scopes: Option<Vec<String>>`（serde camelCase 上 wire，
+    `None` 即处处可见）、`parse_skill_metadata_with_scopes` 解析 frontmatter 的 `scopes:`
+    （括号/裸列表/单 token，未知 token 丢弃）、内置 `custom-theme` 标记 `["tui"]`。三条 REST
+    出口（`GET /api/v1/skills`、workspace skills、session skills）均流经该描述符，scopes 随
+    serde 自动上 wire；SDK `SkillSummary.scopes?` 与 TUI `isVisibleOnTui()` 过滤已就位。
+    测试：`test_parse_scopes_frontmatter`（4 形态）、`test_custom_theme_builtin_is_tui_scoped`。
+    复核教训：此前以 `rg '"scopes"'` 判「引擎不产出」——Rust 结构体字段名不带引号，该 grep
+    模式天然匹配不到，判定前应直接读类型定义。
 
 **`subagent.cancelled` 已补上（合并中发现的真实缺口）。** 上游 v2 引擎在用户打断子代理时发
 **独立**的 `subagent.cancelled` 事件（`agent-core-v2/src/session/subagent/mirrorAgentRun.ts:77`），
