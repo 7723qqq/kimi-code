@@ -215,7 +215,10 @@ select_tools is only for names in the <tools_added> announcements."
                 .collect::<Vec<_>>(),
         );
         if !candidates.is_empty() {
-            lines.push(format!("Unknown tool: {name}. Did you mean: {}?", candidates.join(", ")));
+            lines.push(format!(
+                "Unknown tool: {name}. Did you mean: {}?",
+                candidates.join(", ")
+            ));
         } else if loadable.is_empty() {
             lines.push(format!(
                 "Unknown tool: {name}. No tools can be loaded in this session — \
@@ -287,7 +290,8 @@ announced tools before calling them. \
 Only the announced names are loadable — tools you already have available are called \
 directly, never passed to select_tools; plugin, skill, or category names do not work. \
 Names listed as removed are no longer loadable — do not select them. \
-Fold all announcements in this conversation in order to get the current list.".into(),
+Fold all announcements in this conversation in order to get the current list."
+            .into(),
     );
     Some(sections.join("\n\n"))
 }
@@ -392,13 +396,23 @@ mod tests {
         assert!(loaded.contains("tool_b"));
 
         // 2. Subsequent load for already loaded tool
-        let res2 = execute_select_tools(&json!({ "names": ["tool_a"] }), &available, &mut loaded, &callable);
+        let res2 = execute_select_tools(
+            &json!({ "names": ["tool_a"] }),
+            &available,
+            &mut loaded,
+            &callable,
+        );
         assert!(!res2.is_error);
         assert_eq!(res2.content, "Already available: tool_a");
 
         // 3. Only unknown tools with nothing left loadable -> the "no tools"
         //    guidance (upstream #3885's loadable.length === 0 arm).
-        let res3 = execute_select_tools(&json!({ "names": ["bogus"] }), &available, &mut loaded, &callable);
+        let res3 = execute_select_tools(
+            &json!({ "names": ["bogus"] }),
+            &available,
+            &mut loaded,
+            &callable,
+        );
         assert!(res3.is_error);
         assert_eq!(
             res3.content,
@@ -406,7 +420,8 @@ mod tests {
         );
 
         // 4. Empty names array -> is_error true
-        let res_empty = execute_select_tools(&json!({ "names": [] }), &available, &mut loaded, &callable);
+        let res_empty =
+            execute_select_tools(&json!({ "names": [] }), &available, &mut loaded, &callable);
         assert!(res_empty.is_error);
         assert_eq!(
             res_empty.content,
@@ -425,7 +440,12 @@ mod tests {
         //    and is not an error (upstream #3885).
         let mut static_tools = HashSet::new();
         static_tools.insert("grep".into());
-        let res6 = execute_select_tools(&json!({ "names": ["grep"] }), &available, &mut loaded, &static_tools);
+        let res6 = execute_select_tools(
+            &json!({ "names": ["grep"] }),
+            &available,
+            &mut loaded,
+            &static_tools,
+        );
         assert!(!res6.is_error);
         assert_eq!(
             res6.content,

@@ -64,9 +64,13 @@ pub const LANE_CAP: usize = 512;
 /// session would number a parallel stream from 1.
 pub const LANE_IDLE_EVICT_MS: u64 = 10 * 60 * 1000;
 
-const STATE_OPEN: u8 = 0;
-const STATE_OVERFLOW: u8 = 1;
-const STATE_DETACHED: u8 = 2;
+/// Watch states for one subscription slot.
+/// `STATE_OPEN`: live delivery; `STATE_OVERFLOW`: the connection could not
+/// keep up and is being closed with 1013; `STATE_DETACHED`: the subscription
+/// is gone (server shutdown or handle dropped).
+pub const STATE_OPEN: u8 = 0;
+pub const STATE_OVERFLOW: u8 = 1;
+pub const STATE_DETACHED: u8 = 2;
 
 /// Why a subscription stopped delivering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -651,6 +655,23 @@ impl WsSubscription {
                     }
                 }
             }
+        }
+    }
+    /// The subscription's closed-state watch, cloned for senders that must
+    /// race a blocking send against the hub's overflow verdict — a stalled
+    /// consumer blocks `outbound.send`, and only this watch says why.
+    pub fn state_rx(&self) -> watch::Receiver<u8> {
+        self.state.clone()
+    }
+
+    /// The closed reason, once the watch reports a non-open state. `None`
+    /// while the subscription is still live.
+    pub fn closed(&self) -> Option<HubClosed> {
+        let state = *self.state.borrow();
+        if state == STATE_OPEN {
+            None
+        } else {
+            Some(closed_reason(state))
         }
     }
 }

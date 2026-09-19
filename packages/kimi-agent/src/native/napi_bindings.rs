@@ -704,7 +704,7 @@ pub fn native_select_compaction_user_messages(
 /// Estimate token count from text using a character-based heuristic.
 ///
 /// ASCII: ~4 chars per token. Non-ASCII (CJK, emoji): ~1 char per token.
-/// Matches the TS `estimateTokens` in
+/// Matches the TS `estimateTokens` in the retired fork-only kosong module
 /// `packages/agent-core-v2/src/kosong/contract/tokens.ts`.
 ///
 /// Uses byte-level UTF-8 scanning — counts start bytes of multi-byte

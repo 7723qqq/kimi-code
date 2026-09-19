@@ -1,5 +1,7 @@
-//! Goal-operation guard — native mirror of v2 `goalAgentRuntime` approval
-//! routing and stale-call veto (G-6 #7/#8).
+//! Goal-operation guard — approval routing and stale-call veto (G-6 #7/#8).
+//! The symbol names mirror v2's `features/goal/goalService.ts`
+//! (`isGoalMutationTool`, `GOAL_STALE_TOOL_RESULT`); the routing shape is the
+//! fork's own, since the engine cannot render the host's review panel.
 //!
 //! Two responsibilities:
 //! - **#7 CreateGoal approval**: in v2, a goal start is reviewed whenever

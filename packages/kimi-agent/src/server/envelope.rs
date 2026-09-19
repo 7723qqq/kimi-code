@@ -33,6 +33,9 @@ pub mod error_codes {
     pub const QUESTION_DISMISSED: u32 = 40909;
     pub const PROVIDER_ALREADY_EXISTS: u32 = 40921;
     pub const REMOTE_CONTROL_ALREADY_RUNNING: u32 = 40928;
+    /// Outbound queue overflow on a v3 websocket connection: the client is
+    /// not reading fast enough and is closed (upstream `WS_SLOW_CONSUMER`).
+    pub const WS_SLOW_CONSUMER: u32 = 42903;
 
     pub const INTERNAL_ERROR: u32 = 50001;
 }

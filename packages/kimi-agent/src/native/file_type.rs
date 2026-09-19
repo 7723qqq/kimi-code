@@ -1,5 +1,6 @@
 /// File type detection via magic bytes and extension sniffing.
-/// Mirrors the TypeScript `detectFileType` in `support/file-type.ts`.
+/// Mirrors the TypeScript `detectFileType` in
+/// `agent-core-v2/src/agent/media/file-type.ts`.
 #[cfg(feature = "napi")]
 use napi_derive::napi;
 
@@ -206,7 +207,7 @@ pub struct ImageDimensions {
 /// for formats whose dimensions are not locatable from that region, or
 /// when the supplied buffer is too short to cover it.
 ///
-/// Mirrors `sniffImageDimensions` in `support/file-type.ts`.
+/// Mirrors `sniffImageDimensions` in `agent-core-v2/src/agent/media/file-type.ts`.
 pub fn sniff_image_dimensions(data: &[u8]) -> Option<ImageDimensions> {
     // PNG — IHDR is the first chunk; width/height are big-endian uint32
     // at offsets 16 and 20.

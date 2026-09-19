@@ -869,6 +869,11 @@ impl TaskRunner {
         if let Some(output) = &entry.output {
             obj.insert("output".into(), json!(output));
         }
+        // The spawning session: the task domain is workspace-scoped, so
+        // per-session history pages filter on this field.
+        if let Some(session) = &entry.session_id {
+            obj.insert("sessionId".into(), json!(session));
+        }
         Value::Object(obj)
     }
 

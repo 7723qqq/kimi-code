@@ -22,10 +22,13 @@
 //! An unknown cursor is not an error — it means the client is already current —
 //! so it answers with an empty page.
 //!
-//! History answers with a ten-variant subset of the wire vocabulary (turn, step,
-//! user, assistant, thinking, tool_call, system, interaction, task, todo), so a
-//! cursor can only ever name an entity the fold actually produces: the delta
-//! variants are live-only and carry no step id to match on.
+//! History answers with the timeline entities the fold produces (turn, step,
+//! user, assistant, thinking, tool_call) plus the state-domain entities the
+//! workspace store serves (`project_state_domains`: the todo list and this
+//! session's background tasks). System, interaction and `agent_state`
+//! entities have no history source. A cursor can only ever name an entity
+//! the fold actually produces: the delta variants are live-only and carry no
+//! step id to match on.
 
 use serde::Serialize;
 

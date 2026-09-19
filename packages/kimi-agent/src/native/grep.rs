@@ -4,14 +4,17 @@
 /// search, context lines, output modes (content/files_with_matches/count),
 /// glob filtering, head_limit, and offset.
 ///
-/// Mirrors `packages/agent-core-v2/src/agent/tools/os/grep/grep.ts`.
+/// Mirrors the v2 grep tool (`agent/tools/os/grep/grepTool.ts`); `grep.ts` in
+/// that directory is only the input schema. `multiline` buffers the file
+/// whole and marks every physical line a match spans — the same `-U
+/// --multiline-dotall` contract the live engine tool implements.
 #[cfg(feature = "napi")]
 use napi_derive::napi;
 
 use ignore::WalkBuilder;
 use regex::RegexBuilder;
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -122,6 +125,61 @@ fn starts_with_nul(reader: &mut BufReader<fs::File>) -> bool {
         .unwrap_or(false)
 }
 
+/// Mark which physical lines the matches of `content` span, mirroring
+/// ripgrep's `-U --multiline-dotall` behaviour (and the live engine tool's
+/// `scan_grep_file_multiline`): every line a non-overlapping match touches is
+/// a match line, and the count is rg's `--count-matches` number. Returns
+/// `(match_count, per-line match flags)`.
+fn multiline_match_lines(regex: &regex::Regex, content: &str) -> (usize, Vec<bool>) {
+    let lines = content.split('\n').count();
+    let mut is_match_line = vec![false; lines];
+    let last_idx = lines.saturating_sub(1);
+    let bytes = content.as_bytes();
+    let mut cursor = 0usize;
+    let mut nl = 0usize;
+    // find_iter yields non-overlapping matches in increasing order, so a
+    // single newline cursor maps byte offsets to line indices in O(file).
+    let mut line_at = |off: usize| -> usize {
+        let target = off.min(bytes.len());
+        while cursor < target {
+            if bytes[cursor] == b'\n' {
+                nl += 1;
+            }
+            cursor += 1;
+        }
+        nl
+    };
+
+    let mut total = 0usize;
+    for m in regex.find_iter(content) {
+        if m.start() == m.end() && m.start() >= content.len() {
+            // Zero-width match at EOF: rg drops it unless it is the only
+            // match in a file with no trailing newline.
+            let dangling_last_line = !content.is_empty() && !content.ends_with('\n');
+            if !(total == 0 && dangling_last_line) {
+                continue;
+            }
+            total += 1;
+            is_match_line[last_idx] = true;
+            continue;
+        }
+        total += 1;
+        let start_line = line_at(m.start()).min(last_idx);
+        let end_line = if m.end() > m.start() {
+            line_at(m.end() - 1)
+        } else if bytes.get(m.start()) == Some(&b'\n') {
+            start_line + 1
+        } else {
+            start_line
+        }
+        .min(last_idx);
+        for slot in is_match_line.iter_mut().take(end_line + 1).skip(start_line) {
+            *slot = true;
+        }
+    }
+    (total, is_match_line)
+}
+
 /// Read the next line from `reader` into `out`, decoding lossy (invalid
 /// UTF-8 becomes U+FFFD). Returns `false` at EOF. Unlike `BufRead::lines`,
 /// an invalid-UTF-8 line does not abort the stream — a single decoded file
@@ -152,7 +210,7 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
     };
 
     let regex = match RegexBuilder::new(&pattern_str)
-        .multi_line(!config.multiline)
+        .multi_line(config.multiline)
         .build()
     {
         Ok(r) => r,
@@ -329,7 +387,25 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
             let mut line_bytes = Vec::new();
             let mut line = String::new();
 
-            if is_files_with_matches {
+            if config.multiline {
+                // Multiline (rg `-U --multiline-dotall`): cross-line matching
+                // cannot stream, so the file is buffered whole and every
+                // physical line a match spans counts as a match line — the
+                // same contract the live engine tool implements
+                // (`tools/mod.rs` `scan_grep_file_multiline`).
+                let mut raw: Vec<u8> = Vec::new();
+                if reader.read_to_end(&mut raw).is_err() || raw.contains(&0) {
+                    return ignore::WalkState::Continue;
+                }
+                let content = String::from_utf8_lossy(&raw);
+                let (count, _marked) = multiline_match_lines(regex, &content);
+                match_count = count;
+                if match_count > 0 && needs_full_content {
+                    // The renderer re-marks over the whole content; the cache
+                    // carries it so the file is not re-read.
+                    accumulated_content.push_str(&content);
+                }
+            } else if is_files_with_matches {
                 // Early termination: stop reading as soon as we find one match.
                 while read_lossy_line(&mut reader, &mut line_bytes, &mut line) {
                     if regex.find(&line).is_some() {
@@ -396,12 +472,25 @@ pub fn grep_search(config: &GrepConfig) -> GrepResult {
                 },
             };
             let lines: Vec<&str> = content_str.split('\n').collect();
-            let matched_lines: Vec<usize> = lines
-                .iter()
-                .enumerate()
-                .filter(|(_, line)| regex.is_match(line))
-                .map(|(i, _)| i)
-                .collect();
+            let matched_lines: Vec<usize> = if config.multiline {
+                // Cross-line matches cannot be found per line: re-mark the
+                // whole content with the same contract the walker used, then
+                // treat the marked lines as the match set.
+                let (_, marked) = multiline_match_lines(&regex, &content_str);
+                marked
+                    .into_iter()
+                    .enumerate()
+                    .filter(|(_, is_match)| *is_match)
+                    .map(|(idx, _)| idx)
+                    .collect()
+            } else {
+                lines
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, line)| regex.is_match(line))
+                    .map(|(i, _)| i)
+                    .collect()
+            };
 
             // Deduplicate context lines that fall inside overlapping windows
             // (two matches closer together than the combined context), so a
@@ -714,6 +803,77 @@ mod tests {
         });
         assert!(result.error.is_none());
         assert!(result.content.contains("1:hello world"));
+    }
+
+    // Regression: `multiline` used to be passed to `RegexBuilder` inverted
+    // (`multi_line(!config.multiline)`), so a `multiline: false` search built
+    // a multiline regex and a `multiline: true` search did not.
+    #[test]
+    fn test_grep_multiline_flag_keeps_single_line_matches() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("a.txt"), "hello world\nsecond line\n").unwrap();
+
+        let result = grep_search(&GrepConfig {
+            pattern: "world".to_string(),
+            path: Some(dir.path().to_str().unwrap().to_string()),
+            output_mode: OutputMode::Content,
+            multiline: true,
+            ..Default::default()
+        });
+        assert!(result.error.is_none());
+        assert_eq!(
+            result.match_count, 1,
+            "multiline=true must still match within one line"
+        );
+    }
+
+    // Multiline mode buffers the file and matches across the newline: a
+    // pattern spanning two physical lines finds the file, and the content
+    // window reports both lines the match spans.
+    #[test]
+    fn test_grep_multiline_matches_across_newlines() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("multi.txt"),
+            "start here\nEND marker\ntail\n",
+        )
+        .unwrap();
+        fs::write(dir.path().join("plain.txt"), "END alone\n").unwrap();
+
+        let result = grep_search(&GrepConfig {
+            pattern: "here\\nEND".to_string(),
+            path: Some(dir.path().to_str().unwrap().to_string()),
+            output_mode: OutputMode::Content,
+            line_numbers: true,
+            multiline: true,
+            ..Default::default()
+        });
+        assert!(
+            result.error.is_none(),
+            "{}",
+            result.error.unwrap_or_default()
+        );
+        assert_eq!(result.file_count, 1, "only the cross-line file matches");
+        assert!(result.content.contains("multi.txt:1:start here"));
+        assert!(result.content.contains("multi.txt:2:END marker"));
+        assert!(!result.content.contains("plain.txt"));
+    }
+
+    // The same pattern without multiline must not find the cross-line match.
+    #[test]
+    fn test_grep_single_line_mode_does_not_span_newlines() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("multi.txt"), "start here\nEND marker\n").unwrap();
+
+        let result = grep_search(&GrepConfig {
+            pattern: "here\\nEND".to_string(),
+            path: Some(dir.path().to_str().unwrap().to_string()),
+            output_mode: OutputMode::FilesWithMatches,
+            multiline: false,
+            ..Default::default()
+        });
+        assert!(result.error.is_none());
+        assert_eq!(result.file_count, 0);
     }
 
     // Binary files (NUL bytes) must be skipped — their content would

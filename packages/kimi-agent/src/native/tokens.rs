@@ -1,6 +1,8 @@
 /// Token estimation via character-based heuristic.
 ///
-/// Mirrors `packages/agent-core-v2/src/kosong/contract/tokens.ts`:
+/// Mirrors the v2 token estimator (upstream:
+/// `agent-core-v2/src/llm-adapter/contract/tokens.ts`; the fork's retired
+/// copy lived at `agent-core-v2/src/kosong/contract/tokens.ts`):
 ///   - ASCII: ~4 chars per token
 ///   - Non-ASCII (CJK, emoji, etc.): ~1 char per token
 ///
@@ -54,7 +56,7 @@ pub fn estimate_tokens_batch(texts: &[&str]) -> usize {
 /// Walks bytes forward using the same ASCII/non-ASCII heuristic as
 /// `estimate_tokens`, and stops at the first code point that would
 /// push the running total over the budget. Mirrors
-/// `truncateTextToTokens` in `handoff.ts`.
+/// `truncateTextToTokens` in `agent/contextMemory/compactionHandoff.ts`.
 pub fn truncate_text_to_tokens(text: &str, max_tokens: usize) -> String {
     if max_tokens == 0 {
         return String::new();
@@ -92,7 +94,8 @@ pub fn truncate_text_to_tokens(text: &str, max_tokens: usize) -> String {
 ///
 /// Walks bytes backward, skipping UTF-8 continuation bytes to consume
 /// multi-byte sequences whole (equivalent to the JS surrogate-pair
-/// handling). Mirrors `truncateTextToTokensFromEnd` in `handoff.ts`.
+/// handling). Mirrors `truncateTextToTokensFromEnd` in
+/// `agent/contextMemory/compactionHandoff.ts`.
 pub fn truncate_text_to_tokens_from_end(text: &str, max_tokens: usize) -> String {
     if max_tokens == 0 {
         return String::new();

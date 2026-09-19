@@ -1,13 +1,15 @@
-//! Agent activity phase tracking — the Rust port of v2's activity state
-//! machine (`AgentActivityState`) projected through kap-server's
-//! `toLegacyPhase` into the `agent.status.updated` `phase` payload.
+//! Agent activity phase tracking — a Rust port of the legacy kap-server
+//! activity state machine (the type upstream now calls
+//! `LegacyActivitySnapshot`) projected through `toLegacyPhase` into the
+//! `agent.status.updated` `phase` payload.
 //!
 //! One [`ActivityTracker`] folds every lifecycle signal a session produces —
 //! turn boundaries, LLM step boundaries, streaming deltas, tool executions,
-//! retry backoffs, pending interactions — into the eight v2 phases (`idle` /
-//! `running` / `streaming` / `tool_call` / `retrying` / `awaiting_approval` /
-//! `interrupted` / `ended`) and publishes each transition as a phase-only
-//! status event. Unlike the status snapshot (see
+//! retry backoffs, pending interactions — into seven legacy phases (`idle` /
+//! `running` / `tool_call` / `retrying` / `awaiting_approval` /
+//! `interrupted` / `ended`) plus a fork-only `streaming` (upstream dropped it
+//! in #3646; the fork kept the finer granularity) and publishes each
+//! transition as a phase-only status event. Unlike the status snapshot (see
 //! [`crate::server::engine::ServerEngine::publish_status_updated`]) phase
 //! events carry only the phase, and they are never deduped: the wire marks
 //! `agent.status.updated` volatile precisely because these are live signals.

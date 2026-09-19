@@ -1,4 +1,7 @@
-//! Native Sandbox Guard Policy (parity with agent-core-v2 sandbox).
+//! Native Sandbox Guard Policy — a fork-original feature (P155) with no v2
+//! counterpart. The `agent-core-v2` sandbox cited in earlier revisions of the
+//! roadmap was fork-authored (f007fc9f71) and never existed upstream, so there
+//! is no upstream behaviour to align with; this module is its own reference.
 //!
 //! Provides fail-closed boundary enforcement for mutating tools (`Write`, `Edit`),
 //! code execution and shell commands according to the active `SandboxMode`:

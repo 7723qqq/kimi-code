@@ -148,6 +148,12 @@ pub struct PolicySnapshot {
     /// explain itself. Absent entries fall back to the pattern alone.
     #[serde(default)]
     pub rule_reasons: std::collections::HashMap<String, String>,
+    /// Headless session signal (upstream bootstrap `nonInteractive`, set by
+    /// `kimi -p`): a run with no human to answer an `ask` verdict skips the
+    /// `DangerousCommandAsk` policy (v2 `permissionPolicyService.ts` drops it
+    /// from the chain), so the remaining policies decide the command.
+    #[serde(default)]
+    pub non_interactive: bool,
 }
 
 /// Verdict returned by the local permission engine.
@@ -352,7 +358,11 @@ impl PermissionEngine {
         // 3. DangerousCommandAsk: high-risk shell commands must be confirmed even
         //    under Auto/Yolo — mirrors v2 dangerous-command-ask and the native
         //    `evaluate_bash_command` gate (`sudo reboot` refused in Yolo).
-        if tool_lower == "bash"
+        //    Skipped for headless sessions (`non_interactive`, upstream
+        //    `permissionPolicyService.ts` drops this ask-policy when the host
+        //    cannot answer a prompt): the remaining policies decide.
+        if !self.snapshot.non_interactive
+            && tool_lower == "bash"
             && let Some(command) = target_subject.as_deref()
             && matches!(
                 analyze_bash_command(command),
@@ -1665,6 +1675,23 @@ mod tests {
             let benign = engine.evaluate("bash", &json!({ "command": "git status" }));
             assert_eq!(benign.decision, VerdictDecision::Allow, "benign command");
         }
+    }
+
+    // Headless sessions (`kimi -p`, upstream bootstrap `nonInteractive`) skip
+    // the DangerousCommandAsk policy: there is no human to answer the prompt,
+    // so the remaining policies decide — Auto approves, Manual falls through
+    // to the host chain (which for a headless run cannot answer, and the
+    // command is denied there).
+    #[test]
+    fn test_non_interactive_session_skips_dangerous_command_ask() {
+        let auto = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Auto,
+            non_interactive: true,
+            ..Default::default()
+        });
+        let verdict = auto.evaluate("bash", &json!({ "command": "sudo reboot" }));
+        assert_eq!(verdict.decision, VerdictDecision::Allow);
+        assert_eq!(verdict.policy_name, "AutoModeApprove");
     }
 
     /// A benign command with a quoted, non-ASCII path is allowed in auto and

@@ -527,15 +527,17 @@ pub struct NativeToolCallbacks {
     /// paths read the host's plan state through the state bridge per
     /// guarded call.
     pub plan_guard: Option<Arc<PlanGuard>>,
-    /// Optional stale-write gate (v2 `staleGuardService` mirror, G-6 #3).
+    /// Optional stale-write gate (fork-original, G-6 #3 — no v2 counterpart
+    /// exists; see `tools/stale_guard.rs` header).
     /// Before a native Write/Edit executes, the gate vetoes targets that
     /// were never read or changed on disk since; after every completed
     /// read/write execution (native or host-forwarded) it records the
     /// target's mtime, so a read the host served also clears a later native
     /// write. State is per-session (mounted once by the pipeline builder).
     pub stale_guard: Option<Arc<crate::tools::stale_guard::StaleGate>>,
-    /// Optional goal-operation guard (v2 `goalAgentRuntime` mirror, G-6
-    /// #7/#8). CreateGoal calls route to the host when the permission mode
+    /// Optional goal-operation guard (G-6 #7/#8; symbol names mirror v2
+    /// `features/goal/goalService.ts`, routing shape is the fork's own).
+    /// CreateGoal calls route to the host when the permission mode
     /// is not `auto` (so the host's goal-start review fires); goal mutation
     /// calls from a turn whose goal has changed since are vetoed.
     pub goal_guard: Option<Arc<crate::tools::goal_guard::GoalGuard>>,
@@ -851,8 +853,8 @@ impl HostCallbacks for NativeToolCallbacks {
                     note: None,
                 });
             }
-            // Goal-operation stale veto (v2 `goalAgentRuntime`, G-6 #8),
-            // after permission and before the stale-write guard: a goal
+            // Goal-operation stale veto (G-6 #8), after permission and
+            // before the stale-write guard: a goal
             // mutation call from a turn whose goal changed is the tool
             // result the model sees; no execution, no host fallback.
             if let Some(guard) = &this.goal_guard
@@ -878,9 +880,9 @@ impl HostCallbacks for NativeToolCallbacks {
                     note: None,
                 });
             }
-            // Stale-write guard (v2 `staleGuardService`, G-6 #3), after the
-            // permission verdict and before execution — v2 chain order is
-            // permission → plan → staleGuard. A denial is the tool result
+            // Stale-write guard (fork-original, G-6 #3), after the
+            // permission verdict and before execution — the chain order is
+            // permission → plan → stale guard. A denial is the tool result
             // the model sees; no execution, no host fallback.
             if let Some(gate) = &this.stale_guard
                 && let Some(reason) = gate
@@ -1437,6 +1439,19 @@ impl HostCallbacks for StateStoreCallbacks {
             match store.apply_write(&request.domain, &request.value) {
                 Ok(outcome) => {
                     store.write_domain(&request.domain, &outcome.stored)?;
+                    // State-domain change notification (upstream: the
+                    // `IAgentTodoService.onDidChange` / task-service events
+                    // the v3 session projector subscribes to). The engine has
+                    // no per-domain service, so the write path emits the
+                    // stored value itself; the v3 live translator folds it
+                    // into a `todo` entity on the session lane.
+                    if request.domain == "todo" || request.domain == "task" {
+                        inner.emit_event(serde_json::json!({
+                            "type": "event.state.changed",
+                            "domain": request.domain,
+                            "value": outcome.stored,
+                        }));
+                    }
                     Ok(StateWriteResponse {
                         ok: true,
                         value: outcome.response,

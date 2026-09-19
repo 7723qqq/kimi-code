@@ -90,6 +90,11 @@ export interface PolicySnapshotDto {
     cwd?: string;
     env?: Record<string, string>;
   }>;
+  /**
+   * Headless session (upstream bootstrap `nonInteractive`, `kimi -p`): skips
+   * the engine's `DangerousCommandAsk` policy — no human to answer the prompt.
+   */
+  non_interactive?: boolean;
 }
 
 /** A trailing API version segment (`/v1`, `/v1beta`, `/v2alpha`, …). */

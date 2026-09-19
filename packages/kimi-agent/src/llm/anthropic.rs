@@ -121,8 +121,11 @@ pub fn build_request_full(
         }
     }
 
-    // Tail breakpoint: the last block of the absolute last message (messages.at(-1)),
-    // strictly aligning with TS `anthropic-cache-breakpoints.ts`.
+    // Tail breakpoint: the last block of the absolute last message (messages.at(-1)).
+    // The v2 provider (`kosong/src/providers/anthropic.ts`) injects three
+    // breakpoints — system, last content block, last tool — via
+    // `injectCacheControlOnLastBlock`; the stable-history breakpoint below is
+    // a fork addition, using all 4 Anthropic cache_control slots.
     // Supports both user text/media and assistant tool_use blocks.
     if let Some(last_msg) = msgs.last_mut()
         && let Some(content_arr) = last_msg.get_mut("content").and_then(|c| c.as_array_mut())
@@ -131,10 +134,10 @@ pub fn build_request_full(
         last_block["cache_control"] = json!({ "type": "ephemeral" });
     }
 
-    // Stable history breakpoint: the last block of a message that is not one
-    // of the last 2 messages (aligning with `anthropic-cache-breakpoints.ts`).
-    // This creates a prefix cache covering the stable conversation history,
-    // utilizing all 4 Anthropic cache_control slots (system + tools + history + tail).
+    // Stable history breakpoint (fork addition, no v2 counterpart): the last
+    // block of a message that is not one of the last 2 messages. This creates
+    // a prefix cache covering the stable conversation history, utilizing all
+    // 4 Anthropic cache_control slots (system + tools + history + tail).
     if msgs.len() >= 4 {
         let stable_idx = msgs.len() - 3;
         if let Some(stable_msg) = msgs.get_mut(stable_idx)

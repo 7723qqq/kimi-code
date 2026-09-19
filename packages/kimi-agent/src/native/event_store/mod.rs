@@ -174,7 +174,8 @@ fn strip_think_blocks(text: &str) -> String {
     result.trim().to_string()
 }
 
-/// 严格自愈流水线：对齐 TS contextProjector/projection.ts 的 9 大自愈规则
+/// 严格自愈流水线：对齐 TS contextProjector/projection.ts（summarizeProjectionRepairs
+/// 共 9 类异常）；此处实现其中 4 类：
 /// 1. 过滤开头的孤儿 Tool 或孤立 Assistant（Anthropic/OpenAI 强制首条必须是 User 或 System）
 /// 2. 丢弃未声明对应的孤儿 Tool.result（防止 tool_call_id does not match any tool_calls 400 报错）
 /// 3. 合并连续同角色 Assistant 消息（防止 Anthropic 报 roles must alternate 400 报错）

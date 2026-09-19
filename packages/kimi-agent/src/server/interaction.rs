@@ -51,9 +51,11 @@ pub struct InteractionManager {
 /// Re-exported from [`crate::server::activity`], where the phase fold lives.
 pub use crate::server::activity::ActivitySignal;
 
-/// How long a pending approval may sit unanswered before it expires (v2
-/// surfaced expiry as `event.approval.expired`; the blocked call is denied).
-const APPROVAL_TTL_MS: i64 = 10 * 60 * 1000;
+/// How long a pending approval may sit unanswered before it expires (the
+/// blocked call is denied). 24h matches upstream kap-server's
+/// `APPROVAL_EXPIRY_MS` (`routes/approvals.ts`), which also publishes it as
+/// `expires_at` on the request.
+const APPROVAL_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 
 impl InteractionManager {
     /// Deny and retire every approval older than [`APPROVAL_TTL_MS`],
@@ -447,6 +449,11 @@ impl InteractionManager {
                 "action": action,
                 "tool_input_display": req.arguments,
                 "created_at": now_iso,
+                // The TTL surfaced on the wire (upstream `expires_at`), so a
+                // client can show its own countdown instead of guessing.
+                "expires_at": (chrono::DateTime::parse_from_rfc3339(&now_iso)
+                    .map(|t| (t + chrono::Duration::milliseconds(APPROVAL_TTL_MS)).to_rfc3339())
+                    .unwrap_or_else(|_| now_iso)),
             })),
         );
         self.publish_event(

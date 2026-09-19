@@ -59,6 +59,9 @@ export async function runNativePrint(
       session = await harness.createSession({
         workDir: process.cwd(),
         sessionStartedProperties: { yolo: opts.yolo, auto: false, plan: false, afk: false },
+        // Headless run (upstream bootstrap `nonInteractive`): the engine
+        // skips its dangerous-command ask policy — no human to answer.
+        nonInteractive: true,
       });
     }
 

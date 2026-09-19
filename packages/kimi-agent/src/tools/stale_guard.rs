@@ -1,14 +1,19 @@
-//! Stale-write guard — native mirror of v2 `staleGuardService` (G-6 #3).
+//! Stale-write guard (G-6 #3) — a fork-original feature with no v2
+//! counterpart. Upstream's `features/staleGuard/` was deleted in
+//! a020946916 (#3517) before this engine existed, and the described v2
+//! behaviour (mtime tracking + write veto) never existed upstream either;
+//! the only upstream "stale" remnants are two dead wire strings in
+//! `state/eventDispatcherService.ts`. v2's only mtime check is a read-side
+//! TOCTOU guard on tail reads (`readTool.ts`), a different mechanism.
 //!
-//! v2 records the mtime of every file a successful Read/Edit/Write touched
-//! and vetoes native Write/Edit calls when the target was never read or
-//! changed on disk since. The host-side guard keeps covering host-executed
+//! This module records the mtime of every file a successful Read/Edit/Write
+//! touched and vetoes native Write/Edit calls when the target was never read
+//! or changed on disk since. The host-side guard keeps covering host-executed
 //! tools; this module closes the native path, which bypasses the host veto
 //! chain entirely.
 //!
 //! State is a per-session in-process table (`Arc` shared by the pipeline
-//! builder), mirroring v2's per-agent-scope lifetime: it survives across
-//! turns and is never cleared mid-session.
+//! builder): it survives across turns and is never cleared mid-session.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

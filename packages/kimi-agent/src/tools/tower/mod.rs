@@ -781,7 +781,8 @@ pub async fn execute_tower_send(
             // session pump turns it into a follow-up turn. Main's own sends
             // never wake it, and an init without a session id (no host
             // session recorded) skips the wake rather than guessing.
-            if caller != TOWER_NAME && (to == TOWER_NAME || to == BROADCAST_NAME)
+            if caller != TOWER_NAME
+                && (to == TOWER_NAME || to == BROADCAST_NAME)
                 && let (Some(runner), Some(main_session)) =
                     (task_runner, state.session_id.as_deref())
             {

@@ -7340,7 +7340,11 @@ m2
             let drained = runner.take_pending_notifications(Some("session-main"));
             assert_eq!(drained.len(), 1);
             assert_eq!(drained[0].task_id, crate::tools::tower::TOWER_WAKE_TASK_ID);
-            assert!(drained[0].description.contains("TowerInbox"), "{}", drained[0].description);
+            assert!(
+                drained[0].description.contains("TowerInbox"),
+                "{}",
+                drained[0].description
+            );
         }
     }
 }

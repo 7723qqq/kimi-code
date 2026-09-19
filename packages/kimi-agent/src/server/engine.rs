@@ -237,6 +237,13 @@ pub struct ServerEngine {
     /// default), wired through [`Self::with_compaction_max_attempts`].
     compaction_max_attempts: Option<u32>,
     active_turns: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    /// Where each session's live streaming has reached (`HistoryInFlight`):
+    /// `(turn_number, step)` pairs updated by the turn's
+    /// [`crate::server::message_events::MessageCallbacks`] on `llm.step.begin`
+    /// and cleared when the turn ends. The history route reads this to fill
+    /// `in_flight` the way upstream's projection service does. Behind an Arc
+    /// so the turn's callbacks can hold a handle without borrowing `self`.
+    in_flight: Arc<Mutex<HashMap<String, crate::server::v3::history::HistoryInFlight>>>,
     mcp_manager: Mutex<Option<Arc<McpManager>>>,
     interaction_manager: Mutex<Option<Arc<InteractionManager>>>,
     subagent_manager: Arc<SubagentManager>,
@@ -297,6 +304,7 @@ impl ServerEngine {
             max_attempts: None,
             compaction_max_attempts: None,
             active_turns: Mutex::new(HashMap::new()),
+            in_flight: Arc::new(Mutex::new(HashMap::new())),
             mcp_manager: Mutex::new(None),
             interaction_manager: Mutex::new(None),
             subagent_manager: Arc::new(SubagentManager::with_store(store)),
@@ -600,6 +608,45 @@ impl ServerEngine {
             .entry(session_id.to_string())
             .or_insert_with(|| Arc::new(Mutex::new(Vec::new())))
             .clone()
+    }
+
+    /// Clear the session's `in_flight` marker at turn end (the turn is no
+    /// longer streaming, so history pages need not name a live position).
+    pub(crate) fn clear_in_flight(&self, session_id: &str) {
+        self.in_flight
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(session_id);
+    }
+
+    /// Record a step boundary for the session's live turn (the step ordinal
+    /// the v3 entity ids are built from): the production path is the closure
+    /// built in [`Self::execute`]; this is the test-facing equivalent.
+    #[cfg(test)]
+    pub(crate) fn record_step(&self, session_id: &str, turn_number: u32, step: u32) {
+        self.in_flight
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                session_id.to_string(),
+                crate::server::v3::history::HistoryInFlight {
+                    turn_id: turn_number.to_string(),
+                    step_id: format!("{turn_number}.{step}"),
+                },
+            );
+    }
+
+    /// The session's live streaming position, for the history route's
+    /// `in_flight` field (upstream `projection.inFlight`).
+    pub fn in_flight(
+        &self,
+        session_id: &str,
+    ) -> Option<crate::server::v3::history::HistoryInFlight> {
+        self.in_flight
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(session_id)
+            .cloned()
     }
 
     /// This session's steer signal slot, created on first use. [`Self::execute`]
@@ -1226,26 +1273,42 @@ impl ServerEngine {
         // Outermost of all: the turn's prompt and every step's assistant
         // output get message identities (`event.message.created` /
         // `event.assistant.delta` / `event.message.updated`), the vocabulary
-        // the Web client's transcript folds.
-        let callbacks: Arc<dyn HostCallbacks> =
-            Arc::new(crate::server::message_events::MessageCallbacks::new(
+        // the Web client's transcript folds. The engine's `in_flight` marker
+        // rides the same step boundaries, so the history route can name the
+        // live streaming position (upstream `projection.inFlight`).
+        let engine_self = Arc::clone(&self.in_flight);
+        let tracked_session = session_id.to_string();
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(
+            crate::server::message_events::MessageCallbacks::with_step_tracker(
                 callbacks.clone(),
                 session_id,
                 self.hub.clone(),
                 turn_number,
                 prompt,
-            ));
+                Some(Box::new(move |step: u32| {
+                    let mut registry = engine_self.lock().unwrap_or_else(|e| e.into_inner());
+                    registry.insert(
+                        tracked_session.clone(),
+                        crate::server::v3::history::HistoryInFlight {
+                            turn_id: turn_number.to_string(),
+                            step_id: format!("{turn_number}.{step}"),
+                        },
+                    );
+                })),
+            ),
+        );
         struct ActiveGuard<'a> {
             engine: &'a ServerEngine,
             session_id: String,
         }
         impl<'a> Drop for ActiveGuard<'a> {
             fn drop(&mut self) {
+                self.engine.clear_in_flight(&self.session_id);
                 let mut turns = self
                     .engine
                     .active_turns
                     .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    .unwrap_or_else(|e| e.into_inner());
                 turns.remove(&self.session_id);
                 drop(turns);
                 let mut queues = self

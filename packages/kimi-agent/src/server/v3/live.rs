@@ -27,9 +27,9 @@
 //! re-emitted as a `custom` progress payload rather than mapped onto a shape it
 //! does not have. `subagent.message` — how a subagent's own timeline is persisted
 //! — is left alone, because it belongs to the child's timeline, which has its own
-//! subscription. And `config.changed`, `session.meta.updated`, `cron.fired` and a
-//! goal budget notice have no session-scoped entity to become: they are global or
-//! host-level state, which the hub's global lane owns.
+//! subscription. And `session.meta.updated`, `cron.fired` and a goal budget notice
+//! are host- or session-host-level state with no session-scoped entity; the
+//! global lane's config vocabulary is folded per connection in `ws_v3` instead.
 
 use serde_json::Value;
 
@@ -37,14 +37,17 @@ use crate::events::EngineEvent;
 
 use super::history::HistoryInFlight;
 use super::messages::{
-    AssistantDeltaMessage, AssistantMessage, ContentPart, ContentPartType, PendingInteraction,
-    ServerMessage, SessionStateMessage, SessionStatus, StepMessage, StepStatus, StreamStatus,
-    TaskKind, TaskMessage, TaskStatus, ThinkingDeltaMessage, ToolCallDeltaMessage, ToolCallMessage,
+    ApprovalDecision, AssistantDeltaMessage, AssistantMessage, ContentPart, ContentPartType,
+    InteractionApprovalRequest, InteractionApprovalResponse, InteractionKind, InteractionMessage,
+    InteractionRequest, InteractionResponse, InteractionStatus, PendingInteraction, ServerMessage,
+    SessionStateMessage, SessionStatus, StepMessage, StepStatus, StreamStatus, TaskKind,
+    TaskMessage, TaskStatus, ThinkingDeltaMessage, ToolCallDeltaMessage, ToolCallMessage,
     ToolCallStatus, ToolProgressKind, ToolProgressPayload, TurnMessage, TurnOrigin, TurnStatus,
     TurnUsage, UserMessage, UserMessageStatus,
 };
 use super::projection::{
-    assistant_entity_id, iso, step_entity_id, thinking_entity_id, turn_entity_id, user_entity_id,
+    assistant_entity_id, iso, project_tasks, project_todo, step_entity_id, thinking_entity_id,
+    turn_entity_id, user_entity_id,
 };
 
 /// Folds one agent's live events into v3 entities.
@@ -499,8 +502,113 @@ impl LiveTranslator {
                 }
                 Vec::new()
             }
+            // A todo/task state write (StateStoreCallbacks::state_write, the
+            // engine's counterpart of upstream's `IAgentTodoService.onDidChange`
+            // subscription). The stored value projects straight onto the
+            // entity: one `todo` per agent (upstream's TODO_ENTITY_ID) or one
+            // `task` per stored entry.
+            Some("event.state.changed") => {
+                let domain = value.get("domain").and_then(Value::as_str);
+                let stored = value.get("value").cloned();
+                let Some(stored) = stored else {
+                    return Vec::new();
+                };
+                match domain {
+                    Some("todo") => project_todo(&self.session_id, &self.agent_id, now, &stored)
+                        .map(|todo| vec![ServerMessage::Todo(todo)])
+                        .unwrap_or_default(),
+                    Some("task") => project_tasks(&self.session_id, &self.agent_id, now, &stored)
+                        .into_iter()
+                        .map(ServerMessage::Task)
+                        .collect(),
+                    _ => Vec::new(),
+                }
+            }
+            // Interaction lifecycle (upstream: the interaction service's
+            // request/resolve hooks drive the same entity upserts). The
+            // fork's `InteractionManager` publishes these on the session
+            // lane; each one upserts one `interaction` entity keyed by its
+            // approval id.
+            Some("event.approval.requested") => {
+                let Some(interaction_id) = value.get("approval_id").and_then(Value::as_str) else {
+                    return Vec::new();
+                };
+                let tool_name = value
+                    .get("tool_name")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let action = value
+                    .get("action")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let expires_at = value.get("expires_at").and_then(Value::as_str);
+                vec![ServerMessage::Interaction(InteractionMessage {
+                    session_id: self.session_id.clone(),
+                    agent_id: self.agent_id.clone(),
+                    timestamp: now,
+                    interaction_id: interaction_id.to_string(),
+                    status: InteractionStatus::Pending,
+                    tool_call_id: value
+                        .get("tool_call_id")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    kind: InteractionKind::Approval,
+                    request: Some(InteractionRequest::Approval(InteractionApprovalRequest {
+                        tool_name: tool_name.to_string(),
+                        action: action.to_string(),
+                        tool_input_display: value.get("tool_input_display").cloned(),
+                        expires_at: expires_at.map(str::to_string),
+                    })),
+                    response: None,
+                })]
+            }
+            Some("event.approval.resolved") => self.interaction_resolved(value, now),
+            // The manager denies and retires every approval past its TTL,
+            // announcing each as the same resolved shape the client acts on
+            // (upstream interaction-entity status `cancelled`).
+            Some("event.approval.expired") => self.interaction_resolved(value, now),
             _ => Vec::new(),
         }
+    }
+
+    /// The terminal half of an approval interaction: same entity id, status
+    /// switched to the decision (`cancelled` for the TTL sweep), response
+    /// body filled. `None` decision payloads keep the entity pending rather
+    /// than inventing an outcome.
+    fn interaction_resolved(&self, value: &Value, now: i64) -> Vec<ServerMessage> {
+        let Some(interaction_id) = value.get("approval_id").and_then(Value::as_str) else {
+            return Vec::new();
+        };
+        let decision = value
+            .get("decision")
+            .and_then(Value::as_str)
+            .map(|d| match d {
+                "approved" => InteractionStatus::Approved,
+                "rejected" => InteractionStatus::Rejected,
+                _ => InteractionStatus::Cancelled,
+            })
+            .unwrap_or(InteractionStatus::Cancelled);
+        let approval_decision = match decision {
+            InteractionStatus::Approved => ApprovalDecision::Approved,
+            InteractionStatus::Rejected => ApprovalDecision::Rejected,
+            _ => ApprovalDecision::Cancelled,
+        };
+        vec![ServerMessage::Interaction(InteractionMessage {
+            session_id: self.session_id.clone(),
+            agent_id: self.agent_id.clone(),
+            timestamp: now,
+            interaction_id: interaction_id.to_string(),
+            status: decision.clone(),
+            tool_call_id: None,
+            kind: InteractionKind::Approval,
+            request: None,
+            response: Some(InteractionResponse::Approval(InteractionApprovalResponse {
+                decision: approval_decision,
+                scope: None,
+                feedback: None,
+                selected_label: None,
+            })),
+        })]
     }
 
     fn is_my_agent(&self, agent_id: &str) -> bool {
@@ -1071,6 +1179,144 @@ mod tests {
             entities.is_empty(),
             "there is no turn number to name the message after"
         );
+    }
+
+    // A state-domain write (StateStoreCallbacks::state_write) reaches the
+    // live lane as opaque JSON; the translator projects it onto the same
+    // entity shapes the history route ends with.
+    #[test]
+    fn a_todo_state_write_becomes_the_todo_entity() {
+        let mut translator = LiveTranslator::new("s1", "main");
+        let entities = translator.translate(
+            &EngineEvent::Custom(json!({
+                "type": "event.state.changed",
+                "domain": "todo",
+                "value": [
+                    { "title": "one", "status": "in_progress" },
+                    { "title": "two", "status": "done" },
+                ],
+            })),
+            NOW,
+        );
+        assert_eq!(entities.len(), 1);
+        let ServerMessage::Todo(todo) = &entities[0] else {
+            panic!(
+                "expected a todo entity, got {:?}",
+                entities[0].message_type()
+            );
+        };
+        assert_eq!(todo.todo_id, "s1");
+        let titles: Vec<&str> = todo.items.iter().map(|item| item.title.as_str()).collect();
+        assert_eq!(titles, ["one", "two"]);
+        assert_eq!(
+            todo.items[0].status,
+            crate::server::v3::messages::TodoItemStatus::InProgress
+        );
+    }
+
+    #[test]
+    fn a_task_state_write_becomes_task_entities_for_this_session() {
+        let mut translator = LiveTranslator::new("s1", "main");
+        let entities = translator.translate(
+            &EngineEvent::Custom(json!({
+                "type": "event.state.changed",
+                "domain": "task",
+                "value": [{ "taskId": "task-1", "description": "d", "status": "running" }],
+            })),
+            NOW,
+        );
+        assert_eq!(entities.len(), 1);
+        assert!(matches!(&entities[0], ServerMessage::Task(_)));
+    }
+
+    #[test]
+    fn an_unrecognized_state_domain_is_ignored() {
+        let mut translator = LiveTranslator::new("s1", "main");
+        let entities = translator.translate(
+            &EngineEvent::Custom(json!({
+                "type": "event.state.changed",
+                "domain": "plan",
+                "value": { "active": true },
+            })),
+            NOW,
+        );
+        assert!(entities.is_empty());
+    }
+
+    // Approval lifecycle: the requested event upserts a pending interaction
+    // entity; the resolved event re-upserts the same id with the decision.
+    #[test]
+    fn approval_requested_and_resolved_project_interaction_entities() {
+        let mut translator = LiveTranslator::new("s1", "main");
+        let requested = translator.translate(
+            &EngineEvent::Custom(json!({
+                "type": "event.approval.requested",
+                "approval_id": "ap-1",
+                "session_id": "s1",
+                "tool_call_id": "call-9",
+                "tool_name": "Bash",
+                "action": "run",
+                "tool_input_display": { "command": "sudo reboot" },
+                "created_at": "2026-09-19T00:00:00Z",
+                "expires_at": "2026-09-20T00:00:00Z",
+            })),
+            NOW,
+        );
+        assert_eq!(requested.len(), 1);
+        let ServerMessage::Interaction(interaction) = &requested[0] else {
+            panic!(
+                "expected an interaction entity, got {:?}",
+                requested[0].message_type()
+            );
+        };
+        assert_eq!(interaction.interaction_id, "ap-1");
+        assert_eq!(interaction.status, InteractionStatus::Pending);
+        assert_eq!(interaction.kind, InteractionKind::Approval);
+        assert_eq!(interaction.tool_call_id.as_deref(), Some("call-9"));
+        let Some(InteractionRequest::Approval(body)) = &interaction.request else {
+            panic!("expected an approval request body");
+        };
+        assert_eq!(body.tool_name, "Bash");
+        assert_eq!(body.expires_at.as_deref(), Some("2026-09-20T00:00:00Z"));
+        assert!(interaction.response.is_none());
+
+        let resolved = translator.translate(
+            &EngineEvent::Custom(json!({
+                "type": "event.approval.resolved",
+                "approval_id": "ap-1",
+                "decision": "approved",
+            })),
+            NOW,
+        );
+        assert_eq!(resolved.len(), 1);
+        let ServerMessage::Interaction(interaction) = &resolved[0] else {
+            panic!("expected an interaction entity");
+        };
+        assert_eq!(interaction.interaction_id, "ap-1");
+        assert_eq!(interaction.status, InteractionStatus::Approved);
+        let Some(InteractionResponse::Approval(body)) = &interaction.response else {
+            panic!("expected an approval response body");
+        };
+        assert_eq!(body.decision, ApprovalDecision::Approved);
+    }
+
+    // The TTL sweep's expired event resolves the entity as cancelled.
+    #[test]
+    fn approval_expired_resolves_as_cancelled() {
+        let mut translator = LiveTranslator::new("s1", "main");
+        let entities = translator.translate(
+            &EngineEvent::Custom(json!({
+                "type": "event.approval.expired",
+                "approval_id": "ap-2",
+            })),
+            NOW,
+        );
+        assert_eq!(entities.len(), 1);
+        let ServerMessage::Interaction(interaction) = &entities[0] else {
+            panic!("expected an interaction entity");
+        };
+        assert_eq!(interaction.interaction_id, "ap-2");
+        assert_eq!(interaction.status, InteractionStatus::Cancelled);
     }
 
     fn usage_updated(input: i64, output: i64, cache_read: i64) -> EngineEvent {

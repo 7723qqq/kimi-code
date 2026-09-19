@@ -33,7 +33,9 @@
 //!
 //! ## Token weighting
 //! Mirrors v2 `estimateTokensForContentParts`
-//! (`packages/agent-core-v2/src/kosong/contract/tokens.ts`): per content part,
+//! (`packages/agent-core-v2/src/kosong/contract/tokens.ts`, the retired
+//! fork-only kosong module — upstream's copy lives at
+//! `agent-core-v2/src/llm-adapter/contract/tokens.ts`): per content part,
 //! `ceil(ascii_chars / 4) + non_ascii_chars`, where every non-ASCII code point
 //! (e.g. CJK) counts as a FULL token. In Rust the weight is computed over
 //! `blocks` when present, otherwise over the `content` string — matching the
@@ -194,7 +196,8 @@ fn block_tokens(block: &ContentBlock) -> usize {
 }
 
 /// Per-text token estimate mirroring v2 `estimateTokens`
-/// (`packages/agent-core-v2/src/kosong/contract/tokens.ts`):
+/// (`packages/agent-core-v2/src/kosong/contract/tokens.ts`, the retired
+/// fork-only kosong module):
 /// `ceil(ascii_chars / 4) + non_ascii_chars`.
 fn estimate_tokens(text: &str) -> usize {
     let mut ascii = 0usize;

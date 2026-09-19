@@ -23,32 +23,37 @@
 //!   asked for one agent must not receive another agent's timeline in the page
 //!   just because the store holds it.
 //!
-//! Deliberate gaps, all of them upstream features this fork has no producer for
-//! yet: the global lane (`session`, `workspace`, `config`, `plugin`,
-//! `model_catalog`, `capability`) is not broadcast here, `usage` on a live turn is
-//! left empty, and `config.warning` has no source. They are recorded in the
-//! roadmap with the rest of the endpoint work.
+//! Global-lane events (`event.config.changed`, `event.config.warning`,
+//! `event.model_catalog.changed`, and the bare catalog/plugin bumps) fold once
+//! per connection and go to every subscriber: the entities they produce carry
+//! the global base, so no session filter applies to them — the same shape
+//! upstream's `GlobalMessageTranslator` serves.
+//!
+//! Still deliberate gaps: the workspace lane (`event.workspace.*`) has no
+//! producer in this fork yet, and plugin/capability changes fire no events.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde_json::Value;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
 
+use crate::events::EngineEvent;
 use crate::server::envelope::error_codes;
 use crate::session::sqlite_store::SqliteSessionStore;
 
-use super::hub::{EventHub, SequencedEvent};
+use super::hub::{EventHub, HubClosed, SequencedEvent};
 use super::router::HttpRequest;
 use super::v3::entity::EntityAddressed;
 use super::v3::history::{HistoryQuery, paginate_history};
 use super::v3::live::LiveTranslator;
 use super::v3::messages::{
-    AckMessage, ClientMessage, ErrorMessage, HelloMessage, ServerMessage, SubscribeMessage,
-    UnsubscribeMessage,
+    AckMessage, ClientMessage, ConfigMessage, ConfigWarningMessage, ErrorMessage, HelloMessage,
+    ModelCatalogMessage, ServerMessage, SubscribeMessage, UnsubscribeMessage,
 };
 use super::v3::projection::project_history;
 use super::ws::{
@@ -123,10 +128,16 @@ pub async fn serve_ws_v3(
     // Every producer writes here, so the socket has one writer and the ordering a
     // subscription was answered in survives to the wire.
     let (outbound_tx, mut outbound_rx) = mpsc::channel::<String>(OUTBOUND_QUEUE_DEPTH);
+    // Control frames (`error` before a slow-consumer close) jump the bounded
+    // queue: a subscriber that stopped reading has the bounded queue full, and
+    // the error frame explaining the close must not wait behind it.
+    let (control_tx, mut control_rx) = mpsc::unbounded_channel::<String>();
     let mut connection = Connection {
         hub: hub.clone(),
         store: store.as_ref(),
         outbound: outbound_tx,
+        control: control_tx,
+        state_rx: subscription.state_rx(),
         sessions: HashMap::new(),
     };
 
@@ -148,6 +159,11 @@ pub async fn serve_ws_v3(
         tokio::select! {
             biased;
 
+            control = control_rx.recv() => {
+                let Some(payload) = control else { break };
+                ws::write_frame(&mut writer, OP_TEXT, payload.as_bytes()).await?;
+            }
+
             outbound = outbound_rx.recv() => {
                 let Some(payload) = outbound else { break };
                 ws::write_frame(&mut writer, OP_TEXT, payload.as_bytes()).await?;
@@ -157,7 +173,22 @@ pub async fn serve_ws_v3(
                 match event {
                     Ok(event) => connection.handle_event(&event).await,
                     // The hub is gone, so there is nothing left to deliver.
-                    Err(_) => break,
+                    Err(HubClosed::Detached) => break,
+                    // A connection that cannot keep up gets the 42903 error
+                    // frame before the close, upstream `overflow()` — the
+                    // client sees why its stream ended instead of a bare
+                    // transport close.
+                    Err(HubClosed::Overflow) => {
+                        connection
+                            .send_error(
+                                error_codes::WS_SLOW_CONSUMER,
+                                "outbound queue overflow: slow consumer",
+                            )
+                            .await;
+                        let _ = ws::send_close(&mut writer, 1013).await;
+                        reader.abort();
+                        return Err(WsError::SlowSubscriber);
+                    }
                 }
             }
 
@@ -251,6 +282,12 @@ struct Connection<'a> {
     hub: Arc<EventHub>,
     store: &'a SqliteSessionStore,
     outbound: mpsc::Sender<String>,
+    /// Priority frames (`error` before a slow-consumer close): written ahead
+    /// of the bounded queue, which a stalled subscriber has already filled.
+    control: mpsc::UnboundedSender<String>,
+    /// The subscription's closed-state watch, so a send that cannot complete
+    /// (subscriber stalled) is raced against the hub's overflow verdict.
+    state_rx: watch::Receiver<u8>,
     sessions: HashMap<String, SessionStream>,
 }
 
@@ -265,6 +302,33 @@ struct SessionStream {
 impl Connection<'_> {
     /// Fold one lane event into the sessions that asked for it.
     async fn handle_event(&mut self, event: &SequencedEvent) {
+        // A stalled subscriber has filled the bounded outbound queue and the
+        // writer is blocked on the socket: awaiting more sends would stall
+        // this loop forever while the hub marks the slot overflowed. The
+        // watch verdict ends the loop; the error frame rides the control
+        // channel past the full queue.
+        if *self.state_rx.borrow() == crate::server::hub::STATE_OVERFLOW {
+            self.send_error(
+                error_codes::WS_SLOW_CONSUMER,
+                "outbound queue overflow: slow consumer",
+            )
+            .await;
+            return;
+        }
+        // Global-lane events are not session state: they fold straight into
+        // global-base entities and go to every subscriber regardless of what
+        // sessions it subscribed to (upstream `GlobalMessageTranslator`).
+        if event.session_id.as_ref() == "global" {
+            let payloads: Vec<String> = self
+                .translate_global(&event.event)
+                .iter()
+                .filter_map(|entity| serde_json::to_string(entity).ok())
+                .collect();
+            for payload in payloads {
+                let _ = self.outbound.send(payload).await;
+            }
+            return;
+        }
         let Some(stream) = self.sessions.get_mut(event.session_id.as_ref()) else {
             return;
         };
@@ -283,6 +347,51 @@ impl Connection<'_> {
             .collect();
         for payload in payloads {
             let _ = self.outbound.send(payload).await;
+        }
+    }
+
+    /// Fold a global-lane event into its global-base entity.
+    ///
+    /// Upstream's `GlobalMessageTranslator` subscribes to the whole event bus
+    /// and translates the global vocabulary — config changes and warnings,
+    /// model-catalog and plugin bumps, workspace lifecycle — once per
+    /// connection. The fork has producers for the config trio; the workspace
+    /// lane and plugin/capability events do not exist yet.
+    fn translate_global(&self, event: &EngineEvent) -> Vec<ServerMessage> {
+        let now = now_millis();
+        match event {
+            EngineEvent::ConfigChanged {
+                changed_fields,
+                config,
+            } => vec![ServerMessage::Config(ConfigMessage {
+                timestamp: now,
+                config: config.clone(),
+                changed_fields: Some(changed_fields.clone()),
+            })],
+            EngineEvent::Custom(value) => match value.get("type").and_then(Value::as_str) {
+                Some("event.config.warning") => {
+                    let Some(warnings) = value.get("warnings").and_then(Value::as_array) else {
+                        return Vec::new();
+                    };
+                    let messages: Vec<String> = warnings
+                        .iter()
+                        .filter_map(|w| w.get("message").and_then(Value::as_str))
+                        .map(str::to_string)
+                        .collect();
+                    vec![ServerMessage::ConfigWarning(ConfigWarningMessage {
+                        timestamp: now,
+                        warnings: messages,
+                    })]
+                }
+                // The entity is a bare bump; the wire shape drops the payload.
+                Some("event.model_catalog.changed") => {
+                    vec![ServerMessage::ModelCatalog(ModelCatalogMessage {
+                        timestamp: now,
+                    })]
+                }
+                _ => Vec::new(),
+            },
+            _ => Vec::new(),
         }
     }
 
@@ -367,12 +476,18 @@ impl Connection<'_> {
         .await;
     }
 
+    /// Priority error frame: rides the unbounded control channel, so it
+    /// reaches the wire even when the bounded outbound queue is full —
+    /// exactly the slow-consumer situation it announces.
     async fn send_error(&self, code: u32, msg: &str) {
-        self.send(&ServerMessage::Error(ErrorMessage {
+        let entity = ServerMessage::Error(ErrorMessage {
             code: code as i64,
             msg: msg.to_string(),
-        }))
-        .await;
+        });
+        let Ok(payload) = serde_json::to_string(&entity) else {
+            return;
+        };
+        let _ = self.control.send(payload);
     }
 }
 
@@ -471,7 +586,20 @@ fn recovery_page(
 ) -> Vec<ServerMessage> {
     let turns = store.list_turns(session_id).unwrap_or_default();
     let messages = store.load_session_messages(session_id).unwrap_or_default();
-    let entities = project_history(session_id, agent_id, &turns, &messages);
+    let mut entities = project_history(session_id, agent_id, &turns, &messages);
+    // The state-domain entities the history route ends with — a subscriber
+    // resuming from this page must not miss the todo list or its own tasks
+    // just because it skipped the route.
+    if let Some(workdir) = crate::server::fs_routes::resolve_session_workdir(store, session_id)
+        && let Ok(state) = crate::storage::StateStore::for_workspace(&workdir)
+    {
+        entities.extend(crate::server::v3::projection::project_state_domains(
+            &state,
+            session_id,
+            agent_id,
+            now_millis(),
+        ));
+    }
     let query = HistoryQuery {
         page_size: Some(RECOVERY_PAGE_SIZE),
         ..HistoryQuery::default()
@@ -479,7 +607,9 @@ fn recovery_page(
     paginate_history(&entities, &query).messages.to_vec()
 }
 
-fn now_millis() -> i64 {
+/// Wall-clock milliseconds, shared by the live translator and the history
+/// route (the state-domain entities it serves carry the page's clock).
+pub(crate) fn now_millis() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|since| since.as_millis() as i64)
@@ -620,6 +750,68 @@ mod tests {
 
         async fn next_json(&mut self) -> serde_json::Value {
             serde_json::from_str(&self.next_text().await).unwrap()
+        }
+
+        /// Read one raw frame: `(opcode, payload)`. `None` on a close frame
+        /// or EOF — the two ways a slow-consumer close ends the stream.
+        /// Unlike [`Self::next_text`] this tolerates the peer closing: the
+        /// slow-consumer path ends with a close frame, and the read after it
+        /// hits EOF instead of more data.
+        async fn next_frame(&mut self) -> Option<(u8, Vec<u8>)> {
+            use tokio::io::AsyncReadExt;
+            while self.buffered.len() < 2 {
+                let mut chunk = [0_u8; 512];
+                let read = self.stream.read(&mut chunk).await.ok()?;
+                if read == 0 {
+                    return None;
+                }
+                self.buffered.extend_from_slice(&chunk[..read]);
+            }
+            let opcode = self.buffered[0] & 0x0f;
+            let (header, length) = match self.buffered[1] & 0x7f {
+                126 => {
+                    while self.buffered.len() < 4 {
+                        let mut chunk = [0_u8; 512];
+                        let read = self.stream.read(&mut chunk).await.ok()?;
+                        if read == 0 {
+                            return None;
+                        }
+                        self.buffered.extend_from_slice(&chunk[..read]);
+                    }
+                    (
+                        4,
+                        u16::from_be_bytes([self.buffered[2], self.buffered[3]]) as usize,
+                    )
+                }
+                127 => {
+                    while self.buffered.len() < 10 {
+                        let mut chunk = [0_u8; 512];
+                        let read = self.stream.read(&mut chunk).await.ok()?;
+                        if read == 0 {
+                            return None;
+                        }
+                        self.buffered.extend_from_slice(&chunk[..read]);
+                    }
+                    let mut eight = [0_u8; 8];
+                    eight.copy_from_slice(&self.buffered[2..10]);
+                    (10, u64::from_be_bytes(eight) as usize)
+                }
+                length => (2, length as usize),
+            };
+            while self.buffered.len() < header + length {
+                let mut chunk = [0_u8; 512];
+                let read = self.stream.read(&mut chunk).await.ok()?;
+                if read == 0 {
+                    return None;
+                }
+                self.buffered.extend_from_slice(&chunk[..read]);
+            }
+            let payload = self.buffered[header..header + length].to_vec();
+            self.buffered.drain(..header + length);
+            if opcode == OP_CLOSE {
+                return None;
+            }
+            Some((opcode, payload))
         }
 
         async fn send_json(&mut self, text: &str) {
@@ -844,6 +1036,153 @@ mod tests {
         let entity = client.next_json().await;
         assert_eq!(entity["type"], "user", "{entity}");
         assert_eq!(entity["message_id"], "3.user");
+        handle.shutdown();
+    }
+
+    // A subscriber that stops reading: the hub slot queue (256) fills, the
+    // connection is closed with the 42903 slow-consumer error frame before
+    // the 1013 close — upstream `overflow()` — instead of a bare transport
+    // close. Publishing far more events than the combined hub + outbound
+    // queue depths, then draining, must end in the error frame.
+    #[tokio::test]
+    async fn a_slow_consumer_gets_the_42903_error_frame_before_the_close() {
+        let server = Arc::new(crate::server::HttpServer::in_memory().unwrap());
+        server
+            .store_arc()
+            .save_turn(
+                "sess-slow",
+                "turn-1",
+                1,
+                &[crate::turn_loop::types::LLMMessage::user("hi")],
+                None,
+                None,
+            )
+            .unwrap();
+        let hub = server.hub();
+        let (mut client, handle) = WsClient::connect(&server, V3_WS_PATH).await;
+        let _hello = client.next_text().await;
+
+        client
+            .send_json(r#"{"type":"subscribe","id":1,"session_id":"sess-slow"}"#)
+            .await;
+        let ack = client.next_json().await;
+        assert_eq!(ack["type"], "ack");
+        assert_eq!(ack["code"], 0, "{ack}");
+
+        let begin = EngineEvent::LlmStepBegin {
+            turn_id: "t".into(),
+            step: 1,
+        };
+        // Each event carries a ~256 KiB payload: a few of them exceed the
+        // socket buffer, the v3 writer stalls, the outbound channel (64)
+        // fills, then the hub slot queue (256) — the overflow path fires
+        // well before the 450th event.
+        let mut big = String::with_capacity(256 * 1024);
+        for _ in 0..(8 * 1024) {
+            big.push_str("overflow-payload-0123456789abcdef0123456789abcdef\n");
+        }
+        for i in 0..450u32 {
+            hub.bus_for("sess-slow")
+                .publish(&EngineEvent::Custom(serde_json::json!({
+                    "type": "event.state.changed",
+                    "domain": "noise",
+                    "value": { "i": i, "filler": big },
+                })));
+        }
+        let _ = &begin;
+        // Give the connection loop time to hit the overflow and close.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        // Drain frames: eventually the error frame (42903) arrives, then the
+        // close frame ends the reader.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut saw_error = false;
+        while tokio::time::Instant::now() < deadline {
+            match client.next_frame().await {
+                Some((opcode, payload)) => {
+                    let is_slow_consumer_error = opcode == OP_TEXT
+                        && std::str::from_utf8(&payload)
+                            .ok()
+                            .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+                            .is_some_and(|entity| {
+                                entity["type"] == "error" && entity["code"] == 42903
+                            });
+                    if is_slow_consumer_error {
+                        saw_error = true;
+                    }
+                }
+                None => break,
+            }
+        }
+        assert!(
+            saw_error,
+            "the slow consumer must be told why its stream ended"
+        );
+        handle.shutdown();
+    }
+
+    // Global-lane events fold into global-base entities delivered to every
+    // subscriber, without a session subscription and regardless of its filter
+    // (upstream `GlobalMessageTranslator`).
+    #[tokio::test]
+    async fn a_config_warning_on_the_global_lane_reaches_every_subscriber() {
+        let server = Arc::new(crate::server::HttpServer::in_memory().unwrap());
+        server
+            .store_arc()
+            .save_turn(
+                "sess-global",
+                "turn-1",
+                1,
+                &[crate::turn_loop::types::LLMMessage::user("hi")],
+                None,
+                None,
+            )
+            .unwrap();
+        let hub = server.hub();
+        let (mut client, handle) = WsClient::connect(&server, V3_WS_PATH).await;
+        let _hello = client.next_text().await;
+
+        client
+            .send_json(r#"{"type":"subscribe","id":1,"session_id":"sess-global"}"#)
+            .await;
+        let ack = client.next_json().await;
+        assert_eq!(ack["type"], "ack");
+
+        // Drain the recovery page: turn + user message.
+        let page_turn = client.next_json().await;
+        assert_eq!(page_turn["type"], "turn", "{page_turn}");
+        let page_user = client.next_json().await;
+        assert_eq!(page_user["type"], "user", "{page_user}");
+
+        // The warning arrives with no further action: the subscriber asked
+        // for one session, and the global lane is not session state.
+        hub.bus_for("global")
+            .publish(&EngineEvent::Custom(serde_json::json!({
+                "type": "event.config.warning",
+                "warnings": [{ "message": "[models] unknown model x" }],
+            })));
+        let warning = client.next_json().await;
+        assert_eq!(warning["type"], "config.warning", "{warning}");
+        assert_eq!(warning["warnings"][0], "[models] unknown model x");
+        handle.shutdown();
+    }
+
+    #[tokio::test]
+    async fn a_config_change_on_the_global_lane_carries_the_sections() {
+        let server = Arc::new(crate::server::HttpServer::in_memory().unwrap());
+        let hub = server.hub();
+        let (mut client, handle) = WsClient::connect(&server, V3_WS_PATH).await;
+        let _hello = client.next_text().await;
+
+        // No subscribe: a client that has not subscribed to any session still
+        // receives global entities — they are daemon state, not timeline.
+        hub.bus_for("global").publish(&EngineEvent::ConfigChanged {
+            changed_fields: vec!["providers".into()],
+            config: serde_json::json!({ "providers": {} }),
+        });
+        let config = client.next_json().await;
+        assert_eq!(config["type"], "config", "{config}");
+        assert_eq!(config["changed_fields"][0], "providers");
         handle.shutdown();
     }
 }

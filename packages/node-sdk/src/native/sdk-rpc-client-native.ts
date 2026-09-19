@@ -719,6 +719,11 @@ interface NativeSessionMeta {
   custom: Record<string, unknown>;
   /** Workspace-level additional directories added via addAdditionalDir. */
   additionalDirs: string[];
+  /**
+   * Headless session (`kimi -p`): rides the policy snapshot to the engine,
+   * which skips its `DangerousCommandAsk` policy for the session's turns.
+   */
+  nonInteractive: boolean;
   // Runtime agent state (re-derived from config on resume, not persisted): the
   // getters (getStatus / getUsage) read these; the setters that would change
   // them mid-session need an engine-handle rebuild and land with persistence.
@@ -780,6 +785,8 @@ interface PersistedSessionMeta {
   forkedFrom?: string | undefined;
   contextTokens?: number | undefined;
   agents?: Record<string, AgentMeta> | undefined;
+  /** Headless session (upstream `nonInteractive`): skips the engine's dangerous-command ask policy. */
+  nonInteractive?: boolean | undefined;
 }
 
 const DEFAULT_INIT_PROMPT = `You are a software engineering expert with many years of programming experience. Please explore the current project directory to understand the project's architecture and main details.
@@ -992,6 +999,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       promptMetadata: [],
       custom: input.metadata !== undefined ? { ...input.metadata } : {},
       additionalDirs: [],
+      nonInteractive: input.nonInteractive === true,
       ...initialRuntimeState(config, input.model ?? config.defaultModel),
       plan: undefined,
       forkedFrom: undefined,
@@ -1362,6 +1370,11 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // snapshot default: setPermission / setPlanMode mutate meta, and a rebuild
     // (or the plan guard's stateRead) must reflect the current mode.
     policySnapshot.mode = meta.planMode ? 'plan' : meta.permissionMode;
+    // A headless session (upstream `nonInteractive`) drops the engine's
+    // dangerous-command ask policy — there is no human to answer it.
+    if (meta.nonInteractive) {
+      policySnapshot.non_interactive = true;
+    }
     const githubCreds = resolveGithubCredentials(config);
     const mcpConfig = this.loadGlobalMcpConfig();
     const mcpServers = resolveMcpServersForEngine(mcpConfig);
@@ -1483,6 +1496,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         promptMetadata: [],
         custom: persisted?.custom ?? {},
         additionalDirs: persisted?.additionalDirs ?? [],
+        nonInteractive: persisted?.nonInteractive ?? false,
         model: persisted?.model ?? config.defaultModel,
         thinkingEffort: persisted?.thinkingEffort ?? defaults.thinkingEffort,
         permissionMode: persisted?.permissionMode ?? defaults.permissionMode,

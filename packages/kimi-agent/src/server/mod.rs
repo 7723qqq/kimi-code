@@ -814,18 +814,20 @@ impl HttpServer {
     /// Publish `event.config.warning` on the global lane for the `[models]`
     /// entries the loaded `config.toml` could not resolve (v2 #3681).
     ///
-    /// This is the producer the v3 `config.warning` entity was missing: the
-    /// global translator reads `warnings[].message` off this event and turns it
-    /// into the entity, and the v1 broadcaster passes the event through as-is.
-    /// Both vocabularies carry the same shape, so one publish serves both.
-    /// `domain` is left off — the fork's only warning source is the config
-    /// file itself, and upstream treats the field as optional.
+    /// The event carries `warnings[].message` in the shape the v3
+    /// `config.warning` entity needs. The v1 broadcaster passes the event
+    /// through as-is. A v3 global-lane translator that would fold it into the
+    /// entity does not exist yet — `ws_v3::Connection::handle_event` only
+    /// dispatches per-session lanes — so v3 clients do not receive this yet
+    /// (ROADMAP §6.1 item 4). `domain` is left off — the fork's only warning
+    /// source is the config file itself, and upstream treats the field as
+    /// optional.
     ///
     /// Always publishes, `warnings: []` included, because the entity is an
     /// upsert ([`crate::server::v3::messages::ConfigWarningMessage`]): an empty
     /// list means "no warnings now" and is what clears a client's stale
     /// advisory after the file is fixed. Upstream's
-    /// `publishConfigWarnings` (`.tmp/v2-ref` `kap-server/src/start.ts`) does
+    /// `publishConfigWarnings` (`kap-server/src/start.ts`) does
     /// the same — it is wired to the diagnostics-change event with no empty
     /// check, and only the startup call filters.
     fn publish_config_warnings(&self, warnings: &[String]) {
@@ -4026,15 +4028,30 @@ impl HttpServer {
                     .store
                     .load_session_messages(session_id)
                     .unwrap_or_default();
-                let entities = crate::server::v3::projection::project_history(
+                let mut entities = crate::server::v3::projection::project_history(
                     session_id, &agent_id, &turns, &messages,
                 );
+                // The state-domain entities (todo list, this session's
+                // background tasks) end the page, the way upstream's fold
+                // appends them after the last turn's entities.
+                if let Some(workdir) = fs_routes::resolve_session_workdir(self.store(), session_id)
+                    && let Ok(state) = crate::storage::StateStore::for_workspace(&workdir)
+                {
+                    entities.extend(crate::server::v3::projection::project_state_domains(
+                        &state,
+                        session_id,
+                        &agent_id,
+                        crate::server::ws_v3::now_millis(),
+                    ));
+                }
                 let page = crate::server::v3::history::paginate_history(&entities, &query);
-                // A live session's streaming position stays out of the response
-                // for now: the live lane does not derive the same step ids yet
-                // (P3), and a wrong position would misplace the deltas a client
-                // appends after this page.
-                match crate::server::v3::route::response_data(&page, None) {
+                // A live session's streaming position rides the response as
+                // `in_flight`, the same pair of entity ids the live stream is
+                // writing under (upstream `projection.inFlight`). A client
+                // resuming from the page's cursor appends its deltas at the
+                // right step instead of guessing.
+                let in_flight = self.engine.as_ref().and_then(|e| e.in_flight(session_id));
+                match crate::server::v3::route::response_data(&page, in_flight) {
                     Ok(data) => HttpResponse::envelope_ok(&data, &request_id),
                     Err(error) => HttpResponse::internal_error(format!(
                         "history response failed to serialize: {error}"
@@ -8235,7 +8252,7 @@ max_context_size = 1000
     /// started on a broken `config.toml` warns, and reloading a repaired file
     /// publishes `warnings: []` so the client drops the advisory it is holding.
     /// Upstream has the same asymmetry — `publishConfigWarnings`
-    /// (`.tmp/v2-ref` `kap-server/src/start.ts`) publishes on every
+    /// (`kap-server/src/start.ts`) publishes on every
     /// diagnostics change with no empty check, and only its startup call
     /// filters.
     #[tokio::test]
@@ -11943,5 +11960,66 @@ max_context_size = 1000
         assert_eq!(messages[3]["text"], "first second");
         assert_eq!(messages[4]["text"], "an attachment");
         assert_eq!(body["data"]["has_more"], false);
+    }
+
+    // A session whose turn is streaming right now answers history with
+    // `in_flight` — the same turn/step entity ids the live deltas carry —
+    // so a reconnecting client splices at the right position (upstream
+    // `projection.inFlight`).
+    #[tokio::test]
+    async fn v3_history_route_reports_the_live_streaming_position() {
+        let server = HttpServer::in_memory().unwrap();
+        let session_id = "sess-in-flight";
+        server
+            .store
+            .save_turn(
+                session_id,
+                "turn-1",
+                1,
+                &[crate::turn_loop::types::LLMMessage {
+                    role: "user".into(),
+                    content: "hi".into(),
+                    ..Default::default()
+                }],
+                None,
+                None,
+            )
+            .unwrap();
+        let hub = server.hub();
+        let store = server.store_arc();
+        let server = server.with_engine(engine_without_a_model(store, hub));
+
+        async fn get_history(server: &HttpServer, session_id: &str) -> HttpResponse {
+            server
+                .handle_request(&HttpRequest {
+                    method: "GET".into(),
+                    path: format!("/api/v1/sessions/{session_id}/history"),
+                    query: None,
+                    headers: HashMap::new(),
+                    body: Vec::new(),
+                })
+                .await
+        }
+
+        // No turn running: no position.
+        let res = get_history(&server, session_id).await;
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert!(body["data"].get("in_flight").is_none());
+
+        // Simulate the turn's step boundary (MessageCallbacks' tracker runs on
+        // `llm.step.begin`): turn 2, step 1 is open.
+        let engine = server.engine.as_ref().unwrap();
+        engine.record_step(session_id, 2, 1);
+
+        let res = get_history(&server, session_id).await;
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["data"]["in_flight"]["turn_id"], "2");
+        assert_eq!(body["data"]["in_flight"]["step_id"], "2.1");
+
+        // Turn end clears the marker.
+        engine.clear_in_flight(session_id);
+        let res = get_history(&server, session_id).await;
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert!(body["data"].get("in_flight").is_none());
     }
 }

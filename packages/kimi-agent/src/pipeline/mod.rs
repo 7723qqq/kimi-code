@@ -310,14 +310,14 @@ pub async fn build_engine_pipeline(
                     // Unguarded tools skip the round-trip.
                     let plan_callbacks = base_callbacks.clone();
                     let plan_workspace = spec.workspace_root.clone();
-                    // Stale-write gate (v2 `staleGuardService`, G-6 #3).
+                    // Stale-write gate (fork-original, G-6 #3).
                     let shell_bridge = toolset.shell_bridge();
                     let plan_bridge = shell_bridge.clone();
                     let stale_gate = Arc::new(StaleGate::new(
                         spec.workspace_root.clone().map(std::path::PathBuf::from),
                         shell_bridge.clone(),
                     ));
-                    // Goal-operation guard (v2 `goalAgentRuntime`, G-6 #7/#8):
+                    // Goal-operation guard (G-6 #7/#8):
                     // non-auto CreateGoal routes to the host; stale goal mutations
                     // veto.
                     let goal_guard = Arc::new(GoalGuard::new(

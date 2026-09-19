@@ -1,4 +1,4 @@
-//! 原生单步事件折叠状态机（对齐 TS agent-core-v2 loopEventFold.ts 341行）。
+//! 原生单步事件折叠状态机（对齐 TS agent-core-v2 loopEventFold.ts，355 行）。
 //!
 //! 负责消费底层事件流（step.begin, content.part, tool.call, tool.result, step.end），
 //! 严格维护开放步生命周期、Vacuous 空内容丢弃、Tool 紧随保序与悬挂中断自愈。

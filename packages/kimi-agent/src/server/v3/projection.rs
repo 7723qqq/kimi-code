@@ -473,6 +473,52 @@ fn task_status(status: Option<&str>) -> TaskStatus {
     }
 }
 
+/// The state-domain entities a history page ends with: the workspace's todo
+/// list and this session's background tasks.
+///
+/// Upstream derives the todo entity from the folded tool-call stream (the
+/// last completed `TodoList` write) and the task entities from task
+/// lifecycle records; the fork's authority for both is the workspace state
+/// store, so the projections read it directly. Stored task entries carry the
+/// spawning session (`sessionId` on the wire), so the task list filters to
+/// the requested session; entries written before that field existed — and
+/// todo state, which is workspace-scoped with no session of its own — are
+/// served unfiltered rather than lost.
+///
+/// `now` stamps the entities — history has no better clock than "when the
+/// page was served".
+pub fn project_state_domains(
+    store: &crate::storage::StateStore,
+    session_id: &str,
+    agent_id: &str,
+    now: i64,
+) -> Vec<ServerMessage> {
+    let mut entities = Vec::new();
+    if let Some(todos) = store.read_domain("todo")
+        && let Some(todo) = project_todo(session_id, agent_id, now, &todos)
+    {
+        entities.push(ServerMessage::Todo(todo));
+    }
+    if let Some(tasks) = store
+        .read_domain("task")
+        .and_then(|v| v.as_array().cloned())
+    {
+        entities.extend(
+            tasks
+                .iter()
+                .filter(|task| {
+                    task.get("sessionId")
+                        .and_then(Value::as_str)
+                        .is_none_or(|sid| sid == session_id)
+                })
+                .filter_map(|task| task_entity(session_id, agent_id, now, task))
+                .map(ServerMessage::Task)
+                .collect::<Vec<_>>(),
+        );
+    }
+    entities
+}
+
 fn text(value: &Value, key: &str) -> Option<String> {
     value.get(key).and_then(Value::as_str).map(str::to_string)
 }
@@ -983,6 +1029,53 @@ mod tests {
     #[test]
     fn a_non_array_todo_state_is_not_an_entity() {
         assert!(project_todo("s1", "main", 1, &json!({ "active": false })).is_none());
+    }
+
+    #[test]
+    fn state_domains_serve_the_todo_list_and_only_this_sessions_tasks() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = crate::storage::StateStore::for_dir(dir.path().to_path_buf()).unwrap();
+        store
+            .write_domain(
+                "todo",
+                &json!([{ "title": "Wire the fold", "status": "done" }]),
+            )
+            .unwrap();
+        store
+            .write_domain(
+                "task",
+                &json!([
+                    { "taskId": "task-a", "description": "mine", "status": "completed", "sessionId": "s1" },
+                    { "taskId": "task-b", "description": "another session's", "status": "running", "sessionId": "s2" },
+                    { "taskId": "task-c", "description": "pre-sessionId", "status": "killed" },
+                ]),
+            )
+            .unwrap();
+
+        let entities = project_state_domains(&store, "s1", "main", 42);
+        let ids: Vec<String> = entities
+            .iter()
+            .map(|e| match e {
+                ServerMessage::Todo(_) => "todo".to_string(),
+                ServerMessage::Task(t) => format!("task:{}", t.task_id),
+                other => format!("unexpected:{:?}", other.message_type()),
+            })
+            .collect();
+        assert_eq!(ids, ["todo", "task:task-a", "task:task-c"]);
+        let first = match &entities[0] {
+            ServerMessage::Todo(todo) => todo,
+            other => panic!("expected the todo entity first, got {other:?}"),
+        };
+        assert_eq!(first.items[0].title, "Wire the fold");
+        assert_eq!(first.items[0].status, TodoItemStatus::Done);
+        assert_eq!(first.timestamp, 42);
+    }
+
+    #[test]
+    fn empty_state_domains_serve_nothing() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = crate::storage::StateStore::for_dir(dir.path().to_path_buf()).unwrap();
+        assert!(project_state_domains(&store, "s1", "main", 1).is_empty());
     }
 
     #[test]

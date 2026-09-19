@@ -671,10 +671,10 @@ impl KimiConfig {
     ///
     /// The malformed-`[models]`-entry warnings are both logged and staged on
     /// the returned config ([`KimiConfig::config_warnings`]): logging alone
-    /// left the v3 `config.warning` entity — and the `event.config.warning`
-    /// its global translator reads — with no producer anywhere in the engine.
+    /// left `event.config.warning` with no producer anywhere in the engine.
     /// Config load happens before the server exists, so the list has to travel
-    /// with the config until there is a lane to broadcast it on.
+    /// with the config until the server picks it up and broadcasts it
+    /// (`server/mod.rs` `publish_config_warnings`).
     pub fn from_file(path: &Path) -> Result<Self, String> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| format!("Failed to read config at {}: {e}", path.display()))?;
@@ -1330,6 +1330,7 @@ impl KimiConfig {
             tools_filter,
             pre_tool_hooks: self.hooks.clone(),
             rule_reasons,
+            non_interactive: false,
         }
     }
 }

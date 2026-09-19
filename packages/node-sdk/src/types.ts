@@ -805,6 +805,12 @@ export interface CreateSessionOptions {
    * interactive / SDK sessions.
    */
   readonly drainAgentTasksOnStop?: boolean;
+  /**
+   * Headless session (upstream bootstrap `nonInteractive`): the engine skips
+   * its `DangerousCommandAsk` permission policy — there is no human to answer
+   * the approval prompt, so the remaining policies decide the command.
+   */
+  readonly nonInteractive?: boolean;
 }
 
 export interface RenameSessionInput {

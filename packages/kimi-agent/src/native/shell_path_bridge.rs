@@ -1,8 +1,10 @@
 //! Shell path bridge — translate the POSIX path dialect spoken by MSYS2 /
 //! Git Bash into native win32 paths.
 //!
-//! Ported from `packages/kaos/src/shell-path-bridge.ts` (itself a port of
-//! `agent-core-v2/src/_base/execEnv/shellPathBridge.ts`).
+//! Ported from the retired fork `packages/kaos/src/shell-path-bridge.ts`
+//! (removed in 6cfe7108ac), which ported
+//! `agent-core-v2/src/_base/execEnv/shellPathBridge.ts` from the fork's own
+//! agent-core-v2 copy; that file never existed upstream.
 //!
 //! The msys runtime gives the shell a POSIX path view native Windows cannot
 //! resolve: `/c/Users/x` is `C:\Users\x`, and `/tmp/x` is the msys temp

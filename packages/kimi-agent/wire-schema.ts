@@ -210,6 +210,9 @@ const policySnapshot = z.object({
   // Why each configured rule exists, keyed by its pattern: echoed in the
   // denial so a refusal can explain itself.
   rule_reasons: z.record(z.string(), z.string()).optional(),
+  // Headless session (upstream bootstrap `nonInteractive`): skips the
+  // `DangerousCommandAsk` policy — no human to answer the prompt.
+  non_interactive: z.boolean().optional(),
 });
 
 const telemetryContext = z.object({

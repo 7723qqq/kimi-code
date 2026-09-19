@@ -33,8 +33,8 @@ use crate::turn_loop::types::{GoalContext, LLMMessage};
 /// The assistant message of the current step, from its first content delta.
 struct AssistantMessage {
     id: String,
-    /// How many deltas were already announced — the `content_index` v2
-    /// carried so a client can splice chunks into its content array.
+    /// How many deltas were already announced — `content_index` on the fork's
+    /// own wire, letting a client splice chunks into its content array.
     content_index: usize,
 }
 
@@ -50,6 +50,10 @@ pub struct MessageCallbacks {
     pub turn_number: u32,
     pub prompt: String,
     state: Mutex<MessageState>,
+    /// Notified on every `llm.step.begin` with the running step ordinal, so a
+    /// shared registry can answer "where is streaming now" (the history
+    /// route's `in_flight`) without owning a full translator.
+    step_tracker: Option<Box<dyn Fn(u32) + Send + Sync>>,
 }
 
 impl MessageCallbacks {
@@ -63,6 +67,19 @@ impl MessageCallbacks {
         turn_number: u32,
         prompt: &str,
     ) -> Self {
+        Self::with_step_tracker(inner, session_id, hub, turn_number, prompt, None)
+    }
+
+    /// [`Self::new`] plus a step-boundary observer: called with the step
+    /// ordinal (1-based) at each `llm.step.begin`.
+    pub fn with_step_tracker(
+        inner: Arc<dyn HostCallbacks>,
+        session_id: &str,
+        hub: Arc<EventHub>,
+        turn_number: u32,
+        prompt: &str,
+        step_tracker: Option<Box<dyn Fn(u32) + Send + Sync>>,
+    ) -> Self {
         let callbacks = Self {
             inner,
             session_id: session_id.to_string(),
@@ -73,6 +90,7 @@ impl MessageCallbacks {
                 step: 0,
                 current: None,
             }),
+            step_tracker,
         };
         callbacks.publish_created(
             &format!("msg-u{turn_number}"),
@@ -280,10 +298,17 @@ impl HostCallbacks for MessageCallbacks {
     fn emit_event(&self, event: Value) {
         match event.get("type").and_then(|v| v.as_str()) {
             Some("llm.step.begin") => {
-                self.state
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .step += 1;
+                let step = {
+                    let mut state = self
+                        .state
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    state.step += 1;
+                    state.step
+                };
+                if let Some(tracker) = &self.step_tracker {
+                    tracker(step);
+                }
             }
             Some("llm.delta") => {
                 if let Some(part) = event.get("part") {

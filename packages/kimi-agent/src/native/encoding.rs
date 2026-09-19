@@ -14,7 +14,8 @@ use encoding_rs::{GBK, UTF_16BE, UTF_16LE};
 pub const ENCODING_DETECTION_SAMPLE_BYTES: usize = 512;
 
 /// Largest payload transcoded whole from UTF-16 / a legacy encoding.
-/// Mirrors `TRANSCODE_MAX_BYTES` in the TS contract.
+/// Mirrors `TRANSCODE_MAX_BYTES` in `agent/tools/os/read/read.ts` (the
+/// `_base/text/encoding.ts` module this file ports does not define it).
 pub const TRANSCODE_MAX_BYTES: u64 = 10 * 1024 * 1024;
 
 /// Minimum zero bytes (at a single parity) before the BOM-less UTF-16
