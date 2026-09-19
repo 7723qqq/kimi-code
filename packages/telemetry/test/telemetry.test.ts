@@ -1668,7 +1668,6 @@ function pickNodeExecutable(): string {
 }
 
 const isWindows = process.platform === 'win32';
-const delimiter = isWindows ? ';' : ':';
 
 async function runTelemetryCrashScript(body: string): Promise<number> {
   const dir = await tempHome();

@@ -2265,7 +2265,7 @@ describe.skipIf(!nativeEntry)('EngineSessionHandle quiescence (M1c via handle)',
   }
 
   it('initializes native MCP servers via mcpServers param', async () => {
-    process.env.KIMI_NATIVE_ALLOW_MOCK_MCP = '1';
+    process.env['KIMI_NATIVE_ALLOW_MOCK_MCP'] = '1';
     try {
       const handle = await createMockMcpSession();
 
@@ -2280,7 +2280,7 @@ describe.skipIf(!nativeEntry)('EngineSessionHandle quiescence (M1c via handle)',
       expect(outcome.status).toBe('ran');
       await handle.dispose();
     } finally {
-      delete process.env.KIMI_NATIVE_ALLOW_MOCK_MCP;
+      delete process.env['KIMI_NATIVE_ALLOW_MOCK_MCP'];
     }
   });
 
