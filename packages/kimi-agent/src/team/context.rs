@@ -4,8 +4,8 @@
 //! Pure data: stores the ordered discussion entries (speaker, agent id,
 //! content, round), per-speaker position records, and auto-detected
 //! cross-references, and renders the transcript / positions as text blocks
-//! injected into each participant agent's prompt. Direct port of
-//! `agent-core-v2/src/agent/team/context.ts`.
+//! injected into each participant agent's prompt. Fork-original — no v2
+//! counterpart exists in either upstream or the fork's retired v2 copy.
 
 use regex::Regex;
 

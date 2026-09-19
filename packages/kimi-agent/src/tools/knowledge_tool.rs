@@ -1,11 +1,12 @@
 //! Native execution of the Knowledge tool — the SQLite + FTS5 local coding
 //! standards database (storage in `crate::knowledge`, ported from
-//! `kimi-native-tools/src/knowledge.rs`).
+//! `kimi-native-tools/src/knowledge.rs`, merged in 9ba414429d).
 //!
-//! The tool shell mirrors v2 `knowledge-tool.ts`: the `action`
+//! The tool is a fork-original feature: the `knowledge-tool.ts` /
+//! `AgentKnowledgeService` names cited in earlier revisions of this header
+//! exist in neither upstream nor the fork's retired v2. The `action`
 //! discriminator (search/add/confirm/reject/remove/stats/import) dispatches
-//! to the storage layer and the rendered output matches the v2 wording.
-//! The database path resolves like v2 `AgentKnowledgeService`:
+//! to the storage layer. The database path resolves
 //! `<workspace>/.kimi-code/knowledge.db`, falling back to
 //! `~/.kimi-code/knowledge.db` when the project DB cannot be opened.
 
@@ -16,8 +17,8 @@ use serde_json::Value;
 use crate::knowledge;
 use crate::turn_loop::types::ExecutableToolResult;
 
-/// Default search limit and minimum confidence, mirroring v2
-/// `AgentKnowledgeService.search` (limit 5, minConfidence 0.5).
+/// Default search limit and minimum confidence (fork defaults, kept from the
+/// kimi-native-tools implementation).
 const SEARCH_LIMIT: u32 = 5;
 const SEARCH_MIN_CONFIDENCE: f64 = 0.5;
 

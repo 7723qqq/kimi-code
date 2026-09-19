@@ -1,11 +1,11 @@
 //! Team coordinators — roundtable discussions and structured debates among
 //! persistent subagents.
 //!
-//! Direct port of `agent-core-v2/src/agent/team/coordinator.ts` and
-//! `debate-coordinator.ts`: pure orchestration over a
-//! [`PersistentSubagentHost`] trait, so the coordinators are fully testable
-//! with a mock host. [`SubagentManagerHost`] wires the trait to the engine's
-//! `SubagentManager` persistent interface.
+//! A fork-original feature: the cited `agent-core-v2/src/agent/team/` files
+//! exist in neither upstream nor the fork's retired v2 copy. Pure
+//! orchestration over a [`PersistentSubagentHost`] trait, so the coordinators
+//! are fully testable with a mock host. [`SubagentManagerHost`] wires the
+//! trait to the engine's `SubagentManager` persistent interface.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};

@@ -1,12 +1,13 @@
-//! Micro compaction — pure algorithm port of v2 `microCompaction`.
-//!
-//! Ported from `packages/agent-core-v2/src/agent/microCompaction/`:
+//! Micro compaction — pure algorithm port of the retired fork v2
+//! `microCompaction` (`packages/agent-core-v2/src/agent/microCompaction/`):
 //! `microCompactionService.ts` (the `compact()` method, our algorithm core),
 //! `microCompaction.ts` (config shape + defaults), `microCompactionOps.ts`
 //! (the `micro_compaction.apply` event carries only a `cutoff`), and `flag.ts`
-//! (the `micro_compaction` experimental flag). The consumer-side semantics
-//! (cutoff gate, min-content gate, CJK full-token weighting) are cross-checked
-//! against `apps/vis/server/src/lib/context-projector.ts`.
+//! (the `micro_compaction` experimental flag). That module existed in the
+//! fork's own v2 copy and was retired with it; upstream never had it. The
+//! consumer-side semantics (cutoff gate, min-content gate, CJK full-token
+//! weighting) are cross-checked against
+//! `apps/vis/server/src/lib/context-projector.ts`.
 //!
 //! ## Semantics
 //! After a prompt-cache miss, the oldest/oversized tool results in the

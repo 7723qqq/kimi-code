@@ -979,6 +979,20 @@ clippy**（5 个文件格式不合规、1 条 `to_string_in_format_args`），�
 由此定一条本文件的规矩：**矩阵里只写能从两侧代码指出行号的声明**；一切数字（行数、测试数、
 文件数、方法数）必须标注复核日期，否则一律视为陈旧。
 
+**2026-09-19 第三轮补充（出处核对的机械化）**：对 src 内全部 48 处 `agent-core-v2/src/...`
+路径引用逐条拿基准 A（upstream/main 抽取 `.tmp/v2-ref-upstream/`）与基准 B（fork 删除前的
+自有 v2，`ecad4136d9^`）核对，本轮就地更正以下虚构/误标出处：
+
+- `team/coordinator.rs` 与 `team/context.rs`：所称 `agent-core-v2/src/agent/team/` 两个文件
+  在两个基准中都不存在——team 是 fork 原创，非移植；
+- `tools/memory_paths.rs`：所称 `agent-core-v2/src/app/memory/` 两个文件同样两个基准皆无——
+  memory 布局是 fork 原创约定；
+- `tools/knowledge_tool.rs`：所称 v2 `knowledge-tool.ts` / `AgentKnowledgeService` 两基准皆无——
+  knowledge 源自 kimi-native-tools（9ba414429d 并入），fork 原创；
+- `compaction/micro.rs`、`native/output_truncate.rs`、`native/napi_bindings.rs`（result-builder）、
+  `native/tokens.rs`：引用的是 fork 自有 v2（基准 B）真实存在、上游没有的文件——保留引用但
+  标注「retired fork-only」，避免再被当作上游对齐证据。
+
 ### 6.5 合并上游 2.0.0（2026-09-17）
 
 本地 0.42.0 落后上游 81 个提交；合并对象是 tag `@moonshot-ai/kimi-code@2.0.0`

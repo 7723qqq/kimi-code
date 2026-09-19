@@ -1,8 +1,6 @@
-//! Memory file-layout pure functions, ported from the v2 memory feature
-//! (`agent-core-v2/src/app/memory/memoryPaths.ts`, plus the
-//! `sanitizeFileName` / `buildRelPath` helpers from
-//! `agent-core-v2/src/app/memory/tools/memoryTool.ts`). All functions are
-//! side-effect free and mirror v2 semantics: the project id is derived from
+//! Memory file-layout pure functions — a fork-original layout with no v2
+//! counterpart (neither upstream nor the fork's retired v2 has an
+//! `app/memory/` module). Layout contract: the project id is derived from
 //! the cwd via SHA-256, memory types are detected from markdown frontmatter
 //! or headings, titles come from the first H1 (or the file name), snippets
 //! are built around the first case-insensitive query hit, and relative
