@@ -845,6 +845,54 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
     被 steer 的 slash activation 也要进到那里。**验收**：TS 契约随上游合并落地，且引擎 origin 投影
     覆盖 steer 路径的 skill activation（allowlist: `1c7e996aa8`）。
 
+22. **#3911 压缩前预收缩摘要请求历史（未移植，queued）**：上游在压缩摘要的**第一次** LLM
+    请求前把历史预收缩到有效模型窗口预算（输出预留 = `max(window/8, compaction_max_output_size)`
+    取小、乘安全比、扣请求自身 token、保留最近尾部），换到小窗口模型后立即压缩不再溢出烧重试轮。
+    本 fork 的 `summarize_with_llm` 首次请求发送**全部**被省略历史，空摘要重试只从头丢一条；
+    溢出恢复靠 run_turn 的 3 轮机制兜底。**移植需要**：CompactionConfig 路径接入有效窗口、
+    「按预算取最近消息」助手函数、run_turn 级溢出测试（allowlist: `88a7d932f1`）。
+
+23. **#3910 openrouter reasoning 方言的 thinking 恢复（未移植，需先比对）**：上游 openai 格式
+    请求端在存在 `reasoning_details` 数组时仍保留字符串 reasoning 字段，给每个 think part 盖
+    来源戳（`reasoningKey`）并按 key 分桶重放到下一次请求。移植前须先对 fork 的
+    `llm/openai.rs` reasoning 处理与 `thinking_keep` 透传做一轮专门比对——机械移植有对引擎
+    已重放字段二次重放的风险（allowlist: `7dc253c5ce`）。
+
+24. **#3909 models.dev 目录项暴露 resolved base_url（前置件缺失）**：fork 的
+    `GET /api/v1/catalog/providers` 是**硬编码四项静态列表**，不是 models.dev 代理
+    （抓取 + 内存缓存 + 内置快照回退 + wire 解析）——没有解析结果可暴露 base_url。
+    models.dev 代理面本身是前置工单，base_url 字段随它落地（allowlist: `92c3c59b22`）。
+
+25. **#3907 评分问卷携带 turn trace id 与 copilot 统计（后置件缺失）**：问卷载荷的 trace id
+    来自引擎遥测上下文，而 fork 遥测桥仍有已知 trace_id 缺口（引擎不能捕获 provider request
+    id，见 `wire-schema.ts` telemetryEventSchema 注）。TUI 半件在引擎暴露 trace id 之后才有
+    意义，排在其后（allowlist: `3cc6b2a330`）。
+
+26. **#3906 单次 steer 复用排队 prompt id（需要设计轮）**：v2 环回中 turn 期间追加的消息
+    会铸造第二个 context id，导致取消时同文本出现两次、宿主 prompt 无法 undo；上游改为
+    复用排队 prompt id、标记 in-turn origin。fork 的 steer 经 `SessionContext::drain_steers`
+    并入运行中回合，v3 投影按回合位置推导 user 实体 id——能否独立 undo、取消重复显示是否
+    适用，需要对 fork 自己的历史/undo 模型做设计轮再定（allowlist: `60f2a63278`、
+    `53e5e3fca6`——#3891 的保留消息 id 配对并入本项设计轮）。
+
+27. **#3897 swarm/tower/外部钩子/remote-control 用量遥测（queued）**：`tower_mode_enter/exit`、
+    `swarm_mode_entered/exited`、`external_hook_resolved`、`remote_control_toggle` 五类命名
+    计数在引擎侧没有发射点。纯遥测批，无可感知行为差异挂在上面，作为一批集中补
+    （allowlist: `b0d0a80c32`）。
+
+28. **#3878 Agent 工具宣传不变量 + Read 媒体错误文案（需比对轮）**：两半——(1) v2 的
+    Agent 工具曾宣传子代理注册表中并不存在的工具名；fork 的 `profile_tools_listing` 从
+    同一策略源构建宣传表与执行门控，但「宣传 == 可执行」这条不变量**没有测试钉住**，补一个
+    断言每个宣传名都可执行的测试；(2) v2 澄清了 Read 的媒体不支持错误文案，fork 的
+    `read.rs`/`read_media.rs` 有自己的措辞，需 diff 后决定是否对齐（allowlist: `f233f9de04`）。
+
+    另：2026-09-19 批量 triage 后确认两条 not-applicable 无需动作——#3892（洪水根目录观察
+    崩溃）依赖 v2 的 OS 目录 watcher，fork 的 fs_watch 是注册路径的 mtime 轮询，无此失败
+    模式；#3887（会话删除挂死）的三处无界等待都在 v2 生命周期链内部，fork 的 delete 路由
+    无 settle await 可卡，且压缩取消后 apply 前的取消检查 `summarize_with_llm` 已有；
+    #3889（大工作区 resume 性能）优化的 wire-restore/immer/kap-server 缓存层 fork 不存在，
+    恢复是直连 SQLite 读（allowlist: `a80fe31cff`、`e3f48a225b`、`5108cad9b6`）。
+
 ### 6.2 本轮已修复（含证据）
 
 | 上游 | 修复 | 证据 |
