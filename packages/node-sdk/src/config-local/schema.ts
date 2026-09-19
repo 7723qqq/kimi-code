@@ -38,6 +38,13 @@ const StringRecordSchema = z.record(z.string(), z.string());
 export const ProviderConfigSchema = z.object({
   type: ProviderTypeSchema,
   apiKey: z.string().optional(),
+  // Name of the environment variable holding the credential, read by the
+  // transport at request time (v2 `provider.apiKeyEnv`, schema
+  // `providers.*.api_key_env`). A provider with neither a static key nor an
+  // OAuth binding still resolves when this is set; without it the model has no
+  // credential channel and does not resolve. Provider-level only — a
+  // `[models.*]` entry has no `api_key_env` (Rust `ModelAliasConfig`).
+  apiKeyEnv: z.string().optional(),
   baseUrl: z.string().optional(),
   defaultModel: z.string().optional(),
   oauth: OAuthRefSchema.optional(),

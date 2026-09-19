@@ -16,6 +16,13 @@ export interface JsNativeLlmConfig {
   protocol: string;
   baseUrl: string;
   apiKey: string;
+  /**
+   * Name of the environment variable the transport reads the credential from
+   * at request time (`[providers.*].apiKeyEnv`). Set only when the provider
+   * carries neither a static key nor an OAuth binding — with a static key the
+   * key itself travels, and an OAuth binding rides `authProvider` instead.
+   */
+  apiKeyEnv?: string;
   model: string;
   maxTokens?: number;
   customHeaders?: Record<string, string>;
@@ -175,15 +182,50 @@ export function resolveNativeLlmForAlias(
   const effective =
     modelConfig === undefined ? undefined : effectiveModelAlias(modelConfig, provider.type);
 
-  // Per-model credentials outrank the provider's (v2 `resolveModelAuthMaterial`):
-  // a model-level `apiKey` wins, a model-level `oauth` suppresses the
-  // provider's static key, and either OAuth binding rides the token channel.
+  // Credential derivation, mirrored from the Rust authority
+  // (`config/mod.rs::extract_native_llm`): the standalone CLI resolves the
+  // provider through this same ladder, so any divergence here is a silent
+  // behaviour split between the TUI and that path. Exactly one channel
+  // travels — per-model over provider-level, and a static key over an OAuth
+  // binding at each level — with the mutual exclusivity the transport's
+  // `credential()` enforces (`api_key_env` only ever accompanies an empty
+  // `api_key` and no `auth_provider`).
+  //
+  // An env-bound provider (neither static key nor OAuth) resolves at startup
+  // and reads its credential from the named variable per request; without any
+  // channel at all the model cannot serve a request and does not resolve.
+  //
+  // One deliberate difference: the *model* key is tested for blankness here
+  // (`nonBlank`, the fork's pre-existing rule), where Rust tests for
+  // emptiness. The two agree on every real key and differ only on a
+  // whitespace-only one, which Rust would send as the credential verbatim.
+  // The provider key uses the same non-empty test as Rust.
+  const modelApiKey = nonBlank(modelConfig?.apiKey);
   const modelOAuth = modelConfig?.oauth;
-  const apiKey =
-    nonBlank(modelConfig?.apiKey) ??
-    (modelOAuth === undefined ? (typeof provider.apiKey === 'string' ? provider.apiKey : '') : '');
-  const hasOAuth = modelOAuth !== undefined || provider.oauth !== undefined;
-  if (apiKey.length === 0 && !hasOAuth) return undefined;
+  const providerApiKey = typeof provider.apiKey === 'string' ? provider.apiKey : '';
+  const providerOAuth = provider.oauth;
+  // Rust's env name is filtered for emptiness, not for blankness
+  // (`filter(|e| !e.is_empty())`), and only in the env-only branch: the
+  // static-key branch clones the provider's name through verbatim.
+  const providerApiKeyEnv = provider.apiKeyEnv;
+
+  let apiKey = '';
+  let authProvider: string | undefined;
+  let apiKeyEnv: string | undefined;
+  if (modelApiKey !== undefined) {
+    apiKey = modelApiKey;
+  } else if (modelOAuth !== undefined) {
+    authProvider = providerName;
+  } else if (providerApiKey.length > 0) {
+    apiKey = providerApiKey;
+    apiKeyEnv = providerApiKeyEnv;
+  } else if (providerOAuth !== undefined) {
+    authProvider = providerName;
+  } else if (providerApiKeyEnv !== undefined && providerApiKeyEnv.length > 0) {
+    apiKeyEnv = providerApiKeyEnv;
+  } else {
+    return undefined;
+  }
 
   // v2 `buildModel`: the name sent to the provider is the record's `name`
   // first, then `model` — never the alias.
@@ -249,7 +291,8 @@ export function resolveNativeLlmForAlias(
     customHeaders: Object.keys(customHeaders).length > 0 ? customHeaders : undefined,
     reasoningEffort,
     thinkingBudget,
-    authProvider: hasOAuth ? providerName : undefined,
+    authProvider,
+    apiKeyEnv,
     thinkingKeep: resolveThinkingKeep(config),
     betaApi: modelConfig?.betaApi === true ? true : undefined,
     capabilities:
@@ -364,6 +407,7 @@ function nativeLlmWire(config: JsNativeLlmConfig): Record<string, unknown> {
     protocol: config.protocol,
     base_url: config.baseUrl,
     api_key: config.apiKey,
+    api_key_env: config.apiKeyEnv,
     model: config.model,
     max_tokens: config.maxTokens,
     custom_headers: config.customHeaders,

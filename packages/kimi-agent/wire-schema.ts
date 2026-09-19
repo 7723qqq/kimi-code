@@ -176,6 +176,9 @@ const nativeLlmConfig = z.object({
   protocol: z.string(),
   base_url: z.string(),
   api_key: z.string(),
+  /** Env-only credential channel (`[providers.*].api_key_env`); present only
+   *  with an empty `api_key` and no `auth_provider` (Rust `credential()`). */
+  api_key_env: z.string().optional(),
   model: z.string(),
   max_tokens: z.number().optional(),
   custom_headers: z.record(z.string(), z.string()).optional(),

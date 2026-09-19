@@ -315,6 +315,23 @@ model = "fast"
 max_context_size = 200000
 `;
 
+  // An env-bound provider: no static key, no OAuth, only the variable name.
+  // Shared by the `api_key_env` resolver cases and the pool wire case below,
+  // which is the one hop that would otherwise go unguarded.
+  const ENV_PROVIDER_TOML = `
+default_model = "env/alias"
+
+[providers.env]
+type = "openai"
+base_url = "https://env.test/v1"
+api_key_env = "EXAMPLE_PROVIDER_KEY"
+
+[models."env/alias"]
+provider = "env"
+model = "wire-model"
+max_context_size = 200000
+`;
+
   it('resolves the [secondary_model] pool into the engine wire shape', () => {
     const config = parseConfigString(
       `${POOL_TOML}
@@ -345,6 +362,25 @@ default_effort = "high"
       base_url: 'https://example.test/v1',
       reasoning_effort: 'high',
     });
+  });
+
+  it('forwards api_key_env into the pool wire shape', () => {
+    const config = parseConfigString(
+      `${ENV_PROVIDER_TOML}
+[secondary_model]
+default_model = "env/alias"
+`,
+      'secondary-env.toml',
+    );
+
+    // `nativeLlmWire` is the one hop nothing else pins: the resolver cases
+    // assert the `JsNativeLlmConfig` it returns and scan-parity reads the
+    // interface declaration, so only this checks what actually reaches the
+    // engine. JSON.stringify drops an `undefined` here, and the engine reads
+    // the loss as `None` — the credential channel would silently disappear.
+    const llm = resolveSecondaryModelPool(config, true)?.models[0]?.llm;
+    expect(llm).toMatchObject({ api_key: '', api_key_env: 'EXAMPLE_PROVIDER_KEY' });
+    expect(llm?.['auth_provider']).toBeUndefined();
   });
 
   it('treats a lone default_model as a single-entry pool', () => {
@@ -722,6 +758,162 @@ oauth_host = "https://auth.example.test"
       expect(resolveNativeLlmForAlias(config, 'gateway/oauth')).toMatchObject({
         apiKey: '',
         authProvider: 'gateway',
+      });
+    });
+
+    // `[providers.*].api_key_env` is a credential channel in its own right:
+    // the transport reads the named variable at request time, so an env-bound
+    // provider resolves even though no key is in the file. Rust's
+    // `extract_native_llm` is the authority for the whole ladder below.
+    describe('api_key_env', () => {
+      it('resolves an env-only provider and carries the variable name', () => {
+        const config = parseConfigString(ENV_PROVIDER_TOML, 'resolver-env.toml');
+
+        // The schema must keep the key: a stripped field would leave the
+        // provider with no credential channel at all and it would not resolve.
+        expect(config.providers?.['env']?.apiKeyEnv).toBe('EXAMPLE_PROVIDER_KEY');
+        expect(resolveNativeLlmForAlias(config, 'env/alias')).toMatchObject({
+          apiKey: '',
+          apiKeyEnv: 'EXAMPLE_PROVIDER_KEY',
+        });
+        expect(resolveNativeLlmForAlias(config, 'env/alias')?.authProvider).toBeUndefined();
+      });
+
+      it('carries apiKeyEnv alongside a static provider key', () => {
+        const config = parseConfigString(
+          `
+default_model = "env/alias"
+
+[providers.env]
+type = "openai"
+base_url = "https://env.test/v1"
+api_key = "provider-key"
+api_key_env = "EXAMPLE_PROVIDER_KEY"
+
+[models."env/alias"]
+provider = "env"
+model = "wire-model"
+max_context_size = 200000
+`,
+          'resolver-env-static.toml',
+        );
+
+        // The static key wins the channel, and Rust still passes the
+        // provider's `api_key_env` through unchanged (`config/mod.rs:840`),
+        // so both fields travel exactly as the standalone CLI builds them.
+        expect(resolveNativeLlmForAlias(config, 'env/alias')).toMatchObject({
+          apiKey: 'provider-key',
+          apiKeyEnv: 'EXAMPLE_PROVIDER_KEY',
+        });
+        expect(resolveNativeLlmForAlias(config, 'env/alias')?.authProvider).toBeUndefined();
+      });
+
+      it('lets a model-level apiKey suppress the provider apiKeyEnv', () => {
+        const config = parseConfigString(
+          `${ENV_PROVIDER_TOML}
+[models."env/byok"]
+provider = "env"
+model = "wire-model"
+api_key = "model-key"
+max_context_size = 200000
+`,
+          'resolver-env-byok.toml',
+        );
+
+        // A model-level key is the highest rung: no env name reaches the wire,
+        // so the transport cannot fall back to the environment variable.
+        expect(resolveNativeLlmForAlias(config, 'env/byok')).toMatchObject({
+          apiKey: 'model-key',
+        });
+        expect(resolveNativeLlmForAlias(config, 'env/byok')?.apiKeyEnv).toBeUndefined();
+      });
+
+      it('lets a provider oauth binding suppress the provider apiKeyEnv', () => {
+        const config = parseConfigString(
+          `${ENV_PROVIDER_TOML}
+[providers.env.oauth]
+storage = "file"
+key = "kimi"
+oauth_host = "https://auth.example.test"
+`,
+          'resolver-env-oauth.toml',
+        );
+
+        // OAuth outranks the env channel: the token channel authenticates and
+        // the transport's mutual-exclusion guard rejects a stray env name.
+        expect(resolveNativeLlmForAlias(config, 'env/alias')).toMatchObject({
+          apiKey: '',
+          authProvider: 'env',
+        });
+        expect(resolveNativeLlmForAlias(config, 'env/alias')?.apiKeyEnv).toBeUndefined();
+      });
+
+      it('does not resolve a provider with no credential channel at all', () => {
+        const config = parseConfigString(
+          `
+default_model = "nokey/alias"
+
+[providers.nokey]
+type = "openai"
+base_url = "https://nokey.test/v1"
+
+[models."nokey/alias"]
+provider = "nokey"
+model = "wire-model"
+max_context_size = 200000
+`,
+          'resolver-nokey.toml',
+        );
+
+        expect(resolveNativeLlmForAlias(config, 'nokey/alias')).toBeUndefined();
+      });
+
+      it('does not resolve an empty api_key_env name and passes a blank one through', () => {
+        const empty = parseConfigString(
+          `
+default_model = "blank/alias"
+
+[providers.blank]
+type = "openai"
+base_url = "https://blank.test/v1"
+api_key_env = ""
+
+[models."blank/alias"]
+provider = "blank"
+model = "wire-model"
+max_context_size = 200000
+`,
+          'resolver-empty-env.toml',
+        );
+
+        // Rust's `filter(|e| !e.is_empty())` is an emptiness test, not a
+        // blankness one: an empty name is no channel and does not resolve.
+        expect(resolveNativeLlmForAlias(empty, 'blank/alias')).toBeUndefined();
+
+        const blank = parseConfigString(
+          `
+default_model = "blank/alias"
+
+[providers.blank]
+type = "openai"
+base_url = "https://blank.test/v1"
+api_key_env = "  "
+
+[models."blank/alias"]
+provider = "blank"
+model = "wire-model"
+max_context_size = 200000
+`,
+          'resolver-blank-env.toml',
+        );
+
+        // A whitespace-only name survives that filter and travels verbatim,
+        // exactly as the standalone CLI builds it — the transport is what
+        // rejects it at request time.
+        expect(resolveNativeLlmForAlias(blank, 'blank/alias')).toMatchObject({
+          apiKey: '',
+          apiKeyEnv: '  ',
+        });
       });
     });
 

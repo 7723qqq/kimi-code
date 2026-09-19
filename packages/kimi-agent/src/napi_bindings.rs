@@ -1078,6 +1078,13 @@ pub struct JsNativeLlmConfig {
     /// API base URL including the version segment (e.g. `.../v1`).
     pub base_url: String,
     pub api_key: String,
+    /// Name of the environment variable the transport reads the credential
+    /// from at request time (`[providers.*].api_key_env`). Set only when the
+    /// provider carries neither a static key nor an OAuth binding; an empty
+    /// `api_key` with this name and no `auth_provider` is the env-only channel
+    /// the transport's `credential()` accepts. Absent means the credential is
+    /// the static `api_key`.
+    pub api_key_env: Option<String>,
     pub model: String,
     pub max_tokens: Option<u32>,
     /// Extra headers from `[providers.*].customHeaders`, sent with every
@@ -1753,7 +1760,7 @@ async fn build_engine_pipeline(
             protocol: cfg.protocol.clone(),
             base_url: cfg.base_url.clone(),
             api_key: cfg.api_key.clone(),
-            api_key_env: None,
+            api_key_env: cfg.api_key_env.clone(),
             model: cfg.model.clone(),
             max_tokens: cfg.max_tokens,
             custom_headers: cfg.custom_headers.clone().unwrap_or_default(),
@@ -3226,6 +3233,7 @@ mod tests {
             protocol: "openai".into(),
             base_url: "https://api.example.com/v1".into(),
             api_key: "test-key".into(),
+            api_key_env: None,
             model: "test-model".into(),
             max_tokens: None,
             custom_headers: None,
