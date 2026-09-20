@@ -408,9 +408,7 @@ describe('CLI options parsing', () => {
       ).helpInformation();
       const normalizedHelp = help.replaceAll(/\s+/g, ' ');
 
-      expect(normalizedHelp).toContain(
-        'Agent profile to use for this invocation (v2 engine only).',
-      );
+      expect(normalizedHelp).toContain('Agent profile to use for this invocation.');
       expect(normalizedHelp).not.toContain('print-mode invocation');
     });
 

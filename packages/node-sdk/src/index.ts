@@ -118,7 +118,15 @@ export {
 } from '#/config-local';
 export { effectiveModelAlias, effectiveModelAliases } from '#/model-alias';
 export { limitAgentReplayByTurns } from '#/config-helpers';
-export { parseAgentFileText, resolveAgentPath, type AgentFileDefinition } from '#/agent-file';
+export {
+  BUILTIN_AGENT_PROFILE_NAMES,
+  discoverAgentFiles,
+  parseAgentFileText,
+  resolveAgentPath,
+  type AgentFileDefinition,
+  type DiscoverAgentFilesOptions,
+  type DiscoveredAgentFiles,
+} from '#/agent-file';
 // The synthesized `[models]` alias a `[secondary_model]` recipe with patch
 // fields materializes at runtime — hosts filter it out of model pickers.
 export { SECONDARY_DERIVED_MODEL_ALIAS } from '#/config-local';

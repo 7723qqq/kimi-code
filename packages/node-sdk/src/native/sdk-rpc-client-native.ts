@@ -11,6 +11,14 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { homedir } from 'node:os';
+
+import {
+  BUILTIN_AGENT_PROFILE_NAMES,
+  discoverAgentFiles,
+  type AgentFileDefinition,
+  type DiscoveredAgentFiles,
+} from '#/agent-file';
 
 import type {
   AgentContextData,
@@ -58,7 +66,7 @@ import type { QuestionItem, ToolInputDisplay } from '#/events';
 import { ImageLimits } from '#/image-limits';
 import { KimiHarness } from '#/kimi-harness';
 import { ErrorCodes, KimiError } from '#/error-protocol';
-import { flushDiagnosticLogs, getRootLogger, resolveLoggingConfig } from '#/logging';
+import { flushDiagnosticLogs, getRootLogger, log, resolveLoggingConfig } from '#/logging';
 import {
   SDKRpcClientBase,
   type ActivatePluginCommandRpcInput,
@@ -763,6 +771,10 @@ interface NativeSessionMeta {
   plan: { id: string; content: string; path: string } | undefined;
   /** Source session id when this session was forked. */
   forkedFrom: string | undefined;
+    /** Main-agent profile bound at create (`--agent`); undefined = engine default. */
+  agentProfile?: string;
+  /** Raw `--agent-file` paths; re-read on every handle build. */
+  agentFiles?: readonly string[];
   activeAgentId?: string;
   handle?: EngineSessionHandle;
   agents?: Record<string, AgentMeta>;
@@ -809,6 +821,10 @@ interface PersistedSessionMeta {
   agents?: Record<string, AgentMeta> | undefined;
   /** Headless session (upstream `nonInteractive`): skips the engine's dangerous-command ask policy. */
   nonInteractive?: boolean | undefined;
+  /** Main-agent profile bound at first create (`--agent`); restored on resume. */
+  agentProfile?: string | undefined;
+  /** Raw `--agent-file` paths; re-read on every handle build. */
+  agentFiles?: readonly string[] | undefined;
 }
 
 const DEFAULT_INIT_PROMPT = `You are a software engineering expert with many years of programming experience. Please explore the current project directory to understand the project's architecture and main details.
@@ -852,6 +868,35 @@ function resolvePluginMarketplaceDir(): string | undefined {
     if (existsSync(join(dir, 'marketplace.json'))) return dir;
   }
   return undefined;
+}
+
+/**
+ * The manifest `agents` field of an installed plugin: one `./` directory or a
+ * list of them (`docs/en/customization/plugins.md:282`). The engine's
+ * `kimi.plugin.json` reader does not carry that key, so the manifest is read
+ * here; an absent or unusable field falls back to the plugin root's `agents/`
+ * directory, which is the documented auto-discovery.
+ */
+function manifestAgentPaths(info: PluginInfo): readonly string[] {
+  const manifestPath =
+    typeof info.manifestPath === 'string' && info.manifestPath.length > 0
+      ? info.manifestPath
+      : typeof info.root === 'string'
+        ? join(info.root, 'kimi.plugin.json')
+        : undefined;
+  if (manifestPath === undefined) return [];
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  } catch {
+    return ['agents'];
+  }
+  const agents = (manifest as { agents?: unknown } | null)?.agents;
+  const entries = typeof agents === 'string' ? [agents] : Array.isArray(agents) ? agents : [];
+  const paths = entries.filter(
+    (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0,
+  );
+  return paths.length > 0 ? paths : ['agents'];
 }
 
 function resolveMcpServersForEngine(servers: Record<string, StoredMcpServerConfig>): Array<{
@@ -1025,12 +1070,17 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       ...initialRuntimeState(config, input.model ?? config.defaultModel),
       plan: undefined,
       forkedFrom: undefined,
+      agentProfile: input.agentProfile,
+      agentFiles: input.agentFiles?.length ? [...input.agentFiles] : undefined,
     };
     if (input.thinking !== undefined) meta.thinkingEffort = input.thinking;
     if (input.permission !== undefined) meta.permissionMode = input.permission;
     this.liveSessions.set(sessionId, meta);
 
     try {
+      // An unresolvable `--agent` must fail loudly at creation: silently
+      // starting the default agent looks like the flag was honoured.
+      await this.assertAgentProfileResolves(meta);
       meta.handle = await this.buildHandle(meta);
     } catch (error) {
       // Do not leave a handle-less session advertised as live.
@@ -1431,6 +1481,10 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // Print mode (`kimi -p`): the host resolves only which `[background]`
     // values apply — the engine owns the settle behavior.
     const printBackground = resolvePrintBackground(config);
+    // Agent-file discovery is host-side by design: the engine declares
+    // `extra_agent_dirs` but never reads it (kimi-agent/src/config/mod.rs:588),
+    // so which files exist and which scope wins is resolved here.
+    const agentProfiles = await this.resolveSessionAgentProfiles(meta);
     const authToken =
       nativeLlm?.authProvider === undefined
         ? undefined
@@ -1453,7 +1507,13 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       sessionId,
       callerAgentId: 'main',
       rustSelfContained: config.agent?.rustSelfContained === true,
-      systemPrompt: 'You are Kimi Code, an intelligent AI coding assistant.',
+      // Empty means "let the engine build `prompt/system.md` for this
+      // workspace" — AGENTS.md cascade, skills catalog, environment listing,
+      // profile role. A host-owned prompt only ever arrives through
+      // `native_llm.systemPrompt` (`[models.<alias>].systemPrompt`), which the
+      // engine prefers anyway. The one-line stub that used to sit here reached
+      // `messages[0]` verbatim and silently dropped all of it.
+      systemPrompt: '',
       // The engine requires a modelName string even for a model-less session;
       // the SDK surface keeps `undefined` for the unbound state.
       modelName: nativeLlm?.model ?? meta.model ?? 'default',
@@ -1557,9 +1617,26 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         plan: persisted?.plan,
         forkedFrom: persisted?.forkedFrom,
         agents: persisted?.agents,
+        // The agent binding is the session's identity, fixed at its first
+        // bind: resume restores it and ignores a differing requested profile
+        // (`docs/en/customization/agents.md:143`).
+        agentProfile: persisted?.agentProfile,
+        agentFiles: persisted?.agentFiles,
       };
       meta = created;
       this.liveSessions.set(sessionId, created);
+      // A binding is validated at first create; on resume it is restored, not
+      // re-litigated. A profile whose file has since been deleted warns and
+      // falls back to the engine default rather than bricking the session.
+      try {
+        await this.assertAgentProfileResolves(created);
+      } catch (error) {
+        log.warn(
+          `resuming session "${sessionId}" with an unresolvable agent profile; using the default`,
+          { error: error instanceof Error ? error.message : String(error) },
+        );
+        delete created.agentProfile;
+      }
       created.handle = await this.buildHandle(created);
       const history = this.readPersistedHistory(created);
       if (history.length > 0) {
@@ -3904,6 +3981,109 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   }
 
   /**
+   * Fail session creation when `--agent` names a profile that resolves
+   * nowhere. The name may be a built-in profile or one discovered from an
+   * agent file; anything else is a typo, and the SDK must not fall back to the
+   * default agent silently (`docs/en/customization/agents.md:140`).
+   */
+  private async assertAgentProfileResolves(meta: NativeSessionMeta): Promise<void> {
+    const requested = meta.agentProfile;
+    if (requested === undefined) return;
+    const key = requested.trim().toLowerCase();
+    if (BUILTIN_AGENT_PROFILE_NAMES.includes(key)) return;
+    const discovered = await this.resolveSessionAgentProfiles(meta);
+    if (discovered.some((profile) => profile.name.toLowerCase() === key)) return;
+    const available = [
+      ...BUILTIN_AGENT_PROFILE_NAMES,
+      ...discovered.map((profile) => profile.name),
+    ];
+    throw new KimiError(
+      ErrorCodes.AGENT_NOT_FOUND,
+      `Unknown agent profile "${requested}". Available agents: ${available.join(', ')}`,
+      { details: { agentProfile: requested, available } },
+    );
+  }
+
+  /**
+   * Discover the agent files visible to a session and project them onto the
+   * engine's `subagentProfiles` wire (P46). The native `Agent` tool reads the
+   * registered snapshot to spawn subagents; without this the host's profiles
+   * never reach it.
+   *
+   * A malformed discovered file is skipped with a warning; an explicit
+   * `--agent-file` is fatal, because the user named it on the command line.
+   */
+  private async resolveSessionAgentProfiles(
+    meta: NativeSessionMeta,
+  ): Promise<readonly AgentFileDefinition[]> {
+    const config = loadRuntimeConfigLenient(this.configPath);
+    let discovered: DiscoveredAgentFiles;
+    try {
+      discovered = discoverAgentFiles({
+        workDir: meta.workDir,
+        kimiHome: this.homeDir,
+        osHomeDir: homedir(),
+        extraDirs: config.extraAgentDirs,
+        explicitFiles: meta.agentFiles,
+        pluginAgentDirs: await this.resolvePluginAgentDirs(),
+      });
+    } catch (error) {
+      // Only an explicit `--agent-file` read/parse failure throws here; every
+      // other scope degrades to a warning. Fail creation naming the file.
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        `Cannot load --agent-file for session "${meta.id}": ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+    for (const warning of discovered.warnings) {
+      log.warn(`agent file discovery: ${warning}`);
+    }
+    return discovered.profiles;
+  }
+
+  /**
+   * The `agents` directories of enabled plugins: each manifest-declared `./`
+   * path, or the plugin root's `agents/` when the manifest omits the field
+   * (`docs/en/customization/plugins.md:409`). Plugin roots come from the
+   * engine's plugin registry — the only side that installs and knows them.
+   * Any failure degrades to "no plugin agents": a plugin problem must not
+   * block session creation.
+   *
+   * The registry is only consulted when the host has already initialized it.
+   * Opening it here would be a side effect of creating a session — it pins the
+   * plugin SQLite file for the process lifetime, and on Windows that alone is
+   * enough to make a caller's cleanup fail with EBUSY. Session creation must
+   * not take a lock the caller never asked for, so an uninitialized store
+   * simply contributes no plugin agents (the plugin panel initializes it when
+   * the user opens it, and the next handle build picks the agents up).
+   */
+  private async resolvePluginAgentDirs(): Promise<readonly string[]> {
+    if (!this.pluginStoreReady) return [];
+    try {
+      const native = await import('@moonshot-ai/kimi-agent/native');
+      const summaries = JSON.parse(native.pluginList()) as readonly PluginSummary[];
+      const dirs: string[] = [];
+      for (const summary of summaries) {
+        if (!summary.enabled) continue;
+        const raw = native.pluginInfo(summary.id);
+        if (raw === null || raw === undefined) continue;
+        const info = JSON.parse(raw) as PluginInfo;
+        if (typeof info.root !== 'string' || info.root.length === 0) continue;
+        for (const entry of manifestAgentPaths(info)) {
+          dirs.push(resolve(info.root, entry));
+        }
+      }
+      return dirs;
+    } catch (error) {
+      log.warn('plugin agent discovery failed; continuing without plugin agents', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
+  }
+
+  /**
    * Apply a setting that is baked into the engine handle at build time, and
    * roll the field back when the rebuild fails. Without the rollback a failed
    * `setModel` left `meta.model` naming a model the engine never switched to,
@@ -3944,6 +4124,8 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       forkedFrom: meta.forkedFrom,
       contextTokens: meta.contextTokens,
       agents: meta.agents,
+      agentProfile: meta.agentProfile,
+      agentFiles: meta.agentFiles,
     };
     this.writePersistedMeta(meta.sessionDir, persisted);
   }

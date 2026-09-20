@@ -506,6 +506,39 @@ mod tests {
         assert_eq!(default_built, manual_built);
     }
 
+    /// `--agent` reaches the engine as `RunTurnParams.agent_profile`, which
+    /// resolves through `build_for_profile`. An unknown name must fall back to
+    /// the default `agent` profile rather than dropping the prompt.
+    #[test]
+    fn test_builder_build_for_profile_selects_the_role_overlay() {
+        let temp = tempdir().unwrap();
+        let default_built =
+            SystemPromptBuilder::build_for_profile(temp.path(), Vec::new(), true, "agent");
+        let explore_built =
+            SystemPromptBuilder::build_for_profile(temp.path(), Vec::new(), true, "explore");
+
+        assert_ne!(
+            default_built, explore_built,
+            "a named profile must change the session prompt"
+        );
+        let catalog = ProfileCatalog::with_builtins();
+        let explore_role = catalog.get("explore").unwrap().role_additional.clone();
+        assert!(explore_built.contains(&explore_role));
+
+        // No role overlay for the main profile, so `agent` matches the
+        // default build — the profile name only ever adds, never replaces.
+        assert_eq!(
+            default_built,
+            SystemPromptBuilder::build_default(temp.path())
+        );
+
+        // An unknown name degrades to the default profile's empty overlay
+        // instead of failing the turn.
+        let unknown_built =
+            SystemPromptBuilder::build_for_profile(temp.path(), Vec::new(), true, "no-such-agent");
+        assert_eq!(unknown_built, default_built);
+    }
+
     #[test]
     fn test_builder_notify_user_toggle() {
         let temp = tempdir().unwrap();

@@ -467,6 +467,13 @@ export interface JsRunTurnParams {
    */
   towerEnabled?: boolean
   /**
+   * Main-agent profile name (`--agent`, or the name an `--agent-file`
+   * defines). Selects the role overlay built into the session's system
+   * prompt; absent keeps the default `agent` profile. Distinct from
+   * `subagentProfiles`, which only feeds the `Agent` tool's spawn catalog.
+   */
+  agentProfile?: string
+  /**
    * Host-resolved progressive tool disclosure (`[experimental].
    * tool_select`). `None`/`false` keeps every tool advertised inline.
    */

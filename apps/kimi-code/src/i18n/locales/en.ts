@@ -47,8 +47,8 @@ export default {
         'Load skills from this directory instead of auto-discovered user and project directories. Can be repeated.',
       addDir: 'Add an additional workspace directory for this session. Can be repeated.',
       agent:
-        'Agent profile to use for this invocation (v2 engine only). Custom profiles are discovered from agent directories or loaded via --agent-file.',
-      agentFile: 'Load an agent definition from a Markdown file and select it (v2 engine only).',
+        'Agent profile to use for this invocation. Custom profiles are discovered from agent directories or loaded via --agent-file.',
+      agentFile: 'Load an agent definition from a Markdown file and select it.',
       upgradeYes: 'Skip the confirmation prompt and install the update directly.',
       installDesktop: 'Print the Kimi Code desktop app page and open it in your browser.',
       exportOutput: 'Output ZIP path.',

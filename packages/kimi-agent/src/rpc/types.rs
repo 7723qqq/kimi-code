@@ -885,7 +885,6 @@ pub struct SubagentProfileWire {
 
 /// LLM provider definition for MultiLLM.
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
 pub struct LlmProviderDef {
     pub name: String,
     pub model: String,

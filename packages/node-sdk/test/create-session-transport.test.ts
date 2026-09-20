@@ -622,16 +622,17 @@ effort = "medium"
     });
 
     try {
-      // v1 resolved the requested agent profile eagerly at create and refused
-      // to persist on failure; v2's createSession has no agentProfile channel
-      // (the profile binds at agent materialization), so creation succeeds.
+      // `--agent` names the main profile the engine must be able to select, so
+      // an unknown name fails creation naming the value and the alternatives —
+      // a typo must not silently fall back to the default agent.
       await expect(
         harness.createSession({
           id: 'ses_missing_agent_profile',
           workDir,
           agentProfile: 'missing-agent',
         }),
-      ).resolves.toMatchObject({ id: 'ses_missing_agent_profile' });
+      ).rejects.toMatchObject({ code: 'agent.not_found' });
+      expect(harness.sessions.has('ses_missing_agent_profile')).toBe(false);
     } finally {
       await harness.close();
     }
@@ -646,22 +647,21 @@ effort = "medium"
     });
 
     try {
-      // v2 ignores the agentProfile option (no eager profile resolution), so
-      // the first create succeeds; a duplicate id then rejects.
+      // A rejected create leaves no session behind, so the id is free again.
       await expect(
         harness.createSession({
           id: 'ses_reusable_after_missing_profile',
           workDir,
           agentProfile: 'missing-agent',
         }),
-      ).resolves.toMatchObject({ id: 'ses_reusable_after_missing_profile' });
+      ).rejects.toMatchObject({ code: 'agent.not_found' });
 
       await expect(
         harness.createSession({
           id: 'ses_reusable_after_missing_profile',
           workDir,
         }),
-      ).rejects.toMatchObject({ code: 'session.already_exists' });
+      ).resolves.toMatchObject({ id: 'ses_reusable_after_missing_profile' });
     } finally {
       await harness.close();
     }
@@ -676,15 +676,17 @@ effort = "medium"
     });
 
     try {
-      // v1 loaded explicit agentfiles eagerly at create; v2 has no agentFiles
-      // channel on the SDK surface, so creation succeeds.
+      // An explicit `--agent-file` is launch intent the user typed, so an
+      // unreadable one fails creation instead of degrading to the default
+      // agent — and no session record is left behind.
       await expect(
         harness.createSession({
           id: 'ses_missing_explicit_agent_file',
           workDir,
           agentFiles: [join(workDir, 'missing-agent.md')],
         }),
-      ).resolves.toMatchObject({ id: 'ses_missing_explicit_agent_file' });
+      ).rejects.toMatchObject({ code: 'request.invalid' });
+      expect(harness.sessions.has('ses_missing_explicit_agent_file')).toBe(false);
     } finally {
       await harness.close();
     }

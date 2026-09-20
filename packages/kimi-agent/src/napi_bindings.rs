@@ -911,6 +911,12 @@ pub struct JsRunTurnParams {
     /// `[experimental].tower`). `None` falls back to the engine's own env
     /// probe.
     pub tower_enabled: Option<bool>,
+    /// Main-agent profile name (`--agent`, or the name a `--agent-file`
+    /// defines). Selects the role overlay built into the session prompt;
+    /// `None` keeps the default `agent` profile. Unlike `subagent_profiles`
+    /// (which only feeds the `Agent` tool's spawn catalog), this one shapes
+    /// the main turn's system prompt.
+    pub agent_profile: Option<String>,
     /// Host-resolved progressive tool disclosure (`[experimental].
     /// tool_select`). `None`/`false` keeps every tool advertised inline.
     pub tool_select: Option<bool>,
@@ -1745,7 +1751,16 @@ async fn build_engine_pipeline(
     }));
 
     let spec = PipelineSpec {
-        system_prompt: params.system_prompt.clone(),
+        // A host that hands over a session rather than a prompt gets the engine's
+        // own prompt. The napi entry points used to pass a one-line stub
+        // ("You are Kimi Code, ...") straight through to `messages[0]`, so the
+        // interactive CLI never saw `prompt/system.md` — no AGENTS.md cascade, no
+        // skills catalog, no environment/CWD listing, no profile role — and the
+        // memory-filing gate (`MEMORY_SECTION_MARKER`) never matched either.
+        // Treat the stub and the `"sys"` sentinel the same way `ServerEngine::
+        // session_spec` already does, and build the real prompt from the
+        // workspace the caller passed.
+        system_prompt: build_session_system_prompt(params),
         model_name: params.model_name.clone(),
         providers: params
             .providers
