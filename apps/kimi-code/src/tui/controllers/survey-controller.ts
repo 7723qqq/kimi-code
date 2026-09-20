@@ -130,6 +130,15 @@ export class SurveyController {
   private compactionCount = 0;
   private currentTurnUserOrigin: boolean | undefined;
   private evaluationPending = false;
+  // v2 #3907: per-turn copilot statistics that ride the survey payload — the
+  // trace id ties a rating to the exact turn, the counters describe what the
+  // copilot did during it.
+  private pendingTraceId: string | undefined;
+  private subagentCount = 0;
+  private swarmRunCount = 0;
+  private readonly toolCallFamilies = new Map<string, string>();
+  private readonly subagentModels = new Set<string>();
+  private readonly swarmModels = new Set<string>();
   private appearanceConfig: SurveyPopupConfig | undefined;
   private configReady = false;
   private cooldownReady = false;
@@ -164,6 +173,12 @@ export class SurveyController {
     this.stickySample = undefined;
     this.toolCallCount = 0;
     this.compactionCount = 0;
+    this.pendingTraceId = undefined;
+    this.subagentCount = 0;
+    this.swarmRunCount = 0;
+    this.toolCallFamilies.clear();
+    this.subagentModels.clear();
+    this.swarmModels.clear();
     this.appearanceConfig = undefined;
     this.currentTurnUserOrigin = undefined;
     this.evaluationPending = false;
@@ -201,8 +216,11 @@ export class SurveyController {
     }
   }
 
-  notifyTurnEnded(): void {
-    if (this.currentTurnUserOrigin === true) this.evaluationPending = true;
+  notifyTurnEnded(traceId?: string): void {
+    if (this.currentTurnUserOrigin === true) {
+      this.evaluationPending = true;
+      this.pendingTraceId = traceId;
+    }
     this.currentTurnUserOrigin = undefined;
     if (!this.evaluationPending) return;
     this.idleSince = this.now();
@@ -214,8 +232,25 @@ export class SurveyController {
     }, SURVEY_IDLE_EVALUATION_DELAY_MS);
   }
 
-  notifyToolCallStarted(): void {
+  notifyToolCallStarted(toolCallId?: string, toolName?: string): void {
     this.toolCallCount += 1;
+    if (toolCallId !== undefined && toolName !== undefined) {
+      this.toolCallFamilies.set(toolCallId, toolName);
+      if (toolName === 'AgentSwarm') this.swarmRunCount += 1;
+    }
+  }
+
+  notifySubagentCompleted(
+    parentToolCallId: string | undefined,
+    model: string | undefined,
+  ): void {
+    this.subagentCount += 1;
+    if (model !== undefined && model.length > 0) this.subagentModels.add(model);
+    if (parentToolCallId === undefined) return;
+    if (this.toolCallFamilies.get(parentToolCallId) === 'AgentSwarm') {
+      this.swarmModels.add(model ?? '');
+      this.toolCallFamilies.delete(parentToolCallId);
+    }
   }
 
   notifyCompactionFinished(): void {
@@ -595,14 +630,24 @@ export class SurveyController {
 
   private environmentFields(): SurveyEventEnvironmentFields {
     const { appState } = this.host.state;
+    const joinModels = (models: ReadonlySet<string>): string | undefined => {
+      const filtered = [...models].filter((model) => model.length > 0).sort();
+      return filtered.length === 0 ? undefined : filtered.join(',');
+    };
     return {
       current_model: appState.model,
       kfc_model_id: resolveKfcModelId(appState),
+      // v2 #3907: `kfc_trace_id` ties the rating to the exact turn.
+      kfc_trace_id: this.pendingTraceId,
       user_turn_count: this.userTurnCount,
       cumulative_tokens: appState.cumulativeTokens ?? 0,
       virtual_context_tokens: appState.contextTokens,
       tool_call_count: this.toolCallCount,
       compaction_count: this.compactionCount,
+      subagent_count: this.subagentCount,
+      subagent_models: joinModels(this.subagentModels),
+      swarm_run_count: this.swarmRunCount,
+      swarm_models: joinModels(this.swarmModels),
       permission_mode: appState.permissionMode,
       thinking_effort: appState.thinkingEffort,
     };

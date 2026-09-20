@@ -1381,6 +1381,9 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
             ...(parsed.durationMs ?? parsed.duration_ms
               ? { durationMs: parsed.durationMs ?? parsed.duration_ms }
               : {}),
+            // v2 #3907: the survey payload ties a rating to the exact turn via
+            // this id (engine-minted `turn-<id>`).
+            ...(parsed.trace_id ? { traceId: parsed.trace_id } : {}),
           });
           meta.activeAgentId = undefined;
         }
@@ -2321,8 +2324,15 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // flag records the coordinator mode for the host (steering semantics +
     // status display); the requested base is validated engine-side when the
     // agent runs TowerInit.
+    const wasOn = meta.towerMode;
     meta.towerMode = input.enabled;
     meta.updatedAt = Date.now();
+    // v2 #3897 `tower_mode_enter` / `tower_mode_exit`: emitted on the
+    // transition, from the host side — the flag lives here, and the engine has
+    // no flip point of its own to observe.
+    if (wasOn !== input.enabled) {
+      this.telemetry.track(input.enabled ? 'tower_mode_enter' : 'tower_mode_exit');
+    }
     this.emitStatusUpdated(meta);
   }
 

@@ -201,6 +201,8 @@ mod tests {
             blocks: vec![block],
             tool_calls: Vec::new(),
             tool_call_id: None,
+
+            prompt_id: None,
         }
     }
 

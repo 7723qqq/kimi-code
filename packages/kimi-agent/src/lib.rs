@@ -89,6 +89,7 @@ pub fn event_store_message_to_llm(msg: crate::native::event_store::Message) -> L
         blocks,
         tool_calls,
         tool_call_id: msg.tool_call_id,
+        prompt_id: None,
     }
 }
 

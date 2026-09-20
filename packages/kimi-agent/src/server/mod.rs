@@ -152,6 +152,11 @@ pub struct HttpServer {
     /// has no bind address to compare against and no browser to rebind, and the
     /// product entry (`--serve`) always installs one.
     host_guard: Option<HostGuard>,
+    /// Server-side usage telemetry (v2 #3897): the sink v2 injects as
+    /// `ITelemetryService` into its route hosts. `None` on every current entry
+    /// point — the transitions are recorded where they happen, and wiring a
+    /// real sink lands with the next host integration.
+    telemetry_sink: Option<crate::tools::external_hooks::TelemetrySink>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -279,6 +284,7 @@ impl HttpServer {
             debug_endpoints: false,
             allow_remote_shutdown: false,
             host_guard: None,
+            telemetry_sink: None,
         }
     }
 
@@ -297,6 +303,36 @@ impl HttpServer {
     pub fn with_debug_endpoints(mut self, enabled: bool) -> Self {
         self.debug_endpoints = enabled;
         self
+    }
+
+    /// Install the server-side telemetry sink (v2 #3897). `event` is the
+    /// telemetry name (`swarm_mode_entered`, `remote_control_toggle`, …),
+    /// `payload` the properties v2's `track2` call carries.
+    #[must_use]
+    pub fn with_telemetry_sink(
+        mut self,
+        sink: crate::tools::external_hooks::TelemetrySink,
+    ) -> Self {
+        self.telemetry_sink = Some(sink);
+        self
+    }
+
+    /// Emit one server-side usage event through the sink when one is
+    /// installed; otherwise log it. v2 #3897 injects an `ITelemetryService`
+    /// into its route hosts; the standalone server has no upstream telemetry
+    /// service to report into, so the log line is the always-observable
+    /// fallback and `with_telemetry_sink` is where a host integration plugs
+    /// in. Fire-and-forget: telemetry must never block or fail a route.
+    pub fn emit_session_telemetry(&self, event: &str, payload: serde_json::Value) {
+        match &self.telemetry_sink {
+            Some(sink) => sink(event, payload),
+            None => tracing::info!(event, ?payload, "server usage telemetry"),
+        }
+    }
+
+    /// Emit one property-less usage event.
+    pub fn emit_session_telemetry_named(&self, event: &str) {
+        self.emit_session_telemetry(event, serde_json::Value::Null);
     }
 
     /// Keep `POST /api/v1/shutdown` registered on a non-loopback bind.
@@ -1066,6 +1102,12 @@ fn apply_prompt_submission_options(
         .flatten()
         .filter(Value::is_object)
         .unwrap_or_else(|| json!({}));
+    // Transition baselines are read before the mutable borrow below overwrites
+    // them (v2 #3897 emits on the transition, not on every write).
+    let swarm_was_on = agent_config
+        .get("swarm_mode")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     {
         let config = agent_config.as_object_mut().unwrap();
         for key in [
@@ -1087,6 +1129,13 @@ fn apply_prompt_submission_options(
             config.insert("plan_mode".to_string(), json!(plan_mode));
         }
         if let Some(swarm_mode) = body.get("swarm_mode").and_then(|v| v.as_bool()) {
+            if swarm_was_on != swarm_mode {
+                server.emit_session_telemetry_named(if swarm_mode {
+                    "swarm_mode_entered"
+                } else {
+                    "swarm_mode_exited"
+                });
+            }
             config.insert("swarm_mode".to_string(), json!(swarm_mode));
         }
         if let Some(disabled) = body.get("disabled_tools").and_then(|v| v.as_array()) {
@@ -2820,6 +2869,12 @@ impl HttpServer {
                         let mut st = self.remote_control_state.lock().await;
                         *st = RemoteControlStatusWire::off();
                     }
+                    // v2 #3897 `remote_control_toggle`
+                    // (kap-server/src/routes/remoteControl.ts:84).
+                    self.emit_session_telemetry(
+                        "remote_control_toggle",
+                        serde_json::json!({ "enabled": false, "outcome": "ok" }),
+                    );
                     return HttpResponse::ok(&json!({
                         "enabled": false,
                         "state": "off",
@@ -2831,6 +2886,10 @@ impl HttpServer {
                 let mut slot = self.remote_control_runtime.lock().await;
                 if let Some(handle) = slot.as_ref() {
                     let st = handle.status();
+                    self.emit_session_telemetry(
+                        "remote_control_toggle",
+                        serde_json::json!({ "enabled": true, "outcome": "already_running" }),
+                    );
                     return HttpResponse::ok(&json!({
                         "enabled": st.enabled,
                         "state": st.state,
@@ -2887,6 +2946,13 @@ impl HttpServer {
                 let handle = crate::server::remote_control::RemoteControlRuntime::start(options);
                 let st = handle.status();
                 *slot = Some(handle);
+                // v2 reports `error` for a failed start (routes/remoteControl.ts:105);
+                // the runtime encodes a failed start in its status.
+                let outcome = if st.error.is_some() { "error" } else { "ok" };
+                self.emit_session_telemetry(
+                    "remote_control_toggle",
+                    serde_json::json!({ "enabled": true, "outcome": outcome }),
+                );
                 HttpResponse::ok(&json!({
                     "enabled": st.enabled,
                     "state": st.state,
@@ -6377,12 +6443,17 @@ impl HttpServer {
                 for (item, prompt, blocks, origin) in
                     self.prompt_queue.take_queued(session_id, &ids)
                 {
+                    // v2 #3906: the steered message reuses the queued prompt's
+                    // id (`children[0].waiter.id`), so the projection keeps it
+                    // inside the host turn and undo targets the host prompt.
+                    let prompt_id = item["prompt_id"].as_str().map(str::to_string);
                     let message = crate::turn_loop::types::LLMMessage {
                         role: "user".to_string(),
                         content: prompt.clone(),
                         blocks: blocks.clone(),
                         tool_calls: Vec::new(),
                         tool_call_id: None,
+                        prompt_id,
                     };
                     if engine.enqueue_steer(session_id, message) {
                         steered_items.push(item);
@@ -6470,6 +6541,8 @@ impl HttpServer {
                         blocks: blocks.clone(),
                         tool_calls: Vec::new(),
                         tool_call_id: None,
+
+                        prompt_id: None,
                     };
                     if engine.enqueue_steer(session_id, message) {
                         crate::server::prompt_queue::publish_prompt_event(

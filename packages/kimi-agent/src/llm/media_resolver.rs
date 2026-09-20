@@ -551,6 +551,7 @@ mod tests {
             }],
             tool_calls: Vec::new(),
             tool_call_id: None,
+            prompt_id: None,
         }
     }
 
@@ -648,6 +649,7 @@ mod tests {
             }],
             tool_calls: Vec::new(),
             tool_call_id: None,
+            prompt_id: None,
         }];
 
         let out = resolver.resolve(&messages, Some(&accepting()), None).await;
@@ -672,6 +674,7 @@ mod tests {
             }],
             tool_calls: Vec::new(),
             tool_call_id: None,
+            prompt_id: None,
         }];
 
         let out = resolver.resolve(&messages, Some(&accepting()), None).await;

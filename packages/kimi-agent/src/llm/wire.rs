@@ -158,6 +158,7 @@ mod tests {
                     extras: None,
                 }],
                 tool_call_id: None,
+                prompt_id: None,
             },
             LLMMessage {
                 role: "tool".into(),
@@ -165,6 +166,7 @@ mod tests {
                 blocks: Vec::new(),
                 tool_calls: Vec::new(),
                 tool_call_id: Some("c1".into()),
+                prompt_id: None,
             },
         ];
 

@@ -29,6 +29,15 @@ pub const DEFAULT_MAX_CONTEXT_TOKENS: u32 = 128 * 1024;
 /// whole omitted prefix.
 pub const DEFAULT_COMPACTION_MAX_ATTEMPTS: u32 = 5;
 
+/// Token accounting for the summary request's own scaffolding (v2
+/// `requestTokens([])`), subtracted from the pre-shrink budget.
+const SUMMARY_REQUEST_TOKENS: u32 = 1_000;
+
+/// v2 `OVERFLOW_CONTEXT_SAFETY_RATIO` (fullCompactionService.ts:78): leave
+/// headroom under the window so the token estimate's own error cannot tip the
+/// request back over it.
+const OVERFLOW_CONTEXT_SAFETY_RATIO: f64 = 0.85;
+
 /// v2 `DEFAULT_COMPACTION_CONFIG.maxOverflowCompactionAttempts`
 /// (strategy.ts:23): one turn may compact-and-retry after a context overflow
 /// this many times in a row before the turn is failed. v2's companion
@@ -393,7 +402,32 @@ pub async fn summarize_with_llm(
     cancel: Option<&CancellationToken>,
     max_attempts: Option<u32>,
 ) -> Result<String, CompactionError> {
-    let mut history = omitted;
+    summarize_with_llm_budgeted(omitted, llm, instruction, cancel, max_attempts, None).await
+}
+
+/// [`summarize_with_llm`] with the effective model window, so the summarizer's
+/// **first** request is pre-shrunk to fit instead of being sent whole.
+///
+/// v2 #3911 `preShrinkHistoryToWindowBudget` (fullCompactionService.ts:818-841):
+/// without this, a compaction whose omitted history already exceeds the model
+/// window sends the whole thing, overflows, and only then starts dropping one
+/// message per empty-summary retry — so a turn that switched to a
+/// smaller-window model burns the whole retry budget and fails. The budget
+/// reserves room for the summary itself and applies the same safety ratio the
+/// overflow path uses.
+pub async fn summarize_with_llm_budgeted(
+    omitted: &[LLMMessage],
+    llm: &dyn LLM,
+    instruction: Option<&str>,
+    cancel: Option<&CancellationToken>,
+    max_attempts: Option<u32>,
+    effective_max_tokens: Option<u32>,
+) -> Result<String, CompactionError> {
+    let pre_shrunk = pre_shrink_to_window_budget(omitted, instruction, effective_max_tokens);
+    let mut history: &[LLMMessage] = match pre_shrunk.as_deref() {
+        Some(shrunken) => shrunken,
+        None => omitted,
+    };
     let retry_config = RetryConfig {
         max_attempts: max_attempts.unwrap_or(DEFAULT_COMPACTION_MAX_ATTEMPTS),
         ..RetryConfig::default()
@@ -468,6 +502,83 @@ pub async fn summarize_with_llm(
     }
 }
 
+/// Shrink the summarizer's history to what the model window can actually take,
+/// or `None` when it already fits.
+///
+/// v2 #3911 `preShrinkHistoryToWindowBudget` (fullCompactionService.ts:818-841):
+/// reserve room for the summary (`compaction_max_output_size`, capped at an
+/// eighth of the window), apply the safety ratio, subtract the request's own
+/// tokens, and keep the most recent messages that fit. Without this a
+/// compaction whose omitted history already exceeds the window sends the whole
+/// thing, overflows, and only then starts dropping one message per
+/// empty-summary retry — so switching to a smaller-window model burns the
+/// retry budget and fails the turn.
+///
+/// `None` means "send what you had": no window to respect, the history already
+/// fits, or nothing would survive.
+fn pre_shrink_to_window_budget(
+    history: &[LLMMessage],
+    instruction: Option<&str>,
+    effective_max_tokens: Option<u32>,
+) -> Option<Vec<LLMMessage>> {
+    let effective_max_tokens = effective_max_tokens.filter(|tokens| *tokens > 0)?;
+    let output_reserve = effective_max_tokens / 8;
+    let message_budget =
+        ((effective_max_tokens - output_reserve) as f64 * OVERFLOW_CONTEXT_SAFETY_RATIO) as u32;
+    let message_budget = message_budget.saturating_sub(SUMMARY_REQUEST_TOKENS);
+    if message_budget == 0 {
+        return None;
+    }
+
+    let instruction_tokens = instruction.map(estimate_text_tokens).unwrap_or(0);
+    let total: u32 = history
+        .iter()
+        .map(estimate_message_tokens)
+        .fold(instruction_tokens, u32::saturating_add);
+    if total <= message_budget {
+        return None;
+    }
+
+    let shrunken = take_recent_within_budget(history, message_budget);
+    if shrunken.is_empty() {
+        None
+    } else {
+        Some(shrunken)
+    }
+}
+
+/// Keep the newest messages that fit `budget`, then drop leading tool results —
+/// a tool result without its call is not a sequence a provider accepts.
+/// v2 `takeRecentMessagesWithinTokenBudget` (fullCompactionService.ts:933-950).
+fn take_recent_within_budget(history: &[LLMMessage], budget: u32) -> Vec<LLMMessage> {
+    let mut start = history.len();
+    let mut tokens: u32 = 0;
+    for (index, message) in history.iter().enumerate().rev() {
+        let message_tokens = estimate_message_tokens(message);
+        if tokens.saturating_add(message_tokens) > budget {
+            break;
+        }
+        tokens = tokens.saturating_add(message_tokens);
+        start = index;
+    }
+    // v2 `if (start === 0) start = 1;` — everything fit, so keep all but the
+    // oldest. When nothing fits, `start` stays at `length` and the slice is
+    // empty; `pre_shrink_to_window_budget` reads that as "send what you had"
+    // rather than an empty prompt.
+    if start == 0 {
+        start = 1;
+    }
+    let mut slice = history[start..].to_vec();
+    while slice.first().is_some_and(|message| message.role == "tool") {
+        slice.remove(0);
+    }
+    slice
+}
+
+fn estimate_text_tokens(text: &str) -> u32 {
+    (text.chars().count() / 4) as u32
+}
+
 /// Unconditionally compact `messages` only after a usable LLM summary succeeds.
 ///
 /// Like [`force_compact_messages`] but the compacted prefix is replaced by a
@@ -480,13 +591,36 @@ pub async fn force_compact_messages_with_summary(
     instruction: Option<&str>,
     cancel: Option<&CancellationToken>,
 ) -> Result<Vec<LLMMessage>, CompactionError> {
+    force_compact_messages_with_summary_budgeted(messages, config, llm, instruction, cancel, None)
+        .await
+}
+
+/// [`force_compact_messages_with_summary`] with the model's effective window,
+/// so the summarizer's first request is pre-shrunk to fit it (v2 #3911).
+/// Callers that know the window — the turn loop and the REST `:compact` route —
+/// pass it; the rest keep the unbudgeted behaviour.
+pub async fn force_compact_messages_with_summary_budgeted(
+    messages: &[LLMMessage],
+    config: &CompactionConfig,
+    llm: &dyn LLM,
+    instruction: Option<&str>,
+    cancel: Option<&CancellationToken>,
+    effective_max_tokens: Option<u32>,
+) -> Result<Vec<LLMMessage>, CompactionError> {
     let count = compute_compact_count(messages, config);
     if count == 0 {
         return Ok(messages.to_vec());
     }
     let omitted = &messages[1..count as usize];
-    let summary =
-        summarize_with_llm(omitted, llm, instruction, cancel, config.max_attempts).await?;
+    let summary = summarize_with_llm_budgeted(
+        omitted,
+        llm,
+        instruction,
+        cancel,
+        config.max_attempts,
+        effective_max_tokens,
+    )
+    .await?;
     Ok(apply_compaction_with_summary(messages, count, summary))
 }
 
@@ -740,6 +874,81 @@ mod tests {
             max_context_tokens,
             ..Default::default()
         }
+    }
+
+    /// The pre-shrink is what keeps a small-window model from burning its
+    /// whole retry budget: without it the summarizer's first request carries the
+    /// entire omitted history, overflows, and only then starts dropping one
+    /// message per attempt (v2 #3911).
+    #[test]
+    fn pre_shrink_keeps_the_newest_messages_that_fit_the_window() {
+        // 4000 chars ≈ 1000 tokens per message under the module's 4:1 estimate,
+        // so the ten-message history below is ≈ 10 000 tokens.
+        let history: Vec<LLMMessage> = (0..10)
+            .map(|index| msg("user", &format!("{index}").repeat(4000)))
+            .collect();
+
+        // A generous window: everything fits, so nothing is shrunk.
+        assert!(
+            pre_shrink_to_window_budget(&history, None, Some(1_000_000)).is_none(),
+            "a history that fits must be sent whole"
+        );
+        // No window known: no shrink either.
+        assert!(pre_shrink_to_window_budget(&history, None, None).is_none());
+        // 20 000 leaves a ≈ 13 875 budget, which still takes all ten.
+        assert!(pre_shrink_to_window_budget(&history, None, Some(20_000)).is_none());
+
+        // 12 000 leaves a ≈ 7 925 budget — about seven of the ten messages.
+        let shrunken = pre_shrink_to_window_budget(&history, None, Some(12_000))
+            .expect("a tight window shrinks");
+        assert!(
+            !shrunken.is_empty() && shrunken.len() < history.len(),
+            "expected a proper subset, got {} of {}",
+            shrunken.len(),
+            history.len()
+        );
+        // The tail is what survives — the shrink must not drop the newest turn.
+        assert_eq!(
+            shrunken.last().map(|message| message.content.clone()),
+            history.last().map(|message| message.content.clone())
+        );
+    }
+
+    /// A shrunk history must not start with a tool result: a result without its
+    /// call is not a sequence a provider accepts (v2 `dropLeadingToolResults`).
+    #[test]
+    fn pre_shrink_drops_leading_tool_results() {
+        // Four ≈ 1000-token messages against a ≈ 7 925 budget: everything fits,
+        // so force the shrink by growing the history instead.
+        let mut history = vec![
+            msg("assistant", &"a".repeat(4000)),
+            msg("tool", &"b".repeat(4000)),
+            msg("user", &"c".repeat(4000)),
+            msg("user", &"d".repeat(4000)),
+        ];
+        // Push the total past the budget so the shrink runs and the surviving
+        // slice is forced to begin at the `tool` entry.
+        for index in 0..8 {
+            history.insert(0, msg("user", &format!("filler{index}").repeat(2000)));
+        }
+        let shrunken = pre_shrink_to_window_budget(&history, None, Some(12_000)).expect("shrinks");
+        assert_ne!(
+            shrunken.first().map(|message| message.role.as_str()),
+            Some("tool"),
+            "the shrink must not leave a dangling tool result at the front"
+        );
+    }
+
+    /// v2's helper returns an empty slice when nothing fits, and the caller
+    /// reads that as "send what you had" — never an empty prompt, which would
+    /// ask the model to summarize nothing.
+    #[test]
+    fn pre_shrink_falls_back_to_the_full_history_when_nothing_fits() {
+        let history = vec![msg("user", &"x".repeat(400_000))];
+        assert!(
+            pre_shrink_to_window_budget(&history, None, Some(4_000)).is_none(),
+            "a single message larger than the budget must fall back to the whole history"
+        );
     }
 
     fn assert_messages_eq(actual: &[LLMMessage], expected: &[LLMMessage]) {

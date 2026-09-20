@@ -43,7 +43,7 @@ use super::messages::{
     SessionStateMessage, SessionStatus, StepMessage, StepStatus, StreamStatus, TaskKind,
     TaskMessage, TaskStatus, ThinkingDeltaMessage, ToolCallDeltaMessage, ToolCallMessage,
     ToolCallStatus, ToolProgressKind, ToolProgressPayload, TurnMessage, TurnOrigin, TurnStatus,
-    TurnUsage, UserMessage, UserMessageStatus,
+    TurnUsage, UserMessage, UserMessageOrigin, UserMessageStatus,
 };
 use super::projection::{
     assistant_entity_id, iso, project_tasks, project_todo, step_entity_id, thinking_entity_id,
@@ -441,7 +441,24 @@ impl LiveTranslator {
                     .get("content")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
-                vec![ServerMessage::User(self.user_message(content, now))]
+                // v2 #3906: a steered message carries its prompt id and an
+                // in-turn origin, so the live entity id matches what history
+                // projects later and the client does not treat it as a second
+                // turn opener.
+                let prompt_id = value
+                    .get("prompt_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let mut message = self.user_message(content, now);
+                if let Some(prompt_id) = &prompt_id {
+                    message.message_id = prompt_id.clone();
+                    message.origin = Some(UserMessageOrigin::User {
+                        cron_id: None,
+                        schedule: None,
+                        in_turn: Some(true),
+                    });
+                }
+                vec![ServerMessage::User(message)]
             }
             Some("message.assistant") => {
                 if self.turn == 0 {

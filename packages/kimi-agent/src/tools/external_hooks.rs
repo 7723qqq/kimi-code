@@ -12,6 +12,7 @@
 //! a clean text stop once per turn (v2 `runStopHooks`).
 
 use std::process::ExitStatus;
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
@@ -51,7 +52,14 @@ pub struct HookGuard {
     /// Compiling per tool call would re-parse every hook's regex every time.
     matchers: Vec<Matcher>,
     invalid: Vec<InvalidMatcher>,
+    /// Server-side usage telemetry (v2 #3897 `external_hook_resolved`).
+    /// Set once after construction — the pipeline assembles callbacks below
+    /// the guard — and never overwritten. Fire-and-forget: emission must
+    /// never affect the hook verdict.
+    telemetry: std::sync::OnceLock<TelemetrySink>,
 }
+
+pub type TelemetrySink = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
 
 enum Matcher {
     All,
@@ -106,7 +114,16 @@ impl HookGuard {
             hooks,
             matchers,
             invalid,
+            telemetry: std::sync::OnceLock::new(),
         }
+    }
+
+    /// Install the usage-telemetry sink (v2 #3897
+    /// `external_hook_resolved`). The pipeline calls this once after the
+    /// callbacks exist; later calls are ignored, so a double install can
+    /// never duplicate an event.
+    pub fn with_telemetry(self: &Arc<Self>, sink: TelemetrySink) {
+        let _ = self.telemetry.set(sink);
     }
 
     /// Hooks whose matcher failed to compile (and therefore never match).
@@ -151,6 +168,36 @@ impl HookGuard {
                 .map(|hook| run_pre_tool_use_hook(hook, &payload)),
         )
         .await;
+        // v2 #3897 `external_hook_resolved`: one usage event per trigger, with
+        // the resolve action and the per-hook failure counts. The verdict below
+        // is unchanged — the event only observes it.
+        let matched_count = results.len();
+        let failed_count = results
+            .iter()
+            .filter(|result| {
+                matches!(
+                    result.as_deref(),
+                    Some(text)
+                        if text.starts_with(TIMED_OUT) || text.starts_with(ERRORED)
+                )
+            })
+            .count();
+        if let Some(sink) = self.telemetry.get() {
+            let action = if results.iter().any(Option::is_some) {
+                "block"
+            } else {
+                "allow"
+            };
+            sink(
+                "external_hook_resolved",
+                serde_json::json!({
+                    "hook_event": "PreToolUse",
+                    "action": action,
+                    "matched_count": matched_count,
+                    "failed_count": failed_count,
+                }),
+            );
+        }
         results.into_iter().find_map(|result| result)
     }
 
@@ -613,6 +660,51 @@ mod tests {
         assert_eq!(guard.denial(&request("Read")).await, None);
         let empty = HookGuard::new(vec![]);
         assert_eq!(empty.denial(&request("Read")).await, None);
+    }
+
+    /// v2 #3897 `external_hook_resolved`: one event per trigger carrying the
+    /// resolve action and the per-hook failure counts. The verdict itself is
+    /// unchanged by whether a sink is installed.
+    #[tokio::test]
+    async fn denial_emits_the_usage_event_with_counts() {
+        let events = Arc::new(std::sync::Mutex::new(
+            Vec::<(String, serde_json::Value)>::new(),
+        ));
+        let log = events.clone();
+        // Two distinct commands (v2 dedupes same-command hooks within one
+        // trigger, so identical commands would fold to a single match).
+        let guard = Arc::new(HookGuard::new(vec![
+            hook("PreToolUse", "", exit_two_with_stderr()),
+            hook("PreToolUse", "", exit_two_silent()),
+        ]));
+        guard.with_telemetry(Arc::new(move |event, payload| {
+            log.lock().unwrap().push((event.to_string(), payload));
+        }));
+
+        let denial = guard.denial(&request("Write")).await;
+        assert!(denial.is_some(), "the hooks still block");
+
+        let log = events.lock().unwrap();
+        assert_eq!(log.len(), 1, "one event per trigger");
+        let (event, payload) = &log[0];
+        assert_eq!(event, "external_hook_resolved");
+        assert_eq!(payload["hook_event"], "PreToolUse");
+        assert_eq!(payload["action"], "block");
+        assert_eq!(payload["matched_count"], 2);
+        // Both hooks exit 2 — v2 counts a non-2 exit code as failure, exit 2 as
+        // a deliberate block, so failed_count is 0 here.
+        assert_eq!(payload["failed_count"], 0);
+    }
+
+    /// No sink installed (every entry point before wiring): the verdict is
+    /// identical and nothing panics.
+    #[tokio::test]
+    async fn denial_without_a_sink_is_verdict_identical() {
+        let guard = HookGuard::new(vec![hook("PreToolUse", "", exit_two_with_stderr())]);
+        assert_eq!(
+            guard.denial(&request("Write")).await.as_deref(),
+            Some("denied by test hook")
+        );
     }
 
     #[tokio::test]

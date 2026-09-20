@@ -744,6 +744,12 @@ export interface TurnEndedEvent {
   readonly error?: KimiErrorPayload;
   readonly durationMs?: number;
   readonly interruptReason?: TurnInterruptReason;
+  /**
+   * Engine-side per-turn trace id (v2 #3907): stable and unique per turn, so a
+   * rating survey can be tied to the exact turn that prompted it. Absent on
+   * host-driven turns that do not run through the engine.
+   */
+  readonly traceId?: string;
 }
 
 export interface TurnStepStartedEvent {
@@ -1790,6 +1796,7 @@ export const turnEndedEventSchema = z.object({
   error: kimiErrorPayloadSchema.optional(),
   durationMs: z.number().optional(),
   interruptReason: turnInterruptReasonSchema.optional(),
+  traceId: z.string().optional(),
 }) satisfies z.ZodType<TurnEndedEvent>;
 
 export const turnStepStartedEventSchema = z.object({

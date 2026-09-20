@@ -2528,6 +2528,7 @@ mod tests {
                     extras: None,
                 }],
                 tool_call_id: None,
+                prompt_id: None,
             },
         ]));
 
@@ -2986,6 +2987,39 @@ mod tests {
             tools: vec![],
         };
         assert_eq!(profile_tools_listing(&unrestricted), "all");
+    }
+
+    /// v2 #3878: the Agent tool once advertised tool names that no registry
+    /// entry backed, so the model was told it could call something that would
+    /// come back "unknown tool". The fork builds its listing and its execution
+    /// gate from the same `ToolPolicyFilter`, which makes that structurally
+    /// impossible — this pins it, because a listing and a gate that drift apart
+    /// fail silently.
+    #[test]
+    fn every_advertised_builtin_tool_is_resolvable() {
+        let catalog = crate::prompt::profiles::ProfileCatalog::with_builtins();
+        for profile in catalog.list() {
+            // `tools` empty means "all tools", so there is no name to check.
+            for name in &profile.tools {
+                // `mcp__*` and similar are prefix patterns the filter owns, not
+                // concrete tool names; `is_native_tool_name` covers the concrete
+                // ones plus MCP and GitHub families.
+                if name.contains('*') {
+                    continue;
+                }
+                assert!(
+                    crate::tools::is_native_tool_name(name),
+                    "profile {:?} advertises {name:?}, which no native tool backs",
+                    profile.name
+                );
+                assert!(
+                    crate::subagent::manager::ToolPolicyFilter::from_allowlist(&profile.tools)
+                        .allows(name),
+                    "profile {:?} advertises {name:?} but its own gate rejects it",
+                    profile.name
+                );
+            }
+        }
     }
 
     #[test]

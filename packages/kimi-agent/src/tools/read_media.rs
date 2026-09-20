@@ -379,10 +379,12 @@ pub fn read_image_media(
                 ));
             }
             if limits.video_in == Some(false) {
-                return Some(err_result(
-                    "The current model does not support video input. Tell the user to use a model with video input capability."
-                        .to_string(),
-                ));
+                return Some(err_result(format!(
+                    "\"{}\" is a video file. The current model does not support video input \
+                     (missing video_in capability), so this agent cannot view it. Only text \
+                     files can be read.",
+                    path.display()
+                )));
             }
             let byte_size = std::fs::metadata(path).ok()?.len();
             if byte_size == 0 {
@@ -431,10 +433,15 @@ pub fn read_image_media(
     }
 
     if limits.image_in == Some(false) {
-        return Some(err_result(
-            "The current model does not support image input. Tell the user to use a model with image input capability."
-                .to_string(),
-        ));
+        // v2 #3878 names the missing capability and the file's kind, so the
+        // model can tell the user exactly what to change instead of guessing
+        // why a readable path was refused.
+        return Some(err_result(format!(
+            "\"{}\" is an image file. The current model does not support image input \
+             (missing image_in capability), so this agent cannot view it. Only text files \
+             can be read.",
+            path.display()
+        )));
     }
 
     let byte_size = std::fs::metadata(path).ok()?.len();

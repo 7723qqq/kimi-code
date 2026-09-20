@@ -163,6 +163,13 @@ pub struct LLMMessage {
     /// For a `tool` message: the id of the tool call this result answers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+    /// The host prompt id this message answers for (v2 #3906
+    /// `ContextMessage.id` / the queued prompt's `waiter.id`). Only the steer
+    /// queue sets it today: a steered user message keeps its prompt's id so
+    /// the projection can place it inside the host turn (in-turn, non-anchor)
+    /// instead of minting a turn of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_id: Option<String>,
 }
 
 impl LLMMessage {
@@ -173,6 +180,7 @@ impl LLMMessage {
             blocks: Vec::new(),
             tool_calls: Vec::new(),
             tool_call_id: None,
+            prompt_id: None,
         }
     }
 
@@ -195,6 +203,7 @@ impl LLMMessage {
             blocks: Vec::new(),
             tool_calls: Vec::new(),
             tool_call_id: Some(tool_call_id.into()),
+            prompt_id: None,
         }
     }
 }

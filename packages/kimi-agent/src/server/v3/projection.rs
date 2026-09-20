@@ -39,7 +39,7 @@ use super::messages::{
     AssistantMessage, ContentPart, ContentPartType, ServerMessage, StepMessage, StepStatus,
     StreamStatus, TaskKind, TaskMessage, TaskStatus, ThinkingMessage, TodoItem, TodoItemStatus,
     TodoMessage, ToolCallMessage, ToolCallStatus, TurnMessage, TurnOrigin, TurnStatus, TurnUsage,
-    UserMessage, UserMessageStatus,
+    UserMessage, UserMessageOrigin, UserMessageStatus,
 };
 
 /// Identity of a turn entity: the number both the live stream and a reader of
@@ -158,6 +158,42 @@ pub fn project_history(
         match stored.message.role.as_str() {
             "system" => continue,
             "user" => {
+                // v2 #3906: a steered message (it carries a `prompt_id` and its
+                // role is not the turn's first user message) stays *inside* the
+                // current turn with its prompt's identity, instead of minting a
+                // turn of its own — the shape that made cancel echo the text
+                // twice and left the host prompt un-undoable.
+                let is_steered = stored.message.prompt_id.is_some() && current.is_some();
+                if is_steered {
+                    let context = current.as_ref().expect("checked above");
+                    out.push(ServerMessage::User(UserMessage {
+                        session_id: session_id.to_string(),
+                        agent_id: agent_id.to_string(),
+                        // The prompt's own id is the entity id, so a client can
+                        // address the steered message by the prompt it came
+                        // from (v2 `userMessageId: promptId`).
+                        message_id: stored
+                            .message
+                            .prompt_id
+                            .clone()
+                            .unwrap_or_else(|| user_entity_id(context.number)),
+                        turn_id: Some(turn_entity_id(context.number)),
+                        status: UserMessageStatus::Read,
+                        timestamp: Some(stored.created_at),
+                        text: user_text(&stored.message),
+                        attachment_ids: None,
+                        skill_activations: None,
+                        // `inTurn: true` is the non-anchor marker: undo of the
+                        // host turn keeps the steered text from being treated
+                        // as a second turn opener (v2 `markInTurnOrigin`).
+                        origin: Some(UserMessageOrigin::User {
+                            cron_id: None,
+                            schedule: None,
+                            in_turn: Some(true),
+                        }),
+                    }));
+                    continue;
+                }
                 let number = match &current {
                     Some(context) => context.number + 1,
                     None => 1,
@@ -611,6 +647,19 @@ mod tests {
         }
     }
 
+    fn steered(prompt_id: &str, content: &str, created_at: i64) -> StoredMessage {
+        StoredMessage {
+            message: LLMMessage {
+                role: "user".to_string(),
+                content: content.to_string(),
+                prompt_id: Some(prompt_id.to_string()),
+                ..Default::default()
+            },
+            created_at,
+            turn_id: "turn-test".to_string(),
+        }
+    }
+
     fn record(number: u32, started: i64, completed: Option<i64>) -> TurnRecord {
         TurnRecord {
             turn_id: format!("turn-{}", 9_000 + number),
@@ -935,6 +984,68 @@ mod tests {
             ],
             "history must retain both the prompt body and its attachment"
         );
+    }
+
+    /// v2 #3906/#3891: a steered user message keeps its prompt's id, stays
+    /// inside the host turn, and carries an in-turn origin — it is not a turn
+    /// opener, so undo targets the host turn and cancel cannot echo the text
+    /// twice.
+    #[test]
+    fn steered_user_messages_stay_in_the_host_turn() {
+        let history = vec![
+            stored("user", "original question", 1_000),
+            stored("assistant", "working…", 1_100),
+            steered("prompt-1", "actually use python", 1_200),
+            stored("assistant", "done", 1_300),
+        ];
+        let messages = project_history("s", "main", &[], &history);
+
+        let users: Vec<&UserMessage> = messages
+            .iter()
+            .filter_map(|message| match message {
+                ServerMessage::User(user) => Some(user),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(
+            users.len(),
+            2,
+            "the steer must not mint a second turn opener"
+        );
+
+        // The turn opener keeps the positional id.
+        assert_eq!(users[0].message_id, "1.user");
+        assert!(users[0].origin.is_none());
+
+        // The steer keeps the prompt's id and is marked in-turn.
+        assert_eq!(users[1].message_id, "prompt-1");
+        assert_eq!(users[1].turn_id.as_deref(), Some("1"));
+        match &users[1].origin {
+            Some(UserMessageOrigin::User { in_turn, .. }) => {
+                assert_eq!(in_turn, &Some(true), "the steer is a non-anchor origin");
+            }
+            other => panic!("expected a user origin, got {other:?}"),
+        }
+    }
+
+    /// A steered message at the very front of a retained history has no host
+    /// turn to hang off; the positional fallback must not panic.
+    #[test]
+    fn a_steered_message_without_a_preceding_turn_falls_back() {
+        let history = vec![steered("prompt-9", "orphan steer", 500)];
+        let messages = project_history("s", "main", &[], &history);
+        // Falls through to the plain turn-opener path: `prompt_id` only marks
+        // a message steered when a host turn is actually open.
+        let users: Vec<&UserMessage> = messages
+            .iter()
+            .filter_map(|message| match message {
+                ServerMessage::User(user) => Some(user),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(users.len(), 1);
+        assert_eq!(users[0].message_id, "1.user");
     }
 
     #[test]

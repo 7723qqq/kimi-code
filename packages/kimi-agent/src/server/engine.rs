@@ -571,9 +571,17 @@ impl ServerEngine {
     /// Queue a steering prompt for `session_id`'s active turn. Returns `false`
     /// when no turn is running, so the caller can answer "nothing to steer"
     /// rather than park the message until some later turn.
-    pub fn enqueue_steer(&self, session_id: &str, message: LLMMessage) -> bool {
+    pub fn enqueue_steer(&self, session_id: &str, mut message: LLMMessage) -> bool {
         if !self.is_turn_active(session_id) {
             return false;
+        }
+        // v2 #3906: a steered message carries its prompt's identity so the
+        // projection can place it inside the host turn instead of minting a
+        // turn of its own (which made cancel show the text twice and left the
+        // host prompt un-undoable). Callers that already minted an id put it on
+        // the message; one without gets a fresh one here.
+        if message.prompt_id.is_none() {
+            message.prompt_id = Some(format!("prompt-{}", fastrand::u64(..)));
         }
         self.steer_queue(session_id)
             .lock()
@@ -1338,6 +1346,8 @@ impl ServerEngine {
             blocks: media,
             tool_calls: Vec::new(),
             tool_call_id: None,
+
+            prompt_id: None,
         };
         messages.push(user_message.clone());
         let input_len = messages.len();

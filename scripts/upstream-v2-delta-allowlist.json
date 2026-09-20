@@ -36,49 +36,49 @@
       "sha": "88a7d932f1cda95c78bf5488d34ff974a160fb08",
       "date": "2026-09-18",
       "subject": "fix(agent-core-v2): pre-shrink compaction history to the effective model window (#3911)",
-      "verdict": "tracked",
+      "verdict": "ported",
       "roadmap": "§6.1-22",
-      "note": "Real behavior gap, queued: the fork's `summarize_with_llm` sends the entire omitted history on the first summarizer request and only shrinks one message per empty-summary retry — a compaction after switching to a smaller-window model overflows and burns overflow-recovery rounds instead of pre-shrinking to the effective window budget (output reserve = max(window/8, compaction_max_output_size), safety ratio, request-token deduction, recent-tail keep). Port needs: effective window in CompactionConfig path, a take-recent-within-budget helper, and a run_turn-level overflow test."
+      "note": "Compaction pre-shrink (v2 `preShrinkHistoryToWindowBudget`, fullCompactionService.ts:818-841): `compaction/mod.rs` gains `summarize_with_llm_budgeted` + `pre_shrink_to_window_budget` / `take_recent_within_budget` (safety ratio 0.85, output reserve window/8, request-scaffold allowance), and `run_turn`'s overflow-recovery passes `max_context_tokens` through `force_compact_messages_with_summary_budgeted`. 3 unit tests pin fit/tail/tool-result-drop, plus the nothing-fits fallback (v2 returns an empty slice; the caller sends the original)."
     },
     {
       "sha": "7dc253c5cefac7c277e5fc7071acf3e855fd503e",
       "date": "2026-09-18",
       "subject": "fix(agent-core-v2): restore thinking for the openrouter reasoning dialect (#3910)",
-      "verdict": "tracked",
+      "verdict": "ported",
       "roadmap": "§6.1-23",
-      "note": "Upstream's openai-format requester now keeps string reasoning fields (reasoning_content et al.) even when a reasoning_details array is present, stamps every think part with its source key (reasoningKey), and replays each field bucketed by key on the next request. The fork's llm/openai.rs reasoning handling and thinking_keep passthrough need a dedicated comparison pass against this dialect before porting; a mechanical port without that comparison risks double-replaying fields the engine already replays."
+      "note": "The ported half: replayed think blocks ride the model's declared reasoning field (`[models.<alias>].reasoning_key`) instead of flattening to assistant prose (`openai.rs::project_message` now takes the key; `http.rs` passes it through). No fork equivalent of v2's `reasoning_details`-array think-part stamping exists (fork stores no detailsIndex), so the string-vs-details coexistence case keeps the string, which the fork already read. Regression test pins both shapes."
     },
     {
       "sha": "92c3c59b223a1195155a887b6dfc0376889e6523",
       "date": "2026-09-18",
       "subject": "feat: expose resolved base_url on models.dev catalog provider items (#3909)",
-      "verdict": "tracked",
+      "verdict": "ported",
       "roadmap": "§6.1-24",
-      "note": "Rides on a bigger pre-existing gap: the fork's GET /api/v1/catalog/providers serves a hardcoded four-item static list, not the models.dev proxy with fetch/cache/snapshot fallback and wire resolution — there is no resolution result to expose base_url from. The models.dev proxy surface itself is the prerequisite work item; #3909's base_url field lands with it."
+      "note": "`base_url` now rides every `/api/v1/catalog/providers` item (resolved endpoint per built-in entry; the fork serves a built-in list, not a models.dev proxy, so the endpoint is stated rather than resolved), the per-id route reads the same shared source instead of fabricating a placeholder (unknown id = 404), and server-api.md documents the new field. Matches the v2 item shape (`modelsDevImport.ts` `ModelsDevProviderItem.base_url`)."
     },
     {
       "sha": "3cc6b2a330fe29e54e12f7a676c16acb8dca2cf9",
       "date": "2026-09-18",
       "subject": "feat(kimi-code): carry turn trace id and copilot stats in rating surveys (#3907)",
-      "verdict": "tracked",
+      "verdict": "ported",
       "roadmap": "§6.1-25",
-      "note": "The survey payload's trace id comes from the engine's telemetry context, and the fork's telemetry bridge still has the known trace_id gap (engine cannot capture the provider request id — wire-schema.ts telemetryEventSchema note). TUI half (survey-controller carrying the fields) is meaningful only after the engine exposes the trace id; queued behind that."
+      "note": "Survey trace id + copilot stats: the engine `turn_ended` telemetry payload now carries `trace_id` (engine-minted `turn-<id>`; a provider request id is still not visible to the engine, noted in wire-schema.ts), `TurnEndedEvent` gains an optional `traceId` (interface + zod) passed through the napi bridge, and the survey controller records `kfc_trace_id` plus `subagent_count`/`subagent_models`/`swarm_run_count`/`swarm_models` per turn. `tower_mode_enter/exit` emit from the SDK `setTowerMode` flip point, where the flag actually lives."
     },
     {
       "sha": "60f2a63278f28b77d9358cf589b2da6193bd2614",
       "date": "2026-09-18",
       "subject": "fix(agent-core-v2): reuse the queued prompt id for a single steer (#3906)",
-      "verdict": "tracked",
+      "verdict": "ported",
       "roadmap": "§6.1-26",
-      "note": "v2-loop id plumbing (queued prompt id reuse on steer, in-turn origin marker, undo anchoring) does not map 1:1 onto the fork's steer path — Rust steers merge into the running turn via SessionContext::drain_steers and the v3 projection derives user entity ids from turn position. Needs a design pass on the fork's own history/undo model: whether a steered user message can be independently undone and whether cancel-duplicate display applies."
+      "note": "Steer identity end to end: `LLMMessage.prompt_id` (new optional field, persisted as a `messages.prompt_id` column with the store's idempotent ALTER pattern), `ServerEngine::enqueue_steer` mints an id when the caller sent none, the REST `prompt_ids` steer route reuses the queued prompt's own id (v2 `children[0].waiter.id`), and the v3 projection keeps a steered user message inside the current turn under that id with `origin.inTurn = true` (v2 `markInTurnOrigin`) instead of minting a turn of its own. `translate_wire_event` applies the same rule live. 2 projection tests pin in-turn placement and the no-open-turn fallback."
     },
     {
       "sha": "b0d0a80c3288cdc09e0caae0f92c19eabcb20a1b",
       "date": "2026-09-18",
       "subject": "feat: add usage telemetry for swarm, tower, external hooks, and remote control (#3897)",
-      "verdict": "tracked",
+      "verdict": "ported",
       "roadmap": "§6.1-27",
-      "note": "Telemetry-only: tower_mode_enter/exit, swarm_mode_entered/exited, external_hook_resolved, remote_control_toggle emission points. The fork's engine already preserves event attributes losslessly, but these named counters have no engine-side emission yet. Queued as a telemetry batch; no user-visible behavior change rides on it."
+      "note": "Telemetry emissions: `swarm_mode_entered/exited` on the profile-write transition, `external_hook_resolved` in `HookGuard::denial` (action/matched_count/failed_count, verdict untouched) riding `HostCallbacks::telemetry` via a OnceLock sink, `remote_control_toggle` with v2 outcome vocabulary on the REST route. Server routes without a host callback fall back to `tracing::info` via `HttpServer::emit_session_telemetry` (`with_telemetry_sink` for host integration). Only `tower_mode_enter/exit` remains: tower mode has no engine-side flip point yet."
     },
     {
       "sha": "73ebe9ab2fbf9bf0ffc8fe5a5375060ce8e984b5",
@@ -126,17 +126,17 @@
       "sha": "f233f9de04d71c42d27df870b18e1bc1a6605f16",
       "date": "2026-09-18",
       "subject": "fix(agent-core-v2): stop advertising unregistered tools and clarify Read media errors (#3878)",
-      "verdict": "tracked",
+      "verdict": "ported",
       "roadmap": "§6.1-28",
-      "note": "Two halves need a fork-side comparison pass: (1) v2's Agent tool advertised subagent tool tables including names that were not actually registered in the subagent's registry — the fork's agent_tool profile_tools_listing builds the advertised table from the same policy source that gates execution, but that invariant (advertised == callable) is not pinned by a test; (2) v2 clarified Read's media-not-supported error text — the fork's read.rs/read_media.rs has its own wording. Queue: pin the invariant with a test asserting every advertised subagent tool name executes, and diff the Read media error wording."
+      "note": "Half 1 (invariant): `every_advertised_builtin_tool_is_resolvable` in `tools/agent_tool.rs` pins that every builtin profile's advertised tool name resolves (`is_native_tool_name`) and passes its own `ToolPolicyFilter` gate — the listing and the gate share one source, so the class of bug upstream fixed cannot occur. Half 2 (Read media wording): verified against v2 by diff — the three limit messages (`delivery_limit_error` / `decode_limit_error` / `full_resolution_limit_error`) match `buildImageDeliveryLimitError` / `buildImageDecodeLimitError` / `buildFullResolutionLimitError` word for word, differing only in the tool name (`Read`, not `ReadMediaFile`), which is correct because the fork has no separate media tool — media rides `Read` itself (`tool-name-contract.json`); the capability-gated refusal names the file kind and the missing `image_in`/`video_in` capability per v2, so the `ReadMediaFile`-pointer variant is not applicable."
     },
     {
       "sha": "53e5e3fca6bf377662bc4d61d220dde4ded8e7b7",
       "date": "2026-09-18",
       "subject": "fix(agent-core-v2): pair steered follow-ups by reserved message id (#3891)",
-      "verdict": "tracked",
+      "verdict": "ported",
       "roadmap": "§6.1-26",
-      "note": "Companion to #3906 (same roadmap item): pairing steered follow-ups by a reserved message id instead of content, in live and cold transcripts plus fork. Rolls into the §6.1-26 design pass on the fork's steer/history/undo model."
+      "note": "The steered-message identity the pairing needs now exists: the persisted `prompt_id` rides history reload, the v3 projection emits the steered user under its prompt id with an in-turn origin, and the live translator mirrors both — so a client can pair a steered follow-up to its reserved prompt id instead of matching by content. (v2's `steeredMessageIds` join lives in `packages/transcript`, which has no fork consumer; the equivalent information now travels on the v3 entities.)"
     }
   ]
 }

@@ -647,6 +647,8 @@ pub async fn start_repl(
                     blocks: Vec::new(),
                     tool_calls: Vec::new(),
                     tool_call_id: None,
+
+                    prompt_id: None,
                 }]);
             }
             continue;
@@ -819,6 +821,8 @@ pub async fn start_repl(
             blocks: Vec::new(),
             tool_calls: Vec::new(),
             tool_call_id: None,
+
+            prompt_id: None,
         };
         let mut receipt = engine_session
             .enqueue_turn(crate::session::TurnRequest::user(

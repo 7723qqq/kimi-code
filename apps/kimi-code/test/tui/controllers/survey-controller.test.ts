@@ -206,6 +206,11 @@ function userEntry(content: string): TranscriptEntry {
 
 const HARNESS_ENVIRONMENT = {
   current_model: 'k2',
+  kfc_trace_id: undefined,
+  subagent_count: 0,
+  subagent_models: undefined,
+  swarm_run_count: 0,
+  swarm_models: undefined,
   user_turn_count: 5,
   cumulative_tokens: 1234,
   virtual_context_tokens: 640,
@@ -430,6 +435,11 @@ describe('SurveyController long-context arm', () => {
       appearance_index: 1,
       response: undefined,
       current_model: 'k2',
+      kfc_trace_id: undefined,
+      subagent_count: 0,
+      subagent_models: undefined,
+      swarm_run_count: 0,
+      swarm_models: undefined,
       user_turn_count: 1,
       cumulative_tokens: 1234,
       virtual_context_tokens: 250_000,

@@ -181,6 +181,12 @@ pub fn run_turn_with_telemetry<'a>(
         // `run_turn_continued`): by the time the result surfaces here the
         // continuation has already run.
         let result = run_turn_continued(input, callbacks).await;
+        // v2 #3907: the survey payload carries a per-turn trace id so a rating
+        // can be tied to the exact turn. The engine cannot see a provider
+        // request id (the transport never surfaces one), so the trace id is the
+        // engine's own turn-scoped id — stable, unique per turn, and the same
+        // value every `turn_ended` consumer already keys off.
+        let trace_id = format!("turn-{turn_id}");
         match &result {
             Ok(result) => {
                 let reason = telemetry_reason(&result.stop_reason);
@@ -192,6 +198,7 @@ pub fn run_turn_with_telemetry<'a>(
                         "reason": reason,
                         "duration_ms": started.elapsed().as_millis() as u64,
                         "steps": result.steps,
+                        "trace_id": trace_id,
                     })),
                 ));
                 if reason != "completed" {
@@ -1035,14 +1042,16 @@ pub fn run_turn<'a>(
                         )))
                             as Box<dyn std::error::Error + 'a>);
                     }
-                    let force_compacted = crate::compaction::force_compact_messages_with_summary(
-                        &messages,
-                        &compaction_config,
-                        input.llm,
-                        None,
-                        Some(turn_cancel.token()),
-                    )
-                    .await?;
+                    let force_compacted =
+                        crate::compaction::force_compact_messages_with_summary_budgeted(
+                            &messages,
+                            &compaction_config,
+                            input.llm,
+                            None,
+                            Some(turn_cancel.token()),
+                            input.max_context_tokens,
+                        )
+                        .await?;
                     // A compaction that removed nothing cannot change the next
                     // request, so retrying would just burn the remaining
                     // attempts on an identical prompt.
@@ -1090,6 +1099,8 @@ pub fn run_turn<'a>(
                             blocks: step_result.thinking.clone(),
                             tool_calls: Vec::new(),
                             tool_call_id: None,
+
+                            prompt_id: None,
                         });
                     }
                     // Stop hooks (v2 `runStopHooks`, onDidFinishStep without
@@ -1136,6 +1147,8 @@ pub fn run_turn<'a>(
                         blocks: step_result.thinking.clone(),
                         tool_calls: tool_calls.clone(),
                         tool_call_id: None,
+
+                        prompt_id: None,
                     });
 
                     // Tool-call dedup plan (v2 `toolDedupeService`, G-6 #2):
@@ -1350,6 +1363,7 @@ pub fn run_turn<'a>(
                             blocks: Vec::new(),
                             tool_calls: Vec::new(),
                             tool_call_id: tool_calls.get(i).map(|tc| tc.id.clone()),
+                            prompt_id: None,
                         });
                         // Rich content the tool delivers (an image the model
                         // asked to read): a follow-up user message right after
@@ -1367,6 +1381,8 @@ pub fn run_turn<'a>(
                                 blocks: delivery.blocks.clone(),
                                 tool_calls: Vec::new(),
                                 tool_call_id: None,
+
+                                prompt_id: None,
                             });
                         }
                     }
@@ -1424,6 +1440,8 @@ Deliver your final response as text now. Further tool calls are refused.",
                                 blocks: Vec::new(),
                                 tool_calls: Vec::new(),
                                 tool_call_id: None,
+
+                                prompt_id: None,
                             });
                         }
 
@@ -5661,6 +5679,8 @@ mod tests {
             }],
             tool_calls: Vec::new(),
             tool_call_id: None,
+
+            prompt_id: None,
         };
         let captured: Arc<Mutex<Vec<LLMMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let llm = CaptureLlm {

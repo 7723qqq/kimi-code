@@ -107,6 +107,7 @@ pub fn close_trailing_open_tool_exchange(history: &[LLMMessage]) -> Vec<LLMMessa
             blocks: Vec::new(),
             tool_calls: Vec::new(),
             tool_call_id: Some(tc.id.clone()),
+            prompt_id: None,
         });
     }
     result
@@ -146,6 +147,8 @@ mod tests {
                 blocks: Vec::new(),
                 tool_calls: vec![read_call],
                 tool_call_id: None,
+
+                prompt_id: None,
             },
             LLMMessage {
                 role: "tool".into(),
@@ -153,6 +156,7 @@ mod tests {
                 blocks: Vec::new(),
                 tool_calls: Vec::new(),
                 tool_call_id: Some("call_read".into()),
+                prompt_id: None,
             },
         ];
         assert_eq!(close_trailing_open_tool_exchange(&history), history);
@@ -174,6 +178,8 @@ mod tests {
                 blocks: Vec::new(),
                 tool_calls: vec![agent_call],
                 tool_call_id: None,
+
+                prompt_id: None,
             },
         ];
         let closed = close_trailing_open_tool_exchange(&history);
@@ -207,6 +213,8 @@ mod tests {
                 blocks: Vec::new(),
                 tool_calls: vec![read_call, agent_call],
                 tool_call_id: None,
+
+                prompt_id: None,
             },
             LLMMessage {
                 role: "tool".into(),
@@ -214,6 +222,7 @@ mod tests {
                 blocks: Vec::new(),
                 tool_calls: Vec::new(),
                 tool_call_id: Some("call_read".into()),
+                prompt_id: None,
             },
         ];
         let closed = close_trailing_open_tool_exchange(&history);

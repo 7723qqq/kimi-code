@@ -17,7 +17,7 @@ use crate::turn_loop::types::{ContentBlock, LLMChatResponse, ToolCall, ToolInfo}
 /// - Tool results become `{ role: "tool", tool_call_id, content }`.
 /// - An assistant turn that only calls tools sends `content: null`.
 pub fn build_request(model: &str, messages: &[WireMessage], tools: &[ToolInfo]) -> Value {
-    build_request_full(model, messages, tools, false, None, None)
+    build_request_full(model, messages, tools, false, None, None, None)
 }
 
 /// Build an OpenAI Chat Completions request body, optionally streaming.
@@ -29,12 +29,18 @@ pub fn build_request_with_options(
     tools: &[ToolInfo],
     stream: bool,
 ) -> Value {
-    build_request_full(model, messages, tools, stream, None, None)
+    build_request_full(model, messages, tools, stream, None, None, None)
 }
 
 /// Build an OpenAI Chat Completions request body with streaming, optional
 /// reasoning effort, and optional preserved-thinking passthrough
 /// (`thinking.keep`; the host filters off-values and gates on Thinking).
+///
+/// `reasoning_key` is the model's declared reasoning field
+/// (`[models.<alias>].reasoning_key`). When set, replayed think blocks go back
+/// in that field instead of being flattened into the assistant text — v2
+/// #3910 restores the provider's reasoning context rather than presenting the
+/// model's own reasoning as prose.
 pub fn build_request_full(
     model: &str,
     messages: &[WireMessage],
@@ -42,8 +48,12 @@ pub fn build_request_full(
     stream: bool,
     reasoning_effort: Option<&str>,
     thinking_keep: Option<&str>,
+    reasoning_key: Option<&str>,
 ) -> Value {
-    let msgs: Vec<Value> = messages.iter().map(project_message).collect();
+    let msgs: Vec<Value> = messages
+        .iter()
+        .map(|message| project_message(message, reasoning_key))
+        .collect();
 
     let mut req = json!({
         "model": model,
@@ -91,20 +101,50 @@ pub fn build_request_full(
     req
 }
 
-fn project_message(m: &WireMessage) -> Value {
+fn project_message(m: &WireMessage, reasoning_key: Option<&str>) -> Value {
     let mut obj = serde_json::Map::new();
     obj.insert("role".into(), json!(m.role));
+
+    // Replay: a declared reasoning field takes the model's own thinking back
+    // instead of flattening it into prose (v2 #3910). The blocks that ride
+    // the content array exclude what was redirected.
+    let redirected: Vec<&ContentBlock> = match reasoning_key {
+        Some(_) if m.role == "assistant" => m
+            .blocks
+            .iter()
+            .filter(|block| matches!(block, ContentBlock::Think { .. }))
+            .collect(),
+        _ => Vec::new(),
+    };
+    let mut reasoning_text = String::new();
+    for block in &redirected {
+        if let ContentBlock::Think { think, .. } = block {
+            reasoning_text.push_str(think);
+        }
+    }
 
     // Multimodal blocks project to the content-parts array form. An
     // assistant turn that only calls tools carries a null content per the
     // OpenAI schema; everything else carries its (possibly empty) text.
     if !m.blocks.is_empty() {
-        let parts: Vec<Value> = m.blocks.iter().map(project_block).collect();
-        obj.insert("content".into(), json!(parts));
+        let parts: Vec<Value> = m
+            .blocks
+            .iter()
+            .filter(|block| !redirected.contains(block))
+            .map(project_block)
+            .collect();
+        if parts.is_empty() {
+            obj.insert("content".into(), Value::Null);
+        } else {
+            obj.insert("content".into(), json!(parts));
+        }
     } else if m.role == "assistant" && !m.tool_calls.is_empty() && m.content.is_empty() {
         obj.insert("content".into(), Value::Null);
     } else {
         obj.insert("content".into(), json!(m.content));
+    }
+    if let Some(key) = reasoning_key.filter(|_| !reasoning_text.is_empty()) {
+        obj.insert(key.to_string(), json!(reasoning_text));
     }
 
     if !m.tool_calls.is_empty() {
@@ -648,6 +688,57 @@ mod tests {
         assert_eq!(req["stream_options"]["include_usage"], true);
     }
 
+    /// v2 #3910: a declared reasoning field takes the model's thinking back on
+    /// the next request instead of flattening it into assistant prose. Without
+    /// a declared key the old text fallback stands (the OpenAI family has no
+    /// standard reasoning-in slot).
+    #[test]
+    fn replayed_thinking_rides_the_declared_reasoning_field() {
+        let assistant = WireMessage {
+            role: "assistant".into(),
+            content: String::new(),
+            blocks: vec![
+                ContentBlock::Think {
+                    think: "I should add the numbers first.".into(),
+                    encrypted: None,
+                },
+                ContentBlock::Text {
+                    text: "The answer is 7.".into(),
+                },
+            ],
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+        };
+        let messages = vec![assistant];
+
+        let req = build_request_full(
+            "m",
+            &messages,
+            &[],
+            true,
+            None,
+            None,
+            Some("reasoning_content"),
+        );
+        let first = &req["messages"][0];
+        assert_eq!(
+            first["reasoning_content"], "I should add the numbers first.",
+            "the think block rides the declared field"
+        );
+        // The redirected block is not duplicated in the content array.
+        let parts = first["content"].as_array().unwrap();
+        assert_eq!(parts.len(), 1, "only the text block remains in content");
+        assert_eq!(parts[0]["type"], "text");
+        assert_eq!(parts[0]["text"], "The answer is 7.");
+
+        // Without a declared key the old fallback stands: thinking stays in the
+        // content array as text, and no reasoning field is invented.
+        let req = build_request_full("m", &messages, &[], true, None, None, None);
+        let parts = req["messages"][0]["content"].as_array().unwrap();
+        assert_eq!(parts.len(), 2);
+        assert!(req["messages"][0].get("reasoning_content").is_none());
+    }
+
     #[test]
     fn build_request_projects_image_blocks() {
         use crate::turn_loop::types::ContentBlock;
@@ -909,23 +1000,23 @@ mod tests {
             tool_calls: vec![],
             tool_call_id: None,
         }];
-        let req_high = build_request_full("gpt-4o", &msgs, &[], true, Some("high"), None);
+        let req_high = build_request_full("gpt-4o", &msgs, &[], true, Some("high"), None, None);
         assert_eq!(req_high["reasoning_effort"], "high");
 
-        let req_off = build_request_full("gpt-4o", &msgs, &[], true, Some("off"), None);
+        let req_off = build_request_full("gpt-4o", &msgs, &[], true, Some("off"), None, None);
         assert!(req_off.get("reasoning_effort").is_none());
 
-        let req_none = build_request_full("gpt-4o", &msgs, &[], true, None, None);
+        let req_none = build_request_full("gpt-4o", &msgs, &[], true, None, None, None);
         assert!(req_none.get("reasoning_effort").is_none());
     }
 
     #[test]
     fn test_build_request_thinking_keep() {
         let msgs = vec![WireMessage::text("user", "hello")];
-        let req_keep = build_request_full("kimi-k2", &msgs, &[], true, None, Some("all"));
+        let req_keep = build_request_full("kimi-k2", &msgs, &[], true, None, Some("all"), None);
         assert_eq!(req_keep["thinking"]["keep"], "all");
 
-        let req_no_keep = build_request_full("kimi-k2", &msgs, &[], true, None, None);
+        let req_no_keep = build_request_full("kimi-k2", &msgs, &[], true, None, None, None);
         assert!(req_no_keep.get("thinking").is_none());
     }
 

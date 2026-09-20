@@ -481,6 +481,26 @@ pub async fn build_engine_pipeline(
         .set_runtime(llm.clone(), callbacks.clone(), spec.session_id.clone())
         .await;
 
+    // Server-side hook usage telemetry rides the host's own `host/telemetry`
+    // seam: the guard emits through it when the host serves that callback, so
+    // the napi / stdio hosts receive `external_hook_resolved` on the channel
+    // they already read (v2 #3897). A sink set directly on the guard would have
+    // nowhere to go on every current entry point.
+    if let Some(guard) = &hook_guard {
+        let callbacks_for_hooks = callbacks.clone();
+        guard.with_telemetry(Arc::new(move |event, payload| {
+            let value = match payload {
+                serde_json::Value::Null => serde_json::json!({ "event": event }),
+                serde_json::Value::Object(mut fields) => {
+                    fields.insert("event".into(), serde_json::json!(event));
+                    serde_json::Value::Object(fields)
+                }
+                other => other,
+            };
+            callbacks_for_hooks.telemetry(value);
+        }));
+    }
+
     Ok(EnginePipeline {
         llm,
         callbacks,

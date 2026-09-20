@@ -324,6 +324,7 @@ impl NativeHttpLlm {
                 true,
                 self.config.reasoning_effort.as_deref(),
                 self.config.thinking_keep.as_deref(),
+                self.config.reasoning_key.as_deref(),
             )
         };
 
@@ -1235,6 +1236,7 @@ mod tests {
                 extras: None,
             }],
             tool_call_id: None,
+            prompt_id: None,
         }]);
         llm.set_tool_call_ids(Arc::clone(&ledger));
 

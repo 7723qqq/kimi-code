@@ -160,6 +160,10 @@ pub fn apply_micro_compaction(
                 blocks: Vec::new(),
                 tool_calls: Vec::new(),
                 tool_call_id: msg.tool_call_id.clone(),
+                // The marker replaces the original content, but the message
+                // keeps its identity (a steered user prompt stays the same
+                // prompt for the projection).
+                prompt_id: msg.prompt_id.clone(),
             });
         } else {
             out.push(msg.clone());

@@ -317,6 +317,7 @@ impl SqliteSessionStore {
                 tool_calls TEXT,
                 tool_call_id TEXT,
                 blocks TEXT,
+                prompt_id TEXT,
                 created_at INTEGER NOT NULL,
                 FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
             );
@@ -392,6 +393,9 @@ impl SqliteSessionStore {
         }
         if !columns.contains("blocks") {
             let _ = conn.execute("ALTER TABLE messages ADD COLUMN blocks TEXT", []);
+        }
+        if !columns.contains("prompt_id") {
+            let _ = conn.execute("ALTER TABLE messages ADD COLUMN prompt_id TEXT", []);
         }
 
         let session_columns: std::collections::HashSet<String> = {
@@ -1067,7 +1071,7 @@ impl SqliteSessionStore {
     ) -> Result<Vec<StoredMessage>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT role, content, tool_calls, tool_call_id, blocks, created_at, turn_id FROM messages WHERE session_id = ?1 ORDER BY id ASC",
+            "SELECT role, content, tool_calls, tool_call_id, blocks, prompt_id, created_at, turn_id FROM messages WHERE session_id = ?1 ORDER BY id ASC",
         )?;
         let rows = stmt.query_map(params![session_id], |row| {
             Ok(StoredMessage {
@@ -1083,9 +1087,10 @@ impl SqliteSessionStore {
                         .and_then(|s| serde_json::from_str(&s).ok())
                         .unwrap_or_default(),
                     tool_call_id: row.get(3)?,
+                    prompt_id: row.get(5)?,
                 },
-                created_at: row.get(5)?,
-                turn_id: row.get(6)?,
+                created_at: row.get(6)?,
+                turn_id: row.get(7)?,
             })
         })?;
 
@@ -1161,8 +1166,8 @@ impl SqliteSessionStore {
 
         {
             let mut insert_message = tx.prepare(
-                "INSERT INTO messages (session_id, turn_id, role, content, tool_calls, tool_call_id, blocks, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                "INSERT INTO messages (session_id, turn_id, role, content, tool_calls, tool_call_id, blocks, prompt_id, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             )?;
             for m in messages {
                 let tool_calls_json = if m.tool_calls.is_empty() {
@@ -1183,6 +1188,7 @@ impl SqliteSessionStore {
                     tool_calls_json,
                     m.tool_call_id,
                     blocks_json,
+                    m.prompt_id,
                     now
                 ])?;
             }
@@ -2022,6 +2028,8 @@ mod tests {
                 ],
                 tool_calls: vec![],
                 tool_call_id: None,
+
+                prompt_id: None,
             },
             LLMMessage {
                 role: "assistant".into(),
@@ -2042,6 +2050,8 @@ mod tests {
                     },
                 ],
                 tool_call_id: None,
+
+                prompt_id: None,
             },
             LLMMessage {
                 role: "tool".into(),
@@ -2049,6 +2059,7 @@ mod tests {
                 blocks: vec![],
                 tool_calls: vec![],
                 tool_call_id: Some("call_read_1".into()),
+                prompt_id: None,
             },
             LLMMessage {
                 role: "tool".into(),
@@ -2056,6 +2067,7 @@ mod tests {
                 blocks: vec![],
                 tool_calls: vec![],
                 tool_call_id: Some("call_read_2".into()),
+                prompt_id: None,
             },
         ];
 
@@ -2707,6 +2719,59 @@ mod tests {
             )
             .unwrap();
         assert_eq!(store.next_turn_number("sess-seq").unwrap(), 6);
+    }
+
+    /// v2 #3906: the symptom upstream fixed was "a steered follow-up mints a
+    /// second context id, so the host prompt becomes un-undoable". The fork's
+    /// undo is turn-scoped (`DELETE FROM messages WHERE turn_id = ?`), and a
+    /// steer rides the active turn's id, so the host prompt and its steered
+    /// follow-ups are already one undo unit — the divergence never existed
+    /// here. The `prompt_id` this branch now carries is what lets the
+    /// projection *show* that grouping instead of rendering the steer as its
+    /// own turn. This pins the invariant so a future move to message-scoped
+    /// undo does not silently break it.
+    #[test]
+    fn a_steer_and_its_host_prompt_are_one_undo_unit() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store.create_session("sess-steer-undo", None).unwrap();
+
+        // Host turn: the prompt, then an assistant reply.
+        store
+            .save_turn(
+                "sess-steer-undo",
+                "t1",
+                1,
+                &[
+                    LLMMessage::user("original"),
+                    LLMMessage::assistant("working on it"),
+                ],
+                None,
+                None,
+            )
+            .unwrap();
+        // The steer joins the same turn (as `admit_locked` does), carrying its
+        // prompt id.
+        let mut steer = LLMMessage::user("actually use python");
+        steer.prompt_id = Some("prompt-1".to_string());
+        store
+            .save_turn("sess-steer-undo", "t1", 1, &[steer], None, None)
+            .unwrap();
+
+        let history = store.load_session_history("sess-steer-undo").unwrap();
+        assert_eq!(history.len(), 3, "prompt + reply + steer in one turn");
+        // The id survives the round-trip — that is what the projection reads.
+        assert_eq!(history[2].prompt_id.as_deref(), Some("prompt-1"));
+
+        // One undo removes the whole turn, steer included.
+        let undone = store.undo_turns("sess-steer-undo", 1).unwrap();
+        assert_eq!(undone, 1);
+        assert!(
+            store
+                .load_session_history("sess-steer-undo")
+                .unwrap()
+                .is_empty(),
+            "the steer must not outlive its host prompt"
+        );
     }
 
     #[test]

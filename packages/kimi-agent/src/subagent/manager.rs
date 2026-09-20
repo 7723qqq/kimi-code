@@ -934,6 +934,8 @@ worktree root the tower assigns you as your full authority scope.";
                 blocks: Vec::new(),
                 tool_calls: Vec::new(),
                 tool_call_id: None,
+
+                prompt_id: None,
             }];
 
             let run_input = crate::turn_loop::types::RunTurnInput {
@@ -1103,6 +1105,8 @@ worktree root the tower assigns you as your full authority scope.";
                 blocks: Vec::new(),
                 tool_calls: Vec::new(),
                 tool_call_id: None,
+
+                prompt_id: None,
             });
             msgs
         } else {
@@ -1112,6 +1116,8 @@ worktree root the tower assigns you as your full authority scope.";
                 blocks: Vec::new(),
                 tool_calls: Vec::new(),
                 tool_call_id: None,
+
+                prompt_id: None,
             }]
         };
 

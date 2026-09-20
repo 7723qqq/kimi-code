@@ -1403,7 +1403,9 @@ export class KimiTUI {
 
   handleTurnEnded(event: TurnEndedEvent): void {
     this.staging.handleTurnEnded(event);
-    this.surveyController.notifyTurnEnded();
+    // v2 #3907: the survey payload carries the engine's per-turn trace id so a
+    // rating can be tied to the exact turn.
+    this.surveyController.notifyTurnEnded(event.traceId);
   }
 
   releaseStagingMedia(mediaAttachmentIds: readonly number[]): void {

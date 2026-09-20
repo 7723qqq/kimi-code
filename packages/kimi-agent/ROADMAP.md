@@ -874,46 +874,88 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
     被 steer 的 slash activation 也要进到那里。**验收**：TS 契约随上游合并落地，且引擎 origin 投影
     覆盖 steer 路径的 skill activation（allowlist: `1c7e996aa8`）。
 
-22. **#3911 压缩前预收缩摘要请求历史（未移植，queued）**：上游在压缩摘要的**第一次** LLM
-    请求前把历史预收缩到有效模型窗口预算（输出预留 = `max(window/8, compaction_max_output_size)`
-    取小、乘安全比、扣请求自身 token、保留最近尾部），换到小窗口模型后立即压缩不再溢出烧重试轮。
-    本 fork 的 `summarize_with_llm` 首次请求发送**全部**被省略历史，空摘要重试只从头丢一条；
-    溢出恢复靠 run_turn 的 3 轮机制兜底。**移植需要**：CompactionConfig 路径接入有效窗口、
-    「按预算取最近消息」助手函数、run_turn 级溢出测试（allowlist: `88a7d932f1`）。
+22. **#3911 压缩前预收缩摘要请求历史（已落地 2026-09-19）**：`compaction/mod.rs` 新增
+    `summarize_with_llm_budgeted` + `pre_shrink_to_window_budget` / `take_recent_within_budget`
+    （安全比 0.85 = v2 `OVERFLOW_CONTEXT_SAFETY_RATIO`，输出预留 = 窗口/8，扣除请求自身估算，
+    保留最近尾部且不落悬空 tool result；什么都放不下时返回空切片、调用方按 v2 语义发送原样）。
+    `run_turn` 的溢出恢复经 `force_compact_messages_with_summary_budgeted` 传入
+    `max_context_tokens`。3 条单测钉住放得下不发、尾部存活、无悬空 tool result（allowlist:
+    `88a7d932f1`）。
 
-23. **#3910 openrouter reasoning 方言的 thinking 恢复（未移植，需先比对）**：上游 openai 格式
-    请求端在存在 `reasoning_details` 数组时仍保留字符串 reasoning 字段，给每个 think part 盖
-    来源戳（`reasoningKey`）并按 key 分桶重放到下一次请求。移植前须先对 fork 的
-    `llm/openai.rs` reasoning 处理与 `thinking_keep` 透传做一轮专门比对——机械移植有对引擎
-    已重放字段二次重放的风险（allowlist: `7dc253c5ce`）。
+23. **#3910 openrouter reasoning 方言的 thinking 恢复（已落地重放半件 2026-09-19）**：
+    `openai.rs::project_message` 接收 `reasoning_key`（`[models.<alias>].reasoning_key`，
+    `http.rs` 透传），声明了 key 的模型把 Think 块放回该字段重放，而不是压平成 assistant 文本；
+    未声明的保持文本兜底。回归测试钉住两种形状。**未移植**：v2 的 `reasoning_details` 数组
+    think-part 盖戳（`reasoningKey`/`detailsIndex`）——fork 的 `ContentBlock::Think` 没有
+    detailsIndex 身份，机械移植会对引擎已重放字段二次重放；现有形状下字符串与 details 共存时
+    字符串本来就被保留（allowlist: `7dc253c5ce`）。
 
-24. **#3909 models.dev 目录项暴露 resolved base_url（前置件缺失）**：fork 的
-    `GET /api/v1/catalog/providers` 是**硬编码四项静态列表**，不是 models.dev 代理
-    （抓取 + 内存缓存 + 内置快照回退 + wire 解析）——没有解析结果可暴露 base_url。
-    models.dev 代理面本身是前置工单，base_url 字段随它落地（allowlist: `92c3c59b22`）。
+24. **#3909 目录项暴露 resolved base_url（已落地 2026-09-19，就地）**：fork 的目录是内置
+    静态列表而非 models.dev 代理，但 base_url 字段已按 v2 的 item 形状补上（每项解析出的
+    端点）；per-id 路由改为与列表路由共用同一份数据源，未知 id 返回 404 而不是伪造占位条目
+    （v2 的 per-id 路由同样只回真实条目）。server-api.md 双语文档同步。models.dev 代理面
+    （抓取 + 缓存 + 快照回退）仍未建，属独立工单（allowlist: `92c3c59b22`）。
 
-25. **#3907 评分问卷携带 turn trace id 与 copilot 统计（后置件缺失）**：问卷载荷的 trace id
-    来自引擎遥测上下文，而 fork 遥测桥仍有已知 trace_id 缺口（引擎不能捕获 provider request
-    id，见 `wire-schema.ts` telemetryEventSchema 注）。TUI 半件在引擎暴露 trace id 之后才有
-    意义，排在其后（allowlist: `3cc6b2a330`）。
+25. **#3907 评分问卷携带 turn trace id 与 copilot 统计（已落地 2026-09-19）**：引擎在
+    `turn_ended` 遥测载荷补 `trace_id`（引擎侧铸造 `turn-<id>`；provider request id 仍不可见，
+    `wire-schema.ts` 注释保留——一个稳定的引擎级每轮 id 已满足问卷归因），协议
+    `TurnEndedEvent` 新增可选 `traceId`（`events.ts` 接口 + zod schema），napi 桥透传
+    `trace_id`；TUI 侧 `surveyController` 记录 `pendingTraceId` 并在载荷新增 `kfc_trace_id`、
+    `subagent_count`、`subagent_models`、`swarm_run_count`、`swarm_models`（模型清单来自
+    AgentSwarm/Swarm 调用族，普通子代理只有计数——事件载荷尚无 model 字段）。tower 遥测
+    `tower_mode_enter/exit` 在 SDK `setTowerMode` 的翻转点发出（flag 本就在宿主侧，引擎没有
+    可观察的翻转点）。（allowlist: `3cc6b2a330`）
 
-26. **#3906 单次 steer 复用排队 prompt id（需要设计轮）**：v2 环回中 turn 期间追加的消息
-    会铸造第二个 context id，导致取消时同文本出现两次、宿主 prompt 无法 undo；上游改为
-    复用排队 prompt id、标记 in-turn origin。fork 的 steer 经 `SessionContext::drain_steers`
-    并入运行中回合，v3 投影按回合位置推导 user 实体 id——能否独立 undo、取消重复显示是否
-    适用，需要对 fork 自己的历史/undo 模型做设计轮再定（allowlist: `60f2a63278`、
-    `53e5e3fca6`——#3891 的保留消息 id 配对并入本项设计轮）。
+26. **#3906 单次 steer 复用排队 prompt id（已落地 2026-09-19）**：`LLMMessage` 新增可选
+    `prompt_id`（持久化为 `messages.prompt_id` 列，沿用 store 的幂等 ALTER 迁移模式），
+    `ServerEngine::enqueue_steer` 在调用方未带 id 时铸造，REST `prompt_ids` steer 路由复用
+    排队 prompt 自己的 id（v2 `children[0].waiter.id`）；v3 投影把带 id 的 steer 消息留在
+    当前回合内、实体 id 即 prompt id、`origin.inTurn = true`（v2 `markInTurnOrigin`），
+    不再自铸回合——取消时同文本出现两次、宿主 prompt 无法 undo 的两个症状同时消除；
+    live 翻译器对 `message.user` 应用同一规则，实体 id 与历史投影一致。
+    `#3891` 的保留消息 id 配对随本项落地：客户端按 prompt id 配对 steered follow-up，
+    不再按内容匹配（allowlist: `60f2a63278`、`53e5e3fca6`）。
 
-27. **#3897 swarm/tower/外部钩子/remote-control 用量遥测（queued）**：`tower_mode_enter/exit`、
-    `swarm_mode_entered/exited`、`external_hook_resolved`、`remote_control_toggle` 五类命名
-    计数在引擎侧没有发射点。纯遥测批，无可感知行为差异挂在上面，作为一批集中补
+    关于 v2 该修复的两个症状，fork 侧的实际情况经实测确认一半：
+    - 「宿主 prompt 无法 undo」**在 fork 上本不存在**。v2 的修法实质是 `isUndoAnchorOrigin`
+      排除 in-turn 消息，让 steer 与其宿主 prompt 落进同一个 undo 单元；fork 没有
+      `is_undo_anchor`，但 undo 是**回合作用域**（`DELETE FROM messages WHERE turn_id = ?`），
+      而 steer 复用 active turn_id，所以两者天然同属一个 undo 单元 —— 该 bug 的形态在 fork
+      上不成立，因此未移植 `isUndoAnchorOrigin` 判定（移植也不会改变行为）。
+      该不变量由 `sqlite_store.rs` 的 `a_steer_and_its_host_prompt_are_one_undo_unit`
+      实测钉住；若将来 undo 改成消息作用域，该测试会先失败，避免静默回归。
+    - 「取消时同文本出现两次」随 prompt id 移植消除（v3 投影与 live 翻译器均按 id 分组）。
+
+    即：本项移植的实际价值是让**投影正确分组**（in-turn origin + 实体 id 复用），undo 症状
+    只是 fork 既有作用域的巧合结果，不应被误读为照搬 v2 的 undo 锚点逻辑。
+
+27. **#3897 swarm/tower/外部钩子/remote-control 用量遥测（已落地 2026-09-19，余塔进入点）**：
+    `swarm_mode_entered/exited` 在 `apply_prompt_submission_options`（模式翻转时发，重复写不发）；
+    `external_hook_resolved` 在 `HookGuard::denial`（`action`/`matched_count`/`failed_count`，
+    失败按 `TIMED_OUT`/`ERRORED` 前缀分类，verdict 逻辑零改动）；`remote_control_toggle` 在
+    REST 路由（`outcome: ok/already_running/error`，与 v2
+    `kap-server/src/routes/remoteControl.ts:84-105` 一致）。缝合方式：钩子事件经
+    `HookGuard::with_telemetry`（`OnceLock`，防重复安装）落到 `HostCallbacks::telemetry`——
+    napi / stdio 宿主已在读取的通道；服务端路由无宿主回调，经 `HttpServer::emit_session_telemetry`
+    发出，无 sink 时落 `tracing::info`（standalone `--serve` 没有可上报的上游遥测服务，日志是
+    始终可观察的兜底，`with_telemetry_sink` 留给宿主集成）。`tower_mode_enter/exit` 在 SDK
+    `setTowerMode` 的翻转点发出（`sdk-rpc-client-native.ts:2411`）——tower flag 本就在宿主侧
+    （引擎只经参数接收启用状态），所以发射点只能在 SDK，引擎侧没有可观察的翻转点可挂。
     （allowlist: `b0d0a80c32`）。
 
-28. **#3878 Agent 工具宣传不变量 + Read 媒体错误文案（需比对轮）**：两半——(1) v2 的
-    Agent 工具曾宣传子代理注册表中并不存在的工具名；fork 的 `profile_tools_listing` 从
-    同一策略源构建宣传表与执行门控，但「宣传 == 可执行」这条不变量**没有测试钉住**，补一个
-    断言每个宣传名都可执行的测试；(2) v2 澄清了 Read 的媒体不支持错误文案，fork 的
-    `read.rs`/`read_media.rs` 有自己的措辞，需 diff 后决定是否对齐（allowlist: `f233f9de04`）。
+28. **#3878 Agent 工具宣传不变量 + Read 媒体错误文案（已落地 2026-09-19）**：两半——
+    (1) v2 的 Agent 工具曾宣传子代理注册表中并不存在的工具名；fork 的
+    `profile_tools_listing` 从同一策略源构建宣传表与执行门控，但「宣传 == 可执行」这条
+    不变量**没有测试钉住**，已补 `every_advertised_builtin_tool_is_resolvable`
+    （`tools/agent_tool.rs`）：每个内建 profile 宣传的非通配名都必须
+    `is_native_tool_name` 命中，且通过自身的 `ToolPolicyFilter` 门控。
+    (2) Read 媒体错误文案已对照 v2 逐条比对：三条限额文案
+    （`delivery_limit_error` / `decode_limit_error` / `full_resolution_limit_error`）
+    与 v2 `buildImageDeliveryLimitError` / `buildImageDecodeLimitError` /
+    `buildFullResolutionLimitError` **逐字一致**，仅工具名是 `Read` 而非 `ReadMediaFile`
+    ——fork 没有独立媒体工具，媒体走 `Read` 本身（`tool-name-contract.json`），故正确。
+    capability 门控的拒绝文案已按 v2 命名文件类型与缺失的 `image_in`/`video_in`
+    capability。`ReadMediaFile` 指针变体不适用。（allowlist: `f233f9de04`）
 
     另：2026-09-19 批量 triage 后确认两条 not-applicable 无需动作——#3892（洪水根目录观察
     崩溃）依赖 v2 的 OS 目录 watcher，fork 的 fs_watch 是注册路径的 mtime 轮询，无此失败

@@ -464,6 +464,12 @@ pub enum UserMessageOrigin {
         cron_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         schedule: Option<String>,
+        /// v2 #3906 `origin.inTurn`: the user message joined a running turn
+        /// (steer) instead of opening one. A client must not treat it as an
+        /// undo anchor or a new turn opener.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "inTurn")]
+        in_turn: Option<bool>,
     },
     #[serde(rename = "cron")]
     Cron {
