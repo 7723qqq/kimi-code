@@ -795,6 +795,18 @@ export interface NativeCompressImageResult {
 export declare function nativeComputeCompactCount(messages: Array<CompactionMessageMeta>, config: CompactionConfigMeta, isManual: boolean): number
 
 /**
+ * The post-jitter next fire (epoch ms) for one stored cron entry, or `null`
+ * when its expression never fires again.
+ *
+ * The host cannot reproduce the parser, the local timezone, or the jitter
+ * derivation, so a host listing the registry (the SDK's `getCronTasks`)
+ * asks here instead of guessing — the same reason
+ * [`native_read_engine_state`] exists. `entry_json` is the stored entry
+ * object (`id` / `cron` / `recurring` / `createdAt`).
+ */
+export declare function nativeCronNextFire(entryJson: string, fromMs: number): number | null
+
+/**
  * Crop `region` out of `data` and encode it for the model.
  *
  * Async: runs on tokio's blocking thread pool. Returns an outcome struct

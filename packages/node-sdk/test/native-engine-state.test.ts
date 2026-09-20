@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { nativeReadEngineState } from '@moonshot-ai/kimi-agent/native';
 
@@ -70,5 +70,70 @@ describe('session warnings', () => {
     const harness = createKimiHarnessNative({ homeDir, identity: TEST_IDENTITY });
     const session = await harness.createSession({ workDir });
     await expect(session.getSessionWarnings()).resolves.toEqual([]);
+  }, 60_000);
+});
+
+/**
+ * `Session.getCronTasks` reads the workspace cron registry through the
+ * engine. The registry is workspace-level state (the state-bridge `cron`
+ * domain carries no session id), so the host asks the engine for it the same
+ * way it reads the todo domain — the stub used to answer `[]`
+ * unconditionally, which left a host polling for pending scheduled work
+ * blind. The next-fire computation is the engine's (parser, timezone and
+ * jitter); what these pin is the host reading the real registry and mapping
+ * it onto the snapshot contract.
+ */
+describe('session getCronTasks', () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    while (dirs.length > 0) rmSync(dirs.pop()!, { recursive: true, force: true });
+  });
+
+  it('reads the workspace cron registry through the engine', async () => {
+    const homeDir = mkdtempSync(join(tmpdir(), 'kimi-cron-home-'));
+    dirs.push(homeDir);
+    const workDir = mkdtempSync(join(tmpdir(), 'kimi-cron-work-'));
+    dirs.push(workDir);
+    // The engine-state store resolves under the process home, so pin it to
+    // the temp home: a seeded registry must never touch the real profile.
+    vi.stubEnv('HOME', homeDir);
+    vi.stubEnv('USERPROFILE', homeDir);
+    const harness = createKimiHarnessNative({ homeDir, identity: TEST_IDENTITY });
+    const session = await harness.createSession({ workDir });
+
+    // The first read resolves (and creates) the workspace state directory.
+    await expect(session.getCronTasks()).resolves.toEqual({ tasks: [] });
+
+    // Seed the registry the way the CronCreate tool does, then read again.
+    const stateRoot = join(homeDir, '.kimi-code', 'engine-state');
+    const workspaces = readdirSync(stateRoot);
+    if (workspaces.length !== 1) {
+      throw new Error(`expected one workspace state dir, got ${workspaces.length}`);
+    }
+    writeFileSync(
+      join(stateRoot, workspaces[0]!, 'state', 'cron.json'),
+      JSON.stringify([
+        {
+          id: 'daily',
+          cron: '0 9 * * *',
+          prompt: 'hi',
+          recurring: true,
+          createdAt: Date.now(),
+        },
+      ]),
+    );
+
+    const { tasks } = await session.getCronTasks();
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]!.id).toBe('daily');
+    expect(tasks[0]!.cron).toBe('0 9 * * *');
+    expect(tasks[0]!.recurring).toBe(true);
+    expect(tasks[0]!.nextFireAt).not.toBeNull();
+    expect(tasks[0]!.nextFireAt as number).toBeGreaterThan(Date.now() - 60_000);
+
+    await session.close();
+    await harness.close();
   }, 60_000);
 });

@@ -1193,6 +1193,24 @@ pub fn native_read_engine_state(workspace_root: String, domain: String) -> Optio
     )
 }
 
+/// The post-jitter next fire (epoch ms) for one stored cron entry, or `null`
+/// when its expression never fires again.
+///
+/// The host cannot reproduce the parser, the local timezone, or the jitter
+/// derivation, so a host listing the registry (the SDK's `getCronTasks`)
+/// asks here instead of guessing — the same reason
+/// [`native_read_engine_state`] exists. `entry_json` is the stored entry
+/// object (`id` / `cron` / `recurring` / `createdAt`).
+#[napi]
+pub fn native_cron_next_fire(entry_json: String, from_ms: i64) -> Option<i64> {
+    let entry: crate::cron::scheduler::CronEntry = serde_json::from_str(&entry_json).ok()?;
+    crate::cron::scheduler::next_fire_for_entry(
+        &entry,
+        from_ms,
+        crate::session::local_utc_offset_minutes(),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Internal JSON helpers

@@ -3365,8 +3365,55 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   }
 
   override async getCronTasks(input: SessionIdRpcInput): Promise<GetCronTasksResult> {
-    this.requireSession(input.sessionId);
-    return { tasks: [] };
+    const meta = this.requireSession(input.sessionId);
+    // The cron registry is workspace-level engine state (the state-bridge
+    // `cron` domain carries no session id), so the host reads it the same way
+    // it reads the todo domain: through the engine, which owns the digest
+    // layout of the workspace state directory.
+    const { nativeCronNextFire, nativeReadEngineState } = await import(
+      '@moonshot-ai/kimi-agent/native'
+    );
+    const raw = nativeReadEngineState(meta.workDir, 'cron');
+    if (raw === null) return { tasks: [] };
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { tasks: [] };
+    }
+    if (!Array.isArray(parsed)) return { tasks: [] };
+    const now = Date.now();
+    const tasks = parsed.map((entry: Record<string, unknown>) => {
+      const id = typeof entry['id'] === 'string' ? entry['id'] : '';
+      const cron = typeof entry['cron'] === 'string' ? entry['cron'] : '';
+      const createdAt =
+        typeof entry['createdAt'] === 'number'
+          ? entry['createdAt']
+          : typeof entry['created_at'] === 'number'
+            ? entry['created_at']
+            : undefined;
+      const lastFiredAt =
+        typeof entry['lastFiredAt'] === 'number' ? entry['lastFiredAt'] : undefined;
+      // The post-jitter next fire comes from the engine: the host cannot
+      // reproduce the parser, the local timezone, or the jitter derivation.
+      let nextFireAt: number | null = null;
+      if (id !== '' && cron !== '') {
+        try {
+          nextFireAt = nativeCronNextFire(JSON.stringify(entry), now);
+        } catch {
+          nextFireAt = null;
+        }
+      }
+      return {
+        id,
+        cron,
+        recurring: entry['recurring'] !== false,
+        createdAt: createdAt ?? 0,
+        lastFiredAt,
+        nextFireAt,
+      };
+    });
+    return { tasks };
   }
 
   override async listWorkspaceSkills(workDir: string): Promise<readonly SkillSummary[]> {

@@ -2709,3 +2709,56 @@ describe.skipIf(!nativeEntry)('napi EngineSessionHandle — engine-owned tool ta
     expect(tools).toContain('FetchURL');
   }, 15_000);
 });
+
+/**
+ * The cron next-fire binding. A host listing the workspace registry (the
+ * SDK's `getCronTasks`) cannot reproduce the parser, the local timezone, or
+ * the jitter derivation, so it asks the engine — the same reason
+ * `nativeReadEngineState` exists. What these pin is the binding answering a
+ * real future instant for a parseable expression and `null` otherwise,
+ * instead of throwing or inventing a time.
+ */
+describe('nativeCronNextFire', () => {
+  const mod = loadNativeModule() as SessionNativeModule & {
+    nativeCronNextFire: (entryJson: string, fromMs: number) => number | null;
+  };
+  const now = Date.now();
+
+  it('answers a future instant for a parseable expression', () => {
+    const fire = mod.nativeCronNextFire(
+      JSON.stringify({ id: 'daily', cron: '0 9 * * *', prompt: 'hi', recurring: true }),
+      now,
+    );
+    expect(typeof fire).toBe('number');
+    expect(fire as number).toBeGreaterThan(now);
+  });
+
+  it('answers null for an unparseable expression', () => {
+    expect(
+      mod.nativeCronNextFire(
+        JSON.stringify({ id: 'broken', cron: 'not a cron', prompt: 'hi', recurring: true }),
+        now,
+      ),
+    ).toBeNull();
+  });
+
+  it('answers null for a malformed entry', () => {
+    expect(mod.nativeCronNextFire('{"id":"x"}', now)).toBeNull();
+    expect(mod.nativeCronNextFire('not json', now)).toBeNull();
+  });
+
+  it('answers a future instant for a one-shot entry', () => {
+    const fire = mod.nativeCronNextFire(
+      JSON.stringify({
+        id: 'once',
+        cron: '0 9 * * *',
+        prompt: 'hi',
+        recurring: false,
+        createdAt: now,
+      }),
+      now,
+    );
+    expect(typeof fire).toBe('number');
+    expect(fire as number).toBeGreaterThan(now);
+  });
+});

@@ -1695,3 +1695,35 @@ image_in/thinking/tool_use（bundle 与引擎读的均是后者，
 
 **验证**：`cargo test --lib` 2788 项 + clippy 0 error + fmt +
 scan-parity 全绿 + protocol 565 项。
+
+### 8.8 cron 注册表读取（2026-09-21，接手项：SDK getCronTasks 不再是桩）
+
+**语义前提（用户确认，实现不得违反）**：cron 注册表是 **workspace 级**
+（state-bridge 的 cron 域不带 session_id），所以触发的任务跑在该 workspace
+当前活着的会话里，而不是「创建它的那个会话」——现有 dispatcher
+（`napi_bindings.rs::spawn_cron_dispatcher`，按 `live_session_for_workspace`
+取活会话）已是这个语义，本轮不动。`CronEntry.session_id` 只是创建路径的记录
+字段，不过滤注册表。
+
+**落地**：
+- `cron/scheduler.rs` 新增 `next_fire_for_entry(entry, from_ms, tz)`：
+  单条目后抖动下次触发（v2 `getNextFireForTask`），与 `tick` 同一
+  jitter 推导；聚合的 `next_fire_at` 与其一致（单测钉住）。
+- napi 新增 `native_cron_next_fire(entry_json, from_ms)`（99 项，
+  napi-contract.d.ts / index.native.d.ts / index.native.js 同步）：
+  host 无法复刻解析器、本地时区与抖动推导，照 `native_read_engine_state`
+  的先例问引擎。
+- SDK `sdk-rpc-client-native.ts::getCronTasks` 不再是桩：经
+  `nativeReadEngineState(workDir, 'cron')` 读 workspace 注册表（与
+  `getTodos` 同一模式），映射 `CronTaskSnapshot`
+  （id/cron/recurring 默认 true/createdAt/lastFiredAt/nextFireAt），
+  空域/坏 JSON/非数组一律 `{tasks: []}`。TUI 无消费点，未加 /cron 命令
+  （用户明确「没动」）。
+
+**测试**：`next_fire_for_entry_answers_per_entry`（Rust）；
+`nativeCronNextFire` 4 例（napi 集成，真 addon：未来时刻/坏表达式/坏
+JSON/一次性）；`session getCronTasks`（node-sdk，stub HOME/USERPROFILE 到
+临时目录后按 engine-state 布局种子注册表，断言映射与 nextFireAt）。
+
+**验证**：`cargo test --lib` 全量 + napi 集成 + node-sdk 全量 + fmt +
+clippy + scan-parity（napi 98→99 两侧同步）。

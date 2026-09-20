@@ -47,6 +47,33 @@ fn default_recurring() -> bool {
     true
 }
 
+/// The post-jitter next fire for one entry (v2 `getNextFireForTask`): the
+/// next ideal fire of its expression, jittered the way `tick` would fire it,
+/// or `None` when the expression never fires again. Free function so a host
+/// listing the registry (the SDK's `getCronTasks`) can answer per entry
+/// without building a scheduler.
+pub fn next_fire_for_entry(entry: &CronEntry, from_ms: i64, tz_offset_minutes: i32) -> Option<i64> {
+    let parsed = parse(&entry.cron).ok()?;
+    let ideal = next_fire(&parsed, from_ms, tz_offset_minutes)?;
+    Some(if entry.recurring {
+        crate::cron::jitter::jittered_next_run_ms(
+            &entry.id,
+            &parsed,
+            ideal,
+            tz_offset_minutes,
+            false,
+        )
+    } else {
+        crate::cron::jitter::one_shot_jittered_run_ms(
+            &entry.id,
+            entry.created_at,
+            ideal,
+            tz_offset_minutes,
+            false,
+        )
+    })
+}
+
 /// A parsed entry: the public entry plus its pre-parsed expression.
 #[derive(Debug, Clone)]
 struct ScheduledEntry {
@@ -748,5 +775,29 @@ mod tests {
         assert_eq!(one_shot.id, "task-3");
         assert_eq!(one_shot.cron, "0 0 1 1 *");
         assert_eq!(one_shot.prompt, "yearly");
+    }
+
+    #[test]
+    fn next_fire_for_entry_answers_per_entry() {
+        let tz = 0;
+        // A daily 09:00 entry: the next fire after T0 (2024-06-01T00:00:00Z)
+        // is the same day at 09:00, jittered forward for a recurring entry.
+        let daily = entry("daily", "0 9 * * *", "hi", true);
+        let fire = next_fire_for_entry(&daily, T0, tz).expect("a daily entry always fires");
+        assert!(fire > T0, "the next fire is in the future");
+        assert!(fire < T0 + 24 * 60 * 60 * 1000, "and within a day");
+
+        // A one-shot entry answers the same way (its jitter shifts backward
+        // on :00/:30, still after T0 here).
+        let one_shot = entry("once", "0 9 * * *", "hi", false);
+        assert!(next_fire_for_entry(&one_shot, T0, tz).expect("fires once") > T0);
+
+        // An unparseable expression never fires.
+        let broken = entry("broken", "not a cron", "hi", true);
+        assert_eq!(next_fire_for_entry(&broken, T0, tz), None);
+
+        // The scheduler's aggregate answer agrees with the per-entry one.
+        let sched = CronScheduler::new(vec![daily.clone()], tz);
+        assert_eq!(sched.next_fire_at(T0), next_fire_for_entry(&daily, T0, tz));
     }
 }

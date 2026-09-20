@@ -315,6 +315,19 @@ export function nativeParsePermissionPattern(pattern: string): PermissionPattern
  */
 export function nativeReadEngineState(workspaceRoot: string, domain: string): string | null;
 
+/**
+ * The post-jitter next fire (epoch ms) for one stored cron entry, or `null`
+ * when its expression never fires again.
+ *
+ * The host cannot reproduce the parser, the local timezone, or the jitter
+ * derivation, so a host listing the registry asks here instead of guessing.
+ *
+ * @param entryJson - the stored entry object (`id` / `cron` / `recurring` / `createdAt`)
+ * @param fromMs - the instant to search from (epoch ms)
+ * @returns the next fire (epoch ms), or `null`
+ */
+export function nativeCronNextFire(entryJson: string, fromMs: number): number | null;
+
 // ============================================================================
 // Tool access conflict detection
 // ============================================================================

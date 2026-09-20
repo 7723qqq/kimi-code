@@ -784,6 +784,19 @@ function nativeReadEngineState(workspaceRoot, domain) {
   return binding.nativeReadEngineState(workspaceRoot, domain);
 }
 
+/**
+ * The post-jitter next fire (epoch ms) for one stored cron entry, or null
+ * when its expression never fires again. The host cannot reproduce the
+ * parser, the local timezone, or the jitter derivation, so a host listing
+ * the registry asks here instead of guessing.
+ * @param {string} entryJson - the stored entry object (id / cron / recurring / createdAt)
+ * @param {number} fromMs - the instant to search from (epoch ms)
+ * @returns {number | null} the next fire (epoch ms), or null
+ */
+function nativeCronNextFire(entryJson, fromMs) {
+  return binding.nativeCronNextFire(entryJson, fromMs);
+}
+
 // ============================================================================
 // GoalEngine — decision core (stateless, JSON-in/JSON-out)
 // ============================================================================
@@ -1028,6 +1041,7 @@ module.exports = {
 
   // Engine state store
   nativeReadEngineState,
+  nativeCronNextFire,
 
   // Translation (i18n)
   nativeTranslate,
