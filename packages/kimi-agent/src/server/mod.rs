@@ -9254,6 +9254,52 @@ max_context_size = 128000
     }
 
     #[tokio::test]
+    async fn import_catalog_falls_back_to_the_builtin_when_the_fetch_fails() {
+        // The offline path a blocked-network user takes: the upstream fetch
+        // fails, so the import resolves against the built-in snapshot.
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        std::fs::write(&config_path, "default_model = \"\"\n").unwrap();
+        let mut server = HttpServer::in_memory()
+            .unwrap()
+            .with_config_write_path(config_path.clone());
+        server.models_dev_cache =
+            Arc::new(models_dev::CatalogCache::new().with_fetcher(Arc::new(|| {
+                Box::pin(async { Err("upstream down".to_string()) })
+                    as crate::rpc::types::BoxFuture<'static, Result<Value, String>>
+            })));
+
+        let res = server
+            .handle_request(&catalog_request(
+                "POST",
+                "/api/v1/providers:import_catalog",
+                Some(&json!({ "catalog_id": "anthropic", "api_key": "sk-offline" })),
+            ))
+            .await;
+        assert_eq!(res.status, 201);
+        let imported: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(imported["models_imported"], 1);
+        assert_eq!(imported["provider"]["id"], "anthropic");
+        assert_eq!(imported["provider"]["type"], "anthropic");
+        assert_eq!(imported["provider"]["status"], "connected");
+
+        let text = std::fs::read_to_string(&config_path).unwrap();
+        assert!(text.contains("[providers.anthropic]"), "{text}");
+        assert!(
+            text.contains("base_url = \"https://api.anthropic.com\""),
+            "{text}"
+        );
+        assert!(
+            text.contains("[models.\"anthropic/claude-3-7-sonnet-20250219\"]"),
+            "{text}"
+        );
+        assert!(
+            text.contains("default_model = \"anthropic/claude-3-7-sonnet-20250219\""),
+            "{text}"
+        );
+    }
+
+    #[tokio::test]
     async fn import_catalog_writes_the_provider_and_its_aliases() {
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("config.toml");
