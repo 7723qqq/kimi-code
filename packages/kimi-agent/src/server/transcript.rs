@@ -21,15 +21,21 @@ struct TurnDraft {
     turn_id: String,
     ordinal: usize,
     prompt: Option<String>,
+    /// The turn's origin as the protocol declares it. A turn opened by an
+    /// injection carries no prompt and reports `other`, matching v2's
+    /// `mapTurnOrigin` default branch — an injected reminder is not a user
+    /// prompt and must not render as one.
+    origin: Value,
     steps: Vec<StepDraft>,
 }
 
 impl TurnDraft {
-    fn new(ordinal: usize, prompt: Option<String>) -> Self {
+    fn new(ordinal: usize, prompt: Option<String>, origin: Value) -> Self {
         Self {
             turn_id: format!("t{ordinal}"),
             ordinal,
             prompt,
+            origin,
             steps: Vec::new(),
         }
     }
@@ -54,7 +60,7 @@ impl TurnDraft {
             "turnId": self.turn_id,
             "ordinal": self.ordinal,
             "state": "completed",
-            "origin": { "kind": "user" },
+            "origin": self.origin,
             "steps": steps,
         });
         if let Some(prompt) = self.prompt.as_ref()
@@ -74,17 +80,31 @@ pub fn build_items(history: &[LLMMessage]) -> Vec<Value> {
         match message.role.as_str() {
             "system" => continue,
             "user" => {
-                let prompt = if message.content.is_empty() {
-                    None
+                // A reminder the engine injected is not something the user
+                // typed: v2 marks it `origin.kind === 'injection'` at append
+                // time and its projector maps that to `other`, leaving the
+                // turn without a prompt so no client renders a bubble. The
+                // fork's messages carry no origin, so the `wrapSystemReminder`
+                // envelope distinguishes them (the same classification the
+                // turn loop already uses to keep them out of compaction).
+                let is_injection = crate::injection::is_system_reminder(&message.content);
+                let (prompt, origin) = if is_injection {
+                    (None, json!({ "kind": "other" }))
+                } else if message.content.is_empty() {
+                    (None, json!({ "kind": "user" }))
                 } else {
-                    Some(message.content.clone())
+                    (Some(message.content.clone()), json!({ "kind": "user" }))
                 };
-                turns.push(TurnDraft::new(next_ordinal, prompt));
+                turns.push(TurnDraft::new(next_ordinal, prompt, origin));
                 next_ordinal += 1;
             }
             "assistant" => {
                 if turns.is_empty() {
-                    turns.push(TurnDraft::new(next_ordinal, None));
+                    turns.push(TurnDraft::new(
+                        next_ordinal,
+                        None,
+                        json!({ "kind": "other" }),
+                    ));
                     next_ordinal += 1;
                 }
                 let turn = turns.last_mut().expect("turn ensured above");
@@ -338,6 +358,38 @@ mod tests {
             arguments: json!({ "path": "a.txt" }),
             extras: None,
         }
+    }
+
+    #[test]
+    fn injected_reminders_are_not_user_prompts() {
+        // v2 appends reminders with `origin.kind === 'injection'` and its
+        // projector maps that to `other`, leaving the turn without a prompt —
+        // so no client renders a bubble for text the user never typed. The
+        // fork's messages carry no origin, so the `<system-reminder>` envelope
+        // is what distinguishes them here.
+        let history = vec![
+            user("hello"),
+            assistant("hi", Vec::new()),
+            LLMMessage::new(
+                "user",
+                crate::injection::wrap_system_reminder("Today's date is 2026-09-20."),
+            ),
+            assistant("acknowledged", Vec::new()),
+        ];
+        let items = build_items(&history);
+        assert_eq!(items.len(), 2);
+
+        assert_eq!(items[0]["prompt"], "hello");
+        assert_eq!(items[0]["origin"]["kind"], "user");
+
+        assert_eq!(items[1]["origin"]["kind"], "other");
+        assert!(
+            items[1].get("prompt").is_none(),
+            "an injected reminder must not carry a prompt"
+        );
+        // The turn itself still exists: the reminder accompanies a real turn
+        // rather than replacing it, matching v2's per-turn injection.
+        assert_eq!(items[1]["steps"].as_array().unwrap().len(), 1);
     }
 
     #[test]
