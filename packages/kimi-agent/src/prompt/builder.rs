@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use super::agents_md::load_agents_md;
 use super::environment::{collect_environment, generate_cwd_listing};
 use super::profiles::ProfileCatalog;
-use super::skills_renderer::generate_skills_section_with_extra;
+use super::skills_renderer::generate_skills_section_with_options;
 use crate::tools::memory_store;
 
 pub const DEFAULT_PRODUCT_NAME: &str = "Kimi Code CLI";
@@ -41,6 +41,10 @@ pub struct SystemPromptBuilder {
     /// Extra skill scan roots (`extra_skill_dirs`): the listed skills must
     /// match what the `Skill` tool can load.
     skill_dirs: Vec<PathBuf>,
+    /// `merge_all_available_skills` (schema): whether a scope group scans
+    /// every directory it declares or only its first existing one. Defaults
+    /// to the documented `true`.
+    merge_all_available_skills: bool,
     notify_user_active: bool,
     memory_active: bool,
 }
@@ -60,6 +64,7 @@ impl SystemPromptBuilder {
             plugin_sections: None,
             additional_dirs: Vec::new(),
             skill_dirs: Vec::new(),
+            merge_all_available_skills: true,
             notify_user_active: false,
             memory_active: false,
         }
@@ -87,6 +92,15 @@ impl SystemPromptBuilder {
     #[must_use]
     pub fn with_skill_dirs(mut self, dirs: Vec<PathBuf>) -> Self {
         self.skill_dirs = dirs;
+        self
+    }
+
+    /// `merge_all_available_skills` (schema): off restricts each scope group
+    /// to its first existing directory, matching the scan the `Skill` tool
+    /// reads.
+    #[must_use]
+    pub fn with_merge_all_available_skills(mut self, merge: bool) -> Self {
+        self.merge_all_available_skills = merge;
         self
     }
 
@@ -151,6 +165,40 @@ impl SystemPromptBuilder {
             .build()
     }
 
+    /// [`Self::build_default_with_skill_dirs`] with
+    /// `merge_all_available_skills` (schema): the file-reading entry points
+    /// resolve the flag from config and pass it here.
+    pub fn build_default_with_skill_config(
+        workspace_root: impl AsRef<Path>,
+        skill_dirs: Vec<PathBuf>,
+        merge_all_available_skills: bool,
+    ) -> String {
+        Self::new(workspace_root)
+            .with_skill_dirs(skill_dirs)
+            .with_merge_all_available_skills(merge_all_available_skills)
+            .with_memory(true)
+            .build()
+    }
+
+    /// [`Self::build_default_with_skill_config`] with an agent profile name
+    /// (`--agent`, or the name a `--agent-file` defines). The profile supplies
+    /// the role overlay (`${role_additional}`) and its tool-allowance list;
+    /// an unknown name falls back to the default `agent` profile, matching
+    /// [`crate::prompt::ProfileCatalog::get`]'s lookup.
+    pub fn build_for_profile(
+        workspace_root: impl AsRef<Path>,
+        skill_dirs: Vec<PathBuf>,
+        merge_all_available_skills: bool,
+        profile_name: impl Into<String>,
+    ) -> String {
+        Self::new(workspace_root)
+            .with_profile(profile_name)
+            .with_skill_dirs(skill_dirs)
+            .with_merge_all_available_skills(merge_all_available_skills)
+            .with_memory(true)
+            .build()
+    }
+
     /// Build the full system prompt string.
     pub fn build(self) -> String {
         // 1. Environment
@@ -175,7 +223,11 @@ impl SystemPromptBuilder {
         let skills_section = if let Some(custom) = self.custom_skills_section {
             custom
         } else {
-            generate_skills_section_with_extra(Some(&self.workspace_root), &self.skill_dirs)
+            generate_skills_section_with_options(
+                Some(&self.workspace_root),
+                &self.skill_dirs,
+                self.merge_all_available_skills,
+            )
         };
 
         // 5. Additional directories

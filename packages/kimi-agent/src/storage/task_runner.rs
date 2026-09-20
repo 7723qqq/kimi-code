@@ -850,11 +850,22 @@ impl TaskRunner {
         });
     }
 
-    /// The task entry as the state bridge wire value: `taskId` /
-    /// `description` / `status` / `startedAt` / `endedAt` / `stopReason`
-    /// plus the `output` snapshot when settled (the renderers filter the
-    /// output key from metadata lines).
+    /// The task entry as the state bridge wire value.
+    ///
+    /// Two consumers read this one document: the in-tree REST/napi clients
+    /// (and the persisted `task` state domain) use the camelCase pair
+    /// `taskId` / `startedAt`, while the official Web bundle's task mapper
+    /// requires the protocol shape — a snake_case `id`, matching
+    /// `event.task.created`, and a boolean `run_in_background` it throws on
+    /// when absent. Carry both rather than picking a side.
     fn entry_wire(&self, entry: &TaskEntry) -> Value {
+        let started_iso = chrono::DateTime::from_timestamp_millis(entry.started_at as i64)
+            .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+        let ended_iso = entry
+            .ended_at
+            .and_then(|ended| chrono::DateTime::from_timestamp_millis(ended as i64))
+            .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+
         let mut obj = serde_json::Map::new();
         obj.insert("taskId".into(), json!(entry.id));
         obj.insert("description".into(), json!(entry.description));
@@ -874,6 +885,26 @@ impl TaskRunner {
         if let Some(session) = &entry.session_id {
             obj.insert("sessionId".into(), json!(session));
         }
+        // Protocol vocabulary (`event.task.created` / the Web task mapper).
+        obj.insert("id".into(), json!(entry.id));
+        obj.insert("kind".into(), json!(entry.kind));
+        if let Some(session) = &entry.session_id {
+            obj.insert("session_id".into(), json!(session));
+        }
+        if let Some(started_iso) = started_iso {
+            obj.insert("started_at".into(), json!(started_iso));
+        }
+        if let Some(ended_iso) = &ended_iso {
+            obj.insert("completed_at".into(), json!(ended_iso));
+            obj.insert("ended_at".into(), json!(ended_iso));
+        }
+        if let Some(subagent_type) = &entry.subagent_type {
+            obj.insert("subagent_type".into(), json!(subagent_type));
+        }
+        // Every task the runner tracks outlives its spawning tool call, so the
+        // protocol flag is definitionally true (the event producer hardcodes
+        // the same value).
+        obj.insert("run_in_background".into(), json!(true));
         Value::Object(obj)
     }
 

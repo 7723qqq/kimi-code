@@ -236,28 +236,58 @@ pub fn scan_all_skills(workspace_root: Option<&Path>) -> Vec<SkillDescriptor> {
 /// [`scan_all_skills`] plus the user's `extra_skill_dirs` (schema): those
 /// are scanned as project-level skills, after the conventional project
 /// directories and before the user/home ones.
+///
+/// This is the "merge every available directory" default; callers that read
+/// `merge_all_available_skills` from a config file use
+/// [`scan_all_skills_with_extra_and_merge`] instead.
 pub fn scan_all_skills_with_extra(
     workspace_root: Option<&Path>,
     extra_dirs: &[PathBuf],
+) -> Vec<SkillDescriptor> {
+    scan_all_skills_with_extra_and_merge(workspace_root, extra_dirs, true)
+}
+
+/// [`scan_all_skills_with_extra`] with the `merge_all_available_skills`
+/// switch (schema; documented default `true`).
+///
+/// A scope group scans every directory it declares only while merging is on.
+/// With merging off the group contributes just its first existing directory
+/// (v2 `pushBrandGroup`'s `pushFirstExisting` fallback), so the flag selects
+/// one scope's skills instead of layering `.agents/skills` and
+/// `.kimi-code/skills` together. `extra_skill_dirs` and the builtins are
+/// configured roots rather than brand groups, so the flag never drops them.
+///
+/// The switch selects one directory where this scan used to layer two: v2
+/// gates only its single-element brand groups (`[.kimi-code/skills]`, and
+/// `[skills]` under the brand home), so its `pushFirstExisting` fallback
+/// resolves to the very directory merging keeps and the key is inert there.
+/// The fork folds each scope's brand and generic directory into one group,
+/// which is what gives the documented "from all available directories"
+/// reading something to switch between.
+pub fn scan_all_skills_with_extra_and_merge(
+    workspace_root: Option<&Path>,
+    extra_dirs: &[PathBuf],
+    merge_all_available_skills: bool,
 ) -> Vec<SkillDescriptor> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
 
     // 1. Project skills
-    if let Some(root) = workspace_root {
-        scan_directory(
-            &root.join(".agents").join("skills"),
-            "project",
-            &mut out,
-            &mut seen,
-        );
-        scan_directory(
-            &root.join(".kimi-code").join("skills"),
-            "project",
-            &mut out,
-            &mut seen,
-        );
-    }
+    let project_dirs: Vec<PathBuf> = workspace_root
+        .map(|root| {
+            vec![
+                root.join(".agents").join("skills"),
+                root.join(".kimi-code").join("skills"),
+            ]
+        })
+        .unwrap_or_default();
+    scan_scope_group(
+        &project_dirs,
+        "project",
+        merge_all_available_skills,
+        &mut out,
+        &mut seen,
+    );
 
     // 1b. `extra_skill_dirs`: additional scan roots the user declared.
     for dir in extra_dirs {
@@ -270,15 +300,14 @@ pub fn scan_all_skills_with_extra(
         .unwrap_or_else(|_| ".".into());
     let home = PathBuf::from(home_path);
 
-    scan_directory(
-        &home.join(".kimi-code").join("skills"),
+    let user_dirs = vec![
+        home.join(".kimi-code").join("skills"),
+        home.join(".agents").join("skills"),
+    ];
+    scan_scope_group(
+        &user_dirs,
         "user",
-        &mut out,
-        &mut seen,
-    );
-    scan_directory(
-        &home.join(".agents").join("skills"),
-        "user",
+        merge_all_available_skills,
         &mut out,
         &mut seen,
     );
@@ -292,6 +321,27 @@ pub fn scan_all_skills_with_extra(
     }
 
     out
+}
+
+/// Scan one scope's directories: all of them when merging is on, else only
+/// the first that exists, so a scope with no directory still contributes
+/// nothing rather than shadowing a lower-precedence one.
+fn scan_scope_group(
+    dirs: &[PathBuf],
+    source: &str,
+    merge_all_available_skills: bool,
+    out: &mut Vec<SkillDescriptor>,
+    seen: &mut HashSet<String>,
+) {
+    if merge_all_available_skills {
+        for dir in dirs {
+            scan_directory(dir, source, out, seen);
+        }
+        return;
+    }
+    if let Some(first) = dirs.iter().find(|dir| dir.is_dir()) {
+        scan_directory(first, source, out, seen);
+    }
 }
 
 #[cfg(test)]
@@ -350,6 +400,50 @@ This is the first paragraph describing the skill.
 
         // Builtins should also be included
         assert!(list.iter().any(|s| s.name == "check-kimi-code-docs"));
+    }
+
+    #[test]
+    fn test_merge_switch_limits_scope_group_to_first_existing_directory() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let proj_root = temp_dir.path();
+
+        let generic = proj_root
+            .join(".agents")
+            .join("skills")
+            .join("generic-skill");
+        std::fs::create_dir_all(&generic).unwrap();
+        std::fs::write(
+            generic.join("SKILL.md"),
+            "---\nname: generic-skill\ndescription: From .agents\n---\n",
+        )
+        .unwrap();
+        let brand = proj_root
+            .join(".kimi-code")
+            .join("skills")
+            .join("brand-skill");
+        std::fs::create_dir_all(&brand).unwrap();
+        std::fs::write(
+            brand.join("SKILL.md"),
+            "---\nname: brand-skill\ndescription: From .kimi-code\n---\n",
+        )
+        .unwrap();
+
+        // Merging (the documented default) layers both project directories.
+        let merged = scan_all_skills_with_extra_and_merge(Some(proj_root), &[], true);
+        assert!(merged.iter().any(|s| s.name == "generic-skill"));
+        assert!(merged.iter().any(|s| s.name == "brand-skill"));
+
+        // With merging off the project group keeps only `.agents/skills`, its
+        // first existing directory, so `.kimi-code/skills` goes unscanned.
+        let selected = scan_all_skills_with_extra_and_merge(Some(proj_root), &[], false);
+        assert!(selected.iter().any(|s| s.name == "generic-skill"));
+        assert!(
+            !selected.iter().any(|s| s.name == "brand-skill"),
+            "merging off must not scan the group's second directory"
+        );
+
+        // Builtins stay regardless of the switch.
+        assert!(selected.iter().any(|s| s.name == "check-kimi-code-docs"));
     }
 
     #[test]

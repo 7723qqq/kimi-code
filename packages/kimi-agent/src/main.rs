@@ -123,9 +123,10 @@ async fn main() -> anyhow::Result<()> {
         let acp_server = if let Some(native) = config.extract_native_llm(cli.model.as_deref()) {
             let workspace = std::env::current_dir()?;
             let system_prompt =
-                kimi_agent::prompt::SystemPromptBuilder::build_default_with_skill_dirs(
+                kimi_agent::prompt::SystemPromptBuilder::build_default_with_skill_config(
                     &workspace,
                     config.extra_skill_dirs_paths(),
+                    config.resolve_merge_all_available_skills(),
                 );
             let model_capabilities = native.capabilities.clone();
             let spec = PipelineSpec {
@@ -1241,9 +1242,10 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
     })?;
 
     let workspace = std::env::current_dir()?;
-    let system_prompt = kimi_agent::prompt::SystemPromptBuilder::build_default_with_skill_dirs(
+    let system_prompt = kimi_agent::prompt::SystemPromptBuilder::build_default_with_skill_config(
         &workspace,
         config.extra_skill_dirs_paths(),
+        config.resolve_merge_all_available_skills(),
     );
     let model_capabilities = native.capabilities.clone();
     let spec = PipelineSpec {

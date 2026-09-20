@@ -997,6 +997,62 @@ clippy**（5 个文件格式不合规、1 条 `to_string_in_format_args`），�
   `native/tokens.rs`：引用的是 fork 自有 v2（基准 B）真实存在、上游没有的文件——保留引用但
   标注「retired fork-only」，避免再被当作上游对齐证据。
 
+### 6.4 宿主契约修复（2026-09-19，按 v2 裁定）
+
+一轮针对「引擎与它真实消费者」的核对。参照基准是 **v2 本体**（`.tmp/v2-ref/`，从
+`upstream/main` 抽取的 `agent-core-v2` / `kap-server` / `klient` / `acp-server`），
+bundle 只用来确认「客户端确实在调这个端点」。
+
+**结论先行：fork 的多数路由比 v2 多包了一层 envelope。** v2 的会话类端点一律
+`okEnvelope(toWireSession(...))` —— **裸 session 文档**，消息在独立的
+`/sessions/{id}/messages`（`{items, has_more}`）。fork 发明了 `{session, messages}`、
+`{sessionId, goal}`、`{restored, session}`、`{sessionId, session, agent_config}` 这些
+包装，任何按 schema 直接映射的客户端都会读空。本轮按 v2 归位：
+
+| 端点 | v2 契约（出处） | fork 原状 | 现状态 |
+|---|---|---|---|
+| `GET /sessions/{id}` | 裸 session（`sessions.ts:394-441`） | `{session, messages}` | 裸 session |
+| `GET /sessions/{id}/messages` | `{items, has_more}`（`rest-message.ts:14`） | `{sessionId, messages}` 且元素是裸 `LLMMessage` | `{items, has_more}`，元素经 `project_wire_message` 投影出 `content[]` 块 |
+| `GET /sessions/{id}/status` | `sessionStatusResponseSchema` 十个字段（`sessionProtocol.ts:74-85`） | `permission`/`thinking_level` 写死，缺 5 个字段，多 3 个 | 字段集与 schema 一致 |
+| `GET /sessions/{id}/goal` | `goalSnapshotSchema.nullable()`（`sessions.ts:798`） | `{sessionId, goal}` | 裸 snapshot 或 `null` |
+| `GET/POST /sessions/{id}/profile` | 裸 session（`sessions.ts:455` / `:497-529`） | `{sessionId, session, agent_config}` | 裸 session |
+| `POST /sessions` | 裸 session，**无 statusCode ⇒ 200**（`sessions.ts:181-184`） | `{sessionId,title,workspaceId}`，201 | 裸 session，200 |
+| `POST /sessions/{id}:fork`、`:restore` | 裸 session（`sessions.ts:891`、`:976`） | 薄对象 / `{restored, session}` | 裸 session |
+| 任务列表 / 详情 | `{items}`（可带 `status` 过滤）/ 裸 task（`tasks.ts:82-87`、`:134`） | `{tasks}`（camelCase `taskId`） | `{items}` + 协议字段名 |
+| `GET /sessions` | `page_size` 默认 20 上限 100，支持 `busy`/`include_archive`/`exclude_empty`/`archived_only`/`workspace_id`；返回 `{items, has_more}`（`sessions.ts:101-136`） | 只有 `exclude_empty`/`page_size`，`has_more` 恒 false | 完整参数集与真分页 |
+| OAuth 登录三端点 | `oauthFlowSnapshotSchema` snake_case + `status: pending\|authenticated\|denied\|expired\|cancelled`，`resolved_at`（`oauthProtocol.ts:5-53`） | Rust 结构体 camelCase，成功态叫 `"success"`（不在 v2 枚举里） | snake_case；`success→authenticated`，`error→denied`（v2 无 `error` 成员） |
+| `POST /config` | `patchConfigRequestSchema` 十九键，`yolo===true ⇒ defaultPermissionMode='yolo'` 后丢弃该键（`config.ts:63-68`） | 只读 4 键，其余静默丢弃 | 全 section；非法 section 报错 |
+| `POST /plugins` | 只收 `{source}`（`rest-plugin.ts:36-38`） | 只读 `id`/`name` | 接受 `source` |
+| `GET /capabilities` | 对象数组（`capabilities.ts:49-50`） | 裸字符串数组 | 对象数组 |
+| `POST /exports` | `application/zip`（`sessionExport.ts:141`） | JSON | ZIP（GET 保留 JSON 供仓内客户端） |
+
+**一处未按 v2 归位，是有意为之**：`/workspace/fs:search` 与 `/workspace/fs:suggest`。
+v2 用双冒号（`fs.ts:414,460`），bundle 用单冒号。fork 的 `::search` 分支**本来就同时
+接受两种拼写**，所以 `suggest` 补上单冒号别名只是让两者一致——否则文件提及选择器每次都
+白付一次 404 往返。这是「bundle 与 v2 不一致、服务端兼容两端」的唯一一处，已在代码注释
+中标明 v2 的真实拼写。
+
+同时确认并修复两处「声明了但没人消费」：`merge_all_available_skills` 现已接入引擎全部
+技能扫描入口；`--agent` / `--agent-file` 原先在 `SDKРpcClientNative.createSession` 被
+静默丢弃（`input.agentProfile` 零引用），现按 `docs/en/customization/agents.md:56` 的
+作用域优先级在宿主侧发现，经新增 napi `agentProfile` 参数选中主代理角色，未知名以
+`agent.not_found` 失败而不是静默回落默认代理。
+
+**仍未接线，且已判定不该由本仓补**（避免下一轮重复讨论）：
+
+- `[agent].multi_llm`：**已接线（2026-09-19）**。原先的判定是「要生效需先决定 MultiLLM 是否
+  竞速原生 HTTP 传输」——该决定已做出并落地：`LlmProvider` 现在携带可选的 `NativeLlmConfig`
+  （`llm/multi.rs` `LlmProvider::native`），每个 racer 用 `NativeHttpLlm` 走引擎自己的 HTTP/SSE
+  通道，只有没有原生配置时才退回宿主代理；败者靠 child cancellation token 中断流（原生）或
+  `cancel_llm_chat`（代理）。配置侧由 `KimiConfig::extract_multi_llm` 把每个 `[models]` 别名经
+  `extract_native_llm` 解析成 racer，两条入口（`main.rs` 的 `--serve`/`--acp` 与 napi 的
+  `providers`）都已接上；napi 的 `JsLlmProviderDef` 新增 `native` 字段，TS 侧新增
+  `resolveMultiLlmProviders`。单条 entry 与无法解析的别名都会报错而不是静默降级。
+- `extra_agent_dirs`：引擎侧确实没有任何 agent 定义发现逻辑（`SubagentManager` 只接受
+  宿主 push），宿主侧发现已按文档实现并送达引擎，因此该配置键的有效路径已经存在。
+- `apps/vis` 的 `imported_from_kimi_cli` 过滤：`packages/migration-legacy` 随迁移功能一并
+  删除后已无写入方，但保留读取是**向后兼容**——移除会让历史上已迁移的会话重新出现。
+
 ### 6.5 合并上游 2.0.0（2026-09-17）
 
 本地 0.42.0 落后上游 81 个提交；合并对象是 tag `@moonshot-ai/kimi-code@2.0.0`

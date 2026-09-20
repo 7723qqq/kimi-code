@@ -1243,6 +1243,13 @@ impl KimiConfig {
             .collect()
     }
 
+    /// Resolve the `merge_all_available_skills` switch (schema; docs
+    /// `config-files.md`): unset means the documented default `true`, so an
+    /// untouched file keeps merging every discovered skill directory.
+    pub fn resolve_merge_all_available_skills(&self) -> bool {
+        self.merge_all_available_skills.unwrap_or(true)
+    }
+
     /// Resolve the thinking effort for the wire (schema `thinking.effort`,
     /// stored globally rather than per model): the off-effort when the model
     /// declares one and thinking is disabled, else the chosen effort.
@@ -2723,6 +2730,65 @@ mode = "manual"
         assert!(section.contains("my-extra-skill"), "{section}");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn merge_all_available_skills_resolves_with_documented_default() {
+        // Unset keeps the documented default (`true`), so a file that never
+        // mentions the key behaves exactly as before.
+        let absent = KimiConfig::from_str(SAMPLE_CONFIG).unwrap();
+        assert!(absent.resolve_merge_all_available_skills());
+
+        let off = KimiConfig::from_str("merge_all_available_skills = false\n").unwrap();
+        assert!(!off.resolve_merge_all_available_skills());
+
+        // The camelCase alias the schema and the web client write is accepted.
+        let camel = KimiConfig::from_str("mergeAllAvailableSkills = false\n").unwrap();
+        assert!(!camel.resolve_merge_all_available_skills());
+    }
+
+    #[test]
+    fn merge_flag_reaches_the_prompt_skills_section() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+
+        std::fs::create_dir_all(dir.join(".agents").join("skills").join("a")).unwrap();
+        std::fs::write(
+            dir.join(".agents")
+                .join("skills")
+                .join("a")
+                .join("SKILL.md"),
+            "---\nname: merged-a\ndescription: A\n---\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.join(".kimi-code").join("skills").join("b")).unwrap();
+        std::fs::write(
+            dir.join(".kimi-code")
+                .join("skills")
+                .join("b")
+                .join("SKILL.md"),
+            "---\nname: merged-b\ndescription: B\n---\n",
+        )
+        .unwrap();
+
+        let on = crate::prompt::SystemPromptBuilder::build_default_with_skill_config(
+            dir,
+            Vec::new(),
+            true,
+        );
+        assert!(on.contains("merged-a"), "{on}");
+        assert!(on.contains("merged-b"), "{on}");
+
+        let off = crate::prompt::SystemPromptBuilder::build_default_with_skill_config(
+            dir,
+            Vec::new(),
+            false,
+        );
+        assert!(off.contains("merged-a"), "{off}");
+        assert!(
+            !off.contains("merged-b"),
+            "merge_all_available_skills=false must not scan the second project dir"
+        );
     }
 
     #[test]

@@ -535,7 +535,9 @@ mod tests {
         stream.read_to_end(&mut response).await.unwrap();
         let text = String::from_utf8_lossy(&response).into_owned();
 
-        assert!(text.starts_with("HTTP/1.1 201 Created\r\n"), "{text}");
+        // v2's create route carries no `statusCode` override, so the envelope
+        // ships as 200 (`success: { data: sessionSchema }`).
+        assert!(text.starts_with("HTTP/1.1 200 OK\r\n"), "{text}");
         assert!(text.contains("over TCP"), "{text}");
 
         // The session persisted, so the list route sees it.

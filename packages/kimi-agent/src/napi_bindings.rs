@@ -3019,6 +3019,63 @@ fn plugin_skill_dirs() -> Vec<std::path::PathBuf> {
         .unwrap_or_default()
 }
 
+/// Resolve the system prompt for a napi-owned session.
+///
+/// The host may pass a prompt of its own (`[models.<alias>].systemPrompt` is
+/// plumbed through `native_llm`), and that always wins. When it does not — an
+/// empty string, the `"sys"` sentinel the ACP path uses, or the one-line stub
+/// the native SDK used to send — build the engine's real prompt from the
+/// session workspace. `ServerEngine::session_spec` answers the same three cases
+/// for the server; keeping the logic here means every napi caller gets it
+/// without each host having to know about `prompt/system.md`.
+fn build_session_system_prompt(params: &JsRunTurnParams) -> String {
+    const STANDALONE_SERVICE_SENTINEL: &str =
+        "You are kimi-agent, running as a standalone service.";
+    if let Some(provider) = params
+        .providers
+        .as_ref()
+        .and_then(|providers| providers.first())
+        && !provider.system_prompt.trim().is_empty()
+    {
+        return provider.system_prompt.clone();
+    }
+    let supplied = params.system_prompt.trim();
+    let is_placeholder = supplied.is_empty()
+        || supplied == "sys"
+        || supplied.starts_with(STANDALONE_SERVICE_SENTINEL)
+        || supplied.starts_with("You are Kimi Code, an intelligent AI coding assistant");
+    if !is_placeholder {
+        return params.system_prompt.clone();
+    }
+    let Some(root) = params.workspace_root.as_deref().filter(|r| !r.is_empty()) else {
+        // No workspace to describe: keep whatever the host sent rather than
+        // fabricating an environment section for an unknown root.
+        return params.system_prompt.clone();
+    };
+    let skill_dirs = plugin_skill_dirs();
+    match params.agent_profile.as_deref().map(str::trim) {
+        Some(profile) if !profile.is_empty() => {
+            crate::prompt::SystemPromptBuilder::build_for_profile(
+                root,
+                skill_dirs,
+                merge_all_available_skills(),
+                profile,
+            )
+        }
+        _ => crate::prompt::SystemPromptBuilder::build_default_with_skill_dirs(root, skill_dirs),
+    }
+}
+
+/// `[merge_all_available_skills]` for the prompt builder, read from the
+/// process-wide config the host pinned. Unset keeps the documented default
+/// (`true`), so a process that never loaded a config scans every directory it
+/// did before.
+fn merge_all_available_skills() -> bool {
+    crate::config::KimiConfig::discover()
+        .map(|(config, _)| config.resolve_merge_all_available_skills())
+        .unwrap_or(true)
+}
+
 /// The enabled plugins' MCP servers, read from the process-wide registry.
 fn plugin_mcp_configs() -> Vec<crate::server::plugins::PluginMcpConfig> {
     PLUGIN_MANAGER

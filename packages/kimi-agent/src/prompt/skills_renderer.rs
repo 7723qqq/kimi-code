@@ -3,7 +3,7 @@
 //! Groups discovered skills by scope (Project, User, Built-in) and formats
 //! them into Markdown following product conventions.
 
-use crate::skills::{SkillDescriptor, scan_all_skills_with_extra};
+use crate::skills::{SkillDescriptor, scan_all_skills_with_extra_and_merge};
 use std::path::Path;
 
 pub const SKILLS_SECTION_PROSE: &str = "Skills are reusable, composable capabilities that enhance your abilities. Each skill is either a self-contained directory with a `SKILL.md` file or a standalone `.md` file that contains instructions, examples, and/or reference material.\n\n\
@@ -73,7 +73,22 @@ pub fn generate_skills_section_with_extra(
     workspace_root: Option<&Path>,
     extra_dirs: &[std::path::PathBuf],
 ) -> String {
-    let skills = scan_all_skills_with_extra(workspace_root, extra_dirs);
+    generate_skills_section_with_options(workspace_root, extra_dirs, true)
+}
+
+/// [`generate_skills_section_with_extra`] with `merge_all_available_skills`
+/// (schema): the prompt must list exactly the directories the scan actually
+/// reads, or it advertises skills the `Skill` tool cannot load.
+pub fn generate_skills_section_with_options(
+    workspace_root: Option<&Path>,
+    extra_dirs: &[std::path::PathBuf],
+    merge_all_available_skills: bool,
+) -> String {
+    let skills = scan_all_skills_with_extra_and_merge(
+        workspace_root,
+        extra_dirs,
+        merge_all_available_skills,
+    );
     render_skills_markdown(&skills)
 }
 

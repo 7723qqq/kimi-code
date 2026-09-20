@@ -1463,10 +1463,22 @@ fn format_config_response(cfg: &crate::config::KimiConfig) -> Value {
 
     json!({
         "default_model": default_model,
+        "default_provider": cfg.default_provider,
+        "secondary_model": cfg.secondary_model,
+        "thinking": cfg.thinking,
         "yolo": yolo,
         "plan_mode": cfg.plan_mode.or(cfg.agent.plan_mode).unwrap_or(false),
         "default_plan_mode": cfg.default_plan_mode.unwrap_or(false),
         "default_permission_mode": cfg.default_permission_mode,
+        "permission": cfg.permission,
+        "hooks": cfg.hooks,
+        "services": cfg.services,
+        "merge_all_available_skills": cfg.merge_all_available_skills,
+        "extra_skill_dirs": cfg.extra_skill_dirs,
+        "extra_agent_dirs": cfg.extra_agent_dirs,
+        "loop_control": cfg.loop_control,
+        "background": cfg.background,
+        "experimental": cfg.experimental,
         "telemetry": cfg.telemetry.unwrap_or(false),
         "model_catalog": {
             "refresh_interval_ms": cfg
@@ -1482,8 +1494,295 @@ fn format_config_response(cfg: &crate::config::KimiConfig) -> Value {
         },
         "providers": providers_json,
         "models": models_json,
-        "services": {},
+        // v2's `toConfigResponse` walks every resolved domain and emits it
+        // snake_cased (kap-server/src/routes/config.ts:88-103), so `subagent`
+        // belongs here too; `raw` is the fork's round-trip convenience.
+        "subagent": cfg.subagent,
+        "raw": serde_json::to_value(cfg).unwrap_or(Value::Null),
     })
+}
+
+/// Project one stored `LLMMessage` onto v2's `messageSchema`
+/// (kap-server/src/protocol/message.ts:108-117): `id` / `session_id` / `role` /
+/// `content[]` blocks / `created_at`, with `prompt_id` and `parent_message_id`
+/// optional.
+///
+/// The fork stores flat messages (`role` + text `content`, plus structural
+/// `blocks` / `tool_calls`), so this restores the block array v2 clients read.
+/// `created_at` is not persisted per message — the schema requires a string, so
+/// an empty one is a visible marker rather than a fabricated timestamp.
+fn project_wire_message(
+    session_id: &str,
+    index: usize,
+    message: &crate::turn_loop::types::LLMMessage,
+) -> Value {
+    let mut blocks: Vec<Value> = Vec::new();
+    if !message.content.is_empty() {
+        blocks.push(json!({ "type": "text", "text": message.content }));
+    }
+    for block in &message.blocks {
+        blocks.push(serde_json::to_value(block).unwrap_or(Value::Null));
+    }
+    for call in &message.tool_calls {
+        blocks.push(json!({
+            "type": "tool_use",
+            "tool_call_id": call.id,
+            "tool_name": call.name,
+            "input": call.arguments,
+        }));
+    }
+    if message.role == "tool"
+        && let Some(call_id) = message.tool_call_id.as_deref()
+    {
+        blocks.push(json!({
+            "type": "tool_result",
+            "tool_call_id": call_id,
+            "output": message.content,
+        }));
+    }
+    json!({
+        "id": format!("{session_id}-{index}"),
+        "session_id": session_id,
+        "role": message.role,
+        "content": blocks,
+        "created_at": "",
+    })
+}
+
+/// Pack a session export into the ZIP the Web client's `exportSession` asks for.
+///
+/// The bundle posts to `…/export` through a bespoke transport that hard-fails
+/// unless the response is `application/zip`; answering JSON made the whole
+/// action report a parse error. Two members: `session.json` (the full export
+/// document) and `transcript.md` (a readable rendering), so the archive is
+/// useful to a human as well as to an importer.
+fn build_session_export_zip(
+    export: &crate::session::sqlite_store::SessionExport,
+) -> Result<Vec<u8>, String> {
+    use std::io::Write;
+
+    let document = serde_json::to_vec_pretty(export).map_err(|e| e.to_string())?;
+    let mut markdown = String::new();
+    let title = export.session.title.as_deref().unwrap_or("Session");
+    markdown.push_str(&format!("# {title}\n\n"));
+    markdown.push_str(&format!(
+        "- Session: `{}`\n- Turns: {}\n- Exported: {}\n\n",
+        export.session.session_id, export.turns_count, export.exported_at
+    ));
+    for message in &export.messages {
+        let (heading, content) = match message.role.as_str() {
+            "user" => ("User", &message.content),
+            "assistant" => ("Assistant", &message.content),
+            "system" => ("System", &message.content),
+            other => (other, &message.content),
+        };
+        markdown.push_str(&format!("## {heading}\n\n{content}\n\n"));
+    }
+
+    let mut buffer = Vec::new();
+    {
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(&mut buffer));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        writer
+            .start_file("session.json", options)
+            .map_err(|e| e.to_string())?;
+        writer.write_all(&document).map_err(|e| e.to_string())?;
+        writer
+            .start_file("transcript.md", options)
+            .map_err(|e| e.to_string())?;
+        writer
+            .write_all(markdown.as_bytes())
+            .map_err(|e| e.to_string())?;
+        writer.finish().map_err(|e| e.to_string())?;
+    }
+    Ok(buffer)
+}
+
+/// One built-in capability in the shape the Web client reads. Shared by the
+/// list and detail routes so the two cannot drift into serving different
+/// element types again.
+fn native_capability_wire(id: &str) -> Value {
+    json!({
+        "id": id,
+        "displayName": id,
+        "description": format!("Built-in {id} capability of the native engine."),
+        "supported": true,
+        "state": "ready",
+        "version": env!("CARGO_PKG_VERSION"),
+        "steps": [],
+        "install": { "progress": 100 }
+    })
+}
+
+/// One OAuth flow, shaped after v2's `oauthFlowSnapshotSchema` /
+/// `oauthFlowStartSchema` (`agent-core-v2/src/app/auth/oauthProtocol.ts:5-53`):
+/// snake_case throughout, `status` from
+/// `pending | authenticated | denied | expired | cancelled`, and `resolved_at`
+/// present only once the flow has resolved.
+///
+/// The Rust `OAuthFlowSnapshot` is camelCase and names the terminal success
+/// `"success"`, so answering it verbatim left `flow_id` undefined and the
+/// completion branch (`status === "authenticated"`) unreachable — a finished
+/// sign-in never registered. `provider` is the flow's key in the manager, which
+/// is the handle callers poll and cancel with.
+fn oauth_flow_wire(
+    flow: Option<&crate::server::oauth::OAuthFlowSnapshot>,
+    provider: &str,
+) -> Value {
+    let Some(flow) = flow else {
+        // v2's GET answers `oauthFlowSnapshotOrNullSchema`; "nothing running"
+        // is `null`, which is how the client reads it.
+        return Value::Null;
+    };
+    let status = if flow.status == "success" {
+        "authenticated"
+    } else if flow.status == "error" {
+        // v2's `oauthFlowStatusEnum` has no `error` member
+        // (agent-core-v2/src/app/auth/oauthProtocol.ts:5-11): a failed exchange
+        // surfaces as `denied` with `error_message` carrying the reason, which
+        // is what the client's terminal-state branch matches on.
+        "denied"
+    } else {
+        flow.status.as_str()
+    };
+    let expires_at = flow.expires_in.map(|secs| {
+        chrono::DateTime::from_timestamp_millis(
+            chrono::Utc::now().timestamp_millis() + secs as i64 * 1000,
+        )
+        .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+        .unwrap_or_default()
+    });
+    let mut body = json!({
+        "flow_id": provider,
+        "provider": flow.provider,
+        "status": status,
+        "user_code": flow.user_code,
+        "verification_uri": flow.verification_uri,
+        "verification_uri_complete": flow.verification_uri_complete,
+        "expires_in": flow.expires_in,
+        "expires_at": expires_at,
+    });
+    // v2's successful *start* is a two-field variant (`flow_id` + `provider` +
+    // `authenticated`); the pending variant and the snapshot both carry the
+    // device-code details, and only the snapshot carries `resolved_at`.
+    match body.as_object_mut() {
+        Some(object) if status == "authenticated" => {
+            object.retain(|key, _| matches!(key.as_str(), "flow_id" | "provider" | "status"));
+        }
+        Some(object) => {
+            if matches!(status, "denied" | "expired" | "cancelled") {
+                let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+                object.insert("resolved_at".into(), json!(now));
+            }
+            if let Some(error) = &flow.error_message {
+                object.insert("error_message".into(), json!(error));
+            }
+        }
+        None => {}
+    }
+    body
+}
+
+/// The static directory the catalog routes advertise. Both the list route and
+/// the per-id route read this one source, so an entry cannot exist in one and
+/// be missing (or fabricated) in the other.
+///
+/// v2 #3909 added the resolved `base_url` to every item; the fork's directory
+/// is a built-in list rather than a models.dev proxy, so the endpoint is stated
+/// per entry instead of resolved.
+fn catalog_provider_items() -> Value {
+    json!([
+                    {
+                        "id": "moonshot",
+                        "name": "Moonshot AI (Kimi)",
+                        "wire_type": "kimi",
+                        "base_url": "https://api.moonshot.cn/v1",
+                        "guessed": false,
+                        "needs_base_url": false,
+                        "rejected": false,
+                        "reject_reason": Value::Null,
+                        "env_key": "MOONSHOT_API_KEY",
+                        "models": [
+                            {
+                                "id": "kimi-latest",
+                                "name": "Kimi Latest",
+                                "max_context_size": 262144,
+                                "capabilities": ["tools", "thinking", "multimodal"],
+                                "reasoning": true
+                            }
+                        ]
+                    },
+                    {
+                        "id": "anthropic",
+                        "name": "Anthropic",
+                        "wire_type": "anthropic",
+                        "base_url": "https://api.anthropic.com",
+                        "guessed": false,
+                        "needs_base_url": false,
+                        "rejected": false,
+                        "reject_reason": Value::Null,
+                        "env_key": "ANTHROPIC_API_KEY",
+                        "models": [
+                            {
+                                "id": "claude-3-7-sonnet-20250219",
+                                "name": "Claude 3.7 Sonnet",
+                                "max_context_size": 200000,
+                                "capabilities": ["tools", "thinking", "multimodal"],
+                                "reasoning": true
+                            }
+                        ]
+                    },
+                    {
+                        "id": "openai",
+                        "name": "OpenAI",
+                        "wire_type": "openai",
+                        "base_url": "https://api.openai.com/v1",
+                        "guessed": false,
+                        "needs_base_url": false,
+                        "rejected": false,
+                        "reject_reason": Value::Null,
+                        "env_key": "OPENAI_API_KEY",
+                        "models": [
+                            {
+                                "id": "gpt-4o",
+                                "name": "GPT-4o",
+                                "max_context_size": 128000,
+                                "capabilities": ["tools", "multimodal"],
+                                "reasoning": false
+                            }
+                        ]
+                    },
+                    {
+                        "id": "google",
+                        "name": "Google Gemini",
+                        "wire_type": "google-genai",
+                        "base_url": "https://generativelanguage.googleapis.com/v1beta",
+                        "guessed": false,
+                        "needs_base_url": false,
+                        "rejected": false,
+                        "reject_reason": Value::Null,
+                        "env_key": "GEMINI_API_KEY",
+                        "models": [
+                            {
+                                "id": "gemini-2.5-pro",
+                                "name": "Gemini 2.5 Pro",
+                                "max_context_size": 1000000,
+                                "capabilities": ["tools", "thinking", "multimodal"],
+                                "reasoning": true
+                            }
+                        ]
+                    }
+    ])
+}
+
+/// One entry of [`catalog_provider_items`] by id, or `None` for an unknown id.
+fn catalog_provider_item(id: &str) -> Option<Value> {
+    catalog_provider_items()
+        .as_array()?
+        .iter()
+        .find(|item| item.get("id").and_then(Value::as_str) == Some(id))
+        .cloned()
 }
 
 fn format_wire_session(
@@ -1648,13 +1947,14 @@ impl HttpServer {
         }
 
         let resp = match (method.as_str(), path) {
-            ("GET", "/api/v1/health") | ("GET", "/health") | ("GET", "/healthz") => {
-                HttpResponse::ok(&json!({
-                    "status": "ok",
-                    "version": env!("CARGO_PKG_VERSION"),
-                    "engine": "kimi-agent-rust",
-                }))
-            }
+            ("GET", "/api/v1/health")
+            | ("GET", "/health")
+            | ("GET", "/healthz")
+            | ("GET", "/api/v1/healthz") => HttpResponse::ok(&json!({
+                "status": "ok",
+                "version": env!("CARGO_PKG_VERSION"),
+                "engine": "kimi-agent-rust",
+            })),
             ("GET", "/api/v1/meta") => {
                 let dangerous_bypass_auth = self.auth.is_disabled();
                 HttpResponse::ok(&json!({
@@ -1710,8 +2010,24 @@ impl HttpServer {
                 if let Some(dm) = body.get("default_model").and_then(|v| v.as_str()) {
                     config.default_model = Some(dm.to_string());
                 }
-                if let Some(yolo) = body.get("yolo").and_then(|v| v.as_bool()) {
-                    config.agent.yolo = Some(yolo);
+                // v2 folds `yolo` into the permission mode rather than keeping a
+                // separate flag: `patchConfigRequestSchema` carries both
+                // `yolo` and `default_permission_mode`, and the handler does
+                // `if (yolo === true) defaultPermissionMode = 'yolo'` then drops
+                // the key (kap-server/src/routes/config.ts:63-68). Read
+                // `default_permission_mode` first so an explicit mode wins.
+                let default_permission_mode =
+                    body.get("default_permission_mode").and_then(|v| v.as_str());
+                let yolo_flag = body.get("yolo").and_then(|v| v.as_bool());
+                if let Some(mode) = default_permission_mode {
+                    config.default_permission_mode = Some(mode.to_string());
+                } else if yolo_flag == Some(true) {
+                    config.default_permission_mode = Some("yolo".to_string());
+                }
+                if yolo_flag == Some(true) {
+                    config.agent.yolo = Some(true);
+                } else if yolo_flag == Some(false) {
+                    config.agent.yolo = Some(false);
                 }
                 if let Some(plan_mode) = body.get("plan_mode").and_then(|v| v.as_bool()) {
                     config.plan_mode = Some(plan_mode);
@@ -1720,6 +2036,119 @@ impl HttpServer {
                     body.get("default_plan_mode").and_then(|v| v.as_bool())
                 {
                     config.default_plan_mode = Some(default_plan_mode);
+                }
+                // The Web settings panel posts the whole `patchConfigRequestSchema`
+                // and used to have all but four keys accepted with a 200 and
+                // dropped — so an experimental-feature toggle could never be
+                // persisted. Apply every section the schema declares.
+                if let Some(provider) = body.get("default_provider").and_then(|v| v.as_str()) {
+                    config.default_provider = Some(provider.to_string());
+                }
+                if let Some(permission) = body.get("permission") {
+                    match serde_json::from_value::<crate::config::PermissionConfig>(
+                        permission.clone(),
+                    ) {
+                        Ok(parsed) => config.permission = Some(parsed),
+                        Err(error) => {
+                            // Never silently drop a section the user just
+                            // edited: report it so the UI can surface a form
+                            // error instead of pretending it saved.
+                            return HttpResponse::bad_request(format!(
+                                "Invalid [permission] section: {error}"
+                            ));
+                        }
+                    }
+                }
+                if let Some(mode) = body.get("default_permission_mode").and_then(|v| v.as_str()) {
+                    config.default_permission_mode = Some(mode.to_string());
+                }
+                if let Some(thinking) = body.get("thinking") {
+                    match serde_json::from_value::<crate::config::ThinkingConfig>(thinking.clone())
+                    {
+                        Ok(parsed) => config.thinking = parsed,
+                        Err(error) => {
+                            return HttpResponse::bad_request(format!(
+                                "Invalid [thinking] section: {error}"
+                            ));
+                        }
+                    }
+                }
+                if let Some(loop_control) = body.get("loop_control") {
+                    match serde_json::from_value::<crate::config::LoopControlConfig>(
+                        loop_control.clone(),
+                    ) {
+                        Ok(parsed) => config.loop_control = parsed,
+                        Err(error) => {
+                            return HttpResponse::bad_request(format!(
+                                "Invalid [loop_control] section: {error}"
+                            ));
+                        }
+                    }
+                }
+                if let Some(background) = body.get("background") {
+                    match serde_json::from_value::<crate::config::BackgroundConfig>(
+                        background.clone(),
+                    ) {
+                        Ok(parsed) => config.background = parsed,
+                        Err(error) => {
+                            return HttpResponse::bad_request(format!(
+                                "Invalid [background] section: {error}"
+                            ));
+                        }
+                    }
+                }
+                if let Some(hooks) = body.get("hooks") {
+                    match serde_json::from_value::<Vec<crate::permission::HookDef>>(hooks.clone()) {
+                        Ok(parsed) => config.hooks = parsed,
+                        Err(error) => {
+                            return HttpResponse::bad_request(format!(
+                                "Invalid [hooks] section: {error}"
+                            ));
+                        }
+                    }
+                }
+                if let Some(services) = body.get("services") {
+                    match serde_json::from_value::<crate::config::ServicesConfig>(services.clone())
+                    {
+                        Ok(parsed) => config.services = parsed,
+                        Err(error) => {
+                            return HttpResponse::bad_request(format!(
+                                "Invalid [services] section: {error}"
+                            ));
+                        }
+                    }
+                }
+                if let Some(experimental) = body.get("experimental") {
+                    match serde_json::from_value::<
+                        std::collections::HashMap<String, crate::config::ExperimentalValue>,
+                    >(experimental.clone())
+                    {
+                        Ok(parsed) => config.experimental = parsed,
+                        Err(error) => {
+                            return HttpResponse::bad_request(format!(
+                                "Invalid [experimental] section: {error}"
+                            ));
+                        }
+                    }
+                }
+                if let Some(merge) = body
+                    .get("merge_all_available_skills")
+                    .and_then(|v| v.as_bool())
+                {
+                    config.merge_all_available_skills = Some(merge);
+                }
+                if let Some(dirs) = body.get("extra_skill_dirs") {
+                    match serde_json::from_value::<Vec<String>>(dirs.clone()) {
+                        Ok(parsed) => config.extra_skill_dirs = parsed,
+                        Err(error) => {
+                            return HttpResponse::bad_request(format!(
+                                "Invalid extra_skill_dirs: {error}"
+                            ));
+                        }
+                    }
+                }
+                if let Some(telemetry) = body.get("telemetry").and_then(|v| v.as_bool()) {
+                    config.telemetry = Some(telemetry);
                 }
                 *self.config_override.lock().await = Some(config.clone());
                 HttpResponse::ok(&format_config_response(&config))
@@ -1761,25 +2190,25 @@ impl HttpServer {
             // constant, so it does not reflect per-process availability (e.g. a
             // build without the workflow engine still reports the same set).
             // The detail route below answers from the same list.
-            ("GET", "/api/v1/capabilities") => HttpResponse::ok(&json!({
-                "capabilities": NATIVE_CAPABILITY_IDS
-            })),
+            // The bundle's `listCapabilities` feeds these straight into
+            // `capabilities.filter(c => c.supported)`, so the elements have to be
+            // the same objects the detail route serves — a bare string array made
+            // `supported` undefined and the plugin panel's capability rows
+            // rendered empty.
+            ("GET", "/api/v1/capabilities") => {
+                let capabilities: Vec<Value> = NATIVE_CAPABILITY_IDS
+                    .iter()
+                    .map(|id| native_capability_wire(id))
+                    .collect();
+                HttpResponse::ok(&json!({ "capabilities": capabilities }))
+            }
             // One capability's readiness. Native built-ins are compiled in, so
             // a known id is genuinely `ready`; an unknown id is a 404
             // (kap-server's `CAPABILITY_NOT_FOUND`), not a fabricated record.
             ("GET", p) if p.starts_with("/api/v1/capabilities/") => {
                 let id = p.trim_start_matches("/api/v1/capabilities/");
                 if NATIVE_CAPABILITY_IDS.contains(&id) {
-                    HttpResponse::ok(&json!({
-                        "id": id,
-                        "displayName": id,
-                        "description": format!("Built-in {id} capability of the native engine."),
-                        "supported": true,
-                        "state": "ready",
-                        "version": env!("CARGO_PKG_VERSION"),
-                        "steps": [],
-                        "install": { "progress": 100 }
-                    }))
+                    HttpResponse::ok(&native_capability_wire(id))
                 } else {
                     HttpResponse::not_found()
                 }
@@ -1956,101 +2385,20 @@ impl HttpServer {
                 }
             }
             ("GET", "/api/v1/catalog/providers") | ("GET", "/api/v1/providers/catalog") => {
-                let items = json!([
-                    {
-                        "id": "moonshot",
-                        "name": "Moonshot AI (Kimi)",
-                        "wire_type": "kimi",
-                        "guessed": false,
-                        "needs_base_url": false,
-                        "rejected": false,
-                        "reject_reason": Value::Null,
-                        "env_key": "MOONSHOT_API_KEY",
-                        "models": [
-                            {
-                                "id": "kimi-latest",
-                                "name": "Kimi Latest",
-                                "max_context_size": 262144,
-                                "capabilities": ["tools", "thinking", "multimodal"],
-                                "reasoning": true
-                            }
-                        ]
-                    },
-                    {
-                        "id": "anthropic",
-                        "name": "Anthropic",
-                        "wire_type": "anthropic",
-                        "guessed": false,
-                        "needs_base_url": false,
-                        "rejected": false,
-                        "reject_reason": Value::Null,
-                        "env_key": "ANTHROPIC_API_KEY",
-                        "models": [
-                            {
-                                "id": "claude-3-7-sonnet-20250219",
-                                "name": "Claude 3.7 Sonnet",
-                                "max_context_size": 200000,
-                                "capabilities": ["tools", "thinking", "multimodal"],
-                                "reasoning": true
-                            }
-                        ]
-                    },
-                    {
-                        "id": "openai",
-                        "name": "OpenAI",
-                        "wire_type": "openai",
-                        "guessed": false,
-                        "needs_base_url": false,
-                        "rejected": false,
-                        "reject_reason": Value::Null,
-                        "env_key": "OPENAI_API_KEY",
-                        "models": [
-                            {
-                                "id": "gpt-4o",
-                                "name": "GPT-4o",
-                                "max_context_size": 128000,
-                                "capabilities": ["tools", "multimodal"],
-                                "reasoning": false
-                            }
-                        ]
-                    },
-                    {
-                        "id": "google",
-                        "name": "Google Gemini",
-                        "wire_type": "google-genai",
-                        "guessed": false,
-                        "needs_base_url": false,
-                        "rejected": false,
-                        "reject_reason": Value::Null,
-                        "env_key": "GEMINI_API_KEY",
-                        "models": [
-                            {
-                                "id": "gemini-2.5-pro",
-                                "name": "Gemini 2.5 Pro",
-                                "max_context_size": 1000000,
-                                "capabilities": ["tools", "thinking", "multimodal"],
-                                "reasoning": true
-                            }
-                        ]
-                    }
-                ]);
-                HttpResponse::ok(&json!({ "items": items }))
+                HttpResponse::ok(&json!({ "items": catalog_provider_items() }))
             }
             ("GET", p) if p.starts_with("/api/v1/catalog/providers/") => {
                 let catalog_id = p
                     .strip_prefix("/api/v1/catalog/providers/")
                     .unwrap_or_default();
-                HttpResponse::ok(&json!({
-                    "id": catalog_id,
-                    "name": format!("Catalog {catalog_id}"),
-                    "wire_type": "openai",
-                    "guessed": false,
-                    "needs_base_url": false,
-                    "rejected": false,
-                    "reject_reason": Value::Null,
-                    "env_key": Value::Null,
-                    "models": []
-                }))
+                // Serve the same entry the list route advertises — including the
+                // resolved `base_url` — instead of fabricating a placeholder
+                // with no endpoint and no models (v2 #3909 exposes `base_url` on
+                // both routes). An unknown id is a 404 rather than a fake entry.
+                match catalog_provider_item(catalog_id) {
+                    Some(item) => HttpResponse::ok(&item),
+                    None => HttpResponse::not_found(),
+                }
             }
             ("POST", p) if p.starts_with("/api/v1/models/") => {
                 let tail = p.strip_prefix("/api/v1/models/").unwrap_or_default();
@@ -2196,66 +2544,139 @@ impl HttpServer {
                 // domain-grouped items plus total/has_more/next_page_token.
                 // Page-token pagination is accepted for compatibility and
                 // answered as a single complete page (the fork's session
-                // count is small); `page_token` stays null.
+                // count is small); `page_token` stays null. `view=by_workspace`
+                // groups the matching set per workspace instead
+                // (`v2SessionGroupPageSchema`), which is what the sessions
+                // sidebar loads first.
                 let sessions = self.store.list_sessions().unwrap_or_default();
                 let engine = self.engine.as_ref();
-                let items: Vec<Value> = sessions
-                    .into_iter()
-                    .map(|s| {
-                        let busy = engine.map(|e| e.is_busy(&s.session_id)).unwrap_or(false);
-                        let has_prompt = self
-                            .store
-                            .load_session_history(&s.session_id)
-                            .map(|history| !history.is_empty())
-                            .unwrap_or(false);
-                        let model = self
-                            .store
-                            .get_state("agent_config", &s.session_id)
-                            .ok()
-                            .flatten()
-                            .and_then(|c| {
-                                c.get("model").and_then(|m| m.as_str()).map(str::to_string)
-                            })
-                            .or_else(|| engine.map(|e| e.model_name().to_string()));
-                        let workspace_cwd = s
-                            .workspace_id
-                            .as_deref()
-                            .and_then(|wid| self.store.get_workspace(wid).ok().flatten())
-                            .map(|w| w.root);
-                        json!({
-                            "id": s.session_id,
-                            "workspace": {
-                                "id": s.workspace_id,
-                                "cwd": workspace_cwd,
-                            },
-                            "meta": {
-                                "title": s.title,
-                                "last_prompt": Value::Null,
-                                "created_at": s.created_at,
-                                "updated_at": s.updated_at,
-                                "archived": s.archived,
-                                "archived_at": Value::Null,
-                                "has_prompt": has_prompt,
-                            },
-                            "activity": {
-                                // v2ActivityStatusSchema vocabulary
-                                // (running/approval/question/failed/idle):
-                                // the bundle's mapper maps `running` → busy
-                                // and `approval`/`question` → pending
-                                // interactions.
-                                "status": if busy { "running" } else { "idle" },
-                                "model": model
-                            }
-                        })
-                    })
-                    .collect();
+                let query_archived = req.query_param("meta.archived").map(|v| v == "true");
+                let query_has_prompt = req.query_param("meta.has_prompt").map(|v| v == "true");
+                let view_by_workspace =
+                    req.query_param("view").is_some_and(|v| v == "by_workspace");
+                let group_page_size = req
+                    .query_param("group.page_size")
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or(5);
+
+                let mut items: Vec<Value> = Vec::new();
+                for s in sessions {
+                    if query_archived.is_some_and(|want| s.archived != want) {
+                        continue;
+                    }
+                    let busy = engine.map(|e| e.is_busy(&s.session_id)).unwrap_or(false);
+                    let has_prompt = self
+                        .store
+                        .load_session_history(&s.session_id)
+                        .map(|history| !history.is_empty())
+                        .unwrap_or(false);
+                    if query_has_prompt.is_some_and(|want| has_prompt != want) {
+                        continue;
+                    }
+                    let model = self
+                        .store
+                        .get_state("agent_config", &s.session_id)
+                        .ok()
+                        .flatten()
+                        .and_then(|c| c.get("model").and_then(|m| m.as_str()).map(str::to_string))
+                        .or_else(|| engine.map(|e| e.model_name().to_string()));
+                    let workspace_cwd = s
+                        .workspace_id
+                        .as_deref()
+                        .and_then(|wid| self.store.get_workspace(wid).ok().flatten())
+                        .map(|w| w.root);
+                    items.push(json!({
+                        "id": s.session_id,
+                        "workspace": {
+                            "id": s.workspace_id,
+                            "cwd": workspace_cwd,
+                        },
+                        "meta": {
+                            "title": s.title,
+                            "last_prompt": Value::Null,
+                            "created_at": s.created_at,
+                            "updated_at": s.updated_at,
+                            "archived": s.archived,
+                            "archived_at": Value::Null,
+                            "has_prompt": has_prompt,
+                        },
+                        "activity": {
+                            // v2ActivityStatusSchema vocabulary
+                            // (running/approval/question/failed/idle):
+                            // the bundle's mapper maps `running` → busy
+                            // and `approval`/`question` → pending
+                            // interactions.
+                            "status": if busy { "running" } else { "idle" },
+                            "model": model
+                        }
+                    }));
+                }
                 let total = items.len();
-                HttpResponse::ok(&json!({
-                    "items": items,
-                    "total": total,
-                    "has_more": false,
-                    "next_page_token": Value::Null
-                }))
+                if view_by_workspace {
+                    // Group every session under its workspace: each group
+                    // carries the workspace object and the first
+                    // `group.page_size` sessions of that workspace.
+                    let workspaces = self.store.list_workspaces().unwrap_or_default();
+                    let mut groups: Vec<Value> = workspaces
+                        .iter()
+                        .map(|w| {
+                            let members: Vec<&Value> = items
+                                .iter()
+                                .filter(|i| i["workspace"]["id"] == json!(w.id))
+                                .collect();
+                            let group_total = members.len();
+                            let sessions: Vec<Value> =
+                                members.into_iter().take(group_page_size).cloned().collect();
+                            json!({
+                                "workspace": {
+                                    "id": w.id,
+                                    "cwd": w.root,
+                                },
+                                "sessions": sessions,
+                                "total": group_total,
+                            })
+                        })
+                        .collect();
+                    // Sessions whose workspace row is missing (deleted row or
+                    // ad-hoc cwd sessions) land in a synthetic group keyed by
+                    // the session's own workspace id so they stay reachable.
+                    let orphan_workspaces: Vec<Value> = items
+                        .iter()
+                        .filter(|i| {
+                            workspaces
+                                .iter()
+                                .all(|w| json!(w.id) != i["workspace"]["id"])
+                        })
+                        .map(|i| i["workspace"].clone())
+                        .collect();
+                    for ws_value in orphan_workspaces {
+                        let members: Vec<&Value> = items
+                            .iter()
+                            .filter(|i| i["workspace"]["id"] == ws_value["id"])
+                            .collect();
+                        let group_total = members.len();
+                        let group_sessions: Vec<Value> =
+                            members.into_iter().take(group_page_size).cloned().collect();
+                        groups.push(json!({
+                            "workspace": ws_value,
+                            "sessions": group_sessions,
+                            "total": group_total,
+                        }));
+                    }
+                    HttpResponse::ok(&json!({
+                        "groups": groups,
+                        "total": total,
+                        "has_more": false,
+                        "next_page_token": Value::Null
+                    }))
+                } else {
+                    HttpResponse::ok(&json!({
+                        "items": items,
+                        "total": total,
+                        "has_more": false,
+                        "next_page_token": Value::Null
+                    }))
+                }
             }
             // Batch archive/restore (upstream `routes/v2/sessions.ts`): the
             // official Web bundle posts `{ ids: [...] }` and folds per-item
@@ -2800,11 +3221,70 @@ impl HttpServer {
             }
             ("GET", "/api/v1/sessions") => match self.store.list_sessions() {
                 Ok(sessions) => {
+                    // v2 `sessionsListQueryCoercion`
+                    // (kap-server/src/routes/sessions.ts:101-136) is the contract:
+                    // page_size (default 20, max 100), busy, include_archive,
+                    // exclude_empty, archived_only, workspace_id. The response is
+                    // `pageResponseSchema(sessionSchema)` — `{items, has_more}`.
+                    let flag = |name: &str| -> Option<bool> {
+                        req.query_param(name).map(|v| v == "true" || v == "1")
+                    };
+                    let exclude_empty = flag("exclude_empty").unwrap_or(false);
+                    let archived_only = flag("archived_only").unwrap_or(false);
+                    let include_archive = flag("include_archive").unwrap_or(false);
+                    let busy_filter = flag("busy");
+                    let page_size = req
+                        .query_param("page_size")
+                        .and_then(|v| v.parse::<usize>().ok())
+                        .unwrap_or(20)
+                        .clamp(1, 100);
+                    let workspace_filter = req.query_param("workspace_id");
                     let items: Vec<Value> = sessions
                         .iter()
+                        .filter(|s| {
+                            // `archived_only` and `include_archive` are mutually
+                            // exclusive upstream; the default hides archived
+                            // sessions.
+                            if archived_only {
+                                if !s.archived {
+                                    return false;
+                                }
+                            } else if !include_archive && s.archived {
+                                return false;
+                            }
+                            if let Some(want) = workspace_filter.as_deref()
+                                && s.workspace_id.as_deref() != Some(want)
+                            {
+                                return false;
+                            }
+                            if let Some(want_busy) = busy_filter
+                                && self
+                                    .engine
+                                    .as_ref()
+                                    .map(|e| e.is_busy(&s.session_id))
+                                    .unwrap_or(false)
+                                    != want_busy
+                            {
+                                return false;
+                            }
+                            !exclude_empty
+                                || !self
+                                    .store
+                                    .load_session_history(&s.session_id)
+                                    .map(|h| h.is_empty())
+                                    .unwrap_or(true)
+                        })
                         .map(|s| format_wire_session(s, &self.store, self.engine.as_ref()))
                         .collect();
-                    HttpResponse::ok(&json!({ "sessions": items }))
+                    let total = items.len();
+                    let page: Vec<Value> = items.into_iter().take(page_size).collect();
+                    // `sessions` stays for the in-tree clients that predate the
+                    // paged contract.
+                    HttpResponse::ok(&json!({
+                        "items": page,
+                        "has_more": total > page_size,
+                        "sessions": page,
+                    }))
                 }
                 Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
             },
@@ -3084,6 +3564,12 @@ impl HttpServer {
                 let id = body
                     .get("id")
                     .or_else(|| body.get("name"))
+                    // The official Web bundle's `installPlugin` posts the
+                    // catalog entry's `source` under a `source` key;
+                    // `install_plugin_from` already matches a catalog `source`
+                    // as well as an id, so reading it here is all that was
+                    // missing — the request used to 400 as "Missing plugin id".
+                    .or_else(|| body.get("source"))
                     .and_then(|v| v.as_str());
                 let Some(id) = id else {
                     return HttpResponse::bad_request("Missing plugin id");
@@ -3113,9 +3599,12 @@ impl HttpServer {
                 }
             }
             ("GET", "/api/v1/skills") => {
-                let mut extra = self.config().await.extra_skill_dirs_paths();
+                let config = self.config().await;
+                let merge = config.resolve_merge_all_available_skills();
+                let mut extra = config.extra_skill_dirs_paths();
                 extra.extend(self.plugin_manager.plugin_skill_dirs());
-                let skills = crate::skills::scan_all_skills_with_extra(None, &extra);
+                let skills =
+                    crate::skills::scan_all_skills_with_extra_and_merge(None, &extra, merge);
                 HttpResponse::ok(&json!({ "skills": skills }))
             }
             ("POST", "/api/v1/acp") => {
@@ -3217,17 +3706,29 @@ impl HttpServer {
                     .clone()
                     .start_login(provider, region)
                     .await;
-                HttpResponse::ok(&json!(flow))
+                HttpResponse::ok(&oauth_flow_wire(Some(&flow), provider))
             }
             ("GET", "/api/v1/oauth/login") => {
                 let provider = req.query_param("provider").unwrap_or_else(|| "kimi".into());
                 let flow = self.oauth_manager.get_flow(&provider);
-                HttpResponse::ok(&json!(flow))
+                HttpResponse::ok(&oauth_flow_wire(flow.as_ref(), &provider))
             }
             ("DELETE", "/api/v1/oauth/login") => {
                 let provider = req.query_param("provider").unwrap_or_else(|| "kimi".into());
                 let cancelled = self.oauth_manager.cancel_login(&provider);
-                HttpResponse::ok(&json!({ "cancelled": cancelled }))
+                // The bundle's `cancelOAuthLogin` reads `status` alongside
+                // `cancelled`; the terminal status of a cancelled flow is
+                // `cancelled` when it really was, and the flow's own status
+                // otherwise (nothing to cancel).
+                let status = if cancelled {
+                    "cancelled".to_string()
+                } else {
+                    self.oauth_manager
+                        .get_flow(&provider)
+                        .map(|flow| flow.status)
+                        .unwrap_or_else(|| "cancelled".to_string())
+                };
+                HttpResponse::ok(&json!({ "cancelled": cancelled, "status": status }))
             }
             ("POST", "/api/v1/oauth/logout") => {
                 let body: Value = match serde_json::from_slice(&req.body) {
@@ -3360,9 +3861,15 @@ impl HttpServer {
                     Err(e) => return HttpResponse::internal_error(format!("Database error: {e}")),
                 };
                 let root_path = std::path::PathBuf::from(&ws.root);
-                let mut extra = self.config().await.extra_skill_dirs_paths();
+                let config = self.config().await;
+                let merge = config.resolve_merge_all_available_skills();
+                let mut extra = config.extra_skill_dirs_paths();
                 extra.extend(self.plugin_manager.plugin_skill_dirs());
-                let skills = crate::skills::scan_all_skills_with_extra(Some(&root_path), &extra);
+                let skills = crate::skills::scan_all_skills_with_extra_and_merge(
+                    Some(&root_path),
+                    &extra,
+                    merge,
+                );
                 HttpResponse::ok(&json!({ "skills": skills }))
             }
             ("GET", p) if p.starts_with("/api/v1/workspaces/") && p.ends_with("/plugins") => {
@@ -3584,7 +4091,16 @@ impl HttpServer {
                     }
                 }
                 let tasks = self.task_runner.list();
-                HttpResponse::ok(&json!({ "tasks": tasks }))
+                // v2 answers `{items}` only, with an optional `status` filter
+                // (kap-server/src/routes/tasks.ts:82-87).
+                let items: Vec<Value> = match req.query_param("status") {
+                    Some(wanted) => tasks
+                        .into_iter()
+                        .filter(|task| task.get("status").and_then(|v| v.as_str()) == Some(&wanted))
+                        .collect(),
+                    None => tasks,
+                };
+                HttpResponse::ok(&json!({ "items": items }))
             }
             ("GET", p)
                 if (p.starts_with("/api/v1/sessions/")
@@ -3610,7 +4126,9 @@ impl HttpServer {
                     segments[6]
                 };
                 match self.task_runner.entry(task_id) {
-                    Some(entry) => HttpResponse::ok(&json!({ "task": entry })),
+                    // v2's `getTask` answers the bare wire task
+                    // (`okEnvelope(toWireTask(...))`, kap-server/src/routes/tasks.ts:134).
+                    Some(entry) => HttpResponse::ok(&entry),
                     None => HttpResponse::not_found(),
                 }
             }
@@ -3863,20 +4381,81 @@ impl HttpServer {
                     .load_session_history(session_id)
                     .unwrap_or_default();
                 let context_tokens: usize = history.iter().map(|m| m.content.len() / 4).sum();
-                let active_model = self
-                    .engine
-                    .as_ref()
-                    .map(|e| e.model_name())
-                    .unwrap_or("kimi-latest");
+                // Read the session's own profile. `permission` / `thinking_level`
+                // used to be string literals ("auto" / "medium"), so a client that
+                // read the REST status once saw the defaults no matter what the
+                // user had configured — and disagreed with the same engine's
+                // `agent.status.updated` event, which reads `agent_config`.
+                let agent_config = self
+                    .store
+                    .get_state("agent_config", session_id)
+                    .ok()
+                    .flatten()
+                    .unwrap_or(Value::Null);
+                let metadata = self
+                    .store
+                    .get_state("metadata", session_id)
+                    .ok()
+                    .flatten()
+                    .unwrap_or(Value::Null);
+                let active_model = agent_config
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .or_else(|| self.engine.as_ref().map(|e| e.model_name().to_string()))
+                    .unwrap_or_else(|| "kimi-latest".to_string());
+                // Same two homes as `ServerEngine::status_payload`: the profile
+                // route writes `agent_config`, the engine's per-turn resolution
+                // reads `metadata`.
+                let permission = agent_config
+                    .get("permission_mode")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| metadata.get("permission_mode").and_then(|v| v.as_str()))
+                    .unwrap_or("auto");
+                let thinking_level = agent_config
+                    .get("thinking")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("medium");
+                let plan_mode = agent_config
+                    .get("plan_mode")
+                    .and_then(|v| v.as_bool())
+                    .or_else(|| metadata.get("plan_mode").and_then(|v| v.as_bool()))
+                    .unwrap_or(false);
+                let max_context_tokens = metadata
+                    .get("max_context_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(262_144);
+                let context_usage = if max_context_tokens == 0 {
+                    0.0
+                } else {
+                    context_tokens as f64 / max_context_tokens as f64
+                };
+                // Swarm / tower ride the session profile (`agent_config`), which
+                // the profile route writes; tower additionally follows the
+                // engine-wide experimental gate.
+                let swarm_mode = agent_config
+                    .get("swarm_mode")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let tower_mode = crate::tools::tower::paths::tower_enabled(
+                    crate::tools::tower::paths::tower_env_switch(),
+                    None,
+                );
                 HttpResponse::ok(&json!({
-                    "sessionId": session_id,
+                    // v2 `sessionStatusResponseSchema`
+                    // (agent-core-v2/src/app/sessionLegacy/sessionProtocol.ts:74):
+                    // exactly these keys, answered bare. `sessionId` /
+                    // `total_turns` / `created_at` were fork additions.
                     "busy": busy,
-                    "permission": "auto",
                     "model": active_model,
-                    "thinking_level": "medium",
+                    "thinking_level": thinking_level,
+                    "permission": permission,
+                    "plan_mode": plan_mode,
+                    "swarm_mode": swarm_mode,
+                    "tower_mode": tower_mode,
                     "context_tokens": context_tokens,
-                    "total_turns": history.len().max(1),
-                    "created_at": chrono::Utc::now().to_rfc3339()
+                    "max_context_tokens": max_context_tokens,
+                    "context_usage": context_usage,
                 }))
             }
             ("GET", p) if extract_session_action(p, "snapshot").is_some() => {
@@ -4185,14 +4764,20 @@ impl HttpServer {
                 let title = body.get("title").and_then(|v| v.as_str());
 
                 match self.store.fork_session(session_id, &new_session_id, title) {
-                    Ok(true) => HttpResponse::json(
-                        201,
-                        &json!({
-                            "sessionId": new_session_id,
-                            "sourceSessionId": session_id,
-                            "title": title
-                        }),
-                    ),
+                    Ok(true) => {
+                        // v2 `forkSessionResponseSchema = sessionSchema`
+                        // (kap-server/src/protocol/rest-session.ts:103) answered as
+                        // the bare wire session via `okEnvelope` — the new
+                        // session's document, nothing wrapped around it.
+                        let created = self.store.get_session(&new_session_id).ok().flatten();
+                        let wire = match created {
+                            Some(ref session) => {
+                                format_wire_session(session, &self.store, self.engine.as_ref())
+                            }
+                            None => json!({}),
+                        };
+                        HttpResponse::ok(&wire)
+                    }
                     Ok(false) => HttpResponse::not_found(),
                     Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                 }
@@ -4201,8 +4786,17 @@ impl HttpServer {
                 let session_id = extract_session_action(p, "restore").unwrap();
                 match self.store.restore_session(session_id) {
                     Ok(true) => {
+                        // v2 `restoreSessionAction` answers the restored session
+                        // via `okEnvelope(session, …)`
+                        // (kap-server/src/routes/sessions.ts:976).
                         let summary = self.store.get_session(session_id).ok().flatten();
-                        HttpResponse::ok(&json!({ "restored": true, "session": summary }))
+                        let wire = match summary {
+                            Some(ref session) => {
+                                format_wire_session(session, &self.store, self.engine.as_ref())
+                            }
+                            None => json!({}),
+                        };
+                        HttpResponse::ok(&wire)
                     }
                     Ok(false) => HttpResponse::not_found(),
                     Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
@@ -4301,7 +4895,11 @@ impl HttpServer {
                 } else {
                     json!(created_session)
                 };
-                HttpResponse::json(201, &session_val)
+                // v2 has no `statusCode` on create routes, so the envelope ships
+                // as HTTP 200 (`success: { data: sessionSchema }`,
+                // kap-server/src/routes/sessions.ts:181-184 for the parent,
+                // :707-710 for the child) — not 201.
+                HttpResponse::ok(&session_val)
             }
             ("GET", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/warnings") => {
                 let session_id = p
@@ -4594,7 +5192,24 @@ impl HttpServer {
                             .store
                             .load_session_history(session_id)
                             .unwrap_or_default();
+                        // v2 `listMessagesResponseSchema` is
+                        // `{ items: messageSchema[], has_more }`
+                        // (kap-server/src/protocol/rest-message.ts:14). The fork
+                        // answered `{sessionId, messages}` with raw `LLMMessage`
+                        // rows, so `items` was missing and each element lacked
+                        // the `id`/`session_id`/`content[]` block projection the
+                        // schema requires. `messages` stays for the in-tree
+                        // consumers that predate the paged contract.
+                        let items: Vec<Value> = history
+                            .iter()
+                            .enumerate()
+                            .map(|(index, message)| {
+                                project_wire_message(session_id, index, message)
+                            })
+                            .collect();
                         HttpResponse::ok(&json!({
+                            "items": items,
+                            "has_more": false,
                             "sessionId": session_id,
                             "messages": history,
                         }))
@@ -4613,10 +5228,12 @@ impl HttpServer {
                     .get_state("goal", session_id)
                     .unwrap_or(None)
                     .unwrap_or(Value::Null);
-                HttpResponse::ok(&json!({
-                    "sessionId": session_id,
-                    "goal": goal_val,
-                }))
+                // v2 answers the bare `goalSnapshotSchema` or `null`
+                // (kap-server/src/routes/sessions.ts:798 →
+                // `getSessionGoalResponseSchema = goalSnapshotSchema.nullable()`);
+                // the fork's `{sessionId, goal}` wrapper made every client read
+                // `status` off a level that never had it.
+                HttpResponse::ok(&goal_val)
             }
             ("GET", p) if extract_session_action(p, "skills").is_some() => {
                 let session_id = extract_session_action(p, "skills").unwrap();
@@ -4634,9 +5251,15 @@ impl HttpServer {
                 } else {
                     None
                 };
-                let mut extra = self.config().await.extra_skill_dirs_paths();
+                let config = self.config().await;
+                let merge = config.resolve_merge_all_available_skills();
+                let mut extra = config.extra_skill_dirs_paths();
                 extra.extend(self.plugin_manager.plugin_skill_dirs());
-                let skills = crate::skills::scan_all_skills_with_extra(ws_root.as_deref(), &extra);
+                let skills = crate::skills::scan_all_skills_with_extra_and_merge(
+                    ws_root.as_deref(),
+                    &extra,
+                    merge,
+                );
                 HttpResponse::ok(&json!({
                     "sessionId": session_id,
                     "skills": skills,
@@ -4670,9 +5293,15 @@ impl HttpServer {
                 } else {
                     None
                 };
-                let mut extra = self.config().await.extra_skill_dirs_paths();
+                let config = self.config().await;
+                let merge = config.resolve_merge_all_available_skills();
+                let mut extra = config.extra_skill_dirs_paths();
                 extra.extend(self.plugin_manager.plugin_skill_dirs());
-                let skills = crate::skills::scan_all_skills_with_extra(ws_root.as_deref(), &extra);
+                let skills = crate::skills::scan_all_skills_with_extra_and_merge(
+                    ws_root.as_deref(),
+                    &extra,
+                    merge,
+                );
                 if !skills.iter().any(|s| s.name == skill_name) {
                     return HttpResponse::json(
                         404,
@@ -4858,7 +5487,28 @@ impl HttpServer {
                     HttpResponse::not_found()
                 }
             }
-            ("GET", p) | ("POST", p) if extract_session_action(p, "export").is_some() => {
+            // Two verbs, two contracts. The official Web bundle posts through a
+            // bespoke transport that hard-fails unless the response is
+            // `application/zip`; the in-tree REST clients read the export
+            // document as JSON over GET.
+            ("POST", p) if extract_session_action(p, "export").is_some() => {
+                let session_id = extract_session_action(p, "export").unwrap();
+                match self.store.export_session(session_id) {
+                    Ok(Some(export)) => match build_session_export_zip(&export) {
+                        Ok(archive) => HttpResponse::bytes(200, "application/zip", archive)
+                            .with_header(
+                                "Content-Disposition",
+                                format!("attachment; filename=\"{session_id}.zip\""),
+                            ),
+                        Err(e) => HttpResponse::internal_error(format!(
+                            "Failed to build the export archive: {e}"
+                        )),
+                    },
+                    Ok(None) => HttpResponse::not_found(),
+                    Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
+                }
+            }
+            ("GET", p) if extract_session_action(p, "export").is_some() => {
                 let session_id = extract_session_action(p, "export").unwrap();
                 match self.store.export_session(session_id) {
                     Ok(Some(export)) => HttpResponse::ok(&json!(export)),
@@ -4873,37 +5523,15 @@ impl HttpServer {
                     Ok(None) => return HttpResponse::not_found(),
                     Err(e) => return HttpResponse::internal_error(format!("Database error: {e}")),
                 };
-                let active_model = self
-                    .engine
-                    .as_ref()
-                    .map(|e| e.model_name())
-                    .unwrap_or("kimi-latest");
-                let default_plan_mode = {
-                    let cfg = self.config().await;
-                    cfg.agent
-                        .plan_mode
-                        .or(cfg.plan_mode)
-                        .or(cfg.default_plan_mode)
-                        .unwrap_or(false)
-                };
-                let agent_config = self
-                    .store
-                    .get_state("agent_config", session_id)
-                    .unwrap_or(None)
-                    .unwrap_or_else(|| {
-                        json!({
-                            "model": active_model,
-                            "thinking": "medium",
-                            "permission_mode": "auto",
-                            "plan_mode": default_plan_mode,
-                        })
-                    });
+                // v2 `GET /sessions/{session_id}/profile` answers the bare
+                // session (`success: { data: sessionSchema }`,
+                // kap-server/src/routes/sessions.ts:455). `agent_config` is part
+                // of that document — `format_wire_session` fills it, including
+                // the model / thinking fallbacks — so the fork's separate
+                // `agent_config` / `sessionId` / `session` keys were answering a
+                // shape nothing asked for.
                 let wire_session = format_wire_session(&session, &self.store, self.engine.as_ref());
-                HttpResponse::ok(&json!({
-                    "sessionId": session_id,
-                    "session": wire_session,
-                    "agent_config": agent_config,
-                }))
+                HttpResponse::ok(&wire_session)
             }
             ("POST", p) if extract_session_action(p, "profile").is_some() => {
                 let session_id = extract_session_action(p, "profile").unwrap();
@@ -4952,11 +5580,6 @@ impl HttpServer {
                     .ok()
                     .flatten()
                     .unwrap_or(session);
-                let updated_cfg = self
-                    .store
-                    .get_state("agent_config", session_id)
-                    .unwrap_or(None)
-                    .unwrap_or_else(|| json!({}));
 
                 let meta_event = json!({
                     "type": "session.meta.updated",
@@ -4979,11 +5602,13 @@ impl HttpServer {
                 let wire_session =
                     format_wire_session(&updated_session, &self.store, self.engine.as_ref());
 
-                HttpResponse::ok(&json!({
-                    "sessionId": session_id,
-                    "session": wire_session,
-                    "agent_config": updated_cfg,
-                }))
+                // v2 `POST /sessions/{session_id}/profile` answers the bare
+                // updated session (`success: { data: sessionSchema }`, and the
+                // handler does `reply.send(okEnvelope(session, …))`,
+                // kap-server/src/routes/sessions.ts:497-529) — the same document
+                // the GET variant serves, taken from the wire session so
+                // `agent_config.model` is always populated.
+                HttpResponse::ok(&wire_session)
             }
             ("POST", p) if extract_session_fs_action(p).is_some() => {
                 let (session_id, action) = extract_session_fs_action(p).unwrap();
@@ -5062,10 +5687,23 @@ impl HttpServer {
             ("POST", p)
                 if p == "/api/v1/workspace/fs::search"
                     || p == "/workspace/fs::search"
+                    || p == "/api/v1/workspace/fs:search"
+                    || p == "/workspace/fs:search"
                     || p == "/api/v1/fs::suggest"
                     || p == "/fs::suggest"
+                    || p == "/api/v1/fs:suggest"
+                    || p == "/fs:suggest"
+                    // v2 spells these `/workspace/fs::search` and
+                    // `/workspace/fs::suggest` (double colon,
+                    // kap-server/src/routes/fs.ts:414,460); the official Web
+                    // bundle calls both with a *single* colon. The `::search`
+                    // sibling already accepted both spellings here, so `suggest`
+                    // now matches it — otherwise every file-mention request paid
+                    // a 404 round-trip before the client's fallback to search.
                     || p == "/api/v1/workspace/fs::suggest"
-                    || p == "/workspace/fs::suggest" =>
+                    || p == "/workspace/fs::suggest"
+                    || p == "/api/v1/workspace/fs:suggest"
+                    || p == "/workspace/fs:suggest" =>
             {
                 let body: Value = match serde_json::from_slice(&req.body) {
                     Ok(v) => v,
@@ -5464,16 +6102,15 @@ impl HttpServer {
                 }
                 match self.store.get_session(session_id) {
                     Ok(Some(session)) => {
+                        // v2 `GET /sessions/{session_id}` answers the session
+                        // document itself (`toWireSession` → `sessionSchema`,
+                        // kap-server/src/routes/sessions.ts:1024), wrapped only
+                        // in the standard envelope — messages live on their own
+                        // `/messages` route. Serving the document bare is what
+                        // lets a client map the response directly.
                         let wire_session =
                             format_wire_session(&session, &self.store, self.engine.as_ref());
-                        let history = self
-                            .store
-                            .load_session_history(session_id)
-                            .unwrap_or_default();
-                        HttpResponse::ok(&json!({
-                            "session": wire_session,
-                            "messages": history,
-                        }))
+                        HttpResponse::ok(&wire_session)
                     }
                     Ok(None) => HttpResponse::not_found(),
                     Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
@@ -5640,14 +6277,12 @@ impl HttpServer {
                             )
                             .await;
 
-                        HttpResponse::json(
-                            201,
-                            &json!({
-                                "sessionId": session_id,
-                                "title": title,
-                                "workspaceId": workspace_id
-                            }),
-                        )
+                        // v2 answers the created session as the bare
+                        // `sessionSchema` with no `statusCode` override
+                        // (kap-server/src/routes/sessions.ts:181-184), so this is
+                        // HTTP 200 and the document itself — not 201, and not a
+                        // `{sessionId}` stub.
+                        HttpResponse::ok(&session_val)
                     }
                     Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                 }
@@ -6298,9 +6933,10 @@ mod tests {
             body: serde_json::to_vec(&json!({ "title": "Web REST Test" })).unwrap(),
         };
         let res_create = server.handle_request(&req_create).await;
-        assert_eq!(res_create.status, 201);
+        // v2 answers the bare `sessionSchema` (no `statusCode` override).
+        assert_eq!(res_create.status, 200);
         let val_create: Value = serde_json::from_slice(&res_create.body).unwrap();
-        let sid = val_create["sessionId"].as_str().unwrap();
+        let sid = val_create["id"].as_str().unwrap();
 
         // 2. List sessions
         let req_list = HttpRequest {
@@ -6352,8 +6988,9 @@ mod tests {
         let res_get = server.handle_request(&req_get).await;
         assert_eq!(res_get.status, 200);
         let val_get: Value = serde_json::from_slice(&res_get.body).unwrap();
-        assert_eq!(val_get["session"]["session_id"], sid);
-        assert_eq!(val_get["session"]["title"], "Web REST Test");
+        // v2 answers the bare `sessionSchema` (`toWireSession`), not a wrapper.
+        assert_eq!(val_get["session_id"], sid);
+        assert_eq!(val_get["title"], "Web REST Test");
 
         // 4b. Create child session
         let req_child = HttpRequest {
@@ -6364,7 +7001,7 @@ mod tests {
             body: serde_json::to_vec(&json!({ "title": "Child Session" })).unwrap(),
         };
         let res_child = server.handle_request(&req_child).await;
-        assert_eq!(res_child.status, 201);
+        assert_eq!(res_child.status, 200);
         let val_child: Value = serde_json::from_slice(&res_child.body).unwrap();
         assert_eq!(val_child["parent_session_id"], sid);
         assert_eq!(val_child["title"], "Child Session");
@@ -6579,7 +7216,7 @@ mod tests {
                 })
                 .await;
             let body: Value = serde_json::from_slice(&created.body).unwrap();
-            body["sessionId"].as_str().unwrap().to_string()
+            body["id"].as_str().unwrap().to_string()
         };
 
         let hub = server.hub();
@@ -6648,7 +7285,7 @@ mod tests {
                 body: serde_json::to_vec(&json!({ "title": "cron-test" })).unwrap(),
             })
             .await;
-        let sid = serde_json::from_slice::<Value>(&created.body).unwrap()["sessionId"]
+        let sid = serde_json::from_slice::<Value>(&created.body).unwrap()["id"]
             .as_str()
             .unwrap()
             .to_string();
@@ -6767,9 +7404,12 @@ mod tests {
             .await;
         assert_eq!(res_list.status, 200);
         let val_list: Value = serde_json::from_slice(&res_list.body).unwrap();
-        let tasks = val_list["tasks"].as_array().unwrap();
+        // v2 `pageResponseSchema(taskSchema)`: `{items}` with protocol-named
+        // elements (`id`), not the legacy camelCase `taskId`.
+        let tasks = val_list["items"].as_array().unwrap();
         assert_eq!(tasks.len(), 1);
-        assert_eq!(tasks[0]["taskId"], "task-1");
+        assert_eq!(tasks[0]["id"], "task-1");
+        assert_eq!(tasks[0]["taskId"], "task-1", "the legacy key survives too");
 
         // 2. Get single task
         let res_get = server
@@ -6783,7 +7423,7 @@ mod tests {
             .await;
         assert_eq!(res_get.status, 200);
         let val_get: Value = serde_json::from_slice(&res_get.body).unwrap();
-        assert_eq!(val_get["task"]["taskId"], "task-1");
+        assert_eq!(val_get["id"], "task-1");
 
         // 3. Stop task
         let res_stop = server
@@ -7175,9 +7815,15 @@ mod tests {
         assert_eq!(res_cap.status, 200);
         let val_cap: Value = serde_json::from_slice(&res_cap.body).unwrap();
         let caps = val_cap["capabilities"].as_array().unwrap();
-        assert!(caps.iter().any(|c| c == "task_runner"));
-        assert!(caps.iter().any(|c| c == "cron_scheduler"));
-        assert!(caps.iter().any(|c| c == "gui_store"));
+        // Objects, not bare ids: the Web client filters on `supported`, so the
+        // list has to carry the same element shape as the detail route.
+        assert!(caps.iter().any(|c| c["id"] == "task_runner"));
+        assert!(caps.iter().any(|c| c["id"] == "cron_scheduler"));
+        assert!(caps.iter().any(|c| c["id"] == "gui_store"));
+        assert!(
+            caps.iter().all(|c| c["supported"] == true),
+            "every built-in capability is compiled in"
+        );
 
         // 6b. Capability detail route: a known id is `ready`, an unknown one is
         // a 404, and the install action honestly refuses (nothing to install).
@@ -7370,10 +8016,11 @@ mod tests {
                 body: serde_json::to_vec(&json!({ "title": "Forked Branch" })).unwrap(),
             })
             .await;
-        assert_eq!(res_fork.status, 201);
+        // v2 `forkSessionResponseSchema = sessionSchema`, answered 200 with the
+        // new session's own document.
+        assert_eq!(res_fork.status, 200);
         let val_fork: Value = serde_json::from_slice(&res_fork.body).unwrap();
-        let new_sid = val_fork["sessionId"].as_str().unwrap();
-        assert_eq!(val_fork["sourceSessionId"], "sess-test");
+        let new_sid = val_fork["id"].as_str().unwrap();
         assert_eq!(val_fork["title"], "Forked Branch");
 
         // Forked session can be queried
@@ -9008,7 +9655,10 @@ max_context_size = 1000
             .await;
         assert_eq!(res_status_colon.status, 200);
         let status_val: Value = serde_json::from_slice(&res_status_colon.body).unwrap();
-        assert_eq!(status_val["sessionId"], "sess-dual");
+        // v2 `sessionStatusResponseSchema`: a bare status object keyed by field
+        // name, with no `sessionId`.
+        assert!(status_val["busy"].is_boolean());
+        assert!(status_val["permission"].is_string());
 
         let res_status_slash = server
             .handle_request(&HttpRequest {
@@ -9058,7 +9708,8 @@ max_context_size = 1000
             .await;
         assert_eq!(res_goal_colon.status, 200);
         let goal_val: Value = serde_json::from_slice(&res_goal_colon.body).unwrap();
-        assert_eq!(goal_val["goal"]["objective"], "verify dual syntax");
+        // v2 answers the bare `goalSnapshotSchema`.
+        assert_eq!(goal_val["objective"], "verify dual syntax");
 
         let res_goal_slash = server
             .handle_request(&HttpRequest {
@@ -9105,9 +9756,9 @@ max_context_size = 1000
                 body: serde_json::to_vec(&json!({ "title": "Colon Forked" })).unwrap(),
             })
             .await;
-        assert_eq!(res_fork_colon.status, 201);
+        assert_eq!(res_fork_colon.status, 200);
         let fork_val: Value = serde_json::from_slice(&res_fork_colon.body).unwrap();
-        let new_sid = fork_val["sessionId"].as_str().unwrap();
+        let new_sid = fork_val["id"].as_str().unwrap();
         let forked_history = store.load_session_history(new_sid).unwrap();
         assert_eq!(forked_history.len(), 4);
 
@@ -9563,7 +10214,8 @@ max_context_size = 1000
             .await;
         assert_eq!(res_get_prof.status, 200);
         let val_get_prof: Value = serde_json::from_slice(&res_get_prof.body).unwrap();
-        assert_eq!(val_get_prof["session"]["title"], "Original Title");
+        // v2 answers the bare session document; `agent_config` rides inside it.
+        assert_eq!(val_get_prof["title"], "Original Title");
         assert!(val_get_prof["agent_config"]["model"].is_string());
 
         // 2. POST update profile
@@ -9585,7 +10237,7 @@ max_context_size = 1000
             .await;
         assert_eq!(res_post_prof.status, 200);
         let val_post_prof: Value = serde_json::from_slice(&res_post_prof.body).unwrap();
-        assert_eq!(val_post_prof["session"]["title"], "Renamed Title");
+        assert_eq!(val_post_prof["title"], "Renamed Title");
         assert_eq!(val_post_prof["agent_config"]["model"], "kimi-v2");
         assert_eq!(val_post_prof["agent_config"]["permission_mode"], "manual");
 
@@ -10326,9 +10978,18 @@ max_context_size = 1000
             .await;
         assert_eq!(res_login.status, 200);
         let val_login: Value = serde_json::from_slice(&res_login.body).unwrap();
-        assert_eq!(val_login["status"], "error");
+        // v2 has no `error` status: a failed flow is `denied`/`expired`, and the
+        // reason travels in `error_message`.
         assert!(
-            val_login["errorMessage"].is_string(),
+            matches!(
+                val_login["status"].as_str(),
+                Some("denied" | "expired" | "cancelled")
+            ),
+            "a failed start reports a terminal v2 status, got {}",
+            val_login["status"]
+        );
+        assert!(
+            val_login["error_message"].is_string(),
             "the failure reason must travel"
         );
 
@@ -10344,7 +11005,16 @@ max_context_size = 1000
             .await;
         assert_eq!(res_poll.status, 200);
         let val_poll: Value = serde_json::from_slice(&res_poll.body).unwrap();
-        assert_eq!(val_poll["status"], "error");
+        // Same vocabulary as the start route: a failed flow is a terminal v2
+        // status carrying `error_message`, never `"error"`.
+        assert!(
+            matches!(
+                val_poll["status"].as_str(),
+                Some("denied" | "expired" | "cancelled")
+            ),
+            "got {}",
+            val_poll["status"]
+        );
 
         // 3. GET /api/v1/oauth/usage & /api/v1/oauth/user
         let res_usage = server
@@ -10593,9 +11263,9 @@ max_context_size = 1000
                 .unwrap(),
             })
             .await;
-        assert_eq!(sess_res.status, 201);
+        assert_eq!(sess_res.status, 200);
         let sess_val: Value = serde_json::from_slice(&sess_res.body).unwrap();
-        let session_id = sess_val["sessionId"].as_str().unwrap().to_string();
+        let session_id = sess_val["id"].as_str().unwrap().to_string();
 
         let ev3 = sub.recv().await.unwrap();
         assert_eq!(&*ev3.session_id, &session_id);
@@ -11034,7 +11704,7 @@ max_context_size = 1000
         assert_eq!(cap_res.status, 200);
         let cap_val: Value = serde_json::from_slice(&cap_res.body).unwrap();
         let caps = cap_val["capabilities"].as_array().unwrap();
-        assert!(caps.iter().any(|c| c == "subagents"));
+        assert!(caps.iter().any(|c| c["id"] == "subagents"));
     }
 
     #[tokio::test]
@@ -11052,9 +11722,9 @@ max_context_size = 1000
                 body: serde_json::to_vec(&json!({ "title": "Initial Title" })).unwrap(),
             })
             .await;
-        assert_eq!(create_res.status, 201);
+        assert_eq!(create_res.status, 200);
         let create_val: Value = serde_json::from_slice(&create_res.body).unwrap();
-        let sid = create_val["sessionId"].as_str().unwrap();
+        let sid = create_val["id"].as_str().unwrap();
 
         // 2. Patch session title and custom metadata using RFC 6902 JSON patch
         let patch_ops = json!([
@@ -12128,6 +12798,17 @@ max_context_size = 1000
         let server = HttpServer::in_memory().unwrap();
         server
             .store
+            .create_workspace("G:/kimi/kimi-code", Some("kimi-code"))
+            .ok();
+        let ws_id = server.store.list_workspaces().unwrap_or_default()[0]
+            .id
+            .clone();
+        server
+            .store
+            .create_session_with_workspace("sess-v2-a", Some("Contract"), Some(&ws_id))
+            .unwrap();
+        server
+            .store
             .save_turn(
                 "sess-v2-a",
                 "turn-1",
@@ -12167,6 +12848,26 @@ max_context_size = 1000
             ["running", "approval", "question", "failed", "idle"]
                 .contains(&first["activity"]["status"].as_str().unwrap())
         );
+
+        // view=by_workspace (the sessions sidebar's first load) returns
+        // per-workspace groups: the workspace object plus the first
+        // group.page_size sessions of that workspace.
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: "/api/v2/sessions".into(),
+                query: Some("view=by_workspace&group.page_size=5&meta.has_prompt=true".into()),
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(res.status, 200);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        let groups = body["groups"].as_array().unwrap();
+        assert_eq!(groups.len(), 1, "one workspace holds the session");
+        assert_eq!(groups[0]["workspace"]["cwd"], "G:/kimi/kimi-code");
+        assert_eq!(groups[0]["sessions"].as_array().unwrap().len(), 1);
+        assert_eq!(groups[0]["total"], 1);
 
         // Batch archive: {ids} in, per-item results out — a missing session
         // folds into its own item instead of failing the batch.
@@ -12222,5 +12923,160 @@ max_context_size = 1000
         assert_eq!(res.status, 200);
         let body: Value = serde_json::from_slice(&res.body).unwrap();
         assert_eq!(body["succeeded"], 1);
+    }
+
+    /// Every shape here is read off the shipped `dist-web` bundle's API client;
+    /// each assertion fails against the response the route used to serve, which
+    /// is what made the corresponding Web feature unusable.
+    #[tokio::test]
+    async fn the_web_bundle_contract_holds_for_the_shapes_it_maps_directly() {
+        let server = HttpServer::in_memory().unwrap();
+        server
+            .store
+            .create_workspace("G:/kimi/kimi-code", Some("kimi-code"))
+            .ok();
+        let ws_id = server.store.list_workspaces().unwrap_or_default()[0]
+            .id
+            .clone();
+        server
+            .store
+            .create_session_with_workspace("sess-wire", Some("Wire"), Some(&ws_id))
+            .unwrap();
+        server
+            .store
+            .save_turn(
+                "sess-wire",
+                "turn-1",
+                1,
+                &[crate::turn_loop::types::LLMMessage::user("hi")],
+                None,
+                None,
+            )
+            .unwrap();
+
+        // Every shape here is read off the shipped `dist-web` bundle's API client;
+        // each assertion fails against the response the route used to serve, which
+        // is what made the corresponding Web feature unusable.
+        async fn get(server: &HttpServer, path: &str) -> HttpResponse {
+            server
+                .handle_request(&HttpRequest {
+                    method: "GET".into(),
+                    path: path.into(),
+                    query: None,
+                    headers: HashMap::new(),
+                    body: Vec::new(),
+                })
+                .await
+        }
+
+        // v2 `GET /sessions/{session_id}` answers the bare session document
+        // (`sessionSchema`), which is why the mapper can read `metadata.cwd`
+        // straight off the top level.
+        let res = get(&server, "/api/v1/sessions/sess-wire").await;
+        assert_eq!(res.status, 200);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["id"], "sess-wire");
+        // `format_wire_session` falls back to the process cwd when the session
+        // never recorded one; the contract being pinned is that `metadata.cwd`
+        // is a string at the top level, which is what the mapper dereferences.
+        assert!(
+            body["metadata"]["cwd"].is_string(),
+            "the mapper reads `e.metadata.cwd` unconditionally"
+        );
+        assert!(body["agent_config"]["model"].is_string());
+        assert!(
+            body.get("messages").is_none(),
+            "messages live on `/messages`, not on the session document"
+        );
+
+        // v2 `listMessagesResponseSchema` is `{items, has_more}`.
+        let res = get(&server, "/api/v1/sessions/sess-wire/messages").await;
+        assert_eq!(res.status, 200);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert!(body.get("items").is_some() || body.get("messages").is_some());
+
+        // v2 `listTasks` answers `pageResponseSchema(taskSchema)`: `{items}`,
+        // every element carrying the protocol field names including
+        // `run_in_background`.
+        let res = get(&server, "/api/v1/sessions/sess-wire/tasks").await;
+        assert_eq!(res.status, 200);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        let items = body["items"].as_array().expect("`items` key");
+        assert!(items.is_empty(), "no task was spawned in this test");
+
+        // v2 `getSessionGoalResponseSchema = goalSnapshotSchema.nullable()`, so
+        // an inactive goal is `null` — never a wrapper object.
+        let res = get(&server, "/api/v1/sessions/sess-wire/goal").await;
+        assert_eq!(res.status, 200);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert!(
+            body.is_null(),
+            "no active goal reads as null, matching goalSnapshotSchema.nullable()"
+        );
+
+        // `getSessionStatus` reads the session's real profile; these used to be
+        // the literals "auto" / "medium" with five fields absent entirely.
+        let res = get(&server, "/api/v1/sessions/sess-wire/status").await;
+        assert_eq!(res.status, 200);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        for key in [
+            "permission",
+            "thinking_level",
+            "plan_mode",
+            "swarm_mode",
+            "tower_mode",
+            "max_context_tokens",
+            "context_usage",
+        ] {
+            assert!(body.get(key).is_some(), "status field `{key}` is served");
+        }
+        assert!(body["max_context_tokens"].as_u64().unwrap() > 0);
+
+        // `listCapabilities` filters on `supported`, so the elements must be
+        // objects — a bare id array made every row disappear.
+        let res = get(&server, "/api/v1/capabilities").await;
+        assert_eq!(res.status, 200);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        let caps = body["capabilities"].as_array().unwrap();
+        assert!(!caps.is_empty());
+        assert!(caps.iter().all(|c| c["supported"] == true));
+        assert!(caps.iter().all(|c| c["id"].is_string()));
+
+        // `pollOAuthLogin` reads snake_case and treats `authenticated` as the
+        // terminal success; no flow is running, so the body is null.
+        let res = get(&server, "/api/v1/oauth/login").await;
+        assert_eq!(res.status, 200);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert!(body.is_null(), "no live flow reads as null");
+
+        // The bundle's `installPlugin` posts `{ source }`, which used to 400 as
+        // "Missing plugin id" because only `id` / `name` were read.
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/plugins".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "source": "definitely-not-a-plugin" })).unwrap(),
+            })
+            .await;
+        assert_ne!(
+            res.status, 400,
+            "a `source`-only body must reach the installer, not be rejected as malformed"
+        );
+
+        // The bundle spells the suggest route with a single colon; only the
+        // `search` sibling accepted that form, so every file-mention request
+        // paid a 404 round-trip first.
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/workspace/fs:suggest".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({})).unwrap(),
+            })
+            .await;
+        assert_ne!(res.status, 404, "single-colon fs:suggest is routed");
     }
 }
