@@ -518,6 +518,62 @@ function invalidConfig(message: string): KimiError {
   return new KimiError(ErrorCodes.CONFIG_INVALID, message);
 }
 
+/** One racer the engine should enter: the alias it is named by plus its transport. */
+export interface MultiLlmProviderWire {
+  readonly name: string;
+  readonly model: string;
+  readonly systemPrompt: string;
+  readonly native: Record<string, unknown>;
+}
+
+/**
+ * Resolve `[agent].multi_llm` into the engine's concurrent-provider race
+ * (`MultiLLM`, first-past-the-post).
+ *
+ * Each entry is a `[models]` alias resolved through the same
+ * `resolveNativeLlmForAlias` path the session model and the `[secondary_model]`
+ * pool use, so every racer carries a real native HTTP transport. That is the
+ * whole point: the race used to be proxy-only, and every config-reading entry
+ * point answers `host/llm_chat` with an error, so it could never produce a
+ * winner.
+ *
+ * Returns `undefined` when the key is absent or empty. An alias that cannot
+ * resolve throws `config.invalid` naming it — silently dropping a racer would
+ * leave the user on a slower single provider with no explanation.
+ */
+export function resolveMultiLlmProviders(
+  config: KimiConfig,
+  defaultHeaders?: Record<string, string>,
+): readonly MultiLlmProviderWire[] | undefined {
+  const aliases = (config.agent?.multiLlm ?? [])
+    .map((alias) => alias.trim())
+    .filter((alias) => alias.length > 0);
+  if (aliases.length === 0) return undefined;
+  // A race of one is not a race: the single-provider case is the plain session
+  // model. Refusing it here keeps `providers` non-empty meaningful, since it
+  // outranks `native_llm` in the engine's LLM selection.
+  if (aliases.length < 2) {
+    throw invalidConfig(
+      '[agent].multi_llm needs at least two entries to race; a single provider should be set as default_model',
+    );
+  }
+
+  return aliases.map((alias) => {
+    const llm = resolveNativeLlmForAlias(config, alias, undefined, defaultHeaders);
+    if (llm === undefined) {
+      throw invalidConfig(
+        `[agent].multi_llm entry "${alias}" could not be resolved: add it to [models] with a provider that has credentials.`,
+      );
+    }
+    return {
+      name: alias,
+      model: llm.model,
+      systemPrompt: llm.systemPrompt ?? '',
+      native: nativeLlmWire(llm),
+    };
+  });
+}
+
 // ── Config → engine-param resolvers (Wave 2) ───────────────────────────────
 // Precedence per value: environment variable > owning config section, matching
 // the documented config contract (config-files.md). Invalid values are

@@ -214,6 +214,13 @@ export interface JsLlmProviderDef {
   model: string
   /** Per-provider system prompt override. */
   systemPrompt: string
+  /**
+   * The racer's own native HTTP transport. Present for a provider the engine
+   * can call directly (`[agent].multi_llm` resolving each alias through
+   * `[providers.*]`); absent means this racer proxies `host/llm_chat`, which
+   * only works on a host that serves it.
+   */
+  native?: JsNativeLlmConfig
 }
 
 /** MCP server configuration for pure-Rust MCP manager (P73). */

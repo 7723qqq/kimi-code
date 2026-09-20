@@ -1579,6 +1579,7 @@ fn clone_spec(spec: &PipelineSpec) -> PipelineSpec {
                 name: provider.name.clone(),
                 system_prompt: provider.system_prompt.clone(),
                 model: provider.model.clone(),
+                native: provider.native.clone(),
             })
             .collect(),
         native_llm: spec.native_llm.clone(),

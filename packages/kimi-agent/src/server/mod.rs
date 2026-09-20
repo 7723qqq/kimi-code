@@ -11994,6 +11994,7 @@ max_context_size = 1000
                     name: "test".into(),
                     system_prompt: "sys".into(),
                     model: "test-model".into(),
+                    native: None,
                 }],
                 native_llm: None,
                 workspace_root: None,

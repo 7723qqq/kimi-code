@@ -618,6 +618,14 @@ pub struct NativeLlmConfig {
     pub off_effort: Option<String>,
 }
 
+/// One `[agent].multi_llm` racer: the `[models]` alias it is named by and the
+/// ready-built native transport it runs on.
+#[derive(Clone, Debug, Deserialize)]
+pub struct ResolvedMultiLlmProvider {
+    pub name: String,
+    pub llm: NativeLlmConfig,
+}
+
 /// One `[secondary_model.models]` pool entry: the alias the model passes via
 /// the `model` parameter, the hint shown in the tool description, and the
 /// host-resolved LLM that alias binds to.
@@ -882,6 +890,10 @@ pub struct LlmProviderDef {
     pub name: String,
     pub model: String,
     pub system_prompt: String,
+    /// The racer's own native HTTP transport. Absent means this racer proxies
+    /// `host/llm_chat`, which only works on a host that serves it.
+    #[serde(default)]
+    pub native: Option<NativeLlmConfig>,
 }
 
 /// Input for a cancel_turn RPC call.

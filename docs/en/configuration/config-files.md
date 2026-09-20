@@ -103,6 +103,7 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | `extra_agent_dirs` | `array<string>` | — | Extra custom agent search directories, layered on top of the default directories |
 | `builtin_product_skills` | `boolean` | `true` | Whether the built-in skills that document Kimi Code itself are offered to the model |
 | `telemetry` | `boolean` | `true` | Whether anonymous telemetry is enabled; disabled only when explicitly set to `false` |
+| `multi_llm` | `array<string>` | — | Two or more `models` aliases to query concurrently: the same prompt goes to all of them at once and the first successful reply wins. The losers are cancelled. Each alias must resolve to a provider with credentials |
 | [`providers`](#providers) | `table` | `{}` | API provider table |
 | [`models`](#models) | `table` | — | Model alias table |
 | [`thinking`](#thinking) | `table` | — | Default parameters for Thinking mode |
@@ -294,6 +295,28 @@ Configuration errors fail loudly instead of falling back silently. Session creat
 
 - `default_model` is missing, is not a pool key, or a pool key does not resolve to a configured [`[models]`](#models) entry;
 - `force` is set without `default_model`, or combined with a `models` table.
+:::
+
+## `agent.multi_llm`
+
+Send the same request to several models at once and keep the first successful reply. This trades extra tokens for latency and availability: a slow or rate-limited provider no longer stalls the turn, because a faster one answers first.
+
+```toml
+[agent]
+multi_llm = ["kimi-code/k3", "kimi-code/kimi-for-coding"]
+```
+
+Each entry is a [`[models]`](#models) alias, resolved exactly like `default_model`. The engine calls every provider directly over its own HTTP connection, so there is no per-request hop back through the client.
+
+::: info How the winner is chosen
+- A provider that fails first does not win: its error is recorded and the race continues, and only if every provider fails are the errors reported together.
+- An empty reply does not win either — it is held aside as a fallback while the others keep running, so one relay hiccup cannot fail the turn.
+- The losers are cancelled as soon as a winner is decided.
+- Nothing is streamed while the race runs: the winner is the first *complete* response, so a turn using `multi_llm` shows no incremental output.
+:::
+
+::: warning
+`multi_llm` needs at least two entries — with one there is nothing to race, and it would silently replace `default_model`. An alias that cannot resolve to a provider with credentials fails at session creation and names the offending alias, rather than quietly racing fewer models.
 :::
 
 ## `thinking`

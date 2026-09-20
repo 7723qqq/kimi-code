@@ -1068,6 +1068,11 @@ pub struct JsLlmProviderDef {
     pub model: String,
     /// Per-provider system prompt override.
     pub system_prompt: String,
+    /// The racer's own native HTTP transport. Present for a provider the
+    /// engine can call directly (`[agent].multi_llm` resolving each alias
+    /// through `[providers.*]`); absent means this racer proxies
+    /// `host/llm_chat`, which only works on a host that serves it.
+    pub native: Option<JsNativeLlmConfig>,
 }
 
 #[napi(object)]
@@ -1752,6 +1757,26 @@ async fn build_engine_pipeline(
                         name: p.name.clone(),
                         system_prompt: p.system_prompt.clone(),
                         model: p.model.clone(),
+                        native: p.native.as_ref().map(|cfg| NativeLlmConfig {
+                            protocol: cfg.protocol.clone(),
+                            base_url: cfg.base_url.clone(),
+                            api_key: cfg.api_key.clone(),
+                            api_key_env: cfg.api_key_env.clone(),
+                            auth_provider: cfg.auth_provider.clone(),
+                            model: cfg.model.clone(),
+                            max_tokens: cfg.max_tokens,
+                            custom_headers: cfg.custom_headers.clone().unwrap_or_default(),
+                            reasoning_effort: cfg.reasoning_effort.clone(),
+                            thinking_budget: cfg.thinking_budget,
+                            thinking_keep: cfg.thinking_keep.clone(),
+                            beta_api: cfg.beta_api.unwrap_or(false),
+                            capabilities: cfg.capabilities.clone(),
+                            system_prompt: cfg.system_prompt.clone(),
+                            max_input_size: cfg.max_input_size,
+                            adaptive_thinking: cfg.adaptive_thinking,
+                            reasoning_key: cfg.reasoning_key.clone(),
+                            off_effort: cfg.off_effort.clone(),
+                        }),
                     })
                     .collect()
             })

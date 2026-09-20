@@ -136,6 +136,7 @@ import {
   probeShellPath,
   buildPolicySnapshot,
   resolveSecondaryModelPool,
+  resolveMultiLlmProviders,
   resolveGithubCredentials,
   resolveSubagentTimeoutMs,
   resolveSwarmTimeoutMs,
@@ -1074,6 +1075,11 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       ? resolveNativeLlmForAlias(config, modelAlias, undefined, defaultHeaders)
       : resolveNativeLlm(config, defaultHeaders);
     const nativeLlm = resolvedLlm ? applySessionLlmOverrides(resolvedLlm, meta) : resolvedLlm;
+    // `[agent].multi_llm`: the concurrent-provider race. A non-empty list
+    // outranks `nativeLlm` in the engine's LLM selection, so a configured race
+    // is what the session runs. Throws `config.invalid` on an alias that cannot
+    // resolve rather than silently racing fewer providers.
+    const multiLlmProviders = resolveMultiLlmProviders(config, defaultHeaders);
 
     const callbacks: SessionCallbacks = {
       // Fail loud, never fake a reply. When no provider is configured the Rust

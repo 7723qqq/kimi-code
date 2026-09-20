@@ -8,7 +8,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::permission::{HookDef, PermissionMode, PolicySnapshot};
-use crate::rpc::types::{NativeLlmConfig, SecondaryModelEntry, SecondaryModelPool};
+use crate::rpc::types::{
+    NativeLlmConfig, ResolvedMultiLlmProvider, SecondaryModelEntry, SecondaryModelPool,
+};
 
 pub mod write;
 
@@ -1031,6 +1033,73 @@ impl KimiConfig {
         }))
     }
 
+    /// Resolve `[agent].multi_llm` into the engine's concurrent-provider race
+    /// (`MultiLLM`, first-past-the-post). Each named entry is a `[models]`
+    /// alias resolved through the same [`Self::extract_native_llm`] path the
+    /// session model and the `[secondary_model]` pool use, so a racer carries
+    /// a real native HTTP transport rather than a host proxy — the latter is
+    /// what the race used to be limited to, and every config-reading entry
+    /// point answers `host/llm_chat` with an error, so such a race could never
+    /// produce a winner.
+    ///
+    /// `Ok(None)` when the key is absent or empty (the default: no race). An
+    /// alias that cannot resolve is an error naming it, matching how the
+    /// `[secondary_model]` pool reports an unresolvable entry, because
+    /// silently dropping a racer would leave the user with a slower single
+    /// provider and no explanation.
+    pub fn extract_multi_llm(
+        &self,
+        _target_model: Option<&str>,
+    ) -> Result<Option<Vec<ResolvedMultiLlmProvider>>, String> {
+        let Some(aliases) = self.agent.multi_llm.as_ref() else {
+            return Ok(None);
+        };
+        let aliases: Vec<String> = aliases
+            .iter()
+            .map(|alias| alias.trim().to_string())
+            .filter(|alias| !alias.is_empty())
+            .collect();
+        if aliases.is_empty() {
+            return Ok(None);
+        }
+        // A race of one is not a race: the single-provider case is the plain
+        // session model, which `build_llm_for_spec` already handles. Refusing
+        // it here keeps `providers` non-empty meaningful (it outranks
+        // `native_llm`).
+        if aliases.len() < 2 {
+            return Err(
+                "[agent].multi_llm needs at least two entries to race; a single provider should be set as default_model"
+                    .into(),
+            );
+        }
+        let thinking_keep = self.resolve_thinking_keep();
+        let mut resolved = Vec::with_capacity(aliases.len());
+        for alias in &aliases {
+            let native = self.extract_native_llm(Some(alias)).ok_or_else(|| {
+                format!(
+                    "[agent].multi_llm entry \"{alias}\" could not be resolved: add it to [models] with a provider that has credentials."
+                )
+            })?;
+            // Each racer carries its own declared effort: the entries are
+            // different models with their own capabilities, so inheriting the
+            // session model's effort would misconfigure them.
+            let entry = self.models.get(alias).or_else(|| {
+                self.models.values().find(|entry| {
+                    entry
+                        .aliases
+                        .as_ref()
+                        .is_some_and(|names| names.iter().any(|name| name == alias))
+                })
+            });
+            let effort = entry.and_then(|entry| entry.default_effort.clone());
+            resolved.push(ResolvedMultiLlmProvider {
+                name: alias.clone(),
+                llm: native_llm_config(native, effort.as_deref(), thinking_keep.as_deref()),
+            });
+        }
+        Ok(Some(resolved))
+    }
+
     /// Reject a pool-wide `default_effort` no pool model can run (v2 #3785
     /// `assertValidSubagentDefaultEffort`). The effort is applied to every
     /// entry of the pool, so one model that cannot honor it would silently
@@ -1784,6 +1853,115 @@ default_effort = "high"
             .unwrap()
             .unwrap();
         assert_eq!(pool.caller_model_alias.as_deref(), Some("thinky"));
+    }
+
+    /// `[agent].multi_llm` resolves each named alias into a native transport.
+    /// That is what makes the race runnable at all: a racer without one is a
+    /// host proxy, and every config-reading entry point answers `host/llm_chat`
+    /// with an error, so such a race can never produce a winner.
+    #[test]
+    fn test_extract_multi_llm_resolves_native_racers() {
+        let config = KimiConfig::from_str(
+            r#"
+default_model = "kimi-k2"
+
+[providers.kimi]
+type = "openai"
+api_key = "sk-kimi-key"
+base_url = "https://api.moonshot.cn/v1"
+
+[providers.anthropic]
+type = "anthropic"
+api_key = "sk-ant-key"
+base_url = "https://api.anthropic.com"
+
+[models.kimi-k2]
+provider = "kimi"
+model = "kimi-k2-0711"
+default_effort = "high"
+capabilities = ["thinking"]
+
+[models.thinky]
+provider = "anthropic"
+model = "claude-sonnet"
+capabilities = ["thinking"]
+
+[agent]
+multi_llm = ["kimi-k2", "thinky"]
+"#,
+        )
+        .unwrap();
+        let racers = config.extract_multi_llm(None).unwrap().unwrap();
+        assert_eq!(racers.len(), 2);
+
+        let kimi = racers.iter().find(|racer| racer.name == "kimi-k2").unwrap();
+        assert_eq!(kimi.llm.model, "kimi-k2-0711");
+        assert_eq!(kimi.llm.protocol, "openai");
+        // The alias's own declared effort rides its transport, not the session's.
+        assert_eq!(kimi.llm.reasoning_effort.as_deref(), Some("high"));
+
+        let thinky = racers.iter().find(|racer| racer.name == "thinky").unwrap();
+        assert_eq!(thinky.llm.protocol, "anthropic");
+        // `thinky` declares none, so it carries none — the racers are different
+        // models with their own capabilities and must not inherit each other's.
+        assert!(thinky.llm.reasoning_effort.is_none());
+        assert!(thinky.llm.thinking_budget.is_none());
+    }
+
+    #[test]
+    fn test_extract_multi_llm_absent_and_inert_cases() {
+        // Absent key: no race, which is the default.
+        let bare = KimiConfig::from_str(POOL_CONFIG).unwrap();
+        assert!(bare.extract_multi_llm(None).unwrap().is_none());
+
+        // An empty list is inert rather than a one-racer race.
+        let empty = KimiConfig::from_str(&format!(
+            r#"{POOL_CONFIG}
+[agent]
+multi_llm = []
+"#
+        ))
+        .unwrap();
+        assert!(empty.extract_multi_llm(None).unwrap().is_none());
+
+        // Blank entries are trimmed away, so `["", "fast"]` is a lone racer.
+        let blanks = KimiConfig::from_str(&format!(
+            r#"{POOL_CONFIG}
+[agent]
+multi_llm = ["", "  "]
+"#
+        ))
+        .unwrap();
+        assert!(blanks.extract_multi_llm(None).unwrap().is_none());
+    }
+
+    #[test]
+    fn test_extract_multi_llm_rejects_a_lone_racer_and_unknown_alias() {
+        // One entry is not a race; silently racing a single provider would let
+        // `providers` outrank `native_llm` for no benefit.
+        let lone = KimiConfig::from_str(&format!(
+            r#"{POOL_CONFIG}
+[agent]
+multi_llm = ["kimi-k2"]
+"#
+        ))
+        .unwrap();
+        let error = lone.extract_multi_llm(None).unwrap_err();
+        assert!(error.contains("at least two"), "unexpected error: {error}");
+
+        // An alias that cannot resolve names itself instead of being dropped.
+        let unknown = KimiConfig::from_str(&format!(
+            r#"{POOL_CONFIG}
+[agent]
+multi_llm = ["kimi-k2", "not-a-model"]
+"#
+        ))
+        .unwrap();
+        let error = unknown.extract_multi_llm(None).unwrap_err();
+        assert!(
+            error.contains("not-a-model"),
+            "the unresolvable alias must be named: {error}"
+        );
     }
 
     #[test]

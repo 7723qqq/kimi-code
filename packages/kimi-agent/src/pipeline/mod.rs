@@ -88,6 +88,9 @@ pub struct PipelineProvider {
     pub name: String,
     pub system_prompt: String,
     pub model: String,
+    /// The racer's native HTTP transport. `None` races a host proxy instead,
+    /// which requires a host that serves `host/llm_chat`.
+    pub native: Option<NativeLlmConfig>,
 }
 
 /// Host-resolved settings one engine context runs with. Every field is already
@@ -523,11 +526,23 @@ pub fn build_llm_for_spec(
         let providers: Vec<LlmProvider> = spec
             .providers
             .iter()
-            .map(|p| LlmProvider {
-                name: p.name.clone(),
-                system_prompt: p.system_prompt.clone(),
-                model: p.model.clone(),
-                callbacks: callbacks.clone(),
+            .map(|p| match p.native.clone() {
+                // A racer the engine can call directly. Without this the race
+                // would run entirely on `host/llm_chat`, which every
+                // config-reading entry point answers with an error — so the
+                // race could never produce a winner.
+                Some(config) => LlmProvider::native(
+                    p.name.clone(),
+                    p.system_prompt.clone(),
+                    config,
+                    callbacks.clone(),
+                ),
+                None => LlmProvider::host(
+                    p.name.clone(),
+                    p.model.clone(),
+                    p.system_prompt.clone(),
+                    callbacks.clone(),
+                ),
             })
             .collect();
         Box::new(MultiLLM::new(providers))

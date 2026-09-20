@@ -103,6 +103,7 @@ timeout = 5
 | `extra_agent_dirs` | `array<string>` | — | 额外自定义 Agent 搜索目录，叠加到默认目录之上 |
 | `builtin_product_skills` | `boolean` | `true` | 是否向模型提供介绍 Kimi Code 自身的内置 Skills |
 | `telemetry` | `boolean` | `true` | 是否启用匿名遥测；显式设为 `false` 时关闭 |
+| `multi_llm` | `array<string>` | — | 两个及以上的 `models` 别名：同一个请求同时发给它们，最先成功返回的那个生效，败者被取消。每个别名都必须能解析到带凭据的供应商 |
 | [`providers`](#providers) | `table` | `{}` | API 供应商表 |
 | [`models`](#models) | `table` | — | 模型别名表 |
 | [`thinking`](#thinking) | `table` | — | Thinking 模式默认参数 |
@@ -293,6 +294,28 @@ k3-max = "同一模型的 max Thinking 档位。适合最难的子任务。"
 
 - `default_model` 缺失、不是池中 key，或池中 key 无法解析到已配置的 [`[models]`](#models) 条目；
 - `force` 未搭配 `default_model`，或与 `models` 表同时使用。
+:::
+
+## `agent.multi_llm`
+
+把同一个请求同时发给多个模型，取最先成功返回的那个。它用额外的 token 换取延迟与可用性：某个供应商变慢或被限流时，更快的那个先答完，整轮不会卡住。
+
+```toml
+[agent]
+multi_llm = ["kimi-code/k3", "kimi-code/kimi-for-coding"]
+```
+
+每一项都是一个 [`[models]`](#models) 别名，解析方式与 `default_model` 完全相同。引擎直接经各自的 HTTP 连接调用供应商，不需要再经客户端中转。
+
+::: info 胜者是怎么定的
+- **先失败不算赢**：错误记录下来，竞速继续；只有全部失败才会把错误合并报出。
+- **空回复也不算赢**：它被留作兜底，其余继续跑，因此一次中转抖动不会毁掉整轮。
+- **定出胜者后立刻取消败者**。
+- **竞速期间没有流式输出**：胜者是第一个**完整**响应，所以使用 `multi_llm` 的回合不会显示增量内容。
+:::
+
+::: warning
+`multi_llm` 至少需要两项——只写一项等于没有对手，只会悄悄顶替掉 `default_model`。某个别名无法解析到带凭据的供应商时，会话创建会直接失败并点名该别名，而不是静默少跑几个模型。
 :::
 
 ## `thinking`

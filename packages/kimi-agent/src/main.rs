@@ -1055,6 +1055,7 @@ async fn build_engine_pipeline(
                 name: p.name.clone(),
                 system_prompt: p.system_prompt.clone(),
                 model: p.model.clone(),
+                native: p.native.clone(),
             })
             .collect(),
         native_llm: params.native_llm.clone(),
@@ -1241,17 +1242,35 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         )
     })?;
 
+    // `[agent].multi_llm`: a non-empty race outranks `native_llm` in
+    // `build_llm_for_spec`, so a configured race is what the session runs.
+    let multi_llm = config
+        .extract_multi_llm(cli.model.as_deref())
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+
     let workspace = std::env::current_dir()?;
     let system_prompt = kimi_agent::prompt::SystemPromptBuilder::build_default_with_skill_config(
         &workspace,
         config.extra_skill_dirs_paths(),
         config.resolve_merge_all_available_skills(),
     );
+    let providers: Vec<PipelineProvider> = match multi_llm {
+        Some(racers) => racers
+            .into_iter()
+            .map(|racer| PipelineProvider {
+                name: racer.name.clone(),
+                system_prompt: system_prompt.clone(),
+                model: racer.llm.model.clone(),
+                native: Some(racer.llm),
+            })
+            .collect(),
+        None => Vec::new(),
+    };
     let model_capabilities = native.capabilities.clone();
     let spec = PipelineSpec {
         system_prompt,
         model_name: native.model.clone(),
-        providers: Vec::new(),
+        providers,
         native_llm: Some(NativeLlmConfig {
             protocol: native.protocol,
             base_url: native.base_url,

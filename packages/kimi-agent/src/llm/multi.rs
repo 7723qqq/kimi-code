@@ -5,7 +5,9 @@
 //! Failed providers are recorded but don't block the overall result.
 
 use crate::callbacks::HostCallbacks;
+use crate::llm::http::NativeHttpLlm;
 use crate::llm::proxy::HostLlmProxy;
+use crate::rpc::types::NativeLlmConfig;
 use crate::turn_loop::types::*;
 use futures_util::future::select_all;
 use std::collections::HashMap;
@@ -17,18 +19,72 @@ pub struct LlmProvider {
     pub system_prompt: String,
     pub model: String,
     pub callbacks: Arc<dyn HostCallbacks>,
+    /// A native HTTP transport for this racer (`[agent].multi_llm` resolving
+    /// each alias through `[providers.*]`). `None` races a host proxy instead
+    /// (`host/llm_chat`), which is the original behaviour and the only option
+    /// when the caller has no provider credentials.
+    pub native: Option<NativeLlmConfig>,
 }
 
 impl LlmProvider {
-    pub fn to_llm(&self) -> HostLlmProxy {
-        HostLlmProxy::new(self.system_prompt.clone(), self.model.clone())
-            .with_callbacks(self.callbacks.clone())
+    /// A racer backed by the host LLM proxy.
+    pub fn host(
+        name: impl Into<String>,
+        model: impl Into<String>,
+        system_prompt: impl Into<String>,
+        callbacks: Arc<dyn HostCallbacks>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            system_prompt: system_prompt.into(),
+            model: model.into(),
+            callbacks,
+            native: None,
+        }
     }
 
-    /// Build a proxy whose request the host can abort, for the multi-provider
-    /// race where this call may lose.
-    pub fn to_llm_with_request_id(&self, request_id: String) -> HostLlmProxy {
-        self.to_llm().with_request_id(request_id)
+    /// A racer backed by the engine's own HTTP transport. This is what makes a
+    /// race possible without a host LLM: every config-reading entry point
+    /// (server, REPL, pure native engine, the JS addon) answers
+    /// `host/llm_chat` with an error, so a proxy-only race could never produce
+    /// a winner.
+    pub fn native(
+        name: impl Into<String>,
+        system_prompt: impl Into<String>,
+        config: NativeLlmConfig,
+        callbacks: Arc<dyn HostCallbacks>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            system_prompt: system_prompt.into(),
+            model: config.model.clone(),
+            callbacks,
+            native: Some(config),
+        }
+    }
+
+    /// The transport this racer runs on, built fresh per race.
+    ///
+    /// A native racer gets its own `NativeHttpLlm`, so a loser can be stopped
+    /// by dropping it — its child cancellation token aborts the in-flight HTTP
+    /// stream. A proxy racer must be told to abort at the host, because
+    /// dropping the local future leaves the host's call running; that is what
+    /// [`Self::to_llm_with_request_id`] is for.
+    fn build_transport(&self, request_id: Option<String>) -> Arc<dyn LLM> {
+        match &self.native {
+            Some(config) => Arc::new(NativeHttpLlm::new(
+                config.clone(),
+                self.system_prompt.clone(),
+            )),
+            None => {
+                let proxy = HostLlmProxy::new(self.system_prompt.clone(), self.model.clone())
+                    .with_callbacks(self.callbacks.clone());
+                match request_id {
+                    Some(id) => Arc::new(proxy.with_request_id(id)),
+                    None => Arc::new(proxy),
+                }
+            }
+        }
     }
 }
 
@@ -95,13 +151,13 @@ impl MultiLLM {
             return Err("No LLM providers configured".into());
         }
         if self.providers.len() == 1 {
-            let llm = self.providers[0].to_llm();
-            return llm.chat(params).await;
+            return self.providers[0].build_transport(None).chat(params).await;
         }
 
-        // Spawn each provider as a tokio task. Every racer carries its own
+        // Spawn each provider as a tokio task. A *proxy* racer carries its own
         // request id so the losers can be cancelled at the host — aborting the
-        // task only drops the receiver and leaves the provider call running.
+        // task only drops the receiver and leaves the provider call running. A
+        // *native* racer needs no such hook: dropping it drops the HTTP stream.
         // Each racer also gets a child of the turn's cancellation token (when
         // one is wired): cancelling a loser's child stops a native HTTP
         // participant mid-stream, and firing the parent cancels every racer.
@@ -112,21 +168,30 @@ impl MultiLLM {
             if let Some(parent) = params.cancel.as_ref() {
                 params.cancel = Some(parent.child_token());
             }
-            let request_id = format!(
-                "llm-{}-{}",
-                provider.name,
-                NEXT_REQUEST_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            );
-            let llm = provider.to_llm_with_request_id(request_id.clone());
+            // Only a proxy racer needs the host-side abort hook, and only it
+            // carries a request id; a native racer's `request_id` would be dead
+            // weight on the wire.
+            let request_id = if provider.native.is_some() {
+                None
+            } else {
+                let id = format!(
+                    "llm-{}-{}",
+                    provider.name,
+                    NEXT_REQUEST_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                );
+                cancellers.insert(id.clone(), provider.callbacks.clone());
+                Some(id)
+            };
+            let llm = provider.build_transport(request_id.clone());
             let name = provider.name.clone();
-            cancellers.insert(request_id.clone(), provider.callbacks.clone());
+            let racer_id = request_id.unwrap_or_else(|| name.clone());
 
             handles.push(tokio::spawn(async move {
                 let start = std::time::Instant::now();
                 let result = llm.chat(params).await;
                 let elapsed = start.elapsed().as_millis() as u64;
                 (
-                    request_id,
+                    racer_id,
                     ProviderResult {
                         provider_name: name,
                         result: result.map_err(|e| e.to_string()),
@@ -149,7 +214,7 @@ impl MultiLLM {
         let mut handles = Vec::with_capacity(self.providers.len());
         for provider in &self.providers {
             let params = params.clone();
-            let llm = provider.to_llm();
+            let llm = provider.build_transport(None);
             let name = provider.name.clone();
 
             handles.push(tokio::spawn(async move {
@@ -259,7 +324,7 @@ impl LLM for MultiLLM {
     fn is_retryable_error(&self, error: &str) -> bool {
         self.providers
             .first()
-            .map(|p| p.to_llm().is_retryable_error(error))
+            .map(|p| p.build_transport(None).is_retryable_error(error))
             .unwrap_or(false)
     }
 
@@ -275,9 +340,19 @@ impl LLM for MultiLLM {
         Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>,
     > {
         Box::pin(async move {
+            // A *native* racer normalizes its own tool-call ids inside
+            // `NativeHttpLlm`; a *proxy* racer returns host-streamed fragments
+            // that never entered the engine, so the winner's calls are
+            // normalized here.
+            let winner_is_native = self.providers.is_empty()
+                || self
+                    .providers
+                    .iter()
+                    .all(|provider| provider.native.is_some());
             let mut response = self.first_past_the_post(params).await?;
-            // Every racer is a host proxy: the fragments never entered the
-            // engine, so the winner's calls are normalized here.
+            if winner_is_native {
+                return Ok(response);
+            }
             let ledger = self
                 .tool_call_ids
                 .lock()
@@ -549,18 +624,8 @@ mod tests {
         let slow_callbacks: Arc<dyn HostCallbacks> = slow_spy;
         let fast_callbacks: Arc<dyn HostCallbacks> = fast_spy;
         let multi = MultiLLM::new(vec![
-            LlmProvider {
-                name: "slow".into(),
-                system_prompt: String::new(),
-                model: "slow".into(),
-                callbacks: slow_callbacks.clone(),
-            },
-            LlmProvider {
-                name: "fast".into(),
-                system_prompt: String::new(),
-                model: "fast".into(),
-                callbacks: fast_callbacks.clone(),
-            },
+            LlmProvider::host("slow", "slow", "", slow_callbacks.clone()),
+            LlmProvider::host("fast", "fast", "", fast_callbacks.clone()),
         ]);
 
         let winner = multi
@@ -590,6 +655,121 @@ mod tests {
         assert!(
             fast_log.lock().unwrap().is_empty(),
             "the winning provider must not be cancelled"
+        );
+    }
+
+    /// A race whose racers carry their own native HTTP transport must not be
+    /// routed through the host at all: `first_past_the_post` used to build a
+    /// `HostLlmProxy` for every racer, and a host that answers `llm_chat` with
+    /// an error (every config-reading entry point does) could never produce a
+    /// winner. Here every callbacks `llm_chat` fails, so the race can only
+    /// succeed if it went out over the racers' own transports.
+    #[tokio::test]
+    async fn a_native_racer_races_without_the_host_llm_proxy() {
+        // A host that refuses every proxied call, which is what the server,
+        // the REPL and the JS addon all do.
+        struct RefusingHost;
+        impl HostCallbacks for RefusingHost {
+            fn llm_chat(
+                &self,
+                _request: LlmChatRequest,
+            ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+                Box::pin(async { Err("this host has no LLM proxy".to_string()) })
+            }
+            fn execute_tool(
+                &self,
+                _request: ToolExecuteRequest,
+            ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+                Box::pin(async { Err("not used".to_string()) })
+            }
+            fn check_permission(
+                &self,
+                _request: PermissionCheckRequest,
+            ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+                Box::pin(async {
+                    Ok(PermissionDecision {
+                        decision: "allow".into(),
+                        reason: None,
+                    })
+                })
+            }
+        }
+
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(RefusingHost);
+        let mut config = NativeLlmConfig {
+            protocol: "openai".into(),
+            base_url: "http://127.0.0.1:1/v1".into(),
+            api_key: "test-key".into(),
+            model: "racer-model".into(),
+            ..Default::default()
+        };
+        config.custom_headers.clear();
+
+        let multi = MultiLLM::new(vec![
+            LlmProvider::native("racer-a", "", config.clone(), callbacks.clone()),
+            LlmProvider::native("racer-b", "", config, callbacks),
+        ]);
+
+        // The transports are real, so the race reaches the network and fails
+        // there — the point is that the failure names a transport problem, not
+        // the host proxy. A proxy-only race would report the host error.
+        let error = multi
+            .first_past_the_post(empty_params())
+            .await
+            .expect_err("an unreachable base_url cannot win");
+        let message = error.to_string();
+        assert!(
+            !message.contains("no LLM proxy"),
+            "the race must not fall back to the host proxy: {message}"
+        );
+    }
+
+    /// A single-provider race has nothing to race; the plain path is the
+    /// session's own model, so the constructor must not invent one.
+    #[tokio::test]
+    async fn a_single_native_racer_runs_without_spawning_a_race() {
+        struct RefusingHost;
+        impl HostCallbacks for RefusingHost {
+            fn llm_chat(
+                &self,
+                _request: LlmChatRequest,
+            ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+                Box::pin(async { Err("this host has no LLM proxy".to_string()) })
+            }
+            fn execute_tool(
+                &self,
+                _request: ToolExecuteRequest,
+            ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+                Box::pin(async { Err("not used".to_string()) })
+            }
+            fn check_permission(
+                &self,
+                _request: PermissionCheckRequest,
+            ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+                Box::pin(async {
+                    Ok(PermissionDecision {
+                        decision: "allow".into(),
+                        reason: None,
+                    })
+                })
+            }
+        }
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(RefusingHost);
+        let config = NativeLlmConfig {
+            protocol: "openai".into(),
+            base_url: "http://127.0.0.1:1/v1".into(),
+            api_key: "test-key".into(),
+            model: "solo".into(),
+            ..Default::default()
+        };
+        let multi = MultiLLM::new(vec![LlmProvider::native("solo", "", config, callbacks)]);
+        let error = multi
+            .first_past_the_post(empty_params())
+            .await
+            .expect_err("unreachable endpoint");
+        assert!(
+            !error.to_string().contains("no LLM proxy"),
+            "a lone native racer must still use its own transport: {error}"
         );
     }
 
@@ -642,28 +822,13 @@ mod tests {
     #[test]
     fn test_multi_llm_label_construction() {
         let callbacks = recording_callbacks();
-        let p1 = LlmProvider {
-            name: "p1".into(),
-            model: "kimi-k2".into(),
-            system_prompt: "sys".into(),
-            callbacks: callbacks.clone(),
-        };
+        let p1 = LlmProvider::host("p1", "kimi-k2", "sys", callbacks.clone());
         let m1 = MultiLLM::new(vec![p1]);
         assert_eq!(m1.label, "kimi-k2");
         assert_eq!(m1.provider_count(), 1);
 
-        let p1_again = LlmProvider {
-            name: "p1".into(),
-            model: "kimi-k2".into(),
-            system_prompt: "sys".into(),
-            callbacks: callbacks.clone(),
-        };
-        let p2 = LlmProvider {
-            name: "p2".into(),
-            model: "claude-3-5".into(),
-            system_prompt: "sys".into(),
-            callbacks,
-        };
+        let p1_again = LlmProvider::host("p1", "kimi-k2", "sys", callbacks.clone());
+        let p2 = LlmProvider::host("p2", "claude-3-5", "sys", callbacks);
         let m2 = MultiLLM::new(vec![p1_again, p2]);
         assert_eq!(m2.label, "kimi-k2 + 1 others");
         assert_eq!(m2.provider_count(), 2);
@@ -731,12 +896,12 @@ mod tests {
     }
 
     fn test_provider(name: &str) -> LlmProvider {
-        LlmProvider {
-            name: name.to_string(),
-            system_prompt: "system".to_string(),
-            model: format!("{name}-model"),
-            callbacks: recording_callbacks(),
-        }
+        LlmProvider::host(
+            name,
+            format!("{name}-model"),
+            "system",
+            recording_callbacks(),
+        )
     }
 
     fn empty_params() -> LLMChatParams {
@@ -936,18 +1101,8 @@ mod tests {
             delay_ms: 30,
             succeed: false,
         });
-        let p1 = LlmProvider {
-            name: "a".into(),
-            system_prompt: String::new(),
-            model: "a-m".into(),
-            callbacks: host_a,
-        };
-        let p2 = LlmProvider {
-            name: "b".into(),
-            system_prompt: String::new(),
-            model: "b-m".into(),
-            callbacks: host_b,
-        };
+        let p1 = LlmProvider::host("a", "a-m", "", host_a);
+        let p2 = LlmProvider::host("b", "b-m", "", host_b);
         let m = MultiLLM::new(vec![p1, p2]);
         let err = m
             .first_past_the_post(empty_params())

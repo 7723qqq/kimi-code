@@ -14,6 +14,7 @@ import {
   resolveMaxAttemptsPerStep,
   resolveMaxStepsPerTurn,
   resolveNativeLlmForAlias,
+  resolveMultiLlmProviders,
   resolvePrintBackground,
   resolveSecondaryModelPool,
 } from '#/native/native-llm-resolver';
@@ -331,6 +332,64 @@ provider = "env"
 model = "wire-model"
 max_context_size = 200000
 `;
+
+  it('resolves the [agent].multi_llm race into native racers', () => {
+    const config = parseConfigString(
+      `${POOL_TOML}
+[agent]
+multi_llm = ["kimi-code/k3", "kimi-code/fast"]
+`,
+      'multi-llm.toml',
+    );
+
+    const racers = resolveMultiLlmProviders(config);
+    expect(racers).toHaveLength(2);
+    // Every racer carries its own native transport. That is what makes the
+    // race runnable: a proxy-only racer needs `host/llm_chat`, which no
+    // config-reading entry point serves.
+    for (const racer of racers ?? []) {
+      expect(racer.native['protocol']).toBe('openai');
+      expect(racer.native['base_url']).toBe('https://example.test/v1');
+      expect(racer.native['api_key']).toBe('YOUR_API_KEY');
+    }
+    expect(racers?.[0]?.name).toBe('kimi-code/k3');
+    expect(racers?.[0]?.model).toBe('k3');
+    expect(racers?.[1]?.model).toBe('fast');
+  });
+
+  it('leaves the race inert when [agent].multi_llm is unset or empty', () => {
+    expect(resolveMultiLlmProviders(parseConfigString(POOL_TOML, 'bare.toml'))).toBeUndefined();
+    const empty = parseConfigString(
+      `${POOL_TOML}
+[agent]
+multi_llm = []
+`,
+      'empty.toml',
+    );
+    expect(resolveMultiLlmProviders(empty)).toBeUndefined();
+  });
+
+  it('rejects a lone racer and names an unresolvable alias', () => {
+    // One entry is not a race, and `providers` outranks `nativeLlm` — so a
+    // lone entry would silently replace the session model with itself.
+    const lone = parseConfigString(
+      `${POOL_TOML}
+[agent]
+multi_llm = ["kimi-code/k3"]
+`,
+      'lone.toml',
+    );
+    expect(() => resolveMultiLlmProviders(lone)).toThrow(/at least two/);
+
+    const unknown = parseConfigString(
+      `${POOL_TOML}
+[agent]
+multi_llm = ["kimi-code/k3", "not-a-model"]
+`,
+      'unknown.toml',
+    );
+    expect(() => resolveMultiLlmProviders(unknown)).toThrow(/not-a-model/);
+  });
 
   it('resolves the [secondary_model] pool into the engine wire shape', () => {
     const config = parseConfigString(
