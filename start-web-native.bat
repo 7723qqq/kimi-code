@@ -25,9 +25,21 @@ if not exist "%CLI_EXE%" (
 REM 2. Ensure the native engine addon is built if needed
 set "NODE_FILE=%~dp0packages\kimi-agent\kimi_agent.win32-x64-msvc.node"
 if not exist "%NODE_FILE%" (
+    if not exist "%~dp0node_modules\@napi-rs\cli" (
+        echo [ERROR] napi CLI not installed. Run `bun install` at the repo root first.
+        pause
+        exit /b 1
+    )
     echo Building the native engine addon...
     cd /d "%~dp0packages\kimi-agent"
     bun run build 2>&1
+    if errorlevel 1 (
+        echo [ERROR] napi build failed. Make sure Rust and Visual Studio Build Tools are installed.
+        echo         https://rustup.rs
+        echo         https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022
+        pause
+        exit /b 1
+    )
     cd /d "%~dp0"
 )
 
@@ -35,4 +47,4 @@ REM 3. Launch the web UI backed by the native Rust server
 echo Starting Kimi Web UI with Native Rust Server...
 call bun run dev:cli web --rust-server %*
 
-endlocal
+endlocal & exit /b %errorlevel%

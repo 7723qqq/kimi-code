@@ -22,14 +22,27 @@ if "%~1"=="--pure-rust" (
     set "PURE_RUST=1"
     shift
 )
-if "%KIMI_PURE_RUST%"=="1" (
-    set "PURE_RUST=1"
-)
+if "%KIMI_PURE_RUST%"=="1" set "PURE_RUST=1"
 
-if "%WEB_NATIVE%"=="1" (
-    set "CLI_EXE=%~dp0packages\kimi-agent\target\release\kimi-agent-cli.exe"
+REM `shift` never updates `%*`, so rebuild the argument list after consuming the
+REM launcher flags; otherwise `--web` / `--pure-rust` leak into the CLI parser.
+set "REST_ARGS="
+:collect_args
+if "%~1"=="" goto :args_ready
+set "REST_ARGS=%REST_ARGS% "%~1""
+shift
+goto :collect_args
+:args_ready
+
+REM The standalone Rust CLI (kimi-agent-cli) backs both --web and --pure-rust.
+set "NEED_RUST_CLI=0"
+if "%WEB_NATIVE%"=="1" set "NEED_RUST_CLI=1"
+if "%PURE_RUST%"=="1" set "NEED_RUST_CLI=1"
+
+set "CLI_EXE=%~dp0packages\kimi-agent\target\release\kimi-agent-cli.exe"
+if "%NEED_RUST_CLI%"=="1" (
     if not exist "%CLI_EXE%" (
-        echo Building pure Rust standalone CLI for web server...
+        echo Building pure Rust standalone CLI...
         cd /d "%~dp0packages\kimi-agent"
         cargo build --release --features cli
         if errorlevel 1 (
@@ -39,29 +52,18 @@ if "%WEB_NATIVE%"=="1" (
         )
         cd /d "%~dp0"
     )
+)
+
+if "%WEB_NATIVE%"=="1" (
     echo Launching Kimi Web UI powered by native Rust server...
-    call bun run dev:cli web --rust-server %*
-    endlocal
-    exit /b %errorlevel%
+    call bun run dev:cli web --rust-server %REST_ARGS%
+    goto :done
 )
 
 if "%PURE_RUST%"=="1" (
-    set "CLI_EXE=%~dp0packages\kimi-agent\target\release\kimi-agent-cli.exe"
-    if not exist "%CLI_EXE%" (
-        echo Building pure Rust standalone CLI...
-        cd /d "%~dp0\packages\kimi-agent"
-        cargo build --release --features cli
-        if errorlevel 1 (
-            echo [ERROR] cargo build failed.
-            pause
-            exit /b 1
-        )
-        cd /d "%~dp0"
-    )
     echo Launching pure Rust standalone REPL...
-    "%CLI_EXE%" --repl %*
-    endlocal
-    exit /b %errorlevel%
+    "%CLI_EXE%" --repl %REST_ARGS%
+    goto :done
 )
 
 REM Ensure the native engine addon is built.
@@ -74,7 +76,7 @@ if not exist "%NODE_FILE%" (
         exit /b 1
     )
     echo Building the native engine addon...
-    cd /d "%~dp0\packages\kimi-agent"
+    cd /d "%~dp0packages\kimi-agent"
     bun run build 2>&1
     if errorlevel 1 (
         echo [ERROR] napi build failed. Make sure Rust and Visual Studio Build Tools are installed.
@@ -88,6 +90,7 @@ if not exist "%NODE_FILE%" (
 
 REM Launch kimi-code CLI via Bun.
 cd /d "%~dp0"
-call bun run dev:cli %*
+call bun run dev:cli %REST_ARGS%
 
-endlocal
+:done
+endlocal & exit /b %errorlevel%
