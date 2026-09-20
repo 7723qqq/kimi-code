@@ -16,7 +16,6 @@ import { registerVisCommand } from './sub/vis';
 import { registerWebCommand } from './sub/web';
 
 export type MainCommandHandler = (opts: CLIOptions) => void;
-export type MigrateCommandHandler = (options?: unknown) => void;
 export type PluginNodeRunnerHandler = (entry: string, args: readonly string[]) => void;
 export type UpgradeCommandHandler = (yes: boolean) => void | Promise<void>;
 export type UpdateDownloadHandler = (version: string, manual: boolean) => void;
@@ -24,7 +23,6 @@ export type UpdateDownloadHandler = (version: string, manual: boolean) => void;
 export function createProgram(
   version: string,
   onMain: MainCommandHandler,
-  _onMigrate?: MigrateCommandHandler,
   onPluginNodeRunner: PluginNodeRunnerHandler = () => {},
   onUpgrade: UpgradeCommandHandler = () => {},
   onUpdateDownload: UpdateDownloadHandler = () => {},

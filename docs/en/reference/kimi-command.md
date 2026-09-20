@@ -262,16 +262,6 @@ kimi export 01HZ...XYZ -o ./bug-report.zip
 kimi export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
 ```
 
-### `kimi migrate`
-
-Migrate local data from a legacy kimi-cli installation to kimi-code, including session history and configuration files. Runs entirely interactively, guiding you through the full process.
-
-```sh
-kimi migrate
-```
-
-For full migration instructions, see [Migrating from kimi-cli](../guides/migration.md).
-
 ### `kimi upgrade`
 
 Immediately check for the latest version and display an update prompt; exits after you make a selection. `kimi update` is an alias for this command.

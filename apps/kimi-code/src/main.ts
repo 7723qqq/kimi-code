@@ -224,7 +224,6 @@ function bootstrap(): void {
           process.exit(1);
         });
     },
-    () => {},
     (entry, args) => {
       void runPluginNodeEntry(entry, args).catch(async (error: unknown) => {
         await logStartupFailure(t('startup.operations.runPluginNodeEntry'), error);

@@ -1,40 +1,29 @@
 # 从 kimi-cli 迁移
 
-::: info
-Kimi Code CLI 已完成重大版本升级，底层从 Python/uv 改用 TypeScript 重写，当前版本运行在 Bun 之上，带来更简单的安装方式、更快的启动速度和全新的终端界面。旧版将逐渐停止维护，建议尽快升级至新版。
+::: warning 迁移功能已移除
+交互式 `kimi migrate` 命令及其首次运行时的自动提示都已删除。旧版 Python/uv 安装目录下的 `~/.kimi/` 数据不会被读取或删除——它原样保留——但 Kimi Code CLI 不再自动导入其中的配置、MCP 服务或历史会话。
 :::
 
-如果你正在从旧版迁移，按照以下步骤操作——一条命令就能把配置、MCP server 与会话历史一并迁移至新版。
+Kimi Code CLI 经历了一次大版本升级：从 Python/uv 重写为 TypeScript，当前版本运行在 Bun 上，安装更简单、启动更快，终端界面也重新设计过。
 
-## 新版优势
+## 新版本的变化
 
-- **不再依赖 Python / uv**：改用 TypeScript 重写，无需配置 Python 环境，安装更简单
-- **原生二进制，开箱即用**：启动更快，运行更轻量
-- **终端界面全面重设计**：交互体验更流畅
-- **数据可完整迁移**：配置、MCP、会话历史一键带走，无缝延续
+- **不再需要 Python / uv**：改用 TypeScript 重写，无需 Python 环境，安装更简单
+- **原生二进制，开箱即用**：启动更快，占用更轻
+- **重新设计的终端界面**：更顺滑、响应更快
 
-## 如何迁移
+## 手动迁移配置
 
-迁移有两种方式。
+由于没有导入器，需要你把仍然要用的设置手动搬过来。两个配置文件格式并不相同，所以这是「读一遍、重写一遍」，而不是复制粘贴。
 
-装好 kimi-code 之后**第一次运行 `kimi`** 时，它会自动检测 `~/.kimi/` 下是否存在 kimi-cli 的数据。一旦检测到，就会弹出迁移提示，你可以选择立即迁移、稍后再说，或不再提示。
+**配置文件。** 打开旧版的 `~/.kimi/config.toml`（或更早的 `.json`），把还需要的内容重新写进新的 `~/.kimi-code/config.toml`。常见的是 provider、模型别名和 MCP 服务；当前 schema 见[配置文件](../configuration/config-files.md)，provider 块的结构见 [Provider](../configuration/providers.md)。
 
-你也可以**随时手动运行**：
+**MCP 服务。** 把每个服务的 `command`、`args`、`env`（或 `url`）抄进新的 `[mcp_servers]` 表。启动 Kimi Code 后用 `/mcp` 可以看到实际加载了哪些服务以及连接失败的原因。
 
-```sh
-kimi migrate
-```
+**Skills。** 旧版 skill 是若干 Markdown 文件目录。把它们复制到 [Agent Skills](../customization/skills.md) 中记录的目录之一——项目内的 `.agents/skills/`，或用户级的 `$KIMI_CODE_HOME/skills/`。
 
-你可以选择是否同时迁移聊天会话。如果暂时不需要历史记录，选 **Config only**；否则选 **Config + N sessions** 一并迁移。结束后会显示结果摘要。
+**凭据无法迁移。** 旧版 home 下的 OAuth 登录状态不会被新 CLI 读取，切换后需要执行一次 `/login`。使用自身授权机制的 MCP 服务也需要重新授权。
 
-## 迁移会发生什么
+## 历史会话
 
-**会被迁移的内容**：配置（`config.toml`）、MCP 服务配置、Skills、输入历史，以及你选择迁移的聊天会话。
-
-**不会被迁移的内容**：OAuth 登录凭证和 MCP 服务的授权都不会被复制，迁移后需要在 kimi-code 里重新执行 `/login` 和重新授权 MCP 服务。kimi-cli 的插件也不在迁移范围内。
-
-::: tip 提示
-迁移**不会改动或删除** `~/.kimi/` 下的任何旧数据。kimi-cli 仍可照常使用，两者互不影响。迁移也可以重复运行，已经迁移过的会话不会被重复导入。
-:::
-
-迁移完成后，从 kimi-cli 导入的会话会带上 `[imported]` 标记，方便你与新建的会话区分。
+旧版会话无法导入。它们仍以普通文件的形式留在 `~/.kimi/` 下，旧版 CLI 也照常可用——两套安装互不干扰。新会话会从零开始，存放在 `~/.kimi-code/` 下。

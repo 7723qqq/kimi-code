@@ -301,10 +301,7 @@ export class SessionPickerComponent extends Container implements Focusable {
     const state = this.deleteState;
     if (state === undefined) return '';
     const rawTitle = (state.session.title ?? state.session.id).trim() || state.session.id;
-    const isImported = Boolean(state.session.metadata?.['imported_from_kimi_cli']);
-    const label = singleLine(
-      isImported ? `${t('tui.migration.badgeImported')} ${rawTitle}` : rawTitle,
-    );
+    const label = singleLine(rawTitle);
     const prefix = state.phase === 'confirm' ? 'Delete session "' : 'Deleting session "';
     const suffix = state.phase === 'confirm' ? '"? [y/N]' : '"…';
     const labelBudget = Math.max(0, width - visibleWidth(prefix) - visibleWidth(suffix));
@@ -501,10 +498,6 @@ export class SessionPickerComponent extends Container implements Focusable {
     const time = formatRelativeTime(session.updated_at);
     const badge = isCurrent ? getCurrentMark() : '';
     const rawTitle = (session.title ?? session.id).trim() || session.id;
-    const isImported = Boolean(session.metadata?.['imported_from_kimi_cli']);
-    const titleSource = isImported
-      ? `${t('tui.migration.badgeImported')} ${rawTitle}`
-      : rawTitle;
 
     // Inline trailing parts after the title: "<title>  <time>  ← current".
     const trailingParts = [time, badge].filter((p) => p.length > 0);
@@ -512,7 +505,7 @@ export class SessionPickerComponent extends Container implements Focusable {
     const trailingWidth = visibleWidth(trailingText);
     const headerPrefixWidth = visibleWidth(pointer) + 1; // pointer + space
     const titleBudget = Math.max(8, width - headerPrefixWidth - trailingWidth);
-    const shownTitle = truncateToWidth(singleLine(titleSource), titleBudget, ELLIPSIS);
+    const shownTitle = truncateToWidth(singleLine(rawTitle), titleBudget, ELLIPSIS);
 
     let header = currentTheme.fg(isSelected ? 'primary' : 'textDim', pointer + ' ');
     header += titleStyle(shownTitle);
