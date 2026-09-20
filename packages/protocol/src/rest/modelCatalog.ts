@@ -43,3 +43,11 @@ export const refreshProviderModelsResponseSchema = z.object({
 export type RefreshProviderModelsResponse = z.infer<
   typeof refreshProviderModelsResponseSchema
 >;
+
+export const importCatalogProviderResponseSchema = z.object({
+  provider: providerCatalogItemSchema,
+  models_imported: z.number().int().min(0),
+});
+export type ImportCatalogProviderResponse = z.infer<
+  typeof importCatalogProviderResponseSchema
+>;

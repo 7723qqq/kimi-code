@@ -51,6 +51,7 @@ pub mod interaction;
 pub mod media;
 pub mod message_events;
 pub mod model_catalog;
+pub mod models_dev;
 pub mod oauth;
 pub mod plugin_archive;
 pub mod plugins;
@@ -115,6 +116,9 @@ pub struct HttpServer {
     /// `/sessions/{id}/prompts`.
     prompt_queue: Arc<prompt_queue::PromptQueue>,
     config_override: Arc<Mutex<Option<crate::config::KimiConfig>>>,
+    /// The models.dev catalog proxy cache (v2 `getModelsDevCatalog`): TTL,
+    /// in-flight dedup, stale fallback; the built-in list ends the chain.
+    models_dev_cache: Arc<models_dev::CatalogCache>,
     /// The `config.toml` the write routes mutate: the file the server loaded,
     /// or discovery when unset (unset in tests via
     /// [`HttpServer::with_config_write_path`]).
@@ -266,6 +270,7 @@ impl HttpServer {
             oauth_manager: Arc::new(oauth::OAuthManager::new()),
             prompt_queue: Arc::new(prompt_queue::PromptQueue::new()),
             config_override: Arc::new(Mutex::new(None)),
+            models_dev_cache: Arc::new(models_dev::CatalogCache::new()),
             config_write_path: std::sync::Mutex::new(None),
             file_store: files::FileStore::new(),
             terminal_manager: Arc::new(terminal::TerminalManager::new(hub.clone())),
@@ -1753,105 +1758,206 @@ fn oauth_flow_wire(
     body
 }
 
-/// The static directory the catalog routes advertise. Both the list route and
-/// the per-id route read this one source, so an entry cannot exist in one and
-/// be missing (or fabricated) in the other.
-///
-/// v2 #3909 added the resolved `base_url` to every item; the fork's directory
-/// is a built-in list rather than a models.dev proxy, so the endpoint is stated
-/// per entry instead of resolved.
+/// The static directory the catalog routes advertise when the models.dev
+/// fetch fails: the built-in snapshot (v2 `BUILT_IN_MODELS_DEV_JSON`), mapped
+/// through the same item projection a fetched catalog rides, so an entry
+/// cannot exist in one and be missing (or fabricated) in the other.
 fn catalog_provider_items() -> Value {
-    json!([
-                    {
-                        "id": "moonshot",
-                        "name": "Moonshot AI (Kimi)",
-                        "wire_type": "kimi",
-                        "base_url": "https://api.moonshot.cn/v1",
-                        "guessed": false,
-                        "needs_base_url": false,
-                        "rejected": false,
-                        "reject_reason": Value::Null,
-                        "env_key": "MOONSHOT_API_KEY",
-                        "models": [
-                            {
-                                "id": "kimi-latest",
-                                "name": "Kimi Latest",
-                                "max_context_size": 262144,
-                                "capabilities": ["tools", "thinking", "multimodal"],
-                                "reasoning": true
-                            }
-                        ]
-                    },
-                    {
-                        "id": "anthropic",
-                        "name": "Anthropic",
-                        "wire_type": "anthropic",
-                        "base_url": "https://api.anthropic.com",
-                        "guessed": false,
-                        "needs_base_url": false,
-                        "rejected": false,
-                        "reject_reason": Value::Null,
-                        "env_key": "ANTHROPIC_API_KEY",
-                        "models": [
-                            {
-                                "id": "claude-3-7-sonnet-20250219",
-                                "name": "Claude 3.7 Sonnet",
-                                "max_context_size": 200000,
-                                "capabilities": ["tools", "thinking", "multimodal"],
-                                "reasoning": true
-                            }
-                        ]
-                    },
-                    {
-                        "id": "openai",
-                        "name": "OpenAI",
-                        "wire_type": "openai",
-                        "base_url": "https://api.openai.com/v1",
-                        "guessed": false,
-                        "needs_base_url": false,
-                        "rejected": false,
-                        "reject_reason": Value::Null,
-                        "env_key": "OPENAI_API_KEY",
-                        "models": [
-                            {
-                                "id": "gpt-4o",
-                                "name": "GPT-4o",
-                                "max_context_size": 128000,
-                                "capabilities": ["tools", "multimodal"],
-                                "reasoning": false
-                            }
-                        ]
-                    },
-                    {
-                        "id": "google",
-                        "name": "Google Gemini",
-                        "wire_type": "google-genai",
-                        "base_url": "https://generativelanguage.googleapis.com/v1beta",
-                        "guessed": false,
-                        "needs_base_url": false,
-                        "rejected": false,
-                        "reject_reason": Value::Null,
-                        "env_key": "GEMINI_API_KEY",
-                        "models": [
-                            {
-                                "id": "gemini-2.5-pro",
-                                "name": "Gemini 2.5 Pro",
-                                "max_context_size": 1000000,
-                                "capabilities": ["tools", "thinking", "multimodal"],
-                                "reasoning": true
-                            }
-                        ]
-                    }
-    ])
+    models_dev::builtin_items()
 }
 
-/// One entry of [`catalog_provider_items`] by id, or `None` for an unknown id.
-fn catalog_provider_item(id: &str) -> Option<Value> {
-    catalog_provider_items()
-        .as_array()?
-        .iter()
-        .find(|item| item.get("id").and_then(Value::as_str) == Some(id))
-        .cloned()
+impl HttpServer {
+    /// The catalog payload the routes read (v2 `getModelsDevCatalog`): the
+    /// TTL-cached upstream fetch, with the built-in snapshot ending the
+    /// fallback chain when the fetch fails with no cache to serve.
+    async fn catalog_payload(&self) -> Value {
+        match self.models_dev_cache.catalog().await {
+            Ok(payload) => payload,
+            Err(_) => models_dev::builtin_catalog(),
+        }
+    }
+
+    /// `GET /api/v1/catalog/providers` (v2 `listModelsDevProviders`): every
+    /// catalog entry mapped to its item.
+    async fn catalog_providers(&self) -> Value {
+        let payload = self.catalog_payload().await;
+        match models_dev::parse_catalog(&payload) {
+            Ok(catalog) => models_dev::provider_items(&catalog),
+            Err(_) => catalog_provider_items(),
+        }
+    }
+
+    /// `GET /api/v1/catalog/providers/{id}` (v2 `getModelsDevProvider`): the
+    /// same entry the list route advertises — including the resolved
+    /// `base_url` — or `None` for an unknown id (the route answers 404).
+    async fn catalog_provider(&self, id: &str) -> Option<Value> {
+        let payload = self.catalog_payload().await;
+        let catalog = models_dev::parse_catalog(&payload).ok()?;
+        let entry = catalog.get(id)?;
+        Some(models_dev::provider_item(id, entry))
+    }
+
+    /// `POST /api/v1/providers:import_catalog` (v2 `importModelsDevProvider`):
+    /// write the chosen catalog entry into the config's `[providers.*]` /
+    /// `[models.*]` sections. Re-importing an id rewrites the provider entry
+    /// and its aliases from the catalog; an OAuth-managed provider is
+    /// rejected instead.
+    async fn import_catalog_provider(&self, body: &Value) -> HttpResponse {
+        let invalid = |msg: String| {
+            HttpResponse::json(
+                400,
+                &json!({ "code": crate::server::envelope::error_codes::VALIDATION_FAILED, "msg": msg }),
+            )
+        };
+        let Some(catalog_id) = body
+            .get("catalog_id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+        else {
+            return invalid("catalog_id is required for :import_catalog".to_string());
+        };
+
+        let payload = self.catalog_payload().await;
+        let Ok(catalog) = models_dev::parse_catalog(&payload) else {
+            return HttpResponse::json(
+                503,
+                &json!({ "code": crate::server::envelope::error_codes::VALIDATION_FAILED, "msg": "catalog unavailable" }),
+            );
+        };
+        let Some(entry) = catalog.get(catalog_id) else {
+            return HttpResponse::json(
+                404,
+                &json!({
+                    "code": crate::server::envelope::error_codes::PROVIDER_NOT_FOUND,
+                    "msg": format!("catalog entry {catalog_id} does not exist"),
+                }),
+            );
+        };
+
+        let user_base_url = body.get("base_url").and_then(Value::as_str);
+        let (wire, base_url) = match models_dev::resolve_import(entry, user_base_url) {
+            models_dev::ImportResolution::Ok { wire, base_url, .. } => (wire, base_url),
+            models_dev::ImportResolution::NeedsBaseUrl { .. } => {
+                return invalid(format!("catalog entry {catalog_id} requires a base_url"));
+            }
+            models_dev::ImportResolution::Invalid { reason } => {
+                return invalid(format!(
+                    "catalog entry {catalog_id} cannot be imported: {reason}"
+                ));
+            }
+        };
+
+        let models = models_dev::provider_models(entry);
+        if models.is_empty() {
+            return invalid(format!(
+                "catalog entry {catalog_id} has no importable models"
+            ));
+        }
+
+        let target_id = body
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .unwrap_or(catalog_id);
+        if !models_dev::is_provider_id(target_id) {
+            return invalid(format!(
+                "catalog entry id {target_id} cannot be used as a provider id"
+            ));
+        }
+
+        // The credential rides on the request (v2's body carries `api_key`;
+        // the fork also accepts `api_key_env`). A re-import keeps the stored
+        // credential when the request supplies none — v2's
+        // `reconcileProviderCredentialUpdate`, without its eager env-existence
+        // check (the fork resolves `api_key_env` at request time).
+        // The pre-import config reads the same source the write builds on
+        // (`provider_write.rs`): the staged override, else the pinned file,
+        // else discovery.
+        let before = self
+            .config_override
+            .lock()
+            .await
+            .clone()
+            .unwrap_or_else(|| match self.config_write_path() {
+                Some(path) => crate::config::KimiConfig::from_file(&path).unwrap_or_default(),
+                None => crate::config::KimiConfig::discover()
+                    .map(|(config, _)| config)
+                    .unwrap_or_default(),
+            });
+        let existing = before.providers.get(target_id);
+        if existing.is_some_and(|provider| provider.oauth.is_some()) {
+            return HttpResponse::json(
+                400,
+                &json!({
+                    "code": crate::server::envelope::error_codes::PROVIDER_OAUTH_MANAGED,
+                    "msg": format!("provider {target_id} is managed by OAuth login; use POST /oauth/logout instead"),
+                }),
+            );
+        }
+        let api_key = body
+            .get("api_key")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| existing.and_then(|provider| provider.api_key.clone()));
+        let api_key_env = body
+            .get("api_key_env")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| existing.and_then(|provider| provider.api_key_env.clone()));
+
+        let first_alias = format!("{target_id}/{}", models[0].id);
+        let updated =
+            crate::config::write::update_config(self.config_write_path().as_deref(), |document| {
+                crate::config::write::write_provider(
+                    document,
+                    target_id,
+                    &crate::config::write::ProviderWrite {
+                        provider_type: wire.clone(),
+                        api_key: api_key.clone(),
+                        api_key_env: api_key_env.clone(),
+                        base_url: base_url.clone(),
+                        default_model: None,
+                    },
+                )?;
+                crate::config::write::remove_model_aliases_of(document, target_id);
+                for model in &models {
+                    crate::config::write::write_model_alias(
+                        document,
+                        &models_dev::model_write(target_id, model),
+                    )?;
+                }
+                // v2 seeds the global default from the first imported model
+                // only when nothing is configured at all (fresh setup).
+                let seeded = document
+                    .get("default_model")
+                    .and_then(|item| item.as_str())
+                    .is_none_or(|model| model.trim().is_empty());
+                if seeded {
+                    crate::config::write::set_default_model(document, Some(&first_alias));
+                }
+                Ok(())
+            });
+        let updated = match updated {
+            Ok(config) => config,
+            Err(error) => {
+                return HttpResponse::json(
+                    500,
+                    &json!({ "code": crate::server::envelope::error_codes::INTERNAL_ERROR, "msg": error }),
+                );
+            }
+        };
+        *self.config_override.lock().await = Some(updated.clone());
+        self.publish_config_changed(&["providers", "models"]).await;
+
+        let has_cached_token = |provider: &str| self.has_cached_token(provider);
+        let provider =
+            crate::server::model_catalog::provider_item(&updated, target_id, &has_cached_token)
+                .unwrap_or(Value::Null);
+        HttpResponse::json(
+            201,
+            &json!({ "provider": provider, "models_imported": models.len() }),
+        )
+    }
 }
 
 fn format_wire_session(
@@ -2454,7 +2560,7 @@ impl HttpServer {
                 }
             }
             ("GET", "/api/v1/catalog/providers") | ("GET", "/api/v1/providers/catalog") => {
-                HttpResponse::ok(&json!({ "items": catalog_provider_items() }))
+                HttpResponse::ok(&self.catalog_providers().await)
             }
             ("GET", p) if p.starts_with("/api/v1/catalog/providers/") => {
                 let catalog_id = p
@@ -2464,10 +2570,19 @@ impl HttpServer {
                 // resolved `base_url` — instead of fabricating a placeholder
                 // with no endpoint and no models (v2 #3909 exposes `base_url` on
                 // both routes). An unknown id is a 404 rather than a fake entry.
-                match catalog_provider_item(catalog_id) {
+                match self.catalog_provider(catalog_id).await {
                     Some(item) => HttpResponse::ok(&item),
                     None => HttpResponse::not_found(),
                 }
+            }
+            // v2 `importModelsDevProvider`: write the chosen catalog entry
+            // into the config's providers / models sections.
+            ("POST", "/api/v1/providers:import_catalog") => {
+                let body: Value = match serde_json::from_slice(&req.body) {
+                    Ok(value) => value,
+                    Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
+                };
+                self.import_catalog_provider(&body).await
             }
             ("POST", p) if p.starts_with("/api/v1/models/") => {
                 let tail = p.strip_prefix("/api/v1/models/").unwrap_or_default();
@@ -9081,6 +9196,272 @@ max_context_size = 128000
         assert_eq!(body["code"], 40001);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn catalog_request(method: &str, path: &str, body: Option<&Value>) -> HttpRequest {
+        HttpRequest {
+            method: method.into(),
+            path: path.into(),
+            query: None,
+            headers: HashMap::new(),
+            body: body
+                .map(|value| serde_json::to_vec(value).unwrap())
+                .unwrap_or_default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn catalog_routes_fall_back_to_the_builtin_when_the_fetch_fails() {
+        let mut server = HttpServer::in_memory().unwrap();
+        server.models_dev_cache =
+            Arc::new(models_dev::CatalogCache::new().with_fetcher(Arc::new(|| {
+                Box::pin(async { Err("upstream down".to_string()) })
+                    as crate::rpc::types::BoxFuture<'static, Result<Value, String>>
+            })));
+
+        let res = server
+            .handle_request(&catalog_request("GET", "/api/v1/catalog/providers", None))
+            .await;
+        assert_eq!(res.status, 200);
+        let list: Value = serde_json::from_slice(&res.body).unwrap();
+        let items = list["items"].as_array().unwrap();
+        assert_eq!(items.len(), 4, "the built-in snapshot ends the chain");
+        assert!(items.iter().any(|item| item["id"] == "moonshot"));
+
+        // The per-id route serves the same entry the list advertises.
+        let res = server
+            .handle_request(&catalog_request(
+                "GET",
+                "/api/v1/catalog/providers/anthropic",
+                None,
+            ))
+            .await;
+        assert_eq!(res.status, 200);
+        let item: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(item["id"], "anthropic");
+        assert_eq!(item["wire_type"], "anthropic");
+        assert_eq!(item["base_url"], "https://api.anthropic.com");
+
+        // An unknown id is a 404, not a fabricated entry.
+        let res = server
+            .handle_request(&catalog_request(
+                "GET",
+                "/api/v1/catalog/providers/nope",
+                None,
+            ))
+            .await;
+        assert_eq!(res.status, 404);
+    }
+
+    #[tokio::test]
+    async fn import_catalog_writes_the_provider_and_its_aliases() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        std::fs::write(&config_path, "default_model = \"\"\n").unwrap();
+        let mut server = HttpServer::in_memory()
+            .unwrap()
+            .with_config_write_path(config_path.clone());
+        let catalog = json!({
+            "acme": {
+                "id": "acme",
+                "name": "Acme",
+                "type": "openai",
+                "api": "https://api.example.test/v1",
+                "env": ["ACME_API_KEY"],
+                "models": {
+                    "big": {
+                        "id": "big",
+                        "name": "Big",
+                        "limit": { "context": 128000, "input": 64000 },
+                        "reasoning_options": [{ "type": "effort", "values": ["low", "high"] }],
+                    },
+                    "small": { "id": "small", "limit": { "context": 8192 } },
+                },
+            },
+        });
+        server.models_dev_cache = Arc::new(models_dev::CatalogCache::new().with_fetcher(Arc::new(
+            move || {
+                let catalog = catalog.clone();
+                Box::pin(async move { Ok(catalog) })
+                    as crate::rpc::types::BoxFuture<'static, Result<Value, String>>
+            },
+        )));
+
+        let res = server
+            .handle_request(&catalog_request(
+                "POST",
+                "/api/v1/providers:import_catalog",
+                Some(&json!({ "catalog_id": "acme", "api_key": "sk-acme" })),
+            ))
+            .await;
+        assert_eq!(res.status, 201);
+        let imported: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(imported["models_imported"], 2);
+        assert_eq!(imported["provider"]["id"], "acme");
+        assert_eq!(imported["provider"]["type"], "openai");
+        assert_eq!(imported["provider"]["status"], "connected");
+
+        let text = std::fs::read_to_string(&config_path).unwrap();
+        assert!(text.contains("[providers.acme]"), "{text}");
+        assert!(text.contains("type = \"openai\""), "{text}");
+        assert!(text.contains("api_key = \"sk-acme\""), "{text}");
+        assert!(
+            text.contains("base_url = \"https://api.example.test/v1\""),
+            "{text}"
+        );
+        assert!(text.contains("[models.\"acme/big\"]"), "{text}");
+        assert!(text.contains("[models.\"acme/small\"]"), "{text}");
+        // The unset default is seeded from the first imported model.
+        assert!(text.contains("default_model = \"acme/big\""), "{text}");
+        // The always-thinking rename and the capped input size ride along.
+        assert!(text.contains("always_thinking"), "{text}");
+        assert!(text.contains("max_input_size = 64000"), "{text}");
+
+        // A re-import under a new id rewrites that entry; the old provider's
+        // aliases survive (v2 filters by the target id) and the credential
+        // carries over when the request supplies none.
+        let res = server
+            .handle_request(&catalog_request(
+                "POST",
+                "/api/v1/providers:import_catalog",
+                Some(&json!({ "catalog_id": "acme", "id": "acme-2" })),
+            ))
+            .await;
+        assert_eq!(res.status, 201);
+        let text = std::fs::read_to_string(&config_path).unwrap();
+        assert!(text.contains("[providers.acme-2]"), "{text}");
+        assert!(text.contains("[models.\"acme-2/big\"]"), "{text}");
+        assert!(text.contains("[models.\"acme/big\"]"), "{text}");
+        assert!(text.contains("api_key = \"sk-acme\""), "{text}");
+        // The seeded default is not rewritten by the re-import.
+        assert!(text.contains("default_model = \"acme/big\""), "{text}");
+    }
+
+    #[tokio::test]
+    async fn import_catalog_rejects_the_unimportable() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        std::fs::write(&config_path, "default_model = \"acme/big\"\n").unwrap();
+        let mut server = HttpServer::in_memory()
+            .unwrap()
+            .with_config_write_path(config_path.clone());
+        let catalog = json!({
+            "acme": {
+                "id": "acme",
+                "name": "Acme",
+                "api": "https://api.example.test/v1",
+                "models": { "big": { "id": "big", "limit": { "context": 128000 } } },
+            },
+            "gateway": { "id": "gateway", "name": "Gateway", "npm": "@acme/gateway" },
+            "bedrock": { "id": "bedrock", "name": "Bedrock", "type": "bedrock" },
+            "empty": { "id": "empty", "name": "Empty", "api": "https://api.example.test" },
+        });
+        server.models_dev_cache = Arc::new(models_dev::CatalogCache::new().with_fetcher(Arc::new(
+            move || {
+                let catalog = catalog.clone();
+                Box::pin(async move { Ok(catalog) })
+                    as crate::rpc::types::BoxFuture<'static, Result<Value, String>>
+            },
+        )));
+
+        // An unknown catalog entry is PROVIDER_NOT_FOUND.
+        let res = server
+            .handle_request(&catalog_request(
+                "POST",
+                "/api/v1/providers:import_catalog",
+                Some(&json!({ "catalog_id": "nope" })),
+            ))
+            .await;
+        assert_eq!(res.status, 404);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["code"], 40412);
+
+        // A missing catalog_id is a validation failure.
+        let res = server
+            .handle_request(&catalog_request(
+                "POST",
+                "/api/v1/providers:import_catalog",
+                Some(&json!({})),
+            ))
+            .await;
+        assert_eq!(res.status, 400);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["code"], 40001);
+
+        // An entry that needs an endpoint is a validation failure.
+        let res = server
+            .handle_request(&catalog_request(
+                "POST",
+                "/api/v1/providers:import_catalog",
+                Some(&json!({ "catalog_id": "gateway" })),
+            ))
+            .await;
+        assert_eq!(res.status, 400);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["code"], 40001);
+        assert!(
+            body["msg"]
+                .as_str()
+                .unwrap()
+                .contains("requires a base_url")
+        );
+
+        // A proprietary-SDK entry is a validation failure.
+        let res = server
+            .handle_request(&catalog_request(
+                "POST",
+                "/api/v1/providers:import_catalog",
+                Some(&json!({ "catalog_id": "bedrock" })),
+            ))
+            .await;
+        assert_eq!(res.status, 400);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["code"], 40001);
+
+        // An entry with no importable models is a validation failure.
+        let res = server
+            .handle_request(&catalog_request(
+                "POST",
+                "/api/v1/providers:import_catalog",
+                Some(&json!({ "catalog_id": "empty" })),
+            ))
+            .await;
+        assert_eq!(res.status, 400);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["code"], 40001);
+        assert!(
+            body["msg"]
+                .as_str()
+                .unwrap()
+                .contains("no importable models")
+        );
+
+        // An unusable target id is a validation failure.
+        let res = server
+            .handle_request(&catalog_request(
+                "POST",
+                "/api/v1/providers:import_catalog",
+                Some(&json!({ "catalog_id": "acme", "id": "bad id!" })),
+            ))
+            .await;
+        assert_eq!(res.status, 400);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["code"], 40001);
+
+        // An OAuth-managed provider refuses the import.
+        let mut text = std::fs::read_to_string(&config_path).unwrap();
+        text.push_str("\n[providers.acme]\ntype = \"openai\"\noauth = { provider = \"acme\" }\n");
+        std::fs::write(&config_path, text).unwrap();
+        let res = server
+            .handle_request(&catalog_request(
+                "POST",
+                "/api/v1/providers:import_catalog",
+                Some(&json!({ "catalog_id": "acme" })),
+            ))
+            .await;
+        assert_eq!(res.status, 400);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["code"], 40003);
     }
 
     #[tokio::test]

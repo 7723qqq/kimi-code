@@ -183,11 +183,15 @@ fn alias_write(provider_id: &str, entry: &ProviderModelForm) -> ModelAliasWrite 
         display_name: entry.display_name.clone(),
         capabilities: entry.capabilities.clone(),
         max_output_size: entry.max_output_size,
+        max_input_size: None,
         support_efforts: entry.support_efforts.clone(),
         default_effort: None,
         adaptive_thinking: entry.adaptive_thinking,
         protocol: None,
         beta_api: None,
+        reasoning_key: None,
+        off_effort: None,
+        base_url: None,
     }
 }
 
@@ -244,6 +248,7 @@ pub async fn create(
             &ProviderWrite {
                 provider_type: form.provider_type.clone(),
                 api_key: form.api_key.clone(),
+                api_key_env: None,
                 base_url: form.base_url.clone(),
                 default_model: default_model.clone(),
             },
@@ -350,6 +355,7 @@ pub async fn replace(
             &ProviderWrite {
                 provider_type: form.provider_type.clone(),
                 api_key: api_key.clone(),
+                api_key_env: None,
                 base_url: form.base_url.clone(),
                 default_model: default_model.clone(),
             },

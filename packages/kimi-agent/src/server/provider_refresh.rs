@@ -184,11 +184,15 @@ fn alias_from_model(
         display_name: model.display_name.clone(),
         capabilities: model.capabilities.clone(),
         max_output_size: None,
+        max_input_size: None,
         support_efforts: model.support_efforts.clone(),
         default_effort: model.default_effort.clone(),
         adaptive_thinking: (anthropic && thinking_capable).then_some(true),
         protocol: model.protocol.clone(),
         beta_api: anthropic.then_some(true),
+        reasoning_key: None,
+        off_effort: None,
+        base_url: None,
     }
 }
 

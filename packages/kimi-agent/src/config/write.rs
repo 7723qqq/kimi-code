@@ -72,6 +72,7 @@ where
 pub struct ProviderWrite {
     pub provider_type: String,
     pub api_key: Option<String>,
+    pub api_key_env: Option<String>,
     pub base_url: Option<String>,
     pub default_model: Option<String>,
 }
@@ -86,11 +87,15 @@ pub struct ModelAliasWrite {
     pub display_name: Option<String>,
     pub capabilities: Option<Vec<String>>,
     pub max_output_size: Option<u32>,
+    pub max_input_size: Option<u32>,
     pub support_efforts: Option<Vec<String>>,
     pub default_effort: Option<String>,
     pub adaptive_thinking: Option<bool>,
     pub protocol: Option<String>,
     pub beta_api: Option<bool>,
+    pub reasoning_key: Option<String>,
+    pub off_effort: Option<String>,
+    pub base_url: Option<String>,
 }
 
 fn table_at<'a>(document: &'a mut DocumentMut, key: &str) -> Result<&'a mut Table, String> {
@@ -161,6 +166,9 @@ pub fn write_provider(
     if let Some(api_key) = &provider.api_key {
         table.insert("api_key", Item::Value(Value::from(api_key.clone())));
     }
+    if let Some(api_key_env) = &provider.api_key_env {
+        table.insert("api_key_env", Item::Value(Value::from(api_key_env.clone())));
+    }
     if let Some(base_url) = &provider.base_url {
         table.insert("base_url", Item::Value(Value::from(base_url.clone())));
     }
@@ -213,6 +221,12 @@ pub fn write_model_alias(
             Item::Value(Value::from(i64::from(max_output_size))),
         );
     }
+    if let Some(max_input_size) = alias.max_input_size {
+        table.insert(
+            "max_input_size",
+            Item::Value(Value::from(i64::from(max_input_size))),
+        );
+    }
     if let Some(support_efforts) = &alias.support_efforts {
         table.insert("support_efforts", string_array(support_efforts));
     }
@@ -233,6 +247,18 @@ pub fn write_model_alias(
     }
     if let Some(beta_api) = alias.beta_api {
         table.insert("beta_api", Item::Value(Value::from(beta_api)));
+    }
+    if let Some(reasoning_key) = &alias.reasoning_key {
+        table.insert(
+            "reasoning_key",
+            Item::Value(Value::from(reasoning_key.clone())),
+        );
+    }
+    if let Some(off_effort) = &alias.off_effort {
+        table.insert("off_effort", Item::Value(Value::from(off_effort.clone())));
+    }
+    if let Some(base_url) = &alias.base_url {
+        table.insert("base_url", Item::Value(Value::from(base_url.clone())));
     }
     let item = reparse_table(&["models", alias.alias_id.as_str()], table)?;
     table_at(document, "models")?.insert(alias.alias_id.as_str(), item);
@@ -338,11 +364,15 @@ mod tests {
             display_name: Some("K3".into()),
             capabilities: Some(vec!["tools".into(), "thinking".into()]),
             max_output_size: None,
+            max_input_size: None,
             support_efforts: Some(vec!["low".into()]),
             default_effort: None,
             adaptive_thinking: None,
             protocol: None,
             beta_api: None,
+            reasoning_key: None,
+            off_effort: None,
+            base_url: None,
         }
     }
 
@@ -367,6 +397,7 @@ type = "openai"
             &ProviderWrite {
                 provider_type: "kimi".into(),
                 api_key: Some("sk-test".into()),
+                api_key_env: None,
                 base_url: Some("https://example.test/v1".into()),
                 default_model: Some("managed:kimi-code/k3".into()),
             },
@@ -411,6 +442,7 @@ type = "openai"
             &ProviderWrite {
                 provider_type: "openai".into(),
                 api_key: Some("sk-new".into()),
+                api_key_env: None,
                 base_url: Some("https://example.test/v1".into()),
                 default_model: Some("kimi-code/k3".into()),
             },

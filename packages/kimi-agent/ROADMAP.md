@@ -1628,3 +1628,70 @@ models.dev 代理面（抓取 + 缓存 + 快照回退）——ROADMAP #3909 起�
 
 **验证**：`cargo test --lib` 2773 项 + 集成 7 组 + clippy 0 error + fmt +
 scan-parity 全绿。
+
+### 8.7 models.dev 代理面（2026-09-21，用户批准推进；对照 v2 fork 版 + 官方版完整移植）
+
+§8.6 记录的待决策项落地。v2 参考：`agent-core-v2/src/app/kosongConfig/
+{modelsDevUpstream,modelsDev,modelsDevImportService}.ts` +
+`kap-server/src/routes/modelCatalog.ts`（import 路由 770-830 行）；
+bundle 消费证据：`dist-web/assets/index-DusVyqlT.js` 的 `importCatalogProvider`
+（POST `/providers:import_catalog`，body `{catalog_id, api_key?, base_url?, id?}`，
+返回 `{provider, models_imported}`）。
+
+**新模块 `server/models_dev.rs`**（v2 三文件对照移植，12/12 单测）：
+- fetch/cache：`MODELS_DEV_URL` + 10min TTL + in-flight 去重（OnceCell，
+  失败即撤 cell 让下个请求重试）+ stale 回退（v2 `fetchAndCache`）。
+- wire 推断：显式 type（KNOWN_WIRE_TYPES 六种）→ npm/id 推断
+  （anthropic/claude、vertex、google/gemini、openai）→ openai 默认；
+  bedrock/cohere 为 proprietary-sdk 拒绝；未知显式 type 为
+  unknown-explicit-type 拒绝。
+- base_url 三级：用户 override（anthropic 剥尾 `/v1`）→ catalog `api`
+  （占位符 `${}` 视为无）→ needs-base-url（默认 npm 除外）。
+- 模型过滤：usable-chat-model（output 含 text、非 deprecated/alpha、
+  非 embedding 标记）+ context>0；capability 映射 modalities/reasoning_options
+  （effort 档位、none  off_effort、null 档位、toggle、always_thinking=
+  有档位且无 off 且无 toggle）；interleaved.field → reasoning_key；
+  limit.input 封顶后为 max_input_size；provider override（bedrock/cohere
+  drop、anthropic 协议改写 base_url）。
+- always_thinking 在 anthropic/kimi 线上丢弃（v2
+  `wireHasProtocolThinkingDisable`，本轮补上，§8.6 时记为偏差）。
+- item 投影（`provider_item`/`provider_items`）与 record 投影
+  （`model_write`，always_thinking 时 thinking→always_thinking 重命名，
+  fork 引擎两拼写均读——`config/mod.rs:1489/1527`）。
+
+**路由（`server/mod.rs`）**：
+- `GET /catalog/providers` 与 `/catalog/providers/{id}`（及旧别名
+  `/providers/catalog`）改代理：cache 命中走映射，fetch 失败走 built-in
+  快照；未知 id 404。
+- `POST /providers:import_catalog`：catalog_id 必填（40001）→ entry 不存在
+  40412 → resolve 失败/needs-base-url/无可用模型/id 不合模式均 40001 →
+  OAuth-managed provider 40003 → 写 `[providers.*]`（type/base_url/
+  api_key/api_key_env）+ 重建该 provider 的 `[models.*]` 别名 +
+  default_model 未设时种首个别名 → 201 `{provider, models_imported}`。
+  落盘走 `config::write::update_config`（与 provider CRUD 一致，
+  §8.6 决策 3 的"仅内存"据此修正为本地既有写路径模式），随后
+  `publish_config_changed(&["providers","models"])`。
+
+**built-in 快照改为 models.dev 原始形态**（v2 `BUILT_IN_MODELS_DEV_JSON`）：
+moonshot/anthropic/openai/google 四条 entry 经同一 `provider_items` 投影，
+取代原手写 item 列表——能力词汇随之从 ["tools","multimodal"] 变为 v2 的
+image_in/thinking/tool_use（bundle 与引擎读的均是后者，
+`llm/http.rs:971`、`media_resolver.rs`）。测试 3 组：
+`catalog_routes_fall_back_to_the_builtin_when_the_fetch_fails`、
+`import_catalog_writes_the_provider_and_its_aliases`（含 re-import 语义）、
+`import_catalog_rejects_the_unimportable`（40412/40001×5/40003）。
+
+**记录在案的偏差**：
+1. credential 从简：接受请求体 `api_key`/`api_key_env` 直写，re-import 时
+   无新值则保留旧 credential；未移植 v2 `reconcileProviderCredentialUpdate`
+   的 env 存在性 eager 校验（fork 在请求时解析 api_key_env）。
+2. v2 `import_registry`（自定义 registry URL）不移植，只做 import_catalog。
+3. 错误码映射到既有码：CATALOG_ENTRY_NOT_FOUND→PROVIDER_NOT_FOUND(40412)、
+   CATALOG_IMPORT_INVALID→VALIDATION_FAILED(40001)、PROVIDER_OAUTH_MANAGED
+   →40003（已存在）；CATALOG_UNAVAILABLE 不会发生（built-in 兜底）。
+4. `config/write.rs` 的 `ProviderWrite`/`ModelAliasWrite` 补全
+   api_key_env/max_input_size/reasoning_key/off_effort/base_url 字段
+   （读侧 ModelAliasConfig 早有，写侧补齐）。
+
+**验证**：`cargo test --lib` 2788 项 + clippy 0 error + fmt +
+scan-parity 全绿 + protocol 565 项。
