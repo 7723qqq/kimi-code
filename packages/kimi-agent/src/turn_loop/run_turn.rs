@@ -21,6 +21,7 @@ use super::tool_scheduler::{self, ScheduledToolCall};
 use super::turn_step::execute_loop_step_with_retry;
 use super::types::*;
 use crate::callbacks::HostCallbacks;
+use crate::llm::files_upload::UploadError;
 use crate::llm::media_budget::{MEDIA_BUDGET_EXCEEDED_CODE, MediaBudget};
 use crate::llm::media_resolver::{MediaResolver, ResolvedRequest, has_media_refs, inline_entries};
 use crate::rpc::types::{BoxFuture, TokenUsage, ToolExecuteRequest};
@@ -347,13 +348,17 @@ fn continuation_anchor(messages: &[LLMMessage]) -> usize {
 /// budget have had their say, with the omission warning surfaced as a
 /// `WarningEvent` (protocol `events.ts`) — the channel the host already
 /// renders turn warnings on.
+///
+/// `Err` carries a rejected upload credential and nothing else: v2 throws it
+/// out of the resolver (`isMediaUploadAuthError`), so the turn fails with the
+/// upload's own error instead of sending a degraded request.
 async fn budgeted_request<'a>(
     budget: &mut MediaBudget,
     resolver: Option<&MediaResolver>,
     llm: &dyn LLM,
     messages: &'a [LLMMessage],
     callbacks: &dyn HostCallbacks,
-) -> Cow<'a, [LLMMessage]> {
+) -> Result<Cow<'a, [LLMMessage]>, UploadError> {
     let target = llm.media_target();
     let mut request = match resolver {
         Some(resolver) => {
@@ -371,7 +376,7 @@ async fn budgeted_request<'a>(
             };
             resolver
                 .resolve(messages, target.as_ref(), credential.as_deref())
-                .await
+                .await?
         }
         None => ResolvedRequest {
             messages: Cow::Borrowed(messages),
@@ -385,7 +390,7 @@ async fn budgeted_request<'a>(
             "message": message,
         }));
     }
-    request.messages
+    Ok(request.messages)
 }
 
 /// Run a turn to completion, transparently consuming at most one Stop-hook
@@ -726,6 +731,10 @@ pub fn run_turn<'a>(
         // fullCompactionService.ts:462-466): how many times in a row this turn
         // has compacted in response to an overflow without a step completing.
         let mut consecutive_overflow_compactions: u32 = 0;
+        // v2's media projection fallbacks, spent at most once each per turn:
+        // degrade the older media, then strip every media part.
+        let mut media_degraded = false;
+        let mut media_stripped = false;
 
         // Turn-level injection registry. The built-in date-change and
         // workspace-AGENTS.md reminders are registered by `with_defaults`;
@@ -883,40 +892,69 @@ pub fn run_turn<'a>(
             // (`compactionRearmPending`), which the step-head pass below does
             // by re-deriving them.
             context_tokens.sync(&messages);
-            if let Some(compacted) = crate::compaction::compact_messages_with_summary_at(
-                &messages,
-                context_tokens.tokens(),
-                &compaction_config,
-                input.llm,
-                None,
-                Some(turn_cancel.token()),
-            )
-            .await?
-            {
-                tracing::debug!(
-                    turn_id = %turn_id,
-                    step = step_num,
-                    before = messages.len(),
-                    after = compacted.len(),
-                    "compacted turn context before LLM call"
-                );
-                // Fire-and-forget before each compaction (v2
-                // `agentExternalHooksService.notifyPreCompact`); hooks
-                // observe the trim but never block it.
-                if let Some(ref guard) = hook_guard {
-                    guard.notify_pre_compact(&turn_id, messages.len()).await;
+            // Announce the auto-compaction so the host can render a transcript
+            // card (v2 `compaction.started` / `completed` / `cancelled`); the
+            // host adds the session id. Guarded on the same trigger the
+            // compaction itself uses, so `started` never fires without a
+            // matching terminal event.
+            if crate::compaction::should_compact(context_tokens.tokens(), &compaction_config) {
+                callbacks.emit_event(serde_json::json!({
+                    "type": "compaction.started",
+                    "trigger": "auto",
+                }));
+                match crate::compaction::compact_messages_with_summary_at_report(
+                    &messages,
+                    context_tokens.tokens(),
+                    &compaction_config,
+                    input.llm,
+                    None,
+                    Some(turn_cancel.token()),
+                )
+                .await
+                {
+                    Ok(Some((compacted, report))) => {
+                        callbacks.emit_event(serde_json::json!({
+                            "type": "compaction.completed",
+                            "result": {
+                                "summary": report.summary,
+                                "compactedCount": report.compacted_count,
+                                "tokensBefore": report.tokens_before,
+                                "tokensAfter": report.tokens_after,
+                            },
+                        }));
+                        tracing::debug!(
+                            turn_id = %turn_id,
+                            step = step_num,
+                            before = messages.len(),
+                            after = compacted.len(),
+                            "compacted turn context before LLM call"
+                        );
+                        // Fire-and-forget before each compaction (v2
+                        // `agentExternalHooksService.notifyPreCompact`); hooks
+                        // observe the trim but never block it.
+                        if let Some(ref guard) = hook_guard {
+                            guard.notify_pre_compact(&turn_id, messages.len()).await;
+                        }
+                        context_tokens.invalidate();
+                        messages = compacted;
+                        // v2 `compactionRearmPending`: the continuation is anchored
+                        // before the reminders the step head appended, so the model
+                        // reads the handoff first. Inserting rather than re-appending
+                        // leaves every other message where it was — moving the
+                        // reminders would break `messages` = `[system] + carried
+                        // history + new`, which is what the callers' fold index
+                        // assumes.
+                        let at = continuation_anchor(&messages);
+                        messages.insert(at, crate::compaction::compaction_continuation_message());
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        callbacks.emit_event(serde_json::json!({
+                            "type": "compaction.cancelled",
+                        }));
+                        return Err(Box::new(error) as Box<dyn std::error::Error + 'a>);
+                    }
                 }
-                context_tokens.invalidate();
-                messages = compacted;
-                // v2 `compactionRearmPending`: the continuation is anchored
-                // before the reminders the step head appended, so the model
-                // reads the handoff first. Inserting rather than re-appending
-                // leaves every other message where it was — moving the
-                // reminders would break `messages` = `[system] + carried
-                // history + new`, which is what the callers' fold index
-                // assumes.
-                let at = continuation_anchor(&messages);
-                messages.insert(at, crate::compaction::compaction_continuation_message());
             }
 
             // ── Injection pass ───────────────────────────────────────────
@@ -968,14 +1006,23 @@ pub fn run_turn<'a>(
             // completes: the window evidently fits again, so the next overflow
             // starts a fresh budget (v2 `afterStep`).
             let step_result = 'overflow_recovery: loop {
-                let request_messages = budgeted_request(
+                let request_messages = match budgeted_request(
                     &mut media_budget,
                     input.media,
                     input.llm,
                     &messages,
                     callbacks.as_ref(),
                 )
-                .await;
+                .await
+                {
+                    Ok(messages) => messages,
+                    // v2 `isMediaUploadAuthError` → throw: a rejected upload
+                    // credential fails the turn with the upload's own error
+                    // rather than degrading the media to a path tag.
+                    Err(error) => {
+                        return Err(Box::new(error) as Box<dyn std::error::Error + 'a>);
+                    }
+                };
                 let call = execute_loop_step_with_retry(
                     &turn_id,
                     step_num,
@@ -1021,6 +1068,64 @@ pub fn run_turn<'a>(
                             messages.clone(),
                         ));
                     }
+                    // v2 `nextProjectionPolicyForError`: a provider
+                    // "request too large" (`APIRequestTooLargeError`)
+                    // degrades the older media and retries; a second
+                    // rejection strips every media part to its path tag.
+                    // An image-format rejection (`isImageFormatError`)
+                    // strips straight away — v2 gives it no degrade round.
+                    // The transform runs on the unresolved messages — a
+                    // reference still names its file there, which is what
+                    // the path tag needs — and the loop re-resolves.
+                    let too_large = crate::llm::media_budget::is_request_too_large(&err_str);
+                    let image_format =
+                        !too_large && crate::llm::media_budget::is_image_format_error(&err_str);
+                    if too_large || image_format {
+                        let projection = if too_large && !media_degraded {
+                            media_degraded = true;
+                            let entries = input
+                                .media
+                                .map(|resolver| resolver.media_entries(&messages));
+                            let degraded = entries.as_deref().map_or(0, |entries| {
+                                crate::llm::media_budget::degrade_older_media(
+                                    &mut messages,
+                                    entries,
+                                    crate::llm::media_budget::MEDIA_DEGRADE_KEEP_RECENT,
+                                )
+                            });
+                            if degraded == 0 {
+                                return Err(Box::new(std::io::Error::other(err_str))
+                                    as Box<dyn std::error::Error + 'a>);
+                            }
+                            crate::llm::media_budget::MEDIA_DEGRADED_CODE
+                        } else if !media_stripped {
+                            media_stripped = true;
+                            let entries = input
+                                .media
+                                .map(|resolver| resolver.media_entries(&messages));
+                            let stripped = entries.as_deref().map_or(0, |entries| {
+                                crate::llm::media_budget::strip_all_media(&mut messages, entries)
+                            });
+                            if stripped == 0 {
+                                return Err(Box::new(std::io::Error::other(err_str))
+                                    as Box<dyn std::error::Error + 'a>);
+                            }
+                            crate::llm::media_budget::MEDIA_STRIPPED_CODE
+                        } else {
+                            return Err(Box::new(std::io::Error::other(err_str))
+                                as Box<dyn std::error::Error + 'a>);
+                        };
+                        callbacks.emit_event(serde_json::json!({
+                            "type": "warning",
+                            "code": projection,
+                            "message": if projection == crate::llm::media_budget::MEDIA_DEGRADED_CODE {
+                                "Provider rejected the request as too large; older media were dropped and the request was retried."
+                            } else {
+                                "Provider rejected the media in the request; all media were omitted and the request was retried."
+                            },
+                        }));
+                        continue 'overflow_recovery;
+                    }
                     if !crate::compaction::should_recover_from_context_overflow(
                         &err_str,
                         crate::compaction::estimate_messages_tokens(&messages),
@@ -1042,16 +1147,39 @@ pub fn run_turn<'a>(
                         )))
                             as Box<dyn std::error::Error + 'a>);
                     }
-                    let force_compacted =
-                        crate::compaction::force_compact_messages_with_summary_budgeted(
+                    callbacks.emit_event(serde_json::json!({
+                        "type": "compaction.started",
+                        "trigger": "auto",
+                    }));
+                    let compacted_report =
+                        crate::compaction::force_compact_messages_with_summary_report(
                             &messages,
                             &compaction_config,
                             input.llm,
                             None,
                             Some(turn_cancel.token()),
                             input.max_context_tokens,
+                            crate::compaction::estimate_messages_tokens(&messages),
                         )
-                        .await?;
+                        .await;
+                    let (force_compacted, report) = match compacted_report {
+                        Ok(pair) => pair,
+                        Err(error) => {
+                            callbacks.emit_event(serde_json::json!({
+                                "type": "compaction.cancelled",
+                            }));
+                            return Err(Box::new(error) as Box<dyn std::error::Error + 'a>);
+                        }
+                    };
+                    callbacks.emit_event(serde_json::json!({
+                        "type": "compaction.completed",
+                        "result": {
+                            "summary": report.summary,
+                            "compactedCount": report.compacted_count,
+                            "tokensBefore": report.tokens_before,
+                            "tokensAfter": report.tokens_after,
+                        },
+                    }));
                     // A compaction that removed nothing cannot change the next
                     // request, so retrying would just burn the remaining
                     // attempts on an identical prompt.
@@ -2889,6 +3017,9 @@ mod tests {
                             thinking: vec![ContentBlock::Think {
                                 think: "need to list files".into(),
                                 encrypted: Some("sig-abc".into()),
+                                details_index: None,
+                                reasoning_key: None,
+                                hidden: None,
                             }],
                             tool_calls: vec![ToolCall {
                                 id: "tc1".into(),
@@ -2961,7 +3092,9 @@ mod tests {
             .expect("step 2 history must contain the assistant tool_calls message");
         assert_eq!(assistant.blocks.len(), 1, "{assistant:?}");
         match &assistant.blocks[0] {
-            ContentBlock::Think { think, encrypted } => {
+            ContentBlock::Think {
+                think, encrypted, ..
+            } => {
                 assert_eq!(think, "need to list files");
                 assert_eq!(encrypted.as_deref(), Some("sig-abc"));
             }
@@ -5623,6 +5756,263 @@ mod tests {
             rounds + 1,
             "each round retries the step exactly once"
         );
+    }
+
+    /// v2 `nextProjectionPolicyForError`: a provider "request too large"
+    /// degrades the older media and retries the step; a second rejection
+    /// strips every media part. The step layer retries neither, so the
+    /// repetition this test observes is the projection fallback's.
+    #[tokio::test]
+    async fn a_too_large_request_degrades_then_strips_and_retries() {
+        struct TooLargeLlm {
+            step_calls: AtomicU32,
+            seen_media: std::sync::Mutex<Vec<usize>>,
+        }
+        impl LLM for TooLargeLlm {
+            fn system_prompt(&self) -> &str {
+                "sys"
+            }
+            fn model_name(&self) -> &str {
+                "too-large-model"
+            }
+            fn is_retryable_error(&self, _error: &str) -> bool {
+                false
+            }
+            fn transport(&self) -> &'static str {
+                "native-http"
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let media = params
+                    .messages
+                    .iter()
+                    .flat_map(|message| message.blocks.iter())
+                    .filter(|block| !matches!(block, crate::rpc::types::ContentBlock::Text { .. }))
+                    .count();
+                self.seen_media.lock().unwrap().push(media);
+                let call = self.step_calls.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async move {
+                    if call < 2 {
+                        Err(Box::new(std::io::Error::other(
+                            "llm http status 413: request too large",
+                        ))
+                            as Box<dyn std::error::Error + Send + Sync>)
+                    } else {
+                        Ok(LLMChatResponse {
+                            content: "ok".into(),
+                            thinking: vec![],
+                            tool_calls: vec![],
+                            finish_reason: Some("stop".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    }
+                })
+            }
+        }
+
+        let llm = Arc::new(TooLargeLlm {
+            step_calls: AtomicU32::new(0),
+            seen_media: std::sync::Mutex::new(Vec::new()),
+        });
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server);
+        let dir = tempfile::tempdir().unwrap();
+        let files = crate::server::files::FileStore::with_root(dir.path().to_path_buf());
+        // Real blobs, so the resolver inlines them instead of degrading the
+        // reference to its unavailable placeholder. The saved ids are what
+        // the messages reference.
+        let mut file_ids = Vec::new();
+        for index in 0..4 {
+            let meta = files
+                .save(
+                    &format!("img-{index}.png"),
+                    "image/png",
+                    None,
+                    format!("PNGDATA-{index}").as_bytes(),
+                )
+                .unwrap();
+            file_ids.push(meta.id);
+        }
+        let resolver = crate::llm::media_resolver::MediaResolver::with_store(files);
+
+        // Four media references across the history: the degrade keeps the
+        // two newest, the strip takes the rest.
+        let mut messages = vec![LLMMessage {
+            role: "system".into(),
+            content: "sys".into(),
+            ..Default::default()
+        }];
+        for file_id in &file_ids {
+            messages.push(LLMMessage {
+                role: "user".into(),
+                content: "look".into(),
+                blocks: vec![crate::rpc::types::ContentBlock::MediaRef {
+                    file_id: file_id.clone(),
+                    kind: crate::rpc::types::MediaKind::Image,
+                }],
+                ..Default::default()
+            });
+        }
+
+        let input = RunTurnInput {
+            turn_id: "test-too-large".into(),
+            llm: llm.as_ref(),
+            messages,
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: Some(&resolver),
+            media_dropped: None,
+            toolset: None,
+        };
+
+        let result = run_turn(input, &callbacks).await;
+        assert!(
+            result.is_ok(),
+            "the stripped retry must succeed: {result:?}"
+        );
+        // Three step calls: the original, the degraded retry, the stripped
+        // retry — and the media count falls 4 → 2 → 0.
+        assert_eq!(llm.step_calls.load(Ordering::SeqCst), 3);
+        assert_eq!(
+            llm.seen_media.lock().unwrap().as_slice(),
+            &[4, 2, 0],
+            "the degrade keeps the two newest, the strip takes the rest"
+        );
+    }
+
+    /// v2 `nextProjectionPolicyForError`'s image-format arm
+    /// (`isImageFormatError`): the provider rejects an image, and the
+    /// request is retried with every media part stripped — no degrade
+    /// round, the way v2 gives it none.
+    #[tokio::test]
+    async fn an_image_format_rejection_strips_the_media_and_retries() {
+        struct ImageFormatLlm {
+            step_calls: AtomicU32,
+            seen_media: std::sync::Mutex<Vec<usize>>,
+        }
+        impl LLM for ImageFormatLlm {
+            fn system_prompt(&self) -> &str {
+                "sys"
+            }
+            fn model_name(&self) -> &str {
+                "image-format-model"
+            }
+            fn is_retryable_error(&self, _error: &str) -> bool {
+                false
+            }
+            fn transport(&self) -> &'static str {
+                "native-http"
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let media = params
+                    .messages
+                    .iter()
+                    .flat_map(|message| message.blocks.iter())
+                    .filter(|block| !matches!(block, crate::rpc::types::ContentBlock::Text { .. }))
+                    .count();
+                self.seen_media.lock().unwrap().push(media);
+                let call = self.step_calls.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async move {
+                    if call == 0 {
+                        Err(Box::new(std::io::Error::other(
+                            "llm http status 400: unsupported image format image/heic",
+                        ))
+                            as Box<dyn std::error::Error + Send + Sync>)
+                    } else {
+                        Ok(LLMChatResponse {
+                            content: "ok".into(),
+                            thinking: vec![],
+                            tool_calls: vec![],
+                            finish_reason: Some("stop".into()),
+                            usage: TokenUsage::default(),
+                        })
+                    }
+                })
+            }
+        }
+
+        let llm = Arc::new(ImageFormatLlm {
+            step_calls: AtomicU32::new(0),
+            seen_media: std::sync::Mutex::new(Vec::new()),
+        });
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server);
+        let dir = tempfile::tempdir().unwrap();
+        let files = crate::server::files::FileStore::with_root(dir.path().to_path_buf());
+        let mut file_ids = Vec::new();
+        for index in 0..3 {
+            let meta = files
+                .save(
+                    &format!("img-{index}.png"),
+                    "image/png",
+                    None,
+                    format!("PNGDATA-{index}").as_bytes(),
+                )
+                .unwrap();
+            file_ids.push(meta.id);
+        }
+        let resolver = crate::llm::media_resolver::MediaResolver::with_store(files);
+
+        let mut messages = vec![LLMMessage {
+            role: "system".into(),
+            content: "sys".into(),
+            ..Default::default()
+        }];
+        for file_id in &file_ids {
+            messages.push(LLMMessage {
+                role: "user".into(),
+                content: "look".into(),
+                blocks: vec![crate::rpc::types::ContentBlock::MediaRef {
+                    file_id: file_id.clone(),
+                    kind: crate::rpc::types::MediaKind::Image,
+                }],
+                ..Default::default()
+            });
+        }
+
+        let input = RunTurnInput {
+            turn_id: "test-image-format".into(),
+            llm: llm.as_ref(),
+            messages,
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: Some(&resolver),
+            media_dropped: None,
+            toolset: None,
+        };
+
+        let result = run_turn(input, &callbacks).await;
+        assert!(
+            result.is_ok(),
+            "the stripped retry must succeed: {result:?}"
+        );
+        // Two step calls, and the media goes straight to zero — the
+        // image-format arm has no degrade round.
+        assert_eq!(llm.step_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(llm.seen_media.lock().unwrap().as_slice(), &[3, 0]);
     }
 
     /// The media budget degrades an over-budget request instead of failing it:

@@ -1142,6 +1142,7 @@ async fn build_engine_pipeline(
             steer_slot,
             mcp_manager: None,
             event_bus: None,
+            task_event_sink: None,
         },
     )
     .await
@@ -1477,15 +1478,6 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         });
     }
 
-    // Workspace watcher poll loop (upstream #3502): `watch_fs_*` registrations
-    // arrive over WebSocket; this task turns mtime changes into
-    // `event.fs.changed` on the session lane. Started here rather than in
-    // `HttpServer::new` so it is guaranteed to run inside the runtime.
-    let fs_watch_task = tokio::spawn(kimi_agent::server::fs_watch::run_poll_loop(
-        server.fs_watch(),
-        std::time::Duration::from_millis(750),
-    ));
-
     let handle = kimi_agent::server::http::serve(&address, server).await?;
     let credential = match &token_path {
         Some(path) => format!("bearer token {path:?}"),
@@ -1501,7 +1493,6 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
     // terminates the process directly (no signal handler on purpose). In-flight
     // connections finish on their own; there is no graceful turn drain yet.
     shutdown.cancelled().await;
-    fs_watch_task.abort();
     Ok(())
 }
 

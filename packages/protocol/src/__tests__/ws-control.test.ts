@@ -31,9 +31,8 @@ import {
   terminalExitMessageSchema,
   unsubscribeAckMessageSchema,
   unsubscribeMessageSchema,
-  watchFsAckMessageSchema,
-  watchFsAddMessageSchema,
-  watchFsRemoveMessageSchema,
+  unsubscribeV2MessageSchema,
+  subscribeV2MessageSchema,
   wsOperations,
   wsAckEnvelopeSchema,
   wsControlEnvelopeSchema,
@@ -289,20 +288,6 @@ describe('ws-control — §3.2 client_hello', () => {
 });
 
 describe('ws-control — §3.3 subscribe / unsubscribe', () => {
-  it('subscribe accepts a watch_fs map', () => {
-    const result = subscribeMessageSchema.safeParse({
-      type: 'subscribe',
-      id: 'c2',
-      payload: {
-        session_ids: ['sess_1'],
-        watch_fs: {
-          sess_1: { paths: ['src'], recursive: true },
-        },
-      },
-    });
-    expect(result.success).toBe(true);
-  });
-
   it('subscribe accepts an agent_filter map', () => {
     const result = subscribeMessageSchema.safeParse({
       type: 'subscribe',
@@ -367,43 +352,81 @@ describe('ws-control — §3.3 subscribe / unsubscribe', () => {
   });
 });
 
-describe('ws-control — §3.3.1 watch_fs_add / watch_fs_remove', () => {
-  it('watch_fs_add accepts paths', () => {
-    const result = watchFsAddMessageSchema.safeParse({
-      type: 'watch_fs_add',
-      id: 'c4',
+describe('ws-control — §3.3b subscribe_v2 / unsubscribe_v2 (transcript grades)', () => {
+  it('subscribe_v2 parses the shipped bundle frame', () => {
+    const result = subscribeV2MessageSchema.safeParse({
+      type: 'subscribe_v2',
+      id: 'v1',
       payload: {
         session_id: 'sess_1',
-        paths: ['src/components'],
-        recursive: true,
+        transcript: { '*': 'delta' },
+        transcript_since: { main: 3 },
       },
     });
     expect(result.success).toBe(true);
   });
 
-  it('watch_fs_add rejects missing session_id', () => {
-    const result = watchFsAddMessageSchema.safeParse({
-      type: 'watch_fs_add',
-      id: 'c4',
-      payload: { paths: [] },
+  it('subscribe_v2 accepts a missing transcript_since', () => {
+    const result = subscribeV2MessageSchema.safeParse({
+      type: 'subscribe_v2',
+      id: 'v1',
+      payload: { session_id: 'sess_1', transcript: { main: 'block' } },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('subscribe_v2 rejects a grade outside the transcript vocabulary', () => {
+    const result = subscribeV2MessageSchema.safeParse({
+      type: 'subscribe_v2',
+      id: 'v1',
+      payload: { session_id: 'sess_1', transcript: { main: 'everything' } },
     });
     expect(result.success).toBe(false);
   });
 
-  it('watch_fs_remove requires session_id + paths', () => {
-    const ok = watchFsRemoveMessageSchema.safeParse({
-      type: 'watch_fs_remove',
-      id: 'c5',
-      payload: { session_id: 'sess_1', paths: ['src/components'] },
+  it('subscribe_v2 rejects a negative transcript_since seq', () => {
+    const result = subscribeV2MessageSchema.safeParse({
+      type: 'subscribe_v2',
+      id: 'v1',
+      payload: {
+        session_id: 'sess_1',
+        transcript: { main: 'turn' },
+        transcript_since: { main: -1 },
+      },
     });
-    expect(ok.success).toBe(true);
+    expect(result.success).toBe(false);
+  });
 
-    const bad = watchFsRemoveMessageSchema.safeParse({
-      type: 'watch_fs_remove',
-      id: 'c5',
-      payload: { paths: ['src/components'] },
+  it('unsubscribe_v2 parses with and without agent_ids', () => {
+    expect(
+      unsubscribeV2MessageSchema.safeParse({
+        type: 'unsubscribe_v2',
+        id: 'v2',
+        payload: { session_id: 'sess_1', agent_ids: ['main'] },
+      }).success,
+    ).toBe(true);
+    expect(
+      unsubscribeV2MessageSchema.safeParse({
+        type: 'unsubscribe_v2',
+        id: 'v2',
+        payload: { session_id: 'sess_1' },
+      }).success,
+    ).toBe(true);
+  });
+
+  it('unsubscribe_v2 rejects an empty agent_ids list', () => {
+    const result = unsubscribeV2MessageSchema.safeParse({
+      type: 'unsubscribe_v2',
+      id: 'v2',
+      payload: { session_id: 'sess_1', agent_ids: [] },
     });
-    expect(bad.success).toBe(false);
+    expect(result.success).toBe(false);
+  });
+
+  it('both frames are registered client control operations', () => {
+    const types = clientControlOperations.map((op) => op.type);
+    expect(types).toContain('subscribe_v2');
+    expect(types).toContain('unsubscribe_v2');
   });
 });
 
@@ -616,9 +639,9 @@ describe('ws-control — operation registry', () => {
     expect(clientControlOperations.map((op) => op.type)).toEqual([
       'client_hello',
       'subscribe',
+      'subscribe_v2',
+      'unsubscribe_v2',
       'unsubscribe',
-      'watch_fs_add',
-      'watch_fs_remove',
       'abort',
       'terminal_attach',
       'terminal_detach',
@@ -668,15 +691,6 @@ describe('ws-control — operation registry', () => {
         code: 0,
         msg: 'success',
         payload: { accepted: ['sess_1'], not_found: [], resync_required: [] },
-      }).success,
-    ).toBe(true);
-    expect(
-      watchFsAckMessageSchema.safeParse({
-        type: 'ack',
-        id: 'c4',
-        code: 0,
-        msg: 'success',
-        payload: { watched_paths: ['src'], current_count: 1 },
       }).success,
     ).toBe(true);
     expect(

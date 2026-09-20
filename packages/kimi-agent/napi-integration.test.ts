@@ -944,6 +944,103 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — stale-write guard (G-6 #3)',
   });
 });
 
+describe.skipIf(!nativeEntry)('napi runTurnRust — permission mode decides the approval prompt', () => {
+  const memoryListDef = {
+    name: 'memory_list',
+    description: 'List memory entries',
+    inputSchema: '{"type":"object","properties":{}}',
+  };
+  const memoryWriteDef = {
+    name: 'memory_write',
+    description: 'Write a memory entry',
+    inputSchema:
+      '{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}}}',
+  };
+
+  async function runMemoryTool(
+    policySnapshotJson: string,
+    toolDef: typeof memoryListDef,
+    call: { id: string; name: string; arguments: Record<string, unknown> },
+    decision: 'allow' | 'deny',
+  ): Promise<{ nativeToolCalls: number; permissionChecks: number }> {
+    const os = await import('node:os');
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const workspaceRoot = mkdtempSync(join(os.tmpdir(), 'kimi-perm-mode-'));
+    const mod = loadNativeModule();
+    let permissionChecks = 0;
+    let llmCalls = 0;
+    try {
+      const result = await mod.runTurnRust(
+        {
+          ...validParams,
+          maxSteps: 2,
+          workspaceRoot,
+          nativeTools: true,
+          policySnapshotJson,
+          tools: [toolDef],
+          messages: [{ role: 'user', content: 'go' }],
+        },
+        makeCallback(mod, () => {
+          llmCalls += 1;
+          const first = llmCalls === 1;
+          return JSON.stringify({
+            tool_calls: first ? [call] : [],
+            finish_reason: first ? 'tool_calls' : 'stop',
+            usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+          });
+        }),
+        makeCallback(mod, () => JSON.stringify({ content: 'HOST EXEC', is_error: false })),
+        makeCallback(mod, () => ''),
+        makeCallback(mod, () => {
+          permissionChecks += 1;
+          return JSON.stringify({ decision });
+        }),
+      );
+      return { nativeToolCalls: result.nativeToolCalls, permissionChecks };
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  }
+
+  it('auto-approves a read-only tool in yolo without asking the host', async () => {
+    const { nativeToolCalls, permissionChecks } = await runMemoryTool(
+      JSON.stringify({ mode: 'yolo' }),
+      memoryListDef,
+      { id: 'call-yolo-read', name: 'memory_list', arguments: {} },
+      'allow',
+    );
+    expect(nativeToolCalls).toBe(1);
+    expect(permissionChecks).toBe(0);
+  });
+
+  it('auto-approves a read-only tool in manual without asking the host', async () => {
+    const { nativeToolCalls, permissionChecks } = await runMemoryTool(
+      JSON.stringify({ mode: 'manual' }),
+      memoryListDef,
+      { id: 'call-manual-read', name: 'memory_list', arguments: {} },
+      'allow',
+    );
+    expect(nativeToolCalls).toBe(1);
+    expect(permissionChecks).toBe(0);
+  });
+
+  it('asks the host before a mutating tool in manual', async () => {
+    const { nativeToolCalls, permissionChecks } = await runMemoryTool(
+      JSON.stringify({ mode: 'manual' }),
+      memoryWriteDef,
+      {
+        id: 'call-manual-write',
+        name: 'memory_write',
+        arguments: { path: 'note.md', content: 'x' },
+      },
+      'deny',
+    );
+    // The host was consulted and refused, so nothing executed.
+    expect(permissionChecks).toBe(1);
+    expect(nativeToolCalls).toBe(0);
+  });
+});
+
 describe.skipIf(!nativeEntry)('napi runTurnRust — goal guard (G-6 #7/#8)', () => {
   const createGoalDef = {
     name: 'CreateGoal',
@@ -2278,6 +2375,57 @@ describe.skipIf(!nativeEntry)('EngineSessionHandle quiescence (M1c via handle)',
       const turnId = await handle.enqueueTurn({ role: 'user', content: 'test mcp' }, 'newTurn');
       const outcome = await handle.turnOutcome(turnId);
       expect(outcome.status).toBe('ran');
+      await handle.dispose();
+    } finally {
+      delete process.env['KIMI_NATIVE_ALLOW_MOCK_MCP'];
+    }
+  });
+
+  it('emits mcp.server.status transitions after the session is created', async () => {
+    process.env['KIMI_NATIVE_ALLOW_MOCK_MCP'] = '1';
+    try {
+      const statuses: Array<{ name?: string; status?: string }> = [];
+      const handle = await EngineSessionHandle.create(
+        {
+          turnId: 'mcp_status_test',
+          systemPrompt: 'test',
+          modelName: 'm',
+          messages: [],
+          tools: [],
+          maxSteps: 5,
+          mcpServers: [{ name: 'test_mcp', transport: 'mock' }],
+        },
+        {
+          llmChat: async () =>
+            JSON.stringify({
+              content: 'done',
+              tool_calls: [],
+              finish_reason: 'stop',
+              usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+            }),
+          executeTool: async () => JSON.stringify({ content: 'ok', is_error: false }),
+          emitEvent: (eventJson) => {
+            const parsed = JSON.parse(eventJson) as {
+              type?: string;
+              server?: { name?: string; status?: string };
+            };
+            if (parsed.type === 'mcp.server.status' && parsed.server !== undefined) {
+              statuses.push({ name: parsed.server.name, status: parsed.server.status });
+            }
+          },
+        },
+      );
+
+      // The engine starts its connects in the background, so the transition to
+      // `connected` must arrive as an event: the host's one-shot roster
+      // snapshot is not enough (a still-connecting server would stay
+      // `pending` forever, which is exactly the TUI spinner bug this covers).
+      await mockMcpRosterEntry(handle);
+      for (let i = 0; i < 100; i += 1) {
+        if (statuses.some((s) => s.name === 'test_mcp' && s.status === 'connected')) break;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(statuses).toContainEqual({ name: 'test_mcp', status: 'connected' });
       await handle.dispose();
     } finally {
       delete process.env['KIMI_NATIVE_ALLOW_MOCK_MCP'];

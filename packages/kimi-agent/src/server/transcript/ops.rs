@@ -10,6 +10,11 @@ use super::model::{
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TurnHeader {
+    /// v2's `turnHeaderSchema` is `transcriptTurnSchema` minus `steps`
+    /// (contract/schema.ts:390), and that base opens with `kind: z.literal
+    /// ('turn')` (:181). The client validates every op against it, so the tag
+    /// is part of the wire contract, not decoration.
+    pub kind: TurnKind,
     pub turn_id: TurnId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger_prompt_id: Option<String>,
@@ -32,9 +37,18 @@ pub struct TurnHeader {
     pub error: Option<String>,
 }
 
+/// The `kind` tag a turn header carries (v2 `kind: z.literal('turn')`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnKind {
+    Turn,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StepHeader {
+    /// Same contract as [`TurnHeader::kind`] (schema.ts:164).
+    pub kind: StepKind,
     pub step_id: StepId,
     pub turn_id: TurnId,
     pub ordinal: i64,
@@ -55,6 +69,13 @@ pub struct StepHeader {
     pub end_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_message: Option<String>,
+}
+
+/// The `kind` tag a step header carries (v2 `kind: z.literal('step')`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StepKind {
+    Step,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -197,6 +218,7 @@ mod tests {
         let upsert: TranscriptOperation = serde_json::from_value(json!({
             "op": "turn.upsert",
             "turn": {
+                "kind": "turn",
                 "turnId": "t0",
                 "ordinal": 0,
                 "state": "running",
@@ -206,6 +228,7 @@ mod tests {
         .expect("deserialize turn.upsert");
         let round = serde_json::to_value(&upsert).expect("serialize turn.upsert");
         assert_eq!(round["op"], "turn.upsert");
+        assert_eq!(round["turn"]["kind"], "turn");
         assert_eq!(round["turn"]["origin"]["kind"], "task");
         assert_eq!(round["turn"]["origin"]["taskId"], "task_1");
 

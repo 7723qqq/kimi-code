@@ -103,7 +103,7 @@ impl MediaBudget {
         let mut seen: HashMap<&str, usize> = HashMap::new();
         for entry in entries {
             if self.dropped.contains(&entry.key) {
-                replace_with_media_tag(messages, entry);
+                replace_with_media_tag(messages.to_mut(), entry);
                 continue;
             }
             match seen.get(entry.key.as_str()) {
@@ -133,7 +133,7 @@ impl MediaBudget {
         }
         for entry in entries {
             if dropped_now.contains(entry.key.as_str()) {
-                replace_with_media_tag(messages, entry);
+                replace_with_media_tag(messages.to_mut(), entry);
             }
         }
         self.dropped
@@ -165,9 +165,8 @@ impl MediaBudget {
 /// What one omitted media item leaves behind (v2 `replaceWithMediaTag`): the
 /// saved path when the file is known, the unavailable placeholder when it is
 /// known but gone, and the plain budget placeholder when there is no file.
-fn replace_with_media_tag(messages: &mut Cow<'_, [LLMMessage]>, entry: &Entry) {
+pub(crate) fn replace_with_media_tag(messages: &mut [LLMMessage], entry: &Entry) {
     let Some(block) = messages
-        .to_mut()
         .get_mut(entry.message_index)
         .and_then(|message| message.blocks.get_mut(entry.block_index))
     else {
@@ -188,6 +187,100 @@ pub fn budget_omitted_media(kind: MediaKind) -> String {
         "[{} omitted: dropped to fit the request media budget]",
         kind.as_str()
     )
+}
+
+/// v2 `MEDIA_DEGRADE_KEEP_RECENT`: a degraded request keeps this many of the
+/// newest media parts and replaces the rest.
+pub const MEDIA_DEGRADE_KEEP_RECENT: usize = 2;
+
+/// The `WarningEvent.code` a degraded retry reports under (v2's
+/// `media-degraded` projection).
+pub const MEDIA_DEGRADED_CODE: &str = "media-degraded";
+
+/// The `WarningEvent.code` a stripped retry reports under (v2's
+/// `media-stripped` projection).
+pub const MEDIA_STRIPPED_CODE: &str = "media-stripped";
+
+/// v2 `APIRequestTooLargeError`: the provider rejected the request as too
+/// large — the 413 status, or the rendered text the gateways use. The
+/// status alone decides when it is present: a 413 is a 413 whatever the
+/// body says, and a body that only says "too large" without the status is
+/// not the signal (v2 classifies the coded error, not the prose).
+pub fn is_request_too_large(error: &str) -> bool {
+    crate::llm::http::llm_http_status(error) == Some(413)
+}
+
+/// v2 `isImageFormatError` (`llm-adapter/contract/errors.ts:215`): the
+/// provider rejected an image in the request — a 400 whose message names an
+/// image format problem, or a media/mime-type field complaint that also
+/// names an image. The overflow and too-large classes are excluded: they
+/// have their own recoveries, and v2 checks them first.
+pub fn is_image_format_error(error: &str) -> bool {
+    if crate::llm::http::llm_http_status(error) != Some(400) {
+        return false;
+    }
+    let lower = error.to_lowercase();
+    const PATTERNS: [&str; 19] = [
+        "unsupported image url",
+        "unsupported image format",
+        "unsupported image type",
+        "does not represent a valid image",
+        "could not process image",
+        "could not process the image",
+        "could not process input image",
+        "could not decode image",
+        "could not decode the image",
+        "could not decode input image",
+        "unable to process image",
+        "unable to process the image",
+        "unable to process input image",
+        "failed to decode image",
+        "failed to decode the image",
+        "invalid image",
+        "invalid image data",
+        "invalid image type",
+        "invalid image format",
+    ];
+    if PATTERNS.iter().any(|pattern| lower.contains(pattern)) {
+        return true;
+    }
+    // v2's `MEDIA_TYPE_FIELD_PATTERN` (`(?:media|mime)_?type`) plus an
+    // explicit mention of an image.
+    let names_media_type = lower.contains("media_type")
+        || lower.contains("mediatype")
+        || lower.contains("mime_type")
+        || lower.contains("mimetype");
+    names_media_type && lower.contains("image")
+}
+
+/// v2 `degradeOlderMediaParts`: replace all but the `keep_recent` newest
+/// media parts with what an omission leaves behind — the saved path when
+/// the file is known, the unavailable placeholder when it is gone, the
+/// plain budget placeholder when there is no file. The entries arrive in
+/// message order, so the oldest `len - keep_recent` go and the newest
+/// `keep_recent` stay. Returns how many parts were replaced; zero means
+/// there was nothing to degrade.
+pub fn degrade_older_media(
+    messages: &mut [LLMMessage],
+    entries: &[Entry],
+    keep_recent: usize,
+) -> usize {
+    let to_degrade = entries.len().saturating_sub(keep_recent);
+    for entry in entries.iter().take(to_degrade) {
+        replace_with_media_tag(messages, entry);
+    }
+    to_degrade
+}
+
+/// v2 `stripMediaPartsBySnapshot` without the snapshot: every media part
+/// becomes what an omission leaves behind. Returns how many were replaced.
+pub fn strip_all_media(messages: &mut [LLMMessage], entries: &[Entry]) -> usize {
+    let mut replaced = 0;
+    for entry in entries {
+        replace_with_media_tag(messages, entry);
+        replaced += 1;
+    }
+    replaced
 }
 
 #[cfg(test)]
@@ -256,6 +349,114 @@ mod tests {
             data: tag.to_string(),
             name: None,
         }
+    }
+
+    /// v2 `degradeOlderMediaParts` / `stripMediaPartsBySnapshot` (the
+    /// provider-too-large recovery, ROADMAP #17 ②): the degrade keeps the
+    /// two newest media and replaces the rest with their path tags; the
+    /// strip replaces every one. Both run on the unresolved messages, where
+    /// a reference still names its file.
+    #[test]
+    fn a_too_large_request_degrades_then_strips_its_media() {
+        assert!(is_request_too_large(
+            "llm http status 413: request too large"
+        ));
+        assert!(!is_request_too_large("llm http status 500: boom"));
+        assert!(!is_request_too_large("context length exceeded"));
+
+        // v2 `isImageFormatError`: a 400 naming an image format problem, or
+        // a media/mime-type complaint that also names an image. The
+        // overflow and too-large classes are excluded. (`invalid data url
+        // for image` lives only in v2's provider-message branch, not the
+        // status branch this port implements.)
+        assert!(is_image_format_error(
+            "llm http status 400: unsupported image format image/heic"
+        ));
+        assert!(is_image_format_error(
+            "llm http status 400: does not represent a valid image"
+        ));
+        assert!(is_image_format_error(
+            "llm http status 400: media_type image/svg+xml is not supported"
+        ));
+        assert!(!is_image_format_error(
+            "llm http status 400: media_type video/mp4 is not supported"
+        ));
+        assert!(!is_image_format_error(
+            "llm http status 413: unsupported image format"
+        ));
+        assert!(!is_image_format_error("llm http status 500: boom"));
+
+        let mut messages = vec![
+            media_message(inline_image("a")),
+            media_message(inline_image("b")),
+            media_message(inline_image("c")),
+            media_message(inline_image("d")),
+        ];
+        let entries = vec![
+            inline_entry(0, "a", 1024),
+            inline_entry(1, "b", 1024),
+            inline_entry(2, "c", 1024),
+            inline_entry(3, "d", 1024),
+        ];
+
+        // Degrade keeps the two newest.
+        let degraded = degrade_older_media(&mut messages, &entries, MEDIA_DEGRADE_KEEP_RECENT);
+        assert_eq!(degraded, 2);
+        assert!(omitted_text(&messages[0]).is_some());
+        assert!(omitted_text(&messages[1]).is_some());
+        assert!(omitted_text(&messages[2]).is_none());
+        assert!(omitted_text(&messages[3]).is_none());
+
+        // Strip takes the rest.
+        let stripped = strip_all_media(&mut messages, &entries);
+        assert_eq!(stripped, 4);
+        assert!(messages.iter().all(|m| omitted_text(m).is_some()));
+
+        // Nothing to degrade is zero, not a silent no-op.
+        let mut small = vec![media_message(inline_image("only"))];
+        assert_eq!(
+            degrade_older_media(
+                &mut small,
+                &[inline_entry(0, "only", 1024)],
+                MEDIA_DEGRADE_KEEP_RECENT
+            ),
+            0
+        );
+    }
+
+    /// A degraded reference leaves its saved path, the way the budget
+    /// omission does — the model can re-read what was dropped.
+    #[test]
+    fn a_degraded_reference_leaves_its_saved_path() {
+        let mut messages = vec![
+            media_message(ContentBlock::MediaRef {
+                file_id: "f_old".into(),
+                kind: MediaKind::Image,
+            }),
+            media_message(ContentBlock::MediaRef {
+                file_id: "f_new".into(),
+                kind: MediaKind::Image,
+            }),
+            media_message(ContentBlock::MediaRef {
+                file_id: "f_newer".into(),
+                kind: MediaKind::Image,
+            }),
+        ];
+        let entries = vec![
+            ref_entry(0, "f_old", 1024),
+            ref_entry(1, "f_new", 1024),
+            ref_entry(2, "f_newer", 1024),
+        ];
+
+        let degraded = degrade_older_media(&mut messages, &entries, MEDIA_DEGRADE_KEEP_RECENT);
+
+        assert_eq!(degraded, 1);
+        assert_eq!(
+            omitted_text(&messages[0]),
+            Some("<image path=\"/blobs/files/f_old\"></image>")
+        );
+        assert!(omitted_text(&messages[1]).is_none());
+        assert!(omitted_text(&messages[2]).is_none());
     }
 
     #[test]

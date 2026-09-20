@@ -5,6 +5,27 @@
 > 本路线图唯一的终态判定标准是：**v2 从 Monorepo 中物理消失，且 `apps/kimi-code`、`packages/kap-server` 与 `packages/klient` 完全由 Rust 原生引擎驱动**。
 > 功能等效只是迁移期的过渡验收手段，不是终点。
 
+> **铁律：Rust agent 是移植，未经允许禁止自创实现。**
+> `packages/kimi-agent` 重实现既有行为，不是设计面：每一处行为都必须能指回参考实现，
+> 或指回用户明示的裁决；否则就是缺陷，不是设计选择。
+> **参考面有两条轴，不可混淆：v1 / v3 是通讯协议版本，v2 是引擎包（`agent-core-v2`）。**
+> **引擎行为 → v2**（`agent-core-v2`）：本包重实现的引擎内部（turn 循环、工具执行、
+> LLM wire 传输、权限、压缩、注入），即下文 Verification Standard 的
+> "v2 is the behavioral reference" 适用处。
+> **协议 v1** = REST `/api/v1`（`routes/`，前缀见 `registerApiV1Routes.ts`）+ WebSocket
+> `/api/v1/ws`（`WS_PATH`，`transport/ws/v1/registerWsV1.ts`），传输层在
+> `transport/ws/v1/`（`sessionEventBroadcaster`/`sessionEventJournal`/`wsConnectionV1`/
+> `inFlightTurnTracker`/`subagentRosterTracker`）；其 op 与实体类型来自 `packages/transcript`，
+> 事件→op 折叠在 `services/transcript/`（`coreEventMap.ts`、`transcriptService.ts`）。
+> **协议 v3** = WebSocket `/api/v3/ws`（`WS_PATH_V3`，`transport/ws/v3/registerWsV3.ts`）+
+> 分页 history 路由（`routes/history.ts`，`/sessions/{session_id}/history`，挂在 v1 前缀下），
+> 实体协议在 `protocol/messages/`，投影在 `services/projection/`
+> （`agentProjector`、`sessionProjection`、`sessionState`、`heal`）。
+> 事件名、载荷字段、状态机分支、策略链步骤、路由、实体，凡所属那条轴上没有对应物的
+> 新发明，都算缺陷而非设计；确需时先取得用户许可，再在本文件登记该 delta。
+> 判断依据不足时，消费者（已提交的 `apps/kimi-code/dist-web` bundle 读什么名字）可作旁证。
+> 决策与证据规则见根 `AGENTS.md` 的 Upstream Merge Policy。
+
 ---
 
 ## 1. 全架构 10 大子系统技术深度对齐矩阵（TS 源码 vs Rust 引擎）
@@ -177,12 +198,17 @@
 | 工具名碰撞 | `registerMcpServer` 检测同服务器/跨服务器 qualified name 冲突并 drop（mcpService.ts:186-215） | HashMap 静默覆盖 | `register_client` 检测碰撞并 `tracing::warn!` 记录，输家工具被 drop |
 | disabled 重连 | `reconnect` 对 disabled 抛 `MCP_SERVER_DISABLED`（connection-manager.ts:146-164） | 直接重连 | `reconnect_inner` 检查 `ToolFilter.enabled`，disabled 返回错误 |
 | emit 日志与容错 | `emit` 在 failed/needs-auth 记 error 日志，listener 异常被捕获（connection-manager.ts:425-442） | 无日志，listener panic 传播 | `emit_status` 加 `tracing::error!` + `catch_unwind` 容错 |
+| 状态变更上抛宿主 | `mcpService.attachMcpTools` 订阅 `onStatusChange`，把每次变更作为 observable `McpServerStatus` 事件派发（`agent/mcp/mcpService.ts:154-180`） | `on_status_change` 只被测试引用，引擎从不发 `mcp.server.status`：`EngineEvent` 无该变体、`emitEvent` 无该分支 —— TUI 启动状态行永远停在 `pending` | `napi_bindings.rs::attach_mcp_status` 在会话构建时订阅共享 manager，每次变更经**未包装**的 `HostCallbacks::emit_event` 上抛（不进计数遥测、不走事件总线），随 `session_dispose` 退订（`McpStatusBridge` 的 `Drop`）；`sdk-rpc-client-native.ts::emitEvent` 映射为协议 `mcp.server.status`（带 `sessionId`/`agentId`）。v2 的初始 roster 重放刻意不做：它发生在宿主订阅之前（事件会丢），且在宿主快照已渲染 `connected` 后重放旧的 `pending` 会复活一个永不停止的 spinner —— 宿主自己的 roster 快照就是初始同步 |
 
 **语义差异（已全部消除）**：
 
 1. ~~沙箱仅覆盖 write/edit 路径级 + 命令执行；TS 的 bash 拦截层是 permission 策略链（与沙箱无关），Rust 的 permission 链是否等价覆盖命令 glob 审批未在本批审计。~~ **已解决**：`permission/mod.rs` 的策略链新增 fork 专属 `DangerousCommandAsk`（#3），对 bash 调用 `kimi_native_tools::permission_engine::dangerous_command::analyze_bash_command`，高风险命令（shutdown/reboot/rm -rf/format/sudo …）在 Yolo/Auto 下也强制 Ask，对齐 native-tools `test_yolo_mode_refuses_dangerous_reboot` 语义。
 2. ~~kimi-agent/src/native/event_store/ 的细粒度事件账本未完整接入 standalone server；session/patch.rs（RFC 6902）无全局生产调用点。~~ **已解决**：event_store 经 `hub.set_persister` 对每个事件落账（server/mod.rs:88-104），fold/checkpoint/undo 已接入；session/patch.rs 由 REST state-PATCH/undo-redo（server/mod.rs:3345-3467）、sqlite_store.rs:1130-1153 与 state_store.rs:187-205 生产调用。persister 错误现已结构化记入 warn 日志；standalone 的 TaskRunner 为进程内内存任务提供生命周期事件分发。
 3. ~~standalone 服务端面仍有大量 mock/缺失（2026-09-09 审计修正，此前"均已对齐"结论失实）~~ **已完成（2026-09-11）**：Wave 3 服务端契约与 Wave 4 新能力全部落地——transcript L1/L2（`/transcript`、`/ops`、`/user-messages`、`/plan`，从持久化历史重建 + turn 游标分页）、prompt 侧附件 intake（`POST /prompts` 解析 `content[]`、`f_`/`path` → 原生媒体块注入模型）、debug 三方法（association/runtime-binding/workspace-snapshot）按契约整形且未知方法 404、WS 词汇黄金契约 `ws-event-contract.json`（Rust / kimi-web / protocol 三方断言）与 `event.model_catalog.changed` 发射、ACP（`session/new` 的 `cwd`/`mcpServers`、`fs`/`terminal` 反向 RPC 与 Read/Write/Bash 执行改道、`elicitation/create` 表单桥 + `session/request_permission` 回退，客户端反向 RPC 9 个，其中 `terminal/kill` 无调用点）、Workflow 引擎（内嵌 QuickJS，JS 运行时经 `workflow-js` feature 可选，9 内置工作流 + `Workflow` 工具接线）。校验：`cargo test --lib` 2,349 项（2026-09-15 复核，原写 2,107） + `--tests --features cli` 全绿，clean 构建两种 feature 组合均通过。已知边界（非缺口）：kimi-web 标注为 no-op 的 4 个事件、`elicitation/complete`（规格可选）、`session/set_model`（引擎无运行时模型目录）。
+4. **只读工具漏进 `FallbackAsk`（2026-09-20 复核新增）**：`DEFAULT_APPROVE_TOOLS` 只镜像了 v2 名单 + `ListDirectory`，fork 自有的只读工具（`Lsp`、`memory_read`/`memory_list`、`TowerInbox`/`TowerStatus`）没进名单，于是在 Manual（"Always Ask"）下这些纯读调用也弹审批——与 v2「只读工具免审」的语义不一致。修法：把上述工具（含下划线/紧凑两种拼写）补进 `permission/mod.rs` 的名单；测试 `test_default_tool_approve_for_all_readonly_tools` 增加 9 条只读用例断言 `DefaultToolApprove`。**尚未处理**（混合读写、需按 `action` 分派，留待决定）：`Knowledge`（search/stats 只读，add/confirm/reject/remove/import 写）、`TowerMission`（inspect 只读 / update 写）。
+5. **对话中切换权限模式不落库（2026-09-20 复核新增，SDK 侧）**：`node-sdk` 的 `applyRebuiltSetting`（`setPermission` / `setModel` / `setThinking` / `setSwarmMode` 共用，`sdk-rpc-client-native.ts`）只改内存 `meta` 并 `rebuildHandle`，**没有 `persistMeta`**；同文件的 `addAdditionalDir` 却会落库。后果：对话中切到 yolo 后 `session-meta.json` 仍是旧模式，`resumeSession` 用旧模式建引擎，而 replay 头（`session-replay.ts:725`）显示引擎自己记录的 yolo —— 表现为「界面 yolo、实际 manual」，恢复会话后只读工具又开始弹审批。修法：`applyRebuiltSetting` 重建成功后 `persistMeta(meta)`；回归测试 `session-set-permission.test.ts` 的「persists the mode so a resumed session keeps it」。验证：探针确认修复前 `session-meta.json` 为 `manual`、修复后为 `yolo`；`napi-integration.test.ts` 三条模式用例（yolo/manual 只读免审、manual 写工具走宿主）全绿；该 SDK 测试文件 6 项全绿。
+6. **原生 SDK 丢弃引擎事件（2026-09-20 复核新增，SDK 侧）**：`sdk-rpc-client-native.ts::emitEvent` 此前只映射 `llm.delta`(text/think) / `tool.native` / `tool.native.progress` / `subagent.spawned`(仅写 meta，不转发) / `warning` / `error`，其余一律丢弃。引擎经 `HostCallbacks::emit_event` 实际还会发 `subagent.started/completed/failed/cancelled`（`tools/agent_tool.rs`）、`llm.step.begin`/`llm.step.end`（`llm/http.rs`，原生 LLM 路径）、以及 `llm.delta` 的 `tool_call` 分片（`llm/wire.rs::StreamDelta::to_part`）——这些都没有分支，TUI 的 `turn.step.*`、`subagent.*` 生命周期与 `tool.call.delta` handler 永不触发。修法：补齐映射（`llm.step.begin/end` → `turn.step.started/completed`，步号由 host 合成、`turn.started` 时重置；`tool_call` 分片 → `tool.call.delta`；`subagent.spawned` 转发并保留 meta 写入；`subagent.started/completed/failed/cancelled`；`usage` 由 `toTokenUsage` 转 camelCase）。验证：真实 SDK + 真实引擎 + mock OpenAI SSE 的探针（`native-harness.test.ts` 新增「forwards native-LLM step and subagent lifecycle events to onEvent」）断言 `turn.step.started/completed`、`subagent.spawned/started/completed` 到达 `onEvent`；node-sdk 全量 279 项通过。**仍未接线**：`background.task.started/terminated` 在 napi 路径没有生产者（`storage/task_runner.rs` 的 `event_sink` 只在 `server/mod.rs` 设置），`cron.fired` 同理（native host 无 cron 派发器）；要补需在 napi pipeline 给 task runner 装 sink。 **2026-09-20 后续补齐（本项已闭环，`cron.fired` 除外）**：① `background.task.*` —— `PipelineHost` 新增 `task_event_sink`，pipeline 给自己的 `TaskRunner` 装上（napi 传「转发到 host callbacks」的 sink），SDK 把 `event.task.created/completed` 映射成协议 `background.task.started/terminated`（`kind: subagent→agent，其余→process`；agent 任务的 `taskId` 即 agentId）。② 自动压缩 —— turn loop 两个压缩点（step 前阈值、溢出应急）发 `compaction.started/completed/cancelled`；为拿到 summary/token 数新增 `compaction::CompactionReport` 与 `compact_messages_with_summary_at_report` / `force_compact_messages_with_summary_report`（旧入口委托并丢弃 report，签名不变）。③ `hook.result` —— `HookGuard` 新增 `with_hook_result` sink，`run_hook_with_denial` 返回 `(block reason, stdout)`，PreToolUse 与 observe-only 各路径都上报；pipeline 把 sink 接到 `emit_event`。④ `goal.updated` —— SDK 的 `createGoal` 与逐轮 goal 计数后各发一次（此前无任何生产者）。⑤ `shell.started/output/completed` —— SDK 的 `runShellCommand` 在 `nativeBashSpawn` 回调里边跑边发。验证：`native-harness.test.ts` 新增 `background.task` 与 `goal.updated` 两条用例；`external_hooks.rs` 新增 `denial_emits_a_hook_result_per_hook`；`cargo test --lib` 2764、napi 集成 60、node-sdk 281 全绿。**仍未接线**：`cron.fired` —— CLI 下 CronCreate 的定时任务不会触发（native host 无派发器），需在 napi 会话移植 `main.rs:1429` 的 15s tick 循环（emit + enqueue turn），属功能移植；`tool.list.updated` 的 TUI handler 是 no-op，不做。 **2026-09-21 cron 派发器已移植**：`napi_bindings.rs` 新增 `spawn_cron_dispatcher`（每个 workspace 一个进程级 dispatcher，每 15s 经 `live_session_for_workspace` 取一个活着的会话，`state_read("cron")` 读注册表 → `CronScheduler::tick` → 发 `cron.fired` + 删一次性/过期任务 + `enqueue_turn` 跑 `<cron-fire>` 轮），`SessionEntry` 补 `workspace`/`callbacks` 以便每 tick 解析活会话（设置重建会换会话句柄，按 workspace 归属才不会丢）；SDK 映射 `cron.fired` → 协议 `{origin, prompt}`。验证：确定性探针（直接按 `storage/paths.rs` 的 FNV-1a key 写 `<USERPROFILE>/.kimi-code/engine-state/<key>/state/cron.json`，等 dispatcher tick）连续 3 次都发出 `cron.fired` 且一次性任务被删；napi 集成 60、node-sdk 281 全绿。`tool.list.updated` 仍不做。
+7. **Tower 状态文件 schema 与 v2 不一致（2026-09-20 复核新增）**：v2 的 `.tower/comms/state.json` 是 camelCase 契约（`agent-core-v2/src/features/tower/protocol/types.ts`：`createdAt`/`sessionId`/`agentId`/`spawnedAt`/`reviewTarget`/`reviewMissionId`/`diedAt`/`deathStatus`/`deathReason`，mission 的 `spawnBase`/`context`），fork 的 Rust `types.rs` 却是 snake_case 且无 `rename_all` —— 任何 v2 写的状态读回即 `corrupted tower state: missing field \`created_at\``，整套 tower 工具不可用（用户 memory 里的「Tower 状态损坏不可用」）。修法：给 `TowerState`/`TowerRosterEntry`/`TowerMission` 加 `#[serde(rename_all = "camelCase")]`，把 v2 有而 fork 缺的字段补成可选透传（`spawnBase`/`context`、`reviewMissionId`/`diedAt`/`deathStatus`/`deathReason`），所有 Option 字段补 `#[serde(default)]`（v2 标可选）。验证：`types.rs` 两条单测（读含全部字段的 v2 camelCase、缺可选字段仍可读；写回 camelCase）；用仓库真实 `.tower/comms/state.json` 的临时探针确认修复后读出 10 missions / 22 agents；`cargo test --lib` 2761 项全绿。**已知分歧（未改）**：fork 用单字段 `status: "dead"` 表达 worker 死亡，v2 用 `diedAt`/`deathStatus`/`deathReason` 三字段 —— `mark_agent_dead` 仍写 `status`，v2 三字段只做透传。
 
 > **工作区状态（2026-09-06 更新）**：P157–P161 已落地——`agent-core-v2`/`klient`/`acp-server` 已物理删除，
 > `kimi-native-tools` 已并入 `packages/kimi-agent/src/native/`（单 crate、单 `.node`、单 npm 包），
@@ -280,7 +306,7 @@ packages/acp-server            14 处        耦合：ACP 宿主服务启动器�
 | #3658 glob 超过 100 条 | 分页续取 | `src/tools/core_tool_defs.rs` + `src/tools/mod.rs` | **已完成**：`Glob` 工具增加 `head_limit` 和 `offset`，支持分页切片与续取提示（`tools/mod.rs:1843,1954-1995`）。2026-09-15 更正：此处原先写作 `native/glob.rs`，那是模式匹配辅助，不是该工具实现 |
 | #3654 MCP 结构化结果去重 | 保留不同的结构化结果 | `mcp/*` | **已完成**：`McpToolCallResult` 新增 `structuredContent` 与 `_meta`，在 `<mcp-result-extras>` 保留完整数据 |
 | #3624 LLM retry/recovery 从 llm machine 移到 turn state machine | 重试状态机归位 | `turn_loop/retry.rs` 与 turn 状态机 | **已归位（措辞修正）**：`turn_step.rs` / `run_turn.rs` 自主驱动重试循环。原条目只写「已在…自主驱动」而无证据，保留为已归位。 |
-| #3502 统一 fs watch 为单一 xstate 服务 | 文件监听统一 | `kimi-agent/src/server/fs_watch.rs` | ✅ **已接线（2026-09-14，轮询实现）**：`watch_fs_add` / `watch_fs_remove` 注册进 `FsWatchManager`（`server/ws.rs` 镜像 + 连接断开时的 drop guard 清理引用），`run_serve` 启动 750ms 轮询任务，mtime 变化/出现/消失都会在会话 lane 上发布 `event.fs.changed`（`EngineEvent::Custom`，`event_type()` 即该字符串）。**实现说明（非隐瞒）**：用 mtime 轮询而非 inotify/ReadDirectoryChanges——crate 无 notify 依赖，延迟=轮询间隔；`fs_watch.rs` 模块头写明，若延迟敏感可换 OS 后端。测试 `server::fs_watch::tests` 覆盖基线/变更/消失/幂等/上限语义。 |
+| #3502 统一 fs watch 为单一 xstate 服务 | 文件监听统一 | ~~`kimi-agent/src/server/fs_watch.rs`~~ **已删除** | ❌ **已按上游回退（2026-09-20）**：该行原记「已接线（mtime 轮询实现）」——**记错了方向**。#3502 是上游**删除**行为：它把 `watch_fs_add` / `watch_fs_remove` / `event.fs.changed` 这套 WS 面从 v1 协议里移除（同提交删掉 `docs/en/reference/server-api.md` 的那一行），改为 v2 引擎内部 `human/utils/watch.ts`（xstate 服务，**无 wire 面**）。fork 在删除之后重新实现了旧接口，且全仓无消费者（dist-web 0 命中、无 TS 客户端发送）。已整批移除：`fs_watch.rs`（251 行 + 3 测试）、`ws_protocol.rs` 的 `WatchFsAdd`/`WatchFsRemove`、`ws.rs` 的 `WatchRegistry` 与两个分支、`mod.rs`/`http.rs`/`main.rs` 接线、`packages/protocol/src/ws-control.ts` 的 schema 与 operation 注册、测试用例。详见 §7.3。 |
 | #3644 交互 DI → 全局 human 单例 | interaction 层归并 | `permission` / `callbacks` / interaction | 原生已收敛至 `interaction::InteractionManager` |
 | #3638 遥测事件属性丢失修复 | 停止静默丢弃 key event attributes | telemetry 桥接 | 原生已由 `events.rs` 保持全属性无损 |
 | #3616 云推荐 thinking effort | 默认 effort 升级为推荐档 | 已有 `recommended-effort`（CLI 侧），核对引擎参数透传 | CLI 与引擎参数无损透传 |
@@ -305,10 +331,7 @@ packages/acp-server            14 处        耦合：ACP 宿主服务启动器�
    TS CLI 那条路径（`apps/kimi-code/src/cli/sub/web/remote-control.ts`）仍在，`kimi rc` /
    `kimi web --remote-control` 走它；两条路径现在都能提供服务。
 
-2. ~~#3502 fs watch 语义~~ **已解决（2026-09-14，见 §1 板块对齐矩阵 #3502 行）**。此前本节曾写「原生有
-   `fs_watch.rs` 单一通道」——当时该文件**并不存在**、引擎也没有任何监听实现，`watch_fs_*` 只解析 ack 不发射；
-   现已补上：`server/fs_watch.rs` 的 `FsWatchManager`（mtime 轮询，`event.fs.changed` 发到会话 lane），
-   WS 注册/注销/断开清理全部接线，`run_serve` 启动轮询任务。轮询而非 inotify 的取舍写在模块头。
+2. ~~#3502 fs watch 语义~~ **已按上游回退（2026-09-20）**。本条目历史上有两次相反的记录，现予结论性更正：本节曾写「原生有 `fs_watch.rs` 单一通道」——当时该文件并不存在；2026-09-14 又补上了 `server/fs_watch.rs`（mtime 轮询，`event.fs.changed` 发到会话 lane）并接线。**两次都判错了上游**：#3502（`3f967e1410`）正是**删除**该 WS 面的提交——它把 `watch_fs_add`/`watch_fs_remove`/`event.fs.changed` 从 v1 协议移除，改为 v2 引擎内部 `human/utils/watch.ts`（无 wire 面）。fork 的实现是在上游删除之后重建的旧接口，无任何仓内消费者，已整批删除。详见 §7.3。
 
 3. ~~`POST /api/v1/acp` 桥~~ **已解决（2026-09-14 复核）**。该端点现按 `self.engine` 是否存在选择
    `AcpServer::with_shared_engine`（`server/mod.rs:2406-2435`），不再是无 engine 的断头桥；
@@ -623,8 +646,23 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
     （HTTP 404，不再带 `{ aborted: false }`，`server/mod.rs:5497-5505`），Rust 错误码表与
     `packages/protocol` 同步删除 40903 与 `prompt.already_completed`，kimi-web 客户端去掉
     `allowCodes: [40903]`——40402 走它既有的 `PROMPT_NOT_FOUND_CODE` 分支，用户可见行为不变。
-    (b) 提示图片压缩说明在 Rust 媒体入口完全缺失（`server/mod.rs:1011-1120`），属既有缺口，
-    本轮未动。
+    (b) ~~提示图片压缩说明在 Rust 媒体入口完全缺失~~ **已解决（2026-09-20 订正轮）**：
+    新增 `src/llm/prompt_media.rs`——v2 `promptMedia.ts` + `image-compress.ts` 的引擎侧半边。
+    `prepare_inline_image` 在 `prompt_content_to_blocks` 的 base64 图片分支接线
+    （`server/mod.rs` 的 intake）：超限图片经 `image_compress::compress_image`
+    （max_edge 2000 / byte_budget 3.75MiB / fallback edges / quality steps，逐值对齐 v2
+    `MAX_IMAGE_EDGE_PX` 与 `DEFAULT_INLINE_IMAGE_BYTE_BUDGET`）压缩，原图经
+    `persist_original_image` 内容寻址落 FileStore（`f_orig_<sha256>`，复用 store 的去重与
+    blob 路径——v2 写 sha256 命名缓存文件，fork 的 store 是同一语义的既有缝），caption 逐字
+    对齐 fork 自己的 SDK 版 `buildImageCompressionCaption`
+    （`packages/node-sdk/src/media/image-compress.ts:266`，v2 文本 + fork 两处替换：
+    `Read` 而非不存在的 `ReadMediaFile`、`, ` 连接变体描述）。解码失败 / 超
+    `MAX_IMAGE_DECODE_BYTES` / 已在限内 → 原样透传不 caption（v2 `passthrough`）。
+    **未移植（有意）**：v2 intake 的 model-accepted-mime 门——fork 的 #3784 把它移到了
+    请求时（解析器发 `<image path>` 标签），模块头已写明。
+    验证：`llm::prompt_media` 6 项（caption 逐字、byte size 文案、真实 4000×3000 PNG
+    压缩+原图落盘+caption 指路存在、小图透传、坏 bytes 透传）+ intake 层
+    `prompt_content_compresses_an_over_budget_inline_image_with_a_caption`。
 11. ~~**#3750 压缩尝试上限可配置**：无 `loop_control.compaction_max_attempts` 键；摘要器硬编码
     `RetryConfig::default()` = 10 次（`compaction/mod.rs:308`、`turn_loop/retry.rs:10`），
     上游默认 5 且可配。~~
@@ -833,8 +871,13 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
     ② **`displayPaths` 未接到 UI**。解析器已暴露 `MediaResolver::display_path`（`media_resolver.rs:262`），
     但 v2 用它喂 context projector 的媒体降级路径（`mediaProjection.ts` 的 `degradeOlderMediaParts` /
     `stripMediaPartsBySnapshot`），fork 没有这套降级，也没有把「引用 → 保存路径」映射送到 TUI 的协议面。
-    ③ **上传鉴权失败降级而非抛出**。v2 `isMediaUploadAuthError` 直接 throw；fork 降级为路径标签，
-    真正的鉴权错误由随后的 chat 请求报出（用户仍能看到，但失败点不同）。
+    ③ ~~**上传鉴权失败降级而非抛出**~~ **已解决（2026-09-20 订正轮）**：`upload` 改返
+    `Result<Option<ContentBlock>, UploadError>`，`Auth` 分支经 `resolve_uncached` →
+    `resolve_one` → `resolve` → `budgeted_request`（`run_turn.rs`）一路 `?` 上传，
+    回合以该错误失败（v2 `mediaResolverService.ts:356` 的 `throw error` 语义）；
+    `UploadError` 补 `Display`/`Error`。`Unsupported`（记住并停止尝试）与 `Other`
+    （内联兜底）行为不变。验证：`test_a_rejected_upload_credential_fails_the_resolve`
+    （401 mock → resolve 失败且错误含 401）+ 全量 2744 项。
     ④ **预算只覆盖 image/video/audio 的内联形态**，与 v2 的 image/video 一致（audio 在 v2 不计，
     fork 把 audio 的 data URL 也计入了——这是 fork 多出的一项，不是缺失）。
 
@@ -1234,3 +1277,354 @@ v2 用双冒号（`fs.ts:414,460`），bundle 用单冒号。fork 的 `::search`
     `test_unset_tool_timeout_falls_back_to_the_v2_default` 钉住（改这个数字会显式弄红测试）。
     启动超时不在此列：v2 `DEFAULT_STARTUP_TIMEOUT_MS = 30_000`（`connection-manager.ts:64`）
     与引擎 `DEFAULT_MCP_STARTUP_TIMEOUT_MS = 30_000` 一致，未动。
+
+---
+
+## 7. v1 / v3 协议面自创实现审计（2026-09-20，按铁律）
+
+复核方式：把 Rust 侧声明的协议词表与参考实现逐项比对，**不读本仓文档、只看两侧代码**。
+参考源：`upstream/main`（`git grep`）与本地抽取 `.tmp/v2-ref` / `.tmp/v2-ref-upstream`。
+消费者证据：已提交的 `apps/kimi-code/dist-web` bundle（与 upstream 逐字节相同）。
+
+### 7.1 v3 实体协议：**零偏差**
+
+- 26 个 `ServerMessage` 变体 vs upstream `serverMessageSchema` 的 26 个 discriminated-union 成员
+  （`packages/kap-server/src/protocol/messages/union.ts`）：**名称一一对应，无多余、无缺失**。
+- 24 个实体类型的字段集逐项比对（脚本化，解开 `...timelineMessageBase` / `...sessionMessageBase`
+  / `...globalMessageBase` 展开）：**0 处不匹配**。
+- 5 个状态词表逐项一致：`TurnStatus`(running/completed)、`StepStatus`(running/completed/
+  interrupted/failed)、`TaskStatus`(running/completed/failed/timed_out/killed/lost)、
+  `ToolCallStatus`(running/done/error)、`InteractionStatus`(pending/approved/rejected/
+  cancelled/answered/dismissed)。
+
+### 7.2 v1 transcript op 词表：**零偏差**
+
+14 个 op（`packages/kimi-agent/src/server/transcript/ops.rs`）vs
+`packages/transcript/src/contract/schema.ts` 的 14 个 `z.literal`：**完全一致**。
+
+### 7.3 v1 WS 控制帧：**4 处自创 —— 已全部对齐（2026-09-20，用户裁决）**
+
+Rust `parse_inbound`（`src/server/ws_protocol.rs`）曾接受 16 种客户端帧；
+upstream `ws-control.ts` 的 `clientControlOperations` 是 12 种。多出的 4 种：
+
+| 帧 | 参考实现 | 消费者 | 处置 |
+|---|---|---|---|
+| `watch_fs_add` | **曾是 v1 协议的一部分，被上游 #3502 主动删除** | 无（dist-web 0 命中，无 TS 客户端发送） | **已删除整套** |
+| `watch_fs_remove` | 同上 | 同上 | **已删除整套** |
+| `cancel` | 无此 WS 帧字面量（`cancel` 只出现在 compaction 状态机、goal_control 枚举、minidb worker） | 无 | **已删除别名** |
+| `prompt` | 无此 WS 帧（提示词走 REST `POST /sessions/{id}/prompts`） | 无 | **已删除别名** |
+
+**关键更正（推翻本文件 §1 与 §5 的旧记录）**：`watch_fs_*` / `event.fs.changed`
+**不是**「上游没有、fork 自创」，而是**上游曾有、后被删除**。
+`3f967e1410`（#3502 "unify fs watching into a single xstate watch service"）把这套 WS 面
+从 v1 协议移除——同提交删掉了 `docs/en/reference/server-api.md` 里那一行，改为 v2 引擎内部的
+`human/utils/watch.ts`（xstate 服务，**无 wire 面**，仅 `createWatchService` 自用）。
+fork 的 `fs_watch.rs`（`9b45052868`，2026-09-14）是在上游删除之后**重建的旧接口**。
+本文件 §1 该行与 §5 第 2 条此前记为「已接线 ✅」，方向记反了，已就地更正。
+
+`ws_protocol.rs` 的注释曾把出处写作 `ws-control.ts:198-215`，**该行区间实为
+`terminalAttach`/`terminalDetach`**，属错误引用，随本次删除一并修正。
+
+`cancel`/`prompt` 曾与 `abort` 共用一条 arm；上游 `abortPayloadSchema` 要求
+`{ session_id, prompt_id }`，Rust 曾只取 `session_id`，**丢弃 `prompt_id`**。
+现 `Inbound::Abort` 携带两者，ack 按上游 `abortAckPayloadSchema` 回 `{ aborted }`
+（`at_seq` 为可选且本引擎无序列水位，故省略而非回 0）。
+
+**本次落地（用户批准「按上游删除整套 + 删两个别名并补齐 abort」）**：
+
+- 删除 `src/server/fs_watch.rs`（251 行 + 3 测试）与 `event.fs.changed`；
+- `ws_protocol.rs`：删 `WatchFsAdd`/`WatchFsRemove` 变体与解析、删 `prompt` 帧、
+  删 `cancel` 别名，新增 `Inbound::Abort { id, session_id, prompt_id }`；
+- `ws.rs`：删 `WatchRegistry` 及其 drop guard、删 `Inbound::Prompt` 整段（含 tokio::spawn
+  的 turn 驱动路径）、删两个 WatchFs 分支；顺带删除只为 prompt 异步 ack 存在的
+  `async_frame_tx/rx` 通道与 `handle_inbound` 的对应参数；
+- `mod.rs` / `http.rs` / `main.rs`：删 `fs_watch` 字段、访问器、构造与 750ms 轮询任务；
+- `packages/protocol/src/ws-control.ts`：删 `watchFsConfigSchema`、`subscribe.watch_fs` 字段、
+  4 个 watchFs schema、2 条 operation 注册；测试同步删 5 个用例。
+
+**验证**：`cargo test --features cli` → **2729 passed / 0 failed**（lib）+ 各集成套件
+（7 / 2 / 2 / 28）全绿；`cargo clippy --all-targets --features cli -- -D warnings` 通过；
+`cargo fmt --check` 干净；`bun --bun run vitest run packages/protocol packages/transcript`
+→ **711 passed**；`bun scripts/scan-parity.mjs` 通过（WS ctl 由 12 → **10**，与删后声明一致）。
+`test_ws_prompt_and_cancel_frames` 重写为 `test_ws_abort_frame_and_retired_prompt_cancel_names`，
+断言「两个退役帧名不产生 ack、abort 是线上第一个 ack 且 payload 为 `{aborted:false}`」。
+
+### 7.4 同时确认「上游也未实现」的帧（非 fork 缺陷，保留）
+
+`terminal_attach`/`terminal_detach`/`terminal_input`/`terminal_resize`/`terminal_close`
+与 `abort` 在 upstream `ws-control.ts` 里有 schema，但 **kap-server 全树无消费者**
+（`wsConnectionV1.ts` 只 case 6 种：`client_hello`/`pong`/`subscribe`/`subscribe_v2`/
+`unsubscribe`/`unsubscribe_v2`）。fork 实现了它们，客户端也在发（bundle 的
+`this.send` 共 12 种帧类型）。**这是 fork 补齐上游留白，不是自创**，本轮保留。
+
+### 7.5 本轮发现的**新**缺口：`subscribe_v2` / `unsubscribe_v2` 在 TS 侧未声明（未修）
+
+对齐后 `scan-parity` 报 `WS ctl 10 client ops`，而 upstream `clientControlOperations`
+是 **12** 条。差的正是 `subscribe_v2` / `unsubscribe_v2`：Rust `parse_inbound` 两种都解析、
+shipped bundle 两种都发送（`this.send` 列表含 `subscribe_v2`/`unsubscribe_v2`），
+但 `packages/protocol/src/ws-control.ts` 从未声明它们——**这是先于本轮就存在的缺口**
+（HEAD 的 12 = 10 真实 + 本轮删掉的 2 个 watchFs，与 v2 op 无关）。
+
+**未修的原因**：补齐需要 `transcriptGradeSpecSchema` / `transcriptSeqSchema`，
+它们在 `packages/transcript` 已存在（`src/contract/schema.ts:449,451`），但
+`packages/protocol` 当前**不依赖** `@moonshot-ai/transcript`（其 deps 只有 `ulid` + `zod`），
+引入会新增一条 workspace 包依赖边。这是结构决策，不由本轮擅自决定。
+可选：(a) 给 protocol 加 transcript 依赖并 import（无环，已确认 transcript 不依赖 protocol）；
+(b) 在 protocol 内复刻这两个 schema（避免新依赖，但有重复定义风险）；(c) 维持现状。
+
+
+### 7.6 端到端实跑暴露的**新**缺口：UI 的「中断」按钮 404（**已解决 2026-09-20 订正轮**）
+
+真机验证（真服务器 + 真 Web UI + mock LLM）时，点击 UI 的「中断」按钮，
+浏览器控制台出现：
+
+```
+[ERROR] 404 POST /api/v1/sessions/<sid>/prompts/msg-u2:abort
+```
+
+**根因**（非本轮引入）：该路由**存在**（`server/mod.rs` 的 `.../prompts/{id}:abort` 分支），
+但它只对 `prompt_queue` 里登记过的 prompt 生效——`prompt_queue.cancel()` 返回 `None` 时回
+`PROMPT_NOT_FOUND`(404)。UI 传的是 `msg-u2`（消息 id），而该 prompt 未经
+`POST .../prompts` 入队（走的是另一条驱动路径），于是查不到 → 404。
+
+**证据**：`git show HEAD:packages/kimi-agent/src/server/mod.rs` 里同一 404 分支已存在
+（`contains(...)` 检查），故与本轮 WS 对齐无关。本轮只动了 WS 控制帧，未触 `prompt_queue`。
+
+**与 WS `abort` 帧的关系**：两者是同一动作的两条通道。WS 帧（本轮已对齐为
+`{session_id, prompt_id}` → ack `{aborted}`）实测可用（见 7.3 验证）；
+REST 这条是 UI 实际点击的路径，**仍未闭环**。修它需要决定「消息 id 与 prompt id 的对应」
+或让驱动路径也登记队列，属行为设计，未擅自处理。
+
+**2026-09-20 订正轮已闭环**。id 对应关系在代码里本来就是确定的，无需行为设计：
+`message_events.rs:127` 的 `announce_prompt` 用 `msg-u{turn_number}` 发
+`event.message.created`，而 `run_prompt_loop`（`prompt_queue.rs:279`）跑该 turn 前刚
+`next_turn_number()` 算出同一个数。落地：
+
+- `Entry` 增 `turn_number: Option<u32>`，`stamp_active_turn`（`prompt_queue.rs`）由
+  `run_prompt_loop` 每回合盖章；
+- `cancel_by_user_message_id`（同文件）解析两种客户端持有的 scheme：`msg-u{turn}`
+  （live 事件 id，经盖章的 turn 归到 active prompt）与 `msg-{prompt_id}`（prompt item
+  自己的 `user_message_id`，`mod.rs:733`）；前者不命中时回落到后者，客户端自选 prompt id
+  恰以 `u` 开头时仍可解析；
+- `cancel` 重构出 `cancel_locked`，两条路径同一把锁内完成，无 TOCTOU；
+- abort 路由（`mod.rs:6583` 起）先 `cancel` 后 `cancel_by_user_message_id`，
+  `prompt.aborted` 事件带**解析后的** prompt id。
+
+验证：`prompt_queue` 11 项（含两条新测试：live id 归到 active prompt、item 自有 scheme
+解析 active+queued、未知 id 仍 404）+ 路由层
+`abort_resolves_the_live_user_message_id_at_the_route`（真实 `handle_request`，
+ admitted prompt + stamp turn 2 → `msg-u2:abort` 回 200 且 active 已取消）。
+
+### 7.7 订正轮（2026-09-20）补强的投影面与仍开放的缺口
+
+**v3 user/turn 实体的 `attachment_ids` 已补全**（§7.1 只证明了字段集零偏差，投影填充是
+另一轴）。`projection.rs` 的 `attachment_ids(blocks)` 从存储的 blocks 推导：
+`MediaRef.file_id` 与 `*Url.id`（`Some` 时）是附件，内联 base64 与无 id 的 URL 不是
+（上游 `attachment_ids` 指名文件，不指名字节）。steered 与 turn-opener 两条构造点 +
+turn 实体（取开场 user消息的附件）均已接入；live 侧仍为 `None`——`EngineEvent::TurnStarted`
+只带 prompt 文本，不带 blocks（改它要动引擎事件形状，留待决策）。
+测试：`user_and_turn_entities_name_the_prompts_attachments`（projection 单测）。
+
+**`skill_activations` 确认无数据源，非投影漏填**：全仓 grep 只有 4 处 `None` + 1 处测试夹具，
+`TranscriptUserOrigin.skill_activations`（`transcript/model.rs:311`）有定义无生产者——
+v1 transcript 折叠也不产它。要补需：宿主经 #3764 的 client metadata 通道传 skill
+activation → 引擎落库 → 投影填充，属跨层新数据流，待用户决策后单独一轮。
+
+**顺带修掉一处陈旧测试**（非本轮引入）：`test_http_sessions_crud_and_prompt` 的 children
+断言读 `children` 键，而路由在 §6.4 的信封对齐中已改为 v2 的 `{items, has_more}`
+（`mod.rs:4927`）——按「测试落后于实现先修测试」更新为读 `items`。
+
+---
+
+## 8. 订正轮 Batch 2（2026-09-20，用户批准三族全量；对照双参考完整移植）
+
+> 本轮铁律：每一项都对照 **fork 退役参考**（`.tmp/v2-ref`，kap-server/klient/acp-server 与
+> v1/v3 协议接线的唯一存在处）与 **upstream 官方参考**（`.tmp/v2-ref-upstream`，
+> agent-core-v2 的行为出处）双向核对，bundle 消费面作第三证据。凡参考只有一处有的，
+> 引用有的那一处。
+
+### 8.1 协议投影族
+
+**A1 `subscribe_v2` / `unsubscribe_v2` 声明 + ack 对齐（§7.5 闭环）**：
+`packages/protocol` 新增对 `@moonshot-ai/transcript` 的 workspace 依赖（无环，
+transcript 不依赖 protocol），`ws-control.ts` 声明两个帧的 message schema 与 ack
+schema 并注册进 `clientControlOperations`（10 → 12，与 upstream `ws-control.ts`
+的 `clientControlOperations` 一致）。**同时对齐 ack 形状**：fork 原发
+`{session_id, agents, not_found}`（无任何参考出处），upstream `onSubscribeV2` /
+`onUnsubscribeV2`（`wsConnectionV1.ts:261-320`）发 `subscribeAckPayloadSchema` 的
+`{accepted, not_found, resync_required, cursors}`——Rust `subscribe_v2_ack` /
+`unsubscribe_v2_ack`（`ws_protocol.rs`）重写为该形状，cursor 取
+`latest_wire_event_seq`。bundle 把 ack 路由为 ignore（不约束形状），对齐无消费者成本。
+**门禁修复**：`scan-parity.mjs` 两个收集正则的字符类 `[a-z_]+` 不含数字，
+导致两边都对 `subscribe_v2` 隐形（报 10 而实际 12）——按「教匹配器而非弱化契约」
+改为 `[a-z0-9_]+`，现报 `WS ctl 12`。
+
+**A2 `skill_activations` 全链（§6.1 item 4 / #3832 闭环）**：
+- 投影：`projection.rs` `skill_activations_of` 逐字对照 upstream
+  `agentProjector.ts:2338 skillActivationsOf`——`skill_activation` 变体取
+  `skillName`/`skillArgs`（camelCase，transcript 契约形状），`user` 变体取折叠的
+  `skillActivations` 数组；无可用技能名返回 None（上游返回 undefined）。
+- **origin 规则修正（本轮关键）**：初版实现「metadata 自带 kind 即 origin」匹配不到
+  真实消费者——bundle `activateSkill` 发送的是 `metadata: {origin: {...}}`
+  （origin 嵌套在 metadata 下）。改为读 `metadata.origin`（带 kind 才认），
+  其余 metadata 保持 #3764 的 clientMetadata 包装。
+- live 链：`MessageCallbacks` 增 `origin` 字段，`announce_prompt` 把 turn origin
+  随 `event.message.created` 下发（`message_events.rs`），live 翻译器同函数投影
+  （`live.rs`）——live 与 history 同源。
+
+**A3 live `attachment_ids`**：生产路径不发 typed `TurnStarted`（`message_events.rs:179`
+自承），v3 live 的 user 实体原无生产者。新增 `event.message.created`（role=user）
+臂：从 `msg-u{turn}` 解析 turn，内容部件折叠为 text/media parts，附件 id 按
+`MediaRef.file_id` 与 `*Url.id` 推导（内联 base64 与无 id URL 不是附件——与 history
+投影同规则）；`announce_prompt` 同时带出 prompt 的媒体部件（`media_content_part`，
+v2 `contentToCoreParts` 形状）。
+
+### 8.2 引擎语义族
+
+**B1 `reasoning_details` 重放（#3910 未移植半件 + `hidden`）**：
+`ContentBlock::Think` 增 `detailsIndex` / `reasoningKey` / `hidden`
+（serde camelCase，宿主 ThinkPart 形状）。重放侧 `project_message` 逐字对照 v2
+`lowerMessage`（`openai/lower.ts:69-169`）：带戳部件重建 `reasoning_details` 数组
+（summary/encrypted 条目），带 key 部件按 key 累积字符串字段，无戳文本归声明键
+（无声明键时保持 fork 的文本兜底）；details 非空时默认键取默认字符串字段或全部
+thinking。解析侧 `reasoning_details_parts` 对照 v2 `extractReasoningDetails` +
+`convertReasoningDetails`：数组元素按位置盖戳，`seenReasoningContent` 后 summary
+盖 `hidden`（重放保留数组条目但文本不进字符串字段——provider 不会两次看到同一
+reasoning）。
+
+**B2 `displayPaths` 协议面 + 降级恢复链（§6.1 item 17 ② 闭环）**：
+- 预算省略早已实现 v2 `replaceWithMediaTag`（省略引用留 path 标签）——本轮核实。
+- transcript 附件：`AttachmentSource` 三变体（契约早有，fork 只发 url）——
+  `attachment_from_block` 现发 `session_media`（MediaRef）与 `file`
+  （`kimi-file://` URL 解析出 id），远程 URL 保持 url；turn 实体按 v2 冷折叠
+  `foldTurnOpeningInput` 语义挂 `attachment_ids`（bundle 消费 `attachment.upsert`
+  与 `attachment_ids`，消费者证据成立）。
+- **降级恢复链（ROADMAP 条目②亲自点名的缺失消费者）**：v2
+  `nextProjectionPolicyForError`（`llmRequesterService.ts:547-610`）的完整移植——
+  `is_request_too_large`（413）触发；`degrade_older_media`（保留最新 2 个，
+  v2 `MEDIA_DEGRADE_KEEP_RECENT`）→ 仍被拒则 `strip_all_media`（v2
+  `stripMediaPartsBySnapshot` 的快照全量形态）；替换沿用 path 标签；两级各一次，
+  之后放行原错误。transform 作用于**未解析**消息（引用还认得文件，path 标签需要它），
+  由 run_turn 恢复循环重新解析。warning 走 v2 的 `media-degraded` / `media-stripped`
+  码与文案。测试：`a_too_large_request_degrades_then_strips_and_retries`
+  （真实 turn 循环，媒体数 4 → 2 → 0）。
+
+**B3 napi `compaction_max_attempts`**：`napi-contract.d.ts` 增
+`compactionMaxAttempts`，`napi_bindings.rs` 两处 `None` 改读参数；
+node-sdk `resolveCompactionMaxAttempts`（仅文件，上游未绑环境变量）+
+params 透传。TUI 路径该键自此生效。
+
+### 8.3 持久化 schema 族
+
+**C1 interaction 实体历史源（§6.1 item 4 硬缺口闭环）**：
+方案选型：ROADMAP 原列「新增表或声明 history 不返回 interaction」——实测 hub
+persister 已把六种 interaction 生命周期事件全量写入 `wire_events`（第三方案，
+无需新表）。落地：`sqlite_store.rs` `interaction_wire_events`（按类型选择，
+journal 序）；`projection.rs` `project_interactions` 折叠为 v3 interaction 实体
+（approval 的 decision 映射、TTL 清扫无 decision 读 `cancelled`、question 终态
+无 answers——答案走 resolution 通道不在事件里，与 live upsert 同形状）；
+history 路由与 v3 恢复页同源接入。**顺带补 live 的 question 臂**（原只有
+approval，live/history 一致性）。
+
+**C2 session_state 全字段（§6.1 item 4 部分源补全）**：
+初版只读 agent_config/metadata（ROADMAP 当年只看了 sessions 表，漏看 state_entries）。
+本轮对照 upstream `SessionStateAggregator`（`sessionState.ts`）补全：goal 取自
+workspace store 的 goal 域（`{goal: <snapshot>}`，budget 映射对照 `feedGoal`），
+modes 取 plan 域 + agent_config 的 swarm_mode（对照 `computeModes`）；
+model/thinking/permission 维持。history 路由与恢复页接入（workdir 解析提升为
+两者共用）。
+
+**C3 `state_entries` session_id 迁移（P2 作用域决策）**：
+真实消费者：`delete_session` 原本不级联 state_entries，agent_config/metadata
+成孤儿。落地：幂等 ALTER 增 `session_id` 列 + 索引；`put_session_state` 新写路径
+带属主；`delete_session` 级联列属主行 + 遗留键编码行（`agent_config`/`metadata`
+的 key 即 session id）；9 个写入点迁移到新路径。测试含文件库重开（迁移不碰旧行、
+旧行读回不变、删除级联双形态、workspace 行不误删）。
+
+### 8.4 测试面修正（实现正确、旧断言失真）
+
+session.state 进入 history/恢复页后，4 处旧断言按「测试落后于实现先修测试」更新：
+`v3_history_route_serves_entities_with_paging`（三类分页各多尾部 session.state）、
+三个 ws_v3 测试（恢复页尾部实体需先消费）。另修一处测试隔离泄漏的发现：
+测试会话无 workspace 时 `resolve_session_workdir` 回退 CWD，读到开发者真实
+`~/.kimi-code/engine-state` 的 plan 域——行为正确（生产如此），测试断言已兼容。
+
+**验证**：`cargo test --lib` 2770 项 + 集成套件 7 组 + `cargo clippy
+--all-targets --features cli -- -D warnings` + `cargo fmt --check` 全绿；
+`bun scripts/scan-parity.mjs` 通过（WS ctl 12）；`packages/protocol` 617 项 +
+typecheck、node-sdk typecheck 全绿。
+
+### 8.5 订正轮补充（2026-09-20 续推，四项剩余项逐项核实后落地/证伪）
+
+**image-format 降级臂（v2 `nextProjectionPolicyForError` 第二臂）**：
+`is_image_format_error`（`media_budget.rs`）对照 v2 `isImageFormatError`
+（`llm-adapter/contract/errors.ts:215`）的**状态分支**：400 + 图像格式文案
+（`unsupported image url|format|type`、`does not represent a valid image`、
+`could not (process|decode) (the |input )?image`、`unable to process …`、
+`failed to decode (the )?image`、`invalid image( data| type| format)?`），
+或 media/mime-type 字段投诉且提及 image。v2 的 provider-message 分支
+（`invalid data url for image` 等）在 fork 无对应错误类，未移植（测试注释钉住
+该双分支结构）。run_turn 恢复循环接入该臂：图像格式拒绝**直接 strip**
+（v2 不给它 degrade 轮），与 too-large 臂共用 `media_stripped` 标志与
+`media-stripped` warning；warning 文案改回 v2 原文（`Provider rejected the
+media in the request; all media were omitted and the request were retried.`
+——初版自拟的 "the media were stripped" 文案已更正）。测试：
+`an_image_format_rejection_strips_the_media_and_retries`（媒体 3 → 0，
+无 degrade 轮）。
+
+**v1 transcript prompt 的 clientMetadata（契约字段补齐）**：
+`packages/transcript` 契约的 `transcriptPromptSchema` 本就有
+`clientMetadata`（`schema.ts:377`），fork 的 `TranscriptPrompt` 没有——真缺口。
+落地：模型增 `client_metadata`（契约的数组形状）；投影新增 `prompt.submitted`
+折叠臂（route 发布的 item 带 metadata，包成契约的单元素数组）；
+`event.message.created` 臂 upsert 时**保留**已有 metadata（submission 先于
+announcement 到达，upsert 是整体替换，不保留会丢）。测试钉住三种路径：
+submission 带 metadata、announcement 新建（无 metadata）、同 id 时保留。
+
+**三项核实为「非缺口」，记录以防后续重复上报**：
+1. **gui_store 不迁 session_id 列**：其 key 是任意 UI 键（`theme`/`sidebar`，
+   `gui_set_item` 调用方），本就是守护进程级 UI 状态，无会话归属——C3 的
+   级联不含它是正确决策，不是遗漏。
+2. **napi prompt 路径不加 origin 载体**：`TurnRequest::user` 硬编码
+   `{kind: "user"}`，但 `TurnEvent::Started` 的 origin 在生产路径**无消费者**
+   （activity 是测试构造、state_store 折叠忽略、turn_events 是测试）；
+   napi 会话不落 turn 记录也不由 v3 history/live 服务——加字段是投机，
+   按「无消费者不加」记录。
+3. **v1 transcript 的 prompt 实体不投影 skill_activations**：契约的
+   `transcriptPromptSchema` 本就没有该字段（skill_activations 只在 v3 的
+   user 实体与 live 投影存在）——此前「上游 coreEventMap 有」的说法不成立，
+   实际那是 live 投影器（agentProjector），不是 v1 transcript 契约。
+
+**验证**：`cargo test --lib` 2772 项 + 集成 7 组 + clippy + fmt 全绿；
+scan-parity 通过。
+
+### 8.6 交付前自审（2026-09-20）发现并补齐的缺口
+
+**v3 全局 lane 不折叠 workspace 生命周期（v1/v3 真实不一致，本轮补齐）**：
+自审发现 v1 lane 有 `event.workspace.created/updated/deleted` 生产者
+（`mod.rs:3882/4014/4040`，workspace CRUD 路由发布），而 v3 全局 lane 只折叠
+config/config.warning/model_catalog/plugin——v3 客户端永远看不到工作区生命周期。
+（ROADMAP 旧记“workspace 无生产者”不准确，生产者一直在，缺的是 v3 折叠。）
+落地：对照 upstream `globalTranslator.ts:45-80`——created/updated 用事件载荷
+（fork 的 v1 载荷即完整 WorkspaceSummary = v3 WorkspaceInfo 字段集）；
+deleted 只带 id+root，实体取自**每连接缓存**（connect 时从 store seed，
+上游同款），缓存未见过时用上游的合成 fallback（root basename 作 name、
+删除时刻作双时间戳、session_count 0）。测试：
+`workspace_lifecycle_folds_into_the_workspace_entity`（created → deleted 走缓存
+→ 未见过走 fallback）。kimi-inspect 按设计忽略全局消息（`store.ts:22`），
+新实体无消费方影响。
+
+**自审确认的两项既有状态（非本轮引入，记录免重复上报）**：
+1. `bun run lint` 的 3 个 error 均在本次未改动的文件（`node-sdk/src/types.ts`
+   的索引签名 any、`tui/controllers/session-event-handler.ts` 的 import 顺序、
+   `oauth/src/storage.ts` 的 require-await）——仓库既有状态；本轮改动的 6 个
+   TS 文件单独 lint 0 error。
+2. root typecheck 全包通过（sdk / protocol / kimi-code / vscode / inspect）。
+
+**仍未覆盖的原始清单项（一项，需用户决策）**：
+models.dev 代理面（抓取 + 缓存 + 快照回退）——ROADMAP #3909 起即标注“独立工盘”，
+不在订正轮范围；fork 目录保持内置静态列表 + base_url 已按 v2 item 形状暴露
+（`mod.rs:1761` 的诚实声明）。如需推进请单独指示。
+
+**验证**：`cargo test --lib` 2773 项 + 集成 7 组 + clippy 0 error + fmt +
+scan-parity 全绿。

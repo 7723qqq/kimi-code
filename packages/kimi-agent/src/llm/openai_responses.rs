@@ -183,6 +183,9 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
                                 thinking.push(ContentBlock::Think {
                                     think: text.to_string(),
                                     encrypted: encrypted.clone(),
+                                    details_index: None,
+                                    reasoning_key: None,
+                                    hidden: None,
                                 });
                             }
                         }
@@ -432,6 +435,9 @@ impl StreamAccumulator {
             thinking.push(ContentBlock::Think {
                 think: self.thinking,
                 encrypted: None,
+                details_index: None,
+                reasoning_key: None,
+                hidden: None,
             });
         }
 

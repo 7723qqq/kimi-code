@@ -607,9 +607,57 @@ pub async fn force_compact_messages_with_summary_budgeted(
     cancel: Option<&CancellationToken>,
     effective_max_tokens: Option<u32>,
 ) -> Result<Vec<LLMMessage>, CompactionError> {
+    let tokens_before = estimate_messages_tokens(messages);
+    Ok(force_compact_messages_with_summary_report(
+        messages,
+        config,
+        llm,
+        instruction,
+        cancel,
+        effective_max_tokens,
+        tokens_before,
+    )
+    .await?
+    .0)
+}
+
+/// What one compaction did, for the host's `compaction.completed` event (v2
+/// `full_compaction.completed`). The engine folds a prefix into an LLM-written
+/// summary; the host renders a transcript card from these numbers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompactionReport {
+    pub summary: String,
+    pub compacted_count: u32,
+    pub tokens_before: u32,
+    pub tokens_after: u32,
+}
+
+/// [`force_compact_messages_with_summary_budgeted`] that also returns the
+/// report the host's `compaction.completed` event carries. Additive: the
+/// existing entry point delegates here and discards the report, so callers that
+/// only need the messages are untouched. `tokens_before` is the caller's own
+/// estimate for the pre-compaction history (the threshold path already has it;
+/// the overflow-recovery path passes its own).
+pub async fn force_compact_messages_with_summary_report(
+    messages: &[LLMMessage],
+    config: &CompactionConfig,
+    llm: &dyn LLM,
+    instruction: Option<&str>,
+    cancel: Option<&CancellationToken>,
+    effective_max_tokens: Option<u32>,
+    tokens_before: u32,
+) -> Result<(Vec<LLMMessage>, CompactionReport), CompactionError> {
     let count = compute_compact_count(messages, config);
     if count == 0 {
-        return Ok(messages.to_vec());
+        return Ok((
+            messages.to_vec(),
+            CompactionReport {
+                summary: String::new(),
+                compacted_count: 0,
+                tokens_before,
+                tokens_after: tokens_before,
+            },
+        ));
     }
     let omitted = &messages[1..count as usize];
     let summary = summarize_with_llm_budgeted(
@@ -621,7 +669,17 @@ pub async fn force_compact_messages_with_summary_budgeted(
         effective_max_tokens,
     )
     .await?;
-    Ok(apply_compaction_with_summary(messages, count, summary))
+    let compacted = apply_compaction_with_summary(messages, count, summary.clone());
+    let tokens_after = estimate_messages_tokens(&compacted);
+    Ok((
+        compacted,
+        CompactionReport {
+            summary,
+            compacted_count: count,
+            tokens_before,
+            tokens_after,
+        },
+    ))
 }
 
 /// Manual compaction (`POST :compact`) with a real LLM summary.
@@ -680,11 +738,42 @@ pub async fn compact_messages_with_summary_at(
     instruction: Option<&str>,
     cancel: Option<&CancellationToken>,
 ) -> Result<Option<Vec<LLMMessage>>, CompactionError> {
+    Ok(compact_messages_with_summary_at_report(
+        messages,
+        used_tokens,
+        config,
+        llm,
+        instruction,
+        cancel,
+    )
+    .await?
+    .map(|(messages, _)| messages))
+}
+
+/// [`compact_messages_with_summary_at`] that also returns the report, so the
+/// turn loop can emit `compaction.completed` with the summary and token counts.
+pub async fn compact_messages_with_summary_at_report(
+    messages: &[LLMMessage],
+    used_tokens: u32,
+    config: &CompactionConfig,
+    llm: &dyn LLM,
+    instruction: Option<&str>,
+    cancel: Option<&CancellationToken>,
+) -> Result<Option<(Vec<LLMMessage>, CompactionReport)>, CompactionError> {
     if !should_compact(used_tokens, config) {
         return Ok(None);
     }
     Ok(Some(
-        force_compact_messages_with_summary(messages, config, llm, instruction, cancel).await?,
+        force_compact_messages_with_summary_report(
+            messages,
+            config,
+            llm,
+            instruction,
+            cancel,
+            None,
+            used_tokens,
+        )
+        .await?,
     ))
 }
 
@@ -1092,6 +1181,9 @@ mod tests {
         m_think.blocks.push(ContentBlock::Think {
             think: "reasoning step".into(), // 14 chars -> 4 tokens
             encrypted: None,
+            details_index: None,
+            reasoning_key: None,
+            hidden: None,
         });
         assert_eq!(estimate_message_tokens(&m_think), 4);
 
@@ -1136,6 +1228,9 @@ mod tests {
         m_combo.blocks.push(ContentBlock::Think {
             think: "ijkl".into(), // 1 token
             encrypted: None,
+            details_index: None,
+            reasoning_key: None,
+            hidden: None,
         });
         m_combo.blocks.push(ContentBlock::ImageUrl {
             url: "http://example.com/img.jpg".into(), // 2000 tokens

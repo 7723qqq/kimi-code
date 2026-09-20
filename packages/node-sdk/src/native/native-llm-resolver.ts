@@ -630,6 +630,18 @@ export function resolveMaxAttemptsPerStep(config: {
 }
 
 /**
+ * Total requests one compaction round may issue (v2 #3750,
+ * `loopControl.compactionMaxAttempts`). File-only: upstream binds no
+ * environment variable to this key, so there is none to honor. The engine
+ * floors a provided value at 1; unset keeps the engine default (5).
+ */
+export function resolveCompactionMaxAttempts(config: {
+  loopControl?: { compactionMaxAttempts?: number };
+}): number | undefined {
+  return integerAtLeast(config.loopControl?.compactionMaxAttempts, 1);
+}
+
+/**
  * Per-turn step cap (`loopControl.maxStepsPerTurn`; env
  * `KIMI_LOOP_MAX_STEPS_PER_TURN` wins). `0` and unset both mean unlimited
  * (v2 `loopService.ts` only enforces a positive cap), so both resolve to

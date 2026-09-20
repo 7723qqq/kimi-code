@@ -83,6 +83,217 @@ describe.skipIf(!hasNativeAddon)('createKimiHarnessNative (Rust EngineSessionHan
     await session.close();
   });
 
+  it('forwards native-LLM step and subagent lifecycle events to onEvent', async () => {
+    // The Rust engine calls the model over HTTP itself (native LLM), so the
+    // step / subagent events it emits have no host-proxy equivalent. This test
+    // pins the SDK's mapping of them onto the protocol union: without it the
+    // TUI's step counter and subagent cards stayed empty.
+    const { createServer } = await import('node:http');
+    const calls = { count: 0 };
+    const server = createServer((req, res) => {
+      req.on('data', () => {});
+      req.on('end', () => {
+        if (req.url?.includes('/chat/completions') !== true) {
+          res.writeHead(404).end();
+          return;
+        }
+        calls.count += 1;
+        const first = calls.count === 1;
+        res.writeHead(200, {
+          'content-type': 'text/event-stream',
+          'cache-control': 'no-cache',
+          connection: 'keep-alive',
+        });
+        const chunk = (delta: Record<string, unknown>, finish: string | null = null): string =>
+          `data: ${JSON.stringify({
+            id: 'c',
+            object: 'chat.completion.chunk',
+            created: 0,
+            model: 'mock',
+            choices: [{ index: 0, delta, finish_reason: finish }],
+          })}\n\n`;
+        res.write(chunk({ role: 'assistant', content: '' }));
+        if (first) {
+          res.write(
+            chunk({
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call_agent',
+                  type: 'function',
+                  function: {
+                    name: 'Agent',
+                    arguments: '{"prompt":"say hi","description":"greet"}',
+                  },
+                },
+              ],
+            }),
+          );
+          res.write(chunk({}, 'tool_calls'));
+        } else {
+          res.write(chunk({ content: 'done' }));
+          res.write(chunk({}, 'stop'));
+        }
+        res.write('data: [DONE]\n\n');
+        res.end();
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as { port: number }).port;
+    try {
+      writeFileSync(
+        join(homeDir, 'config.toml'),
+        `
+[providers.local]
+type = "openai"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "sk-test"
+
+[models."mock"]
+provider = "local"
+model = "mock"
+max_context_size = 100000
+`,
+      );
+
+      const session = await harness.createSession({ workDir: homeDir, model: 'mock' });
+      const types: string[] = [];
+      session.onEvent((event) => types.push(event.type));
+      const ended = waitForTurnEnded(session);
+      await session.prompt('hi');
+      await ended;
+
+      expect(types).toContain('turn.step.started');
+      expect(types).toContain('turn.step.completed');
+      expect(types).toContain('subagent.spawned');
+      expect(types).toContain('subagent.started');
+      expect(types).toContain('subagent.completed');
+      await session.close();
+    } finally {
+      server.close();
+    }
+  }, 20_000);
+
+  it('forwards background-task lifecycle events to onEvent', async () => {
+    // The per-pipeline task runner only reports if its sink is wired to the
+    // host callbacks; before that wiring the TUI's `background.task.*` handlers
+    // never fired.
+    const { createServer } = await import('node:http');
+    let calls = 0;
+    const server = createServer((req, res) => {
+      req.on('data', () => {});
+      req.on('end', () => {
+        if (req.url?.includes('/chat/completions') !== true) {
+          res.writeHead(404).end();
+          return;
+        }
+        calls += 1;
+        const first = calls === 1;
+        res.writeHead(200, {
+          'content-type': 'text/event-stream',
+          'cache-control': 'no-cache',
+          connection: 'keep-alive',
+        });
+        const chunk = (delta: Record<string, unknown>, finish: string | null = null): string =>
+          `data: ${JSON.stringify({
+            id: 'c',
+            object: 'chat.completion.chunk',
+            created: 0,
+            model: 'mock',
+            choices: [{ index: 0, delta, finish_reason: finish }],
+          })}\n\n`;
+        res.write(chunk({ role: 'assistant', content: '' }));
+        if (first) {
+          res.write(
+            chunk({
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call_bg',
+                  type: 'function',
+                  function: {
+                    name: 'Bash',
+                    arguments: JSON.stringify({
+                      command: 'echo background hello',
+                      run_in_background: true,
+                      description: 'probe bg task',
+                    }),
+                  },
+                },
+              ],
+            }),
+          );
+          res.write(chunk({}, 'tool_calls'));
+        } else {
+          res.write(chunk({ content: 'done' }));
+          res.write(chunk({}, 'stop'));
+        }
+        res.write('data: [DONE]\n\n');
+        res.end();
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as { port: number }).port;
+    try {
+      writeFileSync(
+        join(homeDir, 'config.toml'),
+        `
+[providers.local]
+type = "openai"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "sk-test"
+
+[models."mock"]
+provider = "local"
+model = "mock"
+max_context_size = 100000
+`,
+      );
+
+      const session = await harness.createSession({ workDir: homeDir, model: 'mock' });
+      // `Bash` is not in the default-approve set, so manual mode would park on
+      // an approval the throwaway home cannot answer.
+      await session.setPermission('yolo');
+
+      const started: unknown[] = [];
+      const terminated: unknown[] = [];
+      session.onEvent((event) => {
+        if (event.type === 'background.task.started') started.push(event.info);
+        if (event.type === 'background.task.terminated') terminated.push(event.info);
+      });
+
+      const ended = waitForTurnEnded(session);
+      await session.prompt('run a background task');
+      await ended;
+      // The task settles asynchronously after the turn.
+      for (let i = 0; i < 100 && terminated.length === 0; i += 1) {
+        await new Promise((r) => setTimeout(r, 20));
+      }
+
+      expect(started[0]).toMatchObject({ description: 'probe bg task', kind: 'process' });
+      expect(terminated[0]).toMatchObject({ description: 'probe bg task', kind: 'process' });
+      await session.close();
+    } finally {
+      server.close();
+    }
+  }, 20_000);
+
+  it('emits goal.updated when a goal is created', async () => {
+    // The goal panel is driven by `goal.updated`; nothing emitted it, so a
+    // goal created through the SDK never reached the UI.
+    const session = await harness.createSession({ workDir: homeDir });
+    const snapshots: unknown[] = [];
+    session.onEvent((event) => {
+      if (event.type === 'goal.updated') snapshots.push(event.snapshot);
+    });
+
+    await session.createGoal({ objective: 'ship the feature' });
+
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).toMatchObject({ objective: 'ship the feature', status: 'active' });
+    await session.close();
+  });
+
   it('supports cancel on active or idle sessions', async () => {
     const session = await harness.createSession({
       workDir: homeDir,

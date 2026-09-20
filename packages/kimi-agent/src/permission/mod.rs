@@ -29,8 +29,11 @@ use crate::native::permission_engine::dangerous_command::{DangerousVerdict, anal
 /// (v2 `DEFAULT_APPROVE_TOOLS`, `default-tool-approve.ts`). Both spellings of
 /// each multi-word name are listed because [`PermissionEngine::evaluate`]
 /// lowercases without squashing underscores, so `ReadMediaFile` and
-/// `read_media_file` are different keys. `ListDirectory` is the fork's own
-/// read-only extra — v2 folds directory listing into `Glob`.
+/// `read_media_file` are different keys. The fork's own read-only extras —
+/// `ListDirectory` (v2 folds directory listing into `Glob`) plus `Lsp`, the
+/// memory readers and the tower readers — are appended for the same reason
+/// their absence prompted: a natively executed read must not fall through to
+/// `FallbackAsk`.
 const DEFAULT_APPROVE_TOOLS: &[&str] = &[
     "read",
     "grep",
@@ -76,6 +79,19 @@ const DEFAULT_APPROVE_TOOLS: &[&str] = &[
     "select_tools",
     "listdirectory",
     "list_directory",
+    // Read-only tools v2's list cannot name (they do not exist upstream) but
+    // which execute natively here. Leaving them out sent a pure read to
+    // `FallbackAsk`, so a read-only call prompted in every non-Yolo mode —
+    // the same drift `ListDirectory` above already documents.
+    "lsp",
+    "memoryread",
+    "memory_read",
+    "memorylist",
+    "memory_list",
+    "towerstatus",
+    "tower_status",
+    "towerinbox",
+    "tower_inbox",
 ];
 
 /// Permission mode.
@@ -821,6 +837,18 @@ mod tests {
             ("websearch", json!({ "query": "rust async" })),
             ("web_search", json!({ "query": "tokio tutorial" })),
             ("WebSearch", json!({ "query": "actix web" })),
+            // Fork-original read-only tools: they execute natively, so without
+            // an entry here they fell through to `FallbackAsk` and prompted in
+            // every non-Yolo mode — a prompt v2's read-only policy never shows.
+            ("lsp", json!({ "action": "hover", "path": "src/lib.rs" })),
+            ("memory_read", json!({ "path": "style.md" })),
+            ("memoryread", json!({})),
+            ("memory_list", json!({})),
+            ("memorylist", json!({ "cursor": "page-2" })),
+            ("tower_status", json!({})),
+            ("towerstatus", json!({})),
+            ("tower_inbox", json!({ "limit": 10 })),
+            ("towerinbox", json!({})),
         ];
 
         for (tool, args) in cases {

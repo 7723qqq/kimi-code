@@ -44,7 +44,6 @@ pub mod envelope;
 pub mod file_launch;
 pub mod files;
 pub mod fs_routes;
-pub mod fs_watch;
 pub mod host_guard;
 pub mod http;
 pub mod hub;
@@ -123,9 +122,6 @@ pub struct HttpServer {
     /// The `/api/v1/files` upload store.
     file_store: files::FileStore,
     terminal_manager: Arc<terminal::TerminalManager>,
-    /// Workspace watcher backing `watch_fs_add` / `watch_fs_remove` (#3502).
-    /// Registration is per connection; the poll loop is spawned by `run_serve`.
-    fs_watch: Arc<fs_watch::FsWatchManager>,
     subagent_manager: Arc<crate::subagent::SubagentManager>,
     /// Remote Control status state (#3594).
     remote_control_state: Arc<Mutex<RemoteControlStatusWire>>,
@@ -273,7 +269,6 @@ impl HttpServer {
             config_write_path: std::sync::Mutex::new(None),
             file_store: files::FileStore::new(),
             terminal_manager: Arc::new(terminal::TerminalManager::new(hub.clone())),
-            fs_watch: Arc::new(fs_watch::FsWatchManager::new(hub.clone())),
             subagent_manager: Arc::new(
                 crate::subagent::SubagentManager::new().with_task_runner(task_runner),
             ),
@@ -455,12 +450,6 @@ impl HttpServer {
 
     pub fn terminal_manager(&self) -> Arc<terminal::TerminalManager> {
         self.terminal_manager.clone()
-    }
-
-    /// The workspace watcher: WebSocket `watch_fs_*` registrations land here
-    /// and `run_serve` spawns its poll loop.
-    pub fn fs_watch(&self) -> Arc<fs_watch::FsWatchManager> {
-        self.fs_watch.clone()
     }
 
     pub fn server_id(&self) -> &str {
@@ -739,6 +728,7 @@ impl HttpServer {
             }
             Some(value) => Some(json!([value])),
         };
+        let origin = prompt_origin_from_metadata(client_metadata.as_ref());
         let mut item = json!({
             "prompt_id": prompt_id.clone(),
             "user_message_id": format!("msg-{prompt_id}"),
@@ -748,9 +738,6 @@ impl HttpServer {
         if let Some(metadata) = &client_metadata {
             item["metadata"] = metadata[0].clone();
         }
-        let origin = client_metadata
-            .as_ref()
-            .map(|metadata| json!({ "kind": "user", "clientMetadata": metadata }));
         let (item, run) = self
             .prompt_queue
             .admit(session_id, item, prompt, blocks, origin.clone());
@@ -1023,6 +1010,24 @@ pub(crate) fn infer_media_type(path: &Path) -> String {
     .to_string()
 }
 
+/// The turn origin a prompt submission's `metadata` builds (v2 #3764 /
+/// #3832). The request wraps the client's object as the one-element array
+/// v2's `clientMetadata` is. A `origin` field inside it is a prompt origin
+/// in the transcript contract's shape — the `skill_activation` variant a
+/// user-slash activation carries, which the shipped web client nests there
+/// (`metadata.origin`, bundle `activateSkill`) — and is used as-is, so the
+/// v3 history projection can read the activation off the turn origin.
+/// Everything else keeps the opaque-client-metadata wrapping.
+fn prompt_origin_from_metadata(client_metadata: Option<&Value>) -> Option<Value> {
+    let metadata = client_metadata?;
+    let inner = &metadata[0];
+    inner
+        .get("origin")
+        .filter(|origin| origin.get("kind").and_then(Value::as_str).is_some())
+        .cloned()
+        .or_else(|| Some(json!({ "kind": "user", "clientMetadata": metadata })))
+}
+
 /// The media family a part's `type` names. Anything that is not video or
 /// audio is treated as an image, matching the intake's historical default.
 fn media_kind_of(kind: &str) -> crate::rpc::types::MediaKind {
@@ -1145,9 +1150,10 @@ fn apply_prompt_submission_options(
     // A dropped write here means the turn runs with the previous
     // model/thinking/profile/permission settings while the client believes the
     // submission was accepted. Surface it instead.
-    if let Err(e) = server
-        .store()
-        .put_state("agent_config", session_id, &agent_config)
+    if let Err(e) =
+        server
+            .store()
+            .put_session_state("agent_config", session_id, session_id, &agent_config)
     {
         return Err(format!("failed to persist the agent config: {e}"));
     }
@@ -1173,7 +1179,10 @@ fn apply_prompt_submission_options(
             meta.insert("permission_mode".to_string(), json!(mode));
         }
     }
-    if let Err(e) = server.store().put_state("metadata", session_id, &metadata) {
+    if let Err(e) = server
+        .store()
+        .put_session_state("metadata", session_id, session_id, &metadata)
+    {
         return Err(format!("failed to persist session metadata: {e}"));
     }
 
@@ -1329,11 +1338,22 @@ fn prompt_content_to_blocks(
                             .and_then(|value| value.as_str())
                             .unwrap_or("");
                         if kind == "image" {
-                            blocks.push(ContentBlock::Image {
-                                media_type: media_type.to_string(),
-                                data: data.to_string(),
-                                name,
-                            });
+                            // v2 `resolvePromptMediaFiles`: an inline image
+                            // over the model's pixel/byte budget is compressed
+                            // at intake, the original is persisted, and a
+                            // caption naming both precedes the image (ROADMAP
+                            // #3747b — the TUI path does this host-side; this
+                            // is the HTTP path's half).
+                            let (caption, block) = crate::llm::prompt_media::prepare_inline_image(
+                                files,
+                                media_type,
+                                data,
+                                name.as_deref(),
+                            );
+                            if let Some(caption) = caption {
+                                blocks.push(ContentBlock::Text { text: caption });
+                            }
+                            blocks.push(block);
                         } else {
                             let url = format!("data:{media_type};base64,{data}");
                             blocks.push(if kind == "audio" {
@@ -4773,14 +4793,34 @@ impl HttpServer {
                 let mut entities = crate::server::v3::projection::project_history(
                     session_id, &agent_id, &turns, &messages,
                 );
+                // The interaction entities the session's persisted lifecycle
+                // events fold into (ROADMAP §6.1 item 4): they carry no turn
+                // id, so they end the page the way the state domains do.
+                entities.extend(crate::server::v3::projection::project_interactions(
+                    session_id,
+                    &agent_id,
+                    &self
+                        .store
+                        .interaction_wire_events(session_id)
+                        .unwrap_or_default(),
+                ));
+                // The session-state entity: the model / thinking effort /
+                // permission mode the session's own state domains record, and
+                // the goal / mode flags the workspace store holds.
+                let workspace_state = fs_routes::resolve_session_workdir(self.store(), session_id)
+                    .and_then(|workdir| crate::storage::StateStore::for_workspace(&workdir).ok());
+                entities.extend(crate::server::v3::projection::project_session_state(
+                    self.store(),
+                    workspace_state.as_ref(),
+                    session_id,
+                    crate::server::ws_v3::now_millis(),
+                ));
                 // The state-domain entities (todo list, this session's
                 // background tasks) end the page, the way upstream's fold
                 // appends them after the last turn's entities.
-                if let Some(workdir) = fs_routes::resolve_session_workdir(self.store(), session_id)
-                    && let Ok(state) = crate::storage::StateStore::for_workspace(&workdir)
-                {
+                if let Some(state) = &workspace_state {
                     entities.extend(crate::server::v3::projection::project_state_domains(
-                        &state,
+                        state,
                         session_id,
                         &agent_id,
                         crate::server::ws_v3::now_millis(),
@@ -4917,7 +4957,18 @@ impl HttpServer {
                     .and_then(|rest| rest.strip_suffix("/children"))
                     .unwrap_or_default();
                 match self.store.list_children(session_id) {
-                    Ok(children) => HttpResponse::ok(&json!({ "children": children })),
+                    Ok(children) => {
+                        let items: Vec<Value> = children
+                            .into_iter()
+                            .map(|s| format_wire_session(&s, &self.store, self.engine.as_ref()))
+                            .collect();
+                        // v2 answers the paged `{items, has_more}` contract
+                        // (kap-server routes/sessions.ts:694,
+                        // pageResponseSchema(sessionSchema)); the web client
+                        // reads `.items`, so a `children` key leaves it
+                        // mapping over undefined.
+                        HttpResponse::ok(&json!({ "items": items, "has_more": false }))
+                    }
                     Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
                 }
             }
@@ -4951,9 +5002,12 @@ impl HttpServer {
                     return HttpResponse::internal_error(format!("Database error: {e}"));
                 }
                 if let Some(metadata) = body.get("metadata") {
-                    let _ = self
-                        .store
-                        .put_state("metadata", &child_session_id, metadata);
+                    let _ = self.store.put_session_state(
+                        "metadata",
+                        &child_session_id,
+                        &child_session_id,
+                        metadata,
+                    );
                 }
                 let created_session = self.store.get_session(&child_session_id).ok().flatten();
                 let session_val = if let Some(ref s) = created_session {
@@ -5634,7 +5688,12 @@ impl HttpServer {
                     } else {
                         current = cfg.clone();
                     }
-                    if let Err(e) = self.store.put_state("agent_config", session_id, &current) {
+                    if let Err(e) = self.store.put_session_state(
+                        "agent_config",
+                        session_id,
+                        session_id,
+                        &current,
+                    ) {
                         return HttpResponse::internal_error(format!(
                             "Failed to persist the agent config: {e}"
                         ));
@@ -6581,10 +6640,29 @@ impl HttpServer {
                     return HttpResponse::not_found();
                 }
                 let prompt_id = segments[6].trim_end_matches(":abort");
-                // An unknown / already-settled prompt is not in the queue, so
-                // the abort has no target: report it as a missing prompt
-                // rather than a false success.
-                if !self.prompt_queue.contains(session_id, prompt_id) {
+                // v2's `cancelWaiter` (loopService.ts:735-750): a queued prompt
+                // is removed from the queue so the driver never promotes it,
+                // and the active prompt's turn is cancelled. Either way the
+                // item is settled exactly once — the `prompt.aborted` below is
+                // its only terminal event, so the driver publishes no
+                // `prompt.completed` on top of it.
+                //
+                // The web UI's abort button sends the live
+                // `event.message.created` id (`msg-u{turn}`), which names the
+                // turn's user message rather than the prompt; resolving it
+                // here is what keeps the button working (ROADMAP §7.6).
+                let Some((prompt_id, outcome)) = self
+                    .prompt_queue
+                    .cancel(session_id, prompt_id)
+                    .map(|outcome| (prompt_id.to_string(), outcome))
+                    .or_else(|| {
+                        self.prompt_queue
+                            .cancel_by_user_message_id(session_id, prompt_id)
+                    })
+                else {
+                    // An unknown / already-settled prompt is not in the queue,
+                    // so the abort has no target: report it as a missing
+                    // prompt rather than a false success.
                     return HttpResponse::json(
                         404,
                         &json!({
@@ -6592,12 +6670,12 @@ impl HttpServer {
                             "msg": "no prompt with the requested id",
                         }),
                     );
+                };
+                if matches!(outcome, crate::server::prompt_queue::CancelOutcome::Active)
+                    && let Some(engine) = self.engine.as_ref()
+                {
+                    engine.cancel_turn(session_id);
                 }
-                let aborted = self
-                    .engine
-                    .as_ref()
-                    .map(|engine| engine.cancel_turn(session_id))
-                    .unwrap_or(false);
                 crate::server::prompt_queue::publish_prompt_event(
                     &self.hub,
                     session_id,
@@ -6609,7 +6687,7 @@ impl HttpServer {
                         "abortedAt": chrono::Utc::now().to_rfc3339(),
                     }),
                 );
-                HttpResponse::ok(&json!({ "aborted": aborted }))
+                HttpResponse::ok(&json!({ "aborted": true }))
             }
             ("POST", p) if p.starts_with("/api/v1/sessions/") && p.ends_with("/prompts") => {
                 let segments: Vec<&str> = p.split('/').collect();
@@ -6805,12 +6883,16 @@ impl HttpServer {
             persist_failures.push(format!("session title: {e}"));
         }
         if let Some(new_meta) = current_wire.get("metadata")
-            && let Err(e) = self.store.put_state("metadata", session_id, new_meta)
+            && let Err(e) = self
+                .store
+                .put_session_state("metadata", session_id, session_id, new_meta)
         {
             persist_failures.push(format!("session metadata: {e}"));
         }
         if let Some(new_cfg) = current_wire.get("agent_config")
-            && let Err(e) = self.store.put_state("agent_config", session_id, new_cfg)
+            && let Err(e) =
+                self.store
+                    .put_session_state("agent_config", session_id, session_id, new_cfg)
         {
             persist_failures.push(format!("agent config: {e}"));
         }
@@ -6894,12 +6976,16 @@ impl HttpServer {
             persist_failures.push(format!("session title: {e}"));
         }
         if let Some(new_meta) = current_wire.get("metadata")
-            && let Err(e) = self.store.put_state("metadata", session_id, new_meta)
+            && let Err(e) = self
+                .store
+                .put_session_state("metadata", session_id, session_id, new_meta)
         {
             persist_failures.push(format!("session metadata: {e}"));
         }
         if let Some(new_cfg) = current_wire.get("agent_config")
-            && let Err(e) = self.store.put_state("agent_config", session_id, new_cfg)
+            && let Err(e) =
+                self.store
+                    .put_session_state("agent_config", session_id, session_id, new_cfg)
         {
             persist_failures.push(format!("agent config: {e}"));
         }
@@ -6948,6 +7034,36 @@ mod tests {
         let val: Value = serde_json::from_slice(&res.body).unwrap();
         assert_eq!(val["status"], "ok");
         assert_eq!(val["engine"], "kimi-agent-rust");
+    }
+
+    /// v2 #3832: a metadata object that names its own variant is a prompt
+    /// origin (the transcript contract's shape), not opaque client metadata —
+    /// the v3 projection reads the `skill_activation` variant off the turn
+    /// origin for the opening user message's `skill_activations`.
+    #[test]
+    fn prompt_origin_from_metadata_distinguishes_origin_variants() {
+        let opaque = prompt_origin_from_metadata(Some(&json!([{ "surface": "web" }]))).unwrap();
+        assert_eq!(opaque["kind"], "user");
+        assert_eq!(opaque["clientMetadata"][0]["surface"], "web");
+
+        let activation = prompt_origin_from_metadata(Some(&json!([{
+            "origin": {
+                "kind": "skill_activation",
+                "trigger": "user-slash",
+                "skillName": "review",
+                "skillArgs": "src/main.rs",
+            },
+        }])))
+        .unwrap();
+        assert_eq!(activation["kind"], "skill_activation");
+        assert_eq!(activation["skillName"], "review");
+        assert_eq!(activation["skillArgs"], "src/main.rs");
+        assert!(
+            activation.get("clientMetadata").is_none(),
+            "an origin variant is not re-wrapped as client metadata"
+        );
+
+        assert!(prompt_origin_from_metadata(None).is_none());
     }
 
     #[tokio::test]
@@ -7090,7 +7206,10 @@ mod tests {
         let res_children = server.handle_request(&req_children).await;
         assert_eq!(res_children.status, 200);
         let val_children: Value = serde_json::from_slice(&res_children.body).unwrap();
-        assert_eq!(val_children["children"].as_array().unwrap().len(), 1);
+        // v2 answers the paged `{items, has_more}` contract; the web client
+        // reads `.items`.
+        assert_eq!(val_children["items"].as_array().unwrap().len(), 1);
+        assert_eq!(val_children["has_more"], false);
 
         // 5. Delete session
         let req_del = HttpRequest {
@@ -8700,6 +8819,47 @@ max_context_size = 128000
         assert_eq!(abort.status, 404);
         let abort_body: Value = serde_json::from_slice(&abort.body).unwrap();
         assert_eq!(abort_body["code"], 40402);
+    }
+
+    /// ROADMAP §7.6: the web UI's abort button sends the live
+    /// `event.message.created` id (`msg-u{turn}`). Before the message-id
+    /// resolution landed, the route answered 404 for exactly the id the
+    /// button holds.
+    #[tokio::test]
+    async fn abort_resolves_the_live_user_message_id_at_the_route() {
+        let server = HttpServer::in_memory().unwrap();
+        server.store().create_session("sess-abort", None).unwrap();
+
+        let (item, run) = server.prompt_queue.admit(
+            "sess-abort",
+            json!({
+                "prompt_id": "prompt-1",
+                "user_message_id": "msg-prompt-1",
+                "content": [{ "type": "text", "text": "hi" }],
+                "created_at": "2026-01-01T00:00:00Z",
+            }),
+            "hi".into(),
+            Vec::new(),
+            None,
+        );
+        assert!(run.is_some(), "the first prompt is active");
+        assert_eq!(item["status"], "running");
+        // The driver stamps the turn the live event names.
+        server.prompt_queue.stamp_active_turn("sess-abort", 2);
+
+        let abort = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions/sess-abort/prompts/msg-u2:abort".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(abort.status, 200);
+        let abort_body: Value = serde_json::from_slice(&abort.body).unwrap();
+        assert_eq!(abort_body["aborted"], true);
+        assert!(server.prompt_queue.active_is_cancelled("sess-abort"));
     }
 
     #[tokio::test]
@@ -12486,6 +12646,59 @@ max_context_size = 1000
         }
     }
 
+    /// ROADMAP #3747b: an inline base64 image over the model's pixel/byte
+    /// budget is compressed at intake, the original persisted, and a caption
+    /// naming both precedes the image — the HTTP path's half of v2's
+    /// `resolvePromptMediaFiles` (the TUI path does it host-side).
+    #[test]
+    fn prompt_content_compresses_an_over_budget_inline_image_with_a_caption() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = crate::server::files::FileStore::with_root(dir.path().to_path_buf());
+        let img = image::RgbImage::from_fn(4000, 3000, |x, y| {
+            image::Rgb([(x % 251) as u8, (y % 241) as u8, ((x + y) % 239) as u8])
+        });
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        use base64::Engine as _;
+        let data = base64::engine::general_purpose::STANDARD.encode(&png);
+
+        let content = vec![
+            json!({ "type": "text", "text": "look at this" }),
+            json!({
+                "type": "image",
+                "name": "shot.png",
+                "source": { "kind": "base64", "media_type": "image/png", "data": data },
+            }),
+        ];
+        let (prompt, blocks) = prompt_content_to_blocks(&content, &files).unwrap();
+        assert_eq!(prompt, "look at this");
+        assert_eq!(blocks.len(), 2, "the caption precedes the compressed image");
+
+        match &blocks[0] {
+            crate::rpc::types::ContentBlock::Text { text } => {
+                assert!(text.starts_with(
+                    "<system>Image compressed to fit model limits: original 4000x3000,"
+                ));
+                assert!(text.contains("call Read on that path"));
+            }
+            other => panic!("expected the compression caption, got {other:?}"),
+        }
+        match &blocks[1] {
+            crate::rpc::types::ContentBlock::Image {
+                media_type,
+                data: sent,
+                name,
+            } => {
+                assert_eq!(name.as_deref(), Some("shot.png"));
+                assert!(media_type.starts_with("image/"));
+                assert_ne!(sent, &data, "the sent bytes are the compressed ones");
+            }
+            other => panic!("expected the compressed image, got {other:?}"),
+        }
+    }
+
     #[test]
     fn prompt_content_rejects_an_unknown_file_id() {
         let dir = tempfile::tempdir().unwrap();
@@ -12697,7 +12910,8 @@ max_context_size = 1000
                 "turn",
                 "user",
                 "step",
-                "assistant"
+                "assistant",
+                "session.state"
             ]
         );
         assert_eq!(body["data"]["has_more"], false);
@@ -12715,8 +12929,11 @@ max_context_size = 1000
         let res = history_request(&server, session_id, Some("page_size=1")).await;
         let body: Value = serde_json::from_slice(&res.body).unwrap();
         let messages = body["data"]["messages"].as_array().unwrap();
-        assert_eq!(messages.len(), 4, "a page is whole turns");
+        // The newest page carries the turn plus the trailing session-state
+        // entity the route appends after the last turn.
+        assert_eq!(messages.len(), 5, "a page is whole turns");
         assert_eq!(messages[0]["turn_id"], "2");
+        assert_eq!(messages[4]["type"], "session.state");
         assert_eq!(body["data"]["has_more"], true);
 
         let res = history_request(&server, session_id, Some("after_step=1.1&page_size=1")).await;
@@ -12725,17 +12942,22 @@ max_context_size = 1000
         let messages = body["data"]["messages"].as_array().unwrap();
         assert_eq!(
             messages.len(),
-            4,
+            5,
             "forward paging must include the whole reply"
         );
         assert_eq!(messages[0]["turn_id"], "2");
         assert_eq!(messages[3]["type"], "assistant");
         assert_eq!(messages[3]["text"], "four");
+        assert_eq!(messages[4]["type"], "session.state");
         assert_eq!(body["data"]["has_more"], false);
 
         let res = history_request(&server, session_id, Some("after_step=2.1&page_size=1")).await;
         let body: Value = serde_json::from_slice(&res.body).unwrap();
-        assert!(body["data"]["messages"].as_array().unwrap().is_empty());
+        // Nothing newer than the last step except the trailing session-state
+        // entity, which belongs to no step.
+        let messages = body["data"]["messages"].as_array().unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["type"], "session.state");
         assert_eq!(body["data"]["has_more"], false);
 
         let res = history_request(&server, session_id, Some("before_turn=1")).await;
@@ -12777,10 +12999,16 @@ max_context_size = 1000
             ContentBlock::Think {
                 think: "first ".into(),
                 encrypted: None,
+                details_index: None,
+                reasoning_key: None,
+                hidden: None,
             },
             ContentBlock::Think {
                 think: "second".into(),
                 encrypted: None,
+                details_index: None,
+                reasoning_key: None,
+                hidden: None,
             },
         ];
         server
@@ -12792,7 +13020,7 @@ max_context_size = 1000
         assert_eq!(res.status, 200);
         let body: Value = serde_json::from_slice(&res.body).unwrap();
         let messages = body["data"]["messages"].as_array().unwrap();
-        assert_eq!(messages.len(), 5);
+        assert_eq!(messages.len(), 6);
         assert_eq!(messages[1]["type"], "user");
         assert_eq!(messages[1]["text"][0]["text"], "describe the attachment");
         assert_eq!(messages[1]["text"][1]["type"], "image");
@@ -12800,6 +13028,7 @@ max_context_size = 1000
         assert_eq!(messages[3]["message_id"], "3.1.thinking");
         assert_eq!(messages[3]["text"], "first second");
         assert_eq!(messages[4]["text"], "an attachment");
+        assert_eq!(messages[5]["type"], "session.state");
         assert_eq!(body["data"]["has_more"], false);
     }
 

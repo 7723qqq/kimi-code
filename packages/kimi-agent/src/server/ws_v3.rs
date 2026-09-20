@@ -29,9 +29,8 @@
 //! the global base, so no session filter applies to them — the same shape
 //! upstream's `GlobalMessageTranslator` serves.
 //!
-//! Still deliberate gaps: the workspace lane (`event.workspace.*`) has no
-//! producer in this fork yet, and capability is a static ACP initialize list
-//! with no change semantics to broadcast.
+//! Still a deliberate gap: capability is a static ACP initialize list with
+//! no change semantics to broadcast.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -55,6 +54,7 @@ use super::v3::live::LiveTranslator;
 use super::v3::messages::{
     AckMessage, ClientMessage, ConfigMessage, ConfigWarningMessage, ErrorMessage, HelloMessage,
     ModelCatalogMessage, PluginMessage, ServerMessage, SubscribeMessage, UnsubscribeMessage,
+    WorkspaceInfo, WorkspaceMessage, WorkspaceSubtype,
 };
 use super::v3::projection::project_history;
 use super::ws::{
@@ -140,6 +140,16 @@ pub async fn serve_ws_v3(
         control: control_tx,
         state_rx: subscription.state_rx(),
         sessions: HashMap::new(),
+        // Seeded from the store, the way upstream's global translator seeds
+        // its cache at connect: a deleted workspace's event carries only its
+        // id and root, so the full entity comes from here.
+        workspaces: store
+            .list_workspaces()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|ws| workspace_info_of(&serde_json::to_value(ws).ok()?))
+            .map(|info| (info.id.clone(), info))
+            .collect(),
     };
 
     // Decoding lives in its own task: `read_frame` is not cancel-safe, so losing
@@ -290,6 +300,11 @@ struct Connection<'a> {
     /// (subscriber stalled) is raced against the hub's overflow verdict.
     state_rx: watch::Receiver<u8>,
     sessions: HashMap<String, SessionStream>,
+    /// The workspace entities this connection has emitted, keyed by id: a
+    /// deleted workspace's event carries only its id and root, so the full
+    /// entity comes from here (upstream `GlobalMessageTranslator`'s cache,
+    /// seeded from the store when the connection opens).
+    workspaces: HashMap<String, WorkspaceInfo>,
 }
 
 /// What one subscribed session needs kept between events.
@@ -358,7 +373,7 @@ impl Connection<'_> {
     /// model-catalog and plugin bumps, workspace lifecycle — once per
     /// connection. The fork has producers for the config trio; the workspace
     /// lane and plugin/capability events do not exist yet.
-    fn translate_global(&self, event: &EngineEvent) -> Vec<ServerMessage> {
+    fn translate_global(&mut self, event: &EngineEvent) -> Vec<ServerMessage> {
         let now = now_millis();
         match event {
             EngineEvent::ConfigChanged {
@@ -392,6 +407,51 @@ impl Connection<'_> {
                 }
                 Some("event.plugin.changed") => {
                     vec![ServerMessage::Plugin(PluginMessage { timestamp: now })]
+                }
+                // The workspace lifecycle (upstream `GlobalMessageTranslator`):
+                // created / updated carry the full record, deleted only the id
+                // and root — the entity comes from this connection's cache,
+                // seeded from the store, with upstream's synthesized fallback
+                // when the cache has never seen it.
+                Some("event.workspace.created") | Some("event.workspace.updated") => {
+                    let Some(workspace) = value.get("workspace") else {
+                        return Vec::new();
+                    };
+                    let Some(info) = workspace_info_of(workspace) else {
+                        return Vec::new();
+                    };
+                    self.workspaces.insert(info.id.clone(), info.clone());
+                    vec![ServerMessage::Workspace(WorkspaceMessage {
+                        timestamp: now,
+                        subtype: if value.get("type").and_then(Value::as_str)
+                            == Some("event.workspace.created")
+                        {
+                            WorkspaceSubtype::Created
+                        } else {
+                            WorkspaceSubtype::Updated
+                        },
+                        workspace: info,
+                    })]
+                }
+                Some("event.workspace.deleted") => {
+                    let Some(workspace_id) = value.get("workspace_id").and_then(Value::as_str)
+                    else {
+                        return Vec::new();
+                    };
+                    let root = value
+                        .get("root")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    let info = self
+                        .workspaces
+                        .remove(workspace_id)
+                        .unwrap_or_else(|| synthesized_workspace_info(workspace_id, &root, now));
+                    vec![ServerMessage::Workspace(WorkspaceMessage {
+                        timestamp: now,
+                        subtype: WorkspaceSubtype::Deleted,
+                        workspace: info,
+                    })]
                 }
                 _ => Vec::new(),
             },
@@ -591,14 +651,34 @@ fn recovery_page(
     let turns = store.list_turns(session_id).unwrap_or_default();
     let messages = store.load_session_messages(session_id).unwrap_or_default();
     let mut entities = project_history(session_id, agent_id, &turns, &messages);
+    // The interaction entities the persisted lifecycle events fold into —
+    // the history route serves them, so a subscriber resuming from this page
+    // must not miss them either.
+    entities.extend(crate::server::v3::projection::project_interactions(
+        session_id,
+        agent_id,
+        &store
+            .interaction_wire_events(session_id)
+            .unwrap_or_default(),
+    ));
+    // The session-state entity the history route ends with — the model /
+    // permission the session recorded and the goal / mode flags the
+    // workspace store holds, so a resuming subscriber sees the same
+    // configuration without a second request.
+    let workspace_state = crate::server::fs_routes::resolve_session_workdir(store, session_id)
+        .and_then(|workdir| crate::storage::StateStore::for_workspace(&workdir).ok());
+    entities.extend(crate::server::v3::projection::project_session_state(
+        store,
+        workspace_state.as_ref(),
+        session_id,
+        now_millis(),
+    ));
     // The state-domain entities the history route ends with — a subscriber
     // resuming from this page must not miss the todo list or its own tasks
     // just because it skipped the route.
-    if let Some(workdir) = crate::server::fs_routes::resolve_session_workdir(store, session_id)
-        && let Ok(state) = crate::storage::StateStore::for_workspace(&workdir)
-    {
+    if let Some(state) = &workspace_state {
         entities.extend(crate::server::v3::projection::project_state_domains(
-            &state,
+            state,
             session_id,
             agent_id,
             now_millis(),
@@ -618,6 +698,53 @@ pub(crate) fn now_millis() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|since| since.as_millis() as i64)
         .unwrap_or_default()
+}
+
+/// The v3 workspace entity a stored workspace record projects to (the
+/// store's `WorkspaceSummary` is the same field set).
+fn workspace_info_of(workspace: &Value) -> Option<WorkspaceInfo> {
+    Some(WorkspaceInfo {
+        id: workspace.get("id").and_then(Value::as_str)?.to_string(),
+        root: workspace.get("root").and_then(Value::as_str)?.to_string(),
+        name: workspace
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        created_at: workspace
+            .get("created_at")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        last_opened_at: workspace
+            .get("last_opened_at")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        session_count: workspace.get("session_count").and_then(Value::as_i64)?,
+    })
+}
+
+/// The entity a deleted workspace falls back to when this connection never
+/// saw it (upstream `globalTranslator.ts`'s fallback: the root's basename
+/// for the name, the deletion moment for both timestamps, no sessions).
+fn synthesized_workspace_info(workspace_id: &str, root: &str, now: i64) -> WorkspaceInfo {
+    let iso = chrono::DateTime::from_timestamp_millis(now)
+        .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+        .unwrap_or_default();
+    let name = std::path::Path::new(root)
+        .file_name()
+        .map(|base| base.to_string_lossy().into_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| root.to_string());
+    WorkspaceInfo {
+        id: workspace_id.to_string(),
+        root: root.to_string(),
+        name: name.chars().take(100).collect(),
+        created_at: iso.clone(),
+        last_opened_at: iso,
+        session_count: 0,
+    }
 }
 
 async fn send_entity(
@@ -983,6 +1110,10 @@ mod tests {
         assert_eq!(stored_user["type"], "user");
         assert_eq!(stored_user["message_id"], "1.user");
         assert_eq!(stored_user["text"][0]["text"], "hello");
+        // The page ends with the session-state entity (the workspace store's
+        // mode flags), the way the history route serves it.
+        let page_state = client.next_json().await;
+        assert_eq!(page_state["type"], "session.state");
 
         // Then the live stream, in the same entity vocabulary and the same ids.
         hub.bus_for("sess-v3").publish(&EngineEvent::TurnStarted {
@@ -1030,6 +1161,9 @@ mod tests {
         let from_page = client.next_json().await;
         assert_eq!(from_page["type"], "user", "{from_page}");
         assert_eq!(from_page["message_id"], "1.user");
+        // The page's session-state entity is not omitted, so it arrives too.
+        let page_state = client.next_json().await;
+        assert_eq!(page_state["type"], "session.state", "{page_state}");
 
         // A live turn is omitted as well, so its user message is what arrives.
         hub.bus_for("sess-omit").publish(&EngineEvent::TurnStarted {
@@ -1151,6 +1285,65 @@ mod tests {
         handle.shutdown();
     }
 
+    /// The workspace lifecycle folds into the v3 workspace entity (upstream
+    /// `GlobalMessageTranslator`): created / updated carry the full record,
+    /// deleted only the id and root — the entity comes from the connection's
+    /// cache, seeded from the store, with the synthesized fallback when the
+    /// cache never saw it.
+    #[tokio::test]
+    async fn workspace_lifecycle_folds_into_the_workspace_entity() {
+        let server = Arc::new(crate::server::HttpServer::in_memory().unwrap());
+        let hub = server.hub();
+        let (mut client, handle) = WsClient::connect(&server, V3_WS_PATH).await;
+        let _hello = client.next_text().await;
+
+        // Created: the event carries the full record.
+        hub.bus_for("global")
+            .publish(&EngineEvent::Custom(serde_json::json!({
+                "type": "event.workspace.created",
+                "workspace": {
+                    "id": "wd_demo_0123456789ab",
+                    "root": "/work/demo",
+                    "name": "demo",
+                    "created_at": "2026-09-20T00:00:00.000Z",
+                    "last_opened_at": "2026-09-20T00:00:00.000Z",
+                    "session_count": 3,
+                },
+            })));
+        let created = client.next_json().await;
+        assert_eq!(created["type"], "workspace", "{created}");
+        assert_eq!(created["subtype"], "created");
+        assert_eq!(created["workspace"]["id"], "wd_demo_0123456789ab");
+        assert_eq!(created["workspace"]["session_count"], 3);
+
+        // Deleted: only the id and root ride the event; the entity comes from
+        // the cache the created event filled.
+        hub.bus_for("global")
+            .publish(&EngineEvent::Custom(serde_json::json!({
+                "type": "event.workspace.deleted",
+                "workspace_id": "wd_demo_0123456789ab",
+                "root": "/work/demo",
+            })));
+        let deleted = client.next_json().await;
+        assert_eq!(deleted["type"], "workspace", "{deleted}");
+        assert_eq!(deleted["subtype"], "deleted");
+        assert_eq!(deleted["workspace"]["name"], "demo");
+        assert_eq!(deleted["workspace"]["session_count"], 3);
+
+        // A workspace this connection never saw falls back to the
+        // synthesized shape (root basename, zero sessions).
+        hub.bus_for("global")
+            .publish(&EngineEvent::Custom(serde_json::json!({
+                "type": "event.workspace.deleted",
+                "workspace_id": "wd_other_ffffffffffff",
+                "root": "/work/other",
+            })));
+        let fallback = client.next_json().await;
+        assert_eq!(fallback["workspace"]["name"], "other", "{fallback}");
+        assert_eq!(fallback["workspace"]["session_count"], 0);
+        handle.shutdown();
+    }
+
     // Global-lane events fold into global-base entities delivered to every
     // subscriber, without a session subscription and regardless of its filter
     // (upstream `GlobalMessageTranslator`).
@@ -1183,6 +1376,9 @@ mod tests {
         assert_eq!(page_turn["type"], "turn", "{page_turn}");
         let page_user = client.next_json().await;
         assert_eq!(page_user["type"], "user", "{page_user}");
+        // The page's session-state entity arrives before the live lane.
+        let page_state = client.next_json().await;
+        assert_eq!(page_state["type"], "session.state", "{page_state}");
 
         // The warning arrives with no further action: the subscriber asked
         // for one session, and the global lane is not session state.

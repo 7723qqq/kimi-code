@@ -215,10 +215,10 @@ export interface JsLlmProviderDef {
   /** Per-provider system prompt override. */
   systemPrompt: string
   /**
-   * The racer's own native HTTP transport. Present for a provider the engine
-   * can call directly (`[agent].multi_llm` resolving each alias through
-   * `[providers.*]`); absent means this racer proxies `host/llm_chat`, which
-   * only works on a host that serves it.
+   * The racer's own native HTTP transport. Present for a provider the
+   * engine can call directly (`[agent].multi_llm` resolving each alias
+   * through `[providers.*]`); absent means this racer proxies
+   * `host/llm_chat`, which only works on a host that serves it.
    */
   native?: JsNativeLlmConfig
 }
@@ -360,6 +360,12 @@ export interface JsRunTurnParams {
    */
   maxAttempts?: number
   /**
+   * Total requests one compaction round may issue (v2 #3750,
+   * `loopControl.compactionMaxAttempts`). `None` = engine default (5);
+   * the engine floors a provided value at 1.
+   */
+  compactionMaxAttempts?: number
+  /**
    * Context window the host resolved for the active model. `None` keeps the
    * engine's default compaction budget.
    */
@@ -467,10 +473,11 @@ export interface JsRunTurnParams {
    */
   towerEnabled?: boolean
   /**
-   * Main-agent profile name (`--agent`, or the name an `--agent-file`
-   * defines). Selects the role overlay built into the session's system
-   * prompt; absent keeps the default `agent` profile. Distinct from
-   * `subagentProfiles`, which only feeds the `Agent` tool's spawn catalog.
+   * Main-agent profile name (`--agent`, or the name a `--agent-file`
+   * defines). Selects the role overlay built into the session prompt;
+   * `None` keeps the default `agent` profile. Unlike `subagent_profiles`
+   * (which only feeds the `Agent` tool's spawn catalog), this one shapes
+   * the main turn's system prompt.
    */
   agentProfile?: string
   /**
@@ -871,7 +878,7 @@ export declare function nativeEscapeXmlTags(text: string): string
  * Estimate token count from text using a character-based heuristic.
  *
  * ASCII: ~4 chars per token. Non-ASCII (CJK, emoji): ~1 char per token.
- * Matches the TS `estimateTokens` in
+ * Matches the TS `estimateTokens` in the retired fork-only kosong module
  * `packages/agent-core-v2/src/kosong/contract/tokens.ts`.
  *
  * Uses byte-level UTF-8 scanning — counts start bytes of multi-byte

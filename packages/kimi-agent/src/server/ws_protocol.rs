@@ -12,10 +12,10 @@
 //! - a refused `client_hello` credential is `code: 40112` (`AUTH_TOKEN_UNAUTHORIZED`)
 //!   followed by a close — kap-server's own `wsConnectionV1.authorize`.
 //!
-//! `subscribe` / `unsubscribe` / `watch_fs_add` / `watch_fs_remove` are parsed
-//! and acked (the watch registry tracks paths per connection, and
-//! `server/fs_watch.rs` turns mtime changes into `event.fs.changed` on the
-//! session lane). Top-level `resync_required` epoch-change frames have no
+//! `subscribe` / `unsubscribe` / `subscribe_v2` / `unsubscribe_v2` are parsed and
+//! acked; `abort` is the one inbound frame that ends a turn. Prompts are
+//! submitted over REST (`POST /sessions/{id}/prompts`), so there is no inbound
+//! prompt frame. Top-level `resync_required` epoch-change frames have no
 //! server-side trigger yet: the epoch never changes mid-connection here, and
 //! cursor mismatches are reported through the ack's `resync_required` array per
 //! the v1 contract.
@@ -268,13 +268,31 @@ pub fn unsubscribe_ack(
     })
 }
 
-/// The `subscribe_v2` / `unsubscribe_v2` ack body: which agents were attached
-/// or detached, and whether the session exists.
-pub fn subscribe_v2_ack(session_id: &str, agents: &[String], not_found: bool) -> Value {
+/// The `subscribe_v2` ack body (upstream `onSubscribeV2`,
+/// `wsConnectionV1.ts`): which session was accepted or not found, whether a
+/// resync is required, and the server-side cursor per accepted session —
+/// upstream's declared `subscribeAckPayloadSchema`. The fork's earlier
+/// `{session_id, agents, not_found}` shape matched no reference; the shipped
+/// bundle ignores acks, so aligning costs no consumer.
+pub fn subscribe_v2_ack(session_id: &str, accepted: bool, cursor_seq: u64) -> Value {
     serde_json::json!({
-        "session_id": session_id,
-        "agents": agents,
-        "not_found": not_found,
+        "accepted": if accepted { vec![session_id.to_string()] } else { Vec::<String>::new() },
+        "not_found": if accepted { Vec::<String>::new() } else { vec![session_id.to_string()] },
+        "resync_required": Vec::<String>::new(),
+        "cursors": if accepted {
+            serde_json::json!({ session_id: { "seq": cursor_seq } })
+        } else {
+            serde_json::json!({})
+        },
+    })
+}
+
+/// The `unsubscribe_v2` ack body (upstream `onUnsubscribeV2`).
+pub fn unsubscribe_v2_ack(session_id: &str) -> Value {
+    serde_json::json!({
+        "accepted": [session_id],
+        "not_found": Vec::<String>::new(),
+        "resync_required": Vec::<String>::new(),
     })
 }
 
@@ -361,14 +379,17 @@ pub enum Inbound {
         session_id: String,
         agent_ids: Vec<String>,
     },
-    /// Submit a prompt to drive an engine turn over WebSocket.
-    Prompt {
+    /// Abort the active turn of a session (kap-server's `abort` frame:
+    /// `payload: { session_id, prompt_id }`, `ws-control.ts`). Prompts are
+    /// submitted over REST, so this is the only inbound frame that ends a turn.
+    Abort {
         id: String,
         session_id: String,
-        prompt: String,
+        /// The prompt the client means to abort. Kap-server requires it;
+        /// the fork engine cancels by session, so it is carried through for
+        /// the ack and not used to select the turn.
+        prompt_id: String,
     },
-    /// Abort/cancel an active turn in a session over WebSocket.
-    Cancel { id: String, session_id: String },
     /// Attach to a terminal in a session.
     TerminalAttach {
         id: String,
@@ -402,21 +423,6 @@ pub enum Inbound {
         id: String,
         session_id: String,
         terminal_id: String,
-    },
-    /// Register workspace paths to watch for a session (ws-control.ts:199-202).
-    /// The control layer acks with the live watch set; `server/fs_watch.rs`
-    /// turns mtime changes into `event.fs.changed` on the session lane.
-    WatchFsAdd {
-        id: String,
-        session_id: String,
-        paths: Vec<String>,
-        recursive: bool,
-    },
-    /// Drop previously watched paths for a session (ws-control.ts:212-215).
-    WatchFsRemove {
-        id: String,
-        session_id: String,
-        paths: Vec<String>,
     },
     /// The reply to our `ping`. Liveness is already proved by any inbound frame,
     /// so there is nothing to record.
@@ -549,7 +555,7 @@ pub fn parse_inbound(raw: &[u8]) -> Inbound {
                 agent_ids,
             }
         }
-        Some("prompt") => {
+        Some("abort") => {
             let id = request_id(&frame);
             let payload = frame.get("payload").and_then(Value::as_object);
             let session_id = payload
@@ -557,26 +563,16 @@ pub fn parse_inbound(raw: &[u8]) -> Inbound {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
-            let prompt = payload
-                .and_then(|p| p.get("prompt"))
+            let prompt_id = payload
+                .and_then(|p| p.get("prompt_id").or_else(|| p.get("promptId")))
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
-            Inbound::Prompt {
+            Inbound::Abort {
                 id,
                 session_id,
-                prompt,
+                prompt_id,
             }
-        }
-        Some("cancel") | Some("abort") => {
-            let id = request_id(&frame);
-            let payload = frame.get("payload").and_then(Value::as_object);
-            let session_id = payload
-                .and_then(|p| p.get("session_id").or_else(|| p.get("sessionId")))
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            Inbound::Cancel { id, session_id }
         }
         Some("terminal_attach") => {
             let id = request_id(&frame);
@@ -691,41 +687,6 @@ pub fn parse_inbound(raw: &[u8]) -> Inbound {
                 id,
                 session_id,
                 terminal_id,
-            }
-        }
-        Some("watch_fs_add") => {
-            let id = request_id(&frame);
-            let payload = frame.get("payload").and_then(Value::as_object);
-            let session_id = payload
-                .and_then(|p| p.get("session_id").or_else(|| p.get("sessionId")))
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            let paths = parse_string_array(payload, "paths");
-            let recursive = payload
-                .and_then(|p| p.get("recursive"))
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            Inbound::WatchFsAdd {
-                id,
-                session_id,
-                paths,
-                recursive,
-            }
-        }
-        Some("watch_fs_remove") => {
-            let id = request_id(&frame);
-            let payload = frame.get("payload").and_then(Value::as_object);
-            let session_id = payload
-                .and_then(|p| p.get("session_id").or_else(|| p.get("sessionId")))
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            let paths = parse_string_array(payload, "paths");
-            Inbound::WatchFsRemove {
-                id,
-                session_id,
-                paths,
             }
         }
         Some(_) => Inbound::Unknown,
@@ -883,6 +844,30 @@ mod tests {
         assert_eq!(frame3["payload"]["delta"], "Let me consider...");
     }
 
+    /// The `subscribe_v2` / `unsubscribe_v2` acks carry upstream's
+    /// `subscribeAckPayloadSchema` shape (`accepted` / `not_found` /
+    /// `resync_required` / `cursors`), not the fork's earlier invented
+    /// `{session_id, agents, not_found}` — the shipped bundle ignores acks, so
+    /// the reference shape costs no consumer (ROADMAP §7.5).
+    #[test]
+    fn transcript_subscription_acks_use_the_upstream_shape() {
+        let accepted = subscribe_v2_ack("sess-a", true, 42);
+        assert_eq!(accepted["accepted"], json!(["sess-a"]));
+        assert_eq!(accepted["not_found"], json!([]));
+        assert_eq!(accepted["resync_required"], json!([]));
+        assert_eq!(accepted["cursors"]["sess-a"]["seq"], 42);
+
+        let missing = subscribe_v2_ack("sess-a", false, 0);
+        assert_eq!(missing["accepted"], json!([]));
+        assert_eq!(missing["not_found"], json!(["sess-a"]));
+        assert_eq!(missing["cursors"], json!({}));
+
+        let detached = unsubscribe_v2_ack("sess-a");
+        assert_eq!(detached["accepted"], json!(["sess-a"]));
+        assert_eq!(detached["not_found"], json!([]));
+        assert_eq!(detached["resync_required"], json!([]));
+    }
+
     #[test]
     fn inbound_frames_are_properly_discriminated() {
         assert_eq!(parse_inbound(br#"{"type":"pong"}"#), Inbound::Pong);
@@ -928,20 +913,26 @@ mod tests {
         );
         assert_eq!(
             parse_inbound(
+                br#"{"type":"abort","id":"a1","payload":{"session_id":"sess-1","prompt_id":"p1"}}"#
+            ),
+            Inbound::Abort {
+                id: "a1".into(),
+                session_id: "sess-1".into(),
+                prompt_id: "p1".into(),
+            }
+        );
+        // An inbound `prompt` / `cancel` frame is not part of the v1 vocabulary
+        // (prompts go over REST; the abort frame is `abort`), so it stays
+        // unknown rather than driving a turn.
+        assert_eq!(
+            parse_inbound(
                 br#"{"type":"prompt","id":"p1","payload":{"session_id":"sess-1","prompt":"hello"}}"#
             ),
-            Inbound::Prompt {
-                id: "p1".into(),
-                session_id: "sess-1".into(),
-                prompt: "hello".into(),
-            }
+            Inbound::Unknown
         );
         assert_eq!(
             parse_inbound(br#"{"type":"cancel","id":"c1","payload":{"session_id":"sess-1"}}"#),
-            Inbound::Cancel {
-                id: "c1".into(),
-                session_id: "sess-1".into(),
-            }
+            Inbound::Unknown
         );
         assert_eq!(
             parse_inbound(br#"{"type":"terminal_attach","id":"ta1","payload":{"session_id":"sess-1","terminal_id":"term-1","since_seq":10}}"#),
@@ -1066,35 +1057,6 @@ mod tests {
         assert_eq!(val_unsub["accepted"], json!(["s1"]));
         assert_eq!(val_unsub["not_found"], json!(["s_err"]));
         assert_eq!(val_unsub["resync_required"], json!([]));
-    }
-
-    /// `watch_fs_add` / `watch_fs_remove` parse into typed variants with the
-    /// contract's payload fields (ws-control.ts:198-215).
-    #[test]
-    fn watch_fs_frames_parse_into_typed_variants() {
-        let raw = br#"{"type":"watch_fs_add","id":"w1","payload":{"session_id":"s1","paths":["/ws/a","/ws/b"],"recursive":true}}"#;
-        match parse_inbound(raw) {
-            Inbound::WatchFsAdd {
-                id,
-                session_id,
-                paths,
-                recursive,
-            } => {
-                assert_eq!(id, "w1");
-                assert_eq!(session_id, "s1");
-                assert_eq!(paths, vec!["/ws/a", "/ws/b"]);
-                assert!(recursive);
-            }
-            other => panic!("expected WatchFsAdd, got {other:?}"),
-        }
-        let raw = br#"{"type":"watch_fs_remove","id":"w2","payload":{"session_id":"s1","paths":["/ws/a"]}}"#;
-        match parse_inbound(raw) {
-            Inbound::WatchFsRemove { id, paths, .. } => {
-                assert_eq!(id, "w2");
-                assert_eq!(paths, vec!["/ws/a"]);
-            }
-            other => panic!("expected WatchFsRemove, got {other:?}"),
-        }
     }
 
     /// The top-level `error` frame carries the contract payload

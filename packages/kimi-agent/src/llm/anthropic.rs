@@ -241,7 +241,9 @@ fn project_block(b: &ContentBlock) -> Value {
             "type": "text",
             "text": "[video omitted: not supported by this provider; re-read the file to view it]",
         }),
-        ContentBlock::Think { think, encrypted } => {
+        ContentBlock::Think {
+            think, encrypted, ..
+        } => {
             let mut obj = json!({ "type": "thinking", "thinking": think });
             if let Some(sig) = encrypted {
                 obj["signature"] = json!(sig);
@@ -279,6 +281,9 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
                 thinking.push(ContentBlock::Think {
                     think: think.to_string(),
                     encrypted: signature,
+                    details_index: None,
+                    reasoning_key: None,
+                    hidden: None,
                 });
             }
             Some("text") => {
@@ -619,6 +624,9 @@ impl StreamAccumulator {
                         thinking.push(ContentBlock::Think {
                             think,
                             encrypted: signature,
+                            details_index: None,
+                            reasoning_key: None,
+                            hidden: None,
                         });
                     }
                 }
@@ -1023,6 +1031,9 @@ mod tests {
             ContentBlock::Think {
                 think: "Let's calculate...".into(),
                 encrypted: Some("sig_abc123".into()),
+                details_index: None,
+                reasoning_key: None,
+                hidden: None,
             }
         );
     }
@@ -1055,6 +1066,9 @@ mod tests {
             ContentBlock::Think {
                 think: "Step-by-step reasoning".into(),
                 encrypted: Some("sig_xyz".into()),
+                details_index: None,
+                reasoning_key: None,
+                hidden: None,
             }
         );
     }
@@ -1292,6 +1306,9 @@ mod tests {
             blocks: vec![ContentBlock::Think {
                 think: "need to list files".into(),
                 encrypted: Some("sig-abc".into()),
+                details_index: None,
+                reasoning_key: None,
+                hidden: None,
             }],
             tool_calls: vec![ToolCall {
                 id: "call_ls".into(),

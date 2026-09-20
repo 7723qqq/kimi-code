@@ -204,7 +204,6 @@ async fn serve_connection(mut stream: TcpStream, server: Arc<HttpServer>) -> io:
                 store: Some(server.store_arc()),
                 engine: server.engine(),
                 terminal_manager: Some(server.terminal_manager()),
-                fs_watch: server.fs_watch(),
             },
         )
         .await

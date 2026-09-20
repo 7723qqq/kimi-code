@@ -834,6 +834,10 @@ pub struct JsRunTurnParams {
     /// LLM retry attempts per step (v2 `loopControl.maxAttemptsPerStep`).
     /// `None` = engine default (10).
     pub max_attempts: Option<u32>,
+    /// Total requests one compaction round may issue (v2 #3750,
+    /// `loopControl.compactionMaxAttempts`). `None` = engine default (5);
+    /// the engine floors a provided value at 1.
+    pub compaction_max_attempts: Option<u32>,
     /// Context window the host resolved for the active model. `None` keeps the
     /// engine's default compaction budget.
     pub max_context_tokens: Option<u32>,
@@ -1583,6 +1587,207 @@ fn sorted_list(values: Option<&[String]>) -> String {
         .join(",")
 }
 
+/// One public MCP entry as the host-facing `mcp.server.status` event (v2
+/// `McpServerStatus`, agent-core-v2 `agent/mcp/mcpEvents.ts:13-23`). `error` is
+/// omitted when absent so the payload carries the protocol's optional field
+/// rather than a `null` the zod schema would reject.
+fn mcp_status_event(entry: &crate::mcp::manager::McpServerEntry) -> serde_json::Value {
+    let mut server = serde_json::json!({
+        "name": entry.name,
+        "transport": entry.transport,
+        "status": entry.status,
+        "toolCount": entry.tool_count,
+    });
+    if let Some(error) = &entry.error {
+        server["error"] = serde_json::json!(error);
+    }
+    serde_json::json!({ "type": "mcp.server.status", "server": server })
+}
+
+/// Owns one session's MCP status subscription. Dropping it unsubscribes from
+/// the (process-wide, shared) manager, so a disposed session stops receiving
+/// transitions and, more importantly, stops holding its event TSFN alive
+/// (v2 `attachMcpTools`'s `_register` disposal, mcpService.ts:154-166).
+struct McpStatusBridge {
+    manager: Arc<crate::mcp::McpManager>,
+    subscription: crate::mcp::manager::McpStatusSubscription,
+}
+
+impl Drop for McpStatusBridge {
+    fn drop(&mut self) {
+        self.manager.unsubscribe_status(self.subscription);
+    }
+}
+
+/// Bridge the manager's status transitions to the host's event stream, so a
+/// server that connects (or fails) *after* `createSession` returned still
+/// reaches the UI (v2 `handleMcpServerStatusChange`, mcpService.ts:168-180).
+///
+/// The manager starts its connects in the background — `createSession` does
+/// not await them — so without this bridge the host only ever saw the one-shot
+/// roster snapshot and a still-connecting server stayed `pending` forever.
+///
+/// v2 also replays the current roster here; that replay is deliberately
+/// omitted: it runs before the host has subscribed (so the events are dropped
+/// anyway), and replaying a stale `pending` after the host's own snapshot
+/// already rendered `connected` would resurrect a spinner that never stops.
+/// The host's roster snapshot is the initial sync; this bridge carries the
+/// transitions after it.
+fn attach_mcp_status(
+    manager: &Option<Arc<crate::mcp::McpManager>>,
+    callbacks: Arc<dyn crate::callbacks::HostCallbacks>,
+) -> Option<Arc<McpStatusBridge>> {
+    let manager = manager.as_ref()?.clone();
+    let listener: crate::mcp::manager::McpStatusListener =
+        Box::new(move |entry| callbacks.emit_event(mcp_status_event(&entry)));
+    let subscription = manager.on_status_change(listener);
+    Some(Arc::new(McpStatusBridge {
+        manager,
+        subscription,
+    }))
+}
+
+/// One interactive cron dispatcher per workspace root.
+///
+/// The cron registry is workspace-scoped (the state-bridge `cron` domain), so
+/// a per-session tick loop would fire the same job once per live session. One
+/// dispatcher per workspace ticks it; each tick resolves a *live* session for
+/// the workspace through [`live_session_for_workspace`], so a settings rebuild
+/// (which replaces the session handle) does not lose the dispatcher.
+static CRON_DISPATCHERS: LazyLock<Mutex<std::collections::HashSet<String>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
+
+/// A live (non-shutdown) session entry in `workspace`, if any.
+fn live_session_for_workspace(workspace: &str) -> Option<SessionEntry> {
+    let registry = SESSION_REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
+    registry
+        .values()
+        .find(|entry| entry.workspace == workspace && !entry.session.is_shutdown())
+        .cloned()
+}
+
+/// The host's cron registry as scheduler entries (mirrors the print path's
+/// `session::read_cron_registry`).
+async fn read_cron_registry(
+    callbacks: &Arc<dyn crate::callbacks::HostCallbacks>,
+) -> Option<Vec<crate::cron::scheduler::CronEntry>> {
+    let response = callbacks
+        .state_read(StateReadRequest {
+            domain: "cron".into(),
+            key: "cron".into(),
+            turn_id: String::new(),
+            tool_call_id: String::new(),
+        })
+        .await
+        .ok()?;
+    Some(
+        response
+            .value
+            .as_array()?
+            .iter()
+            .filter_map(|task| {
+                Some(crate::cron::scheduler::CronEntry {
+                    id: task.get("id")?.as_str()?.to_string(),
+                    cron: task.get("cron")?.as_str()?.to_string(),
+                    prompt: task.get("prompt")?.as_str()?.to_string(),
+                    recurring: task
+                        .get("recurring")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(true),
+                    session_id: None,
+                    created_at: task.get("createdAt").and_then(serde_json::Value::as_i64),
+                })
+            })
+            .collect(),
+    )
+}
+
+/// Start the workspace's interactive cron dispatcher once.
+///
+/// The native host has no daemon tick loop, so the engine owns one: every 15s
+/// it reads the cron registry through a live session, fires due entries
+/// (publishing `cron.fired` for the TUI's cron card and enqueuing the
+/// `<cron-fire>` prompt as a turn), and deletes one-shot / stale jobs. Before
+/// this the CLI's `CronCreate` jobs never fired at all.
+fn spawn_cron_dispatcher(workspace: &str) {
+    if workspace.is_empty() {
+        return;
+    }
+    {
+        let mut dispatchers = CRON_DISPATCHERS.lock().unwrap_or_else(|e| e.into_inner());
+        if !dispatchers.insert(workspace.to_string()) {
+            return;
+        }
+    }
+    let workspace = workspace.to_string();
+    tokio::spawn(async move {
+        let mut last_tick = crate::session::now_ms_epoch();
+        loop {
+            tokio::time::sleep(Duration::from_secs(15)).await;
+            let now = crate::session::now_ms_epoch();
+            let Some(live) = live_session_for_workspace(&workspace) else {
+                // No live session to run a fired job in; leave `last_tick`
+                // alone so a job due while nothing was listening still fires
+                // once a session comes back.
+                continue;
+            };
+            let callbacks = live.callbacks.clone();
+            let Some(entries) = read_cron_registry(&callbacks).await else {
+                last_tick = now;
+                continue;
+            };
+            let mut scheduler = crate::cron::scheduler::CronScheduler::new(
+                entries,
+                crate::session::local_utc_offset_minutes(),
+            );
+            let fired = scheduler.tick(last_tick, now);
+            last_tick = now;
+            for fired_entry in fired {
+                let entry = &fired_entry.entry;
+                let origin = crate::session::cron_fire_origin(
+                    entry,
+                    fired_entry.coalesced_count,
+                    fired_entry.stale,
+                );
+                callbacks.emit_event(serde_json::json!({
+                    "type": "cron.fired",
+                    "origin": origin,
+                    "prompt": entry.prompt,
+                }));
+                // One-shot jobs auto-delete after firing; stale recurring ones
+                // go the same way (v2 removes them after firing).
+                if !entry.recurring || fired_entry.stale {
+                    let _ = callbacks
+                        .state_write(StateWriteRequest {
+                            domain: "cron".into(),
+                            key: "cron".into(),
+                            value: serde_json::json!({ "action": "delete", "id": entry.id }),
+                            undoable: false,
+                            turn_id: String::new(),
+                            tool_call_id: String::new(),
+                        })
+                        .await;
+                }
+                let rendered = crate::session::render_cron_fire(
+                    entry,
+                    fired_entry.coalesced_count,
+                    fired_entry.stale,
+                );
+                let _ = live.session.enqueue_turn(TurnRequest {
+                    prompt: LLMMessage {
+                        role: "user".into(),
+                        content: rendered.clone(),
+                        ..Default::default()
+                    },
+                    admission: Admission::NewTurn,
+                    input: serde_json::json!([{ "type": "text", "text": rendered }]),
+                    origin,
+                });
+            }
+        }
+    });
+}
+
 /// The addon entry's view of the shared engine pipeline
 /// (`kimi_agent::pipeline`). The chain itself — counting wrapper, native-tool
 /// wrapper and its guards, LLM selection — lives there once; this normalizes
@@ -1595,7 +1800,7 @@ async fn build_engine_pipeline(
     parent_cancel: Option<crate::subagent::types::ParentCancel>,
     parent_cancel_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
     steer_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
-) -> napi::Result<EnginePipeline> {
+) -> napi::Result<(EnginePipeline, Option<Arc<McpStatusBridge>>)> {
     // Session profile catalog snapshot (P46): refresh the process-wide
     // manager's definitions per turn so the native `Agent` tool sees the
     // host's builtin/workspace/user profiles (plugin and external-backend
@@ -1914,24 +2119,25 @@ async fn build_engine_pipeline(
         ),
     };
 
-    pipeline::build_engine_pipeline(
+    let host_callbacks: Arc<dyn crate::callbacks::HostCallbacks> = Arc::new(NapiHostCallbacks {
+        llm_chat_fn: Arc::new(tsfns.llm_chat),
+        execute_tool_fn: Arc::new(tsfns.execute_tool),
+        emit_event_fn: tsfns.emit_event.map(Arc::new),
+        check_permission_fn: tsfns.check_permission.map(Arc::new),
+        ask_question_fn: tsfns.ask_question.map(Arc::new),
+        state_read_fn: tsfns.state_read.map(Arc::new),
+        checkpoint_fn: tsfns.checkpoint.map(Arc::new),
+        state_write_fn: tsfns.state_write.map(Arc::new),
+        turn_event_fn: tsfns.turn_event.map(Arc::new),
+        telemetry_fn: tsfns.telemetry.map(Arc::new),
+        list_tools_fn: tsfns.list_tools.map(Arc::new),
+        goal_fn: tsfns.goal.map(Arc::new),
+        auth_token_fn: tsfns.auth_token.map(Arc::new),
+        cancellation: tsfns.cancellation,
+    });
+    let pipeline = pipeline::build_engine_pipeline(
         &spec,
-        Arc::new(NapiHostCallbacks {
-            llm_chat_fn: Arc::new(tsfns.llm_chat),
-            execute_tool_fn: Arc::new(tsfns.execute_tool),
-            emit_event_fn: tsfns.emit_event.map(Arc::new),
-            check_permission_fn: tsfns.check_permission.map(Arc::new),
-            ask_question_fn: tsfns.ask_question.map(Arc::new),
-            state_read_fn: tsfns.state_read.map(Arc::new),
-            checkpoint_fn: tsfns.checkpoint.map(Arc::new),
-            state_write_fn: tsfns.state_write.map(Arc::new),
-            turn_event_fn: tsfns.turn_event.map(Arc::new),
-            telemetry_fn: tsfns.telemetry.map(Arc::new),
-            list_tools_fn: tsfns.list_tools.map(Arc::new),
-            goal_fn: tsfns.goal.map(Arc::new),
-            auth_token_fn: tsfns.auth_token.map(Arc::new),
-            cancellation: tsfns.cancellation,
-        }),
+        host_callbacks.clone(),
         PipelineHost {
             subagent_manager: SUBAGENT_MANAGER.clone(),
             parent_cancel,
@@ -1939,10 +2145,23 @@ async fn build_engine_pipeline(
             steer_slot,
             mcp_manager,
             event_bus: None,
+            // Background-task lifecycle reaches the TUI through the same host
+            // callbacks the turn events use: the pipeline owns its own runner,
+            // so without this sink its `event.task.*` go nowhere.
+            task_event_sink: Some({
+                let callbacks = host_callbacks.clone();
+                Arc::new(move |_session, event| callbacks.emit_event(event))
+            }),
         },
     )
     .await
-    .map_err(|error| napi::Error::from_reason(error.message))
+    .map_err(|error| napi::Error::from_reason(error.message))?;
+    // Forward MCP status transitions on the raw host callbacks, not the
+    // counting wrapper: an MCP transition is not turn work, so it must not
+    // inflate the turn's event-count telemetry, and it must not ride the event
+    // bus (the standalone server's web vocabulary has no such event).
+    let mcp_status = attach_mcp_status(&pipeline.mcp_manager, host_callbacks);
+    Ok((pipeline, mcp_status))
 }
 
 /// Inner async implementation — all captured values are `Send`.
@@ -1974,7 +2193,7 @@ async fn run_turn_rust_impl(
     // statement at all.
     let _cancel_guard = MapEntryGuard::insert(&CANCEL_MAP, turn_id.clone(), parent_cancel.clone());
 
-    let pipeline = build_engine_pipeline(
+    let (pipeline, _mcp_status) = build_engine_pipeline(
         &params,
         EngineCallbackTsfns {
             llm_chat: llm_chat_tsfn,
@@ -2064,9 +2283,9 @@ async fn run_turn_rust_impl(
         max_steps: params.max_steps.unwrap_or(u32::MAX),
         max_context_tokens,
         // The napi host passes its own `[loop_control]` caps through
-        // `max_attempts`; the compaction cap has no napi parameter yet, so this
-        // path keeps the engine default.
-        compaction_max_attempts: None,
+        // `max_attempts` and `compaction_max_attempts`; `None` on either
+        // keeps the engine default.
+        compaction_max_attempts: params.compaction_max_attempts,
         permission_mode: pipeline.permission_mode,
         goal,
         cancellation: Some(cancellation),
@@ -2189,6 +2408,18 @@ struct SessionEntry {
     /// is built once per session, and without a handle the host had no way to
     /// see servers the engine had already connected.
     mcp_manager: Option<Arc<crate::mcp::McpManager>>,
+    /// The session's workspace root, so the process-wide cron dispatcher can
+    /// find a live session to run a fired job in.
+    workspace: String,
+    /// The session's host callbacks, so the cron dispatcher can read the cron
+    /// registry and publish `cron.fired` through a live session's channel.
+    callbacks: Arc<dyn crate::callbacks::HostCallbacks>,
+    /// The session's MCP status subscription. Held here (rather than inside the
+    /// pipeline) so it lives exactly as long as the session: dropping the
+    /// registry entry on `session_dispose` unsubscribes the shared manager.
+    /// The value is never read — the field exists for its `Drop`.
+    #[allow(dead_code)]
+    mcp_status: Option<Arc<McpStatusBridge>>,
 }
 
 fn session_entry(session_id: &str) -> napi::Result<SessionEntry> {
@@ -2304,7 +2535,7 @@ pub fn create_engine_session(
             // the pipeline and refreshed per turn by the session pump.
             let steer_slot: Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>> =
                 Arc::new(std::sync::Mutex::new(None));
-            let pipeline = build_engine_pipeline(
+            let (pipeline, mcp_status) = build_engine_pipeline(
                 &params,
                 EngineCallbackTsfns {
                     llm_chat: llm_chat_tsfn,
@@ -2380,7 +2611,7 @@ pub fn create_engine_session(
                     params.native_llm.as_ref(),
                     params.max_context_tokens,
                 ),
-                compaction_max_attempts: None,
+                compaction_max_attempts: params.compaction_max_attempts,
                 permission_mode: pipeline.permission_mode,
                 tool_defs: tool_defs_provider,
                 goal: goal_provider,
@@ -2404,6 +2635,9 @@ pub fn create_engine_session(
             // the drain (the pump) is gone with it.
             let host_session_id = params.session_id.clone().unwrap_or_default();
             let session = Arc::new(session);
+            // Interactive cron: the native host has no daemon tick loop, so the
+            // engine starts one per workspace (see `spawn_cron_dispatcher`).
+            spawn_cron_dispatcher(params.workspace_root.as_deref().unwrap_or_default());
             if let Some(runner) = pipeline.task_runner.clone() {
                 let weak = Arc::downgrade(&session);
                 runner.set_liveness_check(Arc::new(move |session: Option<&str>| {
@@ -2436,6 +2670,9 @@ pub fn create_engine_session(
                         ),
                         quiescence_guard: Arc::new(Mutex::new(None)),
                         mcp_manager: pipeline.mcp_manager.clone(),
+                        workspace: params.workspace_root.clone().unwrap_or_default(),
+                        callbacks: pipeline.callbacks.clone(),
+                        mcp_status,
                     },
                 );
             Ok(session_id)

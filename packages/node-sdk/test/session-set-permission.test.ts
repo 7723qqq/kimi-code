@@ -43,6 +43,31 @@ describe('Session.setPermission', () => {
     },
   );
 
+  it('persists the mode so a resumed session keeps it', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-permission-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-permission-work-');
+    const sessionId = 'ses_permission_resume';
+
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    try {
+      const session = await harness.createSession({ id: sessionId, workDir });
+      await session.setPermission('yolo');
+    } finally {
+      await harness.close();
+    }
+
+    // A mid-conversation switch must survive resume: the engine handle is
+    // rebuilt from the persisted meta, so a stale write would come back as the
+    // previous mode and prompt for tools the user had already allowed.
+    const resumedHarness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    try {
+      const resumed = await resumedHarness.resumeSession({ id: sessionId });
+      await expect(resumed.getStatus()).resolves.toMatchObject({ permission: 'yolo' });
+    } finally {
+      await resumedHarness.close();
+    }
+  });
+
   it('rejects invalid permission modes', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-permission-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-permission-work-');

@@ -57,9 +57,17 @@ pub struct HookGuard {
     /// the guard — and never overwritten. Fire-and-forget: emission must
     /// never affect the hook verdict.
     telemetry: std::sync::OnceLock<TelemetrySink>,
+    /// Host-facing `hook.result` sink (v2's hook-result event): the hook's
+    /// stdout and whether it blocked. Set once after construction; emission is
+    /// fire-and-forget and must never affect the verdict.
+    hook_result: std::sync::OnceLock<HookResultSink>,
 }
 
 pub type TelemetrySink = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
+
+/// `(hook_event, content, blocked)` — one entry per hook run, so the host can
+/// render what the hook said and whether it vetoed.
+pub type HookResultSink = Arc<dyn Fn(&str, &str, bool) + Send + Sync>;
 
 enum Matcher {
     All,
@@ -115,6 +123,7 @@ impl HookGuard {
             matchers,
             invalid,
             telemetry: std::sync::OnceLock::new(),
+            hook_result: std::sync::OnceLock::new(),
         }
     }
 
@@ -124,6 +133,12 @@ impl HookGuard {
     /// never duplicate an event.
     pub fn with_telemetry(self: &Arc<Self>, sink: TelemetrySink) {
         let _ = self.telemetry.set(sink);
+    }
+
+    /// Install the host-facing `hook.result` sink. Same single-install rule as
+    /// [`Self::with_telemetry`]; without it the hook output is dropped.
+    pub fn with_hook_result(self: &Arc<Self>, sink: HookResultSink) {
+        let _ = self.hook_result.set(sink);
     }
 
     /// Hooks whose matcher failed to compile (and therefore never match).
@@ -168,22 +183,29 @@ impl HookGuard {
                 .map(|hook| run_pre_tool_use_hook(hook, &payload)),
         )
         .await;
+        // Host-facing `hook.result`: one event per hook run, carrying its
+        // stdout and whether it vetoed.
+        if let Some(sink) = self.hook_result.get() {
+            for (reason, stdout) in &results {
+                sink("PreToolUse", stdout, reason.is_some());
+            }
+        }
         // v2 #3897 `external_hook_resolved`: one usage event per trigger, with
         // the resolve action and the per-hook failure counts. The verdict below
         // is unchanged — the event only observes it.
         let matched_count = results.len();
         let failed_count = results
             .iter()
-            .filter(|result| {
+            .filter(|(reason, _)| {
                 matches!(
-                    result.as_deref(),
+                    reason.as_deref(),
                     Some(text)
                         if text.starts_with(TIMED_OUT) || text.starts_with(ERRORED)
                 )
             })
             .count();
         if let Some(sink) = self.telemetry.get() {
-            let action = if results.iter().any(Option::is_some) {
+            let action = if results.iter().any(|(reason, _)| reason.is_some()) {
                 "block"
             } else {
                 "allow"
@@ -198,7 +220,7 @@ impl HookGuard {
                 }),
             );
         }
-        results.into_iter().find_map(|result| result)
+        results.into_iter().find_map(|(reason, _)| reason)
     }
 
     /// Notify user-configured `PostToolUse` and `PostToolUseFailure` hooks
@@ -232,7 +254,12 @@ impl HookGuard {
             "error": if is_error { Some(content) } else { None },
         });
         // Fire-and-forget: spawn matching hooks concurrently
-        spawn_hooks("PostToolUse", matched, payload);
+        spawn_hooks(
+            "PostToolUse",
+            matched,
+            payload,
+            self.hook_result.get().cloned(),
+        );
     }
 
     /// Notify user-configured `UserPromptSubmit` hooks (v2
@@ -251,7 +278,12 @@ impl HookGuard {
             "turn_id": turn_id,
             "prompt": prompt,
         });
-        spawn_hooks("UserPromptSubmit", matched, payload);
+        spawn_hooks(
+            "UserPromptSubmit",
+            matched,
+            payload,
+            self.hook_result.get().cloned(),
+        );
     }
 
     /// Notify user-configured `PreCompact` hooks (v2
@@ -271,7 +303,12 @@ impl HookGuard {
             "turn_id": turn_id,
             "message_count": message_count,
         });
-        spawn_hooks("PreCompact", matched, payload);
+        spawn_hooks(
+            "PreCompact",
+            matched,
+            payload,
+            self.hook_result.get().cloned(),
+        );
     }
 
     /// Notify user-configured `SessionStart` / `SessionEnd` hooks (v2
@@ -285,7 +322,7 @@ impl HookGuard {
         if matched.is_empty() {
             return;
         }
-        spawn_hooks(event, matched, payload);
+        spawn_hooks(event, matched, payload, self.hook_result.get().cloned());
     }
 
     /// Run matching `Stop` hooks when a turn is about to end (v2
@@ -316,9 +353,14 @@ impl HookGuard {
             matched.iter().map(|hook| run_stop_hook(hook, &payload)),
         )
         .await;
+        if let Some(sink) = self.hook_result.get() {
+            for (reason, stdout) in &results {
+                sink("Stop", stdout, reason.is_some());
+            }
+        }
         // Block reasons never come back empty (`fallback_reason` fills the
         // v2 default), so the first veto wins.
-        results.into_iter().flatten().next()
+        results.into_iter().filter_map(|(reason, _)| reason).next()
     }
 }
 
@@ -326,14 +368,21 @@ impl HookGuard {
 /// notifies whose outcome the turn never reads. The payload gains the
 /// `hook_event_name` field (v2 `toHookInputData` always carries it, and
 /// hook scripts commonly switch on it).
-fn spawn_hooks(event: &str, matched: Vec<HookDef>, payload: Value) {
+fn spawn_hooks(event: &str, matched: Vec<HookDef>, payload: Value, sink: Option<HookResultSink>) {
     for hook in matched {
         let mut p = payload.clone();
         if let Some(obj) = p.as_object_mut() {
             obj.insert("hook_event_name".into(), Value::String(event.to_string()));
         }
+        let sink = sink.clone();
+        let event = event.to_string();
         tokio::spawn(async move {
-            let _ = run_pre_tool_use_hook(&hook, &p).await;
+            let (reason, stdout) = run_pre_tool_use_hook(&hook, &p).await;
+            // Host-facing `hook.result`: the observe-only notifies still report
+            // what the hook printed (v2 emits it for every run).
+            if let Some(sink) = sink {
+                sink(&event, &stdout, reason.is_some());
+            }
         });
     }
 }
@@ -345,7 +394,11 @@ fn spawn_hooks(event: &str, matched: Vec<HookDef>, payload: Value) {
 /// blocks with its reason, spawn/timeout failures fail closed; anything
 /// else (including plain-text stdout) allows. Empty reasons fall back to
 /// the v2 `Blocked by {event} hook` default.
-async fn run_stop_hook(hook: &HookDef, payload: &Value) -> Option<String> {
+/// `(block reason, stdout)` — the reason gates the call, the stdout feeds the
+/// host's `hook.result` event.
+type HookOutcome = (Option<String>, String);
+
+async fn run_stop_hook(hook: &HookDef, payload: &Value) -> HookOutcome {
     run_hook_with_denial(hook, payload, "Stop").await
 }
 
@@ -389,13 +442,13 @@ fn platform_string() -> &'static str {
 /// here reports a `PreToolUse`-shaped verdict, including the observe-only
 /// notifies (which discard it) — pass an explicit event only via
 /// [`run_hook_with_denial`].
-async fn run_pre_tool_use_hook(hook: &HookDef, payload: &Value) -> Option<String> {
+async fn run_pre_tool_use_hook(hook: &HookDef, payload: &Value) -> HookOutcome {
     run_hook_with_denial(hook, payload, "PreToolUse").await
 }
 
 /// [`run_pre_tool_use_hook`] with the v2 `matchHooks.ts` fallback for the triggering
 /// event: an empty block reason becomes `Blocked by {event} hook`.
-async fn run_hook_with_denial(hook: &HookDef, payload: &Value, event: &str) -> Option<String> {
+async fn run_hook_with_denial(hook: &HookDef, payload: &Value, event: &str) -> HookOutcome {
     let timeout = Duration::from_secs(
         hook.timeout
             .unwrap_or(DEFAULT_HOOK_TIMEOUT_SECS)
@@ -404,7 +457,7 @@ async fn run_hook_with_denial(hook: &HookDef, payload: &Value, event: &str) -> O
     let mut child = match spawn_hook_command(&hook.command, hook.cwd.as_deref(), hook.env.as_ref())
     {
         Ok(child) => child,
-        Err(e) => return Some(format!("{FAILED_TO_SPAWN}{e}")),
+        Err(e) => return (Some(format!("{FAILED_TO_SPAWN}{e}")), String::new()),
     };
 
     let payload_json = serde_json::to_string(payload).unwrap_or_else(|_| "{}".into());
@@ -413,7 +466,7 @@ async fn run_hook_with_denial(hook: &HookDef, payload: &Value, event: &str) -> O
         None => {
             let _ = child.kill().await;
             let _ = child.wait().await;
-            return Some(ERRORED.into());
+            return (Some(ERRORED.into()), String::new());
         }
     };
     // v2 attaches an empty 'error' handler to the hook's stdin and ends the
@@ -450,7 +503,7 @@ async fn run_hook_with_denial(hook: &HookDef, payload: &Value, event: &str) -> O
             Err(_) => {
                 let _ = child.kill().await;
                 let _ = child.wait().await;
-                return Some(ERRORED.into());
+                return (Some(ERRORED.into()), String::new());
             }
         },
         _ = tokio::time::sleep(timeout) => {
@@ -458,7 +511,7 @@ async fn run_hook_with_denial(hook: &HookDef, payload: &Value, event: &str) -> O
             // for children, so the kill is direct.
             let _ = child.kill().await;
             let _ = child.wait().await;
-            return Some(TIMED_OUT.into());
+            return (Some(TIMED_OUT.into()), String::new());
         }
     };
 
@@ -466,7 +519,10 @@ async fn run_hook_with_denial(hook: &HookDef, payload: &Value, event: &str) -> O
     let err_buf = err_drain.await.unwrap_or_default();
     let stdout_text = String::from_utf8_lossy(&out_buf);
     let stderr_text = String::from_utf8_lossy(&err_buf);
-    evaluate_hook(event, status, &stdout_text, &stderr_text)
+    (
+        evaluate_hook(event, status, &stdout_text, &stderr_text),
+        stdout_text.to_string(),
+    )
 }
 
 /// Spawn the hook command through the platform shell (v2 `spawn(command,
@@ -694,6 +750,41 @@ mod tests {
         // Both hooks exit 2 — v2 counts a non-2 exit code as failure, exit 2 as
         // a deliberate block, so failed_count is 0 here.
         assert_eq!(payload["failed_count"], 0);
+    }
+
+    /// The host-facing `hook.result`: one event per hook run carrying its
+    /// stdout and whether it vetoed. Before this sink existed the hook ran and
+    /// its output was discarded.
+    #[tokio::test]
+    async fn denial_emits_a_hook_result_per_hook() {
+        let results = Arc::new(std::sync::Mutex::new(Vec::<(String, String, bool)>::new()));
+        let log = results.clone();
+        let stdout_cmd = "echo hook says hi";
+        let guard = Arc::new(HookGuard::new(vec![
+            hook("PreToolUse", "", exit_two_with_stderr()),
+            hook("PreToolUse", "", stdout_cmd),
+        ]));
+        guard.with_hook_result(Arc::new(move |event, content, blocked| {
+            log.lock()
+                .unwrap()
+                .push((event.to_string(), content.to_string(), blocked));
+        }));
+
+        let denial = guard.denial(&request("Write")).await;
+        assert!(denial.is_some(), "the first hook still blocks");
+
+        let log = results.lock().unwrap();
+        assert_eq!(log.len(), 2, "one hook.result per hook run");
+        assert!(log.iter().all(|(event, _, _)| event == "PreToolUse"));
+        assert!(
+            log.iter()
+                .any(|(_, content, _)| content.contains("hook says hi")),
+            "the hook's stdout reaches the host"
+        );
+        assert!(
+            log.iter().any(|(_, _, blocked)| *blocked),
+            "the blocking hook reports blocked"
+        );
     }
 
     /// No sink installed (every entry point before wiring): the verdict is

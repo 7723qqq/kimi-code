@@ -7290,9 +7290,13 @@ m2
                     kind: crate::tools::tower::types::TowerAgentKind::Worker,
                     mission_id: None,
                     review_target: None,
+                    review_mission_id: None,
                     worktree: None,
                     branch: None,
                     spawned_at: chrono::Utc::now().to_rfc3339(),
+                    died_at: None,
+                    death_status: None,
+                    death_reason: None,
                     status: None,
                 })
                 .await

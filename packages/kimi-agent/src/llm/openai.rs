@@ -105,21 +105,79 @@ fn project_message(m: &WireMessage, reasoning_key: Option<&str>) -> Value {
     let mut obj = serde_json::Map::new();
     obj.insert("role".into(), json!(m.role));
 
-    // Replay: a declared reasoning field takes the model's own thinking back
-    // instead of flattening it into prose (v2 #3910). The blocks that ride
-    // the content array exclude what was redirected.
-    let redirected: Vec<&ContentBlock> = match reasoning_key {
-        Some(_) if m.role == "assistant" => m
-            .blocks
+    // Replay: v2 `lowerMessage` (openai/lower.ts) partitions the assistant's
+    // think parts by their stamp. A `detailsIndex` rebuilds the provider's
+    // `reasoning_details` array; a `reasoningKey` accumulates into that
+    // field; unstamped text goes to the model's declared key — and, with no
+    // key declared, flattens into the content text (the fork's pre-#3910
+    // fallback, kept for models that speak no reasoning dialect). Only when
+    // no part carries any stamp does the whole thinking collapse into the
+    // declared key.
+    let think_blocks: Vec<&ContentBlock> = if m.role == "assistant" {
+        m.blocks
             .iter()
             .filter(|block| matches!(block, ContentBlock::Think { .. }))
-            .collect(),
-        _ => Vec::new(),
+            .collect()
+    } else {
+        Vec::new()
     };
-    let mut reasoning_text = String::new();
-    for block in &redirected {
-        if let ContentBlock::Think { think, .. } = block {
-            reasoning_text.push_str(think);
+    let mut details: Vec<Value> = Vec::new();
+    let mut string_fields: Vec<(String, String)> = Vec::new();
+    let mut unstamped = String::new();
+    let mut all_thinking = String::new();
+    for block in &think_blocks {
+        let ContentBlock::Think {
+            think,
+            encrypted,
+            details_index,
+            reasoning_key: part_key,
+            hidden,
+        } = block
+        else {
+            continue;
+        };
+        // v2 `lowerMessage`: a hidden part's text is already carried by the
+        // string dialect, so it stays out of every string accumulation —
+        // its array entry below still stands.
+        let hidden = hidden == &Some(true);
+        if !hidden {
+            all_thinking.push_str(think);
+        }
+        if details_index.is_some() {
+            if !think.is_empty() {
+                details.push(json!({ "type": "summary", "summary": think }));
+            }
+            if let Some(encrypted) = encrypted {
+                details.push(json!({ "type": "encrypted", "encrypted": encrypted }));
+            }
+            continue;
+        }
+        if let Some(key) = part_key
+            .as_deref()
+            .filter(|key| *key != REASONING_DETAILS_KEY)
+        {
+            if !hidden {
+                push_string_field(&mut string_fields, key, think);
+            }
+            continue;
+        }
+        if !hidden {
+            unstamped.push_str(think);
+        }
+    }
+    let redirected = reasoning_key.is_some() || !details.is_empty() || !string_fields.is_empty();
+    if redirected && !unstamped.is_empty() {
+        // The declared key is where unstamped text goes. Without a declared
+        // key it still has a home when the message speaks the details
+        // dialect — the default field — and only a message with no dialect
+        // at all flattens the text into the content array.
+        let key = match reasoning_key {
+            Some(key) => Some(key.to_string()),
+            None if !details.is_empty() => Some(DEFAULT_REASONING_KEY.to_string()),
+            None => None,
+        };
+        if let Some(key) = key {
+            push_string_field(&mut string_fields, &key, &unstamped);
         }
     }
 
@@ -130,7 +188,7 @@ fn project_message(m: &WireMessage, reasoning_key: Option<&str>) -> Value {
         let parts: Vec<Value> = m
             .blocks
             .iter()
-            .filter(|block| !redirected.contains(block))
+            .filter(|block| !redirected || !matches!(block, ContentBlock::Think { .. }))
             .map(project_block)
             .collect();
         if parts.is_empty() {
@@ -143,8 +201,25 @@ fn project_message(m: &WireMessage, reasoning_key: Option<&str>) -> Value {
     } else {
         obj.insert("content".into(), json!(m.content));
     }
-    if let Some(key) = reasoning_key.filter(|_| !reasoning_text.is_empty()) {
-        obj.insert(key.to_string(), json!(reasoning_text));
+    if !details.is_empty() {
+        obj.insert(REASONING_DETAILS_KEY.into(), json!(details));
+        // v2: the default key carries its own string field when one was
+        // accumulated, and the whole thinking otherwise.
+        let default_value = string_field(&string_fields, DEFAULT_REASONING_KEY)
+            .cloned()
+            .unwrap_or_else(|| all_thinking.clone());
+        obj.insert(DEFAULT_REASONING_KEY.into(), json!(default_value));
+    }
+    for (key, value) in &string_fields {
+        obj.insert(key.clone(), json!(value));
+    }
+    if !redirected && !all_thinking.is_empty() {
+        // No stamp and no declared key: the thinking stays flattened in the
+        // content array (the fork's pre-#3910 fallback). A declared key
+        // takes the whole thinking, the way it always did.
+        if let Some(key) = reasoning_key {
+            obj.insert(key.to_string(), json!(all_thinking));
+        }
     }
 
     if !m.tool_calls.is_empty() {
@@ -172,6 +247,32 @@ fn project_message(m: &WireMessage, reasoning_key: Option<&str>) -> Value {
     }
 
     Value::Object(obj)
+}
+
+/// The provider field the `reasoning_details` array dialect lives in (v2
+/// `REASONING_DETAILS_KEY`).
+pub const REASONING_DETAILS_KEY: &str = "reasoning_details";
+
+/// The provider field unstamped reasoning text defaults to (v2
+/// `DEFAULT_REASONING_KEY`).
+pub const DEFAULT_REASONING_KEY: &str = "reasoning_content";
+
+/// Accumulate `text` into the per-key string field, creating it on first
+/// sight (v2 `lowerMessage`'s `stringFields` — a keyed part with empty text
+/// still creates its field, the way v2's does).
+fn push_string_field(fields: &mut Vec<(String, String)>, key: &str, text: &str) {
+    if let Some(entry) = fields.iter_mut().find(|(existing, _)| existing == key) {
+        entry.1.push_str(text);
+    } else {
+        fields.push((key.to_string(), text.to_string()));
+    }
+}
+
+fn string_field<'a>(fields: &'a [(String, String)], key: &str) -> Option<&'a String> {
+    fields
+        .iter()
+        .find(|(existing, _)| existing == key)
+        .map(|(_, value)| value)
 }
 
 /// Project a single content block to the OpenAI content-parts form.
@@ -281,6 +382,9 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
         thinking.push(ContentBlock::Think {
             think: think.to_string(),
             encrypted: None,
+            details_index: None,
+            reasoning_key: None,
+            hidden: None,
         });
     }
 
@@ -361,6 +465,16 @@ const MAX_STREAM_TOOL_CALLS: usize = 256;
 pub struct StreamAccumulator {
     content: String,
     thinking: String,
+    /// Think parts extracted from the provider's `reasoning_details` array
+    /// dialect, stamped with their position (v2 #3910's unported half). They
+    /// ride the final message beside the unstamped `thinking` text so the
+    /// replay can rebuild the array.
+    stamped: Vec<ContentBlock>,
+    /// Whether the stream carried the `reasoning_content` string dialect
+    /// (v2's `seenReasoningContent`): the details-derived summaries are then
+    /// stamped `hidden`, so the replay does not send the same reasoning
+    /// twice.
+    seen_reasoning_content: bool,
     tool_calls: Vec<PartialToolCall>,
     finish_reason: Option<String>,
     usage: TokenUsage,
@@ -406,6 +520,17 @@ impl StreamAccumulator {
             .or_else(|| delta.get("reasoning").and_then(|c| c.as_str()))
             .or_else(|| delta.get("reasoning_text").and_then(|c| c.as_str()))
             .or_else(|| delta.get("thought").and_then(|c| c.as_str()))
+    }
+
+    /// Whether this delta carried the `reasoning_content` string (v2's
+    /// `seenReasoningContent`): once it has, the details-derived summaries
+    /// are stamped `hidden` — the replay keeps their array entries but
+    /// leaves their text out of the string fields.
+    fn reasoning_content_seen(&self, delta: &Value) -> bool {
+        delta
+            .get("reasoning_content")
+            .and_then(|c| c.as_str())
+            .is_some_and(|text| !text.is_empty())
     }
 
     /// Resolve the tool-call slot for a streamed index, or `None` when the
@@ -480,11 +605,33 @@ impl StreamAccumulator {
             }
         }
 
+        let mut think_delta = None;
         if let Some(think) = self.reasoning_delta(delta)
             && !think.is_empty()
         {
             self.thinking.push_str(think);
-            return Some(StreamDelta::Think(think.to_string()));
+            think_delta = Some(StreamDelta::Think(think.to_string()));
+        }
+        // v2 `seenReasoningContent`: once the `reasoning_content` string has
+        // been seen, the details-derived summaries are stamped `hidden` —
+        // the replay keeps their array entries but leaves their text out of
+        // the string fields, so the provider does not see the same reasoning
+        // twice.
+        if self.reasoning_content_seen(delta) {
+            self.seen_reasoning_content = true;
+        }
+        // v2 `extractReasoningDetails`: a model that declares no reasoning
+        // key speaks the raw `reasoning_details` dialect — each array
+        // element becomes a think part stamped with its position, which the
+        // request replay rebuilds into the array (v2 #3910's unported half).
+        // The stamps ride the final message only; the live stream shows the
+        // string dialect, and a stamped part has no string form to show.
+        if self.reasoning_key.is_none() {
+            self.stamped
+                .extend(reasoning_details_parts(delta, self.seen_reasoning_content));
+        }
+        if let Some(delta) = think_delta {
+            return Some(delta);
         }
 
         if let Some(text) = delta.get("content").and_then(|c| c.as_str())
@@ -519,13 +666,20 @@ impl StreamAccumulator {
             .collect();
 
         let thinking = if self.thinking.is_empty() {
-            vec![]
+            Vec::new()
         } else {
             vec![ContentBlock::Think {
                 think: self.thinking,
                 encrypted: None,
+                details_index: None,
+                reasoning_key: None,
+                hidden: None,
             }]
         };
+        let mut thinking = thinking;
+        // The stamped parts follow the unstamped text: the replay partitions
+        // by stamp, so the order only affects how a reader folds them.
+        thinking.extend(self.stamped);
 
         LLMChatResponse {
             content: self.content,
@@ -535,6 +689,56 @@ impl StreamAccumulator {
             usage: self.usage,
         }
     }
+}
+
+/// The think parts a delta's `reasoning_details` array names (v2
+/// `extractReasoningDetails` + `convertReasoningDetails`): each element's
+/// position is the part's `detailsIndex`, a summary element carries its
+/// text, an encrypted element its attestation. An element that is neither
+/// is dropped, the way v2's converter drops it.
+/// The think parts a delta's `reasoning_details` array names (v2
+/// `extractReasoningDetails` + `convertReasoningDetails`): each element's
+/// position is the part's `detailsIndex`, a summary element carries its
+/// text, an encrypted element its attestation. An element that is neither
+/// is dropped, the way v2's converter drops it. `hidden_summary` stamps the
+/// summary parts hidden — the string dialect already carried them (v2's
+/// `seenReasoningContent`).
+fn reasoning_details_parts(delta: &Value, hidden_summary: bool) -> Vec<ContentBlock> {
+    let Some(array) = delta.get(REASONING_DETAILS_KEY).and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let mut parts = Vec::new();
+    for (index, element) in array.iter().enumerate() {
+        let kind = element
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let summary = element.get("summary").and_then(Value::as_str);
+        let encrypted = element.get("encrypted").and_then(Value::as_str);
+        let stamped =
+            |think: String, encrypted: Option<String>, hidden: Option<bool>| ContentBlock::Think {
+                think,
+                encrypted,
+                details_index: Some(index as u32),
+                reasoning_key: Some(REASONING_DETAILS_KEY.to_string()),
+                hidden,
+            };
+        if kind != "encrypted" && summary.is_some_and(|text| !text.is_empty()) {
+            parts.push(stamped(
+                summary.unwrap_or_default().to_string(),
+                None,
+                hidden_summary.then_some(true),
+            ));
+        }
+        if kind != "summary" && encrypted.is_some_and(|text| !text.is_empty()) {
+            parts.push(stamped(
+                String::new(),
+                Some(encrypted.unwrap_or_default().to_string()),
+                None,
+            ));
+        }
+    }
+    parts
 }
 
 #[cfg(test)]
@@ -701,6 +905,9 @@ mod tests {
                 ContentBlock::Think {
                     think: "I should add the numbers first.".into(),
                     encrypted: None,
+                    details_index: None,
+                    reasoning_key: None,
+                    hidden: None,
                 },
                 ContentBlock::Text {
                     text: "The answer is 7.".into(),
@@ -737,6 +944,197 @@ mod tests {
         let parts = req["messages"][0]["content"].as_array().unwrap();
         assert_eq!(parts.len(), 2);
         assert!(req["messages"][0].get("reasoning_content").is_none());
+    }
+
+    /// v2 #3910's unported half: think parts stamped with a `detailsIndex`
+    /// replay as the provider's `reasoning_details` array (summary +
+    /// encrypted entries), with the default reasoning field carrying the
+    /// unstamped text — instead of every part collapsing into one string.
+    #[test]
+    fn stamped_think_parts_replay_as_the_reasoning_details_array() {
+        let assistant = WireMessage {
+            role: "assistant".into(),
+            content: String::new(),
+            blocks: vec![
+                ContentBlock::Think {
+                    think: "weighing options".into(),
+                    encrypted: None,
+                    details_index: Some(0),
+                    reasoning_key: Some("reasoning_details".into()),
+                    hidden: None,
+                },
+                ContentBlock::Think {
+                    think: String::new(),
+                    encrypted: Some("sig-abc".into()),
+                    details_index: Some(1),
+                    reasoning_key: Some("reasoning_details".into()),
+                    hidden: None,
+                },
+                ContentBlock::Think {
+                    think: "and the plain rest".into(),
+                    encrypted: None,
+                    details_index: None,
+                    reasoning_key: None,
+                    hidden: None,
+                },
+                ContentBlock::Text {
+                    text: "done".into(),
+                },
+            ],
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+        };
+
+        let req = build_request_full("m", &[assistant], &[], true, None, None, None);
+        let first = &req["messages"][0];
+        assert_eq!(
+            first["reasoning_details"],
+            json!([
+                { "type": "summary", "summary": "weighing options" },
+                { "type": "encrypted", "encrypted": "sig-abc" },
+            ]),
+        );
+        // The default field carries the unstamped text; the stamped parts
+        // are not duplicated into the content array.
+        assert_eq!(first["reasoning_content"], "and the plain rest");
+        let parts = first["content"].as_array().unwrap();
+        assert_eq!(parts.len(), 1, "only the text block remains in content");
+        assert_eq!(parts[0]["type"], "text");
+        assert_eq!(parts[0]["text"], "done");
+    }
+
+    /// A part naming its own reasoning field accumulates into that field
+    /// (v2 `lowerMessage`'s per-key string fields), not the default one.
+    #[test]
+    fn keyed_think_parts_replay_into_their_own_field() {
+        let assistant = WireMessage {
+            role: "assistant".into(),
+            content: String::new(),
+            blocks: vec![
+                ContentBlock::Think {
+                    think: "first ".into(),
+                    encrypted: None,
+                    details_index: None,
+                    reasoning_key: Some("reasoning".into()),
+                    hidden: None,
+                },
+                ContentBlock::Think {
+                    think: "second".into(),
+                    encrypted: None,
+                    details_index: None,
+                    reasoning_key: Some("reasoning".into()),
+                    hidden: None,
+                },
+            ],
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+        };
+
+        let req = build_request_full("m", &[assistant], &[], true, None, None, None);
+        let first = &req["messages"][0];
+        assert_eq!(first["reasoning"], "first second");
+        assert!(first.get("reasoning_content").is_none());
+        assert!(first["content"].is_null(), "no non-think block remains");
+    }
+
+    /// The parse side of the dialect: a delta carrying a
+    /// `reasoning_details` array (a model that declares no reasoning key)
+    /// yields think parts stamped with their position, which the replay
+    /// above rebuilds.
+    #[test]
+    fn a_reasoning_details_delta_produces_stamped_think_parts() {
+        let mut acc = StreamAccumulator::new();
+        acc.feed(&json!({
+            "choices": [{ "delta": {
+                "reasoning_details": [
+                    { "type": "summary", "summary": "step one" },
+                    { "type": "encrypted", "encrypted": "sig-1" },
+                    { "type": "other" },
+                ],
+            } }],
+        }));
+        let response = acc.finish();
+        assert_eq!(
+            response.thinking,
+            vec![
+                ContentBlock::Think {
+                    think: "step one".into(),
+                    encrypted: None,
+                    details_index: Some(0),
+                    reasoning_key: Some("reasoning_details".into()),
+                    hidden: None,
+                },
+                ContentBlock::Think {
+                    think: String::new(),
+                    encrypted: Some("sig-1".into()),
+                    details_index: Some(1),
+                    reasoning_key: Some("reasoning_details".into()),
+                    hidden: None,
+                },
+            ],
+            "an element that is neither summary nor encrypted is dropped"
+        );
+    }
+
+    /// v2 `seenReasoningContent`: once the stream carried the
+    /// `reasoning_content` string, the details-derived summaries are stamped
+    /// hidden — the replay keeps their array entries but leaves their text
+    /// out of the string fields, so the provider does not see the same
+    /// reasoning twice.
+    #[test]
+    fn a_hidden_summary_keeps_its_array_entry_but_not_its_string() {
+        let mut acc = StreamAccumulator::new();
+        acc.feed(&json!({
+            "choices": [{ "delta": { "reasoning_content": "the short form" } }],
+        }));
+        acc.feed(&json!({
+            "choices": [{ "delta": {
+                "reasoning_details": [{ "type": "summary", "summary": "the long form" }],
+            } }],
+        }));
+        let response = acc.finish();
+        assert_eq!(
+            response.thinking,
+            vec![
+                ContentBlock::Think {
+                    think: "the short form".into(),
+                    encrypted: None,
+                    details_index: None,
+                    reasoning_key: None,
+                    hidden: None,
+                },
+                ContentBlock::Think {
+                    think: "the long form".into(),
+                    encrypted: None,
+                    details_index: Some(0),
+                    reasoning_key: Some("reasoning_details".into()),
+                    hidden: Some(true),
+                },
+            ],
+        );
+
+        let req = build_request_full(
+            "m",
+            &[WireMessage {
+                role: "assistant".into(),
+                content: String::new(),
+                blocks: response.thinking,
+                tool_calls: Vec::new(),
+                tool_call_id: None,
+            }],
+            &[],
+            true,
+            None,
+            None,
+            None,
+        );
+        let first = &req["messages"][0];
+        // The array entry stands; the hidden text stays out of the string.
+        assert_eq!(
+            first["reasoning_details"],
+            json!([{ "type": "summary", "summary": "the long form" }]),
+        );
+        assert_eq!(first["reasoning_content"], "the short form");
     }
 
     #[test]
@@ -945,6 +1343,9 @@ mod tests {
             ContentBlock::Think {
                 think: "Thinking about ".into(),
                 encrypted: None,
+                details_index: None,
+                reasoning_key: None,
+                hidden: None,
             }
         );
     }
@@ -987,6 +1388,9 @@ mod tests {
             ContentBlock::Think {
                 think: "Let me calculate 6 * 7".into(),
                 encrypted: None,
+                details_index: None,
+                reasoning_key: None,
+                hidden: None,
             }
         );
     }

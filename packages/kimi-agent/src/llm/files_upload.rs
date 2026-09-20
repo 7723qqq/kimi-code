@@ -30,6 +30,14 @@ impl UploadError {
     }
 }
 
+impl std::fmt::Display for UploadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message())
+    }
+}
+
+impl std::error::Error for UploadError {}
+
 /// v2 `kimiFilesBaseUrl`: the anthropic route strips the `/v1` segment for the
 /// Messages API, but the files API lives under it.
 pub fn files_base_url(base_url: &str, protocol: &str) -> String {

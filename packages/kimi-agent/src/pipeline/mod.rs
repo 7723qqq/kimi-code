@@ -195,6 +195,13 @@ pub struct PipelineHost {
     /// for an embedder that must see engine events (the standalone server has to
     /// fan them out to WebSocket clients, so it passes its hub's bus).
     pub event_bus: Option<Arc<EventBus>>,
+    /// Where this pipeline's own background-task runner reports task lifecycle
+    /// (`event.task.*` / `background.task.*`). The runner is per-pipeline
+    /// (`TaskRunner::for_workspace` below), so without a sink its events go
+    /// nowhere — the addon passes one that forwards to the host callbacks so
+    /// the TUI badge/transcript see task starts and settles. The standalone
+    /// server keeps its own server-scoped runner and passes `None`.
+    pub task_event_sink: Option<crate::storage::TaskEventSink>,
 }
 
 /// Why a pipeline could not be built. Carries the message each entry renders
@@ -235,6 +242,7 @@ pub async fn build_engine_pipeline(
         steer_slot,
         mcp_manager,
         event_bus,
+        task_event_sink,
     } = host;
 
     let turn_event_count = Arc::new(AtomicU32::new(0));
@@ -297,6 +305,13 @@ pub async fn build_engine_pipeline(
                             )
                             .ok()
                             .map(Arc::new);
+                            // The runner is per-pipeline, so its lifecycle
+                            // events only exist if the entry wired a sink.
+                            if let (Some(runner), Some(sink)) =
+                                (runner.as_ref(), task_event_sink.as_ref())
+                            {
+                                runner.set_event_sink(sink.clone());
+                            }
                             (
                                 Arc::new(crate::callbacks::StateStoreCallbacks {
                                     inner: base_callbacks.clone(),
@@ -498,6 +513,18 @@ pub async fn build_engine_pipeline(
                 other => other,
             };
             callbacks_for_hooks.telemetry(value);
+        }));
+        // Host-facing `hook.result`: the hook's stdout and whether it blocked,
+        // so the transcript can show what the hook said. Without this sink the
+        // hook ran and its output was discarded.
+        let callbacks_for_hook_results = callbacks.clone();
+        guard.with_hook_result(Arc::new(move |event, content, blocked| {
+            callbacks_for_hook_results.emit_event(serde_json::json!({
+                "type": "hook.result",
+                "hookEvent": event,
+                "content": content,
+                "blocked": blocked,
+            }));
         }));
     }
 
@@ -764,6 +791,7 @@ mod tests {
             steer_slot: None,
             mcp_manager: None,
             event_bus: None,
+            task_event_sink: None,
         }
     }
 

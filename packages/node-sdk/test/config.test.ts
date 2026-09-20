@@ -12,6 +12,7 @@ import {
   PRINT_MAX_TURNS_DEFAULT,
   PRINT_WAIT_CEILING_S_DEFAULT,
   resolveMaxAttemptsPerStep,
+  resolveCompactionMaxAttempts,
   resolveMaxStepsPerTurn,
   resolveNativeLlmForAlias,
   resolveMultiLlmProviders,
@@ -576,6 +577,26 @@ max_retries_per_step = 5
     vi.stubEnv('KIMI_LOOP_MAX_RETRIES_PER_STEP', '9');
     expect(resolveMaxAttemptsPerStep(config)).toBe(9);
     vi.unstubAllEnvs();
+  });
+
+  it('resolves loop_control.compaction_max_attempts from the file only', () => {
+    const config = parseConfigString(
+      `
+[loop_control]
+compaction_max_attempts = 2
+`,
+      'loop-control-compaction.toml',
+    );
+    expect(resolveCompactionMaxAttempts(config)).toBe(2);
+
+    // Upstream binds no environment variable to this key, so none is honored.
+    vi.stubEnv('KIMI_LOOP_COMPACTION_MAX_ATTEMPTS', '9');
+    expect(resolveCompactionMaxAttempts(config)).toBe(2);
+    vi.unstubAllEnvs();
+
+    // The schema floors the key at 1; an unset key keeps the engine default.
+    expect(resolveCompactionMaxAttempts({})).toBeUndefined();
+    expect(resolveCompactionMaxAttempts({ loopControl: { compactionMaxAttempts: 0 } })).toBeUndefined();
   });
 
   it('resolves loop_control.max_steps_per_turn with env precedence', () => {

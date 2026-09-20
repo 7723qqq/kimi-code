@@ -425,6 +425,23 @@ impl SqliteSessionStore {
             let _ = conn.execute("ALTER TABLE turns ADD COLUMN origin TEXT", []);
         }
 
+        // Session-scoped state (ROADMAP §6.1 item 4's P2 decision): the
+        // column names the owning session so a delete cascades to the
+        // session's entries. Rows written before it existed keep NULL and
+        // are cascaded by their key pattern instead (see `delete_session`).
+        let state_columns: std::collections::HashSet<String> = {
+            let mut stmt = conn.prepare("PRAGMA table_info(state_entries)")?;
+            let names = stmt.query_map([], |row| row.get::<_, String>(1))?;
+            names.filter_map(std::result::Result::ok).collect()
+        };
+        if !state_columns.contains("session_id") {
+            let _ = conn.execute("ALTER TABLE state_entries ADD COLUMN session_id TEXT", []);
+            let _ = conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_state_entries_session ON state_entries(session_id)",
+                [],
+            );
+        }
+
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -707,6 +724,17 @@ impl SqliteSessionStore {
     /// Delete a session and all its cascading turns, messages, and checkpoints.
     pub fn delete_session(&self, session_id: &str) -> Result<bool, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
+        // The state entries the session owns: the column-named ones, plus the
+        // legacy key-encoded domains whose key *is* the session id
+        // (`agent_config` / `metadata`, written before the column existed).
+        // The turns / messages / wire_events / file-history rows go with the
+        // session through their foreign keys.
+        conn.execute(
+            "DELETE FROM state_entries
+             WHERE session_id = ?1
+                OR (domain IN ('agent_config', 'metadata') AND key = ?1)",
+            params![session_id],
+        )?;
         let affected = conn.execute(
             "DELETE FROM sessions WHERE session_id = ?1",
             params![session_id],
@@ -1230,6 +1258,58 @@ impl SqliteSessionStore {
         Ok(())
     }
 
+    /// Put a session-scoped state entry: the `session_id` column names the
+    /// owning session, so `delete_session` cascades to it (ROADMAP §6.1 item
+    /// 4's P2 decision — session-scoped state is session-scoped in the
+    /// schema, not only in the key). The primary key stays `(domain, key)`;
+    /// a legacy row under the same key adopts the owner on conflict.
+    pub fn put_session_state(
+        &self,
+        domain: &str,
+        session_id: &str,
+        key: &str,
+        value: &Value,
+    ) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        let val_str = serde_json::to_string(value).unwrap_or_default();
+        conn.execute(
+            "INSERT INTO state_entries (domain, key, value, updated_at, session_id)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(domain, key) DO UPDATE SET
+                value = ?3,
+                updated_at = ?4,
+                session_id = ?5",
+            params![domain, key, val_str, now, session_id],
+        )?;
+        Ok(())
+    }
+
+    /// The state entries a session owns through the `session_id` column, as
+    /// `(domain, key, value)` — the cascade's own view of what it will
+    /// delete.
+    pub fn session_state_entries(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<(String, String, Value)>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT domain, key, value FROM state_entries WHERE session_id = ?1
+             ORDER BY domain, key",
+        )?;
+        let rows = stmt.query_map(params![session_id], |row| {
+            let domain: String = row.get(0)?;
+            let key: String = row.get(1)?;
+            let raw: String = row.get(2)?;
+            Ok((
+                domain,
+                key,
+                serde_json::from_str(&raw).unwrap_or(Value::Null),
+            ))
+        })?;
+        rows.collect()
+    }
+
     /// Get a value from a state domain.
     pub fn get_state(&self, domain: &str, key: &str) -> Result<Option<Value>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
@@ -1668,6 +1748,54 @@ impl SqliteSessionStore {
                 created_at: row.get(7)?,
             })
         })?;
+        rows.collect()
+    }
+
+    /// The session's interaction lifecycle events (`event.approval.*` /
+    /// `event.question.*`), oldest first — the v3 history fold's source for
+    /// interaction entities (ROADMAP §6.1 item 4). The hub persister writes
+    /// every lane event here, so the journal is the durable record; this
+    /// selects the six interaction types rather than paging the whole log.
+    pub fn interaction_wire_events(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<WireEventRecord>, rusqlite::Error> {
+        const TYPES: [&str; 6] = [
+            "event.approval.requested",
+            "event.approval.resolved",
+            "event.approval.expired",
+            "event.question.requested",
+            "event.question.answered",
+            "event.question.dismissed",
+        ];
+        let placeholders = TYPES.map(|_| "?").join(", ");
+        let sql = format!(
+            "SELECT seq, id, session_id, event_type, payload, is_checkpoint, is_compaction, created_at
+             FROM wire_events
+             WHERE session_id = ?1 AND event_type IN ({placeholders})
+             ORDER BY seq ASC"
+        );
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(
+            params![
+                session_id, TYPES[0], TYPES[1], TYPES[2], TYPES[3], TYPES[4], TYPES[5]
+            ],
+            |row| {
+                let payload_str: String = row.get(4)?;
+                let payload: Value = serde_json::from_str(&payload_str).unwrap_or(Value::Null);
+                Ok(WireEventRecord {
+                    seq: row.get(0)?,
+                    id: row.get(1)?,
+                    session_id: row.get(2)?,
+                    event_type: row.get(3)?,
+                    payload,
+                    is_checkpoint: row.get(5)?,
+                    is_compaction: row.get(6)?,
+                    created_at: row.get(7)?,
+                })
+            },
+        )?;
         rows.collect()
     }
 
@@ -3125,6 +3253,112 @@ mod tests {
             .unwrap();
         assert_eq!(reverted["theme"], "dark");
         assert_eq!(reverted["fontSize"], 14);
+    }
+
+    /// The v3 history fold's source for interaction entities: the six
+    /// interaction lifecycle types, oldest first, and nothing else.
+    #[test]
+    fn test_interaction_wire_events_selects_the_lifecycle_types() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store
+            .create_session("sess-interaction", Some("Interaction"))
+            .unwrap();
+        let append = |event_type: &str| {
+            store
+                .append_wire_event(&RawWireEvent {
+                    id: format!("evt-{event_type}"),
+                    session_id: "sess-interaction".into(),
+                    event_type: event_type.into(),
+                    payload: json!({ "approval_id": "a1", "question_id": "q1" }),
+                    is_checkpoint: false,
+                    is_compaction: false,
+                    created_at: 1_000,
+                })
+                .unwrap();
+        };
+        append("event.approval.requested");
+        append("event.message.created");
+        append("event.approval.resolved");
+        append("event.question.answered");
+
+        let events = store.interaction_wire_events("sess-interaction").unwrap();
+        let types: Vec<&str> = events.iter().map(|e| e.event_type.as_str()).collect();
+        assert_eq!(
+            types,
+            [
+                "event.approval.requested",
+                "event.approval.resolved",
+                "event.question.answered",
+            ],
+            "only the interaction lifecycle, in journal order"
+        );
+    }
+
+    /// ROADMAP §6.1 item 4's P2 decision: session-scoped state carries its
+    /// owner in a `session_id` column, so a session delete cascades to it.
+    /// Rows written before the column existed (key-encoded
+    /// `agent_config` / `metadata`) are cascaded by their key pattern, and
+    /// the column itself arrives by an idempotent migration on an existing
+    /// database.
+    #[test]
+    fn test_session_scoped_state_survives_migration_and_cascades_on_delete() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state-migration.db");
+        {
+            let store = SqliteSessionStore::open(&path).unwrap();
+            store.create_session("sess-a", Some("a")).unwrap();
+            store.create_session("sess-b", Some("b")).unwrap();
+            // Legacy shape: no session_id column value.
+            store
+                .put_state("agent_config", "sess-a", &json!({ "model": "k2" }))
+                .unwrap();
+            store
+                .put_state("metadata", "sess-a", &json!({ "permission_mode": "auto" }))
+                .unwrap();
+            // A workspace-scoped row (no session of its own) must survive.
+            store
+                .put_state("plan", "workspace", &json!({ "active": true }))
+                .unwrap();
+        }
+        // Reopen: the migration adds the column without touching the rows.
+        {
+            let store = SqliteSessionStore::open(&path).unwrap();
+            assert_eq!(
+                store.get_state("agent_config", "sess-a").unwrap(),
+                Some(json!({ "model": "k2" })),
+                "legacy rows read back unchanged after the migration"
+            );
+            assert!(
+                store.session_state_entries("sess-a").unwrap().is_empty(),
+                "legacy rows carry no column owner yet"
+            );
+
+            // New-style writes name their owner.
+            store
+                .put_session_state(
+                    "agent_config",
+                    "sess-b",
+                    "sess-b",
+                    &json!({ "model": "k3" }),
+                )
+                .unwrap();
+            let owned = store.session_state_entries("sess-b").unwrap();
+            assert_eq!(owned.len(), 1);
+            assert_eq!(owned[0].0, "agent_config");
+            assert_eq!(owned[0].2, json!({ "model": "k3" }));
+
+            // The delete cascades both shapes and leaves the workspace row.
+            assert!(store.delete_session("sess-a").unwrap());
+            assert!(store.get_state("agent_config", "sess-a").unwrap().is_none());
+            assert!(store.get_state("metadata", "sess-a").unwrap().is_none());
+            assert!(store.delete_session("sess-b").unwrap());
+            assert!(store.session_state_entries("sess-b").unwrap().is_empty());
+            assert_eq!(
+                store.get_state("plan", "workspace").unwrap(),
+                Some(json!({ "active": true })),
+                "workspace-scoped state is not a session's to delete"
+            );
+        }
     }
 
     #[test]

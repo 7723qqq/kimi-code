@@ -5,6 +5,8 @@
  */
 import { z } from 'zod';
 
+import { transcriptGradeSpecSchema, transcriptSeqSchema } from '@moonshot-ai/transcript';
+
 import { eventSchema } from './events';
 import { isoDateTimeSchema } from './time';
 
@@ -143,15 +145,9 @@ export const helloAckPayloadSchema = clientHelloAckPayloadSchema;
 
 export const clientHelloAckMessageSchema = wsAckEnvelopeSchema(clientHelloAckPayloadSchema);
 
-export const watchFsConfigSchema = z.object({
-  paths: z.array(z.string()),
-  recursive: z.boolean().optional(),
-});
-
 export const subscribePayloadSchema = z.object({
   session_ids: z.array(z.string()),
   cursors: cursorsBySessionSchema.optional(),
-  watch_fs: z.record(z.string(), watchFsConfigSchema).optional(),
   agent_filter: agentFilterSchema.optional(),
 });
 
@@ -189,39 +185,41 @@ export const unsubscribeAckPayloadSchema = subscribeAckPayloadSchema;
 
 export const unsubscribeAckMessageSchema = wsAckEnvelopeSchema(unsubscribeAckPayloadSchema);
 
-export const watchFsAddPayloadSchema = z.object({
-  session_id: z.string(),
-  paths: z.array(z.string()),
-  recursive: z.boolean().optional(),
+/**
+ * `subscribe_v2` / `unsubscribe_v2` — the transcript-grade subscription
+ * frames (upstream `ws-control.ts` `subscribeV2MessageSchema` /
+ * `unsubscribeV2MessageSchema`). The Rust `parse_inbound` dispatcher has
+ * handled both since the v3 work and the shipped web bundle sends both; the
+ * schemas were the missing declaration (ROADMAP §7.5). The grade vocabulary
+ * (`off` / `turn` / `block` / `delta`) and the per-agent seq cursor come from
+ * `@moonshot-ai/transcript`, which owns the transcript contract.
+ */
+export const subscribeV2PayloadSchema = z.object({
+  session_id: z.string().min(1),
+  transcript: transcriptGradeSpecSchema,
+  transcript_since: z.record(z.string(), transcriptSeqSchema).optional(),
 });
 
-export const watchFsAddMessageSchema = z.object({
-  type: z.literal('watch_fs_add'),
+export const subscribeV2MessageSchema = z.object({
+  type: z.literal('subscribe_v2'),
   id: z.string(),
-  payload: watchFsAddPayloadSchema,
+  payload: subscribeV2PayloadSchema,
 });
 
-export type WatchFsAddMessage = z.infer<typeof watchFsAddMessageSchema>;
+export type SubscribeV2Message = z.infer<typeof subscribeV2MessageSchema>;
 
-export const watchFsRemovePayloadSchema = z.object({
-  session_id: z.string(),
-  paths: z.array(z.string()),
+export const unsubscribeV2PayloadSchema = z.object({
+  session_id: z.string().min(1),
+  agent_ids: z.array(z.string().min(1)).min(1).optional(),
 });
 
-export const watchFsRemoveMessageSchema = z.object({
-  type: z.literal('watch_fs_remove'),
+export const unsubscribeV2MessageSchema = z.object({
+  type: z.literal('unsubscribe_v2'),
   id: z.string(),
-  payload: watchFsRemovePayloadSchema,
+  payload: unsubscribeV2PayloadSchema,
 });
 
-export type WatchFsRemoveMessage = z.infer<typeof watchFsRemoveMessageSchema>;
-
-export const watchFsAckPayloadSchema = z.object({
-  watched_paths: z.array(z.string()).optional(),
-  current_count: z.number().int().nonnegative().optional(),
-});
-
-export const watchFsAckMessageSchema = wsAckEnvelopeSchema(watchFsAckPayloadSchema);
+export type UnsubscribeV2Message = z.infer<typeof unsubscribeV2MessageSchema>;
 
 export const abortPayloadSchema = z.object({
   session_id: z.string(),
@@ -443,8 +441,6 @@ export const clientControlMessageSchema = z.discriminatedUnion('type', [
   clientHelloMessageSchema,
   subscribeMessageSchema,
   unsubscribeMessageSchema,
-  watchFsAddMessageSchema,
-  watchFsRemoveMessageSchema,
   abortMessageSchema,
   terminalAttachMessageSchema,
   terminalDetachMessageSchema,
@@ -496,28 +492,30 @@ export const clientControlOperations = [
     description: 'Subscribe the connection to one or more session event streams.',
   },
   {
+    type: 'subscribe_v2',
+    direction: 'client_to_server',
+    kind: 'control',
+    messageSchema: subscribeV2MessageSchema,
+    ackSchema: subscribeAckMessageSchema,
+    description:
+      "Attach or update this connection's per-agent transcript grade stream for one session.",
+  },
+  {
+    type: 'unsubscribe_v2',
+    direction: 'client_to_server',
+    kind: 'control',
+    messageSchema: unsubscribeV2MessageSchema,
+    ackSchema: subscribeAckMessageSchema,
+    description:
+      "Detach this connection's transcript grade stream for one session, optionally per agent.",
+  },
+  {
     type: 'unsubscribe',
     direction: 'client_to_server',
     kind: 'control',
     messageSchema: unsubscribeMessageSchema,
     ackSchema: unsubscribeAckMessageSchema,
     description: 'Remove one or more session event stream subscriptions.',
-  },
-  {
-    type: 'watch_fs_add',
-    direction: 'client_to_server',
-    kind: 'control',
-    messageSchema: watchFsAddMessageSchema,
-    ackSchema: watchFsAckMessageSchema,
-    description: 'Add filesystem watch paths for a subscribed session.',
-  },
-  {
-    type: 'watch_fs_remove',
-    direction: 'client_to_server',
-    kind: 'control',
-    messageSchema: watchFsRemoveMessageSchema,
-    ackSchema: watchFsAckMessageSchema,
-    description: 'Remove filesystem watch paths for a subscribed session.',
   },
   {
     type: 'abort',

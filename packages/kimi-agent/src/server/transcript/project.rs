@@ -11,7 +11,8 @@ use super::model::{
     TranscriptTask, TranscriptTurn, TurnOrigin, TurnState,
 };
 use super::ops::{
-    AgentTranscriptSnapshot, AppendTarget, StepHeader, TranscriptOperation, TurnHeader,
+    AgentTranscriptSnapshot, AppendTarget, StepHeader, StepKind, TranscriptOperation, TurnHeader,
+    TurnKind,
 };
 use crate::events::EngineEvent;
 
@@ -308,16 +309,64 @@ impl TranscriptProjector {
             EngineEvent::TurnEnded {
                 turn_id, reason, ..
             } => {
+                // Scoped by the event's own turn id, the way v2 records a single
+                // `lastEnded` for one turn (turnOps.ts) — never a broadcast
+                // over every running turn. The reason vocabulary is v2's
+                // `turnEndReasonSchema`: completed / cancelled / failed /
+                // blocked. `blocked` folds into `failed` — v2's
+                // `mapTurnEndState` (coreEventMap.ts:1608) has no `blocked`
+                // turn state to map onto (`transcript` contract schema.ts:63,
+                // `packages/transcript` — present only in the upstream
+                // checkout — is queued/running/completed/failed/cancelled), and
+                // the client validates that enum.
                 let turn_idx = self.ensure_turn(&turn_key_u64(*turn_id));
-                self.turns[turn_idx].state = match reason.as_str() {
-                    "cancelled" | "aborted" => TurnState::Cancelled,
-                    "failed" => TurnState::Failed,
+                let state = match reason.as_str() {
+                    "cancelled" => TurnState::Cancelled,
+                    "failed" | "blocked" => TurnState::Failed,
                     _ => TurnState::Completed,
                 };
-                self.turns[turn_idx].ended_at = Some(now_iso());
-                vec![TranscriptOperation::TurnUpsert {
+                // Settling the steps matters as much as the turn: the client
+                // only stamps a thinking block with its `durationMs` once the
+                // step it belongs to has stopped running, and a block with no
+                // duration is not rendered as a finished reasoning section.
+                //
+                // v2 reaches `completed` on the normal path — `onStepCompleted`
+                // (coreEventMap.ts:598) sets it when `turn.step.completed`
+                // arrives, which is what `finalizeTurn`
+                // (agentProjector.ts:733) and `onTurnEnded`
+                // (coreEventMap.ts:452) then leave alone. Only a step still
+                // running when the turn ends takes its state from the reason
+                // there, and `finalizeTurn` maps that `failed` / `blocked` →
+                // `failed`, otherwise `interrupted`. The fork's server path
+                // publishes no `turn.step.completed` (`llm.step.end` carries no
+                // turn or step id, so it cannot address one), which means a
+                // step is always still running here and the reason is the only
+                // signal — so a clean turn must settle to `completed` to keep
+                // v2's outcome rather than its intermediate-state rule.
+                let step_state = match reason.as_str() {
+                    "cancelled" => StepState::Interrupted,
+                    "failed" | "blocked" => StepState::Failed,
+                    _ => StepState::Completed,
+                };
+                let ended_at = now_iso();
+                self.turns[turn_idx].state = state;
+                self.turns[turn_idx].ended_at = Some(ended_at.clone());
+                let turn_id = self.turns[turn_idx].turn_id.clone();
+                let mut ops = vec![TranscriptOperation::TurnUpsert {
                     turn: turn_header(&self.turns[turn_idx]),
-                }]
+                }];
+                for step in self.turns[turn_idx].steps.iter_mut() {
+                    if step.state != StepState::Running {
+                        continue;
+                    }
+                    step.state = step_state;
+                    step.ended_at = Some(ended_at.clone());
+                    ops.push(TranscriptOperation::StepUpsert {
+                        turn_id: turn_id.clone(),
+                        step: step_header(step),
+                    });
+                }
+                ops
             }
             EngineEvent::SubagentSpawned { agent_id, .. } => {
                 self.subagent_task_ops(agent_id, TaskState::Running, None, None)
@@ -328,7 +377,19 @@ impl TranscriptProjector {
             EngineEvent::SubagentFailed { agent_id, error } => {
                 self.subagent_task_ops(agent_id, TaskState::Failed, None, Some(error.clone()))
             }
+            // The engine publishes this as a typed event, so it never reaches
+            // the string-keyed `Custom` arm below. v2 opens the turn with
+            // `meta.merge { activity: 'turn' }` (coreEventMap.ts:437) and
+            // settles it to `idle` when the turn ends (:504), and the client
+            // reads that field to decide whether to keep working — matching
+            // only the JSON spelling left it at `idle` forever, so a finished
+            // turn still rendered as busy.
+            EngineEvent::SessionWorkChanged { busy, .. } => self.merge_activity(*busy),
             EngineEvent::Custom(value) => match value.get("type").and_then(|t| t.as_str()) {
+                Some("event.session.work_changed") => {
+                    let busy = value.get("busy").and_then(|v| v.as_bool()).unwrap_or(false);
+                    self.merge_activity(busy)
+                }
                 Some("event.task.created") | Some("event.task.completed") => {
                     match task_from_event(value) {
                         Some(task) => {
@@ -349,7 +410,7 @@ impl TranscriptProjector {
                     else {
                         return Vec::new();
                     };
-                    let offset = self.tasks[idx].output_tail.chars().count() as u64;
+                    let offset = self.tasks[idx].output_tail.encode_utf16().count() as u64;
                     self.tasks[idx].output_tail.push_str(chunk);
                     vec![TranscriptOperation::Append {
                         target: AppendTarget::Task {
@@ -363,10 +424,23 @@ impl TranscriptProjector {
                     let Some(delta) = value.get("delta").and_then(|v| v.as_str()) else {
                         return Vec::new();
                     };
-                    let Some(cursor) = self.cursor else {
+                    let Some(turn_idx) = self.custom_delta_turn(value) else {
                         return Vec::new();
                     };
-                    self.push_delta(cursor.turn, delta, false)
+                    self.push_delta(turn_idx, delta, false)
+                }
+                // v2 keeps the reasoning stream on its own event name
+                // (`thinking.delta`, events-zod.ts) rather than a flag on the
+                // answer stream — the kind is data, not a boolean a consumer
+                // must interpret.
+                Some("event.thinking.delta") => {
+                    let Some(delta) = value.get("delta").and_then(|v| v.as_str()) else {
+                        return Vec::new();
+                    };
+                    let Some(turn_idx) = self.custom_delta_turn(value) else {
+                        return Vec::new();
+                    };
+                    self.push_delta(turn_idx, delta, true)
                 }
                 Some("event.question.requested") => {
                     let Some(id) = value.get("question_id").and_then(|v| v.as_str()) else {
@@ -452,6 +526,14 @@ impl TranscriptProjector {
                         status: TranscriptPromptStatus::Running,
                         user_message_id: Some(id.to_string()),
                         content: message.get("content").cloned(),
+                        // The submission may have already created this
+                        // prompt with its client metadata (#3764); the
+                        // announcement must not drop it.
+                        client_metadata: self
+                            .prompts
+                            .iter()
+                            .find(|item| item.prompt_id == id)
+                            .and_then(|item| item.client_metadata.clone()),
                         created_at: message
                             .get("created_at")
                             .and_then(|v| v.as_str())
@@ -461,20 +543,80 @@ impl TranscriptProjector {
                         steered_at: None,
                     };
                     let mut ops = vec![self.upsert_prompt(prompt)];
+                    let mut attachment_ids = Vec::new();
                     if let Some(blocks) = message.get("content").and_then(|v| v.as_array()) {
                         for block in blocks {
                             if let Some(attachment) = attachment_from_block(block) {
+                                attachment_ids.push(attachment.attachment_id.clone());
                                 ops.push(self.upsert_attachment(attachment));
                             }
                         }
                     }
+                    // v2's cold fold puts the opening prompt's attachments on
+                    // the turn (`foldTurnOpeningInput` → `turn.attachmentIds`):
+                    // the link a client needs to resolve a referenced file's
+                    // saved path. The message id names the turn
+                    // (`msg-u{turn}`), the same key the deltas address, so the
+                    // turn is opened here when no delta has yet.
+                    if !attachment_ids.is_empty()
+                        && let Some(turn_number) = id
+                            .strip_prefix("msg-u")
+                            .and_then(|digits| digits.parse::<u64>().ok())
+                    {
+                        let turn_idx = self.ensure_turn(&turn_key_u64(turn_number));
+                        self.turns[turn_idx].attachment_ids = Some(attachment_ids);
+                    }
                     ops
                 }
                 Some("agent.status.updated") => self.merge_agent_meta(value),
-                Some("event.session.work_changed") => {
-                    let busy = value.get("busy").and_then(|v| v.as_bool()).unwrap_or(false);
-                    self.merge_activity(busy)
+                // The prompt submission (v2 #3764): the item the route
+                // admitted, with the client metadata it carried. The
+                // announcement (`event.message.created`) upserts the same
+                // prompt when the turn starts and carries the metadata
+                // over, so a client sees one prompt entity, not two.
+                Some("prompt.submitted") => {
+                    let Some(prompt_id) = value.get("promptId").and_then(|v| v.as_str()) else {
+                        return Vec::new();
+                    };
+                    let status = match value.get("status").and_then(|v| v.as_str()) {
+                        Some("queued") => TranscriptPromptStatus::Queued,
+                        Some("blocked") => TranscriptPromptStatus::Blocked,
+                        Some("completed") => TranscriptPromptStatus::Completed,
+                        Some("failed") => TranscriptPromptStatus::Failed,
+                        Some("aborted") => TranscriptPromptStatus::Aborted,
+                        _ => TranscriptPromptStatus::Running,
+                    };
+                    // The contract's `clientMetadata` is an array of
+                    // records; the submission carries one object.
+                    let client_metadata = value
+                        .get("metadata")
+                        .filter(|metadata| metadata.is_object())
+                        .map(|metadata| vec![metadata.clone()]);
+                    let prompt = TranscriptPrompt {
+                        prompt_id: prompt_id.to_string(),
+                        status,
+                        user_message_id: value
+                            .get("userMessageId")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string),
+                        content: value.get("content").cloned(),
+                        client_metadata,
+                        created_at: value
+                            .get("createdAt")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string)
+                            .unwrap_or_else(now_iso),
+                        finished_at: None,
+                        steered_at: None,
+                    };
+                    vec![self.upsert_prompt(prompt)]
                 }
+                // `prompt.completed` folds no turn state here — only
+                // `turn.ended` closes a turn (v2's `onPromptCompleted`,
+                // coreEventMap.ts:1356, emits a `prompt.upsert` and nothing
+                // else; the fold does own prompt status, but the fork's prompt
+                // entity is created running and this arm does not yet settle
+                // it). The typed `turn.ended` arm above is what ends the turn.
                 Some("hook.result") => vec![TranscriptOperation::MarkerUpsert {
                     item: TranscriptMarker {
                         marker_id: format!("hook-{:016x}", fastrand::u64(..)),
@@ -634,6 +776,18 @@ impl TranscriptProjector {
         }]
     }
 
+    /// The turn a custom delta addresses. The delta names its own turn (v2's
+    /// `AssistantDeltaPayload` / `ThinkingDeltaPayload` carry `turnId`), so
+    /// the projector needs no cursor established by an earlier lifecycle
+    /// event — the server path emits no typed `TurnStarted`. A payload
+    /// without a turn id still falls back to the cursor for older producers.
+    fn custom_delta_turn(&mut self, value: &Value) -> Option<usize> {
+        match value.get("turn_id").and_then(|v| v.as_u64()) {
+            Some(turn_id) => Some(self.ensure_turn(&turn_key_u64(turn_id))),
+            None => self.cursor.map(|cursor| cursor.turn),
+        }
+    }
+
     fn merge_activity(&mut self, busy: bool) -> Vec<TranscriptOperation> {
         let activity = if busy {
             ActivityMeta::Turn
@@ -681,11 +835,22 @@ impl TranscriptProjector {
         vec![TranscriptOperation::TaskUpsert { task }]
     }
 
+    /// Open (or find) the turn a `t<N>` key names. The ordinal is the key's own
+    /// number, not the registry position: v2 builds the turn from the event
+    /// (`onTurnStarted`, coreEventMap.ts:415, `ordinal: n`, `turnId: t${n}`)
+    /// and the cold rebuild numbers by insertion order
+    /// (`transcript/src/history/groupTurns.ts`), so both agree on a fresh
+    /// session. A positional ordinal drifts from `turnId` as soon as a
+    /// projector starts mid-session — this one is created per subscriber — and
+    /// the client keys the user bubble's `daemonTurnId` off it.
     fn ensure_turn(&mut self, key: &str) -> usize {
         if let Some(&idx) = self.turn_indices.get(key) {
             return idx;
         }
-        let ordinal = self.turns.len() as i64;
+        let ordinal = key
+            .strip_prefix('t')
+            .and_then(|digits| digits.parse::<i64>().ok())
+            .unwrap_or(self.turns.len() as i64);
         let idx = self.turns.len();
         self.turns.push(TranscriptTurn {
             turn_id: key.to_string(),
@@ -840,9 +1005,19 @@ impl TranscriptProjector {
             });
             idx
         };
+        // The append offset counts **UTF-16 code units**, the unit JS counts:
+        // the client splices with `text.slice(offset)` and rejects any offset
+        // past `text.length`. A byte offset looks like a gap for every
+        // non-ASCII chunk — the first append of a Chinese answer reports 83
+        // characters as 243, the client refuses it as a hole, falls back to
+        // re-fetching the whole transcript over REST, and the text lands in
+        // one block instead of streaming. `chars().count()` is not enough
+        // either: an astral character (emoji, CJK ext) is one char but two
+        // code units, so a char count still slices mid-surrogate-pair. The
+        // task path below counts the same unit.
         let offset = match &self.turns[turn_idx].steps[step_idx].frames[frame_idx] {
-            TranscriptFrame::Text(frame) => frame.text.len() as u64,
-            TranscriptFrame::Thinking(frame) => frame.text.len() as u64,
+            TranscriptFrame::Text(frame) => frame.text.encode_utf16().count() as u64,
+            TranscriptFrame::Thinking(frame) => frame.text.encode_utf16().count() as u64,
             _ => 0,
         };
         match &mut self.turns[turn_idx].steps[step_idx].frames[frame_idx] {
@@ -964,6 +1139,7 @@ impl Default for TranscriptProjector {
 
 pub(crate) fn turn_header(turn: &TranscriptTurn) -> TurnHeader {
     TurnHeader {
+        kind: TurnKind::Turn,
         turn_id: turn.turn_id.clone(),
         trigger_prompt_id: turn.trigger_prompt_id.clone(),
         ordinal: turn.ordinal,
@@ -981,6 +1157,7 @@ pub(crate) fn turn_header(turn: &TranscriptTurn) -> TurnHeader {
 
 pub(crate) fn step_header(step: &TranscriptStep) -> StepHeader {
     StepHeader {
+        kind: StepKind::Step,
         step_id: step.step_id.clone(),
         turn_id: step.turn_id.clone(),
         ordinal: step.ordinal,
@@ -996,11 +1173,18 @@ pub(crate) fn step_header(step: &TranscriptStep) -> StepHeader {
     }
 }
 
+/// Normalize a producer's turn id to the canonical `t<number>` key. v2's
+/// turn ids are numbers (`turnId: z.number()`); the fork's typed events
+/// still carry them as strings in both `turn-1` and `t1` shapes, and a
+/// projection that keyed those differently would split one turn in two.
+/// An unparseable id is kept verbatim rather than silently remapped.
 fn turn_key(raw: &str) -> String {
-    if raw.starts_with('t') {
-        raw.to_string()
-    } else {
-        format!("t{raw}")
+    let digits = raw
+        .rsplit_once(|c: char| !c.is_ascii_digit())
+        .map_or(raw, |(_, digits)| digits);
+    match digits.parse::<u64>() {
+        Ok(number) => turn_key_u64(number),
+        Err(_) => raw.to_string(),
     }
 }
 
@@ -1122,7 +1306,31 @@ fn attachment_from_block(block: &Value) -> Option<TranscriptAttachment> {
                 url: url.to_string(),
             })
     };
+    // A daemon reference (`kimi-file://<id>`) is a file identity, not a URL
+    // a client could fetch: the transcript contract's `file` source carries
+    // the id, which is what lets a client resolve the saved path through the
+    // daemon's file API (v2 `displayPaths` reaching the protocol surface).
+    let daemon_file_source = || {
+        block
+            .get("url")
+            .and_then(|v| v.as_str())
+            .and_then(crate::llm::media_resolver::parse_daemon_file_url)
+            .map(|file_id| AttachmentSource::File {
+                file_id: file_id.to_string(),
+            })
+    };
     let (media_type, source) = match kind {
+        // A stored reference is the session-owned canonical copy: the
+        // contract's `session_media` source names its file id.
+        "media_ref" => {
+            let file_id = block.get("file_id").and_then(|v| v.as_str())?;
+            (
+                media_kind_label(block.get("kind").and_then(|v| v.as_str())),
+                Some(AttachmentSource::SessionMedia {
+                    file_id: file_id.to_string(),
+                }),
+            )
+        }
         "image" => (
             block
                 .get("media_type")
@@ -1131,9 +1339,18 @@ fn attachment_from_block(block: &Value) -> Option<TranscriptAttachment> {
                 .to_string(),
             None,
         ),
-        "image_url" => ("image".to_string(), url_source()),
-        "audio_url" => ("audio".to_string(), url_source()),
-        "video_url" => ("video".to_string(), url_source()),
+        "image_url" => (
+            "image".to_string(),
+            daemon_file_source().or_else(url_source),
+        ),
+        "audio_url" => (
+            "audio".to_string(),
+            daemon_file_source().or_else(url_source),
+        ),
+        "video_url" => (
+            "video".to_string(),
+            daemon_file_source().or_else(url_source),
+        ),
         _ => return None,
     };
     Some(TranscriptAttachment {
@@ -1144,6 +1361,16 @@ fn attachment_from_block(block: &Value) -> Option<TranscriptAttachment> {
         source,
         placeholder: None,
     })
+}
+
+/// The media family label a `MediaRef` block's `kind` names (the block
+/// serializes the engine's `MediaKind`).
+fn media_kind_label(kind: Option<&str>) -> String {
+    match kind {
+        Some("video") => "video".to_string(),
+        Some("audio") => "audio".to_string(),
+        _ => "image".to_string(),
+    }
 }
 
 fn stable_hash(text: &str) -> u64 {
@@ -1239,8 +1466,12 @@ mod tests {
             turn_id: 0,
             reason: "completed".into(),
         });
-        assert_eq!(ops.len(), 1);
+        // The turn closes and its still-running step settles with it: the
+        // client stamps a thinking block's `durationMs` only once the step
+        // it belongs to has stopped running.
+        assert_eq!(ops.len(), 2);
         assert!(matches!(ops[0], TranscriptOperation::TurnUpsert { .. }));
+        assert!(matches!(ops[1], TranscriptOperation::StepUpsert { .. }));
 
         let snapshot = projector.snapshot();
         assert_eq!(snapshot.items.len(), 1);
@@ -1423,6 +1654,168 @@ mod tests {
         assert_eq!(snapshot.prompts.len(), 1);
     }
 
+    /// v2 `displayPaths` reaching the protocol surface (ROADMAP #17 ②): a
+    /// stored media reference folds into an attachment that names its file,
+    /// so a client can resolve the saved path through the daemon's file API
+    /// instead of receiving an identity-less URL or nothing at all.
+    #[test]
+    fn a_stored_media_reference_folds_into_a_file_sourced_attachment() {
+        let mut projector = TranscriptProjector::new();
+        let ops = projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "event.message.created",
+            "message": {
+                "id": "msg-u2",
+                "role": "user",
+                "created_at": "t",
+                "content": [
+                    { "type": "text", "text": "see" },
+                    { "type": "media_ref", "file_id": "f_att1", "kind": "image" },
+                    { "type": "image_url", "url": "kimi-file://f_att2" },
+                    { "type": "image_url", "url": "https://example.test/remote.png" },
+                ]
+            }
+        })));
+
+        let attachments: Vec<&TranscriptAttachment> = ops
+            .iter()
+            .filter_map(|op| match op {
+                TranscriptOperation::AttachmentUpsert { attachment } => Some(attachment),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(attachments.len(), 3);
+
+        // The stored reference is the session-owned canonical copy.
+        assert_eq!(
+            attachments[0].source,
+            Some(AttachmentSource::SessionMedia {
+                file_id: "f_att1".to_string()
+            })
+        );
+        assert_eq!(attachments[0].media_type, "image");
+        // A daemon URL is a file identity, not a fetchable URL.
+        assert_eq!(
+            attachments[1].source,
+            Some(AttachmentSource::File {
+                file_id: "f_att2".to_string()
+            })
+        );
+        // A remote URL stays a URL.
+        assert_eq!(
+            attachments[2].source,
+            Some(AttachmentSource::Url {
+                url: "https://example.test/remote.png".to_string()
+            })
+        );
+
+        // The turn the prompt opened names its attachments (v2's cold-fold
+        // `turn.attachmentIds`): the link a client follows to the saved path.
+        let snapshot = projector.snapshot();
+        let turn = snapshot
+            .items
+            .iter()
+            .find_map(|item| match item {
+                TranscriptItem::Turn(turn) if turn.turn_id == "t2" => Some(turn),
+                _ => None,
+            })
+            .expect("the message id names the turn");
+        assert_eq!(
+            turn.attachment_ids.as_deref(),
+            Some(
+                &[
+                    attachments[0].attachment_id.clone(),
+                    attachments[1].attachment_id.clone(),
+                    attachments[2].attachment_id.clone(),
+                ][..]
+            ),
+            "every media part of the opening prompt is an attachment, URL-sourced ones included"
+        );
+    }
+
+    /// v2 #3764 on the v1 transcript surface: the contract's
+    /// `transcriptPromptSchema` carries `clientMetadata`, and the
+    /// submission's metadata object rides it as the one-element array the
+    /// contract shapes. The turn's announcement upserts the same prompt
+    /// and carries the metadata over rather than dropping it.
+    #[test]
+    fn the_prompt_entity_carries_the_submissions_client_metadata() {
+        let mut projector = TranscriptProjector::new();
+        let ops = projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "prompt.submitted",
+            "promptId": "prompt-1",
+            "userMessageId": "msg-prompt-1",
+            "status": "running",
+            "content": [{ "type": "text", "text": "hi" }],
+            "createdAt": "2026-09-20T00:00:00.000Z",
+            "metadata": { "surface": "web", "threadId": "abc" },
+        })));
+        match &ops[0] {
+            TranscriptOperation::PromptUpsert { prompt } => {
+                assert_eq!(prompt.prompt_id, "prompt-1");
+                assert_eq!(
+                    prompt.client_metadata,
+                    Some(vec![json!({ "surface": "web", "threadId": "abc" })]),
+                );
+            }
+            other => panic!("expected a prompt upsert, got {other:?}"),
+        }
+
+        // The announcement upserts the same prompt and keeps the metadata.
+        let ops = projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "event.message.created",
+            "message": {
+                "id": "msg-u1",
+                "role": "user",
+                "content": [{ "type": "text", "text": "hi" }],
+                "created_at": "2026-09-20T00:00:01.000Z",
+            },
+        })));
+        // The announcement's prompt id is the message id, which differs
+        // from the submission's prompt id — the two entities are distinct,
+        // and only the submission's carries the metadata.
+        let prompts: Vec<&TranscriptPrompt> = ops
+            .iter()
+            .filter_map(|op| match op {
+                TranscriptOperation::PromptUpsert { prompt } => Some(prompt),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(prompts.len(), 1);
+        assert_eq!(prompts[0].prompt_id, "msg-u1");
+        assert_eq!(prompts[0].client_metadata, None);
+
+        // A submission whose prompt id IS the message id (the steer path
+        // reuses the prompt id) keeps its metadata across the announcement.
+        let mut projector = TranscriptProjector::new();
+        projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "prompt.submitted",
+            "promptId": "msg-u2",
+            "status": "running",
+            "content": [{ "type": "text", "text": "hi" }],
+            "createdAt": "2026-09-20T00:00:00.000Z",
+            "metadata": { "surface": "web" },
+        })));
+        let ops = projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "event.message.created",
+            "message": {
+                "id": "msg-u2",
+                "role": "user",
+                "content": [{ "type": "text", "text": "hi" }],
+                "created_at": "2026-09-20T00:00:01.000Z",
+            },
+        })));
+        match &ops[0] {
+            TranscriptOperation::PromptUpsert { prompt } => {
+                assert_eq!(
+                    prompt.client_metadata,
+                    Some(vec![json!({ "surface": "web" })]),
+                    "the announcement must not drop the submission's metadata"
+                );
+            }
+            other => panic!("expected a prompt upsert, got {other:?}"),
+        }
+    }
+
     #[test]
     fn agent_meta_subagent_and_attachment_ops() {
         let mut projector = TranscriptProjector::new();
@@ -1451,7 +1844,37 @@ mod tests {
         })));
         assert!(ops.is_empty());
 
-        // `work_changed` merges the activity state.
+        // `work_changed` merges the activity state. The engine publishes the
+        // typed variant on the production path, so that spelling is the one
+        // that has to work; the JSON form stays for replay-shaped input.
+        let ops = projector.apply_event(&EngineEvent::SessionWorkChanged {
+            busy: true,
+            main_turn_active: true,
+            pending_interaction: "none".into(),
+            last_turn_reason: None,
+        });
+        match &ops[0] {
+            TranscriptOperation::MetaMerge { meta } => {
+                assert_eq!(meta.activity, Some(ActivityMeta::Turn));
+            }
+            other => panic!("expected meta.merge, got {other:?}"),
+        }
+        let ops = projector.apply_event(&EngineEvent::SessionWorkChanged {
+            busy: false,
+            main_turn_active: false,
+            pending_interaction: "none".into(),
+            last_turn_reason: Some("completed".into()),
+        });
+        match &ops[0] {
+            TranscriptOperation::MetaMerge { meta } => {
+                assert_eq!(
+                    meta.activity,
+                    Some(ActivityMeta::Idle),
+                    "a finished turn must clear the activity flag the client gates on"
+                );
+            }
+            other => panic!("expected meta.merge, got {other:?}"),
+        }
         let ops = projector.apply_event(&EngineEvent::Custom(json!({
             "type": "event.session.work_changed",
             "busy": true
@@ -1515,5 +1938,317 @@ mod tests {
         assert_eq!(snapshot.attachments.len(), 1);
         assert_eq!(snapshot.tasks.len(), 1);
         assert!(snapshot.meta.agent.is_some());
+    }
+
+    /// Reproduces the production defect: the server path publishes
+    /// `event.assistant.delta` without ever emitting a typed `TurnStarted`, so
+    /// the projector had no cursor and dropped every streamed chunk. The delta
+    /// is self-describing (it carries `turn_id`, as v2's payload carries
+    /// `turnId`), so the text now reaches the transcript lane.
+    #[test]
+    fn custom_assistant_delta_streams_without_a_typed_turn_start() {
+        let mut projector = TranscriptProjector::new();
+
+        let ops = projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "event.assistant.delta",
+            "turn_id": 1,
+            "message_id": "msg-a1-1",
+            "content_index": 0,
+            "delta": "hello",
+        })));
+
+        assert!(
+            ops.iter()
+                .any(|op| matches!(op, TranscriptOperation::Append { .. })),
+            "a streamed assistant delta must reach the transcript lane; got {ops:?}"
+        );
+        match &ops[0] {
+            TranscriptOperation::FrameUpsert { frame, .. } => assert!(
+                matches!(frame, TranscriptFrame::Text(_)),
+                "a text delta must open a text frame, got {frame:?}"
+            ),
+            other => panic!("expected frame.upsert first, got {other:?}"),
+        }
+    }
+
+    /// A thinking chunk rides its own event name — v2 keeps `thinking.delta`
+    /// distinct from `assistant.delta` rather than flagging the answer stream
+    /// — and opens a Thinking frame, the distinction the web client reads to
+    /// render a reasoning block.
+    #[test]
+    fn custom_thinking_delta_opens_a_thinking_frame() {
+        let mut projector = TranscriptProjector::new();
+
+        let ops = projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "event.thinking.delta",
+            "turn_id": 1,
+            "message_id": "msg-a1-1",
+            "content_index": 0,
+            "delta": "reasoning",
+        })));
+
+        match ops.first() {
+            Some(TranscriptOperation::FrameUpsert { frame, .. }) => assert!(
+                matches!(frame, TranscriptFrame::Thinking(_)),
+                "a thinking delta must open a thinking frame, got {frame:?}"
+            ),
+            other => panic!("expected frame.upsert, got {other:?}"),
+        }
+    }
+
+    /// The append offset counts UTF-16 code units, the unit JS counts: the
+    /// client rejects an offset past `text.length` as a gap and re-fetches the
+    /// transcript instead of splicing — so a byte offset makes every non-ASCII
+    /// answer arrive in one block rather than streaming, and a char count
+    /// still slices an astral character mid-surrogate-pair.
+    #[test]
+    fn append_offsets_count_utf16_units() {
+        let mut projector = TranscriptProjector::new();
+
+        let delta = |text: &str| {
+            EngineEvent::Custom(json!({
+                "type": "event.assistant.delta",
+                "turn_id": 1,
+                "message_id": "msg-a1-1",
+                "content_index": 0,
+                "delta": text,
+            }))
+        };
+
+        projector.apply_event(&delta("长城"));
+        let ops = projector.apply_event(&delta("的建造"));
+
+        let append = ops
+            .iter()
+            .find(|op| matches!(op, TranscriptOperation::Append { .. }))
+            .expect("second chunk must append");
+        match append {
+            TranscriptOperation::Append { offset, .. } => assert_eq!(
+                *offset, 2,
+                "offset must count the two characters already in the frame, \
+                 not their UTF-8 byte length (6)"
+            ),
+            other => panic!("expected append, got {other:?}"),
+        }
+
+        // A third chunk continues from the code-unit count, so the client's
+        // splice matches with no gap.
+        let ops = projector.apply_event(&delta("历史"));
+        match ops
+            .iter()
+            .find(|op| matches!(op, TranscriptOperation::Append { .. }))
+            .expect("third chunk must append")
+        {
+            TranscriptOperation::Append { offset, .. } => assert_eq!(*offset, 5),
+            other => panic!("expected append, got {other:?}"),
+        }
+
+        // An astral character is one char but two code units: the offset must
+        // report 2 after a lone emoji, or the client's slice starts inside the
+        // surrogate pair and the text renders corrupted.
+        let mut emoji = TranscriptProjector::new();
+        emoji.apply_event(&delta("😀"));
+        let ops = emoji.apply_event(&delta("好"));
+        match ops
+            .iter()
+            .find(|op| matches!(op, TranscriptOperation::Append { .. }))
+            .expect("chunk after an emoji must append")
+        {
+            TranscriptOperation::Append { offset, .. } => assert_eq!(
+                *offset, 2,
+                "one emoji is two UTF-16 code units, not one char"
+            ),
+            other => panic!("expected append, got {other:?}"),
+        }
+    }
+
+    /// A turn opened by a streamed delta is closed by the typed `turn.ended`
+    /// — the event v2 assigns the turn state to — and its step settles with
+    /// it: the client only stamps a thinking block's `durationMs` once the
+    /// step it belongs to has stopped running.
+    #[test]
+    fn turn_ended_closes_the_turn_and_its_steps() {
+        let mut projector = TranscriptProjector::new();
+
+        // A turn opened by deltas, the way the server path opens one.
+        projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "event.assistant.delta",
+            "turn_id": 4,
+            "delta": "answer",
+        })));
+        projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "event.thinking.delta",
+            "turn_id": 4,
+            "delta": "reasoning",
+        })));
+
+        let ops = projector.apply_event(&EngineEvent::TurnEnded {
+            agent_id: "main".into(),
+            turn_id: 4,
+            reason: "completed".into(),
+        });
+
+        let turn_op = ops
+            .iter()
+            .find(|op| matches!(op, TranscriptOperation::TurnUpsert { .. }))
+            .expect("the finished turn must be republished");
+        match turn_op {
+            TranscriptOperation::TurnUpsert { turn } => {
+                assert_eq!(turn.state, TurnState::Completed);
+                assert!(turn.ended_at.is_some(), "a closed turn carries its end");
+            }
+            other => panic!("expected turn.upsert, got {other:?}"),
+        }
+        assert!(
+            ops.iter()
+                .any(|op| matches!(op, TranscriptOperation::StepUpsert { .. })),
+            "the turn's steps must settle too: {ops:?}"
+        );
+
+        // The snapshot agrees, which is what the client reads.
+        let snapshot = projector.snapshot();
+        let turn = snapshot
+            .items
+            .iter()
+            .find_map(|item| match item {
+                TranscriptItem::Turn(turn) => Some(turn),
+                _ => None,
+            })
+            .expect("a turn exists");
+        assert_eq!(turn.state, TurnState::Completed);
+        assert!(
+            turn.steps.iter().all(|s| s.state == StepState::Completed),
+            "a clean turn's steps must settle completed, not interrupted: {:?}",
+            turn.steps.iter().map(|s| s.state).collect::<Vec<_>>()
+        );
+    }
+
+    /// `prompt.completed` owns no turn state here: v2 keeps the two entities on
+    /// separate schedules (`onPromptCompleted`, coreEventMap.ts:1356), so the
+    /// turn stays running until the typed `turn.ended` names it. Folding the
+    /// turn here would close it on the prompt's schedule instead.
+    #[test]
+    fn prompt_completed_does_not_close_the_turn() {
+        let mut projector = TranscriptProjector::new();
+        projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "event.assistant.delta",
+            "turn_id": 4,
+            "delta": "answer",
+        })));
+
+        let ops = projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "prompt.completed",
+            "agentId": "main",
+            "promptId": "prompt-1",
+            "reason": "completed",
+        })));
+        assert!(
+            ops.is_empty(),
+            "prompt.completed must fold no transcript op; got {ops:?}"
+        );
+
+        let snapshot = projector.snapshot();
+        let turn = snapshot
+            .items
+            .iter()
+            .find_map(|item| match item {
+                TranscriptItem::Turn(turn) => Some(turn),
+                _ => None,
+            })
+            .expect("a turn exists");
+        assert_eq!(
+            turn.state,
+            TurnState::Running,
+            "the turn closes on turn.ended, not on prompt.completed"
+        );
+    }
+
+    /// `turn.ended` closes the turn it names and leaves every other turn
+    /// alone — v2's turn state records a single `lastEnded` turn id, never a
+    /// broadcast over the running turns.
+    #[test]
+    fn turn_ended_closes_only_the_turn_it_names() {
+        let mut projector = TranscriptProjector::new();
+        for turn_id in [4, 5] {
+            projector.apply_event(&EngineEvent::Custom(json!({
+                "type": "event.assistant.delta",
+                "turn_id": turn_id,
+                "delta": "answer",
+            })));
+        }
+
+        projector.apply_event(&EngineEvent::TurnEnded {
+            agent_id: "main".into(),
+            turn_id: 5,
+            reason: "completed".into(),
+        });
+
+        let snapshot = projector.snapshot();
+        let states: Vec<TurnState> = snapshot
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                TranscriptItem::Turn(turn) => Some(turn.state),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            states,
+            vec![TurnState::Running, TurnState::Completed],
+            "only the named turn may close; got {states:?}"
+        );
+    }
+
+    /// A failed turn reports failure rather than success, with v2's reason
+    /// vocabulary on the typed event.
+    #[test]
+    fn a_failed_reason_closes_the_turn_as_failed() {
+        let mut projector = TranscriptProjector::new();
+        projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "event.assistant.delta",
+            "turn_id": 7,
+            "delta": "partial",
+        })));
+
+        let ops = projector.apply_event(&EngineEvent::TurnEnded {
+            agent_id: "main".into(),
+            turn_id: 7,
+            reason: "failed".into(),
+        });
+
+        match ops.first() {
+            Some(TranscriptOperation::TurnUpsert { turn }) => {
+                assert_eq!(turn.state, TurnState::Failed);
+            }
+            other => panic!("expected turn.upsert, got {other:?}"),
+        }
+    }
+
+    /// v2's `turnEndReasonSchema` (turnOps.ts:97) carries `blocked` alongside
+    /// the three the fork's loop produces; a blocked turn must report failed
+    /// rather than silently reporting as completed. See `mapTurnEndState`
+    /// (coreEventMap.ts:1608) and the same fold in the cold rebuild
+    /// (`transcript/src/history/foldFacts.ts`, `mapTurnEndReason`).
+    #[test]
+    fn a_blocked_reason_closes_the_turn_as_failed() {
+        let mut projector = TranscriptProjector::new();
+        projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "event.assistant.delta",
+            "turn_id": 8,
+            "delta": "partial",
+        })));
+
+        let ops = projector.apply_event(&EngineEvent::TurnEnded {
+            agent_id: "main".into(),
+            turn_id: 8,
+            reason: "blocked".into(),
+        });
+
+        match ops.first() {
+            Some(TranscriptOperation::TurnUpsert { turn }) => {
+                assert_eq!(turn.state, TurnState::Failed);
+            }
+            other => panic!("expected turn.upsert, got {other:?}"),
+        }
     }
 }

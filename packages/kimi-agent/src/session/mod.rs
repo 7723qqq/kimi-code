@@ -1342,7 +1342,7 @@ pub fn render_cron_fire(
 /// `CronJobOrigin` (protocol `events.ts`) — the transcript folds these as
 /// cron cards rather than user prompts, exactly what a daemon-fired turn
 /// looked like.
-fn cron_fire_origin(
+pub(crate) fn cron_fire_origin(
     entry: &crate::cron::scheduler::CronEntry,
     coalesced_count: u32,
     stale: bool,
@@ -1366,13 +1366,13 @@ fn settle_warning(code: &str, message: String) -> serde_json::Value {
 /// The process's local UTC offset in minutes east of UTC — the cron module's
 /// `tz_offset_minutes`. std has no local-time API; chrono reads the system
 /// zone on every platform the crate builds for.
-fn local_utc_offset_minutes() -> i32 {
+pub(crate) fn local_utc_offset_minutes() -> i32 {
     // `DateTime::offset()` is inherent on chrono's `DateTime<Local>` — no
     // trait import needed.
     chrono::Local::now().offset().local_minus_utc() / 60
 }
 
-fn now_ms_epoch() -> i64 {
+pub(crate) fn now_ms_epoch() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)

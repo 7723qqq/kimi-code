@@ -8,21 +8,35 @@ pub enum TowerAgentKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TowerRosterEntry {
     pub name: String,
     pub agent_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     pub kind: TowerAgentKind,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mission_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review_target: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// The mission a reviewer's target belongs to (v2 `reviewMissionId`).
+    /// Preserved so a v2-written state round-trips without dropping it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_mission_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
     pub spawned_at: String,
+    /// v2's worker-death triple (`diedAt` / `deathStatus` / `deathReason`).
+    /// The fork collapses them into `status` below; these are preserved so a
+    /// v2-written roster is not silently rewritten without them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub died_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub death_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub death_reason: Option<String>,
     /// `dead` once a detached run finished with a failure outcome (failed,
     /// timed out, killed, or lost); absent while the agent may still be alive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -100,6 +114,7 @@ pub struct TowerMissionTask {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TowerMission {
     pub id: String,
     pub title: String,
@@ -109,11 +124,19 @@ pub struct TowerMission {
     pub scope: Vec<String>,
     pub branch: String,
     pub worktree: String,
+    /// The base commit/branch a worker's worktree starts from (v2
+    /// `spawnBase`). Preserved so a v2-written mission round-trips.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spawn_base: Option<String>,
     #[serde(default)]
     pub deps: Vec<String>,
     pub status: TowerMissionStatus,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
+    /// The mission's briefing for its workers (v2 `context`). Preserved so a
+    /// v2-written mission does not lose its instructions on the next save.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<String>,
     #[serde(default)]
     pub tasks: Vec<TowerMissionTask>,
     #[serde(default)]
@@ -123,12 +146,13 @@ pub struct TowerMission {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TowerState {
     pub version: u32,
     pub base: String,
     pub mode: String,
     pub created_at: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
     #[serde(default)]
     pub roster: TowerRoster,
@@ -266,4 +290,103 @@ pub struct TowerMissionPatch {
     pub task_done: Option<String>,
     pub owner: Option<String>,
     pub scope: Option<Vec<String>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The persisted state is v2's camelCase contract (`TowerState` in
+    /// `agent-core-v2/src/features/tower/protocol/types.ts`). The fork wrote
+    /// snake_case here, so a state file v2 produced read back as
+    /// "corrupted tower state: missing field `created_at`" and every tower
+    /// tool became unavailable.
+    #[test]
+    fn tower_state_reads_the_v2_camel_case_contract() {
+        let raw = r#"{
+            "version": 1,
+            "base": "main",
+            "mode": "branch",
+            "createdAt": "2026-09-18T04:00:00.000Z",
+            "sessionId": "session-1",
+            "roster": { "agents": [{
+                "name": "worker-1",
+                "agentId": "agent-1",
+                "sessionId": "session-1",
+                "kind": "worker",
+                "missionId": "M1",
+                "reviewTarget": "feat/x",
+                "reviewMissionId": "M1",
+                "worktree": "wt-1",
+                "branch": "feat/x",
+                "spawnedAt": "2026-09-18T04:00:00.000Z",
+                "diedAt": "2026-09-18T05:00:00.000Z",
+                "deathStatus": "failed",
+                "deathReason": "boom"
+            }] },
+            "missions": [{
+                "id": "M1",
+                "title": "Mission 1",
+                "slug": "mission-1",
+                "kind": "build",
+                "scope": ["src/**"],
+                "branch": "feat/x",
+                "worktree": "wt-1",
+                "spawnBase": "abc123",
+                "deps": [],
+                "status": "active",
+                "context": "briefing",
+                "tasks": [{ "text": "do it", "done": false }],
+                "notes": [],
+                "blockers": []
+            }]
+        }"#;
+
+        let state: TowerState = serde_json::from_str(raw).expect("v2 state must deserialize");
+        assert_eq!(state.created_at, "2026-09-18T04:00:00.000Z");
+        assert_eq!(state.session_id.as_deref(), Some("session-1"));
+        assert_eq!(state.roster.agents[0].agent_id, "agent-1");
+        assert_eq!(state.roster.agents[0].mission_id.as_deref(), Some("M1"));
+        assert_eq!(
+            state.roster.agents[0].review_mission_id.as_deref(),
+            Some("M1")
+        );
+        assert_eq!(
+            state.roster.agents[0].death_status.as_deref(),
+            Some("failed")
+        );
+        assert_eq!(state.missions[0].spawn_base.as_deref(), Some("abc123"));
+        assert_eq!(state.missions[0].context.as_deref(), Some("briefing"));
+
+        // v2 marks these optional; a state that omits them must still load.
+        let minimal: TowerState = serde_json::from_str(
+            r#"{"version":1,"base":"main","mode":"branch","createdAt":"x",
+                "roster":{"agents":[{"name":"w","agentId":"a","kind":"worker","spawnedAt":"y"}]},
+                "missions":[]}"#,
+        )
+        .expect("v2 optional fields must default");
+        assert!(minimal.session_id.is_none());
+        assert!(minimal.roster.agents[0].session_id.is_none());
+        assert!(minimal.roster.agents[0].mission_id.is_none());
+    }
+
+    /// A save must write the same camelCase keys back, so a v2 reader keeps
+    /// working and the fields v2 owns are not dropped.
+    #[test]
+    fn tower_state_serializes_the_v2_camel_case_contract() {
+        let state = TowerState {
+            version: 1,
+            base: "main".into(),
+            mode: "branch".into(),
+            created_at: "2026-09-18T04:00:00.000Z".into(),
+            session_id: Some("session-1".into()),
+            roster: TowerRoster::default(),
+            missions: vec![],
+        };
+        let json = serde_json::to_value(&state).unwrap();
+        assert!(json.get("createdAt").is_some());
+        assert!(json.get("created_at").is_none());
+        assert!(json.get("sessionId").is_some());
+        assert!(json.get("session_id").is_none());
+    }
 }

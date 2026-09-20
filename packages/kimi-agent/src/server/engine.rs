@@ -307,14 +307,15 @@ impl ServerEngine {
             in_flight: Arc::new(Mutex::new(HashMap::new())),
             mcp_manager: Mutex::new(None),
             interaction_manager: Mutex::new(None),
-            subagent_manager: Arc::new(SubagentManager::with_store(store)),
+            subagent_manager: Arc::new(SubagentManager::with_store(store.clone())),
             oauth_manager: Mutex::new(None),
             steer_queues: Mutex::new(HashMap::new()),
             steer_slots: Mutex::new(HashMap::new()),
             config_source: Mutex::new(None),
             host_factory: Mutex::new(None),
             status_hashes: Mutex::new(HashMap::new()),
-            media: crate::llm::media_resolver::MediaResolver::new(),
+            media: crate::llm::media_resolver::MediaResolver::new()
+                .with_upload_cache(store.clone()),
             media_dropped: Mutex::new(HashMap::new()),
             session_mcp: Mutex::new(HashMap::new()),
         }
@@ -823,6 +824,23 @@ impl ServerEngine {
             });
     }
 
+    /// Publish the `turn.ended` fact (kap-server `TurnEndedEvent`) that
+    /// closes the turn in every projection. v2 assigns the turn state to
+    /// this event alone — scoped by `turnId`, carrying the loop's end reason
+    /// — while `prompt.completed` finalizes the prompt entity and owns no
+    /// turn state. Published before the `work_changed(busy=false)` flip: a
+    /// client that gates its busy indicator on the last turn's state must
+    /// see the turn closed before the session says idle.
+    fn publish_turn_ended(&self, session_id: &str, turn_number: u32, reason: &str) {
+        self.hub
+            .bus_for(session_id)
+            .publish(&crate::events::EngineEvent::TurnEnded {
+                agent_id: "main".to_string(),
+                turn_id: u64::from(turn_number),
+                reason: reason.to_string(),
+            });
+    }
+
     /// Publish the `agent.status.updated` fact the Web client's status bar
     /// folds (kap-server `AgentStatusUpdatedEvent`): the session's model,
     /// thinking effort, permission mode, plan mode and context-token estimate.
@@ -1120,6 +1138,40 @@ impl ServerEngine {
         // only take effect on the next turn.
         self.apply_thinking_guard_setting().await;
         let host_callbacks = self.session_callbacks(session_id, ws_ref);
+        // Message identities (`event.message.created` / `event.assistant.delta` /
+        // `event.message.updated`) must sit on the chain the LLM's event sink
+        // writes to. The sink is bound when the pipeline builds its LLM, so a
+        // decorator applied afterwards never sees a streaming delta: the raw
+        // `llm.delta` reaches the hub untranslated and the transcript lane
+        // produces no `append` / `frame.upsert` ops for it. Wrapping here —
+        // before the pipeline is built — is what makes the translation
+        // reachable. The engine's `in_flight` marker rides the same step
+        // boundaries, so the history route can name the live streaming
+        // position (upstream `projection.inFlight`).
+        let engine_self = Arc::clone(&self.in_flight);
+        let tracked_session = session_id.to_string();
+        let message_callbacks = Arc::new(
+            crate::server::message_events::MessageCallbacks::with_step_tracker(
+                host_callbacks,
+                session_id,
+                self.hub.clone(),
+                turn_number,
+                prompt,
+                &media,
+                origin.clone(),
+                Some(Box::new(move |step: u32| {
+                    let mut registry = engine_self.lock().unwrap_or_else(|e| e.into_inner());
+                    registry.insert(
+                        tracked_session.clone(),
+                        crate::server::v3::history::HistoryInFlight {
+                            turn_id: turn_number.to_string(),
+                            step_id: format!("{turn_number}.{step}"),
+                        },
+                    );
+                })),
+            ),
+        );
+        let host_callbacks: Arc<dyn HostCallbacks> = message_callbacks.clone();
         let pipeline = build_engine_pipeline(
             &spec,
             host_callbacks,
@@ -1132,6 +1184,10 @@ impl ServerEngine {
                 // This session's lane, so the turn's events carry its session id
                 // and its seq. Every connection still sees every lane.
                 event_bus: Some(self.hub.bus_for(session_id)),
+                // The server has its own server-scoped runner (with the hub
+                // sink) for subagent tasks; this pipeline's bash-task runner
+                // stays unsinked here.
+                task_event_sink: None,
             },
         )
         .await
@@ -1183,6 +1239,7 @@ impl ServerEngine {
             pipeline.secondary_llm.clone(),
             pipeline.toolset.clone(),
             origin,
+            Some(message_callbacks),
         )
         .await
     }
@@ -1192,6 +1249,11 @@ impl ServerEngine {
     /// The two product entries never use this; it exists so the exact same
     /// loop, persistence and reporting path can be driven from a test, and so
     /// a future custom transport has one obvious insertion point.
+    ///
+    /// Message identities are installed on a decorator here so this path
+    /// behaves like the product one. Its streaming deltas cannot be translated
+    /// — the caller owns the LLM, so that transport's event sink is already
+    /// bound — but the prompt identity and the turn's message lifecycle are.
     pub async fn run_turn_on(
         &self,
         llm: &dyn LLM,
@@ -1208,6 +1270,14 @@ impl ServerEngine {
         } else {
             Arc::new(ServerHost::standalone().with_oauth(self.oauth_manager()))
         };
+        let message_callbacks = Arc::new(crate::server::message_events::MessageCallbacks::new(
+            callbacks,
+            session_id,
+            self.hub.clone(),
+            turn_number,
+            prompt,
+        ));
+        let callbacks: Arc<dyn HostCallbacks> = message_callbacks.clone();
         self.execute(
             llm,
             &callbacks,
@@ -1220,6 +1290,7 @@ impl ServerEngine {
             None,
             None,
             None,
+            Some(message_callbacks),
         )
         .await
     }
@@ -1238,6 +1309,7 @@ impl ServerEngine {
         secondary_llm: Option<Arc<dyn LLM>>,
         toolset: Option<Arc<crate::tools::NativeToolset>>,
         origin: Option<Value>,
+        message_callbacks: Option<Arc<crate::server::message_events::MessageCallbacks>>,
     ) -> Result<TurnReport, EngineError> {
         let turn_id = format!("turn-{}", fastrand::u64(..));
         let cancel = Arc::new(AtomicBool::new(false));
@@ -1261,6 +1333,12 @@ impl ServerEngine {
         // ended or interrupted.
         let activity = self.activity_registry.tracker(session_id);
         activity.turn_started(turn_number);
+        // The prompt's message identity lands here: after the busy/status/phase
+        // flips and before the first step, the order the turn-boundary contract
+        // pins (a client must know the turn started before it sees the prompt).
+        if let Some(callbacks) = message_callbacks.as_ref() {
+            callbacks.announce_prompt();
+        }
         // Innermost decorator: drains this session's steering queue at every
         // step head, so a `POST /prompts:steer` lands in the running turn.
         let callbacks: Arc<dyn HostCallbacks> = Arc::new(
@@ -1273,38 +1351,18 @@ impl ServerEngine {
         // Outermost decorator: every step boundary, streaming delta and tool
         // execution the turn produces moves the session's activity phase
         // before the underlying chain sees the event.
+        //
+        // Message identities (`event.message.created` / `event.assistant.delta`
+        // / `event.message.updated`) are NOT installed here: the LLM's event
+        // sink was bound when the pipeline built it, so a decorator added at
+        // this point never sees a streaming delta. `MessageCallbacks` wraps the
+        // callbacks the pipeline is built with instead (see
+        // `run_turn_with_media`).
         let callbacks: Arc<dyn HostCallbacks> =
             Arc::new(crate::server::activity::ActivityCallbacks {
                 inner: callbacks.clone(),
                 tracker: activity.clone(),
             });
-        // Outermost of all: the turn's prompt and every step's assistant
-        // output get message identities (`event.message.created` /
-        // `event.assistant.delta` / `event.message.updated`), the vocabulary
-        // the Web client's transcript folds. The engine's `in_flight` marker
-        // rides the same step boundaries, so the history route can name the
-        // live streaming position (upstream `projection.inFlight`).
-        let engine_self = Arc::clone(&self.in_flight);
-        let tracked_session = session_id.to_string();
-        let callbacks: Arc<dyn HostCallbacks> = Arc::new(
-            crate::server::message_events::MessageCallbacks::with_step_tracker(
-                callbacks.clone(),
-                session_id,
-                self.hub.clone(),
-                turn_number,
-                prompt,
-                Some(Box::new(move |step: u32| {
-                    let mut registry = engine_self.lock().unwrap_or_else(|e| e.into_inner());
-                    registry.insert(
-                        tracked_session.clone(),
-                        crate::server::v3::history::HistoryInFlight {
-                            turn_id: turn_number.to_string(),
-                            step_id: format!("{turn_number}.{step}"),
-                        },
-                    );
-                })),
-            ),
-        );
         struct ActiveGuard<'a> {
             engine: &'a ServerEngine,
             session_id: String,
@@ -1392,10 +1450,12 @@ impl ServerEngine {
         let result = match turn {
             Ok(result) => {
                 let reason = work_turn_reason(&result.stop_reason);
+                self.publish_turn_ended(session_id, turn_number, reason);
                 self.publish_work_changed(session_id, false, Some(reason));
                 result
             }
             Err(error) => {
+                self.publish_turn_ended(session_id, turn_number, "failed");
                 self.publish_work_changed(session_id, false, Some("failed"));
                 self.publish_status_updated(session_id).await;
                 activity.interrupted(
@@ -2136,9 +2196,10 @@ model = "gpt-x"
             .expect("scripted turn");
         assert_eq!(report.stop_reason, "EndTurn");
 
-        // The turn boundary now publishes three facts in a fixed order — the
+        // The turn boundary now publishes its facts in a fixed order — the
         // work_changed busy flip, the deduped status snapshot and the
-        // activity phase — at start and again at end. Every recv is bounded
+        // activity phase at start; the typed turn.ended, the work_changed
+        // flip back and the phase again at end. Every recv is bounded
         // so a regression fails instead of hanging the suite.
         async fn next_event(
             sub: &mut crate::server::hub::WsSubscription,
@@ -2150,7 +2211,7 @@ model = "gpt-x"
         }
         let events: Vec<std::sync::Arc<crate::server::hub::SequencedEvent>> = {
             let mut collected = Vec::new();
-            for _ in 0..8 {
+            for _ in 0..9 {
                 collected.push(next_event(&mut sub).await);
             }
             collected
@@ -2166,6 +2227,7 @@ model = "gpt-x"
                 "agent.status.updated",        // snapshot (first for the session)
                 "agent.status.updated",        // phase: running
                 "event.message.created",       // the user prompt
+                "turn.ended",                  // the turn closes, before idle
                 "event.session.work_changed",  // busy=false
                 "agent.status.updated",        // snapshot (context grew)
                 "event.session.usage_updated", // live token accounting
@@ -2192,19 +2254,30 @@ model = "gpt-x"
         };
         assert_eq!(start_phase["phase"]["kind"], "running");
 
-        let crate::events::EngineEvent::Custom(end_phase) = &events[7].event else {
-            panic!("expected the ended phase, got {:?}", events[7].event);
+        let crate::events::EngineEvent::Custom(end_phase) = &events[8].event else {
+            panic!("expected the ended phase, got {:?}", events[8].event);
         };
         assert_eq!(end_phase["phase"]["kind"], "ended");
         assert_eq!(end_phase["phase"]["reason"], "completed");
+
+        // The turn closes on the typed event, scoped by its turn number and
+        // carrying the loop's end reason — the v2 turn-lifecycle contract.
+        let crate::events::EngineEvent::TurnEnded {
+            turn_id, reason, ..
+        } = &events[4].event
+        else {
+            panic!("expected turn.ended, got {:?}", events[4].event);
+        };
+        assert_eq!(*turn_id, 1);
+        assert_eq!(reason, "completed");
 
         let crate::events::EngineEvent::SessionWorkChanged {
             busy,
             last_turn_reason,
             ..
-        } = &events[4].event
+        } = &events[5].event
         else {
-            panic!("expected work_changed, got {:?}", events[4].event);
+            panic!("expected work_changed, got {:?}", events[5].event);
         };
         assert!(!busy);
         assert_eq!(last_turn_reason.as_deref(), Some("completed"));

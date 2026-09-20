@@ -39,15 +39,15 @@ use super::history::HistoryInFlight;
 use super::messages::{
     ApprovalDecision, AssistantDeltaMessage, AssistantMessage, ContentPart, ContentPartType,
     InteractionApprovalRequest, InteractionApprovalResponse, InteractionKind, InteractionMessage,
-    InteractionRequest, InteractionResponse, InteractionStatus, PendingInteraction, ServerMessage,
-    SessionStateMessage, SessionStatus, StepMessage, StepStatus, StreamStatus, TaskKind,
-    TaskMessage, TaskStatus, ThinkingDeltaMessage, ToolCallDeltaMessage, ToolCallMessage,
-    ToolCallStatus, ToolProgressKind, ToolProgressPayload, TurnMessage, TurnOrigin, TurnStatus,
-    TurnUsage, UserMessage, UserMessageOrigin, UserMessageStatus,
+    InteractionQuestionRequest, InteractionRequest, InteractionResponse, InteractionStatus,
+    PendingInteraction, ServerMessage, SessionStateMessage, SessionStatus, StepMessage, StepStatus,
+    StreamStatus, TaskKind, TaskMessage, TaskStatus, ThinkingDeltaMessage, ToolCallDeltaMessage,
+    ToolCallMessage, ToolCallStatus, ToolProgressKind, ToolProgressPayload, TurnMessage,
+    TurnOrigin, TurnStatus, TurnUsage, UserMessage, UserMessageOrigin, UserMessageStatus,
 };
 use super::projection::{
-    assistant_entity_id, iso, project_tasks, project_todo, step_entity_id, thinking_entity_id,
-    turn_entity_id, user_entity_id,
+    assistant_entity_id, iso, project_tasks, project_todo, skill_activations_of, step_entity_id,
+    thinking_entity_id, turn_entity_id, user_entity_id,
 };
 
 /// Folds one agent's live events into v3 entities.
@@ -430,6 +430,43 @@ impl LiveTranslator {
     /// The persisted wire vocabulary, which reaches the live lane as opaque JSON.
     fn translate_wire_event(&mut self, value: &Value, now: i64) -> Vec<ServerMessage> {
         match value.get("type").and_then(Value::as_str) {
+            // The production live announcement of the user prompt (v1
+            // vocabulary, `message_events.rs` `announce_prompt`): the id
+            // names the turn (`msg-u{turn}`), which is what ties the entity
+            // to the turn the rest of this stream is already numbering. The
+            // assistant-role created event (a step's first assistant
+            // message) is not a user message and folds nowhere here.
+            Some("event.message.created") => {
+                let Some(message) = value.get("message") else {
+                    return Vec::new();
+                };
+                if message.get("role").and_then(Value::as_str) != Some("user") {
+                    return Vec::new();
+                }
+                let Some(turn) = message
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .and_then(|id| id.strip_prefix("msg-u"))
+                    .and_then(|turn| turn.parse::<i64>().ok())
+                else {
+                    return Vec::new();
+                };
+                self.turn = turn;
+                let content = message
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .map(|parts| parts.as_slice())
+                    .unwrap_or_default();
+                let mut user = self.user_message_from_parts(content, now);
+                // v2 #3832: the announcement carries the turn's prompt
+                // origin, and the live entity projects the same activations
+                // the history fold projects off it.
+                user.skill_activations = message
+                    .get("origin")
+                    .and_then(skill_activations_of)
+                    .filter(|activations| !activations.is_empty());
+                vec![ServerMessage::User(user)]
+            }
             Some("message.user") => {
                 // Without an open turn there is no turn number to name this
                 // message after, and guessing one would put the message under an
@@ -584,8 +621,69 @@ impl LiveTranslator {
             // announcing each as the same resolved shape the client acts on
             // (upstream interaction-entity status `cancelled`).
             Some("event.approval.expired") => self.interaction_resolved(value, now),
+            // The question half of the same lifecycle: the request carries
+            // the question items in the v3 shape, the terminal events carry
+            // no answers (those ride the resolution channel), so the entity
+            // ends `answered` / `dismissed` with no response — the same
+            // shapes the history fold produces.
+            Some("event.question.requested") => {
+                let Some(interaction_id) = value.get("question_id").and_then(Value::as_str) else {
+                    return Vec::new();
+                };
+                let questions = value
+                    .get("questions")
+                    .cloned()
+                    .and_then(|questions| serde_json::from_value(questions).ok())
+                    .unwrap_or_default();
+                vec![ServerMessage::Interaction(InteractionMessage {
+                    session_id: self.session_id.clone(),
+                    agent_id: self.agent_id.clone(),
+                    timestamp: now,
+                    interaction_id: interaction_id.to_string(),
+                    status: InteractionStatus::Pending,
+                    tool_call_id: value
+                        .get("tool_call_id")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    kind: InteractionKind::Question,
+                    request: Some(InteractionRequest::Question(InteractionQuestionRequest {
+                        questions,
+                    })),
+                    response: None,
+                })]
+            }
+            Some("event.question.answered") => {
+                self.question_resolved(value, now, InteractionStatus::Answered)
+            }
+            Some("event.question.dismissed") => {
+                self.question_resolved(value, now, InteractionStatus::Dismissed)
+            }
             _ => Vec::new(),
         }
+    }
+
+    /// The terminal half of a question interaction: same entity id, status
+    /// switched, no response body (the answers ride the resolution channel).
+    fn question_resolved(
+        &self,
+        value: &Value,
+        now: i64,
+        status: InteractionStatus,
+    ) -> Vec<ServerMessage> {
+        let Some(interaction_id) = value.get("question_id").and_then(Value::as_str) else {
+            return Vec::new();
+        };
+        vec![ServerMessage::Interaction(InteractionMessage {
+            session_id: self.session_id.clone(),
+            agent_id: self.agent_id.clone(),
+            timestamp: now,
+            interaction_id: interaction_id.to_string(),
+            status,
+            tool_call_id: None,
+            kind: InteractionKind::Question,
+            request: None,
+            response: None,
+        })]
     }
 
     /// The terminal half of an approval interaction: same entity id, status
@@ -706,6 +804,59 @@ impl LiveTranslator {
     }
 
     fn user_message(&self, content: &str, now: i64) -> UserMessage {
+        self.user_message_from_parts(
+            &[serde_json::json!({ "type": "text", "text": content })],
+            now,
+        )
+    }
+
+    /// The user entity the v1 `event.message.created` content parts
+    /// (`protocol/message.ts` `messageContentSchema`) fold into: text and
+    /// media-url parts become content parts, and the identities a client
+    /// could address — a `file` / `session_media` source's file id and a
+    /// `url` source's provider id — become `attachment_ids`. Base64 and
+    /// id-less URLs name nothing, so they are not attachments (the same rule
+    /// the history projection applies).
+    fn user_message_from_parts(&self, content: &[Value], now: i64) -> UserMessage {
+        let mut text = Vec::new();
+        let mut attachment_ids = Vec::new();
+        for part in content {
+            let part_type = part.get("type").and_then(Value::as_str).unwrap_or_default();
+            let source = part.get("source");
+            let media_id = source
+                .and_then(|source| source.get("file_id"))
+                .or_else(|| source.and_then(|source| source.get("id")))
+                .and_then(Value::as_str);
+            let url = source
+                .and_then(|source| source.get("url"))
+                .and_then(Value::as_str);
+            let part_kind = match part_type {
+                "text" => {
+                    if let Some(body) = part.get("text").and_then(Value::as_str) {
+                        text.push(ContentPart {
+                            r#type: ContentPartType::Text,
+                            text: body.to_string(),
+                            meta: std::collections::HashMap::new(),
+                        });
+                    }
+                    continue;
+                }
+                "image" => ContentPartType::Image,
+                "video" => ContentPartType::Video,
+                "audio" => ContentPartType::Audio,
+                _ => continue,
+            };
+            if let Some(media_id) = media_id {
+                attachment_ids.push(media_id.to_string());
+            }
+            if let Some(url) = url {
+                text.push(ContentPart {
+                    r#type: part_kind,
+                    text: url.to_string(),
+                    meta: std::collections::HashMap::new(),
+                });
+            }
+        }
         UserMessage {
             session_id: self.session_id.clone(),
             agent_id: self.agent_id.clone(),
@@ -713,12 +864,8 @@ impl LiveTranslator {
             turn_id: Some(turn_entity_id(self.turn)),
             status: UserMessageStatus::Read,
             timestamp: Some(now),
-            text: vec![ContentPart {
-                r#type: ContentPartType::Text,
-                text: content.to_string(),
-                meta: std::collections::HashMap::new(),
-            }],
-            attachment_ids: None,
+            text,
+            attachment_ids: (!attachment_ids.is_empty()).then_some(attachment_ids),
             skill_activations: None,
             origin: None,
         }
@@ -840,6 +987,7 @@ fn pending_interaction_of(pending: &str) -> PendingInteraction {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::v3::messages::SkillActivation;
     use serde_json::json;
 
     const NOW: i64 = 1_700_000_000_000;
@@ -1150,6 +1298,113 @@ mod tests {
             panic!("expected session state");
         };
         assert_eq!(state.status, SessionStatus::Compacting);
+    }
+
+    /// The production live lane announces the user prompt as the v1
+    /// `event.message.created` event (`msg-u{turn}`, `message_events.rs`) —
+    /// the typed `TurnStarted` has no server-path producer, and the persisted
+    /// `message.user` vocabulary never reaches the bus. Folding the v1 event
+    /// here is what gives a live v3 client the user entity (attachments
+    /// included) that the history page already projects.
+    #[test]
+    fn the_live_user_prompt_arrives_as_the_v1_message_created_event() {
+        let mut translator = LiveTranslator::new("s1", "main");
+        let entities = translator.translate(
+            &EngineEvent::Custom(json!({
+                "type": "event.message.created",
+                "message": {
+                    "id": "msg-u2",
+                    "session_id": "s1",
+                    "role": "user",
+                    "content": [
+                        { "type": "text", "text": "look at this" },
+                        { "type": "image", "source": { "kind": "file", "file_id": "f_att1" } },
+                        { "type": "image", "source": { "kind": "url", "url": "https://example.test/x.png", "id": "ms-9" } },
+                        { "type": "image", "source": { "kind": "url", "url": "https://example.test/y.png" } },
+                        { "type": "video", "source": { "kind": "session_media", "file_id": "f_v1" } },
+                    ],
+                },
+            })),
+            NOW,
+        );
+
+        let ServerMessage::User(user) = &entities[0] else {
+            panic!("expected a user entity, got {entities:?}");
+        };
+        assert_eq!(user.message_id, "2.user");
+        assert_eq!(user.turn_id.as_deref(), Some("2"));
+        assert_eq!(
+            user.attachment_ids.as_deref(),
+            Some(&["f_att1".to_string(), "ms-9".to_string(), "f_v1".to_string()][..]),
+            "a file / session_media source and a provider-side url id are attachments; an id-less url is not"
+        );
+        let texts: Vec<&str> = user.text.iter().map(|part| part.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            [
+                "look at this",
+                "https://example.test/x.png",
+                "https://example.test/y.png"
+            ]
+        );
+    }
+
+    /// v2 #3832: the announcement carries the turn's prompt origin, and the
+    /// live user entity projects the same activations the history fold
+    /// projects off the persisted origin.
+    #[test]
+    fn the_live_user_entity_projects_the_announced_origin() {
+        let mut translator = LiveTranslator::new("s1", "main");
+        let entities = translator.translate(
+            &EngineEvent::Custom(json!({
+                "type": "event.message.created",
+                "message": {
+                    "id": "msg-u2",
+                    "session_id": "s1",
+                    "role": "user",
+                    "content": [{ "type": "text", "text": "/review src/main.rs" }],
+                    "origin": {
+                        "kind": "skill_activation",
+                        "trigger": "user-slash",
+                        "skillName": "review",
+                        "skillArgs": "src/main.rs",
+                    },
+                },
+            })),
+            NOW,
+        );
+        let ServerMessage::User(user) = &entities[0] else {
+            panic!("expected a user entity, got {entities:?}");
+        };
+        assert_eq!(
+            user.skill_activations.as_deref(),
+            Some(
+                &[SkillActivation {
+                    skill_name: "review".into(),
+                    skill_args: Some("src/main.rs".into()),
+                }][..]
+            ),
+        );
+    }
+
+    /// The assistant-role `event.message.created` (first sight of a step's
+    /// assistant message, `message_events.rs`) is not a user message.
+    #[test]
+    fn an_assistant_message_created_event_is_not_a_user_entity() {
+        let mut translator = LiveTranslator::new("s1", "main");
+        let entities = translator.translate(
+            &EngineEvent::Custom(json!({
+                "type": "event.message.created",
+                "message": {
+                    "id": "msg-a2-1",
+                    "session_id": "s1",
+                    "role": "assistant",
+                    "content": [],
+                },
+            })),
+            NOW,
+        );
+        assert!(entities.is_empty(), "{entities:?}");
     }
 
     #[test]

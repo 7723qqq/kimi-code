@@ -110,9 +110,12 @@ async fn server_e2e_http_rest_full_roundtrip() {
         .send()
         .await
         .unwrap();
-    assert_eq!(res.status(), 201);
+    // v2 answers the created session as the bare `sessionSchema` with HTTP
+    // 200 and no `statusCode` override (kap-server/src/routes/sessions.ts:
+    // 181-184) — not a 201, and not a `{sessionId}` stub.
+    assert_eq!(res.status(), 200);
     let sess_created: Value = res.json().await.unwrap();
-    let session_id = data(&sess_created)["sessionId"]
+    let session_id = data(&sess_created)["session_id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -132,11 +135,14 @@ async fn server_e2e_http_rest_full_roundtrip() {
         .unwrap();
     assert_eq!(res.status(), 200);
     let prof_updated: Value = res.json().await.unwrap();
+    // v2 answers the bare updated session document (kap-server
+    // src/routes/sessions.ts:497-529) — the same shape GET serves, with
+    // `agent_config` / `metadata` / `usage` at the top level.
     let profile = data(&prof_updated);
-    assert_eq!(profile["session"]["title"], "Renamed E2E Session");
-    assert!(profile["session"]["metadata"]["cwd"].is_string());
-    assert!(profile["session"]["agent_config"]["model"].is_string());
-    assert!(profile["session"]["usage"]["context_tokens"].is_number());
+    assert_eq!(profile["title"], "Renamed E2E Session");
+    assert!(profile["metadata"]["cwd"].is_string());
+    assert!(profile["agent_config"]["model"].is_string());
+    assert!(profile["usage"]["context_tokens"].is_number());
     assert_eq!(profile["agent_config"]["thinking"], "high");
 
     // 5. Interaction Question Flow (Engine registers -> HTTP client lists & resolves)

@@ -223,7 +223,10 @@ const normalizeKey = (s) => s.replace(/_/g, '').toLowerCase();
 function collectTsClientOps() {
   const text = read(join(ROOT, 'packages/protocol/src/ws-control.ts'));
   const ops = new Set();
-  for (const m of text.matchAll(/type:\s*'([a-z_]+)',\s*direction:\s*'client_to_server'/g))
+  // The class includes digits: `subscribe_v2` / `unsubscribe_v2` are real
+  // client ops, and a digit-blind class made both sides of this gate blind to
+  // them (ROADMAP §7.5 — the gate reported 10 while upstream declares 12).
+  for (const m of text.matchAll(/type:\s*'([a-z0-9_]+)',\s*direction:\s*'client_to_server'/g))
     ops.add(m[1]);
   return ops;
 }
@@ -232,7 +235,7 @@ function collectTsClientOps() {
 function collectRustInboundTypes() {
   const text = read(join(AGENT, 'src/server/ws_protocol.rs'));
   const body = text.match(/pub fn parse_inbound[\s\S]*?\n\}/)?.[0] ?? '';
-  return new Set([...body.matchAll(/Some\("([a-z_]+)"\)/g)].map((m) => m[1]));
+  return new Set([...body.matchAll(/Some\("([a-z0-9_]+)"\)/g)].map((m) => m[1]));
 }
 
 /** Top-level config keys the TS document schema accepts. */

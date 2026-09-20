@@ -30,16 +30,21 @@
 //! position is the one a reader of this history can also compute.
 
 use serde_json::Value;
+use std::collections::HashMap;
 
 use crate::rpc::types::{ContentBlock, MediaKind, TokenUsage};
 use crate::session::sqlite_store::{COMPACT_TURN_ID, StoredMessage, TurnRecord};
 use crate::turn_loop::types::LLMMessage;
 
 use super::messages::{
-    AssistantMessage, ContentPart, ContentPartType, ServerMessage, StepMessage, StepStatus,
-    StreamStatus, TaskKind, TaskMessage, TaskStatus, ThinkingMessage, TodoItem, TodoItemStatus,
-    TodoMessage, ToolCallMessage, ToolCallStatus, TurnMessage, TurnOrigin, TurnStatus, TurnUsage,
-    UserMessage, UserMessageOrigin, UserMessageStatus,
+    ApprovalDecision, AssistantMessage, ContentPart, ContentPartType, GoalStatus,
+    InteractionApprovalRequest, InteractionApprovalResponse, InteractionKind, InteractionMessage,
+    InteractionQuestionRequest, InteractionRequest, InteractionResponse, InteractionStatus,
+    PermissionMode, ServerMessage, SessionStateGoal, SessionStateMessage, SessionStateModes,
+    SessionStatePlanMode, SessionStateSwarmMode, SessionStatus, SkillActivation, StepMessage,
+    StepStatus, StreamStatus, TaskKind, TaskMessage, TaskStatus, ThinkingMessage, TodoItem,
+    TodoItemStatus, TodoMessage, ToolCallMessage, ToolCallStatus, TurnMessage, TurnOrigin,
+    TurnStatus, TurnUsage, UserMessage, UserMessageOrigin, UserMessageStatus,
 };
 
 /// Identity of a turn entity: the number both the live stream and a reader of
@@ -68,12 +73,35 @@ pub fn thinking_entity_id(turn_number: i64, step_ordinal: i64) -> String {
     format!("{turn_number}.{step_ordinal}.thinking")
 }
 
+/// The store identities a message's blocks name: a `MediaRef` file id and a
+/// provider-side `*Url` id. An inline base64 image or an id-less URL carries
+/// no identity a client could address, so it is not an attachment —
+/// upstream's `attachment_ids` names files, not bytes.
+fn attachment_ids(blocks: &[ContentBlock]) -> Option<Vec<String>> {
+    let ids: Vec<String> = blocks
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::MediaRef { file_id, .. } => Some(file_id.clone()),
+            ContentBlock::ImageUrl { id: Some(id), .. }
+            | ContentBlock::AudioUrl { id: Some(id), .. }
+            | ContentBlock::VideoUrl { id: Some(id), .. } => Some(id.clone()),
+            _ => None,
+        })
+        .collect();
+    (!ids.is_empty()).then_some(ids)
+}
+
 /// What one turn's entities need from its record, already normalized to v3.
 struct TurnContext {
     number: i64,
     timestamp: i64,
     status: TurnStatus,
     origin: TurnOrigin,
+    /// The transcript contract's `skill_activation` origin variant
+    /// (`packages/transcript/src/contract/origin.ts`), projected onto the
+    /// opening user entity's `skill_activations` (v2 #3832). `None` for every
+    /// other origin kind.
+    skill_activations: Option<Vec<SkillActivation>>,
     started_at: Option<String>,
     ended_at: Option<String>,
     duration_ms: Option<i64>,
@@ -108,6 +136,14 @@ impl TurnContext {
                     None => TurnOrigin::User,
                 },
             },
+            // A `skill_activation` origin (v2 #3832) names the skill the
+            // opening prompt activated; the turn entity itself keeps the
+            // plain user origin — upstream's turn-origin vocabulary has no
+            // activation variant, the activation belongs to the user message.
+            // A `user` origin may carry the folded `skillActivations` array.
+            skill_activations: record
+                .and_then(|r| r.origin.as_ref())
+                .and_then(skill_activations_of),
             started_at: iso(started),
             ended_at: completed.and_then(iso),
             duration_ms: completed.map(|end| (end - started).max(0)),
@@ -120,6 +156,7 @@ impl TurnContext {
         session_id: &str,
         agent_id: &str,
         user_message_id: Option<String>,
+        attachment_ids: Option<Vec<String>>,
     ) -> TurnMessage {
         TurnMessage {
             session_id: session_id.to_string(),
@@ -130,7 +167,7 @@ impl TurnContext {
             status: self.status.clone(),
             origin: self.origin.clone(),
             user_message_id,
-            attachment_ids: None,
+            attachment_ids,
             started_at: self.started_at.clone(),
             ended_at: self.ended_at.clone(),
             usage: self.usage.clone(),
@@ -181,7 +218,7 @@ pub fn project_history(
                         status: UserMessageStatus::Read,
                         timestamp: Some(stored.created_at),
                         text: user_text(&stored.message),
-                        attachment_ids: None,
+                        attachment_ids: attachment_ids(&stored.message.blocks),
                         skill_activations: None,
                         // `inTurn: true` is the non-anchor marker: undo of the
                         // host turn keeps the steered text from being treated
@@ -208,6 +245,7 @@ pub fn project_history(
                     session_id,
                     agent_id,
                     Some(user_id.clone()),
+                    attachment_ids(&stored.message.blocks),
                 )));
                 out.push(ServerMessage::User(UserMessage {
                     session_id: session_id.to_string(),
@@ -217,8 +255,9 @@ pub fn project_history(
                     status: UserMessageStatus::Read,
                     timestamp: Some(stored.created_at),
                     text: user_text(&stored.message),
-                    attachment_ids: None,
-                    skill_activations: None,
+                    attachment_ids: attachment_ids(&stored.message.blocks),
+                    // v2 #3832: the activation the opening prompt carried.
+                    skill_activations: context.skill_activations.clone(),
                     origin: None,
                 }));
                 step_ordinal = 0;
@@ -235,7 +274,7 @@ pub fn project_history(
                         stored.created_at,
                     );
                     out.push(ServerMessage::Turn(
-                        context.turn_message(session_id, agent_id, None),
+                        context.turn_message(session_id, agent_id, None, None),
                     ));
                     step_ordinal = 0;
                     current = Some(context);
@@ -555,6 +594,302 @@ pub fn project_state_domains(
     entities
 }
 
+/// The activations a persisted origin names (v2 #3832, upstream
+/// `skillActivationsOf`). The `skill_activation` variant carries one skill
+/// (`skillName` / `skillArgs`, camelCase per the transcript contract); a
+/// `user` origin may carry the folded `skillActivations` array the same
+/// contract defines. Anything without a usable skill name yields nothing —
+/// upstream returns `undefined` rather than a half-shaped list.
+pub fn skill_activations_of(origin: &Value) -> Option<Vec<SkillActivation>> {
+    let activations = match origin.get("kind").and_then(Value::as_str) {
+        Some("skill_activation") => {
+            let name = origin
+                .get("skillName")
+                .and_then(Value::as_str)
+                .filter(|name| !name.is_empty())?;
+            vec![SkillActivation {
+                skill_name: name.to_string(),
+                skill_args: origin
+                    .get("skillArgs")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+            }]
+        }
+        Some("user") => origin
+            .get("skillActivations")
+            .and_then(Value::as_array)?
+            .iter()
+            .filter_map(|activation| {
+                let name = activation.get("skillName").and_then(Value::as_str)?;
+                Some(SkillActivation {
+                    skill_name: name.to_string(),
+                    skill_args: activation
+                        .get("skillArgs")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                })
+            })
+            .collect(),
+        _ => return None,
+    };
+    (!activations.is_empty()).then_some(activations)
+}
+
+/// The session-state entity a history page serves (upstream
+/// `SessionStateAggregator`'s seed half, ROADMAP §6.1 item 4's partial
+/// source, completed): the model and thinking effort the session's
+/// `agent_config` records, the permission mode its `metadata` records, the
+/// goal snapshot the workspace state store holds, and the plan / swarm mode
+/// flags. `status` is `idle`: a served page is not a live stream, and the
+/// live lane owns the running/compacting statuses. `None` when the session
+/// recorded nothing at all.
+pub fn project_session_state(
+    store: &crate::session::sqlite_store::SqliteSessionStore,
+    workspace_state: Option<&crate::storage::StateStore>,
+    session_id: &str,
+    now: i64,
+) -> Option<ServerMessage> {
+    let agent_config = store
+        .get_state("agent_config", session_id)
+        .ok()
+        .flatten()
+        .unwrap_or(Value::Null);
+    let metadata = store
+        .get_state("metadata", session_id)
+        .ok()
+        .flatten()
+        .unwrap_or(Value::Null);
+    let string_of = |value: &Value, key: &str| {
+        value
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+    };
+    let model = string_of(&agent_config, "model");
+    let thinking_effort = string_of(&agent_config, "thinking");
+    let permission = string_of(&metadata, "permission_mode").and_then(|mode| match mode.as_str() {
+        "manual" => Some(PermissionMode::Manual),
+        "yolo" => Some(PermissionMode::Yolo),
+        "auto" => Some(PermissionMode::Auto),
+        _ => None,
+    });
+    // The goal snapshot the workspace store holds (`{goal: <snapshot>|null}`),
+    // projected the way upstream's `feedGoal` maps it.
+    let goal = workspace_state
+        .and_then(|state| state.read_domain("goal"))
+        .and_then(|stored| stored.get("goal").cloned())
+        .filter(|goal| !goal.is_null())
+        .map(|goal| SessionStateGoal {
+            objective: string_of(&goal, "objective").unwrap_or_default(),
+            status: match string_of(&goal, "status").as_deref() {
+                Some("paused") => GoalStatus::Paused,
+                Some("blocked") => GoalStatus::Blocked,
+                Some("complete") => GoalStatus::Complete,
+                _ => GoalStatus::Active,
+            },
+            completion_criterion: string_of(&goal, "completion_criterion"),
+            budget_used: goal.get("tokens_used").and_then(Value::as_i64),
+            budget_limit: goal
+                .get("budget")
+                .and_then(|budget| budget.get("token_budget"))
+                .and_then(Value::as_i64),
+        });
+    // The mode flags: plan from the workspace store's plan domain, swarm
+    // from the session's own agent config (upstream's `computeModes`).
+    let plan_active = workspace_state
+        .and_then(|state| state.read_domain("plan"))
+        .and_then(|plan| plan.get("active").and_then(Value::as_bool))
+        .unwrap_or(false);
+    let swarm_active = agent_config
+        .get("swarm_mode")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let modes = (plan_active || swarm_active).then(|| SessionStateModes {
+        plan: plan_active.then_some(SessionStatePlanMode {
+            review_path: None,
+            version: None,
+        }),
+        swarm: swarm_active.then_some(SessionStateSwarmMode { trigger: None }),
+    });
+    let has_state = model.is_some()
+        || thinking_effort.is_some()
+        || permission.is_some()
+        || goal.is_some()
+        || modes.is_some();
+    has_state.then(|| {
+        ServerMessage::SessionState(SessionStateMessage {
+            session_id: session_id.to_string(),
+            timestamp: now,
+            status: SessionStatus::Idle,
+            pending_interaction: None,
+            model,
+            thinking_effort,
+            permission,
+            usage: None,
+            context_tokens: None,
+            max_context_tokens: None,
+            goal,
+            modes,
+        })
+    })
+}
+
+/// Fold a session's persisted interaction events into v3 interaction
+/// entities — the history source the fork lacked (ROADMAP §6.1 item 4: the
+/// live lane had the entities and the store had no table, so history could
+/// not fold them). The events are the v1 lane's `event.approval.*` /
+/// `event.question.*` vocabulary, which the hub persister already writes to
+/// `wire_events`; each one upserts one entity keyed by its interaction id,
+/// served in first-appearance order.
+///
+/// The terminal events carry no response body — an approval's decision yes,
+/// a question's answers no (those ride the resolution channel, not the
+/// event) — so a folded question entity ends `answered` / `dismissed` with
+/// no response, the same shape the live stream's upserts produce. A
+/// terminal event whose request is not in the window is skipped rather than
+/// minting a request-less entity.
+pub fn project_interactions(
+    session_id: &str,
+    agent_id: &str,
+    wire_events: &[crate::session::sqlite_store::WireEventRecord],
+) -> Vec<ServerMessage> {
+    let mut order: Vec<String> = Vec::new();
+    let mut entities: HashMap<String, InteractionMessage> = HashMap::new();
+    for event in wire_events {
+        let payload = &event.payload;
+        let at = event.created_at;
+        let entity = match event.event_type.as_str() {
+            "event.approval.requested" => {
+                let Some(interaction_id) = payload.get("approval_id").and_then(Value::as_str)
+                else {
+                    continue;
+                };
+                InteractionMessage {
+                    session_id: session_id.to_string(),
+                    agent_id: agent_id.to_string(),
+                    timestamp: at,
+                    interaction_id: interaction_id.to_string(),
+                    status: InteractionStatus::Pending,
+                    tool_call_id: payload
+                        .get("tool_call_id")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    kind: InteractionKind::Approval,
+                    request: Some(InteractionRequest::Approval(InteractionApprovalRequest {
+                        tool_name: payload
+                            .get("tool_name")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        action: payload
+                            .get("action")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                        tool_input_display: payload.get("tool_input_display").cloned(),
+                        expires_at: payload
+                            .get("expires_at")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                    })),
+                    response: None,
+                }
+            }
+            "event.approval.resolved" | "event.approval.expired" => {
+                let Some(interaction_id) = payload.get("approval_id").and_then(Value::as_str)
+                else {
+                    continue;
+                };
+                let Some(existing) = entities.get_mut(interaction_id) else {
+                    continue;
+                };
+                // The TTL sweep announces the same resolved shape with no
+                // decision, which reads as `cancelled` (upstream's status for
+                // a retired interaction).
+                let status = match payload.get("decision").and_then(Value::as_str) {
+                    Some("approved") => InteractionStatus::Approved,
+                    Some("rejected") => InteractionStatus::Rejected,
+                    _ => InteractionStatus::Cancelled,
+                };
+                let decision = match status {
+                    InteractionStatus::Approved => ApprovalDecision::Approved,
+                    InteractionStatus::Rejected => ApprovalDecision::Rejected,
+                    _ => ApprovalDecision::Cancelled,
+                };
+                existing.status = status;
+                existing.response =
+                    Some(InteractionResponse::Approval(InteractionApprovalResponse {
+                        decision,
+                        scope: None,
+                        feedback: None,
+                        selected_label: None,
+                    }));
+                continue;
+            }
+            "event.question.requested" => {
+                let Some(interaction_id) = payload.get("question_id").and_then(Value::as_str)
+                else {
+                    continue;
+                };
+                let questions = payload
+                    .get("questions")
+                    .cloned()
+                    .and_then(|questions| serde_json::from_value(questions).ok())
+                    .unwrap_or_default();
+                InteractionMessage {
+                    session_id: session_id.to_string(),
+                    agent_id: agent_id.to_string(),
+                    timestamp: at,
+                    interaction_id: interaction_id.to_string(),
+                    status: InteractionStatus::Pending,
+                    tool_call_id: payload
+                        .get("tool_call_id")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    kind: InteractionKind::Question,
+                    request: Some(InteractionRequest::Question(InteractionQuestionRequest {
+                        questions,
+                    })),
+                    response: None,
+                }
+            }
+            "event.question.answered" => {
+                let Some(interaction_id) = payload.get("question_id").and_then(Value::as_str)
+                else {
+                    continue;
+                };
+                let Some(existing) = entities.get_mut(interaction_id) else {
+                    continue;
+                };
+                existing.status = InteractionStatus::Answered;
+                continue;
+            }
+            "event.question.dismissed" => {
+                let Some(interaction_id) = payload.get("question_id").and_then(Value::as_str)
+                else {
+                    continue;
+                };
+                let Some(existing) = entities.get_mut(interaction_id) else {
+                    continue;
+                };
+                existing.status = InteractionStatus::Dismissed;
+                continue;
+            }
+            _ => continue,
+        };
+        if !entities.contains_key(&entity.interaction_id) {
+            order.push(entity.interaction_id.clone());
+        }
+        entities.insert(entity.interaction_id.clone(), entity);
+    }
+    order
+        .into_iter()
+        .filter_map(|id| entities.remove(&id))
+        .map(ServerMessage::Interaction)
+        .collect()
+}
+
 fn text(value: &Value, key: &str) -> Option<String> {
     value.get(key).and_then(Value::as_str).map(str::to_string)
 }
@@ -746,10 +1081,16 @@ mod tests {
             ContentBlock::Think {
                 think: "weighing it".into(),
                 encrypted: None,
+                details_index: None,
+                reasoning_key: None,
+                hidden: None,
             },
             ContentBlock::Think {
                 think: String::new(),
                 encrypted: None,
+                details_index: None,
+                reasoning_key: None,
+                hidden: None,
             },
         ];
         assistant.message.tool_calls.push(ToolCall {
@@ -820,14 +1161,23 @@ mod tests {
             ContentBlock::Think {
                 think: "first ".into(),
                 encrypted: None,
+                details_index: None,
+                reasoning_key: None,
+                hidden: None,
             },
             ContentBlock::Think {
                 think: String::new(),
                 encrypted: None,
+                details_index: None,
+                reasoning_key: None,
+                hidden: None,
             },
             ContentBlock::Think {
                 think: "second".into(),
                 encrypted: None,
+                details_index: None,
+                reasoning_key: None,
+                hidden: None,
             },
         ];
         let messages = [stored("user", "go", 1), assistant];
@@ -984,6 +1334,340 @@ mod tests {
             ],
             "history must retain both the prompt body and its attachment"
         );
+    }
+
+    /// Upstream's user and turn entities name the attachments a prompt
+    /// carried. The fork's stored blocks hold the identities — a `MediaRef`
+    /// file id and a provider-side `*Url` id — so history can project them; an
+    /// inline base64 image or an id-less URL has no store identity and is not
+    /// an attachment.
+    #[test]
+    fn user_and_turn_entities_name_the_prompts_attachments() {
+        let mut user = stored("user", "describe the attachment", 1);
+        user.message.blocks = vec![
+            ContentBlock::MediaRef {
+                file_id: "f-attach-1".into(),
+                kind: MediaKind::Image,
+            },
+            ContentBlock::ImageUrl {
+                url: "https://example.test/remote.png".into(),
+                id: Some("ms-2".into()),
+                name: None,
+            },
+            ContentBlock::ImageUrl {
+                url: "https://example.test/idless.png".into(),
+                id: None,
+                name: None,
+            },
+        ];
+        let mut steered_with_attachment = steered("prompt-1", "and this one", 2);
+        steered_with_attachment.message.blocks = vec![ContentBlock::MediaRef {
+            file_id: "f-attach-2".into(),
+            kind: MediaKind::Image,
+        }];
+        let entities = project_history(
+            "s1",
+            "main",
+            &[record(1, 1, None)],
+            &[user, steered_with_attachment],
+        );
+
+        let users: Vec<&UserMessage> = entities
+            .iter()
+            .filter_map(|entity| match entity {
+                ServerMessage::User(user) => Some(user),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(
+            users[0].attachment_ids.as_deref(),
+            Some(&["f-attach-1".to_string(), "ms-2".to_string()][..]),
+            "a store reference and a provider-side id are attachments; an id-less URL is not"
+        );
+        assert_eq!(
+            turn_of(&entities[0]).attachment_ids.as_deref(),
+            Some(&["f-attach-1".to_string(), "ms-2".to_string()][..]),
+            "the turn names the attachments of the user message that opened it"
+        );
+        assert_eq!(
+            users[1].attachment_ids.as_deref(),
+            Some(&["f-attach-2".to_string()][..]),
+            "a steered message projects its own attachments too"
+        );
+    }
+
+    /// v2 #3832: a turn whose persisted origin is the transcript contract's
+    /// `skill_activation` variant (`packages/transcript/src/contract/origin.ts`)
+    /// projects the activation onto the opening user entity — the v3
+    /// `skill_activations` field upstream declares on the user message.
+    #[test]
+    fn a_skill_activation_origin_projects_onto_the_user_entity() {
+        let turns = [TurnRecord {
+            turn_id: "turn-1".into(),
+            turn_number: 1,
+            status: "completed".into(),
+            started_at: 1_700_000_000_000,
+            completed_at: None,
+            usage: None,
+            origin: Some(json!({
+                "kind": "skill_activation",
+                "trigger": "user-slash",
+                "skillName": "review",
+                "skillArgs": "src/main.rs",
+            })),
+        }];
+        let entities = project_history(
+            "s1",
+            "main",
+            &turns,
+            &[stored("user", "/review src/main.rs", 1_700_000_000_000)],
+        );
+
+        let ServerMessage::User(user) = &entities[1] else {
+            panic!("expected the opening user message");
+        };
+        assert_eq!(
+            user.skill_activations.as_deref(),
+            Some(
+                &[SkillActivation {
+                    skill_name: "review".into(),
+                    skill_args: Some("src/main.rs".into()),
+                }][..]
+            ),
+        );
+        // The turn entity itself keeps the plain user origin: upstream's
+        // turn-origin vocabulary has no activation variant.
+        assert_eq!(turn_of(&entities[0]).origin, TurnOrigin::User);
+    }
+
+    /// A `user`-kind origin (with or without client metadata) projects no
+    /// activations, and a malformed activation (no skill name) is dropped
+    /// rather than projected half-shaped.
+    #[test]
+    fn a_plain_or_malformed_origin_projects_no_activations() {
+        let plain = project_history(
+            "s1",
+            "main",
+            &[record(1, 1, None)],
+            &[stored("user", "hi", 1)],
+        );
+        let ServerMessage::User(user) = &plain[1] else {
+            panic!("expected the opening user message");
+        };
+        assert_eq!(user.skill_activations, None);
+
+        let malformed = [TurnRecord {
+            origin: Some(json!({ "kind": "skill_activation", "trigger": "user-slash" })),
+            ..record(1, 1, None)
+        }];
+        let entities = project_history("s1", "main", &malformed, &[stored("user", "hi", 1)]);
+        let ServerMessage::User(user) = &entities[1] else {
+            panic!("expected the opening user message");
+        };
+        assert_eq!(user.skill_activations, None);
+    }
+
+    /// ROADMAP §6.1 item 4's hard gap, closed: the persisted interaction
+    /// lifecycle events fold into the v3 interaction entities history serves.
+    /// An approval ends in its decision (the TTL sweep with no decision reads
+    /// `cancelled`), a question in `answered` / `dismissed` with no response
+    /// body — the answers ride the resolution channel, not the event.
+    #[test]
+    fn persisted_interaction_events_fold_into_entities() {
+        let event =
+            |event_type: &str, payload: Value| crate::session::sqlite_store::WireEventRecord {
+                seq: 0,
+                id: format!("wevt-{event_type}"),
+                session_id: "s1".into(),
+                event_type: event_type.into(),
+                payload,
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 1_700_000_000_000,
+            };
+        let wire = vec![
+            event(
+                "event.approval.requested",
+                json!({
+                    "approval_id": "appr-1",
+                    "tool_call_id": "call-1",
+                    "tool_name": "Bash",
+                    "action": "run",
+                    "tool_input_display": { "command": "ls" },
+                    "expires_at": "2026-09-20T00:01:00.000Z",
+                }),
+            ),
+            event(
+                "event.approval.resolved",
+                json!({ "approval_id": "appr-1", "decision": "approved" }),
+            ),
+            event(
+                "event.question.requested",
+                json!({
+                    "question_id": "q-1",
+                    "tool_call_id": "call-2",
+                    "questions": [{
+                        "id": "q_0",
+                        "question": "which?",
+                        "options": [{ "id": "opt_0", "label": "this" }],
+                    }],
+                }),
+            ),
+            event("event.question.answered", json!({ "question_id": "q-1" })),
+            event(
+                "event.approval.expired",
+                json!({ "approval_id": "appr-gone" }),
+            ),
+        ];
+
+        let entities = project_interactions("s1", "main", &wire);
+
+        assert_eq!(entities.len(), 2, "the orphan terminal event folds nothing");
+        match &entities[0] {
+            ServerMessage::Interaction(interaction) => {
+                assert_eq!(interaction.interaction_id, "appr-1");
+                assert_eq!(interaction.kind, InteractionKind::Approval);
+                assert_eq!(interaction.status, InteractionStatus::Approved);
+                assert_eq!(interaction.tool_call_id.as_deref(), Some("call-1"));
+                match &interaction.request {
+                    Some(InteractionRequest::Approval(request)) => {
+                        assert_eq!(request.tool_name, "Bash");
+                        assert_eq!(request.action, "run");
+                        assert_eq!(
+                            request.expires_at.as_deref(),
+                            Some("2026-09-20T00:01:00.000Z")
+                        );
+                    }
+                    other => panic!("expected an approval request, got {other:?}"),
+                }
+                assert!(interaction.response.is_some());
+            }
+            other => panic!("expected an interaction entity, got {other:?}"),
+        }
+        match &entities[1] {
+            ServerMessage::Interaction(interaction) => {
+                assert_eq!(interaction.interaction_id, "q-1");
+                assert_eq!(interaction.kind, InteractionKind::Question);
+                assert_eq!(interaction.status, InteractionStatus::Answered);
+                match &interaction.request {
+                    Some(InteractionRequest::Question(request)) => {
+                        assert_eq!(request.questions.len(), 1);
+                        assert_eq!(request.questions[0].question, "which?");
+                    }
+                    other => panic!("expected a question request, got {other:?}"),
+                }
+                assert!(
+                    interaction.response.is_none(),
+                    "the answered event carries no answers"
+                );
+            }
+            other => panic!("expected an interaction entity, got {other:?}"),
+        }
+    }
+
+    /// ROADMAP §6.1 item 4's partial source, completed: the session-state
+    /// entity reads the model / thinking effort from the session's
+    /// `agent_config`, the permission mode from its `metadata`, and the goal
+    /// snapshot / mode flags from the workspace store — all already
+    /// persisted, so the fields are no longer live-only. A session that
+    /// recorded nothing gets no entity rather than an empty one.
+    #[test]
+    fn the_session_state_entity_reads_the_persisted_config() {
+        let store = crate::session::sqlite_store::SqliteSessionStore::in_memory().unwrap();
+        store.create_session("s1", Some("t")).unwrap();
+        store
+            .put_session_state(
+                "agent_config",
+                "s1",
+                "s1",
+                &json!({ "model": "kimi-k2", "thinking": "high", "swarm_mode": true }),
+            )
+            .unwrap();
+        store
+            .put_session_state(
+                "metadata",
+                "s1",
+                "s1",
+                &json!({ "permission_mode": "auto" }),
+            )
+            .unwrap();
+
+        let entity = project_session_state(&store, None, "s1", 1_700_000_000_000)
+            .expect("a configured session projects its state");
+        match entity {
+            ServerMessage::SessionState(state) => {
+                assert_eq!(state.status, SessionStatus::Idle);
+                assert_eq!(state.model.as_deref(), Some("kimi-k2"));
+                assert_eq!(state.thinking_effort.as_deref(), Some("high"));
+                assert_eq!(state.permission, Some(PermissionMode::Auto));
+                assert_eq!(state.goal, None, "no workspace store, no goal");
+                let modes = state.modes.expect("swarm_mode is on");
+                assert!(modes.swarm.is_some());
+                assert!(modes.plan.is_none());
+            }
+            other => panic!("expected a session-state entity, got {other:?}"),
+        }
+
+        // A session with no recorded config projects nothing.
+        store.create_session("s2", Some("t")).unwrap();
+        assert!(project_session_state(&store, None, "s2", 0).is_none());
+    }
+
+    /// The goal snapshot and the plan flag come from the workspace store
+    /// (upstream `feedGoal` / `computeModes`): the domain value is
+    /// `{goal: <snapshot>|null}`, and the projection maps the snapshot's
+    /// budget figures onto the entity's.
+    #[test]
+    fn the_session_state_entity_reads_the_workspace_goal_and_plan() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = crate::storage::StateStore::for_workspace(dir.path()).unwrap();
+        workspace
+            .write_domain(
+                "goal",
+                &json!({
+                    "goal": {
+                        "objective": "ship the port",
+                        "completion_criterion": "tests green",
+                        "status": "active",
+                        "tokens_used": 1_200,
+                        "budget": { "token_budget": 50_000 },
+                    }
+                }),
+            )
+            .unwrap();
+        workspace
+            .write_domain("plan", &json!({ "active": true }))
+            .unwrap();
+        let store = crate::session::sqlite_store::SqliteSessionStore::in_memory().unwrap();
+        store.create_session("s1", Some("t")).unwrap();
+
+        let entity = project_session_state(&store, Some(&workspace), "s1", 0)
+            .expect("a goal projects the entity");
+        match entity {
+            ServerMessage::SessionState(state) => {
+                let goal = state.goal.expect("the goal rides the entity");
+                assert_eq!(goal.objective, "ship the port");
+                assert_eq!(goal.status, GoalStatus::Active);
+                assert_eq!(goal.completion_criterion.as_deref(), Some("tests green"));
+                assert_eq!(goal.budget_used, Some(1_200));
+                assert_eq!(goal.budget_limit, Some(50_000));
+                let modes = state.modes.expect("plan mode is on");
+                assert!(modes.plan.is_some());
+            }
+            other => panic!("expected a session-state entity, got {other:?}"),
+        }
+
+        // A null goal projects no goal field.
+        workspace
+            .write_domain("goal", &json!({ "goal": null }))
+            .unwrap();
+        let entity = project_session_state(&store, Some(&workspace), "s1", 0)
+            .expect("plan mode alone still projects the entity");
+        match entity {
+            ServerMessage::SessionState(state) => assert!(state.goal.is_none()),
+            other => panic!("expected a session-state entity, got {other:?}"),
+        }
     }
 
     /// v2 #3906/#3891: a steered user message keeps its prompt's id, stays

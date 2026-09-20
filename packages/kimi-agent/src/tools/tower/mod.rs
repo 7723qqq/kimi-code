@@ -408,9 +408,13 @@ pub async fn execute_tower_spawn(
                 kind: crate::tools::tower::types::TowerAgentKind::Worker,
                 mission_id: Some(mission.id.clone()),
                 review_target: None,
+                review_mission_id: None,
                 worktree: Some(mission.worktree.clone()),
                 branch: Some(mission.branch.clone()),
                 spawned_at,
+                died_at: None,
+                death_status: None,
+                death_reason: None,
                 status: None,
             };
             if let Err(e) = store.register_agent(entry).await {
@@ -487,9 +491,13 @@ pub async fn execute_tower_spawn(
                 kind: crate::tools::tower::types::TowerAgentKind::Reviewer,
                 mission_id: None,
                 review_target: Some(target.clone()),
+                review_mission_id: None,
                 worktree: None,
                 branch: None,
                 spawned_at,
+                died_at: None,
+                death_status: None,
+                death_reason: None,
                 status: None,
             };
             if let Err(e) = store.register_agent(entry).await {

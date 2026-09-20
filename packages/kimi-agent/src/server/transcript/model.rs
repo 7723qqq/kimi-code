@@ -603,6 +603,12 @@ pub struct TranscriptPrompt {
     pub user_message_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<Value>,
+    /// The client metadata the submission carried (v2 #3764), as the
+    /// one-element array the contract's `clientMetadata` is. The turn's
+    /// origin may name a `skill_activation` variant; the metadata itself
+    /// rides here, the way the contract shapes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_metadata: Option<Vec<Value>>,
     pub created_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finished_at: Option<String>,

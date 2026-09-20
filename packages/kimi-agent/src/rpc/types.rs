@@ -532,6 +532,31 @@ pub enum ContentBlock {
         think: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         encrypted: Option<String>,
+        /// Position in the provider's `reasoning_details` array (v2
+        /// `ThinkPart.detailsIndex`): the identity that lets the OpenAI
+        /// replay rebuild the array instead of flattening every part into
+        /// one string (v2 #3910's unported half).
+        #[serde(
+            rename = "detailsIndex",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        details_index: Option<u32>,
+        /// The provider field this part's text belongs to (v2
+        /// `ThinkPart.reasoningKey`); `reasoning_details` marks a part
+        /// extracted from the array dialect rather than a string field.
+        #[serde(
+            rename = "reasoningKey",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        reasoning_key: Option<String>,
+        /// A summary the string dialect already carried (v2
+        /// `ThinkPart.hidden`): the replay keeps its array entry but leaves
+        /// its text out of the string fields, so the provider does not see
+        /// the same reasoning twice.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hidden: Option<bool>,
     },
 }
 
@@ -1622,6 +1647,9 @@ mod tests {
             thinking: vec![ContentBlock::Think {
                 think: "checking the path".to_string(),
                 encrypted: None,
+                details_index: None,
+                reasoning_key: None,
+                hidden: None,
             }],
             finish_reason: Some("stop".to_string()),
             usage: TokenUsage {

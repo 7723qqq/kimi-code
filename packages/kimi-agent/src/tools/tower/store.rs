@@ -430,8 +430,10 @@ impl TowerStore {
                 scope: item.scope.clone(),
                 branch: format!("feat/{slug}"),
                 worktree: format!("wt-{n}"),
+                spawn_base: None,
                 deps: item.deps.clone().unwrap_or_default(),
                 status: TowerMissionStatus::Planned,
+                context: None,
                 tasks: item
                     .tasks
                     .clone()
@@ -1554,9 +1556,13 @@ mod tests {
             kind: TowerAgentKind::Worker,
             mission_id: None,
             review_target: None,
+            review_mission_id: None,
             worktree: None,
             branch: None,
             spawned_at: "2026-09-15T00:00:00Z".into(),
+            died_at: None,
+            death_status: None,
+            death_reason: None,
             status: None,
         }
     }
@@ -1678,9 +1684,11 @@ mod tests {
             scope: vec!["src/**".into()],
             branch: branch.into(),
             worktree: format!("wt-{id}"),
+            spawn_base: None,
             deps: Vec::new(),
             status,
             owner: None,
+            context: None,
             tasks: Vec::new(),
             notes: Vec::new(),
             blockers: Vec::new(),

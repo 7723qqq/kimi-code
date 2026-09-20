@@ -467,7 +467,9 @@ impl AcpServer {
                 json!(acp_mode_permission(mode_id)),
             );
         }
-        let _ = self.store.put_state("metadata", session_id, &metadata);
+        let _ = self
+            .store
+            .put_session_state("metadata", session_id, session_id, &metadata);
         self.modes
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -515,7 +517,9 @@ impl AcpServer {
         if let Some(object) = profile.as_object_mut() {
             object.insert("model".into(), json!(model_id));
         }
-        let _ = self.store.put_state("agent_config", session_id, &profile);
+        let _ = self
+            .store
+            .put_session_state("agent_config", session_id, session_id, &profile);
 
         self.channel.notify(
             "session/update",
@@ -673,7 +677,12 @@ impl AcpServer {
                             metadata["additional_dirs"] = json!(additional_dirs);
                         }
                         if metadata.as_object().is_some_and(|map| !map.is_empty()) {
-                            let _ = self.store.put_state("metadata", &session_id, &metadata);
+                            let _ = self.store.put_session_state(
+                                "metadata",
+                                &session_id,
+                                &session_id,
+                                &metadata,
+                            );
                         }
                         if !mcp_servers.is_empty() {
                             self.register_session_mcp_servers(&session_id, &mcp_servers)
