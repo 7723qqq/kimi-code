@@ -62,6 +62,12 @@ graphify-out/
 # Local review/audit outputs
 outputs/
 
+# Engine runtime home: sessions.db + WAL/SHM, written wherever the engine runs
+.kimi-agent/
+
+# Trae IDE scratch documents (working plans, not project docs)
+.trae/
+
 # napi-rs build leftovers
 packages/kimi-agent/.*.tmp.*
 packages/kimi-agent/.*.rollback.tmp
