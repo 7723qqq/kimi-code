@@ -1192,6 +1192,68 @@ describe('KimiHarness config API', () => {
     );
   });
 
+  it('registers the tower flag on the engine TOWER_ENV_SWITCH, off by default', async () => {
+    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
+    const homeDir = await makeTempDir();
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    const tower = (await harness.getExperimentalFeatures()).find((f) => f.id === 'tower');
+    // The /tower TUI command resolves only through this entry; when it is
+    // missing the flag snapshot answers `undefined` and the command falls
+    // through to a plain message.
+    expect(tower).toBeDefined();
+    expect(tower?.env).toBe('KIMI_CODE_EXPERIMENTAL_TOWER');
+    expect(tower?.defaultEnabled).toBe(false);
+    expect(tower?.enabled).toBe(false);
+    expect(tower?.source).toBe('default');
+  });
+
+  it('enables tower through the env switch and the [experimental] config key', async () => {
+    const homeDir = await makeTempDir();
+
+    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_TOWER', '1');
+    const envHarness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const envTower = (await envHarness.getExperimentalFeatures()).find((f) => f.id === 'tower');
+    expect(envTower?.enabled).toBe(true);
+    expect(envTower?.source).toBe('env');
+    vi.unstubAllEnvs();
+
+    const configHarness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    await configHarness.setConfig({ experimental: { tower: true } });
+    const configTower = (await configHarness.getExperimentalFeatures()).find(
+      (f) => f.id === 'tower',
+    );
+    expect(configTower?.enabled).toBe(true);
+    expect(configTower?.source).toBe('config');
+  });
+
+  it('registers the astron flag so the settings gate can enable', async () => {
+    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
+    const homeDir = await makeTempDir();
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    const astron = (await harness.getExperimentalFeatures()).find(
+      (f) => f.id === 'xunfei_coding_plan',
+    );
+    expect(astron?.env).toBe('KIMI_CODE_EXPERIMENTAL_XUNFEI_CODING_PLAN');
+    expect(astron?.defaultEnabled).toBe(false);
+    expect(astron?.enabled).toBe(false);
+  });
+
+  it('creates a session with the host-resolved tower flag on', async () => {
+    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_TOWER', '1');
+    const homeDir = await makeTempDir();
+    const workDir = join(homeDir, 'work');
+    await mkdir(workDir, { recursive: true });
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    // Exercises the `towerEnabled` session param against the real addon: the
+    // engine gates its advertised Tower* tool table on it.
+    const session = await harness.createSession({ workDir, model: 'kimi-for-coding' });
+    await expect(session.getStatus()).resolves.toBeDefined();
+    vi.unstubAllEnvs();
+  });
+
   it('can create the default config scaffold without selecting a model', async () => {
     const homeDir = await makeTempDir();
     const configPath = join(homeDir, 'config.toml');

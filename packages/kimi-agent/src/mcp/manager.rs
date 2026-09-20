@@ -2233,14 +2233,19 @@ mod tests {
         let dir = std::env::temp_dir();
         let (cmd, args, script) = if cfg!(windows) {
             let path = dir.join(format!("kimi_mcp_die_mgr_{}.bat", std::process::id()));
-            // Read each request line before answering (the client sends
-            // initialize, then an initialized notification, then tools/list):
-            // echoing both replies up front races the second request's
-            // registration and the response gets dropped.
+            // Only the first `set /p` is safe as a barrier: the client writes
+            // `initialize` and then waits for its reply, so exactly one line
+            // is in flight. After that reply it writes
+            // `notifications/initialized` and `tools/list` back to back, and a
+            // later `set /p` can swallow both — the third read then blocked
+            // forever and the connect hit the 30s startup timeout (flaky under
+            // a loaded suite). Waiting instead is deterministic: the wait
+            // outlasts the client's own write, so `tools/list` is registered
+            // before its reply is echoed and the reply can never be dropped.
             std::fs::write(
                 &path,
                 format!(
-                    "@echo off\r\nset /p _=\r\n@echo {init}\r\nset /p _=\r\nset /p _=\r\n@echo {list}\r\n@ping -n 2 127.0.0.1 >nul\r\n@exit /b 0\r\n"
+                    "@echo off\r\nset /p _=\r\n@echo {init}\r\n@ping -n 3 127.0.0.1 >nul\r\n@echo {list}\r\n@ping -n 2 127.0.0.1 >nul\r\n@exit /b 0\r\n"
                 ),
             )
             .expect("write die script");

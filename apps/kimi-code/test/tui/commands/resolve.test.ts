@@ -1,11 +1,13 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  dispatchInput,
   resolveSkillCommand,
   resolveSlashCommandInput,
   setExperimentalFeatures,
   slashBusyMessage,
   slashCommandBusyReason,
+  type SlashCommandHost,
 } from '#/tui/commands/index';
 
 function resolve(
@@ -360,5 +362,97 @@ describe('slash command busy helpers', () => {
       commandName: 'my-plugin:deploy',
       reason: 'streaming',
     });
+  });
+});
+
+/**
+ * `SESSION_REQUIRING_COMMANDS` lazy-creates the session so a signed-in user in
+ * a fresh TUI is never told to log in. The handlers behind these commands bail
+ * on `host.session === undefined` with `getNoActiveSessionMessage()`, which
+ * reads "Send /login to login." — wrong once the missing piece is a session,
+ * not credentials.
+ */
+function makeSessionlessHost(): {
+  host: SlashCommandHost;
+  ensureSession: ReturnType<typeof vi.fn>;
+  showError: ReturnType<typeof vi.fn>;
+  sendNormalUserInput: ReturnType<typeof vi.fn>;
+  requireSession: ReturnType<typeof vi.fn>;
+} {
+  const session = {
+    id: 'session-lazy',
+    setSwarmMode: vi.fn(() => Promise.resolve()),
+  };
+  const state = {
+    appState: {
+      streamingPhase: 'idle',
+      isCompacting: false,
+      model: 'kimi-model',
+      swarmMode: false,
+      towerMode: false,
+      permissionMode: 'auto',
+    },
+  };
+  const showError = vi.fn();
+  const sendNormalUserInput = vi.fn();
+  const requireSession = vi.fn(() => session);
+
+  const host: Record<string, unknown> = {
+    state,
+    session: undefined,
+    skillCommandMap: new Map<string, string>(),
+    pluginCommandMap: new Map<string, string>(),
+    requireSession,
+    setAppState: vi.fn((patch: Record<string, unknown>) => Object.assign(state.appState, patch)),
+    showError,
+    showStatus: vi.fn(),
+    showNotice: vi.fn(),
+    showHelpPanel: vi.fn(),
+    track: vi.fn(),
+    restoreInputText: vi.fn(),
+    sendNormalUserInput,
+    mountEditorReplacement: vi.fn(),
+    restoreEditor: vi.fn(),
+    stop: vi.fn(),
+  };
+  // Mirrors KimiTUI.ensureSession: assigns `this.session` before resolving.
+  const ensureSession = vi.fn(() => {
+    host['session'] = session;
+    return Promise.resolve(session);
+  });
+  host['ensureSession'] = ensureSession;
+
+  return {
+    host: host as unknown as SlashCommandHost,
+    ensureSession,
+    showError,
+    sendNormalUserInput,
+    requireSession,
+  };
+}
+
+describe('dispatchInput lazy session creation', () => {
+  it('/workflow creates the session instead of reporting no active session', async () => {
+    const { host, ensureSession, showError, sendNormalUserInput } = makeSessionlessHost();
+
+    dispatchInput(host, '/workflow list');
+
+    await vi.waitFor(() => {
+      expect(sendNormalUserInput).toHaveBeenCalled();
+    });
+    expect(ensureSession).toHaveBeenCalled();
+    expect(showError.mock.calls.flat().join('\n')).not.toContain('No active session');
+  });
+
+  it('/team creates the session instead of reporting no active session', async () => {
+    const { host, ensureSession, showError, requireSession } = makeSessionlessHost();
+
+    dispatchInput(host, '/team Pick a DB with researcher,architect');
+
+    await vi.waitFor(() => {
+      expect(requireSession).toHaveBeenCalled();
+    });
+    expect(ensureSession).toHaveBeenCalled();
+    expect(showError.mock.calls.flat().join('\n')).not.toContain('No active session');
   });
 });

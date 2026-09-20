@@ -276,6 +276,7 @@ export default {
       exportDebugZip: 'Export current session as a debug ZIP archive',
       copy: 'Copy the last assistant message to the clipboard',
       web: 'Open the current session in the Web UI and exit the terminal',
+      desktop: 'Open the Kimi Code desktop app page in your browser',
       remoteControl: 'Open the current session through Kimi Remote Control (experimental)',
       tower: 'Report tower status, toggle tower mode, or set the tower objective',
       exit: 'Exit the application',
@@ -573,6 +574,8 @@ export default {
         languageDesc: 'Change the interface language (restart required).',
         editor: 'Editor',
         editorDesc: 'Set the external editor command.',
+        survey: 'Feedback survey',
+        surveyDesc: 'Turn the occasional session rating prompt on or off.',
         experiments: 'Experiments',
         experimentsDesc: 'Turn experimental features on or off.',
         upgrade: 'Automatic updates',
@@ -1039,6 +1042,13 @@ export default {
         off: 'Off',
         onDescription: 'Install new versions in the background.',
         offDescription: 'Show the install prompt instead.',
+      },
+      surveyPreferenceSelector: {
+        title: 'Feedback survey',
+        on: 'On',
+        off: 'Off',
+        onDescription: 'Show the occasional rating prompt above the editor.',
+        offDescription: 'Never show the rating prompt.',
       },
     },
     statusMessages: {
@@ -1837,6 +1847,11 @@ export default {
       configAutoUpdateSet: 'Automatic updates {{state}}.',
       configAutoUpdateEnabled: 'enabled',
       configAutoUpdateDisabled: 'disabled',
+      configFeedbackSurveyAlready: 'Feedback survey already {{state}}.',
+      configFeedbackSurveySet: 'Feedback survey {{state}}.',
+      configFeedbackSurveySaveFailed: 'Failed to save session rating setting: {{error}}',
+      configFeedbackSurveyEnabled: 'enabled',
+      configFeedbackSurveyDisabled: 'disabled',
       configNoExperimentalChanges: 'No experimental feature changes to apply.',
       configModelCachedWarning:
         'Note: Switching models invalidates the existing prompt cache. Use /new to avoid extra token costs.',
@@ -1934,6 +1949,9 @@ export default {
       goalComplete: '✓ Goal complete{{reason}}.',
       goalCompleteTurns: '{{count}} turn{{plural}}',
       goalCompleteSummary: 'Worked {{turns}} over {{elapsed}}, using {{tokens}} tokens.',
+      // tui/commands/goal.ts
+      goalObjectiveLengthWarning:
+        'Goal objective is too long ({{length}}/{{max}} characters); put long content in a file and reference the file path.',
       // tui/utils/event-payload.ts
       eventFilteredResponse:
         'Provider filtered the response before visible output (finishReason={{reason}}{{raw}}).',

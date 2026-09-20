@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { t } from '#/i18n';
 import { ChoicePickerComponent, type ChoiceOption } from '#/tui/components/dialogs/choice-picker';
 import { EditorSelectorComponent } from '#/tui/components/dialogs/editor-selector';
 import { PermissionSelectorComponent } from '#/tui/components/dialogs/permission-selector';
@@ -97,8 +98,11 @@ describe('ChoicePickerComponent', () => {
       onCancel,
     });
     const permissionOutput = permission.render(120).map(strip);
-    expect(permissionOutput).toContain('  ❯ YOLO');
-    expect(permissionOutput).toContain('    Manual ← current');
+    // The permission labels are localized (`tui.dialogs.permissionSelector.*`),
+    // so assert against the same lookup the component uses rather than the
+    // retired "YOLO" / "Manual" jargon.
+    expect(permissionOutput).toContain(`  ❯ ${t('tui.dialogs.permissionSelector.yolo')}`);
+    expect(permissionOutput).toContain(`    ${t('tui.dialogs.permissionSelector.manual')} ← current`);
 
     const settings = new SettingsSelectorComponent({
       onSelect,

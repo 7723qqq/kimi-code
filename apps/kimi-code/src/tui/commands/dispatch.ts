@@ -424,8 +424,10 @@ const SESSION_REQUIRING_COMMANDS: ReadonlySet<BuiltinSlashCommandName> = new Set
   'init',
   'plan',
   'swarm',
+  'team',
   'undo',
   'web',
+  'workflow',
 ]);
 
 async function handleBuiltInSlashCommand(

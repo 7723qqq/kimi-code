@@ -1,17 +1,21 @@
+import { t } from '#/i18n';
+
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
-const SURVEY_PREFERENCE_OPTIONS: readonly ChoiceOption[] = [
-  {
-    value: 'on',
-    label: 'On',
-    description: 'Show the occasional rating prompt above the editor.',
-  },
-  {
-    value: 'off',
-    label: 'Off',
-    description: 'Never show the rating prompt.',
-  },
-];
+function getSurveyPreferenceOptions(): readonly ChoiceOption[] {
+  return [
+    {
+      value: 'on',
+      label: t('tui.dialogs.surveyPreferenceSelector.on'),
+      description: t('tui.dialogs.surveyPreferenceSelector.onDescription'),
+    },
+    {
+      value: 'off',
+      label: t('tui.dialogs.surveyPreferenceSelector.off'),
+      description: t('tui.dialogs.surveyPreferenceSelector.offDescription'),
+    },
+  ];
+}
 
 export interface SurveyPreferenceSelectorOptions {
   readonly currentValue: boolean;
@@ -22,8 +26,8 @@ export interface SurveyPreferenceSelectorOptions {
 export class SurveyPreferenceSelectorComponent extends ChoicePickerComponent {
   constructor(opts: SurveyPreferenceSelectorOptions) {
     super({
-      title: 'Feedback survey',
-      options: [...SURVEY_PREFERENCE_OPTIONS],
+      title: t('tui.dialogs.surveyPreferenceSelector.title'),
+      options: [...getSurveyPreferenceOptions()],
       currentValue: opts.currentValue ? 'on' : 'off',
       onSelect: (value) => {
         opts.onSelect(value === 'on');

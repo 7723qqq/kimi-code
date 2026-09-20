@@ -271,6 +271,7 @@ export default {
       exportDebugZip: '将会话导出为调试 ZIP 归档',
       copy: '复制最后一条助手消息到剪贴板',
       web: '在 Web UI 中打开当前会话并退出终端',
+      desktop: '在浏览器中打开 Kimi Code 桌面版页面',
       remoteControl: '通过 Kimi Remote Control 打开当前会话（实验性）',
       tower: '查看 tower 状态、切换 tower 模式或设置 tower 目标',
       exit: '退出应用程序',
@@ -561,6 +562,8 @@ export default {
         languageDesc: '更改界面语言（需要重启）。',
         editor: '编辑器',
         editorDesc: '设置外部编辑器命令。',
+        survey: '反馈问卷',
+        surveyDesc: '开启或关闭偶尔弹出的会话评分提示。',
         experiments: '实验功能',
         experimentsDesc: '开启或关闭实验功能。',
         upgrade: '自动更新',
@@ -1015,6 +1018,13 @@ export default {
         off: '关闭',
         onDescription: '在后台安装新版本。',
         offDescription: '显示安装提示。',
+      },
+      surveyPreferenceSelector: {
+        title: '反馈问卷',
+        on: '开启',
+        off: '关闭',
+        onDescription: '在编辑器上方偶尔显示评分提示。',
+        offDescription: '从不显示评分提示。',
       },
     },
     statusMessages: {
@@ -1788,6 +1798,11 @@ export default {
       configAutoUpdateSet: '自动更新已{{state}}。',
       configAutoUpdateEnabled: '开启',
       configAutoUpdateDisabled: '关闭',
+      configFeedbackSurveyAlready: '反馈问卷已是{{state}}状态。',
+      configFeedbackSurveySet: '反馈问卷已{{state}}。',
+      configFeedbackSurveySaveFailed: '保存会话评分设置失败：{{error}}',
+      configFeedbackSurveyEnabled: '开启',
+      configFeedbackSurveyDisabled: '关闭',
       configNoExperimentalChanges: '没有需要应用的实验性功能变更。',
       configModelCachedWarning:
         '注意：切换模型会使现有的提示缓存失效。使用 /new 可避免额外的 token 开销。',
@@ -1881,6 +1896,9 @@ export default {
       goalComplete: '✓ 目标完成{{reason}}。',
       goalCompleteTurns: '{{count}} 轮',
       goalCompleteSummary: '在 {{elapsed}} 内完成了 {{turns}}，使用了 {{tokens}} 个 token。',
+      // tui/commands/goal.ts
+      goalObjectiveLengthWarning:
+        '目标描述过长（{{length}}/{{max}} 个字符）；请将长内容写入文件并引用该文件路径。',
       // tui/utils/event-payload.ts
       eventFilteredResponse: '提供商在可见输出之前过滤了响应（finishReason={{reason}}{{raw}}）。',
       // tui/utils/background-task-status.ts

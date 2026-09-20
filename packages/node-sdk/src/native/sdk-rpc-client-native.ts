@@ -607,6 +607,27 @@ const NATIVE_EXPERIMENTAL_FLAGS: readonly NativeExperimentalFlag[] = [
     defaultEnabled: false,
     surface: 'core',
   },
+  {
+    id: 'tower',
+    title: 'Tower mode',
+    description:
+      'Enable tower mode: coordinate multiple agents on a shared objective, toggled with the /tower command.',
+    // Must stay identical to the engine's `TOWER_ENV_SWITCH`
+    // (`packages/kimi-agent/src/tools/tower/paths.rs`): the host flag and the
+    // engine's advertised tool table read the same switch.
+    env: 'KIMI_CODE_EXPERIMENTAL_TOWER',
+    defaultEnabled: false,
+    surface: 'both',
+  },
+  {
+    id: 'xunfei_coding_plan',
+    title: 'Astron (Xunfei coding plan)',
+    description:
+      'Show the Astron provider settings in /settings and enable the Astron login flow. The astron entry under [providers] stays functional regardless of this flag.',
+    env: 'KIMI_CODE_EXPERIMENTAL_XUNFEI_CODING_PLAN',
+    defaultEnabled: false,
+    surface: 'both',
+  },
 ];
 
 /**
@@ -1392,6 +1413,11 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // model also declares `dynamically_loaded_tools`, but the flag is what
     // the engine's gate reads.
     const toolSelect = isExperimentalFlagEnabled(config, 'tool_select');
+    // The engine gates the advertised Tower* tool table on this and falls back
+    // to its own bare env probe when it is absent — which never sees
+    // `[experimental].tower`. Passing the host-resolved flag makes the config
+    // key (and the master switch) reach the engine, same as tool_select.
+    const towerEnabled = isExperimentalFlagEnabled(config, 'tower');
     const background = resolveBackgroundLimits(config);
     // Print mode (`kimi -p`): the host resolves only which `[background]`
     // values apply — the engine owns the settle behavior.
@@ -1447,6 +1473,18 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       imageMaxEdgePx: imageMaxEdgePx ?? undefined,
       modelCapabilities: modelCapabilities ?? undefined,
       toolSelect,
+      towerEnabled,
+      // Session profile catalog snapshot (P46): the native `Agent` tool spawns
+      // only profiles registered here; without it every `Agent` call falls
+      // back to the host, which has no tool runtime on this transport.
+      subagentProfiles: agentProfiles.length > 0 ? [...agentProfiles] : undefined,
+      // The concurrent-provider race (`[agent].multi_llm`). Non-empty outranks
+      // `nativeLlm` in the engine's LLM selection.
+      providers: multiLlmProviders ? [...multiLlmProviders] : undefined,
+      // Main-agent profile (`--agent` / `--agent-file`): shapes the session's
+      // own system prompt (`${role_additional}` + tool allowance), which is a
+      // different consumer from `subagentProfiles` above.
+      agentProfile: meta.agentProfile ?? undefined,
       // `[background]` knobs: the engine applies them to its own task runner
       // and Bash tool, so the file behaves the same on every entry point.
       killGracePeriodMs: background?.killGracePeriodMs,

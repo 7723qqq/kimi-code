@@ -49,3 +49,14 @@ describe('SettingsSelectorComponent mermaid entry', () => {
     expect(mermaidIndex).toBeLessThan(editorIndex);
   });
 });
+
+describe('SettingsSelectorComponent survey entry', () => {
+  it('renders translated copy instead of raw i18n keys', () => {
+    const picker = new SettingsSelectorComponent({ onSelect: () => {}, onCancel: () => {} });
+    const text = strip(picker.render(80).join('\n'));
+
+    expect(text).toContain('Feedback survey');
+    expect(text).toContain('Turn the occasional session rating prompt on or off.');
+    expect(text).not.toContain('tui.dialogs.settingsSelector.survey');
+  });
+});

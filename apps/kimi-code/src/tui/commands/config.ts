@@ -1054,8 +1054,11 @@ export async function applySurveyPreferenceChoice(
   enabled: boolean,
 ): Promise<void> {
   const disableFeedbackSurvey = !enabled;
+  const state = enabled
+    ? t('tui.messages.configFeedbackSurveyEnabled')
+    : t('tui.messages.configFeedbackSurveyDisabled');
   if (disableFeedbackSurvey === (host.state.appState.disableFeedbackSurvey === true)) {
-    host.showStatus(`Feedback survey already ${enabled ? 'enabled' : 'disabled'}.`);
+    host.showStatus(t('tui.messages.configFeedbackSurveyAlready', { state }));
     return;
   }
 
@@ -1066,14 +1069,14 @@ export async function applySurveyPreferenceChoice(
     });
   } catch (error) {
     host.showStatus(
-      `Failed to save session rating setting: ${formatErrorMessage(error)}`,
+      t('tui.messages.configFeedbackSurveySaveFailed', { error: formatErrorMessage(error) }),
       'error',
     );
     return;
   }
 
   host.setAppState({ disableFeedbackSurvey });
-  host.showStatus(`Feedback survey ${enabled ? 'enabled' : 'disabled'}.`);
+  host.showStatus(t('tui.messages.configFeedbackSurveySet', { state }));
 }
 
 export function showMermaidPreferencePicker(host: SlashCommandHost): void {

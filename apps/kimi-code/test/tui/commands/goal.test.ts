@@ -5,6 +5,7 @@ import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import {
   dispatchInput,
   goalArgumentCompletions,
+  goalObjectiveLengthWarning,
   handleGoalCommand,
   parseGoalCommand,
   setExperimentalFeatures,
@@ -833,6 +834,19 @@ describe('dispatchInput /goal integration', () => {
     await new Promise((resolve) => setImmediate(resolve));
     expect(session.createGoal).not.toHaveBeenCalled();
     expect(host.restoreInputText).not.toHaveBeenCalled();
+  });
+});
+
+describe('goalObjectiveLengthWarning', () => {
+  it('interpolates the typed length against the limit through t()', () => {
+    expect(goalObjectiveLengthWarning(`/goal ${'x'.repeat(4001)}`)).toBe(
+      'Goal objective is too long (4001/4000 characters); put long content in a file and reference the file path.',
+    );
+  });
+
+  it('stays silent at or under the limit', () => {
+    expect(goalObjectiveLengthWarning('/goal ship it')).toBeUndefined();
+    expect(goalObjectiveLengthWarning(`/goal ${'x'.repeat(4000)}`)).toBeUndefined();
   });
 });
 

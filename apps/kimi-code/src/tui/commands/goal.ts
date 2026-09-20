@@ -556,7 +556,10 @@ export function goalObjectiveLengthWarning(text: string): string | undefined {
   if (args.length > 0 && args.charAt(0) !== ' ') return undefined;
   const objective = extractGoalObjective(args);
   if (objective === undefined || objective.length <= MAX_GOAL_OBJECTIVE_LENGTH) return undefined;
-  return `Goal objective is too long (${objective.length}/${MAX_GOAL_OBJECTIVE_LENGTH} characters); put long content in a file and reference the file path.`;
+  return t('tui.messages.goalObjectiveLengthWarning', {
+    length: objective.length,
+    max: MAX_GOAL_OBJECTIVE_LENGTH,
+  });
 }
 
 /**
