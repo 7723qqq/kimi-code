@@ -25,7 +25,7 @@ import {
 } from '../components/dialogs/feedback-input-dialog';
 import { ModelSelectorComponent } from '../components/dialogs/model-selector';
 import { PlatformSelectorComponent } from '../components/dialogs/platform-selector';
-import type { SlashCommandHost } from './dispatch';
+import type { SlashCommandHost } from './types';
 
 export function promptPlatformSelection(host: SlashCommandHost): Promise<string | undefined> {
   return new Promise((resolve) => {

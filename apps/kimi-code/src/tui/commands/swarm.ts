@@ -13,7 +13,7 @@ import {
 import { getLlmNotSetMessage, getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
-import type { SlashCommandHost } from './dispatch';
+import type { SlashCommandHost } from './types';
 
 export async function handleSwarmCommand(host: SlashCommandHost, args: string): Promise<void> {
   if (host.session === undefined) {

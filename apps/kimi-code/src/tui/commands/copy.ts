@@ -3,7 +3,7 @@ import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 
 import type { TranscriptEntry } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
-import type { SlashCommandHost } from './dispatch';
+import type { SlashCommandHost } from './types';
 
 /**
  * Visible text of the last assistant transcript entry, newest first; empty

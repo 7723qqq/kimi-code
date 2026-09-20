@@ -2,7 +2,7 @@ import { t } from '#/i18n';
 
 import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
 import { getNoActiveSessionMessage } from '../constant/kimi-tui';
-import type { SlashCommandHost } from './dispatch';
+import type { SlashCommandHost } from './types';
 import { slashBusyMessage, slashCommandBusyReason } from './resolve';
 
 type AddDirChoice = 'session' | 'remember' | 'cancel';

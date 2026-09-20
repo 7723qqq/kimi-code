@@ -2,7 +2,7 @@ import { t } from '#/i18n';
 
 import { getLlmNotSetMessage } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
-import type { SlashCommandHost } from './dispatch';
+import type { SlashCommandHost } from './types';
 
 export async function handleBtwCommand(host: SlashCommandHost, args: string): Promise<void> {
   const prompt = args.trim();

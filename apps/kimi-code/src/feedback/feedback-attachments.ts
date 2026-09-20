@@ -3,7 +3,7 @@ import { appendFile, mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { detectInstallSource } from '#/cli/update/source';
-import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import type { SlashCommandHost } from '#/tui/commands/types';
 import type { FeedbackAttachmentLevel } from '#/tui/commands/prompts';
 import { getLogDir } from '#/utils/paths';
 import { detectShellEnvironment } from '#/utils/process/shell-env';

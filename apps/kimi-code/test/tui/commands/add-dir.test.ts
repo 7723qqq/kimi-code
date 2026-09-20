@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { handleAddDirCommand } from '#/tui/commands/add-dir';
-import { dispatchInput, type SlashCommandHost } from '#/tui/commands/dispatch';
+import { dispatchInput } from '#/tui/commands/dispatch';
+import type { SlashCommandHost } from '#/tui/commands/types';
 
 type MountedPanel = {
   handleInput: (data: string) => void;

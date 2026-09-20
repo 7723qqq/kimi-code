@@ -1,7 +1,7 @@
 import { ErrorCodes, KimiError } from '@moonshot-ai/kimi-code-sdk';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import type { SlashCommandHost } from '#/tui/commands/types';
 import {
   dispatchInput,
   goalArgumentCompletions,

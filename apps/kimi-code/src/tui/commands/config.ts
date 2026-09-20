@@ -50,7 +50,7 @@ import { formatErrorMessage } from '../utils/event-payload';
 import { setMarkdownMermaidMode, type MermaidRenderMode } from '../utils/markdown-options';
 import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
-import type { SlashCommandHost } from './dispatch';
+import type { SlashCommandHost } from './types';
 import { setExperimentalFeatures } from './experimental-flags';
 import { showUsage } from './info';
 import { promptApiKey } from './prompts';

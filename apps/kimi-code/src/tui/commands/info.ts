@@ -30,7 +30,7 @@ import {
 } from '../constant/feedback';
 import { DEFAULT_OAUTH_PROVIDER_NAME, isManagedUsageProvider } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
-import type { SlashCommandHost } from './dispatch';
+import type { SlashCommandHost } from './types';
 import { isExperimentalFlagEnabled } from './experimental-flags';
 import { promptFeedbackAttachment, promptFeedbackInput } from './prompts';
 

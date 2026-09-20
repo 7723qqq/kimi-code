@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { setCapabilities } from '@moonshot-ai/pi-tui';
 
 import { findBuiltInSlashCommand, resolveSlashCommandAvailability } from '#/tui/commands/index';
-import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import type { SlashCommandHost } from '#/tui/commands/types';
 import {
   handleRemoteControlCommand,
   handleWebCommand,

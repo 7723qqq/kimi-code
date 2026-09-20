@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
 
 import { handleTowerCommand } from '#/tui/commands/index';
-import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import type { SlashCommandHost } from '#/tui/commands/types';
 import { TOWER_STATUS_PROMPT, TOWER_TEARDOWN_PROMPT } from '#/tui/constant/kimi-tui';
 
 function makeHost(

@@ -2,7 +2,7 @@ import type { Session } from '@moonshot-ai/kimi-code-sdk';
 
 import { TOWER_STATUS_PROMPT, TOWER_TEARDOWN_PROMPT } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
-import type { SlashCommandHost } from './dispatch';
+import type { SlashCommandHost } from './types';
 
 export async function handleTowerCommand(host: SlashCommandHost, args: string): Promise<void> {
   const input = args.trim();

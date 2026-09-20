@@ -22,7 +22,7 @@ import { generateRemoteControlQr } from '#/utils/remote-control-qr';
 import { getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { darkColors } from '../theme/colors';
 import { formatErrorMessage } from '../utils/event-payload';
-import type { SlashCommandHost } from './dispatch';
+import type { SlashCommandHost } from './types';
 
 /**
  * `/web` — hand the current session off to the browser.

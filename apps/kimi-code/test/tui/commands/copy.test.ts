@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { findLastAssistantText, handleCopyCommand } from '#/tui/commands/copy';
-import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import type { SlashCommandHost } from '#/tui/commands/types';
 import { findBuiltInSlashCommand, resolveSlashCommandAvailability } from '#/tui/commands/index';
 import type { TranscriptEntry } from '#/tui/types';
 

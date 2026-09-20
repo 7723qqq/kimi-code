@@ -11,7 +11,7 @@ import {
   setRainbowDance,
   tryHandleDanceCommand,
 } from '#/tui/easter-eggs/dance';
-import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import type { SlashCommandHost } from '#/tui/commands/types';
 import { darkColors } from '#/tui/theme/colors';
 
 const TRUECOLOR_PATTERN = /\[38;2;(\d+);(\d+);(\d+)m/g;

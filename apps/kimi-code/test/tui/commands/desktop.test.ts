@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { KimiRegionProfile } from '@moonshot-ai/kimi-code-oauth';
 
 import { handleDesktopCommand } from '#/tui/commands/desktop';
-import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import type { SlashCommandHost } from '#/tui/commands/types';
 
 const mocks = vi.hoisted(() => ({
   openUrl: vi.fn(),

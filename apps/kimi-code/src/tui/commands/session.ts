@@ -15,7 +15,7 @@ import { getLlmNotSetMessage, getNoActiveSessionMessage } from '../constant/kimi
 import { isAbortError } from '../utils/errors';
 import { formatErrorMessage } from '../utils/event-payload';
 import { buildExportMarkdown } from '../utils/export-markdown';
-import type { SlashCommandHost } from './dispatch';
+import type { SlashCommandHost } from './types';
 
 // ---------------------------------------------------------------------------
 // Session commands

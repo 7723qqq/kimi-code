@@ -23,7 +23,7 @@ import type { TranscriptEntry } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
 import { getTranscriptComponentEntry } from '../utils/transcript-component-metadata';
 import { nextTranscriptId } from '../utils/transcript-id';
-import type { SlashCommandHost } from './dispatch';
+import type { SlashCommandHost } from './types';
 
 // ---------------------------------------------------------------------------
 // Undo command

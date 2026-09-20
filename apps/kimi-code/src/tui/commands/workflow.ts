@@ -1,7 +1,7 @@
 import { t } from '#/i18n';
 
 import { getLlmNotSetMessage, getNoActiveSessionMessage } from '../constant/kimi-tui';
-import type { SlashCommandHost } from './dispatch';
+import type { SlashCommandHost } from './types';
 
 /**
  * `/workflow` slash command — CLI entry point for the Workflow tool.

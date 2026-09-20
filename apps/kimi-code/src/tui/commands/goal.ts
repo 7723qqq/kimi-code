@@ -29,7 +29,7 @@ import {
 import { formatErrorMessage } from '../utils/event-payload';
 import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
 import { canRestoreSubmittedInput } from './resolve';
-import type { SlashCommandHost } from './dispatch';
+import type { SlashCommandHost } from './types';
 
 const MAX_GOAL_OBJECTIVE_LENGTH = 4000;
 

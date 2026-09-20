@@ -19,7 +19,7 @@ import type { ChoiceOption } from '../components/dialogs/choice-picker';
 import { DEFAULT_OAUTH_PROVIDER_NAME, PRODUCT_NAME } from '../constant/kimi-tui';
 import type { LoginProgressSpinnerHandle } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
-import type { SlashCommandHost } from './dispatch';
+import type { SlashCommandHost } from './types';
 import {
   promptApiKey,
   promptLogoutProviderSelection,

@@ -47,7 +47,7 @@ import {
   isOfficialPluginInstall,
   isOfficialPluginSource,
 } from '../utils/plugin-source-label';
-import type { SlashCommandHost } from './dispatch';
+import type { SlashCommandHost } from './types';
 
 interface ShowPluginsPickerOptions {
   readonly selectedId?: string;

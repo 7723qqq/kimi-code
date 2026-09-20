@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { handleUndoCommand } from '#/tui/commands/undo';
-import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import type { SlashCommandHost } from '#/tui/commands/types';
 import type { TranscriptEntry } from '#/tui/types';
 
 function entry(partial: Partial<TranscriptEntry> & Pick<TranscriptEntry, 'kind' | 'content'>): TranscriptEntry {

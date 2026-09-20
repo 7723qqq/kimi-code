@@ -5,7 +5,7 @@ import { currentTheme } from '#/tui/theme';
 
 import { DEFAULT_MARKDOWN_CONFIG, loadTuiConfig, type TuiConfig } from '../config';
 import { setMarkdownMermaidMode, setMarkdownRenderLatex } from '../utils/markdown-options';
-import type { SlashCommandHost } from './dispatch';
+import type { SlashCommandHost } from './types';
 import { setExperimentalFeatures } from './experimental-flags';
 
 export async function handleReloadTuiCommand(host: SlashCommandHost): Promise<void> {

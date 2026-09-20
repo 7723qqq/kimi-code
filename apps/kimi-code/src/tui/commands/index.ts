@@ -6,7 +6,7 @@ export * from './skills';
 export * from './plugin-commands';
 export * from './types';
 
-export { dispatchInput, type SlashCommandHost } from './dispatch';
+export { dispatchInput } from './dispatch';
 export { handleLoginCommand, handleLogoutCommand } from './auth';
 export { handleBtwCommand } from './btw';
 export { handleCopyCommand } from './copy';
