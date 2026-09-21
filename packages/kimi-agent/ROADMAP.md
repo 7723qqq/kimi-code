@@ -378,9 +378,11 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
 之后所有触及被删除包的提交，要求每一个都在 `scripts/upstream-v2-delta-allowlist.json` 中带有明确
 裁定（`ported` / `tracked` / `not-applicable`；`pending` 或未记录即失败）。历史快照（2026-09-17
 三次复核，merge base `6954d2c8bf`、上游 `25dd4ce973`）：`ported=21 | tracked=11 |
-not-applicable=21`（53 条）。**当前快照（2026-09-19 复核，merge base 已推进到 `1b89e4b039`，
-上游 `88a7d932f1`）**：`ported=4 | tracked=8 | not-applicable=5`（17 条，全部分类完毕）。
+not-applicable=21`（53 条）。**当前快照（2026-09-21 复核，merge base `1b89e4b039`，
+上游 `88a7d932f1`）**：`ported=12 | tracked=0 | not-applicable=5`（17 条，全部分类完毕；
+此前记的 `ported=4 | tracked=8` 是过期数字，`tracked` 条目已陆续改判清零）。
 快照数字随 merge base 变化，复核时以 `bun scripts/check-upstream-v2-delta.mjs` 实时输出为准。
+**该 ref 之后（门禁视野之外）的 17 个提交另按 §6.6 复核。**
 
 **2026-09-17 追加发现之二：allowlist 的裁定本身会过期。** `b1807253c3`（#3728 permission_mode 提醒）
 的 note 至今写着"the whole permission_mode reminder injection is absent from the fork"，而该实现
@@ -1007,6 +1009,17 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
     #3889（大工作区 resume 性能）优化的 wire-restore/immer/kap-server 缓存层 fork 不存在，
     恢复是直连 SQLite 读（allowlist: `a80fe31cff`、`e3f48a225b`、`5108cad9b6`）。
 
+9. **server 路径取消回合时丢弃未 drain 的 steer 消息（2026-09-21 复核 #3933 发现，尚未处理）**：
+   `ServerEngine` 的 steer 队列随回合消亡（`server/engine.rs` `ActiveGuard::drop` 移除
+   `steer_queues[session]`），而 `run_turn` 的取消检查在 step 顶部、**早于** `drain_steers`
+   （`turn_loop/run_turn.rs:859` vs `:874`）——steer 在取消前一刻入队即被静默丢弃，用户看到
+   `prompt.steered` 之后文本消失。session 路径（`session/mod.rs:430` 的会话级队列）同场景下
+   消息进入下一回合，与 v2「未消费 steer 种子下一回合」（`loopService.ts:1079-1090`、
+   `850-864`）语义一致；**两条宿主路径行为不一致**，且 server 路径（Web/VS Code）是丢数据
+   的那一侧。候选修法（需设计决策，故未顺手改）：回合结束时把未 drain 的 steer 消息经
+   `run_or_queue_prompt` 重新入队——消息自带 `prompt_id`（#3906），复用之可保证转录里只出现
+   一次；origin（clientMetadata）当前在 steer 路由丢弃，需要随消息携带才能完整重建。
+
 ### 6.2 本轮已修复（含证据）
 
 | 上游 | 修复 | 证据 |
@@ -1278,9 +1291,41 @@ v2 用双冒号（`fs.ts:414,460`），bundle 用单冒号。fork 的 `::search`
     启动超时不在此列：v2 `DEFAULT_STARTUP_TIMEOUT_MS = 30_000`（`connection-manager.ts:64`）
     与引擎 `DEFAULT_MCP_STARTUP_TIMEOUT_MS = 30_000` 一致，未动。
 
+### 6.6 门禁范围外批次复核（2026-09-21，上游 `88a7d932f1` 之后的 17 提交）
+
+**背景**：`scripts/check-upstream-v2-delta.mjs` 的检查区间是 `mergeBase..upstream/main`，
+而本地 `refs/remotes/upstream/main` 停在 `88a7d932f1`（09-18）且 `git fetch upstream`
+被墙（github.com:443 不通；`gh api` 走的 api.github.com 正常）。09-18 之后的提交因此
+**落在门禁视野之外**——正是 §6.0「ref 过期让门禁静默缩小检查范围」那条教训的再现。
+本轮用 `gh api repos/MoonshotAI/kimi-code/compare/88a7d932f1...main` 逐条取回 17 个
+提交并裁定：
+
+| 上游提交 | 内容 | 裁定 |
+| --- | --- | --- |
+| `2502d2157` #3920 | 整体 revert v3 扁平实体协议 | **已跟随**（`86f30ecc2c`，§8.11） |
+| `7d3f88faa` #3921 | managed `/me` 增 `goods_version` | **已移植**（`703cfa23c7`，oauth 包 + 双语文档） |
+| `6a52dd781` #3962 + `6ffdf0d57` #3929 | `auto_session_title` 配置项 + 系统提示词去掉 project-root 断言 | **已移植**（`acd5c8f16f`） |
+| `02d829e13` #3915 | vscode 问题对话框 IME 组词时 Enter 误提交 | **已移植**（`9681ec28c9`，`QuestionDialog.tsx` 加 `isComposing` 守卫；composer 早有同款守卫） |
+| `0523bafb3` #3963 | 遥测报启用插件集 + `plugin_toggle` 事件 | **已移植**（`9681ec28c9`：REST 路由与 TUI 开关点双发射点；`TelemetryContext`/`JsTelemetryContext`/napi 契约补 `enabled_plugins`，与 `thinking_effort` 同为宿主注入字段——fork 宿主尚未在树内填充该上下文，字段随接缝就位） |
+| `f17a22ebf` #3931 | 文件监听默认关 | **不适用**（记录于 `acd5c8f16f`）：fork 没有文件监听特性，无默认值可翻 |
+| `b428bfd00` #3938 | 冷折叠 step 带 timing/usage | **不适用**：kap 侧 hunk 只是 v3 实体字段改名（v3 已删）；agent 侧是 context-memory 的 sealing meta，而 fork 引擎**没有 LLM timing 插桩**（全仓仅 `server/transcript/model.rs` 的 `StepTiming` 定义，projector 建 step 时 `timing: None` 永不填充；`LlmStepEnd` 只带 turn_id/step/usage）。usage 在 fork 是 turn/step 粒度（`session/sqlite_store.rs:245` TurnRecord.usage + `server/transcript/project.rs:275-282` 的 step.usage），不在 assistant 消息上 |
+| `2cedfaf12` #3901 | interaction 事件过 agent 过滤器 | **不适用**：fork 的 WS 扇出是**会话级**（`server/ws.rs:444-447` 只按 session 集合过滤），没有 agent 过滤器可绕过；载荷上的 `agent_id` 也无消费方（dist-web 的 `_5e`/`T5e` mapper 不读它），且 fork 的 interaction 注册表是会话作用域、无 agent 归属可填 |
+| `9df7a9ccf` #3922 | turn id 防重放回退 + 冷转录按活跃分支折叠 | **不适用**（两半）：(a) fork 的 turn 号每轮从 SQLite `MAX(turn_number)+1` 重算（`session/sqlite_store.rs:1085`），无内存计数器可被重放种子记录拨回；(b) fork 没有 wire journal 也没有分支——undo 是行删除（`sqlite_store.rs:911`）、fork 是复制历史到新会话（`fork_session`），冷转录直接读 SQLite；且该修复扩展的 v3 实体协议已随 `86f30ecc2c` 删除 |
+| `97212596f` #3933 | 未消费 steer 种子下一回合时不记 `turn.steer` | **不适用**：fork 没有 `TurnSteer` 记录、没有种子回合路径（`consumeDrainedNudges` 无对应物，`drain_steers` 只把消息并进在跑回合的 `messages`）。**已知分歧（未改）**：server 路径的 steer 队列随回合消亡（`server/engine.rs` `ActiveGuard::drop`），回合取消时未 drain 的 steer 消息被丢弃；session 路径的队列是会话级（`session/mod.rs:430`），同场景下消息进入下一回合——与 v2「未消费 steer 种子下一回合」语义一致的是后者。救援式移植需要设计决策（救援消息落点），超出本提交范围，留待单独工单 |
+| `65ae3e368` #3847 | 拒绝非 ASCII mission 标题 + 记录 token 用量 | **不适用**（三部分）：(a) fork 的 `unique_slug` 去重（`tools/tower/store.rs:412-424`、`paths.rs:96-114`）已修掉上游 rejection 针对的分支碰撞缺陷，且对中文用户更友好；(b) `tokens` 需要调用方累计用量，而 fork 的 tower 工具路径没有用量访问器（子代理实例不累计、主会话用量只在 SQLite 且 toolset 不持有），完整移植等于新建遥测基建；(c) fork 的 tower spawn 不注册带描述的后台任务（worker 经 `tokio::spawn` + `subagent.completed/failed` 事件露面），无任务描述可改 |
+| `6a214b85e` #3957 | wireCache 大文件栈溢出 | **不适用**：kap-server 已退役；fork 仅存的 wire.jsonl 读取器（`apps/vis/server/src/lib/wire-reader.ts:124`）是逐条 `push`，无 spread 模式 |
+| `7568f3118` #3932 | 删除 tdd skill | **不适用**：skill 清单是 fork 自有约定，根 AGENTS.md 明确要求按 `tdd` skill 工作 |
+| `2e605b10b` #3934 / `9d07f634b` #3913 / `99eaa993b` #3936 | 同步 web dist / CI release / changelog 文档 | **不适用**：机械同步与 CI/文档类提交；fork 的 dist-web 按自有节奏从 code-app 同步（AGENTS.md：禁止从 `apps/kimi-web` 重建），发布流与 changelog 流程独立 |
+
+**§6.0 快照更正**：该节「当前快照 ported=4 | tracked=8」为过期数字；门禁实时输出
+（2026-09-21）为 `ported=12 | not-applicable=5`（17 条，tracked=0）。
+
 ---
 
 ## 7. v1 / v3 协议面自创实现审计（2026-09-20，按铁律）
+
+> **v3 部分已作废**：上游 2.0.2 整体 revert 了 v3（`2502d2157`），fork 跟随撤销
+> （`86f30ecc2c`，见 §8.11）。本节 v3 结论是撤销前的审计记录，仅存历史价值。
 
 复核方式：把 Rust 侧声明的协议词表与参考实现逐项比对，**不读本仓文档、只看两侧代码**。
 参考源：`upstream/main`（`git grep`）与本地抽取 `.tmp/v2-ref` / `.tmp/v2-ref-upstream`。
