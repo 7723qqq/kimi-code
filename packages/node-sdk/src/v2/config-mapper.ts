@@ -43,6 +43,7 @@ const KIMI_CONFIG_DOMAINS = [
   'modelCatalog',
   'experimental',
   'telemetry',
+  'autoSessionTitle',
 ] as const;
 
 /**

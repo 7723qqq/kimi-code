@@ -588,6 +588,14 @@ pub struct KimiConfig {
     /// Top-level telemetry switch (schema `telemetry`).
     #[serde(default)]
     pub telemetry: Option<bool>,
+    /// Whether clients may automatically generate session titles (schema
+    /// `auto_session_title`, upstream #3962). `None`/absent means enabled —
+    /// only an explicit `false` disables it, matching upstream's
+    /// "disabled only when explicitly set to false" semantics. The engine
+    /// generates titles only when the host asks (`session/generate_title`),
+    /// so this is the host's gate, carried on the config surface.
+    #[serde(rename = "auto_session_title", alias = "autoSessionTitle", default)]
+    pub auto_session_title: Option<bool>,
     /// Extra directories scanned for skills (schema `extra_skill_dirs`) and
     /// for agent definitions (schema `extra_agent_dirs`), plus the
     /// "merge every discovered skill" switch.
@@ -2061,6 +2069,18 @@ model = "some-model"
         let catalog = config.model_catalog.expect("model_catalog parsed");
         assert_eq!(catalog.refresh_interval_ms, Some(3_600_000));
         assert_eq!(catalog.refresh_on_start, Some(true));
+    }
+
+    #[test]
+    fn auto_session_title_parses_and_defaults_to_enabled() {
+        // Absent means enabled (upstream #3962: only an explicit false
+        // disables); both spellings parse.
+        let absent = KimiConfig::from_str("yolo = true\n").unwrap();
+        assert_eq!(absent.auto_session_title, None);
+        let off = KimiConfig::from_str("auto_session_title = false\n").unwrap();
+        assert_eq!(off.auto_session_title, Some(false));
+        let camel = KimiConfig::from_str("autoSessionTitle = false\n").unwrap();
+        assert_eq!(camel.auto_session_title, Some(false));
     }
 
     const POOL_CONFIG: &str = r#"
