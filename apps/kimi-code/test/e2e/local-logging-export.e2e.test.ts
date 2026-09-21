@@ -10,8 +10,10 @@ import { registerExportCommand } from '#/cli/sub/export';
 import { createKimiCodeHostIdentity } from '#/cli/version';
 import { createKimiHarness } from '@moonshot-ai/kimi-code-sdk';
 
-const GLOBAL_LOG = 'logs/global/kimi-code.log';
-const MAIN_WIRE = 'agents/main/wire.jsonl';
+const GLOBAL_LOG = 'logs/kimi-code.log';
+// The engine persists to SQLite and the SDK to history.jsonl; a fresh
+// session's durable artifact is its meta record.
+const SESSION_META = 'session-meta.json';
 const ENABLED = process.env['KIMI_E2E'] === '1';
 
 let homeDir: string;
@@ -44,7 +46,7 @@ afterEach(async () => {
 });
 
 describe.skipIf(!ENABLED)('local logging export e2e', () => {
-  it('exports the main wire and global log by default, and allows skipping global log', async () => {
+  it('exports the session record and global log by default, and allows skipping global log', async () => {
     const harness = createKimiHarness({
       homeDir,
       identity: createKimiCodeHostIdentity('0.1.1'),
@@ -76,11 +78,11 @@ describe.skipIf(!ENABLED)('local logging export e2e', () => {
       const defaultZip = join(workDir, 'default.zip');
       await runKimiExport([session.id, '-o', defaultZip]);
       const defaultEntries = readZipEntries(await readFile(defaultZip));
-      expect(defaultEntries.has(MAIN_WIRE)).toBe(true);
+      expect(defaultEntries.has(SESSION_META)).toBe(true);
       expect(defaultEntries.has(GLOBAL_LOG)).toBe(true);
       expect(defaultEntries.get(GLOBAL_LOG)!.toString('utf-8').length).toBeGreaterThan(0);
       const defaultManifest = JSON.parse(
-        defaultEntries.get('manifest.json')!.toString('utf-8'),
+        defaultEntries.get('export-manifest.json')!.toString('utf-8'),
       ) as Record<string, unknown>;
       expect(defaultManifest['globalLogPath']).toBe(GLOBAL_LOG);
 
@@ -89,7 +91,7 @@ describe.skipIf(!ENABLED)('local logging export e2e', () => {
       const noGlobalEntries = readZipEntries(await readFile(noGlobalZip));
       expect(noGlobalEntries.has(GLOBAL_LOG)).toBe(false);
       const noGlobalManifest = JSON.parse(
-        noGlobalEntries.get('manifest.json')!.toString('utf-8'),
+        noGlobalEntries.get('export-manifest.json')!.toString('utf-8'),
       ) as Record<string, unknown>;
       expect(noGlobalManifest['globalLogPath']).toBeUndefined();
     } finally {

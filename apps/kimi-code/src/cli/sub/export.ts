@@ -11,7 +11,9 @@ import {
   createKimiHarnessNative,
   type ExportSessionInput,
   type ExportSessionResult,
+  flushDiagnosticLogsSync,
   type KimiHarness,
+  log,
   type SessionSummary,
   type ShellEnvironment,
   type TelemetryClient,
@@ -191,6 +193,14 @@ function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): ExportDep
       overrides.exportSession ??
       (async (input: ExportSessionInput) => {
         await initializeDefaultTelemetry();
+        // The global diagnostic log records cross-session events (startup,
+        // login, export — data-locations.md); without a line here a fresh
+        // home never creates the file and `--include-global-log` exports
+        // nothing. Logged after the telemetry init (which constructs the
+        // harness and configures the root logger) and flushed synchronously
+        // so the export below finds the file on disk.
+        log.info('session export', { sessionId: input.id });
+        flushDiagnosticLogsSync();
         try {
           return await getHarness().exportSession(input);
         } finally {
