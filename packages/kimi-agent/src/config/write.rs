@@ -75,6 +75,9 @@ pub struct ProviderWrite {
     pub api_key_env: Option<String>,
     pub base_url: Option<String>,
     pub default_model: Option<String>,
+    /// Custom-registry provenance (`providers.*.source`): parked verbatim so
+    /// the refresh can rediscover the registry this provider came from.
+    pub source: Option<serde_json::Value>,
 }
 
 /// One `[models.<alias>]` entry to write.
@@ -177,6 +180,17 @@ pub fn write_provider(
             "default_model",
             Item::Value(Value::from(default_model.clone())),
         );
+    }
+    if let Some(source) = &provider.source {
+        // The blob rides as a sub-table (`[providers.<id>.source]`), the shape
+        // the refresh reads back. Serializing through TOML keeps nested
+        // objects as tables instead of inventing a second encoding.
+        let text = toml::to_string(source)
+            .map_err(|error| format!("source blob is not a TOML table: {error}"))?;
+        let document: DocumentMut = text
+            .parse()
+            .map_err(|error| format!("source blob is not a TOML table: {error}"))?;
+        table.insert("source", Item::Table(document.as_table().clone()));
     }
     let item = reparse_table(&["providers", id], table)?;
     table_at(document, "providers")?.insert(id, item);
@@ -400,6 +414,7 @@ type = "openai"
                 api_key_env: None,
                 base_url: Some("https://example.test/v1".into()),
                 default_model: Some("managed:kimi-code/k3".into()),
+                source: None,
             },
         )
         .unwrap();
@@ -445,6 +460,7 @@ type = "openai"
                 api_key_env: None,
                 base_url: Some("https://example.test/v1".into()),
                 default_model: Some("kimi-code/k3".into()),
+                source: None,
             },
         )
         .unwrap();

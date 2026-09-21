@@ -1241,6 +1241,7 @@ mod tests {
                 base_url: Some("https://api.example.test/v1".into()),
                 max_tokens: None,
                 oauth: None,
+                source: None,
                 custom_headers: None,
             },
         );

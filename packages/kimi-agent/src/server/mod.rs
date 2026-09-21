@@ -38,6 +38,7 @@
 
 pub mod activity;
 pub mod auth;
+pub mod custom_registry;
 pub mod debug;
 pub mod engine;
 pub mod envelope;
@@ -1917,6 +1918,7 @@ impl HttpServer {
                         api_key_env: api_key_env.clone(),
                         base_url: base_url.clone(),
                         default_model: None,
+                        source: None,
                     },
                 )?;
                 crate::config::write::remove_model_aliases_of(document, target_id);
@@ -1956,6 +1958,136 @@ impl HttpServer {
         HttpResponse::json(
             201,
             &json!({ "provider": provider, "models_imported": models.len() }),
+        )
+    }
+
+    /// `POST /api/v1/providers:import_registry` (v2 `importCustomRegistry`):
+    /// import a models.dev-shaped private registry (an `api.json` URL plus an
+    /// optional Bearer key) as configured providers. Every listed provider is
+    /// written with a `source` record so refreshes rediscover it, and
+    /// re-importing the same URL removes providers that disappeared upstream
+    /// — the URL is the registry's stable identity.
+    async fn import_registry_provider(&self, body: &Value) -> HttpResponse {
+        let invalid = |msg: String| {
+            HttpResponse::json(
+                400,
+                &json!({ "code": crate::server::envelope::error_codes::VALIDATION_FAILED, "msg": msg }),
+            )
+        };
+        let Some(url) = body
+            .get("url")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|url| !url.is_empty())
+        else {
+            return invalid("url is required for :import_registry".to_string());
+        };
+
+        // The pre-import config reads the same source the write builds on
+        // (`provider_write.rs`): the staged override, else the pinned file,
+        // else discovery.
+        let before = self
+            .config_override
+            .lock()
+            .await
+            .clone()
+            .unwrap_or_else(|| match self.config_write_path() {
+                Some(path) => crate::config::KimiConfig::from_file(&path).unwrap_or_default(),
+                None => crate::config::KimiConfig::discover()
+                    .map(|(config, _)| config)
+                    .unwrap_or_default(),
+            });
+        // The key: the request's, else the one stored for the same URL (key
+        // rotation keeps the URL as the identity), else none.
+        let stored_key = before.providers.values().find_map(|provider| {
+            custom_registry::RegistrySource::from_provider(provider)
+                .filter(|source| source.url == url)
+                .map(|source| source.api_key)
+        });
+        let source = custom_registry::RegistrySource {
+            url: url.to_string(),
+            api_key: body
+                .get("api_key")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or(stored_key)
+                .unwrap_or_default(),
+        };
+
+        let client = match reqwest::Client::builder().build() {
+            Ok(client) => client,
+            Err(error) => {
+                return HttpResponse::json(
+                    500,
+                    &json!({ "code": crate::server::envelope::error_codes::INTERNAL_ERROR, "msg": error.to_string() }),
+                );
+            }
+        };
+        let entries = match custom_registry::fetch_registry(&client, &source).await {
+            Ok(entries) => entries,
+            Err(error) => {
+                return invalid(format!(
+                    "custom registry at {url} cannot be imported: {error}"
+                ));
+            }
+        };
+        if entries.is_empty() {
+            return invalid(format!(
+                "custom registry at {url} has no importable providers"
+            ));
+        }
+        for entry in entries.values() {
+            if before
+                .providers
+                .get(&entry.id)
+                .is_some_and(|provider| provider.oauth.is_some())
+            {
+                return HttpResponse::json(
+                    400,
+                    &json!({
+                        "code": crate::server::envelope::error_codes::PROVIDER_OAUTH_MANAGED,
+                        "msg": format!("provider {} is managed by OAuth login; use POST /oauth/logout instead", entry.id),
+                    }),
+                );
+            }
+        }
+
+        let had_default = before
+            .default_model
+            .as_deref()
+            .is_some_and(|model| !model.trim().is_empty());
+        let updated =
+            crate::config::write::update_config(self.config_write_path().as_deref(), |document| {
+                custom_registry::apply_entries(document, &entries, &source)?;
+                custom_registry::seed_default_when_unset(document, &entries, had_default);
+                Ok(())
+            });
+        let updated = match updated {
+            Ok(config) => config,
+            Err(error) => {
+                return HttpResponse::json(
+                    500,
+                    &json!({ "code": crate::server::envelope::error_codes::INTERNAL_ERROR, "msg": error }),
+                );
+            }
+        };
+        *self.config_override.lock().await = Some(updated.clone());
+        self.publish_config_changed(&["providers", "models"]).await;
+
+        let has_cached_token = |provider: &str| self.has_cached_token(provider);
+        let providers: Vec<Value> = entries
+            .values()
+            .filter_map(|entry| {
+                crate::server::model_catalog::provider_item(&updated, &entry.id, &has_cached_token)
+            })
+            .collect();
+        HttpResponse::json(
+            201,
+            &json!({
+                "providers": providers,
+                "models_imported": custom_registry::model_count(&entries),
+                "credential_env": custom_registry::credential_env_hints(&entries),
+            }),
         )
     }
 }
@@ -2583,6 +2715,15 @@ impl HttpServer {
                     Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
                 };
                 self.import_catalog_provider(&body).await
+            }
+            // v2 `importCustomRegistry`: import a models.dev-shaped private
+            // registry as configured providers.
+            ("POST", "/api/v1/providers:import_registry") => {
+                let body: Value = match serde_json::from_slice(&req.body) {
+                    Ok(value) => value,
+                    Err(_) => return HttpResponse::bad_request("Invalid JSON payload"),
+                };
+                self.import_registry_provider(&body).await
             }
             ("POST", p) if p.starts_with("/api/v1/models/") => {
                 let tail = p.strip_prefix("/api/v1/models/").unwrap_or_default();
@@ -9210,6 +9351,63 @@ max_context_size = 128000
         }
     }
 
+    /// A one-connection-at-a-time registry server: the response (status line
+    /// and JSON body) can be swapped between requests, and every request head
+    /// is captured so the auth header can be asserted.
+    struct RegistryServer {
+        url: String,
+        response: Arc<std::sync::Mutex<(String, String)>>,
+        requests: Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    impl RegistryServer {
+        async fn spawn(status: &str, body: &str) -> Self {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let response = Arc::new(std::sync::Mutex::new((
+                status.to_string(),
+                body.to_string(),
+            )));
+            let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let shared_response = response.clone();
+            let shared_requests = requests.clone();
+            tokio::spawn(async move {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                while let Ok((mut sock, _)) = listener.accept().await {
+                    let mut buf = [0u8; 8192];
+                    let n = sock.read(&mut buf).await.unwrap_or(0);
+                    if n == 0 {
+                        continue;
+                    }
+                    shared_requests
+                        .lock()
+                        .unwrap()
+                        .push(String::from_utf8_lossy(&buf[..n]).to_string());
+                    let (status, body) = shared_response.lock().unwrap().clone();
+                    let head = format!(
+                        "HTTP/1.1 {status}\r\ncontent-type: application/json\r\nconnection: close\r\ncontent-length: {}\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = sock.write_all(head.as_bytes()).await;
+                    let _ = sock.flush().await;
+                }
+            });
+            Self {
+                url: format!("http://{addr}/api.json"),
+                response,
+                requests,
+            }
+        }
+
+        fn set_response(&self, status: &str, body: &str) {
+            *self.response.lock().unwrap() = (status.to_string(), body.to_string());
+        }
+
+        fn requests(&self) -> Vec<String> {
+            self.requests.lock().unwrap().clone()
+        }
+    }
+
     #[tokio::test]
     async fn catalog_routes_fall_back_to_the_builtin_when_the_fetch_fails() {
         let mut server = HttpServer::in_memory().unwrap();
@@ -9251,6 +9449,193 @@ max_context_size = 128000
             ))
             .await;
         assert_eq!(res.status, 404);
+    }
+
+    #[tokio::test]
+    async fn import_registry_writes_providers_with_their_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        std::fs::write(&config_path, "default_model = \"\"\n").unwrap();
+        let server = HttpServer::in_memory()
+            .unwrap()
+            .with_config_write_path(config_path.clone());
+        let registry = json!({
+            "acme": {
+                "id": "acme",
+                "name": "Acme",
+                "api": "https://registry.example.test/v1",
+                "type": "openai",
+                "env": ["ACME_API_KEY"],
+                "models": { "big": { "id": "big-1", "limit": { "context": 128000 } } },
+            },
+            "beta": {
+                "id": "beta",
+                "name": "Beta",
+                "api": "https://beta.example.test/v1",
+                "type": "anthropic",
+                "models": {
+                    "sonnet": {
+                        "id": "sonnet-1",
+                        "limit": { "context": 200000 },
+                        "tool_call": true,
+                        "reasoning": true,
+                    },
+                },
+            },
+            "broken": { "id": "broken", "name": "Broken" },
+        });
+        let upstream = RegistryServer::spawn("200 OK", &registry.to_string()).await;
+
+        let res = server
+            .handle_request(&catalog_request(
+                "POST",
+                "/api/v1/providers:import_registry",
+                Some(&json!({ "url": upstream.url, "api_key": "sk-reg" })),
+            ))
+            .await;
+        assert_eq!(res.status, 201);
+        let imported: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(imported["models_imported"], 2);
+        let providers = imported["providers"].as_array().unwrap();
+        assert_eq!(providers.len(), 2, "the invalid entry is skipped");
+        assert_eq!(imported["credential_env"]["acme"], "ACME_API_KEY");
+        // The Bearer key reached the registry.
+        let requests = upstream.requests();
+        assert!(
+            requests
+                .iter()
+                .any(|request| request.contains("authorization: Bearer sk-reg")),
+            "{requests:?}"
+        );
+
+        let text = std::fs::read_to_string(&config_path).unwrap();
+        assert!(text.contains("[providers.acme]"), "{text}");
+        assert!(text.contains("[providers.acme.source]"), "{text}");
+        assert!(text.contains("kind = \"apiJson\""), "{text}");
+        assert!(text.contains("apiKey = \"sk-reg\""), "{text}");
+        assert!(text.contains("[models.\"acme/big\"]"), "{text}");
+        assert!(text.contains("[models.\"beta/sonnet\"]"), "{text}");
+        // The unset default is seeded from the first entry's first model.
+        assert!(text.contains("default_model = \"acme/big\""), "{text}");
+
+        // A re-import of the same URL with one provider gone removes the
+        // vanished provider and its aliases; the URL is the identity, so the
+        // stored key is reused when the request omits it.
+        upstream.set_response(
+            "200 OK",
+            &json!({
+                "acme": {
+                    "id": "acme",
+                    "name": "Acme",
+                    "api": "https://registry.example.test/v1",
+                    "type": "openai",
+                    "models": { "big": { "id": "big-1", "limit": { "context": 128000 } } },
+                },
+            })
+            .to_string(),
+        );
+        let res = server
+            .handle_request(&catalog_request(
+                "POST",
+                "/api/v1/providers:import_registry",
+                Some(&json!({ "url": upstream.url })),
+            ))
+            .await;
+        assert_eq!(res.status, 201);
+        let text = std::fs::read_to_string(&config_path).unwrap();
+        assert!(!text.contains("[providers.beta]"), "{text}");
+        assert!(!text.contains("beta/sonnet"), "{text}");
+        assert!(text.contains("[providers.acme]"), "{text}");
+        // v2's remove-then-apply clears a default that pointed into the
+        // re-imported provider, and its `hadDefault` reads the pre-apply
+        // value, so it is not reseeded — the port mirrors that.
+        assert!(!text.contains("default_model"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn import_registry_rejects_the_unimportable() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        std::fs::write(&config_path, "default_model = \"acme/big\"\n").unwrap();
+        let server = HttpServer::in_memory()
+            .unwrap()
+            .with_config_write_path(config_path.clone());
+        let upstream = RegistryServer::spawn("200 OK", "{}").await;
+
+        // A missing url is a validation failure.
+        let res = server
+            .handle_request(&catalog_request(
+                "POST",
+                "/api/v1/providers:import_registry",
+                Some(&json!({})),
+            ))
+            .await;
+        assert_eq!(res.status, 400);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["code"], 40001);
+
+        // An empty registry has no importable providers.
+        let res = server
+            .handle_request(&catalog_request(
+                "POST",
+                "/api/v1/providers:import_registry",
+                Some(&json!({ "url": upstream.url })),
+            ))
+            .await;
+        assert_eq!(res.status, 400);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["code"], 40001);
+        assert!(
+            body["msg"]
+                .as_str()
+                .unwrap()
+                .contains("no importable providers")
+        );
+
+        // An upstream failure carries the status in the reason.
+        upstream.set_response("401 Unauthorized", r#"{"message":"bad key"}"#);
+        let res = server
+            .handle_request(&catalog_request(
+                "POST",
+                "/api/v1/providers:import_registry",
+                Some(&json!({ "url": upstream.url, "api_key": "sk-bad" })),
+            ))
+            .await;
+        assert_eq!(res.status, 400);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["code"], 40001);
+        let msg = body["msg"].as_str().unwrap();
+        assert!(msg.contains("cannot be imported"), "{msg}");
+        assert!(msg.contains("401"), "{msg}");
+        assert!(msg.contains("bad key"), "{msg}");
+
+        // An OAuth-managed provider refuses the import.
+        upstream.set_response(
+            "200 OK",
+            &json!({
+                "acme": {
+                    "id": "acme",
+                    "name": "Acme",
+                    "api": "https://registry.example.test/v1",
+                    "type": "openai",
+                    "models": { "big": { "id": "big-1", "limit": { "context": 128000 } } },
+                },
+            })
+            .to_string(),
+        );
+        let mut text = std::fs::read_to_string(&config_path).unwrap();
+        text.push_str("\n[providers.acme]\ntype = \"openai\"\noauth = { provider = \"acme\" }\n");
+        std::fs::write(&config_path, text).unwrap();
+        let res = server
+            .handle_request(&catalog_request(
+                "POST",
+                "/api/v1/providers:import_registry",
+                Some(&json!({ "url": upstream.url })),
+            ))
+            .await;
+        assert_eq!(res.status, 400);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["code"], 40003);
     }
 
     #[tokio::test]

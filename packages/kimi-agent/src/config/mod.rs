@@ -32,6 +32,12 @@ pub struct ProviderConfig {
     /// provider OAuth-authenticated even without a static key.
     #[serde(default)]
     pub oauth: Option<serde_json::Value>,
+    /// Custom-registry provenance (v2 `providers.*.source`): the api.json
+    /// URL (and key) this provider was imported from. Its presence is what
+    /// makes the refresh rediscover the provider's registry; without the
+    /// field the blob would be dropped on read and the refresh blind.
+    #[serde(default)]
+    pub source: Option<serde_json::Value>,
     /// Extra HTTP headers sent with every request to this provider
     /// (schema `providers.*.customHeaders`). Self-hosted gateways put their
     /// auth/routing headers here; without it those deployments 401.

@@ -251,6 +251,7 @@ pub async fn create(
                 api_key_env: None,
                 base_url: form.base_url.clone(),
                 default_model: default_model.clone(),
+                source: None,
             },
         )?;
         for entry in &form.models {
@@ -358,6 +359,7 @@ pub async fn replace(
                 api_key_env: None,
                 base_url: form.base_url.clone(),
                 default_model: default_model.clone(),
+                source: None,
             },
         )?;
         for entry in &form.models {

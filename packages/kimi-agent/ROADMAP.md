@@ -1685,16 +1685,59 @@ image_in/thinking/tool_use（bundle 与引擎读的均是后者，
 1. credential 从简：接受请求体 `api_key`/`api_key_env` 直写，re-import 时
    无新值则保留旧 credential；未移植 v2 `reconcileProviderCredentialUpdate`
    的 env 存在性 eager 校验（fork 在请求时解析 api_key_env）。
-2. v2 `import_registry`（自定义 registry URL）不移植，只做 import_catalog。
-3. 错误码映射到既有码：CATALOG_ENTRY_NOT_FOUND→PROVIDER_NOT_FOUND(40412)、
+2. 错误码映射到既有码：CATALOG_ENTRY_NOT_FOUND→PROVIDER_NOT_FOUND(40412)、
    CATALOG_IMPORT_INVALID→VALIDATION_FAILED(40001)、PROVIDER_OAUTH_MANAGED
    →40003（已存在）；CATALOG_UNAVAILABLE 不会发生（built-in 兜底）。
-4. `config/write.rs` 的 `ProviderWrite`/`ModelAliasWrite` 补全
-   api_key_env/max_input_size/reasoning_key/off_effort/base_url 字段
-   （读侧 ModelAliasConfig 早有，写侧补齐）。
+3. `config/write.rs` 的 `ProviderWrite`/`ModelAliasWrite` 补全
+   api_key_env/max_input_size/reasoning_key/off_effort/base_url/source 字段
+   （读侧 ModelAliasConfig/ProviderConfig 早有或补上，写侧补齐）。
 
 **验证**：`cargo test --lib` 2788 项 + clippy 0 error + fmt +
 scan-parity 全绿 + protocol 565 项。
+
+### 8.8 自定义 registry 导入 + refresh（2026-09-21，用户批准完整移植；§8.7 偏差 2 关闭）
+
+§8.7 把 `import_registry` 记为不移植；用户复查后批准**完整移植**
+（import + refresh 分支），参照 v2 `modelsDevImportService.doImportCustomRegistry`、
+oauth 包 `custom-registry.ts` / `refreshProviderModels.ts` 分支 3，以及
+kap-server `handleImportRegistry`（bundle 与 `docs/en/reference/server-api.md`
+的 import_registry 章节自此有真实实现）。
+
+**新模块 `server/custom_registry.rs`**（12/12 单测）：
+- `fetch_registry`：Bearer 鉴权、15s 超时、10MB 响应上限（chunk 累加）、
+  per-entry 校验（id/name/api/type∈{anthropic,openai,openai_responses,kimi}/
+  models 必备，非法条目跳过并 warn）、错误信息提取上游 message 并截断 300 字。
+- `apply_entries`（import 路径）：同 URL 且上游已消失的 provider 连别名删除
+  （URL 是稳定身份），随后 remove-then-apply；default 指向被删 provider 时
+  清除（v2 `removeCustomRegistryProvider`）；`seed_default_when_unset` 用
+  apply 前的 default 判断（v2 `hadDefault` 语义）。
+- `apply_entry`（refresh 路径）：不预删，`write_merged_alias` 合并——用户手加
+  字段、`overrides` 表保留，capabilities 取并集（v2 `mergeRefreshedModelAlias`）；
+  上游消失的别名按 provider 删除（不限 key 形状）。
+- `credential_env_hints` / `model_count` / `RegistrySource::from_provider`。
+
+**路由**：`POST /api/v1/providers:import_registry`——url 必填（40001）；
+key 取请求值→同 URL 已存值→空（key 轮换安全）；fetch 失败/空 registry →
+40001（含上游状态与消息）；OAuth-managed 冲突 → 40003；201
+`{providers, models_imported, credential_env}`。
+
+**refresh 分支 3**（`provider_refresh.rs::refresh_custom_registries`）：
+按 source URL 分组（跳过 managed provider），`fetch_from_sources` 依次尝试
+组内各 key 直到成功（v2 `fetchCustomRegistryFromSources`，直接单测钉住重试）；
+未 scope 时同步组内全部 provider 并拉入上游新增；先分类后写盘——全部未变则
+不动配置文件；`scope == "oauth"` 在分支 3 之前返回（v2 门控位置）。
+changed/unchanged/failed 按 v2 形状（model id 计数）。
+
+**config 面**：`ProviderConfig.source` / `ProviderWrite.source`（sub-table
+落盘 `[providers.<id>.source]`，读侧不再丢 blob——否则 refresh 无从发现）。
+
+**测试**：模块 12 例（校验/能力与 context 解析/ vanished 删除/合并保留/
+source 往返/credential hints）；路由 2 例（双 provider + 坏条目跳过 +
+Bearer 到达 + re-import 消失清理；40001×3/40003）；refresh 6 例（新增模型、
+二次刷新 unchanged 且不重写文件、key 轮换、scoped 只动目标、vanished 删除
+连带 default、fetch 失败报错不动配置、oauth scope 门控）。
+
+**验证**：`cargo test --lib` 2804 项 + clippy 0 error + fmt。
 
 ### 8.8 cron 注册表读取（2026-09-21，接手项：SDK getCronTasks 不再是桩）
 

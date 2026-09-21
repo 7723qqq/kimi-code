@@ -17,6 +17,7 @@ use crate::config::KimiConfig;
 use crate::config::write::{
     ModelAliasWrite, remove_model_aliases_matching, update_config, write_model_alias,
 };
+use crate::server::custom_registry::RegistrySource;
 use crate::server::oauth::OAuthManager;
 
 /// The managed provider name (`KIMI_CODE_PROVIDER_NAME`).
@@ -373,6 +374,15 @@ async fn resolve_targets(
 }
 
 /// `POST /providers/{id}:refresh` and `POST /providers:refresh`.
+/// The refresh report the branches accumulate into (v2's
+/// `{changed, unchanged, failed}` result shape).
+#[derive(Default)]
+struct RefreshReport {
+    changed: Vec<Value>,
+    unchanged: Vec<String>,
+    failed: Vec<Value>,
+}
+
 pub async fn refresh(
     config_lock: &Mutex<Option<KimiConfig>>,
     config_path: Option<&Path>,
@@ -414,25 +424,27 @@ pub async fn refresh(
         });
     }
 
-    let mut changed: Vec<Value> = Vec::new();
-    let mut unchanged: Vec<String> = Vec::new();
-    let mut failed: Vec<Value> = Vec::new();
+    let mut report = RefreshReport::default();
     let mut pending: Vec<(Target, Vec<DiscoveredModel>)> = Vec::new();
 
     for target in resolve_targets(&before, oauth, scope, provider_id).await {
         let target = match target {
             Ok(target) => target,
             Err((provider, reason)) => {
-                failed.push(json!({ "provider": provider, "reason": reason }));
+                report
+                    .failed
+                    .push(json!({ "provider": provider, "reason": reason }));
                 continue;
             }
         };
         match fetch_models(&client, &target.base_url, &target.credential).await {
             Ok(models) if models.is_empty() => {
-                unchanged.push(target.provider_id);
+                report.unchanged.push(target.provider_id);
             }
             Ok(models) => pending.push((target, models)),
-            Err(reason) => failed.push(json!({ "provider": target.provider_id, "reason": reason })),
+            Err(reason) => report
+                .failed
+                .push(json!({ "provider": target.provider_id, "reason": reason })),
         }
     }
 
@@ -464,7 +476,7 @@ pub async fn refresh(
                 && !desired_keys.iter().any(|key| key == default)
         });
         if same && !default_lost {
-            unchanged.push(target.provider_id.clone());
+            report.unchanged.push(target.provider_id.clone());
             continue;
         }
 
@@ -515,23 +527,258 @@ pub async fn refresh(
         match updated {
             Ok(config) => {
                 *config_lock.lock().await = Some(config);
-                changed.push(json!({
+                report.changed.push(json!({
                     "provider_id": target.provider_id,
                     "provider_name": target.provider_name,
                     "added": added,
                     "removed": removed,
                 }));
             }
-            Err(reason) => failed.push(json!({ "provider": target.provider_id, "reason": reason })),
+            Err(reason) => report
+                .failed
+                .push(json!({ "provider": target.provider_id, "reason": reason })),
         }
     }
 
-    json!({ "changed": changed, "unchanged": unchanged, "failed": failed })
+    // Branch 3 (v2 `refreshProviderModels`): custom-registry providers,
+    // grouped by source URL. The oauth scope stops before it, exactly where
+    // v2's gate sits.
+    if scope != "oauth" {
+        refresh_custom_registries(
+            config_lock,
+            config_path,
+            &client,
+            &before,
+            provider_id,
+            &mut report,
+        )
+        .await;
+    }
+
+    json!({
+        "changed": report.changed,
+        "unchanged": report.unchanged,
+        "failed": report.failed,
+    })
+}
+
+/// The distinct model ids an alias set carries (v2 `collectModelIdsForAliases`):
+/// the change counts are reported in models, not alias keys.
+fn model_ids_of(config: &KimiConfig, provider_id: &str) -> Vec<String> {
+    let mut ids: Vec<String> = config
+        .models
+        .iter()
+        .filter(|(_, alias)| alias.provider.as_deref() == Some(provider_id))
+        .filter_map(|(_, alias)| alias.model.clone())
+        .filter(|model| !model.is_empty())
+        .collect();
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+/// v2 `fetchCustomRegistryFromSources`: try each credential configured for
+/// the registry URL until one serves the document (key rotation), and report
+/// which source answered.
+async fn fetch_from_sources(
+    client: &reqwest::Client,
+    sources: &[RegistrySource],
+) -> Result<
+    (
+        std::collections::BTreeMap<String, crate::server::custom_registry::RegistryProviderEntry>,
+        RegistrySource,
+    ),
+    String,
+> {
+    let mut last_error = None;
+    for source in sources {
+        match crate::server::custom_registry::fetch_registry(client, source).await {
+            Ok(entries) => return Ok((entries, source.clone())),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| "no registry sources configured".to_string()))
+}
+
+/// Branch 3 of v2 `refreshProviderModels`: the providers carrying a
+/// `source` blob, grouped by registry URL. The URL is the registry's stable
+/// identity, so a group may carry several API keys (rotation) and the fetch
+/// tries each until one succeeds. A scoped refresh touches only the target's
+/// group and only that provider; an unscoped one also pulls in providers the
+/// registry newly lists and drops the ones it no longer does.
+async fn refresh_custom_registries(
+    config_lock: &Mutex<Option<KimiConfig>>,
+    config_path: Option<&Path>,
+    client: &reqwest::Client,
+    before: &KimiConfig,
+    provider_id: Option<&str>,
+    report: &mut RefreshReport,
+) {
+    let mut groups: std::collections::BTreeMap<String, (Vec<RegistrySource>, Vec<String>)> =
+        std::collections::BTreeMap::new();
+    for (id, provider) in &before.providers {
+        if id == KIMI_CODE_PROVIDER_NAME {
+            continue;
+        }
+        let Some(source) = RegistrySource::from_provider(provider) else {
+            continue;
+        };
+        let entry = groups.entry(source.url.clone()).or_default();
+        if !entry.0.contains(&source) {
+            entry.0.push(source);
+        }
+        entry.1.push(id.clone());
+    }
+
+    for (_, (sources, provider_ids)) in groups {
+        if let Some(target) = provider_id
+            && !provider_ids.iter().any(|id| id == target)
+        {
+            continue;
+        }
+        // v2 `fetchCustomRegistryFromSources`: the first key that works wins.
+        let (entries, source) = match fetch_from_sources(client, &sources).await {
+            Ok(fetched) => fetched,
+            Err(reason) => {
+                let reported = provider_id
+                    .map(|target| vec![target.to_string()])
+                    .unwrap_or_else(|| provider_ids.clone());
+                for id in reported {
+                    report
+                        .failed
+                        .push(json!({ "provider": id, "reason": reason.clone() }));
+                }
+                continue;
+            }
+        };
+
+        // The sync set: the group's providers, plus the registry's new
+        // entries when the refresh is unscoped.
+        let mut sync: Vec<String> = provider_ids.clone();
+        if provider_id.is_none() {
+            for entry in entries.values() {
+                if !sync.contains(&entry.id) {
+                    sync.push(entry.id.clone());
+                }
+            }
+        }
+
+        // Classify before writing: a group whose every provider already says
+        // what the registry says is reported unchanged without touching the
+        // config file.
+        let mut any_change = false;
+        for id in &sync {
+            match entries.values().find(|entry| &entry.id == id) {
+                Some(entry) => {
+                    let Some(provider) = before.providers.get(id) else {
+                        any_change = true;
+                        continue;
+                    };
+                    if !crate::server::custom_registry::provider_config_matches(
+                        provider, entry, &source,
+                    ) {
+                        any_change = true;
+                        continue;
+                    }
+                    let desired: Vec<(String, ModelAliasWrite)> = entry
+                        .models
+                        .iter()
+                        .map(|(model_key, model)| {
+                            (
+                                format!("{id}/{model_key}"),
+                                crate::server::custom_registry::alias_write(id, model_key, model),
+                            )
+                        })
+                        .collect();
+                    let existing: Vec<(&String, &crate::config::ModelAliasConfig)> = before
+                        .models
+                        .iter()
+                        .filter(|(_, alias)| alias.provider.as_deref() == Some(id.as_str()))
+                        .collect();
+                    let same_keys = existing.len() == desired.len()
+                        && existing.iter().all(|(key, _)| {
+                            desired.iter().any(|(desired_key, _)| desired_key == *key)
+                        });
+                    let same_fields = desired.iter().all(|(key, write)| {
+                        before.models.get(key).is_some_and(|alias| {
+                            crate::server::custom_registry::remote_fields_match(alias, write)
+                        })
+                    });
+                    if !same_keys || !same_fields {
+                        any_change = true;
+                    }
+                }
+                None => {
+                    if before.providers.contains_key(id) {
+                        any_change = true;
+                    }
+                }
+            }
+        }
+        if !any_change {
+            report.unchanged.extend(sync);
+            continue;
+        }
+
+        let updated = update_config(config_path, |document| {
+            for id in &sync {
+                match entries.values().find(|entry| &entry.id == id) {
+                    Some(entry) => {
+                        crate::server::custom_registry::apply_entry(document, entry, &source)?;
+                    }
+                    None => {
+                        crate::server::custom_registry::remove_entry(document, id);
+                    }
+                }
+            }
+            Ok(())
+        });
+        match updated {
+            Ok(config) => {
+                *config_lock.lock().await = Some(config.clone());
+                for id in &sync {
+                    let before_ids = model_ids_of(before, id);
+                    let after_ids = model_ids_of(&config, id);
+                    let added = after_ids
+                        .iter()
+                        .filter(|model| !before_ids.contains(model))
+                        .count() as u64;
+                    let removed = before_ids
+                        .iter()
+                        .filter(|model| !after_ids.contains(model))
+                        .count() as u64;
+                    let name = entries
+                        .values()
+                        .find(|entry| &entry.id == id)
+                        .map(|entry| entry.name.clone())
+                        .unwrap_or_else(|| id.clone());
+                    if added == 0 && removed == 0 && before.providers.contains_key(id) {
+                        report.unchanged.push(id.clone());
+                    } else {
+                        report.changed.push(json!({
+                            "provider_id": id,
+                            "provider_name": name,
+                            "added": added,
+                            "removed": removed,
+                        }));
+                    }
+                }
+            }
+            Err(reason) => {
+                for id in &sync {
+                    report
+                        .failed
+                        .push(json!({ "provider": id, "reason": reason.clone() }));
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn parses_a_model_payload_like_v2() {
@@ -612,5 +859,449 @@ mod tests {
             normalized_base_url("https://proxy.example.test/v1").unwrap(),
             expected
         );
+    }
+
+    /// A registry server whose response is chosen per request by the Bearer
+    /// key, so key rotation can be exercised: the stale key 401s and the
+    /// fresh one serves the document. Each entry is `(key marker, status
+    /// line, body)`; the last entry is the fallback for an unknown key.
+    struct RegistryServer {
+        url: String,
+        requests: Arc<std::sync::Mutex<Vec<String>>>,
+        override_response: Arc<std::sync::Mutex<Option<(String, String)>>>,
+    }
+
+    fn bearer_key(head: &str) -> String {
+        head.lines()
+            .find(|line| line.to_lowercase().starts_with("authorization:"))
+            .map(|line| line["authorization:".len()..].trim())
+            .map(|value| {
+                value
+                    .strip_prefix("Bearer ")
+                    .or_else(|| value.strip_prefix("bearer "))
+                    .unwrap_or(value)
+                    .to_string()
+            })
+            .unwrap_or_default()
+    }
+
+    impl RegistryServer {
+        async fn spawn(responses: Vec<(&'static str, &'static str, String)>) -> Self {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let shared = requests.clone();
+            let override_response: Arc<std::sync::Mutex<Option<(String, String)>>> =
+                Arc::new(std::sync::Mutex::new(None));
+            let shared_override = override_response.clone();
+            tokio::spawn(async move {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                while let Ok((mut sock, _)) = listener.accept().await {
+                    let mut buf = [0u8; 8192];
+                    let n = sock.read(&mut buf).await.unwrap_or(0);
+                    if n == 0 {
+                        continue;
+                    }
+                    let head = String::from_utf8_lossy(&buf[..n]).to_string();
+                    shared.lock().unwrap().push(head.clone());
+                    let key = bearer_key(&head);
+                    let (_, status, body) = shared_override
+                        .lock()
+                        .unwrap()
+                        .clone()
+                        .map(|(status, body)| ("", status, body))
+                        .or_else(|| {
+                            responses
+                                .iter()
+                                .find(|(marker, _, _)| key.contains(marker))
+                                .map(|(marker, status, body)| {
+                                    (*marker, (*status).to_string(), body.clone())
+                                })
+                        })
+                        .unwrap_or_else(|| {
+                            let (marker, status, body) = responses.last().unwrap();
+                            (*marker, (*status).to_string(), body.clone())
+                        });
+                    let raw = format!(
+                        "HTTP/1.1 {status}\r\ncontent-type: application/json\r\nconnection: close\r\ncontent-length: {}\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = sock.write_all(raw.as_bytes()).await;
+                    let _ = sock.flush().await;
+                }
+            });
+            Self {
+                url: format!("http://{addr}/api.json"),
+                requests,
+                override_response,
+            }
+        }
+
+        /// Fail every later request regardless of key.
+        fn set_response_failure(&self) {
+            *self.override_response.lock().unwrap() =
+                Some(("500 Internal Server Error".to_string(), String::new()));
+        }
+
+        fn keys(&self) -> Vec<String> {
+            self.requests
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|request| bearer_key(request))
+                .collect()
+        }
+    }
+
+    fn registry_config(url: &str, api_key: &str) -> String {
+        format!(
+            r#"
+default_model = "acme/big"
+
+[providers.acme]
+type = "openai"
+base_url = "https://registry.example.test/v1"
+api_key = "{api_key}"
+
+[providers.acme.source]
+kind = "apiJson"
+url = "{url}"
+apiKey = "{api_key}"
+
+[models."acme/big"]
+provider = "acme"
+model = "big-1"
+max_context_size = 128000
+capabilities = ["tool_use"]
+"#
+        )
+    }
+
+    #[tokio::test]
+    async fn refreshes_custom_registry_providers_from_their_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        let upstream = RegistryServer::spawn(vec![(
+            "sk-reg",
+            "200 OK",
+            json!({
+                "acme": {
+                    "id": "acme",
+                    "name": "Acme",
+                    "api": "https://registry.example.test/v1",
+                    "type": "openai",
+                    "models": {
+                        "big": { "id": "big-1", "limit": { "context": 128000 } },
+                        "small": { "id": "small-1", "limit": { "context": 8192 } },
+                    },
+                },
+            })
+            .to_string(),
+        )])
+        .await;
+        std::fs::write(&config_path, registry_config(&upstream.url, "sk-reg")).unwrap();
+
+        let lock: Mutex<Option<KimiConfig>> = Mutex::new(None);
+        let result = refresh(&lock, Some(&config_path), &OAuthManager::new(), "all", None).await;
+        let changed = result["changed"].as_array().unwrap();
+        assert_eq!(changed.len(), 1, "{result}");
+        assert_eq!(changed[0]["provider_id"], "acme");
+        assert_eq!(changed[0]["provider_name"], "Acme");
+        assert_eq!(changed[0]["added"], 1);
+        assert_eq!(changed[0]["removed"], 0);
+        assert!(
+            result["unchanged"].as_array().unwrap().is_empty(),
+            "{result}"
+        );
+
+        let text = std::fs::read_to_string(&config_path).unwrap();
+        assert!(text.contains("[models.\"acme/small\"]"), "{text}");
+        assert!(text.contains("model = \"small-1\""), "{text}");
+        // The default still points at the surviving alias.
+        assert!(text.contains("default_model = \"acme/big\""), "{text}");
+
+        // A second refresh with the same document reports unchanged and does
+        // not rewrite the file.
+        let before = std::fs::read_to_string(&config_path).unwrap();
+        let result = refresh(&lock, Some(&config_path), &OAuthManager::new(), "all", None).await;
+        assert!(result["changed"].as_array().unwrap().is_empty(), "{result}");
+        assert_eq!(result["unchanged"], json!(["acme"]));
+        assert_eq!(std::fs::read_to_string(&config_path).unwrap(), before);
+    }
+
+    #[tokio::test]
+    async fn refreshes_a_registry_group_through_key_rotation() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        // Two providers share the registry URL with different keys: the
+        // stale one 401s, the fresh one serves the document.
+        let upstream = RegistryServer::spawn(vec![
+            (
+                "sk-fresh",
+                "200 OK",
+                json!({
+                    "acme": {
+                        "id": "acme",
+                        "name": "Acme",
+                        "api": "https://registry.example.test/v1",
+                        "type": "openai",
+                        "models": { "big": { "id": "big-1", "limit": { "context": 128000 } } },
+                    },
+                    "beta": {
+                        "id": "beta",
+                        "name": "Beta",
+                        "api": "https://beta.example.test/v1",
+                        "type": "openai",
+                        "models": {
+                            "one": { "id": "one-1", "limit": { "context": 4096 } },
+                            "two": { "id": "two-2", "limit": { "context": 8192 } },
+                        },
+                    },
+                })
+                .to_string(),
+            ),
+            ("sk-stale", "401 Unauthorized", String::new()),
+        ])
+        .await;
+        // Two providers share the registry URL with different keys.
+        std::fs::write(
+            &config_path,
+            format!(
+                r#"
+default_model = "acme/big"
+
+[providers.acme]
+type = "openai"
+base_url = "https://registry.example.test/v1"
+api_key = "sk-stale"
+
+[providers.acme.source]
+kind = "apiJson"
+url = "{url}"
+apiKey = "sk-stale"
+
+[providers.beta]
+type = "openai"
+base_url = "https://beta.example.test/v1"
+api_key = "sk-fresh"
+
+[providers.beta.source]
+kind = "apiJson"
+url = "{url}"
+apiKey = "sk-fresh"
+
+[models."acme/big"]
+provider = "acme"
+model = "big-1"
+max_context_size = 128000
+capabilities = ["tool_use"]
+
+[models."beta/one"]
+provider = "beta"
+model = "one-1"
+max_context_size = 4096
+capabilities = ["tool_use"]
+"#,
+                url = upstream.url
+            ),
+        )
+        .unwrap();
+
+        let lock: Mutex<Option<KimiConfig>> = Mutex::new(None);
+        let result = refresh(&lock, Some(&config_path), &OAuthManager::new(), "all", None).await;
+        // Both providers of the group are synced from the one successful
+        // fetch; the stale key was tried first.
+        let changed = result["changed"].as_array().unwrap();
+        assert_eq!(changed.len(), 1, "{result}");
+        assert_eq!(changed[0]["provider_id"], "beta");
+        assert_eq!(changed[0]["added"], 1);
+        assert_eq!(result["unchanged"], json!(["acme"]));
+        // The group's credential order follows the config's provider order,
+        // so either key may be tried first; what matters is that the one that
+        // answered was the fresh key and the sync used its document. The
+        // retry itself is pinned by `fetch_from_sources` below.
+        let keys = upstream.keys();
+        assert!(keys.iter().all(|key| key.contains("sk-")), "{keys:?}");
+        assert_eq!(
+            keys.last().map(String::as_str),
+            Some("sk-fresh"),
+            "{keys:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn fetch_from_sources_retries_the_next_key_after_a_failure() {
+        let upstream = RegistryServer::spawn(vec![
+            ("sk-stale", "401 Unauthorized", String::new()),
+            (
+                "sk-fresh",
+                "200 OK",
+                json!({
+                    "acme": {
+                        "id": "acme",
+                        "name": "Acme",
+                        "api": "https://registry.example.test/v1",
+                        "type": "openai",
+                        "models": { "big": { "id": "big-1", "limit": { "context": 128000 } } },
+                    },
+                })
+                .to_string(),
+            ),
+        ])
+        .await;
+        let client = reqwest::Client::builder().build().unwrap();
+        let sources = vec![
+            RegistrySource {
+                url: upstream.url.clone(),
+                api_key: "sk-stale".into(),
+            },
+            RegistrySource {
+                url: upstream.url.clone(),
+                api_key: "sk-fresh".into(),
+            },
+        ];
+
+        let (entries, source) = fetch_from_sources(&client, &sources)
+            .await
+            .expect("the fresh key serves the document");
+        assert_eq!(source.api_key, "sk-fresh");
+        assert_eq!(entries.len(), 1);
+        // The stale key was tried first and failed, then the fresh one won.
+        assert_eq!(
+            upstream.keys(),
+            vec!["sk-stale".to_string(), "sk-fresh".to_string()]
+        );
+
+        // Every key failing reports the last error.
+        upstream.set_response_failure();
+        let error = fetch_from_sources(&client, &sources)
+            .await
+            .expect_err("no key serves the document");
+        assert!(error.contains("500"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn a_scoped_refresh_touches_only_the_target_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        let upstream = RegistryServer::spawn(vec![(
+            "sk-reg",
+            "200 OK",
+            json!({
+                "acme": {
+                    "id": "acme",
+                    "name": "Acme",
+                    "api": "https://registry.example.test/v1",
+                    "type": "openai",
+                    "models": {
+                        "big": { "id": "big-1", "limit": { "context": 128000 } },
+                        "small": { "id": "small-1", "limit": { "context": 8192 } },
+                    },
+                },
+            })
+            .to_string(),
+        )])
+        .await;
+        std::fs::write(&config_path, registry_config(&upstream.url, "sk-reg")).unwrap();
+
+        let lock: Mutex<Option<KimiConfig>> = Mutex::new(None);
+        let result = refresh(
+            &lock,
+            Some(&config_path),
+            &OAuthManager::new(),
+            "all",
+            Some("acme"),
+        )
+        .await;
+        assert_eq!(result["changed"][0]["provider_id"], "acme", "{result}");
+        let text = std::fs::read_to_string(&config_path).unwrap();
+        assert!(text.contains("[models.\"acme/small\"]"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn a_vanished_registry_provider_is_removed_on_refresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        let upstream =
+            RegistryServer::spawn(vec![("sk-reg", "200 OK", json!({}).to_string())]).await;
+        std::fs::write(&config_path, registry_config(&upstream.url, "sk-reg")).unwrap();
+
+        let lock: Mutex<Option<KimiConfig>> = Mutex::new(None);
+        let result = refresh(&lock, Some(&config_path), &OAuthManager::new(), "all", None).await;
+        let changed = result["changed"].as_array().unwrap();
+        assert_eq!(changed.len(), 1, "{result}");
+        assert_eq!(changed[0]["provider_id"], "acme");
+        assert_eq!(changed[0]["removed"], 1);
+
+        let text = std::fs::read_to_string(&config_path).unwrap();
+        assert!(!text.contains("[providers.acme]"), "{text}");
+        assert!(!text.contains("acme/big"), "{text}");
+        // The default pointed into the removed provider, so it goes too.
+        assert!(!text.contains("default_model"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn an_oauth_scoped_refresh_leaves_registries_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        let upstream = RegistryServer::spawn(vec![(
+            "sk-reg",
+            "200 OK",
+            json!({
+                "acme": {
+                    "id": "acme",
+                    "name": "Acme",
+                    "api": "https://registry.example.test/v1",
+                    "type": "openai",
+                    "models": {
+                        "big": { "id": "big-1", "limit": { "context": 128000 } },
+                        "small": { "id": "small-1", "limit": { "context": 8192 } },
+                    },
+                },
+            })
+            .to_string(),
+        )])
+        .await;
+        std::fs::write(&config_path, registry_config(&upstream.url, "sk-reg")).unwrap();
+
+        let lock: Mutex<Option<KimiConfig>> = Mutex::new(None);
+        let result = refresh(
+            &lock,
+            Some(&config_path),
+            &OAuthManager::new(),
+            "oauth",
+            None,
+        )
+        .await;
+        // v2's gate: the oauth scope stops before the registry branch.
+        assert_eq!(
+            result,
+            json!({ "changed": [], "unchanged": [], "failed": [] })
+        );
+        assert!(upstream.keys().is_empty(), "no registry request was made");
+        let text = std::fs::read_to_string(&config_path).unwrap();
+        assert!(!text.contains("acme/small"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn a_failed_registry_fetch_reports_the_group_as_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        let upstream =
+            RegistryServer::spawn(vec![("sk-reg", "401 Unauthorized", String::new())]).await;
+        std::fs::write(&config_path, registry_config(&upstream.url, "sk-reg")).unwrap();
+
+        let lock: Mutex<Option<KimiConfig>> = Mutex::new(None);
+        let result = refresh(&lock, Some(&config_path), &OAuthManager::new(), "all", None).await;
+        let failed = result["failed"].as_array().unwrap();
+        assert_eq!(failed.len(), 1, "{result}");
+        assert_eq!(failed[0]["provider"], "acme");
+        assert!(
+            failed[0]["reason"].as_str().unwrap().contains("401"),
+            "{result}"
+        );
+        // The config is untouched.
+        let text = std::fs::read_to_string(&config_path).unwrap();
+        assert!(text.contains("[providers.acme]"), "{text}");
     }
 }
