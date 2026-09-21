@@ -2349,16 +2349,22 @@ describe.skipIf(!nativeEntry)('EngineSessionHandle quiescence (M1c via handle)',
     );
   }
 
+  // How long a mock MCP connect may take to settle. The engine connects in
+  // the background; a full-suite run (or a CI shard) can stall it well past
+  // a second, so the wait is a deadline rather than a fixed iteration count.
+  const MCP_CONNECT_TIMEOUT_MS = 10_000;
+
   /** The roster entry for `test_mcp`, once the session's connect has settled. */
   async function mockMcpRosterEntry(handle: EngineSessionHandle) {
-    for (let i = 0; i < 100; i += 1) {
+    const deadline = Date.now() + MCP_CONNECT_TIMEOUT_MS;
+    for (;;) {
       const entry = (await handle.mcpServers()).find(
         (server) => (server as { name?: string }).name === 'test_mcp',
       );
       if (entry) return entry as { name: string; status: string; tool_count: number };
+      if (Date.now() >= deadline) return undefined;
       await new Promise((r) => setTimeout(r, 10));
     }
-    return undefined;
   }
 
   it('initializes native MCP servers via mcpServers param', async () => {
@@ -2421,8 +2427,10 @@ describe.skipIf(!nativeEntry)('EngineSessionHandle quiescence (M1c via handle)',
       // snapshot is not enough (a still-connecting server would stay
       // `pending` forever, which is exactly the TUI spinner bug this covers).
       await mockMcpRosterEntry(handle);
-      for (let i = 0; i < 100; i += 1) {
+      const deadline = Date.now() + MCP_CONNECT_TIMEOUT_MS;
+      for (;;) {
         if (statuses.some((s) => s.name === 'test_mcp' && s.status === 'connected')) break;
+        if (Date.now() >= deadline) break;
         await new Promise((r) => setTimeout(r, 10));
       }
       expect(statuses).toContainEqual({ name: 'test_mcp', status: 'connected' });
