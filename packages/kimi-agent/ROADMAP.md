@@ -1685,9 +1685,11 @@ image_in/thinking/tool_use（bundle 与引擎读的均是后者，
 1. credential 从简：接受请求体 `api_key`/`api_key_env` 直写，re-import 时
    无新值则保留旧 credential；未移植 v2 `reconcileProviderCredentialUpdate`
    的 env 存在性 eager 校验（fork 在请求时解析 api_key_env）。
-2. 错误码映射到既有码：CATALOG_ENTRY_NOT_FOUND→PROVIDER_NOT_FOUND(40412)、
-   CATALOG_IMPORT_INVALID→VALIDATION_FAILED(40001)、PROVIDER_OAUTH_MANAGED
-   →40003（已存在）；CATALOG_UNAVAILABLE 不会发生（built-in 兜底）。
+2. 错误码按 v2 编号入 Rust envelope（docs 与 bundle 的契约）：
+   CATALOG_IMPORT_INVALID=40004、REGISTRY_IMPORT_INVALID=40005、
+   CATALOG_ENTRY_NOT_FOUND=40417（PROVIDER_OAUTH_MANAGED=40003 已有）；
+   TS protocol 码表不承载 provider 路由码（40003 同样只在 Rust 侧）。
+   CATALOG_UNAVAILABLE(50004) 不会发生（built-in 兜底）。
 3. `config/write.rs` 的 `ProviderWrite`/`ModelAliasWrite` 补全
    api_key_env/max_input_size/reasoning_key/off_effort/base_url/source 字段
    （读侧 ModelAliasConfig/ProviderConfig 早有或补上，写侧补齐）。

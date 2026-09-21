@@ -1807,7 +1807,7 @@ impl HttpServer {
         let invalid = |msg: String| {
             HttpResponse::json(
                 400,
-                &json!({ "code": crate::server::envelope::error_codes::VALIDATION_FAILED, "msg": msg }),
+                &json!({ "code": crate::server::envelope::error_codes::CATALOG_IMPORT_INVALID, "msg": msg }),
             )
         };
         let Some(catalog_id) = body
@@ -1815,7 +1815,10 @@ impl HttpServer {
             .and_then(Value::as_str)
             .filter(|id| !id.is_empty())
         else {
-            return invalid("catalog_id is required for :import_catalog".to_string());
+            return HttpResponse::json(
+                400,
+                &json!({ "code": crate::server::envelope::error_codes::VALIDATION_FAILED, "msg": "catalog_id is required for :import_catalog" }),
+            );
         };
 
         let payload = self.catalog_payload().await;
@@ -1829,7 +1832,7 @@ impl HttpServer {
             return HttpResponse::json(
                 404,
                 &json!({
-                    "code": crate::server::envelope::error_codes::PROVIDER_NOT_FOUND,
+                    "code": crate::server::envelope::error_codes::CATALOG_ENTRY_NOT_FOUND,
                     "msg": format!("catalog entry {catalog_id} does not exist"),
                 }),
             );
@@ -2023,16 +2026,22 @@ impl HttpServer {
                 );
             }
         };
+        let registry_invalid = |msg: String| {
+            HttpResponse::json(
+                400,
+                &json!({ "code": crate::server::envelope::error_codes::REGISTRY_IMPORT_INVALID, "msg": msg }),
+            )
+        };
         let entries = match custom_registry::fetch_registry(&client, &source).await {
             Ok(entries) => entries,
             Err(error) => {
-                return invalid(format!(
+                return registry_invalid(format!(
                     "custom registry at {url} cannot be imported: {error}"
                 ));
             }
         };
         if entries.is_empty() {
-            return invalid(format!(
+            return registry_invalid(format!(
                 "custom registry at {url} has no importable providers"
             ));
         }
@@ -9584,7 +9593,7 @@ max_context_size = 128000
             .await;
         assert_eq!(res.status, 400);
         let body: Value = serde_json::from_slice(&res.body).unwrap();
-        assert_eq!(body["code"], 40001);
+        assert_eq!(body["code"], 40005);
         assert!(
             body["msg"]
                 .as_str()
@@ -9603,7 +9612,7 @@ max_context_size = 128000
             .await;
         assert_eq!(res.status, 400);
         let body: Value = serde_json::from_slice(&res.body).unwrap();
-        assert_eq!(body["code"], 40001);
+        assert_eq!(body["code"], 40005);
         let msg = body["msg"].as_str().unwrap();
         assert!(msg.contains("cannot be imported"), "{msg}");
         assert!(msg.contains("401"), "{msg}");
@@ -9795,7 +9804,7 @@ max_context_size = 128000
             },
         )));
 
-        // An unknown catalog entry is PROVIDER_NOT_FOUND.
+        // An unknown catalog entry is CATALOG_ENTRY_NOT_FOUND.
         let res = server
             .handle_request(&catalog_request(
                 "POST",
@@ -9805,7 +9814,7 @@ max_context_size = 128000
             .await;
         assert_eq!(res.status, 404);
         let body: Value = serde_json::from_slice(&res.body).unwrap();
-        assert_eq!(body["code"], 40412);
+        assert_eq!(body["code"], 40417);
 
         // A missing catalog_id is a validation failure.
         let res = server
@@ -9819,6 +9828,20 @@ max_context_size = 128000
         let body: Value = serde_json::from_slice(&res.body).unwrap();
         assert_eq!(body["code"], 40001);
 
+        // Every unimportable-entry branch carries CATALOG_IMPORT_INVALID.
+        for catalog_id in ["gateway", "bedrock", "empty"] {
+            let res = server
+                .handle_request(&catalog_request(
+                    "POST",
+                    "/api/v1/providers:import_catalog",
+                    Some(&json!({ "catalog_id": catalog_id })),
+                ))
+                .await;
+            assert_eq!(res.status, 400, "{catalog_id}");
+            let body: Value = serde_json::from_slice(&res.body).unwrap();
+            assert_eq!(body["code"], 40004, "{catalog_id}");
+        }
+
         // An entry that needs an endpoint is a validation failure.
         let res = server
             .handle_request(&catalog_request(
@@ -9829,7 +9852,7 @@ max_context_size = 128000
             .await;
         assert_eq!(res.status, 400);
         let body: Value = serde_json::from_slice(&res.body).unwrap();
-        assert_eq!(body["code"], 40001);
+        assert_eq!(body["code"], 40004);
         assert!(
             body["msg"]
                 .as_str()
@@ -9847,7 +9870,7 @@ max_context_size = 128000
             .await;
         assert_eq!(res.status, 400);
         let body: Value = serde_json::from_slice(&res.body).unwrap();
-        assert_eq!(body["code"], 40001);
+        assert_eq!(body["code"], 40004);
 
         // An entry with no importable models is a validation failure.
         let res = server
@@ -9859,7 +9882,7 @@ max_context_size = 128000
             .await;
         assert_eq!(res.status, 400);
         let body: Value = serde_json::from_slice(&res.body).unwrap();
-        assert_eq!(body["code"], 40001);
+        assert_eq!(body["code"], 40004);
         assert!(
             body["msg"]
                 .as_str()
@@ -9877,7 +9900,7 @@ max_context_size = 128000
             .await;
         assert_eq!(res.status, 400);
         let body: Value = serde_json::from_slice(&res.body).unwrap();
-        assert_eq!(body["code"], 40001);
+        assert_eq!(body["code"], 40004);
 
         // An OAuth-managed provider refuses the import.
         let mut text = std::fs::read_to_string(&config_path).unwrap();

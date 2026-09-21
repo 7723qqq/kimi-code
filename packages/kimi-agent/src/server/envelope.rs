@@ -11,6 +11,11 @@ pub mod error_codes {
     pub const VALIDATION_FAILED: u32 = 40001;
     pub const REQUEST_MALFORMED: u32 = 40002;
     pub const PROVIDER_OAUTH_MANAGED: u32 = 40003;
+    /// v2 `CATALOG_IMPORT_INVALID`: a models.dev entry cannot be imported.
+    pub const CATALOG_IMPORT_INVALID: u32 = 40004;
+    /// v2 `REGISTRY_IMPORT_INVALID`: a custom registry cannot be fetched,
+    /// parsed, or lists no importable providers.
+    pub const REGISTRY_IMPORT_INVALID: u32 = 40005;
     pub const AUTH_TOKEN_UNAUTHORIZED: u32 = 40112;
 
     pub const SESSION_NOT_FOUND: u32 = 40401;
@@ -23,6 +28,9 @@ pub mod error_codes {
     pub const MCP_SERVER_NOT_FOUND: u32 = 40408;
     pub const FS_PATH_NOT_FOUND: u32 = 40409;
     pub const WORKSPACE_NOT_FOUND: u32 = 40410;
+    /// v2 `CATALOG_ENTRY_NOT_FOUND`: no models.dev directory entry with the
+    /// requested catalog id.
+    pub const CATALOG_ENTRY_NOT_FOUND: u32 = 40417;
     pub const PROVIDER_NOT_FOUND: u32 = 40412;
     pub const MODEL_NOT_FOUND: u32 = 40413;
     pub const PLUGIN_NOT_FOUND: u32 = 40419;
