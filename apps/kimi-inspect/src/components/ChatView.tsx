@@ -1,28 +1,26 @@
 /**
  * Main view — the conversation of the active session + agent, rendered from
- * the message protocol (`/api/v3/ws` + `GET /api/v1/sessions/{id}/history`):
+ * the v1 transcript surface (`/api/v1/ws`):
  *
- *  - Persisted state comes from the REST history endpoint only: the initial
- *    load reads the newest page, a full refresh re-reads it and re-covers
- *    the previously loaded window, and "load earlier" pages further with a
- *    `before_turn` cursor.
- *  - The WS channel carries the recovery payload and all live traffic; both
- *    are applied to the store through the same idempotent replace-by-id
- *    path (delta family appended by id, entity content authoritative), so
- *    there is no reset/buffer/cursor machinery.
- *  - Every subscribe ack (initial and reconnect) triggers an `after_step`
- *    catch-up from the newest terminal step; an empty catch-up whose
- *    anchor vanished (undo/clear while away) falls back to a full refresh.
+ *  - The cold load is the subscribe itself: `transcript_since: 0` makes the
+ *    server answer with a `transcript.reset` baseline followed by the
+ *    stored history as `transcript.ops` batches, so there is no REST page
+ *    to race the socket and no paging machinery at all.
+ *  - Live traffic arrives as further op batches on the same subscription;
+ *    both are folded through `@moonshot-ai/transcript`'s `applyOperation`
+ *    into one `AgentState`, which `transcript/model.ts` projects into the
+ *    view model this file renders — so a turn rendered live is never
+ *    rendered twice from its history.
+ *  - A reconnect carries the last applied seq per agent; a reported op-seq
+ *    gap resubscribes from zero (the reset is idempotent).
  *
- * Rendering groups the flat timeline by turn (system markers stay
- * standalone) and is typed entirely by the protocol schemas
- * (`@moonshot-ai/protocol`). Prompts/cancels go through the
- * `IAgentPromptService` / `IAgentLoopService` channels over the debug RPC
- * surface (`/api/v1/debug`); interaction answers (approve/reject,
- * answer/dismiss) go through the public REST endpoints
- * (`src/interactions/api.ts`); the running indicator derives from
- * `session.state`.
- */
+ * Rendering groups the timeline by turn (markers stay standalone) and is
+ * typed by the local view model in `transcript/model.ts`. Prompts/cancels
+ * go through the `IAgentPromptService` / `IAgentLoopService` channels over
+ * the debug RPC surface (`/api/v1/debug`); interaction answers
+ * (approve/reject, answer/dismiss) go through the public REST endpoints
+ * (`src/interactions/api.ts`); the running indicator derives from the
+ * agent's `meta.agent.phase`.
 
 /** The question request as the engine puts it on the interaction (snake_case wire shape). */
 interface QuestionRequestWire {

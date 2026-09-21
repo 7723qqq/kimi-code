@@ -17,14 +17,11 @@
 > `transport/ws/v1/`（`sessionEventBroadcaster`/`sessionEventJournal`/`wsConnectionV1`/
 > `inFlightTurnTracker`/`subagentRosterTracker`）；其 op 与实体类型来自 `packages/transcript`，
 > 事件→op 折叠在 `services/transcript/`（`coreEventMap.ts`、`transcriptService.ts`）。
-> **协议 v3** = WebSocket `/api/v3/ws`（`WS_PATH_V3`，`transport/ws/v3/registerWsV3.ts`）+
-> 分页 history 路由（`routes/history.ts`，`/sessions/{session_id}/history`，挂在 v1 前缀下），
-> 实体协议在 `protocol/messages/`，投影在 `services/projection/`
-> （`agentProjector`、`sessionProjection`、`sessionState`、`heal`）。
-> 事件名、载荷字段、状态机分支、策略链步骤、路由、实体，凡所属那条轴上没有对应物的
-> 新发明，都算缺陷而非设计；确需时先取得用户许可，再在本文件登记该 delta。
-> 判断依据不足时，消费者（已提交的 `apps/kimi-code/dist-web` bundle 读什么名字）可作旁证。
-> 决策与证据规则见根 `AGENTS.md` 的 Upstream Merge Policy。
+> **协议 v3** = **已废弃（两侧同时）**。上游在 2.0.2（`2502d2157`，revert `64505e36e`，
+> 后者随 0.43.0 引入）整体撤掉；fork 跟随于 §8.11（`86f30ecc2c`）。
+> `/api/v3/ws`、分页 history 路由、`server/v3/`、`packages/protocol/src/v3.ts` 均已删除，
+> kimi-inspect 改读 `/api/v1/ws` 的 `transcript.reset` / `transcript.ops`。
+> **v1 是现存唯一协议轴**——未经用户许可不得再引入第二套。
 
 ---
 
@@ -455,7 +452,10 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
    **已 triage（2026-09-18）**。#3694 **不适用**：上游修的是「派生索引」（会话索引镜像 + 搜索索引）在不可恢复存储失败后的重建；fork 引擎的 SQLite 是唯一事实源，搜索是对 messages 表的实时查询，没有任何派生镜像需要重建。#3648 **已全部落地（唤醒半件 2026-09-19 补齐）**：幂等 teardown（git 已不知道的 worktree 报告 already-removed 而非整体失败，`tower/git.rs` `worktree_remove`，2 项测试）、「分支仅剩 closed 记录时拒绝 merge」门禁（`tower/store.rs` merge 前置检查，1 项测试）、roster resume 的前台否决（`agent_tool.rs` `tower_resume_denial`，`14b6600bfe`，P2-2 补 toolset 根）均已落地；**唤醒合并通知**亦已落地（2026-09-19）：worker 向 tower（或广播）发送后，`execute_tower_send` 经共享 TaskRunner 注入合成通知（`enqueue_wake`，同一 task id 在队列中**原位合并**——一批消息一条唤醒；过 liveness 门、发 `event.task.completed`/`background.task.terminated` 双词汇事件），主会话 pump 把它排成后续回合；`TowerTeardown` 经 `cancel_wake` 丢弃排队唤醒（v2 exit-drop 语义）。渲染对 wake 特判（不伪装成「后台任务完成」）。测试：`tower_wake_coalesces_into_one_notification_per_batch`、`tower_wake_is_scoped_and_cancelable`（task_runner）、`worker_tower_send_wakes_the_main_session`（真实 git 仓库 + 双 toolset dispatch）。
    （原列的 #3681 `[models]` 告警已落地，见第 14 条；#3720 / #3717 已拆出，见第 15 条；
    #3606 模型目录运行时已落地，见第 16 条；**#3697 与 #3688 已从本条移出并落地**，见 §6.2。）
-4. **#3532 v3 扁平实体消息协议（WS + history API）——已决定全量移植（2026-09-15）**：上游用
+4. ~~**#3532 v3 扁平实体消息协议（WS + history API）——已决定全量移植（2026-09-15）**~~ **已整体撤销（2026-09-21，见 §8.11）**：上游用
+   **2026-09-21 裁定变更**：上游在 2.0.2 已 revert 该协议（`2502d2157`），理由见 §8.11；
+   fork 同步撤销（`86f30ecc2c`）。本条以下全部「已完成」表述均为**撤销前**的历史记录，
+   仅作审计留痕，**不代表现存代码**——现存协议面只有 v1。上游用
    `transport/ws/` 下的 `v1`/`v3`/`debug` 三代并存命名，v3 即「扁平实体」代际（提交
    `64505e36e3`，design revision 1094）：26 个 server 消息变体 + 2 个 client 帧，实体按
    `agent_id:type:entity_id` 寻址，live WS 与 history 服务同一套消息形状。本 fork 的 kap-server
