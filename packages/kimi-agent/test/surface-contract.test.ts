@@ -3,10 +3,10 @@
  * drift (ghost wrappers, unwrapped native exports, undeclared types) fails
  * in CI instead of surfacing as runtime TypeErrors.
  *
- *   1. every `binding.X` referenced by index.native.js exists on the raw native
+ *   1. every `binding.X` referenced by index.native.cjs exists on the raw native
  *      binding (ghost-wrapper check — e.g. a wrapper for a function the
  *      Rust crate never exported);
- *   2. every function the native binding exports is wrapped by index.native.js
+ *   2. every function the native binding exports is wrapped by index.native.cjs
  *      or explicitly allowlisted (broken-chain check — e.g. a Rust export the
  *      wrapper never forwards, which used to silently disable the whole
  *      knowledge domain);
@@ -37,13 +37,13 @@ let wrapper: Record<string, unknown> | undefined;
 let loadError: unknown;
 try {
   // eslint-disable-next-line import/extensions -- require() needs the real file extension
-  wrapper = require('../index.native.js') as Record<string, unknown>;
+  wrapper = require('../index.native.cjs') as Record<string, unknown>;
 } catch (error) {
   loadError = error;
 }
 
 /**
- * Native exports intentionally not referenced via `binding.X` by index.native.js.
+ * Native exports intentionally not referenced via `binding.X` by index.native.cjs.
  * - workspace index functions: Rust exports with no JS consumer yet.
  * - nativeIsSensitiveFile: wrapped through the latin1-bytes variant
  *   (nativeIsSensitiveFileBytes) to avoid UTF-16 conversion overhead.
@@ -95,7 +95,7 @@ const surfaceAvailable = wrapper !== undefined && wrapper['__binding'] !== undef
 describe.skipIf(!surfaceAvailable)('native tools export surface contract', () => {
   const wrapperExports = wrapper ?? {};
   const raw = (wrapperExports['__binding'] ?? {}) as Record<string, unknown>;
-  const source = readFileSync(join(pkgDir, 'index.native.js'), 'utf8');
+  const source = readFileSync(join(pkgDir, 'index.native.cjs'), 'utf8');
   const dts = readFileSync(join(pkgDir, 'index.native.d.ts'), 'utf8');
 
   const referenced = new Set(

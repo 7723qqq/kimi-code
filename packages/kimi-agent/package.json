@@ -7,7 +7,7 @@
   "exports": {
     "./native": {
       "types": "./index.native.d.ts",
-      "default": "./index.native.js"
+      "default": "./index.native.cjs"
     },
     "./session-handle": {
       "types": "./session-handle.ts",

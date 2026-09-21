@@ -1755,7 +1755,7 @@ Bearer 到达 + re-import 消失清理；40001×3/40003）；refresh 6 例（新
   单条目后抖动下次触发（v2 `getNextFireForTask`），与 `tick` 同一
   jitter 推导；聚合的 `next_fire_at` 与其一致（单测钉住）。
 - napi 新增 `native_cron_next_fire(entry_json, from_ms)`（99 项，
-  napi-contract.d.ts / index.native.d.ts / index.native.js 同步）：
+  napi-contract.d.ts / index.native.d.ts / index.native.cjs 同步）：
   host 无法复刻解析器、本地时区与抖动推导，照 `native_read_engine_state`
   的先例问引擎。
 - SDK `sdk-rpc-client-native.ts::getCronTasks` 不再是桩：经

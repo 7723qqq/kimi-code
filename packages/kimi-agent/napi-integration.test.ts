@@ -2719,7 +2719,7 @@ describe.skipIf(!nativeEntry)('napi EngineSessionHandle — engine-owned tool ta
  * instead of throwing or inventing a time.
  */
 describe('nativeCronNextFire', () => {
-  const mod = loadNativeModule() as SessionNativeModule & {
+  const mod = loadNativeModule() as unknown as SessionNativeModule & {
     nativeCronNextFire: (entryJson: string, fromMs: number) => number | null;
   };
   const now = Date.now();

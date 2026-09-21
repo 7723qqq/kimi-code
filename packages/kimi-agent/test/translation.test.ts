@@ -1,8 +1,10 @@
+import { createRequire } from 'node:module';
+
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
-// Load the native module
-// eslint-disable-next-line import/extensions -- require() needs the real file extension
-const native = require('../index.native.js');
+// Load the native module (the package is ESM, so require comes from
+// createRequire; the wrapper itself is CJS).
+const native = createRequire(import.meta.url)('../index.native.cjs');
 
 // ── Test data ────────────────────────────────────────────────────────────────
 
