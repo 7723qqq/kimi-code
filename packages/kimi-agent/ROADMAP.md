@@ -379,10 +379,11 @@ fork 物理删除了四个被替代的包，于是上游改这些包的提交**�
 裁定（`ported` / `tracked` / `not-applicable`；`pending` 或未记录即失败）。历史快照（2026-09-17
 三次复核，merge base `6954d2c8bf`、上游 `25dd4ce973`）：`ported=21 | tracked=11 |
 not-applicable=21`（53 条）。**当前快照（2026-09-21 复核，merge base `1b89e4b039`，
-上游 `88a7d932f1`）**：`ported=12 | tracked=0 | not-applicable=5`（17 条，全部分类完毕；
-此前记的 `ported=4 | tracked=8` 是过期数字，`tracked` 条目已陆续改判清零）。
+上游 `0523bafb3`）**：`ported=16 | tracked=0 | not-applicable=12`（28 条，全部分类完毕；
+此前记的 `ported=4 | tracked=8` 与 `ported=12 | not-applicable=5` 都是更早的过期数字）。
 快照数字随 merge base 变化，复核时以 `bun scripts/check-upstream-v2-delta.mjs` 实时输出为准。
-**该 ref 之后（门禁视野之外）的 17 个提交另按 §6.6 复核。**
+**该 ref 推进前（门禁视野之外）复核的 17 个提交见 §6.6；其中 11 个触及被删除包的已连同裁定
+写入门禁 allowlist（`roadmap: §6.6`）。**
 
 **2026-09-17 追加发现之二：allowlist 的裁定本身会过期。** `b1807253c3`（#3728 permission_mode 提醒）
 的 note 至今写着"the whole permission_mode reminder injection is absent from the fork"，而该实现
@@ -1297,11 +1298,13 @@ v2 用双冒号（`fs.ts:414,460`），bundle 用单冒号。fork 的 `::search`
 ### 6.6 门禁范围外批次复核（2026-09-21，上游 `88a7d932f1` 之后的 17 提交）
 
 **背景**：`scripts/check-upstream-v2-delta.mjs` 的检查区间是 `mergeBase..upstream/main`，
-而本地 `refs/remotes/upstream/main` 停在 `88a7d932f1`（09-18）且 `git fetch upstream`
+而本地 `refs/remotes/upstream/main` 一度停在 `88a7d932f1`（09-18）且 `git fetch upstream`
 被墙（github.com:443 不通；`gh api` 走的 api.github.com 正常）。09-18 之后的提交因此
 **落在门禁视野之外**——正是 §6.0「ref 过期让门禁静默缩小检查范围」那条教训的再现。
-本轮用 `gh api repos/MoonshotAI/kimi-code/compare/88a7d932f1...main` 逐条取回 17 个
-提交并裁定：
+本轮先用 `gh api repos/MoonshotAI/kimi-code/compare/88a7d932f1...main` 逐条取回 17 个
+提交并裁定；**2026-09-21 网络恢复后 `git fetch upstream` 成功，ref 推进到 `0523bafb3`，
+其中 11 个触及被删除包的提交已连同本表裁定写入门禁 allowlist（每条 `roadmap: §6.6`），
+门禁恢复全量视野（28 条全分类）**。
 
 | 上游提交 | 内容 | 裁定 |
 | --- | --- | --- |

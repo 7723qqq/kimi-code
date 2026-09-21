@@ -2,83 +2,143 @@
   "note": "Verdicts for upstream commits touching packages this fork deleted. Regenerate with `bun scripts/check-upstream-v2-delta.mjs --update`; see scripts/check-upstream-v2-delta.mjs for the gate itself. `tracked` = accepted debt recorded in packages/kimi-agent/ROADMAP.md §6; `not-applicable` = internal refactor with no observable engine behavior to port.",
   "upstreamRef": "upstream/main",
   "recordedMergeBase": "1b89e4b039f052d10f258464413b2047acca12ba",
-  "recordedAt": "2026-09-19",
+  "recordedAt": "2026-09-21",
   "entries": [
     {
-      "sha": "c250a31d06",
-      "date": "2026-09-18",
-      "subject": "#3717 late task settlements stay silent after session teardown",
+      "sha": "0523bafb39101d471683f4f53e052767f3add2ef",
+      "date": "2026-09-21",
+      "subject": "feat(agent-core-v2): report enabled plugins and plugin toggles in telemetry (#3963)",
       "verdict": "ported",
-      "note": "TaskRunner gains a host-injected liveness predicate (`set_liveness_check`, v2 `taskService.lifecycleActive` / `sessionEventBus.isAgentActive`): `settle_task` gates the notification enqueue and both terminal events (`event.task.completed` / `background.task.terminated`) on it, so a settle landing after the owning session is gone announces and queues nothing. The state-bridge mirror (`persist_wire`) and the entry itself are unaffected — the task still terminates and stays queryable. Host wiring: the server answers with the session row's existence (the same check the prompt route's 404 gate uses, `HttpServer::install_task_liveness`, also re-installed on `with_task_runner` replacements); the stdio/napi hosts answer with the session handle itself — `EngineSession::is_shutdown()` plus a `Weak` sharing ownership with the session registry, so `session_dispose`'s removal is decisive. No predicate installed = the legacy always-fire behavior, so hosts that never opted in are unaffected. Tests: `settle_stays_silent_when_the_host_reports_the_session_dead`, `liveness_gate_is_per_session`, `without_a_liveness_predicate_the_settle_path_keeps_firing` (task_runner), `late_settle_for_a_deleted_session_stays_silent` (server)."
+      "note": "Ported in 9681ec28c9: TelemetryContext / JsTelemetryContext / napi-contract carry enabled_plugins (comma-joined sorted ids; host-injected like thinking_effort — no in-tree host populates the turn context yet, the field rides the seam), telemetry_payload emits it on turn_started/turn_ended (absent when no snapshot), and plugin_toggle fires at both toggle surfaces: the REST /api/v1/plugins/<id>:enable|:disable route through the server telemetry sink and the TUI applyPluginEnabled point through host.track. Tests: enabled_plugin_ids sorted set, REST toggle payload (empty string for a known empty set), turn payload carries/omits the field, TUI reports/omits the set.",
+      "roadmap": "§6.6"
     },
     {
-      "sha": "1fddc16e3ea2de4c26a18acd764380adf9e2ed64",
-      "date": "2026-09-18",
-      "subject": "fix(agent-core-v2): drop the outside-working-directory access ban from the system prompt (#3879)",
+      "sha": "6a52dd781b959328190b0cd66082154b96ef6a47",
+      "date": "2026-09-21",
+      "subject": "feat(config): add auto_session_title config option (#3962)",
       "verdict": "ported",
-      "note": "The engine's own system-prompt template carried the same sentence the commit removes from v2's system.md: packages/kimi-agent/src/prompt/system.md:108 ended `Unless the user explicitly instructs otherwise, never read, write, or execute files outside the working directory.` That sentence is dropped, leaving the 'not a sandbox' framing upstream keeps. Behavior, not just a doc string: the sentence is templated into every turn's system prompt."
+      "note": "Ported in acd5c8f16f: auto_session_title plumbed end to end the way telemetry is — KimiConfig (absent = enabled, explicit false disables), node-sdk config schema and patch, protocol REST config response/patch schemas, config-mapper domain list, both doc locales. The engine only generates titles when the host asks (session/generate_title), so the flag is the host gate, matching upstream.",
+      "roadmap": "§6.6"
     },
     {
-      "sha": "c5ad17f06aa12702d2b30dff63acba9ed08f688d",
-      "date": "2026-09-17",
-      "subject": "feat(agent-core-v2): support api_key_env for provider credentials (#3762)",
-      "verdict": "ported",
-      "note": "api_key_env for provider credentials, completed 2026-09-18: `ResolvedNativeLlm` now carries `api_key_env`, `KimiConfig::extract_native_llm` resolves the env channel (model key > model oauth > provider static key > provider oauth > provider api_key_env > unresolved), and `main.rs`'s two PipelineSpec constructors pass it to the transport, which already consumed it (`llm/http.rs:621`: env read per request, inline-key and auth_provider conflicts refused, missing/blank variable fails as `config.invalid`). Tests: `llm/http.rs` api_key_env suite (missing env, per-request reads, conflict rejection)."
-    },
-    {
-      "sha": "86e08208e3445171f6500c948234d7e3a0684324",
-      "date": "2026-09-17",
-      "subject": "feat(agent-core-v2): approve unanalyzable bash commands in yolo permission mode (#3869)",
+      "sha": "b428bfd0049a6bfafb1833ee1c43e03aacfb689c",
+      "date": "2026-09-21",
+      "subject": "feat(transcript): include step timing and usage in cold-folded steps (#3938)",
       "verdict": "not-applicable",
-      "note": "No counterpart state exists in this engine, so there is nothing to approve or ask about. v2's DangerousCommandAsk policy has three outcomes (dangerous / unanalyzable / no-verdict) because it feeds each Bash command through the tree-sitter bash parser, which can reject input: an unparseable command became a distinct `unanalyzable` verdict and was asked about in every mode, which is what #3869 relaxes for yolo. The fork's analyzer is `native/permission_engine/dangerous_command.rs::analyze_bash_command`, a hand-written tokenizer whose signature (`fn(&str) -> DangerousVerdict`, two variants Dangerous/Safe) cannot express a parse failure — `tokenize_command` returns `Vec<String>` with no error path — so an unrecognizable command can only fall through as Safe to the normal chain. Verified empirically rather than by reading: a temporary unit test ran ten inputs through the real function and every unparseable one (`echo 'unclosed`, `if [ -f x ]; then`, `for i in 1 2 3; do`, `$((`, `;;;`, `)))`, `` `\\` ``, the empty string, and blanks) returned Safe while `sudo reboot` returned Dangerous(\"reboot\"); the probe was then removed. Consequence: in yolo mode our engine already approves these commands (YoloModeApprove, `permission/mod.rs:440`), and in ask mode they already reach the user's normal approval decision rather than a special unanalyzable prompt — the behavior #3869 asks for, reached by a different route. No port needed."
+      "note": "The kap-server hunk is a v3 entity field rename (timing -> llmTiming) and v3 was deleted in 86f30ecc2c, so it is moot. The agent half is context-memory sealing meta: the fork engine has no LLM timing instrumentation at all — the only StepTiming in the tree is the definition at server/transcript/model.rs:270, never filled (the projector creates steps with timing: None at project.rs:894, and LlmStepEnd carries only turn_id/step/usage, events/types.rs:20-25). Usage is turn/step granularity (sqlite_store.rs:245 TurnRecord.usage + project.rs:275-282 step.usage), not on assistant messages.",
+      "roadmap": "§6.6"
+    },
+    {
+      "sha": "6a214b85e53e58a9ef6480f27bcb7b0103c0e34e",
+      "date": "2026-09-21",
+      "subject": "fix(kap-server): avoid stack overflow when caching large wire files (#3957)",
+      "verdict": "not-applicable",
+      "note": "kap-server (and its WireRecordCache) is retired. The fork's only wire.jsonl reader, apps/vis/server/src/lib/wire-reader.ts:124, pushes one record at a time in a loop — no spread-into-push, so the large-file stack overflow cannot occur.",
+      "roadmap": "§6.6"
+    },
+    {
+      "sha": "65ae3e368c7cfa096242cacc12eeeb661e682977",
+      "date": "2026-09-20",
+      "subject": "feat(project): reject non-ASCII mission titles and record token usage (#3847)",
+      "verdict": "not-applicable",
+      "note": "Three parts. (a) Non-ASCII mission-title rejection: the fork's unique_slug dedup (tools/tower/store.rs:412-424, paths.rs:96-114) already fixes the branch-collision defect the rejection targets, and accepting the title is friendlier for this fork's Chinese-first users. (b) Token usage on tower records: the tower tool path has no usage accessor (subagent instances do not accumulate usage across turns; the main session's usage lives only in SQLite and the toolset holds no store), so a complete port is new telemetry infrastructure, not a port. (c) The spawn task description: the fork's tower spawn registers no described background task (workers run via tokio::spawn and surface through subagent.completed/failed events), so there is no description to change.",
+      "roadmap": "§6.6"
+    },
+    {
+      "sha": "f17a22ebf4e21b8196bfaaa9a2490707676bf519",
+      "date": "2026-09-19",
+      "subject": "feat: turn off filesystem watch by default (#3931)",
+      "verdict": "not-applicable",
+      "note": "The fork has no filesystem watch feature at all, so there is no default to flip; recorded so a future port starts from off.",
+      "roadmap": "§6.6"
+    },
+    {
+      "sha": "97212596f7d694b9683046ec7aad4d1247d29468",
+      "date": "2026-09-19",
+      "subject": "fix(agent-core-v2): don't record turn.steer when an unconsumed steer seeds the next turn (#3933)",
+      "verdict": "not-applicable",
+      "note": "The fork has no TurnSteer record and no seeded-turn path (consumeDrainedNudges has no counterpart; drain_steers only appends to the running turn's messages), so the duplicate-record bug cannot occur. The review did surface a real divergence — the server path dropped undrained steers when the turn ended — fixed separately in ee882ab5e2: release_turn_steer_state keeps a non-empty queue across the turn boundary so the next turn drains it, matching the session path and v2's unconsumed-steer semantics.",
+      "roadmap": "§6.6"
+    },
+    {
+      "sha": "6ffdf0d579fa1a9f30c2d00c437c6c8de0c03997",
+      "date": "2026-09-19",
+      "subject": "fix(agent-core-v2): remove the project-root assertion for cwd from the system prompt (#3929)",
+      "verdict": "ported",
+      "note": "Ported in acd5c8f16f: the system prompt no longer claims the cwd is the project root and no longer promises a two-level listing; prompt/system.md still carried the old sentence and was corrected.",
+      "roadmap": "§6.6"
+    },
+    {
+      "sha": "9df7a9ccfb0d7d0713b51ae1ac165d0634fc40d2",
+      "date": "2026-09-19",
+      "subject": "fix: keep turn ids above the wire-wide max and fold cold transcripts over the active branch (#3922)",
+      "verdict": "not-applicable",
+      "note": "Two halves. (a) Turn-id regression on replay: the fork derives turn numbers from durable SQLite state (COALESCE(MAX(turn_number),0)+1, session/sqlite_store.rs:1085) on every turn — there is no in-memory counter a replayed seed record could dial back. (b) Cold fold over the active branch: the fork has no wire journal and no branches — undo deletes rows (sqlite_store.rs:911) and fork copies history into a new session (fork_session) — the transcript reads SQLite directly, and the v3 entity protocol this fix extends was deleted in 86f30ecc2c.",
+      "roadmap": "§6.6"
+    },
+    {
+      "sha": "2502d2157fa43aa6e514da14c84096b08132310c",
+      "date": "2026-09-19",
+      "subject": "revert(kap-server): drop the flat entity message protocol (v3 WS + history API) (#3532) (#3920)",
+      "verdict": "ported",
+      "note": "Followed in 86f30ecc2c: the v3 flat-entity protocol revert landed engine-side (ws_v3 + server/v3 + contract + history route + in_flight + the scan-parity dimension) and kimi-inspect reverted to the v1 transcript model. Upstream's rationale and the fork decision are recorded in ROADMAP §8.11.",
+      "roadmap": "§6.6"
+    },
+    {
+      "sha": "2cedfaf1257a5a4401161354907206c7d4f4213a",
+      "date": "2026-09-19",
+      "subject": "fix(kap-server): deliver session-level interaction events past agent filters (#3901)",
+      "verdict": "not-applicable",
+      "note": "The fork's WS fan-out is session-scoped (server/ws.rs:444-447 filters by the session set only) — there is no agent filter for sub-agent interaction events to be suppressed by. The agent_id wire field has no consumer (the committed dist-web approval/question mappers do not read it), and the fork's interaction registry is session-scoped with no agent attribution to fill it with.",
+      "roadmap": "§6.6"
     },
     {
       "sha": "88a7d932f1cda95c78bf5488d34ff974a160fb08",
       "date": "2026-09-18",
       "subject": "fix(agent-core-v2): pre-shrink compaction history to the effective model window (#3911)",
       "verdict": "ported",
-      "roadmap": "§6.1-22",
-      "note": "Compaction pre-shrink (v2 `preShrinkHistoryToWindowBudget`, fullCompactionService.ts:818-841): `compaction/mod.rs` gains `summarize_with_llm_budgeted` + `pre_shrink_to_window_budget` / `take_recent_within_budget` (safety ratio 0.85, output reserve window/8, request-scaffold allowance), and `run_turn`'s overflow-recovery passes `max_context_tokens` through `force_compact_messages_with_summary_budgeted`. 3 unit tests pin fit/tail/tool-result-drop, plus the nothing-fits fallback (v2 returns an empty slice; the caller sends the original)."
+      "note": "Compaction pre-shrink (v2 `preShrinkHistoryToWindowBudget`, fullCompactionService.ts:818-841): `compaction/mod.rs` gains `summarize_with_llm_budgeted` + `pre_shrink_to_window_budget` / `take_recent_within_budget` (safety ratio 0.85, output reserve window/8, request-scaffold allowance), and `run_turn`'s overflow-recovery passes `max_context_tokens` through `force_compact_messages_with_summary_budgeted`. 3 unit tests pin fit/tail/tool-result-drop, plus the nothing-fits fallback (v2 returns an empty slice; the caller sends the original).",
+      "roadmap": "§6.1-22"
     },
     {
       "sha": "7dc253c5cefac7c277e5fc7071acf3e855fd503e",
       "date": "2026-09-18",
       "subject": "fix(agent-core-v2): restore thinking for the openrouter reasoning dialect (#3910)",
       "verdict": "ported",
-      "roadmap": "§6.1-23",
-      "note": "The ported half: replayed think blocks ride the model's declared reasoning field (`[models.<alias>].reasoning_key`) instead of flattening to assistant prose (`openai.rs::project_message` now takes the key; `http.rs` passes it through). No fork equivalent of v2's `reasoning_details`-array think-part stamping exists (fork stores no detailsIndex), so the string-vs-details coexistence case keeps the string, which the fork already read. Regression test pins both shapes."
+      "note": "The ported half: replayed think blocks ride the model's declared reasoning field (`[models.<alias>].reasoning_key`) instead of flattening to assistant prose (`openai.rs::project_message` now takes the key; `http.rs` passes it through). No fork equivalent of v2's `reasoning_details`-array think-part stamping exists (fork stores no detailsIndex), so the string-vs-details coexistence case keeps the string, which the fork already read. Regression test pins both shapes.",
+      "roadmap": "§6.1-23"
     },
     {
       "sha": "92c3c59b223a1195155a887b6dfc0376889e6523",
       "date": "2026-09-18",
       "subject": "feat: expose resolved base_url on models.dev catalog provider items (#3909)",
       "verdict": "ported",
-      "roadmap": "§6.1-24",
-      "note": "`base_url` now rides every `/api/v1/catalog/providers` item (resolved endpoint per built-in entry; the fork serves a built-in list, not a models.dev proxy, so the endpoint is stated rather than resolved), the per-id route reads the same shared source instead of fabricating a placeholder (unknown id = 404), and server-api.md documents the new field. Matches the v2 item shape (`modelsDevImport.ts` `ModelsDevProviderItem.base_url`)."
+      "note": "`base_url` now rides every `/api/v1/catalog/providers` item (resolved endpoint per built-in entry; the fork serves a built-in list, not a models.dev proxy, so the endpoint is stated rather than resolved), the per-id route reads the same shared source instead of fabricating a placeholder (unknown id = 404), and server-api.md documents the new field. Matches the v2 item shape (`modelsDevImport.ts` `ModelsDevProviderItem.base_url`).",
+      "roadmap": "§6.1-24"
     },
     {
       "sha": "3cc6b2a330fe29e54e12f7a676c16acb8dca2cf9",
       "date": "2026-09-18",
       "subject": "feat(kimi-code): carry turn trace id and copilot stats in rating surveys (#3907)",
       "verdict": "ported",
-      "roadmap": "§6.1-25",
-      "note": "Survey trace id + copilot stats: the engine `turn_ended` telemetry payload now carries `trace_id` (engine-minted `turn-<id>`; a provider request id is still not visible to the engine, noted in wire-schema.ts), `TurnEndedEvent` gains an optional `traceId` (interface + zod) passed through the napi bridge, and the survey controller records `kfc_trace_id` plus `subagent_count`/`subagent_models`/`swarm_run_count`/`swarm_models` per turn. `tower_mode_enter/exit` emit from the SDK `setTowerMode` flip point, where the flag actually lives."
+      "note": "Survey trace id + copilot stats: the engine `turn_ended` telemetry payload now carries `trace_id` (engine-minted `turn-<id>`; a provider request id is still not visible to the engine, noted in wire-schema.ts), `TurnEndedEvent` gains an optional `traceId` (interface + zod) passed through the napi bridge, and the survey controller records `kfc_trace_id` plus `subagent_count`/`subagent_models`/`swarm_run_count`/`swarm_models` per turn. `tower_mode_enter/exit` emit from the SDK `setTowerMode` flip point, where the flag actually lives.",
+      "roadmap": "§6.1-25"
     },
     {
       "sha": "60f2a63278f28b77d9358cf589b2da6193bd2614",
       "date": "2026-09-18",
       "subject": "fix(agent-core-v2): reuse the queued prompt id for a single steer (#3906)",
       "verdict": "ported",
-      "roadmap": "§6.1-26",
-      "note": "Steer identity end to end: `LLMMessage.prompt_id` (new optional field, persisted as a `messages.prompt_id` column with the store's idempotent ALTER pattern), `ServerEngine::enqueue_steer` mints an id when the caller sent none, the REST `prompt_ids` steer route reuses the queued prompt's own id (v2 `children[0].waiter.id`), and the v3 projection keeps a steered user message inside the current turn under that id with `origin.inTurn = true` (v2 `markInTurnOrigin`) instead of minting a turn of its own. `translate_wire_event` applies the same rule live. 2 projection tests pin in-turn placement and the no-open-turn fallback."
+      "note": "Steer identity end to end: `LLMMessage.prompt_id` (new optional field, persisted as a `messages.prompt_id` column with the store's idempotent ALTER pattern), `ServerEngine::enqueue_steer` mints an id when the caller sent none, the REST `prompt_ids` steer route reuses the queued prompt's own id (v2 `children[0].waiter.id`), and the v3 projection keeps a steered user message inside the current turn under that id with `origin.inTurn = true` (v2 `markInTurnOrigin`) instead of minting a turn of its own. `translate_wire_event` applies the same rule live. 2 projection tests pin in-turn placement and the no-open-turn fallback.",
+      "roadmap": "§6.1-26"
     },
     {
       "sha": "b0d0a80c3288cdc09e0caae0f92c19eabcb20a1b",
       "date": "2026-09-18",
       "subject": "feat: add usage telemetry for swarm, tower, external hooks, and remote control (#3897)",
       "verdict": "ported",
-      "roadmap": "§6.1-27",
-      "note": "Telemetry emissions: `swarm_mode_entered/exited` on the profile-write transition, `external_hook_resolved` in `HookGuard::denial` (action/matched_count/failed_count, verdict untouched) riding `HostCallbacks::telemetry` via a OnceLock sink, `remote_control_toggle` with v2 outcome vocabulary on the REST route. Server routes without a host callback fall back to `tracing::info` via `HttpServer::emit_session_telemetry` (`with_telemetry_sink` for host integration). Only `tower_mode_enter/exit` remains: tower mode has no engine-side flip point yet."
+      "note": "Telemetry emissions: `swarm_mode_entered/exited` on the profile-write transition, `external_hook_resolved` in `HookGuard::denial` (action/matched_count/failed_count, verdict untouched) riding `HostCallbacks::telemetry` via a OnceLock sink, `remote_control_toggle` with v2 outcome vocabulary on the REST route. Server routes without a host callback fall back to `tracing::info` via `HttpServer::emit_session_telemetry` (`with_telemetry_sink` for host integration). Only `tower_mode_enter/exit` remains: tower mode has no engine-side flip point yet.",
+      "roadmap": "§6.1-27"
     },
     {
       "sha": "73ebe9ab2fbf9bf0ffc8fe5a5375060ce8e984b5",
@@ -102,18 +162,19 @@
       "note": "Both upstream-aligned texts applied: prompt/system.md 'Delivering work' paragraph and injection/permission_mode.rs AUTO_ENTER_REMINDER AskUserQuestion line ('decide and continue.'). The fork's AutoModeAskUserQuestionDeny message is fork-authored ('Auto mode cannot ask interactive questions'), not the upstream string, and stays. permission_mode 8 tests and prompt 33 tests pass."
     },
     {
+      "sha": "53e5e3fca6bf377662bc4d61d220dde4ded8e7b7",
+      "date": "2026-09-18",
+      "subject": "fix(agent-core-v2): pair steered follow-ups by reserved message id (#3891)",
+      "verdict": "ported",
+      "note": "The steered-message identity the pairing needs now exists: the persisted `prompt_id` rides history reload, the v3 projection emits the steered user under its prompt id with an in-turn origin, and the live translator mirrors both — so a client can pair a steered follow-up to its reserved prompt id instead of matching by content. (v2's `steeredMessageIds` join lives in `packages/transcript`, which has no fork consumer; the equivalent information now travels on the v3 entities.)",
+      "roadmap": "§6.1-26"
+    },
+    {
       "sha": "a80fe31cff0ebae686e60d7d5d0559ad2d2e843d",
       "date": "2026-09-18",
       "subject": "fix(agent-core-v2): stop workspace watchers from listing a flooded project root (#3892)",
       "verdict": "not-applicable",
       "note": "The fixed failure mode is v2's OS directory watcher inventorying a project root into the V8 heap. The fork's fs_watch (server/fs_watch.rs) is mtime polling of explicitly registered file paths — there is no root watch, no directory-tree listing, and nothing that can flood a heap on a pathological root. The [watch] enabled kill switch has no fork counterpart because there is no watcher subsystem to disable; if a kill switch is ever wanted it belongs on the fs_watch registry, recorded here for that future."
-    },
-    {
-      "sha": "e3f48a225bbedbe167b30510e67d66ee67fcb0ec",
-      "date": "2026-09-18",
-      "subject": "fix(agent-core-v2): keep session deletion from hanging (#3887)",
-      "verdict": "not-applicable",
-      "note": "All three hang mechanisms are v2-lifecycle-internal: (1) AgentLifecycleService.remove awaiting loop.settled past its quiesce deadline, (2) setSessionArchived awaiting a pending resume inside the lifecycle critical section, (3) an unbounded taskkill wait. The fork's delete route (server/mod.rs :4107) reads the row, deletes via the store, cancels interactions, fires SessionEnd hooks and publishes event.session.deleted — there is no lifecycle chain to wedge and no settle await to bound. The compaction-after-abort guard (signal check between summary return and apply) the fork already has: summarize_with_llm re-checks the CancellationToken immediately after the chat await returns, before any apply."
     },
     {
       "sha": "5108cad9b65845ae992520dcf732cbbccc6a34b9",
@@ -123,20 +184,40 @@
       "note": "The optimized layers (wire restore single-pass, immer freeze deferral, kap-server incremental wire cache, O(1) by-id session index, dir-mtime freshness) are all v2/kap-server architecture the fork does not have: session restore is a direct SQLite read (session/sqlite_store.rs), the session index is table lookups, and there is no immer/wire-restore replay path. Nothing to port; the fork's equivalent hot paths have a different shape entirely."
     },
     {
+      "sha": "e3f48a225bbedbe167b30510e67d66ee67fcb0ec",
+      "date": "2026-09-18",
+      "subject": "fix(agent-core-v2): keep session deletion from hanging (#3887)",
+      "verdict": "not-applicable",
+      "note": "All three hang mechanisms are v2-lifecycle-internal: (1) AgentLifecycleService.remove awaiting loop.settled past its quiesce deadline, (2) setSessionArchived awaiting a pending resume inside the lifecycle critical section, (3) an unbounded taskkill wait. The fork's delete route (server/mod.rs :4107) reads the row, deletes via the store, cancels interactions, fires SessionEnd hooks and publishes event.session.deleted — there is no lifecycle chain to wedge and no settle await to bound. The compaction-after-abort guard (signal check between summary return and apply) the fork already has: summarize_with_llm re-checks the CancellationToken immediately after the chat await returns, before any apply."
+    },
+    {
       "sha": "f233f9de04d71c42d27df870b18e1bc1a6605f16",
       "date": "2026-09-18",
       "subject": "fix(agent-core-v2): stop advertising unregistered tools and clarify Read media errors (#3878)",
       "verdict": "ported",
-      "roadmap": "§6.1-28",
-      "note": "Half 1 (invariant): `every_advertised_builtin_tool_is_resolvable` in `tools/agent_tool.rs` pins that every builtin profile's advertised tool name resolves (`is_native_tool_name`) and passes its own `ToolPolicyFilter` gate — the listing and the gate share one source, so the class of bug upstream fixed cannot occur. Half 2 (Read media wording): verified against v2 by diff — the three limit messages (`delivery_limit_error` / `decode_limit_error` / `full_resolution_limit_error`) match `buildImageDeliveryLimitError` / `buildImageDecodeLimitError` / `buildFullResolutionLimitError` word for word, differing only in the tool name (`Read`, not `ReadMediaFile`), which is correct because the fork has no separate media tool — media rides `Read` itself (`tool-name-contract.json`); the capability-gated refusal names the file kind and the missing `image_in`/`video_in` capability per v2, so the `ReadMediaFile`-pointer variant is not applicable."
+      "note": "Half 1 (invariant): `every_advertised_builtin_tool_is_resolvable` in `tools/agent_tool.rs` pins that every builtin profile's advertised tool name resolves (`is_native_tool_name`) and passes its own `ToolPolicyFilter` gate — the listing and the gate share one source, so the class of bug upstream fixed cannot occur. Half 2 (Read media wording): verified against v2 by diff — the three limit messages (`delivery_limit_error` / `decode_limit_error` / `full_resolution_limit_error`) match `buildImageDeliveryLimitError` / `buildImageDecodeLimitError` / `buildFullResolutionLimitError` word for word, differing only in the tool name (`Read`, not `ReadMediaFile`), which is correct because the fork has no separate media tool — media rides `Read` itself (`tool-name-contract.json`); the capability-gated refusal names the file kind and the missing `image_in`/`video_in` capability per v2, so the `ReadMediaFile`-pointer variant is not applicable.",
+      "roadmap": "§6.1-28"
     },
     {
-      "sha": "53e5e3fca6bf377662bc4d61d220dde4ded8e7b7",
+      "sha": "1fddc16e3ea2de4c26a18acd764380adf9e2ed64",
       "date": "2026-09-18",
-      "subject": "fix(agent-core-v2): pair steered follow-ups by reserved message id (#3891)",
+      "subject": "fix(agent-core-v2): drop the outside-working-directory access ban from the system prompt (#3879)",
       "verdict": "ported",
-      "roadmap": "§6.1-26",
-      "note": "The steered-message identity the pairing needs now exists: the persisted `prompt_id` rides history reload, the v3 projection emits the steered user under its prompt id with an in-turn origin, and the live translator mirrors both — so a client can pair a steered follow-up to its reserved prompt id instead of matching by content. (v2's `steeredMessageIds` join lives in `packages/transcript`, which has no fork consumer; the equivalent information now travels on the v3 entities.)"
+      "note": "The engine's own system-prompt template carried the same sentence the commit removes from v2's system.md: packages/kimi-agent/src/prompt/system.md:108 ended `Unless the user explicitly instructs otherwise, never read, write, or execute files outside the working directory.` That sentence is dropped, leaving the 'not a sandbox' framing upstream keeps. Behavior, not just a doc string: the sentence is templated into every turn's system prompt."
+    },
+    {
+      "sha": "c5ad17f06aa12702d2b30dff63acba9ed08f688d",
+      "date": "2026-09-17",
+      "subject": "feat(agent-core-v2): support api_key_env for provider credentials (#3762)",
+      "verdict": "ported",
+      "note": "api_key_env for provider credentials, completed 2026-09-18: `ResolvedNativeLlm` now carries `api_key_env`, `KimiConfig::extract_native_llm` resolves the env channel (model key > model oauth > provider static key > provider oauth > provider api_key_env > unresolved), and `main.rs`'s two PipelineSpec constructors pass it to the transport, which already consumed it (`llm/http.rs:621`: env read per request, inline-key and auth_provider conflicts refused, missing/blank variable fails as `config.invalid`). Tests: `llm/http.rs` api_key_env suite (missing env, per-request reads, conflict rejection)."
+    },
+    {
+      "sha": "86e08208e3445171f6500c948234d7e3a0684324",
+      "date": "2026-09-17",
+      "subject": "feat(agent-core-v2): approve unanalyzable bash commands in yolo permission mode (#3869)",
+      "verdict": "not-applicable",
+      "note": "No counterpart state exists in this engine, so there is nothing to approve or ask about. v2's DangerousCommandAsk policy has three outcomes (dangerous / unanalyzable / no-verdict) because it feeds each Bash command through the tree-sitter bash parser, which can reject input: an unparseable command became a distinct `unanalyzable` verdict and was asked about in every mode, which is what #3869 relaxes for yolo. The fork's analyzer is `native/permission_engine/dangerous_command.rs::analyze_bash_command`, a hand-written tokenizer whose signature (`fn(&str) -> DangerousVerdict`, two variants Dangerous/Safe) cannot express a parse failure — `tokenize_command` returns `Vec<String>` with no error path — so an unrecognizable command can only fall through as Safe to the normal chain. Verified empirically rather than by reading: a temporary unit test ran ten inputs through the real function and every unparseable one (`echo 'unclosed`, `if [ -f x ]; then`, `for i in 1 2 3; do`, `$((`, `;;;`, `)))`, `` `\\` ``, the empty string, and blanks) returned Safe while `sudo reboot` returned Dangerous(\"reboot\"); the probe was then removed. Consequence: in yolo mode our engine already approves these commands (YoloModeApprove, `permission/mod.rs:440`), and in ask mode they already reach the user's normal approval decision rather than a special unanalyzable prompt — the behavior #3869 asks for, reached by a different route. No port needed."
     }
   ]
 }
