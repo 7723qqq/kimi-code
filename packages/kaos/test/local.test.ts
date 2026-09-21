@@ -651,9 +651,36 @@ describe('LocalKaos', () => {
       for await (const m of kaos.glob(tempDir, '**/*.txt')) {
         matches.push(m);
       }
-      expect(matches).toHaveLength(3);
       const names = new Set(matches.map((p) => p.split(/[/\\]/).pop()!));
       expect(names).toEqual(new Set(['r1.txt', 'r2.txt', 'r3.txt']));
+      expect(matches).toHaveLength(3);
+    });
+
+    it('T-C7 a real cycle below a deep plain tree is still cut', async () => {
+      // The cycle confirmation resolves paths, so it must keep cutting a
+      // genuine loop that sits several levels below the walk root — the
+      // depth where an inode-only check would already have accumulated
+      // several ancestors. A plain sibling subtree next to the loop must
+      // still be walked in full.
+      const { symlink, writeFile, mkdir } = await import('node:fs/promises');
+      const deep = join(tempDir, 'x', 'y', 'z');
+      await mkdir(deep, { recursive: true });
+      await writeFile(join(deep, 'deep.txt'), 'd');
+      const ring = join(deep, 'ring');
+      await mkdir(ring);
+      await writeFile(join(ring, 'leaf.txt'), 'l');
+      await symlink(ring, join(ring, 'self'));
+
+      const matches: string[] = [];
+      for await (const m of kaos.glob(tempDir, '**/*.txt')) {
+        matches.push(m);
+        if (matches.length >= 50) break;
+      }
+      // deep.txt plus ring/leaf.txt exactly once — the self-loop must not
+      // multiply it, and the plain deep prefix must not be dropped.
+      expect(matches).toHaveLength(2);
+      expect(matches.filter((p) => p.endsWith('leaf.txt'))).toHaveLength(1);
+      expect(matches.some((p) => p.endsWith('deep.txt'))).toBe(true);
     });
 
     it('T-C6 two non-cyclic symlinks to same target both traverse (path-local visited)', async () => {
@@ -779,6 +806,12 @@ describe('LocalKaos', () => {
   });
 
   describe('exec timeout', () => {
+    // Windows terminates the tree through a spawned `taskkill /T /F`, and a
+    // full-suite run (or a CI shard, which also runs files in parallel)
+    // stalls process creation and the exit-event delivery past vitest's
+    // default 5s — the test then fails with a timeout and the afterEach
+    // `rm` hits EBUSY on the still-live child. Give the kill + wait a real
+    // deadline instead.
     it('dispose destroys process stdio without killing the process', async () => {
       const proc = await kaos.exec(...nodeArgs('setTimeout(() => {}, 10000);'));
 
@@ -791,7 +824,7 @@ describe('LocalKaos', () => {
 
       await proc.kill('SIGKILL');
       await proc.wait();
-    });
+    }, 20_000);
 
     it('should allow killing a long-running process', async () => {
       const code = `setTimeout(() => {}, 10000);`;

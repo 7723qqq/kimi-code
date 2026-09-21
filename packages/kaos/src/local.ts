@@ -7,6 +7,7 @@ import {
   open,
   readdir,
   readFile,
+  realpath,
   stat,
   writeFile,
 } from 'node:fs/promises';
@@ -52,6 +53,34 @@ interface TextFileScan {
 function cycleKey(s: { dev: number; ino: number }): string | null {
   if (s.ino === 0) return null;
   return `${String(s.dev)}:${String(s.ino)}`;
+}
+
+/**
+ * Whether a directory whose `(dev, ino)` key matches an ancestor on the
+ * current descent path is genuinely that ancestor (a real cycle), rather
+ * than a `stat` that mis-reported a freshly created child with its
+ * parent's identity — which happens on Windows under concurrent
+ * create/delete churn and would otherwise silently drop a live subtree.
+ *
+ * The confirmation resolves both paths: a symlink cycle resolves to the
+ * same real path, a mis-reported identity does not. A `realpath` failure
+ * (the entry vanished mid-walk) is treated as "not a cycle" so the
+ * caller's own `readdir`/`stat` on the child decides the outcome.
+ */
+async function isTrueCycle(
+  visited: Map<string, string>,
+  key: string,
+  fullPath: string,
+): Promise<boolean> {
+  const seenPath = visited.get(key);
+  if (seenPath === undefined) return false;
+  let resolved: string;
+  try {
+    resolved = await realpath(fullPath);
+  } catch {
+    return false;
+  }
+  return resolved === seenPath;
 }
 
 export function buildLocalSpawnOptions(
@@ -310,28 +339,38 @@ export class LocalKaos implements Kaos {
     // that would otherwise leak if the caller globs directly from the
     // loop root). `stat` failure here is tolerated: `_globWalk` will
     // hit the same error via readdir and return empty.
-    const initVisited = new Set<string>();
+    const initVisited = new Map<string, string>();
     try {
       const rootStat = await stat(resolved);
       const rootKey = cycleKey(rootStat);
-      if (rootKey !== null) initVisited.add(rootKey);
+      if (rootKey !== null) initVisited.set(rootKey, await realpath(resolved));
     } catch {
       // base does not exist / not accessible — walker handles via its own catch
     }
     yield* this._globWalk(resolved, patternParts, caseSensitive, initVisited);
   }
 
-  // `visited` holds the `(stDev, stIno)` keys of directories on the
-  // current descent path. Before recursing into a subdirectory, we
-  // check its key against `visited`; if present we skip it (cycle
-  // detected) and otherwise recurse with a fresh Set containing the
-  // additional key. The per-recurse copy gives the check path-local
-  // semantics: two legitimate symlinks to the same target in separate
-  // branches both traverse, which is more permissive than Python stdlib
-  // while still cycle-safe.
+  // `visited` maps the `(stDev, stIno)` key of each directory on the
+  // current descent path to its resolved real path. Before recursing into
+  // a subdirectory we check its key against `visited`; a hit is confirmed
+  // with `realpath` before the descent is skipped as a cycle, and the
+  // recursion otherwise carries a fresh Map with the additional entry.
+  // The per-recurse copy gives the check path-local semantics: two
+  // legitimate symlinks to the same target in separate branches both
+  // traverse, which is more permissive than Python stdlib while still
+  // cycle-safe.
   // Same-directory self-recursion (e.g. `**` matching zero dirs with
   // pattern tail) passes `visited` unchanged — no descent, no cycle
   // risk.
+  //
+  // Why the realpath confirmation: on Windows under concurrent
+  // create/delete churn, `stat` can stably report a freshly created
+  // child directory with its parent's `(dev, ino)` (observed on plain
+  // NTFS in both Node and Bun; the walker's own files were all present
+  // on disk). Trusting the inode alone then skips a live subtree and
+  // silently drops its matches. `realpath` resolves through the path,
+  // which the anomaly does not touch, so a genuine symlink cycle still
+  // matches while a mis-reported identity does not.
   //
   // Windows note: Node's `fs.Stats.ino` returns `0` on filesystems
   // that don't support inodes (FAT/exFAT, some SMB/NFS mounts). If we
@@ -345,7 +384,7 @@ export class LocalKaos implements Kaos {
     basePath: string,
     patternParts: string[],
     caseSensitive: boolean,
-    visited: Set<string>,
+    visited: Map<string, string>,
   ): AsyncGenerator<string> {
     if (patternParts.length === 0) {
       return;
@@ -394,12 +433,12 @@ export class LocalKaos implements Kaos {
         }
         if (entryStat.isDirectory()) {
           const key = cycleKey(entryStat);
-          if (key !== null && visited.has(key)) continue;
+          if (key !== null && (await isTrueCycle(visited, key, fullPath))) continue;
           yield* this._globWalk(
             fullPath,
             patternParts,
             caseSensitive,
-            key !== null ? new Set([...visited, key]) : visited,
+            key !== null ? new Map(visited).set(key, await realpath(fullPath)) : visited,
           );
         } else if (remainingParts.length === 0) {
           // Pattern ends with `**`: non-directory entries match too
@@ -436,12 +475,12 @@ export class LocalKaos implements Kaos {
           }
           if (entryStat.isDirectory()) {
             const key = cycleKey(entryStat);
-            if (key !== null && visited.has(key)) continue;
+            if (key !== null && (await isTrueCycle(visited, key, fullPath))) continue;
             yield* this._globWalk(
               fullPath,
               remainingParts,
               caseSensitive,
-              key !== null ? new Set([...visited, key]) : visited,
+              key !== null ? new Map(visited).set(key, await realpath(fullPath)) : visited,
             );
           }
         }
