@@ -1,15 +1,15 @@
 /**
- * Audit trail for the chat view's message-protocol channel.
+ * Audit trail for the chat view's transcript channel.
  *
- * A pure observer: the chat pipeline (REST history loads, WS messages, user
- * actions) calls the `record*` methods AFTER applying each step to the real
+ * A pure observer: the chat pipeline (WS reset / op batches, user actions)
+ * calls the `record*` methods AFTER applying each step to the real
  * `ChatStore`, passing the resulting immutable `ChatState` reference.
  * Replaying the trail is therefore free — every entry already holds the
  * exact state the store had at that point, ready for the timeline slider
  * and the structural diff.
  */
 
-import type { V3ServerMessage } from '@moonshot-ai/protocol/v3';
+import type { AgentTranscriptSnapshot, TranscriptOpBatch } from '@moonshot-ai/transcript';
 
 import type { ChatState } from '../transcript/store';
 
@@ -26,23 +26,23 @@ interface AuditEntryBase {
   readonly summary: string;
 }
 
-export interface RestAuditEntry extends AuditEntryBase {
-  readonly kind: 'rest';
-  readonly request: {
-    readonly beforeTurn?: string | undefined;
-    readonly afterStep?: string | undefined;
-    readonly pageSize: number;
-  };
-  /** replace = newest page (initial/refresh); prepend = older page; tail = after_step catch-up. */
-  readonly mode: 'replace' | 'prepend' | 'tail';
-  readonly messageCount: number;
-  readonly inFlight?: { turn_id: string; step_id: string } | undefined;
+export interface OpsAuditEntry extends AuditEntryBase {
+  readonly kind: 'ops';
+  /** The agent whose batch this is. */
+  readonly agentId: string;
+  /** How the batch reached the store. */
+  readonly mode: 'reset' | 'live' | 'replay';
+  readonly opCount: number;
+  /** The ops as applied, in order. */
+  readonly ops: readonly unknown[];
 }
 
 export interface WsAuditEntry extends AuditEntryBase {
   readonly kind: 'ws';
-  /** The raw server message as applied to the store (entity, delta, or state). */
-  readonly message: V3ServerMessage;
+  /** The frame as applied to the store (a reset snapshot or an op batch). */
+  readonly frame:
+    | { readonly type: 'reset'; readonly agentId: string; readonly snapshot: AgentTranscriptSnapshot }
+    | { readonly type: 'ops'; readonly batch: TranscriptOpBatch };
 }
 
 export interface EventAuditEntry extends AuditEntryBase {
@@ -51,16 +51,15 @@ export interface EventAuditEntry extends AuditEntryBase {
     | 'ack'
     | 'ack-error'
     | 'reconnect'
-    | 'catchup-refresh'
+    | 'gap-refresh'
     | 'protocol-error'
     | 'invalid-frame'
     | 'prompt'
-    | 'cancel'
-    | 'older-error';
+    | 'cancel';
   readonly detail?: string | undefined;
 }
 
-export type AuditEntry = RestAuditEntry | WsAuditEntry | EventAuditEntry;
+export type AuditEntry = OpsAuditEntry | WsAuditEntry | EventAuditEntry;
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -84,50 +83,56 @@ export class AuditTrail {
     return this.entryList;
   }
 
-  recordRest(
-    request: RestAuditEntry['request'],
-    mode: RestAuditEntry['mode'],
-    messageCount: number,
-    inFlight: RestAuditEntry['inFlight'],
+  /** One applied op batch (live traffic or a reconnect replay). */
+  recordOps(
+    agentId: string,
+    mode: OpsAuditEntry['mode'],
+    batch: TranscriptOpBatch,
     state: ChatState,
   ): void {
-    const cursor =
-      request.beforeTurn !== undefined
-        ? `?before_turn=${request.beforeTurn}`
-        : request.afterStep !== undefined
-          ? `?after_step=${request.afterStep}`
-          : '';
-    const flight = inFlight !== undefined ? ` (in_flight ${inFlight.step_id})` : '';
     this.push({
-      kind: 'rest',
-      request,
+      kind: 'ops',
+      agentId,
       mode,
-      messageCount,
-      inFlight,
+      opCount: batch.ops.length,
+      ops: batch.ops,
       state,
-      summary: `GET history${cursor} → ${messageCount} messages (${mode})${flight}`,
+      summary: `${mode} ops ×${batch.ops.length} → ${agentId}`,
     });
   }
 
-  recordWs(message: V3ServerMessage, state: ChatState): void {
+  /** One applied `transcript.reset` baseline. */
+  recordReset(agentId: string, snapshot: AgentTranscriptSnapshot, state: ChatState): void {
+    this.push({
+      kind: 'ops',
+      agentId,
+      mode: 'reset',
+      opCount: 1,
+      ops: [{ op: 'reset', agentId }],
+      state,
+      summary: `reset → ${agentId} (${snapshot.items.length} items)`,
+    });
+  }
+
+  recordWs(frame: WsAuditEntry['frame'], state: ChatState): void {
     this.push({
       kind: 'ws',
-      message,
+      frame,
       state,
-      summary: summarizeMessage(message),
+      summary: summarizeFrame(frame),
     });
   }
 
   recordEvent(event: EventAuditEntry['event'], detail: string | undefined, state: ChatState): void {
     const label =
       event === 'ack'
-        ? 'subscribe ack → after_step catch-up'
+        ? 'subscribe ack'
         : event === 'ack-error'
           ? 'subscribe ack error'
           : event === 'reconnect'
             ? 'socket dropped → reconnecting'
-            : event === 'catchup-refresh'
-              ? 'catch-up anchor gone → full refresh'
+            : event === 'gap-refresh'
+              ? 'op seq gap → full resubscribe'
               : event === 'protocol-error'
                 ? 'protocol error frame'
                 : event === 'invalid-frame'
@@ -158,37 +163,17 @@ export class AuditTrail {
   }
 }
 
-function summarizeMessage(message: V3ServerMessage): string {
-  switch (message.type) {
-    case 'turn':
-      return `turn ${message.turn_id} (${message.status})`;
-    case 'step':
-      return `step ${message.step_id} (${message.status})`;
-    case 'user':
-      return `user ${message.message_id}`;
-    case 'assistant':
-    case 'thinking':
-      return `${message.type} ${message.message_id} (${message.status})`;
-    case 'assistant.delta':
-    case 'thinking.delta':
-      return `${message.type} ${message.message_id} +${message.text.length}ch`;
-    case 'tool_call':
-      return `tool_call ${message.name} ${message.tool_call_id} (${message.status})`;
-    case 'tool_call.delta':
-      return `tool_call.delta ${message.tool_call_id} +${message.input_text.length}ch`;
-    case 'tool.progress':
-      return `tool.progress ${message.tool_call_id} (${message.progress.kind})`;
-    case 'system':
-      return `system(${message.subtype}) ${message.system_id}`;
-    case 'interaction':
-      return `interaction ${message.interaction_id} (${message.kind}/${message.status})`;
-    case 'task':
-      return `task ${message.task_id} (${message.kind}/${message.status})`;
-    case 'todo':
-      return `todo ${message.todo_id} (${message.items.length} items)`;
-    case 'session.state':
-      return `session.state (${message.status})`;
-    default:
-      return message.type;
+function summarizeFrame(frame: WsAuditEntry['frame']): string {
+  if (frame.type === 'reset') {
+    return `reset → ${frame.agentId} (${frame.snapshot.items.length} items)`;
   }
+  const { batch } = frame;
+  const counts = new Map<string, number>();
+  for (const op of batch.ops) {
+    const kind = (op as { op?: unknown }).op;
+    const key = typeof kind === 'string' ? kind : 'unknown';
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const parts = [...counts].map(([op, n]) => `${op}×${n}`);
+  return `ops → ${batch.agentId}: ${parts.join(' ')}`;
 }

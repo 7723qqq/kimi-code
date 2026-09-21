@@ -1,171 +1,52 @@
 /**
- * Per-(session, agent) chat state for the message protocol v3.
+ * The chat view's store, backed by the v1 transcript data model.
  *
- * The store is a deliberately thin reflection of the wire: every entity
- * message upserts by (type, own id) with its content fields as the
- * authoritative whole (replace-by-id), the delta family
- * (`assistant.delta` / `thinking.delta` / `tool_call.delta`) appends to the
- * already-existing entity (an entity always precedes its deltas on the
- * stream; an orphan delta is dropped — the entity's next upsert carries the
- * cumulative content anyway), and `tool.progress` patches the entity's
- * latest-progress field. Recovery payloads and live traffic are applied
- * through the exact same path — idempotent overwrite makes them
- * indistinguishable, so there is no reset/buffer/cursor machinery at all.
- *
- * `system(undo)` / `system(clear)` land on the timeline in place AND
- * truncate it: every entry whose own id is in `payload.removed_ids` is
- * dropped together with its subtree (all entries carrying that turn_id),
- * and interactions anchored at a removed tool call are cascaded out.
- *
- * State entities have one channel each: `interaction` / `task` / `todo`
- * upsert into keyed maps, `session.state` replaces the single latest
- * snapshot. Global messages (workspace/session/config/…) are not consumed
- * by this store.
- *
- * An upsert whose `timestamp` is strictly older than the held entity's is
- * skipped: a REST page folded before a live update must not rewind it. An
- * upsert without a timestamp (an unread `user` message) is stale once the
- * held entity carries one — unread precedes read, never the reverse — yet
- * always outranks the page when a replace window carries live-only entries
- * over.
- *
- * Notifications are trailing-edge throttled (`notifyIntervalMs`) so a
- * per-token delta stream does not become a per-token React render; state
- * reads (`getState`) always see the latest applied message regardless.
+ * The wire carries `transcript.reset` (a baseline snapshot) and
+ * `transcript.ops` (op batches with a monotonic seq); folding them is
+ * `@moonshot-ai/transcript`'s job, so this store holds one `AgentState`,
+ * applies each batch through `applyOperation`, and projects the result into
+ * the view model. Notifications are throttled trailing-edge so a per-token
+ * delta stream does not re-render per token.
  */
+import {
+  applyOperation,
+  EMPTY_AGENT_STATE,
+  type AgentState,
+  type AgentTranscriptSnapshot,
+  type TranscriptOpBatch,
+} from '@moonshot-ai/transcript';
 
-import type {
-  AssistantMessage,
-  InteractionMessage,
-  SessionStateMessage,
-  SystemMessage,
-  TaskMessage,
-  ThinkingMessage,
-  TodoMessage,
-  ToolCallMessage,
-  V3HistoryMessage,
-  V3ServerMessage,
-} from '@moonshot-ai/protocol/v3';
+import {
+  EMPTY_CHAT_STATE,
+  type ChatState,
+  hasTurnId,
+  newestTerminalStepId,
+  oldestTurnId,
+  projectChatState,
+} from './model';
 
-export type TimelineMessage =
-  | Extract<V3HistoryMessage, { type: 'turn' }>
-  | Extract<V3HistoryMessage, { type: 'step' }>
-  | Extract<V3HistoryMessage, { type: 'user' }>
-  | AssistantMessage
-  | ThinkingMessage
-  | ToolCallMessage
-  | SystemMessage;
-
-export interface TimelineEntry {
-  readonly key: string;
-  readonly message: TimelineMessage;
-}
-
-export interface ChatState {
-  readonly entries: readonly TimelineEntry[];
-  readonly interactions: ReadonlyMap<string, InteractionMessage>;
-  readonly tasks: ReadonlyMap<string, TaskMessage>;
-  readonly todos: ReadonlyMap<string, TodoMessage>;
-  readonly sessionState: SessionStateMessage | undefined;
-  readonly hasMoreOlder: boolean;
-}
-
-export const EMPTY_CHAT_STATE: ChatState = {
-  entries: [],
-  interactions: new Map(),
-  tasks: new Map(),
-  todos: new Map(),
-  sessionState: undefined,
-  hasMoreOlder: false,
-};
-
-export type HistoryPageMode = 'replace' | 'prepend' | 'tail';
-
-export function timelineKeyOf(message: TimelineMessage): string {
-  switch (message.type) {
-    case 'turn':
-      return `turn:${message.turn_id}`;
-    case 'step':
-      return `step:${message.step_id}`;
-    case 'user':
-    case 'assistant':
-    case 'thinking':
-      return `${message.type}:${message.message_id}`;
-    case 'tool_call':
-      return `tool_call:${message.tool_call_id}`;
-    case 'system':
-      return `system:${message.system_id}`;
-  }
-}
-
-function ownIdOf(message: TimelineMessage): string {
-  switch (message.type) {
-    case 'turn':
-      return message.turn_id;
-    case 'step':
-      return message.step_id;
-    case 'user':
-    case 'assistant':
-    case 'thinking':
-      return message.message_id;
-    case 'tool_call':
-      return message.tool_call_id;
-    case 'system':
-      return message.system_id;
-  }
-}
-
-export function turnIdOf(message: TimelineMessage): string | undefined {
-  return message.type === 'system' ? undefined : message.turn_id;
-}
-
-export function oldestTurnId(entries: readonly TimelineEntry[]): string | undefined {
-  for (const entry of entries) {
-    const turnId = turnIdOf(entry.message);
-    if (turnId !== undefined) return turnId;
-  }
-  return undefined;
-}
-
-export function hasTurnId(entries: readonly TimelineEntry[], turnId: string): boolean {
-  return entries.some((entry) => turnIdOf(entry.message) === turnId);
-}
-
-export function newestTerminalStepId(entries: readonly TimelineEntry[]): string | undefined {
-  for (let i = entries.length - 1; i >= 0; i -= 1) {
-    const message = entries[i]!.message;
-    if (message.type === 'step' && message.status !== 'running') return message.step_id;
-  }
-  return undefined;
-}
-
-/**
- * Re-cover a previously loaded window after a replace-mode refresh: page
- * backwards until `prevOldestTurnId` is loaded again (a count-based stop
- * silently drops the window's head when new turns arrived meanwhile). Stops
- * at the oldest available page, on a no-progress page, or when `isDisposed`.
- */
-export async function recoverLoadedWindow(
-  store: ChatStore,
-  prevOldestTurnId: string | undefined,
-  fetchPage: (beforeTurn: string) => Promise<readonly V3HistoryMessage[]>,
-  isDisposed: () => boolean,
-  onPageApplied?: (beforeTurn: string, messages: readonly V3HistoryMessage[]) => void,
-): Promise<void> {
-  if (prevOldestTurnId === undefined) return;
-  while (!hasTurnId(store.getState().entries, prevOldestTurnId) && store.getState().hasMoreOlder) {
-    const oldest = oldestTurnId(store.getState().entries);
-    if (oldest === undefined) break;
-    const before = store.getState().entries.length;
-    const page = await fetchPage(oldest);
-    if (isDisposed()) return;
-    store.applyHistoryPage(page, 'prepend');
-    onPageApplied?.(oldest, page);
-    if (store.getState().entries.length === before) break;
-  }
-}
+export {
+  EMPTY_CHAT_STATE,
+  hasTurnId,
+  newestTerminalStepId,
+  oldestTurnId,
+  projectChatState,
+  timelineKeyOf,
+  turnIdOf,
+  type AssistantMessage,
+  type ChatState,
+  type StepMessage,
+  type SystemMessage,
+  type ThinkingMessage,
+  type TimelineEntry,
+  type TimelineMessage,
+  type ToolCallMessage,
+  type TurnMessage,
+  type UserMessage,
+} from './model';
 
 export class ChatStore {
+  private agent: AgentState = EMPTY_AGENT_STATE;
   private state: ChatState = EMPTY_CHAT_STATE;
   private readonly listeners = new Set<() => void>();
   private readonly notifyIntervalMs: number;
@@ -180,6 +61,11 @@ export class ChatStore {
     return this.state;
   }
 
+  /** The underlying transcript state (the audit panel diffs consecutive ones). */
+  getAgentState(): AgentState {
+    return this.agent;
+  }
+
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => {
@@ -187,112 +73,34 @@ export class ChatStore {
     };
   };
 
+  /** Install a `transcript.reset` baseline for one agent. */
+  applyReset(agentId: string, snapshot: AgentTranscriptSnapshot): void {
+    const result = applyOperation(this.agent, { op: 'reset', agentId, snapshot });
+    this.commit(result.state);
+  }
+
+  /**
+   * Apply one `transcript.ops` batch. A reported gap (the server's seq
+   * jumped past one we never saw) leaves the state untouched and is
+   * surfaced to the caller, which answers it with a resubscribe from the
+   * last good cursor.
+   */
+  applyBatch(batch: TranscriptOpBatch): { gap: boolean } {
+    let state = this.agent;
+    let gap = false;
+    for (const op of batch.ops) {
+      const result = applyOperation(state, op);
+      state = result.state;
+      if (result.gap !== undefined) gap = true;
+    }
+    this.commit(state);
+    return { gap };
+  }
+
   setHasMoreOlder(flag: boolean): void {
     if (this.state.hasMoreOlder === flag) return;
     this.state = { ...this.state, hasMoreOlder: flag };
     this.scheduleNotify();
-  }
-
-  /**
-   * Merge one REST history page. `replace` installs the page as the whole
-   * window (entries absent from it are dropped, except ones newer than the
-   * page's newest timestamp — live traffic that outran the fetch);
-   * `prepend` inserts the older slice ahead of the window (deduped by key);
-   * `tail` upserts the catch-up slice in page order. system(undo/clear)
-   * messages inside a page truncate exactly like live ones.
-   */
-  applyHistoryPage(messages: readonly V3HistoryMessage[], mode: HistoryPageMode): void {
-    if (mode === 'replace') {
-      const pageMax = maxTimestamp(messages);
-      const carried = pageMax === undefined ? [] : this.newerThan(this.state.entries, pageMax);
-      const next: TimelineEntry[] = [];
-      const seen = new Set<string>();
-      for (const message of messages) {
-        if (!isTimelineMessage(message)) {
-          this.applyStateMessage(message);
-          continue;
-        }
-        const key = timelineKeyOf(message);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        next.push(this.preferHeld(key, message));
-      }
-      for (const entry of carried) {
-        if (!seen.has(entry.key)) next.push(entry);
-      }
-      this.state = { ...this.state, entries: next };
-      this.applyTruncations(messages);
-      this.scheduleNotify();
-      return;
-    }
-    if (mode === 'prepend') {
-      const existing = new Set(this.state.entries.map((entry) => entry.key));
-      const fresh: TimelineEntry[] = [];
-      for (const message of messages) {
-        if (!isTimelineMessage(message)) {
-          this.applyStateMessage(message);
-          continue;
-        }
-        const key = timelineKeyOf(message);
-        if (existing.has(key)) continue;
-        existing.add(key);
-        fresh.push({ key, message });
-      }
-      if (fresh.length > 0) {
-        this.state = { ...this.state, entries: [...fresh, ...this.state.entries] };
-      }
-      this.applyTruncations(messages);
-      this.scheduleNotify();
-      return;
-    }
-    for (const message of messages) this.applyEntity(message);
-  }
-
-  /** Apply one live (or recovery) WS message; recovery and live share this path. */
-  applyLive(message: V3ServerMessage): void {
-    switch (message.type) {
-      case 'assistant.delta': {
-        this.patchText(`assistant:${message.message_id}`, message.text);
-        return;
-      }
-      case 'thinking.delta': {
-        this.patchText(`thinking:${message.message_id}`, message.text);
-        return;
-      }
-      case 'tool_call.delta': {
-        this.patchToolCall(message.tool_call_id, (call) => ({
-          ...call,
-          input_text: (call.input_text ?? '') + message.input_text,
-        }));
-        return;
-      }
-      case 'tool.progress': {
-        this.patchToolCall(message.tool_call_id, (call) => ({
-          ...call,
-          progress: message.progress,
-        }));
-        return;
-      }
-      case 'interaction':
-      case 'task':
-      case 'todo':
-      case 'session.state': {
-        this.applyStateMessage(message);
-        return;
-      }
-      case 'turn':
-      case 'step':
-      case 'user':
-      case 'assistant':
-      case 'thinking':
-      case 'tool_call':
-      case 'system': {
-        this.applyEntity(message);
-        return;
-      }
-      default:
-        return;
-    }
   }
 
   /** Flush a pending throttled notification (teardown / explicit sync point). */
@@ -306,217 +114,20 @@ export class ChatStore {
     for (const listener of this.listeners) listener();
   }
 
-  private applyEntity(message: V3HistoryMessage): void {
-    if (!isTimelineMessage(message)) {
-      this.applyStateMessage(message);
-      return;
-    }
-    const key = timelineKeyOf(message);
-    const index = this.state.entries.findIndex((entry) => entry.key === key);
-    if (index < 0) {
-      this.state = { ...this.state, entries: [...this.state.entries, { key, message }] };
-    } else {
-      const held = this.state.entries[index]!.message;
-      if (held === message || isStaleUpsert(held.timestamp, message.timestamp)) return;
-      const entries = [...this.state.entries];
-      entries[index] = { key, message };
-      this.state = { ...this.state, entries };
-    }
-    if (message.type === 'system' && (message.subtype === 'undo' || message.subtype === 'clear')) {
-      this.truncate(message);
-    }
+  private commit(agent: AgentState): void {
+    this.agent = agent;
+    this.state = projectChatState(agent);
     this.scheduleNotify();
-  }
-
-  private applyStateMessage(
-    message: InteractionMessage | TaskMessage | TodoMessage | SessionStateMessage,
-  ): void {
-    switch (message.type) {
-      case 'interaction': {
-        const held = this.state.interactions.get(message.interaction_id);
-        if (held === message) return;
-        if (held !== undefined && held.timestamp > message.timestamp) return;
-        const interactions = new Map([
-          ...this.state.interactions,
-          [message.interaction_id, message] as const,
-        ]);
-        this.state = { ...this.state, interactions };
-        break;
-      }
-      case 'task': {
-        const held = this.state.tasks.get(message.task_id);
-        if (held === message) return;
-        if (held !== undefined && held.timestamp > message.timestamp) return;
-        const tasks = new Map([...this.state.tasks, [message.task_id, message] as const]);
-        this.state = { ...this.state, tasks };
-        break;
-      }
-      case 'todo': {
-        const held = this.state.todos.get(message.todo_id);
-        if (held === message) return;
-        if (held !== undefined && held.timestamp > message.timestamp) return;
-        const todos = new Map([...this.state.todos, [message.todo_id, message] as const]);
-        this.state = { ...this.state, todos };
-        break;
-      }
-      case 'session.state': {
-        const held = this.state.sessionState;
-        if (held === message) return;
-        if (held !== undefined && held.timestamp > message.timestamp) return;
-        this.state = { ...this.state, sessionState: message };
-        break;
-      }
-    }
-    this.scheduleNotify();
-  }
-
-  private patchText(key: string, text: string): void {
-    this.patchEntry(key, (message) => {
-      if (message.type !== 'assistant' && message.type !== 'thinking') return message;
-      return { ...message, text: message.text + text };
-    });
-  }
-
-  private patchToolCall(
-    toolCallId: string,
-    patch: (call: ToolCallMessage) => ToolCallMessage,
-  ): void {
-    this.patchEntry(`tool_call:${toolCallId}`, (message) => {
-      if (message.type !== 'tool_call') return message;
-      return patch(message);
-    });
-  }
-
-  private patchEntry(key: string, patch: (message: TimelineMessage) => TimelineMessage): void {
-    const index = this.state.entries.findIndex((entry) => entry.key === key);
-    if (index < 0) return;
-    const current = this.state.entries[index]!;
-    const next = patch(current.message);
-    if (next === current.message) return;
-    const entries = [...this.state.entries];
-    entries[index] = { key, message: next };
-    this.state = { ...this.state, entries };
-    this.scheduleNotify();
-  }
-
-  private applyTruncations(messages: readonly V3HistoryMessage[]): void {
-    for (const message of messages) {
-      if (
-        message.type === 'system' &&
-        (message.subtype === 'undo' || message.subtype === 'clear')
-      ) {
-        this.truncate(message);
-      }
-    }
-  }
-
-  private truncate(message: SystemMessage): void {
-    if (message.subtype !== 'undo' && message.subtype !== 'clear') return;
-    const removed = new Set(removedIdsOf(message.payload));
-    if (removed.size === 0) return;
-    const removedToolCalls = new Set<string>();
-    const entries = this.state.entries.filter((entry) => {
-      const current = entry.message;
-      if (removed.has(ownIdOf(current))) {
-        if (current.type === 'tool_call') removedToolCalls.add(current.tool_call_id);
-        return false;
-      }
-      if (
-        current.type !== 'system' &&
-        current.turn_id !== undefined &&
-        removed.has(current.turn_id)
-      ) {
-        if (current.type === 'tool_call') removedToolCalls.add(current.tool_call_id);
-        return false;
-      }
-      return true;
-    });
-    let interactions = this.state.interactions;
-    if (removedToolCalls.size > 0) {
-      const next = new Map(interactions);
-      for (const [id, interaction] of next) {
-        if (
-          interaction.tool_call_id !== undefined &&
-          removedToolCalls.has(interaction.tool_call_id)
-        ) {
-          next.delete(id);
-        }
-      }
-      interactions = next;
-    }
-    this.state = { ...this.state, entries, interactions };
-  }
-
-  private preferHeld(key: string, message: TimelineMessage): TimelineEntry {
-    const held = this.state.entries.find((entry) => entry.key === key);
-    if (held !== undefined && isStaleUpsert(held.message.timestamp, message.timestamp)) return held;
-    return { key, message };
-  }
-
-  private newerThan(entries: readonly TimelineEntry[], timestamp: number): TimelineEntry[] {
-    return entries.filter(
-      (entry) => entry.message.timestamp === undefined || entry.message.timestamp > timestamp,
-    );
   }
 
   private scheduleNotify(): void {
     this.dirty = true;
-    if (this.notifyIntervalMs <= 0) {
-      this.flushNotify();
-      return;
-    }
     if (this.notifyTimer !== undefined) return;
     this.notifyTimer = setTimeout(() => {
       this.notifyTimer = undefined;
-      this.flushNotify();
+      if (!this.dirty) return;
+      this.dirty = false;
+      for (const listener of this.listeners) listener();
     }, this.notifyIntervalMs);
-    this.notifyTimer.unref?.();
   }
-}
-
-function isTimelineMessage(
-  message: V3HistoryMessage | V3ServerMessage,
-): message is TimelineMessage {
-  switch (message.type) {
-    case 'turn':
-    case 'step':
-    case 'user':
-    case 'assistant':
-    case 'thinking':
-    case 'tool_call':
-    case 'system':
-      return true;
-    default:
-      return false;
-  }
-}
-
-function maxTimestamp(messages: readonly V3HistoryMessage[]): number | undefined {
-  let max: number | undefined;
-  for (const message of messages) {
-    if (message.timestamp === undefined) continue;
-    if (max === undefined || message.timestamp > max) max = message.timestamp;
-  }
-  return max;
-}
-
-/**
- * The ids an `undo`/`clear` system entity removed. The wire keeps the payload
- * opaque, so the `SystemRemovedIdsPayload` shape is narrowed here.
- */
-function removedIdsOf(payload: unknown): readonly string[] {
-  if (payload === null || typeof payload !== 'object') return [];
-  const ids = (payload as { removed_ids?: unknown }).removed_ids;
-  return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [];
-}
-
-/**
- * Same-entity version ordering for the idempotent upsert path. Only `user`
- * messages can lack a timestamp (unread = not persisted yet), and the
- * unread → read transition is one-way, so an untimestamped upsert is stale
- * whenever the held entity already carries one.
- */
-function isStaleUpsert(held: number | undefined, incoming: number | undefined): boolean {
-  if (incoming === undefined) return held !== undefined;
-  return held !== undefined && held > incoming;
 }

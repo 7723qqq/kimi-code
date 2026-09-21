@@ -18,6 +18,7 @@ import { useState } from 'react';
 
 import type { AuditTrail } from '../audit/trail';
 import { useConnection } from '../connection';
+import type { ChatState } from '../transcript/store';
 import { t } from '../i18n';
 import { Badge } from '../ui';
 import { AuditPanel } from './audit/AuditPanel';
@@ -33,6 +34,7 @@ export function RightPanel({
   onAgentChange,
   ready,
   trail,
+  chatState,
 }: {
   sessionId: string | null;
   agentId: string;
@@ -40,6 +42,8 @@ export function RightPanel({
   ready: boolean;
   /** The chat view's audit trail; null until its transcript channel exists. */
   trail: AuditTrail | null;
+  /** The chat view's projected timeline, for the plan lookup. */
+  chatState?: ChatState | undefined;
 }) {
   const { klient } = useConnection();
   const [tab, setTab] = useState<Tab>('audit');
@@ -76,6 +80,7 @@ export function RightPanel({
           agentId={agentId}
           onAgentChange={onAgentChange}
           ready={ready}
+          chatState={chatState}
         />
       </div>
       <div className={tab === 'state' ? 'min-h-0 flex-1 overflow-y-auto' : 'hidden'}>

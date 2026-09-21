@@ -24,24 +24,26 @@
  * `session.state`.
  */
 
+/** The question request as the engine puts it on the interaction (snake_case wire shape). */
+interface QuestionRequestWire {
+  readonly questions?: readonly {
+    readonly id: string;
+    readonly question: string;
+    readonly header?: string;
+    readonly options: readonly { readonly id: string; readonly label: string; readonly description?: string }[];
+    readonly multi_select?: boolean;
+  }[];
+}
+
 import type {
-  AssistantMessage,
-  ContentPart,
-  InteractionMessage,
-  InteractionQuestionItem,
-  SessionStateMessage,
-  StepMessage,
-  SystemMessage,
-  TaskMessage,
-  ThinkingMessage,
-  TodoMessage,
-  ToolCallMessage,
-  TurnMessage,
-  UserMessage,
-} from '@moonshot-ai/protocol/v3';
+  TranscriptInteraction,
+  TranscriptMeta,
+  TranscriptTask,
+  TranscriptTodo,
+} from '@moonshot-ai/transcript';
+
 import {
   createContext,
-  useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
@@ -66,8 +68,16 @@ import { ChatChannel } from '../transcript/channel';
 import {
   EMPTY_CHAT_STATE,
   hasTurnId,
+  type AssistantMessage,
   type ChatState,
+  type StepMessage,
+  type SystemMessage,
+  type ThinkingMessage,
   type TimelineEntry,
+  type TimelineMessage,
+  type ToolCallMessage,
+  type TurnMessage,
+  type UserMessage,
 } from '../transcript/store';
 import { ActionButton, Badge, ErrorLine, JsonView, relTime } from '../ui';
 import { ChatSearchBar } from './ChatSearchBar';
@@ -110,7 +120,6 @@ function useChatChannel(
   sessionId: string | null,
   agentId: string,
   ready: boolean,
-  captureAnchor: () => void,
 ): ChatChannelState {
   const { baseUrl, config } = useConnection();
   const token = config.token.trim();
@@ -126,7 +135,6 @@ function useChatChannel(
       token: authToken,
       sessionId,
       agentId,
-      onWillReplace: captureAnchor,
       onLoaded: () => {
         setLoaded(true);
         setLoadError(null);
@@ -143,7 +151,7 @@ function useChatChannel(
       next.close();
       setChannel(null);
     };
-  }, [sessionId, agentId, ready, baseUrl, token, captureAnchor]);
+  }, [sessionId, agentId, ready, baseUrl, token]);
 
   const state = useSyncExternalStore(
     channel?.store.subscribe ?? noopSubscribe,
@@ -163,6 +171,7 @@ export function ChatView({
   agentId,
   ready,
   onTrailChange,
+  onStateChange,
   jump,
   onJumpHandled,
   onOpenSearchHit,
@@ -172,6 +181,8 @@ export function ChatView({
   ready: boolean;
   /** Hands the audit trail of the current channel up to the app shell (the audit panel lives in the right dock, not inside this view). */
   onTrailChange?: (trail: AuditTrail | null) => void;
+  /** Hands the projected timeline up to the app shell (the plan lookup reads it). */
+  onStateChange?: (state: ChatState) => void;
   /** Pending navigation into the timeline (search result click). */
   jump?: ChatJump | null | undefined;
   /** Called once the jump has been processed (or found un-actionable). */
@@ -182,27 +193,13 @@ export function ChatView({
   const { klient } = useConnection();
   const [input, setInput] = useState('');
   const [sendError, setSendError] = useState<unknown>(null);
-  const [loadingOlder, setLoadingOlder] = useState(false);
-  const [olderError, setOlderError] = useState<unknown>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  /** Distance from the scroll bottom captured before a prepend (restore anchor). */
-  const anchorRef = useRef<number | null>(null);
   /** Whether the viewport was pinned to the bottom before the last update. */
   const stickBottomRef = useRef(true);
   /** The jump target being flashed (cleared on a timer). */
   const [flash, setFlash] = useState<{ turnId: string; stepId?: string | undefined } | null>(null);
 
-  const captureAnchor = useCallback(() => {
-    const el = scrollRef.current;
-    if (el !== null) anchorRef.current = el.scrollHeight - el.scrollTop;
-  }, []);
-
-  const { channel, state, trail, loaded, loadError } = useChatChannel(
-    sessionId,
-    agentId,
-    ready,
-    captureAnchor,
-  );
+  const { channel, state, trail, loaded, loadError } = useChatChannel(sessionId, agentId, ready);
   const entries = state.entries;
 
   // The audit panel is rendered by the app shell's right dock; report the
@@ -210,6 +207,12 @@ export function ChatView({
   useEffect(() => {
     onTrailChange?.(trail);
   }, [onTrailChange, trail]);
+
+  // The plan lookup in that same dock reads the timeline instead of fetching
+  // it, so mirror the state up as well.
+  useEffect(() => {
+    onStateChange?.(state);
+  }, [onStateChange, state]);
 
   // Jump navigation (search result click): once the channel has loaded, page
   // backwards until the target turn enters the window, then scroll to the
@@ -224,46 +227,30 @@ export function ChatView({
       return;
     }
     let cancelled = false;
-    const isCancelled = (): boolean => cancelled;
     const turnId = jump.turnId;
     const stepId = jump.stepId;
-    void (async () => {
-      stickBottomRef.current = false;
-      const store = channel.store;
-      try {
-        while (
-          !hasTurnId(store.getState().entries, turnId) &&
-          store.getState().hasMoreOlder &&
-          !isCancelled()
-        ) {
-          const before = store.getState().entries.length;
-          await channel.loadOlder();
-          if (store.getState().entries.length === before) break;
-        }
-      } catch {
-        // A failed older-page load leaves the window as-is; degrade to no scroll.
-      }
-      if (cancelled) return;
-      if (!hasTurnId(store.getState().entries, turnId)) {
-        onJumpHandled?.();
-        return;
-      }
-      setFlash({ turnId, stepId });
-      // The prepend renders asynchronously; wait two frames before scrolling.
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (cancelled) return;
-          const root = scrollRef.current;
-          const stepEl =
-            stepId !== undefined
-              ? root?.querySelector(`[data-step-id="${CSS.escape(stepId)}"]`)
-              : undefined;
-          const target = stepEl ?? root?.querySelector(`[data-turn-id="${CSS.escape(turnId)}"]`);
-          target?.scrollIntoView({ block: 'start' });
-        });
-      });
+    stickBottomRef.current = false;
+    // The cold replay carries the whole history, so the target is either
+    // already loaded or was cut by an undo — no paging to walk.
+    if (!hasTurnId(channel.store.getState().entries, turnId)) {
       onJumpHandled?.();
-    })();
+      return;
+    }
+    setFlash({ turnId, stepId });
+    // The timeline renders asynchronously; wait two frames before scrolling.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        const root = scrollRef.current;
+        const stepEl =
+          stepId !== undefined
+            ? root?.querySelector(`[data-step-id="${CSS.escape(stepId)}"]`)
+            : undefined;
+        const target = stepEl ?? root?.querySelector(`[data-turn-id="${CSS.escape(turnId)}"]`);
+        target?.scrollIntoView({ block: 'start' });
+      });
+    });
+    onJumpHandled?.();
     return () => {
       cancelled = true;
     };
@@ -279,11 +266,6 @@ export function ChatView({
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (el === null) return;
-    if (anchorRef.current !== null) {
-      el.scrollTop = el.scrollHeight - anchorRef.current;
-      anchorRef.current = null;
-      return;
-    }
     if (stickBottomRef.current) el.scrollTop = el.scrollHeight;
   }, [entries]);
 
@@ -293,54 +275,13 @@ export function ChatView({
     stickBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   };
 
-  const loadOlder = async () => {
-    if (channel === null || loadingOlder) return;
-    captureAnchor();
-    setLoadingOlder(true);
-    setOlderError(null);
-    try {
-      await channel.loadOlder();
-    } catch (error) {
-      anchorRef.current = null;
-      setOlderError(error);
-      trail?.recordEvent(
-        'older-error',
-        error instanceof Error ? error.message : String(error),
-        channel.store.getState(),
-      );
-    } finally {
-      setLoadingOlder(false);
-    }
-  };
-
-  // Auto-paging: the top sentinel auto-loads the previous REST page when it
-  // approaches the viewport (paused while a previous load failed — the retry
-  // button re-arms it). This replaces any manual "load earlier" action.
-  const loadOlderRef = useRef(loadOlder);
-  loadOlderRef.current = loadOlder;
-  const topSentinelRef = useRef<HTMLDivElement>(null);
-  const hasMoreOlder = state.hasMoreOlder;
-  useEffect(() => {
-    const sentinel = topSentinelRef.current;
-    const root = scrollRef.current;
-    if (sentinel === null || root === null || olderError !== null) return;
-    const observer = new IntersectionObserver(
-      (observed) => {
-        if (observed.some((entry) => entry.isIntersecting)) void loadOlderRef.current();
-      },
-      { root, rootMargin: '400px 0px 0px 0px' },
-    );
-    observer.observe(sentinel);
-    return () => {
-      observer.disconnect();
-    };
-  }, [hasMoreOlder, loaded, olderError, loadingOlder]);
-
   const running =
-    (state.sessionState !== undefined && state.sessionState.status !== 'idle') ||
+    state.meta.agent?.phase?.kind === 'running' ||
+    state.meta.agent?.phase?.kind === 'tool_call' ||
+    state.meta.agent?.phase?.kind === 'retrying' ||
     isAnyTurnRunning(entries);
   const pendingCount = [...state.interactions.values()].filter(
-    (interaction) => interaction.status === 'pending',
+    (interaction) => interaction.state === 'pending',
   ).length;
 
   // Interactions render inline at their anchor tool call; entities without
@@ -350,11 +291,11 @@ export function ChatView({
   const anchoredToolCallIds = useMemo(() => collectToolCallIds(entries), [entries]);
   const unanchoredInteractions = [...state.interactions.values()].filter(
     (interaction) =>
-      interaction.tool_call_id === undefined || !anchoredToolCallIds.has(interaction.tool_call_id),
+      interaction.toolCallId === undefined || !anchoredToolCallIds.has(interaction.toolCallId),
   );
   const anchoredTaskIds = useMemo(() => collectTaskIds(entries), [entries]);
   const unanchoredTasks = [...state.tasks.values()].filter(
-    (task) => !anchoredTaskIds.has(task.task_id),
+    (task) => !anchoredTaskIds.has(task.taskId),
   );
   const latestTodo = latestTodoOf(state.todos);
 
@@ -412,36 +353,12 @@ export function ChatView({
             <Badge tone="green">{t('chat.idle')}</Badge>
           )}
           {pendingCount > 0 ? <Badge tone="amber">{pendingCount} pending</Badge> : null}
-          {state.sessionState !== undefined ? (
-            <SessionStateBadges sessionState={state.sessionState} />
-          ) : null}
+          <SessionStateBadges meta={state.meta} />
         </div>
 
         <ChatSearchBar sessionId={sessionId} onOpenHit={onOpenSearchHit} />
 
         <div className="flex-1 overflow-y-auto px-4 py-3" ref={scrollRef} onScroll={onScroll}>
-          {state.hasMoreOlder ? (
-            <div ref={topSentinelRef} className="mb-3 flex justify-center">
-              <span className="text-[11px] text-neutral-600">
-                {loadingOlder ? 'Loading earlier turns…' : ''}
-              </span>
-            </div>
-          ) : null}
-          {olderError !== null ? (
-            <div className="mb-2">
-              <ErrorLine error={olderError} />
-              <div className="mt-1 flex justify-center">
-                <ActionButton
-                  onClick={() => {
-                    setOlderError(null);
-                    void loadOlder();
-                  }}
-                >
-                  Retry loading earlier turns
-                </ActionButton>
-              </div>
-            </div>
-          ) : null}
           {loadError !== null ? (
             <div className="mb-2">
               <ErrorLine error={loadError} />
@@ -466,10 +383,10 @@ export function ChatView({
             flash={flash}
           />
           {unanchoredInteractions.map((interaction) => (
-            <InteractionEntityView key={interaction.interaction_id} interaction={interaction} />
+            <InteractionEntityView key={interaction.interactionId} interaction={interaction} />
           ))}
           {unanchoredTasks.map((task) => (
-            <TaskCard key={task.task_id} task={task} />
+            <TaskCard key={task.taskId} task={task} />
           ))}
         </div>
 
@@ -513,7 +430,7 @@ type RenderItem =
   | {
       readonly kind: 'group';
       readonly turnId: string;
-      readonly turn: TurnMessage | undefined;
+      readonly turn: TimelineMessage | undefined;
       readonly items: readonly TimelineEntry[];
     }
   | { readonly kind: 'system'; readonly key: string; readonly message: SystemMessage };
@@ -566,8 +483,8 @@ function Timeline({
   flash,
 }: {
   items: readonly TimelineEntry[];
-  interactions: ReadonlyMap<string, InteractionMessage>;
-  tasks: ReadonlyMap<string, TaskMessage>;
+  interactions: ReadonlyMap<string, TranscriptInteraction>;
+  tasks: ReadonlyMap<string, TranscriptTask>;
   flash?: { turnId: string; stepId?: string | undefined } | null | undefined;
 }) {
   const renderItems = useMemo(() => groupTimeline(items), [items]);
@@ -627,10 +544,10 @@ function collectTaskIds(entries: readonly TimelineEntry[]): Set<string> {
   return ids;
 }
 
-function latestTodoOf(todos: ReadonlyMap<string, TodoMessage>): TodoMessage | undefined {
-  let latest: TodoMessage | undefined;
+function latestTodoOf(todos: ReadonlyMap<string, TranscriptTodo>): TranscriptTodo | undefined {
+  let latest: TranscriptTodo | undefined;
   for (const todo of todos.values()) {
-    if (latest === undefined || todo.timestamp > latest.timestamp) latest = todo;
+    if (latest === undefined || (todo.updatedAt ?? '') > (latest.updatedAt ?? '')) latest = todo;
   }
   return latest;
 }
@@ -646,10 +563,10 @@ function TurnGroupView({
   flash,
 }: {
   turnId: string;
-  turn: TurnMessage | undefined;
+  turn: TimelineMessage | undefined;
   items: readonly TimelineEntry[];
-  interactions: ReadonlyMap<string, InteractionMessage>;
-  tasks: ReadonlyMap<string, TaskMessage>;
+  interactions: ReadonlyMap<string, TranscriptInteraction>;
+  tasks: ReadonlyMap<string, TranscriptTask>;
   flash?: { turnId: string; stepId?: string | undefined } | null | undefined;
 }) {
   const turnFlashed = flash?.turnId === turnId && flash.stepId === undefined;
@@ -667,7 +584,7 @@ function TurnGroupView({
         ) : (
           <span className="font-mono text-[10px] text-neutral-500">{turnId}</span>
         )}
-        {turn !== undefined ? (
+        {turn !== undefined && turn.type === 'turn' ? (
           <>
             <Badge tone={turn.origin.kind === 'user' ? 'sky' : 'neutral'}>{turn.origin.kind}</Badge>
             <Badge tone={turn.status === 'running' ? 'amber' : 'green'}>{turn.status}</Badge>
@@ -691,7 +608,7 @@ function TurnGroupView({
         )}
       </div>
       <div className="px-3 py-2">
-        {turn?.attachment_ids !== undefined && turn.attachment_ids.length > 0 ? (
+        {turn?.type === 'turn' && turn.attachment_ids !== undefined && turn.attachment_ids.length > 0 ? (
           <AttachmentChips ids={turn.attachment_ids} />
         ) : null}
         {items.map((entry) => (
@@ -710,9 +627,9 @@ function TurnGroupView({
 
 function turnUsageText(usage: NonNullable<TurnMessage['usage']>): string {
   const parts: string[] = [];
-  if (usage.input_tokens !== undefined) parts.push(`in ${usage.input_tokens}`);
-  if (usage.output_tokens !== undefined) parts.push(`out ${usage.output_tokens}`);
-  if (usage.cached_tokens !== undefined) parts.push(`cached ${usage.cached_tokens}`);
+  if (usage.inputTokens !== undefined) parts.push(`in ${usage.inputTokens}`);
+  if (usage.outputTokens !== undefined) parts.push(`out ${usage.outputTokens}`);
+  if (usage.cachedTokens !== undefined) parts.push(`cached ${usage.cachedTokens}`);
   if (usage.cost !== undefined) parts.push(`$${usage.cost.toFixed(4)}`);
   return parts.join(' / ');
 }
@@ -724,8 +641,8 @@ function TimelineEntryView({
   flash,
 }: {
   entry: TimelineEntry;
-  interactions: ReadonlyMap<string, InteractionMessage>;
-  tasks: ReadonlyMap<string, TaskMessage>;
+  interactions: ReadonlyMap<string, TranscriptInteraction>;
+  tasks: ReadonlyMap<string, TranscriptTask>;
   flash?: { turnId: string; stepId?: string | undefined } | null | undefined;
 }) {
   const message = entry.message;
@@ -771,15 +688,15 @@ function StepRow({ step, flashed }: { step: StepMessage; flashed: boolean }) {
       </Badge>
       {step.retry !== undefined ? (
         <Badge tone="red">
-          retry {step.retry.failed_attempt}→{step.retry.next_attempt}/{step.retry.max_attempts}:{' '}
-          {step.retry.error_name}
+          retry {step.retry.failedAttempt}→{step.retry.nextAttempt}/{step.retry.maxAttempts}:{' '}
+          {step.retry.errorName}
         </Badge>
       ) : null}
       {step.finish_reason !== undefined ? <span>finish: {step.finish_reason}</span> : null}
       {step.usage !== undefined ? (
         <span>
           in{' '}
-          {step.usage.input_other + step.usage.input_cache_read + step.usage.input_cache_creation} /
+          {step.usage.inputOther + step.usage.inputCacheRead + step.usage.inputCacheCreation} /
           out {step.usage.output}
         </span>
       ) : null}
@@ -796,7 +713,7 @@ function UserMessageView({ message }: { message: UserMessage }) {
   return (
     <div className="mb-2">
       <div className="mb-0.5 flex items-center gap-2 text-[10px] text-neutral-600">
-        <span className="font-mono">{message.message_id}</span>
+        <span className="font-mono">{message.id}</span>
         {message.origin !== undefined && message.origin.kind !== 'user' ? (
           <Badge tone="neutral">{userOriginLabel(message.origin)}</Badge>
         ) : null}
@@ -805,12 +722,12 @@ function UserMessageView({ message }: { message: UserMessage }) {
       {isUserInput ? (
         <div className="flex justify-end">
           <div className="max-w-[80%] whitespace-pre-wrap rounded-lg bg-sky-900/40 px-3 py-2 text-[13px] text-neutral-100">
-            <UserContentParts parts={message.text} />
+            {message.text}
           </div>
         </div>
       ) : (
         <div className="whitespace-pre-wrap rounded-lg border border-neutral-800 px-3 py-2 text-[12px] text-neutral-400">
-          <UserContentParts parts={message.text} />
+          {message.text}
         </div>
       )}
       {message.attachment_ids !== undefined && message.attachment_ids.length > 0 ? (
@@ -819,8 +736,8 @@ function UserMessageView({ message }: { message: UserMessage }) {
       {message.skill_activations !== undefined && message.skill_activations.length > 0 ? (
         <div className="mt-1 flex flex-wrap gap-1">
           {message.skill_activations.map((skill) => (
-            <Badge key={skill.skill_name} tone="violet">
-              skill: {skill.skill_name}
+            <Badge key={skill.skillName} tone="violet">
+              skill: {skill.skillName}
             </Badge>
           ))}
         </div>
@@ -829,53 +746,8 @@ function UserMessageView({ message }: { message: UserMessage }) {
   );
 }
 
-function userOriginLabel(origin: Exclude<UserMessage['origin'], undefined>): string {
-  switch (origin.kind) {
-    case 'user':
-      return 'user';
-    case 'cron':
-      return `cron ${origin.cron_id ?? ''}`.trim();
-    case 'task':
-      return `task: ${origin.title}`;
-    case 'skill':
-      return `skill: ${origin.skill_name}`;
-  }
-}
-
-function UserContentParts({ parts }: { parts: readonly ContentPart[] }) {
-  const text = parts
-    .filter((part) => part.type === 'text' || part.type === 'think')
-    .map((part) => part.text)
-    .join('\n');
-  const media = parts.filter(
-    (part) => part.type === 'image' || part.type === 'audio' || part.type === 'video',
-  );
-  return (
-    <>
-      {text}
-      {media.length > 0 ? (
-        <span className="mt-1 flex flex-wrap gap-1">
-          {media.map((part, index) => (
-            <span
-              key={index}
-              title={part.text}
-              className="rounded border border-neutral-700 bg-neutral-900 px-1.5 py-0.5 text-[10px] text-neutral-400"
-            >
-              {part.type}: {mediaPartLabel(part)}
-            </span>
-          ))}
-        </span>
-      ) : null}
-    </>
-  );
-}
-
-function mediaPartLabel(part: ContentPart): string {
-  const name = part.meta['name'];
-  if (typeof name === 'string' && name !== '') return name;
-  const id = part.meta['id'];
-  if (typeof id === 'string' && id !== '') return id;
-  return part.text;
+function userOriginLabel(origin: NonNullable<UserMessage['origin']>): string {
+  return origin.kind === 'skill_activation' ? `skill: ${origin.skillName}` : origin.kind;
 }
 
 function AssistantMessageView({ message }: { message: AssistantMessage }) {
@@ -883,7 +755,6 @@ function AssistantMessageView({ message }: { message: AssistantMessage }) {
     <div className="mb-2 max-w-[85%]">
       <div className="whitespace-pre-wrap rounded-lg bg-neutral-800/60 px-3 py-2 text-[13px] text-neutral-100">
         {message.text}
-        {message.status === 'streaming' ? <span className="text-neutral-500"> ▍</span> : null}
       </div>
     </div>
   );
@@ -893,7 +764,6 @@ function ThinkingMessageView({ message }: { message: ThinkingMessage }) {
   return (
     <div className="mb-2 max-w-[85%] whitespace-pre-wrap rounded-lg border border-dashed border-neutral-700 px-3 py-2 font-mono text-[11px] text-neutral-500">
       {message.text}
-      {message.status === 'streaming' ? <span> ▍</span> : null}
     </div>
   );
 }
@@ -921,21 +791,19 @@ function ToolCallView({
   tasks,
 }: {
   call: ToolCallMessage;
-  interactions: ReadonlyMap<string, InteractionMessage>;
-  tasks: ReadonlyMap<string, TaskMessage>;
+  interactions: ReadonlyMap<string, TranscriptInteraction>;
+  tasks: ReadonlyMap<string, TranscriptTask>;
 }) {
   const task = call.task_id !== undefined ? tasks.get(call.task_id) : undefined;
   const linked = [...interactions.values()].filter(
     (interaction) =>
-      interaction.interaction_id === call.approval_id ||
-      interaction.tool_call_id === call.tool_call_id,
+      interaction.interactionId === call.approval_id ||
+      interaction.toolCallId === call.tool_call_id,
   );
   return (
     <div className="mb-2 max-w-[85%] rounded-lg border border-neutral-800 bg-neutral-900/50 px-3 py-2 font-mono text-[11px]">
       <div className="mb-1 flex flex-wrap items-center gap-2">
-        <Badge
-          tone={call.status === 'error' ? 'red' : call.status === 'running' ? 'amber' : 'neutral'}
-        >
+        <Badge tone={call.state === 'error' ? 'red' : call.state === 'running' ? 'amber' : 'neutral'}>
           tool
         </Badge>
         <span className="text-neutral-300">{call.name}</span>
@@ -944,11 +812,11 @@ function ToolCallView({
           <span className="text-neutral-600">view: {call.view}</span>
         ) : null}
         {call.agent_refs?.map((ref) => (
-          <Badge key={ref.agent_id} tone="sky">
-            agent: {ref.agent_id}
+          <Badge key={ref.agentId} tone="sky">
+            agent: {ref.agentId}
           </Badge>
         ))}
-        {task !== undefined ? <span className="text-neutral-600">task: {task.status}</span> : null}
+        {task !== undefined ? <span className="text-neutral-600">task: {task.state}</span> : null}
         {call.todo_id !== undefined ? (
           <span className="text-neutral-600">todo: {call.todo_id}</span>
         ) : null}
@@ -970,7 +838,7 @@ function ToolCallView({
         typeof call.output === 'string' ? (
           <pre
             className={`max-h-40 overflow-auto whitespace-pre-wrap ${
-              call.status === 'error' ? 'text-red-400' : 'text-neutral-400'
+              call.state === 'error' ? 'text-red-400' : 'text-neutral-400'
             }`}
           >
             {call.output}
@@ -978,9 +846,9 @@ function ToolCallView({
         ) : (
           <JsonView data={call.output} />
         )
-      ) : task !== undefined && task.output_tail !== '' ? (
+      ) : task !== undefined && (task.outputTail ?? '') !== '' ? (
         <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-neutral-400">
-          {task.output_tail}
+          {task.outputTail}
         </pre>
       ) : null}
       {call.error !== undefined && call.error !== call.output ? (
@@ -990,13 +858,11 @@ function ToolCallView({
         <div className="mt-1 text-neutral-600">
           progress ({call.progress.kind}):{' '}
           {call.progress.text ??
-            (call.progress.percent !== undefined
-              ? `${call.progress.percent}%`
-              : (call.progress.custom_kind ?? ''))}
+            (call.progress.percent !== undefined ? `${call.progress.percent}%` : '')}
         </div>
       ) : null}
       {linked.map((interaction) => (
-        <InteractionEntityView key={interaction.interaction_id} interaction={interaction} nested />
+        <InteractionEntityView key={interaction.interactionId} interaction={interaction} nested />
       ))}
     </div>
   );
@@ -1008,7 +874,7 @@ function InteractionEntityView({
   interaction,
   nested,
 }: {
-  interaction: InteractionMessage;
+  interaction: TranscriptInteraction;
   nested?: boolean;
 }) {
   const { baseUrl, config } = useConnection();
@@ -1020,8 +886,11 @@ function InteractionEntityView({
   /** Question free-text ("Other") input: question id → draft. */
   const [others, setOthers] = useState<Readonly<Record<string, string>>>({});
 
-  const pending = interaction.status === 'pending';
-  const questionRequest = interaction.kind === 'question' ? interaction.request : undefined;
+  const pending = interaction.state === 'pending';
+  const questionRequest =
+    interaction.interactionKind === 'question'
+      ? (interaction.request as QuestionRequestWire | undefined)
+      : undefined;
   const api = { baseUrl, token: config.token, sessionId };
 
   const run = (fn: () => Promise<unknown>): void => {
@@ -1037,10 +906,10 @@ function InteractionEntityView({
   };
 
   const decide = (decision: 'approved' | 'rejected'): void => {
-    run(() => decideApproval(api, interaction.interaction_id, decision));
+    run(() => decideApproval(api, interaction.interactionId, decision));
   };
 
-  const toggleOption = (question: InteractionQuestionItem, label: string): void => {
+  const toggleOption = (question: NonNullable<QuestionRequestWire['questions']>[number], label: string): void => {
     setSelections((prev) => {
       const current = prev[question.id] ?? [];
       const next =
@@ -1083,11 +952,11 @@ function InteractionEntityView({
       dismiss();
       return;
     }
-    run(() => answerQuestion(api, interaction.interaction_id, answers, 'enter'));
+    run(() => answerQuestion(api, interaction.interactionId, answers, 'enter'));
   };
 
   const dismiss = (): void => {
-    run(() => dismissQuestion(api, interaction.interaction_id));
+    run(() => dismissQuestion(api, interaction.interactionId));
   };
 
   return (
@@ -1097,16 +966,16 @@ function InteractionEntityView({
       }`}
     >
       <div className="mb-1 flex items-center gap-2">
-        <Badge tone={pending ? 'amber' : 'neutral'}>{interaction.kind}</Badge>
-        <span className="text-neutral-400">{interaction.status}</span>
-        <span className="text-neutral-600">tool: {interaction.tool_call_id}</span>
+        <Badge tone={pending ? 'amber' : 'neutral'}>{interaction.interactionKind}</Badge>
+        <span className="text-neutral-400">{interaction.state}</span>
+        <span className="text-neutral-600">tool: {interaction.toolCallId}</span>
       </div>
       {interaction.request !== undefined && questionRequest === undefined ? (
         <JsonView data={interaction.request} />
       ) : null}
       {questionRequest !== undefined && !pending ? <JsonView data={questionRequest} /> : null}
       {interaction.response !== undefined ? <JsonView data={interaction.response} /> : null}
-      {pending && interaction.kind === 'approval' ? (
+      {pending && interaction.interactionKind === 'approval' ? (
         <div className="mt-2 flex gap-2">
           <ActionButton onClick={() => decide('approved')} disabled={busy}>
             Approve
@@ -1118,7 +987,7 @@ function InteractionEntityView({
       ) : null}
       {pending && questionRequest !== undefined ? (
         <div className="mt-2">
-          {questionRequest.questions.map((question) => (
+          {(questionRequest.questions ?? []).map((question) => (
             <div key={question.id} className="mb-2">
               <div className="text-neutral-300">{question.header ?? question.question}</div>
               <div className="mt-1 flex flex-wrap gap-1">
@@ -1143,7 +1012,7 @@ function InteractionEntityView({
               </div>
               <input
                 className="mt-1 w-full rounded border border-neutral-700 bg-neutral-950 px-2 py-1 text-[11px] text-neutral-100 outline-none focus:border-sky-600"
-                placeholder={question.other_label ?? 'Other…'}
+                placeholder={'Other…'}
                 value={others[question.id] ?? ''}
                 disabled={busy}
                 onChange={(e) => {
@@ -1178,36 +1047,36 @@ function SystemMarkerView({ message }: { message: SystemMessage }) {
     <div className="mb-3">
       <div className="flex items-center gap-2 text-[10px] text-neutral-600">
         <div className="h-px flex-1 bg-neutral-800" />
-        <span className="font-mono">system({message.subtype})</span>
-        <span className="font-mono text-neutral-700">{message.system_id}</span>
+        <span className="font-mono">system({message.kind})</span>
+        <span className="font-mono text-neutral-700">{message.id}</span>
         {message.at !== undefined ? <span>{relTime(Date.parse(message.at))}</span> : null}
         <div className="h-px flex-1 bg-neutral-800" />
       </div>
-      {message.payload !== undefined ? <JsonView data={message.payload} /> : null}
+      {message.text !== '' ? <div className="text-neutral-500">{message.text}</div> : null}
     </div>
   );
 }
 
-function TaskCard({ task }: { task: TaskMessage }) {
-  const failed = task.status === 'failed' || task.status === 'timed_out' || task.status === 'lost';
+function TaskCard({ task }: { task: TranscriptTask }) {
+  const failed = task.state === 'failed' || task.state === 'timed_out' || task.state === 'lost';
   return (
     <div className="mb-3 rounded-lg border border-neutral-800 bg-neutral-900/40 px-3 py-2 text-[11px]">
       <div className="flex items-center gap-2">
-        <Badge tone={task.status === 'running' ? 'amber' : failed ? 'red' : 'neutral'}>
+        <Badge tone={task.state === 'running' ? 'amber' : failed ? 'red' : 'neutral'}>
           task: {task.kind}
         </Badge>
-        <span className="text-neutral-300">{task.description ?? task.task_id}</span>
+        <span className="text-neutral-300">{task.description ?? task.taskId}</span>
         <span className="text-neutral-600">
-          {task.status}
+          {task.state}
           {task.detached ? ' (detached)' : ''}
         </span>
-        {task.child_agent_id !== undefined ? (
-          <Badge tone="sky">agent: {task.child_agent_id}</Badge>
+        {task.agentId !== undefined ? (
+          <Badge tone="sky">agent: {task.agentId}</Badge>
         ) : null}
       </div>
-      {task.output_tail !== '' ? (
+      {task.outputTail !== '' ? (
         <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap text-neutral-500">
-          {task.output_tail}
+          {task.outputTail}
         </pre>
       ) : null}
       {task.error !== undefined ? (
@@ -1215,14 +1084,14 @@ function TaskCard({ task }: { task: TaskMessage }) {
           {task.error}
         </pre>
       ) : null}
-      {task.result_summary !== undefined ? (
-        <div className="mt-1 text-neutral-500">{task.result_summary}</div>
+      {task.resultSummary !== undefined ? (
+        <div className="mt-1 text-neutral-500">{task.resultSummary}</div>
       ) : null}
     </div>
   );
 }
 
-function TodoCard({ todo }: { todo: TodoMessage }) {
+function TodoCard({ todo }: { todo: TranscriptTodo }) {
   return (
     <div className="mb-3 rounded-lg border border-neutral-800 bg-neutral-900/40 px-3 py-2 text-[11px]">
       <div className="mb-1 text-neutral-500">todo (latest)</div>
@@ -1252,30 +1121,24 @@ function TodoCard({ todo }: { todo: TodoMessage }) {
   );
 }
 
-function SessionStateBadges({ sessionState }: { sessionState: SessionStateMessage }) {
+function SessionStateBadges({ meta }: { meta: TranscriptMeta }) {
   return (
     <>
-      {sessionState.pending_interaction !== undefined &&
-      sessionState.pending_interaction !== 'none' ? (
-        <Badge tone="amber">{sessionState.pending_interaction}</Badge>
+      {meta.agent?.model !== undefined ? <Badge tone="neutral">{meta.agent.model}</Badge> : null}
+      {meta.agent?.permission !== undefined ? (
+        <Badge tone="neutral">perm: {meta.agent.permission}</Badge>
       ) : null}
-      {sessionState.model !== undefined ? <Badge tone="neutral">{sessionState.model}</Badge> : null}
-      {sessionState.permission !== undefined ? (
-        <Badge tone="neutral">perm: {sessionState.permission}</Badge>
-      ) : null}
-      {sessionState.modes?.plan !== undefined ? <Badge tone="violet">plan mode</Badge> : null}
-      {sessionState.modes?.swarm !== undefined ? <Badge tone="violet">swarm</Badge> : null}
-      {sessionState.goal !== undefined ? (
-        <Badge tone={sessionState.goal.status === 'active' ? 'sky' : 'neutral'}>
-          goal: {sessionState.goal.status}
+      {meta.modes?.plan !== undefined ? <Badge tone="violet">plan mode</Badge> : null}
+      {meta.modes?.swarm !== undefined ? <Badge tone="violet">swarm</Badge> : null}
+      {meta.goal !== undefined ? (
+        <Badge tone={meta.goal.status === 'active' ? 'sky' : 'neutral'}>
+          goal: {meta.goal.status}
         </Badge>
       ) : null}
-      {sessionState.context_tokens !== undefined ? (
+      {meta.agent?.contextTokens !== undefined ? (
         <span className="text-[10px] text-neutral-600">
-          ctx {sessionState.context_tokens}
-          {sessionState.max_context_tokens !== undefined
-            ? `/${sessionState.max_context_tokens}`
-            : ''}
+          ctx {meta.agent.contextTokens}
+          {meta.agent.maxContextTokens !== undefined ? `/${meta.agent.maxContextTokens}` : ''}
         </span>
       ) : null}
     </>

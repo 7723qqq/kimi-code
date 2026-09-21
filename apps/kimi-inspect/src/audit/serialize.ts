@@ -7,21 +7,21 @@
  */
 
 import type {
-  InteractionMessage,
-  SessionStateMessage,
-  TaskMessage,
-  TodoMessage,
-} from '@moonshot-ai/protocol/v3';
+  TranscriptInteraction,
+  TranscriptMeta,
+  TranscriptTask,
+  TranscriptTodo,
+} from '@moonshot-ai/transcript';
 
 import type { ChatState, TimelineMessage } from '../transcript/store';
 
 /** Plain-object view of a `ChatState` (Maps unwrapped). */
 export interface SerializedChatState {
   readonly timeline: readonly TimelineMessage[];
-  readonly interactions: Record<string, InteractionMessage>;
-  readonly tasks: Record<string, TaskMessage>;
-  readonly todos: Record<string, TodoMessage>;
-  readonly sessionState: SessionStateMessage | undefined;
+  readonly interactions: Record<string, TranscriptInteraction>;
+  readonly tasks: Record<string, TranscriptTask>;
+  readonly todos: Record<string, TranscriptTodo>;
+  readonly meta: TranscriptMeta;
   readonly hasMoreOlder: boolean;
 }
 
@@ -37,7 +37,7 @@ export function serializeState(state: ChatState): SerializedChatState {
     interactions: mapToSortedObject(state.interactions),
     tasks: mapToSortedObject(state.tasks),
     todos: mapToSortedObject(state.todos),
-    sessionState: state.sessionState,
+    meta: state.meta,
     hasMoreOlder: state.hasMoreOlder,
   };
 }

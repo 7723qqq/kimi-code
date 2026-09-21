@@ -8,7 +8,6 @@ export * from './display';
 export * from './ws-control';
 export * from './asyncapi';
 export * from './wire';
-export * from './v3';
 
 export * from './session';
 export * from './workspace';

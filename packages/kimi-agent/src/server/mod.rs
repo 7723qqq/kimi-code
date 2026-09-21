@@ -64,11 +64,9 @@ pub mod router;
 pub mod static_files;
 pub mod terminal;
 pub mod transcript;
-pub mod v3;
 pub mod web_events;
 pub mod ws;
 pub mod ws_protocol;
-pub mod ws_v3;
 
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -855,22 +853,17 @@ impl HttpServer {
     /// Publish `event.config.warning` on the global lane for the `[models]`
     /// entries the loaded `config.toml` could not resolve (v2 #3681).
     ///
-    /// The event carries `warnings[].message` in the shape the v3
-    /// `config.warning` entity needs. The v1 broadcaster passes the event
-    /// through as-is. A v3 global-lane translator that would fold it into the
-    /// entity does not exist yet — `ws_v3::Connection::handle_event` only
-    /// dispatches per-session lanes — so v3 clients do not receive this yet
-    /// (ROADMAP §6.1 item 4). `domain` is left off — the fork's only warning
-    /// source is the config file itself, and upstream treats the field as
-    /// optional.
+    /// The event carries `warnings[].message` on the global lane; the v1
+    /// broadcaster passes it through as-is. `domain` is left off — the fork's
+    /// only warning source is the config file itself, and upstream treats the
+    /// field as optional.
     ///
-    /// Always publishes, `warnings: []` included, because the entity is an
-    /// upsert ([`crate::server::v3::messages::ConfigWarningMessage`]): an empty
-    /// list means "no warnings now" and is what clears a client's stale
-    /// advisory after the file is fixed. Upstream's
-    /// `publishConfigWarnings` (`kap-server/src/start.ts`) does
-    /// the same — it is wired to the diagnostics-change event with no empty
-    /// check, and only the startup call filters.
+    /// Always publishes, `warnings: []` included, because an empty list means
+    /// "no warnings now" and is what clears a client's stale advisory after
+    /// the file is fixed. Upstream's `publishConfigWarnings`
+    /// (`kap-server/src/start.ts`) does the same — it is wired to the
+    /// diagnostics-change event with no empty check, and only the startup
+    /// call filters.
     fn publish_config_warnings(&self, warnings: &[String]) {
         self.hub
             .bus_for("global")
@@ -5032,78 +5025,6 @@ impl HttpServer {
                     }],
                     "pending_interactions": [],
                 }))
-            }
-            ("GET", p) if extract_session_action(p, "history").is_some() => {
-                let session_id = extract_session_action(p, "history").unwrap();
-                let request_id = req.request_id();
-                if self.store.get_session(session_id).ok().flatten().is_none() {
-                    return HttpResponse::envelope_err(
-                        404,
-                        crate::server::envelope::error_codes::SESSION_NOT_FOUND,
-                        format!("session {session_id} does not exist"),
-                        &request_id,
-                    );
-                }
-                let query =
-                    match crate::server::v3::route::parse_query(|name| req.query_param(name)) {
-                        Ok(query) => query,
-                        Err(issue) => return HttpResponse::json(400, &issue.envelope(&request_id)),
-                    };
-                let agent_id = query.agent_id.clone().unwrap_or_else(|| "main".to_string());
-                let turns = self.store.list_turns(session_id).unwrap_or_default();
-                let messages = self
-                    .store
-                    .load_session_messages(session_id)
-                    .unwrap_or_default();
-                let mut entities = crate::server::v3::projection::project_history(
-                    session_id, &agent_id, &turns, &messages,
-                );
-                // The interaction entities the session's persisted lifecycle
-                // events fold into (ROADMAP §6.1 item 4): they carry no turn
-                // id, so they end the page the way the state domains do.
-                entities.extend(crate::server::v3::projection::project_interactions(
-                    session_id,
-                    &agent_id,
-                    &self
-                        .store
-                        .interaction_wire_events(session_id)
-                        .unwrap_or_default(),
-                ));
-                // The session-state entity: the model / thinking effort /
-                // permission mode the session's own state domains record, and
-                // the goal / mode flags the workspace store holds.
-                let workspace_state = fs_routes::resolve_session_workdir(self.store(), session_id)
-                    .and_then(|workdir| crate::storage::StateStore::for_workspace(&workdir).ok());
-                entities.extend(crate::server::v3::projection::project_session_state(
-                    self.store(),
-                    workspace_state.as_ref(),
-                    session_id,
-                    crate::server::ws_v3::now_millis(),
-                ));
-                // The state-domain entities (todo list, this session's
-                // background tasks) end the page, the way upstream's fold
-                // appends them after the last turn's entities.
-                if let Some(state) = &workspace_state {
-                    entities.extend(crate::server::v3::projection::project_state_domains(
-                        state,
-                        session_id,
-                        &agent_id,
-                        crate::server::ws_v3::now_millis(),
-                    ));
-                }
-                let page = crate::server::v3::history::paginate_history(&entities, &query);
-                // A live session's streaming position rides the response as
-                // `in_flight`, the same pair of entity ids the live stream is
-                // writing under (upstream `projection.inFlight`). A client
-                // resuming from the page's cursor appends its deltas at the
-                // right step instead of guessing.
-                let in_flight = self.engine.as_ref().and_then(|e| e.in_flight(session_id));
-                match crate::server::v3::route::response_data(&page, in_flight) {
-                    Ok(data) => HttpResponse::envelope_ok(&data, &request_id),
-                    Err(error) => HttpResponse::internal_error(format!(
-                        "history response failed to serialize: {error}"
-                    )),
-                }
             }
             ("POST", p) if extract_session_action(p, "abort").is_some() => {
                 let session_id = extract_session_action(p, "abort").unwrap();
@@ -13682,251 +13603,10 @@ max_context_size = 1000
         );
     }
 
-    #[tokio::test]
-    async fn v3_history_route_serves_entities_with_paging() {
-        use crate::rpc::types::ContentBlock;
-        use crate::turn_loop::types::LLMMessage;
-
-        async fn history_request(
-            server: &HttpServer,
-            session_id: &str,
-            query: Option<&str>,
-        ) -> HttpResponse {
-            server
-                .handle_request(&HttpRequest {
-                    method: "GET".into(),
-                    path: format!("/api/v1/sessions/{session_id}/history"),
-                    query: query.map(str::to_string),
-                    headers: HashMap::new(),
-                    body: Vec::new(),
-                })
-                .await
-        }
-
-        let server = HttpServer::in_memory().unwrap();
-        let session_id = "sess-v3-history";
-        let message = |role: &str, content: &str| LLMMessage {
-            role: role.to_string(),
-            content: content.to_string(),
-            ..Default::default()
-        };
-        for (turn_id, number, prompt, answer) in [
-            ("turn-a", 1u32, "one", "two"),
-            ("turn-b", 2, "three", "four"),
-        ] {
-            server
-                .store
-                .save_turn(
-                    session_id,
-                    turn_id,
-                    number,
-                    &[message("user", prompt), message("assistant", answer)],
-                    None,
-                    None,
-                )
-                .unwrap();
-        }
-
-        let res = history_request(&server, session_id, None).await;
-        assert_eq!(res.status, 200);
-        let body: Value = serde_json::from_slice(&res.body).unwrap();
-        assert_eq!(body["code"], 0, "this route always answers in an envelope");
-        let messages = body["data"]["messages"].as_array().unwrap();
-        assert_eq!(
-            messages
-                .iter()
-                .map(|entity| entity["type"].as_str().unwrap())
-                .collect::<Vec<_>>(),
-            [
-                "turn",
-                "user",
-                "step",
-                "assistant",
-                "turn",
-                "user",
-                "step",
-                "assistant",
-                "session.state"
-            ]
-        );
-        assert_eq!(body["data"]["has_more"], false);
-        assert!(
-            body["data"].get("in_flight").is_none(),
-            "an idle session reports no streaming position"
-        );
-        assert_eq!(messages[0]["turn_id"], "1");
-        assert_eq!(messages[2]["step_id"], "1.1");
-        assert_ne!(
-            messages[0]["turn_id"], "turn-a",
-            "the store's own row key must not reach a client"
-        );
-
-        let res = history_request(&server, session_id, Some("page_size=1")).await;
-        let body: Value = serde_json::from_slice(&res.body).unwrap();
-        let messages = body["data"]["messages"].as_array().unwrap();
-        // The newest page carries the turn plus the trailing session-state
-        // entity the route appends after the last turn.
-        assert_eq!(messages.len(), 5, "a page is whole turns");
-        assert_eq!(messages[0]["turn_id"], "2");
-        assert_eq!(messages[4]["type"], "session.state");
-        assert_eq!(body["data"]["has_more"], true);
-
-        let res = history_request(&server, session_id, Some("after_step=1.1&page_size=1")).await;
-        assert_eq!(res.status, 200);
-        let body: Value = serde_json::from_slice(&res.body).unwrap();
-        let messages = body["data"]["messages"].as_array().unwrap();
-        assert_eq!(
-            messages.len(),
-            5,
-            "forward paging must include the whole reply"
-        );
-        assert_eq!(messages[0]["turn_id"], "2");
-        assert_eq!(messages[3]["type"], "assistant");
-        assert_eq!(messages[3]["text"], "four");
-        assert_eq!(messages[4]["type"], "session.state");
-        assert_eq!(body["data"]["has_more"], false);
-
-        let res = history_request(&server, session_id, Some("after_step=2.1&page_size=1")).await;
-        let body: Value = serde_json::from_slice(&res.body).unwrap();
-        // Nothing newer than the last step except the trailing session-state
-        // entity, which belongs to no step.
-        let messages = body["data"]["messages"].as_array().unwrap();
-        assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0]["type"], "session.state");
-        assert_eq!(body["data"]["has_more"], false);
-
-        let res = history_request(&server, session_id, Some("before_turn=1")).await;
-        let body: Value = serde_json::from_slice(&res.body).unwrap();
-        assert!(body["data"]["messages"].as_array().unwrap().is_empty());
-        assert_eq!(body["data"]["has_more"], false);
-
-        let res = history_request(&server, "sess-v3-absent", None).await;
-        assert_eq!(res.status, 404);
-        let body: Value = serde_json::from_slice(&res.body).unwrap();
-        assert_eq!(
-            body["code"],
-            crate::server::envelope::error_codes::SESSION_NOT_FOUND
-        );
-        assert!(body["data"].is_null());
-
-        let res = history_request(&server, session_id, Some("before_turn=1&after_step=1.1")).await;
-        assert_eq!(res.status, 400);
-        let body: Value = serde_json::from_slice(&res.body).unwrap();
-        assert_eq!(
-            body["code"],
-            crate::server::envelope::error_codes::VALIDATION_FAILED
-        );
-        assert_eq!(body["details"][0]["path"], "before_turn");
-
-        let res = history_request(&server, session_id, Some("page_size=0")).await;
-        assert_eq!(res.status, 400);
-        let body: Value = serde_json::from_slice(&res.body).unwrap();
-        assert_eq!(body["details"][0]["path"], "page_size");
-
-        let mut user = message("user", "describe the attachment");
-        user.blocks.push(ContentBlock::ImageUrl {
-            url: "https://example.test/attachment.png".into(),
-            id: None,
-            name: None,
-        });
-        let mut assistant = message("assistant", "an attachment");
-        assistant.blocks = vec![
-            ContentBlock::Think {
-                think: "first ".into(),
-                encrypted: None,
-                details_index: None,
-                reasoning_key: None,
-                hidden: None,
-            },
-            ContentBlock::Think {
-                think: "second".into(),
-                encrypted: None,
-                details_index: None,
-                reasoning_key: None,
-                hidden: None,
-            },
-        ];
-        server
-            .store
-            .save_turn(session_id, "turn-c", 3, &[user, assistant], None, None)
-            .unwrap();
-
-        let res = history_request(&server, session_id, Some("after_step=2.1&page_size=1")).await;
-        assert_eq!(res.status, 200);
-        let body: Value = serde_json::from_slice(&res.body).unwrap();
-        let messages = body["data"]["messages"].as_array().unwrap();
-        assert_eq!(messages.len(), 6);
-        assert_eq!(messages[1]["type"], "user");
-        assert_eq!(messages[1]["text"][0]["text"], "describe the attachment");
-        assert_eq!(messages[1]["text"][1]["type"], "image");
-        assert_eq!(messages[3]["type"], "thinking");
-        assert_eq!(messages[3]["message_id"], "3.1.thinking");
-        assert_eq!(messages[3]["text"], "first second");
-        assert_eq!(messages[4]["text"], "an attachment");
-        assert_eq!(messages[5]["type"], "session.state");
-        assert_eq!(body["data"]["has_more"], false);
-    }
-
     // A session whose turn is streaming right now answers history with
     // `in_flight` — the same turn/step entity ids the live deltas carry —
     // so a reconnecting client splices at the right position (upstream
     // `projection.inFlight`).
-    #[tokio::test]
-    async fn v3_history_route_reports_the_live_streaming_position() {
-        let server = HttpServer::in_memory().unwrap();
-        let session_id = "sess-in-flight";
-        server
-            .store
-            .save_turn(
-                session_id,
-                "turn-1",
-                1,
-                &[crate::turn_loop::types::LLMMessage {
-                    role: "user".into(),
-                    content: "hi".into(),
-                    ..Default::default()
-                }],
-                None,
-                None,
-            )
-            .unwrap();
-        let hub = server.hub();
-        let store = server.store_arc();
-        let server = server.with_engine(engine_without_a_model(store, hub));
-
-        async fn get_history(server: &HttpServer, session_id: &str) -> HttpResponse {
-            server
-                .handle_request(&HttpRequest {
-                    method: "GET".into(),
-                    path: format!("/api/v1/sessions/{session_id}/history"),
-                    query: None,
-                    headers: HashMap::new(),
-                    body: Vec::new(),
-                })
-                .await
-        }
-
-        // No turn running: no position.
-        let res = get_history(&server, session_id).await;
-        let body: Value = serde_json::from_slice(&res.body).unwrap();
-        assert!(body["data"].get("in_flight").is_none());
-
-        // Simulate the turn's step boundary (MessageCallbacks' tracker runs on
-        // `llm.step.begin`): turn 2, step 1 is open.
-        let engine = server.engine.as_ref().unwrap();
-        engine.record_step(session_id, 2, 1);
-
-        let res = get_history(&server, session_id).await;
-        let body: Value = serde_json::from_slice(&res.body).unwrap();
-        assert_eq!(body["data"]["in_flight"]["turn_id"], "2");
-        assert_eq!(body["data"]["in_flight"]["step_id"], "2.1");
-
-        // Turn end clears the marker.
-        engine.clear_in_flight(session_id);
-        let res = get_history(&server, session_id).await;
-        let body: Value = serde_json::from_slice(&res.body).unwrap();
-        assert!(body["data"].get("in_flight").is_none());
-    }
 
     // The official Web bundle's listSessionsV2/archiveSessions/restoreSessions
     // contract (upstream routes/v2/sessions.ts): a domain-grouped page plus

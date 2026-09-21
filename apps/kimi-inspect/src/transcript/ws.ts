@@ -1,83 +1,62 @@
 /**
- * Minimal `/api/v3/ws` client for the message protocol.
+ * Minimal `/api/v1/ws` client for the v1 transcript surface.
  *
- * Handshake per the protocol contract: the server sends `hello` right after
- * the upgrade, the client answers with `subscribe` (`{id, session_id,
- * agent_ids?, omit?}`), the server replies with `ack` (matched by `id`) and
- * then streams the recovery payload followed by live traffic — one ordered
- * session sequence, no cursors anywhere. Heartbeat is the WS protocol-level
- * ping/pong, handled by the WebSocket implementation itself.
+ * Handshake per the protocol contract: on open the client sends
+ * `client_hello` (the bearer token rides the `kimi-code.bearer.<token>`
+ * subprotocol at the upgrade — the only credential channel a browser
+ * WebSocket has), then `subscribe_v2` for one session's agent transcripts.
+ * The server answers each with an `ack` (matched by `id`) and streams
+ * `transcript.reset` (a baseline snapshot per agent) followed by
+ * `transcript.ops` batches carrying a monotonic `seq`. Heartbeat is the
+ * WS protocol-level ping/pong, handled by the WebSocket implementation.
  *
- * Every data frame is validated against the shared `v3ServerMessageSchema`;
- * control frames (`hello` / `ack` / `error`) are handled here, everything else
- * is forwarded through `onMessage`. The union is open: a frame whose `type` is
- * not in the current schema is a future message type and is ignored silently;
- * a frame that names a known type but fails validation is a server bug and
- * surfaces via `onInvalidFrame`.
+ * `transcript_since` carries the last seq this client applied for the
+ * agent, so a reconnect resumes instead of restarting: the server replays
+ * from the stored events at or above it. Omit it (or pass 0) for the cold
+ * load, which is what the initial subscribe does.
  *
- * A drop is answered with a backoff reconnect and a fresh subscribe — the
- * recovery payload is idempotent, so the consumer's only job on `onAck` is
- * to run its REST tail catch-up. The bearer token rides the
- * `kimi-code.bearer.<token>` subprotocol at the upgrade (the only
- * credential channel a browser WebSocket has).
+ * A drop is answered with a backoff reconnect and a fresh subscribe from
+ * the held cursor — the reset is idempotent, so the consumer's only job on
+ * `onAck` is to re-project.
  */
-
-import { v3ServerMessageSchema, type V3ServerMessage } from '@moonshot-ai/protocol/v3';
+import type { AgentTranscriptSnapshot, TranscriptOpBatch } from '@moonshot-ai/transcript';
 
 import type { WsLike, WsLikeCtor } from '../channel/wsLike';
 
 const WS_BEARER_PROTOCOL_PREFIX = 'kimi-code.bearer.';
 
-const KNOWN_MESSAGE_TYPES: ReadonlySet<string> = new Set([
-  'turn',
-  'step',
-  'user',
-  'assistant',
-  'assistant.delta',
-  'thinking',
-  'thinking.delta',
-  'tool_call',
-  'tool_call.delta',
-  'tool.progress',
-  'system',
-  'interaction',
-  'task',
-  'todo',
-  'session.state',
-  'session',
-  'workspace',
-  'config',
-  'config.warning',
-  'model_catalog',
-  'plugin',
-  'capability',
-  'hello',
-  'ack',
-  'error',
-]);
+/** A frame's optional text field, without stringifying a non-string. */
+function textOf(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+/** The grade asked for: every op, including per-token deltas. */
+const TRANSCRIPT_GRADE = 'delta';
 
 export interface ChatWsHandlers {
-  /** Any validated non-control server message (entity, delta, state, global). */
-  onMessage: (message: V3ServerMessage) => void;
+  /** A `transcript.reset` baseline for one agent. */
+  onReset: (agentId: string, snapshot: AgentTranscriptSnapshot) => void;
+  /** A `transcript.ops` batch for one agent. */
+  onOps: (batch: TranscriptOpBatch) => void;
   /** The subscribe ack (code 0 = subscribed) — fires on every (re)subscribe. */
   onAck: (code: number, msg?: string) => void;
   /** Protocol-level `error` frame (auth failure, unknown frame, slow consumer). */
   onProtocolError: (code: number, msg: string) => void;
-  /** A frame naming a KNOWN type failed schema validation (server bug). */
+  /** A frame that is not valid JSON, or names no known type. */
   onInvalidFrame?: (raw: unknown) => void;
   /** The socket dropped and a reconnect attempt is scheduled. */
   onReconnectScheduled?: (attempt: number) => void;
 }
 
 export interface ChatWsOptions {
-  /** Server base URL (`http(s)://host:port`) or a full `ws(s)://…/api/v3/ws` URL. */
+  /** Server base URL (`http(s)://host:port`) or a full `ws(s)://…/api/v1/ws` URL. */
   readonly url: string;
   readonly token?: string;
   readonly sessionId: string;
-  /** Agents to subscribe; defaults to all agents of the session when empty. */
+  /** Agents to subscribe; defaults to the session's `main` agent. */
   readonly agentIds?: readonly string[];
-  /** Message types to exclude from the subscription (exact `type` names). */
-  readonly omit?: readonly string[];
+  /** Last applied seq per agent, for the reconnect cursor. */
+  readonly since?: Readonly<Record<string, number>>;
   readonly handlers: ChatWsHandlers;
   /** WebSocket implementation; defaults to the global `WebSocket`. */
   readonly WebSocketImpl?: WsLikeCtor;
@@ -89,8 +68,7 @@ export class ChatWs {
   private readonly wsUrl: string;
   private readonly token?: string;
   private readonly sessionId: string;
-  private readonly agentIds?: readonly string[];
-  private readonly omit?: readonly string[];
+  private readonly agentIds: readonly string[];
   private readonly handlers: ChatWsHandlers;
   private readonly WsCtor: WsLikeCtor;
   private readonly reconnectDelayMs: number;
@@ -99,14 +77,17 @@ export class ChatWs {
   private manualClose = false;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  private helloId = 0;
   private subscribeId = 0;
+  /** Last applied seq per agent, echoed back in `transcript_since`. */
+  private since: Record<string, number>;
 
   constructor(opts: ChatWsOptions) {
-    this.wsUrl = toWsV3Url(opts.url);
+    this.wsUrl = toWsV1Url(opts.url);
     this.token = opts.token;
     this.sessionId = opts.sessionId;
-    this.agentIds = opts.agentIds;
-    this.omit = opts.omit;
+    this.agentIds =
+      opts.agentIds !== undefined && opts.agentIds.length > 0 ? [...opts.agentIds] : ['main'];
     this.handlers = opts.handlers;
     const ctor = opts.WebSocketImpl ?? (globalThis.WebSocket as unknown as WsLikeCtor | undefined);
     if (ctor === undefined) {
@@ -114,6 +95,7 @@ export class ChatWs {
     }
     this.WsCtor = ctor;
     this.reconnectDelayMs = opts.reconnectDelayMs ?? 500;
+    this.since = { ...opts.since };
     this.connect();
   }
 
@@ -163,6 +145,8 @@ export class ChatWs {
     this.ws = ws;
     ws.addEventListener('open', () => {
       this.reconnectAttempt = 0;
+      this.helloId += 1;
+      this.send({ kind: 'client_hello', id: `hello-${this.helloId}` });
     });
     ws.addEventListener('message', (event: { data: unknown }) => {
       this.onMessage(event.data);
@@ -176,51 +160,90 @@ export class ChatWs {
   }
 
   private onMessage(raw: unknown): void {
-    let frame: unknown;
+    let frame: { type?: unknown } | null;
     try {
       frame = JSON.parse(typeof raw === 'string' ? raw : String(raw));
     } catch {
       this.handlers.onInvalidFrame?.(raw);
       return;
     }
-    const parsed = v3ServerMessageSchema.safeParse(frame);
-    if (!parsed.success) {
-      const type = (frame as { readonly type?: unknown } | null)?.type;
-      if (typeof type !== 'string' || KNOWN_MESSAGE_TYPES.has(type)) {
-        this.handlers.onInvalidFrame?.(frame);
-      }
-      return;
-    }
-    const message = parsed.data;
-    switch (message.type) {
+    const type = typeof frame?.type === 'string' ? frame.type : undefined;
+    switch (type) {
+      case 'server_hello':
       case 'hello': {
         this.subscribeId += 1;
         this.send({
-          type: 'subscribe',
-          id: this.subscribeId,
+          kind: 'subscribe_v2',
+          id: `sub-${this.subscribeId}`,
           session_id: this.sessionId,
-          agent_ids:
-            this.agentIds !== undefined && this.agentIds.length > 0
-              ? [...this.agentIds]
-              : undefined,
-          omit: this.omit !== undefined && this.omit.length > 0 ? [...this.omit] : undefined,
+          transcript: Object.fromEntries(this.agentIds.map((agent) => [agent, TRANSCRIPT_GRADE])),
+          transcript_since: Object.fromEntries(
+            this.agentIds.map((agent) => [agent, this.since[agent] ?? 0]),
+          ),
         });
         return;
       }
       case 'ack': {
-        if (message.id === this.subscribeId) {
-          this.handlers.onAck(message.code, message.msg);
+        const ack = frame as unknown as { id?: unknown; code?: unknown; msg?: unknown };
+        if (ack.id === `sub-${this.subscribeId}`) {
+          this.handlers.onAck(typeof ack.code === 'number' ? ack.code : 0, textOf(ack.msg));
         }
         return;
       }
       case 'error': {
-        this.handlers.onProtocolError(message.code, message.msg);
+        const err = frame as unknown as { code?: unknown; msg?: unknown };
+        this.handlers.onProtocolError(
+          typeof err.code === 'number' ? err.code : 0,
+          textOf(err.msg),
+        );
         return;
       }
-      default: {
-        this.handlers.onMessage(message);
+      // The fork's control frames are tagged `kind`, not `type`.
+      case undefined: {
+        const kind = (frame as { kind?: unknown } | null)?.kind;
+        if (kind === 'ack') {
+          const ack = frame as unknown as { id?: unknown; code?: unknown; msg?: unknown };
+          if (ack.id === `sub-${this.subscribeId}`) {
+            this.handlers.onAck(typeof ack.code === 'number' ? ack.code : 0, textOf(ack.msg));
+          }
+          return;
+        }
+        if (kind === 'error') {
+          const err = frame as unknown as { code?: unknown; msg?: unknown };
+          this.handlers.onProtocolError(
+            typeof err.code === 'number' ? err.code : 0,
+            textOf(err.msg),
+          );
+          return;
+        }
+        this.handlers.onInvalidFrame?.(frame);
         return;
       }
+      case 'transcript.reset': {
+        const payload = (frame as unknown as {
+          payload?: { agent_id?: unknown; snapshot?: unknown };
+        }).payload;
+        const snapshot = payload?.snapshot as AgentTranscriptSnapshot | undefined;
+        if (snapshot !== undefined) {
+          const agentId = typeof payload?.agent_id === 'string' ? payload.agent_id : 'main';
+          this.since[agentId] = 0;
+          this.handlers.onReset(agentId, snapshot);
+        }
+        return;
+      }
+      case 'transcript.ops': {
+        const payload = (frame as unknown as { payload?: { agent_id?: unknown; ops?: unknown; seq?: unknown } })
+          .payload;
+        const agentId = payload?.agent_id;
+        const ops = payload?.ops;
+        if (typeof agentId === 'string' && Array.isArray(ops)) {
+          if (typeof payload?.seq === 'number') this.since[agentId] = payload.seq;
+          this.handlers.onOps({ agentId, ops } as TranscriptOpBatch);
+        }
+        return;
+      }
+      default:
+        this.handlers.onInvalidFrame?.(frame);
     }
   }
 
@@ -247,16 +270,16 @@ export class ChatWs {
   }
 }
 
-/** Derive the `/api/v3/ws` WebSocket URL from a server base URL (or pass a full ws URL through). */
-function toWsV3Url(base: string): string {
+/** Derive the `/api/v1/ws` WebSocket URL from a server base URL (or pass a full ws URL through). */
+function toWsV1Url(base: string): string {
   const url = new URL(base);
   if (url.protocol === 'http:') url.protocol = 'ws:';
   else if (url.protocol === 'https:') url.protocol = 'wss:';
   if (url.protocol !== 'ws:' && url.protocol !== 'wss:') {
     throw new Error(`unsupported URL scheme for WS transport: ${base}`);
   }
-  if (!url.pathname.endsWith('/api/v3/ws')) {
-    url.pathname = `${url.pathname.replace(/\/$/, '')}/api/v3/ws`;
+  if (!url.pathname.endsWith('/api/v1/ws')) {
+    url.pathname = `${url.pathname.replace(/\/$/, '')}/api/v1/ws`;
   }
   url.search = '';
   url.hash = '';

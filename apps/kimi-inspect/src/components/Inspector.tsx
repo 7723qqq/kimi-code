@@ -22,8 +22,8 @@ import { useConnection } from '../connection';
 import { t } from '../i18n';
 import { type AnyService } from '../panels';
 import { fetchAgentRuntimeBinding } from '../snapshots/api';
-import { fetchFullHistory } from '../transcript/api';
 import { projectPlans, type PlanInfo } from '../transcript/plan';
+import type { ChatState } from '../transcript/store';
 import { ActionButton, Badge, ErrorLine } from '../ui';
 import { ScopePanels } from './ServicePanels';
 
@@ -32,11 +32,14 @@ export function Inspector({
   agentId,
   onAgentChange,
   ready,
+  chatState,
 }: {
   sessionId: string | null;
   agentId: string;
   onAgentChange: (agentId: string) => void;
   ready: boolean;
+  /** The chat view's projected timeline; the plan lookup reads it instead of fetching. */
+  chatState?: ChatState | undefined;
 }) {
   const { klient } = useConnection();
 
@@ -173,7 +176,7 @@ export function Inspector({
               </div>
               {runtimeBinding.isError ? <ErrorLine error={runtimeBinding.error} /> : null}
             </div>
-            <PlanCard sessionId={sessionId} agentId={effectiveAgent} />
+            <PlanCard sessionId={sessionId} agentId={effectiveAgent} chatState={chatState} />
             <ScopePanels
               scope="agent"
               proxyFor={proxyFor}
@@ -194,8 +197,15 @@ export function Inspector({
 // like everything else here.
 // ---------------------------------------------------------------------------
 
-function PlanCard({ sessionId, agentId }: { sessionId: string; agentId: string }) {
-  const { baseUrl, config } = useConnection();
+function PlanCard({
+  sessionId,
+  agentId,
+  chatState,
+}: {
+  sessionId: string;
+  agentId: string;
+  chatState?: ChatState | undefined;
+}) {
   const [toolCallId, setToolCallId] = useState('');
   const [result, setResult] = useState<readonly PlanInfo[] | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -208,19 +218,17 @@ function PlanCard({ sessionId, agentId }: { sessionId: string; agentId: string }
     setError(null);
   }, [sessionId, agentId]);
 
-  const query = async () => {
+  const query = () => {
     setLoading(true);
     try {
       setError(null);
-      const token = config.token.trim();
-      const messages = await fetchFullHistory({
-        baseUrl,
-        token: token === '' ? undefined : token,
-        sessionId,
-        agentId,
-      });
+      if (chatState === undefined) {
+        setResult(null);
+        setError(new Error('open the session in the chat view first — plans are read from its timeline'));
+        return;
+      }
       const id = toolCallId.trim();
-      setResult(projectPlans(messages, id === '' ? undefined : id));
+      setResult(projectPlans(chatState.entries, chatState.interactions, id === '' ? undefined : id));
     } catch (error) {
       setResult(null);
       setError(error);
@@ -243,10 +251,10 @@ function PlanCard({ sessionId, agentId }: { sessionId: string; agentId: string }
             value={toolCallId}
             onChange={(e) => setToolCallId(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') void query();
+              if (e.key === 'Enter') query();
             }}
           />
-          <ActionButton disabled={loading} onClick={() => void query()}>
+          <ActionButton disabled={loading} onClick={() => query()}>
             {loading ? 'Loading…' : 'Query'}
           </ActionButton>
         </div>

@@ -16,23 +16,6 @@
  *     functions in the crate's binding modules.
  *   - Config keys: `packages/node-sdk/src/config-local/schema.ts` top-level
  *     keys vs the `KimiConfig` fields/aliases in `src/config/mod.rs`.
- *   - v3 messages: `packages/kimi-agent/v3-message-contract.json` — the frozen
- *     snapshot of upstream's flat-entity union, per-variant fields included —
- *     vs the message enums and payload structs in `src/server/v3/messages.rs`.
- *     The snapshot is also re-checked against upstream's own schemas — from the
- *     gitignored `.tmp/v2-ref` extraction when present, otherwise from the
- *     `upstream/main` git ref — which is what keeps a hand-transcribed snapshot
- *     from rotting between refreshes. When neither source is available the
- *     cross-check is skipped with a visible note instead of passing quietly.
- *
- * The client-facing event *vocabulary* is not duplicated here: it is already
- * pinned by `ws-event-contract.json` plus the Rust `web_events.rs` test and
- * `packages/protocol`'s event-contract test.
- *
- * Exit code 0 when every surface is in sync, 1 otherwise. The REST matcher is
- * heuristic (it understands literal routes and `starts_with`/`ends_with`/
- * `contains` guards); a genuine false positive should be fixed by teaching the
- * matcher, not by weakening the contract.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -48,9 +31,6 @@ const WsEventContract = JSON.parse(
 );
 const ToolNameContract = JSON.parse(
   readFileSync(join(AGENT, 'tool-name-contract.json'), 'utf8'),
-);
-const V3MessageContract = JSON.parse(
-  readFileSync(join(AGENT, 'v3-message-contract.json'), 'utf8'),
 );
 
 /**
@@ -344,73 +324,6 @@ function collectRustStructFields(structName) {
   return fields;
 }
 
-/**
- * The v3 message enums and, per variant, the payload struct it wraps and the
- * wire names of that struct's fields. Each variant is internally tagged
- * (`#[serde(tag = "type")]`) and holds a newtype payload, which serde flattens
- * alongside the tag — so the struct's fields *are* the variant's wire fields.
- */
-function collectRustV3Messages() {
-  const text = read(join(AGENT, 'src/server/v3/messages.rs'));
-
-  const enumBody = (name) => {
-    const start = text.indexOf(('pub enum ' + name + ' {'));
-    if (start < 0) return '';
-    return text.slice(start, text.indexOf('\n}', start));
-  };
-  const structFields = (structName) => {
-    const start = text.indexOf(('pub struct ' + structName + ' {'));
-    if (start < 0) return null;
-    const body = text.slice(start, text.indexOf('\n}', start));
-    const fields = new Set();
-    for (const m of body.matchAll(
-      /(?:#\[serde\(rename = "([^"]+)"\)\]\s*)?pub\s+([a-z_0-9]+)\s*:/g,
-    )) {
-      fields.add(m[1] ?? m[2]);
-    }
-    return fields;
-  };
-  const collect = (enumName) => {
-    const variants = new Map();
-    for (const m of enumBody(enumName).matchAll(
-      /#\[serde\(rename = "([^"]+)"\)\]\s*\n\s*\w+\((\w+)\)/g,
-    )) {
-      variants.set(m[1], { struct: m[2], fields: structFields(m[2]) });
-    }
-    return variants;
-  };
-  return { server: collect('ServerMessage'), client: collect('ClientMessage') };
-}
-
-/**
- * Upstream's v3 message sources for the snapshot cross-check: the gitignored
- * `.tmp/v2-ref` extraction when present, otherwise the `upstream/main` git ref.
- * Returns null when neither is available.
- */
-function readUpstreamV3Sources() {
-  const dir = 'packages/kap-server/src/protocol/messages';
-  const localDir = join(ROOT, '.tmp/v2-ref', dir);
-  if (existsSync(localDir)) {
-    return {
-      sources: readdirSync(localDir).map((file) => read(join(localDir, file))),
-      revision: 'local .tmp/v2-ref',
-    };
-  }
-  const ref = process.env.KIMI_UPSTREAM_REF ?? 'upstream/main';
-  const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' });
-  try {
-    const revision = git('rev-parse', '--short', ref).trim();
-    const sources = git('ls-tree', '--name-only', `${ref}:${dir}`)
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line !== '')
-      .map((file) => git('show', `${ref}:${dir}/${file}`));
-    return { sources, revision };
-  } catch {
-    return null;
-  }
-}
-
 function main() {
   /** @type {string[]} */
   const failures = [];
@@ -534,55 +447,6 @@ function main() {
       failures.push(`NLLM  ${field} is a stale KNOWN_NATIVE_LLM_FIELD_GAPS entry`);
   }
 
-  // ── v3 flat-entity messages ─────────────────────────────────────────────
-  // The v3 contract is a frozen snapshot of upstream's union, so this checks it
-  // both ways against the Rust types, and — when the upstream extraction is
-  // available locally — against upstream itself.
-  const rustV3 = collectRustV3Messages();
-  for (const [label, declared, actual] of [
-    ['server', V3MessageContract.server, rustV3.server],
-    ['client', V3MessageContract.client, rustV3.client],
-  ]) {
-    for (const variant of declared) {
-      const found = actual.get(variant.type);
-      if (!found) {
-        failures.push(`V3    ${label} variant ${variant.type} is in the mirror but not in the Rust enum`);
-        continue;
-      }
-      if (!found.fields) {
-        failures.push(`V3    ${label} variant ${variant.type} wraps no payload struct ${found.struct}`);
-        continue;
-      }
-      for (const field of variant.fields ?? []) {
-        if (!found.fields.has(field.name))
-          failures.push(`V3    ${label} variant ${variant.type} is missing the field ${field.name}`);
-      }
-    }
-    for (const tag of actual.keys()) {
-      if (!declared.some((v) => v.type === tag))
-        failures.push(`V3    ${label} variant ${tag} is in the Rust enum but not in the mirror`);
-    }
-  }
-  if (!V3MessageContract.upstream?.commit || !V3MessageContract.upstream?.designRevision) {
-    failures.push('V3    the mirror does not record the upstream commit / design revision it came from');
-  }
-
-  let upstreamV3Note = '';
-  const upstream = readUpstreamV3Sources();
-  if (upstream === null) {
-    upstreamV3Note = ' (upstream cross-check skipped: no .tmp/v2-ref and no upstream ref)';
-  } else {
-    const upstreamTypes = new Set();
-    for (const source of upstream.sources) {
-      for (const m of source.matchAll(/type:\s*z\.literal\('([a-z_.]+)'\)/g)) upstreamTypes.add(m[1]);
-    }
-    for (const variant of [...V3MessageContract.server, ...V3MessageContract.client]) {
-      if (!upstreamTypes.has(variant.type))
-        failures.push(`V3    ${variant.type} is in the mirror but upstream declares no such message`);
-    }
-    upstreamV3Note = ` (upstream ${upstreamTypes.size} literal types seen @ ${upstream.revision})`;
-  }
-
   if (failures.length) {
     console.error('❌ Rust <-> TS interface parity check failed.\n');
     console.error('The two sides disagree on the following surface items:\n');
@@ -593,7 +457,7 @@ function main() {
 
   console.log('✅ Rust <-> TS interface parity OK:');
   console.log(
-    `   REST ${tsEndpoints.length} endpoints | WS events server=${WsEventContract.serverEvents.length} (web-only no-ops=${webOnly.length}) | WS ctl ${tsClientOps.size} client ops | tools ${nativeGroups.reduce((n, g) => n + (ToolNameContract[g]?.length ?? 0), 0)} | napi ${dtsNapi.size} | config ${tsConfigKeys.length} keys | model ${tsModelFields.size}/${rustModelFields.size} fields | nllm ${tsNativeLlm.size}/${rustResolvedLlm.size} fields | v3 ${V3MessageContract.server.length}+${V3MessageContract.client.length} messages${upstreamV3Note}${upstreamModelNote}`,
+    `   REST ${tsEndpoints.length} endpoints | WS events server=${WsEventContract.serverEvents.length} (web-only no-ops=${webOnly.length}) | WS ctl ${tsClientOps.size} client ops | tools ${nativeGroups.reduce((n, g) => n + (ToolNameContract[g]?.length ?? 0), 0)} | napi ${dtsNapi.size} | config ${tsConfigKeys.length} keys | model ${tsModelFields.size}/${rustModelFields.size} fields | nllm ${tsNativeLlm.size}/${rustResolvedLlm.size} fields${upstreamModelNote}`,
   );
 }
 

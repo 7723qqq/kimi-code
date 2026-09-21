@@ -32,6 +32,7 @@ import { FsSuggestView } from './components/FsSuggestView';
 import { ModelCatalogView } from './components/ModelCatalogView';
 import { NavRail, type AppView } from './components/NavRail';
 import { RightPanel } from './components/RightPanel';
+import type { ChatState } from './transcript/store';
 import { SearchView } from './components/SearchView';
 import { ServerSwitcher } from './components/ServerSwitcher';
 import { Sidebar } from './components/Sidebar';
@@ -49,6 +50,7 @@ export function App() {
   const [resumeError, setResumeError] = useState<unknown>(null);
   /** Audit trail of the chat view's transcript channel, rendered in the right dock. */
   const [trail, setTrail] = useState<AuditTrail | null>(null);
+  const [chatState, setChatState] = useState<ChatState | null>(null);
   /** Pending chat navigation requested from another view (search result click). */
   const [jump, setJump] = useState<ChatJump | null>(null);
 
@@ -151,6 +153,7 @@ export function App() {
                 agentId={agentId}
                 ready={ready}
                 onTrailChange={setTrail}
+                onStateChange={setChatState}
                 jump={jump}
                 onJumpHandled={() => setJump(null)}
                 onOpenSearchHit={openSearchHit}
@@ -162,6 +165,7 @@ export function App() {
               onAgentChange={setAgentId}
               ready={ready}
               trail={trail}
+              chatState={chatState ?? undefined}
             />
           </>
         )}

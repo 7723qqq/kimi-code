@@ -3,10 +3,16 @@
  * and tail-preserving truncation used by the chat view's audit panel.
  */
 
-import type { StepMessage, TurnMessage } from '@moonshot-ai/protocol/v3';
+import type { TranscriptOpBatch } from '@moonshot-ai/transcript';
 import { describe, expect, it } from 'vitest';
 
-import { EMPTY_CHAT_STATE, type ChatState } from '../transcript/store';
+import {
+  EMPTY_CHAT_STATE,
+  type ChatState,
+  type StepMessage,
+  type TimelineMessage,
+  type TurnMessage,
+} from '../transcript/store';
 import { diffValue, type DiffNode } from './diff';
 import { serializeState } from './serialize';
 import { AuditTrail, AUDIT_TRAIL_MAX_ENTRIES } from './trail';
@@ -23,9 +29,6 @@ function ts(): number {
 function turnMsg(n: number, status: 'running' | 'completed' = 'completed'): TurnMessage {
   return {
     type: 'turn',
-    session_id: 's1',
-    agent_id: 'main',
-    timestamp: ts(),
     turn_id: `t${n}`,
     ordinal: n,
     status,
@@ -36,9 +39,6 @@ function turnMsg(n: number, status: 'running' | 'completed' = 'completed'): Turn
 function stepMsg(stepId: string, status: 'running' | 'completed'): StepMessage {
   return {
     type: 'step',
-    session_id: 's1',
-    agent_id: 'main',
-    timestamp: ts(),
     step_id: stepId,
     turn_id: stepId.split('.')[0] ?? 't1',
     ordinal: Number(stepId.split('.')[1] ?? '1'),
@@ -46,15 +46,22 @@ function stepMsg(stepId: string, status: 'running' | 'completed'): StepMessage {
   };
 }
 
-function stateWithTimeline(items: readonly (TurnMessage | StepMessage)[]): ChatState {
+function stateWithTimeline(items: readonly TimelineMessage[]): ChatState {
   return {
     ...EMPTY_CHAT_STATE,
     entries: items.map((message) => ({
-      key: message.type === 'turn' ? `turn:${message.turn_id}` : `step:${message.step_id}`,
+      key:
+        message.type === 'turn'
+          ? `turn:${message.turn_id}`
+          : message.type === 'step'
+            ? `step:${message.step_id}`
+            : `frame:${'id' in message ? message.id : message.tool_call_id}`,
       message,
     })),
   };
 }
+
+const emptyBatch = (agentId = 'main'): TranscriptOpBatch => ({ agentId, ops: [] });
 
 // ---------------------------------------------------------------- diff
 
@@ -131,25 +138,23 @@ describe('diffValue', () => {
     expect(diffValue([1], { 0: 1 }).status).toBe('modified');
   });
 
-  it('diffs two serialized states with session.state changes visible', () => {
+  it('diffs two serialized states with meta changes visible', () => {
     const base = stateWithTimeline([turnMsg(1)]);
     const prev = serializeState(base);
     const nextState: ChatState = {
       ...base,
-      sessionState: {
-        type: 'session.state',
-        session_id: 's1',
-        timestamp: ts(),
-        status: 'running',
+      meta: {
         goal: { objective: 'ship it', status: 'active' },
-        modes: { plan: { review_path: '/tmp/plan.md' } },
+        modes: { plan: { reviewPath: '/tmp/plan.md' } },
       },
     };
     const node: DiffNode = diffValue(prev, serializeState(nextState));
     expect(node.children?.get('timeline')?.status).toBe('unchanged');
-    const sessionState = node.children?.get('sessionState');
-    expect(sessionState?.status).toBe('added');
-    expect(sessionState?.children).toBeUndefined();
+    const meta = node.children?.get('meta');
+    // The empty baseline carries `meta: {}`, so the first real meta is a
+    // modification of that empty object rather than an add.
+    expect(meta?.status).toBe('modified');
+    expect(meta?.children?.get('goal')?.status).toBe('added');
   });
 });
 
@@ -161,34 +166,8 @@ describe('serializeState', () => {
       ...EMPTY_CHAT_STATE,
       entries: stateWithTimeline([turnMsg(1)]).entries,
       tasks: new Map([
-        [
-          'b-task',
-          {
-            type: 'task',
-            session_id: 's1',
-            agent_id: 'main',
-            timestamp: ts(),
-            task_id: 'b-task',
-            kind: 'shell',
-            status: 'running',
-            detached: false,
-            output_tail: '',
-          },
-        ],
-        [
-          'a-task',
-          {
-            type: 'task',
-            session_id: 's1',
-            agent_id: 'main',
-            timestamp: ts(),
-            task_id: 'a-task',
-            kind: 'tool',
-            status: 'completed',
-            detached: false,
-            output_tail: '',
-          },
-        ],
+        ['b-task', { taskId: 'b-task', kind: 'shell', state: 'running', detached: false, outputTail: '' }],
+        ['a-task', { taskId: 'a-task', kind: 'tool', state: 'completed', detached: false, outputTail: '' }],
       ]),
     };
     const out = serializeState(state);
@@ -222,16 +201,16 @@ describe('AuditTrail', () => {
     const trail = new AuditTrail();
     const s1 = stateWithTimeline([turnMsg(1)]);
     const s2 = stateWithTimeline([turnMsg(1), turnMsg(2)]);
-    trail.recordRest({ pageSize: 500 }, 'replace', 1, { turn_id: 't1', step_id: 't1.1' }, s1);
-    trail.recordWs(turnMsg(2, 'running'), s2);
+    trail.recordOps('main', 'reset', { agentId: 'main', ops: [] }, s1);
+    trail.recordOps('main', 'live', { agentId: 'main', ops: [] }, s2);
     trail.recordEvent('prompt', 'hello', s2);
 
     const entries = trail.getEntries();
-    expect(entries.map((entry) => entry.kind)).toEqual(['rest', 'ws', 'event']);
+    expect(entries.map((entry) => entry.kind)).toEqual(['ops', 'ops', 'event']);
     expect(entries.map((entry) => entry.index)).toEqual([0, 1, 2]);
     expect(entries[0]!.state).toBe(s1);
     expect(entries[1]!.state).toBe(s2);
-    expect(entries[0]).toMatchObject({ mode: 'replace', messageCount: 1 });
+    expect(entries[0]).toMatchObject({ mode: 'reset', opCount: 0 });
     expect(entries[2]).toMatchObject({ event: 'prompt', detail: 'hello' });
     expect(entries.every((entry) => typeof entry.at === 'string' && entry.at.length > 0)).toBe(
       true,

@@ -1,24 +1,20 @@
 /**
- * Plan derivation from the message stream — the new-protocol replacement
- * for the removed `GET /transcript/plan` endpoint.
+ * Plan derivation from the timeline — the v1 replacement for the removed
+ * `GET /transcript/plan` endpoint and the v3 plan entities.
  *
- * Under the message protocol there is no plan lookup endpoint; the data
- * lives in the timeline itself: the EnterPlanMode/ExitPlanMode tool calls,
- * the approval interaction that carries the review (its
+ * The data lives in the timeline itself: the ExitPlanMode tool calls, the
+ * approval interaction that carries the review (its
  * `request.tool_input_display` holds the `plan_review` display payload with
  * the plan content, path and offered options; its `response` holds the
  * decision, selected label and feedback), and the `system(plan.revision)`
- * version marker (its payload path points at the plan document).
- * `session.state.modes.plan` mirrors the current mode/revision over the WS
- * but is not part of REST history, so derivation here runs purely over a
- * history message list (in timeline order).
+ * version marker (its payload path points at the plan document). Derivation
+ * runs over the projected timeline plus the interaction map the store
+ * carries, both in timeline order.
  */
 
-import type {
-  InteractionMessage,
-  ToolCallMessage,
-  V3HistoryMessage,
-} from '@moonshot-ai/protocol/v3';
+import type { TranscriptInteraction } from '@moonshot-ai/transcript';
+
+import type { TimelineEntry, ToolCallMessage } from './model';
 
 export interface PlanReview {
   readonly state: 'pending' | 'approved' | 'rejected' | 'cancelled';
@@ -38,23 +34,25 @@ export interface PlanInfo {
 }
 
 export function projectPlans(
-  messages: readonly V3HistoryMessage[],
+  messages: readonly TimelineEntry[],
+  interactions?: ReadonlyMap<string, TranscriptInteraction>,
   toolCallId?: string,
 ): PlanInfo[] {
-  const interactions: InteractionMessage[] = [];
+  const interactionList = interactions === undefined ? [] : [...interactions.values()];
   const revisionPaths: string[] = [];
-  for (const message of messages) {
-    if (message.type === 'interaction') interactions.push(message);
-    if (message.type === 'system' && message.subtype === 'plan.revision') {
-      const path = readRevisionPath(message.payload);
+  for (const entry of messages) {
+    const message = entry.message;
+    if (message.type === 'system' && message.kind === 'plan.revision') {
+      const path = readRevisionPath(message.text);
       if (path !== undefined) revisionPaths.push(path);
     }
   }
   const plans: PlanInfo[] = [];
-  for (const message of messages) {
+  for (const entry of messages) {
+    const message = entry.message;
     if (message.type !== 'tool_call' || message.name !== 'ExitPlanMode') continue;
     if (toolCallId !== undefined && message.tool_call_id !== toolCallId) continue;
-    const info = projectPlanCall(message, interactions);
+    const info = projectPlanCall(message, interactionList);
     if (info === undefined) continue;
     plans.push(
       info.path === undefined && revisionPaths.length > 0
@@ -67,17 +65,20 @@ export function projectPlans(
 
 function projectPlanCall(
   call: ToolCallMessage,
-  interactions: readonly InteractionMessage[],
+  interactions: readonly TranscriptInteraction[],
 ): PlanInfo | undefined {
   const interaction = interactions.find(
     (candidate) =>
-      candidate.kind === 'approval' &&
-      (candidate.interaction_id === call.approval_id ||
-        (call.approval_id === undefined && candidate.tool_call_id === call.tool_call_id)),
+      candidate.interactionKind === 'approval' &&
+      (candidate.interactionId === call.approval_id ||
+        (call.approval_id === undefined && candidate.toolCallId === call.tool_call_id)),
   );
   const review = readPlanReview(interaction);
-  if (interaction !== undefined && interaction.kind === 'approval') {
-    const fromInteraction = readPlanReviewDisplay(interaction.request?.tool_input_display);
+  if (interaction !== undefined && interaction.interactionKind === 'approval') {
+    const request = interaction.request as
+      | { tool_input_display?: unknown }
+      | undefined;
+    const fromInteraction = readPlanReviewDisplay(request?.tool_input_display);
     if (fromInteraction !== undefined) {
       return {
         toolCallId: call.tool_call_id,
@@ -87,16 +88,6 @@ function projectPlanCall(
         review,
       };
     }
-  }
-  const fromDisplay = readPlanReviewDisplay(call.display);
-  if (fromDisplay !== undefined) {
-    return {
-      toolCallId: call.tool_call_id,
-      turnId: call.turn_id,
-      source: 'display',
-      ...fromDisplay,
-      review,
-    };
   }
   const fromOutput = parsePlanFromOutput(call.output);
   if (fromOutput !== undefined) {
@@ -111,9 +102,9 @@ function projectPlanCall(
   return undefined;
 }
 
-function readPlanReview(interaction: InteractionMessage | undefined): PlanReview | undefined {
-  if (interaction === undefined || interaction.kind !== 'approval') return undefined;
-  const state = interaction.status;
+function readPlanReview(interaction: TranscriptInteraction | undefined): PlanReview | undefined {
+  if (interaction === undefined || interaction.interactionKind !== 'approval') return undefined;
+  const state = interaction.state;
   if (
     state !== 'pending' &&
     state !== 'approved' &&
@@ -122,7 +113,9 @@ function readPlanReview(interaction: InteractionMessage | undefined): PlanReview
   ) {
     return undefined;
   }
-  const response = interaction.response;
+  const response = interaction.response as
+    | { selected_label?: unknown; feedback?: unknown }
+    | undefined;
   const selected =
     typeof response?.selected_label === 'string' && response.selected_label.length > 0
       ? response.selected_label
@@ -166,10 +159,9 @@ function readPlanReviewDisplay(display: unknown): PlanReviewDisplayInfo | undefi
   };
 }
 
-function readRevisionPath(payload: unknown): string | undefined {
-  if (payload === null || typeof payload !== 'object') return undefined;
-  const path = (payload as { path?: unknown }).path;
-  return typeof path === 'string' && path.length > 0 ? path : undefined;
+function readRevisionPath(text: string): string | undefined {
+  const path = text.startsWith('path:') ? text.slice('path:'.length).trim() : text.trim();
+  return path.length > 0 ? path : undefined;
 }
 
 const PLAN_SAVED_TO_MARKER = 'Plan saved to: ';

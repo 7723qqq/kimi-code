@@ -1908,3 +1908,63 @@ Vertex 供应商落进 Chat Completions，同一引擎对同一类型给出两�
   `server::tests` 的 workspace 生命周期 1/2 两步 + `ws_v3` 12 项全绿。
   `ws_v3.rs:373` 那句「workspace lane 与 plugin 事件尚不存在」的注释
   已就地更正（折叠臂就在其下方 40 行）。
+
+### 8.11 跟随上游 revert v3 扁平实体协议（2026-09-21，用户决策「不值得」）
+
+**上游动作**：`2502d2157`（2026-09-19，随 **2.0.2** 发布）整体 revert 了 `64505e36e`
+（2026-09-10，随 **0.43.0** 引入）的 v3 扁平实体消息协议。PR #3920 给出的理由：
+v3 是「先平行落地、再拆旧面」迁移的前半程，而**后半程（拆 v1 WS + transcript）
+始终没落地**，于是 main 长期并存两套协议栈，而 v1 是官方客户端（CLI、desktop）
+与仓内消费方唯一在用、唯一在收修复的面；此后每个 kap-server 改动都要同时伺候两套。
+上游定性：v3 没有 shipped client 消费，删掉用户无感（故不需要 changeset）。
+
+**用户决策**：v3 的优势（live 与 history 同形状、实体 id 客户端可自算、按 turn 分页、
+全局 lane 实体、定义完整的边缘词汇）全部是**客户端复杂度**收益，fork 里只有
+kimi-inspect 一个客户端兑现；而最大的消费方 dist-web 是说 v1 的**同步预构建
+bundle**、fork 无权改其协议，所以单一协议面永远不可达。结论：不值得独养一套协议。
+
+**落地（删）**：
+- 引擎：`server/ws_v3.rs`、`server/v3/`（entity/history/live/messages/mod/
+  projection/route 七文件）、`v3-message-contract.json`、`server/mod.rs` 的
+  history 路由臂（`extract_session_action(p, "history")`）与模块声明、
+  `http.rs` 的 v3 升级臂、`engine.rs` 的 `in_flight` 注册表（字段 +
+  `record_step` / `in_flight()` / turn 内的 step tracker 闭包 + turn 末清除；
+  `MessageCallbacks::with_step_tracker` 本身是多处使用的通用机制，保留）、
+  `publish_config_warnings` 文档注释里的 v3 措辞。
+- 契约：`packages/protocol/src/v3.ts` + `./v3` 子路径导出 + `index.ts` 的
+  `export * from './v3'` + `src/__tests__/v3.test.ts`。
+- 门禁：`scripts/scan-parity.mjs` 的 v3 维度（契约加载、`collectRustV3Messages`、
+  `readUpstreamV3Sources`、main 里的双向检查块、汇总行的 v3 段）。
+
+**落地（kimi-inspect 回退 v1 transcript 模型，用户选 A：audit 面板重写保留）**：
+- `transcript/ws.ts` 重写为 `/api/v1/ws` 客户端：`client_hello` →
+  `subscribe_v2 {transcript:{agent:'delta'}, transcript_since:{agent:seq}}` →
+  `ack` → `transcript.reset` + `transcript.ops`；控制帧按 `kind` 分发（ack/error），
+  数据帧按 `type`；重连带上已应用的 seq，reset 把该 agent 的游标归零。
+- `transcript/store.ts` 重写：持有一个 `AgentState`，`applyReset` / `applyBatch`
+  经 `applyOperation` 折叠后投影；导出面（`ChatState` / `TimelineEntry` /
+  `hasTurnId` / `newestTerminalStepId` / `oldestTurnId`）不变，ChatView 零改动。
+- `transcript/model.ts`（新）：本地视图模型 + `projectChatState` 投影
+  （turn/step/text/thinking/tool/notice/marker/taskref → 七种 TimelineMessage），
+  `meta` 供徽章读取。
+- `transcript/api.ts` 删除（分页 history 路由没了）；`Inspector` 的 Plan 查询
+  改读 ChatView 经 `onStateChange` 上报的 timeline（`plan.ts` 从 ExitPlanMode
+  工具调用 + approval interaction 推导，与上游 revert 后的 kimi-inspect 同源）；
+  ChatView 的翻页链路（sentinel / loadOlder / anchor / jump 的 while）整条移除
+  ——冷重放已含全量。
+- `audit/trail.ts` 重写：`rest` 条目 → `ops` 条目（reset/live/replay 三种 mode，
+  记录 op 批次），`ws` 条目记录 reset/ops 帧；`AuditPanel` / `serialize` 随之适配，
+  Diff/State/Event 三视图与时间线滑块全部保留。
+- 测试：`transcript.test.ts` 重写为 22 例（握手/游标/reset+ops 折叠/append 的
+  offset 语义/tool 增量是整帧 upsert/items.remove 截断/级联/plan 推导），
+  `audit.test.ts` 14 例、`StateTree.test.tsx` 5 例随之适配。
+
+**验证**：`cargo test --lib` 2728、`--no-default-features --features cli,workflow-js`
+2721 + 集成全绿；fmt、clippy `-D warnings` 0 error；`bun run lint` **0 error**
+（基线为 1）；`scan-parity` OK（config 31 键两侧同步，v3 维度移除）；
+kimi-inspect 106、protocol 555、全量 `bun run test` 492 文件 / 8350 通过。
+
+**与上游的差异（有意）**：fork 的 v1 lane 本就是 `subscribe_v2` + transcript ops
+（与上游同词表），因此回退后两边仍同构；fork 额外保留了三样上游 revert 时没有的
+东西——audit 面板（重写在 ops 批次上）、Plan 查询（从 timeline 推导）、以及
+`transcript/model.ts` 这层本地视图模型（上游直接渲染 transcript item）。

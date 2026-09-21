@@ -26,7 +26,7 @@ import { Badge } from '../../ui';
 import { plainNode, StateTree } from './StateTree';
 
 const KIND_TONE: Record<AuditEntry['kind'], 'sky' | 'green' | 'neutral'> = {
-  rest: 'sky',
+  ops: 'sky',
   ws: 'green',
   event: 'neutral',
 };
@@ -41,15 +41,15 @@ function fmtTime(iso: string): string {
 function EventJson({ entry }: { entry: AuditEntry }) {
   const payload = useMemo(() => {
     switch (entry.kind) {
-      case 'rest':
+      case 'ops':
         return {
-          request: entry.request,
+          agentId: entry.agentId,
           mode: entry.mode,
-          messageCount: entry.messageCount,
-          inFlight: entry.inFlight,
+          opCount: entry.opCount,
+          ops: entry.ops,
         };
       case 'ws':
-        return entry.message;
+        return entry.frame;
       case 'event':
         return { event: entry.event, detail: entry.detail };
     }

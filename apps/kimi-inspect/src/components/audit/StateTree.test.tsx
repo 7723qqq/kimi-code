@@ -7,7 +7,12 @@
  *  2. Whole-subtree adds expand into fully fielded, indented tree rows.
  */
 
-import type { AssistantMessage, StepMessage, TurnMessage } from '@moonshot-ai/protocol/v3';
+import {
+  type AssistantMessage,
+  type StepMessage,
+  type TimelineMessage,
+  type TurnMessage,
+} from '../../transcript/store';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
@@ -24,26 +29,20 @@ function ts(): number {
   return T0 + tick * 1000;
 }
 
-function turnMsg(n: number, text?: string): TurnMessage {
+function turnMsg(n: number, prompt?: string): TurnMessage {
   return {
     type: 'turn',
-    session_id: 's1',
-    agent_id: 'main',
-    timestamp: ts(),
     turn_id: `t${n}`,
     ordinal: n,
     status: 'completed',
     origin: { kind: 'user' },
-    user_message_id: text,
+    prompt,
   };
 }
 
 function stepMsg(stepId: string): StepMessage {
   return {
     type: 'step',
-    session_id: 's1',
-    agent_id: 'main',
-    timestamp: ts(),
     step_id: stepId,
     turn_id: stepId.split('.')[0] ?? 't0',
     ordinal: Number(stepId.split('.')[1] ?? '1'),
@@ -54,20 +53,14 @@ function stepMsg(stepId: string): StepMessage {
 function assistantMsg(stepId: string, text: string): AssistantMessage {
   return {
     type: 'assistant',
-    session_id: 's1',
-    agent_id: 'main',
-    timestamp: ts(),
-    message_id: `${stepId}.a0`,
+    id: `${stepId}.a0`,
     turn_id: stepId.split('.')[0] ?? 't0',
     step_id: stepId,
-    status: 'streaming',
     text,
   };
 }
 
-type FlatMessage = TurnMessage | StepMessage | AssistantMessage;
-
-function stateWithTimeline(items: readonly FlatMessage[]): ChatState {
+function stateWithTimeline(items: readonly TimelineMessage[]): ChatState {
   return {
     ...EMPTY_CHAT_STATE,
     entries: items.map((message) => ({
@@ -76,7 +69,7 @@ function stateWithTimeline(items: readonly FlatMessage[]): ChatState {
           ? `turn:${message.turn_id}`
           : message.type === 'step'
             ? `step:${message.step_id}`
-            : `assistant:${message.message_id}`,
+            : `frame:${'id' in message ? message.id : message.tool_call_id}`,
       message,
     })),
   };
@@ -107,7 +100,7 @@ describe('StateTree', () => {
     );
     const html = renderToStaticMarkup(<StateTree root={root} />);
     expect(html).not.toContain('{"type"');
-    for (const field of ['turn_id', 'ordinal', 'status', 'origin', 'timestamp', 'agent_id']) {
+    for (const field of ['turn_id', 'ordinal', 'status', 'origin']) {
       expect(html).toContain(field);
     }
     expect(html).toContain('HELLO');
@@ -140,7 +133,7 @@ describe('StateTree', () => {
         defaultDepth={2}
       />,
     );
-    for (const field of ['timeline', 'interactions', 'tasks', 'todos', 'hasMoreOlder']) {
+    for (const field of ['timeline', 'interactions', 'tasks', 'todos', 'meta', 'hasMoreOlder']) {
       expect(html).toContain(field);
     }
     expect(html).not.toContain('{"type"');
