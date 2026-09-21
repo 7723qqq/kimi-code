@@ -19,7 +19,7 @@ Common keys:
 | `Space` | Enable or disable the selected installed plugin (Installed tab) |
 | `D` | Remove the selected installed plugin (Installed tab) |
 | `M` | Manage MCP servers for the selected plugin (Installed tab) |
-| `R` | Reload `installed.json` and all manifests (Installed tab) |
+| `R` | Reload the plugin registry and all manifests (Installed tab) |
 | `Enter` | Installed: update if available, or view details · Official/Curated: install or update · Custom: install |
 | `I` | View plugin details (Installed tab) |
 | `Esc` | Go back or cancel |
@@ -36,7 +36,7 @@ You can also use slash commands directly:
 | `/plugins enable <id>` | Enable a plugin |
 | `/plugins disable <id>` | Disable a plugin |
 | `/plugins remove <id>` | Remove a plugin (requires confirmation) |
-| `/plugins reload` | Reload `installed.json` and all plugin manifests |
+| `/plugins reload` | Reload the plugin registry and all plugin manifests |
 | `/plugins mcp enable <id> <server>` | Enable an MCP server declared by a plugin |
 | `/plugins mcp disable <id> <server>` | Disable an MCP server declared by a plugin |
 

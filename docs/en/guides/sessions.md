@@ -4,25 +4,33 @@ Kimi Code CLI persists every conversation as a "session" — storing message his
 
 ## Session storage
 
-All sessions are saved under `$KIMI_CODE_HOME/sessions/` (default: `~/.kimi-code/sessions/`), grouped by working directory:
+All sessions are saved under `$KIMI_CODE_HOME/sessions/` (default: `~/.kimi-code/sessions/`), one directory per session:
 
 ```text
 ~/.kimi-code/
 ├── config.toml
-├── session_index.jsonl
-└── sessions/
-    └── <workDirKey>/
-        └── <sessionId>/
-            ├── state.json
-            └── agents/
-                ├── main/
-                │   └── wire.jsonl
-                └── <subagentId>/
-                    └── wire.jsonl
+├── logs/
+│   └── kimi-code.log       # global diagnostic log
+├── sessions/
+│   └── <sessionId>/
+│       ├── session-meta.json
+│       ├── history.jsonl
+│       └── logs/
+│           └── kimi-code.log
+├── agent/
+│   └── sessions.db         # app-scope engine store (SQLite)
+└── engine-state/
+    └── <workspace-key>/
+        └── state/
 ```
 
-- `state.json`: session metadata such as title and creation time.
-- `agents/*/wire.jsonl`: the agent event stream, used for session recovery and replay. It also carries a request trace — the tool schemas, request parameters, and MCP tool listings sent to the model — for debugging.
+- `session-meta.json`: session metadata such as title, `lastPrompt`, and `forkedFrom`.
+- `history.jsonl`: the message history the SDK persists for session resumption.
+- `logs/kimi-code.log`: this session's diagnostic log; only present when a diagnostic event occurs.
+- `agent/sessions.db`: the app-scope engine store — the agent's full conversation history and the plugin registry.
+- `engine-state/<workspace-key>/state/`: engine-local state (todos, plan, goals, scheduled tasks, background tasks), bucketed by a digest of the workspace path.
+
+See [data locations](../configuration/data-locations.md) for the complete layout.
 
 ::: warning
 Do not manually edit files inside the `sessions/` directory — doing so may prevent sessions from being restored correctly.

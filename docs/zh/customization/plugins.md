@@ -19,7 +19,7 @@ Plugins 把可复用的 Kimi Code CLI 能力打包成可安装单元：可以添
 | `Space` | 启用或禁用选中的已安装 plugin（Installed tab） |
 | `D` | 移除选中的已安装 plugin（Installed tab） |
 | `M` | 管理选中 plugin 的 MCP servers（Installed tab） |
-| `R` | 重新加载 `installed.json` 和所有 manifest（Installed tab） |
+| `R` | 重新加载插件注册表和所有 manifest（Installed tab） |
 | `Enter` | Installed：有更新时安装更新，否则查看 plugin 详情；Official/Curated：安装或更新；Custom：安装 |
 | `I` | 查看 plugin 详情（Installed tab） |
 | `Esc` | 返回或取消 |
@@ -36,7 +36,7 @@ Plugins 把可复用的 Kimi Code CLI 能力打包成可安装单元：可以添
 | `/plugins enable <id>` | 启用 plugin |
 | `/plugins disable <id>` | 禁用 plugin |
 | `/plugins remove <id>` | 移除 plugin（需二次确认） |
-| `/plugins reload` | 重载 `installed.json` 和各 plugin manifest |
+| `/plugins reload` | 重载插件注册表和各 plugin manifest |
 | `/plugins mcp enable <id> <server>` | 启用 plugin 声明的 MCP server |
 | `/plugins mcp disable <id> <server>` | 禁用 plugin 声明的 MCP server |
 

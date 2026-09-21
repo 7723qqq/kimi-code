@@ -33,18 +33,26 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 ├── mcp.json                # 用户级 MCP server 声明（可选）
 ├── skills/                 # Kimi 专属用户级 Skills（可选）
 ├── plugins/
-│   ├── installed.json      # 已安装 plugin 记录与启用状态
-│   └── managed/            # zip/本地路径安装的 plugin 副本
-├── session_index.jsonl     # 会话索引
+│   └── <id>/               # 远程安装的 plugin 内容（注册表在 agent/sessions.db）
 ├── credentials/            # OAuth 凭据（目录 0700，文件 0600）
 │   ├── <name>.json
 │   └── mcp/
 │       └── <key>-<suffix>.json
 ├── sessions/               # 会话数据（详见下文）
-│   └── <workDirKey>/<sessionId>/
+│   └── <sessionId>/
+├── agent/
+│   └── sessions.db         # 应用级引擎存储：会话与插件注册表（SQLite）
+├── engine-state/
+│   └── <workspace-key>/    # 按工作区路径摘要分桶的引擎本地状态
+│       ├── plans/          # Plan 模式计划文件（<plan-id>.md）
+│       └── state/
+│           ├── todo.json / plan.json / goal.json / cron.json / task.json / turn.json
+│           ├── tasks/<task_id>/output.log   # 后台任务输出
+│           └── checkpoints/<seq>.json       # 状态快照栈
 ├── bin/
 │   ├── rg                  # Grep 使用的托管 ripgrep 二进制（Windows 为 rg.exe）
 │   └── fd                  # 文件引用使用的托管 fd 二进制（Windows 为 fd.exe）
+├── cache/                  # CLI 缓存（如模型目录快照）
 ├── logs/
 │   └── kimi-code.log       # 全局诊断日志
 ├── updates/
@@ -65,23 +73,26 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 - **`AGENTS.md`**：全局 Kimi 专属 Agent 指令。该文件会随 `KIMI_CODE_HOME` 移动；跨工具通用指令仍可放在 `~/.agents/AGENTS.md`。
 - **`mcp.json`**：用户级 MCP server 声明，启动时与项目内的 `.kimi-code/mcp.json` 合并加载。详见 [MCP](../customization/mcp.md)。
 - **`skills/`**：Kimi 专属用户级 Skills。该目录会随 `KIMI_CODE_HOME` 移动；跨工具通用 Skills 仍可放在 `~/.agents/skills/`。详见 [Agent Skills](../customization/skills.md)。
-- **`plugins/installed.json`**：记录已安装的 plugin、每个 plugin 的启用状态，以及通过 `/plugins` 或 `/plugins mcp disable|enable` 修改的 MCP server 能力状态。本地路径和 zip URL 安装的文件会复制到 `plugins/managed/<id>/`。详见 [Plugins](../customization/plugins.md)。
+- **`plugins/<id>/`**：远程安装的 plugin 内容目录。已安装记录、启用状态与 MCP server 能力状态存放在应用级引擎存储 `agent/sessions.db` 的插件注册表里，不再有 `installed.json`。详见 [Plugins](../customization/plugins.md)。
 - **`credentials/`**：OAuth 凭据目录，权限 `0o700`（目录）/ `0o600`（文件），仅当前用户可读写。托管供应商凭据存为 `credentials/<name>.json`，MCP server 凭据存在 `credentials/mcp/` 子目录下。凭据写入使用原子流程（tmp → fsync → rename）防止写损。
 
 ## 会话数据
 
-每个会话的数据存在 `sessions/<workDirKey>/<sessionId>/` 下，同时在顶层 `session_index.jsonl` 里维护一份索引（每行一条记录，含 `sessionId`、`sessionDir`、`workDir` 三个字段）。`workDirKey` 是从工作目录路径生成的桶名，格式为 `wd_<slug>_<sha256前12位>`。
+每个会话的数据存在 `sessions/<sessionId>/` 下（不再有 `workDirKey` 桶层和顶层 `session_index.jsonl` 索引——会话列表由应用级引擎存储 `agent/sessions.db` 维护）。Agent 的完整对话历史存放在引擎的 SQLite 存储里；SDK 在会话目录中保留一份 `history.jsonl` 用于恢复。
 
 会话目录内部包含：
 
-- **`state.json`**：会话标题、`lastPrompt`、创建/更新时间、`forkedFrom` 等元数据。
+- **`session-meta.json`**：会话标题、`lastPrompt`、创建/更新时间、`forkedFrom` 等元数据。
+- **`history.jsonl`**：SDK 持久化的消息历史，用于会话恢复。
 - **`upcoming-goals.json`**：由 `/goal next <objective>` 创建的 TUI 专属队列。它不属于 Agent 对话；只有当前目标完成并提升后续目标后，才会进入 Agent 对话。
-- **`agents/main/wire.jsonl`**：main agent 的完整通信记录，用于会话恢复和回放。
-- **`agents/main/plans/`**：Plan 模式下写入的计划文件，按计划 id 命名（`<id>.md`）。
-- **`agents/agent-0/` 等**：subagent 实例目录，各自含 `wire.jsonl`。
 - **`logs/kimi-code.log`**：该会话的诊断日志，只有发生诊断事件时才存在。
-- **`tasks/`**：后台任务持久化。`tasks/<task_id>.json` 保存状态/pid/退出码，`tasks/<task_id>/output.log` 保存输出。
-- **`cron/`**：定时任务持久化，用 `kimi --session` 恢复会话时重新加载到调度器。详见[定时任务](../reference/tools.md#定时任务)。
+
+引擎的本地状态按工作区路径的摘要分桶，放在 `engine-state/<workspace-key>/` 下：
+
+- **`plans/<plan-id>.md`**：Plan 模式下写入的计划文件。
+- **`state/todo.json` / `plan.json` / `goal.json` / `cron.json` / `task.json` / `turn.json`**：各状态域的持久化（待办、计划、目标、定时任务、后台任务、回合）。用 `kimi --session` 恢复会话时重新加载到调度器。详见[定时任务](../reference/tools.md#定时任务)。
+- **`state/tasks/<task_id>/output.log`**：后台任务的输出日志。
+- **`state/checkpoints/<seq>.json`**：状态快照栈，用于 undo/redo。
 
 ## 内置工具缓存
 
@@ -108,7 +119,7 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 | --- | --- |
 | 重置配置 | 删除 `~/.kimi-code/config.toml` |
 | 重置终端界面偏好 | 删除 `~/.kimi-code/tui.toml` |
-| 清理所有会话 | 删除 `~/.kimi-code/sessions/` 和 `session_index.jsonl` |
+| 清理所有会话 | 删除 `~/.kimi-code/sessions/` 和 `agent/sessions.db` |
 | 清理诊断日志 | 删除 `~/.kimi-code/logs/` |
 | 清理输入历史 | 删除 `~/.kimi-code/user-history/` |
 | 重置更新状态 | 删除 `~/.kimi-code/updates/latest.json` |

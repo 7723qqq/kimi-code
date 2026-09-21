@@ -198,10 +198,10 @@ Global Kimi-specific instructions can live at `$KIMI_CODE_HOME/AGENTS.md` (defau
 
 ## Storage Location in the Session Directory
 
-Sub-agent runtime state is persisted to the `agents/` subdirectory of the current session directory. Each sub-agent instance has its own directory, which contains a `wire.jsonl` file that records prompts, message history, and final state in chronological order. Background sub-agents also expose their lifecycle status through a `tasks/` subdirectory.
+Sub-agent runtime state is persisted in the engine's SQLite store (the `subagent_resume` domain of `agent/sessions.db`), recording prompts, message history, and final state per instance id for cross-process resumption. Background sub-agents expose their lifecycle status through the engine state's task registry (`engine-state/<workspace-key>/state/task.json` and `tasks/<task_id>/output.log`).
 
 ::: warning Note
-Session directories, wire files, and task records are all local debug materials that may contain user prompts, command output, repository paths, tool return values, or traces of credentials. Do not commit these files directly to public repositories, issues, or chat logs; redact sensitive information before sharing.
+Session directories, engine stores, and task records are all local debug materials that may contain user prompts, command output, repository paths, tool return values, or traces of credentials. Do not commit these files directly to public repositories, issues, or chat logs; redact sensitive information before sharing.
 :::
 
 ## Next steps

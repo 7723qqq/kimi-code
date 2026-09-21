@@ -204,10 +204,10 @@ ${plugin_sections}
 
 ## 会话目录中的存储位置
 
-subagent 的运行状态持久化到当前会话目录的 `agents/` 子目录下，每个 subagent 实例对应一个独立目录，其中包含按时间顺序记录提示词、消息历史与最终状态的 `wire.jsonl` 文件。后台 subagent 还会通过 `tasks/` 子目录暴露生命周期状态。
+subagent 的运行状态持久化在引擎的 SQLite 存储里（`agent/sessions.db` 的 `subagent_resume` 域），按实例 id 记录提示词、消息历史与最终状态，用于跨进程恢复。后台 subagent 的生命周期状态通过引擎状态里的任务注册表暴露（`engine-state/<workspace-key>/state/task.json` 与 `tasks/<task_id>/output.log`）。
 
 ::: warning 注意
-会话目录、wire 文件和任务记录都属于本地调试材料，可能包含用户 prompt、命令输出、仓库路径、工具返回内容或凭证痕迹。不要把这些文件直接提交到公开仓库、issue 或聊天记录里；如确需分享，请先脱敏。
+会话目录、引擎存储和任务记录都属于本地调试材料，可能包含用户 prompt、命令输出、仓库路径、工具返回内容或凭证痕迹。不要把这些文件直接提交到公开仓库、issue 或聊天记录里；如确需分享，请先脱敏。
 :::
 
 ## 下一步

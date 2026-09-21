@@ -33,18 +33,26 @@ $KIMI_CODE_HOME  (default: ~/.kimi-code)
 ├── mcp.json                # User-level MCP server declarations (optional)
 ├── skills/                 # Kimi-specific user-level Skills (optional)
 ├── plugins/
-│   ├── installed.json      # Installed plugin records and enabled state
-│   └── managed/            # Plugin copies installed from zip/local paths
-├── session_index.jsonl     # Session index
+│   └── <id>/               # Content of remotely installed plugins (registry in agent/sessions.db)
 ├── credentials/            # OAuth credentials (dir 0700, files 0600)
 │   ├── <name>.json
 │   └── mcp/
 │       └── <key>-<suffix>.json
 ├── sessions/               # Session data (see below)
-│   └── <workDirKey>/<sessionId>/
+│   └── <sessionId>/
+├── agent/
+│   └── sessions.db         # App-scope engine store: sessions and the plugin registry (SQLite)
+├── engine-state/
+│   └── <workspace-key>/    # Engine-local state, bucketed by a digest of the workspace path
+│       ├── plans/          # Plan-mode plan files (<plan-id>.md)
+│       └── state/
+│           ├── todo.json / plan.json / goal.json / cron.json / task.json / turn.json
+│           ├── tasks/<task_id>/output.log   # Background task output
+│           └── checkpoints/<seq>.json       # State snapshot stack
 ├── bin/
 │   ├── rg                  # managed ripgrep binary for Grep (rg.exe on Windows)
 │   └── fd                  # managed fd binary for file references (fd.exe on Windows)
+├── cache/                  # CLI cache (e.g. the model catalog snapshot)
 ├── logs/
 │   └── kimi-code.log       # Global diagnostic log
 ├── updates/
@@ -65,23 +73,26 @@ Each top-level file under the data root serves a specific purpose; most are mana
 - **`AGENTS.md`**: global Kimi-specific agent instructions. This file moves with `KIMI_CODE_HOME`; generic cross-tool instructions can still live under `~/.agents/AGENTS.md`.
 - **`mcp.json`**: user-level MCP server declarations, merged with the project-local `.kimi-code/mcp.json` on startup. See [MCP](../customization/mcp.md).
 - **`skills/`**: Kimi-specific user-level Skills. This directory moves with `KIMI_CODE_HOME`; generic cross-tool Skills can still live under `~/.agents/skills/`. See [Agent Skills](../customization/skills.md).
-- **`plugins/installed.json`**: records installed plugins, each plugin's enabled state, and MCP server capability state changes made via `/plugins` or `/plugins mcp disable|enable`. Files installed from local paths or zip URLs are copied to `plugins/managed/<id>/`. See [Plugins](../customization/plugins.md).
+- **`plugins/<id>/`**: content directory for a remotely installed plugin. Installed records, enabled state, and MCP server capability state live in the plugin registry inside the app-scope engine store `agent/sessions.db`; there is no `installed.json` anymore. See [Plugins](../customization/plugins.md).
 - **`credentials/`**: OAuth credential directory, with permissions `0o700` (directory) / `0o600` (files), readable and writable only by the current user. Managed provider credentials are stored as `credentials/<name>.json`; MCP server credentials are stored under `credentials/mcp/`. Credentials are written using an atomic flow (tmp → fsync → rename) to prevent corruption.
 
 ## Session data
 
-Each session's data is stored under `sessions/<workDirKey>/<sessionId>/`, and a top-level `session_index.jsonl` index is maintained (one record per line, each containing `sessionId`, `sessionDir`, and `workDir`). `workDirKey` is a bucket name derived from the working directory path, in the format `wd_<slug>_<first-12-chars-of-sha256>`.
+Each session's data is stored under `sessions/<sessionId>/` (there is no `workDirKey` bucket layer and no top-level `session_index.jsonl` index anymore — the session list is maintained by the app-scope engine store `agent/sessions.db`). The agent's full conversation history lives in the engine's SQLite store; the SDK keeps a `history.jsonl` copy in the session directory for resumption.
 
 Inside each session directory:
 
-- **`state.json`**: session metadata including title, `lastPrompt`, creation/update timestamps, and `forkedFrom`.
+- **`session-meta.json`**: session metadata including title, `lastPrompt`, creation/update timestamps, and `forkedFrom`.
+- **`history.jsonl`**: the message history persisted by the SDK, used for session resumption.
 - **`upcoming-goals.json`**: the TUI-only queue created by `/goal next <objective>`. It is not part of the agent conversation until a queued goal is promoted after the current goal completes.
-- **`agents/main/wire.jsonl`**: the main Agent's complete communication record, used for session resumption and replay.
-- **`agents/main/plans/`**: plan files written in Plan mode, named by plan id (`<id>.md`).
-- **`agents/agent-0/` etc.**: sub-Agent instance directories, each containing their own `wire.jsonl`.
 - **`logs/kimi-code.log`**: diagnostic log for this session; only present when a diagnostic event occurs.
-- **`tasks/`**: background task persistence. `tasks/<task_id>.json` stores status/pid/exit code; `tasks/<task_id>/output.log` stores output.
-- **`cron/`**: scheduled task persistence; reloaded into the scheduler when the session is resumed with `kimi --session`. See [Scheduled tasks](../reference/tools.md#scheduled-tasks).
+
+Engine-local state is bucketed by a digest of the workspace path under `engine-state/<workspace-key>/`:
+
+- **`plans/<plan-id>.md`**: plan files written in Plan mode.
+- **`state/todo.json` / `plan.json` / `goal.json` / `cron.json` / `task.json` / `turn.json`**: per-domain persistence (todos, plan, goals, scheduled tasks, background tasks, turns). Reloaded into the scheduler when the session is resumed with `kimi --session`. See [Scheduled tasks](../reference/tools.md#scheduled-tasks).
+- **`state/tasks/<task_id>/output.log`**: background task output logs.
+- **`state/checkpoints/<seq>.json`**: the state snapshot stack behind undo/redo.
 
 ## Built-in tool cache
 
@@ -108,7 +119,7 @@ Deleting the data root directory (`~/.kimi-code/` or the path set by `KIMI_CODE_
 | --- | --- |
 | Reset configuration | Delete `~/.kimi-code/config.toml` |
 | Reset terminal UI preferences | Delete `~/.kimi-code/tui.toml` |
-| Clear all sessions | Delete `~/.kimi-code/sessions/` and `session_index.jsonl` |
+| Clear all sessions | Delete `~/.kimi-code/sessions/` and `agent/sessions.db` |
 | Clear diagnostic logs | Delete `~/.kimi-code/logs/` |
 | Clear input history | Delete `~/.kimi-code/user-history/` |
 | Reset update state | Delete `~/.kimi-code/updates/latest.json` |
