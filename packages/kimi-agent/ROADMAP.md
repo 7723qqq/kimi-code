@@ -1889,8 +1889,22 @@ Vertex 供应商落进 Chat Completions，同一引擎对同一类型给出两�
 （显式 base_url → google-genai + `/v1beta` 归一；裸配置不解析）。
 验证：`cargo test --lib` 2812 通过、fmt、clippy `-D warnings` 0。
 
-**复核后仍然开放的**（均为结构性留白，非缺口）：#3532 的
-`workspace`/`capability` 事件无生产者（capability 在引擎侧是 ACP initialize
-的静态清单，没有变更语义可广播；workspace 要等 fork 实现工作区生命周期）、
-#3910 的 `reasoning_details` 盖戳（刻意不移植：`ContentBlock::Think` 没有
-detailsIndex 身份，机械移植会对已重放字段二次重放）。
+**复核后仍然开放的**（均为结构性留白，非缺口）：
+- **`capability` 事件**：v2 自己也只有声明没有生产者——`CapabilityChanged`
+  在 `agent-core-v2/src/app/capability/capabilityEvents.ts` 定义了
+  `event.capability.changed`（`capability_id` + `install` 进度），kap-server
+  有中继臂，但全仓**找不到 `new CapabilityChanged`**，即上游从不发它；
+  且本引擎的 capability 列表是 ACP initialize 的静态集合，没有可广播的
+  变更语义。无可移植，`ws_v3.rs` 模块头的留白说明已改为这个更准确的表述。
+- **#3910 的 `reasoning_details` 盖钉**（刻意不移植：`ContentBlock::Think`
+  没有 detailsIndex 身份，机械移植会对已重放字段二次重放）。
+- ~~#3532 的 `workspace` 事件无生产者~~ **同样是过期表述，本轮证伪**：
+  `server/mod.rs` 四个变更点（create `:4147` / set_trusted / update_name
+  `:4279` / delete `:4305`）都在 global lane 发布
+  `event.workspace.created|updated|deleted`，`ws_v3.rs::translate_global`
+  的 workspace 臂（`:411` 起）按连接缓存折成 `WorkspaceMessage`
+  （created/updated 带全量记录、deleted 只带 id+root 并从缓存取实体，
+  缓存没见过时用上游的合成回退），测试
+  `server::tests` 的 workspace 生命周期 1/2 两步 + `ws_v3` 12 项全绿。
+  `ws_v3.rs:373` 那句「workspace lane 与 plugin 事件尚不存在」的注释
+  已就地更正（折叠臂就在其下方 40 行）。

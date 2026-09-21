@@ -29,7 +29,10 @@
 //! the global base, so no session filter applies to them — the same shape
 //! upstream's `GlobalMessageTranslator` serves.
 //!
-//! Still a deliberate gap: capability is a static ACP initialize list with
+//! Still a deliberate gap: `capability` has no producer to translate —
+//! upstream declares `event.capability.changed` (a capability install
+//! progress bump) but never emits it anywhere in its own tree, and this
+//! engine's capability list is the static ACP initialize set, so there is
 //! no change semantics to broadcast.
 
 use std::collections::{HashMap, HashSet};
@@ -371,8 +374,9 @@ impl Connection<'_> {
     /// Upstream's `GlobalMessageTranslator` subscribes to the whole event bus
     /// and translates the global vocabulary — config changes and warnings,
     /// model-catalog and plugin bumps, workspace lifecycle — once per
-    /// connection. The fork has producers for the config trio; the workspace
-    /// lane and plugin/capability events do not exist yet.
+    /// connection. The fork has producers for all of them; `capability` is
+    /// the one lane with nothing to translate (upstream declares
+    /// `event.capability.changed` but never emits it either).
     fn translate_global(&mut self, event: &EngineEvent) -> Vec<ServerMessage> {
         let now = now_millis();
         match event {
