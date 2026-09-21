@@ -1500,6 +1500,10 @@ REST 这条是 UI 实际点击的路径，**仍未闭环**。修它需要决定�
 turn 实体（取开场 user消息的附件）均已接入；live 侧仍为 `None`——`EngineEvent::TurnStarted`
 只带 prompt 文本，不带 blocks（改它要动引擎事件形状，留待决策）。
 测试：`user_and_turn_entities_name_the_prompts_attachments`（projection 单测）。
+**2026-09-22 复核：整项随 v3 退役而 moot**——`projection.rs` 已随 `86f30ecc2c` 删除，
+「live 侧 None」原是 v3 turn 实体 `attachmentIds` 的填充缺口；v1 live 路径
+（`project.rs` 的 `event.message.created` → `attachment_from_block` → `upsert_attachment`）
+本就产出 attachment，无同类缺口。
 
 **`skill_activations` 的数据链（2026-09-22 闭合宿主半件）**：全仓 grep 曾只有 4 处 `None` + 1 处
 测试夹具，`TranscriptUserOrigin.skill_activations`（`transcript/model.rs:311`）有定义无生产者。
