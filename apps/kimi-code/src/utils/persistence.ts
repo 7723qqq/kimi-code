@@ -53,7 +53,14 @@ function renameJitterMs(): number {
   return RENAME_EPERM_BASE_DELAY_MS + Math.floor(Math.random() * (RENAME_EPERM_BASE_DELAY_MS + 10));
 }
 
-async function renameReplaceAsync(src: string, dst: string): Promise<void> {
+/**
+ * Rename `src` over `dst`, retrying the Windows EPERM a transient opener
+ * (a co-process reader, an antivirus scan, a file indexer) provokes while it
+ * holds the destination. Exported for atomic writers that own their own
+ * serialization and temp-file naming; {@link writeJsonFile} is the
+ * schema-validated twin. POSIX never takes the retry path.
+ */
+export async function renameReplaceAsync(src: string, dst: string): Promise<void> {
   for (let attempt = 0; ; attempt++) {
     try {
       await rename(src, dst);

@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { ErrorCodes, KimiError } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
+import { renameReplaceAsync } from '#/utils/persistence';
 
 const GOAL_QUEUE_FILE = 'upcoming-goals.json';
 const GOAL_QUEUE_VERSION = 1;
@@ -183,10 +184,18 @@ async function writeQueueFile(session: GoalQueueSession, file: GoalQueueFile): P
   await mkdir(dirname(filePath), { recursive: true });
   // Atomic write: write to a temp file in the same directory, then rename.
   // This prevents partial-write corruption if the process crashes mid-write
-  // or if another process reads the file concurrently.
+  // or if another process reads the file concurrently. The rename goes
+  // through the shared Windows-safe helper: a transient opener holding the
+  // destination answers EPERM, and under load that is common enough to lose
+  // an append without the retry.
   const tmpPath = `${filePath}.${process.pid}.tmp`;
-  await writeFile(tmpPath, `${JSON.stringify(file, null, 2)}\n`, 'utf-8');
-  await rename(tmpPath, filePath);
+  try {
+    await writeFile(tmpPath, `${JSON.stringify(file, null, 2)}\n`, 'utf-8');
+    await renameReplaceAsync(tmpPath, filePath);
+  } catch (error) {
+    await unlink(tmpPath).catch(() => {});
+    throw error;
+  }
 }
 
 async function withQueueMutationLock<T>(
