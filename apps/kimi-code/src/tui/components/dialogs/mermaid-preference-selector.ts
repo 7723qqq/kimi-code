@@ -1,3 +1,5 @@
+import { t } from '#/i18n';
+
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
 const MERMAID_PREFERENCE_OPTIONS: readonly ChoiceOption[] = [
@@ -22,7 +24,7 @@ export interface MermaidPreferenceSelectorOptions {
 export class MermaidPreferenceSelectorComponent extends ChoicePickerComponent {
   constructor(opts: MermaidPreferenceSelectorOptions) {
     super({
-      title: 'Mermaid diagrams',
+      title: t('tui.dialogs.settingsSelector.mermaid'),
       options: [...MERMAID_PREFERENCE_OPTIONS],
       currentValue: opts.currentValue ? 'on' : 'off',
       onSelect: (value) => {

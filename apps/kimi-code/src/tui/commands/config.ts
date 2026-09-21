@@ -48,12 +48,12 @@ import {
 import { getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import { setMarkdownMermaidMode, type MermaidRenderMode } from '../utils/markdown-options';
-import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
+import { permissionModeDescription, permissionModeDisplayName } from '../utils/permission-mode';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
-import type { SlashCommandHost } from './types';
 import { setExperimentalFeatures } from './experimental-flags';
 import { showUsage } from './info';
 import { promptApiKey } from './prompts';
+import type { SlashCommandHost } from './types';
 
 // ---------------------------------------------------------------------------
 // Plan / Config commands
@@ -167,7 +167,6 @@ async function applyPlanMode(
     host.showError(t('tui.statusMessages.failedToSetPlanMode', { msg }));
   }
 }
-
 
 export async function handleCompactCommand(host: SlashCommandHost, args: string): Promise<void> {
   const session = host.session;
@@ -995,7 +994,7 @@ export async function applyUpdatePreferenceChoice(
 async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMode): Promise<void> {
   if (mode === host.state.appState.permissionMode) {
     host.showStatus(
-      t('tui.messages.configPermissionUnchanged', { mode: PERMISSION_MODE_DISPLAY_NAMES[mode] }),
+      t('tui.messages.configPermissionUnchanged', { mode: permissionModeDisplayName(mode) }),
     );
     return;
   }
@@ -1014,10 +1013,10 @@ async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMod
 
   host.setAppState({ permissionMode: mode });
   host.showNotice(
-    t('tui.messages.configPermissionMode', { mode: PERMISSION_MODE_DISPLAY_NAMES[mode] }),
+    t('tui.messages.configPermissionMode', { mode: permissionModeDisplayName(mode) }),
   );
   if (mode !== 'manual') {
-    host.showStatus(PERMISSION_MODE_DESCRIPTIONS[mode], 'warning');
+    host.showStatus(permissionModeDescription(mode), 'warning');
   }
 }
 
@@ -1043,9 +1042,7 @@ type SurveyPreferenceHost = {
       'theme' | 'editorCommand' | 'notifications' | 'upgrade' | 'disableFeedbackSurvey'
     >;
   };
-  setAppState(
-    patch: Pick<SlashCommandHost['state']['appState'], 'disableFeedbackSurvey'>,
-  ): void;
+  setAppState(patch: Pick<SlashCommandHost['state']['appState'], 'disableFeedbackSurvey'>): void;
   showStatus(msg: string, color?: string): void;
 };
 

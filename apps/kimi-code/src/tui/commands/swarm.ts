@@ -12,7 +12,7 @@ import {
 } from '../components/messages/swarm-markers';
 import { getLlmNotSetMessage, getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
-import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
+import { permissionModeDescription, permissionModeDisplayName } from '../utils/permission-mode';
 import type { SlashCommandHost } from './types';
 
 export async function handleSwarmCommand(host: SlashCommandHost, args: string): Promise<void> {
@@ -102,8 +102,8 @@ async function setPermissionForSwarm(
     return false;
   }
   host.setAppState({ permissionMode: mode });
-  host.showNotice(`Permission mode: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}`);
-  host.showStatus(PERMISSION_MODE_DESCRIPTIONS[mode], 'warning');
+  host.showNotice(`Permission mode: ${permissionModeDisplayName(mode)}`);
+  host.showStatus(permissionModeDescription(mode), 'warning');
   return true;
 }
 

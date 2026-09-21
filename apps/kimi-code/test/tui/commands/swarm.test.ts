@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { handleSwarmCommand } from '#/tui/commands/index';
 import type { SlashCommandHost } from '#/tui/commands/types';
 import { currentTheme } from '#/tui/theme';
-import { PERMISSION_MODE_DESCRIPTIONS } from '#/tui/utils/permission-mode';
+import { permissionModeDescription } from '#/tui/utils/permission-mode';
 
 const ENTER = '\r';
 const ESCAPE = '\u001B';
@@ -43,7 +43,9 @@ function makeHost(
     },
     session: hasSession ? session : undefined,
     requireSession: () => session,
-    setAppState: vi.fn((patch: Record<string, unknown>) => Object.assign(host.state.appState, patch)),
+    setAppState: vi.fn((patch: Record<string, unknown>) =>
+      Object.assign(host.state.appState, patch),
+    ),
     showError: vi.fn(),
     showNotice: vi.fn(),
     showStatus: vi.fn(),
@@ -70,7 +72,9 @@ function markerAddChild(host: SlashCommandHost): ReturnType<typeof vi.fn> {
 }
 
 function expectSwarmMarker(host: SlashCommandHost, text: string): void {
-  const components = markerAddChild(host).mock.calls.map(([component]) => component as TestComponent);
+  const components = markerAddChild(host).mock.calls.map(
+    ([component]) => component as TestComponent,
+  );
   const rendered = stripAnsi(components.at(-1)?.render(80).join('\n') ?? '');
   expect(rendered).toContain(text);
 }
@@ -235,7 +239,7 @@ describe('handleSwarmCommand', () => {
     expect(host.setAppState).toHaveBeenCalledWith({ permissionMode: 'auto' });
     expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: true });
     expect(host.showNotice).toHaveBeenCalledWith('Permission mode: Never Ask');
-    expect(host.showStatus).toHaveBeenCalledWith(PERMISSION_MODE_DESCRIPTIONS.auto, 'warning');
+    expect(host.showStatus).toHaveBeenCalledWith(permissionModeDescription('auto'), 'warning');
     expect(host.state.swarmModeEntry).toBe('task');
     expectSwarmMarker(host, 'Swarm activated');
   });
@@ -256,7 +260,7 @@ describe('handleSwarmCommand', () => {
     expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'task');
     expect(session.setSwarmMode).toHaveBeenCalledTimes(1);
     expect(host.showNotice).not.toHaveBeenCalled();
-    expect(host.showStatus).not.toHaveBeenCalledWith(PERMISSION_MODE_DESCRIPTIONS.auto, 'warning');
+    expect(host.showStatus).not.toHaveBeenCalledWith(permissionModeDescription('auto'), 'warning');
     expect(host.state.swarmModeEntry).toBe('task');
     expectSwarmMarker(host, 'Swarm activated');
   });
@@ -278,7 +282,7 @@ describe('handleSwarmCommand', () => {
     expect(host.setAppState).toHaveBeenCalledWith({ permissionMode: 'yolo' });
     expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: true });
     expect(host.showNotice).toHaveBeenCalledWith('Permission mode: Ask When Needed');
-    expect(host.showStatus).toHaveBeenCalledWith(PERMISSION_MODE_DESCRIPTIONS.yolo, 'warning');
+    expect(host.showStatus).toHaveBeenCalledWith(permissionModeDescription('yolo'), 'warning');
     expect(host.state.swarmModeEntry).toBe('task');
     expectSwarmMarker(host, 'Swarm activated');
   });

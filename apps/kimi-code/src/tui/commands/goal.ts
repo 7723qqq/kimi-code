@@ -1,4 +1,9 @@
-import { ErrorCodes, isKimiError, type PermissionMode, type GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
+import {
+  ErrorCodes,
+  isKimiError,
+  type PermissionMode,
+  type GoalSnapshot,
+} from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 
@@ -27,7 +32,7 @@ import {
   type GoalQueueSnapshot,
 } from '../goal-queue-store';
 import { formatErrorMessage } from '../utils/event-payload';
-import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
+import { permissionModeDescription, permissionModeDisplayName } from '../utils/permission-mode';
 import { canRestoreSubmittedInput } from './resolve';
 import type { SlashCommandHost } from './types';
 
@@ -416,8 +421,8 @@ async function startGoalWithPermission(
   // failed creation would leave a stale permissive-mode notice in the
   // transcript even though the rollback above restored the previous mode.
   if (switched) {
-    host.showNotice(`Permission mode: ${PERMISSION_MODE_DISPLAY_NAMES[choice]}`);
-    host.showStatus(PERMISSION_MODE_DESCRIPTIONS[choice], 'warning');
+    host.showNotice(`Permission mode: ${permissionModeDisplayName(choice)}`);
+    host.showStatus(permissionModeDescription(choice), 'warning');
   }
 }
 
@@ -445,7 +450,10 @@ async function startGoal(
       replace: parsed.replace,
     });
   } catch (error) {
-    if (isKimiError(error) && (error as { readonly code: string }).code === ErrorCodes.GOAL_ALREADY_EXISTS) {
+    if (
+      isKimiError(error) &&
+      (error as { readonly code: string }).code === ErrorCodes.GOAL_ALREADY_EXISTS
+    ) {
       host.showError(t('tui.statusMessages.goalAlreadyActive'));
       return false;
     }
@@ -471,7 +479,10 @@ async function pauseGoal(host: SlashCommandHost): Promise<void> {
     await session.pauseGoal();
     if (isStreaming(host)) await session.cancel();
   } catch (error) {
-    if (isKimiError(error) && (error as { readonly code: string }).code === ErrorCodes.GOAL_NOT_FOUND) {
+    if (
+      isKimiError(error) &&
+      (error as { readonly code: string }).code === ErrorCodes.GOAL_NOT_FOUND
+    ) {
       host.showStatus(t('tui.statusMessages.noGoalToPause'));
       return;
     }
@@ -491,7 +502,10 @@ async function resumeGoal(host: SlashCommandHost): Promise<void> {
   try {
     await host.requireSession().resumeGoal();
   } catch (error) {
-    if (isKimiError(error) && (error as { readonly code: string }).code === ErrorCodes.GOAL_NOT_FOUND) {
+    if (
+      isKimiError(error) &&
+      (error as { readonly code: string }).code === ErrorCodes.GOAL_NOT_FOUND
+    ) {
       host.showStatus(t('tui.statusMessages.noGoalToResume'));
       return;
     }
@@ -508,7 +522,10 @@ async function cancelGoal(host: SlashCommandHost): Promise<void> {
     await session.cancelGoal();
     if (isStreaming(host)) await session.cancel();
   } catch (error) {
-    if (isKimiError(error) && (error as { readonly code: string }).code === ErrorCodes.GOAL_NOT_FOUND) {
+    if (
+      isKimiError(error) &&
+      (error as { readonly code: string }).code === ErrorCodes.GOAL_NOT_FOUND
+    ) {
       host.showStatus(t('tui.statusMessages.noGoalToCancel'));
       return;
     }

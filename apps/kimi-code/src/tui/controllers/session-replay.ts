@@ -13,8 +13,8 @@ import type {
 import { t } from '#/i18n';
 
 import { modelDisplayName } from '../components/dialogs/model-selector';
-import { ToolCallComponent } from '../components/messages/tool-call';
 import { ShellRunComponent } from '../components/messages/shell-run';
+import { ToolCallComponent } from '../components/messages/tool-call';
 import { ReplayTurnBoundaryComponent } from '../components/messages/user-message';
 import { currentTheme } from '../theme';
 import type { TUIState } from '../tui-state';
@@ -29,10 +29,6 @@ import { formatBackgroundAgentTranscript } from '../utils/background-agent-statu
 import { formatBackgroundTaskTranscript } from '../utils/background-task-status';
 import { formatErrorMessage, normalizeTodoItems } from '../utils/event-payload';
 import { buildGoalCompletionMessage } from '../utils/goal-completion';
-import { nextTranscriptId } from '../utils/transcript-id';
-import { PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
-import { formatBashOutputForDisplay } from '../utils/shell-output';
-import { markTranscriptComponent } from '../utils/transcript-component-metadata';
 import {
   appStateFromResumeAgent,
   backgroundOrigin,
@@ -55,6 +51,10 @@ import {
   type SkillActivationProjection,
   type PluginCommandProjection,
 } from '../utils/message-replay';
+import { permissionModeDisplayName } from '../utils/permission-mode';
+import { formatBashOutputForDisplay } from '../utils/shell-output';
+import { markTranscriptComponent } from '../utils/transcript-component-metadata';
+import { nextTranscriptId } from '../utils/transcript-id';
 import type { SessionEventHandler } from './session-event-handler';
 import type { StreamingUIController } from './streaming-ui';
 
@@ -707,13 +707,11 @@ export class SessionReplayRenderer {
           context,
           'status',
           t('tui.statusMessages.replayYoloToggle', {
-            mode: PERMISSION_MODE_DISPLAY_NAMES.yolo,
+            mode: permissionModeDisplayName('yolo'),
             state: mode === 'yolo' ? 'ON' : 'OFF',
           }),
           'notice',
-          mode === 'yolo'
-            ? { detail: t('tui.statusMessages.replayYoloModeOnSub') }
-            : {},
+          mode === 'yolo' ? { detail: t('tui.statusMessages.replayYoloModeOnSub') } : {},
         ),
       );
       return;
@@ -723,7 +721,7 @@ export class SessionReplayRenderer {
         context,
         'status',
         t('tui.statusMessages.replayPermissionMode', {
-          mode: PERMISSION_MODE_DISPLAY_NAMES[mode],
+          mode: permissionModeDisplayName(mode),
         }),
         'notice',
       ),

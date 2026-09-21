@@ -9,11 +9,12 @@
  *           time, first-token avg · tok/s, cache hit, in/out tokens, context).
  */
 
+import { homedir } from 'node:os';
+
 import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import type { Component } from '@moonshot-ai/pi-tui';
 import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-import { homedir } from 'node:os';
 
 import { t } from '#/i18n';
 import { getAllTips } from '#/tui/constant/tips';
@@ -26,7 +27,7 @@ import {
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
 import type { AppState } from '#/tui/types';
-import { PERMISSION_MODE_DISPLAY_NAMES } from '#/tui/utils/permission-mode';
+import { permissionModeDisplayName } from '#/tui/utils/permission-mode';
 import {
   firstTokenAverageMs,
   fitSessionStatsText,
@@ -554,7 +555,8 @@ export class FooterComponent implements Component {
     for (const tip of tips) {
       if (visibleWidth(`${shortcut}${TIP_SEPARATOR}${tip}`) <= remaining) {
         return (
-          chalk.hex(colors.textDim)(shortcut) + chalk.hex(colors.textMuted)(`${TIP_SEPARATOR}${tip}`)
+          chalk.hex(colors.textDim)(shortcut) +
+          chalk.hex(colors.textMuted)(`${TIP_SEPARATOR}${tip}`)
         );
       }
     }
@@ -584,8 +586,10 @@ export class FooterComponent implements Component {
     }
 
     const modes: string[] = [];
-    if (state.permissionMode === 'auto') modes.push(chalk.hex(colors.warning).bold(PERMISSION_MODE_DISPLAY_NAMES.auto));
-    if (state.permissionMode === 'yolo') modes.push(chalk.hex(colors.warning).bold(PERMISSION_MODE_DISPLAY_NAMES.yolo));
+    if (state.permissionMode === 'auto')
+      modes.push(chalk.hex(colors.warning).bold(permissionModeDisplayName('auto')));
+    if (state.permissionMode === 'yolo')
+      modes.push(chalk.hex(colors.warning).bold(permissionModeDisplayName('yolo')));
     if (state.planMode && state.swarmMode) {
       modes.push(renderSwarmPlanBadge('swarm-plan'));
     } else {

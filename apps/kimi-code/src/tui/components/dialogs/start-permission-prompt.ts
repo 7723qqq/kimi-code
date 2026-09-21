@@ -9,6 +9,7 @@ import {
 import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import { permissionModeDisplayName } from '#/tui/utils/permission-mode';
 import { wrapText as wrapPlain } from '#/tui/utils/wrap-text';
 
 export type StartPermissionChoice = 'auto' | 'yolo' | 'manual' | 'cancel';
@@ -103,19 +104,28 @@ function styleLabel(label: string, selected: boolean): string {
 }
 
 function styleModeNames(text: string, baseToken: 'text' | 'textMuted'): string {
+  // The mode names themselves are untranslated tokens in both locales; the
+  // display names are locale values, so they come through t() and the split
+  // pattern is built per render (a locale switch must restyle the text).
+  const tokens = [
+    permissionModeDisplayName('manual'),
+    permissionModeDisplayName('yolo'),
+    permissionModeDisplayName('auto'),
+    'Manual',
+    'Auto',
+    'YOLO',
+  ];
+  const pattern = new RegExp(`(${tokens.map(escapeRegExp).join('|')})`, 'g');
   return text
-    .split(/(\b(?:Always Ask|Ask When Needed|Never Ask)\b)/g)
-    .map((part) => {
-      if (
-        part === 'Always Ask' ||
-        part === 'Ask When Needed' ||
-        part === 'Never Ask' ||
-        part === 'Manual' ||
-        part === 'Auto' ||
-        part === 'YOLO'
-      )
-        return currentTheme.boldFg('textStrong', part);
-      return currentTheme.fg(baseToken, part);
-    })
+    .split(pattern)
+    .map((part) =>
+      tokens.includes(part)
+        ? currentTheme.boldFg('textStrong', part)
+        : currentTheme.fg(baseToken, part),
+    )
     .join('');
+}
+
+function escapeRegExp(value: string): string {
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
