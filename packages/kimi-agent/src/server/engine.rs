@@ -614,6 +614,30 @@ impl ServerEngine {
             .clone()
     }
 
+    /// Release the per-turn steer bookkeeping when a turn ends. A queue with
+    /// undrained messages **survives** the boundary, so the session's next
+    /// turn drains it at its first step head — v2's unconsumed-steer
+    /// semantics (`loopService` materializes the nudge into the next turn),
+    /// which the session path's session-scoped queue (`session/mod.rs`)
+    /// already implements. Dropping the queue here instead is what lost a
+    /// steer that was accepted moments before a cancel: the cancel check
+    /// runs at the step top, ahead of `drain_steers`, so the message never
+    /// reached the turn and then vanished with it. An empty queue is removed
+    /// so the map does not grow one entry per session. The signal slot is
+    /// always refreshed away: the next turn publishes a fresh one.
+    fn release_turn_steer_state(&self, session_id: &str) {
+        let mut queues = self.steer_queues.lock().unwrap_or_else(|e| e.into_inner());
+        let keep = queues
+            .get(session_id)
+            .is_some_and(|queue| !queue.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
+        if !keep {
+            queues.remove(session_id);
+        }
+        drop(queues);
+        let mut slots = self.steer_slots.lock().unwrap_or_else(|e| e.into_inner());
+        slots.remove(session_id);
+    }
+
     /// Record a step boundary for the session's live turn (the step ordinal
     /// the v3 entity ids are built from): the production path is the closure
     /// built in [`Self::execute`]; this is the test-facing equivalent.
@@ -1322,19 +1346,7 @@ impl ServerEngine {
                     .unwrap_or_else(|e| e.into_inner());
                 turns.remove(&self.session_id);
                 drop(turns);
-                let mut queues = self
-                    .engine
-                    .steer_queues
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                queues.remove(&self.session_id);
-                drop(queues);
-                let mut slots = self
-                    .engine
-                    .steer_slots
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                slots.remove(&self.session_id);
+                self.engine.release_turn_steer_state(&self.session_id);
             }
         }
         let _guard = ActiveGuard {
@@ -2372,6 +2384,79 @@ model = "gpt-x"
         assert!(
             signal.triggered(),
             "a steer joining the running turn must fire its signal"
+        );
+    }
+
+    /// A steer the cancelled turn never drained is not lost: the queue
+    /// survives the turn boundary and the session's next turn drains it at
+    /// its first step head (v2's unconsumed-steer semantics; the session
+    /// path's session-scoped queue behaves the same). The cancel check runs
+    /// at the step top, ahead of `drain_steers`, so this is exactly the
+    /// window where the message used to vanish with the turn.
+    #[test]
+    fn an_undrained_steer_survives_the_turn_boundary_for_the_next_turn() {
+        let engine = engine();
+        let active = |session: &str| {
+            engine
+                .active_turns
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(
+                    session.to_string(),
+                    Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                );
+        };
+        active("sess-steer-survive");
+        assert!(engine.enqueue_steer("sess-steer-survive", LLMMessage::user("stop")));
+
+        // The turn ends: the guard drops the active-turn entry, then the
+        // steer bookkeeping (cancel at the step top, before the drain).
+        engine
+            .active_turns
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove("sess-steer-survive");
+        engine.release_turn_steer_state("sess-steer-survive");
+
+        assert_eq!(
+            engine.queued_steer_count("sess-steer-survive"),
+            1,
+            "the undrained steer must survive the turn boundary"
+        );
+        // The next turn's callbacks wrap this very queue
+        // (`SteerQueueCallbacks::new(.., self.steer_queue(session))`), so the
+        // message reaches that turn's first step head.
+        let queue = engine.steer_queue("sess-steer-survive");
+        assert_eq!(queue.lock().unwrap_or_else(|e| e.into_inner()).len(), 1);
+        // A surviving queue does not make a nonexistent turn steerable: with
+        // no active turn the route still refuses and re-queues the prompt.
+        assert!(!engine.enqueue_steer("sess-steer-survive", LLMMessage::user("late")));
+    }
+
+    /// An empty queue is dropped at the turn boundary, so the map does not
+    /// grow one entry per session over a server's lifetime.
+    #[test]
+    fn an_empty_steer_queue_is_dropped_at_the_turn_boundary() {
+        let engine = engine();
+        engine
+            .active_turns
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                "sess-steer-empty".to_string(),
+                Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            );
+        // A turn that drained everything (or never got a steer) leaves nothing.
+        engine.steer_queue("sess-steer-empty");
+        engine.release_turn_steer_state("sess-steer-empty");
+        assert!(
+            engine
+                .steer_queues
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get("sess-steer-empty")
+                .is_none(),
+            "an empty queue must not outlive its turn"
         );
     }
 }

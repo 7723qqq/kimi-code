@@ -1009,16 +1009,19 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
     #3889（大工作区 resume 性能）优化的 wire-restore/immer/kap-server 缓存层 fork 不存在，
     恢复是直连 SQLite 读（allowlist: `a80fe31cff`、`e3f48a225b`、`5108cad9b6`）。
 
-9. **server 路径取消回合时丢弃未 drain 的 steer 消息（2026-09-21 复核 #3933 发现，尚未处理）**：
-   `ServerEngine` 的 steer 队列随回合消亡（`server/engine.rs` `ActiveGuard::drop` 移除
+9. ~~**server 路径取消回合时丢弃未 drain 的 steer 消息（2026-09-21 复核 #3933 发现）~~ **已落地（2026-09-21）**：
+   `ServerEngine` 的 steer 队列原先随回合消亡（`ActiveGuard::drop` 无条件移除
    `steer_queues[session]`），而 `run_turn` 的取消检查在 step 顶部、**早于** `drain_steers`
    （`turn_loop/run_turn.rs:859` vs `:874`）——steer 在取消前一刻入队即被静默丢弃，用户看到
-   `prompt.steered` 之后文本消失。session 路径（`session/mod.rs:430` 的会话级队列）同场景下
+   `prompt.steered` 之后文本消失；session 路径（`session/mod.rs:430` 的会话级队列）同场景下
    消息进入下一回合，与 v2「未消费 steer 种子下一回合」（`loopService.ts:1079-1090`、
-   `850-864`）语义一致；**两条宿主路径行为不一致**，且 server 路径（Web/VS Code）是丢数据
-   的那一侧。候选修法（需设计决策，故未顺手改）：回合结束时把未 drain 的 steer 消息经
-   `run_or_queue_prompt` 重新入队——消息自带 `prompt_id`（#3906），复用之可保证转录里只出现
-   一次；origin（clientMetadata）当前在 steer 路由丢弃，需要随消息携带才能完整重建。
+   `850-864`）语义一致的是后者，两条宿主路径行为不一致。修法（对齐 session 路径，不引入
+   v2 的种子回合机制）：`ActiveGuard::drop` 改调 `ServerEngine::release_turn_steer_state`——
+   非空队列**存活过回合边界**，由下一回合的 `SteerQueueCallbacks` 在首个 step 头部 drain
+   （消息自带 `prompt_id`，转录里只出现一次）；空队列照旧移除，map 不随会话数增长；
+   signal 槽仍每轮刷新。测试：`an_undrained_steer_survives_the_turn_boundary_for_the_next_turn`
+   （存活 + 下一回合可 drain + 无活跃回合时 `enqueue_steer` 仍拒绝）、
+   `an_empty_steer_queue_is_dropped_at_the_turn_boundary`（空队列不泄漏）。
 
 ### 6.2 本轮已修复（含证据）
 
@@ -1311,7 +1314,7 @@ v2 用双冒号（`fs.ts:414,460`），bundle 用单冒号。fork 的 `::search`
 | `b428bfd00` #3938 | 冷折叠 step 带 timing/usage | **不适用**：kap 侧 hunk 只是 v3 实体字段改名（v3 已删）；agent 侧是 context-memory 的 sealing meta，而 fork 引擎**没有 LLM timing 插桩**（全仓仅 `server/transcript/model.rs` 的 `StepTiming` 定义，projector 建 step 时 `timing: None` 永不填充；`LlmStepEnd` 只带 turn_id/step/usage）。usage 在 fork 是 turn/step 粒度（`session/sqlite_store.rs:245` TurnRecord.usage + `server/transcript/project.rs:275-282` 的 step.usage），不在 assistant 消息上 |
 | `2cedfaf12` #3901 | interaction 事件过 agent 过滤器 | **不适用**：fork 的 WS 扇出是**会话级**（`server/ws.rs:444-447` 只按 session 集合过滤），没有 agent 过滤器可绕过；载荷上的 `agent_id` 也无消费方（dist-web 的 `_5e`/`T5e` mapper 不读它），且 fork 的 interaction 注册表是会话作用域、无 agent 归属可填 |
 | `9df7a9ccf` #3922 | turn id 防重放回退 + 冷转录按活跃分支折叠 | **不适用**（两半）：(a) fork 的 turn 号每轮从 SQLite `MAX(turn_number)+1` 重算（`session/sqlite_store.rs:1085`），无内存计数器可被重放种子记录拨回；(b) fork 没有 wire journal 也没有分支——undo 是行删除（`sqlite_store.rs:911`）、fork 是复制历史到新会话（`fork_session`），冷转录直接读 SQLite；且该修复扩展的 v3 实体协议已随 `86f30ecc2c` 删除 |
-| `97212596f` #3933 | 未消费 steer 种子下一回合时不记 `turn.steer` | **不适用**：fork 没有 `TurnSteer` 记录、没有种子回合路径（`consumeDrainedNudges` 无对应物，`drain_steers` 只把消息并进在跑回合的 `messages`）。**已知分歧（未改）**：server 路径的 steer 队列随回合消亡（`server/engine.rs` `ActiveGuard::drop`），回合取消时未 drain 的 steer 消息被丢弃；session 路径的队列是会话级（`session/mod.rs:430`），同场景下消息进入下一回合——与 v2「未消费 steer 种子下一回合」语义一致的是后者。救援式移植需要设计决策（救援消息落点），超出本提交范围，留待单独工单 |
+| `97212596f` #3933 | 未消费 steer 种子下一回合时不记 `turn.steer` | **不适用**：fork 没有 `TurnSteer` 记录、没有种子回合路径（`consumeDrainedNudges` 无对应物，`drain_steers` 只把消息并进在跑回合的 `messages`）。复核中发现的真实分歧（server 路径取消时丢弃未 drain 的 steer）已另案修掉：§6.1 第 9 项，`release_turn_steer_state` 让非空队列存活过回合边界，对齐 session 路径与 v2 语义 |
 | `65ae3e368` #3847 | 拒绝非 ASCII mission 标题 + 记录 token 用量 | **不适用**（三部分）：(a) fork 的 `unique_slug` 去重（`tools/tower/store.rs:412-424`、`paths.rs:96-114`）已修掉上游 rejection 针对的分支碰撞缺陷，且对中文用户更友好；(b) `tokens` 需要调用方累计用量，而 fork 的 tower 工具路径没有用量访问器（子代理实例不累计、主会话用量只在 SQLite 且 toolset 不持有），完整移植等于新建遥测基建；(c) fork 的 tower spawn 不注册带描述的后台任务（worker 经 `tokio::spawn` + `subagent.completed/failed` 事件露面），无任务描述可改 |
 | `6a214b85e` #3957 | wireCache 大文件栈溢出 | **不适用**：kap-server 已退役；fork 仅存的 wire.jsonl 读取器（`apps/vis/server/src/lib/wire-reader.ts:124`）是逐条 `push`，无 spread 模式 |
 | `7568f3118` #3932 | 删除 tdd skill | **不适用**：skill 清单是 fork 自有约定，根 AGENTS.md 明确要求按 `tdd` skill 工作 |
