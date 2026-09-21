@@ -303,6 +303,31 @@ test('nested dot + bracket paths in filter and projection', async () => {
   }
 });
 
+test('projection refuses prototype-polluting paths', async () => {
+  const dir = await tmpDir();
+  try {
+    const db = await MiniDb.open({ dir, valueCodec: 'json' });
+    // A document carrying its own `__proto__` key (JSON.parse creates an own
+    // data property, not the accessor) makes the polluting path read as
+    // defined, so the projection reaches setPath.
+    await db.set('p1', JSON.parse('{"__proto__":{"polluted":1},"user":{"name":"Ann"}}') as Doc);
+
+    // A `__proto__` token would walk the projection assignment onto
+    // Object.prototype (bracket assignment to `__proto__` returns the
+    // prototype itself), polluting every object in the process.
+    assert.throws(() => db.query({ project: ['__proto__.polluted'] }), /unsafe path token/);
+    assert.throws(() => db.query({ project: ['constructor.name'] }), /unsafe path token/);
+    assert.equal(({} as Record<string, unknown>)['polluted'], undefined);
+    assert.equal(typeof ({}).toString, 'function');
+
+    // Ordinary projections keep working.
+    assert.deepEqual(db.query({ project: ['user.name'] })[0]!.value, { user: { name: 'Ann' } });
+    await db.close();
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('sort ascending/descending, skip and limit', async () => {
   const { dir, db } = await seed();
   try {

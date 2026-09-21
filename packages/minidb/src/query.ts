@@ -29,6 +29,19 @@ function tokenizePath(path: Path): (string | number)[] {
   return tokens;
 }
 
+/**
+ * Path tokens that would walk an assignment onto a prototype. Bracket
+ * assignment to `__proto__` reads the accessor and yields the prototype
+ * itself, so `setPath(obj, '__proto__.x', v)` would set `x` on
+ * `Object.prototype` — polluting every object in the process — and
+ * `constructor.prototype` reaches the same place one level down.
+ */
+const UNSAFE_PATH_TOKENS: ReadonlySet<string> = new Set([
+  '__proto__',
+  'constructor',
+  'prototype',
+]);
+
 export function getPath(doc: Doc, path: Path): unknown {
   let cur: unknown = doc;
   for (const t of tokenizePath(path)) {
@@ -41,6 +54,11 @@ export function getPath(doc: Doc, path: Path): unknown {
 export function setPath(obj: Doc, path: Path, value: unknown): Doc {
   const tokens = tokenizePath(path);
   if (tokens.length === 0) return obj;
+  for (const token of tokens) {
+    if (typeof token === 'string' && UNSAFE_PATH_TOKENS.has(token)) {
+      throw new Error(`setPath: unsafe path token ${JSON.stringify(token)}`);
+    }
+  }
   let cur = obj as Record<string | number, unknown>;
   for (let i = 0; i < tokens.length - 1; i++) {
     const t = tokens[i]!;
