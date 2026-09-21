@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { log } from '@moonshot-ai/kimi-code-sdk';
 import { resetCapabilitiesCache, setCapabilities, type Component } from '@moonshot-ai/pi-tui';
 
-import { __pluginsCommandInternals } from '#/tui/commands/plugins';
+import { __pluginsCommandInternals, handlePluginsCommand } from '#/tui/commands/plugins';
 import { NoticeMessageComponent } from '#/tui/components/messages/status-message';
 
 const {
@@ -353,5 +353,59 @@ describe('plugins command capability surface', () => {
         steps: [expect.objectContaining({ detail: 'screenRecording' })],
       }),
     );
+  });
+
+  // v2 #3963: the toggle reports `plugin_toggle` with the resulting enabled
+  // set, so telemetry can attribute later turns to the loaded plugins.
+  it('reports plugin_toggle telemetry with the resulting enabled set', async () => {
+    const track = vi.fn();
+    const session = {
+      setPluginEnabled: vi.fn(() => Promise.resolve(true)),
+      getPluginInfo: vi.fn(() => Promise.resolve({ id: 'kimi-webbridge', enabled: true })),
+      listPlugins: vi.fn(() =>
+        Promise.resolve([
+          { id: 'kimi-webbridge', enabled: true },
+          { id: 'superpowers', enabled: false },
+        ]),
+      ),
+    };
+    const host = {
+      session,
+      showStatus: () => undefined,
+      showError: () => undefined,
+      track,
+    } as never;
+
+    await handlePluginsCommand(host, 'enable kimi-webbridge');
+
+    expect(session.setPluginEnabled).toHaveBeenCalledWith('kimi-webbridge', true);
+    expect(track).toHaveBeenCalledWith('plugin_toggle', {
+      plugin_id: 'kimi-webbridge',
+      enabled: true,
+      enabled_plugins: 'kimi-webbridge',
+    });
+  });
+
+  it('omits the enabled set from plugin_toggle when the list is unreadable', async () => {
+    const track = vi.fn();
+    const session = {
+      setPluginEnabled: vi.fn(() => Promise.resolve(true)),
+      getPluginInfo: vi.fn(() => Promise.reject(new Error('no info'))),
+      listPlugins: vi.fn(() => Promise.reject(new Error('registry offline'))),
+    };
+    const host = {
+      session,
+      showStatus: () => undefined,
+      showError: () => undefined,
+      track,
+    } as never;
+
+    await handlePluginsCommand(host, 'disable kimi-webbridge');
+
+    expect(track).toHaveBeenCalledWith('plugin_toggle', {
+      plugin_id: 'kimi-webbridge',
+      enabled: false,
+      enabled_plugins: undefined,
+    });
   });
 });

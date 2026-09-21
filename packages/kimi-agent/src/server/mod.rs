@@ -4005,6 +4005,17 @@ impl HttpServer {
                     "enable" => match self.plugin_manager.set_plugin_enabled(id, true) {
                         Ok(true) => {
                             self.publish_plugin_changed();
+                            // v2 #3963: the toggle reports the resulting
+                            // enabled set, so telemetry can attribute later
+                            // turns to the plugins that were loaded.
+                            self.emit_session_telemetry(
+                                "plugin_toggle",
+                                json!({
+                                    "plugin_id": id,
+                                    "enabled": true,
+                                    "enabled_plugins": self.plugin_manager.enabled_plugin_ids(),
+                                }),
+                            );
                             HttpResponse::ok(
                                 &json!({ "ok": true, "pluginId": id, "enabled": true }),
                             )
@@ -4015,6 +4026,14 @@ impl HttpServer {
                     "disable" => match self.plugin_manager.set_plugin_enabled(id, false) {
                         Ok(true) => {
                             self.publish_plugin_changed();
+                            self.emit_session_telemetry(
+                                "plugin_toggle",
+                                json!({
+                                    "plugin_id": id,
+                                    "enabled": false,
+                                    "enabled_plugins": self.plugin_manager.enabled_plugin_ids(),
+                                }),
+                            );
                             HttpResponse::ok(
                                 &json!({ "ok": true, "pluginId": id, "enabled": false }),
                             )
@@ -11843,6 +11862,62 @@ max_context_size = 1000
         assert!(
             val_new["result"]["sessionId"].is_string(),
             "session/new must create a session: {val_new}"
+        );
+    }
+
+    /// v2 #3963: a plugin toggle reports `plugin_toggle` with the resulting
+    /// enabled set, so telemetry can attribute later turns to the plugins
+    /// that were loaded.
+    #[tokio::test]
+    async fn test_http_plugin_toggle_emits_telemetry() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let seen: Arc<std::sync::Mutex<Vec<(String, Value)>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink_seen = seen.clone();
+        let server = HttpServer::new(store.clone()).with_telemetry_sink(Arc::new(
+            move |event: &str, payload: Value| {
+                sink_seen.lock().unwrap().push((event.to_string(), payload));
+            },
+        ));
+
+        let post = |path: &str| HttpRequest {
+            method: "POST".into(),
+            path: path.into(),
+            query: None,
+            headers: HashMap::new(),
+            body: Vec::new(),
+        };
+
+        assert_eq!(
+            server
+                .handle_request(&post("/api/v1/plugins/kimi-webbridge:enable"))
+                .await
+                .status,
+            200
+        );
+        assert_eq!(
+            server
+                .handle_request(&post("/api/v1/plugins/kimi-webbridge:disable"))
+                .await
+                .status,
+            200
+        );
+
+        let events = seen.lock().unwrap();
+        let toggles: Vec<&Value> = events
+            .iter()
+            .filter(|(event, _)| event == "plugin_toggle")
+            .map(|(_, payload)| payload)
+            .collect();
+        assert_eq!(toggles.len(), 2, "one event per committed toggle");
+        assert_eq!(toggles[0]["plugin_id"], "kimi-webbridge");
+        assert_eq!(toggles[0]["enabled"], true);
+        assert_eq!(toggles[0]["enabled_plugins"], "kimi-webbridge");
+        assert_eq!(toggles[1]["plugin_id"], "kimi-webbridge");
+        assert_eq!(toggles[1]["enabled"], false);
+        assert_eq!(
+            toggles[1]["enabled_plugins"], "",
+            "a known empty set serializes as the empty string"
         );
     }
 

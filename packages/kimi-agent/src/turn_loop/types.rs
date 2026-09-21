@@ -1007,6 +1007,10 @@ pub struct TelemetryContext {
     pub provider_type: String,
     pub protocol: String,
     pub thinking_effort: Option<String>,
+    /// Comma-separated sorted ids of the enabled, loaded plugins (v2 #3963):
+    /// an empty string is a known empty set, `None` means the host has no
+    /// plugin snapshot to report.
+    pub enabled_plugins: Option<String>,
 }
 
 // ── Step-level types ───────────────────────────────────────────────────────

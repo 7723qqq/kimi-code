@@ -615,6 +615,8 @@ export interface JsTelemetryContext {
   providerType: string
   protocol: string
   thinkingEffort?: string
+  /** Comma-separated sorted ids of the enabled, loaded plugins (v2 #3963); an empty string is a known empty set. */
+  enabledPlugins?: string
 }
 
 export interface JsToolDef {

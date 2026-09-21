@@ -543,6 +543,9 @@ fn telemetry_payload(
     if let Some(effort) = &ctx.thinking_effort {
         value["thinking_effort"] = serde_json::Value::String(effort.clone());
     }
+    if let Some(plugins) = &ctx.enabled_plugins {
+        value["enabled_plugins"] = serde_json::Value::String(plugins.clone());
+    }
     if let (Some(extra_obj), Some(obj)) = (
         extra.as_ref().and_then(|extra| extra.as_object()),
         value.as_object_mut(),
@@ -4889,6 +4892,7 @@ mod tests {
             provider_type: "kimi".into(),
             protocol: "openai".into(),
             thinking_effort: Some("high".into()),
+            enabled_plugins: Some("kimi-webbridge,plugin-b".into()),
         };
 
         let result = run_turn_with_telemetry(input, telemetry, &callbacks).await;
@@ -4904,10 +4908,72 @@ mod tests {
         assert_eq!(emitted[0]["provider_type"], "kimi");
         assert_eq!(emitted[0]["protocol"], "openai");
         assert_eq!(emitted[0]["thinking_effort"], "high");
+        // v2 #3963: the enabled-plugin set rides both lifecycle events.
+        assert_eq!(emitted[0]["enabled_plugins"], "kimi-webbridge,plugin-b");
         assert_eq!(emitted[1]["event"], "turn_ended");
         assert_eq!(emitted[1]["reason"], "completed");
         assert_eq!(emitted[1]["steps"], 1);
         assert!(emitted[1]["duration_ms"].is_u64());
+        assert_eq!(emitted[1]["enabled_plugins"], "kimi-webbridge,plugin-b");
+    }
+
+    /// A context without a plugin snapshot omits the field entirely (v2 #3963:
+    /// absent means "no snapshot", an empty string means "known empty set").
+    #[tokio::test]
+    async fn test_run_turn_with_telemetry_omits_an_absent_plugin_snapshot() {
+        let llm = PredictTestLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            return_tool_calls: false,
+            tool_responses: vec![],
+        };
+        let server = Arc::new(RpcServer::new());
+        let (capturing, events) = EventCapturingCallbacks::new(rpc_callbacks(server.clone()));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
+
+        let input = RunTurnInput {
+            turn_id: "test-telemetry-no-plugins".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "hi".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+            toolset: None,
+        };
+        let telemetry = TelemetryContext {
+            mode: "agent".into(),
+            provider_type: "kimi".into(),
+            protocol: "openai".into(),
+            thinking_effort: None,
+            enabled_plugins: None,
+        };
+
+        let result = run_turn_with_telemetry(input, telemetry, &callbacks).await;
+        assert!(result.is_ok());
+
+        let events = events.lock().unwrap();
+        let emitted: Vec<&serde_json::Value> =
+            events.iter().filter(|e| e.get("event").is_some()).collect();
+        assert_eq!(emitted.len(), 2);
+        for event in emitted {
+            assert!(
+                event.get("enabled_plugins").is_none(),
+                "an absent snapshot must not serialize the field: {event}"
+            );
+        }
     }
 
     /// A Stop-hook veto is consumed transparently inside the telemetry
@@ -4953,6 +5019,7 @@ mod tests {
             provider_type: "kimi".into(),
             protocol: "openai".into(),
             thinking_effort: None,
+            enabled_plugins: None,
         };
 
         let result = run_turn_with_telemetry(input, telemetry, &callbacks).await;
@@ -5014,6 +5081,7 @@ mod tests {
             provider_type: "kimi".into(),
             protocol: "openai".into(),
             thinking_effort: None,
+            enabled_plugins: None,
         };
 
         let result = run_turn_with_telemetry(input, telemetry, &callbacks).await;

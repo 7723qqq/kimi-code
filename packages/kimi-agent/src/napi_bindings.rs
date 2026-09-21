@@ -1067,6 +1067,7 @@ pub struct JsTelemetryContext {
     pub provider_type: String,
     pub protocol: String,
     pub thinking_effort: Option<String>,
+    pub enabled_plugins: Option<String>,
 }
 
 #[napi(object)]
@@ -2300,6 +2301,7 @@ async fn run_turn_rust_impl(
         provider_type: t.provider_type,
         protocol: t.protocol,
         thinking_effort: t.thinking_effort,
+        enabled_plugins: t.enabled_plugins,
     });
     let result = match telemetry_context {
         Some(context) => run_turn_with_telemetry(input, context, &callbacks).await,

@@ -678,6 +678,24 @@ async function applyPluginEnabled(
 ): Promise<string> {
   const session = await resolvePluginApi(host);
   await session.setPluginEnabled(id, enabled);
+  // v2 #3963: the toggle reports the resulting enabled set, so telemetry can
+  // attribute later turns to the plugins that were loaded. An unreadable
+  // list leaves the field absent (no snapshot), not an empty set.
+  let enabledPlugins: string | undefined;
+  try {
+    enabledPlugins = (await session.listPlugins())
+      .filter((plugin) => plugin.enabled)
+      .map((plugin) => plugin.id)
+      .toSorted()
+      .join(',');
+  } catch {
+    enabledPlugins = undefined;
+  }
+  host.track('plugin_toggle', {
+    plugin_id: id,
+    enabled,
+    enabled_plugins: enabledPlugins,
+  });
   let info: PluginInfo | undefined;
   try {
     info = await session.getPluginInfo(id);

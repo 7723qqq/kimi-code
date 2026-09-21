@@ -839,6 +839,19 @@ impl PluginManager {
         ids.iter().flat_map(|id| self.plugin_commands(id)).collect()
     }
 
+    /// Comma-separated sorted ids of the enabled plugins (v2 #3963
+    /// `enabled_plugins`): an empty string when the set is known empty.
+    pub fn enabled_plugin_ids(&self) -> String {
+        let mut ids: Vec<String> = self
+            .list_plugins()
+            .into_iter()
+            .filter(|plugin| plugin.enabled)
+            .map(|plugin| plugin.id)
+            .collect();
+        ids.sort();
+        ids.join(",")
+    }
+
     /// The MCP servers an installed plugin's manifest declares.
     pub fn plugin_mcp_servers(&self, id: &str) -> Vec<PluginMcpServerInfo> {
         let Some(root) = self.plugin_root(id) else {
@@ -1304,6 +1317,29 @@ mod tests {
         assert_eq!(entries[0].tier, "community");
         assert_eq!(entries[0].display_name, "Custom Tool");
         assert_eq!(entries[0].version.as_deref(), Some("2.0.0"));
+    }
+
+    /// v2 #3963 `enabled_plugins`: the sorted, comma-joined enabled set —
+    /// an empty string when the set is known empty.
+    #[test]
+    fn test_enabled_plugin_ids_reports_the_sorted_enabled_set() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let pm = PluginManager::new(store.clone());
+
+        assert_eq!(pm.enabled_plugin_ids(), "", "no plugins: known empty set");
+
+        assert!(pm.set_plugin_enabled("kimi-webbridge", true).unwrap());
+        assert_eq!(pm.enabled_plugin_ids(), "kimi-webbridge");
+
+        assert!(pm.set_plugin_enabled("superpowers", true).unwrap());
+        assert_eq!(
+            pm.enabled_plugin_ids(),
+            "kimi-webbridge,superpowers",
+            "ids are sorted, not insertion-ordered"
+        );
+
+        assert!(pm.set_plugin_enabled("kimi-webbridge", false).unwrap());
+        assert_eq!(pm.enabled_plugin_ids(), "superpowers");
     }
 
     #[test]
