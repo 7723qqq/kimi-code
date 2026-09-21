@@ -88,7 +88,7 @@ Plan mode is a constrained working state: once entered, `Write` and `Edit` are r
 | `UpdateGoal` | Auto-allow | Change the goal's status (for example pause, resume, or complete it) |
 | `SetGoalBudget` | Auto-allow | Set the goal's token, turn, and/or wall-clock budget |
 
-**`CreateGoal`** requires an `objective` and a concrete completion criterion. See [Goal mode](../guides/goals.md) for how a goal continues across turns and how its budgets are enforced.
+**`CreateGoal`** requires an `objective` and a concrete completion criterion. See [Goal mode](../guides/interaction.md#goal-mode) for how a goal continues across turns and how its budgets are enforced.
 
 ## Knowledge
 

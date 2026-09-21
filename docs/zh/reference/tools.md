@@ -88,7 +88,7 @@ Plan 模式是一种受约束的工作状态：进入后 `Write` 与 `Edit` 只�
 | `UpdateGoal` | 自动放行 | 修改目标状态（如暂停、恢复或标记完成） |
 | `SetGoalBudget` | 自动放行 | 设置目标的 token / 轮次 / 墙钟预算 |
 
-**`CreateGoal`** 需要 `objective` 与一个具体的完成判据。目标如何跨轮次续跑、预算如何强制执行，见[目标模式](../guides/goals.md)。
+**`CreateGoal`** 需要 `objective` 与一个具体的完成判据。目标如何跨轮次续跑、预算如何强制执行，见[目标模式](../guides/interaction.md#目标模式)。
 
 ## Knowledge
 
