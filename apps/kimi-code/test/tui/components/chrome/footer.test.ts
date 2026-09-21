@@ -354,7 +354,14 @@ describe('FooterComponent ctrl+o hint with a status_line command', () => {
     });
     footer.setExpandHintProvider(() => 'expand');
     footer.render(120);
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // The status-line command runs in a child process; a full-suite run (or a
+    // CI shard, which also runs files in parallel) stalls the spawn and its
+    // output well past a fixed wait, so poll against a deadline instead.
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      if ((footer.render(120)[0] ?? '').includes('my-custom-status')) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
 
     const [line1, line2] = footer.render(120).map((line) => line.replaceAll(/\[[0-9;]*m/g, ''));
     expect(line1).toContain('my-custom-status');
