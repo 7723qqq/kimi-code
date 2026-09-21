@@ -2710,7 +2710,23 @@ pub fn session_enqueue_turn(
 ) -> napi::Result<f64> {
     guard_sync_panic(|| {
         let entry = session_entry(&session_id)?;
-        let mut prompt: LLMMessage = serde_json::from_str(&prompt)
+        // The host may nest a prompt origin (v2 `PromptOrigin` JSON — the
+        // `skill_activation` variant a user-slash activation carries) on the
+        // prompt object. `LLMMessage` does not model origin variants, so it is
+        // split off here and rides the `TurnRequest`, which echoes it on the
+        // `turn.prompt` / `turn.started` events the host folds (v2 #3832).
+        let mut prompt_value: serde_json::Value = serde_json::from_str(&prompt)
+            .map_err(|e| napi::Error::from_reason(format!("prompt parse: {e}")))?;
+        let origin = prompt_value
+            .get("origin")
+            .filter(|origin| origin.get("kind").and_then(|k| k.as_str()).is_some())
+            .cloned();
+        if origin.is_some()
+            && let Some(object) = prompt_value.as_object_mut()
+        {
+            object.remove("origin");
+        }
+        let mut prompt: LLMMessage = serde_json::from_value(prompt_value)
             .map_err(|e| napi::Error::from_reason(format!("prompt parse: {e}")))?;
         // A client submits an uploaded file as a `kimi-file://` media URL; the
         // engine is the side that knows it is a daemon reference.
@@ -2726,9 +2742,13 @@ pub fn session_enqueue_turn(
                 )));
             }
         };
+        let mut request = TurnRequest::user(prompt, admission);
+        if let Some(origin) = origin {
+            request.origin = origin;
+        }
         let receipt = entry
             .session
-            .enqueue_turn(TurnRequest::user(prompt, admission))
+            .enqueue_turn(request)
             .map_err(napi::Error::from_reason)?;
         let (turn_id, outcome) = receipt.into_parts();
         SESSION_OUTCOMES

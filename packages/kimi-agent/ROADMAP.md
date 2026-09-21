@@ -1427,7 +1427,7 @@ fork 的 `fs_watch.rs`（`9b45052868`，2026-09-14）是在上游删除之后**�
 `unsubscribe`/`unsubscribe_v2`）。fork 实现了它们，客户端也在发（bundle 的
 `this.send` 共 12 种帧类型）。**这是 fork 补齐上游留白，不是自创**，本轮保留。
 
-### 7.5 本轮发现的**新**缺口：`subscribe_v2` / `unsubscribe_v2` 在 TS 侧未声明（未修）
+### 7.5 ~~本轮发现的**新**缺口：`subscribe_v2` / `unsubscribe_v2` 在 TS 侧未声明~~ **已闭合（2026-09-21，`adc794635c`）**
 
 对齐后 `scan-parity` 报 `WS ctl 10 client ops`，而 upstream `clientControlOperations`
 是 **12** 条。差的正是 `subscribe_v2` / `unsubscribe_v2`：Rust `parse_inbound` 两种都解析、
@@ -1442,6 +1442,12 @@ shipped bundle 两种都发送（`this.send` 列表含 `subscribe_v2`/`unsubscri
 可选：(a) 给 protocol 加 transcript 依赖并 import（无环，已确认 transcript 不依赖 protocol）；
 (b) 在 protocol 内复刻这两个 schema（避免新依赖，但有重复定义风险）；(c) 维持现状。
 
+
+**闭合记录（2026-09-22 复核）**：采用当年的选项 (a)——`packages/protocol` 引入
+`@moonshot-ai/transcript` workspace 依赖（无环，transcript 不依赖 protocol），
+`ws-control.ts` import `transcriptGradeSpecSchema` / `transcriptSeqSchema` 并声明两个 op；
+`scan-parity` 的 `WS ctl` 由此回到 12（与 upstream `clientControlOperations` 一致），
+`ws-control.test.ts` 有 §3.3b 专测。下方「未修的原因」与三个选项为历史决策记录，不再有效。
 
 ### 7.6 端到端实跑暴露的**新**缺口：UI 的「中断」按钮 404（**已解决 2026-09-20 订正轮**）
 
@@ -1495,10 +1501,21 @@ turn 实体（取开场 user消息的附件）均已接入；live 侧仍为 `Non
 只带 prompt 文本，不带 blocks（改它要动引擎事件形状，留待决策）。
 测试：`user_and_turn_entities_name_the_prompts_attachments`（projection 单测）。
 
-**`skill_activations` 确认无数据源，非投影漏填**：全仓 grep 只有 4 处 `None` + 1 处测试夹具，
-`TranscriptUserOrigin.skill_activations`（`transcript/model.rs:311`）有定义无生产者——
-v1 transcript 折叠也不产它。要补需：宿主经 #3764 的 client metadata 通道传 skill
-activation → 引擎落库 → 投影填充，属跨层新数据流，待用户决策后单独一轮。
+**`skill_activations` 的数据链（2026-09-22 闭合宿主半件）**：全仓 grep 曾只有 4 处 `None` + 1 处
+测试夹具，`TranscriptUserOrigin.skill_activations`（`transcript/model.rs:311`）有定义无生产者。
+现已闭合**宿主 → 引擎 → turn 事件**半件：(a) napi `session_enqueue_turn` 把 prompt 对象上的
+`origin`（v2 `PromptOrigin` JSON）拆下来挂到 `TurnRequest`（`LLMMessage` 不建模 origin 变体，
+serde 原忽略未知字段）；(b) SDK `turnEvent` 的 `turn.started` 转发引擎回显的 origin，不再硬编码
+`{kind:"user"}`；(c) SDK `activateSkill` 按 bundle 的确切形状
+（`metadata.origin`，zod `skill_activation` 变体）铸造 `SkillActivationOrigin` 并经
+`clientMetadata` 随 prompt/steer 两路透传。消费端本就存在：TUI replay 读
+`message.origin.skillActivations`（`session-replay.ts:220`）与 `origin.activationId`
+（`message-replay.ts:259`）。验证：napi 集成测试 `echoes a prompt origin on the turn events`
+（origin 原样回环 + 无 origin 时默认 user）。
+**仍缺（需 LLMMessage 级改动，留待决策）**：引擎历史消息（`LLMMessage`）不带 origin，
+`getHistory` → `history.jsonl` → replay 的持久往返 therefore 丢 origin——会话恢复后
+activation 卡片不重渲染。补它要给 `LLMMessage` 加 `origin` 字段（约 27 处显式构造点 +
+store/compaction 投影面），属引擎核心类型变更，未擅自做。
 
 **顺带修掉一处陈旧测试**（非本轮引入）：`test_http_sessions_crud_and_prompt` 的 children
 断言读 `children` 键，而路由在 §6.4 的信封对齐中已改为 v2 的 `{items, has_more}`

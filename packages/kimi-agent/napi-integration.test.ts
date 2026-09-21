@@ -2107,6 +2107,71 @@ describe.skipIf(!nativeEntry)('napi engine session handle (M1d)', () => {
     mod.sessionDispose(sessionId);
   });
 
+  // v2 #3832: a prompt origin nested on the enqueued prompt (the
+  // `skill_activation` variant a user-slash activation carries) rides the turn
+  // request and comes back verbatim on the turn events, so the host can fold
+  // the activation into its transcript. `LLMMessage` does not model origin
+  // variants — the napi boundary splits it off the prompt object.
+  it('echoes a prompt origin on the turn events', async () => {
+    const mod = loadNativeModule();
+    const turnEvents: Record<string, unknown>[] = [];
+    const sessionId = await mod.createEngineSession(
+      {
+        turnId: 'ignored',
+        systemPrompt: 'You are a test assistant.',
+        modelName: 'test-model',
+        messages: [],
+        tools: [],
+        maxSteps: 5,
+      },
+      makeCallback(mod, () => stopResponse),
+      makeCallback(mod, () => JSON.stringify({ content: 'ok', is_error: false })),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeCallback(mod, (payload) => {
+        turnEvents.push(JSON.parse(payload) as Record<string, unknown>);
+        return 'null';
+      }),
+    );
+
+    const origin = {
+      kind: 'skill_activation',
+      activationId: 'skill_1',
+      skillName: 'review',
+      skillArgs: 'src/main.rs',
+      trigger: 'user-slash',
+      skillSource: 'project',
+    };
+    const turnId = mod.sessionEnqueueTurn(
+      sessionId,
+      JSON.stringify({ role: 'user', content: 'hi', origin }),
+      'newTurn',
+    );
+    const outcome = (await mod.sessionTurnOutcome(sessionId, turnId)) as { status: string };
+    expect(outcome.status).toBe('ran');
+
+    const started = turnEvents.find((event) => event['type'] === 'turn.started');
+    expect(started?.['origin']).toEqual(origin);
+    const promptEvent = turnEvents.find((event) => event['type'] === 'turn.prompt');
+    expect(promptEvent?.['origin']).toEqual(origin);
+
+    // A plain prompt without an origin keeps the default user origin.
+    const plainId = mod.sessionEnqueueTurn(
+      sessionId,
+      JSON.stringify({ role: 'user', content: 'plain' }),
+      'newTurn',
+    );
+    await mod.sessionTurnOutcome(sessionId, plainId);
+    const plainStarted = turnEvents.filter((event) => event['type'] === 'turn.started').at(-1);
+    expect(plainStarted?.['origin']).toEqual({ kind: 'user' });
+
+    mod.sessionDispose(sessionId);
+  });
+
   it('cancels a queued turn before it starts and keeps the active turn running', async () => {
     const mod = loadNativeModule();
     let release: (() => void) | undefined;

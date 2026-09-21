@@ -24,9 +24,11 @@ import type {
   AgentContextData,
   AgentMeta,
   AgentType,
+  ClientPromptMetadata,
   JsonObject,
   PromptOrigin,
   ResumedAgentState,
+  SkillActivationOrigin,
   SuggestFilesInput,
   SuggestFilesItem,
   SuggestFilesResult,
@@ -1726,10 +1728,13 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
             agentId: eventAgentId,
             type: 'turn.started',
             turnId,
-            // origin is required on TurnStartedEvent; native turns are always
-            // user-prompted (skill / plugin / task origins are host-driven and
-            // do not run through this engine callback).
-            origin: { kind: 'user' },
+            // The engine echoes the turn request's origin (v2 `PromptOrigin`
+            // JSON): a user-slash skill activation carries the
+            // `skill_activation` variant (v2 #3832), everything else `user`.
+            // Forwarding it — rather than assuming `user` — is what lets an
+            // origin-aware consumer (the survey gate, the transcript fold)
+            // tell an activation turn from a typed one.
+            origin: (parsed.origin as PromptOrigin | undefined) ?? { kind: 'user' },
             prompt: String(parsed.prompt ?? ''),
           });
         } else if (parsed.type === 'turn.ended') {
@@ -2377,7 +2382,10 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         `cannot prompt unknown or closed session "${input.sessionId}"`,
       );
     }
-    const prompt = this.toSessionPrompt(input.input);
+    const prompt = this.toSessionPrompt(
+      input.input,
+      this.promptOriginFromClientMetadata(input.clientMetadata),
+    );
     const agentId = this.interactiveAgentId;
     meta.activeAgentId = agentId;
     // Side-channel (btw) turns run outside the session's turn queue on the
@@ -2485,7 +2493,10 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     }
     meta.updatedAt = Date.now();
 
-    const prompt = this.toSessionPrompt(input.input);
+    const prompt = this.toSessionPrompt(
+      input.input,
+      this.promptOriginFromClientMetadata(input.clientMetadata),
+    );
     // v2 #3764: this entry's displayText wins for the metadata when the
     // client supplied one; the raw input text is the fallback. Skipped when
     // the caller already applied the metadata (the busy skill activation
@@ -3536,18 +3547,36 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     }
     const skillDir = posixPath(join(meta.workDir, '.kimi-code', 'skills', name));
     const skillSource = existsSync(skillDir) ? 'project' : 'user';
+    const activationId = `skill_${randomUUID()}`;
     // v1/v2 published the activation event before the turn launched, so the
     // event stream orders it ahead of turn.started.
     this.receiveEvent({
       sessionId: meta.id,
       agentId: 'main',
       type: 'skill.activated',
-      activationId: `skill_${randomUUID()}`,
+      activationId,
       skillName: name,
       ...(args !== undefined && args.length > 0 ? { skillArgs: args } : {}),
       trigger: 'user-slash',
       skillSource,
     });
+    // v2 #3832: the same activation rides the turn request as a
+    // `skill_activation` prompt origin, so the engine echoes it on the turn
+    // events and an origin-aware consumer can tell this turn from a typed
+    // prompt. The web client nests the identical shape in its submission
+    // metadata (`metadata.origin`).
+    const origin: SkillActivationOrigin = {
+      kind: 'skill_activation',
+      activationId,
+      skillName: name,
+      ...(args !== undefined && args.length > 0 ? { skillArgs: args } : {}),
+      trigger: 'user-slash',
+      skillSource,
+    };
+    const clientMetadata: ClientPromptMetadata = {
+      ...input.clientMetadata,
+      origin,
+    };
     // The activation updates the prompt-derived metadata like a prompt whose
     // text is the slash command itself �?with this entry's displayText
     // winning over the raw slash text when the client supplied one (v2
@@ -3568,12 +3597,14 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       return this.steer({
         sessionId: meta.id,
         input: [{ type: 'text', text: rendered }],
+        clientMetadata,
         skipPromptMetadata: true,
       });
     }
     return this.prompt({
       sessionId: meta.id,
       input: [{ type: 'text', text: rendered }],
+      clientMetadata,
       skipPromptMetadata: true,
     });
   }
@@ -4600,14 +4631,20 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   }
 
   /** Map a prompt submission onto the engine's serialized LLM message. */
-  private toSessionPrompt(input: SessionPromptRpcInput['input']): SessionPrompt {
+  private toSessionPrompt(
+    input: SessionPromptRpcInput['input'],
+    origin?: unknown,
+  ): SessionPrompt {
     if (typeof input === 'string') {
-      return { role: 'user', content: input };
+      return { role: 'user', content: input, ...(origin === undefined ? {} : { origin }) };
     }
-    return this.toSessionPromptFromParts(input);
+    return this.toSessionPromptFromParts(input, origin);
   }
 
-  private toSessionPromptFromParts(parts: readonly PromptPart[]): SessionPrompt {
+  private toSessionPromptFromParts(
+    parts: readonly PromptPart[],
+    origin?: unknown,
+  ): SessionPrompt {
     const text = parts
       .filter((part): part is Extract<PromptPart, { type: 'text' }> => part.type === 'text')
       .map((part) => part.text)
@@ -4631,7 +4668,21 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       // Multi-part messages carry their parts structurally so the context
       // projection (and the model) see them as separate blocks.
       ...(parts.length > 1 ? { blocksJson: JSON.stringify(parts) } : {}),
+      ...(origin === undefined ? {} : { origin }),
     } as SessionPrompt;
+  }
+
+  /// The prompt origin a submission's client metadata nests (v2 #3832): an
+  /// `origin` field that names its `kind` is a prompt origin in the
+  /// transcript contract's shape — the `skill_activation` variant a
+  /// user-slash activation carries — and rides the turn request so the engine
+  /// echoes it on the turn events. Mirrors the engine's own
+  /// `prompt_origin_from_metadata`.
+  private promptOriginFromClientMetadata(
+    clientMetadata: ClientPromptMetadata | undefined,
+  ): PromptOrigin | undefined {
+    const origin = clientMetadata?.['origin'] as PromptOrigin | undefined;
+    return origin !== undefined && typeof origin.kind === 'string' ? origin : undefined;
   }
 
   /**

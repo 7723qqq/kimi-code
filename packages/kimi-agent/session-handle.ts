@@ -21,6 +21,14 @@ export interface SessionPrompt {
   blocksJson?: string;
   toolCallsJson?: string;
   toolCallId?: string;
+  /**
+   * The prompt origin (v2 `PromptOrigin` JSON) the host attached — the
+   * `skill_activation` variant a user-slash activation carries (v2 #3832).
+   * The engine splits it off the prompt and echoes it on the turn events, so
+   * the host can fold the activation into its transcript. Absent for a plain
+   * user prompt.
+   */
+  origin?: unknown;
 }
 
 /** How an enqueued prompt joins the turn pipeline (v2 `StepRequest.admission`). */
