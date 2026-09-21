@@ -261,7 +261,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | --- | --- | --- | --- |
 | `provider` | query | string | 托管供应商名称。默认 `managed:kimi-code` |
 
-成功时 `data` 为 `{ kind: "ok", userInfo }` 或 `{ kind: "error", message, status? }`。`userInfo` 始终携带 `userId`、`nickname`、`status`、`region`、`userLevel`、`userLevelName`、`domain`、`domainName`，并可能附加 `globalId`、`bio`、`avatar`、`username`、`email`、`phone`（`{ countryCode, number }`）、`createdTime` 与 `lastLoginTime`。
+成功时 `data` 为 `{ kind: "ok", userInfo }` 或 `{ kind: "error", message, status? }`。`userInfo` 始终携带 `userId`、`nickname`、`status`、`region`、`userLevel`、`userLevelName`、`domain`、`domainName`，并可能附加 `goodsVersion`、`globalId`、`bio`、`avatar`、`username`、`email`、`phone`（`{ countryCode, number }`）、`createdTime` 与 `lastLoginTime`。
 
 #### `GET /api/v1/oauth/region`
 

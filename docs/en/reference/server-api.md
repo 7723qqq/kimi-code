@@ -261,7 +261,7 @@ Profile of the managed account, with the same in-band `kind: "error"` convention
 | --- | --- | --- | --- |
 | `provider` | query | string | Managed provider name. Default `managed:kimi-code` |
 
-On success, `data` is `{ kind: "ok", userInfo }` or `{ kind: "error", message, status? }`. `userInfo` always carries `userId`, `nickname`, `status`, `region`, `userLevel`, `userLevelName`, `domain`, and `domainName`, and may add `globalId`, `bio`, `avatar`, `username`, `email`, `phone` (`{ countryCode, number }`), `createdTime`, and `lastLoginTime`.
+On success, `data` is `{ kind: "ok", userInfo }` or `{ kind: "error", message, status? }`. `userInfo` always carries `userId`, `nickname`, `status`, `region`, `userLevel`, `userLevelName`, `domain`, and `domainName`, and may add `goodsVersion`, `globalId`, `bio`, `avatar`, `username`, `email`, `phone` (`{ countryCode, number }`), `createdTime`, and `lastLoginTime`.
 
 #### `GET /api/v1/oauth/region`
 
