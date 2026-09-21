@@ -139,10 +139,12 @@ describe('Session skills', () => {
         (event) => event.type === 'session.meta.updated',
       );
       const ended = waitForSDKEvent(session, (event) => event.type === 'turn.ended');
+      const started = waitForSDKEvent(session, (event) => event.type === 'turn.started');
 
       await session.activateSkill(' review ', ' src/app.ts ');
       const activatedEvent = await activated;
       const metaEvent = await metaUpdated;
+      const startedEvent = await started;
       await ended;
       unsubscribe();
 
@@ -154,6 +156,22 @@ describe('Session skills', () => {
         skillArgs: 'src/app.ts',
         trigger: 'user-slash',
         skillSource: 'project',
+      });
+      // v2 #3832: the activation rides the turn as a `skill_activation`
+      // prompt origin — the same activationId the event carries — so an
+      // origin-aware consumer can tell this turn from a typed prompt.
+      const activationId = (activatedEvent as { activationId?: string }).activationId;
+      expect(typeof activationId).toBe('string');
+      expect(startedEvent).toMatchObject({
+        type: 'turn.started',
+        origin: {
+          kind: 'skill_activation',
+          activationId,
+          skillName: 'review',
+          skillArgs: 'src/app.ts',
+          trigger: 'user-slash',
+          skillSource: 'project',
+        },
       });
       expect(JSON.stringify(activatedEvent)).not.toContain('Review the requested file.');
       expect(events.findIndex((event) => event.type === 'skill.activated')).toBeGreaterThanOrEqual(

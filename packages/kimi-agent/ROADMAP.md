@@ -1316,7 +1316,7 @@ v2 用双冒号（`fs.ts:414,460`），bundle 用单冒号。fork 的 `::search`
 | `7d3f88faa` #3921 | managed `/me` 增 `goods_version` | **已移植**（`703cfa23c7`，oauth 包 + 双语文档） |
 | `6a52dd781` #3962 + `6ffdf0d57` #3929 | `auto_session_title` 配置项 + 系统提示词去掉 project-root 断言 | **已移植**（`acd5c8f16f`） |
 | `02d829e13` #3915 | vscode 问题对话框 IME 组词时 Enter 误提交 | **已移植**（`9681ec28c9`，`QuestionDialog.tsx` 加 `isComposing` 守卫；composer 早有同款守卫） |
-| `0523bafb3` #3963 | 遥测报启用插件集 + `plugin_toggle` 事件 | **已移植**（`9681ec28c9`：REST 路由与 TUI 开关点双发射点；`TelemetryContext`/`JsTelemetryContext`/napi 契约补 `enabled_plugins`，与 `thinking_effort` 同为宿主注入字段——fork 宿主尚未在树内填充该上下文，字段随接缝就位） |
+| `0523bafb3` #3963 | 遥测报启用插件集 + `plugin_toggle` 事件 | **已移植**（`9681ec28c9`：REST 路由与 TUI 开关点双发射点；`TelemetryContext`/`JsTelemetryContext`/napi 契约补 `enabled_plugins`。后续收尾：`e97f76186b` 打通 TUI turn 遥测全链路、`cb3fbef5b6`+`a89bf66ffb` 闭合 origin 数据链——SDK 路径的 `enabled_plugins` 按「无插件快照」语义刻意缺席，理由见下方收尾段） |
 | `f17a22ebf` #3931 | 文件监听默认关 | **不适用**（记录于 `acd5c8f16f`）：fork 没有文件监听特性，无默认值可翻 |
 | `b428bfd00` #3938 | 冷折叠 step 带 timing/usage | **不适用**：kap 侧 hunk 只是 v3 实体字段改名（v3 已删）；agent 侧是 context-memory 的 sealing meta，而 fork 引擎**没有 LLM timing 插桩**（全仓仅 `server/transcript/model.rs` 的 `StepTiming` 定义，projector 建 step 时 `timing: None` 永不填充；`LlmStepEnd` 只带 turn_id/step/usage）。usage 在 fork 是 turn/step 粒度（`session/sqlite_store.rs:245` TurnRecord.usage + `server/transcript/project.rs:275-282` 的 step.usage），不在 assistant 消息上 |
 | `2cedfaf12` #3901 | interaction 事件过 agent 过滤器 | **不适用**：fork 的 WS 扇出是**会话级**（`server/ws.rs:444-447` 只按 session 集合过滤），没有 agent 过滤器可绕过；载荷上的 `agent_id` 也无消费方（dist-web 的 `_5e`/`T5e` mapper 不读它），且 fork 的 interaction 注册表是会话作用域、无 agent 归属可填 |
