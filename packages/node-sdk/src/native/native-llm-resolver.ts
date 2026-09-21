@@ -322,6 +322,20 @@ export function lookupModelAlias(config: KimiConfig, alias: string): ModelAlias 
 }
 
 /**
+ * The provider's `type` for an alias — the same alias -> provider resolution
+ * `resolveNativeLlmForAlias` performs, surfaced for the host-injected turn
+ * telemetry (`provider_type`, v2 `telemetryService`'s context). Empty when
+ * the alias resolves to no provider.
+ */
+export function providerTypeForAlias(config: KimiConfig, alias: string | undefined): string {
+  const modelConfig = alias === undefined ? undefined : lookupModelAlias(config, alias);
+  const providerName =
+    modelConfig?.providerId ?? modelConfig?.provider ?? config.agent?.nativeLlmProvider;
+  if (!providerName) return '';
+  return String(config.providers?.[providerName]?.type ?? '');
+}
+
+/**
  * The context window a `[models]` key resolves to, `overrides` applied. Every
  * caller that needs the window must go through this: indexing `config.models`
  * directly misses both an `aliases` name and an `overrides.maxContextSize`,

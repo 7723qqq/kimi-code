@@ -174,6 +174,99 @@ max_context_size = 100000
     }
   }, 20_000);
 
+  it('emits the engine turn telemetry with the host-injected context', async () => {
+    // v2 #3963: the engine emits turn_started / turn_ended through the
+    // host/telemetry seam, the host-injected context (mode, provider_type,
+    // protocol, thinking_effort, enabled_plugins) merged with the
+    // engine-observed outcome. The SDK wires both halves — the context at
+    // handle build and the callback forwarding — so a host that injects a
+    // telemetry client receives them; without that wiring the events died at
+    // the addon boundary.
+    const { createServer } = await import('node:http');
+    const server = createServer((req, res) => {
+      req.on('data', () => {});
+      req.on('end', () => {
+        if (req.url?.includes('/chat/completions') !== true) {
+          res.writeHead(404).end();
+          return;
+        }
+        res.writeHead(200, {
+          'content-type': 'text/event-stream',
+          'cache-control': 'no-cache',
+          connection: 'close',
+        });
+        const chunk = (delta: Record<string, unknown>, finish: string | null = null): string =>
+          `data: ${JSON.stringify({
+            id: 'c',
+            object: 'chat.completion.chunk',
+            created: 0,
+            model: 'mock',
+            choices: [{ index: 0, delta, finish_reason: finish }],
+          })}\n\n`;
+        res.write(chunk({ role: 'assistant', content: 'hi' }));
+        res.write(chunk({}, 'stop'));
+        res.write('data: [DONE]\n\n');
+        res.end();
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as { port: number }).port;
+
+    const recorded: { event: string; properties?: Record<string, unknown> }[] = [];
+    const telemetry = {
+      track: (event: string, properties?: Record<string, unknown>) => {
+        recorded.push({ event, ...(properties === undefined ? {} : { properties }) });
+      },
+    };
+    try {
+      writeFileSync(
+        join(homeDir, 'config.toml'),
+        `
+[providers.local]
+type = "openai"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "sk-test"
+
+[models."mock"]
+provider = "local"
+model = "mock"
+max_context_size = 100000
+`,
+      );
+
+      const localHarness = createKimiHarnessNative({
+        homeDir,
+        identity: TEST_IDENTITY,
+        telemetry,
+      });
+      const session = await localHarness.createSession({ workDir: homeDir, model: 'mock' });
+      const ended = waitForTurnEnded(session);
+      await session.prompt('hi');
+      await ended;
+      await session.close();
+      await localHarness.close();
+
+      const started = recorded.find((entry) => entry.event === 'turn_started');
+      expect(started?.properties).toMatchObject({
+        mode: 'agent',
+        provider_type: 'openai',
+        protocol: 'openai',
+        thinking_effort: 'medium',
+      });
+      // The enabled-plugin set is deliberately not snapshotted at session
+      // creation (reading the registry would open the engine's SQLite store
+      // there), so the field stays absent — v2's "no plugin snapshot" case.
+      expect(started?.properties).not.toHaveProperty('enabled_plugins');
+      const turnEnded = recorded.find((entry) => entry.event === 'turn_ended');
+      expect(turnEnded?.properties).toMatchObject({ reason: 'completed' });
+      expect(typeof turnEnded?.properties?.['steps']).toBe('number');
+      expect(String(turnEnded?.properties?.['trace_id'])).toMatch(/^turn-/);
+      expect(typeof turnEnded?.properties?.['duration_ms']).toBe('number');
+    } finally {
+      server.close();
+    }
+  }, 20_000);
+
   it('forwards background-task lifecycle events to onEvent', async () => {
     // The per-pipeline task runner only reports if its sink is wired to the
     // host callbacks; before that wiring the TUI's `background.task.*` handlers

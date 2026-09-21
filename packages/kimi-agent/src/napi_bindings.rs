@@ -1067,6 +1067,9 @@ pub struct JsTelemetryContext {
     pub provider_type: String,
     pub protocol: String,
     pub thinking_effort: Option<String>,
+    /// Comma-separated sorted ids of the enabled, loaded plugins (v2 #3963);
+    /// an empty string is a known empty set, absent when the host has no
+    /// plugin snapshot to report.
     pub enabled_plugins: Option<String>,
 }
 
@@ -2627,6 +2630,18 @@ pub fn create_engine_session(
                 session_id: params.session_id.clone(),
                 task_runner: SUBAGENT_MANAGER.get_task_runner_sync(),
                 toolset: pipeline.toolset.clone(),
+                // M1c (v2 #3963): the host-injected turn-telemetry context.
+                // Present on the napi path, the pump emits the turn lifecycle
+                // through the host/telemetry seam.
+                telemetry: params
+                    .telemetry
+                    .map(|t| crate::turn_loop::types::TelemetryContext {
+                        mode: t.mode,
+                        provider_type: t.provider_type,
+                        protocol: t.protocol,
+                        thinking_effort: t.thinking_effort,
+                        enabled_plugins: t.enabled_plugins,
+                    }),
             })
             .await;
 

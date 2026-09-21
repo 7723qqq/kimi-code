@@ -161,11 +161,21 @@ fn turn_stop_reason_from_finish(finish_reason: Option<&str>) -> LoopTurnStopReas
 /// `trace_id` is a known gap: the engine does not yet capture the provider
 /// request id from native LLM responses, and in host-proxy mode the host
 /// never sees the value either.
-pub fn run_turn_with_telemetry<'a>(
+/// Run one turn with the turn-lifecycle telemetry only (v2's loopService
+/// owns the same events): `turn_started` before the turn, `turn_ended` and
+/// — for anything but a clean completion — `turn_interrupted` after. The
+/// goal-domain events (`goal.continuation` / `goal.blocked` / `goal.paused`)
+/// stay with [`run_turn_with_telemetry`], whose caller owns the goal
+/// follow-up; the session pump drives its own follow-ups and emits only the
+/// lifecycle.
+pub fn run_turn_with_lifecycle_telemetry<'a>(
     input: RunTurnInput<'a>,
-    telemetry: TelemetryContext,
+    telemetry: &TelemetryContext,
     callbacks: &'a Arc<dyn HostCallbacks>,
 ) -> BoxFuture<'a, Result<TurnResult, Box<dyn std::error::Error + 'a>>> {
+    // Cloned into the future: the caller's borrow ends with the call, the
+    // turn outlives it.
+    let telemetry = telemetry.clone();
     let turn_id = input.turn_id.clone();
     callbacks.telemetry(telemetry_payload(
         "turn_started",
@@ -175,9 +185,6 @@ pub fn run_turn_with_telemetry<'a>(
     ));
     Box::pin(async move {
         let started = std::time::Instant::now();
-        // Capture the goal before the move into the turn so the
-        // continuation emission below can read it after the turn.
-        let goal_for_continuation = input.goal.clone();
         // Stop-hook vetoes are consumed transparently inside the turn (see
         // `run_turn_continued`): by the time the result surfaces here the
         // continuation has already run.
@@ -213,74 +220,6 @@ pub fn run_turn_with_telemetry<'a>(
                         })),
                     ));
                 }
-                // Goal-mode continuation (v2 `launchContinuationTurn`):
-                // a successful goal turn enqueues another turn so the goal
-                // progresses past a single model response. v2 enqueued a
-                // `ContinuationStepRequest` on the loop; the engine surfaces
-                // the decision as `goal.continuation` telemetry, and the
-                // print settle (session/mod.rs) turns it into the follow-up
-                // turn itself — no native host re-prompts on the event.
-                if reason == "completed"
-                    && let Some(goal) = goal_for_continuation.as_ref()
-                    && matches!(goal.status, crate::turn_loop::types::GoalStatus::Active)
-                {
-                    let continuation_prompt = crate::native::goal::steering::render_continuation(
-                        &goal.objective,
-                        goal.tokens_used,
-                        goal.token_budget,
-                    );
-                    callbacks.telemetry(telemetry_payload(
-                        "goal.continuation",
-                        &telemetry,
-                        &turn_id,
-                        Some(serde_json::json!({
-                            "goal_id": goal.goal_id,
-                            "tokens_used": goal.tokens_used,
-                            "token_budget": goal.token_budget,
-                            "prompt": continuation_prompt,
-                        })),
-                    ));
-                }
-                // Goal-mode terminal transitions (v2 `blockIfBudgetReached` +
-                // `settleAbnormalTurn`): the engine tells the host to leave
-                // `active`. `goal.blocked` covers budget stops so the host
-                // transitions the goal to `blocked` with a budget reason;
-                // `goal.paused` covers failed / aborted / filtered turns so
-                // the host pauses with the classified reason. v2 emits
-                // `goal.status_changed` for both (goalOps.ts:1083,
-                // `goalFailurePauseReason`).
-                if let Some(goal) = goal_for_continuation.as_ref()
-                    && matches!(goal.status, crate::turn_loop::types::GoalStatus::Active)
-                {
-                    match &result.stop_reason {
-                        LoopTurnStopReason::BudgetLimited => {
-                            callbacks.telemetry(telemetry_payload(
-                                "goal.blocked",
-                                &telemetry,
-                                &turn_id,
-                                Some(serde_json::json!({
-                                    "goal_id": goal.goal_id,
-                                    "reason": "budget",
-                                })),
-                            ));
-                        }
-                        LoopTurnStopReason::Filtered
-                        | LoopTurnStopReason::Aborted
-                        | LoopTurnStopReason::MaxSteps
-                        | LoopTurnStopReason::Unknown => {
-                            callbacks.telemetry(telemetry_payload(
-                                "goal.paused",
-                                &telemetry,
-                                &turn_id,
-                                Some(serde_json::json!({
-                                    "goal_id": goal.goal_id,
-                                    "reason": telemetry_interrupt_reason(&result.stop_reason),
-                                })),
-                            ));
-                        }
-                        _ => {}
-                    }
-                }
             }
             Err(_) => {
                 callbacks.telemetry(telemetry_payload(
@@ -298,6 +237,93 @@ pub fn run_turn_with_telemetry<'a>(
                     &turn_id,
                     Some(serde_json::json!({ "interrupt_reason": "error" })),
                 ));
+            }
+        }
+        result
+    })
+}
+
+pub fn run_turn_with_telemetry<'a>(
+    input: RunTurnInput<'a>,
+    telemetry: TelemetryContext,
+    callbacks: &'a Arc<dyn HostCallbacks>,
+) -> BoxFuture<'a, Result<TurnResult, Box<dyn std::error::Error + 'a>>> {
+    // Capture the goal before the move into the turn so the continuation
+    // emission below can read it after the turn.
+    let goal_for_continuation = input.goal.clone();
+    let turn_id = input.turn_id.clone();
+    let future = run_turn_with_lifecycle_telemetry(input, &telemetry, callbacks);
+    Box::pin(async move {
+        let result = future.await;
+        if let Ok(result) = &result {
+            // Goal-mode continuation (v2 `launchContinuationTurn`):
+            // a successful goal turn enqueues another turn so the goal
+            // progresses past a single model response. v2 enqueued a
+            // `ContinuationStepRequest` on the loop; the engine surfaces
+            // the decision as `goal.continuation` telemetry, and the
+            // print settle (session/mod.rs) turns it into the follow-up
+            // turn itself — no native host re-prompts on the event.
+            let reason = telemetry_reason(&result.stop_reason);
+            if reason == "completed"
+                && let Some(goal) = goal_for_continuation.as_ref()
+                && matches!(goal.status, crate::turn_loop::types::GoalStatus::Active)
+            {
+                let continuation_prompt = crate::native::goal::steering::render_continuation(
+                    &goal.objective,
+                    goal.tokens_used,
+                    goal.token_budget,
+                );
+                callbacks.telemetry(telemetry_payload(
+                    "goal.continuation",
+                    &telemetry,
+                    &turn_id,
+                    Some(serde_json::json!({
+                        "goal_id": goal.goal_id,
+                        "tokens_used": goal.tokens_used,
+                        "token_budget": goal.token_budget,
+                        "prompt": continuation_prompt,
+                    })),
+                ));
+            }
+            // Goal-mode terminal transitions (v2 `blockIfBudgetReached` +
+            // `settleAbnormalTurn`): the engine tells the host to leave
+            // `active`. `goal.blocked` covers budget stops so the host
+            // transitions the goal to `blocked` with a budget reason;
+            // `goal.paused` covers failed / aborted / filtered turns so
+            // the host pauses with the classified reason. v2 emits
+            // `goal.status_changed` for both (goalOps.ts:1083,
+            // `goalFailurePauseReason`).
+            if let Some(goal) = goal_for_continuation.as_ref()
+                && matches!(goal.status, crate::turn_loop::types::GoalStatus::Active)
+            {
+                match &result.stop_reason {
+                    LoopTurnStopReason::BudgetLimited => {
+                        callbacks.telemetry(telemetry_payload(
+                            "goal.blocked",
+                            &telemetry,
+                            &turn_id,
+                            Some(serde_json::json!({
+                                "goal_id": goal.goal_id,
+                                "reason": "budget",
+                            })),
+                        ));
+                    }
+                    LoopTurnStopReason::Filtered
+                    | LoopTurnStopReason::Aborted
+                    | LoopTurnStopReason::MaxSteps
+                    | LoopTurnStopReason::Unknown => {
+                        callbacks.telemetry(telemetry_payload(
+                            "goal.paused",
+                            &telemetry,
+                            &turn_id,
+                            Some(serde_json::json!({
+                                "goal_id": goal.goal_id,
+                                "reason": telemetry_interrupt_reason(&result.stop_reason),
+                            })),
+                        ));
+                    }
+                    _ => {}
+                }
             }
         }
         result

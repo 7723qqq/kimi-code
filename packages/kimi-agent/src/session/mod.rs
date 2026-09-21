@@ -226,6 +226,11 @@ pub struct SessionConfig {
     /// progressive-tool-disclosure announcement state; `None` outside a
     /// wired pipeline.
     pub toolset: Option<Arc<crate::tools::NativeToolset>>,
+    /// Host-injected turn-telemetry context (M1c, v2 #3963): the host knows
+    /// the model configuration, the engine contributes the outcome fields and
+    /// emits `turn_started` / `turn_ended` / `turn_interrupted` through the
+    /// host/telemetry seam. `None` leaves the turn telemetry to the host.
+    pub telemetry: Option<crate::turn_loop::types::TelemetryContext>,
 }
 
 /// What a print-mode (`kimi -p`) session does once its main turn ends while
@@ -414,6 +419,9 @@ struct SessionContext {
     /// The session's cross-turn record of omitted media (v2
     /// `media.budgetDropped`).
     media_dropped: crate::llm::media_budget::DroppedMedia,
+    /// Host-injected turn-telemetry context; see
+    /// [`SessionConfig::telemetry`].
+    telemetry: Option<crate::turn_loop::types::TelemetryContext>,
 }
 
 /// The turn lifecycle owner. A cloneable handle; the pump task runs turns
@@ -478,6 +486,7 @@ impl EngineSession {
             print_run: std::sync::Mutex::new(PrintRunState::default()),
             media: crate::llm::media_resolver::MediaResolver::new(),
             media_dropped: Default::default(),
+            telemetry: config.telemetry,
         });
         let wakeup = Arc::new(Notify::new());
         let shutdown = Arc::new(AtomicBool::new(false));
@@ -1703,9 +1712,22 @@ async fn run_session_turn(
         media_dropped: Some(ctx.media_dropped.clone()),
         toolset: ctx.toolset.clone(),
     };
-    let result = run_turn_continued(input, &ctx.callbacks)
+    let result = match &ctx.telemetry {
+        // M1c (v2 #3963): the host injected a telemetry context, so the turn
+        // lifecycle rides the host/telemetry seam. The goal-domain events stay
+        // with `run_turn_with_telemetry` — this pump drives its own goal
+        // follow-ups (see the print settle below).
+        Some(telemetry) => crate::turn_loop::run_turn::run_turn_with_lifecycle_telemetry(
+            input,
+            telemetry,
+            &ctx.callbacks,
+        )
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?,
+        None => run_turn_continued(input, &ctx.callbacks)
+            .await
+            .map_err(|e| e.to_string())?,
+    };
     Ok(TurnOutcome::Ran(result))
 }
 
@@ -2019,6 +2041,7 @@ mod tests {
             session_id: None,
             task_runner: None,
             toolset: None,
+            telemetry: None,
         };
         EngineSession::new(config).await
     }
@@ -2162,6 +2185,7 @@ mod tests {
             session_id: Some("sess-steer".into()),
             task_runner: Some(runner),
             toolset: None,
+            telemetry: None,
         };
         let session = EngineSession::new(config).await;
 
@@ -2247,6 +2271,7 @@ mod tests {
             session_id: Some("sess-mine".into()),
             task_runner: Some(runner.clone()),
             toolset: None,
+            telemetry: None,
         };
         let session = EngineSession::new(config).await;
 
@@ -2329,6 +2354,7 @@ mod tests {
             session_id: Some("sess-goal".into()),
             task_runner: Some(Arc::new(crate::storage::TaskRunner::new(None))),
             toolset: None,
+            telemetry: None,
         };
         let session = EngineSession::new(config).await;
 

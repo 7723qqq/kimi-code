@@ -166,6 +166,7 @@ import {
   resolveModelContextWindow,
   resolveBackgroundLimits,
   resolvePrintBackground,
+  providerTypeForAlias,
   type JsNativeLlmConfig,
 } from './native-llm-resolver';
 
@@ -1570,6 +1571,33 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
           });
         }
       },
+      telemetry: (eventJson: string) => {
+        // The engine's turn telemetry (M1c): `turn_started` / `turn_ended` /
+        // `turn_interrupted`, the host-injected context below merged with the
+        // engine-observed outcome (reason / duration_ms / steps / trace_id).
+        // v2's loopService emits the same events through its telemetry
+        // service; forwarding them under the engine's event name keeps that
+        // contract. The payload's `event` field is the name, the rest are the
+        // properties.
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(eventJson);
+        } catch {
+          return;
+        }
+        if (typeof parsed !== 'object' || parsed === null) return;
+        const { event: name, ...rest } = parsed as Record<string, unknown>;
+        if (typeof name !== 'string' || name.length === 0) return;
+        // Only primitives ride the wire (the telemetry client drops the rest
+        // anyway); the engine's payload is all strings and numbers.
+        const properties: Record<string, boolean | number | string | undefined | null> = {};
+        for (const [key, value] of Object.entries(rest)) {
+            if (value === null || typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') {
+                properties[key] = value;
+            }
+        }
+        this.telemetry.track(name, properties);
+      },
       checkPermission: async (req: string) => {
         try {
           const parsed = JSON.parse(req) as {
@@ -1859,6 +1887,24 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       ...(githubCreds.githubBaseUrl ? { githubBaseUrl: githubCreds.githubBaseUrl } : {}),
       ...(nativeLlm ? { nativeLlm } : {}),
       ...(mcpServers.length > 0 ? { mcpServers } : {}),
+      // M1c turn telemetry: the host knows the model configuration, the
+      // engine contributes the outcome fields and emits turn_started /
+      // turn_ended / turn_interrupted through the telemetry callback (v2's
+      // loopService owns the same events).
+      // `enabled_plugins` is deliberately absent: the only source is the
+      // engine's plugin registry, and reading it here would open that
+      // SQLite store at every session creation (`ensurePluginStore`) —
+      // a behavior change that also locks the data directory for the
+      // session's lifetime. v2's semantics for a host without a plugin
+      // snapshot is exactly this: the field stays absent. The toggle-time
+      // set still rides the `plugin_toggle` event, which reads the
+      // registry on demand.
+      telemetry: {
+        mode: meta.planMode ? 'plan' : 'agent',
+        providerType: providerTypeForAlias(config, modelAlias),
+        protocol: nativeLlm?.protocol ?? '',
+        thinkingEffort: meta.thinkingEffort,
+      },
     };
 
     return EngineSessionHandle.create(params, { ...callbacks, authToken });

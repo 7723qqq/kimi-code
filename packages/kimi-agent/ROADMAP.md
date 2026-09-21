@@ -1330,6 +1330,21 @@ v2 用双冒号（`fs.ts:414,460`），bundle 用单冒号。fork 的 `::search`
 **§6.0 快照更正**：该节「当前快照 ported=4 | tracked=8」为过期数字；门禁实时输出
 （2026-09-21）为 `ported=12 | not-applicable=5`（17 条，tracked=0）。
 
+**#3963 后续收尾（2026-09-21 晚）**：`9681ec28c9` 只落了接缝与两个开关点，TUI 路径此前
+**根本不发射** turn 遥测——session pump 直接调 `run_turn_continued`，`params.telemetry`
+没有任何树内宿主填充。本轮补齐全链路：(a) `run_turn.rs` 提取出
+`run_turn_with_lifecycle_telemetry`（turn_started/turn_ended/turn_interrupted；goal 域事件
+仍留在 `run_turn_with_telemetry`——pump 自己驱动 goal 后续回合）；(b) `SessionConfig`/
+`SessionContext` 新增 `telemetry` 字段，pump 有上下文时经遥测接缝发射；(c) napi
+`createEngineSession` 把 `params.telemetry` 传进 SessionConfig；(d) SDK `buildHandle` 填充
+上下文（mode=planMode?'plan':'agent'、providerType 经新增的 `providerTypeForAlias`、
+protocol、thinkingEffort）并把 `telemetry` 回调转发到宿主遥传客户端。验证：
+`native-harness.test.ts` 新增用例走真实引擎 + mock OpenAI 服务，断言 turn_started/ended
+的载荷形状。**`enabled_plugins` 在 SDK 路径刻意缺席**：唯一来源是引擎插件注册表，读取它会在
+每次建会话时打开该 SQLite store（`ensurePluginStore`）——既是行为变更也锁住数据目录
+（实测令 8 个 config 测试 EBUSY），故按 v2「无插件快照」语义留空；开关时的启用集仍由
+`plugin_toggle` 事件按需携带。
+
 ---
 
 ## 7. v1 / v3 协议面自创实现审计（2026-09-20，按铁律）

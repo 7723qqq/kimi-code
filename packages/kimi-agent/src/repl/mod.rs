@@ -601,6 +601,9 @@ pub async fn start_repl(
         session_id: None,
         task_runner: None,
         toolset: None,
+        // The REPL is its own host: no host-injected telemetry context, so the
+        // turn lifecycle stays off the host/telemetry seam.
+        telemetry: None,
     };
     let engine_session = crate::session::EngineSession::new(session_config).await;
 

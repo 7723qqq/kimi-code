@@ -460,6 +460,9 @@ async fn main() -> anyhow::Result<()> {
                     session_id: input.session_id.clone(),
                     toolset: None,
                     task_runner: subagent_manager.get_task_runner_sync(),
+                    // The stdio host owns its telemetry end to end (no
+                    // host-injected context on this path).
+                    telemetry: None,
                 })
                 .await;
 
