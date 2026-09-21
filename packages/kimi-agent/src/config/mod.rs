@@ -836,16 +836,18 @@ impl KimiConfig {
             .as_deref()
             .unwrap_or("openai")
             .to_lowercase();
-        // Google's endpoint is a constant: a provider without `base_url` still
-        // resolves natively — its OAuth token rides the `auth_provider` channel
-        // — instead of silently falling back to the host LLM proxy.
+        // v2 `resolveModelConnection` (`human/llm/protocol/connection.ts`):
+        // the declared endpoint wins, then the provider type's `baseUrlEnv`
+        // read from the process environment, then the type's default — what
+        // the vendor SDK would pick, which the engine carries itself because
+        // it assembles the request URL. Google's default is the host root, so
+        // a base-URL-less Gemini provider still resolves natively instead of
+        // silently falling back to the host LLM proxy.
         let raw_base_url = alias
             .and_then(|alias| alias.base_url.as_deref())
             .or(provider.base_url.as_deref())
-            .or_else(|| {
-                (p_type == "google" || p_type == "google-genai" || p_type == "gemini")
-                    .then_some("https://generativelanguage.googleapis.com")
-            })?;
+            .map(str::to_string)
+            .or_else(|| endpoint_fallback_base_url(&p_type))?;
         // v2 `resolveModelAuthMaterial`: a model-level credential wins over the
         // provider's, and a static key wins over an OAuth binding at the same
         // level. An OAuth-bound model authenticates through the host token
@@ -888,6 +890,12 @@ impl KimiConfig {
         // sent Gemini traffic to `{base}/chat/completions` with a Chat
         // Completions body — the endpoint is the only thing a Gemini-compatible
         // relay accepts, so the request never even reached the model.
+        //
+        // `openai_responses` is a provider type of its own (v2 registers it as
+        // a definition whose base protocol is the Responses API, and the host
+        // config layer keys provider selection off it): a provider declared
+        // with that type speaks Responses without the alias also having to
+        // repeat the protocol.
         let protocol = match alias.and_then(|alias| alias.protocol.as_deref()) {
             Some("anthropic") => "anthropic",
             Some("openai_responses") => "openai_responses",
@@ -896,10 +904,11 @@ impl KimiConfig {
             _ if p_type == "google" || p_type == "google-genai" || p_type == "gemini" => {
                 "google-genai"
             }
+            _ if p_type == "openai_responses" || p_type == "openai-responses" => "openai_responses",
             _ => "openai",
         };
 
-        let base_url = normalize_base_url(raw_base_url, protocol);
+        let base_url = normalize_base_url(&raw_base_url, protocol);
         let capabilities = alias
             .and_then(|alias| alias.capabilities.clone())
             .filter(|caps| !caps.is_empty());
@@ -1456,6 +1465,63 @@ fn resolve_web_service(
     })
 }
 
+/// One provider type's endpoint declaration (v2 `ProtocolEndpoint`,
+/// `human/llm/protocol/connection.ts`, with the registrations in
+/// `llm-adapter/provider/provider-definition.ts` and
+/// `human/llm/provider/providers/standard.ts`). `base_url_env` is the
+/// process-environment variable the type falls back to when the config
+/// declares no endpoint; `default_base_url` is the vendor SDK's own default,
+/// which the engine has to carry itself because it assembles the request URL
+/// rather than handing it to an SDK.
+struct EndpointDeclaration {
+    base_url_env: &'static str,
+    default_base_url: Option<&'static str>,
+}
+
+/// The endpoint declaration for a provider type, or `None` for a type the
+/// engine has no declaration for.
+///
+/// `vertexai` is deliberately absent: the engine has no Vertex wire protocol
+/// — a Vertex provider resolves on the OpenAI one — so honoring
+/// `GOOGLE_VERTEX_BASE_URL` here would pull traffic the host layer serves
+/// correctly into a mis-shaped request. Vertex stays on the host proxy.
+fn endpoint_declaration(provider_type: &str) -> Option<EndpointDeclaration> {
+    let declaration = match provider_type {
+        // v2 `kimiConnection` (`human/llm-kimi/trait.ts`).
+        "kimi" => EndpointDeclaration {
+            base_url_env: "KIMI_BASE_URL",
+            default_base_url: Some("https://api.moonshot.ai/v1"),
+        },
+        // v2 `anthropicConnection`; the SDK's own default is the API root.
+        "anthropic" => EndpointDeclaration {
+            base_url_env: "ANTHROPIC_BASE_URL",
+            default_base_url: Some("https://api.anthropic.com"),
+        },
+        // v2 `openAIConnection`, shared by the Responses protocol.
+        "openai" | "openai_responses" | "openai-responses" => EndpointDeclaration {
+            base_url_env: "OPENAI_BASE_URL",
+            default_base_url: Some("https://api.openai.com/v1"),
+        },
+        // v2 `geminiEndpoint`; the SDK default is the host root.
+        "google" | "google-genai" | "gemini" => EndpointDeclaration {
+            base_url_env: "GOOGLE_GEMINI_BASE_URL",
+            default_base_url: Some("https://generativelanguage.googleapis.com"),
+        },
+        _ => return None,
+    };
+    Some(declaration)
+}
+
+/// The base URL a provider falls back to when the config declares none (v2
+/// `resolveModelConnection`): the type's `baseUrlEnv` read from the process
+/// environment — a blank value counts as unset, same as v2's `read` — then
+/// the type's default.
+fn endpoint_fallback_base_url(provider_type: &str) -> Option<String> {
+    let declaration = endpoint_declaration(provider_type)?;
+    non_blank(std::env::var(declaration.base_url_env).ok().as_deref())
+        .or_else(|| declaration.default_base_url.map(str::to_string))
+}
+
 fn normalize_base_url(url: &str, protocol: &str) -> String {
     let trimmed = url.trim_end_matches('/');
     // GenerateContent lives under an API version segment, and the documented
@@ -1708,6 +1774,206 @@ pattern = "Read(*)"
         assert_eq!(native_llm.protocol, "anthropic");
         assert_eq!(native_llm.base_url, "https://api.anthropic.com/v1");
         assert_eq!(native_llm.api_key, "sk-ant-key");
+    }
+
+    /// A one-provider config whose provider carries a credential but no
+    /// endpoint, so the provider type's env/default chain is what resolves.
+    fn endpoint_less_config(provider_type: &str) -> KimiConfig {
+        KimiConfig::from_str(&format!(
+            r#"
+default_model = "m"
+
+[providers.p]
+type = "{provider_type}"
+api_key = "sk-x"
+
+[models.m]
+provider = "p"
+model = "some-model"
+"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn anthropic_endpoint_falls_back_to_env_then_default() {
+        let keys = ["ANTHROPIC_BASE_URL"];
+        let saved: Vec<Option<String>> = keys.iter().map(|key| std::env::var(key).ok()).collect();
+        unsafe {
+            for key in keys {
+                std::env::remove_var(key);
+            }
+        }
+
+        // No declared endpoint and no env: the SDK default, carried by the
+        // engine because it assembles the URL itself.
+        let native = endpoint_less_config("anthropic")
+            .extract_native_llm(None)
+            .unwrap();
+        assert_eq!(native.protocol, "anthropic");
+        assert_eq!(native.base_url, "https://api.anthropic.com/v1");
+
+        // The env endpoint wins over the default and rides the same
+        // normalization a declared `base_url` does.
+        unsafe { std::env::set_var("ANTHROPIC_BASE_URL", "https://ant-proxy.example.com") };
+        let native = endpoint_less_config("anthropic")
+            .extract_native_llm(None)
+            .unwrap();
+        assert_eq!(native.base_url, "https://ant-proxy.example.com/v1");
+
+        // A blank env value counts as unset (v2 `read`), so the default stands.
+        unsafe { std::env::set_var("ANTHROPIC_BASE_URL", "   ") };
+        let native = endpoint_less_config("anthropic")
+            .extract_native_llm(None)
+            .unwrap();
+        assert_eq!(native.base_url, "https://api.anthropic.com/v1");
+
+        // A declared endpoint outranks the env variable.
+        let declared = KimiConfig::from_str(
+            r#"
+default_model = "m"
+
+[providers.p]
+type = "anthropic"
+base_url = "https://declared.example.com"
+api_key = "sk-x"
+
+[models.m]
+provider = "p"
+model = "some-model"
+"#,
+        )
+        .unwrap();
+        let native = declared.extract_native_llm(None).unwrap();
+        assert_eq!(native.base_url, "https://declared.example.com/v1");
+
+        unsafe {
+            for (key, value) in keys.iter().zip(saved) {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn openai_endpoint_falls_back_to_env_then_default() {
+        let keys = ["OPENAI_BASE_URL"];
+        let saved: Vec<Option<String>> = keys.iter().map(|key| std::env::var(key).ok()).collect();
+        unsafe {
+            for key in keys {
+                std::env::remove_var(key);
+            }
+        }
+
+        let native = endpoint_less_config("openai")
+            .extract_native_llm(None)
+            .unwrap();
+        assert_eq!(native.protocol, "openai");
+        assert_eq!(native.base_url, "https://api.openai.com/v1");
+
+        unsafe { std::env::set_var("OPENAI_BASE_URL", "https://oai-proxy.example.com/v1") };
+        let native = endpoint_less_config("openai")
+            .extract_native_llm(None)
+            .unwrap();
+        assert_eq!(native.base_url, "https://oai-proxy.example.com/v1");
+
+        // The Responses protocol shares the OpenAI declaration.
+        unsafe { std::env::set_var("OPENAI_BASE_URL", "   ") };
+        let native = endpoint_less_config("openai_responses")
+            .extract_native_llm(None)
+            .unwrap();
+        assert_eq!(native.protocol, "openai_responses");
+        assert_eq!(native.base_url, "https://api.openai.com/v1");
+
+        unsafe {
+            for (key, value) in keys.iter().zip(saved) {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn kimi_endpoint_falls_back_to_env_then_default() {
+        let keys = ["KIMI_BASE_URL"];
+        let saved: Vec<Option<String>> = keys.iter().map(|key| std::env::var(key).ok()).collect();
+        unsafe {
+            for key in keys {
+                std::env::remove_var(key);
+            }
+        }
+
+        let native = endpoint_less_config("kimi")
+            .extract_native_llm(None)
+            .unwrap();
+        assert_eq!(native.protocol, "openai");
+        assert_eq!(native.base_url, "https://api.moonshot.ai/v1");
+
+        unsafe { std::env::set_var("KIMI_BASE_URL", "https://kimi-proxy.example.com") };
+        let native = endpoint_less_config("kimi")
+            .extract_native_llm(None)
+            .unwrap();
+        assert_eq!(native.base_url, "https://kimi-proxy.example.com/v1");
+
+        unsafe {
+            for (key, value) in keys.iter().zip(saved) {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn google_genai_endpoint_prefers_the_env_over_the_host_root() {
+        let keys = ["GOOGLE_GEMINI_BASE_URL"];
+        let saved: Vec<Option<String>> = keys.iter().map(|key| std::env::var(key).ok()).collect();
+        unsafe {
+            for key in keys {
+                std::env::remove_var(key);
+            }
+        }
+
+        let native = endpoint_less_config("google-genai")
+            .extract_native_llm(None)
+            .unwrap();
+        assert_eq!(native.protocol, "google-genai");
+        assert_eq!(
+            native.base_url,
+            "https://generativelanguage.googleapis.com/v1beta"
+        );
+
+        unsafe { std::env::set_var("GOOGLE_GEMINI_BASE_URL", "https://gem-proxy.example.com") };
+        let native = endpoint_less_config("google-genai")
+            .extract_native_llm(None)
+            .unwrap();
+        assert_eq!(native.base_url, "https://gem-proxy.example.com/v1beta");
+
+        unsafe {
+            for (key, value) in keys.iter().zip(saved) {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn undeclared_provider_type_without_an_endpoint_does_not_resolve() {
+        // A type the engine has no endpoint declaration for keeps the old
+        // behavior: without a declared `base_url` the model does not resolve
+        // natively and the host proxy takes it.
+        assert!(
+            endpoint_less_config("deepseek")
+                .extract_native_llm(None)
+                .is_none()
+        );
     }
 
     #[test]

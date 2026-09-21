@@ -56,6 +56,8 @@ export KIMI_CODE_CUSTOM_HEADERS=$'X-Gateway-Cluster: my-cluster\nX-Custom-Tag: d
 
 下面这些键名不是直接从 shell 读取的。它们是写在 `config.toml` 的 `[providers.<name>.env]` 子表里、作为 `api_key` / `base_url` 备用来源的键名。CLI 只从配置文件读取，不从 `process.env` 读取。
 
+有一个例外只涉及 base URL，且只发生在直接由引擎运行会话的界面上（`kimi acp`、`kimi web`）：当供应商没有声明 `base_url` 时，会先从 shell 环境读取对应的 `*_BASE_URL` 变量作为备用值，再退到该供应商类型的默认端点（见[平台与模型](./providers.md)）。API 密钥键名仍然只从配置文件读取。
+
 这样设计是为了让你保留熟悉的键名写法，同时把密钥放在配置文件里统一管理：
 
 ```toml
@@ -80,7 +82,7 @@ KIMI_BASE_URL = "https://api.moonshot.ai/v1"
 | `GOOGLE_CLOUD_LOCATION` | Vertex AI | 无 |
 
 ::: warning
-`GOOGLE_APPLICATION_CREDENTIALS`（服务账号 JSON 路径）是唯一走系统环境变量的例外。它由 Google SDK 自身通过 ADC 流程读取，CLI 不参与。其他所有键名都必须写在 `[providers.<name>.env]` 子表里。
+`GOOGLE_APPLICATION_CREDENTIALS`（服务账号 JSON 路径）是另一个走系统环境变量的例外：它由 Google SDK 自身通过 ADC 流程读取，CLI 不参与。其他键名都必须写在 `[providers.<name>.env]` 子表里才能生效；上述 `*_BASE_URL` 的 shell 备用只在未声明 `base_url` 时生效。
 :::
 
 供应商类型与字段的完整说明见[平台与模型](./providers.md)。

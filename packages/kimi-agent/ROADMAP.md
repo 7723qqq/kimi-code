@@ -1772,3 +1772,63 @@ JSON/一次性）；`session getCronTasks`（node-sdk，stub HOME/USERPROFILE �
 
 **验证**：`cargo test --lib` 全量 + napi 集成 + node-sdk 全量 + fmt +
 clippy + scan-parity（napi 98→99 两侧同步）。
+
+### 8.9 引擎端点解析订正（2026-09-21，接手项：baseUrlEnv 通道 + 两条附带缺口）
+
+**背景**：v2 `resolveModelConnection`
+（`human/llm/protocol/connection.ts:36`，四个 protocol base 的 `generate()`
+里调用）解析 `baseUrl = model.baseUrl ?? read(baseUrlEnv) ?? defaultBaseUrl`；
+fork `extract_native_llm` 只有 google 常量，不读任何 baseUrlEnv——
+`docs/en/configuration/providers.md` 与 `env-vars.md` 承诺的 per-type
+env 键名与默认端点在 native 引擎不存在（kosong 侧自上游 PR #1269 起有
+`GOOGLE_GEMINI_BASE_URL` / `GOOGLE_VERTEX_BASE_URL` fallback，引擎侧没有）。
+
+**落地 1（endpoint 声明表，`config/mod.rs`）**：
+`endpoint_declaration(provider_type)` + `endpoint_fallback_base_url`，
+链接顺序为 alias.base_url → provider.base_url → env → default：
+
+| provider type | baseUrlEnv | default |
+| --- | --- | --- |
+| `kimi` | `KIMI_BASE_URL` | `https://api.moonshot.ai/v1` |
+| `anthropic` | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com`（SDK 默认） |
+| `openai` / `openai_responses` / `openai-responses` | `OPENAI_BASE_URL` | `https://api.openai.com/v1` |
+| `google` / `google-genai` / `gemini` | `GOOGLE_GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com`（原常量） |
+
+env 空串视为未设置（`non_blank`，与 v2 `read` 同义）；默认值经
+`normalize_base_url` 归一（anthropic 补 `/v1`、google 补 `/v1beta`）。
+`vertexai` 故意缺席：引擎无 Vertex wire protocol（Vertex provider 现落
+openai protocol），认 `GOOGLE_VERTEX_BASE_URL` 会把 host 层服务正确的流量
+拉进形状错误的请求——Vertex 留在 host 代理。api key 侧不加 type 派生
+env 读取：fork 文档约定凭证键名只走 config 文件（`env-vars.md`），
+`api_key_env` 显式通道不变。
+
+**落地 2（api_key_env 透传，两处丢弃）**：
+`server/engine.rs::resolved_native_llm` 与 `repl/mod.rs` 的
+`NativeLlmConfig` 构造把 `native.api_key_env` 丢成 `None`（源自
+`d5511a18da` 未提交改动快照，非设计决策；`main.rs:140` 同场景透传）——
+env 绑定供应商经 server 路径（`session_spec` / `llm_for_model`，即
+`kimi web`）和 REPL（`kimi-agent --repl`）会带空 credential 发请求。
+两处均改为透传，transport 请求时读变量的既有语义不变。REPL 的
+`auth_provider: None` 不动：REPL 没有 host token 通道，OAuth 在该界面
+本就不可用（透传只会把静默 401 变成显式报错）。
+
+**落地 3（`openai_responses` protocol 匹配）**：protocol 匹配不认
+p_type `openai_responses`（落 Chat Completions）——v2 注册表
+id→baseProtocol、kosong `ProviderType`（"the host config layer keys
+provider selection off it"）、docs `providers.md`、custom_registry
+`ALLOWED_PROVIDER_TYPES` 都约定该 type 走 Responses。补匹配臂。
+
+**测试**：config 5 例（anthropic/openai/kimi/google 各自
+env→default→blank→declared 优先级；未声明 type 无 base_url 仍不解析）；
+engine 1 例（env 凭证通道透传，`session_model_keeps_the_env_bound_credential_channel`）。
+
+**验证**：`cargo test --lib` 2811 通过；
+`cargo test --no-default-features --features cli,workflow-js` 2804 + 集成
+全绿；`cargo clippy --all-targets --features cli -- -D warnings` 0；
+fmt 干净。
+
+**文档**：`env-vars.md` 双语补例外段——直接由引擎运行会话的界面
+（`kimi acp`、`kimi web`）在供应商未声明 `base_url` 时，从 shell 读
+`*_BASE_URL` 作备用、再退到类型默认端点；warning 里「唯一例外」措辞
+同步（`GOOGLE_APPLICATION_CREDENTIALS` 不再是唯一走系统环境变量的键）。
+此为已批准偏差：引擎按 v2 读 process.env，TS host 层维持 config-file-only。

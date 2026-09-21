@@ -56,6 +56,8 @@ The format mirrors `ANTHROPIC_CUSTOM_HEADERS`: newline-separated `Name: Value` l
 
 The key names below are not read directly from the shell. They are key names written inside the `[providers.<name>.env]` sub-table of `config.toml`, serving as fallback values for `api_key` / `base_url`. The CLI reads only from the config file, not from `process.env`.
 
+One exception applies to base URLs on the surfaces that run sessions on the engine directly (`kimi acp`, `kimi web`): when a provider declares no `base_url`, the matching `*_BASE_URL` variable is read from the shell environment as the fallback, followed by the provider type's default endpoint (see [Providers and models](./providers.md)). API key names still come from the config file only.
+
 This design lets you keep familiar key name conventions while centralizing secret management in the config file:
 
 ```toml
@@ -80,7 +82,7 @@ Key names per provider:
 | `GOOGLE_CLOUD_LOCATION` | Vertex AI | None |
 
 ::: warning
-`GOOGLE_APPLICATION_CREDENTIALS` (path to a service account JSON file) is the only exception that goes through the system environment variable mechanism. It is read by the Google SDK directly via the standard ADC flow; the CLI does not participate. All other key names must be placed in the `[providers.<name>.env]` sub-table to take effect.
+`GOOGLE_APPLICATION_CREDENTIALS` (path to a service account JSON file) is another exception that goes through the system environment variable mechanism: it is read by the Google SDK directly via the standard ADC flow, and the CLI does not participate. Every other key name must be placed in the `[providers.<name>.env]` sub-table to take effect; the `*_BASE_URL` shell fallback above applies only when no `base_url` is declared.
 :::
 
 For the full provider type and field reference, see [Providers and models](./providers.md).

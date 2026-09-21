@@ -535,7 +535,10 @@ impl ServerEngine {
             protocol: native.protocol,
             base_url: native.base_url,
             api_key: native.api_key,
-            api_key_env: None,
+            // The env-bound credential channel survives resolution: the
+            // transport reads the named variable at request time, exactly as
+            // the CLI entry point (`main.rs`) passes it through.
+            api_key_env: native.api_key_env,
             model: native.model,
             max_tokens: native.max_tokens,
             custom_headers: native.custom_headers,
@@ -1968,6 +1971,39 @@ model = "gpt-x"
         assert_eq!(native.base_url, "https://api.example.test/v1");
         assert_eq!(native.model, "gpt-x");
         assert_eq!(native.api_key, "k");
+    }
+
+    /// An env-bound provider keeps its credential channel through the server
+    /// engine's resolution: the transport reads the named variable at request
+    /// time, so dropping it here would send every request with an empty key.
+    #[tokio::test]
+    async fn session_model_keeps_the_env_bound_credential_channel() {
+        let engine = engine();
+        let config: crate::config::KimiConfig = r#"
+default_model = "alias-2"
+
+[providers.acme]
+type = "openai"
+api_key_env = "KIMI_TEST_PROVIDER_API_KEY"
+base_url = "https://api.example.test/v1"
+
+[models.alias-2]
+provider = "acme"
+model = "gpt-x"
+"#
+        .parse()
+        .expect("parse config");
+        engine.set_config_source(Arc::new(tokio::sync::Mutex::new(Some(config))));
+
+        let native = engine
+            .resolved_native_llm("alias-2")
+            .await
+            .expect("alias resolves to its provider");
+        assert_eq!(native.api_key, "");
+        assert_eq!(
+            native.api_key_env.as_deref(),
+            Some("KIMI_TEST_PROVIDER_API_KEY")
+        );
     }
 
     /// `llm_for_model` resolves the named alias through the same chain a turn
