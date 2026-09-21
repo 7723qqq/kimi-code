@@ -294,7 +294,7 @@ packages/acp-server            14 处        耦合：ACP 宿主服务启动器�
 | 上游项 | 上游 v2 行为 | Rust 移植目标 | 状态 |
 |---|---|---|---|
 | #3524 NotifyUser / Updates panel | 新增 NotifyUser 工具与主/子代理分页进度面板；宿主声明 `HostUiCapability` / `TUI_HOST_UI_CAPABILITIES` | `kimi-agent` 新增 NotifyUser 工具与 `update_panel` 事件；CLI 侧恢复 host UI capability 透传 | **已完成**：`src/tools/core_tool_defs.rs` 与 `tools/mod.rs` 新增 `NotifyUser` 原生工具，`builder.rs` 新增 `NOTIFY_USER_GUIDANCE` |
-| #3594 Remote Control 运行时开关 API | kap-server 路由 + `@moonshot-ai/remote-control` manager | Rust server 暴露 remote-control runtime toggle，与 fork 的 CLI 实现对齐 | **仅 REST 表面（2026-09-13 修正）**：`server/mod.rs` 挂载了 `GET/POST /api/v1/remote-control`，但**没有任何运行时实现**（无设备注册、无通道、无心跳）。此前 POST 会把本地状态改成 `state:"on"` 并回一个 `https://code-rc.kimi.com/devices/<随机id>/` URL，客户端据此展示为「已开启」，实际没有任何监听方。现已修正为：GET 回 `enabled:false` + `available:false` + `reason`，POST 返 501（`REMOTE_CONTROL_UNAVAILABLE`），不再伪造状态。真正的 remote-control 运行时（上游 `@moonshot-ai/remote-control` manager 的等价物）**仍是缺失项**，见文末「未闭环项」。 |
+| #3594 Remote Control 运行时开关 API | kap-server 路由 + `@moonshot-ai/remote-control` manager | Rust server 暴露 remote-control runtime toggle，与 fork 的 CLI 实现对齐 | **仅 REST 表面（2026-09-13 修正）**：`server/mod.rs` 挂载了 `GET/POST /api/v1/remote-control`，但**没有任何运行时实现**（无设备注册、无通道、无心跳）。此前 POST 会把本地状态改成 `state:"on"` 并回一个 `https://code-rc.kimi.com/devices/<随机id>/` URL，客户端据此展示为「已开启」，实际没有任何监听方。现已修正为：GET 回 `enabled:false` + `available:false` + `reason`，POST 返 501（`REMOTE_CONTROL_UNAVAILABLE`），不再伪造状态。**2026-09-16 后续已补真运行时**（`server/remote_control.rs`：设备注册、relay WebSocket 通道、反向 HTTP 代理、心跳；POST 需调用方传入 Kimi login refresh_token——standalone 服务器自己不持有，GET 在未启动时回 `available:false` + 可操作的 reason）。该行 2026-09-13 的「仍是缺失项」结论由此作废。 |
 | #3630 会话删除与串行清理 | `deleteSession`、`event.session.deleted` 广播、`ISessionManager.onWillDeleteSession` | Rust server 会话删除端点 + 事件广播 | **已完成**：`server/mod.rs` 支持 `POST /api/v1/sessions/:id:delete`，`event.session.deleted` 携带 `workspaceId` |
 | #3548 保留媒体附件名 | 媒体引用新增 `name` 字段 | Rust 原生媒体块类型增加 name 并全链路透传 | **已完成**：`ContentBlock`、`ImageUrl` 等全类型透传 `name: Option<String>`，服务端全链路映射 |
 | #3652 / #3649 HEIC/HEIF/BMP 图片 | Kimi 模型接受 HEIC/HEIF/BMP（含首轮默认模型门控） | `native/image_compress.rs` + 媒体 mime 白名单 | **已完成**：BMP 编解码支持，`src/tools/read_media.rs` 针对 Kimi 模型放行 BMP/HEIC/HEIF 并放宽至 5MB 预算（路径于 2026-09-15 更正：该文件在 `src/tools/`，不在 `src/native/`） |
@@ -344,7 +344,7 @@ packages/acp-server            14 处        耦合：ACP 宿主服务启动器�
    对齐 + wire 契约补 `file_history.*` 等字段；web：analysis/各 Tab 对齐 + 全量 `t()` 化 + en/zh 新 key）。
    验证：`apps/vis/server` 18 文件 181 项、`apps/vis/web` 7 文件 43 项测试全绿。
 
-5. **模式互斥（mode mutex）缺失（2026-09-14 域对照新增）**：v2 `agent/modeMutex/modeMutexService.ts`
+5. ~~**模式互斥（mode mutex）缺失（2026-09-14 域对照新增）**~~ **已落地（2026-09-14，2026-09-22 复核确认标题）**：v2 `agent/modeMutex/modeMutexService.ts`
    在进入 plan/swarm 时自动退出 tower，进入 tower 时自动退出 plan + swarm；Rust 侧 plan/tower/swarm
    三者进入路径之间零互斥逻辑（`plan_mode.rs`、`swarm_tool.rs`、`tools/tower/` 均无交叉退出）。
    后果：plan 激活期间起 tower/swarm（或反之）两边同算 active，tower worker 的写可能撞上 plan guard。

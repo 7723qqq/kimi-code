@@ -1207,7 +1207,7 @@ fn apply_prompt_submission_options(
 ///
 /// Kept as a shared constant so GET and POST cannot drift into telling different
 /// stories about the same missing capability.
-const REMOTE_CONTROL_UNAVAILABLE: &str = "this standalone kimi-agent server has no remote-control runtime: no device registration, channel or heartbeat is implemented, so no remote session can be established";
+const REMOTE_CONTROL_UNAVAILABLE: &str = "remote-control is not running: the runtime exists (device registration, relay channel, heartbeat) but no session started it — POST /api/v1/remote-control with enabled=true and the Kimi login refresh_token to start one";
 
 /// Generate a stable device id for remote control (TS `createKimiDeviceId`
 /// shape: a ULID).
@@ -7437,10 +7437,11 @@ mod tests {
     /// The REST surface for remote control (#3594) is backed by a real runtime
     /// (`server/remote_control.rs`): enabling without the Kimi login credential
     /// is refused honestly (the relay WS upgrade would fail anyway), and the
-    /// off state is reported as such. The `501` era is over — a start request
-    /// with a credential would actually arm the runtime.
+    /// off state is reported as such — with a reason that says the runtime is
+    /// not started, not that it does not exist. The `501` era is over — a start
+    /// request with a credential would actually arm the runtime.
     #[tokio::test]
-    async fn test_remote_control_reports_the_missing_runtime() {
+    async fn test_remote_control_reports_the_not_started_runtime() {
         let server = HttpServer::in_memory().unwrap();
 
         let req_get = HttpRequest {
@@ -7461,8 +7462,8 @@ mod tests {
             val_get["reason"]
                 .as_str()
                 .unwrap()
-                .contains("no remote-control runtime"),
-            "the response must explain the gap: {val_get}"
+                .contains("remote-control is not running"),
+            "the response must explain that the runtime simply is not started: {val_get}"
         );
 
         // Enabling requires the Kimi login credential: without it the relay
