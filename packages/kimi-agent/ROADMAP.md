@@ -1022,7 +1022,11 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
    （消息自带 `prompt_id`，转录里只出现一次）；空队列照旧移除，map 不随会话数增长；
    signal 槽仍每轮刷新。测试：`an_undrained_steer_survives_the_turn_boundary_for_the_next_turn`
    （存活 + 下一回合可 drain + 无活跃回合时 `enqueue_steer` 仍拒绝）、
-   `an_empty_steer_queue_is_dropped_at_the_turn_boundary`（空队列不泄漏）。
+   `an_empty_steer_queue_is_dropped_at_the_turn_boundary`（空队列不泄漏），以及**真实路径**
+   `a_steer_survives_a_cancel_and_joins_the_next_turn_over_rest`（REST 路由 → 真实引擎 →
+   本地 mock OpenAI SSE：首请求挂起、steer 入队、`:abort`、下一 prompt 的回合在首个 step
+   头部取走该消息；断言 steered 文本在全库恰好出现一次且属于取消后的新回合——已临时还原旧
+   行为验证该测试确实变红）。
 
 ### 6.2 本轮已修复（含证据）
 

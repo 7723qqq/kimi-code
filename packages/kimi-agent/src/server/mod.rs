@@ -8979,6 +8979,216 @@ max_context_size = 128000
         assert!(val_init["prompt"].as_str().unwrap().contains("AGENTS.md"));
     }
 
+    /// The full server path for an unconsumed steer (v2's semantics; the
+    /// session path's session-scoped queue behaves the same): a prompt runs
+    /// against a model endpoint that hangs mid-stream, a queued prompt is
+    /// steered into the running turn, the turn is aborted before the steer is
+    /// drained — the cancel check runs at the step top, ahead of
+    /// `drain_steers` — and the next prompt's turn must carry the steered text
+    /// exactly once. Before `release_turn_steer_state`, the steer died with the
+    /// aborted turn and the text appeared nowhere.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_steer_survives_a_cancel_and_joins_the_next_turn_over_rest() {
+        // A local OpenAI-compatible endpoint: the first request streams one
+        // delta and then holds the connection (only a cancellation ends that
+        // turn); every later request answers a complete turn.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let first_request = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let mock = {
+            let first_request = first_request.clone();
+            tokio::spawn(async move {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                loop {
+                    let Ok((mut sock, _)) = listener.accept().await else {
+                        break;
+                    };
+                    let first_request = first_request.clone();
+                    tokio::spawn(async move {
+                        let mut buf = [0u8; 8192];
+                        let _ = sock.read(&mut buf).await;
+                        let hanging =
+                            first_request.swap(false, std::sync::atomic::Ordering::SeqCst);
+                        let body = if hanging {
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"hel\"}}]}\n\n"
+                                .to_string()
+                        } else {
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n\
+                             data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n\
+                             data: [DONE]\n\n"
+                                .to_string()
+                        };
+                        let head = format!(
+                            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n{body}"
+                        );
+                        let _ = sock.write_all(head.as_bytes()).await;
+                        let _ = sock.flush().await;
+                        if hanging {
+                            // Hold the connection open: the turn only ends through cancellation.
+                            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                        }
+                    });
+                }
+            })
+        };
+
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let hub = Arc::new(EventHub::new());
+        let engine = ServerEngine::new(
+            crate::pipeline::PipelineSpec {
+                system_prompt: "sys".into(),
+                model_name: "mock-model".into(),
+                providers: Vec::new(),
+                native_llm: Some(crate::rpc::types::NativeLlmConfig {
+                    protocol: "openai".into(),
+                    base_url: format!("http://{addr}/v1"),
+                    api_key: "test-key".into(),
+                    model: "mock-model".into(),
+                    ..Default::default()
+                }),
+                workspace_root: None,
+                native_tools: false,
+                extra_roots: Vec::new(),
+                rust_self_contained: true,
+                shell_path: None,
+                policy_snapshot: None,
+                github_token: None,
+                github_base_url: None,
+                subagent_timeout_ms: None,
+                agent_tool_veto: None,
+                tools_veto: None,
+                todo_tool_veto: None,
+                tower_worktree_root: None,
+                tower_enabled: false,
+                tool_select: false,
+                sandbox_mode: None,
+                sandbox_policy: None,
+                caller_agent_id: None,
+                session_id: None,
+                secondary_model: None,
+                image_read_byte_budget: None,
+                image_max_edge_px: None,
+                model_capabilities: None,
+                skill_dirs: Vec::new(),
+                background: crate::storage::BackgroundLimits::default(),
+            },
+            hub.clone(),
+            store.clone(),
+        );
+        let server = HttpServer::with_hub(store.clone(), hub).with_engine(engine);
+        let engine = server.engine().expect("the server holds its engine");
+        store.create_session("sess-steer-cancel", None).unwrap();
+
+        let post = |path: &str, body: Value| HttpRequest {
+            method: "POST".into(),
+            path: path.into(),
+            query: None,
+            headers: HashMap::new(),
+            body: serde_json::to_vec(&body).unwrap(),
+        };
+        async fn wait_until(deadline_secs: u64, mut condition: impl FnMut() -> bool) {
+            let deadline =
+                std::time::Instant::now() + std::time::Duration::from_secs(deadline_secs);
+            while !condition() {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "condition not met within {deadline_secs}s"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        }
+
+        // 1. The first prompt runs against the hanging endpoint.
+        let first = server
+            .handle_request(&post(
+                "/api/v1/sessions/sess-steer-cancel/prompts",
+                json!({ "prompt": "first" }),
+            ))
+            .await;
+        assert_eq!(first.status, 200);
+        let first_item: Value = serde_json::from_slice(&first.body).unwrap();
+        let first_id = first_item["prompt_id"].as_str().unwrap().to_string();
+        assert_eq!(first_item["status"], "running");
+        wait_until(10, || engine.is_turn_active("sess-steer-cancel")).await;
+
+        // 2. A second prompt queues behind it and is steered into the running turn.
+        let second = server
+            .handle_request(&post(
+                "/api/v1/sessions/sess-steer-cancel/prompts",
+                json!({ "prompt": "steered-text" }),
+            ))
+            .await;
+        let second_item: Value = serde_json::from_slice(&second.body).unwrap();
+        let second_id = second_item["prompt_id"].as_str().unwrap().to_string();
+        assert_eq!(second_item["status"], "queued");
+
+        let steer = server
+            .handle_request(&post(
+                "/api/v1/sessions/sess-steer-cancel/prompts:steer",
+                json!({ "prompt_ids": [second_id] }),
+            ))
+            .await;
+        assert_eq!(steer.status, 200);
+
+        // 3. Abort the running turn before its next step head drains the steer.
+        let abort = server
+            .handle_request(&post(
+                &format!("/api/v1/sessions/sess-steer-cancel/prompts/{first_id}:abort"),
+                json!({}),
+            ))
+            .await;
+        assert_eq!(abort.status, 200);
+        wait_until(10, || !engine.is_turn_active("sess-steer-cancel")).await;
+        assert_eq!(
+            engine.queued_steer_count("sess-steer-cancel"),
+            1,
+            "the undrained steer survives the cancelled turn"
+        );
+
+        // 4. The next prompt's turn drains the survivor at its first step head.
+        let third = server
+            .handle_request(&post(
+                "/api/v1/sessions/sess-steer-cancel/prompts",
+                json!({ "prompt": "third" }),
+            ))
+            .await;
+        assert_eq!(third.status, 200);
+
+        // 5. The steered text is persisted exactly once, inside the new turn.
+        let steered_turn = std::sync::Mutex::new(None);
+        wait_until(10, || {
+            let messages = store.load_session_messages("sess-steer-cancel").unwrap();
+            let hits: Vec<&crate::session::sqlite_store::StoredMessage> = messages
+                .iter()
+                .filter(|m| m.message.content.contains("steered-text"))
+                .collect();
+            if hits.len() > 1 {
+                panic!(
+                    "the steered text must appear exactly once, saw {}",
+                    hits.len()
+                );
+            }
+            if let Some(hit) = hits.first() {
+                *steered_turn.lock().unwrap() = Some(hit.turn_id.clone());
+            }
+            !hits.is_empty()
+        })
+        .await;
+        let steered_turn = steered_turn.into_inner().unwrap();
+        let messages = store.load_session_messages("sess-steer-cancel").unwrap();
+        let third_turn = messages
+            .iter()
+            .find(|m| m.message.content == "third")
+            .map(|m| m.turn_id.clone())
+            .expect("the third prompt is persisted");
+        assert_eq!(
+            steered_turn.as_deref(),
+            Some(third_turn.as_str()),
+            "the rescued steer belongs to the turn that ran after the cancel"
+        );
+        mock.abort();
+    }
+
     #[tokio::test]
     async fn prompt_queue_routes_reflect_state() {
         let server = HttpServer::in_memory().unwrap();
