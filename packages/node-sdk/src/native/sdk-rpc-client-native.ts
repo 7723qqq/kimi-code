@@ -47,6 +47,7 @@ import {
   parseKimiCodeCustomHeaders,
 } from '@moonshot-ai/kimi-code-oauth';
 import { estimateTokensForMessages } from '@moonshot-ai/kosong/tokens';
+import { effectiveModelAlias } from '#/model-alias';
 import type {
   CronJobOrigin,
   GoalSnapshot as ProtocolGoalSnapshot,
@@ -150,6 +151,7 @@ import type { ExperimentalFlagSource } from '#/types';
 import {
   resolveNativeLlm,
   resolveNativeLlmForAlias,
+  lookupModelAlias,
   probeShellPath,
   buildPolicySnapshot,
   resolveSecondaryModelPool,
@@ -2374,6 +2376,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   override async prompt(input: SessionPromptRpcInput): Promise<void> {
     const meta = this.requireSession(input.sessionId);
+    this.assertSessionModelWindow(meta);
     if (!meta.handle) {
       // Never silently drop user input: an unknown/closed session is an error,
       // not a no-op that resolves while the TUI shows nothing.
@@ -2485,6 +2488,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   override async steer(input: SessionPromptRpcInput): Promise<void> {
     const meta = this.requireSession(input.sessionId);
+    this.assertSessionModelWindow(meta);
     if (!meta.handle) {
       throw new KimiError(
         ErrorCodes.SESSION_NOT_FOUND,
@@ -2875,12 +2879,40 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   }
 
   override async exportSession(input: ExportSessionInput): Promise<ExportSessionResult> {
-    const meta = this.requireSession(input.id);
-    const sessionDir = meta.sessionDir;
+    // A one-shot CLI process holds no live session: resolve it from disk
+    // with the same `session-meta.json` probe `listSessions` enumerates, so
+    // `kimi export <id>` works for any persisted session, not only one this
+    // process created. Everything below derives from the directory, so a
+    // disk-resolved session exports identically to a live one.
+    const live = this.liveSessions.get(input.id);
+    const persisted =
+      live === undefined ? this.loadMeta(join(this.sessionBaseDir, input.id)) : undefined;
+    if (live === undefined && persisted === undefined) {
+      throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `unknown session "${input.id}"`, {
+        details: { sessionId: input.id },
+      });
+    }
+    const sessionDir = live?.sessionDir ?? posixPath(join(this.sessionBaseDir, input.id));
     const zipPath = posixPath(
       input.outputPath ? resolve(input.outputPath) : join(this.sessionBaseDir, `${input.id}.zip`),
     );
     mkdirSync(dirname(zipPath), { recursive: true });
+
+    // The global log (and its rotations) rides along only on request: it is
+    // home-scoped, not session-scoped, so a session export stays focused by
+    // default. The manifest names the primary entry when it is included.
+    const globalLogDir = join(this.homeDir, 'logs');
+    const globalLogEntries: string[] = [];
+    if (input.includeGlobalLog === true && existsSync(globalLogDir)) {
+      for (const file of readdirSync(globalLogDir).toSorted()) {
+        if (file.startsWith('kimi-code.log')) {
+          globalLogEntries.push(`logs/${file}`);
+        }
+      }
+    }
+    const globalLogPath = globalLogEntries.includes('logs/kimi-code.log')
+      ? 'logs/kimi-code.log'
+      : globalLogEntries[0];
 
     const manifest = {
       exportedAt: new Date().toISOString(),
@@ -2889,6 +2921,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       wireProtocolVersion: '2.0.0',
       os: process.platform,
       nodejsVersion: process.version,
+      ...(globalLogPath === undefined ? {} : { globalLogPath }),
     };
 
     const zipFile = new ZipFile();
@@ -2919,6 +2952,11 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         }
       };
       walk(sessionDir, '');
+    }
+
+    for (const relative of globalLogEntries) {
+      zipFile.addFile(join(this.homeDir, relative), relative);
+      entries.push(relative);
     }
 
     await new Promise<void>((res, rej) => {
@@ -4683,6 +4721,27 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   ): PromptOrigin | undefined {
     const origin = clientMetadata?.['origin'] as PromptOrigin | undefined;
     return origin !== undefined && typeof origin.kind === 'string' ? origin : undefined;
+  }
+
+  /// The deferred model-config failure the lenient loader promises (see
+  /// `loadRuntimeConfigLenient`'s design note): a schema-invalid `[models]`
+  /// entry stays in the loaded view, and this is the point it bites. An entry
+  /// without a positive `max_context_size` cannot serve a turn — the engine
+  /// would run a 0-token window and fail opaquely at the provider — so the
+  /// submission is refused here with the schema's own actionable message.
+  /// Entries the env synthesizer and the built-in defaults build always carry
+  /// a window, so only a hand-written broken entry lands here.
+  private assertSessionModelWindow(meta: NativeSessionMeta): void {
+    const config = loadRuntimeConfigLenient(this.configPath);
+    const alias = meta.model ?? config.defaultModel;
+    if (alias === undefined) return;
+    const entry = lookupModelAlias(config, alias);
+    if (entry !== undefined && (effectiveModelAlias(entry).maxContextSize ?? 0) < 1) {
+      throw new KimiError(
+        ErrorCodes.CONFIG_INVALID,
+        `Model "${alias}" must define a positive max_context_size in config.toml.`,
+      );
+    }
   }
 
   /**
