@@ -896,14 +896,24 @@ impl KimiConfig {
         // config layer keys provider selection off it): a provider declared
         // with that type speaks Responses without the alias also having to
         // repeat the protocol.
+        //
+        // `vertexai` joins the Google family: the model catalog already maps
+        // it to `google-genai` (`server/model_catalog.rs`), the docs describe
+        // this fork's Vertex as Gemini-mode over a proxyable endpoint, and
+        // v2 selects the Vertex endpoint inside the same Google connection.
+        // Leaving it to fall through to Chat Completions contradicted the
+        // catalog and sent Vertex-shaped URLs an OpenAI body.
         let protocol = match alias.and_then(|alias| alias.protocol.as_deref()) {
             Some("anthropic") => "anthropic",
             Some("openai_responses") => "openai_responses",
-            Some("google") | Some("google-genai") | Some("gemini") => "google-genai",
+            Some("google") | Some("google-genai") | Some("gemini") | Some("vertexai") => {
+                "google-genai"
+            }
             _ if p_type == "anthropic" => "anthropic",
             _ if p_type == "google" || p_type == "google-genai" || p_type == "gemini" => {
                 "google-genai"
             }
+            _ if p_type == "vertexai" => "google-genai",
             _ if p_type == "openai_responses" || p_type == "openai-responses" => "openai_responses",
             _ => "openai",
         };
@@ -3029,6 +3039,54 @@ model = "kimi-k2"
         assert_eq!(native.base_url, "https://api.moonshot.ai/v1");
         assert_eq!(native.protocol, "openai");
         assert!(!native.beta_api);
+    }
+
+    #[test]
+    fn vertexai_provider_type_resolves_the_google_protocol() {
+        // The model catalog maps `vertexai` to `google-genai`; the endpoint
+        // resolver must not answer differently, or a Vertex-shaped URL gets
+        // an OpenAI body. The endpoint declaration table still excludes it
+        // (no Vertex wire protocol, no env fallback) — only an explicitly
+        // declared `base_url` resolves.
+        let config = KimiConfig::from_str(
+            r#"
+default_model = "v"
+
+[providers.vertex]
+type = "vertexai"
+base_url = "https://us-central1-aiplatform.googleapis.com"
+api_key = "k"
+
+[models.v]
+provider = "vertex"
+model = "gemini-2.5-pro"
+"#,
+        )
+        .unwrap();
+        let native = config.extract_native_llm(None).unwrap();
+        assert_eq!(native.protocol, "google-genai");
+        assert_eq!(
+            native.base_url,
+            "https://us-central1-aiplatform.googleapis.com/v1beta"
+        );
+
+        // Without a declared endpoint it still does not resolve: Vertex has
+        // no default host (it is regional) and no env fallback here.
+        let bare = KimiConfig::from_str(
+            r#"
+default_model = "v"
+
+[providers.vertex]
+type = "vertexai"
+api_key = "k"
+
+[models.v]
+provider = "vertex"
+model = "gemini-2.5-pro"
+"#,
+        )
+        .unwrap();
+        assert!(bare.extract_native_llm(None).is_none());
     }
 
     #[test]

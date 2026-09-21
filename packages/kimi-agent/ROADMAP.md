@@ -1832,3 +1832,65 @@ fmt 干净。
 `*_BASE_URL` 作备用、再退到类型默认端点；warning 里「唯一例外」措辞
 同步（`GOOGLE_APPLICATION_CREDENTIALS` 不再是唯一走系统环境变量的键）。
 此为已批准偏差：引擎按 v2 读 process.env，TS host 层维持 config-file-only。
+
+### 8.10 未决清单复核（2026-09-21）：5 条「未闭环」实已落地 + vertexai protocol 归位
+
+**复核方式**：按 §6.0 自己立规矩——「复核对账时必须拿代码验证裁定，不能信任
+note 的措辞」——把 §6.1/§7 里未划掉的条目逐条回代码里查。结论：**5 条的
+「未闭环」表述已过期，实现都在，只是没人回写 ROADMAP**。这正是该节预警的
+「note 过期让门禁/对账失真」的实例，因此本轮不只补实现，也把裁定改判。
+
+**已由代码证伪「未闭环」的 5 条**（均附落点，未新写代码）：
+
+1. **§6.1-11 #3750 的 napi 缺口**（原注：「napi 路径（TUI）没有对应的 napi
+   参数……不在本次范围内」）。现状：`JsRunTurnParams.compaction_max_attempts`
+   （`napi_bindings.rs:840`）存在且透传（`:2288`、`:2614`）；
+   `napi-contract.d.ts:367` 声明 `compactionMaxAttempts?`；
+   `node-sdk` 侧 `config-local/schema.ts:215`（zod，min 1）+
+   `native/native-llm-resolver.ts:634-641`（file-only 解析，下限 1）+
+   `sdk-rpc-client-native.ts:1752,1827`（读 config 并塞进 runTurn 参数）。
+   TUI 走 SDK 原生客户端，故该键在 TUI 下已生效。allowlist 侧对应
+   `.changeset/upstream-config-behaviors-3750-3785-3681.md`。
+2. **§7 #3843 skill scopes**（原注：「本引擎的技能目录不产出 scopes，
+   全仓 rg '"scopes"' 无命中」）。现状：`skills/mod.rs:27` 的
+   `SkillSummary.scopes: Option<Vec<String>>` + `parse_scopes_value`（`:37`，
+   frontmatter 括号列表，空列表归 None），并已出到宿主面——
+   `acp/mod.rs`、`callbacks.rs`、`prompt/skills_renderer.rs`、
+   `server/debug.rs`、`server/v3/projection.rs`、`session/mod.rs` 均引用；
+   TS 侧 `node-sdk/src/types.ts:486` 的 `scopes?: readonly string[]` 与
+   TUI 过滤逻辑早已就位。**已端到端接通。**
+3. **§6.1-17 #3784 ① 上传缓存不落库**（原注：「fork 只在解析器的进程内
+   记忆里缓存」）。现状：`llm/media_resolver.rs:256` 的
+   `upload_cache: Option<Arc<SqliteSessionStore>>`（持久层，
+   `UPLOAD_CACHE_DOMAIN = "media_upload_cache"`，`:45`），且
+   `server/engine.rs:318` 在 daemon 路径 `.with_upload_cache(store.clone())`
+   装配。重启后复用 provider 侧上传已实现。
+4. **§6.1-17 #3784 ② displayPaths 未接到 UI**（原注：「没有把引用 → 保存路径
+   映射送到 TUI 的协议面」）。现状：`server/transcript/project.rs` 把存储的
+   媒体引用折成 file-sourced attachment（客户端可经 daemon file API 解析保存
+   路径），测试 `a_stored_media_reference_folds_into_a_file_sourced_attachment`
+   （`:1662`）钉住。**已接通。**
+5. **§6.1-24 #3909 的「models.dev 代理面仍未建」**：§8.7 已完整落地
+   （models.dev 代理面，2026-09-21，对照 v2 fork 版 + 官方版），该括号注
+   属于写 §8.7 之前的历史表述。
+
+**本轮真正修的一条（v2 ↔ Rust 不一致）**：`type = "vertexai"` 的 protocol
+归位。`server/model_catalog.rs:33` 把 `vertexai` 映射为 `google-genai`，
+而 `config/mod.rs` 的 `extract_native_llm` protocol 匹配**没有这一族**——
+Vertex 供应商落进 Chat Completions，同一引擎对同一类型给出两个答案，
+且文档（`docs/{en,zh}/configuration/providers.md` 的 vertexai 节）说明
+本 fork 的 Vertex 是 Gemini-mode、可走代理端点。修法：protocol 匹配补
+`vertexai` → `google-genai`（alias 级 `Some("vertexai")` 与 provider 级
+`p_type == "vertexai"` 两处）。**endpoint 声明表仍刻意不含 vertexai**——
+引擎没有 Vertex wire protocol（区域化 `*-aiplatform.googleapis.com` 无单一
+默认主机、无 ADC），认 `GOOGLE_VERTEX_BASE_URL` 只会把 host 层服务正确的
+流量拉进形状错误的请求；只有显式声明 `base_url` 才解析。
+测试：`config::tests::vertexai_provider_type_resolves_the_google_protocol`
+（显式 base_url → google-genai + `/v1beta` 归一；裸配置不解析）。
+验证：`cargo test --lib` 2812 通过、fmt、clippy `-D warnings` 0。
+
+**复核后仍然开放的**（均为结构性留白，非缺口）：#3532 的
+`workspace`/`capability` 事件无生产者（capability 在引擎侧是 ACP initialize
+的静态清单，没有变更语义可广播；workspace 要等 fork 实现工作区生命周期）、
+#3910 的 `reasoning_details` 盖戳（刻意不移植：`ContentBlock::Think` 没有
+detailsIndex 身份，机械移植会对已重放字段二次重放）。
