@@ -1258,6 +1258,7 @@ pub fn run_turn<'a>(
                             tool_call_id: None,
 
                             prompt_id: None,
+                            origin: None,
                         });
                     }
                     // Stop hooks (v2 `runStopHooks`, onDidFinishStep without
@@ -1306,6 +1307,7 @@ pub fn run_turn<'a>(
                         tool_call_id: None,
 
                         prompt_id: None,
+                        origin: None,
                     });
 
                     // Tool-call dedup plan (v2 `toolDedupeService`, G-6 #2):
@@ -1521,6 +1523,7 @@ pub fn run_turn<'a>(
                             tool_calls: Vec::new(),
                             tool_call_id: tool_calls.get(i).map(|tc| tc.id.clone()),
                             prompt_id: None,
+                            origin: None,
                         });
                         // Rich content the tool delivers (an image the model
                         // asked to read): a follow-up user message right after
@@ -1540,6 +1543,7 @@ pub fn run_turn<'a>(
                                 tool_call_id: None,
 
                                 prompt_id: None,
+                                origin: None,
                             });
                         }
                     }
@@ -1599,6 +1603,7 @@ Deliver your final response as text now. Further tool calls are refused.",
                                 tool_call_id: None,
 
                                 prompt_id: None,
+                                origin: None,
                             });
                         }
 
@@ -6165,6 +6170,7 @@ mod tests {
             tool_call_id: None,
 
             prompt_id: None,
+            origin: None,
         };
         let captured: Arc<Mutex<Vec<LLMMessage>>> = Arc::new(Mutex::new(Vec::new()));
         let llm = CaptureLlm {

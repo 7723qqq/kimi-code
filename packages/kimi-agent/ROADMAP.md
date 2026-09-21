@@ -1512,10 +1512,12 @@ serde 原忽略未知字段）；(b) SDK `turnEvent` 的 `turn.started` 转发�
 `message.origin.skillActivations`（`session-replay.ts:220`）与 `origin.activationId`
 （`message-replay.ts:259`）。验证：napi 集成测试 `echoes a prompt origin on the turn events`
 （origin 原样回环 + 无 origin 时默认 user）。
-**仍缺（需 LLMMessage 级改动，留待决策）**：引擎历史消息（`LLMMessage`）不带 origin，
-`getHistory` → `history.jsonl` → replay 的持久往返 therefore 丢 origin——会话恢复后
-activation 卡片不重渲染。补它要给 `LLMMessage` 加 `origin` 字段（约 27 处显式构造点 +
-store/compaction 投影面），属引擎核心类型变更，未擅自做。
+**持久半件（2026-09-22 闭环）**：`LLMMessage` 增加 `origin: Option<Value>`（derive 去掉
+`Eq`——`Value` 不满足；全仓无 `LLMMessage: Eq` 依赖，`MicroCompactionOutcome` 的 `Eq`
+连带移除），pump 把回合 origin 挂到开场 user 消息上，`getHistory` → `history.jsonl` →
+replay 的持久往返 therefore 完整——会话恢复后 activation 卡片可重渲染。约 45 处构造点
+（lib 18 + 测试模块 21 + bin/main 1 + lib.rs 1）逐点补 `origin: None`。验证：napi 集成测试
+断言 origin 随历史消息往返（`sessionGetHistory` 读回）。
 
 **顺带修掉一处陈旧测试**（非本轮引入）：`test_http_sessions_crud_and_prompt` 的 children
 断言读 `children` 键，而路由在 §6.4 的信封对齐中已改为 v2 的 `{items, has_more}`

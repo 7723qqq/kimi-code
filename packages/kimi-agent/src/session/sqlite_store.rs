@@ -1116,6 +1116,7 @@ impl SqliteSessionStore {
                         .unwrap_or_default(),
                     tool_call_id: row.get(3)?,
                     prompt_id: row.get(5)?,
+                    origin: None,
                 },
                 created_at: row.get(6)?,
                 turn_id: row.get(7)?,
@@ -2158,6 +2159,7 @@ mod tests {
                 tool_call_id: None,
 
                 prompt_id: None,
+                origin: None,
             },
             LLMMessage {
                 role: "assistant".into(),
@@ -2180,6 +2182,7 @@ mod tests {
                 tool_call_id: None,
 
                 prompt_id: None,
+                origin: None,
             },
             LLMMessage {
                 role: "tool".into(),
@@ -2188,6 +2191,7 @@ mod tests {
                 tool_calls: vec![],
                 tool_call_id: Some("call_read_1".into()),
                 prompt_id: None,
+                origin: None,
             },
             LLMMessage {
                 role: "tool".into(),
@@ -2196,6 +2200,7 @@ mod tests {
                 tool_calls: vec![],
                 tool_call_id: Some("call_read_2".into()),
                 prompt_id: None,
+                origin: None,
             },
         ];
 

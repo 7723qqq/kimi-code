@@ -1363,6 +1363,7 @@ impl ServerEngine {
             tool_call_id: None,
 
             prompt_id: None,
+            origin: None,
         };
         messages.push(user_message.clone());
         let input_len = messages.len();

@@ -1237,6 +1237,7 @@ mod tests {
             }],
             tool_call_id: None,
             prompt_id: None,
+            origin: None,
         }]);
         llm.set_tool_call_ids(Arc::clone(&ledger));
 

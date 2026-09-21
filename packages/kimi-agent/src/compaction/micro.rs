@@ -103,7 +103,11 @@ pub struct ReplacedToolResult {
 }
 
 /// Outcome of a micro-compaction pass.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Eq` is not derived: it carries `Vec<LLMMessage>`, whose `origin` field is
+/// a `serde_json::Value` (not `Eq`). Nothing compares outcomes for equality
+/// beyond `PartialEq`.
+#[derive(Debug, Clone, PartialEq)]
 pub struct MicroCompactionOutcome {
     /// Cutoff index: messages at history index `i < cutoff` are eligible for
     /// truncation. `max(0, messages.len() - keep_recent_messages)`.
@@ -164,6 +168,7 @@ pub fn apply_micro_compaction(
                 // keeps its identity (a steered user prompt stays the same
                 // prompt for the projection).
                 prompt_id: msg.prompt_id.clone(),
+                origin: None,
             });
         } else {
             out.push(msg.clone());

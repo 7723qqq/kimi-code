@@ -671,6 +671,7 @@ mod tests {
             tool_calls: Vec::new(),
             tool_call_id: None,
             prompt_id: None,
+            origin: None,
         }
     }
 
@@ -781,6 +782,7 @@ mod tests {
             tool_calls: Vec::new(),
             tool_call_id: None,
             prompt_id: None,
+            origin: None,
         }];
 
         let out = resolver
@@ -809,6 +811,7 @@ mod tests {
             tool_calls: Vec::new(),
             tool_call_id: None,
             prompt_id: None,
+            origin: None,
         }];
 
         let out = resolver

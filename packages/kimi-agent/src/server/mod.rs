@@ -6718,6 +6718,7 @@ impl HttpServer {
                         tool_calls: Vec::new(),
                         tool_call_id: None,
                         prompt_id,
+                        origin: None,
                     };
                     if engine.enqueue_steer(session_id, message) {
                         steered_items.push(item);
@@ -6807,6 +6808,7 @@ impl HttpServer {
                         tool_call_id: None,
 
                         prompt_id: None,
+                        origin: None,
                     };
                     if engine.enqueue_steer(session_id, message) {
                         crate::server::prompt_queue::publish_prompt_event(

@@ -1518,6 +1518,7 @@ fn wire_message_to_llm(m: Message) -> LLMMessage {
             .collect(),
         tool_call_id: m.tool_call_id,
         prompt_id: None,
+        origin: None,
     }
 }
 

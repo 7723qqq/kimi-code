@@ -147,7 +147,11 @@ pub struct LLMChatParams {
 }
 
 /// A message in the LLM conversation.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+///
+/// `Eq` is deliberately not derived: `origin` carries a `serde_json::Value`
+/// (the engine does not model origin variants — see [`crate::session::TurnRequest`]),
+/// and `Value` is not `Eq`. Nothing in the engine hashes or orders messages.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct LLMMessage {
     pub role: String,
     pub content: String,
@@ -170,6 +174,14 @@ pub struct LLMMessage {
     /// instead of minting a turn of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_id: Option<String>,
+    /// The prompt origin (v2 `PromptOrigin` JSON) the host attached to this
+    /// message — the `skill_activation` variant a user-slash activation
+    /// carries (v2 #3832). Set on the opening user message of a turn so the
+    /// cross-turn history (and the host's replay of it) can tell an
+    /// activation from a typed prompt. Opaque to the engine: it rides the
+    /// message and is echoed verbatim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<serde_json::Value>,
 }
 
 impl LLMMessage {
@@ -181,6 +193,7 @@ impl LLMMessage {
             tool_calls: Vec::new(),
             tool_call_id: None,
             prompt_id: None,
+            origin: None,
         }
     }
 
@@ -204,6 +217,7 @@ impl LLMMessage {
             tool_calls: Vec::new(),
             tool_call_id: Some(tool_call_id.into()),
             prompt_id: None,
+            origin: None,
         }
     }
 }

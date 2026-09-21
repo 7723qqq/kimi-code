@@ -2541,6 +2541,7 @@ mod tests {
                 }],
                 tool_call_id: None,
                 prompt_id: None,
+                origin: None,
             },
         ]));
 

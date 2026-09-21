@@ -2159,6 +2159,17 @@ describe.skipIf(!nativeEntry)('napi engine session handle (M1d)', () => {
     const promptEvent = turnEvents.find((event) => event['type'] === 'turn.prompt');
     expect(promptEvent?.['origin']).toEqual(origin);
 
+    // The origin rides the opening user message into the cross-turn history,
+    // so the host's persisted replay (history.jsonl written off getHistory)
+    // can re-render the activation card after a resume.
+    const history = JSON.parse(mod.sessionGetHistory(sessionId)) as Array<{
+      role: string;
+      content: string;
+      origin?: unknown;
+    }>;
+    const opening = history.find((message) => message.role === 'user' && message.content === 'hi');
+    expect(opening?.origin).toEqual(origin);
+
     // A plain prompt without an origin keeps the default user origin.
     const plainId = mod.sessionEnqueueTurn(
       sessionId,

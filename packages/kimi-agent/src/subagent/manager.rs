@@ -936,6 +936,7 @@ worktree root the tower assigns you as your full authority scope.";
                 tool_call_id: None,
 
                 prompt_id: None,
+                origin: None,
             }];
 
             let run_input = crate::turn_loop::types::RunTurnInput {
@@ -1107,6 +1108,7 @@ worktree root the tower assigns you as your full authority scope.";
                 tool_call_id: None,
 
                 prompt_id: None,
+                origin: None,
             });
             msgs
         } else {
@@ -1118,6 +1120,7 @@ worktree root the tower assigns you as your full authority scope.";
                 tool_call_id: None,
 
                 prompt_id: None,
+                origin: None,
             }]
         };
 

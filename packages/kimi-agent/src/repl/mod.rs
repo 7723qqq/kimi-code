@@ -655,6 +655,7 @@ pub async fn start_repl(
                     tool_call_id: None,
 
                     prompt_id: None,
+                    origin: None,
                 }]);
             }
             continue;
@@ -829,6 +830,7 @@ pub async fn start_repl(
             tool_call_id: None,
 
             prompt_id: None,
+            origin: None,
         };
         let mut receipt = engine_session
             .enqueue_turn(crate::session::TurnRequest::user(

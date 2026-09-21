@@ -2247,6 +2247,7 @@ async fn run_turn_rust_impl(
             ),
             tool_call_id: m.tool_call_id.clone(),
             prompt_id: None,
+            origin: None,
         })
         .collect();
 

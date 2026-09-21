@@ -978,12 +978,15 @@ async fn pump(
             input,
             origin: origin.clone(),
         });
-        ctx.callbacks
-            .turn_event(TurnEvent::Started { turn_id, origin });
+        ctx.callbacks.turn_event(TurnEvent::Started {
+            turn_id,
+            origin: origin.clone(),
+        });
         // Kept past the move into `run_session_turn` so the print settle can
         // observe a cancel that arrives while it holds the receipt.
         let turn_cancel = cancel.clone();
-        let outcome = run_session_turn(&ctx, turn_id, prompt, cancel, history).await;
+        let outcome =
+            run_session_turn(&ctx, turn_id, prompt, origin.clone(), cancel, history).await;
         // Captured before the print settle: a drain can hold the receipt for a
         // long time and must not inflate the turn's own reported duration.
         let turn_duration_ms = started.elapsed().as_millis() as u64;
@@ -1680,7 +1683,8 @@ fn turn_failure_payload(message: &str) -> serde_json::Value {
 async fn run_session_turn(
     ctx: &Arc<SessionContext>,
     turn_id: u64,
-    prompt: LLMMessage,
+    mut prompt: LLMMessage,
+    origin: serde_json::Value,
     cancel: Arc<AtomicBool>,
     history: Vec<LLMMessage>,
 ) -> Result<TurnOutcome, String> {
@@ -1692,6 +1696,11 @@ async fn run_session_turn(
         Some(provider) => provider().await,
         None => None,
     };
+    // v2 #3832: the turn's origin rides the opening user message, so the
+    // cross-turn history (and the host's replay of it) can tell a skill
+    // activation from a typed prompt. The engine does not model origin
+    // variants — the value is opaque and echoed verbatim.
+    prompt.origin = Some(origin);
     let mut messages = history;
     messages.push(prompt);
     let input = RunTurnInput {

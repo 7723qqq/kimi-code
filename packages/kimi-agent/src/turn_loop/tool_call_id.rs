@@ -309,6 +309,7 @@ mod tests {
             tool_calls: ids.iter().map(|id| call(id)).collect(),
             tool_call_id: None,
             prompt_id: None,
+            origin: None,
         }]
     }
 
@@ -420,6 +421,7 @@ mod tests {
             tool_calls: Vec::new(),
             tool_call_id: Some("Bash_1".into()),
             prompt_id: None,
+            origin: None,
         });
         normalizer.seed_from(&history);
 
