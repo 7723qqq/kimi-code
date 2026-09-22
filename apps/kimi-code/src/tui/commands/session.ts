@@ -2,8 +2,6 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import type { Session } from '@moonshot-ai/kimi-code-sdk';
-
 import { detectInstallSource } from '#/cli/update/source';
 import { t } from '#/i18n';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
@@ -60,13 +58,11 @@ export async function handleForkCommand(host: SlashCommandHost, args: string): P
     return;
   }
 
-  const sourceTitle = forkSourceTitle(host, session);
   try {
-    const forked = await host.harness.forkSession({
-      id: session.id,
-      title: `Fork: ${sourceTitle}`,
-    });
-    const forkId = forked.id;
+    // No title: the SDK mints the `Fork: …` default and inherits the
+    // source's titleKind (upstream #3974) — passing one here would mark
+    // the fork custom and block the auto-title generator.
+    const forked = await host.harness.forkSession({ id: session.id });    const forkId = forked.id;
     try {
       await forked.close();
     } catch (error) {
@@ -101,15 +97,6 @@ export async function handleForkCommand(host: SlashCommandHost, args: string): P
     const msg = formatErrorMessage(error);
     host.showError(t('tui.statusMessages.sessionFailedToFork', { message: msg }));
   }
-}
-
-function forkSourceTitle(host: SlashCommandHost, session: Session): string {
-  const currentTitle = host.state.appState.sessionTitle?.trim();
-  if (currentTitle !== undefined && currentTitle.length > 0) return currentTitle;
-
-  const summaryTitle =
-    typeof session.summary?.title === 'string' ? session.summary.title.trim() : '';
-  return summaryTitle.length > 0 ? summaryTitle : session.id;
 }
 
 export async function handleExportMdCommand(host: SlashCommandHost, args: string): Promise<void> {

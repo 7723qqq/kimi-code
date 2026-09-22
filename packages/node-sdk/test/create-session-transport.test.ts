@@ -450,6 +450,32 @@ describe('KimiHarness.createSession transport link', () => {
     }
   });
 
+  it('a fork without a title takes the Fork default and inherits the source titleKind', async () => {
+    // Upstream #3974: the old forced `replaceable` let the first prompt
+    // overwrite a fork's title; inheriting the source's kind protects a
+    // custom-titled source's fork.
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const source = await harness.createSession({ id: 'ses_fork_title_source', workDir });
+      await harness.renameSession({ id: source.id, title: 'My custom title' });
+      const forked = await harness.forkSession({
+        id: source.id,
+        forkId: 'ses_fork_title_child',
+      });
+
+      expect(forked.summary?.title).toBe('Fork: My custom title');
+      // The inherited kind is the protection: a non-forced generate returns
+      // the fork's title unchanged instead of overwriting it (the old forced
+      // `replaceable` let the first prompt replace it).
+      expect(await harness.generateSessionTitle({ id: forked.id })).toBe('Fork: My custom title');
+    } finally {
+      await harness.close();
+    }
+  });
+
   it('requires a host identity for the v2 engine bootstrap', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();

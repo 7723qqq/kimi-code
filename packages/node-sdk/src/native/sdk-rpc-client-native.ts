@@ -2896,6 +2896,15 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       forkMeta.title = input.title;
       forkMeta.isCustomTitle = true;
       forkMeta.titleKind = 'custom';
+    } else {
+      // Upstream #3974: a fork without an explicit title takes the
+      // `Fork: …` default and inherits the source's titleKind, so a
+      // custom-titled source's fork keeps its title instead of being
+      // overwritten by the auto-title generator (the old forced
+      // `replaceable` let the first prompt replace it).
+      forkMeta.title = `Fork: ${source.title || source.id}`;
+      forkMeta.isCustomTitle = source.isCustomTitle;
+      forkMeta.titleKind = source.titleKind;
     }
     const inheritedCustom = { ...source.custom };
     delete inheritedCustom['goal'];

@@ -8173,10 +8173,9 @@ command = "vim"
       driver.handleUserInput('/fork ignored args');
 
       await vi.waitFor(() => {
-        expect(forkSession).toHaveBeenCalledWith({
-          id: 'ses-source',
-          title: 'Fork: Source title',
-        });
+        // Upstream #3974: the TUI no longer passes a title — the SDK mints
+        // the `Fork: …` default and inherits the source's titleKind.
+        expect(forkSession).toHaveBeenCalledWith({ id: 'ses-source' });
         expect(driver.state.transcriptContainer.render(120).join('\n')).toContain(
           'Session forked (ses-fork). Still in the original session; switch to the fork via /sessions.',
         );
@@ -8279,10 +8278,7 @@ command = "vim"
     driver.handleUserInput('/fork');
 
     await vi.waitFor(() => {
-      expect(forkSession).toHaveBeenCalledWith({
-        id: 'ses-source',
-        title: 'Fork: ses-source',
-      });
+      expect(forkSession).toHaveBeenCalledWith({ id: 'ses-source' });
       expect(driver.getCurrentSessionId()).toBe('ses-source');
       expect(driver.state.transcriptContainer.render(120).join('\n')).toContain(
         'Failed to fork session: fork unavailable',
