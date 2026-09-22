@@ -118,7 +118,8 @@
     "prompt.submitted",
     "prompt.completed",
     "prompt.aborted",
-    "prompt.steered"
+    "prompt.steered",
+    "turn.steer"
   ],
   "volatileEvents": [
     "assistant.delta",

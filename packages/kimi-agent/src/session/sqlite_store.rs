@@ -1800,6 +1800,51 @@ impl SqliteSessionStore {
         rows.collect()
     }
 
+    /// The session's prompt-lifecycle events (`prompt.submitted` /
+    /// `prompt.completed` / `prompt.aborted` / `prompt.steered`), oldest
+    /// first — the cold baseline's source for prompt entities
+    /// (`transcript::cold_prompts`). The hub persister writes every lane
+    /// event here, so the journal is the durable record; this selects the
+    /// four prompt types rather than paging the whole log.
+    pub fn prompt_wire_events(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<WireEventRecord>, rusqlite::Error> {
+        const TYPES: [&str; 4] = [
+            "prompt.submitted",
+            "prompt.completed",
+            "prompt.aborted",
+            "prompt.steered",
+        ];
+        let placeholders = TYPES.map(|_| "?").join(", ");
+        let sql = format!(
+            "SELECT seq, id, session_id, event_type, payload, is_checkpoint, is_compaction, created_at
+             FROM wire_events
+             WHERE session_id = ?1 AND event_type IN ({placeholders})
+             ORDER BY seq ASC"
+        );
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(
+            params![session_id, TYPES[0], TYPES[1], TYPES[2], TYPES[3]],
+            |row| {
+                let payload_str: String = row.get(4)?;
+                let payload: Value = serde_json::from_str(&payload_str).unwrap_or(Value::Null);
+                Ok(WireEventRecord {
+                    seq: row.get(0)?,
+                    id: row.get(1)?,
+                    session_id: row.get(2)?,
+                    event_type: row.get(3)?,
+                    payload,
+                    is_checkpoint: row.get(5)?,
+                    is_compaction: row.get(6)?,
+                    created_at: row.get(7)?,
+                })
+            },
+        )?;
+        rows.collect()
+    }
+
     /// Count total wire events recorded for a session.
     pub fn count_wire_events(&self, session_id: &str) -> Result<usize, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
@@ -3296,6 +3341,43 @@ mod tests {
                 "event.question.answered",
             ],
             "only the interaction lifecycle, in journal order"
+        );
+    }
+
+    /// The cold baseline's source for prompt entities (`transcript::
+    /// cold_prompts`): the four prompt lifecycle types, oldest first — and
+    /// `turn.steer` stays out, its user frame rides the rebuilt history.
+    #[test]
+    fn test_prompt_wire_events_selects_the_lifecycle_types() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store
+            .create_session("sess-prompt-lifecycle", Some("Prompts"))
+            .unwrap();
+        let append = |event_type: &str| {
+            store
+                .append_wire_event(&RawWireEvent {
+                    id: format!("evt-{event_type}"),
+                    session_id: "sess-prompt-lifecycle".into(),
+                    event_type: event_type.into(),
+                    payload: json!({ "type": event_type, "promptId": "prompt-1" }),
+                    is_checkpoint: false,
+                    is_compaction: false,
+                    created_at: 1_000,
+                })
+                .unwrap();
+        };
+        append("prompt.submitted");
+        append("event.message.created");
+        append("turn.steer");
+        append("prompt.steered");
+        append("prompt.completed");
+
+        let events = store.prompt_wire_events("sess-prompt-lifecycle").unwrap();
+        let types: Vec<&str> = events.iter().map(|e| e.event_type.as_str()).collect();
+        assert_eq!(
+            types,
+            ["prompt.submitted", "prompt.steered", "prompt.completed",],
+            "only the prompt lifecycle, in journal order"
         );
     }
 

@@ -8,7 +8,7 @@ use super::model::{
     ThinkingFrame, ToolCallFrame, ToolFrameProgress, ToolFrameState, ToolProgressKind,
     TranscriptAttachment, TranscriptFrame, TranscriptInteraction, TranscriptItem, TranscriptMarker,
     TranscriptMeta, TranscriptMetaMerge, TranscriptPrompt, TranscriptPromptStatus, TranscriptStep,
-    TranscriptTask, TranscriptTurn, TurnOrigin, TurnState,
+    TranscriptTask, TranscriptTurn, TranscriptUserOrigin, TurnOrigin, TurnState, UserOriginKind,
 };
 use super::ops::{
     AgentTranscriptSnapshot, AppendTarget, StepHeader, StepKind, TranscriptOperation, TurnHeader,
@@ -32,6 +32,29 @@ pub struct TranscriptProjector {
     attachments: Vec<TranscriptAttachment>,
     meta: TranscriptMeta,
     cursor: Option<Cursor>,
+    /// Steers folded before their step was open (v2 `pendingSteers`,
+    /// coreEventMap.ts:1438): drained at the next `llm.step.begin`.
+    pending_steers: Vec<PendingSteer>,
+}
+
+/// A buffered steer awaiting the step it lands in (v2 `pendingSteers`,
+/// coreEventMap.ts:1438-1443). Text and prompt ids only: the fork's steer
+/// payload carries no attachments on this path (ROADMAP item 34).
+#[derive(Debug, Clone)]
+struct PendingSteer {
+    text: String,
+    prompt_ids: Option<Vec<String>>,
+}
+
+/// v2 `isTerminalPromptStatus` (coreEventMap.ts:1562).
+fn is_terminal_prompt_status(status: TranscriptPromptStatus) -> bool {
+    matches!(
+        status,
+        TranscriptPromptStatus::Completed
+            | TranscriptPromptStatus::Failed
+            | TranscriptPromptStatus::Aborted
+            | TranscriptPromptStatus::Blocked
+    )
 }
 
 impl TranscriptProjector {
@@ -45,6 +68,7 @@ impl TranscriptProjector {
             attachments: Vec::new(),
             meta: TranscriptMeta::default(),
             cursor: None,
+            pending_steers: Vec::new(),
         }
     }
 
@@ -78,10 +102,15 @@ impl TranscriptProjector {
                     step: step_idx,
                     frame: None,
                 });
-                vec![TranscriptOperation::StepUpsert {
+                let mut ops = vec![TranscriptOperation::StepUpsert {
                     turn_id: self.turns[turn_idx].turn_id.clone(),
                     step: step_header(&self.turns[turn_idx].steps[step_idx]),
-                }]
+                }];
+                // v2 drains `pendingSteers` when a step starts
+                // (coreEventMap.ts:568-571); the freshly ensured step is
+                // empty, so the user frames land at its head.
+                ops.extend(self.flush_pending_steers());
+                ops
             }
             EngineEvent::AssistantDelta { turn_id, delta, .. } => {
                 let turn_idx = self.ensure_turn(&turn_key_u64(*turn_id));
@@ -533,28 +562,26 @@ impl TranscriptProjector {
                     let Some(id) = message.get("id").and_then(|v| v.as_str()) else {
                         return Vec::new();
                     };
-                    let prompt = TranscriptPrompt {
-                        prompt_id: id.to_string(),
+                    let announcement_id = id.to_string();
+                    let created_at = message
+                        .get("created_at")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                        .unwrap_or_else(now_iso);
+                    let mut ops = vec![self.upsert_prompt(id, |prev| TranscriptPrompt {
+                        prompt_id: announcement_id.clone(),
                         status: TranscriptPromptStatus::Running,
-                        user_message_id: Some(id.to_string()),
+                        user_message_id: Some(announcement_id.clone()),
                         content: message.get("content").cloned(),
                         // The submission may have already created this
                         // prompt with its client metadata (#3764); the
-                        // announcement must not drop it.
-                        client_metadata: self
-                            .prompts
-                            .iter()
-                            .find(|item| item.prompt_id == id)
-                            .and_then(|item| item.client_metadata.clone()),
-                        created_at: message
-                            .get("created_at")
-                            .and_then(|v| v.as_str())
-                            .map(str::to_string)
-                            .unwrap_or_else(now_iso),
+                        // announcement must not drop it (v2
+                        // `onPromptStarted`, coreEventMap.ts:1342).
+                        client_metadata: prev.and_then(|prev| prev.client_metadata.clone()),
+                        created_at,
                         finished_at: None,
                         steered_at: None,
-                    };
-                    let mut ops = vec![self.upsert_prompt(prompt)];
+                    })];
                     let mut attachment_ids = Vec::new();
                     if let Some(blocks) = message.get("content").and_then(|v| v.as_array()) {
                         for block in blocks {
@@ -604,31 +631,57 @@ impl TranscriptProjector {
                         .get("metadata")
                         .filter(|metadata| metadata.is_object())
                         .map(|metadata| vec![metadata.clone()]);
-                    let prompt = TranscriptPrompt {
-                        prompt_id: prompt_id.to_string(),
-                        status,
-                        user_message_id: value
-                            .get("userMessageId")
-                            .and_then(|v| v.as_str())
-                            .map(str::to_string),
-                        content: value.get("content").cloned(),
-                        client_metadata,
-                        created_at: value
-                            .get("createdAt")
-                            .and_then(|v| v.as_str())
-                            .map(str::to_string)
-                            .unwrap_or_else(now_iso),
-                        finished_at: None,
-                        steered_at: None,
-                    };
-                    vec![self.upsert_prompt(prompt)]
+                    let event_created_at = value
+                        .get("createdAt")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+                    let user_message_id = value
+                        .get("userMessageId")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+                    let content = value.get("content").cloned();
+                    // v2 `onPromptSubmitted` (coreEventMap.ts:1328): a
+                    // terminal prompt keeps its terminal status — a
+                    // duplicate submission must not resurrect it — while
+                    // createdAt / finishedAt / steeredAt prefer the
+                    // entity's own values.
+                    vec![self.upsert_prompt(prompt_id, |prev| {
+                        TranscriptPrompt {
+                            prompt_id: prompt_id.to_string(),
+                            status: match prev {
+                                Some(prev) if is_terminal_prompt_status(prev.status) => prev.status,
+                                _ => status,
+                            },
+                            user_message_id,
+                            content,
+                            client_metadata: client_metadata
+                                .or_else(|| prev.and_then(|prev| prev.client_metadata.clone())),
+                            created_at: prev
+                                .map(|prev| prev.created_at.clone())
+                                .or(event_created_at)
+                                .unwrap_or_else(now_iso),
+                            finished_at: prev.and_then(|prev| prev.finished_at.clone()),
+                            steered_at: prev.and_then(|prev| prev.steered_at.clone()),
+                        }
+                    })]
                 }
-                // `prompt.completed` folds no turn state here — only
-                // `turn.ended` closes a turn (v2's `onPromptCompleted`,
+                Some("llm.step.begin") => {
+                    // The transport's `llm.step.begin` names no turn
+                    // (llm/http.rs:275 emits `{type, model}` only) — the
+                    // cursor resolves the turn the way an un-idled delta
+                    // does (`custom_delta_turn`), and with no cursor yet
+                    // the pending steers wait for the next one.
+                    self.flush_pending_steers()
+                }
+                Some("turn.steer") => self.fold_turn_steer(value),
+                Some("prompt.steered") => self.fold_prompt_steered(value),
+                Some("prompt.completed") => self.fold_prompt_completed(value),
+                Some("prompt.aborted") => self.fold_prompt_aborted(value),
+                // Prompt lifecycle arms fold prompt entities only: v2 keeps
+                // the two entities on separate schedules (`onPromptCompleted`,
                 // coreEventMap.ts:1356, emits a `prompt.upsert` and nothing
-                // else; the fold does own prompt status, but the fork's prompt
-                // entity is created running and this arm does not yet settle
-                // it). The typed `turn.ended` arm above is what ends the turn.
+                // else). The typed `turn.ended` arm above is what ends the
+                // turn.
                 Some("hook.result") => vec![TranscriptOperation::MarkerUpsert {
                     item: TranscriptMarker {
                         marker_id: format!("hook-{:016x}", fastrand::u64(..)),
@@ -705,17 +758,255 @@ impl TranscriptProjector {
         })
     }
 
-    fn upsert_prompt(&mut self, prompt: TranscriptPrompt) -> TranscriptOperation {
-        if let Some(existing) = self
+    /// Insert or replace a prompt, letting the caller see the previous entity
+    /// first — v2's `upsertPrompt(build)` shape (coreEventMap.ts:1505), so a
+    /// terminal prompt keeps the fields a later event does not carry.
+    fn upsert_prompt(
+        &mut self,
+        prompt_id: &str,
+        build: impl FnOnce(Option<&TranscriptPrompt>) -> TranscriptPrompt,
+    ) -> TranscriptOperation {
+        let existing = self.prompts.iter().find(|item| item.prompt_id == prompt_id);
+        let prompt = build(existing);
+        if let Some(slot) = self
             .prompts
             .iter_mut()
             .find(|item| item.prompt_id == prompt.prompt_id)
         {
-            *existing = prompt.clone();
+            *slot = prompt.clone();
         } else {
             self.prompts.push(prompt.clone());
         }
         TranscriptOperation::PromptUpsert { prompt }
+    }
+
+    /// Drain buffered steers as user frames in the step under the cursor
+    /// (v2's `onStepStarted` flush, coreEventMap.ts:568). The gate keeps a
+    /// closed turn from collecting frames that belong to no step: with no
+    /// cursor, or a cursor whose turn is not running, the pending list
+    /// survives to the next step begin (ROADMAP item 34).
+    fn flush_pending_steers(&mut self) -> Vec<TranscriptOperation> {
+        if self.pending_steers.is_empty() {
+            return Vec::new();
+        }
+        let Some(cursor) = self.cursor else {
+            return Vec::new();
+        };
+        if self.turns[cursor.turn].state != TurnState::Running {
+            return Vec::new();
+        }
+        let turn_idx = cursor.turn;
+        let turn_id = self.turns[turn_idx].turn_id.clone();
+        let mut ops = Vec::new();
+        // `turn.started` parks the cursor at step 0 before any step exists;
+        // a frame needs a step to live in, so open the first one and report it.
+        let step_idx = if cursor.step < self.turns[turn_idx].steps.len() {
+            cursor.step
+        } else {
+            let step_idx = self.ensure_step(turn_idx, 1);
+            ops.push(TranscriptOperation::StepUpsert {
+                turn_id: turn_id.clone(),
+                step: step_header(&self.turns[turn_idx].steps[step_idx]),
+            });
+            step_idx
+        };
+        let step_id = self.turns[turn_idx].steps[step_idx].step_id.clone();
+        for pending in std::mem::take(&mut self.pending_steers) {
+            let frame_id = self.next_text_frame_id(turn_idx, step_idx);
+            let frame = TranscriptFrame::Text(TextFrame {
+                frame_id,
+                text: pending.text,
+                role: TextRole::User,
+                attachment_ids: None,
+                task_id: None,
+                prompt_ids: pending.prompt_ids,
+                origin: Some(TranscriptUserOrigin {
+                    kind: UserOriginKind::User,
+                    skill_activations: None,
+                }),
+            });
+            self.turns[turn_idx].steps[step_idx]
+                .frames
+                .push(frame.clone());
+            let frame_idx = self.turns[turn_idx].steps[step_idx].frames.len() - 1;
+            ops.push(TranscriptOperation::FrameUpsert {
+                turn_id: turn_id.clone(),
+                step_id: step_id.clone(),
+                frame,
+            });
+            // Subsequent deltas see a user frame under the cursor, so they
+            // open a new assistant frame rather than appending to it.
+            self.cursor = Some(Cursor {
+                turn: turn_idx,
+                step: step_idx,
+                frame: Some(frame_idx),
+            });
+        }
+        ops
+    }
+
+    /// v2 `onTurnSteered` (coreEventMap.ts:1413): a user or skill-activation
+    /// steer with an array input becomes a user frame. The fork buffers
+    /// unconditionally — the frame lands at the next step begin — where v2
+    /// lands it in a running step immediately (ROADMAP item 34).
+    fn fold_turn_steer(&mut self, value: &Value) -> Vec<TranscriptOperation> {
+        let Some(origin) = value.get("origin") else {
+            return Vec::new();
+        };
+        let kind = origin.get("kind").and_then(|v| v.as_str());
+        if !matches!(kind, Some("user") | Some("skill_activation")) {
+            return Vec::new();
+        }
+        let Some(input) = value.get("input").and_then(|v| v.as_array()) else {
+            return Vec::new();
+        };
+        let text: String = input
+            .iter()
+            .filter_map(|part| {
+                if part.get("type").and_then(|v| v.as_str()) == Some("text") {
+                    part.get("text").and_then(|v| v.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let prompt_ids = value
+            .get("promptIds")
+            .and_then(|v| v.as_array())
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect::<Vec<String>>()
+            })
+            .filter(|ids| !ids.is_empty());
+        self.pending_steers.push(PendingSteer { text, prompt_ids });
+        Vec::new()
+    }
+
+    /// v2 `onPromptSteered` (coreEventMap.ts:1384): the active prompt stays
+    /// open under the steer, each steered prompt id settles as completed at
+    /// the steer's timestamp.
+    fn fold_prompt_steered(&mut self, value: &Value) -> Vec<TranscriptOperation> {
+        let Some(steered_at) = value.get("steeredAt").and_then(|v| v.as_str()) else {
+            return Vec::new();
+        };
+        let steered_at = steered_at.to_string();
+        let content = value.get("content").cloned();
+        let prompt_ids: Vec<String> = value
+            .get("promptIds")
+            .and_then(|v| v.as_array())
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let active_prompt_id = value
+            .get("activePromptId")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let mut ops = Vec::new();
+        // An empty `activePromptId` (the route's `unwrap_or_default`) names
+        // no prompt: skip the active upsert but still settle the steered ids.
+        if !active_prompt_id.is_empty() {
+            let active_owned = active_prompt_id.to_string();
+            let active_steered_at = steered_at.clone();
+            ops.push(self.upsert_prompt(active_prompt_id, |prev| {
+                TranscriptPrompt {
+                    prompt_id: active_owned.clone(),
+                    status: prev
+                        .map(|prev| prev.status)
+                        .unwrap_or(TranscriptPromptStatus::Running),
+                    user_message_id: prev.and_then(|prev| prev.user_message_id.clone()),
+                    content: prev
+                        .and_then(|prev| prev.content.clone())
+                        .or_else(|| content.clone()),
+                    client_metadata: prev.and_then(|prev| prev.client_metadata.clone()),
+                    created_at: prev
+                        .map(|prev| prev.created_at.clone())
+                        .unwrap_or_else(|| active_steered_at.clone()),
+                    finished_at: prev.and_then(|prev| prev.finished_at.clone()),
+                    steered_at: Some(active_steered_at.clone()),
+                }
+            }));
+        }
+        for prompt_id in &prompt_ids {
+            let id_steered_at = steered_at.clone();
+            ops.push(self.upsert_prompt(prompt_id, |prev| {
+                TranscriptPrompt {
+                    prompt_id: prompt_id.clone(),
+                    status: TranscriptPromptStatus::Completed,
+                    user_message_id: prev.and_then(|prev| prev.user_message_id.clone()),
+                    content: prev.and_then(|prev| prev.content.clone()),
+                    client_metadata: prev.and_then(|prev| prev.client_metadata.clone()),
+                    created_at: prev
+                        .map(|prev| prev.created_at.clone())
+                        .unwrap_or_else(|| id_steered_at.clone()),
+                    finished_at: Some(id_steered_at.clone()),
+                    steered_at: Some(id_steered_at.clone()),
+                }
+            }));
+        }
+        ops
+    }
+
+    /// v2 `onPromptCompleted` (coreEventMap.ts:1356): reason maps to status,
+    /// finishedAt settles the entity, createdAt falls back to the finish.
+    fn fold_prompt_completed(&mut self, value: &Value) -> Vec<TranscriptOperation> {
+        let Some(prompt_id) = value.get("promptId").and_then(|v| v.as_str()) else {
+            return Vec::new();
+        };
+        let status = match value.get("reason").and_then(|v| v.as_str()) {
+            Some("failed") => TranscriptPromptStatus::Failed,
+            Some("blocked") => TranscriptPromptStatus::Blocked,
+            _ => TranscriptPromptStatus::Completed,
+        };
+        let finished_at = value
+            .get("finishedAt")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(now_iso);
+        vec![self.upsert_prompt(prompt_id, |prev| {
+            TranscriptPrompt {
+                prompt_id: prompt_id.to_string(),
+                status,
+                user_message_id: prev.and_then(|prev| prev.user_message_id.clone()),
+                content: prev.and_then(|prev| prev.content.clone()),
+                client_metadata: prev.and_then(|prev| prev.client_metadata.clone()),
+                created_at: prev
+                    .map(|prev| prev.created_at.clone())
+                    .unwrap_or_else(|| finished_at.clone()),
+                finished_at: Some(finished_at.clone()),
+                steered_at: prev.and_then(|prev| prev.steered_at.clone()),
+            }
+        })]
+    }
+
+    /// v2 `onPromptAborted` (coreEventMap.ts:1371): abortedAt is both the
+    /// finish and the created-at fallback for an unknown entity.
+    fn fold_prompt_aborted(&mut self, value: &Value) -> Vec<TranscriptOperation> {
+        let Some(prompt_id) = value.get("promptId").and_then(|v| v.as_str()) else {
+            return Vec::new();
+        };
+        let aborted_at = value
+            .get("abortedAt")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(now_iso);
+        vec![self.upsert_prompt(prompt_id, |prev| {
+            TranscriptPrompt {
+                prompt_id: prompt_id.to_string(),
+                status: TranscriptPromptStatus::Aborted,
+                user_message_id: prev.and_then(|prev| prev.user_message_id.clone()),
+                content: prev.and_then(|prev| prev.content.clone()),
+                client_metadata: prev.and_then(|prev| prev.client_metadata.clone()),
+                created_at: prev
+                    .map(|prev| prev.created_at.clone())
+                    .unwrap_or_else(|| aborted_at.clone()),
+                finished_at: Some(aborted_at.clone()),
+                steered_at: prev.and_then(|prev| prev.steered_at.clone()),
+            }
+        })]
     }
 
     fn upsert_attachment(&mut self, attachment: TranscriptAttachment) -> TranscriptOperation {
@@ -2165,11 +2456,21 @@ mod tests {
             "agentId": "main",
             "promptId": "prompt-1",
             "reason": "completed",
+            "finishedAt": "2026-09-22T00:00:00Z",
         })));
-        assert!(
-            ops.is_empty(),
-            "prompt.completed must fold no transcript op; got {ops:?}"
-        );
+        // The arm settles the prompt entity — v2 `onPromptCompleted`
+        // (coreEventMap.ts:1356) emits exactly that one upsert — and folds
+        // no turn state.
+        match ops.as_slice() {
+            [TranscriptOperation::PromptUpsert { prompt }] => {
+                assert_eq!(prompt.status, TranscriptPromptStatus::Completed);
+                assert!(
+                    prompt.finished_at.is_some(),
+                    "prompt.completed must settle finishedAt"
+                );
+            }
+            other => panic!("expected exactly one prompt.upsert, got {other:?}"),
+        }
 
         let snapshot = projector.snapshot();
         let turn = snapshot
@@ -2274,5 +2575,328 @@ mod tests {
             }
             other => panic!("expected turn.upsert, got {other:?}"),
         }
+    }
+
+    /// `turn.steer` buffers without emitting, then lands as a user frame at
+    /// the head of the next step — v2 `onTurnSteered` (coreEventMap.ts:1413)
+    /// buffered into `pendingSteers` and drained by `onStepStarted` (:568).
+    #[test]
+    fn turn_steer_buffers_until_the_next_step_begin() {
+        let mut projector = TranscriptProjector::new();
+        projector.apply_event(&EngineEvent::TurnStarted {
+            agent_id: "main".into(),
+            turn_id: 4,
+            prompt: Some("first".into()),
+        });
+
+        let ops = projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "turn.steer",
+            "agentId": "main",
+            "origin": { "kind": "user" },
+            "input": [{ "type": "text", "text": "also do X" }],
+            "promptIds": ["prompt-2"],
+        })));
+        assert!(
+            ops.is_empty(),
+            "a steer buffers, emitting no op until a step begins; got {ops:?}"
+        );
+
+        let ops = projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "llm.step.begin",
+            "model": "kimi-k2",
+        })));
+        // The turn has no step yet: the flush opens one (StepUpsert) and the
+        // user frame lands at its head (FrameUpsert).
+        assert_eq!(ops.len(), 2, "step upsert + steer frame; got {ops:?}");
+        assert!(matches!(ops[0], TranscriptOperation::StepUpsert { .. }));
+        match &ops[1] {
+            TranscriptOperation::FrameUpsert { frame, .. } => match frame {
+                TranscriptFrame::Text(frame) => {
+                    assert_eq!(frame.role, TextRole::User);
+                    assert_eq!(frame.text, "also do X");
+                    assert_eq!(frame.prompt_ids, Some(vec!["prompt-2".to_string()]));
+                }
+                other => panic!("expected a text frame, got {other:?}"),
+            },
+            other => panic!("expected frame.upsert, got {other:?}"),
+        }
+
+        // The flushed user frame sits under the cursor: the next delta opens
+        // a fresh assistant frame instead of appending to it.
+        projector.apply_event(&EngineEvent::AssistantDelta {
+            agent_id: "main".into(),
+            turn_id: 4,
+            delta: "on it".into(),
+        });
+        let snapshot = projector.snapshot();
+        let turn = snapshot
+            .items
+            .iter()
+            .find_map(|item| match item {
+                TranscriptItem::Turn(turn) => Some(turn),
+                _ => None,
+            })
+            .expect("the turn exists");
+        let frames = &turn.steps[0].frames;
+        assert_eq!(frames.len(), 2, "steer frame then assistant frame");
+        match (&frames[0], &frames[1]) {
+            (TranscriptFrame::Text(user), TranscriptFrame::Text(assistant)) => {
+                assert_eq!(user.role, TextRole::User);
+                assert_eq!(assistant.role, TextRole::Assistant);
+                assert_eq!(assistant.text, "on it");
+            }
+            other => panic!("expected two text frames, got {other:?}"),
+        }
+    }
+
+    /// The flush is gated on a running turn (ROADMAP item 34): a steer
+    /// buffered after its turn ended survives the following step begin and
+    /// lands in the next running turn instead of a closed one.
+    #[test]
+    fn the_steer_flush_waits_for_a_running_turn() {
+        let mut projector = TranscriptProjector::new();
+        projector.apply_event(&EngineEvent::TurnStarted {
+            agent_id: "main".into(),
+            turn_id: 4,
+            prompt: Some("first".into()),
+        });
+        projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "llm.step.begin",
+            "model": "kimi-k2",
+        })));
+        projector.apply_event(&EngineEvent::TurnEnded {
+            agent_id: "main".into(),
+            turn_id: 4,
+            reason: "completed".into(),
+        });
+
+        let ops = projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "turn.steer",
+            "origin": { "kind": "user" },
+            "input": [{ "type": "text", "text": "after the end" }],
+            "promptIds": ["prompt-3"],
+        })));
+        assert!(ops.is_empty());
+
+        // The cursor still points at the ended turn: no flush there.
+        let ops = projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "llm.step.begin",
+            "model": "kimi-k2",
+        })));
+        assert!(
+            ops.is_empty(),
+            "a closed turn collects no steer frames; got {ops:?}"
+        );
+
+        // The next running turn picks the buffered steer up.
+        projector.apply_event(&EngineEvent::TurnStarted {
+            agent_id: "main".into(),
+            turn_id: 5,
+            prompt: Some("second".into()),
+        });
+        let ops = projector.apply_event(&EngineEvent::LlmStepBegin {
+            turn_id: "5".into(),
+            step: 1,
+        });
+        let frame_op = ops
+            .iter()
+            .find_map(|op| match op {
+                TranscriptOperation::FrameUpsert { frame, .. } => Some(frame),
+                _ => None,
+            })
+            .expect("the buffered steer lands in the running turn");
+        match frame_op {
+            TranscriptFrame::Text(frame) => {
+                assert_eq!(frame.role, TextRole::User);
+                assert_eq!(frame.text, "after the end");
+            }
+            other => panic!("expected a text frame, got {other:?}"),
+        }
+
+        let snapshot = projector.snapshot();
+        let closed = snapshot
+            .items
+            .iter()
+            .find_map(|item| match item {
+                TranscriptItem::Turn(turn) if turn.turn_id == "t4" => Some(turn),
+                _ => None,
+            })
+            .expect("turn t4 exists");
+        assert!(
+            closed
+                .steps
+                .iter()
+                .all(|step| step.frames.iter().all(|frame| {
+                    !matches!(frame, TranscriptFrame::Text(text) if text.role == TextRole::User)
+                })),
+            "the closed turn must not collect the steer frame"
+        );
+    }
+
+    /// Only a user or skill-activation steer with an array input folds —
+    /// v2's `onTurnSteered` guard (coreEventMap.ts:1416).
+    #[test]
+    fn steer_folds_only_user_and_skill_activation_array_inputs() {
+        let mut projector = TranscriptProjector::new();
+        projector.apply_event(&EngineEvent::TurnStarted {
+            agent_id: "main".into(),
+            turn_id: 6,
+            prompt: Some("first".into()),
+        });
+        for payload in [
+            json!({
+                "type": "turn.steer",
+                "origin": { "kind": "injection" },
+                "input": [{ "type": "text", "text": "not the user" }],
+            }),
+            json!({
+                "type": "turn.steer",
+                "origin": { "kind": "user" },
+                "input": "not an array",
+            }),
+            json!({ "type": "turn.steer", "input": [] }),
+        ] {
+            let ops = projector.apply_event(&EngineEvent::Custom(payload));
+            assert!(ops.is_empty());
+        }
+
+        let ops = projector.apply_event(&EngineEvent::LlmStepBegin {
+            turn_id: "6".into(),
+            step: 1,
+        });
+        assert_eq!(
+            ops.len(),
+            1,
+            "only the step upsert — nothing was buffered; got {ops:?}"
+        );
+        assert!(matches!(ops[0], TranscriptOperation::StepUpsert { .. }));
+    }
+
+    /// v2 `onPromptSteered` (coreEventMap.ts:1384): the active prompt stays
+    /// open under the steer, each steered id settles as completed at the
+    /// steer's timestamp, and the submission's fields survive.
+    #[test]
+    fn steered_settles_the_steered_ids_and_keeps_the_active_open() {
+        let mut projector = TranscriptProjector::new();
+        projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "prompt.submitted",
+            "promptId": "prompt-1",
+            "userMessageId": "msg-prompt-1",
+            "status": "running",
+            "content": [{ "type": "text", "text": "first" }],
+            "createdAt": "2026-09-22T00:00:00Z",
+            "metadata": { "note": "carry me" },
+        })));
+
+        let ops = projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "prompt.steered",
+            "activePromptId": "prompt-1",
+            "promptIds": ["prompt-0"],
+            "content": [{ "type": "text", "text": "follow-up" }],
+            "steeredAt": "2026-09-22T00:00:01Z",
+        })));
+        assert_eq!(
+            ops.len(),
+            2,
+            "active upsert + one per steered id; got {ops:?}"
+        );
+
+        let snapshot = projector.snapshot();
+        assert_eq!(snapshot.prompts.len(), 2);
+        let active = snapshot
+            .prompts
+            .iter()
+            .find(|prompt| prompt.prompt_id == "prompt-1")
+            .expect("the active prompt exists");
+        assert_eq!(active.status, TranscriptPromptStatus::Running);
+        assert_eq!(active.steered_at.as_deref(), Some("2026-09-22T00:00:01Z"));
+        assert_eq!(
+            active.created_at, "2026-09-22T00:00:00Z",
+            "the steer must not move createdAt"
+        );
+        assert_eq!(
+            active.client_metadata,
+            Some(vec![json!({ "note": "carry me" })]),
+            "the steer must not drop the client metadata"
+        );
+        let steered = snapshot
+            .prompts
+            .iter()
+            .find(|prompt| prompt.prompt_id == "prompt-0")
+            .expect("the steered prompt exists");
+        assert_eq!(steered.status, TranscriptPromptStatus::Completed);
+        assert_eq!(steered.finished_at.as_deref(), Some("2026-09-22T00:00:01Z"));
+    }
+
+    /// The route's `unwrap_or_default` can hand an empty `activePromptId`:
+    /// no entity may be created under the empty key, but the steered ids
+    /// still settle (ROADMAP item 34).
+    #[test]
+    fn steered_with_no_active_prompt_still_settles_the_ids() {
+        let mut projector = TranscriptProjector::new();
+        let ops = projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "prompt.steered",
+            "activePromptId": "",
+            "promptIds": ["prompt-3"],
+            "content": [],
+            "steeredAt": "2026-09-22T00:00:02Z",
+        })));
+        assert_eq!(ops.len(), 1, "only the steered id settles; got {ops:?}");
+
+        let snapshot = projector.snapshot();
+        assert_eq!(snapshot.prompts.len(), 1);
+        assert_eq!(snapshot.prompts[0].prompt_id, "prompt-3");
+        assert_eq!(
+            snapshot.prompts[0].status,
+            TranscriptPromptStatus::Completed
+        );
+    }
+
+    /// v2 `onPromptAborted` (coreEventMap.ts:1371): abortedAt settles the
+    /// entity, createdAt falls back to it, and a later duplicate submission
+    /// must not resurrect a terminal prompt.
+    #[test]
+    fn prompt_aborted_settles_the_entity_and_survives_a_duplicate_submission() {
+        let mut projector = TranscriptProjector::new();
+        projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "prompt.submitted",
+            "promptId": "prompt-1",
+            "userMessageId": "msg-prompt-1",
+            "status": "running",
+            "content": [{ "type": "text", "text": "first" }],
+            "createdAt": "2026-09-22T00:00:00Z",
+        })));
+        let ops = projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "prompt.aborted",
+            "promptId": "prompt-1",
+            "abortedAt": "2026-09-22T00:00:03Z",
+        })));
+        assert_eq!(ops.len(), 1);
+
+        projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "prompt.submitted",
+            "promptId": "prompt-1",
+            "userMessageId": "msg-prompt-1",
+            "status": "running",
+            "content": [{ "type": "text", "text": "duplicate" }],
+            "createdAt": "2026-09-22T00:00:04Z",
+        })));
+
+        let snapshot = projector.snapshot();
+        let prompt = snapshot
+            .prompts
+            .iter()
+            .find(|prompt| prompt.prompt_id == "prompt-1")
+            .expect("the prompt exists");
+        assert_eq!(
+            prompt.status,
+            TranscriptPromptStatus::Aborted,
+            "a duplicate submission must not resurrect a terminal prompt"
+        );
+        assert_eq!(prompt.finished_at.as_deref(), Some("2026-09-22T00:00:03Z"));
+        assert_eq!(
+            prompt.created_at, "2026-09-22T00:00:00Z",
+            "createdAt stays with the entity"
+        );
     }
 }

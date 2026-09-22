@@ -1,5 +1,7 @@
 use serde_json::{Value, json};
 
+use crate::events::EngineEvent;
+use crate::session::sqlite_store::SqliteSessionStore;
 use crate::turn_loop::types::LLMMessage;
 
 pub mod grade;
@@ -14,6 +16,16 @@ struct StepDraft {
     step_id: String,
     ordinal: usize,
     frames: Vec<Value>,
+}
+
+/// A steered follow-up buffered while grouping: it carries the queued prompt's
+/// id (#3906) and lands as a user frame in the current turn's step — v2's
+/// `pendingSteers` (groupTurns.ts:177), where the steer opens no turn of its
+/// own.
+#[derive(Clone)]
+struct ColdSteer {
+    text: String,
+    prompt_id: String,
 }
 
 #[derive(Clone)]
@@ -72,14 +84,67 @@ impl TurnDraft {
     }
 }
 
+/// Land buffered steers in the last turn's last step — v2's
+/// `flushSteeredLeftovers` (groupTurns.ts:177): create the step when the turn
+/// has none, and a `user`-origin placeholder turn when history holds none yet.
+/// Runs before a new turn opens and at end of history.
+fn flush_steered_leftovers(
+    turns: &mut Vec<TurnDraft>,
+    next_ordinal: &mut usize,
+    pending: &mut Vec<ColdSteer>,
+) {
+    if pending.is_empty() {
+        return;
+    }
+    if turns.is_empty() {
+        turns.push(TurnDraft::new(
+            *next_ordinal,
+            None,
+            json!({ "kind": "user" }),
+        ));
+        *next_ordinal += 1;
+    }
+    let turn = turns.last_mut().expect("turn ensured above");
+    if turn.steps.is_empty() {
+        turn.steps.push(StepDraft {
+            step_id: format!("{}.1", turn.turn_id),
+            ordinal: 1,
+            frames: Vec::new(),
+        });
+    }
+    let step = turn.steps.last_mut().expect("step ensured above");
+    for steer in pending.drain(..) {
+        let frame_id = format!("{}.f{}", step.step_id, step.frames.len() + 1);
+        step.frames.push(json!({
+            "kind": "text",
+            "frameId": frame_id,
+            "role": "user",
+            "text": steer.text,
+            "promptIds": [steer.prompt_id],
+            "origin": { "kind": "user" },
+        }));
+    }
+}
+
 pub fn build_items(history: &[LLMMessage]) -> Vec<Value> {
     let mut turns: Vec<TurnDraft> = Vec::new();
     let mut next_ordinal = 0usize;
+    let mut pending: Vec<ColdSteer> = Vec::new();
 
     for message in history {
         match message.role.as_str() {
             "system" => continue,
             "user" => {
+                // A steered follow-up carries the queued prompt's id (#3906):
+                // it opens no turn — buffer it (v2 groupTurns.ts:252) and land
+                // it as a user frame at a flush point below.
+                if let Some(prompt_id) = message.prompt_id.as_deref() {
+                    pending.push(ColdSteer {
+                        text: message.content.clone(),
+                        prompt_id: prompt_id.to_string(),
+                    });
+                    continue;
+                }
                 // A reminder the engine injected is not something the user
                 // typed: v2 marks it `origin.kind === 'injection'` at append
                 // time and its projector maps that to `other`, leaving the
@@ -95,6 +160,7 @@ pub fn build_items(history: &[LLMMessage]) -> Vec<Value> {
                 } else {
                     (Some(message.content.clone()), json!({ "kind": "user" }))
                 };
+                flush_steered_leftovers(&mut turns, &mut next_ordinal, &mut pending);
                 turns.push(TurnDraft::new(next_ordinal, prompt, origin));
                 next_ordinal += 1;
             }
@@ -116,6 +182,19 @@ pub fn build_items(history: &[LLMMessage]) -> Vec<Value> {
                     frame_count += 1;
                     format!("{step_id}.f{frame_count}")
                 };
+                // Flush point (a): every assistant message opens a new step,
+                // and buffered steers land at its head before the response
+                // that answered them (v2 groupTurns.ts:349).
+                for steer in pending.drain(..) {
+                    frames.push(json!({
+                        "kind": "text",
+                        "frameId": next_frame_id(),
+                        "role": "user",
+                        "text": steer.text,
+                        "promptIds": [steer.prompt_id],
+                        "origin": { "kind": "user" },
+                    }));
+                }
                 if !message.content.is_empty() {
                     frames.push(json!({
                         "kind": "text",
@@ -153,7 +232,29 @@ pub fn build_items(history: &[LLMMessage]) -> Vec<Value> {
         }
     }
 
+    // Flush point (c): history ending on a steer still lands it — in the last
+    // turn's last step, or a `user`-origin placeholder turn when none exists
+    // (v2 groupTurns.ts:199).
+    flush_steered_leftovers(&mut turns, &mut next_ordinal, &mut pending);
+
     turns.iter().map(TurnDraft::to_value).collect()
+}
+
+/// The cold baseline's prompt entities: fold the persisted prompt-lifecycle
+/// journal (`prompt.submitted` / `completed` / `aborted` / `steered`) through
+/// a fresh projector — the same fold the live path runs — so a reconnecting
+/// client sees settled prompts instead of an empty array. `turn.steer` is not
+/// a fold arm: the steer's user frame rides `build_items` above.
+pub fn cold_prompts(store: &SqliteSessionStore, session_id: &str) -> Value {
+    let Ok(records) = store.prompt_wire_events(session_id) else {
+        return Value::Array(Vec::new());
+    };
+    let mut projector = project::TranscriptProjector::new();
+    for record in records {
+        projector.apply_event(&EngineEvent::from_json(record.payload));
+    }
+    let prompts = projector.snapshot().prompts;
+    serde_json::to_value(&prompts).unwrap_or(Value::Array(Vec::new()))
 }
 
 fn patch_tool_frame(turn: &mut TurnDraft, tool_call_id: &str, output: &str) {
@@ -358,6 +459,186 @@ mod tests {
             arguments: json!({ "path": "a.txt" }),
             extras: None,
         }
+    }
+
+    /// A steered follow-up: the queued prompt's id rides the persisted
+    /// message (#3906) instead of opening a turn of its own.
+    fn steer(text: &str, prompt_id: &str) -> LLMMessage {
+        let mut message = LLMMessage::new("user", text);
+        message.prompt_id = Some(prompt_id.to_string());
+        message
+    }
+
+    /// Flush point (a): the steer lands at the head of the step that answers
+    /// it — v2's `pendingNotificationFrames` drain (groupTurns.ts:349).
+    #[test]
+    fn a_steered_follow_up_opens_no_turn_and_lands_at_the_step_head() {
+        let history = vec![
+            user("first"),
+            steer("also do X", "prompt-2"),
+            assistant("on it", Vec::new()),
+        ];
+        let items = build_items(&history);
+        assert_eq!(items.len(), 1, "the steer opens no turn of its own");
+
+        let steps = items[0]["steps"].as_array().unwrap();
+        assert_eq!(steps.len(), 1);
+        let frames = steps[0]["frames"].as_array().unwrap();
+        assert_eq!(frames.len(), 2, "steer frame then assistant frame");
+        assert_eq!(frames[0]["role"], "user");
+        assert_eq!(frames[0]["text"], "also do X");
+        assert_eq!(frames[0]["promptIds"][0], "prompt-2");
+        assert_eq!(frames[0]["origin"]["kind"], "user");
+        assert_eq!(frames[1]["role"], "assistant");
+        assert_eq!(frames[1]["text"], "on it");
+        // The turn keeps its own prompt: the steer never rewrites it.
+        assert_eq!(items[0]["prompt"], "first");
+    }
+
+    /// Flush point (b): a new user turn flushes the steers left behind into
+    /// the previous turn's last step — v2 `startTurn` →
+    /// `flushSteeredLeftovers` (groupTurns.ts:177).
+    #[test]
+    fn a_new_turn_flushes_the_steers_left_behind() {
+        let history = vec![
+            user("first"),
+            assistant("ok", Vec::new()),
+            steer("mid", "prompt-4"),
+            user("second"),
+            assistant("done", Vec::new()),
+        ];
+        let items = build_items(&history);
+        assert_eq!(items.len(), 2, "neither the steer nor the flush adds turns");
+
+        let first_steps = items[0]["steps"].as_array().unwrap();
+        let last_step = first_steps.last().unwrap();
+        let frames = last_step["frames"].as_array().unwrap();
+        assert_eq!(frames.len(), 2, "assistant frame then the flushed steer");
+        assert_eq!(frames[1]["role"], "user");
+        assert_eq!(frames[1]["text"], "mid");
+        assert_eq!(frames[1]["promptIds"][0], "prompt-4");
+
+        assert_eq!(items[1]["prompt"], "second");
+    }
+
+    /// Flush point (b) with no turn to flush into: v2 opens a `user`-origin
+    /// placeholder (`turn ?? startTurn({kind:'user'})`, groupTurns.ts:199) so
+    /// the steer still renders inside a turn.
+    #[test]
+    fn a_steer_before_any_turn_opens_a_user_placeholder() {
+        let history = vec![steer("early", "prompt-5"), user("hello")];
+        let items = build_items(&history);
+        assert_eq!(items.len(), 2);
+
+        assert_eq!(items[0]["origin"]["kind"], "user");
+        assert!(
+            items[0].get("prompt").is_none(),
+            "the placeholder carries no prompt of its own"
+        );
+        let steps = items[0]["steps"].as_array().unwrap();
+        let frames = steps[0]["frames"].as_array().unwrap();
+        assert_eq!(frames[0]["role"], "user");
+        assert_eq!(frames[0]["text"], "early");
+        assert_eq!(frames[0]["promptIds"][0], "prompt-5");
+
+        assert_eq!(items[1]["prompt"], "hello");
+    }
+
+    /// Flush point (c): history ending on a steer still lands it.
+    #[test]
+    fn a_steer_at_the_end_of_history_lands_in_the_last_step() {
+        let history = vec![
+            user("first"),
+            assistant("ok", Vec::new()),
+            steer("one more", "prompt-6"),
+        ];
+        let items = build_items(&history);
+        assert_eq!(items.len(), 1);
+
+        let steps = items[0]["steps"].as_array().unwrap();
+        let frames = steps.last().unwrap()["frames"].as_array().unwrap();
+        let last = frames.last().unwrap();
+        assert_eq!(last["role"], "user");
+        assert_eq!(last["text"], "one more");
+        assert_eq!(last["promptIds"][0], "prompt-6");
+    }
+
+    /// A steer with no turn at all still renders: the placeholder the flush
+    /// opens carries a `user` origin, matching `startTurn({kind:'user'})`.
+    #[test]
+    fn history_of_only_a_steer_opens_a_user_turn() {
+        let items = build_items(&[steer("just a steer", "prompt-7")]);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["origin"]["kind"], "user");
+        let steps = items[0]["steps"].as_array().unwrap();
+        let frames = steps[0]["frames"].as_array().unwrap();
+        assert_eq!(frames[0]["text"], "just a steer");
+    }
+
+    /// `cold_prompts` folds the persisted prompt-lifecycle journal through
+    /// the live fold: submitted → aborted stays aborted, and unrelated event
+    /// types (including `turn.steer`) never reach the fold.
+    #[test]
+    fn cold_prompts_folds_the_persisted_lifecycle_journal() {
+        use crate::native::event_store::RawWireEvent;
+        use crate::session::sqlite_store::SqliteSessionStore;
+
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store
+            .create_session("sess-cold-prompts", Some("Cold"))
+            .unwrap();
+        let append = |event_type: &str, payload: Value| {
+            store
+                .append_wire_event(&RawWireEvent {
+                    id: format!("evt-{event_type}"),
+                    session_id: "sess-cold-prompts".into(),
+                    event_type: event_type.into(),
+                    payload,
+                    is_checkpoint: false,
+                    is_compaction: false,
+                    created_at: 1_000,
+                })
+                .unwrap();
+        };
+        append(
+            "prompt.submitted",
+            json!({
+                "type": "prompt.submitted",
+                "promptId": "prompt-1",
+                "userMessageId": "msg-prompt-1",
+                "status": "running",
+                "content": [{ "type": "text", "text": "first" }],
+                "createdAt": "2026-09-22T00:00:00Z",
+            }),
+        );
+        append(
+            "event.message.created",
+            json!({ "type": "event.message.created", "id": "msg-u1" }),
+        );
+        append(
+            "prompt.aborted",
+            json!({
+                "type": "prompt.aborted",
+                "promptId": "prompt-1",
+                "abortedAt": "2026-09-22T00:00:03Z",
+            }),
+        );
+        append(
+            "turn.steer",
+            json!({ "type": "turn.steer", "origin": { "kind": "user" } }),
+        );
+
+        let prompts = cold_prompts(&store, "sess-cold-prompts");
+        let prompts = prompts.as_array().expect("prompts serialize to an array");
+        assert_eq!(prompts.len(), 1, "only the prompt lifecycle folds");
+        assert_eq!(prompts[0]["promptId"], "prompt-1");
+        assert_eq!(prompts[0]["status"], "aborted");
+        assert_eq!(prompts[0]["finishedAt"], "2026-09-22T00:00:03Z");
+        assert_eq!(prompts[0]["createdAt"], "2026-09-22T00:00:00Z");
+
+        // A session with no journal yields an empty array, not null.
+        store.create_session("sess-cold-empty", None).unwrap();
+        assert_eq!(cold_prompts(&store, "sess-cold-empty"), json!([]));
     }
 
     #[test]

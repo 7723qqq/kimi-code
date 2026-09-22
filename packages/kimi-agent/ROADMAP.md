@@ -955,10 +955,11 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
 26. **#3906 单次 steer 复用排队 prompt id（已落地 2026-09-19）**：`LLMMessage` 新增可选
     `prompt_id`（持久化为 `messages.prompt_id` 列，沿用 store 的幂等 ALTER 迁移模式），
     `ServerEngine::enqueue_steer` 在调用方未带 id 时铸造，REST `prompt_ids` steer 路由复用
-    排队 prompt 自己的 id（v2 `children[0].waiter.id`）；v3 投影把带 id 的 steer 消息留在
-    当前回合内、实体 id 即 prompt id、`origin.inTurn = true`（v2 `markInTurnOrigin`），
-    不再自铸回合——取消时同文本出现两次、宿主 prompt 无法 undo 的两个症状同时消除；
-    live 翻译器对 `message.user` 应用同一规则，实体 id 与历史投影一致。
+    排队 prompt 自己的 id（v2 `children[0].waiter.id`）；transcript 冷重建（`transcript.rs`）
+    把带 id 的 steer 消息留在当前回合内、以 user 帧落进当前回合的步骤（帧的 `promptIds`
+    即该 prompt id），不再自铸回合——取消时同文本出现两次、宿主 prompt 无法 undo 的两个症状
+    同时消除；live fold（`project.rs` 的 `turn.steer` 臂）对同一载荷应用同一规则，帧形状与
+    冷重建一致（v2 `markInTurnOrigin` 的等价表达：steer 不开回合、留在宿主回合内）。
     `#3891` 的保留消息 id 配对随本项落地：客户端按 prompt id 配对 steered follow-up，
     不再按内容匹配（allowlist: `60f2a63278`、`53e5e3fca6`）。
 
@@ -970,7 +971,8 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
       上不成立，因此未移植 `isUndoAnchorOrigin` 判定（移植也不会改变行为）。
       该不变量由 `sqlite_store.rs` 的 `a_steer_and_its_host_prompt_are_one_undo_unit`
       实测钉住；若将来 undo 改成消息作用域，该测试会先失败，避免静默回归。
-    - 「取消时同文本出现两次」随 prompt id 移植消除（v3 投影与 live 翻译器均按 id 分组）。
+    - 「取消时同文本出现两次」随 prompt id 移植消除（冷重建与 live fold 均按帧的
+      `promptIds` 分组）。
 
     即：本项移植的实际价值是让**投影正确分组**（in-turn origin + 实体 id 复用），undo 症状
     只是 fork 既有作用域的巧合结果，不应被误读为照搬 v2 的 undo 锚点逻辑。
@@ -1076,6 +1078,42 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
     main 调用方报 `None`（v2 的 -1）——会话总量在宿主 SQLite turn 记录里，
     toolset 不可达；subagent 调用方（tower 记录的实际提交者）完整覆盖。
     allowlist 已改判 `ported`。
+
+34. **turn.steer 转录表达 + prompt 生命周期 fold（2026-09-22 对照审查发现 1/2/3）**：
+    live fold（`project.rs`）新增 `turn.steer` / `prompt.steered` / `prompt.completed` /
+    `prompt.aborted` 四个 Custom 臂、`llm.step.begin` 双挂冲刷（typed 臂 + 生产唯一的
+    Custom 发射 `llm/http.rs:275`）与 prev-aware `upsert_prompt`（v2
+    `onPromptSubmitted/Completed/Aborted/Steered`，coreEventMap.ts:1328-1411 的逐字段 port）；
+    冷重建（`transcript.rs`）镜像 v2 `groupTurns` 的 steer 缓冲与三个冲刷点，冷 prompts
+    走 `prompt_wire_events`（四类型日志）过同一 fold。REST 两个 steer 路由在 `enqueue_steer`
+    成功分支逐条发 `turn.steer`（载荷镜像 v2 `turnSteerSchema`，turnOps.ts:51-73，另带
+    协议接口未声明的 `agentId`/`sessionId` 信封），`prompt.steered` 三处 payload 修正
+    （content 嵌套数组 flatten、单选 prompt_id 铸造、content 缺省 `[]`）。与 v2 的**有意
+    偏离**（记录在案，非缺陷）：
+    - **缓冲语义**：v2 `onTurnSteered`（coreEventMap.ts:1413-1445）即时把 steer 落进
+      running 步骤，`turn.started` / `turn.ended` 清空或冲刷 `pendingSteers`（:433 /
+      :457-476）；fork 无条件缓冲，仅在 `llm.step.begin` 冲刷，pending 跨回合存续、
+      `turn.ended` 不冲刷。冲刷 gate = cursor 存在且回合 Running：已闭合回合不收 steer
+      帧（`the_steer_flush_waits_for_a_running_turn` 钉住）。**饿死边界**：steer 若在其
+      回合的最后一个 step-begin 之后、`turn.ended` 之前入队，该帧滞留至下一个 Running
+      回合的 step-begin 才落——v2 在 turn.ended 冲刷则无此窗口；目前 steer 只发生在回合
+      运行期且 REST 发射先于 step-begin，窗口不可达，记录备查。
+    - **发射点**：v2 在 `loopService` 的 drain 点（:1243）发 `turn.steer`；fork 在 REST
+      `/prompts:steer` 的 multi / 单选两路由的成功分支发（legacy `{prompt}` 分支不在
+      本项范围），经 `publish_prompt_event` 入 lane——同一日志服务 live fold、ws 广播与
+      冷 prompts 重放。
+    - **无附件合成**：v2 steer 帧携带 attachmentIds；fork 的 steer 帧只有文本与
+      promptIds（`PendingSteer` 不持附件）。
+    - **冷路径**：v2 `groupTurns` 以 `pendingSteers`（groupTurns.ts:177）镜像同一缓冲；
+      fork 的 `build_items` 镜像三个冲刷点（assistant 步骤头 drain、新回合前 flush 进
+      上一回合 last step、历史收尾），steer 判别 = `message.prompt_id.is_some()`，
+      steer 不开回合，无回合可落时建 `user` 起源 placeholder（`turn ??
+      startTurn({kind:'user'})`）。
+    - **message.created 与 prompt.submitted 的实体键差异**：提交侧实体键 = prompt id，
+      announce 侧 = `msg-u{N}` 消息 id，id 不同时是两个 prompt 实体
+      （`the_prompt_entity_carries_the_submissions_client_metadata` 钉住 distinct 行为）；
+      `prompt.submitted` 臂注释「one prompt entity, not two」仅在两 id 相同时成立。
+    （allowlist #3891 / #3896 / #3906 / #3933 的 note 已同步改写）
 
 ### 6.2 本轮已修复（含证据）
 

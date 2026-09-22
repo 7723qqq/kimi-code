@@ -1035,6 +1035,15 @@ export interface PromptSteeredEvent {
   readonly steeredAt: string;
 }
 
+export interface TurnSteerEvent {
+  readonly type: 'turn.steer';
+  readonly input: readonly MessageContent[];
+  readonly origin: PromptOrigin;
+  readonly messageId?: string;
+  readonly promptIds?: readonly string[];
+  readonly turnId?: number;
+}
+
 export type ToolListUpdatedReason = 'mcp.connected' | 'mcp.disconnected' | 'mcp.failed';
 
 export interface ToolListUpdatedEvent {
@@ -1111,7 +1120,8 @@ export type AgentEvent =
   | PromptSubmittedEvent
   | PromptCompletedEvent
   | PromptAbortedEvent
-  | PromptSteeredEvent;
+  | PromptSteeredEvent
+  | TurnSteerEvent;
 
 export type Event = AgentEvent & { agentId: string; sessionId: string };
 
@@ -2042,6 +2052,15 @@ export const promptSteeredEventSchema = z.object({
   steeredAt: isoDateTimeSchema,
 }) satisfies z.ZodType<PromptSteeredEvent>;
 
+export const turnSteerEventSchema = z.object({
+  type: z.literal('turn.steer'),
+  input: z.array(messageContentSchema),
+  origin: promptOriginSchema,
+  messageId: z.string().optional(),
+  promptIds: z.array(z.string()).optional(),
+  turnId: z.number().optional(),
+}) satisfies z.ZodType<TurnSteerEvent>;
+
 export const toolListUpdatedReasonSchema = z.enum([
   'mcp.connected',
   'mcp.disconnected',
@@ -2123,6 +2142,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   promptCompletedEventSchema,
   promptAbortedEventSchema,
   promptSteeredEventSchema,
+  turnSteerEventSchema,
 ]) satisfies z.ZodType<AgentEvent>;
 
 export const eventSchema = agentEventSchema.and(

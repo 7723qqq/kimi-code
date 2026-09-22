@@ -198,6 +198,16 @@ impl PromptQueue {
         }
     }
 
+    /// The turn number stamped for the active prompt, when the driver has
+    /// started it — the `turnId` a `turn.steer` payload carries so the fold
+    /// can pair the steer with its turn (v2 `turnSteerSchema`).
+    pub fn active_turn_number(&self, session_id: &str) -> Option<u32> {
+        self.lock()
+            .active
+            .get(session_id)
+            .and_then(|entry| entry.turn_number)
+    }
+
     /// Settle a prompt by the *user message id* a client holds, returning the
     /// resolved prompt id alongside the outcome. Two schemes name the same
     /// message and neither is the prompt id:

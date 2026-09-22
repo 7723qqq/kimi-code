@@ -73,7 +73,7 @@
       "date": "2026-09-19",
       "subject": "fix(agent-core-v2): don't record turn.steer when an unconsumed steer seeds the next turn (#3933)",
       "verdict": "not-applicable",
-      "note": "The fork has no TurnSteer record and no seeded-turn path (consumeDrainedNudges has no counterpart; drain_steers only appends to the running turn's messages), so the duplicate-record bug cannot occur. The review did surface a real divergence — the server path dropped undrained steers when the turn ended — fixed separately in ee882ab5e2: release_turn_steer_state keeps a non-empty queue across the turn boundary so the next turn drains it, matching the session path and v2's unconsumed-steer semantics.",
+      "note": "The fork has no seeded-turn path (consumeDrainedNudges has no counterpart; drain_steers only appends to the running turn's messages), so the duplicate-record bug cannot occur. `turn.steer` now rides the wire journal and is folded once into the transcript's buffered steer frames (ROADMAP §6.1-34): one emission, one fold, and the pending buffer lands the frame exactly once when a running turn's step begins — an unconsumed steer seeding the next turn cannot produce a second record. The review did surface a real divergence — the server path dropped undrained steers when the turn ended — fixed separately in ee882ab5e2: release_turn_steer_state keeps a non-empty queue across the turn boundary so the next turn drains it, matching the session path and v2's unconsumed-steer semantics.",
       "roadmap": "§6.6"
     },
     {
@@ -145,7 +145,7 @@
       "date": "2026-09-18",
       "subject": "fix(agent-core-v2): reuse the queued prompt id for a single steer (#3906)",
       "verdict": "ported",
-      "note": "Steer identity end to end: `LLMMessage.prompt_id` (new optional field, persisted as a `messages.prompt_id` column with the store's idempotent ALTER pattern), `ServerEngine::enqueue_steer` mints an id when the caller sent none, the REST `prompt_ids` steer route reuses the queued prompt's own id (v2 `children[0].waiter.id`), and the v3 projection keeps a steered user message inside the current turn under that id with `origin.inTurn = true` (v2 `markInTurnOrigin`) instead of minting a turn of its own. `translate_wire_event` applies the same rule live. 2 projection tests pin in-turn placement and the no-open-turn fallback.",
+      "note": "Steer identity end to end: `LLMMessage.prompt_id` (new optional field, persisted as a `messages.prompt_id` column with the store's idempotent ALTER pattern), `ServerEngine::enqueue_steer` mints an id when the caller sent none, the REST `prompt_ids` steer route reuses the queued prompt's own id (v2 `children[0].waiter.id`), and the transcript keeps a steered user message inside the current turn under that id: the cold rebuild buffers it as a user frame carrying the id in `promptIds` instead of minting a turn of its own (server/transcript.rs), and the live fold buffers `turn.steer` to the same placement (server/transcript/project.rs, ROADMAP §6.1-34). (The v3 projection and `translate_wire_event` this note originally described were deleted with v3 in 86f30ecc2c.) Tests pin in-turn placement and the no-open-turn fallback on both paths.",
       "roadmap": "§6.1-26"
     },
     {
@@ -161,7 +161,7 @@
       "date": "2026-09-18",
       "subject": "fix(transcript): attach promptIds to cold-folded steer frames (#3896)",
       "verdict": "not-applicable",
-      "note": "v2 synthesizes cold-rebuilt transcript frames after reload, so a steered frame needed its promptIds re-attached. The fork's engine persists steered user messages as real messages in the sqlite history and its transcript projection (server/transcript/*) reads them back from the store — there is no cold-fold synthesis path to lose the linkage in. packages/transcript itself is a live fork-kept package and takes upstream changes via normal merges."
+      "note": "v2 synthesizes cold-rebuilt transcript frames after reload, so a steered frame needed its promptIds re-attached. The fork's engine persists steered user messages as real messages in the sqlite history, and its cold fold (server/transcript.rs build_items, ROADMAP §6.1-34) lands them as user frames with the prompt id attached by construction — the id rides `messages.prompt_id` through reload — while the live fold attaches the same ids from the `turn.steer` payload, so neither path can lose the linkage. packages/transcript itself is a live fork-kept package and takes upstream changes via normal merges."
     },
     {
       "sha": "5acc863ae60c092457bd9ecdde55266b5fad7040",
@@ -182,7 +182,7 @@
       "date": "2026-09-18",
       "subject": "fix(agent-core-v2): pair steered follow-ups by reserved message id (#3891)",
       "verdict": "ported",
-      "note": "The steered-message identity the pairing needs now exists: the persisted `prompt_id` rides history reload, the v3 projection emits the steered user under its prompt id with an in-turn origin, and the live translator mirrors both — so a client can pair a steered follow-up to its reserved prompt id instead of matching by content. (v2's `steeredMessageIds` join lives in `packages/transcript`, which has no fork consumer; the equivalent information now travels on the v3 entities.)",
+      "note": "The steered-message identity the pairing needs now exists: the persisted `prompt_id` rides history reload, the cold rebuild emits the steered user frame under its prompt id (frame `promptIds`, inside the host turn), and the live fold mirrors it from the `turn.steer` payload (ROADMAP §6.1-34) — so a client can pair a steered follow-up to its reserved prompt id instead of matching by content. (v2's `steeredMessageIds` join lives in `packages/transcript`, which has no fork consumer; the equivalent information now travels on the transcript's steered user frames.)",
       "roadmap": "§6.1-26"
     },
     {

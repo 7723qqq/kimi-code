@@ -350,7 +350,13 @@ function main() {
   // nowhere. The golden `serverEvents` list does not carry them today, so
   // this checks the emitting source directly.
   const rustSources = readTree(join(AGENT, 'src'), '.rs');
-  for (const e of ['prompt.submitted', 'prompt.completed', 'prompt.aborted', 'prompt.steered']) {
+  for (const e of [
+    'prompt.submitted',
+    'prompt.completed',
+    'prompt.aborted',
+    'prompt.steered',
+    'turn.steer',
+  ]) {
     if (!rustSources.includes(`"${e}"`))
       failures.push(`WS    ${e} (protocol event not emitted from packages/kimi-agent/src)`);
   }

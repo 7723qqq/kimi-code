@@ -4930,7 +4930,10 @@ impl HttpServer {
                         "interactions": [],
                         "attachments": [],
                         "todos": [],
-                        "prompts": [],
+                        "prompts": crate::server::transcript::cold_prompts(
+                            &self.store,
+                            session_id
+                        ),
                         "meta": {},
                     });
                     // A single idempotent `reset` op rebuilds the client from the
@@ -5036,7 +5039,10 @@ impl HttpServer {
                     "interactions": [],
                     "attachments": [],
                     "todos": [],
-                    "prompts": [],
+                    "prompts": crate::server::transcript::cold_prompts(
+                        &self.store,
+                        session_id
+                    ),
                     "meta": {},
                     "agents": [{
                         "agentId": agent_id,
@@ -6721,6 +6727,28 @@ impl HttpServer {
                         origin: None,
                     };
                     if engine.enqueue_steer(session_id, message) {
+                        // v2 `turnSteerSchema` (turnOps.ts:51): the fold
+                        // pairs the steer to its turn and prompt ids; the
+                        // payload keeps the envelope fields the Rust hub
+                        // adds, which the interface does not declare.
+                        let steer_prompt_id =
+                            item["prompt_id"].as_str().unwrap_or_default().to_string();
+                        let mut steer = json!({
+                            "type": "turn.steer",
+                            "agentId": "main",
+                            "sessionId": session_id,
+                            "input": item.get("content").cloned().unwrap_or_else(|| json!([])),
+                            "origin": origin.clone()
+                                .unwrap_or_else(|| json!({ "kind": "user" })),
+                            "promptIds": [steer_prompt_id],
+                            "messageId": steer_prompt_id,
+                        });
+                        if let Some(turn) = self.prompt_queue.active_turn_number(session_id) {
+                            steer["turnId"] = json!(turn);
+                        }
+                        crate::server::prompt_queue::publish_prompt_event(
+                            &self.hub, session_id, steer,
+                        );
                         steered_items.push(item);
                     } else {
                         unsteered.push((item, prompt, blocks, origin));
@@ -6736,9 +6764,16 @@ impl HttpServer {
                         .iter()
                         .map(|item| item["prompt_id"].as_str().unwrap_or_default().to_string())
                         .collect();
+                    // Each item's `content` is itself a part array; flat-map
+                    // so the steered event carries one flat part list.
                     let content: Vec<Value> = steered_items
                         .iter()
-                        .filter_map(|item| item.get("content").cloned())
+                        .flat_map(|item| {
+                            item.get("content")
+                                .and_then(|value| value.as_array())
+                                .cloned()
+                                .unwrap_or_default()
+                        })
                         .collect();
                     crate::server::prompt_queue::publish_prompt_event(
                         &self.hub,
@@ -6807,10 +6842,28 @@ impl HttpServer {
                         tool_calls: Vec::new(),
                         tool_call_id: None,
 
-                        prompt_id: None,
+                        prompt_id: Some(prompt_id.clone()),
                         origin: None,
                     };
                     if engine.enqueue_steer(session_id, message) {
+                        // v2 `turnSteerSchema` (turnOps.ts:51); see the
+                        // `prompt_ids` route's emission above.
+                        let mut steer = json!({
+                            "type": "turn.steer",
+                            "agentId": "main",
+                            "sessionId": session_id,
+                            "input": item.get("content").cloned().unwrap_or_else(|| json!([])),
+                            "origin": origin.clone()
+                                .unwrap_or_else(|| json!({ "kind": "user" })),
+                            "promptIds": [prompt_id],
+                            "messageId": prompt_id,
+                        });
+                        if let Some(turn) = self.prompt_queue.active_turn_number(session_id) {
+                            steer["turnId"] = json!(turn);
+                        }
+                        crate::server::prompt_queue::publish_prompt_event(
+                            &self.hub, session_id, steer,
+                        );
                         crate::server::prompt_queue::publish_prompt_event(
                             &self.hub,
                             session_id,
@@ -6820,7 +6873,8 @@ impl HttpServer {
                                 "sessionId": session_id,
                                 "activePromptId": active_prompt_id,
                                 "promptIds": [prompt_id],
-                                "content": item.get("content").cloned().unwrap_or(Value::Null),
+                                "content": item.get("content").cloned()
+                                    .unwrap_or_else(|| json!([])),
                                 "steeredAt": chrono::Utc::now().to_rfc3339(),
                             }),
                         );

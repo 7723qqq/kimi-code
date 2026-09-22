@@ -747,7 +747,7 @@ async fn handle_inbound(
                     "interactions": [],
                     "attachments": [],
                     "todos": [],
-                    "prompts": [],
+                    "prompts": crate::server::transcript::cold_prompts(st, &session_id),
                     "meta": {},
                 });
                 for agent in &agents {
