@@ -99,4 +99,22 @@ describe('KimiHarness.exportSession', () => {
       details: { sessionId: 'ses_missing' },
     } satisfies Partial<KimiError>);
   });
+
+  it('rejects session ids that are not a single path segment', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    // A directory outside the sessions root, reachable only if the id were
+    // joined into the path unchecked.
+    const outside = join(workDir, 'outside');
+    await mkdir(outside, { recursive: true });
+    await writeFile(join(outside, 'session-meta.json'), '{}', 'utf-8');
+
+    for (const id of ['../outside', '..', '.', 'a/b', 'a\\b']) {
+      await expect(harness.exportSession({ id, version: '1.0.0-test' })).rejects.toMatchObject({
+        code: 'session.id_invalid',
+        details: { sessionId: id },
+      } satisfies Partial<KimiError>);
+    }
+  });
 });

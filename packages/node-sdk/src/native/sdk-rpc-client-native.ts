@@ -10,7 +10,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 
 import {
@@ -435,6 +435,19 @@ function normalizeRequiredWorkDir(operation: string, workDir: unknown): string {
     throw new KimiError(ErrorCodes.REQUEST_WORK_DIR_REQUIRED, `${operation} requires workDir`);
   }
   return posixPath(resolve(workDir));
+}
+
+/**
+ * Whether an id is safe to use as one path segment under the sessions root:
+ * non-empty, no separators, no `.`/`..` segments, not absolute. Session ids
+ * are `session_<uuid>` or client-chosen names that become directory names, so
+ * anything that could escape the root is rejected before the first `join`.
+ */
+function isSinglePathSegment(id: string): boolean {
+  if (id.length === 0 || id === '.' || id === '..') return false;
+  if (id.includes('/') || id.includes('\\')) return false;
+  if (id.includes('\0')) return false;
+  return !isAbsolute(id);
 }
 
 const MAX_TITLE_LENGTH = 200;
@@ -2884,6 +2897,16 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // `kimi export <id>` works for any persisted session, not only one this
     // process created. Everything below derives from the directory, so a
     // disk-resolved session exports identically to a live one.
+    //
+    // The id becomes a path segment twice (the session directory and the
+    // default zip name), so it is checked before any join: an id carrying a
+    // separator, a `..` segment, or an absolute root would otherwise read
+    // and zip a directory outside the sessions root.
+    if (!isSinglePathSegment(input.id)) {
+      throw new KimiError(ErrorCodes.SESSION_ID_INVALID, `invalid session id "${input.id}"`, {
+        details: { sessionId: input.id },
+      });
+    }
     const live = this.liveSessions.get(input.id);
     const persisted =
       live === undefined ? this.loadMeta(join(this.sessionBaseDir, input.id)) : undefined;
