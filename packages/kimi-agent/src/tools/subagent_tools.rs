@@ -391,6 +391,7 @@ mod tests {
                         input_cache_read: 0,
                         input_cache_creation: 0,
                     },
+                    timing: None,
                 })
             })
         }

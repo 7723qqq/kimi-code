@@ -177,6 +177,7 @@ impl LLM for HostLlmProxy {
                 tool_calls,
                 finish_reason: response.finish_reason,
                 usage,
+                timing: None,
             };
 
             // The host streamed this request, so the engine never saw the

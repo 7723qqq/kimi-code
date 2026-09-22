@@ -344,6 +344,7 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
         tool_calls,
         finish_reason,
         usage,
+        timing: None,
     })
 }
 
@@ -497,6 +498,7 @@ impl StreamAccumulator {
             tool_calls: self.tool_calls,
             finish_reason: self.finish_reason,
             usage: self.usage,
+            timing: None,
         }
     }
 }

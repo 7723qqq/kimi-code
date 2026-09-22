@@ -274,6 +274,7 @@ pub fn execute_loop_step_with_retry<'a>(
                 thinking,
                 attempts,
                 finish_reason,
+                timing: response.timing,
             })
         } else {
             let mut tool_calls = response.tool_calls;
@@ -294,6 +295,7 @@ pub fn execute_loop_step_with_retry<'a>(
                 thinking,
                 attempts,
                 finish_reason,
+                timing: response.timing,
             })
         }
     })
@@ -360,6 +362,7 @@ mod tests {
                         total_tokens: 2,
                         ..Default::default()
                     },
+                    timing: None,
                 })
             })
         }
@@ -612,6 +615,7 @@ mod tests {
                         ],
                         finish_reason: Some("tool_calls".into()),
                         usage: crate::rpc::types::TokenUsage::default(),
+                        timing: None,
                     })
                 })
             }
@@ -682,6 +686,7 @@ mod tests {
                             total_tokens: 2,
                             ..Default::default()
                         },
+                        timing: None,
                     })
                 })
             }

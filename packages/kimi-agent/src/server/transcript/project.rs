@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use super::model::{
     ActivityMeta, AgentPermission, AgentStatusMeta, AttachmentSource, InteractionKind,
-    InteractionState, StepState, StepUsage, TaskKind, TaskState, TextFrame, TextRole,
+    InteractionState, StepState, StepTiming, StepUsage, TaskKind, TaskState, TextFrame, TextRole,
     ThinkingFrame, ToolCallFrame, ToolFrameProgress, ToolFrameState, ToolProgressKind,
     TranscriptAttachment, TranscriptFrame, TranscriptInteraction, TranscriptItem, TranscriptMarker,
     TranscriptMeta, TranscriptMetaMerge, TranscriptPrompt, TranscriptPromptStatus, TranscriptStep,
@@ -265,6 +265,7 @@ impl TranscriptProjector {
                 turn_id,
                 step,
                 usage,
+                timing,
             } => {
                 let turn_idx = self.ensure_turn(&turn_key(turn_id));
                 let step_idx = self.ensure_step(turn_idx, i64::from(*step));
@@ -278,6 +279,19 @@ impl TranscriptProjector {
                             output: i64::from(usage.output_tokens),
                             input_cache_read: i64::from(usage.input_cache_read),
                             input_cache_creation: i64::from(usage.input_cache_creation),
+                        });
+                    }
+                    // Upstream #3938: the request timing rides the step-end
+                    // event into the step (v2's `turn.step.completed` carries
+                    // the same fields into the context-memory fold).
+                    if let Some(timing) = timing {
+                        step.timing = Some(StepTiming {
+                            llm_first_token_latency_ms: timing.first_token_latency_ms,
+                            llm_stream_duration_ms: timing.stream_duration_ms,
+                            llm_request_build_ms: timing.request_build_ms,
+                            llm_server_first_token_ms: timing.server_first_token_ms,
+                            llm_server_decode_ms: timing.server_decode_ms,
+                            llm_client_consume_ms: timing.client_consume_ms,
                         });
                     }
                 }
@@ -334,15 +348,13 @@ impl TranscriptProjector {
                 // (coreEventMap.ts:598) sets it when `turn.step.completed`
                 // arrives, which is what `finalizeTurn`
                 // (agentProjector.ts:733) and `onTurnEnded`
-                // (coreEventMap.ts:452) then leave alone. Only a step still
-                // running when the turn ends takes its state from the reason
-                // there, and `finalizeTurn` maps that `failed` / `blocked` →
-                // `failed`, otherwise `interrupted`. The fork's server path
-                // publishes no `turn.step.completed` (`llm.step.end` carries no
-                // turn or step id, so it cannot address one), which means a
-                // step is always still running here and the reason is the only
-                // signal — so a clean turn must settle to `completed` to keep
-                // v2's outcome rather than its intermediate-state rule.
+                // (coreEventMap.ts:452) then leave alone. The fork's turn loop
+                // publishes `llm.step.end` with the turn/step ids after every
+                // step (run_turn.rs), so a step that ran to completion is
+                // already `Completed` here; only a step still running when the
+                // turn ends — an interrupted mid-step turn — takes its state
+                // from the reason, and `finalizeTurn` maps that
+                // `failed` / `blocked` → `failed`, otherwise `interrupted`.
                 let step_state = match reason.as_str() {
                     "cancelled" => StepState::Interrupted,
                     "failed" | "blocked" => StepState::Failed,
@@ -1539,6 +1551,12 @@ mod tests {
                 input_cache_read: 5,
                 input_cache_creation: 1,
             }),
+            timing: Some(crate::llm::LlmTiming::from_marks(
+                0,
+                Some(10),
+                Some(110),
+                210,
+            )),
         });
         match &ops[0] {
             TranscriptOperation::StepUpsert { step, .. } => {
@@ -1546,6 +1564,12 @@ mod tests {
                 assert_eq!(usage.output, 20);
                 assert_eq!(usage.input_cache_read, 5);
                 assert_eq!(step.state, StepState::Completed);
+                // Upstream #3938: the timing rides the event into the step.
+                let timing = step.timing.as_ref().expect("timing recorded");
+                assert_eq!(timing.llm_first_token_latency_ms, Some(110));
+                assert_eq!(timing.llm_stream_duration_ms, Some(100));
+                assert_eq!(timing.llm_request_build_ms, Some(10));
+                assert_eq!(timing.llm_server_first_token_ms, Some(100));
             }
             other => panic!("expected step upsert, got {other:?}"),
         }

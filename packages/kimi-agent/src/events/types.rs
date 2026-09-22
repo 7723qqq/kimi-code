@@ -22,6 +22,11 @@ pub enum EngineEvent {
         turn_id: String,
         step: u32,
         usage: Option<TokenUsage>,
+        /// Per-request LLM timing (v2 `ModelRequestTiming`, upstream #3938).
+        /// Absent on the host-proxy path and from transports that do not
+        /// measure.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timing: Option<crate::llm::LlmTiming>,
     },
     #[serde(rename = "tool.native")]
     ToolNative {

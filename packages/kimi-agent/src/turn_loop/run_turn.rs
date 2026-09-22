@@ -1248,6 +1248,27 @@ pub fn run_turn<'a>(
             llm_retries += step_result.attempts.saturating_sub(1);
             last_finish_reason = step_result.finish_reason.clone();
 
+            // v2 `turn.step.completed` (upstream #3938 puts the request
+            // timing on it): the transcript projector folds this into the
+            // step — completion, usage, and the timing breakdown. The
+            // transport's own sink emission (llm/http.rs) serves the host's
+            // message fold and carries no turn/step id, so it cannot address
+            // a step; this one can.
+            callbacks.emit_event(serde_json::json!({
+                "type": "llm.step.end",
+                "turn_id": turn_id,
+                "step": steps,
+                "usage": {
+                    "input_tokens": step_result.usage.input_tokens,
+                    "output_tokens": step_result.usage.output_tokens,
+                    "total_tokens": step_result.usage.total_tokens,
+                    "input_cache_read": step_result.usage.input_cache_read,
+                    "input_cache_creation": step_result.usage.input_cache_creation,
+                },
+                "timing": serde_json::to_value(&step_result.timing)
+                    .unwrap_or(serde_json::Value::Null),
+            }));
+
             match step_result.stop_reason {
                 LoopStepStopReason::Complete => {
                     // Persist the assistant text into the in-turn history so
@@ -1896,6 +1917,7 @@ mod tests {
                             total_tokens: 15,
                             ..Default::default()
                         },
+                        timing: None,
                     })
                 } else {
                     Ok(LLMChatResponse {
@@ -1909,6 +1931,7 @@ mod tests {
                             total_tokens: 15,
                             ..Default::default()
                         },
+                        timing: None,
                     })
                 }
             })
@@ -2364,6 +2387,7 @@ mod tests {
                         tool_calls: vec![],
                         finish_reason: Some("content_filter".into()),
                         usage: TokenUsage::default(),
+                        timing: None,
                     })
                 })
             }
@@ -2629,6 +2653,7 @@ mod tests {
                         total_tokens: 2,
                         ..Default::default()
                     },
+                    timing: None,
                 })
             })
         }
@@ -2824,6 +2849,7 @@ mod tests {
                             total_tokens: 2,
                             ..Default::default()
                         },
+                        timing: None,
                     })
                 })
             }
@@ -2912,6 +2938,7 @@ mod tests {
                                 input_cache_read: 4,
                                 input_cache_creation: 3,
                             },
+                            timing: None,
                         })
                     } else {
                         Ok(LLMChatResponse {
@@ -2926,6 +2953,7 @@ mod tests {
                                 input_cache_read: 6,
                                 input_cache_creation: 1,
                             },
+                            timing: None,
                         })
                     }
                 })
@@ -3020,6 +3048,7 @@ mod tests {
                             }],
                             finish_reason: Some("tool_calls".into()),
                             usage: TokenUsage::default(),
+                            timing: None,
                         })
                     } else {
                         Ok(LLMChatResponse {
@@ -3028,6 +3057,7 @@ mod tests {
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
                             usage: TokenUsage::default(),
+                            timing: None,
                         })
                     }
                 })
@@ -3126,6 +3156,7 @@ mod tests {
                         }],
                         finish_reason: Some("tool_calls".into()),
                         usage: TokenUsage::default(),
+                        timing: None,
                     })
                 })
             }
@@ -3226,6 +3257,7 @@ mod tests {
                             }],
                             finish_reason: Some("tool_calls".into()),
                             usage: TokenUsage::default(),
+                            timing: None,
                         })
                     } else {
                         Ok(LLMChatResponse {
@@ -3234,6 +3266,7 @@ mod tests {
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
                             usage: TokenUsage::default(),
+                            timing: None,
                         })
                     }
                 })
@@ -3346,6 +3379,7 @@ mod tests {
                             ],
                             finish_reason: Some("tool_calls".into()),
                             usage: TokenUsage::default(),
+                            timing: None,
                         })
                     } else {
                         Ok(LLMChatResponse {
@@ -3354,6 +3388,7 @@ mod tests {
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
                             usage: TokenUsage::default(),
+                            timing: None,
                         })
                     }
                 })
@@ -3465,6 +3500,7 @@ mod tests {
                             ],
                             finish_reason: Some("tool_calls".into()),
                             usage: TokenUsage::default(),
+                            timing: None,
                         })
                     } else {
                         Ok(LLMChatResponse {
@@ -3473,6 +3509,7 @@ mod tests {
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
                             usage: TokenUsage::default(),
+                            timing: None,
                         })
                     }
                 })
@@ -3564,6 +3601,7 @@ mod tests {
                         }],
                         finish_reason: Some("tool_calls".into()),
                         usage: TokenUsage::default(),
+                        timing: None,
                     })
                 })
             }
@@ -3692,6 +3730,7 @@ mod tests {
                             total_tokens: 2,
                             ..Default::default()
                         },
+                        timing: None,
                     })
                 })
             }
@@ -4118,6 +4157,7 @@ mod tests {
                                     tool_calls: vec![],
                                     finish_reason: Some("stop".into()),
                                     usage: TokenUsage::default(),
+                                timing: None,
                                 })
                             }
                             _ = token.cancelled() => {
@@ -4132,6 +4172,7 @@ mod tests {
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
                             usage: TokenUsage::default(),
+                            timing: None,
                         })
                     }
                 })
@@ -4496,6 +4537,7 @@ mod tests {
                             total_tokens: 8,
                             ..Default::default()
                         },
+                        timing: None,
                     })
                 })
             }
@@ -4779,6 +4821,7 @@ mod tests {
                             total_tokens: 2,
                             ..Default::default()
                         },
+                        timing: None,
                     })
                 })
             }
@@ -4897,6 +4940,7 @@ mod tests {
                             total_tokens: 2,
                             ..Default::default()
                         },
+                        timing: None,
                     })
                 })
             }
@@ -5349,6 +5393,7 @@ mod tests {
                             }],
                             finish_reason: Some("tool_calls".into()),
                             usage: TokenUsage::default(),
+                            timing: None,
                         })
                     } else {
                         Ok(LLMChatResponse {
@@ -5357,6 +5402,7 @@ mod tests {
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
                             usage: TokenUsage::default(),
+                            timing: None,
                         })
                     }
                 })
@@ -5475,6 +5521,7 @@ mod tests {
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
                         usage: TokenUsage::default(),
+                        timing: None,
                     })
                 })
             }
@@ -5565,6 +5612,7 @@ mod tests {
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
                         usage: TokenUsage::default(),
+                        timing: None,
                     })
                 })
             }
@@ -5656,6 +5704,7 @@ mod tests {
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
                             usage: TokenUsage::default(),
+                            timing: None,
                         })
                     } else {
                         // Third call succeeds after compaction.
@@ -5691,6 +5740,7 @@ mod tests {
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
                             usage: TokenUsage::default(),
+                            timing: None,
                         })
                     }
                 })
@@ -5944,6 +5994,7 @@ mod tests {
                                 total_tokens: 2,
                                 ..Default::default()
                             },
+                            timing: None,
                         })
                     });
                 } else {
@@ -6069,6 +6120,7 @@ mod tests {
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
                             usage: TokenUsage::default(),
+                            timing: None,
                         })
                     }
                 })
@@ -6202,6 +6254,7 @@ mod tests {
                             tool_calls: vec![],
                             finish_reason: Some("stop".into()),
                             usage: TokenUsage::default(),
+                            timing: None,
                         })
                     }
                 })
@@ -6316,6 +6369,7 @@ mod tests {
                             total_tokens: 8,
                             ..Default::default()
                         },
+                        timing: None,
                     })
                 })
             }

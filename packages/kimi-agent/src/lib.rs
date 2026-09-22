@@ -695,6 +695,7 @@ mod engine_tests {
                     tool_calls: Vec::new(),
                     finish_reason: Some("stop".into()),
                     usage: crate::rpc::types::TokenUsage::default(),
+                    timing: None,
                 })
             })
         }
@@ -777,6 +778,7 @@ mod engine_tests {
                         }],
                         finish_reason: Some("tool_calls".into()),
                         usage: crate::rpc::types::TokenUsage::default(),
+                        timing: None,
                     })
                 } else {
                     // 第 2 步：观察到工具结果后输出最终回答
@@ -786,6 +788,7 @@ mod engine_tests {
                         tool_calls: Vec::new(),
                         finish_reason: Some("stop".into()),
                         usage: crate::rpc::types::TokenUsage::default(),
+                        timing: None,
                     })
                 }
             })

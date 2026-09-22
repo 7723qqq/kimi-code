@@ -357,6 +357,7 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
             input_cache_read,
             input_cache_creation,
         },
+        timing: None,
     })
 }
 
@@ -657,6 +658,7 @@ impl StreamAccumulator {
             tool_calls,
             finish_reason: self.finish_reason,
             usage: self.usage,
+            timing: None,
         }
     }
 }

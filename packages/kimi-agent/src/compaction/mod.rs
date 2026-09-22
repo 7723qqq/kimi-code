@@ -2153,6 +2153,7 @@ mod tests {
                         tool_calls: vec![],
                         finish_reason: Some("stop".into()),
                         usage: TokenUsage::default(),
+                        timing: None,
                     })
                 }
             })

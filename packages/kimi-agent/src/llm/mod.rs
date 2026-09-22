@@ -11,6 +11,8 @@ pub mod openai_responses;
 pub mod prompt_media;
 pub mod proxy;
 pub mod thinking_guard;
+pub mod timing;
 pub mod wire;
 
 pub use error::LlmError;
+pub use timing::LlmTiming;

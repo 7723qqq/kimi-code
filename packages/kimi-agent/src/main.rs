@@ -1702,6 +1702,7 @@ impl LLM for MockLlm {
                     total_tokens: 15,
                     ..Default::default()
                 },
+                timing: None,
             })
         })
     }

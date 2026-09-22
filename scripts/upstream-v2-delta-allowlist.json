@@ -40,8 +40,8 @@
       "sha": "b428bfd0049a6bfafb1833ee1c43e03aacfb689c",
       "date": "2026-09-21",
       "subject": "feat(transcript): include step timing and usage in cold-folded steps (#3938)",
-      "verdict": "tracked",
-      "note": "The kap-server hunk is a v3 entity field rename (timing -> llmTiming) and v3 was deleted in 86f30ecc2c, so it is moot. The agent half is a MISSING MODULE, not an inapplicable bug: the fork engine has no LLM timing instrumentation at all — the only StepTiming in the tree is the definition at server/transcript/model.rs:270, never filled (the projector creates steps with timing: None at project.rs:894, and LlmStepEnd carries only turn_id/step/usage). Porting means new instrumentation (first-token latency, stream duration) through the engine and the transcript projection — recorded as accepted debt in ROADMAP §6.1, pending a user decision on the new surface.",
+      "verdict": "ported",
+      "note": "Ported in full after the audit re-opened the verdict (the original not-applicable conflated a moot v3 hunk with a missing module). New llm/timing.rs carries LlmTiming (v2 ModelRequestTiming): firstTokenLatencyMs / streamDurationMs / requestBuildMs / serverFirstTokenMs measured by the native HTTP transport around one request (marks: started_at, sent, first SSE event, stream end; v2 formulas with zero clamping), serverDecodeMs / clientConsumeMs stay None (the fork SSE reader produces no decode stats). The timing rides LLMChatResponse -> StepResult -> the llm.step.end event (turn_id + step + usage + timing) the turn loop now emits per step, and the transcript projector folds it into the step (StepTiming was defined since the v3 retirement but never filled). The host-proxy path reports None (the host owns the call). Tests: from_marks formulas/clamping/serde, projector step-end timing fold, subagent lifecycle sequence now includes the step end.",
       "roadmap": "§6.6"
     },
     {

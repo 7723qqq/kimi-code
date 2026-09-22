@@ -538,6 +538,7 @@ mod tests {
             tool_calls: vec![call("Bash_0"), call("fresh_1"), call("")],
             finish_reason: Some("tool_calls".into()),
             usage: crate::rpc::types::TokenUsage::default(),
+            timing: None,
         };
         remap_response_tool_calls(&mut response, &normalizer.begin_response());
 

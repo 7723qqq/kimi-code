@@ -345,6 +345,9 @@ impl NativeHttpLlm {
             status = response.status();
         }
         let t_headers = started_at.elapsed();
+        // The request reached the wire (v2 `requestSentAt`): the mark the
+        // build/server split of the request timing is measured against.
+        let t_sent = started_at.elapsed();
         if !status.is_success() {
             // The provider may ask for a specific wait; carry it on the typed
             // error so the retry layer can honour it instead of burning its
@@ -477,6 +480,10 @@ impl NativeHttpLlm {
             return Err(format!("llm provider stream error: {message}").into());
         }
 
+        // The stream is done (v2 `streamEndedAt`): the mark the stream
+        // duration is measured to.
+        let t_ended = started_at.elapsed();
+
         // Failures the accumulator recorded itself (truncated Responses
         // function-call arguments) must also fail the request: finishing
         // here would run tools with fabricated empty arguments or complete
@@ -538,6 +545,16 @@ impl NativeHttpLlm {
 
         // Report the finished step (content + tool calls + usage) so the
         // host can record the assistant message without owning the call.
+        // v2 `buildModelRequestTiming` (upstream #3938): the marks taken
+        // above become the structured timing; every mark shares the
+        // `started_at` origin, so the start is 0.
+        let timing = crate::llm::LlmTiming::from_marks(
+            0,
+            Some(t_sent.as_millis().min(i64::MAX as u128) as i64),
+            t_first_event.map(|d| d.as_millis().min(i64::MAX as u128) as i64),
+            t_ended.as_millis().min(i64::MAX as u128) as i64,
+        );
+        let timing = (!timing.is_empty()).then_some(timing);
         self.emit(serde_json::json!({
             "type": "llm.step.end",
             "content": response.content,
@@ -548,6 +565,7 @@ impl NativeHttpLlm {
             })).collect::<Vec<_>>(),
             "finish_reason": response.finish_reason,
             "latency_ms": started_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
+            "timing": serde_json::to_value(&timing).unwrap_or(serde_json::Value::Null),
             "usage": {
                 "input_tokens": response.usage.input_tokens,
                 "output_tokens": response.usage.output_tokens,
@@ -559,6 +577,7 @@ impl NativeHttpLlm {
 
         // The request succeeded: the ids it claimed are the turn's.
         attempt.commit();
+        response.timing = timing;
         Ok(response)
     }
 

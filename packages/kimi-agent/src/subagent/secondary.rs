@@ -218,6 +218,7 @@ mod tests {
                     tool_calls: vec![],
                     finish_reason: Some("stop".into()),
                     usage: crate::rpc::types::TokenUsage::default(),
+                    timing: None,
                 })
             })
         }

@@ -1113,6 +1113,7 @@ mod tests {
                     tool_calls: vec![],
                     finish_reason: Some("stop".into()),
                     usage: TokenUsage::default(),
+                    timing: None,
                 })
             })
         }
@@ -1148,6 +1149,7 @@ mod tests {
                     }],
                     finish_reason: Some("tool_calls".into()),
                     usage: TokenUsage::default(),
+                    timing: None,
                 })
             })
         }
@@ -1861,6 +1863,7 @@ mod tests {
                     tool_calls: vec![],
                     finish_reason: Some("length".into()),
                     usage: TokenUsage::default(),
+                    timing: None,
                 })
             })
         }
@@ -2119,6 +2122,7 @@ mod tests {
                     tool_calls: vec![],
                     finish_reason: Some("stop".into()),
                     usage: TokenUsage::default(),
+                    timing: None,
                 })
             })
         }
@@ -2281,6 +2285,7 @@ mod tests {
                     tool_calls: vec![],
                     finish_reason: Some("stop".into()),
                     usage: TokenUsage::default(),
+                    timing: None,
                 })
             })
         }
@@ -2502,6 +2507,11 @@ mod tests {
             vec![
                 "subagent.spawned".to_string(),
                 "subagent.started".to_string(),
+                // The subagent runs a full turn loop, so the step-end event
+                // (upstream #3938 carries the request timing on it) fires
+                // between the lifecycle pair, the way v2's
+                // `turn.step.completed` does inside a subagent run.
+                "llm.step.end".to_string(),
                 "subagent.completed".to_string(),
             ]
         );
@@ -2514,8 +2524,14 @@ mod tests {
         let agent_id = spawned["subagent_id"].as_str().unwrap();
         assert!(agent_id.starts_with("subagent-"));
         assert_eq!(events[1]["subagent_id"], spawned["subagent_id"]);
-        assert_eq!(events[2]["result_summary"], "findings: all done");
-        assert!(events[2]["usage"]["total_tokens"].is_number());
+        // events[2] is the step end (upstream #3938 carries the request
+        // timing on it; the mock transport reports none, so the field is
+        // null here — the projector test covers the populated shape).
+        assert_eq!(events[2]["type"], "llm.step.end");
+        assert!(events[2]["step"].is_number());
+        let completed = events.last().unwrap();
+        assert_eq!(completed["result_summary"], "findings: all done");
+        assert!(completed["usage"]["total_tokens"].is_number());
     }
 
     #[tokio::test]

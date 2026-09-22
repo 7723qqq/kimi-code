@@ -438,6 +438,7 @@ mod tests {
                             total_tokens: 15,
                             ..Default::default()
                         },
+                        timing: None,
                     })
                 }
             })
@@ -481,6 +482,7 @@ mod tests {
                 total_tokens: 2,
                 ..Default::default()
             },
+            timing: None,
         }
     }
 

@@ -72,7 +72,7 @@ impl ServerAuth {
             }
         }
 
-        let token = generate_token();
+        let token = generate_token()?;
         // 0600 matters: this file is a credential, and the default mode would
         // leave it group-readable on POSIX.
         write_private(path, token.as_bytes())?;
@@ -232,13 +232,13 @@ fn secret_matches(expected: &str, presented: &str) -> bool {
         == 0
 }
 
-fn generate_token() -> String {
+/// Mint the bearer token from the OS CSPRNG (getrandom), not fastrand: a
+/// server token is a credential, and fastrand is a seeded non-cryptographic
+/// PRNG whose output is predictable from a few samples.
+fn generate_token() -> std::io::Result<String> {
     let mut bytes = [0_u8; TOKEN_BYTES];
-    for chunk in bytes.chunks_mut(8) {
-        let random = fastrand::u64(..).to_le_bytes();
-        chunk.copy_from_slice(&random[..chunk.len()]);
-    }
-    BASE64_URL_SAFE_NO_PAD.encode(bytes)
+    getrandom::fill(&mut bytes).map_err(|e| std::io::Error::other(e.to_string()))?;
+    Ok(BASE64_URL_SAFE_NO_PAD.encode(bytes))
 }
 
 fn write_private(path: &std::path::Path, bytes: &[u8]) -> Result<(), std::io::Error> {
@@ -368,8 +368,8 @@ mod tests {
 
     #[test]
     fn generated_tokens_match_kap_server_shape_and_are_unique() {
-        let first = generate_token();
-        let second = generate_token();
+        let first = generate_token().expect("OS randomness");
+        let second = generate_token().expect("OS randomness");
         assert_eq!(first.len(), 43, "base64url(32 bytes): {first}");
         assert!(
             first

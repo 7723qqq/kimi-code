@@ -2013,6 +2013,7 @@ model = "gpt-x"
                     tool_calls: Vec::new(),
                     finish_reason: Some("stop".into()),
                     usage: TokenUsage::default(),
+                    timing: None,
                 })
             })
         }

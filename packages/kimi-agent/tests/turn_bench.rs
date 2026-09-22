@@ -80,6 +80,7 @@ impl LLM for BenchLlm {
                     total_tokens: 110,
                     ..Default::default()
                 },
+                timing: None,
             })
         })
     }

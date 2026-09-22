@@ -244,6 +244,11 @@ pub struct LLMChatResponse {
     pub tool_calls: Vec<ToolCall>,
     pub finish_reason: Option<String>,
     pub usage: TokenUsage,
+    /// Per-request timing measured by the native transport (v2
+    /// `ModelRequestTiming`, upstream #3938). `None` on the host-proxy path
+    /// (the host owns the call there) and from transports that do not
+    /// measure.
+    pub timing: Option<crate::llm::LlmTiming>,
 }
 
 /// A tool call from the LLM.
@@ -1049,6 +1054,9 @@ pub struct StepResult {
     /// `tool_calls`, `content_filter`, …). Consumed by the turn loop to map
     /// provider-side truncation/filtering onto turn-level stop reasons.
     pub finish_reason: Option<String>,
+    /// The step's LLM request timing (v2 `ModelRequestTiming`, upstream
+    /// #3938); `None` when the transport did not measure (host-proxy).
+    pub timing: Option<crate::llm::LlmTiming>,
 }
 
 /// Reasons a single step can stop.

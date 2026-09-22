@@ -45,6 +45,8 @@ httparse = "1.10"
 base64 = "0.22"
 regex = "1"
 sha2 = "0.10"
+# Server bearer tokens are minted from the OS CSPRNG (src/server/auth.rs).
+getrandom = "0.4"
 # MCP OAuth credentials are encrypted at rest with the same algorithm v2 uses
 # (AES-256-GCM, see src/mcp/oauth/crypto.rs).
 aes-gcm = "0.10"

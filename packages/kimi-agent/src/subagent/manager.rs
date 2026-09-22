@@ -2131,6 +2131,7 @@ mod tests {
                         input_cache_read: 0,
                         input_cache_creation: 0,
                     },
+                    timing: None,
                 })
             })
         }
@@ -2268,6 +2269,7 @@ mod tests {
                         input_cache_read: 0,
                         input_cache_creation: 0,
                     },
+                    timing: None,
                 })
             })
         }
@@ -2317,6 +2319,7 @@ mod tests {
                         input_cache_read: 0,
                         input_cache_creation: 0,
                     },
+                    timing: None,
                 })
             })
         }
@@ -2373,6 +2376,7 @@ mod tests {
                             input_cache_read: 0,
                             input_cache_creation: 0,
                         },
+                        timing: None,
                     })
                 } else {
                     entered.notify_one();
@@ -2394,6 +2398,7 @@ mod tests {
                             input_cache_read: 0,
                             input_cache_creation: 0,
                         },
+                        timing: None,
                     })
                 }
             })

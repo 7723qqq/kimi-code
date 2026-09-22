@@ -539,6 +539,7 @@ mod tests {
                 match answer {
                     Ok(content) => Ok(LLMChatResponse {
                         content,
+                        timing: None,
                         ..Default::default()
                     }),
                     Err(message) => Err(Box::new(std::io::Error::other(message))
