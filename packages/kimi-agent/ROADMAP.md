@@ -1028,16 +1028,19 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
    头部取走该消息；断言 steered 文本在全库恰好出现一次且属于取消后的新回合——已临时还原旧
    行为验证该测试确实变红）。
 
-30. **v2 `observeContextOverflow` 的有效窗口学习未移植（2026-09-22 深查发现）**：v2 在
+30. ~~**v2 `observeContextOverflow` 的有效窗口学习未移植（2026-09-22 深查发现）~~ **已解决（2026-09-22）**：v2 在
     `fullCompactionService` 内按 `modelAlias` 维护 `observedMaxContextTokensByModel`
     （`defineState` 持久化），观测到溢出时把有效窗口降为 `floor(estimated × 0.85)`
     （只降不升，`getEffectiveMaxContextTokens = min(configured, observed)`），使后续请求与
-    压缩触发改用更保守的窗口。fork 的窗口完全由宿主按次解析（`config_for_window`），
-    引擎无按模型的学习状态——宿主窗口偏乐观时，每个回合都要溢出→紧急压缩→重试
-    （有 `max_overflow_compaction_attempts = 3` 兜底，功能不坏，但每次重复付学费）。
-    **未移植的原因**：落头需要新的状态域（state bridge 现为 todo/plan/goal/cron/task/turn
-    六域，按铁律新实体需用户许可）；进程内缓存是与 v2 `defineState` 不同的持久化语义，
-    属于设计决策而非移植。待用户裁决落点（新状态域 / 宿主上报观测 / 进程内缓存）后再落地。
+    压缩触发改用更保守的窗口。已移植：`compaction` 模块的进程内观测缓存（按模型名键——
+    真实窗口是模型/供应商的属性，跨会话共享比 v2 的按会话更正确），`observe_context_overflow` /
+    `effective_max_tokens` 逐字对应 v2 两个方法（含“只降不升”守卫与“无配置窗时观测值独立成立”
+    分支）；调用点按 v2 原样放在**压缩请求自身溢出**的恢复分支里（`summarize_with_llm_budgeted`，
+    与 `observeContextOverflow` 在 fullCompactionService catch 中的位置一致），回合级的
+    `should_recover` 门与预收缩预算改用 `effective_max_tokens(model, configured)`。
+    **记录的差异**：v2 经 `defineState` 持久化，fork 为进程内缓存——重启后重新学习
+    （引擎本就是进程内对象，会话级状态在宿主 SQLite）。allowlist 无需改动（该项不在门禁
+    区间内，属深查发现）。
 
 31. ~~**LLM 计时埋点整体缺失（2026-09-22 审计 #3938 重新定性）~~ **已解决（2026-09-22）**：v2 逐步记录
     `llmFirstTokenLatencyMs` / `llmStreamDurationMs`（#3938 起冷折叠步骤也带 timing/usage）。
@@ -1128,6 +1131,7 @@ clippy**（5 个文件格式不合规、1 条 `to_string_in_format_args`），�
 | #3869（审计改判：原“不适用”实为行为偏差）yolo 外模式对不可解析 bash 命令不询问 | `DangerousVerdict` 增加第三态 `Unanalyzable`（引号未配平；包装器剥离后命令名非字面量——`$CMD --force` 要到执行时才知道跑什么），`analyze_bash_command` 按“危险优先、不可解析次之、安全兜底”聚合；策略链第 3 步按 v2 #3869 分流：不可解析且**非 Yolo** → Ask（独立 reason），Yolo 落穿到 `YoloModeApprove`。修前 fork 对所有模式放行不可解析命令，v2 在非 yolo 模式询问——Ask When Needed 下上游弹审批、fork 静默执行 | `src/native/permission_engine/dangerous_command.rs`（三态 + 名字字面量检查 + 配平标志）；`src/permission/mod.rs` 策略分流；测试：`test_unanalyzable_shapes`、`test_dangerous_wins_over_unanalyzable`、`test_variable_arguments_stay_analyzable`、`test_unanalyzable_bash_command_asks_except_in_yolo`。记录的残留差异：v2 把 `bash -c "echo $HOME"` 也判不可解析（其 tree-sitter 语法所限），fork 会读内层命令判安全——变量**参数**可解析，只有变量**命令名**不可解析 |
 | #3938（审计改判：原 not-applicable 的 kap-server 半件 moot，但 agent 半件是模块缺失）冷折叠步骤带 step timing/usage | 新增 `src/llm/timing.rs`：`LlmTiming`（v2 `ModelRequestTiming` 六字段，camelCase serde）。`chat_impl` 打 4 个标记（started / sent / 首个 SSE 事件 / 流结束）按 v2 `buildModelRequestTiming` 公式计算（零钳制；`serverDecodeMs`/`clientConsumeMs` 留 None——fork SSE reader 不产 decode stats）；timing 经 `LLMChatResponse.timing` → `StepResult.timing` → turn 循环每步发射 `llm.step.end`（带 turn_id/step/usage——此前该事件无生产者，projector 的 `StepTiming` 从未被填充）→ projector 折叠进步骤。传输层 sink 的同名 emission（服务宿主消息折叠）不变，两条通道消费者分离，无双处理。host-proxy 报 None | `src/llm/timing.rs` 5 项（公式/钳制/serde）；`src/server/transcript/project.rs` 的 step-end 折叠（测试断言 timing 落步）；`src/tools/agent_tool.rs` 生命周期序列现含 step end；lib 2757 通过 |
 | #3847(b)（审计改判：原 not-applicable 实为模块缺失）tower 记录带调用方 token 用量 | `SubagentManager` 新增 `usage_by_instance` 按实例累计计数器，在三个回合完成路径（foreground / background `spawn_and_run` / persistent）折叠；`caller_tokens` 按 v2 `grandTotal`（四维求和，非 `total_tokens`）上报，逐出/销毁时清理防无界增长。tower 的 finding/review/send 三个写入方携带 tokens 入记录（finding `**Tokens**` 行、review/inbox frontmatter 字段），`read_inbox` 往返解析。记录的分歧：main 调用方报 `None`（v2 -1）——会话总量在宿主 SQLite、toolset 不可达；subagent 调用方完整覆盖 | `src/subagent/manager.rs`（计数器 + `caller_tokens` + 清理）；`src/tools/tower/{store,types,mod}.rs` 与 `src/tools/mod.rs` 分发；测试：`test_caller_tokens_accumulates_all_dimensions`、`file_finding_records_the_callers_tokens`、`send_records_tokens_and_read_inbox_round_trips_them`；lib 2760 通过 |
+| 深查发现（无上游号，v2 `observeContextOverflow`）有效窗口学习 | `compaction` 模块新增进程内观测缓存（按模型名键）：`observe_context_overflow` / `effective_max_tokens` 逐字对应 v2 `fullCompactionService.ts:258-267,320-331`（`floor(estimated × 0.85)`、只降不升守卫、无配置窗时观测值独立成立）。调用点按 v2 原样置于**压缩请求自身溢出**的恢复分支（`summarize_with_llm_budgeted` 的 Err 分支，与 v2 catch 中位置一致）；回合级 `should_recover` 门与预收缩预算（`force_compact_messages_with_summary_report` 的 window 参数）改用 `effective_max_tokens(model, configured)`。记录的差异：v2 经 `defineState` 持久化，fork 为进程内缓存（重启后重新学习） | `src/compaction/mod.rs`（缓存 + 两函数 + 3 项单测：降/不升/无配置窗）；`src/turn_loop/run_turn.rs`（effective_window 一处构造、三处消费）；lib 2763 通过 |
 | #3934（门禁盲区：code-app bundle 同步）2.0.2 web 交互改进与 bug 修复 | **已解决（2026-09-22）**：fork 的 dist-web 原先停在 2.0.2 之前的同步点（#3934 把 `CodeBlockNode-BMkbTGvt.js` 改名为 `CodeBlockNode-CGnsnQxn.js` 等，fork bundle 仍是旧文件名，`index.html` 时间戳 09-17 早于该同步）。同步前先实证 fork 的旧 bundle 与上游 2.0.0（fork 基线）的 bundle **逐字节一致**（`diff -rq` 退出 0）——无 fork 本地改动可丢，于是按“先删后拷、绝不覆盖”约定从上游 2.0.2 tag 提取替换（上游 `2e605b1` 即 code-app `44d7281c7a` 的同步，溯源链成立）：77 文件、1147 删除 / 1232 新增（旧世代确被移除而非叠加），入口 `index-DusVyqlT.js` → `index-DkwBvjsJ.js`，index.html/boot.js 引用可达性手工验证通过 | `f585c04d8d`（chore: sync web dist from code-app (#3934)，沿前三次 sync 的纯 bundle 提交惯例） |
 
 ### 6.3 文档失真清单（本轮已就地更正）

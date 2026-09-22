@@ -255,6 +255,64 @@ const OVERFLOW_KEYWORD_STATUSES: [u16; 3] = [400, 413, 422];
 /// overflow. v2 `OVERFLOW_STATUS_RECOVERY_RATIO` (fullCompactionService.ts:79).
 const OVERFLOW_STATUS_RECOVERY_RATIO: f64 = 0.5;
 
+/// Observed effective windows per model (v2 `observedMaxContextTokensByModel`,
+/// fullCompactionService.ts:215). The fork's window is host-resolved per turn;
+/// this in-process cache lowers it after an observed overflow so the next
+/// request — and the auto-compaction trigger — use the conservative value
+/// instead of re-overflowing every turn. v2 persists the map through
+/// `defineState`; the fork's engine is per-process, so an observation is
+/// relearned after a restart (recorded difference). Keyed by model name: the
+/// real window is a property of the provider/model, not of the session.
+static OBSERVED_MAX_TOKENS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, u64>>,
+> = std::sync::OnceLock::new();
+
+fn observed_map() -> &'static std::sync::Mutex<std::collections::HashMap<String, u64>> {
+    OBSERVED_MAX_TOKENS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// v2 `observeContextOverflow` (fullCompactionService.ts:320-331): after an
+/// observed overflow, remember `max(1, floor(estimated × 0.85))` as the
+/// model's effective window — only ever lowering it, and never below what
+/// the host already configured.
+pub fn observe_context_overflow(
+    model: &str,
+    estimated_request_tokens: u32,
+    configured: Option<u32>,
+) {
+    if model.is_empty() || estimated_request_tokens == 0 {
+        return;
+    }
+    let observed = ((f64::from(estimated_request_tokens)) * OVERFLOW_CONTEXT_SAFETY_RATIO)
+        .floor()
+        .max(1.0) as u64;
+    let current = effective_max_tokens(model, configured).unwrap_or(0);
+    if current > 0 && observed >= u64::from(current) {
+        return;
+    }
+    observed_map()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(model.to_string(), observed);
+}
+
+/// v2 `getEffectiveMaxContextTokens` (fullCompactionService.ts:258-267):
+/// `min(configured, observed)`; the configured value stands when nothing was
+/// observed, and a lone observation (no configured window) stands on its own.
+pub fn effective_max_tokens(model: &str, configured: Option<u32>) -> Option<u32> {
+    let observed = observed_map()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(model)
+        .copied();
+    match (configured, observed) {
+        (Some(configured), Some(observed)) => Some(configured.min(observed as u32)),
+        (Some(configured), None) => Some(configured),
+        (None, Some(observed)) => Some(observed as u32),
+        (None, None) => None,
+    }
+}
+
 /// Classify whether an LLM error string indicates that the context length / window was exceeded.
 ///
 /// Mirrors `CONTEXT_OVERFLOW_MESSAGE_PATTERNS` in `agent-core-v2` / `kosong`,
@@ -500,6 +558,15 @@ pub async fn summarize_with_llm_budgeted(
                     estimated_request_tokens,
                     effective_max_tokens,
                 ) {
+                    // v2 `observeContextOverflow` (fullCompactionService.ts:695):
+                    // the summarization request that just overflowed is
+                    // evidence the real window is smaller than configured —
+                    // remember it so the next turn uses the conservative value.
+                    observe_context_overflow(
+                        llm.model_name(),
+                        estimated_request_tokens,
+                        effective_max_tokens,
+                    );
                     overflow_shrink_count += 1;
                     if overflow_shrink_count > MAX_COMPACTION_OVERFLOW_SHRINK_ATTEMPTS
                         || attempt >= retry_config.max_attempts
@@ -1791,6 +1858,51 @@ mod tests {
         assert_eq!(compute_compact_count(&open_tool, &config), 0);
         assert_messages_eq(&compact_messages(&open_tool, &config), &open_tool);
         assert_messages_eq(&force_compact_messages(&open_tool, &config), &open_tool);
+    }
+
+    /// v2 `observeContextOverflow` / `getEffectiveMaxContextTokens`: an
+    /// observed overflow lowers the model's effective window to
+    /// `floor(estimated × 0.85)`, never raises it, and the configured value
+    /// wins when nothing was observed. The cache is process-global, so each
+    /// test uses its own model name.
+    #[test]
+    fn test_observe_context_overflow_lowers_and_never_raises() {
+        let model = "test-observe-lower";
+        assert_eq!(effective_max_tokens(model, Some(10_000)), Some(10_000));
+
+        observe_context_overflow(model, 1_000, Some(10_000));
+        assert_eq!(effective_max_tokens(model, Some(10_000)), Some(850));
+
+        // A later, larger observation never raises the floor.
+        observe_context_overflow(model, 5_000, Some(10_000));
+        assert_eq!(effective_max_tokens(model, Some(10_000)), Some(850));
+
+        // A smaller one lowers further.
+        observe_context_overflow(model, 500, Some(10_000));
+        assert_eq!(effective_max_tokens(model, Some(10_000)), Some(425));
+    }
+
+    #[test]
+    fn test_effective_max_tokens_without_a_configured_window() {
+        let model = "test-observe-no-config";
+        assert_eq!(effective_max_tokens(model, None), None);
+
+        // A lone observation stands when the host resolved no window.
+        observe_context_overflow(model, 2_000, None);
+        assert_eq!(effective_max_tokens(model, None), Some(1_700));
+
+        // The floor is at least one token.
+        let tiny = "test-observe-tiny";
+        observe_context_overflow(tiny, 1, None);
+        assert_eq!(effective_max_tokens(tiny, None), Some(1));
+    }
+
+    #[test]
+    fn test_observe_context_overflow_ignores_empty_marks() {
+        let model = "test-observe-empty";
+        observe_context_overflow("", 1_000, Some(10_000));
+        observe_context_overflow(model, 0, Some(10_000));
+        assert_eq!(effective_max_tokens(model, Some(10_000)), Some(10_000));
     }
 
     #[test]

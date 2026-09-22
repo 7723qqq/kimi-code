@@ -762,7 +762,14 @@ pub fn run_turn<'a>(
         // Context compaction knobs. The window comes from the host's model
         // resolution; without it the budget falls back to the fixed default.
         // The attempt cap rides the same host-resolved context (v2 #3750).
-        let mut compaction_config = crate::compaction::config_for_window(input.max_context_tokens);
+        // v2 `getEffectiveMaxContextTokens`: an overflow observed earlier in
+        // this process lowers the window for this model, so the trigger and
+        // the recovery gates use the conservative value.
+        let effective_window = crate::compaction::effective_max_tokens(
+            input.llm.model_name(),
+            input.max_context_tokens,
+        );
+        let mut compaction_config = crate::compaction::config_for_window(effective_window);
         compaction_config.max_attempts = input.compaction_max_attempts;
         // v2 `consecutiveOverflowCompactions` (`resetForTurn`,
         // fullCompactionService.ts:462-466): how many times in a row this turn
@@ -1163,10 +1170,12 @@ pub fn run_turn<'a>(
                         }));
                         continue 'overflow_recovery;
                     }
+                    let estimated_request_tokens =
+                        crate::compaction::estimate_messages_tokens(&messages);
                     if !crate::compaction::should_recover_from_context_overflow(
                         &err_str,
-                        crate::compaction::estimate_messages_tokens(&messages),
-                        input.max_context_tokens,
+                        estimated_request_tokens,
+                        effective_window,
                     ) {
                         return Err(Box::new(std::io::Error::other(err_str))
                             as Box<dyn std::error::Error + 'a>);
@@ -1195,7 +1204,7 @@ pub fn run_turn<'a>(
                             input.llm,
                             None,
                             Some(turn_cancel.token()),
-                            input.max_context_tokens,
+                            effective_window,
                             crate::compaction::estimate_messages_tokens(&messages),
                         )
                         .await;
