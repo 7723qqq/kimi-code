@@ -83,7 +83,11 @@ export function installCommandFor(
     case 'native':
       return platform === 'win32' ? nativeInstallCommandWin() : nativeInstallCommandUnix();
     case 'unsupported':
-      return `npm install -g ${NPM_PACKAGE_NAME}@${version}`;
+      // An undetected install source is a source checkout (dev runs, local
+      // builds) — which is how this fork is used. The npm package name
+      // belongs to the upstream project: installing it would replace the
+      // fork with the official build, so point at the checkout instead.
+      return 'git pull && bun run build (in your kimi-code checkout)';
   }
 }
 

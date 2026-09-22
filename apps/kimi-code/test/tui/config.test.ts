@@ -217,6 +217,40 @@ command = "   "
 
     expect((await loadTuiConfig(filePath)).theme).toBe(theme);
   });
+
+  // Builds before the writer guard serialized an unset locale as the literal
+  // string "undefined"; such a file must still load (with the default
+  // locale) instead of failing the whole config over one field.
+  it('reads a literal "undefined" locale back as unset', async () => {
+    writeFileSync(
+      filePath,
+      `theme = "dark"\nlocale = "undefined"\n\n[notifications]\nenabled = false\n`,
+      'utf-8',
+    );
+
+    const config = await loadTuiConfig(filePath);
+
+    expect(config.locale).toBe(DEFAULT_TUI_CONFIG.locale);
+    expect(config.theme).toBe('dark');
+    expect(config.notifications.enabled).toBe(false);
+  });
+
+  it('never writes the literal "undefined" as the locale', async () => {
+    await saveTuiConfig(
+      {
+        ...DEFAULT_TUI_CONFIG,
+        locale: undefined as unknown as typeof DEFAULT_TUI_CONFIG.locale,
+      },
+      filePath,
+    );
+
+    const text = readFileSync(filePath, 'utf-8');
+    expect(text).not.toContain('locale = "undefined"');
+    expect(text).toContain('# locale = "en"');
+    // The commented guide still round-trips: the reloaded config keeps the
+    // default locale rather than failing.
+    expect((await loadTuiConfig(filePath)).locale).toBe(DEFAULT_TUI_CONFIG.locale);
+  });
 });
 
 describe('TUI config status_line', () => {

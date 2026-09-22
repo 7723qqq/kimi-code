@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { parse as parseToml } from 'smol-toml';
 import { z } from 'zod';
 
-import { t } from '#/i18n';
+import { t, type Locale } from '#/i18n';
 import type { MermaidRenderMode } from '#/tui/utils/markdown-options';
 import { getDataDir } from '#/utils/paths';
 
@@ -81,7 +81,13 @@ export const TuiConfigFileSchema = z.object({
   theme: TuiThemeSchema.optional(),
   render_latex: z.boolean().optional(),
   disable_paste_burst: z.boolean().optional(),
-  locale: z.enum(['en', 'zh']).optional(),
+  // Builds before the writer guard serialized an unset locale as the literal
+  // string "undefined"; read it back as unset so those files still load
+  // instead of failing the whole config over one field.
+  locale: z.preprocess(
+    (value) => (value === 'undefined' ? undefined : value),
+    z.enum(['en', 'zh']).optional(),
+  ),
   cache_expiry_hint: z.boolean().optional(),
   disable_feedback_survey: z.boolean().optional(),
   editor: z
@@ -292,7 +298,15 @@ export function renderTuiConfig(config: TuiConfig): string {
   // whole file, so the section is emitted live when set and left as a
   // commented-out guide when unset. The [markdown] section follows the same
   // pattern: live when mermaid rendering is turned off, commented guide at
-  // the default.
+  // the default. The locale line follows it too: the normalized shape
+  // requires a locale, but the value can arrive through an unguarded path,
+  // and writing the literal "undefined" would make the reader reject the
+  // whole file.
+  const locale = config.locale as Locale | undefined;
+  const localeLine =
+    locale === undefined
+      ? `# locale = "en" # "en" | "zh"\n`
+      : `locale = "${escapeTomlBasicString(locale)}" # "en" | "zh"\n`;
   const statusItems = config.statusLine?.items;
   const statusCommand = config.statusLine?.command;
   const statusLines: string[] = [];
@@ -327,8 +341,7 @@ export function renderTuiConfig(config: TuiConfig): string {
 theme = "${escapeTomlBasicString(config.theme)}" # "auto" | "dark" | "light" | custom theme name
 render_latex = ${String(config.renderLatex !== false)} # false keeps LaTeX math in assistant messages as raw source
 disable_paste_burst = ${String(config.disablePasteBurst)} # true disables non-bracketed paste-burst fallback
-locale = "${config.locale}" # "en" | "zh"
-cache_expiry_hint = ${String(config.cacheExpiryHint !== false)} # false disables the "cache expired" dialog on resume / idle submit
+${localeLine}cache_expiry_hint = ${String(config.cacheExpiryHint !== false)} # false disables the "cache expired" dialog on resume / idle submit
 disable_feedback_survey = ${String(config.disableFeedbackSurvey === true)} # true hides the occasional session rating prompt
 
 [editor]

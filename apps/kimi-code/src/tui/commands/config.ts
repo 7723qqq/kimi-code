@@ -86,7 +86,12 @@ function cachedSwitchWarning(host: SlashCommandHost, fallback: string): string {
 export function currentTuiConfig(host: Pick<SlashCommandHost, 'state'>): TuiConfig {
   return {
     theme: host.state.appState.theme,
-    locale: host.state.appState.locale as Locale,
+    // Never cast a missing locale through: the renderer would write the
+    // literal "undefined" into tui.toml, which the reader then rejects as
+    // an invalid locale and the whole config falls back to defaults.
+    locale: host.state.appState.locale
+      ? (host.state.appState.locale as Locale)
+      : getLocale(),
     editorCommand: host.state.appState.editorCommand,
     disablePasteBurst:
       host.state.appState.disablePasteBurst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,

@@ -573,13 +573,16 @@ describe('runUpdatePreflight', () => {
     }
   });
 
-  it('unsupported: prints fallback npm command', async () => {
+  it('unsupported: points at the fork source checkout, not the upstream npm package', async () => {
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.detectInstallSource.mockResolvedValue('unsupported');
     const { stdout, options } = captureOutput();
     await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-    expect(stdout.join('')).toContain('npm install -g @moonshot-ai/kimi-code@0.5.0');
+    // The npm package name belongs to upstream: installing it would replace
+    // the fork with the official build.
+    expect(stdout.join('')).toContain('git pull && bun run build');
+    expect(stdout.join('')).not.toContain('npm install -g');
     expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
