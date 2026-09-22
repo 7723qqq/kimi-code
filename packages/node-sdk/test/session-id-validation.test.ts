@@ -1,0 +1,112 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, describe, expect, it } from 'vitest';
+
+import { createKimiHarness, type KimiError } from '#/index';
+
+import { TEST_IDENTITY } from './test-identity';
+
+// Every RPC that turns a client-supplied session id into a path segment —
+// create, resume, rename, delete, export — must reject an id that could
+// escape the sessions root before any filesystem call. deleteSession is the
+// destructive case: it removes the resolved directory recursively.
+const ESCAPING_IDS = ['../outside', '..', '.', 'a/b', 'a\\b'] as const;
+
+const tempDirs: string[] = [];
+
+async function removeDirWithRetry(dir: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      await rm(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOTEMPTY' && code !== 'EBUSY' && code !== 'EPERM') throw error;
+      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+    }
+  }
+  await rm(dir, { recursive: true, force: true });
+}
+
+afterEach(async () => {
+  for (const dir of tempDirs.splice(0)) {
+    await removeDirWithRetry(dir);
+  }
+});
+
+async function makeTempDir(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'kimi-sdk-session-id-'));
+  tempDirs.push(dir);
+  return dir;
+}
+
+describe('session id path-segment validation', () => {
+  it('createSession rejects ids that are not a single path segment', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    for (const id of ESCAPING_IDS) {
+      await expect(harness.createSession({ id, workDir })).rejects.toMatchObject({
+        code: 'session.id_invalid',
+        details: { sessionId: id },
+      } satisfies Partial<KimiError>);
+    }
+  });
+
+  it('createSession still accepts a legitimate custom id', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    const session = await harness.createSession({ id: 'custom.session-1', workDir });
+
+    expect(session.id).toBe('custom.session-1');
+  });
+
+  it('resumeSession rejects ids that are not a single path segment', async () => {
+    const homeDir = await makeTempDir();
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    for (const id of ESCAPING_IDS) {
+      await expect(harness.resumeSession({ id })).rejects.toMatchObject({
+        code: 'session.id_invalid',
+        details: { sessionId: id },
+      } satisfies Partial<KimiError>);
+    }
+  });
+
+  it('renameSession rejects ids that are not a single path segment', async () => {
+    const homeDir = await makeTempDir();
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    for (const id of ESCAPING_IDS) {
+      await expect(harness.renameSession({ id, title: 'x' })).rejects.toMatchObject({
+        code: 'session.id_invalid',
+        details: { sessionId: id },
+      } satisfies Partial<KimiError>);
+    }
+  });
+
+  it('deleteSession rejects escaping ids and leaves the target directory intact', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    // A directory outside the sessions root that looks like a session, so the
+    // not-found check would pass and the recursive delete would fire if the
+    // id were joined into the path unchecked.
+    const outside = join(workDir, 'outside');
+    await mkdir(outside, { recursive: true });
+    await writeFile(join(outside, 'session-meta.json'), '{}', 'utf-8');
+    await writeFile(join(outside, 'keep.txt'), 'keep', 'utf-8');
+
+    await expect(harness.deleteSession('../outside')).rejects.toMatchObject({
+      code: 'session.id_invalid',
+      details: { sessionId: '../outside' },
+    } satisfies Partial<KimiError>);
+
+    expect(await readFile(join(outside, 'keep.txt'), 'utf-8')).toBe('keep');
+  });
+});

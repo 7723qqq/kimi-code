@@ -193,7 +193,7 @@ function toTokenUsage(raw: unknown): TokenUsage | undefined {
 /**
  * Map the Rust engine's turn stop reason onto the protocol's closed
  * {@link TurnEndReason} set. The engine emits a wider vocabulary (aborted /
- * max_steps / length / tool_calls / �?; forwarding those verbatim broke
+ * max_steps / length / tool_calls / …); forwarding those verbatim broke
  * consumers that switch on the four protocol values.
  */
 function toTurnEndReason(raw: unknown): TurnEndReason {
@@ -316,7 +316,7 @@ function initialRuntimeState(config: KimiConfig, model: string | undefined) {
  * alias (`ollama/deepseek-v4.1-flash`), while `llm.model` is the wire model
  * that alias resolves to (`deepseek-v4.1-flash`). buildHandle already resolves
  * the LLM from `meta.model`, so copying the alias over `llm.model` sent the
- * alias to the provider �?every alias whose wire model differs from its own
+ * alias to the provider — every alias whose wire model differs from its own
  * name came back as "model not found".
  */
 function applySessionLlmOverrides(
@@ -351,7 +351,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 /**
  * The `liveShellCommands` key for one `!` shell command. `undefined` when the
- * caller passed no `commandId` �?without one there is nothing to cancel by, so
+ * caller passed no `commandId` — without one there is nothing to cancel by, so
  * the handle is not published.
  */
 function shellCommandKey(sessionId: string, commandId: string | undefined): string | undefined {
@@ -450,6 +450,22 @@ function isSinglePathSegment(id: string): boolean {
   return !isAbsolute(id);
 }
 
+/**
+ * Reject an id that would escape the sessions root once joined into a path.
+ * Every RPC that turns a client-supplied session id into a path segment —
+ * create, resume, rename, delete, export — funnels through here: the id
+ * becomes a directory that is read, written, zipped, or recursively removed,
+ * so a separator, a `..` segment, or an absolute root must fail before any
+ * filesystem call rather than after it.
+ */
+function assertSessionIdSegment(id: string): void {
+  if (!isSinglePathSegment(id)) {
+    throw new KimiError(ErrorCodes.SESSION_ID_INVALID, `invalid session id "${id}"`, {
+      details: { sessionId: id },
+    });
+  }
+}
+
 const MAX_TITLE_LENGTH = 200;
 const MAX_LAST_PROMPT_LENGTH = 4000;
 
@@ -497,7 +513,7 @@ function isUntitledTitle(title: string): boolean {
  * One prompt-metadata record per submitted entry (prompt, steer, or skill
  * activation, v2 #3764), appended by {@link SDKRpcClientNative.applyPromptMetadata}
  * in submission order. `displayText` is the raw client string; `text` is what
- * the entry contributed to the session metadata �?the sanitized `displayText`
+ * the entry contributed to the session metadata — the sanitized `displayText`
  * when the caller supplied one, else the sanitized content-derived text
  * (`undefined` when that sanitizes to empty).
  */
@@ -511,7 +527,7 @@ interface NativePromptMetadataRecord {
  * The #3764 displayText set judgment behind upstream's undo-label
  * (`undoService.reconcileLastPrompt`) and fork-title
  * (`forkTurnSlice.promptMetadataFromTurnRecord`) derivations: a derivation
- * may use the client displayTexts only when EVERY prompt entry provides one �? * a single entry without `displayText` falls the whole derivation back to the
+ * may use the client displayTexts only when EVERY prompt entry provides one — * a single entry without `displayText` falls the whole derivation back to the
  * existing text-derived metadata, never a per-entry mix.
  *
  * The native SDK has no undo-label or fork-title decision points yet
@@ -525,7 +541,7 @@ interface NativePromptMetadataRecord {
  * set) falls the derivation back to the existing text-derived metadata, while
  * an all-`displayText` set whose sanitized join is empty (reachable with e.g.
  * every entry `displayText: ''`) means upstream applies NO metadata update at
- * all �?a consumer must not fall back to text derivation there. The two are
+ * all — a consumer must not fall back to text derivation there. The two are
  * told apart with `records.every((record) => record.hasDisplayText)` on the
  * records the caller already holds. Exported for that consumer and for tests;
  * `applyPromptMetadata` produces the records.
@@ -681,7 +697,7 @@ const NATIVE_EXPERIMENTAL_FLAGS: readonly NativeExperimentalFlag[] = [
 ];
 
 /**
- * Whether one experimental flag is enabled for this config �?the registry's
+ * Whether one experimental flag is enabled for this config — the registry's
  * precedence (env > `[experimental]` > master env > default). Engine-param
  * resolvers read this instead of duplicating the flag logic.
  */
@@ -822,7 +838,7 @@ interface NativeSessionMeta {
 }
 
 /**
- * The Rust `TaskRunner` entry wire (`storage/task_runner.rs:entry_wire`) �? * snake_case-free already, the v2 task-domain shape.
+ * The Rust `TaskRunner` entry wire (`storage/task_runner.rs:entry_wire`) — * snake_case-free already, the v2 task-domain shape.
  */
 interface EngineTaskWireEntry {
   taskId: string;
@@ -875,7 +891,7 @@ Task requirements:
 3. Identify how the code is organized and main module divisions.
 4. Discover project-specific development conventions, testing strategies, and deployment processes.
 
-After the exploration, do a thorough summary of your findings and write it to the \`AGENTS.md\` file in the project root, replacing the file's previous content. If the file already exists, read it first and carry forward whatever is still accurate �?the result should be one coherent, up-to-date file, not an append.
+After the exploration, do a thorough summary of your findings and write it to the \`AGENTS.md\` file in the project root, replacing the file's previous content. If the file already exists, read it first and carry forward whatever is still accurate — the result should be one coherent, up-to-date file, not an append.
 
 For your information, \`AGENTS.md\` is a file intended to be read by AI coding agents. Expect the reader of this file to know nothing about the project.
 
@@ -965,7 +981,7 @@ function resolveMcpServersForEngine(servers: Record<string, StoredMcpServerConfi
     // v2 `McpServerConfigSchema` infers the transport when the entry omits it
     // (`mcpCore/config-schema.ts`): a `command` means stdio, a `url` means
     // http. Requiring the field explicitly dropped every server written in the
-    // standard MCP shape �?`{"mcpServers":{"x":{"command":"�?,"args":[…]}}}` �?    // silently, so the session started with no MCP servers and nothing said so.
+    // standard MCP shape — `{"mcpServers":{"x":{"command":"…","args":[…]}}}` —    // silently, so the session started with no MCP servers and nothing said so.
     const transport =
       srv.transport ?? (typeof srv.command === 'string' ? 'stdio' : typeof srv.url === 'string' ? 'http' : undefined);
     if (transport === 'stdio' && srv.command) {
@@ -1043,7 +1059,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   // oxlint-disable-next-line typescript/no-explicit-any
   protected override async getRpc(): Promise<any> {
-    // The base class routes ~88 methods through `(await this.getRpc()).<wireName>(�?`.
+    // The base class routes ~88 methods through `(await this.getRpc()).<wireName>(…)`.
     // Returning `this` made every not-yet-overridden wire name either throw a
     // TypeError (the wire name is not a method here, e.g. removeKimiProvider /
     // enterPlan / beginCompaction) or recurse forever (the wire name equals a base
@@ -1057,7 +1073,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       {
         get: (_target, prop) => {
           // `await` probes `then` on whatever it is handed, and this proxy
-          // answers every property with a throwing function �?so the probe
+          // answers every property with a throwing function — so the probe
           // itself threw and every unimplemented call reported `"then"`
           // instead of the method the caller asked for. Answering `then` with
           // `undefined` keeps the proxy a non-thenable, and the real property
@@ -1074,6 +1090,9 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   override async createSession(input: CreateSessionOptions): Promise<SessionSummary> {
     const workDir = normalizeRequiredWorkDir('createSession', input.workDir);
+    // A client-chosen id becomes the session directory name; reject anything
+    // that is not a single path segment before it reaches join().
+    if (input.id !== undefined) assertSessionIdSegment(input.id);
     const sessionId = input.id ? input.id : `session_${randomUUID()}`;
     const sessionDir = posixPath(join(this.sessionBaseDir, sessionId));
     const now = Date.now();
@@ -1194,12 +1213,12 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       llmChat: async () => {
         throw new KimiError(
           ErrorCodes.NOT_IMPLEMENTED,
-          'native harness has no host LLM proxy �?configure [providers.*] or [agent] nativeLlmProvider so the Rust engine calls the model directly',
+          'native harness has no host LLM proxy — configure [providers.*] or [agent] nativeLlmProvider so the Rust engine calls the model directly',
         );
       },
       executeTool: async (req: string) => {
         // The Rust engine routes only host-owned tools here (MCP tools,
-        // select_tools �?everything not in NATIVE_TOOL_NAMES). The native
+        // select_tools — everything not in NATIVE_TOOL_NAMES). The native
         // harness has no host tool registry yet, so fail loud *naming the tool*.
         // The previous path delegated to the base `toolCall`, which returned a
         // generic "SDK custom tool calls are not supported: <id>" that dropped
@@ -1207,7 +1226,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         //
         // Wire shape: the return value is a serde-deserialized
         // `ToolExecuteResponse` (`kimi-agent/src/rpc/types.rs`), whose required
-        // fields are `content` + `is_error` �?NOT the `{output, isError}` pair
+        // fields are `content` + `is_error` — NOT the `{output, isError}` pair
         // the rest of the SDK uses. Emitting the wrong keys made every host
         // fallback die as `execute_tool parse: missing field \`content\``,
         // replacing the intended message with an opaque serde error.
@@ -1562,7 +1581,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
             });
           }
         } else if (parsed.type === 'warning') {
-          // Engine-side turn warnings (media budget, MCP startup, �?. Without
+          // Engine-side turn warnings (media budget, MCP startup, …). Without
           // this arm they were dropped on the floor: the engine emitted them
           // and no consumer ever saw one.
           this.receiveEvent({
@@ -1787,7 +1806,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // (or the plan guard's stateRead) must reflect the current mode.
     policySnapshot.mode = meta.planMode ? 'plan' : meta.permissionMode;
     // A headless session (upstream `nonInteractive`) drops the engine's
-    // dangerous-command ask policy �?there is no human to answer it.
+    // dangerous-command ask policy — there is no human to answer it.
     if (meta.nonInteractive) {
       policySnapshot.non_interactive = true;
     }
@@ -1805,18 +1824,18 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     const imageMaxEdgePx = resolveImageMaxEdgePx(config);
     const modelCapabilities = resolveModelCapabilities(config, meta.model);
     // Progressive tool disclosure (v2 `toolSelectService.enabled()`): the
-    // flag alone is not enough �?the advertised table is only shaped when the
+    // flag alone is not enough — the advertised table is only shaped when the
     // model also declares `dynamically_loaded_tools`, but the flag is what
     // the engine's gate reads.
     const toolSelect = isExperimentalFlagEnabled(config, 'tool_select');
     // The engine gates the advertised Tower* tool table on this and falls back
-    // to its own bare env probe when it is absent �?which never sees
+    // to its own bare env probe when it is absent — which never sees
     // `[experimental].tower`. Passing the host-resolved flag makes the config
     // key (and the master switch) reach the engine, same as tool_select.
     const towerEnabled = isExperimentalFlagEnabled(config, 'tower');
     const background = resolveBackgroundLimits(config);
     // Print mode (`kimi -p`): the host resolves only which `[background]`
-    // values apply �?the engine owns the settle behavior.
+    // values apply — the engine owns the settle behavior.
     const printBackground = resolvePrintBackground(config);
     // Agent-file discovery is host-side by design: the engine declares
     // `extra_agent_dirs` but never reads it (kimi-agent/src/config/mod.rs:588),
@@ -1845,7 +1864,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       callerAgentId: 'main',
       rustSelfContained: config.agent?.rustSelfContained === true,
       // Empty means "let the engine build `prompt/system.md` for this
-      // workspace" �?AGENTS.md cascade, skills catalog, environment listing,
+      // workspace" — AGENTS.md cascade, skills catalog, environment listing,
       // profile role. A host-owned prompt only ever arrives through
       // `native_llm.systemPrompt` (`[models.<alias>].systemPrompt`), which the
       // engine prefers anyway. The one-line stub that used to sit here reached
@@ -1859,8 +1878,8 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       workspaceRoot: workDir,
       nativeTools: config.agent?.nativeTools !== false,
       // `/add-dir` roots. The engine serves paths under them natively; without
-      // this they fall outside `workspace_root` and the only fallback �?the
-      // host `execute_tool` seam �?has no tool runtime to serve them.
+      // this they fall outside `workspace_root` and the only fallback — the
+      // host `execute_tool` seam — has no tool runtime to serve them.
       // `?? undefined` (never null): napi Option fields reject null.
       additionalDirs: meta.additionalDirs.length > 0 ? [...meta.additionalDirs] : undefined,
       shellPath,
@@ -1932,6 +1951,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   override async resumeSession(input: ResumeSessionInput): Promise<ResumedSessionSummary> {
     const sessionId = input.id;
+    assertSessionIdSegment(sessionId);
     let meta = this.liveSessions.get(sessionId);
     if (meta === undefined) {
       const now = Date.now();
@@ -2217,6 +2237,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   }
 
   override async renameSession(input: RenameSessionInput): Promise<void> {
+    assertSessionIdSegment(input.id);
     const title = input.title.trim();
     if (title.length === 0) {
       throw new KimiError(ErrorCodes.SESSION_TITLE_EMPTY, 'Session title cannot be empty');
@@ -2256,8 +2277,8 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   override async addAdditionalDir(input: AddAdditionalDirInput): Promise<AddAdditionalDirResult> {
     const meta = this.requireSession(input.id);
     if (!meta.additionalDirs.includes(input.path)) {
-      // The extra roots are baked into the engine handle at build time �?the
-      // native toolset's sandbox is constructed from `meta.additionalDirs` �?      // so a newly authorized directory only takes effect after a rebuild.
+      // The extra roots are baked into the engine handle at build time — the
+      // native toolset's sandbox is constructed from `meta.additionalDirs` —      // so a newly authorized directory only takes effect after a rebuild.
       // Same contract as setModel / setPermission: carry the history over, and
       // drop the root again when the rebuild fails.
       const previous = meta.additionalDirs;
@@ -2358,6 +2379,9 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   }
 
   override async deleteSession(input: SessionIdRpcInput): Promise<void> {
+    // The id is removed with `rmSync(recursive)`: an unchecked segment would
+    // delete a directory outside the sessions root.
+    assertSessionIdSegment(input.sessionId);
     const meta = this.liveSessions.get(input.sessionId);
     if (meta === undefined && this.loadMeta(join(this.sessionBaseDir, input.sessionId)) === undefined) {
       throw new KimiError(ErrorCodes.SESSION_NOT_FOUND, `unknown session "${input.sessionId}"`, {
@@ -2471,7 +2495,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     let reason: TurnEndReason = 'completed';
     try {
       const outcome = await meta.handle.btwPrompt(agentId, text);
-      // `EndTurn` / `Aborted` / `MaxTokens` (Rust Debug) �?protocol reason.
+      // `EndTurn` / `Aborted` / `MaxTokens` (Rust Debug) → protocol reason.
       reason = toTurnEndReason(outcome.stopReason.replaceAll(/([a-z])([A-Z])/g, '$1_$2'));
     } catch {
       reason = 'failed';
@@ -2596,7 +2620,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   override async setPlanMode(input: SetSessionPlanModeRpcInput): Promise<void> {
     const meta = this.requireSession(input.sessionId);
     // The engine's plan guard reads this live through the stateRead bridge, so
-    // flipping it here takes effect on the next guarded tool call �?no handle
+    // flipping it here takes effect on the next guarded tool call — no handle
     // rebuild, and an in-flight turn sees the new mode at its next guard check.
     const wasPlanMode = meta.planMode;
     meta.planMode = input.enabled;
@@ -2631,7 +2655,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     try {
       content = readFileSync(meta.plan.path, 'utf-8');
     } catch {
-      // no plan file yet �?keep the in-memory content
+      // no plan file yet — keep the in-memory content
     }
     return { id: meta.plan.id, content, path: meta.plan.path };
   }
@@ -2768,7 +2792,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   override async setTowerMode(input: SetSessionTowerModeRpcInput): Promise<void> {
     const meta = this.requireSession(input.sessionId);
     // The tower tools run engine-side natively (tools/tower), gated on the
-    // `main` caller and the `.tower/` workspace state �?not on this flag. The
+    // `main` caller and the `.tower/` workspace state — not on this flag. The
     // flag records the coordinator mode for the host (steering semantics +
     // status display); the requested base is validated engine-side when the
     // agent runs TowerInit.
@@ -2776,7 +2800,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     meta.towerMode = input.enabled;
     meta.updatedAt = Date.now();
     // v2 #3897 `tower_mode_enter` / `tower_mode_exit`: emitted on the
-    // transition, from the host side �?the flag lives here, and the engine has
+    // transition, from the host side — the flag lives here, and the engine has
     // no flip point of its own to observe.
     if (wasOn !== input.enabled) {
       this.telemetry.track(input.enabled ? 'tower_mode_enter' : 'tower_mode_exit');
@@ -2866,7 +2890,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       try {
         content = readFileSync(source.plan.path, 'utf-8');
       } catch {
-        // no source plan file �?carry the in-memory content
+        // no source plan file — carry the in-memory content
       }
       try {
         mkdirSync(dirname(forkPlanPath), { recursive: true });
@@ -2902,11 +2926,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // default zip name), so it is checked before any join: an id carrying a
     // separator, a `..` segment, or an absolute root would otherwise read
     // and zip a directory outside the sessions root.
-    if (!isSinglePathSegment(input.id)) {
-      throw new KimiError(ErrorCodes.SESSION_ID_INVALID, `invalid session id "${input.id}"`, {
-        details: { sessionId: input.id },
-      });
-    }
+    assertSessionIdSegment(input.id);
     const live = this.liveSessions.get(input.id);
     const persisted =
       live === undefined ? this.loadMeta(join(this.sessionBaseDir, input.id)) : undefined;
@@ -2955,7 +2975,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     );
 
     if (existsSync(sessionDir)) {
-      // Walk the session tree so nested artifacts (agents/, subagents/, �?
+      // Walk the session tree so nested artifacts (agents/, subagents/, …)
       // export under their relative posix paths like the engine's exporter.
       const walk = (dir: string, prefix: string): void => {
         let files;
@@ -3003,7 +3023,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // document (validation defers to model resolution), so a broken alias
     // degrades the harness instead of blocking startup. `reload` re-reads the
     // file, which this loader already does on every call. Like v2, the
-    // effective view has no v1-style `raw` passthrough �?the raw document
+    // effective view has no v1-style `raw` passthrough — the raw document
     // lives in the file itself.
     const { raw: _raw, ...config } = loadRuntimeConfigLenient(this.configPath);
     void _raw;
@@ -3013,7 +3033,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   override async setConfig(patch: KimiConfigPatch): Promise<KimiConfig> {
     const current = readConfigFile(this.configPath);
     // Deep-merge per domain (v2 semantics): the previous top-level shallow
-    // spread clobbered whole sections �?a `{ models: { oneAlias } }` patch wiped
+    // spread clobbered whole sections — a `{ models: { oneAlias } }` patch wiped
     // every other alias, `{ thinking: { enabled } }` dropped effort/budget, a
     // single provider edit lost its baseUrl/customHeaders, and any key present
     // but undefined in the patch cleared the stored value.
@@ -3035,7 +3055,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   override async removeProvider(providerId: string): Promise<KimiConfig> {
     // v1/v2 removal cascades: drop the provider entry, every model alias that
-    // points at it, and any default pointer left dangling �?persisted as ONE
+    // points at it, and any default pointer left dangling — persisted as ONE
     // atomic write so a crash can never leave a half-removed provider.
     const current = loadRuntimeConfig(this.configPath) as unknown as Record<string, unknown>;
     const providers = { ...(current['providers'] as Record<string, unknown> | undefined) };
@@ -3141,7 +3161,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   ): Promise<readonly { code: string; message: string; severity: 'warning' }[]> {
     const meta = this.requireSession(input.sessionId);
     if (meta.handle === undefined) return [];
-    // The engine's own degradations �?MCP servers it could not connect, and
+    // The engine's own degradations — MCP servers it could not connect, and
     // servers waiting on the user's authorization. This used to answer `[]`
     // unconditionally, so a user whose MCP tools were missing got no reason.
     const warnings = await meta.handle.warnings();
@@ -3151,7 +3171,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   override async getTodos(input: SessionIdRpcInput): Promise<readonly SessionTodoItem[]> {
     const meta = this.requireSession(input.sessionId);
     // The engine owns the todo state, and it lives under the workspace's
-    // engine-state directory �?whose name is a digest of the canonicalized
+    // engine-state directory — whose name is a digest of the canonicalized
     // workspace path, so the host asks the engine for it rather than guessing.
     // The previous guess read `<sessionDir>/todo.json`, which nothing ever
     // writes, so this always answered `[]` and `/undo` could not restore the
@@ -3184,7 +3204,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     this.requireSession(input.sessionId);
     const key = shellCommandKey(input.sessionId, input.commandId);
     const id = key === undefined ? undefined : this.liveShellCommands.get(key);
-    // Nothing to kill means the command already finished (or never started) �?    // not an error, and not a claim that something was cancelled.
+    // Nothing to kill means the command already finished (or never started) —    // not an error, and not a claim that something was cancelled.
     if (id === undefined) return;
     const { nativeBashKill } = await import('@moonshot-ai/kimi-agent/native');
     nativeBashKill(id);
@@ -3226,7 +3246,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     try {
       // Engine-side: the session's own model writes the summary of the deep
       // prefix (honoring `instruction`) and the smallest safe tail stays
-      // verbatim �?no host-side placeholder message.
+      // verbatim — no host-side placeholder message.
       const report = await handle.compact(input.instruction);
       if (!report.changed) {
         throw new KimiError(ErrorCodes.COMPACTION_UNABLE, 'History too short to compact');
@@ -3247,7 +3267,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       });
     } catch (error) {
       // The transcript's compaction block only closes on a terminal event, so
-      // every failure after `started` must emit one �?a user-triggered cancel
+      // every failure after `started` must emit one — a user-triggered cancel
       // resolves silently, any other failure still throws with the real reason.
       const cancelled = this.compactionCancels.delete(meta.id);
       this.receiveEvent({
@@ -3639,7 +3659,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       origin,
     };
     // The activation updates the prompt-derived metadata like a prompt whose
-    // text is the slash command itself �?with this entry's displayText
+    // text is the slash command itself — with this entry's displayText
     // winning over the raw slash text when the client supplied one (v2
     // #3764). Applied exactly once here, like upstream's single
     // `promptMetadataTextFromSkill` application: the busy path below
@@ -3994,7 +4014,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     }
     // `pending`, not `connected`: this only records the configuration. The
     // engine connects servers when it builds a session pipeline from
-    // `params.mcp_servers`, so nothing is connected yet �?reporting
+    // `params.mcp_servers`, so nothing is connected yet — reporting
     // `connected` with `toolCount: 0` claimed a live server that did not
     // exist.
     return {
@@ -4162,7 +4182,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     }
     // The engine owns the entry shape; validate just enough that a bad
     // payload fails here with a named error instead of poisoning consumers
-    // downstream (status stays a cast �?the v2 domain owns its vocabulary).
+    // downstream (status stays a cast — the v2 domain owns its vocabulary).
     let tasks: BackgroundTaskInfo[] = (raw as readonly EngineTaskWireEntry[]).map((entry) => {
       if (typeof entry !== 'object' || entry === null) {
         throw new KimiError(
@@ -4223,15 +4243,15 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
    * Nothing to wait for: the engine drains the session's background tasks
    * inside the turn, while the turn slot is still held, and only then resolves
    * the `prompt()` receipt. By the time a host could call this, the drain has
-   * already happened �?the engine's own comment says holding the receipt is
+   * already happened — the engine's own comment says holding the receipt is
    * what keeps the host free of a settle loop.
    */
   override async waitForBackgroundTasksOnPrint(_input: SessionIdRpcInput): Promise<void> {}
 
   /**
    * `'finish'` is the answer, not a placeholder. The engine runs the whole
-   * print-background lifecycle inside the turn �?drain, then the goal / cron /
-   * task follow-up turns for `steer` mode �?so a completed main turn means the
+   * print-background lifecycle inside the turn — drain, then the goal / cron /
+   * task follow-up turns for `steer` mode — so a completed main turn means the
    * run is done and the host has nothing to keep alive.
    */
   override async handlePrintMainTurnCompleted(
@@ -4280,7 +4300,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     if (raw === null || raw === undefined) {
       throw new KimiError(
         ErrorCodes.REQUEST_INVALID,
-        `Unknown plugin "${source}" �?it is not in the marketplace catalog.`,
+        `Unknown plugin "${source}" — it is not in the marketplace catalog.`,
       );
     }
     return JSON.parse(raw) as PluginSummary;
@@ -4479,12 +4499,12 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
    * Tear down and rebuild the engine handle after a mid-session setting change
    * (model / thinking / permission / swarm / tower), carrying the conversation
    * over via getHistory / setHistory so context survives. Disposing the old
-   * handle cancels any in-flight turn �?setters are a user-initiated
+   * handle cancels any in-flight turn — setters are a user-initiated
    * reconfiguration and the TUI blocks them while a turn is running.
    *
    * The new handle is built *before* the old one is disposed. The engine keys
    * its registry by a process-local id (`session-<n>`), so the two never
-   * collide �?and a build that throws leaves the session on its previous
+   * collide — and a build that throws leaves the session on its previous
    * handle. Disposing first left `meta.handle` undefined, and every later
    * prompt then reported `session.not_found` ("cannot prompt unknown or closed
    * session") for a session that was still live and still listed.
@@ -4575,12 +4595,12 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
    * The `agents` directories of enabled plugins: each manifest-declared `./`
    * path, or the plugin root's `agents/` when the manifest omits the field
    * (`docs/en/customization/plugins.md:409`). Plugin roots come from the
-   * engine's plugin registry �?the only side that installs and knows them.
+   * engine's plugin registry — the only side that installs and knows them.
    * Any failure degrades to "no plugin agents": a plugin problem must not
    * block session creation.
    *
    * The registry is only consulted when the host has already initialized it.
-   * Opening it here would be a side effect of creating a session �?it pins the
+   * Opening it here would be a side effect of creating a session — it pins the
    * plugin SQLite file for the process lifetime, and on Windows that alone is
    * enough to make a caller's cleanup fail with EBUSY. Session creation must
    * not take a lock the caller never asked for, so an uninitialized store
@@ -4621,7 +4641,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
    * The new value must also be persisted: the handle is rebuilt from `meta`,
    * so a resume that reads a stale `session-meta.json` builds the engine with
    * the old value while the replay (which reads the engine's own recorded
-   * state) shows the new one �?a permission mode switched mid-conversation
+   * state) shows the new one — a permission mode switched mid-conversation
    * came back as the previous mode and prompted for tools the user had already
    * allowed.
    */
@@ -4773,7 +4793,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
    * default and not host-customized. Emits `session.meta.updated`.
    *
    * #3764 per-entry preference: when this entry's client supplied a
-   * `displayText`, its sanitized form is the metadata the entry contributes �?   * it never mixes with `fallbackText` (the entry's sanitized content-derived
+   * `displayText`, its sanitized form is the metadata the entry contributes —   * it never mixes with `fallbackText` (the entry's sanitized content-derived
    * text), and an entry without one falls back to `fallbackText`. Every call
    * also appends one {@link NativePromptMetadataRecord} to
    * `meta.promptMetadata` so the displayText set judgment behind the
