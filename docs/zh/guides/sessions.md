@@ -18,8 +18,8 @@ Kimi Code CLI 把每次对话持久化为一个「会话」，保留消息历史
 │       └── logs/
 │           └── kimi-code.log
 ├── agent/
-│   └── sessions.db         # 应用级引擎存储（SQLite）
-└── engine-state/
+│   └── sessions.db         # 应用级引擎存储：插件注册表与 subagent 恢复状态（SQLite）
+└── engine-state/           # 位于 OS 用户目录 ~/.kimi-code 下，不随 KIMI_CODE_HOME 移动
     └── <workspace-key>/
         └── state/
 ```
@@ -27,8 +27,8 @@ Kimi Code CLI 把每次对话持久化为一个「会话」，保留消息历史
 - `session-meta.json`：会话标题、`lastPrompt`、`forkedFrom` 等元数据。
 - `history.jsonl`：SDK 持久化的消息历史，用于会话恢复。
 - `logs/kimi-code.log`：该会话的诊断日志，只有发生诊断事件时才存在。
-- `agent/sessions.db`：应用级引擎存储——Agent 的完整对话历史与插件注册表。
-- `engine-state/<workspace-key>/state/`：引擎本地状态（待办、计划、目标、定时任务、后台任务），按工作区路径摘要分桶。
+- `agent/sessions.db`：应用级引擎存储（SQLite）——插件注册表与 subagent 恢复状态；经 `kimi web` 或 `kimi-agent --serve` 提供服务时，会话与对话历史才落在这里。
+- `engine-state/<workspace-key>/state/`：引擎本地状态（待办、计划、目标、定时任务、后台任务），按工作区路径摘要分桶；位于 OS 用户目录下，不随 `KIMI_CODE_HOME` 移动。
 
 完整目录布局见[数据位置](../configuration/data-locations.md)。
 

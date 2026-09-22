@@ -41,9 +41,9 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 ├── sessions/               # 会话数据（详见下文）
 │   └── <sessionId>/
 ├── agent/
-│   └── sessions.db         # 应用级引擎存储：会话与插件注册表（SQLite）
+│   └── sessions.db         # 应用级引擎存储：插件注册表与 subagent 恢复状态（SQLite）
 ├── engine-state/
-│   └── <workspace-key>/    # 按工作区路径摘要分桶的引擎本地状态
+│   └── <workspace-key>/    # 引擎本地状态（位于 OS 用户目录 ~/.kimi-code 下，不随 KIMI_CODE_HOME 移动）
 │       ├── plans/          # Plan 模式计划文件（<plan-id>.md）
 │       └── state/
 │           ├── todo.json / plan.json / goal.json / cron.json / task.json / turn.json
@@ -78,21 +78,21 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 
 ## 会话数据
 
-每个会话的数据存在 `sessions/<sessionId>/` 下（不再有 `workDirKey` 桶层和顶层 `session_index.jsonl` 索引——会话列表由应用级引擎存储 `agent/sessions.db` 维护）。Agent 的完整对话历史存放在引擎的 SQLite 存储里；SDK 在会话目录中保留一份 `history.jsonl` 用于恢复。
-
-会话目录内部包含：
+每个会话的数据存在 `sessions/<sessionId>/` 下（不再有 `workDirKey` 桶层和顶层 `session_index.jsonl` 索引——会话列表由 SDK 维护）。会话目录内部包含：
 
 - **`session-meta.json`**：会话标题、`lastPrompt`、创建/更新时间、`forkedFrom` 等元数据。
 - **`history.jsonl`**：SDK 持久化的消息历史，用于会话恢复。
 - **`upcoming-goals.json`**：由 `/goal next <objective>` 创建的 TUI 专属队列。它不属于 Agent 对话；只有当前目标完成并提升后续目标后，才会进入 Agent 对话。
 - **`logs/kimi-code.log`**：该会话的诊断日志，只有发生诊断事件时才存在。
 
-引擎的本地状态按工作区路径的摘要分桶，放在 `engine-state/<workspace-key>/` 下：
+引擎的本地状态按工作区路径的摘要分桶，放在**操作系统用户目录下**的 `~/.kimi-code/engine-state/<workspace-key>/`（注意：该目录不随 `KIMI_CODE_HOME` 移动，始终位于真实用户主目录）：
 
 - **`plans/<plan-id>.md`**：Plan 模式下写入的计划文件。
 - **`state/todo.json` / `plan.json` / `goal.json` / `cron.json` / `task.json` / `turn.json`**：各状态域的持久化（待办、计划、目标、定时任务、后台任务、回合）。用 `kimi --session` 恢复会话时重新加载到调度器。详见[定时任务](../reference/tools.md#定时任务)。
 - **`state/tasks/<task_id>/output.log`**：后台任务的输出日志。
 - **`state/checkpoints/<seq>.json`**：状态快照栈，用于 undo/redo。
+
+应用级引擎存储 `agent/sessions.db`（SQLite）保存插件注册表与 subagent 恢复状态；经 `kimi web` 或 `kimi-agent --serve` 提供服务时，会话与对话历史同样落在这类 SQLite 存储里（standalone 服务器默认 `./.kimi-agent/sessions.db`，可用 `--data-dir` 改）。
 
 ## 内置工具缓存
 

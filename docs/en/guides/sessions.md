@@ -18,8 +18,8 @@ All sessions are saved under `$KIMI_CODE_HOME/sessions/` (default: `~/.kimi-code
 │       └── logs/
 │           └── kimi-code.log
 ├── agent/
-│   └── sessions.db         # app-scope engine store (SQLite)
-└── engine-state/
+│   └── sessions.db         # app-scope engine store: plugin registry and subagent resume state (SQLite)
+└── engine-state/           # under the OS user's ~/.kimi-code; does not move with KIMI_CODE_HOME
     └── <workspace-key>/
         └── state/
 ```
@@ -27,8 +27,8 @@ All sessions are saved under `$KIMI_CODE_HOME/sessions/` (default: `~/.kimi-code
 - `session-meta.json`: session metadata such as title, `lastPrompt`, and `forkedFrom`.
 - `history.jsonl`: the message history the SDK persists for session resumption.
 - `logs/kimi-code.log`: this session's diagnostic log; only present when a diagnostic event occurs.
-- `agent/sessions.db`: the app-scope engine store — the agent's full conversation history and the plugin registry.
-- `engine-state/<workspace-key>/state/`: engine-local state (todos, plan, goals, scheduled tasks, background tasks), bucketed by a digest of the workspace path.
+- `agent/sessions.db`: the app-scope engine store (SQLite) — the plugin registry and subagent resume state; sessions and conversation history land here only when serving through `kimi web` or `kimi-agent --serve`.
+- `engine-state/<workspace-key>/state/`: engine-local state (todos, plan, goals, scheduled tasks, background tasks), bucketed by a digest of the workspace path; under the OS user's home, it does not move with `KIMI_CODE_HOME`.
 
 See [data locations](../configuration/data-locations.md) for the complete layout.
 

@@ -41,9 +41,9 @@ $KIMI_CODE_HOME  (default: ~/.kimi-code)
 ├── sessions/               # Session data (see below)
 │   └── <sessionId>/
 ├── agent/
-│   └── sessions.db         # App-scope engine store: sessions and the plugin registry (SQLite)
+│   └── sessions.db         # App-scope engine store: plugin registry and subagent resume state (SQLite)
 ├── engine-state/
-│   └── <workspace-key>/    # Engine-local state, bucketed by a digest of the workspace path
+│   └── <workspace-key>/    # Engine-local state (under the OS user's ~/.kimi-code; does not move with KIMI_CODE_HOME)
 │       ├── plans/          # Plan-mode plan files (<plan-id>.md)
 │       └── state/
 │           ├── todo.json / plan.json / goal.json / cron.json / task.json / turn.json
@@ -78,21 +78,21 @@ Each top-level file under the data root serves a specific purpose; most are mana
 
 ## Session data
 
-Each session's data is stored under `sessions/<sessionId>/` (there is no `workDirKey` bucket layer and no top-level `session_index.jsonl` index anymore — the session list is maintained by the app-scope engine store `agent/sessions.db`). The agent's full conversation history lives in the engine's SQLite store; the SDK keeps a `history.jsonl` copy in the session directory for resumption.
-
-Inside each session directory:
+Each session's data is stored under `sessions/<sessionId>/` (there is no `workDirKey` bucket layer and no top-level `session_index.jsonl` index anymore — the session list is maintained by the SDK). Inside each session directory:
 
 - **`session-meta.json`**: session metadata including title, `lastPrompt`, creation/update timestamps, and `forkedFrom`.
 - **`history.jsonl`**: the message history persisted by the SDK, used for session resumption.
 - **`upcoming-goals.json`**: the TUI-only queue created by `/goal next <objective>`. It is not part of the agent conversation until a queued goal is promoted after the current goal completes.
 - **`logs/kimi-code.log`**: diagnostic log for this session; only present when a diagnostic event occurs.
 
-Engine-local state is bucketed by a digest of the workspace path under `engine-state/<workspace-key>/`:
+Engine-local state is bucketed by a digest of the workspace path under `~/.kimi-code/engine-state/<workspace-key>/` in the **OS user's home** (note: this tree does not move with `KIMI_CODE_HOME`; it always lives in the real user home):
 
 - **`plans/<plan-id>.md`**: plan files written in Plan mode.
 - **`state/todo.json` / `plan.json` / `goal.json` / `cron.json` / `task.json` / `turn.json`**: per-domain persistence (todos, plan, goals, scheduled tasks, background tasks, turns). Reloaded into the scheduler when the session is resumed with `kimi --session`. See [Scheduled tasks](../reference/tools.md#scheduled-tasks).
 - **`state/tasks/<task_id>/output.log`**: background task output logs.
 - **`state/checkpoints/<seq>.json`**: the state snapshot stack behind undo/redo.
+
+The app-scope engine store `agent/sessions.db` (SQLite) holds the plugin registry and subagent resume state; when serving through `kimi web` or `kimi-agent --serve`, sessions and conversation history live in that kind of SQLite store as well (the standalone server defaults to `./.kimi-agent/sessions.db`, overridable with `--data-dir`).
 
 ## Built-in tool cache
 
