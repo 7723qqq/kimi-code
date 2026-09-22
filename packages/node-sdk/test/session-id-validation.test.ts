@@ -12,7 +12,25 @@ import { TEST_IDENTITY } from './test-identity';
 // create, resume, rename, delete, export — must reject an id that could
 // escape the sessions root before any filesystem call. deleteSession is the
 // destructive case: it removes the resolved directory recursively.
-const ESCAPING_IDS = ['../outside', '..', '.', 'a/b', 'a\\b'] as const;
+//
+// The list covers each escape class the guard names: separators, `.`/`..`
+// (including the all-dots `...` that exact matching misses), drive-relative
+// and NTFS-stream `:`, the Win32 trailing-dot/space aliases (`.. ` still
+// resolves to `..` after normalization), and invisible control characters.
+const ESCAPING_IDS = [
+  '../outside',
+  '..',
+  '.',
+  '...',
+  '.. ',
+  'evil.',
+  'a/b',
+  'a\\b',
+  'C:evil',
+  'a:b',
+  'a\u0001b',
+  'a\tb',
+] as const;
 
 const tempDirs: string[] = [];
 
@@ -49,6 +67,8 @@ describe('session id path-segment validation', () => {
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     for (const id of ESCAPING_IDS) {
+      // createSession forwards the id verbatim: the error echoes exactly
+      // what the caller sent (`.. ` keeps its space).
       await expect(harness.createSession({ id, workDir })).rejects.toMatchObject({
         code: 'session.id_invalid',
         details: { sessionId: id },
@@ -66,14 +86,29 @@ describe('session id path-segment validation', () => {
     expect(session.id).toBe('custom.session-1');
   });
 
+  // The guard is a blacklist on purpose: a non-ASCII id is a valid directory
+  // name on every supported platform, and rejecting it would strand any
+  // existing session created under one (unresumable and undeletable).
+  it('createSession still accepts a non-ASCII id', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    const session = await harness.createSession({ id: '会话-一', workDir });
+
+    expect(session.id).toBe('会话-一');
+  });
+
   it('resumeSession rejects ids that are not a single path segment', async () => {
     const homeDir = await makeTempDir();
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     for (const id of ESCAPING_IDS) {
+      // resumeSession trims on entry (normalizeSessionId), so the guard sees
+      // and reports the trimmed id (`.. ` -> `..`).
       await expect(harness.resumeSession({ id })).rejects.toMatchObject({
         code: 'session.id_invalid',
-        details: { sessionId: id },
+        details: { sessionId: id.trim() },
       } satisfies Partial<KimiError>);
     }
   });

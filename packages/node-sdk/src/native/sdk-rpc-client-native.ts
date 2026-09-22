@@ -438,15 +438,36 @@ function normalizeRequiredWorkDir(operation: string, workDir: unknown): string {
 }
 
 /**
- * Whether an id is safe to use as one path segment under the sessions root:
- * non-empty, no separators, no `.`/`..` segments, not absolute. Session ids
- * are `session_<uuid>` or client-chosen names that become directory names, so
- * anything that could escape the root is rejected before the first `join`.
+ * Whether an id is safe to use as one path segment under the sessions root.
+ * Session ids are `session_<uuid>` or client-chosen names that become
+ * directory names, so anything that could escape the root — or be silently
+ * rewritten by the platform — is rejected before the first `join`:
+ *
+ * - separators and control characters are direct mangling vectors;
+ * - `:` carries Windows meaning: `C:foo` is drive-relative (isAbsolute says
+ *   no, the OS still honors the drive) and `foo:bar` names an NTFS
+ *   alternate data stream instead of a directory;
+ * - Win32 strips trailing dots and spaces per path component, so `.. `
+ *   resolves back to `..` and `evil.` aliases `evil` — hence the all-dots
+ *   and trailing-dot/space checks that exact `.`/`..` matching misses;
+ * - absolute roots (`C:\x`, `\\server`, `/x`) are not segments at all.
+ *
+ * Deliberately a blacklist, not a `[A-Za-z0-9._-]` whitelist: ids are
+ * persisted directory names, and an existing session with a non-ASCII id
+ * must stay resumable, renamable, and deletable.
  */
 function isSinglePathSegment(id: string): boolean {
-  if (id.length === 0 || id === '.' || id === '..') return false;
+  if (id.length === 0) return false;
   if (id.includes('/') || id.includes('\\')) return false;
-  if (id.includes('\0')) return false;
+  if (id.includes(':')) return false;
+  // Code-point scan rather than a regex literal: `no-control-regex` flags
+  // `[\u0000-\u001f]` patterns, and this loop reads as the intent.
+  for (const ch of id) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f) return false;
+  }
+  if (/^\.+$/.test(id)) return false;
+  if (id.endsWith('.') || id.endsWith(' ')) return false;
   return !isAbsolute(id);
 }
 
@@ -527,7 +548,8 @@ interface NativePromptMetadataRecord {
  * The #3764 displayText set judgment behind upstream's undo-label
  * (`undoService.reconcileLastPrompt`) and fork-title
  * (`forkTurnSlice.promptMetadataFromTurnRecord`) derivations: a derivation
- * may use the client displayTexts only when EVERY prompt entry provides one — * a single entry without `displayText` falls the whole derivation back to the
+ * may use the client displayTexts only when EVERY prompt entry provides one —
+ * a single entry without `displayText` falls the whole derivation back to the
  * existing text-derived metadata, never a per-entry mix.
  *
  * The native SDK has no undo-label or fork-title decision points yet
@@ -838,7 +860,8 @@ interface NativeSessionMeta {
 }
 
 /**
- * The Rust `TaskRunner` entry wire (`storage/task_runner.rs:entry_wire`) — * snake_case-free already, the v2 task-domain shape.
+ * The Rust `TaskRunner` entry wire (`storage/task_runner.rs:entry_wire`) —
+ * snake_case-free already, the v2 task-domain shape.
  */
 interface EngineTaskWireEntry {
   taskId: string;
@@ -981,7 +1004,8 @@ function resolveMcpServersForEngine(servers: Record<string, StoredMcpServerConfi
     // v2 `McpServerConfigSchema` infers the transport when the entry omits it
     // (`mcpCore/config-schema.ts`): a `command` means stdio, a `url` means
     // http. Requiring the field explicitly dropped every server written in the
-    // standard MCP shape — `{"mcpServers":{"x":{"command":"…","args":[…]}}}` —    // silently, so the session started with no MCP servers and nothing said so.
+    // standard MCP shape — `{"mcpServers":{"x":{"command":"…","args":[…]}}}` —
+    // silently, so the session started with no MCP servers and nothing said so.
     const transport =
       srv.transport ?? (typeof srv.command === 'string' ? 'stdio' : typeof srv.url === 'string' ? 'http' : undefined);
     if (transport === 'stdio' && srv.command) {
@@ -2278,7 +2302,8 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     const meta = this.requireSession(input.id);
     if (!meta.additionalDirs.includes(input.path)) {
       // The extra roots are baked into the engine handle at build time — the
-      // native toolset's sandbox is constructed from `meta.additionalDirs` —      // so a newly authorized directory only takes effect after a rebuild.
+      // native toolset's sandbox is constructed from `meta.additionalDirs` —
+      // so a newly authorized directory only takes effect after a rebuild.
       // Same contract as setModel / setPermission: carry the history over, and
       // drop the root again when the rebuild fails.
       const previous = meta.additionalDirs;
@@ -3204,7 +3229,8 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     this.requireSession(input.sessionId);
     const key = shellCommandKey(input.sessionId, input.commandId);
     const id = key === undefined ? undefined : this.liveShellCommands.get(key);
-    // Nothing to kill means the command already finished (or never started) —    // not an error, and not a claim that something was cancelled.
+    // Nothing to kill means the command already finished (or never started) —
+    // not an error, and not a claim that something was cancelled.
     if (id === undefined) return;
     const { nativeBashKill } = await import('@moonshot-ai/kimi-agent/native');
     nativeBashKill(id);
@@ -4793,7 +4819,8 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
    * default and not host-customized. Emits `session.meta.updated`.
    *
    * #3764 per-entry preference: when this entry's client supplied a
-   * `displayText`, its sanitized form is the metadata the entry contributes —   * it never mixes with `fallbackText` (the entry's sanitized content-derived
+   * `displayText`, its sanitized form is the metadata the entry contributes —
+   * it never mixes with `fallbackText` (the entry's sanitized content-derived
    * text), and an entry without one falls back to `fallbackText`. Every call
    * also appends one {@link NativePromptMetadataRecord} to
    * `meta.promptMetadata` so the displayText set judgment behind the
