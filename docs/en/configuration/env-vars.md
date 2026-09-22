@@ -5,7 +5,7 @@ Kimi Code CLI uses environment variables to control a small number of runtime be
 ::: warning Important: API keys are not configured here
 Credential variables such as `KIMI_API_KEY`, `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY` are **not** read automatically from shell environment variables. Running `export KIMI_API_KEY=xxx` in the terminal does not give any provider its key. They must be written in `config.toml` under `[providers.<name>]` or the `[providers.<name>.env]` sub-table.
 
-The only exception is the `KIMI_MODEL_*` family, an explicit channel that *does* read credentials from the shell. See [Define a model from environment variables](#define-a-model-from-environment-variables-kimi_model_).
+The only exception is the `KIMI_MODEL_*` family, an explicit channel that *does* read credentials from the shell. See [Define a model from environment variables](#define-a-model-from-environment-variables-kimi-model).
 
 For background, see [Config overrides: provider credentials](./overrides.md#provider-credentials).
 :::
@@ -34,7 +34,7 @@ export KIMI_DISABLE_TELEMETRY=1
 
 ### `KIMI_MODEL_*` family
 
-Switch models temporarily without modifying `config.toml`: when `KIMI_MODEL_NAME` is set, the CLI synthesizes a temporary provider in memory, and the change does not persist after restart. See [Define a model from environment variables](#define-a-model-from-environment-variables-kimi_model_).
+Switch models temporarily without modifying `config.toml`: when `KIMI_MODEL_NAME` is set, the CLI synthesizes a temporary provider in memory, and the change does not persist after restart. See [Define a model from environment variables](#define-a-model-from-environment-variables-kimi-model).
 
 ### `KIMI_CODE_CUSTOM_HEADERS`
 

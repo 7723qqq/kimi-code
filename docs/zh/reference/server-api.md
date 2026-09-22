@@ -280,7 +280,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 返回解析后的全局配置——`config.toml` 叠加覆盖层后的生效结果。密钥已脱敏：每个供应商只报告 `has_api_key`，绝不返回存储的密钥。
 
-成功时 `data` 为配置对象；其字段与 [顶层字段](../configuration/config-files.md#top-level-fields) 记录的顶层域一一对应：
+成功时 `data` 为配置对象；其字段与 [顶层字段](../configuration/config-files.md#顶层字段) 记录的顶层域一一对应：
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |

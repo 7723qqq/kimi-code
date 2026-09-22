@@ -85,7 +85,7 @@ Kimi Code CLI 可以使用内置配色，也可以使用自定义 JSON 主题文
 两种方式：
 
 1. **`/theme` 命令**（推荐）：打开主题选择器，自定义主题会以 `Custom: <文件名>` 出现。选择器每次打开都会重新扫描主题目录，新加的主题文件无需重启就能看到。
-2. **[`tui.toml`](../configuration/config-files.md#tuitoml)**：把 `theme` 设成你的主题名：
+2. **[`tui.toml`](../configuration/config-files.md#tui-toml)**：把 `theme` 设成你的主题名：
 
    ```toml
    # ~/.kimi-code/tui.toml
@@ -113,4 +113,4 @@ Kimi Code CLI 可以使用内置配色，也可以使用自定义 JSON 主题文
 
 ## 下一步
 
-- [配置文件](../configuration/config-files.md#tuitoml) — `tui.toml` 的完整字段说明，包括 `theme` 配置项
+- [配置文件](../configuration/config-files.md#tui-toml) — `tui.toml` 的完整字段说明，包括 `theme` 配置项

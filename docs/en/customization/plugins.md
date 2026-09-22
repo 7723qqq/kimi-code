@@ -305,7 +305,7 @@ Use `systemPrompt` for a short inline instruction, or `systemPromptPath` to keep
 }
 ```
 
-The built-in agent prompt includes instructions from enabled plugins automatically. A custom `SYSTEM.md` or agent file owns its template, so include `${plugin_sections}` where plugin-contributed instructions should appear. If the custom template includes `${base_prompt}` and that effective default already contains the plugin block, do not add `${plugin_sections}` again. See [Custom agents and SYSTEM.md](./agents.md#overriding-the-main-agents-system-prompt-with-systemmd) for the complete variable table.
+The built-in agent prompt includes instructions from enabled plugins automatically. A custom `SYSTEM.md` or agent file owns its template, so include `${plugin_sections}` where plugin-contributed instructions should appear. If the custom template includes `${base_prompt}` and that effective default already contains the plugin block, do not add `${plugin_sections}` again. See [Custom agents and SYSTEM.md](./agents.md#overriding-the-main-agent-s-system-prompt-with-system-md) for the complete variable table.
 
 ### Size limits
 

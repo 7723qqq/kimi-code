@@ -85,7 +85,7 @@ Use the token names from [Built-in color tokens](#built-in-color-tokens). Any to
 Two ways:
 
 1. **The `/theme` command** (recommended): opens the theme picker, where custom themes appear as `Custom: <filename>`. The picker **re-scans the themes directory every time it opens**, so a theme file you just added shows up **without a restart**.
-2. **[`tui.toml`](../configuration/config-files.md#tuitoml)**: set `theme` to your theme name:
+2. **[`tui.toml`](../configuration/config-files.md#tui-toml)**: set `theme` to your theme name:
 
    ```toml
    # ~/.kimi-code/tui.toml
@@ -113,4 +113,4 @@ Re-selecting the **same** theme in `/theme` does not reload it (you get a "Theme
 
 ## Next steps
 
-- [Configuration files](../configuration/config-files.md#tuitoml) — Full field reference for `tui.toml`, including the `theme` option
+- [Configuration files](../configuration/config-files.md#tui-toml) — Full field reference for `tui.toml`, including the `theme` option
