@@ -187,7 +187,7 @@ describe('handleUpgrade', () => {
       }),
     );
     expect(stdout.join('')).toContain(
-      'To update manually, run: npm install -g @moonshot-ai/kimi-code@0.5.0',
+      'To update manually, run: git pull && bun run build (in your kimi-code checkout)',
     );
   });
 
