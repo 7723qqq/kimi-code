@@ -6,8 +6,17 @@
  * these helpers.
  */
 
-import { mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
-import { appendFile, link, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { mkdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  appendFile,
+  link,
+  mkdir,
+  readFile,
+  rename,
+  stat,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 
 import type { z } from 'zod';
@@ -41,6 +50,10 @@ function assertNonConfigWrite(filePath: string): void {
  * a co-process reader, an antivirus scan, a file indexer — come and go within
  * milliseconds, so both atomic writers below retry EPERM with jitter before
  * giving up. POSIX renames over open files directly and never takes this path.
+ *
+ * A destination that already exists as a directory answers EPERM too, but that
+ * is permanent — waiting never frees it — so it fails fast instead of spending
+ * the whole retry budget (seconds) on every such write.
  */
 const RENAME_EPERM_RETRIES = 100;
 const RENAME_EPERM_BASE_DELAY_MS = 20;
@@ -51,6 +64,22 @@ function isRenameEperm(error: unknown): boolean {
 
 function renameJitterMs(): number {
   return RENAME_EPERM_BASE_DELAY_MS + Math.floor(Math.random() * (RENAME_EPERM_BASE_DELAY_MS + 10));
+}
+
+function destinationIsDirectorySync(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function destinationIsDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -67,6 +96,7 @@ export async function renameReplaceAsync(src: string, dst: string): Promise<void
       return;
     } catch (error) {
       if (!isRenameEperm(error) || attempt >= RENAME_EPERM_RETRIES) throw error;
+      if (await destinationIsDirectory(dst)) throw error;
       await new Promise((resolve) => {
         setTimeout(resolve, renameJitterMs());
       });
@@ -83,6 +113,7 @@ function renameReplaceSync(src: string, dst: string): void {
       return;
     } catch (error) {
       if (!isRenameEperm(error) || attempt >= RENAME_EPERM_RETRIES) throw error;
+      if (destinationIsDirectorySync(dst)) throw error;
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, renameJitterMs());
     }
   }

@@ -1,11 +1,17 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
-import { appendJsonlLine, readJsonFile, readJsonlFile, writeJsonFile } from '#/utils/persistence';
+import {
+  appendJsonlLine,
+  readJsonFile,
+  readJsonlFile,
+  writeJsonFile,
+  writeJsonFileSync,
+} from '#/utils/persistence';
 
 interface TestJson {
   name: string;
@@ -112,5 +118,32 @@ describe('persistence helpers', () => {
     await appendJsonlLine(file, TestLineSchema, { content: 'hello' });
 
     expect(readFileSync(file, 'utf-8').trim()).toBe(JSON.stringify({ content: 'hello' }));
+  });
+
+  // Windows answers a rename onto an existing directory with the same EPERM as
+  // a transiently held destination; the retry budget (~2s minimum) must not be
+  // spent on that permanent failure, or every such write stalls for seconds.
+  it('writeJsonFile fails fast when the destination is a directory', async () => {
+    const asDirectory = join(dir, 'state-is-a-directory');
+    mkdirSync(asDirectory, { recursive: true });
+    const startedAt = Date.now();
+
+    await expect(
+      writeJsonFile(asDirectory, TestJsonSchema, { name: 'x', count: 1 }),
+    ).rejects.toThrow();
+
+    expect(Date.now() - startedAt).toBeLessThan(1000);
+  });
+
+  it('writeJsonFileSync fails fast when the destination is a directory', () => {
+    const asDirectory = join(dir, 'sync-state-is-a-directory');
+    mkdirSync(asDirectory, { recursive: true });
+    const startedAt = Date.now();
+
+    expect(() => {
+      writeJsonFileSync(asDirectory, TestJsonSchema, { name: 'x', count: 1 });
+    }).toThrow();
+
+    expect(Date.now() - startedAt).toBeLessThan(1000);
   });
 });
