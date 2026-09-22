@@ -56,52 +56,84 @@ describe('runNativePrint', () => {
     };
   }
 
-  it('initializes native harness, sends prompt and closes harness cleanly', async () => {
+  function startPrint(overrides: Partial<CLIOptions> = {}) {
     let stdoutBuffer = '';
+    let stderrBuffer = '';
     const mockStdout = {
       write: (chunk: string) => {
         stdoutBuffer += chunk;
         return true;
       },
     };
-
-    let stderrBuffer = '';
     const mockStderr = {
       write: (chunk: string) => {
         stderrBuffer += chunk;
         return true;
       },
     };
-    const mockProcess = {
-      exit: vi.fn(),
-    };
-
+    const mockProcess = { exit: vi.fn() };
     let eventCallback: ((event: any) => void) | undefined;
     mockSession.onEvent.mockImplementation((cb: any) => {
       eventCallback = cb;
     });
+    return {
+      mockProcess,
+      emit: (event: any) => eventCallback?.(event),
+      stdout: () => stdoutBuffer,
+      stderr: () => stderrBuffer,
+      run: () =>
+        runNativePrint(makeOpts(overrides), '0.1.0-test', {
+          stdout: mockStdout as any,
+          stderr: mockStderr as any,
+          process: mockProcess as any,
+        }),
+    };
+  }
 
-    mockSession.prompt.mockImplementation(async () => {
-      if (eventCallback) {
-        eventCallback({ type: 'assistant.delta', delta: 'Native Hello World' });
-      }
+  it('initializes native harness, sends prompt and closes harness cleanly', async () => {
+    const print = startPrint();
+
+    mockSession.prompt.mockImplementation(() => {
+      print.emit({ type: 'assistant.delta', delta: 'Native Hello World' });
+      // The native engine settles the turn asynchronously after the
+      // submission resolves; the runner must wait for turn.ended.
+      setTimeout(() => print.emit({ type: 'turn.ended', reason: 'completed' }), 5);
+      return Promise.resolve();
     });
 
-    const opts = makeOpts();
-    await runNativePrint(opts, '0.1.0-test', {
-      stdout: mockStdout as any,
-      stderr: mockStderr as any,
-      process: mockProcess as any,
-    });
+    await print.run();
 
-    if (mockProcess.exit.mock.calls.length > 0) {
-      throw new Error(`Unexpected exit called, stderr: ${stderrBuffer}`);
+    if (print.mockProcess.exit.mock.calls.length > 0) {
+      throw new Error(`Unexpected exit called, stderr: ${print.stderr()}`);
     }
 
     expect(mockHarness.createSession).toHaveBeenCalled();
     expect(mockSession.setModel).toHaveBeenCalledWith('test-model');
     expect(mockSession.prompt).toHaveBeenCalledWith('Hello Native Print');
     expect(mockHarness.close).toHaveBeenCalled();
-    expect(stdoutBuffer).toContain('Native Hello World');
+    expect(print.stdout()).toContain('Native Hello World');
+  });
+
+  it('surfaces a failed turn as an error and a non-zero exit', async () => {
+    const print = startPrint();
+
+    mockSession.prompt.mockImplementation(() => {
+      setTimeout(
+        () =>
+          print.emit({
+            type: 'turn.ended',
+            reason: 'failed',
+            error: { message: 'llm http status 403 FreeTierError' },
+          }),
+        5,
+      );
+      return Promise.resolve();
+    });
+
+    await print.run();
+
+    expect(print.stderr()).toContain('[Error]: llm http status 403 FreeTierError');
+    expect(print.mockProcess.exit).toHaveBeenCalledWith(1);
+    expect(mockHarness.close).toHaveBeenCalled();
   });
 });

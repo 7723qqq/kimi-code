@@ -74,9 +74,25 @@ export async function runNativePrint(
         ? new PromptJsonWriter(stdout)
         : new PromptTranscriptWriter(stdout, stderr);
 
+    // `session.prompt()` resolves as soon as the turn is enqueued — the native
+    // engine settles the turn asynchronously — so print mode waits for the
+    // turn's own completion event here. Closing the harness before that tears
+    // down the in-flight turn before it ever reaches the model.
+    interface TurnEndFrame {
+      readonly reason?: string;
+      readonly error?: { readonly message?: string } | string;
+    }
+    let resolveTurnEnd: (event: TurnEndFrame) => void = () => {};
+    const turnEnd = new Promise<TurnEndFrame>((resolve) => {
+      resolveTurnEnd = resolve;
+    });
+
     // 订阅事件流
     session.onEvent((event: any) => {
       const type = event.type || event.event;
+      if (type === 'turn.ended') {
+        resolveTurnEnd(event);
+      }
       if (type === 'assistant.delta' && event.delta) {
         writer.writeAssistantDelta(event.delta);
       } else if (type === 'thinking.delta' && event.delta) {
@@ -90,6 +106,18 @@ export async function runNativePrint(
 
     if (opts.prompt) {
       await session.prompt(opts.prompt);
+      // Turn failures surface through `turn.ended`, not the submission promise
+      // (v1/v2 semantics): rethrow here so a failed run exits non-zero instead
+      // of printing nothing and exiting 0.
+      const ended = await turnEnd;
+      if (ended?.reason === 'failed') {
+        const detail = ended.error;
+        const message =
+          typeof detail === 'string'
+            ? detail
+            : (detail?.message ?? JSON.stringify(detail ?? 'turn failed'));
+        throw new Error(message);
+      }
     }
 
     writer.finish();
