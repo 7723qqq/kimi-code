@@ -84,7 +84,7 @@ async function setTowerMode(
 
 async function requireSessionEnsured(host: SlashCommandHost): Promise<Session | undefined> {
   if (host.session !== undefined) return host.session;
-  // Session-less: lazy-create the session, then toggle �?the same path the
+  // Session-less: lazy-create the session, then toggle — the same path the
   // first prompt takes.
   return host.ensureSession();
 }

@@ -218,6 +218,13 @@
         "import/no-cycle": "off",
         "typescript/no-meaningless-void-operator": "off",
         "typescript/require-array-sort-compare": "off",
+        // Test idiom, not sloppiness: async stubs/mocks without an `await`,
+        // `expect(() => …)` arrow bodies, and `as` narrowing of fixture values
+        // are all deliberate. The three rules netted ~1.3k warnings in test
+        // files and buried everything else in lint output.
+        "typescript/require-await": "off",
+        "typescript/no-confusing-void-expression": "off",
+        "typescript/no-unnecessary-type-assertion": "off",
         "vitest/expect-expect": "error",
         "vitest/no-conditional-tests": "error",
         "vitest/no-focused-tests": "error",
