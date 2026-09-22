@@ -1055,12 +1055,16 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
     （`StepTiming` 自此被真实填充）。host-proxy 路径报 `None`（宿主拥有该调用）。
     allowlist 已改判 `ported`。
 
-32. **文件监视模块缺失（2026-09-22 审计 #3931 / #3892 重新定性）**：上游在 #3502 删除
+32. ~~**文件监视模块缺失（2026-09-22 审计 #3931 / #3892 重新定性）~~ **已重新定性为不适用（2026-09-22）**：上游在 #3502 删除
     watch 的 WS 面之后**保留了引擎内部 watch**（#3931 把默认关掉、#3892 限制根扫描）；
-    fork 当时把 `fs_watch` 整批移除（ROADMAP §7.3），比上游走得更远——现在引擎侧
+    fork 当时把 `fs_watch` 整批移除（ROADMAP §7.3），比上游走得更远——引擎侧
     **没有任何文件监视**，`[watch] enabled` / `KIMI_CODE_WATCH` 两个旋钮也无对应物。
-    原裁定记“不适用”，实为**模块缺失**（且是 fork 主动删过的模块，恢复属“取消删除”
-    类决策）。当前无消费者，记为已接受债务；将来移植从“默认关”起。allowlist 已改判 `tracked`。
+    **移植尝试后的结论**：v2 需要 watch 是因为它跨回合缓存 AGENTS.md / skills /
+    agent profile 必须失效；fork 每回合重建系统提示词（`napi_bindings.rs`
+    的 `build_session_system_prompt` 按 `JsRunTurnParams` 逐回合执行，AGENTS.md 级联与
+    skill 扫描均为当回合新鲜读，server 路径同样逐回合）——**没有可失效的缓存**。
+    恢复该模块等于新增无消费者的 watcher，再加两个控制空气的配置旋钮，属发明表面，
+    触犯铁律。§7.3 的移除因此是**正确的终态而非债务**。allowlist 已改判 `not-applicable`。
 
 33. ~~**tower 记录用量遥测缺失（2026-09-22 审计 #3847(b) 重新定性）~~ **已解决（2026-09-22）**：v2 的 tower 记录（finding/review/send）
     带 `tokens` = 调用方累计用量（`callerTokens` = `grandTotal`，四维求和）。

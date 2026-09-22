@@ -64,8 +64,8 @@
       "sha": "f17a22ebf4e21b8196bfaaa9a2490707676bf519",
       "date": "2026-09-19",
       "subject": "feat: turn off filesystem watch by default (#3931)",
-      "verdict": "tracked",
-      "note": "MISSING MODULE, not an inapplicable default: the fork has no filesystem watch at all (its fs_watch was removed wholesale after upstream #3502 deleted the wire surface — ROADMAP §7.3), while upstream keeps an internal watch and #3931 only flips its default to off. Re-adding the module is a deliberate-unremoval decision, recorded as accepted debt in ROADMAP §6.1; a future port starts from off, as the original note said.",
+      "verdict": "not-applicable",
+      "note": "Re-classified from tracked back to not-applicable after the port attempt found no consumer (2026-09-22). v2 watches files because it caches AGENTS.md / skills / agent profiles across turns and must invalidate them; the fork rebuilds the system prompt — AGENTS.md cascade and skills scan included — on every turn (napi_bindings.rs build_session_system_prompt runs per JsRunTurnParams; the server path answers the same per turn), so there is no stale cache for a watcher to invalidate. Restoring the module would add a watcher with no consumer plus [watch] enabled / KIMI_CODE_WATCH knobs that control nothing — inventing surface, which the no-inventing rule forbids. The fork fs_watch removal (ROADMAP §7.3) therefore stands as the correct end state, not debt.",
       "roadmap": "§6.6"
     },
     {
@@ -189,8 +189,8 @@
       "sha": "a80fe31cff0ebae686e60d7d5d0559ad2d2e843d",
       "date": "2026-09-18",
       "subject": "fix(agent-core-v2): stop workspace watchers from listing a flooded project root (#3892)",
-      "verdict": "tracked",
-      "note": "Same missing module as #3931: the fixed failure mode is v2 OS directory watcher inventorying a project root into the V8 heap. The fork fs_watch (server/fs_watch.rs) is mtime polling of explicitly registered paths — no root watch, no directory-tree listing, nothing that can flood a heap. The [watch] enabled / KIMI_CODE_WATCH knobs have no fork counterpart to wire. Recorded as accepted debt in ROADMAP §6.1 alongside #3931."
+      "verdict": "not-applicable",
+      "note": "Same re-classification as #3931 (2026-09-22): the fixed failure mode is v2 OS directory watcher inventorying a project root into the V8 heap. The fork has no watcher at all — its fs_watch was removed (ROADMAP §7.3) and its per-turn system-prompt rebuild (napi_bindings.rs build_session_system_prompt) leaves no cache to invalidate — so there is no root scan to bound and no [watch] knob to wire. Not debt; the removal is the correct end state."
     },
     {
       "sha": "5108cad9b65845ae992520dcf732cbbccc6a34b9",
