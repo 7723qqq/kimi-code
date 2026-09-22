@@ -13,6 +13,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use serde_json::{Value, json};
 
+use super::{err_result, ok_result};
 use crate::turn_loop::types::{ExecutableToolResult, ToolInfo};
 
 /// Serializes every test that reads or writes the `GITHUB_TOKEN` /
@@ -2725,26 +2726,6 @@ fn format_result(response: GitHubResponse) -> ExecutableToolResult {
 
 fn truncate_chars(s: &str, max: usize) -> String {
     s.chars().take(max).collect()
-}
-
-fn ok_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult {
-        delivery: None,
-        stop_turn: false,
-        content,
-        is_error: false,
-        note: None,
-    }
-}
-
-fn err_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult {
-        delivery: None,
-        stop_turn: false,
-        content,
-        is_error: true,
-        note: None,
-    }
 }
 
 #[cfg(test)]

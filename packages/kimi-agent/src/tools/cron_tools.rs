@@ -13,6 +13,7 @@
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::{err_result, ok_result};
 use crate::callbacks::HostCallbacks;
 use crate::rpc::types::{StateReadRequest, StateWriteRequest};
 use crate::turn_loop::types::ExecutableToolResult;
@@ -320,26 +321,6 @@ fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
-}
-
-fn ok_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult {
-        delivery: None,
-        stop_turn: false,
-        content,
-        is_error: false,
-        note: None,
-    }
-}
-
-fn err_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult {
-        delivery: None,
-        stop_turn: false,
-        content,
-        is_error: true,
-        note: None,
-    }
 }
 
 /// Engine tool definition for CronList, so the model can discover and call

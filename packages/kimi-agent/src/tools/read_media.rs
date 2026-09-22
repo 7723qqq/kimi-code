@@ -22,6 +22,7 @@ use std::path::Path;
 use base64::prelude::*;
 use serde_json::Value;
 
+use super::err_result;
 use crate::native::file_type::{
     FileKind, MEDIA_SNIFF_BYTES, detect_file_type, resolve_mime, sniff_image_dimensions,
 };
@@ -214,16 +215,6 @@ struct Delivered {
     width: u32,
     height: u32,
     delivery: ImageDelivery,
-}
-
-fn err_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult {
-        stop_turn: false,
-        content,
-        is_error: true,
-        note: None,
-        delivery: None,
-    }
 }
 
 fn format_byte_size(bytes: usize) -> String {

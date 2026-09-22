@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
+use super::{err_result, ok_result};
 use crate::tools::memory_store::{self, MemoryEntry};
 use crate::turn_loop::types::ExecutableToolResult;
 
@@ -299,26 +300,6 @@ fn truncate_chars(text: &str, max: usize) -> String {
     let mut out: String = text.chars().take(max).collect();
     out.push('…');
     out
-}
-
-fn ok_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult {
-        delivery: None,
-        stop_turn: false,
-        content,
-        is_error: false,
-        note: None,
-    }
-}
-
-fn err_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult {
-        delivery: None,
-        stop_turn: false,
-        content,
-        is_error: true,
-        note: None,
-    }
 }
 
 #[cfg(test)]

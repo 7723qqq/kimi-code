@@ -13,6 +13,7 @@ use std::time::Duration;
 use scraper::{Html, Selector};
 use serde_json::{Value, json};
 
+use super::err_result;
 use super::moonshot_service::{self, MoonshotServiceConfig};
 use crate::turn_loop::types::ExecutableToolResult;
 
@@ -112,16 +113,6 @@ fn format_search_results(results: Vec<WebSearchResultEntry>) -> String {
     }
     output.push_str("When you rely on a result in your answer, cite it inline as a markdown link, e.g. [title](url).");
     output
-}
-
-fn err_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult {
-        delivery: None,
-        stop_turn: false,
-        content,
-        is_error: true,
-        note: None,
-    }
 }
 
 async fn search_via_moonshot(

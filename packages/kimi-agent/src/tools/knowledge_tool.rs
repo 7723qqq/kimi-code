@@ -14,6 +14,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use super::{err_result, ok_result};
 use crate::knowledge;
 use crate::turn_loop::types::ExecutableToolResult;
 
@@ -323,26 +324,6 @@ pub fn knowledge_tool_def() -> crate::turn_loop::types::ToolInfo {
             "required": ["action"],
             "additionalProperties": false
         }),
-    }
-}
-
-fn ok_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult {
-        delivery: None,
-        stop_turn: false,
-        content,
-        is_error: false,
-        note: None,
-    }
-}
-
-fn err_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult {
-        delivery: None,
-        stop_turn: false,
-        content,
-        is_error: true,
-        note: None,
     }
 }
 

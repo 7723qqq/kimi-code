@@ -13,6 +13,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::{err_result, ok_result};
 use crate::callbacks::HostCallbacks;
 use crate::rpc::types::StateWriteRequest;
 use crate::turn_loop::types::ExecutableToolResult;
@@ -184,26 +185,6 @@ pub fn create_goal_tool_def() -> crate::turn_loop::types::ToolInfo {
             "required": ["objective"],
             "additionalProperties": false
         }),
-    }
-}
-
-fn ok_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult {
-        delivery: None,
-        stop_turn: false,
-        content,
-        is_error: false,
-        note: None,
-    }
-}
-
-fn err_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult {
-        delivery: None,
-        stop_turn: false,
-        content,
-        is_error: true,
-        note: None,
     }
 }
 

@@ -10,6 +10,7 @@
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::{err_result, ok_result};
 use crate::callbacks::HostCallbacks;
 use crate::goal::{BudgetUnit, format_budget, format_elapsed, normalize_budget_input};
 use crate::rpc::types::StateWriteRequest;
@@ -266,26 +267,6 @@ fn map_state_error(error: String) -> ExecutableToolResult {
         err_result(STATE_BRIDGE_UNSUPPORTED_FAILURE_MESSAGE.into())
     } else {
         err_result(error)
-    }
-}
-
-fn ok_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult {
-        delivery: None,
-        stop_turn: false,
-        content,
-        is_error: false,
-        note: None,
-    }
-}
-
-fn err_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult {
-        delivery: None,
-        stop_turn: false,
-        content,
-        is_error: true,
-        note: None,
     }
 }
 

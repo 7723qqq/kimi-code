@@ -12,6 +12,7 @@ use std::collections::HashSet;
 
 use serde_json::Value;
 
+use super::{err_result, ok_result};
 use crate::callbacks::HostCallbacks;
 use crate::rpc::types::{
     AskQuestionItem, AskQuestionOption, AskQuestionRequest, AskQuestionResponse,
@@ -213,26 +214,6 @@ pub fn ask_user_question_tool_def() -> crate::turn_loop::types::ToolInfo {
             },
             "required": ["questions"]
         }),
-    }
-}
-
-fn ok_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult {
-        delivery: None,
-        stop_turn: false,
-        content,
-        is_error: false,
-        note: None,
-    }
-}
-
-fn err_result(content: String) -> ExecutableToolResult {
-    ExecutableToolResult {
-        delivery: None,
-        stop_turn: false,
-        content,
-        is_error: true,
-        note: None,
     }
 }
 
