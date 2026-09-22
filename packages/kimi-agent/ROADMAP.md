@@ -1028,6 +1028,17 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
    头部取走该消息；断言 steered 文本在全库恰好出现一次且属于取消后的新回合——已临时还原旧
    行为验证该测试确实变红）。
 
+30. **v2 `observeContextOverflow` 的有效窗口学习未移植（2026-09-22 深查发现）**：v2 在
+    `fullCompactionService` 内按 `modelAlias` 维护 `observedMaxContextTokensByModel`
+    （`defineState` 持久化），观测到溢出时把有效窗口降为 `floor(estimated × 0.85)`
+    （只降不升，`getEffectiveMaxContextTokens = min(configured, observed)`），使后续请求与
+    压缩触发改用更保守的窗口。fork 的窗口完全由宿主按次解析（`config_for_window`），
+    引擎无按模型的学习状态——宿主窗口偏乐观时，每个回合都要溢出→紧急压缩→重试
+    （有 `max_overflow_compaction_attempts = 3` 兜底，功能不坏，但每次重复付学费）。
+    **未移植的原因**：落头需要新的状态域（state bridge 现为 todo/plan/goal/cron/task/turn
+    六域，按铁律新实体需用户许可）；进程内缓存是与 v2 `defineState` 不同的持久化语义，
+    属于设计决策而非移植。待用户裁决落点（新状态域 / 宿主上报观测 / 进程内缓存）后再落地。
+
 ### 6.2 本轮已修复（含证据）
 
 | 上游 | 修复 | 证据 |
@@ -1074,6 +1085,14 @@ clippy**（5 个文件格式不合规、1 条 `to_string_in_format_args`），�
 真实远程 MCP 服务器（外网 OAuth / 调用期 401）没有跑过，全部证据来自本地 mock 传输与真 socket
 夹具；`McpError::Display` 保留的历史文案在 stdio 侧是 `MCP error: `、HTTP/SSE 侧是
 `MCP Server Error: `，前缀不一致系本批之前既有且刻意保留（状态面板与测试依赖），本轮未统一。
+
+**2026-09-22 深查轮（双边源码对读，门禁盲区）已修复**：
+
+| 上游 | 修复 | 证据 |
+|---|---|---|
+| 无上游号（kosong 错误契约漂移；fork 保留 kosong，其上游修改从不进 delta 门禁，Rust 分类器引用的 `kosong/contract/errors.ts` 在两棵树上均已不存在） | 可重试状态集合从 `500..=599` 整段改为现行 v2 的显式列表 `[408, 409, 429, 500, 502, 503, 504, 529]`（kosong `errors.ts` `isRetryableGenerateError` + `human/llm/requester/retry.ts` `RETRYABLE_STATUS_CODES`，与 fork 自带的 kosong 一致）；425 作为已记录的 fork 追加保留。配额豁免补 Moonshot 文档原话 `exceeded your current token quota`（v2 正则 `/exceeded your current (?:token )?quota/` 的 token 拼写此前漏匹配，真配额耗尽被当瞬态 429 重试） | `src/llm/http.rs`；`retryable_status_set_matches_v2_explicit_list`（进/出各 10+ 码）、`quota_exhaustion_is_not_retryable`（补 token-quota 用例） |
+| 无上游号（过滤 finish_reason 词汇表不全） | transport 透传 provider 停止原因，但停止原因表只认 OpenAI `content_filter`；补 v2 kosong 适配器的整个过滤族：Anthropic `refusal`、Google `safety`/`recitation`/`blocklist`/`prohibited_content`/`spii`/`image_safety`——此前安全拒答以普通完成结束回合，用户看不到过滤提示 | `src/turn_loop/run_turn.rs` `turn_stop_reason_from_finish`；`finish_reason_vocabulary_maps_to_stop_reasons` |
+| 无上游号（压缩内溢出无恢复） | v2 `fullCompactionService.ts:690-710` 的压缩内恢复：摘要请求自身溢出时按 `COMPACTION_OVERFLOW_SHRINK_RATIOS`（0.7/0.5/0.35，上限 `MAX_COMPACTION_OVERFLOW_SHRINK_ATTEMPTS = 3`，共享尝试上限与 `len <= 1` 守卫）收缩重试。fork 原有 #3911 预收缩与空摘要丢最旧路径，但溢出错误不在可重试集合 → 直接失败；预估偏乐观时 v2 能救回、fork 整包压缩失败。Err 分支最前面（与 v2 同序）加该路径，估算口径同 v2 `requestTokens`，收缩走既有 `take_recent_within_budget`，无退避直接重试；工作集改 `Cow` 承载 | `src/compaction/mod.rs`；`test_summarizer_shrinks_history_after_overflow_and_retries`、`test_summarizer_gives_up_after_max_overflow_shrinks`（恰好 1+3 次请求） |
 
 ### 6.3 文档失真清单（本轮已就地更正）
 
