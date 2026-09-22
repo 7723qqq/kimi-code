@@ -19,6 +19,7 @@ use crate::rpc::types::{StateReadRequest, StateWriteRequest};
 use crate::storage::TaskWaitResult;
 use crate::tools::task_format;
 use crate::turn_loop::types::ExecutableToolResult;
+use crate::turn_loop::wall_time;
 
 /// v2 `WAIT_FOR_MAX_TIMEOUT_S` (`DEFAULT_BACKGROUND_TIMEOUT_S`): the
 /// TaskWait `timeout` argument is capped at 600 seconds.
@@ -126,28 +127,26 @@ fn render_task_list(value: &Value, active_only: bool) -> ExecutableToolResult {
     ok_result(format!("{header}\n{}", records.join("\n---\n")))
 }
 
-/// Render one task wire entry as v2 `formatPlainObject` renders an
-/// `AgentTaskInfo`: `field: value` lines, camelCase keys snake_cased,
-/// nulls skipped, the wire's `id` mapped to v2's `task_id` (the host
-/// sends `taskId`; the contract shape uses `id`). The output preview
-/// fields (`preview` / `output`) are rendered separately by the
-/// output/wait renderers, so they are excluded here.
+/// Render one task wire entry as v2 `formatTaskRecord` renders an
+/// `AgentTaskInfo` (upstream #3966): a `Wall time: X.XXX seconds` line from
+/// the entry's `startedAt` / `endedAt`, then `field: value` lines with
+/// camelCase keys snake_cased and nulls skipped. The wire's `id` maps to
+/// v2's `task_id` (the host sends `taskId`; the contract shape uses `id`).
+/// The output preview fields (`preview` / `output`) are rendered separately
+/// by the output/wait renderers, so they are excluded here.
 fn render_task_entry(value: &Value) -> String {
     let Some(obj) = value.as_object() else {
         return String::new();
     };
-    let entries: Vec<(&str, &Value)> = obj
-        .iter()
-        .filter(|(key, _)| key.as_str() != "output" && key.as_str() != "preview")
-        .map(|(key, value)| {
-            if key == "id" {
-                ("taskId", value)
-            } else {
-                (key.as_str(), value)
-            }
-        })
-        .collect();
-    task_format::format_plain_object_entries(&entries)
+    let mut mapped = serde_json::Map::new();
+    for (key, field) in obj {
+        match key.as_str() {
+            "output" | "preview" => continue,
+            "id" => mapped.insert("taskId".into(), field.clone()),
+            _ => mapped.insert(key.clone(), field.clone()),
+        };
+    }
+    task_format::format_task_record(&Value::Object(mapped))
 }
 
 /// Execute the TaskOutput tool natively: `state_read` the task's output
@@ -281,8 +280,10 @@ pub async fn execute_task_stop(
 }
 
 /// Render the host's stop response as the v2 `TaskStop` output: exactly
-/// `task_id` / `status` / `reason` lines. The id falls back to the
-/// requested task id, the reason to the submitted one.
+/// `task_id` / `status` / `reason` lines, preceded by the `Wall time` line
+/// upstream #3966 added to both stop branches (the response carries the
+/// entry's `startedAt` / `endedAt`). The id falls back to the requested
+/// task id, the reason to the submitted one.
 fn render_task_stop(value: &Value, task_id: &str, reason: &str) -> ExecutableToolResult {
     let Some(obj) = value.as_object() else {
         return err_result("Invalid task state from host: expected the stopped task.".into());
@@ -302,7 +303,33 @@ fn render_task_stop(value: &Value, task_id: &str, reason: &str) -> ExecutableToo
         .and_then(|v| v.as_str())
         .unwrap_or(reason);
     lines.push(format!("reason: {stop_reason}"));
-    ok_result(lines.join("\n"))
+    let body = lines.join("\n");
+    // v2's stop result is typed with `startedAt`; a host response without
+    // timing renders the bare lines rather than a bogus header.
+    let content = match task_wall_time_ms(value) {
+        Some(duration_ms) => format!("{}\n{body}", wall_time::wall_time_header(duration_ms)),
+        None => body,
+    };
+    ok_result(content)
+}
+
+/// The wall-clock duration a task wire value carries (`endedAt` falling back
+/// to now for a still-running entry), or `None` when it has no `startedAt`.
+fn task_wall_time_ms(value: &Value) -> Option<u64> {
+    let obj = value.as_object()?;
+    let started_at = obj.get("startedAt").and_then(|v| v.as_u64())?;
+    let ended_at = obj
+        .get("endedAt")
+        .and_then(|v| v.as_u64())
+        .unwrap_or_else(now_ms);
+    Some(ended_at.saturating_sub(started_at))
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// Execute the TaskWait tool natively.
@@ -1001,10 +1028,23 @@ mod tests {
         assert!(lines[1..].contains(&"task_id: task-1"));
         assert!(result.content.contains("description: Running tests"));
         assert!(result.content.contains("status: running"));
-        assert!(result.content.contains("started_at: 1700000000000"));
+        // Upstream #3966: the timing fields leave the body; the wall-time
+        // line takes their place. task-2 settled after exactly 1s; task-1 is
+        // still running, so its line is elapsed-since-start.
+        assert!(!result.content.contains("started_at:"));
+        assert!(!result.content.contains("ended_at:"));
+        assert!(
+            result.content.contains("Wall time: 1.000 seconds"),
+            "task-2: {}",
+            result.content
+        );
+        assert!(
+            result.content.lines().any(|l| l.starts_with("Wall time: ")),
+            "task-1: {}",
+            result.content
+        );
         assert!(result.content.contains("---"));
         assert!(result.content.contains("task_id: task-2"));
-        assert!(result.content.contains("ended_at: 1699990001000"));
         let request = read_received.lock().unwrap().clone().unwrap();
         assert_eq!(request.domain, "task");
         assert_eq!(request.key, "task");
@@ -1326,6 +1366,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_stop_render_prepends_wall_time_when_the_response_is_timed() {
+        // Upstream #3966: both TaskStop branches carry the wall-time line.
+        let rendered = render_task_stop(
+            &serde_json::json!({
+                "taskId": "task-1",
+                "status": "killed",
+                "stopReason": "Stopped by TaskStop",
+                "startedAt": 1700000000000u64,
+                "endedAt": 1700000002500u64
+            }),
+            "task-1",
+            "Stopped by TaskStop",
+        );
+        assert!(!rendered.is_error);
+        assert_eq!(
+            rendered.content,
+            "Wall time: 2.500 seconds\n\
+             task_id: task-1\n\
+             status: killed\n\
+             reason: Stopped by TaskStop"
+        );
+    }
+
     #[tokio::test]
     async fn test_stop_custom_reason_is_trimmed_for_fallback() {
         let (callbacks, _, write_received) = scripted(
@@ -1427,13 +1491,12 @@ mod tests {
              timeout_ms: 30000\n\
              \n\
              [finished]\n\
+             Wall time: 1.000 seconds\n\
              description: Running tests\n\
-             ended_at: 1700000001000\n\
              full_output_available: true\n\
              output_path: C:/logs/task-1.log\n\
              output_size_bytes: 1024\n\
              preview_bytes: 512\n\
-             started_at: 1700000000000\n\
              status: completed\n\
              task_id: task-1\n\
              truncated: false\n\
@@ -1464,9 +1527,8 @@ mod tests {
              timeout_ms: 30000\n\
              \n\
              [finished]\n\
+             Wall time: 1.000 seconds\n\
              description: Running tests\n\
-             ended_at: 1700000001000\n\
-             started_at: 1700000000000\n\
              status: completed\n\
              task_id: task-1"
         );

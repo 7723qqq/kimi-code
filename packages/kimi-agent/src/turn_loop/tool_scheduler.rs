@@ -92,6 +92,19 @@ const MAX_PARALLEL_TOOLS: usize = 16;
 /// conflicting calls (e.g. two writes to the same file) never overlap.
 /// Results are returned in the original call order (batches are flattened
 /// back to a single Vec).
+/// The outcome of one scheduled batch round: the results in call order plus
+/// the per-call wall-clock durations (index-aligned with `results`).
+///
+/// Durations mirror v2 `ToolExecutionResult.durationMs` (upstream #3966):
+/// measured around the tool call itself, `None` for results the scheduler
+/// synthesizes without executing anything (skipped after a stop-turn, a
+/// failed join, a transport error).
+#[derive(Debug, Clone)]
+pub struct ScheduledToolOutcome {
+    pub results: Vec<ExecutableToolResult>,
+    pub durations_ms: Vec<Option<u64>>,
+}
+
 ///
 /// `cancellation` is polled between calls: a turn that is cancelled mid-batch
 /// stops launching work instead of running the batch out.
@@ -100,18 +113,22 @@ pub async fn execute_scheduled<F, Fut>(
     cancellation: Option<&Arc<AtomicBool>>,
     scheduled: Vec<ScheduledToolCall>,
     execute_fn: F,
-) -> Result<Vec<ExecutableToolResult>, Box<dyn std::error::Error>>
+) -> Result<ScheduledToolOutcome, Box<dyn std::error::Error>>
 where
     F: Fn(ToolCall) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<ExecutableToolResult, String>> + Send,
 {
     let batches = schedule_tool_calls(scheduled);
     if batches.is_empty() {
-        return Ok(vec![]);
+        return Ok(ScheduledToolOutcome {
+            results: Vec::new(),
+            durations_ms: Vec::new(),
+        });
     }
     let execute_fn = Arc::new(execute_fn);
     let semaphore = Arc::new(tokio::sync::Semaphore::new(MAX_PARALLEL_TOOLS));
     let mut all_results = Vec::with_capacity(batches.iter().map(Vec::len).sum());
+    let mut all_durations = Vec::with_capacity(all_results.capacity());
     let mut batch_stopped = false;
     for batch in batches {
         if is_cancelled(cancellation) {
@@ -126,6 +143,7 @@ where
                     is_error: true,
                     note: None,
                 });
+                all_durations.push(None);
             }
             continue;
         }
@@ -140,7 +158,12 @@ where
                 let Ok(_permit) = semaphore.acquire_owned().await else {
                     return Err("tool scheduler semaphore closed".to_string());
                 };
-                execute_fn(tc).await
+                // v2 measures the duration in the tool executor, around the
+                // call itself (upstream #3966); the permit wait is queueing,
+                // not execution, so the clock starts after it.
+                let started = std::time::Instant::now();
+                let result = execute_fn(tc).await;
+                result.map(|result| (result, started.elapsed().as_millis() as u64))
             }));
         }
 
@@ -168,7 +191,7 @@ where
                 }
             };
             match joined {
-                Ok(Ok(result)) => {
+                Ok(Ok((result, duration_ms))) => {
                     if is_cancelled(cancellation) {
                         failure = Some("turn cancelled".to_string());
                         break;
@@ -177,6 +200,7 @@ where
                         batch_stopped = true;
                     }
                     all_results.push(result);
+                    all_durations.push(Some(duration_ms));
                 }
                 Ok(Err(e)) => {
                     // A single call failing (transport/execution) must not
@@ -194,6 +218,7 @@ where
                         is_error: true,
                         note: None,
                     });
+                    all_durations.push(None);
                 }
                 Err(e) => {
                     if is_cancelled(cancellation) {
@@ -207,6 +232,7 @@ where
                         is_error: true,
                         note: None,
                     });
+                    all_durations.push(None);
                 }
             }
         }
@@ -221,7 +247,10 @@ where
             return Err(e.into());
         }
     }
-    Ok(all_results)
+    Ok(ScheduledToolOutcome {
+        results: all_results,
+        durations_ms: all_durations,
+    })
 }
 
 fn is_cancelled(cancellation: Option<&Arc<AtomicBool>>) -> bool {
@@ -959,7 +988,10 @@ mod tests {
                 }
             }
         };
-        let results = execute_scheduled(None, scheduled, executor).await.unwrap();
+        let results = execute_scheduled(None, scheduled, executor)
+            .await
+            .unwrap()
+            .results;
         assert_eq!(results.len(), 2);
         assert_eq!(
             max_active.load(Ordering::SeqCst),
@@ -1014,7 +1046,10 @@ mod tests {
                 note: None,
             })
         };
-        let results = execute_scheduled(None, scheduled, executor).await.unwrap();
+        let results = execute_scheduled(None, scheduled, executor)
+            .await
+            .unwrap()
+            .results;
         let ids: Vec<&str> = results.iter().map(|r| r.content.as_str()).collect();
         assert_eq!(
             ids,
@@ -1137,7 +1172,10 @@ mod tests {
                 })
             }
         };
-        let results = execute_scheduled(None, scheduled, executor).await.unwrap();
+        let results = execute_scheduled(None, scheduled, executor)
+            .await
+            .unwrap()
+            .results;
         assert_eq!(results.len(), 2);
         assert!(results[0].is_error, "call 1 must carry an error result");
         assert!(results[0].content.contains("transport failed"));
@@ -1203,7 +1241,10 @@ mod tests {
                 }
             }
         };
-        let results = execute_scheduled(None, scheduled, executor).await.unwrap();
+        let results = execute_scheduled(None, scheduled, executor)
+            .await
+            .unwrap()
+            .results;
         assert_eq!(results.len(), 3);
         assert!(
             max_active.load(Ordering::SeqCst) > 1,
@@ -1224,7 +1265,8 @@ mod tests {
             })
         })
         .await
-        .unwrap();
+        .unwrap()
+        .results;
         assert!(results.is_empty());
     }
 
@@ -1270,9 +1312,68 @@ mod tests {
             })
         })
         .await
-        .unwrap();
+        .unwrap()
+        .results;
         let ids: Vec<&str> = results.iter().map(|r| r.content.as_str()).collect();
         assert_eq!(ids, vec!["1", "2", "3"]);
+    }
+
+    /// Upstream #3966: every executed call carries its wall-clock duration,
+    /// index-aligned with the results; a call the scheduler skips without
+    /// executing carries `None`.
+    #[tokio::test]
+    async fn test_execute_scheduled_records_durations_per_call() {
+        let scheduled = vec![
+            ScheduledToolCall {
+                tool_call: ToolCall {
+                    id: "1".into(),
+                    name: "bash".into(),
+                    arguments: serde_json::json!({}),
+                    extras: None,
+                },
+                accesses: vec![all_access()],
+            },
+            ScheduledToolCall {
+                tool_call: ToolCall {
+                    id: "2".into(),
+                    name: "bash".into(),
+                    arguments: serde_json::json!({}),
+                    extras: None,
+                },
+                accesses: vec![all_access()],
+            },
+        ];
+        let outcome = execute_scheduled(None, scheduled, |tc: ToolCall| async move {
+            if tc.id == "1" {
+                Ok(ExecutableToolResult {
+                    delivery: None,
+                    stop_turn: true,
+                    content: "stop".into(),
+                    is_error: false,
+                    note: None,
+                })
+            } else {
+                Ok(ExecutableToolResult {
+                    delivery: None,
+                    stop_turn: false,
+                    content: "skipped".into(),
+                    is_error: true,
+                    note: None,
+                })
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(outcome.results.len(), 2);
+        assert_eq!(outcome.durations_ms.len(), 2);
+        assert!(
+            outcome.durations_ms[0].is_some(),
+            "an executed call must carry its duration"
+        );
+        assert_eq!(
+            outcome.durations_ms[1], None,
+            "a skipped call never executed, so it has no duration"
+        );
     }
 
     /// Stop turn/batch on an earlier conflicting batch must skip later batches with v2 message.
@@ -1318,7 +1419,8 @@ mod tests {
             }
         })
         .await
-        .unwrap();
+        .unwrap()
+        .results;
 
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].content, "plan exited");

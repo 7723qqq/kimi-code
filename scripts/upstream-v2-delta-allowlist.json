@@ -2,8 +2,16 @@
   "note": "Verdicts for upstream commits touching packages this fork deleted. Regenerate with `bun scripts/check-upstream-v2-delta.mjs --update`; see scripts/check-upstream-v2-delta.mjs for the gate itself. `tracked` = accepted debt recorded in packages/kimi-agent/ROADMAP.md §6; `not-applicable` = internal refactor with no observable engine behavior to port.",
   "upstreamRef": "upstream/main",
   "recordedMergeBase": "1b89e4b039f052d10f258464413b2047acca12ba",
-  "recordedAt": "2026-09-21",
+  "recordedAt": "2026-09-22",
   "entries": [
+    {
+      "sha": "0dc4d4fba8c744721600ede2dce27e3af6e9b6ec",
+      "date": "2026-09-22",
+      "subject": "feat(agent-core-v2): prepend wall-time header to persisted tool results (#3966)",
+      "verdict": "ported",
+      "note": "Ported in full, all three observable pieces. (a) Tool-result header: turn_loop/wall_time.rs carries the v2 set (Agent/AgentSwarm/Bash/FetchURL/Glob/Grep/WebSearch) plus the mcp__ prefix (shouldRenderWallTime) and the `Wall time: X.XXX seconds` format (formatTaskWallTime, clamped at 0); tool_scheduler measures the duration around execute_fn (after the permit acquire, mirroring the executor) and returns it index-aligned via ScheduledToolOutcome (results stay in call order, which test_execute_scheduled_preserves_call_order pins); run_turn prepends the header at the tool-result message site for set members only — the persisted/model-facing history carries it, the raw tool.native event does not. (b) Task records: task_format::format_task_record replaces startedAt/endedAt with the wall-time line (endedAt falling back to now), routed through render_task_entry so TaskList entries, TaskOutput metadata, WaitFor [finished] and [still_running] all carry it; TaskStop's two branches prepend the line when the response carries timing (the state store's stop response is the full entry, so production always does). (c) Notifications: TaskNotification gains started_at (populated in settle_task) and render_task_notifications opens each block with the wall-time line (the tower wake keeps its early return). Not ported: v2's durationMs field on the wire/state manifests — the fork bakes the header into content and its LLMMessage carries no timing field, so there is nothing to add; and v2's <system>ERROR/empty status render stays absent (pre-existing, separate gap). Tests: wall_time unit tests, scheduler duration test (executed vs skipped), run_turn header test (Bash in, read out), format_task_record goldens, updated TaskList/WaitFor goldens, timed TaskStop render, notification render.",
+      "roadmap": "§6.6"
+    },
     {
       "sha": "0523bafb39101d471683f4f53e052767f3add2ef",
       "date": "2026-09-21",

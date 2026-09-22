@@ -1561,8 +1561,15 @@ fn render_task_notifications(notifications: &[crate::storage::TaskNotification])
             if notification.task_id == crate::tools::tower::TOWER_WAKE_TASK_ID {
                 return notification.description.clone();
             }
+            // Upstream #3966: the notification body opens with the task's
+            // wall time (v2 `buildAgentTaskNotificationBody`).
+            let header = crate::turn_loop::wall_time::wall_time_header(
+                notification
+                    .ended_at
+                    .saturating_sub(notification.started_at),
+            );
             let mut block = format!(
-                "Background task {} ({}) finished: {}",
+                "{header}\nBackground task {} ({}) finished: {}",
                 notification.task_id,
                 notification.status.as_str(),
                 notification.description
@@ -2127,6 +2134,7 @@ mod tests {
                 description: "run the test suite".into(),
                 status: TaskStatus::Completed,
                 output_preview: Some("42 passing".into()),
+                started_at: 0,
                 ended_at: 100,
                 session_id: Some("sess-1".into()),
             },
@@ -2135,13 +2143,17 @@ mod tests {
                 description: "stop me".into(),
                 status: TaskStatus::Killed,
                 output_preview: None,
+                started_at: 150,
                 ended_at: 200,
                 session_id: Some("sess-1".into()),
             },
         ]);
         assert_eq!(
             rendered,
-            "Background task t (completed) finished: run the test suite\n42 passing\n\n\
+            "Wall time: 0.100 seconds\n\
+             Background task t (completed) finished: run the test suite\n\
+             42 passing\n\n\
+             Wall time: 0.050 seconds\n\
              Background task t2 (killed) finished: stop me"
         );
     }

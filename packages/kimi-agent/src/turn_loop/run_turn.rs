@@ -20,6 +20,7 @@ use super::retry::RetryConfig;
 use super::tool_scheduler::{self, ScheduledToolCall};
 use super::turn_step::execute_loop_step_with_retry;
 use super::types::*;
+use super::wall_time;
 use crate::callbacks::HostCallbacks;
 use crate::llm::files_upload::UploadError;
 use crate::llm::media_budget::{MEDIA_BUDGET_EXCEEDED_CODE, MediaBudget};
@@ -1459,14 +1460,14 @@ pub fn run_turn<'a>(
                             accesses: tool_scheduler::infer_tool_accesses(&tc.name, &tc.arguments),
                         })
                         .collect();
-                    let mut results = match tool_scheduler::execute_scheduled(
+                    let (mut results, durations_ms) = match tool_scheduler::execute_scheduled(
                         input.cancellation.as_ref(),
                         scheduled,
                         exec_fn,
                     )
                     .await
                     {
-                        Ok(results) => results,
+                        Ok(outcome) => (outcome.results, outcome.durations_ms),
                         Err(err) => {
                             // The scheduler stops mid-batch when the host
                             // cancels. That is a clean abort, not a failed
@@ -1516,9 +1517,23 @@ pub fn run_turn<'a>(
                                 "note": tr.note,
                             }));
                         }
+                        // Upstream #3966: the persisted (and model-facing)
+                        // tool result carries a `Wall time: X.XXX seconds`
+                        // header for the wall-time tool set and every MCP
+                        // tool; the scheduler measured the duration around
+                        // the call. Tools outside the set keep the bare
+                        // content, and a result with no measured duration
+                        // (a scheduler-synthesized error) never gets one.
+                        let tool_name = tool_calls.get(i).map(|tc| tc.name.as_str()).unwrap_or("");
+                        let content = match durations_ms.get(i).copied().flatten() {
+                            Some(duration_ms) if wall_time::should_render_wall_time(tool_name) => {
+                                wall_time::prepend_wall_time(&tr.content, duration_ms)
+                            }
+                            _ => tr.content.clone(),
+                        };
                         messages.push(LLMMessage {
                             role: "tool".into(),
-                            content: tr.content.clone(),
+                            content,
                             blocks: Vec::new(),
                             tool_calls: Vec::new(),
                             tool_call_id: tool_calls.get(i).map(|tc| tc.id.clone()),
@@ -3014,6 +3029,94 @@ mod tests {
                 && m.tool_call_id.as_deref() == Some("tc1")
                 && m.content == "stub"),
             "step 2 history must contain the tool result: {second:?}"
+        );
+    }
+
+    /// Upstream #3966: the persisted (model-facing) tool result of a
+    /// wall-time tool (Bash here) opens with a `Wall time: X.XXX seconds`
+    /// header; the `read` case above (outside the set) keeps the bare
+    /// content.
+    #[tokio::test]
+    async fn test_tool_result_history_carries_wall_time_header_for_the_set() {
+        struct OneShotToolLlm;
+        impl LLM for OneShotToolLlm {
+            fn system_prompt(&self) -> &str {
+                "test"
+            }
+            fn model_name(&self) -> &str {
+                "oneshot-llm"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                _: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                Box::pin(async move {
+                    Ok(LLMChatResponse {
+                        content: String::new(),
+                        thinking: vec![],
+                        tool_calls: vec![ToolCall {
+                            id: "tc1".into(),
+                            name: "Bash".into(),
+                            arguments: serde_json::json!({"command": "echo hi"}),
+                            extras: None,
+                        }],
+                        finish_reason: Some("tool_calls".into()),
+                        usage: TokenUsage::default(),
+                    })
+                })
+            }
+        }
+        let server = Arc::new(RpcServer::new());
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    delivery: None,
+                    stop_turn: false,
+                    content: "hi\n".into(),
+                    is_error: false,
+                    note: None,
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        let callbacks = rpc_callbacks(server.clone());
+        let input = RunTurnInput {
+            turn_id: "test-wall-time-header".into(),
+            llm: &OneShotToolLlm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "Hello!".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 1,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+            toolset: None,
+        };
+        let outcome = run_turn(input, &callbacks).await.unwrap();
+        let tool_message = outcome
+            .messages
+            .iter()
+            .find(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some("tc1"))
+            .expect("the tool result must be in the final history");
+        assert!(
+            tool_message.content.starts_with("Wall time: ")
+                && tool_message.content.ends_with("\nhi\n"),
+            "the Bash result must carry the wall-time header: {:?}",
+            tool_message.content
         );
     }
 

@@ -202,7 +202,8 @@ pub type TaskLivenessCheck = Arc<dyn Fn(Option<&str>) -> bool + Send + Sync>;
 /// A task completion event queued by [`TaskRunner::settle_task`] and
 /// drained via [`TaskRunner::take_pending_notifications`]. Mirrors v2's
 /// `task.notificationDelivery` payload shape: identifier, description,
-/// terminal status, optional output preview, and wall-clock end time.
+/// terminal status, optional output preview, and wall-clock start/end times
+/// (the rendered notification carries a `Wall time` line, upstream #3966).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskNotification {
     pub task_id: String,
@@ -210,6 +211,7 @@ pub struct TaskNotification {
     pub status: TaskStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_preview: Option<String>,
+    pub started_at: u64,
     pub ended_at: u64,
     /// The session the task was spawned for; `None` = server-level (see
     /// [`TaskRunner::take_pending_notifications`]).
@@ -654,7 +656,16 @@ impl TaskRunner {
         output: Option<String>,
         stop_reason: Option<String>,
     ) {
-        let (description, ended_at, output_preview, wire, session_id, kind, output_bytes) = {
+        let (
+            description,
+            started_at,
+            ended_at,
+            output_preview,
+            wire,
+            session_id,
+            kind,
+            output_bytes,
+        ) = {
             let mut tasks = self.tasks.lock().unwrap();
             let Some(entry) = tasks.get_mut(id) else {
                 return;
@@ -671,6 +682,7 @@ impl TaskRunner {
             let wire = self.entry_wire(entry);
             (
                 description,
+                entry.started_at,
                 ended_at,
                 preview,
                 wire,
@@ -701,6 +713,7 @@ impl TaskRunner {
                     description,
                     status,
                     output_preview: output_preview.clone(),
+                    started_at,
                     ended_at,
                     session_id: session_id.clone(),
                 });
@@ -811,6 +824,7 @@ impl TaskRunner {
                     description: description.clone(),
                     status: TaskStatus::Completed,
                     output_preview: None,
+                    started_at: now,
                     ended_at: now,
                     session_id: Some(session_id.to_string()),
                 });

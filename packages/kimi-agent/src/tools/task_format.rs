@@ -56,6 +56,44 @@ pub fn format_plain_object(record: &Value) -> String {
     format_lines(obj.iter().map(|(k, v)| (k.as_str(), v)))
 }
 
+/// v2 `formatTaskRecord` (upstream #3966): the record's `startedAt` /
+/// `endedAt` are replaced by a leading `Wall time: X.XXX seconds` line —
+/// `endedAt` falls back to now for a still-running task, and the duration
+/// clamps at zero. The remaining fields render as the plain object body; a
+/// record with no timing fields renders as the plain body alone (v2's types
+/// guarantee `startedAt`, the wire does not).
+pub fn format_task_record(record: &Value) -> String {
+    let Some(obj) = record.as_object() else {
+        return String::new();
+    };
+    let started_at = obj.get("startedAt").and_then(|v| v.as_u64());
+    let body = format_lines(
+        obj.iter()
+            .filter(|(key, _)| !matches!(key.as_str(), "startedAt" | "endedAt"))
+            .map(|(k, v)| (k.as_str(), v)),
+    );
+    let Some(started_at) = started_at else {
+        return body;
+    };
+    let ended_at = obj
+        .get("endedAt")
+        .and_then(|v| v.as_u64())
+        .unwrap_or_else(now_ms);
+    let header = crate::turn_loop::wall_time::wall_time_header(ended_at.saturating_sub(started_at));
+    if body.is_empty() {
+        header
+    } else {
+        format!("{header}\n{body}")
+    }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 /// Format an ordered list of (key, value) pairs, preserving the given order
 /// (the v2 object-literal order). Null values are skipped.
 pub fn format_plain_object_entries(entries: &[(&str, &Value)]) -> String {
@@ -156,5 +194,46 @@ mod tests {
         assert!(out.contains("ratio: 0.5"));
         assert!(out.contains("count: 3"));
         assert!(out.contains("note: plain text"));
+    }
+
+    #[test]
+    fn test_format_task_record_replaces_timing_with_wall_time_line() {
+        // Upstream #3966: startedAt/endedAt leave the body; the wall-time
+        // line takes their place at the top.
+        let record = json!({
+            "taskId": "task-1",
+            "description": "Running tests",
+            "status": "completed",
+            "startedAt": 1700000000000u64,
+            "endedAt": 1700000001000u64
+        });
+        assert_eq!(
+            format_task_record(&record),
+            "Wall time: 1.000 seconds\n\
+             description: Running tests\n\
+             status: completed\n\
+             task_id: task-1"
+        );
+    }
+
+    #[test]
+    fn test_format_task_record_without_timing_renders_plain_body() {
+        let record = json!({ "taskId": "task-1", "status": "running" });
+        assert_eq!(
+            format_task_record(&record),
+            "status: running\ntask_id: task-1"
+        );
+    }
+
+    #[test]
+    fn test_format_task_record_body_only_timing_renders_header_alone() {
+        let record = json!({ "startedAt": 1700000000000u64, "endedAt": 1700000000500u64 });
+        assert_eq!(format_task_record(&record), "Wall time: 0.500 seconds");
+    }
+
+    #[test]
+    fn test_format_task_record_non_object_renders_empty() {
+        assert_eq!(format_task_record(&json!("nope")), "");
+        assert_eq!(format_task_record(&json!([])), "");
     }
 }
