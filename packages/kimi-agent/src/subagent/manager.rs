@@ -382,6 +382,11 @@ pub struct SubagentManager {
     /// Completed-scope LRU (v2 `subagentScopeCache`), resolved once at
     /// construction.
     scope_cache: Mutex<ScopeCache>,
+    /// Cumulative token usage per instance id (v2 `ISessionUsageService`
+    /// per-agent status), folded at every turn completion. Session-lifetime
+    /// bookkeeping: an evicted scope's entry goes with it (the persisted
+    /// resume record carries the conversation, not the counters).
+    usage_by_instance: Arc<Mutex<HashMap<String, crate::rpc::types::TokenUsage>>>,
 }
 
 /// A foreground subagent's resume record (P55).
@@ -664,6 +669,7 @@ worktree root the tower assigns you as your full authority scope.";
             task_runner: RwLock::new(None),
             swarm_timeout_ms: Mutex::new(None),
             scope_cache: Mutex::new(ScopeCache::from_env()),
+            usage_by_instance: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -972,6 +978,9 @@ worktree root the tower assigns you as your full authority scope.";
                         "Subagent '{}' finished in {} steps (Tokens: {}).",
                         subagent_role, turn_res.steps, turn_res.usage.total_tokens
                     );
+                    // Upstream #3847: fold the turn into the instance's
+                    // cumulative counter (the tower tools read it as `tokens`).
+                    mgr.record_instance_usage(&subagent_id, &turn_res.usage);
                     mgr.update_state(
                         &subagent_id,
                         SubagentState::Completed,
@@ -1180,6 +1189,9 @@ worktree root the tower assigns you as your full authority scope.";
                             messages: turn_res.messages.clone(),
                         },
                     );
+                // Upstream #3847: fold the turn into the instance's
+                // cumulative counter (the tower tools read it as `tokens`).
+                self.record_instance_usage(id, &turn_res.usage);
                 // Persist to sqlite store if available (#3478)
                 if let Some(store) = self.session_store.read().await.as_ref() {
                     let state = SubagentPersistedState {
@@ -1672,6 +1684,9 @@ worktree root the tower assigns you as your full authority scope.";
                         }
                     }
                 }
+                // Upstream #3847: mirror into the per-instance counter so
+                // `caller_tokens` sees persistent scopes through one path.
+                self.record_instance_usage(id, &turn.usage);
                 // A kill that landed mid-turn keeps the Terminated state.
                 if !cancel_flag.load(Ordering::SeqCst) {
                     let summary = format!(
@@ -1707,6 +1722,52 @@ worktree root the tower assigns you as your full authority scope.";
             .unwrap_or_default()
     }
 
+    /// Fold one finished turn's usage into the instance's cumulative
+    /// counter (v2 `ISessionUsageService` per-agent status). Called from
+    /// every turn-completion path so a mid-turn tool call (the tower tools'
+    /// `tokens` field, upstream #3847) sees the prior turns' total.
+    pub fn record_instance_usage(&self, id: &str, usage: &crate::rpc::types::TokenUsage) {
+        let mut map = self
+            .usage_by_instance
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let entry = map.entry(id.to_string()).or_default();
+        entry.accumulate(usage);
+    }
+
+    /// The instance's cumulative usage: the per-turn counter first, the
+    /// persistent instance's own accumulator as the fallback (it predates
+    /// the counter and is authoritative for persistent scopes).
+    pub async fn cumulative_usage(&self, id: &str) -> Option<crate::rpc::types::TokenUsage> {
+        let counted = self
+            .usage_by_instance
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .cloned();
+        if counted.is_some() {
+            return counted;
+        }
+        let persistent = self.persistent.read().await;
+        persistent.get(id).map(|entry| entry.usage.clone())
+    }
+
+    /// The caller's cumulative token total for tower records (v2
+    /// `callerTokens`: `grandTotal(usage.status(agent).total)`, `-1` when
+    /// unknown — the fork reports `None`). Covers subagent callers, whose
+    /// turns fold into the per-instance counter; the main agent's session
+    /// total lives in the host's SQLite turn records, which the toolset
+    /// cannot reach, so it reports `None` (recorded divergence).
+    pub async fn caller_tokens(&self, caller_agent_id: &str) -> Option<i64> {
+        let usage = self.cumulative_usage(caller_agent_id).await?;
+        Some(
+            (u64::from(usage.input_tokens)
+                + u64::from(usage.input_cache_read)
+                + u64::from(usage.input_cache_creation)
+                + u64::from(usage.output_tokens)) as i64,
+        )
+    }
+
     /// Terminate and remove a persistent instance: sets its cancellation
     /// flag (aborting any running turn) and drops it from both the instance
     /// map and the persistent map. Returns true if the instance existed.
@@ -1725,6 +1786,10 @@ worktree root the tower assigns you as your full authority scope.";
             let mut instances = self.instances.write().await;
             instances.remove(id);
             drop(instances);
+            self.usage_by_instance
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(id);
             self.revive_scope(id);
         }
         removed
@@ -1918,6 +1983,10 @@ worktree root the tower assigns you as your full authority scope.";
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(id);
+            self.usage_by_instance
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(id);
         };
         match tokio::time::timeout(timeout, removal).await {
             Ok(()) => EvictOutcome::Removed,
@@ -2052,6 +2121,33 @@ mod tests {
     /// The swarm timeout rides host values verbatim: `0` means "explicitly no
     /// timeout" (the tool maps it to the never-expiring sentinel) and must not
     /// be folded into the 2h default the way an unset value is.
+    /// Upstream #3847: per-instance cumulative usage folds at every turn
+    /// completion, and `caller_tokens` reports v2's `grandTotal` (all four
+    /// dimensions, not the input+output `total_tokens`). An unknown caller
+    /// reports `None` (v2's -1).
+    #[tokio::test]
+    async fn test_caller_tokens_accumulates_all_dimensions() {
+        let manager = SubagentManager::new();
+        let usage = crate::rpc::types::TokenUsage {
+            input_tokens: 10,
+            output_tokens: 5,
+            total_tokens: 15,
+            input_cache_read: 3,
+            input_cache_creation: 2,
+        };
+        manager.record_instance_usage("subagent-1", &usage);
+        manager.record_instance_usage("subagent-1", &usage);
+
+        let cumulative = manager.cumulative_usage("subagent-1").await.unwrap();
+        assert_eq!(cumulative.input_tokens, 20);
+        assert_eq!(cumulative.output_tokens, 10);
+        assert_eq!(cumulative.input_cache_read, 6);
+        assert_eq!(cumulative.input_cache_creation, 4);
+        // 20 + 6 + 4 + 10 — the cache dimensions count, unlike total_tokens.
+        assert_eq!(manager.caller_tokens("subagent-1").await, Some(40));
+        assert_eq!(manager.caller_tokens("main").await, None);
+    }
+
     #[test]
     fn test_swarm_timeout_zero_is_explicit_no_timeout() {
         let manager = SubagentManager::new();

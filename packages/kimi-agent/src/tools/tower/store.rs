@@ -659,7 +659,12 @@ impl TowerStore {
         Ok(updated)
     }
 
-    pub async fn send(&self, caller_name: &str, input: TowerSendInput) -> Result<String, String> {
+    pub async fn send(
+        &self,
+        caller_name: &str,
+        input: TowerSendInput,
+        tokens: Option<i64>,
+    ) -> Result<String, String> {
         let state = self.load().await?;
         let to = input.to.trim();
         if to != TOWER_NAME && to != BROADCAST_NAME && self.find_agent(&state, to).is_none() {
@@ -690,6 +695,12 @@ impl TowerStore {
         }
         if let Some(ref c) = input.consent_ref {
             fields.push(("consent_ref", c.as_str()));
+        }
+        // Upstream #3847: the sender's cumulative token total rides the
+        // record (v2 `callerTokens`).
+        let tokens_str = tokens.map(|t| t.to_string());
+        if let Some(ref t) = tokens_str {
+            fields.push(("tokens", t.as_str()));
         }
 
         let frontmatter = render_frontmatter(&fields)?;
@@ -758,6 +769,7 @@ impl TowerStore {
                 scope: fields.get("scope").cloned(),
                 action: fields.get("action").cloned(),
                 consent_ref: fields.get("consent_ref").cloned(),
+                tokens: fields.get("tokens").and_then(|t| t.parse().ok()),
                 body,
             });
         }
@@ -771,6 +783,7 @@ impl TowerStore {
         &self,
         caller_name: &str,
         input: TowerFindingInput,
+        tokens: Option<i64>,
     ) -> Result<String, String> {
         let state = self.load().await?;
         let caller = self.find_agent(&state, caller_name);
@@ -793,7 +806,7 @@ impl TowerStore {
             None => "This finding is outside the reporting agent's assignment. Assigning to the control tower for routing.".to_string(),
         };
 
-        let lines = vec![
+        let mut lines = vec![
             format!("# Finding: {}", input.title),
             String::new(),
             format!("**Date**: {}", date_dash().replace('-', "")),
@@ -804,6 +817,13 @@ impl TowerStore {
                 input.severity.unwrap_or_default().as_str()
             ),
             format!("**Mission**: {mission_desc}"),
+        ];
+        // Upstream #3847: the filer's cumulative token total (v2
+        // `callerTokens`); omitted when unknown.
+        if let Some(t) = tokens {
+            lines.push(format!("**Tokens**: {t}"));
+        }
+        lines.extend([
             String::new(),
             "---".into(),
             String::new(),
@@ -830,7 +850,7 @@ impl TowerStore {
             String::new(),
             format!("*Filed by tower agent {caller_name} via `{FINDINGS_DIR}/`*"),
             String::new(),
-        ];
+        ]);
 
         let file_name = finding_file_name(caller_name, input.r#type.as_str(), &input.title);
         let rel = format!("{FINDINGS_DIR}/{file_name}");
@@ -854,6 +874,7 @@ impl TowerStore {
         &self,
         caller_name: &str,
         input: TowerReviewInput,
+        tokens: Option<i64>,
     ) -> Result<String, String> {
         let state = self.load().await?;
         if caller_name != TOWER_NAME {
@@ -894,15 +915,27 @@ impl TowerStore {
         let reviewed_commit = branch_tip(&self.repo_root, &input.target).await?;
 
         let round_str = round.to_string();
-        let frontmatter = render_frontmatter(&[
-            ("date", &date_dash()),
-            ("reviewer", caller_name),
-            ("target", &input.target),
-            ("round", &round_str),
-            ("status", &input.status),
-            ("merge", &input.merge),
-            ("reviewed_commit", &reviewed_commit),
-        ])?;
+        // Upstream #3847: the reviewer's cumulative token total (v2
+        // `callerTokens`); omitted when unknown.
+        let tokens_str = tokens.map(|t| t.to_string());
+        let mut frontmatter_fields = vec![
+            ("date", date_dash()),
+            ("reviewer", caller_name.to_string()),
+            ("target", input.target.clone()),
+            ("round", round_str.clone()),
+            ("status", input.status.clone()),
+            ("merge", input.merge.clone()),
+            ("reviewed_commit", reviewed_commit.clone()),
+        ];
+        if let Some(ref t) = tokens_str {
+            frontmatter_fields.push(("tokens", t.clone()));
+        }
+        let frontmatter = render_frontmatter(
+            &frontmatter_fields
+                .iter()
+                .map(|(k, v)| (*k, v.as_str()))
+                .collect::<Vec<_>>(),
+        )?;
 
         let checks_text = match input.checks {
             Some(ref list) if !list.is_empty() => list
@@ -1588,10 +1621,94 @@ mod tests {
         store
     }
 
+    /// Like [`store_in`], with the record directories the writers target in
+    /// place (production gets them from `TowerInit`).
+    async fn store_with_record_dirs(dir: &Path) -> TowerStore {
+        let store = store_in(dir).await;
+        tokio::fs::create_dir_all(store.abs(FINDINGS_DIR))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(store.abs(INBOX_DIR))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(store.abs(REVIEWS_DIR))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(store.abs(ACTIVITY_LOG).parent().unwrap())
+            .await
+            .unwrap();
+        store
+    }
+
     /// Agent ids restart per session, so a freshly spawned worker can share an
     /// id with a dead one still sitting in the roster. Resolving to the first
     /// match handed the new worker the old agent's name — wrong inbox, wrong
     /// sender, denied writes.
+    /// Upstream #3847: the filer's cumulative token total rides the finding
+    /// record (v2 `callerTokens`); an unknown total omits the line.
+    #[tokio::test]
+    async fn file_finding_records_the_callers_tokens() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_with_record_dirs(dir.path()).await;
+        store
+            .save(&state_with(vec![entry("worker-a", "agent-0")]))
+            .await
+            .unwrap();
+
+        let finding = TowerFindingInput {
+            r#type: crate::tools::tower::types::TowerFindingType::Bug,
+            title: "Leaky cache".into(),
+            severity: None,
+            summary: "s".into(),
+            location: None,
+            details: "d".into(),
+            suggested_fix: "f".into(),
+        };
+        let rel = store
+            .file_finding("worker-a", finding.clone(), Some(4242))
+            .await
+            .unwrap();
+        let text = tokio::fs::read_to_string(store.abs(&rel)).await.unwrap();
+        assert!(text.contains("**Tokens**: 4242"), "{text}");
+
+        // Without a known total the line is omitted rather than zero.
+        let rel = store.file_finding("worker-a", finding, None).await.unwrap();
+        let text = tokio::fs::read_to_string(store.abs(&rel)).await.unwrap();
+        assert!(!text.contains("**Tokens**"), "{text}");
+    }
+
+    /// Upstream #3847: the sender's tokens ride the inbox frontmatter and
+    /// round-trip through `read_inbox`.
+    #[tokio::test]
+    async fn send_records_tokens_and_read_inbox_round_trips_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_with_record_dirs(dir.path()).await;
+        store
+            .save(&state_with(vec![entry("worker-a", "agent-0")]))
+            .await
+            .unwrap();
+
+        store
+            .send(
+                "worker-a",
+                TowerSendInput {
+                    to: TOWER_NAME.into(),
+                    subject: "heads up".into(),
+                    body: "b".into(),
+                    scope: None,
+                    action: None,
+                    consent_ref: None,
+                },
+                Some(777),
+            )
+            .await
+            .unwrap();
+
+        let items = store.read_inbox(TOWER_NAME, 10).await.unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].tokens, Some(777));
+    }
+
     #[test]
     fn resolve_caller_name_prefers_the_latest_registration() {
         let store = TowerStore::new(std::env::temp_dir());

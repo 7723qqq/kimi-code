@@ -753,6 +753,7 @@ pub async fn execute_tower_send(
     caller_agent_id: &str,
     raw_args: &str,
     task_runner: Option<&crate::storage::TaskRunner>,
+    tokens: Option<i64>,
 ) -> ExecutableToolResult {
     let repo_root = resolve_tower_repo_root(&cwd.to_string_lossy());
     let store = TowerStore::new(PathBuf::from(repo_root));
@@ -778,7 +779,7 @@ pub async fn execute_tower_send(
     };
 
     let to = input.to.clone();
-    match store.send(&caller, input).await {
+    match store.send(&caller, input, tokens).await {
         Ok(rel) => {
             // Tower wake (v2 `towerService`: workers messaging the tower —
             // or broadcasting — wake it, coalesced into one notification per
@@ -876,6 +877,7 @@ pub async fn execute_tower_finding(
     cwd: &Path,
     caller_agent_id: &str,
     raw_args: &str,
+    tokens: Option<i64>,
 ) -> ExecutableToolResult {
     let repo_root = resolve_tower_repo_root(&cwd.to_string_lossy());
     let store = TowerStore::new(PathBuf::from(repo_root));
@@ -900,7 +902,7 @@ pub async fn execute_tower_finding(
         Err(e) => return err_result(format!("failed to parse TowerFinding input: {e}")),
     };
 
-    match store.file_finding(&caller, input).await {
+    match store.file_finding(&caller, input, tokens).await {
         Ok(rel) => ok_result(format!(
             "finding filed: {rel}\nThe tower will route it — do not fix out-of-scope issues yourself."
         )),
@@ -912,6 +914,7 @@ pub async fn execute_tower_review(
     cwd: &Path,
     caller_agent_id: &str,
     raw_args: &str,
+    tokens: Option<i64>,
 ) -> ExecutableToolResult {
     let repo_root = resolve_tower_repo_root(&cwd.to_string_lossy());
     let store = TowerStore::new(PathBuf::from(repo_root));
@@ -936,7 +939,7 @@ pub async fn execute_tower_review(
         Err(e) => return err_result(format!("failed to parse TowerReview input: {e}")),
     };
 
-    match store.submit_review(&caller, input).await {
+    match store.submit_review(&caller, input, tokens).await {
         Ok(rel) => ok_result(format!(
             "review submitted: {rel}\nAlso notify the branch author (or the tower) with TowerSend so the verdict is seen."
         )),

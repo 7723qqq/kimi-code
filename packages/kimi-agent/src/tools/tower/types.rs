@@ -223,6 +223,10 @@ pub struct TowerInboxItem {
     pub scope: Option<String>,
     pub action: Option<String>,
     pub consent_ref: Option<String>,
+    /// The sender's cumulative token total when the message was sent (v2
+    /// `callerTokens`, upstream #3847); `None` when unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<i64>,
     pub body: String,
 }
 

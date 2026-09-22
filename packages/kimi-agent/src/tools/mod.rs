@@ -831,6 +831,15 @@ impl NativeToolset {
             })
     }
 
+    /// The calling agent's cumulative token total for tower records (v2
+    /// `callerTokens`, upstream #3847). `None` when no manager is attached
+    /// or the caller has no recorded usage (the main agent's session total
+    /// lives in the host's SQLite turn records, unreachable from here).
+    async fn caller_tokens(&self, caller_agent_id: &str) -> Option<i64> {
+        let manager = self.subagent_manager.as_ref()?;
+        manager.caller_tokens(caller_agent_id).await
+    }
+
     /// Attach a SubagentManager for in-process multi-agent collaboration.
     pub fn with_subagents(
         mut self,
@@ -1529,12 +1538,16 @@ impl NativeToolset {
             "towersend" | "tower_send" => {
                 let caller = self.effective_caller_agent_id();
                 let caller = caller.as_str();
+                // Upstream #3847: the sender's cumulative token total rides
+                // the record (v2 `callerTokens`).
+                let tokens = self.caller_tokens(caller).await;
                 Some(
                     tower::execute_tower_send(
                         &self.root,
                         caller,
                         &args.to_string(),
                         self.task_runner.as_deref(),
+                        tokens,
                     )
                     .await,
                 )
@@ -1547,12 +1560,24 @@ impl NativeToolset {
             "towerfinding" | "tower_finding" => {
                 let caller = self.effective_caller_agent_id();
                 let caller = caller.as_str();
-                Some(tower::execute_tower_finding(&self.root, caller, &args.to_string()).await)
+                // Upstream #3847: the filer's cumulative token total rides
+                // the record (v2 `callerTokens`).
+                let tokens = self.caller_tokens(caller).await;
+                Some(
+                    tower::execute_tower_finding(&self.root, caller, &args.to_string(), tokens)
+                        .await,
+                )
             }
             "towerreview" | "tower_review" => {
                 let caller = self.effective_caller_agent_id();
                 let caller = caller.as_str();
-                Some(tower::execute_tower_review(&self.root, caller, &args.to_string()).await)
+                // Upstream #3847: the reviewer's cumulative token total rides
+                // the record (v2 `callerTokens`).
+                let tokens = self.caller_tokens(caller).await;
+                Some(
+                    tower::execute_tower_review(&self.root, caller, &args.to_string(), tokens)
+                        .await,
+                )
             }
             "towermission" | "tower_mission" => {
                 let caller = self.effective_caller_agent_id();

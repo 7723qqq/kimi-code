@@ -1059,10 +1059,16 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
     原裁定记“不适用”，实为**模块缺失**（且是 fork 主动删过的模块，恢复属“取消删除”
     类决策）。当前无消费者，记为已接受债务；将来移植从“默认关”起。allowlist 已改判 `tracked`。
 
-33. **tower 记录用量遥测缺失（2026-09-22 审计 #3847(b) 重新定性）**：v2 的 tower 记录带
-    token usage；fork 的 tower 工具路径没有用量访问器（subagent 实例不跨回合累积用量，
-    主会话用量只在 SQLite 里，toolset 不持有 store），完整移植等于新建遥测基础设施。
-    原裁定混在“不适用”里，实为**模块缺失**，记为已接受债务。allowlist 已改判 `tracked`。
+33. ~~**tower 记录用量遥测缺失（2026-09-22 审计 #3847(b) 重新定性）~~ **已解决（2026-09-22）**：v2 的 tower 记录（finding/review/send）
+    带 `tokens` = 调用方累计用量（`callerTokens` = `grandTotal`，四维求和）。
+    `SubagentManager` 原无按实例累计（foreground/background/persistent 三条完成路径均只写
+    会话历史）。已补：`usage_by_instance` 计数器在三个回合完成点折叠，
+    `caller_tokens` 按 v2 `grandTotal`（input + cacheRead + cacheCreation + output）
+    上报；tower 三个写入方把 tokens 带进记录（finding 的 `**Tokens**` 行、
+    review/inbox 的 frontmatter 字段，`read_inbox` 往返解析）。**记录在案的分歧**：
+    main 调用方报 `None`（v2 的 -1）——会话总量在宿主 SQLite turn 记录里，
+    toolset 不可达；subagent 调用方（tower 记录的实际提交者）完整覆盖。
+    allowlist 已改判 `ported`。
 
 ### 6.2 本轮已修复（含证据）
 
@@ -1121,6 +1127,7 @@ clippy**（5 个文件格式不合规、1 条 `to_string_in_format_args`），�
 | #3875（门禁盲区：只改 apps/kimi-code，非删包）`kimi -p` 在 cron 触发时早退并取消在途回合 | **架构性不适用，无需移植**：v2 的 bug 形态是 print 后台策略（watcher）与回合循环竞态——一次性任务触发后即从日程消失，策略读到空日程判定静息；循环任务按住不放的触发时刻被防自旋守卫误判为 tick 卡死。fork 的 print run 是单顺序所有者：cron 触发由 run 自己负责（`pending_cron_followups` 在 ceiling 内睡到最早触发点、渲染 `<cron-fire>`、触发后删一次性任务），follow-up 回合**先入队**（`maybe_enqueue_print_followup`）后过 idle gate（`maybe_settle_locked`），不存在“队列空而在途回合被取消”的观测点 | `src/session/mod.rs:1016-1074`（follow-up 生产序：goal → cron → tasks，入队先于 idle gate）；`settle_print_background`（等 `running_ids` 空 + 全 run 单一 deadline） |
 | #3869（审计改判：原“不适用”实为行为偏差）yolo 外模式对不可解析 bash 命令不询问 | `DangerousVerdict` 增加第三态 `Unanalyzable`（引号未配平；包装器剥离后命令名非字面量——`$CMD --force` 要到执行时才知道跑什么），`analyze_bash_command` 按“危险优先、不可解析次之、安全兜底”聚合；策略链第 3 步按 v2 #3869 分流：不可解析且**非 Yolo** → Ask（独立 reason），Yolo 落穿到 `YoloModeApprove`。修前 fork 对所有模式放行不可解析命令，v2 在非 yolo 模式询问——Ask When Needed 下上游弹审批、fork 静默执行 | `src/native/permission_engine/dangerous_command.rs`（三态 + 名字字面量检查 + 配平标志）；`src/permission/mod.rs` 策略分流；测试：`test_unanalyzable_shapes`、`test_dangerous_wins_over_unanalyzable`、`test_variable_arguments_stay_analyzable`、`test_unanalyzable_bash_command_asks_except_in_yolo`。记录的残留差异：v2 把 `bash -c "echo $HOME"` 也判不可解析（其 tree-sitter 语法所限），fork 会读内层命令判安全——变量**参数**可解析，只有变量**命令名**不可解析 |
 | #3938（审计改判：原 not-applicable 的 kap-server 半件 moot，但 agent 半件是模块缺失）冷折叠步骤带 step timing/usage | 新增 `src/llm/timing.rs`：`LlmTiming`（v2 `ModelRequestTiming` 六字段，camelCase serde）。`chat_impl` 打 4 个标记（started / sent / 首个 SSE 事件 / 流结束）按 v2 `buildModelRequestTiming` 公式计算（零钳制；`serverDecodeMs`/`clientConsumeMs` 留 None——fork SSE reader 不产 decode stats）；timing 经 `LLMChatResponse.timing` → `StepResult.timing` → turn 循环每步发射 `llm.step.end`（带 turn_id/step/usage——此前该事件无生产者，projector 的 `StepTiming` 从未被填充）→ projector 折叠进步骤。传输层 sink 的同名 emission（服务宿主消息折叠）不变，两条通道消费者分离，无双处理。host-proxy 报 None | `src/llm/timing.rs` 5 项（公式/钳制/serde）；`src/server/transcript/project.rs` 的 step-end 折叠（测试断言 timing 落步）；`src/tools/agent_tool.rs` 生命周期序列现含 step end；lib 2757 通过 |
+| #3847(b)（审计改判：原 not-applicable 实为模块缺失）tower 记录带调用方 token 用量 | `SubagentManager` 新增 `usage_by_instance` 按实例累计计数器，在三个回合完成路径（foreground / background `spawn_and_run` / persistent）折叠；`caller_tokens` 按 v2 `grandTotal`（四维求和，非 `total_tokens`）上报，逐出/销毁时清理防无界增长。tower 的 finding/review/send 三个写入方携带 tokens 入记录（finding `**Tokens**` 行、review/inbox frontmatter 字段），`read_inbox` 往返解析。记录的分歧：main 调用方报 `None`（v2 -1）——会话总量在宿主 SQLite、toolset 不可达；subagent 调用方完整覆盖 | `src/subagent/manager.rs`（计数器 + `caller_tokens` + 清理）；`src/tools/tower/{store,types,mod}.rs` 与 `src/tools/mod.rs` 分发；测试：`test_caller_tokens_accumulates_all_dimensions`、`file_finding_records_the_callers_tokens`、`send_records_tokens_and_read_inbox_round_trips_them`；lib 2760 通过 |
 | #3934（门禁盲区：code-app bundle 同步）2.0.2 web 交互改进与 bug 修复 | **已解决（2026-09-22）**：fork 的 dist-web 原先停在 2.0.2 之前的同步点（#3934 把 `CodeBlockNode-BMkbTGvt.js` 改名为 `CodeBlockNode-CGnsnQxn.js` 等，fork bundle 仍是旧文件名，`index.html` 时间戳 09-17 早于该同步）。同步前先实证 fork 的旧 bundle 与上游 2.0.0（fork 基线）的 bundle **逐字节一致**（`diff -rq` 退出 0）——无 fork 本地改动可丢，于是按“先删后拷、绝不覆盖”约定从上游 2.0.2 tag 提取替换（上游 `2e605b1` 即 code-app `44d7281c7a` 的同步，溯源链成立）：77 文件、1147 删除 / 1232 新增（旧世代确被移除而非叠加），入口 `index-DusVyqlT.js` → `index-DkwBvjsJ.js`，index.html/boot.js 引用可达性手工验证通过 | `f585c04d8d`（chore: sync web dist from code-app (#3934)，沿前三次 sync 的纯 bundle 提交惯例） |
 
 ### 6.3 文档失真清单（本轮已就地更正）
