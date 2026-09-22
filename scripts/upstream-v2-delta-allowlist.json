@@ -40,8 +40,8 @@
       "sha": "b428bfd0049a6bfafb1833ee1c43e03aacfb689c",
       "date": "2026-09-21",
       "subject": "feat(transcript): include step timing and usage in cold-folded steps (#3938)",
-      "verdict": "not-applicable",
-      "note": "The kap-server hunk is a v3 entity field rename (timing -> llmTiming) and v3 was deleted in 86f30ecc2c, so it is moot. The agent half is context-memory sealing meta: the fork engine has no LLM timing instrumentation at all — the only StepTiming in the tree is the definition at server/transcript/model.rs:270, never filled (the projector creates steps with timing: None at project.rs:894, and LlmStepEnd carries only turn_id/step/usage, events/types.rs:20-25). Usage is turn/step granularity (sqlite_store.rs:245 TurnRecord.usage + project.rs:275-282 step.usage), not on assistant messages.",
+      "verdict": "tracked",
+      "note": "The kap-server hunk is a v3 entity field rename (timing -> llmTiming) and v3 was deleted in 86f30ecc2c, so it is moot. The agent half is a MISSING MODULE, not an inapplicable bug: the fork engine has no LLM timing instrumentation at all — the only StepTiming in the tree is the definition at server/transcript/model.rs:270, never filled (the projector creates steps with timing: None at project.rs:894, and LlmStepEnd carries only turn_id/step/usage). Porting means new instrumentation (first-token latency, stream duration) through the engine and the transcript projection — recorded as accepted debt in ROADMAP §6.1, pending a user decision on the new surface.",
       "roadmap": "§6.6"
     },
     {
@@ -56,16 +56,16 @@
       "sha": "65ae3e368c7cfa096242cacc12eeeb661e682977",
       "date": "2026-09-20",
       "subject": "feat(project): reject non-ASCII mission titles and record token usage (#3847)",
-      "verdict": "not-applicable",
-      "note": "Three parts. (a) Non-ASCII mission-title rejection: the fork's unique_slug dedup (tools/tower/store.rs:412-424, paths.rs:96-114) already fixes the branch-collision defect the rejection targets, and accepting the title is friendlier for this fork's Chinese-first users. (b) Token usage on tower records: the tower tool path has no usage accessor (subagent instances do not accumulate usage across turns; the main session's usage lives only in SQLite and the toolset holds no store), so a complete port is new telemetry infrastructure, not a port. (c) The spawn task description: the fork's tower spawn registers no described background task (workers run via tokio::spawn and surface through subagent.completed/failed events), so there is no description to change.",
+      "verdict": "tracked",
+      "note": "Three parts. (a) Non-ASCII mission-title rejection: intentional divergence — the fork unique_slug dedup (tools/tower/store.rs:412-424, paths.rs:96-114) already fixes the branch-collision defect the rejection targets, and accepting the title is friendlier for this fork Chinese-first users. (b) Token usage on tower records: MISSING MODULE — the tower tool path has no usage accessor (subagent instances do not accumulate usage across turns; the main session usage lives only in SQLite and the toolset holds no store), so a complete port is new telemetry infrastructure; recorded as accepted debt in ROADMAP §6.1. (c) The spawn task description: the fork tower spawn registers no described background task (workers run via tokio::spawn and surface through subagent.completed/failed events), so there is no description to change.",
       "roadmap": "§6.6"
     },
     {
       "sha": "f17a22ebf4e21b8196bfaaa9a2490707676bf519",
       "date": "2026-09-19",
       "subject": "feat: turn off filesystem watch by default (#3931)",
-      "verdict": "not-applicable",
-      "note": "The fork has no filesystem watch feature at all, so there is no default to flip; recorded so a future port starts from off.",
+      "verdict": "tracked",
+      "note": "MISSING MODULE, not an inapplicable default: the fork has no filesystem watch at all (its fs_watch was removed wholesale after upstream #3502 deleted the wire surface — ROADMAP §7.3), while upstream keeps an internal watch and #3931 only flips its default to off. Re-adding the module is a deliberate-unremoval decision, recorded as accepted debt in ROADMAP §6.1; a future port starts from off, as the original note said.",
       "roadmap": "§6.6"
     },
     {
@@ -189,8 +189,8 @@
       "sha": "a80fe31cff0ebae686e60d7d5d0559ad2d2e843d",
       "date": "2026-09-18",
       "subject": "fix(agent-core-v2): stop workspace watchers from listing a flooded project root (#3892)",
-      "verdict": "not-applicable",
-      "note": "The fixed failure mode is v2's OS directory watcher inventorying a project root into the V8 heap. The fork's fs_watch (server/fs_watch.rs) is mtime polling of explicitly registered file paths — there is no root watch, no directory-tree listing, and nothing that can flood a heap on a pathological root. The [watch] enabled kill switch has no fork counterpart because there is no watcher subsystem to disable; if a kill switch is ever wanted it belongs on the fs_watch registry, recorded here for that future."
+      "verdict": "tracked",
+      "note": "Same missing module as #3931: the fixed failure mode is v2 OS directory watcher inventorying a project root into the V8 heap. The fork fs_watch (server/fs_watch.rs) is mtime polling of explicitly registered paths — no root watch, no directory-tree listing, nothing that can flood a heap. The [watch] enabled / KIMI_CODE_WATCH knobs have no fork counterpart to wire. Recorded as accepted debt in ROADMAP §6.1 alongside #3931."
     },
     {
       "sha": "5108cad9b65845ae992520dcf732cbbccc6a34b9",
@@ -232,8 +232,8 @@
       "sha": "86e08208e3445171f6500c948234d7e3a0684324",
       "date": "2026-09-17",
       "subject": "feat(agent-core-v2): approve unanalyzable bash commands in yolo permission mode (#3869)",
-      "verdict": "not-applicable",
-      "note": "No counterpart state exists in this engine, so there is nothing to approve or ask about. v2's DangerousCommandAsk policy has three outcomes (dangerous / unanalyzable / no-verdict) because it feeds each Bash command through the tree-sitter bash parser, which can reject input: an unparseable command became a distinct `unanalyzable` verdict and was asked about in every mode, which is what #3869 relaxes for yolo. The fork's analyzer is `native/permission_engine/dangerous_command.rs::analyze_bash_command`, a hand-written tokenizer whose signature (`fn(&str) -> DangerousVerdict`, two variants Dangerous/Safe) cannot express a parse failure — `tokenize_command` returns `Vec<String>` with no error path — so an unrecognizable command can only fall through as Safe to the normal chain. Verified empirically rather than by reading: a temporary unit test ran ten inputs through the real function and every unparseable one (`echo 'unclosed`, `if [ -f x ]; then`, `for i in 1 2 3; do`, `$((`, `;;;`, `)))`, `` `\\` ``, the empty string, and blanks) returned Safe while `sudo reboot` returned Dangerous(\"reboot\"); the probe was then removed. Consequence: in yolo mode our engine already approves these commands (YoloModeApprove, `permission/mod.rs:440`), and in ask mode they already reach the user's normal approval decision rather than a special unanalyzable prompt — the behavior #3869 asks for, reached by a different route. No port needed."
+      "verdict": "ported",
+      "note": "Ported in full after the 0.30-2.0.2 audit re-opened the verdict: the original not-applicable called the missing unanalyzable state \"no counterpart\", but the consequence was a live divergence — the fork allowed unanalyzable commands in EVERY mode while v2 asks in every non-yolo mode. DangerousVerdict gains Unanalyzable (unbalanced quote, or a command name that is not a literal after wrapper stripping); the policy asks with a distinct reason unless the mode is Yolo (v2 dangerous-command-ask.ts:144 returns undefined for yolo, asks with unanalyzable_command otherwise). Dangerous still wins over unanalyzable. Documented residual: v2 also treats bash -c \"echo $HOME\" as unanalyzable (its tree-sitter grammar bails); the fork reads the inner command and calls it safe — a variable ARGUMENT is analyzable, only a variable command NAME is not. Tests: unanalyzable shapes, dangerous-wins, variable-arguments-stay-analyzable, and the policy matrix (Manual/Auto ask, Yolo falls through to YoloModeApprove)."
     }
   ]
 }

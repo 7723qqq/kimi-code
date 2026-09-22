@@ -1039,6 +1039,26 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
     六域，按铁律新实体需用户许可）；进程内缓存是与 v2 `defineState` 不同的持久化语义，
     属于设计决策而非移植。待用户裁决落点（新状态域 / 宿主上报观测 / 进程内缓存）后再落地。
 
+31. **LLM 计时埋点整体缺失（2026-09-22 审计 #3938 重新定性）**：v2 逐步记录
+    `llmFirstTokenLatencyMs` / `llmStreamDurationMs`（#3938 起冷折叠步骤也带 timing/usage）。
+    fork 引擎**没有任何 LLM 计时埋点**——全树唯一的 `StepTiming` 是
+    `server/transcript/model.rs:270` 的定义，从未被填充（projector 以 `timing: None`
+    建步骤，`LlmStepEnd` 只带 turn_id/step/usage）。原裁定把这条记成“不适用”，
+    实为**模块缺失**：移植等于在引擎与转录投影里新建一套计时面（首 token 延迟、
+    流时长），按铁律属新表面，待用户决策。allowlist 已改判 `tracked`。
+
+32. **文件监视模块缺失（2026-09-22 审计 #3931 / #3892 重新定性）**：上游在 #3502 删除
+    watch 的 WS 面之后**保留了引擎内部 watch**（#3931 把默认关掉、#3892 限制根扫描）；
+    fork 当时把 `fs_watch` 整批移除（ROADMAP §7.3），比上游走得更远——现在引擎侧
+    **没有任何文件监视**，`[watch] enabled` / `KIMI_CODE_WATCH` 两个旋钮也无对应物。
+    原裁定记“不适用”，实为**模块缺失**（且是 fork 主动删过的模块，恢复属“取消删除”
+    类决策）。当前无消费者，记为已接受债务；将来移植从“默认关”起。allowlist 已改判 `tracked`。
+
+33. **tower 记录用量遥测缺失（2026-09-22 审计 #3847(b) 重新定性）**：v2 的 tower 记录带
+    token usage；fork 的 tower 工具路径没有用量访问器（subagent 实例不跨回合累积用量，
+    主会话用量只在 SQLite 里，toolset 不持有 store），完整移植等于新建遥测基础设施。
+    原裁定混在“不适用”里，实为**模块缺失**，记为已接受债务。allowlist 已改判 `tracked`。
+
 ### 6.2 本轮已修复（含证据）
 
 | 上游 | 修复 | 证据 |
@@ -1094,6 +1114,7 @@ clippy**（5 个文件格式不合规、1 条 `to_string_in_format_args`），�
 | 无上游号（过滤 finish_reason 词汇表不全） | transport 透传 provider 停止原因，但停止原因表只认 OpenAI `content_filter`；补 v2 kosong 适配器的整个过滤族：Anthropic `refusal`、Google `safety`/`recitation`/`blocklist`/`prohibited_content`/`spii`/`image_safety`——此前安全拒答以普通完成结束回合，用户看不到过滤提示 | `src/turn_loop/run_turn.rs` `turn_stop_reason_from_finish`；`finish_reason_vocabulary_maps_to_stop_reasons` |
 | 无上游号（压缩内溢出无恢复） | v2 `fullCompactionService.ts:690-710` 的压缩内恢复：摘要请求自身溢出时按 `COMPACTION_OVERFLOW_SHRINK_RATIOS`（0.7/0.5/0.35，上限 `MAX_COMPACTION_OVERFLOW_SHRINK_ATTEMPTS = 3`，共享尝试上限与 `len <= 1` 守卫）收缩重试。fork 原有 #3911 预收缩与空摘要丢最旧路径，但溢出错误不在可重试集合 → 直接失败；预估偏乐观时 v2 能救回、fork 整包压缩失败。Err 分支最前面（与 v2 同序）加该路径，估算口径同 v2 `requestTokens`，收缩走既有 `take_recent_within_budget`，无退避直接重试；工作集改 `Cow` 承载 | `src/compaction/mod.rs`；`test_summarizer_shrinks_history_after_overflow_and_retries`、`test_summarizer_gives_up_after_max_overflow_shrinks`（恰好 1+3 次请求） |
 | #3875（门禁盲区：只改 apps/kimi-code，非删包）`kimi -p` 在 cron 触发时早退并取消在途回合 | **架构性不适用，无需移植**：v2 的 bug 形态是 print 后台策略（watcher）与回合循环竞态——一次性任务触发后即从日程消失，策略读到空日程判定静息；循环任务按住不放的触发时刻被防自旋守卫误判为 tick 卡死。fork 的 print run 是单顺序所有者：cron 触发由 run 自己负责（`pending_cron_followups` 在 ceiling 内睡到最早触发点、渲染 `<cron-fire>`、触发后删一次性任务），follow-up 回合**先入队**（`maybe_enqueue_print_followup`）后过 idle gate（`maybe_settle_locked`），不存在“队列空而在途回合被取消”的观测点 | `src/session/mod.rs:1016-1074`（follow-up 生产序：goal → cron → tasks，入队先于 idle gate）；`settle_print_background`（等 `running_ids` 空 + 全 run 单一 deadline） |
+| #3869（审计改判：原“不适用”实为行为偏差）yolo 外模式对不可解析 bash 命令不询问 | `DangerousVerdict` 增加第三态 `Unanalyzable`（引号未配平；包装器剥离后命令名非字面量——`$CMD --force` 要到执行时才知道跑什么），`analyze_bash_command` 按“危险优先、不可解析次之、安全兜底”聚合；策略链第 3 步按 v2 #3869 分流：不可解析且**非 Yolo** → Ask（独立 reason），Yolo 落穿到 `YoloModeApprove`。修前 fork 对所有模式放行不可解析命令，v2 在非 yolo 模式询问——Ask When Needed 下上游弹审批、fork 静默执行 | `src/native/permission_engine/dangerous_command.rs`（三态 + 名字字面量检查 + 配平标志）；`src/permission/mod.rs` 策略分流；测试：`test_unanalyzable_shapes`、`test_dangerous_wins_over_unanalyzable`、`test_variable_arguments_stay_analyzable`、`test_unanalyzable_bash_command_asks_except_in_yolo`。记录的残留差异：v2 把 `bash -c "echo $HOME"` 也判不可解析（其 tree-sitter 语法所限），fork 会读内层命令判安全——变量**参数**可解析，只有变量**命令名**不可解析 |
 | #3934（门禁盲区：code-app bundle 同步）2.0.2 web 交互改进与 bug 修复 | **已解决（2026-09-22）**：fork 的 dist-web 原先停在 2.0.2 之前的同步点（#3934 把 `CodeBlockNode-BMkbTGvt.js` 改名为 `CodeBlockNode-CGnsnQxn.js` 等，fork bundle 仍是旧文件名，`index.html` 时间戳 09-17 早于该同步）。同步前先实证 fork 的旧 bundle 与上游 2.0.0（fork 基线）的 bundle **逐字节一致**（`diff -rq` 退出 0）——无 fork 本地改动可丢，于是按“先删后拷、绝不覆盖”约定从上游 2.0.2 tag 提取替换（上游 `2e605b1` 即 code-app `44d7281c7a` 的同步，溯源链成立）：77 文件、1147 删除 / 1232 新增（旧世代确被移除而非叠加），入口 `index-DusVyqlT.js` → `index-DkwBvjsJ.js`，index.html/boot.js 引用可达性手工验证通过 | `f585c04d8d`（chore: sync web dist from code-app (#3934)，沿前三次 sync 的纯 bundle 提交惯例） |
 
 ### 6.3 文档失真清单（本轮已就地更正）

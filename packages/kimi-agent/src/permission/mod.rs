@@ -377,19 +377,31 @@ impl PermissionEngine {
         //    Skipped for headless sessions (`non_interactive`, upstream
         //    `permissionPolicyService.ts` drops this ask-policy when the host
         //    cannot answer a prompt): the remaining policies decide.
+        //    Upstream #3869: a command the analyzer cannot read (unbalanced
+        //    quote, non-literal command name) is approved only in Yolo — v2's
+        //    DangerousCommandAsk returns undefined for yolo and asks with
+        //    `unanalyzable_command` in every other mode.
         if !self.snapshot.non_interactive
             && tool_lower == "bash"
             && let Some(command) = target_subject.as_deref()
-            && matches!(
-                analyze_bash_command(command),
-                DangerousVerdict::Dangerous(_)
-            )
         {
-            return LocalPermissionVerdict {
-                decision: VerdictDecision::Ask,
-                policy_name: "DangerousCommandAsk".into(),
-                reason: Some("High-risk shell command requires approval".into()),
-            };
+            match analyze_bash_command(command) {
+                DangerousVerdict::Dangerous(_) => {
+                    return LocalPermissionVerdict {
+                        decision: VerdictDecision::Ask,
+                        policy_name: "DangerousCommandAsk".into(),
+                        reason: Some("High-risk shell command requires approval".into()),
+                    };
+                }
+                DangerousVerdict::Unanalyzable(_) if self.snapshot.mode != PermissionMode::Yolo => {
+                    return LocalPermissionVerdict {
+                        decision: VerdictDecision::Ask,
+                        policy_name: "DangerousCommandAsk".into(),
+                        reason: Some("Shell command could not be statically analyzed".into()),
+                    };
+                }
+                _ => {}
+            }
         }
 
         // 4. AutoModeApprove
@@ -1703,6 +1715,46 @@ mod tests {
             let benign = engine.evaluate("bash", &json!({ "command": "git status" }));
             assert_eq!(benign.decision, VerdictDecision::Allow, "benign command");
         }
+    }
+
+    /// Upstream #3869: a command the analyzer cannot read is approved only
+    /// in Yolo; every other mode asks (v2's DangerousCommandAsk returns
+    /// undefined for yolo, asks with `unanalyzable_command` otherwise).
+    #[test]
+    fn test_unanalyzable_bash_command_asks_except_in_yolo() {
+        let manual = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Manual,
+            ..Default::default()
+        });
+        let auto = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Auto,
+            ..Default::default()
+        });
+        let yolo = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Yolo,
+            ..Default::default()
+        });
+
+        for engine in [&manual, &auto] {
+            for cmd in ["echo \"unterminated", "$CMD --force"] {
+                let verdict = engine.evaluate("bash", &json!({ "command": cmd }));
+                assert_eq!(verdict.decision, VerdictDecision::Ask, "cmd: {cmd}");
+                assert_eq!(verdict.policy_name, "DangerousCommandAsk");
+                assert!(
+                    verdict
+                        .reason
+                        .as_deref()
+                        .is_some_and(|r| r.contains("could not be statically analyzed")),
+                    "reason: {:?}",
+                    verdict.reason
+                );
+            }
+        }
+
+        // Yolo falls through to YoloModeApprove.
+        let verdict = yolo.evaluate("bash", &json!({ "command": "echo \"unterminated" }));
+        assert_eq!(verdict.decision, VerdictDecision::Allow);
+        assert_eq!(verdict.policy_name, "YoloModeApprove");
     }
 
     // Headless sessions (`kimi -p`, upstream bootstrap `nonInteractive`) skip

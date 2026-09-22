@@ -78,20 +78,35 @@ const UNSAFE_OPERAND_CHARS: &[char] = &['$', '`', '*', '?', '[', ']', '~'];
 #[derive(Debug, PartialEq, Eq)]
 pub enum DangerousVerdict {
     Dangerous(String),
+    /// The command could not be read statically — an unbalanced quote, or a
+    /// command name that is not a literal so what will run is only known at
+    /// execution time (v2's tree-sitter parse failure; upstream #3869's
+    /// `unanalyzable`).
+    Unanalyzable(String),
     Safe,
 }
 
 /// 分析复合 Bash 脚本或单条命令是否包含破坏性指令
+///
+/// A `Dangerous` verdict anywhere wins; otherwise an unanalyzable shape
+/// anywhere makes the whole command unanalyzable (upstream #3869).
 pub fn analyze_bash_command(raw_command: &str) -> DangerousVerdict {
-    for sub_cmd in split_pipeline_commands(raw_command) {
-        if let DangerousVerdict::Dangerous(cmd) = check_single_command(&sub_cmd) {
-            return DangerousVerdict::Dangerous(cmd);
+    let (sub_commands, balanced) = split_pipeline_commands(raw_command);
+    let mut unanalyzable: Option<String> = None;
+    for sub_cmd in &sub_commands {
+        match check_single_command(sub_cmd) {
+            DangerousVerdict::Dangerous(cmd) => return DangerousVerdict::Dangerous(cmd),
+            DangerousVerdict::Unanalyzable(cmd) => unanalyzable = Some(cmd),
+            DangerousVerdict::Safe => {}
         }
     }
-    DangerousVerdict::Safe
+    if !balanced {
+        return DangerousVerdict::Unanalyzable(raw_command.to_string());
+    }
+    unanalyzable.map_or(DangerousVerdict::Safe, DangerousVerdict::Unanalyzable)
 }
 
-fn split_pipeline_commands(cmd: &str) -> Vec<String> {
+fn split_pipeline_commands(cmd: &str) -> (Vec<String>, bool) {
     let mut results = Vec::new();
     let mut current = String::new();
     let mut in_single_quote = false;
@@ -136,7 +151,10 @@ fn split_pipeline_commands(cmd: &str) -> Vec<String> {
     if !current.trim().is_empty() {
         results.push(current.trim().to_string());
     }
-    results
+    // A quote still open at end-of-input is a lexer-level failure: the tail
+    // after it cannot be split or tokenized trustworthily (v2's tree-sitter
+    // parse failure; upstream #3869's `unanalyzable`).
+    (results, !in_single_quote && !in_double_quote)
 }
 
 /// 归一化命令名称：剥离路径前缀与 Windows .exe 后缀
@@ -325,6 +343,15 @@ fn check_single_command(cmd: &str) -> DangerousVerdict {
         break;
     }
 
+    // 10. 命令名不是字面量时无法静态解析（v2 的 tree-sitter 在同形态上解析失败，
+    //     upstream #3869 的 unanalyzable）：`$CMD --force` 之类要到执行时才知道
+    //     跑什么。危险判定全部落空之后才检查——`$SUDO reboot` 已被上面的包装器
+    //     剥离路径判危，且检查的是剥离后的当前命令名。
+    let name = &current_tokens[0];
+    if name.starts_with('$') || name.contains('`') {
+        return DangerousVerdict::Unanalyzable(cmd.to_string());
+    }
+
     DangerousVerdict::Safe
 }
 
@@ -470,6 +497,43 @@ mod tests {
         assert_eq!(
             analyze_bash_command("C:\\Windows\\System32\\shutdown.exe /s /t 0"),
             DangerousVerdict::Dangerous("shutdown".into())
+        );
+    }
+
+    /// Upstream #3869: the shapes v2's tree-sitter analyzer rejects are
+    /// unanalyzable in the fork's lexer too — an unbalanced quote and a
+    /// command name that is not a literal.
+    #[test]
+    fn test_unanalyzable_shapes() {
+        for cmd in ["echo \"unterminated", "$CMD --force", "sudo $CMD reboot"] {
+            assert!(
+                matches!(analyze_bash_command(cmd), DangerousVerdict::Unanalyzable(_)),
+                "must be unanalyzable: {cmd}"
+            );
+        }
+    }
+
+    /// A dangerous verdict wins over an unanalyzable one: `sudo reboot`
+    /// followed by an unterminated quote is still dangerous, never waved
+    /// through as merely unreadable.
+    #[test]
+    fn test_dangerous_wins_over_unanalyzable() {
+        assert!(matches!(
+            analyze_bash_command("sudo reboot; echo \"unterminated"),
+            DangerousVerdict::Dangerous(_)
+        ));
+    }
+
+    /// A literal command name with variable arguments is analyzable — only
+    /// the command NAME being non-literal is unanalyzable (v2 bails on
+    /// `bash -c "echo $HOME"` for its own grammar reasons; the fork reads
+    /// the inner command, which is a documented residual).
+    #[test]
+    fn test_variable_arguments_stay_analyzable() {
+        assert_eq!(analyze_bash_command("echo $HOME"), DangerousVerdict::Safe);
+        assert_eq!(
+            analyze_bash_command("bash -c \"echo $HOME\""),
+            DangerousVerdict::Safe
         );
     }
 
