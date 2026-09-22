@@ -139,12 +139,19 @@ fn turn_result(
 /// Map a provider finish reason onto a turn-level stop reason.
 ///
 /// `length` (OpenAI) / `max_tokens` (Anthropic) mean the response was cut off
-/// by the token limit → `MaxTokens`; `content_filter` → `Filtered`;
-/// everything else ends the turn normally.
+/// by the token limit → `MaxTokens`; the filtered family → `Filtered`:
+/// `content_filter` (OpenAI), `refusal` (Anthropic — kosong maps it to
+/// `filtered`), and Google's safety vocabulary lowercased by the transport
+/// (`safety` / `recitation` / `blocklist` / `prohibited_content` / `spii` /
+/// `image_safety` — kosong maps all six to `filtered`). Everything else ends
+/// the turn normally.
 fn turn_stop_reason_from_finish(finish_reason: Option<&str>) -> LoopTurnStopReason {
     match finish_reason {
         Some("length") | Some("max_tokens") => LoopTurnStopReason::MaxTokens,
-        Some("content_filter") => LoopTurnStopReason::Filtered,
+        Some(
+            "content_filter" | "refusal" | "safety" | "recitation" | "blocklist"
+            | "prohibited_content" | "spii" | "image_safety",
+        ) => LoopTurnStopReason::Filtered,
         _ => LoopTurnStopReason::EndTurn,
     }
 }
@@ -2624,6 +2631,59 @@ mod tests {
                     },
                 })
             })
+        }
+    }
+
+    /// The provider finish-reason vocabulary mapped onto stop reasons, as a
+    /// direct unit test of the table (the per-reason turn tests below drive
+    /// the same function through a full turn for the two common cases).
+    #[test]
+    fn finish_reason_vocabulary_maps_to_stop_reasons() {
+        use super::turn_stop_reason_from_finish;
+        for reason in ["length", "max_tokens"] {
+            assert!(
+                matches!(
+                    turn_stop_reason_from_finish(Some(reason)),
+                    LoopTurnStopReason::MaxTokens
+                ),
+                "{reason} must map to MaxTokens"
+            );
+        }
+        // The filtered family: OpenAI's content_filter, Anthropic's refusal,
+        // and Google's safety vocabulary (lowercased by the transport) — v2's
+        // kosong adapters map every one of them to `filtered`.
+        for reason in [
+            "content_filter",
+            "refusal",
+            "safety",
+            "recitation",
+            "blocklist",
+            "prohibited_content",
+            "spii",
+            "image_safety",
+        ] {
+            assert!(
+                matches!(
+                    turn_stop_reason_from_finish(Some(reason)),
+                    LoopTurnStopReason::Filtered
+                ),
+                "{reason} must map to Filtered"
+            );
+        }
+        for reason in [
+            None,
+            Some("stop"),
+            Some("end_turn"),
+            Some("tool_calls"),
+            Some("tool_use"),
+        ] {
+            assert!(
+                matches!(
+                    turn_stop_reason_from_finish(reason),
+                    LoopTurnStopReason::EndTurn
+                ),
+                "{reason:?} must end the turn normally"
+            );
         }
     }
 
