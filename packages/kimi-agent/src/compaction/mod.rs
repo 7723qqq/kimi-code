@@ -424,9 +424,11 @@ pub async fn summarize_with_llm_budgeted(
     effective_max_tokens: Option<u32>,
 ) -> Result<String, CompactionError> {
     let pre_shrunk = pre_shrink_to_window_budget(omitted, instruction, effective_max_tokens);
-    let mut history: &[LLMMessage] = match pre_shrunk.as_deref() {
-        Some(shrunken) => shrunken,
-        None => omitted,
+    // The overflow shrink below replaces the working set, so it owns its
+    // buffer; the common path borrows the caller's slice untouched.
+    let mut current: std::borrow::Cow<'_, [LLMMessage]> = match pre_shrunk {
+        Some(shrunken) => std::borrow::Cow::Owned(shrunken),
+        None => std::borrow::Cow::Borrowed(omitted),
     };
     let retry_config = RetryConfig {
         max_attempts: max_attempts.unwrap_or(DEFAULT_COMPACTION_MAX_ATTEMPTS),
@@ -434,11 +436,13 @@ pub async fn summarize_with_llm_budgeted(
     };
     let infinite = crate::turn_loop::retry::infinite_retry_enabled();
     let mut attempt: u32 = 0;
+    let mut overflow_shrink_count: u32 = 0;
     loop {
         if cancel.is_some_and(CancellationToken::is_cancelled) {
             return Err(CompactionError::Cancelled);
         }
         attempt += 1;
+        let mut history: &[LLMMessage] = &current;
         let params = LLMChatParams {
             messages: std::sync::Arc::from(summarization_prompt(history, instruction)),
             tools: std::sync::Arc::from(Vec::new()),
@@ -480,6 +484,43 @@ pub async fn summarize_with_llm_budgeted(
                 if crate::llm::http::is_cancelled_error(&err_str) {
                     return Err(CompactionError::Cancelled);
                 }
+                // v2's overflow recovery inside the compaction request itself
+                // (fullCompactionService.ts:690-710): the pre-shrink is an
+                // estimate, and a provider that counts tokens differently can
+                // still refuse the summarization request — shrink the history
+                // by this attempt's ratio and retry instead of failing the
+                // compaction.
+                let prompt = summarization_prompt(&current, instruction);
+                let estimated_request_tokens = prompt
+                    .iter()
+                    .map(estimate_message_tokens)
+                    .fold(0u32, u32::saturating_add);
+                if should_recover_from_context_overflow(
+                    &err_str,
+                    estimated_request_tokens,
+                    effective_max_tokens,
+                ) {
+                    overflow_shrink_count += 1;
+                    if overflow_shrink_count > MAX_COMPACTION_OVERFLOW_SHRINK_ATTEMPTS
+                        || attempt >= retry_config.max_attempts
+                        || current.len() <= 1
+                    {
+                        return Err(CompactionError::Provider(err));
+                    }
+                    let ratio =
+                        COMPACTION_OVERFLOW_SHRINK_RATIOS[(overflow_shrink_count - 1) as usize];
+                    let total: u32 = current
+                        .iter()
+                        .map(estimate_message_tokens)
+                        .fold(0, u32::saturating_add);
+                    let shrunk =
+                        take_recent_within_budget(&current, (f64::from(total) * ratio) as u32);
+                    if shrunk.is_empty() {
+                        return Err(CompactionError::Provider(err));
+                    }
+                    current = std::borrow::Cow::Owned(shrunk);
+                    continue;
+                }
                 if !llm.is_retryable_error(&err_str)
                     || (!infinite && attempt >= retry_config.max_attempts)
                 {
@@ -516,6 +557,16 @@ pub async fn summarize_with_llm_budgeted(
 ///
 /// `None` means "send what you had": no window to respect, the history already
 /// fits, or nothing would survive.
+/// v2 `MAX_COMPACTION_OVERFLOW_SHRINK_ATTEMPTS` (fullCompactionService.ts:80):
+/// how many times one compaction may shrink its own history after the
+/// summarization request itself overflowed.
+const MAX_COMPACTION_OVERFLOW_SHRINK_ATTEMPTS: u32 = 3;
+
+/// v2 `COMPACTION_OVERFLOW_SHRINK_RATIOS` (fullCompactionService.ts:81): the
+/// share of the history a retry after an overflowed compaction request keeps,
+/// by shrink attempt.
+const COMPACTION_OVERFLOW_SHRINK_RATIOS: [f64; 3] = [0.7, 0.5, 0.35];
+
 fn pre_shrink_to_window_budget(
     history: &[LLMMessage],
     instruction: Option<&str>,
@@ -1986,6 +2037,7 @@ mod tests {
         content: String,
         fail_times: u32,
         retryable: bool,
+        fail_message: String,
         calls: std::sync::atomic::AtomicU32,
         last_user_content: std::sync::Mutex<Option<String>>,
     }
@@ -1997,6 +2049,7 @@ mod tests {
                 content: content.into(),
                 fail_times: 0,
                 retryable: false,
+                fail_message: "summarizer unavailable".into(),
                 calls: std::sync::atomic::AtomicU32::new(0),
                 last_user_content: std::sync::Mutex::new(None),
             }
@@ -2008,6 +2061,7 @@ mod tests {
                 content: String::new(),
                 fail_times: u32::MAX,
                 retryable: false,
+                fail_message: "summarizer unavailable".into(),
                 calls: std::sync::atomic::AtomicU32::new(0),
                 last_user_content: std::sync::Mutex::new(None),
             }
@@ -2020,9 +2074,29 @@ mod tests {
                 content: content.into(),
                 fail_times,
                 retryable: true,
+                fail_message: "summarizer unavailable".into(),
                 calls: std::sync::atomic::AtomicU32::new(0),
                 last_user_content: std::sync::Mutex::new(None),
             }
+        }
+
+        /// The first `fail_times` calls fail with a context-overflow error
+        /// (the shape the compaction-overflow shrink recovers from), then
+        /// calls succeed with `content`.
+        fn overflow_then_ok(content: &str, fail_times: u32) -> Self {
+            Self {
+                content: content.into(),
+                fail_times,
+                retryable: false,
+                fail_message: "llm http status 400 Bad Request: context_length_exceeded".into(),
+                calls: std::sync::atomic::AtomicU32::new(0),
+                last_user_content: std::sync::Mutex::new(None),
+            }
+        }
+
+        /// Every call fails with a context-overflow error.
+        fn overflow_always() -> Self {
+            Self::overflow_then_ok("", u32::MAX)
         }
 
         fn call_count(&self) -> u32 {
@@ -2056,6 +2130,7 @@ mod tests {
         ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
         {
             let content = self.content.clone();
+            let fail_message = self.fail_message.clone();
             let attempt = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
             let fails = attempt <= self.fail_times;
             let user_content = params
@@ -2070,7 +2145,7 @@ mod tests {
                 .unwrap_or_else(|e| e.into_inner()) = user_content;
             Box::pin(async move {
                 if fails {
-                    Err("summarizer unavailable".into())
+                    Err(fail_message.into())
                 } else {
                     Ok(LLMChatResponse {
                         content,
@@ -2345,6 +2420,61 @@ mod tests {
         let result = summarize_with_llm(&omitted, &llm, None, None, None).await;
         assert_eq!(result.unwrap(), "Recovered summary.");
         assert_eq!(llm.call_count(), 2, "one retry after the transient failure");
+    }
+
+    /// v2's overflow recovery inside the compaction request
+    /// (fullCompactionService.ts:690-710): when the summarization request
+    /// itself overflows, the history is shrunk by the attempt's ratio and
+    /// retried instead of failing the compaction.
+    #[tokio::test]
+    async fn test_summarizer_shrinks_history_after_overflow_and_retries() {
+        let omitted = vec![
+            msg("user", "user-1"),
+            msg("assistant", "assistant-1"),
+            msg("user", "user-2"),
+            msg("assistant", "assistant-2"),
+            msg("user", "user-3"),
+        ];
+        let llm = SummarizerMockLlm::overflow_then_ok("Recovered summary.", 1);
+        let result = summarize_with_llm_budgeted(&omitted, &llm, None, None, None, None).await;
+        assert_eq!(result.unwrap(), "Recovered summary.");
+        assert_eq!(llm.call_count(), 2, "one shrink-retry after the overflow");
+        let second_prompt = llm.last_user_content();
+        assert!(
+            !second_prompt.contains("user-1"),
+            "the shrink must drop the oldest message: {second_prompt}"
+        );
+        assert!(
+            second_prompt.contains("user-3"),
+            "the newest messages must survive the shrink: {second_prompt}"
+        );
+    }
+
+    /// The shrink is bounded: after `MAX_COMPACTION_OVERFLOW_SHRINK_ATTEMPTS`
+    /// shrinks the original error surfaces instead of looping forever.
+    #[tokio::test]
+    async fn test_summarizer_gives_up_after_max_overflow_shrinks() {
+        // Enough messages that the `len <= 1` guard does not preempt the
+        // shrink bound: each shrink keeps a majority of the tail.
+        let mut omitted = Vec::new();
+        for i in 0..11 {
+            omitted.push(msg(
+                if i % 2 == 0 { "user" } else { "assistant" },
+                &format!("m{i}"),
+            ));
+        }
+        let llm = SummarizerMockLlm::overflow_always();
+        // A generous attempt cap isolates the shrink bound as the stop reason.
+        let result = summarize_with_llm_budgeted(&omitted, &llm, None, None, Some(10), None).await;
+        assert!(
+            matches!(result, Err(CompactionError::Provider(_))),
+            "the original overflow error must surface"
+        );
+        assert_eq!(
+            llm.call_count(),
+            1 + MAX_COMPACTION_OVERFLOW_SHRINK_ATTEMPTS,
+            "one initial request plus one per shrink attempt"
+        );
     }
 
     /// v2 #3750: the host's `loopControl.compactionMaxAttempts` is a true cap
