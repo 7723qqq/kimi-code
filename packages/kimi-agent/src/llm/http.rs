@@ -878,18 +878,25 @@ fn parse_protobuf_duration(text: &str) -> Option<Duration> {
     Some(Duration::from_secs_f64(seconds))
 }
 
-/// Quota/arrears detection mirroring v2 `classifyKimiQuotaError`
-/// (the deleted `providers/kimi-errors.ts:6-22`) and
-/// `isOpenAIInsufficientQuotaError` (the deleted `openai-common.ts:90`): the
-/// structured Kimi code, the OpenAI `insufficient_quota` code, and the
-/// balance/billing message patterns. A hit means the request can never succeed
-/// without human action, so the retry loop must stand down even though the
-/// wire status looks transient.
+/// Quota/arrears detection mirroring v2's quota signals (kosong
+/// `providers/kimi-errors.ts` + `providers/openai-common.ts`): the
+/// structured Kimi code `exceeded_current_quota_error`, the OpenAI
+/// `insufficient_quota` code (set as both `error.type` and `error.code`),
+/// and the message fallback for gateways that flatten the body to text —
+/// every pattern anchored to billing wording, deliberately no bare
+/// /quota/ or /balance/ (which would also match transient throttle
+/// messages like "token quota per minute"). A hit means the request can
+/// never succeed without human action, so the retry loop must stand down
+/// even though the wire status looks transient.
 fn is_quota_exhaustion_error(error: &str) -> bool {
     const QUOTA_MARKERS: &[&str] = &[
         "exceeded_current_quota_error",
         "insufficient_quota",
+        // v2's regex is /exceeded your current (?:token )?quota/ — the
+        // token-bearing wording is the one Moonshot's own docs quote, so
+        // both spellings are markers.
         "exceeded your current quota",
+        "exceeded your current token quota",
         "check your account balance",
         "insufficient balance",
         "recharge your account",
@@ -1002,16 +1009,20 @@ impl LLM for NativeHttpLlm {
             // it. An unparseable code classifies as non-retryable.
             let code = llm_http_status(error).unwrap_or(0);
             // The code set mirrors v2 `isRetryableGenerateError`
-            // (kosong/contract/errors.ts:234-251): [408, 409, 429, 500..=599]
-            // plus the 425 Rust adds for retry-later transports. The quota
-            // exemption mirrors v2 `classifyKimiQuotaError` +
-            // `APIProviderQuotaExhaustedError` (kimi-errors.ts:7-22): a 429
-            // that is really "your account is out of quota / balance" is
-            // deterministic — retrying burns attempts for nothing.
+            // (kosong/src/errors.ts) and `RETRYABLE_STATUS_CODES`
+            // (agent-core-v2/src/human/llm/requester/retry.ts): the explicit
+            // list [408, 409, 429, 500, 502, 503, 504, 529] — NOT the whole
+            // 5xx range, so 501/505/506/… fail fast instead of burning the
+            // retry budget. 425 stays: the fork adds it for retry-later
+            // transports (recorded delta). The quota exemption mirrors v2
+            // `APIProviderQuotaExhaustedError` (kimi-errors.ts /
+            // openai-common.ts): a 429 that is really "your account is out of
+            // quota / balance" is deterministic — retrying burns attempts for
+            // nothing.
             if code == 429 && is_quota_exhaustion_error(error) {
                 return false;
             }
-            return matches!(code, 408 | 409 | 425 | 429 | 500..=599);
+            return matches!(code, 408 | 409 | 425 | 429 | 500 | 502 | 503 | 504 | 529);
         }
         // 402 "Payment Required" (DeepSeek arrears, some Kimi plans) is
         // never in the retryable set, so no explicit exemption is needed.
@@ -1407,6 +1418,35 @@ mod tests {
         );
     }
 
+    /// The retryable status set is v2's explicit list, not the whole 5xx
+    /// range: 501/505/506/507/508/510/511 and the 52x family fail fast
+    /// instead of burning the retry budget (v2 `isRetryableGenerateError`,
+    /// kosong/src/errors.ts, and `RETRYABLE_STATUS_CODES`,
+    /// human/llm/requester/retry.ts). 425 stays as the fork's recorded
+    /// retry-later addition.
+    #[test]
+    fn retryable_status_set_matches_v2_explicit_list() {
+        let llm = NativeHttpLlm::new(
+            config("openai", "https://api.example.com/v1"),
+            String::new(),
+        );
+        for code in [408, 409, 425, 429, 500, 502, 503, 504, 529] {
+            assert!(
+                llm.is_retryable_error(&format!("llm http status {code} Err: transient")),
+                "status {code} must be retryable"
+            );
+        }
+        for code in [
+            400, 401, 402, 403, 404, 410, 422, 423, 426, 501, 505, 506, 507, 508, 510, 511, 520,
+            521, 523, 530, 599,
+        ] {
+            assert!(
+                !llm.is_retryable_error(&format!("llm http status {code} Err: deterministic")),
+                "status {code} must fail fast"
+            );
+        }
+    }
+
     #[test]
     fn quota_exhaustion_is_not_retryable() {
         // Mirrors the v2 quota-exemption cases (kimi-errors.ts:7-22,
@@ -1424,6 +1464,9 @@ mod tests {
             r#"{"error":{"message":"Please recharge your account to continue"}}"#,
             r#"{"error":{"message":"Your account is in arrears. Settle the balance to resume."}}"#,
             "Check your account balance before retrying",
+            // v2's regex is /exceeded your current (?:token )?quota/ — the
+            // token-bearing wording is the one Moonshot's docs quote.
+            "You exceeded your current token quota: 1000000 tokens",
         ];
         for body in quota_bodies {
             assert!(
