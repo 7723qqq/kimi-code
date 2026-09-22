@@ -1,0 +1,12 @@
+# graphify-only exclusions. Read alongside .gitignore; patterns here can only
+# ever exclude more, never re-include a .gitignore match.
+#
+# Committed Vite bundle (~500 minified chunks). It is tracked by git, so
+# .gitignore cannot reach it. Left in the corpus it dominates the graph:
+# 13,959 of 50,247 nodes came from here and every top god node was a minified
+# symbol, burying the real abstractions (session/patch.rs, node-sdk, protocol).
+apps/kimi-code/dist-web/
+
+# ~200 changeset fragment descriptions. Changelog prose about patch bumps, not
+# code structure; each one becomes its own cluster of nodes.
+.changeset/
