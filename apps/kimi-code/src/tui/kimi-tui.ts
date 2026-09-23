@@ -1332,8 +1332,11 @@ export class KimiTUI {
       const file = getInputHistoryFile(this.state.appState.workDir);
       const written = await appendInputHistory(file, trimmed, this.lastHistoryContent);
       if (written) this.lastHistoryContent = trimmed;
-    } catch {
-      this.lastHistoryContent = trimmed;
+    } catch (error) {
+      // The append failed: leave `lastHistoryContent` where it was. Advancing
+      // it here marked the entry as stored, so the dedupe check above skipped
+      // every later attempt to record it and the input never reached ↑-recall.
+      log.warn('failed to append input history', { error: String(error) });
     }
   }
 

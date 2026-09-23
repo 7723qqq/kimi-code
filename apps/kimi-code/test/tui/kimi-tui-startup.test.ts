@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -2876,6 +2876,33 @@ describe('survey telemetry gate wiring', () => {
       expect(surveyGateTelemetryDisabled(makeStartupInput())).toBe(true);
     } finally {
       vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe('input history persistence', () => {
+  // `lastHistoryContent` is the dedupe marker the next submit compares
+  // against. Advancing it on a FAILED append made the entry look stored, so
+  // every later attempt skipped it: the input never reached ↑-recall and was
+  // never retried.
+  it('does not mark the entry as stored when the append fails', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'kimi-tui-history-'));
+    vi.stubEnv('KIMI_CODE_HOME', home);
+    try {
+      // A FILE where the history directory belongs: mkdir fails, so the
+      // append fails deterministically.
+      writeFileSync(join(home, 'user-history'), 'not a directory', 'utf-8');
+
+      const driver = makeDriver(makeHarness(), makeStartupInput()) as unknown as {
+        persistInputHistory(text: string): Promise<void>;
+        lastHistoryContent: string | undefined;
+      };
+      await driver.persistInputHistory('hello');
+
+      expect(driver.lastHistoryContent).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(home, { recursive: true, force: true });
     }
   });
 });
