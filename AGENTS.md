@@ -28,6 +28,77 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 
 ---
 
+## Engine-side i18n (Rust)
+
+The TypeScript layers translate their own UI through `t()`. The **Rust engine** has a
+second, separate surface: text it produces itself — permission reasons, tool-result
+errors, ACP approval labels. Those are built with `LocalizedText` and resolved
+in-process against the locale the host installs.
+
+```rust
+use crate::i18n::{LocalizedText, i18n_params};
+
+// No interpolation.
+LocalizedText::plain("engine.permission.reject", "Reject").render()
+
+// With `{{param}}` interpolation.
+LocalizedText::fmt(
+    "engine.tools.read.notExist",
+    format!("\"{path}\" does not exist."),
+    i18n_params!["path" => path],
+)
+.render()
+```
+
+Locale keys live under `engine.*` in `apps/kimi-code/src/i18n/locales/{en,zh}.ts`
+(the host installs them via `setEngineLocale`; see `packages/i18n` and
+`apps/kimi-code/src/i18n`). Run `bun run check:engine-i18n` after any change — CI
+gates on it.
+
+### Hard rules
+
+- **`plain` never interpolates.** A `{name}` in a `plain` English text reaches the
+  user as literal braces. Use `fmt` + `i18n_params!`. The parity gate rejects this.
+- **The `format!` placeholder names must match the locale placeholder names,
+  character for character.** `format!("… {v} …")` needs `{{v}}` in the locale, not
+  `{{value}}`. The gate compares the normalized templates and fails on drift.
+- **`format!` placeholders must resolve to an in-scope variable.** `Path`/`PathBuf`
+  do not implement `Display`, and fields/constants are not variables — use named
+  arguments: `format!("… {path} …", path = path.display())`,
+  `format!("… {max} …", max = MAX_BYTES)`.
+- **Keep the English fallback accurate.** It is what an unwired host renders (the
+  standalone REPL, unit tests, an embedder that never called `setEngineLocale`),
+  and it is what the parity gate compares against.
+
+### What not to translate
+
+- **Model input** — system prompts (`prompt/*.md`), tool descriptions
+  (`core_tool_defs.rs`), the compaction summarizer instruction. v2 shipped these in
+  English and translating them changes model behaviour.
+- **Tool-protocol instructions** — strings that tell the model how to drive a tool
+  ("To resume reading, call Read with line_offset=…", "Use offset=… to see more").
+  They are part of the tool's contract, not UI.
+- **Format scaffolding** — `"<system>{}</system>"`, `"<image path=… />"`,
+  `"data:{mime};base64,…"`, `"{}\t{}"`. No prose to translate.
+- **Machine-readable wire tokens** — `llm http status {status}: ` and
+  ` (retry-after {s}s)` in `llm/error.rs` are parsed back out by
+  `llm::http::llm_http_status` and `turn_loop::retry_after_hint`; translating them
+  silently breaks retry backoff and context-overflow recovery.
+
+### Known gaps
+
+- **`ToolExecuteResponse.note` has no napi consumer.** The engine emits it on the
+  `tool.native` event, but `sdk-rpc-client-native.ts` forwards only `content` and
+  `is_error`, and the ACP projection ignores it too. It is carried through
+  `tool_result_truncation` unchanged and never appended to `content`. Notes are
+  localized anyway (so they are correct the day a client reads them), but today
+  `engine.tools.readMedia.readVideoFile` is the one converted string a user cannot
+  see. Surfacing it needs a protocol change, tracked separately.
+- **Informational footers are still English** — "Total lines in file: N.",
+  "Showing matches X–Y of Z.", "Continue with the same search arguments…".
+
+---
+
 ## Technology Stack
 
 ### Languages & Runtimes
@@ -202,6 +273,7 @@ scripts/
   check-t-call-coverage.mjs     — Check t() call coverage
   scan-hardcoded[-v2].mjs       — Scan for hardcoded strings (i18n compliance)
   scan-parity.mjs               — Rust ↔ TS interface parity (REST / WS events / WS control / tool names / napi / config keys)
+  check-engine-i18n-parity.mjs  — Rust `LocalizedText` English fallbacks vs locale entries (drift + orphan-key detection)
   check-no-legacy-engine.mjs    — Fail if a retired engine package is still referenced
   prompt-optimizer/             — Prompt benchmark and optimization tools
 ```
@@ -289,7 +361,7 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job install
 3. **test-rust** — `cargo fmt --check` + `cargo clippy --all-targets --features cli -- -D warnings` (Ubuntu only), then `cargo test --no-default-features --features cli,workflow-js` on Ubuntu and Windows
 4. **test-windows** — the full vitest suite on `windows-latest` (napi addon built first), so Windows-only regressions are caught
 5. **test-pi-tui** — `pi-tui` suite (uses node:test via Bun's node:test shim)
-6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, `check-no-legacy-engine.mjs`, Rust ↔ TS interface parity (`scan-parity.mjs`), no-comment policy (`check-no-comments.mjs`), service naming (`check-service-naming.mjs`), `t()` coverage (`check-t-call-coverage.mjs`), hardcoded-string scan (`scan-hardcoded-v2.mjs`), retired-package upstream delta ratchet (`check-upstream-v2-delta.mjs`), locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
+6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, `check-no-legacy-engine.mjs`, Rust ↔ TS interface parity (`scan-parity.mjs`), no-comment policy (`check-no-comments.mjs`), service naming (`check-service-naming.mjs`), `t()` coverage (`check-t-call-coverage.mjs`), engine i18n parity (`check-engine-i18n-parity.mjs`), hardcoded-string scan (`scan-hardcoded-v2.mjs`), retired-package upstream delta ratchet (`check-upstream-v2-delta.mjs`), locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
 7. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
 8. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-agent && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test.
 9. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
