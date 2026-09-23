@@ -1,12 +1,17 @@
+import { existsSync, rmSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createKimiHarness, type KimiError } from '#/index';
 
 import { TEST_IDENTITY } from './test-identity';
+
+// Spy on `node:fs` so the delete test can make the recursive removal fail
+// without needing a real undeletable directory.
+vi.mock('node:fs', { spy: true });
 
 // Every RPC that turns a client-supplied session id into a path segment —
 // create, resume, rename, delete, export — must reject an id that could
@@ -143,5 +148,29 @@ describe('session id path-segment validation', () => {
     } satisfies Partial<KimiError>);
 
     expect(await readFile(join(outside, 'keep.txt'), 'utf-8')).toBe('keep');
+  });
+
+  // deleteSession's rmSync is the only thing that removes the session from
+  // disk, and listSessions enumerates the sessions root from disk — so a
+  // swallowed failure tells the caller the delete succeeded while the session
+  // reappears in the picker on the next list. The TUI already reports a
+  // rejection here ("Failed to delete session …").
+  it('deleteSession reports a failed directory removal instead of claiming success', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const session = await harness.createSession({ id: 'delete-failure-1', workDir });
+    const sessionDir = join(homeDir, 'sessions', session.id);
+    expect(existsSync(sessionDir)).toBe(true);
+
+    vi.mocked(rmSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('EPERM: operation not permitted, rmdir'), { code: 'EPERM' });
+    });
+    await expect(harness.deleteSession(session.id)).rejects.toThrow(/EPERM/);
+    expect(existsSync(sessionDir)).toBe(true);
+
+    // The retry finds the session on disk again and removes it for real.
+    await harness.deleteSession(session.id);
+    expect(existsSync(sessionDir)).toBe(false);
   });
 });

@@ -2471,11 +2471,12 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       await meta.handle.dispose().catch(() => {});
     }
     this.liveSessions.delete(input.sessionId);
-    try {
-      rmSync(join(this.sessionBaseDir, input.sessionId), { recursive: true, force: true });
-    } catch {
-      // best-effort: the live session is already gone
-    }
+    // The live handle is gone, but the directory is what `listSessions`
+    // enumerates: swallowing a failed removal told the caller the delete
+    // succeeded while the session reappeared in the picker on the next list.
+    // The TUI reports the rejection ("Failed to delete session …"), and a
+    // retry finds the session on disk again and removes it.
+    rmSync(join(this.sessionBaseDir, input.sessionId), { recursive: true, force: true });
   }
 
   override async closeSession(input: SessionIdRpcInput): Promise<void> {
