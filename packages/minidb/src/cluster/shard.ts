@@ -12,6 +12,10 @@ export type ShardOpenOptions = Omit<OpenOptions, 'dir' | 'readOnly' | 'onLockFai
 
 export class ShardHandle {
   private leaseTimer: NodeJS.Timeout | null = null;
+  /** The last lease-renew failure, if the most recent attempt did not land.
+   *  Cleared on a successful renew. Exposed so a stale lease is observable
+   *  rather than looking like a healthy one. */
+  private lastRenewError: unknown = undefined;
 
   private constructor(
     readonly shardId: number,
@@ -33,7 +37,20 @@ export class ShardHandle {
     const handle = new ShardHandle(shardId, dir, db as MiniDb<unknown>, true);
     if (renewMs > 0) {
       handle.leaseTimer = setInterval(() => {
-        void db.renewLock().catch(() => {});
+        // A renew that cannot land (the line is being replaced, and on Windows
+        // the rename exhausts its EPERM budget under load) leaves the recorded
+        // timestamp stale, which is the one thing this timer exists to keep
+        // fresh. Swallowing it silently made a stale lease indistinguishable
+        // from a healthy one; surfacing it keeps the lease observable.
+        const renew = async (): Promise<void> => {
+          try {
+            await db.renewLock();
+            handle.lastRenewError = undefined;
+          } catch (error: unknown) {
+            handle.lastRenewError = error;
+          }
+        };
+        void renew();
       }, renewMs);
       // Never keep a worker process alive just for lease renewal.
       handle.leaseTimer.unref();
@@ -53,6 +70,13 @@ export class ShardHandle {
       fsyncPolicy: 'no',
     });
     return new ShardHandle(shardId, dir, db as MiniDb<unknown>, false);
+  }
+
+  /** The last lease-renew failure, or `undefined` when the most recent renew
+   *  landed. A writer whose renew keeps failing still holds the lock, but its
+   *  recorded timestamp goes stale; reading this tells the two apart. */
+  get leaseRenewError(): unknown {
+    return this.lastRenewError;
   }
 
   async close(): Promise<void> {
