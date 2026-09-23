@@ -18,6 +18,7 @@ import { useState } from 'react';
 import type { AuditTrail } from '../audit/trail';
 import { IAgentStateService } from '../compat/v2';
 import { useConnection } from '../connection';
+import { t } from '../i18n';
 import { Badge } from '../ui';
 import { AuditPanel } from './audit/AuditPanel';
 import { Inspector } from './Inspector';
@@ -63,9 +64,7 @@ export function RightPanel({
           <AuditPanel trail={trail} />
         ) : (
           <div className="p-3 text-[12px] text-neutral-600">
-            {sessionId === null
-              ? 'No session selected.'
-              : 'Loading transcript — the audit trail appears once the channel is up.'}
+            {sessionId === null ? t('inspector.noSessionSelected') : t('inspector.loadingTranscript')}
           </div>
         )}
       </div>
@@ -81,7 +80,7 @@ export function RightPanel({
         <div className="p-3">
           {sessionId === null || !ready ? (
             <div className="text-[12px] text-neutral-600">
-              {sessionId === null ? 'No session selected.' : 'Loading session…'}
+              {sessionId === null ? t('inspector.noSessionSelected') : t('inspector.loadingSession')}
             </div>
           ) : (
             <StateCard

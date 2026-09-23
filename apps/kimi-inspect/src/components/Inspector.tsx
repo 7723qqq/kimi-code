@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { serviceByName } from '../channel';
 import { ISessionMetadata } from '../compat/v2';
 import { useConnection } from '../connection';
+import { t } from '../i18n';
 import { type AnyService } from '../panels';
 import { fetchAgentRuntimeBinding } from '../snapshots/api';
 import { fetchTranscriptPlan, type TranscriptPlanInfo } from '../transcript/api';
@@ -134,7 +135,7 @@ export function Inspector({
       <div className="flex-1 overflow-y-auto p-3">
         {sessionBlocked ? (
           <div className="text-[12px] text-neutral-600">
-            {sessionId === null ? 'No session selected.' : 'Loading session…'}
+            {sessionId === null ? t('inspector.noSessionSelected') : t('inspector.loadingSession')}
           </div>
         ) : (
           <>

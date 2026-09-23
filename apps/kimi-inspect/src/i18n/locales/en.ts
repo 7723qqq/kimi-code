@@ -56,6 +56,8 @@ export default {
     methodsCount: '{{n}} methods ⇄ {{domain}}',
     noSessionSelected: 'No session selected.',
     loadingSession: 'Loading session…',
+    loadingTranscript:
+      'Loading transcript — the audit trail appears once the channel is up.',
     refresh: 'Refresh',
     load: 'Load',
     clickLoadHint: 'click Load to read this Service',

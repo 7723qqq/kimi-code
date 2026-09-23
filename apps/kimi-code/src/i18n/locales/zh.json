@@ -527,6 +527,7 @@
         "importRegistryFailed": "导入注册表失败：{{error}}",
         "applyRegistryFailed": "应用注册表失败：{{error}}",
         "registryEmpty": "注册表中没有提供商。",
+        "registryAuthRequired": "注册表拒绝了请求，原因是未通过身份验证。若该注册表需要密钥，请提供 API 密钥。",
         "importedOne": "已从注册表导入 1 个提供商。",
         "importedMany": "已从注册表导入 {{count}} 个提供商。"
       }
@@ -1419,6 +1420,7 @@
       "providerUrlRequired": "注册表 URL 不能为空。",
       "providerFetchFailed": "获取注册表失败{{suffix}}：{{error}}",
       "providerNoUsable": "{{url}} 上的注册表不包含可用的提供商。",
+      "providerAuthRequired": "注册表拒绝了请求，原因是未通过身份验证。若该注册表需要密钥，请传入 --api-key <key>（或设置 KIMI_PROVIDER_API_KEY）。",
       "providerNotFound": "未找到提供商\"{{id}}\"。",
       "providerRemoved": "已移除提供商\"{{id}}\"。",
       "providerNoneConfigured": "未配置任何提供商。",

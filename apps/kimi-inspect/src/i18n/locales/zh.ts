@@ -54,6 +54,7 @@ export default {
     methodsCount: '{{n}} 个方法 ⇄ {{domain}}',
     noSessionSelected: '未选择会话。',
     loadingSession: '正在加载会话…',
+    loadingTranscript: '正在加载会话记录 — 通道就绪后即可看到审计轨迹。',
     refresh: '刷新',
     load: '加载',
     clickLoadHint: '点击 Load 读取此 Service',

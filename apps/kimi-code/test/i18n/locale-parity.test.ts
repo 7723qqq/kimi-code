@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
 import en from '#/i18n/locales/en';
@@ -62,3 +65,53 @@ describe('locale key parity', () => {
     });
   }
 });
+
+/**
+ * Guard: every literal `t('…')` key in the sources must resolve in `en`.
+ *
+ * Why: the two parity checks above only compare the locale files against each
+ * other. They stay green when a `t()` call names a key no locale defines — for
+ * example after a rename touched the call site but not the locale, which left
+ * `tui.commands.provider.registryAuthRequired` rendering its raw key at the
+ * user. `scripts/check-t-call-coverage.mjs` catches this in CI; this test keeps
+ * it caught by the local suite too.
+ *
+ * Dynamic keys (`t('a.' + x)`) are skipped: their target is not statically
+ * knowable, and guessing would produce false failures.
+ */
+describe('t() call coverage', () => {
+  const enKeys = new Set(flattenKeys(en as Nested));
+
+  it('every literal t() key in apps/kimi-code/src resolves in en', () => {
+    const srcRoot = fileURLToPath(new URL('../../src', import.meta.url));
+    const callRe = /\bt\(\s*'([^'\\]*)'/g;
+    const unresolved: string[] = [];
+
+    for (const file of walkTypescript(srcRoot)) {
+      const code = readFileSync(file, 'utf8');
+      for (const match of code.matchAll(callRe)) {
+        const key = match[1];
+        if (key === undefined || key.endsWith('.')) continue;
+        if (!enKeys.has(key)) unresolved.push(`${key}  (${file.slice(srcRoot.length + 1)})`);
+      }
+    }
+
+    expect(
+      [...new Set(unresolved)].sort(),
+      `These t() calls name keys that no locale defines; they render their raw ` +
+        `key at the user. Add them to locales/en.ts and locales/zh.ts:\n` +
+        unresolved.map((k) => `  ${k}`).join('\n'),
+    ).toEqual([]);
+  });
+});
+
+function* walkTypescript(dir: string): Generator<string> {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) {
+      yield* walkTypescript(path);
+    } else if (/\.tsx?$/.test(entry.name) && !entry.name.endsWith('.d.ts')) {
+      yield path;
+    }
+  }
+}

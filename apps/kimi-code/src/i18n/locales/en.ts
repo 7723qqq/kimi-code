@@ -587,6 +587,8 @@ export default {
         importRegistryFailed: 'Failed to import registry: {{error}}',
         applyRegistryFailed: 'Failed to apply registry: {{error}}',
         registryEmpty: 'Registry contained no providers.',
+        registryAuthRequired:
+          'The registry rejected the request as unauthenticated. Provide an API key if the registry requires one.',
         importedOne: 'Imported 1 provider from registry.',
         importedMany: 'Imported {{count}} providers from registry.',
       },
@@ -1554,6 +1556,8 @@ export default {
       providerUrlRequired: 'Registry URL is required.',
       providerFetchFailed: 'Failed to fetch registry{{suffix}}: {{error}}',
       providerNoUsable: 'Registry at {{url}} contained no usable providers.',
+      providerAuthRequired:
+        'The registry rejected the request as unauthenticated. Pass --api-key <key> (or set KIMI_PROVIDER_API_KEY) if the registry requires one.',
       providerNotFound: 'Provider "{{id}}" not found.',
       providerRemoved: 'Removed provider "{{id}}".',
       providerNoneConfigured: 'No providers configured.',
