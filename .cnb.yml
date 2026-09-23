@@ -1,46 +1,51 @@
 # CNB pipeline configuration for kimicode.all/kimicode.
 #
-# This file tunes the NPC tasks that run when `@CodeBuddy ...` is mentioned in
-# an issue or pull request. Without it, this repository gets the platform
-# defaults (8 CPUs / 16 GiB, `cnbcool/default-npc:latest`), which produced two
-# distinct classes of failure:
+# This file tunes the NPC task that runs when `@CodeBuddy ...` is mentioned in
+# an issue or pull request. It is written against the platform's NPC merge
+# contract (https://docs.cnb.cool/zh/build/npc.md), which this repository got
+# wrong once already: the previous revision wrapped everything in a `default:`
+# key and set `timeout:` at the pipeline level. Both are rejected by the
+# pipeline schema, and a rejected event block does not fail the build — CNB
+# silently falls back to the platform default, so the whole tuning never ran.
+# The evidence, measured inside the NPC container on `cnb-91b-1k37mvioj`:
 #
-# 1. `cargo test --features cli --lib` in packages/kimi-agent failed 10 tests.
-#    Reproduced locally and traced to two environment defects in the default
-#    NPC image, not to repository code:
-#      - `commit.gpgsign=true` is set in /root/.gitconfig, but the configured
-#        `gpg.program` cannot sign in this container, so every `git commit`
-#        inside a test repo fails with "gpg failed to sign the data". Nine
-#        tower tests commit to a temporary repo and die on this.
-#      - The image ships ripgrep 13.0.0, while src/tools/grep_types.rs is
-#        transcribed from ripgrep 15.0.0. The table-reconciliation test then
-#        reports "73 of 217 types disagree".
-#    With both defects worked around, the suite goes 2810 passed / 0 failed.
+#   CNB_BUILD_JOB_NAME=npc go      (the `prepare toolchain` stage did not run)
+#   CNB_CPUS=8 / CNB_MEMORY=16     (runner.cpus: 16 was ignored)
+#   rg --version  -> ripgrep 13.0.0, and /usr/local/bin/rg absent
+#   git config --get commit.gpgsign -> true
 #
-# 2. Long Rust builds risk the default 10-minute no-output timeout. The NPC
-#    agent installs the Rust toolchain from scratch on every run (the image has
-#    no cargo/rustc/gcc), which alone costs ~30-50s before compiling.
+# Shape rules that matter here:
+#   * An event holds either an array of pipelines, or an object whose values are
+#     pipelines. `default:` is neither — it is not a pipeline field.
+#   * A pipeline has no `timeout`. `timeout` belongs to a job (the stage entry
+#     itself, for a script job), in milliseconds.
+#   * `npc:go` must be the pipeline's job; the preparation is a sibling script
+#     job that runs before it in the same stage list.
 #
-# The `prepare toolchain` stage below fixes both at the source of the run.
-# `runner.cpus` is raised because memory on CNB is bound to CPU count
-# (memory = cpus x 2 GiB), giving the Rust build headroom.
+# Why the preparation exists at all — two defects in `cnbcool/default-npc:latest`
+# that break `cargo test --features cli --lib` in packages/kimi-agent:
 #
-# Reference: https://docs.cnb.cool/zh/build/npc.html (NPC config merge)
-#            https://docs.cnb.cool/zh/build/build-node.html (runner.cpus)
-#            https://docs.cnb.cool/zh/build/timeout.html (job timeout)
+#   1. `/root/.gitconfig` sets `commit.gpgsign=true` with a `gpg.program` that
+#      cannot sign in this container, so every `git commit` in a temporary test
+#      repository dies with "gpg failed to sign the data". The tower and
+#      mode-mutex tests commit into temp repos and fail on it.
+#   2. The image ships ripgrep 13.0.0, while src/tools/grep_types.rs transcribes
+#      the ripgrep 15.0.0 table and reconciles against the local `rg`.
+#
+# With both worked around, the suite is green. Reference:
+#   https://docs.cnb.cool/zh/build/npc.html        (event merge semantics)
+#   https://docs.cnb.cool/zh/build/grammar.html    (pipeline / job fields)
+#   https://docs.cnb.cool/zh/build/build-node.html (runner.cpus => memory)
 
 # Shared NPC event configuration, reused by both NPC events via a YAML anchor.
-# `include` cannot be used for this: the merged config is per-event, and
-# anchors do not cross files.
+# `include` cannot be used for this: the merged config is per-event, and anchors
+# do not cross files.
 .npc-event: &npc-event
-  default:
+  # Each value under the event is one pipeline; the key is only its name.
+  npc:
     runner:
       # 16 cpus => 32 GiB of memory (the default is 8 cpus => 16 GiB).
       cpus: 16
-    # Applies to every tool execution of the NPC agent (e.g. a single
-    # `cargo test`) and doubles as the no-output timeout. The default is 10
-    # minutes, which a cold Rust build can exceed while downloading crates.
-    timeout: 60m
     docker:
       image: cnbcool/default-npc:latest
     env:
@@ -51,12 +56,16 @@
       RUSTFLAGS: '-C codegen-units=1'
     stages:
       - name: prepare toolchain
+        # A stage is also a job when it carries `script`, and `timeout` is a job
+        # field (milliseconds). The platform default is 10 minutes with no
+        # output, which a cold Rust build can exceed while downloading crates.
+        timeout: 3600000
         script: |
           set -e
           # The image ships ripgrep 13.0.0, but the file-type table in
           # packages/kimi-agent/src/tools/grep_types.rs is transcribed from
           # ripgrep 15.0.0. Install the matching version so the reconciliation
-          # test passes instead of reporting 73 mismatches.
+          # test compares like with like instead of reporting 73 mismatches.
           if ! rg --version 2>/dev/null | grep -q '^ripgrep 15\.'; then
             curl -fsSL -o /tmp/rg.tar.gz \
               https://github.com/BurntSushi/ripgrep/releases/download/15.0.0/ripgrep-15.0.0-x86_64-unknown-linux-musl.tar.gz
