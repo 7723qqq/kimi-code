@@ -147,6 +147,40 @@ describe('KimiHarness.forkSession', () => {
       await harness.close();
     }
   });
+
+  it('fails the fork instead of creating an empty one when the source cannot report its history', async () => {
+    // `forkSession` copies the source's history into the fork. Reading it
+    // through `.catch(() => [])` turned a failed read into an empty history, so
+    // the fork was created with no context and returned as a success — and with
+    // a turnIndex the failure surfaced as a bogus "Fork turn index is out of
+    // range" instead.
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-fork-history-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-fork-history-work-');
+    await writeFakeModelConfig(homeDir);
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_fork_history_fail', workDir });
+      const meta = (
+        harness as unknown as {
+          rpc: {
+            liveSessions: Map<string, { handle?: { getHistory: () => Promise<unknown[]> } }>;
+          };
+        }
+      ).rpc.liveSessions.get(session.id);
+      expect(meta?.handle).toBeDefined();
+      meta!.handle!.getHistory = () => Promise.reject(new Error('engine handle is gone'));
+
+      await expect(
+        harness.forkSession({ id: session.id, forkId: 'ses_fork_history_child' }),
+      ).rejects.toThrow(/engine handle is gone/);
+      // The read happens before the fork is created, so no half-built fork is
+      // left behind.
+      expect(harness.getSession('ses_fork_history_child')).toBeUndefined();
+    } finally {
+      await harness.close();
+    }
+  });
 });
 
 async function writeFakeModelConfig(homeDir: string): Promise<void> {

@@ -194,6 +194,43 @@ describe('Session.setModel', () => {
       await harness.close();
     }
   });
+
+  it('fails the rebuild instead of silently dropping the conversation when the old handle cannot report its history', async () => {
+    // `rebuildHandle` carries the conversation over via getHistory/setHistory
+    // "so context survives" a model change. Reading the old history through
+    // `.catch(() => [])` turned a failed read into an empty history, so the
+    // replacement handle started with no context while the transcript still
+    // showed the whole conversation — a silent wrong result.
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-model-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-model-work-');
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      await configureLocalProvider(harness);
+      const session = await harness.createSession({
+        id: 'ses_model_history_fail',
+        workDir,
+        model: 'initial-model',
+      });
+
+      const meta = (
+        harness as unknown as {
+          rpc: {
+            liveSessions: Map<string, { handle?: { getHistory: () => Promise<unknown[]> } }>;
+          };
+        }
+      ).rpc.liveSessions.get(session.id);
+      expect(meta?.handle).toBeDefined();
+      meta!.handle!.getHistory = () => Promise.reject(new Error('engine handle is gone'));
+
+      await expect(session.setModel('next-model')).rejects.toThrow(/engine handle is gone/);
+      // The rebuild never started, so the session stays on its previous handle
+      // and the model is rolled back.
+      await expect(session.getStatus()).resolves.toMatchObject({ model: 'initial-model' });
+    } finally {
+      await harness.close();
+    }
+  });
 });
 
 /**

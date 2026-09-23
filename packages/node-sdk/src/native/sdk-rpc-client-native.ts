@@ -2927,7 +2927,11 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         `cannot fork session "${input.id}" while a turn is active`,
       );
     }
-    const history = source.handle ? await source.handle.getHistory().catch(() => []) : [];
+    // A failed read is NOT an empty history: swallowing it created the fork
+    // with no context and returned it as a success, and with a turnIndex the
+    // failure surfaced as a bogus "Fork turn index is out of range" instead.
+    // The read happens before the fork exists, so a throw leaves none behind.
+    const history = source.handle ? await source.handle.getHistory() : [];
     if (input.turnIndex !== undefined) {
       // v1's fork rules: an index beyond the recorded user turns rejects with
       // request.invalid and leaves no fork behind.
@@ -4707,7 +4711,11 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
    */
   private async rebuildHandle(meta: NativeSessionMeta): Promise<void> {
     const previous = meta.handle;
-    const history = previous ? await previous.getHistory().catch(() => []) : [];
+    // A failed read is NOT an empty history: swallowing it started the
+    // replacement handle with no context while the transcript still showed the
+    // whole conversation. The throw lands before buildHandle, so the session
+    // stays on its previous handle — the contract this method documents.
+    const history = previous ? await previous.getHistory() : [];
     const handle = await this.buildHandle(meta);
     try {
       if (history.length > 0) {
