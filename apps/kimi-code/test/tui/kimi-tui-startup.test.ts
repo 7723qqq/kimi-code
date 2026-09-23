@@ -2900,6 +2900,14 @@ describe('input history persistence', () => {
       await driver.persistInputHistory('hello');
 
       expect(driver.lastHistoryContent).toBeUndefined();
+
+      // The fault clears: the NEXT submit must retry the append instead of
+      // skipping the entry as already stored, and only then advance the
+      // dedupe marker — the ↑-recall benefit the fix exists for.
+      rmSync(join(home, 'user-history'), { force: true });
+      await driver.persistInputHistory('hello');
+
+      expect(driver.lastHistoryContent).toBe('hello');
     } finally {
       vi.unstubAllEnvs();
       rmSync(home, { recursive: true, force: true });
