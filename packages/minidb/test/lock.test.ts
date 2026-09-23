@@ -530,22 +530,31 @@ test('a contender that cannot list the directory does not claim over a live co-b
     }) as typeof fs.readdir;
 
     const lock = new LockFile(lockPath);
-    // The claim is the thing under test, so bound the wait instead of letting
-    // a correct implementation settle forever: a contender that respects the
-    // co-bidder never claims, and the timer wins the race. The contender is
-    // still settling when the timer fires — removing the directory below is
-    // what ends it, and `release()` cannot be used here because it queues
-    // behind the acquire still in flight.
+    // The claim is the thing under test: a contender that respects the
+    // co-bidder must not claim. The wait is bounded on BOTH sides now — the
+    // attempt cannot claim, and it cannot settle forever on the unlistable
+    // directory either: it gives up with a LockError after a few settle
+    // periods (`release()` cannot be used to end it here because release
+    // queues behind the acquire still in flight).
     const pending = lock.acquire();
     const claimed = await Promise.race([
       pending,
       new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500)),
     ]);
     assert.equal(claimed, false, 'must not claim while a co-bidder is in flight');
-    void pending.catch(() => {});
+    // Bounded: it fails loudly instead of hanging — and since it had already
+    // WON the bid, it relinquishes its own line first, so no live-pid lock
+    // line is left behind for every later opener to trip over.
+    await assert.rejects(() => pending, LockError);
+    assert.equal(lock.held, false, 'the declined attempt does not consider itself the holder');
+    assert.equal(
+      await fs.stat(lockPath).then(() => true, () => false),
+      false,
+      'the winning bid was relinquished — no residue lock line',
+    );
   } finally {
-    // The listing stays broken until the directory is gone, so the settling
-    // contender can only ever exit through the vanished lock file.
+    // The listing stays broken until the directory is gone; the attempt has
+    // already failed above, so this is plain cleanup now.
     await fs.rm(dir, { recursive: true, force: true });
     fs.readdir = originalReaddir;
   }

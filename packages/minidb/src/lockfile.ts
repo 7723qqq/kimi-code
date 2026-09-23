@@ -65,6 +65,14 @@ let exitHooked = false;
 // between that re-verify and markHeld.
 const TAKEOVER_SETTLE_BASE_MS = 60;
 const TAKEOVER_SETTLE_MAX_MS = 2_000;
+// A settle period that could not LIST the directory proves nothing: a listing
+// that keeps failing must not park the takeover loop forever (that turns a
+// listing error into a silent hang). After this many CONSECUTIVE unreadable
+// listings — each already a whole settle period apart, doubling to 2s — the
+// attempt gives up: it relinquishes its own bid line and throws LockError,
+// which the lock pool retries and an opener reports. Never a claim (claiming
+// blind re-opens the double-win the listing check exists to prevent).
+const SETTLE_UNREADABLE_LISTING_LIMIT = 5;
 function hookExit(): void {
   if (exitHooked) return;
   exitHooked = true;
@@ -202,6 +210,10 @@ export class LockFile {
         TAKEOVER_SETTLE_MAX_MS,
         Math.max(TAKEOVER_SETTLE_BASE_MS, elapsedMs * 4),
       );
+      // Consecutive settle periods that ended on an UNLISTABLE directory —
+      // bounded by SETTLE_UNREADABLE_LISTING_LIMIT so a listing error can
+      // never park this loop forever.
+      let unreadableListings = 0;
       for (;;) {
         await new Promise((resolve) => setTimeout(resolve, settleMs));
         const cur = await this.inspect();
@@ -210,7 +222,41 @@ export class LockFile {
         // registration precedes its whole attempt): wait for its loop to
         // finish instead of claiming on stale evidence. This is the check
         // that makes exactly-one a construction, not a timing bet.
-        if (await this.hasLiveForeignWatch(path.basename(watch))) {
+        const watches = await this.hasLiveForeignWatch(path.basename(watch));
+        if (watches === 'unreadable') {
+          if (++unreadableListings < SETTLE_UNREADABLE_LISTING_LIMIT) {
+            settleMs = Math.min(TAKEOVER_SETTLE_MAX_MS, settleMs * 2);
+            continue;
+          }
+          // Out of budget. This attempt WON the bid, so the line on disk
+          // carries our token — but an unlistable directory cannot prove no
+          // co-bidder is still mid-attempt, and claiming blind is the
+          // double-win this check exists to prevent. Relinquish OUR line so
+          // no live-pid residue is left behind with `held` false, then fail
+          // loudly: a LockError the lock pool retries and the open reports.
+          try {
+            await this.relinquishOwnLine();
+          } catch (cleanupError) {
+            // The line could not be removed (it still carries our token).
+            // Track it the way a failed release() does — close()/the exit
+            // hook keep retrying the unlink, everyone else stays excluded
+            // meanwhile — and still report the listing failure below.
+            this.markHeld();
+            throw new LockError(
+              `failed to acquire the lock for ${this.path}: the lock directory could not be listed ` +
+                `${SETTLE_UNREADABLE_LISTING_LIMIT} times in a row; refusing to claim without ` +
+                `verifying no other contender is in flight ` +
+                `(and the lock line could not be relinquished: ${String(cleanupError)})`,
+            );
+          }
+          throw new LockError(
+            `failed to acquire the lock for ${this.path}: the lock directory could not be listed ` +
+              `${SETTLE_UNREADABLE_LISTING_LIMIT} times in a row; refusing to claim without ` +
+              `verifying no other contender is in flight`,
+          );
+        }
+        unreadableListings = 0;
+        if (watches === 'live') {
           settleMs = Math.min(TAKEOVER_SETTLE_MAX_MS, settleMs * 2);
           continue;
         }
@@ -249,10 +295,14 @@ export class LockFile {
    *  tokenless watch line cannot be told apart from our own when its pid is
    *  ours, so it keeps the old pid-based exclusion. `ownWatch` (basename) is
    *  this instance's own registration — never foreign. A registration that
-   *  cannot be read is conservatively live, and so is a directory listing that
-   *  cannot be read at all: skipping either could let us claim on incomplete
-   *  evidence and re-open the double-win this check closes. */
-  private async hasLiveForeignWatch(ownWatch: string): Promise<boolean> {
+   *  cannot be read is conservatively live, and a directory listing that
+   *  cannot be read at all reports `'unreadable'`: neither is evidence that
+   *  no contender is in flight, so neither may be read as "clear" — the
+   *  settle loop bounds the `'unreadable'` case instead of settling on it
+   *  forever. Returns `'live'` / `'none'` for a listing that succeeded. */
+  private async hasLiveForeignWatch(
+    ownWatch: string,
+  ): Promise<'unreadable' | 'live' | 'none'> {
     const dir = path.dirname(this.path);
     const prefix = `${path.basename(this.path)}.watch-`;
     let entries: string[];
@@ -263,8 +313,8 @@ export class LockFile {
       // flight — the same reason an unreadable registration counts as live
       // below. Read as empty, it lets us claim while a co-bidder is still
       // mid-attempt, and the co-bidder then claims too: the double-win this
-      // check exists to prevent. Wait one more settle period instead.
-      return true;
+      // check exists to prevent. The settle loop decides how long to wait.
+      return 'unreadable';
     }
     for (const f of entries) {
       if (!f.startsWith(prefix) || f === ownWatch) continue;
@@ -279,13 +329,31 @@ export class LockFile {
         // readdir and readFile (its owner just finished). Either way we
         // cannot prove it is not a live contender's registration — wait one
         // more settle period instead of claiming.
-        return true;
+        return 'live';
       }
       if (token !== undefined ? token === this.token : pid === process.pid) continue;
-      if (pidAlive(pid)) return true;
+      if (pidAlive(pid)) return 'live';
       await fs.unlink(path.join(dir, f)).catch(() => {});
     }
-    return false;
+    return 'none';
+  }
+
+  /** Give up a lock line THIS instance won but is refusing to claim (the
+   *  settle loop ran out of budget on an unlistable directory). Re-inspects
+   *  first and unlinks only a line that still carries our token — the
+   *  ownership rule release() uses — so a takeover that displaced ours in
+   *  the meantime is never dropped. ENOENT is success (the line is already
+   *  gone); a failure that outlasts the EPERM retry propagates, because
+   *  leaving our live-pid line behind untracked is the residue every later
+   *  opener would read as a live holder. */
+  private async relinquishOwnLine(): Promise<void> {
+    const cur = await this.inspect();
+    if (!cur?.mine) return;
+    try {
+      await withWindowsEpermRetry(() => fs.unlink(this.path));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
   }
 
   /** Atomic create-if-absent publish: tmp write + hard link (EEXIST-safe). */
