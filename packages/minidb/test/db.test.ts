@@ -196,6 +196,118 @@ test('backup + restore preserves data, indexes, and text search', async () => {
   }
 });
 
+/** Fail every rename whose DESTINATION is `destDir`: both the swap into place
+ *  and the compensating restore rename into it. Returns the undo. */
+function failRenamesInto(destDir: string): () => void {
+  const original = fs.rename;
+  fs.rename = ((...args: Parameters<typeof fs.rename>) => {
+    if (String(args[1]) === destDir) {
+      return Promise.reject(
+        Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' }),
+      );
+    }
+    return original(...args);
+  }) as typeof fs.rename;
+  return () => {
+    fs.rename = original;
+  };
+}
+
+// The swap-into-place step moves an existing previous backup aside and
+// restores it if the rename over the destination fails. That restore is the
+// operator's only way back to their previous backup, and its failure used to
+// be swallowed: the caller saw the original rename error, which says nothing
+// about the previous backup now sitting at a hidden sibling path.
+test('a failed restore of the previous backup names where it went', async () => {
+  const dir = await tmpDir();
+  const parent = await tmpDir();
+  const destDir = path.join(parent, 'backup');
+  try {
+    const db = await MiniDb.open({ dir, valueCodec: 'json' });
+    try {
+      await db.set('precious', { keep: true });
+      await db.backup(destDir, { compact: false });
+
+      const restore = failRenamesInto(destDir);
+      let failure: unknown;
+      try {
+        await db.backup(destDir, { compact: false }).catch((error: unknown) => {
+          failure = error;
+        });
+      } finally {
+        restore();
+      }
+
+      assert.ok(failure instanceof Error, 'the backup failed');
+      const aside = (await fs.readdir(parent)).find((name) =>
+        name.startsWith('.backup.backup-old-'),
+      );
+      assert.ok(aside !== undefined, 'the previous backup was moved aside');
+      assert.match(
+        failure.message,
+        new RegExp(aside.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+        'the error names where the previous backup went',
+      );
+      assert.equal(
+        await fs
+          .readFile(path.join(parent, aside, 'backup.manifest.json'), 'utf8')
+          .then(
+            () => true,
+            () => false,
+          ),
+        true,
+        'the previous backup is intact at the aside path',
+      );
+    } finally {
+      await db.close();
+    }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
+test('a retry does not sweep away the previous backup a failed restore left aside', async () => {
+  const dir = await tmpDir();
+  const parent = await tmpDir();
+  const destDir = path.join(parent, 'backup');
+  try {
+    const db = await MiniDb.open({ dir, valueCodec: 'json' });
+    try {
+      await db.set('precious', { keep: true });
+      await db.backup(destDir, { compact: false });
+
+      const restore = failRenamesInto(destDir);
+      try {
+        await db.backup(destDir, { compact: false }).catch(() => {});
+      } finally {
+        restore();
+      }
+      const aside = (await fs.readdir(parent)).find((name) =>
+        name.startsWith('.backup.backup-old-'),
+      );
+      assert.ok(aside !== undefined, 'the previous backup was moved aside');
+
+      // The retry succeeds, and the aside dir — a complete backup, not a
+      // crashed orphan — is still there.
+      await db.backup(destDir, { compact: false });
+      assert.equal(
+        await fs.stat(path.join(parent, aside)).then(
+          () => true,
+          () => false,
+        ),
+        true,
+        'the previous backup survived the retry',
+      );
+    } finally {
+      await db.close();
+    }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
 test('backup fences writes at a linearization point: every pre-fence ack is in, concurrent writes reject (review #22)', async () => {
   const dir = await tmpDir();
   const parent = await tmpDir();

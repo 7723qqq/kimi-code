@@ -15,6 +15,10 @@ import { isPersistentFile } from './generation.js';
 /** Unique suffixes for backup's temp/aside dirs (see copyBackupAtomic). */
 let backupTmpSeq = 0;
 
+/** The commit marker inside a backup dir: its presence is what makes an aside
+ *  dir a complete backup rather than a crashed orphan. */
+const MANIFEST_NAME = 'backup.manifest.json';
+
 /** The owner-injected surface a backup run needs (see the header). */
 export interface BackupDeps {
   dir: () => string;
@@ -107,11 +111,20 @@ async function copyBackupAtomic(deps: BackupDeps, destDir: string): Promise<void
   const tmp = path.join(parent, `.${base}.backup-tmp-${process.pid}-${++backupTmpSeq}`);
   const aside = path.join(parent, `.${base}.backup-old-${process.pid}-${++backupTmpSeq}`);
   await fs.mkdir(parent, { recursive: true });
-  // Sweep orphans from a crashed previous backup of this destination.
+  // Sweep orphans from a crashed previous backup of this destination. An
+  // aside dir that still holds a manifest is NOT an orphan: it is the
+  // destination's previous content, left behind by a crash mid-swap or by a
+  // restore that failed — deleting it would destroy the operator's only copy
+  // of that state.
   for (const name of await fs.readdir(parent)) {
-    if (name.startsWith(`.${base}.backup-tmp-`) || name.startsWith(`.${base}.backup-old-`)) {
+    if (name.startsWith(`.${base}.backup-tmp-`)) {
       await fs.rm(path.join(parent, name), { recursive: true, force: true });
+      continue;
     }
+    if (!name.startsWith(`.${base}.backup-old-`)) continue;
+    const manifest = path.join(parent, name, MANIFEST_NAME);
+    if (await fs.stat(manifest).then(() => true, () => false)) continue;
+    await fs.rm(path.join(parent, name), { recursive: true, force: true });
   }
   await fs.mkdir(tmp);
   try {
@@ -133,7 +146,7 @@ async function copyBackupAtomic(deps: BackupDeps, destDir: string): Promise<void
         await h.close();
       }
     }
-    const manifest = path.join(tmp, 'backup.manifest.json');
+    const manifest = path.join(tmp, MANIFEST_NAME);
     await fs.writeFile(manifest, JSON.stringify({ version: 1, createdAt: Date.now(), files: copied }, null, 2), 'utf8');
     const mh = await fs.open(manifest, 'r+');
     try {
@@ -154,7 +167,20 @@ async function copyBackupAtomic(deps: BackupDeps, destDir: string): Promise<void
       }
       await fs.rename(tmp, destDir);
     } catch (error) {
-      if (asideUsed) await fs.rename(aside, destDir).catch(() => {});
+      if (asideUsed) {
+        try {
+          await fs.rename(aside, destDir);
+        } catch (restoreError) {
+          // The previous backup is still on disk, but no longer at destDir.
+          // Reporting only the original failure would leave the operator
+          // without the one fact they need: where their backup went.
+          throw new AggregateError(
+            [error, restoreError],
+            `backup to ${destDir} failed and the previous backup could not be restored; it is still at ${aside}`,
+            { cause: error },
+          );
+        }
+      }
       throw error;
     }
     await fs.rm(aside, { recursive: true, force: true });
