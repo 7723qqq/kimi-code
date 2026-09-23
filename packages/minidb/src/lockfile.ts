@@ -439,7 +439,22 @@ export class LockFile {
       // dead-man's marker, a concurrent takeover…), and deleting such a file
       // would drop a lock that no longer belongs to us.
       const cur = await this.inspect();
-      if (cur?.mine) await fs.unlink(this.path).catch(() => {});
+      if (cur?.mine) {
+        // Windows answers a co-process's split-second read of the line with
+        // EPERM — the same transient inspect() and renew() ride out. A failure
+        // that outlasts the retry is NOT swallowed: the line still carries this
+        // live process's pid, so reporting success would leave every later
+        // opener (this process included) staring at a live holder, with the
+        // exit hook already told the lock is gone. `held` stays true so the
+        // hook — and a retried release() — can still clean up.
+        try {
+          await withWindowsEpermRetry(() => fs.unlink(this.path));
+        } catch (error) {
+          // The line vanished between the ownership check and the unlink: the
+          // lock is gone, which is what release() was after.
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+      }
       this.held = false;
       HELD.delete(this);
     });

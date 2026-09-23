@@ -550,3 +550,96 @@ test('a contender that cannot list the directory does not claim over a live co-b
     fs.readdir = originalReaddir;
   }
 });
+
+// Unlinking the lock line races the same Windows replace/open window that
+// inspect() and renew() already ride out: a co-process reading the line makes
+// the unlink EPERM for a moment. release() must retry that transient, not
+// treat it as a permanent failure.
+test('release() rides out a transient EPERM unlinking the lock line', async () => {
+  const dir = await tmpDir();
+  try {
+    const lockPath = path.join(dir, 'db.lock');
+    const lock = new LockFile(lockPath);
+    assert.equal(await lock.acquire(), true);
+
+    const originalUnlink = fs.unlink;
+    let injected = 0;
+    fs.unlink = ((...args: Parameters<typeof fs.unlink>) => {
+      if (String(args[0]) === lockPath && injected === 0) {
+        injected++;
+        const err = new Error('EPERM: operation not permitted, unlink') as NodeJS.ErrnoException;
+        err.code = 'EPERM';
+        return Promise.reject(err);
+      }
+      return originalUnlink(...args);
+    }) as typeof fs.unlink;
+    try {
+      await lock.release();
+      assert.equal(injected, 1, 'the injected EPERM was actually exercised');
+    } finally {
+      fs.unlink = originalUnlink;
+    }
+    assert.equal(lock.held, false);
+    assert.equal(
+      await fs.stat(lockPath).then(
+        () => true,
+        () => false,
+      ),
+      false,
+      'the lock line is gone',
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+// A release that cannot unlink the line must NOT report success: the file
+// still carries this live process's pid, so every later opener — including
+// this same process — sees a live holder and fails with LockError, while the
+// exit hook has already been told the lock is gone. close() collects release
+// failures into its AggregateError for exactly this reason.
+test('release() reports a persistent unlink failure instead of leaving the lock behind', async () => {
+  const dir = await tmpDir();
+  try {
+    const lockPath = path.join(dir, 'db.lock');
+    const lock = new LockFile(lockPath);
+    assert.equal(await lock.acquire(), true);
+
+    const originalUnlink = fs.unlink;
+    fs.unlink = ((...args: Parameters<typeof fs.unlink>) => {
+      if (String(args[0]) === lockPath) {
+        const err = new Error('EACCES: permission denied, unlink') as NodeJS.ErrnoException;
+        err.code = 'EACCES';
+        return Promise.reject(err);
+      }
+      return originalUnlink(...args);
+    }) as typeof fs.unlink;
+    try {
+      await assert.rejects(() => lock.release(), /EACCES/);
+      assert.equal(lock.held, true, 'the lock stays tracked so the exit hook can retry');
+      assert.equal(
+        await fs.stat(lockPath).then(
+          () => true,
+          () => false,
+        ),
+        true,
+        'the lock line is still on disk',
+      );
+    } finally {
+      fs.unlink = originalUnlink;
+    }
+    // A retry once the failure clears releases it for real.
+    await lock.release();
+    assert.equal(lock.held, false);
+    assert.equal(
+      await fs.stat(lockPath).then(
+        () => true,
+        () => false,
+      ),
+      false,
+      'the retry released the lock',
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
