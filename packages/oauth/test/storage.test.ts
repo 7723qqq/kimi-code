@@ -9,10 +9,14 @@ import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FileTokenStorage } from '../src/storage';
 import type { TokenInfo } from '../src/types';
+
+// Spy on `node:fs` so the load-failure test can make a read fail without
+// needing a real unreadable file.
+vi.mock('node:fs', { spy: true });
 
 function makeTmpDir(): string {
   const dir = join(
@@ -101,6 +105,23 @@ describe('FileTokenStorage', () => {
     writeFileSync(file, '{ not json', 'utf-8');
     chmodSync(file, 0o600);
     expect(await storage.load('kimi-code')).toBeUndefined();
+  });
+
+  // Load semantics are "missing file → undefined; corrupt JSON / wrong shape →
+  // undefined". Any OTHER read failure must propagate: callers treat undefined
+  // as "no token stored", so swallowing it reports "not logged in" for a token
+  // that is still on disk — and the 401-recovery path then writes a revoked
+  // tombstone over it. remove() already rethrows every non-ENOENT error.
+  it('load() propagates a read failure that is not a missing file', async () => {
+    await storage.save('kimi-code', sampleToken());
+
+    vi.mocked(readFileSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('EACCES: permission denied, open'), { code: 'EACCES' });
+    });
+    await expect(storage.load('kimi-code')).rejects.toThrow(/EACCES/);
+
+    // The token is still on disk and still loads.
+    expect((await storage.load('kimi-code'))?.accessToken).toBe('at-abc');
   });
 
   it('load() returns undefined on malformed payload (not a dict)', async () => {

@@ -9,7 +9,9 @@
  * Atomic on POSIX; Windows best-effort.
  *
  * Load semantics: missing file → undefined. Corrupt JSON / wrong shape →
- * undefined (never throws). Callers treat undefined as "no token stored".
+ * undefined. Any other read failure propagates — callers treat undefined as
+ * "no token stored", so a swallowed read error would report "not logged in"
+ * for a token that is still on disk.
  */
 
 import { randomBytes } from 'node:crypto';
@@ -74,8 +76,15 @@ export class FileTokenStorage implements TokenStorage {
     let raw: string;
     try {
       raw = readFileSync(file, 'utf-8');
-    } catch {
-      return undefined;
+    } catch (error) {
+      // Only a missing file means "no token stored". Every other read failure
+      // (EACCES, EPERM, EBUSY, EIO, …) propagates: callers read undefined as
+      // "not logged in", so swallowing it drives a full re-login for a token
+      // that is still on disk — and the 401-recovery path, seeing no peer
+      // rotation, writes a revoked tombstone over it. remove() rethrows every
+      // non-ENOENT error for the same reason.
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
     }
     let parsed: unknown;
     try {
