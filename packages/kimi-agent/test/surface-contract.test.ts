@@ -84,8 +84,6 @@ const UNWRAPPED_BINDINGS = new Set([
   'sessionGenerateTitle',
   'sessionCompact',
   'sessionCancelCompaction',
-  'setEngineLocale',
-  'clearEngineLocale',
 ]);
 
 // Under a Node runtime Bun's CJS interop degrades: the load can throw outright
