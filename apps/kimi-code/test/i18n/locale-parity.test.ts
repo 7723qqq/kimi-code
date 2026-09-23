@@ -97,7 +97,7 @@ describe('t() call coverage', () => {
     }
 
     expect(
-      [...new Set(unresolved)].sort(),
+      [...new Set(unresolved)].toSorted(),
       `These t() calls name keys that no locale defines; they render their raw ` +
         `key at the user. Add them to locales/en.ts and locales/zh.ts:\n` +
         unresolved.map((k) => `  ${k}`).join('\n'),
