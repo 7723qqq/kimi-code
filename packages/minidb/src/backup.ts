@@ -112,19 +112,58 @@ async function copyBackupAtomic(deps: BackupDeps, destDir: string): Promise<void
   const aside = path.join(parent, `.${base}.backup-old-${process.pid}-${++backupTmpSeq}`);
   await fs.mkdir(parent, { recursive: true });
   // Sweep orphans from a crashed previous backup of this destination. An
-  // aside dir that still holds a manifest is NOT an orphan: it is the
-  // destination's previous content, left behind by a crash mid-swap or by a
-  // restore that failed — deleting it would destroy the operator's only copy
-  // of that state.
+  // aside dir that still holds a manifest is NOT an orphan: it is a complete
+  // backup — the destination's previous content, left behind by a crash
+  // mid-swap or by a restore that failed — and deleting it would destroy the
+  // operator's only copy of that state. Rules:
+  //  - a tmp dir is a crashed copy in progress: always remove.
+  //  - an aside whose manifest is PROVABLY absent (stat → ENOENT) is a
+  //    crashed pre-commit copy: remove.
+  //  - an aside whose manifest cannot be stat'd for any other reason is
+  //    unknown: keep — an unreadable file is not evidence of absence, and
+  //    reading it as "no manifest" swept the previous backup on a transient
+  //    I/O error, exactly the failure this rule exists to prevent.
+  //  - once destDir carries its own manifest it is a proven complete backup,
+  //    so complete asides are superseded: keep the NEWEST one (the previous
+  //    generation) and remove the older ones, so crashes and failed restores
+  //    cannot leak a full backup copy per incident, forever.
+  const completeAsides: { dir: string; mtimeMs: number }[] = [];
   for (const name of await fs.readdir(parent)) {
+    const full = path.join(parent, name);
     if (name.startsWith(`.${base}.backup-tmp-`)) {
-      await fs.rm(path.join(parent, name), { recursive: true, force: true });
+      await fs.rm(full, { recursive: true, force: true });
       continue;
     }
     if (!name.startsWith(`.${base}.backup-old-`)) continue;
-    const manifest = path.join(parent, name, MANIFEST_NAME);
-    if (await fs.stat(manifest).then(() => true, () => false)) continue;
-    await fs.rm(path.join(parent, name), { recursive: true, force: true });
+    const manifestState = await fs.stat(path.join(full, MANIFEST_NAME)).then(
+      () => 'present' as const,
+      (error: unknown) =>
+        (error as NodeJS.ErrnoException).code === 'ENOENT'
+          ? ('absent' as const)
+          : ('unknown' as const),
+    );
+    if (manifestState === 'absent') {
+      await fs.rm(full, { recursive: true, force: true });
+      continue;
+    }
+    if (manifestState === 'unknown') continue;
+    const mtimeMs = await fs.stat(full).then((st) => st.mtimeMs, () => -1);
+    if (mtimeMs < 0) continue; // unreadable dir itself: keep conservatively
+    completeAsides.push({ dir: full, mtimeMs });
+  }
+  if (completeAsides.length > 0) {
+    // Any stat failure counts as "not proven complete" — uncertainty never
+    // triggers a sweep of complete backups (the conservative direction).
+    const destComplete = await fs.stat(path.join(destDir, MANIFEST_NAME)).then(
+      () => true,
+      () => false,
+    );
+    if (destComplete) {
+      completeAsides.sort((a, b) => b.mtimeMs - a.mtimeMs);
+      for (const stale of completeAsides.slice(1)) {
+        await fs.rm(stale.dir, { recursive: true, force: true });
+      }
+    }
   }
   await fs.mkdir(tmp);
   try {

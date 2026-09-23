@@ -308,6 +308,127 @@ test('a retry does not sweep away the previous backup a failed restore left asid
   }
 });
 
+// The sweep decides "crashed orphan vs complete backup" by stat'ing the
+// aside's manifest — and a stat that FAILS (EIO, EMFILE, a transient
+// EACCES) is not a stat that said "absent". Reading any failure as "no
+// manifest" swept the previous backup on a recoverable I/O error: the same
+// failure class the whole keep-manifest rule exists to avoid.
+test('an aside with an unstatable manifest is never swept', async () => {
+  const dir = await tmpDir();
+  const parent = await tmpDir();
+  const destDir = path.join(parent, 'backup');
+  try {
+    const db = await MiniDb.open({ dir, valueCodec: 'json' });
+    try {
+      await db.set('precious', { keep: true });
+      await db.backup(destDir, { compact: false });
+
+      // A complete previous backup left aside by an earlier incident.
+      const aside = path.join(parent, '.backup.backup-old-99999-1');
+      const asideManifest = path.join(aside, 'backup.manifest.json');
+      await fs.mkdir(aside);
+      await fs.writeFile(
+        asideManifest,
+        JSON.stringify({ version: 1, createdAt: 1, files: [] }),
+        'utf8',
+      );
+
+      const originalStat = fs.stat;
+      let injected = 0;
+      fs.stat = ((...args: Parameters<typeof fs.stat>) => {
+        if (String(args[0]) === asideManifest && injected === 0) {
+          injected++;
+          return Promise.reject(Object.assign(new Error('EIO: i/o error, stat'), { code: 'EIO' }));
+        }
+        return originalStat(...args);
+      }) as typeof fs.stat;
+      try {
+        await db.backup(destDir, { compact: false });
+      } finally {
+        fs.stat = originalStat;
+      }
+
+      assert.equal(injected, 1, 'the failing stat was actually exercised');
+      assert.equal(
+        await fs.stat(aside).then(() => true, () => false),
+        true,
+        'the unreadable-manifest aside survived the backup',
+      );
+
+      // With the fault gone the aside counts as complete content: the
+      // destination is proven complete and it is the only complete aside,
+      // so it stays as the previous generation rather than being swept.
+      await db.backup(destDir, { compact: false });
+      assert.equal(
+        await fs.stat(aside).then(() => true, () => false),
+        true,
+        'the newest complete aside is kept as the previous generation',
+      );
+    } finally {
+      await db.close();
+    }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
+// Once the destination is a proven complete backup, older complete asides
+// are superseded previous content. Keeping every one of them leaked a full
+// backup copy per incident (a crash between the swap's two renames) forever:
+// keep the newest, sweep the rest.
+test('only the newest complete aside is kept once the destination is complete', async () => {
+  const dir = await tmpDir();
+  const parent = await tmpDir();
+  const destDir = path.join(parent, 'backup');
+  try {
+    const db = await MiniDb.open({ dir, valueCodec: 'json' });
+    try {
+      await db.set('precious', { keep: true });
+      await db.backup(destDir, { compact: false });
+
+      const older = path.join(parent, '.backup.backup-old-99999-1');
+      const newer = path.join(parent, '.backup.backup-old-99999-2');
+      const now = Date.now();
+      for (const [aside, mtime] of [
+        [older, now - 60_000],
+        [newer, now - 30_000],
+      ] as const) {
+        await fs.mkdir(aside);
+        await fs.writeFile(
+          path.join(aside, 'backup.manifest.json'),
+          JSON.stringify({ version: 1, createdAt: 1, files: [] }),
+          'utf8',
+        );
+        await fs.utimes(aside, new Date(mtime), new Date(mtime));
+      }
+
+      await db.backup(destDir, { compact: false });
+
+      assert.equal(
+        await fs.stat(older).then(() => true, () => false),
+        false,
+        'the superseded older aside was swept',
+      );
+      assert.equal(
+        await fs.stat(newer).then(() => true, () => false),
+        true,
+        'the newest complete aside is kept',
+      );
+      assert.equal(
+        await fs.stat(path.join(destDir, 'backup.manifest.json')).then(() => true, () => false),
+        true,
+        'the destination is a complete backup',
+      );
+    } finally {
+      await db.close();
+    }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
 test('backup fences writes at a linearization point: every pre-fence ack is in, concurrent writes reject (review #22)', async () => {
   const dir = await tmpDir();
   const parent = await tmpDir();
