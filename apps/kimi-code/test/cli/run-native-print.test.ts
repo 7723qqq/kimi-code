@@ -136,4 +136,34 @@ describe('runNativePrint', () => {
     expect(print.mockProcess.exit).toHaveBeenCalledWith(1);
     expect(mockHarness.close).toHaveBeenCalled();
   });
+
+  it('resumes the requested session instead of creating a new one', async () => {
+    const print = startPrint({ session: 'sess-existing' });
+
+    mockSession.prompt.mockImplementation(() => {
+      setTimeout(() => print.emit({ type: 'turn.ended', reason: 'completed' }), 5);
+      return Promise.resolve();
+    });
+
+    await print.run();
+
+    expect(mockHarness.resumeSession).toHaveBeenCalledWith({ id: 'sess-existing' });
+    expect(mockHarness.createSession).not.toHaveBeenCalled();
+    expect(print.mockProcess.exit).not.toHaveBeenCalled();
+  });
+
+  // A --session that cannot be resumed must not silently become a fresh, empty
+  // session: the run would answer without the requested conversation's context
+  // and look like it succeeded. The TUI reports the same failure.
+  it('fails the run when the requested session cannot be resumed', async () => {
+    const print = startPrint({ session: 'bad/id' });
+    mockHarness.resumeSession.mockRejectedValueOnce(new Error('invalid session id "bad/id"'));
+
+    await print.run();
+
+    expect(mockHarness.createSession).not.toHaveBeenCalled();
+    expect(print.stderr()).toContain('[Error]: invalid session id "bad/id"');
+    expect(print.mockProcess.exit).toHaveBeenCalledWith(1);
+    expect(mockHarness.close).toHaveBeenCalled();
+  });
 });

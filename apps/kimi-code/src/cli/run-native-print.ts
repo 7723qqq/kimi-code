@@ -51,19 +51,20 @@ export async function runNativePrint(
   const harness = createKimiHarnessNative(harnessOptions);
 
   try {
-    let session = opts.session
-      ? await harness.resumeSession({ id: opts.session }).catch(() => null)
-      : null;
-
-    if (!session) {
-      session = await harness.createSession({
-        workDir: process.cwd(),
-        sessionStartedProperties: { yolo: opts.yolo, auto: false, plan: false, afk: false },
-        // Headless run (upstream bootstrap `nonInteractive`): the engine
-        // skips its dangerous-command ask policy — no human to answer.
-        nonInteractive: true,
-      });
-    }
+    // An explicit --session that cannot be resumed is an error, not a reason to
+    // run the prompt against a fresh, empty session: the user asked to continue
+    // a specific conversation, and answering without its context is a wrong
+    // result that looks like a right one. The TUI reports the same failure
+    // instead of falling back (kimi-tui.ts resumeSession).
+    const session = opts.session
+      ? await harness.resumeSession({ id: opts.session })
+      : await harness.createSession({
+          workDir: process.cwd(),
+          sessionStartedProperties: { yolo: opts.yolo, auto: false, plan: false, afk: false },
+          // Headless run (upstream bootstrap `nonInteractive`): the engine
+          // skips its dangerous-command ask policy — no human to answer.
+          nonInteractive: true,
+        });
 
     if (opts.model) {
       await session.setModel(opts.model);
