@@ -1890,7 +1890,7 @@ impl NativeToolset {
         let (line_offset, tail_lines) = match args.get("line_offset") {
             None | Some(Value::Null) => (1i64, 0usize),
             Some(v) => {
-                let Some(n) = v.as_i64() else {
+                let Some(n) = parse_integer_arg(v) else {
                     return Some(err_result(format!(
                         "\"line_offset\" must be an integer, got {v}."
                     )));
@@ -1914,7 +1914,7 @@ impl NativeToolset {
         };
         let column_offset = match args.get("column_offset") {
             None | Some(Value::Null) => 0usize,
-            Some(v) => match v.as_u64() {
+            Some(v) => match parse_integer_arg(v).filter(|n| *n >= 0) {
                 Some(n) => n as usize,
                 None => {
                     return Some(err_result(format!(
@@ -1925,7 +1925,7 @@ impl NativeToolset {
         };
         let max_chars = match args.get("max_chars") {
             None | Some(Value::Null) => 100_000usize,
-            Some(v) => match v.as_u64() {
+            Some(v) => match parse_integer_arg(v).filter(|n| *n >= 0) {
                 Some(n) => (n as usize).clamp(1, 500_000),
                 None => {
                     return Some(err_result(format!(
@@ -1936,7 +1936,7 @@ impl NativeToolset {
         };
         let n_lines = match args.get("n_lines") {
             None | Some(Value::Null) => READ_MAX_LINES,
-            Some(v) => match v.as_u64() {
+            Some(v) => match parse_integer_arg(v).filter(|n| *n >= 0) {
                 Some(n) => (n as usize).min(READ_MAX_LINES),
                 None => {
                     return Some(err_result(format!(
@@ -3261,6 +3261,30 @@ fn u64_arg(args: &Value, key: &str, default: u64) -> Result<u64, String> {
             .as_u64()
             .ok_or_else(|| format!("\"{key}\" must be a non-negative integer, got {value}.")),
     }
+}
+
+/// Integer tool argument read leniently: besides a JSON integer, accept a
+/// numeric string (`"30"`) and a float with no fractional part (`30.0`).
+/// Models emit both against schemas that declare `"type": "integer"`, and
+/// `serde_json`'s `as_i64` rejects them — which surfaced as
+/// `"line_offset" must be an integer` on a value that prints as `30`. A
+/// fractional or unparseable value is still rejected.
+fn parse_integer_arg(value: &Value) -> Option<i64> {
+    if let Some(n) = value.as_i64() {
+        return Some(n);
+    }
+    let numeric = match value {
+        Value::String(s) => s.trim().parse::<f64>().ok(),
+        Value::Number(n) => n.as_f64(),
+        _ => None,
+    }?;
+    if !numeric.is_finite() || numeric.fract() != 0.0 {
+        return None;
+    }
+    if numeric < i64::MIN as f64 || numeric > i64::MAX as f64 {
+        return None;
+    }
+    Some(numeric as i64)
 }
 
 /// Which native Grep output shape a scan produces; drives how much per-file
@@ -4994,6 +5018,27 @@ mod tests {
     /// A 10MB single-line file is served natively: reads stream, so file size
     /// is no longer a constraint (the old READ_MAX_BYTES cap declined every
     /// large text file). Output is still bounded by the line renderer.
+    /// A model that emits `line_offset` as a JSON string or float instead of
+    /// an integer still has its read served: the schema advertises
+    /// `"type": "integer"`, but rejecting these made the tool fail with
+    /// `"line_offset" must be an integer` on values that print as a bare
+    /// number. The integer intent is unambiguous either way, so parse it.
+    #[test]
+    fn read_line_offset_accepts_numeric_string_and_float() {
+        let (_dir, ts) = setup();
+        for offset in [json!("2"), json!(2.0)] {
+            let result = ts
+                .execute("Read", &json!({ "path": "a.txt", "line_offset": offset }))
+                .unwrap_or_else(|| panic!("declined for {offset}"));
+            assert!(!result.is_error, "content: {}", result.content);
+            assert!(
+                result.content.contains("beta"),
+                "expected forward read from line 2, content: {}",
+                result.content
+            );
+        }
+    }
+
     #[test]
     fn read_large_single_line_file_is_served_natively() {
         let (_dir, ts) = setup();

@@ -12,7 +12,7 @@ use eventsource_stream::Eventsource;
 use futures_util::StreamExt;
 
 use crate::llm::wire::{StreamDelta, to_wire};
-use crate::llm::{anthropic, google_genai, openai, openai_responses};
+use crate::llm::{anthropic, google_genai, openai, openai_responses, opencode_adapter};
 use crate::rpc::types::{BoxFuture, NativeLlmConfig};
 use crate::turn_loop::types::{LLM, LLMChatParams, LLMChatResponse};
 
@@ -274,7 +274,7 @@ impl NativeHttpLlm {
         // Step boundary: the host mirrors these into transcript step events.
         self.emit(serde_json::json!({ "type": "llm.step.begin", "model": self.config.model }));
 
-        let body = if is_anthropic {
+        let mut body = if is_anthropic {
             anthropic::build_request_full(
                 &self.config.model,
                 self.config
@@ -327,6 +327,10 @@ impl NativeHttpLlm {
                 self.config.reasoning_key.as_deref(),
             )
         };
+
+        if opencode_adapter::is_opencode_endpoint(&self.config.base_url) {
+            opencode_adapter::apply(&mut body);
+        }
 
         let mut token = self.credential().await?;
         let mut response = self

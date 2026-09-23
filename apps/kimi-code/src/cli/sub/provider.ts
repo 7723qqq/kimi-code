@@ -13,16 +13,11 @@
  */
 
 import {
-  applyCustomRegistryProvider,
-  CustomRegistryApiError,
-  fetchCustomRegistry,
-  type CustomRegistrySource,
-  type ManagedKimiConfigShape,
-} from '@moonshot-ai/kimi-code-oauth';
-import {
   applyCatalogProvider,
   catalogProviderModels,
   CatalogFetchError,
+  RegistryImportError,
+  type ImportCustomRegistryResult,
   createKimiHarnessNative,
   DEFAULT_CATALOG_URL,
   resolveCatalogImport,
@@ -78,10 +73,6 @@ export async function handleProviderAdd(
   opts: AddOptions,
 ): Promise<void> {
   const apiKey = await resolveApiKey(opts.apiKey, deps);
-  if (apiKey === undefined) {
-    deps.stderr.write(t('tui.statusMessages.providerApiKeyMissing') + '\n');
-    deps.exit(1);
-  }
 
   const trimmedUrl = url.trim();
   if (trimmedUrl.length === 0) {
@@ -89,69 +80,58 @@ export async function handleProviderAdd(
     deps.exit(1);
   }
 
-  const source: CustomRegistrySource = {
-    kind: 'apiJson',
-    url: trimmedUrl,
-    apiKey,
-  };
-
   const harness = deps.getHarness();
   await harness.ensureConfigFile();
 
-  let entries: Awaited<ReturnType<typeof fetchCustomRegistry>>;
+  // A re-import may legitimately omit the key: the SDK falls back to the one a
+  // previous import from the same URL stored on its providers. Only when
+  // neither exists is the key genuinely missing — and failing here beats the
+  // confusing 401 the registry would otherwise answer with.
+  if (apiKey === undefined && !(await hasStoredRegistryKey(harness, trimmedUrl))) {
+    deps.stderr.write(t('tui.statusMessages.providerApiKeyMissing') + '\n');
+    deps.exit(1);
+  }
+
+  let result: ImportCustomRegistryResult;
   try {
-    entries = await fetchCustomRegistry(source, { userAgent: createKimiCodeUserAgent() });
+    result = await harness.importCustomRegistry({
+      url: trimmedUrl,
+      apiKey,
+      setDefaultWhenUnset: false,
+    });
   } catch (error) {
-    const suffix = error instanceof CustomRegistryApiError ? ` (HTTP ${String(error.status)})` : '';
+    if (!(error instanceof RegistryImportError) || error.phase === 'apply') throw error;
+    if (error.phase === 'empty') {
+      deps.stderr.write(t('tui.statusMessages.providerNoUsable', { url: trimmedUrl }) + '\n');
+      deps.exit(1);
+    }
+    const suffix = error.status === undefined ? '' : ` (HTTP ${String(error.status)})`;
     deps.stderr.write(
       t('tui.statusMessages.providerFetchFailed', { suffix, error: errorMessage(error) }) + '\n',
     );
+    if (apiKey === undefined && (error.status === 401 || error.status === 403)) {
+      deps.stderr.write(t('tui.statusMessages.providerAuthRequired') + '\n');
+    }
     deps.exit(1);
   }
 
-  const entryList = Object.values(entries);
-  if (entryList.length === 0) {
-    deps.stderr.write(t('tui.statusMessages.providerNoUsable', { url: trimmedUrl }) + '\n');
-    deps.exit(1);
-  }
-
-  // `harness.removeProvider` reloads the config from disk on each call (see
-  // `sdk-rpc-client-v2.ts SdkRpcClientV2.removeProvider`), so calling it inside the apply loop
-  // would discard providers we already applied in memory but have not yet
-  // persisted. Drop every stale id up front in a single batch instead, then
-  // apply against the resulting fresh config.
-  let config = await harness.getConfig();
-  const staleIds = entryList
-    .filter((entry) => config.providers[entry.id] !== undefined)
-    .map((entry) => entry.id);
-  for (const id of staleIds) {
-    config = await harness.removeProvider(id);
-  }
-
-  const addedProviderIds: string[] = [];
-  let modelCount = 0;
-  for (const entry of entryList) {
-    applyCustomRegistryProvider(asManaged(config), entry, source);
-    addedProviderIds.push(entry.id);
-    modelCount += Object.keys(entry.models).length;
-  }
-
-  await harness.setConfig({
-    providers: config.providers,
-    models: config.models,
-  });
-
+  const count = result.providers.length;
   deps.stdout.write(
     t('tui.statusMessages.providerMultipleImported', {
-      count: addedProviderIds.length,
-      plural: addedProviderIds.length === 1 ? '' : 's',
-      modelCount,
-      modelPlural: modelCount === 1 ? '' : 's',
+      count,
+      plural: count === 1 ? '' : 's',
+      modelCount: result.modelsImported,
+      modelPlural: result.modelsImported === 1 ? '' : 's',
       url: trimmedUrl,
     }) + '\n',
   );
-  for (const id of addedProviderIds) {
-    deps.stdout.write(`  - ${id}\n`);
+  for (const provider of result.providers) {
+    deps.stdout.write(`  - ${provider.id}\n`);
+  }
+  for (const [id, envName] of Object.entries(result.credentialEnv)) {
+    deps.stdout.write(
+      `provider "${id}" declares credential env var "${envName}" — set api_key_env in config.toml to use it\n`,
+    );
   }
 }
 
@@ -624,8 +604,23 @@ async function resolveApiKey(
   return undefined;
 }
 
-function asManaged(config: KimiConfig): ManagedKimiConfigShape {
-  return config as unknown as ManagedKimiConfigShape;
+/**
+ * Whether a previous import from `url` left an api key on its providers'
+ * `source` blob. The URL is the stable identity of "the same registry" — the
+ * key commonly rotates between imports — so this is what makes a keyless
+ * re-import legitimate rather than a missing credential.
+ */
+async function hasStoredRegistryKey(harness: KimiHarness, url: string): Promise<boolean> {
+  const config = await harness.getConfig();
+  for (const provider of Object.values(config.providers)) {
+    const source = (provider as { readonly source?: unknown }).source;
+    if (source === undefined || typeof source !== 'object' || source === null) continue;
+    const record = source as Record<string, unknown>;
+    if (record['kind'] !== 'apiJson' || record['url'] !== url) continue;
+    const key = record['apiKey'];
+    if (typeof key === 'string' && key.length > 0) return true;
+  }
+  return false;
 }
 
 /**

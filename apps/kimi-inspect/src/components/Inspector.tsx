@@ -19,11 +19,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { serviceByName } from '../channel';
 import { ISessionMetadata } from '../compat/v2';
 import { useConnection } from '../connection';
-import { t } from '../i18n';
 import { type AnyService } from '../panels';
 import { fetchAgentRuntimeBinding } from '../snapshots/api';
-import { projectPlans, type PlanInfo } from '../transcript/plan';
-import type { ChatState } from '../transcript/store';
+import { fetchTranscriptPlan, type TranscriptPlanInfo } from '../transcript/api';
 import { ActionButton, Badge, ErrorLine } from '../ui';
 import { ScopePanels } from './ServicePanels';
 
@@ -32,14 +30,11 @@ export function Inspector({
   agentId,
   onAgentChange,
   ready,
-  chatState,
 }: {
   sessionId: string | null;
   agentId: string;
   onAgentChange: (agentId: string) => void;
   ready: boolean;
-  /** The chat view's projected timeline; the plan lookup reads it instead of fetching. */
-  chatState?: ChatState | undefined;
 }) {
   const { klient } = useConnection();
 
@@ -139,7 +134,7 @@ export function Inspector({
       <div className="flex-1 overflow-y-auto p-3">
         {sessionBlocked ? (
           <div className="text-[12px] text-neutral-600">
-            {sessionId === null ? t('inspector.noSessionSelected') : t('chat.loadingSession')}
+            {sessionId === null ? 'No session selected.' : 'Loading session…'}
           </div>
         ) : (
           <>
@@ -154,29 +149,19 @@ export function Inspector({
               </div>
               <div className="grid grid-cols-[80px_minmax(0,1fr)] gap-1 font-mono">
                 <span className="text-neutral-600">workspace</span>
-                <span className="break-all text-neutral-300">
-                  {runtimeBinding.data?.binding.workspaceId ?? 'loading…'}
-                </span>
+                <span className="break-all text-neutral-300">{runtimeBinding.data?.binding.workspaceId ?? 'loading…'}</span>
                 <span className="text-neutral-600">runtime</span>
-                <span className="break-all text-neutral-300">
-                  {runtimeBinding.data?.binding.runtimeId ?? 'loading…'}
-                </span>
+                <span className="break-all text-neutral-300">{runtimeBinding.data?.binding.runtimeId ?? 'loading…'}</span>
                 <span className="text-neutral-600">generation</span>
-                <span className="break-all text-neutral-300">
-                  {runtimeBinding.data?.runtime?.generation ?? 'unavailable'}
-                </span>
+                <span className="break-all text-neutral-300">{runtimeBinding.data?.runtime?.generation ?? 'unavailable'}</span>
                 <span className="text-neutral-600">status</span>
-                <span className="text-neutral-300">
-                  {runtimeBinding.data?.runtime?.status ?? 'unavailable'}
-                </span>
+                <span className="text-neutral-300">{runtimeBinding.data?.runtime?.status ?? 'unavailable'}</span>
                 <span className="text-neutral-600">capabilities</span>
-                <span className="text-neutral-300">
-                  {runtimeBinding.data?.runtime?.capabilities.join(', ') ?? 'none'}
-                </span>
+                <span className="text-neutral-300">{runtimeBinding.data?.runtime?.capabilities.join(', ') ?? 'none'}</span>
               </div>
               {runtimeBinding.isError ? <ErrorLine error={runtimeBinding.error} /> : null}
             </div>
-            <PlanCard sessionId={sessionId} agentId={effectiveAgent} chatState={chatState} />
+            <PlanCard sessionId={sessionId} agentId={effectiveAgent} />
             <ScopePanels
               scope="agent"
               proxyFor={proxyFor}
@@ -190,45 +175,41 @@ export function Inspector({
 }
 
 // ---------------------------------------------------------------------------
-// Plan lookup — derived from the message stream (`GET /sessions/{id}/history`
-// full read + client-side `projectPlans`): the reviewed plan of one
-// ExitPlanMode tool call, found by tool_call_id (copy it from a tool frame in
-// the chat view), or every plan of the agent. Read-only, fetched on demand
-// like everything else here.
+// Plan lookup — `GET /api/v1/sessions/{id}/transcript/plan`: the reviewed plan
+// of one ExitPlanMode tool call, queried by tool_call_id (copy it from a tool
+// frame in the chat view). Read-only, fetched on demand like everything else
+// here.
 // ---------------------------------------------------------------------------
 
-function PlanCard({
-  sessionId,
-  agentId,
-  chatState,
-}: {
-  sessionId: string;
-  agentId: string;
-  chatState?: ChatState | undefined;
-}) {
+function PlanCard({ sessionId, agentId }: { sessionId: string; agentId: string }) {
+  const { baseUrl, config } = useConnection();
   const [toolCallId, setToolCallId] = useState('');
-  const [result, setResult] = useState<readonly PlanInfo[] | null>(null);
+  const [result, setResult] = useState<readonly TranscriptPlanInfo[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
 
-  // A plan belongs to one agent's timeline — stale results from another
+  // A plan belongs to one agent's transcript — stale results from another
   // session/agent are misleading, so reset on switch.
   useEffect(() => {
     setResult(null);
     setError(null);
   }, [sessionId, agentId]);
 
-  const query = () => {
+  const query = async () => {
     setLoading(true);
     try {
       setError(null);
-      if (chatState === undefined) {
-        setResult(null);
-        setError(new Error('open the session in the chat view first — plans are read from its timeline'));
-        return;
-      }
+      const token = config.token.trim();
       const id = toolCallId.trim();
-      setResult(projectPlans(chatState.entries, chatState.interactions, id === '' ? undefined : id));
+      setResult(
+        await fetchTranscriptPlan({
+          baseUrl,
+          token: token === '' ? undefined : token,
+          sessionId,
+          agentId,
+          toolCallId: id === '' ? undefined : id,
+        }),
+      );
     } catch (error) {
       setResult(null);
       setError(error);
@@ -251,10 +232,10 @@ function PlanCard({
             value={toolCallId}
             onChange={(e) => setToolCallId(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') query();
+              if (e.key === 'Enter') void query();
             }}
           />
-          <ActionButton disabled={loading} onClick={() => query()}>
+          <ActionButton disabled={loading} onClick={() => void query()}>
             {loading ? 'Loading…' : 'Query'}
           </ActionButton>
         </div>
@@ -275,7 +256,7 @@ function PlanCard({
   );
 }
 
-function PlanEntryView({ entry }: { entry: PlanInfo }) {
+function PlanEntryView({ entry }: { entry: TranscriptPlanInfo }) {
   const review = entry.review;
   return (
     <div className="mt-2">

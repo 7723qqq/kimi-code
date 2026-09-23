@@ -5,7 +5,7 @@ Kimi Code CLI 通过环境变量控制少数运行时行为：迁移数据目录
 ::: warning 重要：API 密钥不在这里配置
 `KIMI_API_KEY`、`ANTHROPIC_API_KEY`、`OPENAI_API_KEY` 等密钥变量**不会**从 shell 环境变量自动读取。在终端里 `export KIMI_API_KEY=xxx` 不会让任何供应商获得密钥。密钥必须写在 `config.toml` 的 `[providers.<name>]` 段或 `[providers.<name>.env]` 子表里。
 
-唯一的例外是 `KIMI_MODEL_*` 系列，它是一个显式通道，*确实*会从 shell 读取凭证。详见[用环境变量定义模型](#用环境变量定义模型-kimi-model)。
+例外有两处：`KIMI_MODEL_*` 系列和供应商的 `api_key_env` 字段，这两个显式通道*确实*会从 shell 读取凭证。详见[用环境变量定义模型](#用环境变量定义模型kimi_model_)和[供应商凭证键](#供应商凭证键写在-configtoml-里)。
 
 背景说明见[配置覆盖：供应商凭证](./overrides.md#供应商凭证)。
 :::
@@ -34,7 +34,7 @@ export KIMI_DISABLE_TELEMETRY=1
 
 ### `KIMI_MODEL_*` 系列
 
-不修改 `config.toml` 临时切换模型：设置 `KIMI_MODEL_NAME` 后，CLI 在内存里合成一个临时供应商，重启后失效。详见[用环境变量定义模型](#用环境变量定义模型-kimi-model)。
+不修改 `config.toml` 临时切换模型：设置 `KIMI_MODEL_NAME` 后，CLI 在内存里合成一个临时供应商，重启后失效。详见[用环境变量定义模型](#用环境变量定义模型kimi_model_)。
 
 ### `KIMI_CODE_CUSTOM_HEADERS`
 
@@ -56,7 +56,7 @@ export KIMI_CODE_CUSTOM_HEADERS=$'X-Gateway-Cluster: my-cluster\nX-Custom-Tag: d
 
 下面这些键名不是直接从 shell 读取的。它们是写在 `config.toml` 的 `[providers.<name>.env]` 子表里、作为 `api_key` / `base_url` 备用来源的键名。CLI 只从配置文件读取，不从 `process.env` 读取。
 
-有一个例外只涉及 base URL，且只发生在直接由引擎运行会话的界面上（`kimi acp`、`kimi web`）：当供应商没有声明 `base_url` 时，会先从 shell 环境读取对应的 `*_BASE_URL` 变量作为备用值，再退到该供应商类型的默认端点（见[平台与模型](./providers.md)）。API 密钥键名仍然只从配置文件读取。
+上面的惯用键名是按供应商类型固定的。如果更希望把密钥放在 shell 环境里并使用自定义变量名，可以在供应商上设置 [`api_key_env`](./config-files.md#providers)：CLI 会在每次请求时从该变量读取密钥。
 
 这样设计是为了让你保留熟悉的键名写法，同时把密钥放在配置文件里统一管理：
 
@@ -82,7 +82,7 @@ KIMI_BASE_URL = "https://api.moonshot.ai/v1"
 | `GOOGLE_CLOUD_LOCATION` | Vertex AI | 无 |
 
 ::: warning
-`GOOGLE_APPLICATION_CREDENTIALS`（服务账号 JSON 路径）是另一个走系统环境变量的例外：它由 Google SDK 自身通过 ADC 流程读取，CLI 不参与。其他键名都必须写在 `[providers.<name>.env]` 子表里才能生效；上述 `*_BASE_URL` 的 shell 备用只在未声明 `base_url` 时生效。
+`GOOGLE_APPLICATION_CREDENTIALS`（服务账号 JSON 路径）是唯一走系统环境变量的例外。它由 Google SDK 自身通过 ADC 流程读取，CLI 不参与。其他所有键名都必须写在 `[providers.<name>.env]` 子表里。
 :::
 
 供应商类型与字段的完整说明见[平台与模型](./providers.md)。
@@ -100,18 +100,6 @@ KIMI_BASE_URL = "https://api.moonshot.ai/v1"
 ::: warning
 `KIMI_CODE_BASE_URL`（OAuth 托管服务，指向 `kimi.com`）和 `KIMI_BASE_URL`（API 密钥直连，指向 `moonshot.ai`）是两个不同的变量，请按场景区分。
 :::
-
-## GitHub 凭证
-
-与上面的供应商凭证键不同，这三个变量确实从真实的 shell 环境读取：内置 GitHub 工具只有在拿到 token 时才会出现在 Agent 的工具列表里，而 token 可以不写进配置文件、改由环境提供。
-
-| 变量 | 用途 | 默认值 |
-| --- | --- | --- |
-| `GITHUB_TOKEN` | 内置 GitHub 工具使用的个人访问令牌 | 无 |
-| `GH_TOKEN` | 与 `GITHUB_TOKEN` 等价的另一种写法，即 `gh` 命令行工具使用的名字；两者同时存在时以 `GITHUB_TOKEN` 为准 | 无 |
-| `GITHUB_API_URL` | 指向 GitHub 企业版（GitHub Enterprise Server）实例的 REST API 基地址 | `https://api.github.com` |
-
-写在 `config.toml` 的 `[github]` 段里的 `token` 或 `base_url` 始终优先；环境只补齐配置文件没有给出的字段，并且来自环境的值永远不会写回 `config.toml`。这一段配置本身、以及会话中途补上 token 何时生效，见[配置文件](./config-files.md#github)。
 
 ## 用环境变量定义模型（`KIMI_MODEL_*`）
 
@@ -151,8 +139,7 @@ kimi
 | 环境变量 | 用途 | 合法值 |
 | --- | --- | --- |
 | `KIMI_DISABLE_TELEMETRY` | 关闭匿名遥测上报 | `1`、`true`、`yes`、`y`（不区分大小写） |
-| `KIMI_LANG` | 固定启动时自动探测的终端界面语言；只有探测这一步读它，`tui.toml` 里写了 `locale` 时仍以文件为准 | `zh`、`en` |
-| `KIMI_CODE_PASSWORD` | 为 `kimi web` 本地服务设置并列鉴权密码，与 bearer token 同时有效；把服务绑定到非本机地址时建议设置，见 [在网页中使用：安全注意](../guides/web.md#安全注意) | 任意非空字符串；未设置时仅 token 有效 |
+| `KIMI_CODE_PASSWORD` | 为 `kimi web` 本地服务设置并列鉴权密码；绑到非本机地址时建议设置，见 [安全注意](../guides/web.md#安全注意) | 任意非空字符串；未设置时仅 token 有效 |
 | `KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT` | 会话关闭时是否保留后台任务，优先级高于 `config.toml`。默认会在退出时停止后台任务 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` | 同时运行的后台任务数上限，优先级高于 `config.toml` 的 `[background] max_running_tasks`；不设置表示无上限 | 正整数；非法值被忽略 |
 | `KIMI_CODE_BACKGROUND_BASH_TASK_TIMEOUT_S` | 后台 `Bash` 任务的默认超时（秒），也用于前台命令转入后台后的重新计时，优先级高于 `[task] bash_task_timeout_s`；`0` 表示无超时 | 非负整数；非法值被忽略 |
@@ -160,8 +147,8 @@ kimi
 | `KIMI_CODE_BACKGROUND_PRINT_WAIT_CEILING_S` | print 模式 drain/steer 等待的时长上限（秒），优先级高于 `[task] print_wait_ceiling_s` | 正整数；非法值被忽略 |
 | `KIMI_CODE_BACKGROUND_PRINT_MAX_TURNS` | print 模式下由后台任务完成触发的新轮次上限，优先级高于 `[task] print_max_turns` | 正整数；非法值被忽略 |
 | `KIMI_IMAGE_MAX_EDGE_PX` | 图片压缩的最长边上限（像素），优先级高于 `config.toml` 的 `[image] max_edge_px`（默认 `2000`） | 正整数；非法值被忽略 |
-| `KIMI_IMAGE_READ_BYTE_BUDGET` | 模型自行读图（`Read` 默认读取）的单图字节预算，优先级高于 `config.toml` 的 `[image] read_byte_budget`（默认 `262144`，即 256 KB） | 正整数；非法值被忽略 |
-| `KIMI_CODE_PLUGIN_MARKETPLACE_URL` | 覆盖 `/plugins` 加载的 plugin marketplace JSON，适合 dev loopback server、测试 CDN 文件或替换 marketplace 目录 | `https://code.kimi.com/kimi-code/plugins/marketplace.json`；也接受 `http://`、`file://` URL 和本地路径 |
+| `KIMI_IMAGE_READ_BYTE_BUDGET` | 模型自行读图的单图字节预算，优先级高于 `config.toml` 的 `[image] read_byte_budget`（默认 `262144`） | 正整数；非法值被忽略 |
+| `KIMI_CODE_PLUGIN_MARKETPLACE_URL` | 覆盖 `/plugins` 加载的 marketplace JSON；默认 `https://code.kimi.com/kimi-code/plugins/marketplace.json` | 也接受 `http://`、`file://` URL 和本地路径 |
 | `KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY` | 限制 AgentSwarm 初始提升并发阶段可同时运行的 subagent 数量；不设置表示不限制 | 正整数；非法值会立即失败 |
 | `KIMI_CODE_SUBAGENT_SCOPE_CACHE_SIZE` | 保留在内存中的已完成 subagent scope 数量，超出后最旧的会被驱逐，恢复时从持久化状态按需重建（默认 `32`；`0` 或负数 = 不驱逐） | 整数；非法值会立即失败 |
 | `KIMI_CODE_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS` | 单个 subagent scope 驱逐允许的最长时间（毫秒），超时后驱逐队列跳过它继续后续驱逐（默认 `15000`） | 正整数；非法值会立即失败 |
@@ -173,6 +160,7 @@ kimi
 | `KIMI_CODE_TUI_FULL_SCREEN` | 启用实验性的 fullscreen 界面：可滚动 transcript、鼠标选择、可点击链接、Ctrl-Shift-F 搜索 | `1` 开启；其他值保持常规内联界面 |
 | `KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK` | 在 `Agent`/`AgentSwarm` 上启用实验性 `fork` 参数：以调用方对话历史快照而非空上下文启动 subagent | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_TOOL_SELECT` | 启用实验性按需加载工具：标记 `deferred: true` 的 MCP server 工具不进入顶层工具列表，由模型经 `select_tools` 按需加载；还需模型声明 `dynamically_loaded_tools` 能力，详见 [MCP](../customization/mcp.md#按需加载工具) | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+| `KIMI_CODE_WATCH` | 是否挂文件系统 watch 以热更新配置和工作区文件，优先级高于 `[watch] enabled`（默认 `false`） | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_SEARCH_WORKER` | 在独立 worker 线程中运行全局搜索索引，优先级高于 `[database] search`（默认 `true`） | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` | 会话索引使用基于 minidb 的读模型，优先级高于 `[database] base`（默认 `true`） | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_MCP_STARTUP_TIMEOUT_MS` | MCP server 全局默认连接超时（毫秒）；优先级高于配置文件，低于 `mcp.json` 的 `startupTimeoutMs` | `1` 到 `2147483647` 的整数；非法值被忽略 |
@@ -185,8 +173,8 @@ kimi
 | `KIMI_WEB_SEARCH_API_KEY` | 网页搜索（`WebSearch`）服务的 API 密钥；设置后同时替换配置中的 API 密钥和 OAuth 凭据 | 非空字符串；空白值被忽略 |
 | `KIMI_WEB_FETCH_BASE_URL` | 网页抓取（`FetchURL`）服务的 API URL，优先级高于配置文件；未指定端点时已登录用户走 Kimi OAuth 托管抓取，再回退本地直连；凭据不发往该端点 | 非空字符串；空白值被忽略 |
 | `KIMI_WEB_FETCH_API_KEY` | 网页抓取（`FetchURL`）服务的 API 密钥；设置后同时替换配置中的 API 密钥和 OAuth 凭据 | 非空字符串；空白值被忽略 |
-| `KIMI_CODE_EXPERIMENTAL_FLAG` | 在当前进程启用所有已注册的实验功能；单个功能的 `KIMI_CODE_EXPERIMENTAL_<NAME>` 变量或 `config.toml` 的 `[experimental]` 节中的显式配置优先于它；不用于选择 Agent 引擎 | `1`、`true`、`yes`、`on` |
-| `KIMI_SHELL_PATH` | 固定 Windows 上的 Shell 可执行文件（最高优先级，高于 `[shell].preference` 和自动探测）。按文件名决定 Shell 语义：`pwsh`/`powershell` → PowerShell，`cmd` → cmd，其他 → bash。指向不存在的文件会报错，不会静默回退 | Shell 可执行文件的绝对路径 |
+| `KIMI_CODE_EXPERIMENTAL_FLAG` | 在当前进程启用所有已注册的实验功能 | `1`、`true`、`yes`、`on` |
+| `KIMI_SHELL_PATH` | Windows 上覆盖 Git Bash 路径（自动探测失败时使用） | 绝对路径 |
 | `KIMI_MODEL_MAX_COMPLETION_TOKENS` | 单步 LLM 请求的 `max_completion_tokens` 硬上限，仅对 `kimi` 供应商生效 | 正整数；`0` 或负数禁用 clamp |
 | `KIMI_MODEL_TEMPERATURE` | 每次请求的采样温度，仅对 `kimi` 供应商生效（全局生效，不依赖 `KIMI_MODEL_NAME`） | 数字，如 `0.3` |
 | `KIMI_MODEL_TOP_P` | 每次请求的核采样 `top_p`，仅对 `kimi` 供应商生效（全局生效） | 数字，如 `0.95` |
@@ -195,7 +183,7 @@ kimi
 | `KIMI_CODE_NO_AUTO_UPDATE` | 完全禁用更新预检：不检查、不后台安装、不提示。同时兼容旧名 `KIMI_CLI_NO_AUTO_UPDATE` | 真值：`1`/`true`/`yes`/`on` |
 | `KIMI_DISABLE_CRON` | 禁用定时任务工具（`CronCreate` 拒绝新计划，已有任务不触发） | `1` 表示禁用 |
 
-`KIMI_CODE_INFINITE_RETRY`、`KIMI_CODE_IDENTITY_*` 和 `KIMI_CODE_BUILTIN_PRODUCT_SKILLS` 这几个变量由原生 agent 引擎读取。
+`KIMI_CODE_INFINITE_RETRY`、`KIMI_CODE_IDENTITY_*` 和 `KIMI_CODE_BUILTIN_PRODUCT_SKILLS` 这几个变量由 `agent-core-v2` 引擎读取。
 
 ## 诊断日志
 
@@ -215,13 +203,13 @@ CLI 还会读取一些标准系统变量来检测运行环境，不会修改它�
 
 - `HOME`：解析默认数据路径
 - `VISUAL`、`EDITOR`：外部编辑器命令（`VISUAL` 优先）
-- `PATH`：定位 `rg`、`fd`、`fdfind`、`git` 等依赖；在 Windows 上，bash 探测会检查 `PATH` 中找到的每个 `git.exe`（包括 Scoop 等包管理器提供的 shim），并探测 Git Bash 与 MSYS2 的安装位置
+- `PATH`：定位 `rg`、`fd`、`fdfind`、`git` 等依赖；在 Windows 上，Git Bash 探测会检查 `PATH` 中找到的每个 `git.exe`，包括 Scoop 等包管理器提供的 shim
 - `NO_COLOR`、`FORCE_COLOR`：控制颜色输出（遵循 [no-color.org](https://no-color.org) 约定）
 - `CI`：非空且非 `"0"` 时关闭主题检测，回退深色主题
 - `TERM_PROGRAM`、`TERM`、`TMUX`：检测终端特性和通知支持
 - `DISPLAY`、`WAYLAND_DISPLAY`、`XDG_SESSION_TYPE`：检测 Linux 图形会话（用于剪贴板和图片功能）
 - `WSL_DISTRO_NAME`、`WSLENV`：检测 WSL，用于剪贴板 PowerShell 桥接
-- `LOCALAPPDATA`：Windows 上探测 PowerShell 7 与 Git Bash 安装路径时使用
+- `LOCALAPPDATA`：Windows 上探测 Git Bash 安装路径时作为 fallback 使用
 
 ## HTTP 代理
 

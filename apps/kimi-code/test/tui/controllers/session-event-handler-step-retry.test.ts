@@ -63,6 +63,11 @@ function makeHost() {
     btwPanelController: { routeEvent: vi.fn(() => false) },
     tasksBrowserController: {},
     updateActivityPane: vi.fn(),
+    surveyController: {
+      notifyToolCallStarted: vi.fn(),
+      notifyToolCallEnded: vi.fn(),
+      notifySubagentSpawned: vi.fn(),
+    },
   };
   return { host: host as any };
 }

@@ -3,6 +3,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import type {
   AgentContextData,
   ExperimentalFeatureState,
+  ImportCustomRegistryOptions,
+  ImportCustomRegistryResult,
   SwarmModeTrigger,
 } from '#/types';
 import type { Kaos } from '@moonshot-ai/kaos';
@@ -356,6 +358,21 @@ export abstract class SDKRpcClientBase {
   async removeProvider(providerId: string): Promise<KimiConfig> {
     const rpc = await this.getRpc();
     return rpc.removeKimiProvider({ providerId });
+  }
+
+  /**
+   * Import every provider a custom registry (`api.json`) declares at
+   * `options.url`, replacing whatever a previous import from the same URL left
+   * behind. The default throws: only a client that owns the config writer can
+   * honour it.
+   */
+  importCustomRegistry(
+    _options: ImportCustomRegistryOptions,
+  ): Promise<ImportCustomRegistryResult> {
+    throw new KimiError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      'This SDK client does not support custom registry imports.',
+    );
   }
 
   /**

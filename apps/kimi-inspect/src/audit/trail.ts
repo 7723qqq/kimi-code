@@ -1,17 +1,21 @@
 /**
  * Audit trail for the chat view's transcript channel.
  *
- * A pure observer: the chat pipeline (WS reset / op batches, user actions)
+ * A pure observer: the chat pipeline (REST loads, WS frames, user actions)
  * calls the `record*` methods AFTER applying each step to the real
- * `ChatStore`, passing the resulting immutable `ChatState` reference.
- * Replaying the trail is therefore free — every entry already holds the
- * exact state the store had at that point, ready for the timeline slider
- * and the structural diff.
+ * `TranscriptChatStore`, passing the resulting immutable `AgentState`
+ * reference. Replaying the trail is therefore free — every entry already
+ * holds the exact state the store had at that point, ready for the
+ * timeline slider and the structural diff.
  */
 
-import type { AgentTranscriptSnapshot, TranscriptOpBatch } from '@moonshot-ai/transcript';
+import type {
+  AgentState,
+  AgentTranscriptSnapshot,
+  TranscriptOperation,
+} from '@moonshot-ai/transcript';
 
-import type { ChatState } from '../transcript/store';
+import type { TranscriptPage } from '../transcript/api';
 
 export const AUDIT_TRAIL_MAX_ENTRIES = 5000;
 
@@ -21,50 +25,52 @@ interface AuditEntryBase {
   /** Local record time (ISO). */
   readonly at: string;
   /** Store state right after this entry was applied (immutable reference). */
-  readonly state: ChatState;
+  readonly state: AgentState;
   /** One-line summary for the timeline list. */
   readonly summary: string;
 }
 
-export interface OpsAuditEntry extends AuditEntryBase {
-  readonly kind: 'ops';
-  /** The agent whose batch this is. */
-  readonly agentId: string;
-  /** How the batch reached the store. */
-  readonly mode: 'reset' | 'live' | 'replay';
-  readonly opCount: number;
-  /** The ops as applied, in order. */
-  readonly ops: readonly unknown[];
+export interface RestAuditEntry extends AuditEntryBase {
+  readonly kind: 'rest';
+  readonly request: { readonly beforeTurn?: string | undefined; readonly pageSize: number };
+  readonly appliedAs: 'replace' | 'prepend';
+  readonly page: TranscriptPage;
 }
 
-export interface WsAuditEntry extends AuditEntryBase {
-  readonly kind: 'ws';
-  /** The frame as applied to the store (a reset snapshot or an op batch). */
-  readonly frame:
-    | { readonly type: 'reset'; readonly agentId: string; readonly snapshot: AgentTranscriptSnapshot }
-    | { readonly type: 'ops'; readonly batch: TranscriptOpBatch };
+export interface OpsAuditEntry extends AuditEntryBase {
+  readonly kind: 'ops';
+  /** Envelope timestamp (server send time) when present. */
+  readonly envelopeAt?: string | undefined;
+  readonly ops: readonly TranscriptOperation[];
+  /** live = applied immediately; buffered = held during a REST refresh; flushed = replayed after one; catchup = fetched via the ops catch-up endpoint after a seq gap. */
+  readonly delivery: 'live' | 'buffered' | 'flushed' | 'catchup';
+}
+
+export interface ResetAuditEntry extends AuditEntryBase {
+  readonly kind: 'reset';
+  readonly envelopeAt?: string | undefined;
+  readonly snapshot: AgentTranscriptSnapshot;
+  readonly hasMoreOlder: boolean;
 }
 
 export interface EventAuditEntry extends AuditEntryBase {
   readonly kind: 'event';
-  readonly event:
-    | 'ack'
-    | 'ack-error'
-    | 'reconnect'
-    | 'gap-refresh'
-    | 'protocol-error'
-    | 'invalid-frame'
-    | 'prompt'
-    | 'cancel';
+  readonly event: 'ack-refresh' | 'resync' | 'gap' | 'prompt' | 'cancel';
   readonly detail?: string | undefined;
 }
 
-export type AuditEntry = OpsAuditEntry | WsAuditEntry | EventAuditEntry;
+export type AuditEntry = RestAuditEntry | OpsAuditEntry | ResetAuditEntry | EventAuditEntry;
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 /** Entry payload accepted by `push` (index/at are filled in there). */
 type AuditEntryInput = DistributiveOmit<AuditEntry, 'index' | 'at'>;
+
+function summarizeOps(ops: readonly TranscriptOperation[]): string {
+  const counts = new Map<string, number>();
+  for (const op of ops) counts.set(op.op, (counts.get(op.op) ?? 0) + 1);
+  return [...counts.entries()].map(([name, n]) => (n > 1 ? `${name}×${n}` : name)).join(', ');
+}
 
 export class AuditTrail {
   private entryList: AuditEntry[] = [];
@@ -83,65 +89,70 @@ export class AuditTrail {
     return this.entryList;
   }
 
-  /** One applied op batch (live traffic or a reconnect replay). */
+  recordRest(
+    request: RestAuditEntry['request'],
+    appliedAs: RestAuditEntry['appliedAs'],
+    page: TranscriptPage,
+    state: AgentState,
+  ): void {
+    const cursor = request.beforeTurn !== undefined ? `?before_turn=${request.beforeTurn}` : '';
+    this.push({
+      kind: 'rest',
+      request,
+      appliedAs,
+      page,
+      state,
+      summary: `GET transcript${cursor} → ${page.items.length} items (${appliedAs})`,
+    });
+  }
+
   recordOps(
-    agentId: string,
-    mode: OpsAuditEntry['mode'],
-    batch: TranscriptOpBatch,
-    state: ChatState,
+    ops: readonly TranscriptOperation[],
+    delivery: OpsAuditEntry['delivery'],
+    envelopeAt: string | undefined,
+    state: AgentState,
   ): void {
     this.push({
       kind: 'ops',
-      agentId,
-      mode,
-      opCount: batch.ops.length,
-      ops: batch.ops,
+      ops,
+      delivery,
+      envelopeAt,
       state,
-      summary: `${mode} ops ×${batch.ops.length} → ${agentId}`,
+      summary: `${ops.length} ops (${summarizeOps(ops)}) [${delivery}]`,
     });
   }
 
-  /** One applied `transcript.reset` baseline. */
-  recordReset(agentId: string, snapshot: AgentTranscriptSnapshot, state: ChatState): void {
+  recordReset(
+    snapshot: AgentTranscriptSnapshot,
+    hasMoreOlder: boolean,
+    envelopeAt: string | undefined,
+    state: AgentState,
+  ): void {
     this.push({
-      kind: 'ops',
-      agentId,
-      mode: 'reset',
-      opCount: 1,
-      ops: [{ op: 'reset', agentId }],
+      kind: 'reset',
+      snapshot,
+      hasMoreOlder,
+      envelopeAt,
       state,
-      summary: `reset → ${agentId} (${snapshot.items.length} items)`,
+      summary: `reset snapshot (${snapshot.items.length} items) — ignored by chat store`,
     });
   }
 
-  recordWs(frame: WsAuditEntry['frame'], state: ChatState): void {
-    this.push({
-      kind: 'ws',
-      frame,
-      state,
-      summary: summarizeFrame(frame),
-    });
-  }
-
-  recordEvent(event: EventAuditEntry['event'], detail: string | undefined, state: ChatState): void {
+  recordEvent(
+    event: EventAuditEntry['event'],
+    detail: string | undefined,
+    state: AgentState,
+  ): void {
     const label =
-      event === 'ack'
-        ? 'subscribe ack'
-        : event === 'ack-error'
-          ? 'subscribe ack error'
-          : event === 'reconnect'
-            ? 'socket dropped → reconnecting'
-            : event === 'gap-refresh'
-              ? 'op seq gap → full resubscribe'
-              : event === 'protocol-error'
-                ? 'protocol error frame'
-                : event === 'invalid-frame'
-                  ? 'invalid frame (server bug)'
-                  : event === 'prompt'
-                    ? 'prompt sent'
-                    : event === 'cancel'
-                      ? 'cancel sent'
-                      : 'older-page load failed';
+      event === 'ack-refresh'
+        ? 'subscribe ack → REST refresh'
+        : event === 'resync'
+          ? 'resync_required → REST refresh'
+          : event === 'gap'
+            ? 'append gap → REST refresh'
+            : event === 'prompt'
+              ? 'prompt sent'
+              : 'cancel sent';
     this.push({
       kind: 'event',
       event,
@@ -161,19 +172,4 @@ export class AuditTrail {
     this.entryList = [...kept, full];
     for (const listener of this.listeners) listener();
   }
-}
-
-function summarizeFrame(frame: WsAuditEntry['frame']): string {
-  if (frame.type === 'reset') {
-    return `reset → ${frame.agentId} (${frame.snapshot.items.length} items)`;
-  }
-  const { batch } = frame;
-  const counts = new Map<string, number>();
-  for (const op of batch.ops) {
-    const kind = (op as { op?: unknown }).op;
-    const key = typeof kind === 'string' ? kind : 'unknown';
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  const parts = [...counts].map(([op, n]) => `${op}×${n}`);
-  return `ops → ${batch.agentId}: ${parts.join(' ')}`;
 }

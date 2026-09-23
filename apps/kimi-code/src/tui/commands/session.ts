@@ -62,7 +62,8 @@ export async function handleForkCommand(host: SlashCommandHost, args: string): P
     // No title: the SDK mints the `Fork: …` default and inherits the
     // source's titleKind (upstream #3974) — passing one here would mark
     // the fork custom and block the auto-title generator.
-    const forked = await host.harness.forkSession({ id: session.id });    const forkId = forked.id;
+    const forked = await host.harness.forkSession({ id: session.id });
+    const forkId = forked.id;
     try {
       await forked.close();
     } catch (error) {
@@ -98,6 +99,7 @@ export async function handleForkCommand(host: SlashCommandHost, args: string): P
     host.showError(t('tui.statusMessages.sessionFailedToFork', { message: msg }));
   }
 }
+
 
 export async function handleExportMdCommand(host: SlashCommandHost, args: string): Promise<void> {
   const session = host.session;

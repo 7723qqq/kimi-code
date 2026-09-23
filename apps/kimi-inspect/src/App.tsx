@@ -1,7 +1,8 @@
 /**
  * App shell — selection state and session resume. There is no live event
- * push: no `/api/v2/ws` event socket exists, so Service panels and the
- * pending interactions card fetch on demand and the sidebar polls.
+ * push anymore: the v2 socket (`/api/v2/ws`) that fed the core/session/agent
+ * event streams was removed server-side, so Service panels and the pending
+ * interactions card fetch on demand and the sidebar polls.
  * Layout: header / icon rail / view. The `chat` view is a strip of the
  * left sidebar (a workspace → session tree), the chat column, and the
  * right dock (`RightPanel`) merging the transcript audit, the agent
@@ -11,19 +12,17 @@
  * the full-width app-scope Service reflection (`AppServicesView`); the
  * `workspace` view is the workspace-scope counterpart
  * (`WorkspaceServicesView`, with a workspace picker on top); the
- * `suggest` view is the filesystem suggest playground (`FsSuggestView`);
- * the `bash` view is the full-width `IBashParserService` playground
+ * `bash` view is the full-width `IBashParserService` playground
  * (`BashParserView`); the `di` view is the engine's Service × Effect × DI
  * debug surface (`DiInspectionView`); the `search` view is the full-width
  * global message search (`SearchView`) whose hits navigate back into the
  * chat timeline.
  */
 
-import { ISessionIndex } from './compat/v2';
-import { ISessionLifecycleService } from './compat/v2';
 import { useEffect, useState } from 'react';
 
 import type { AuditTrail } from './audit/trail';
+import { ISessionManager } from './compat/v2';
 import { AppServicesView } from './components/AppServicesView';
 import { BashParserView } from './components/BashParserView';
 import { ChatView, type ChatJump } from './components/ChatView';
@@ -32,7 +31,6 @@ import { FsSuggestView } from './components/FsSuggestView';
 import { ModelCatalogView } from './components/ModelCatalogView';
 import { NavRail, type AppView } from './components/NavRail';
 import { RightPanel } from './components/RightPanel';
-import type { ChatState } from './transcript/store';
 import { SearchView } from './components/SearchView';
 import { ServerSwitcher } from './components/ServerSwitcher';
 import { Sidebar } from './components/Sidebar';
@@ -50,7 +48,6 @@ export function App() {
   const [resumeError, setResumeError] = useState<unknown>(null);
   /** Audit trail of the chat view's transcript channel, rendered in the right dock. */
   const [trail, setTrail] = useState<AuditTrail | null>(null);
-  const [chatState, setChatState] = useState<ChatState | null>(null);
   /** Pending chat navigation requested from another view (search result click). */
   const [jump, setJump] = useState<ChatJump | null>(null);
 
@@ -64,14 +61,10 @@ export function App() {
     setReady(false);
     setResumeError(null);
     klient
-      .core(ISessionIndex)
-      .get(sessionId)
-      .then((summary) => {
-        if (summary === undefined) throw new Error(`session ${sessionId} does not exist`);
-        return klient
-          .workspace(summary.workspaceId)
-          .service(ISessionLifecycleService)
-          .resume(sessionId);
+      .core(ISessionManager)
+      .resume(sessionId)
+      .then((session) => {
+        if (session === undefined) throw new Error(`session ${sessionId} does not exist`);
       })
       .then(() => {
         if (!cancelled) setReady(true);
@@ -153,7 +146,6 @@ export function App() {
                 agentId={agentId}
                 ready={ready}
                 onTrailChange={setTrail}
-                onStateChange={setChatState}
                 jump={jump}
                 onJumpHandled={() => setJump(null)}
                 onOpenSearchHit={openSearchHit}
@@ -165,7 +157,6 @@ export function App() {
               onAgentChange={setAgentId}
               ready={ready}
               trail={trail}
-              chatState={chatState ?? undefined}
             />
           </>
         )}

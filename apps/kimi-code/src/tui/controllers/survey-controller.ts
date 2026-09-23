@@ -53,7 +53,11 @@ import type { BtwPanelController } from './btw-panel';
 export interface SurveyHost {
   readonly state: TUIState;
   readonly btwPanelController: BtwPanelController;
-  track(event: string, props?: Record<string, unknown>): void;
+  track(
+    event: string,
+    props?: Record<string, unknown>,
+    context?: { readonly sessionId?: string },
+  ): void;
 }
 
 function resolveKfcModelId(appState: TUIState['appState']): string | undefined {
@@ -62,6 +66,26 @@ function resolveKfcModelId(appState: TUIState['appState']): string | undefined {
   const baseUrl = entry.baseUrl ?? appState.availableProviders[entry.provider]?.baseUrl;
   if (!isManagedKimiCodeBaseUrl(baseUrl)) return undefined;
   return entry.model;
+}
+
+interface SurveyAppearanceSnapshot {
+  readonly sessionId: string;
+  readonly fields: SurveyEventEnvironmentFields;
+}
+
+interface ResumedAgentSeed {
+  readonly type: string;
+  readonly profileName?: string;
+  readonly swarmItem?: string;
+  readonly sessionInit?: string;
+}
+
+const TOWER_WORKER_PROFILE_NAME = 'tower-worker';
+const SESSION_INIT_PARENT_TOOL_CALL_ID = 'generate-agents-md';
+
+function recordModel(models: Set<string>, model: string | undefined): void {
+  if (model === undefined || model.length === 0) return;
+  models.add(model);
 }
 
 export interface SurveyControllerDeps {
@@ -145,6 +169,7 @@ export class SurveyController {
   private configRefreshedAt = 0;
   private coldRefreshAttemptedAt = 0;
   private configRegion: string | undefined;
+  private appearanceSnapshot: SurveyAppearanceSnapshot | undefined;
 
   constructor(
     private readonly host: SurveyHost,
@@ -157,6 +182,7 @@ export class SurveyController {
   }
 
   reset(): void {
+    this.notifyDisplaced();
     this.generation += 1;
     this.clearIdleTimer();
     this.clearDigitTimer();
@@ -182,6 +208,7 @@ export class SurveyController {
     this.appearanceConfig = undefined;
     this.currentTurnUserOrigin = undefined;
     this.evaluationPending = false;
+    this.appearanceSnapshot = undefined;
     const generation = this.generation;
     this.cooldownReady = false;
     void (this.deps.readGlobalLastShown ?? defaultDeps.readGlobalLastShown)()
@@ -209,10 +236,11 @@ export class SurveyController {
     this.currentTurnUserOrigin = userOrigin;
     this.idleSince = undefined;
     this.clearIdleTimer();
-    if (this.machine.phase !== 'closed') this.applyAction({ type: 'close-silently' });
+    this.notifyDisplaced();
     if (userOrigin) {
       this.userTurnCount += 1;
       this.evaluationPending = false;
+      this.pendingTraceId = undefined;
     }
   }
 
@@ -232,25 +260,52 @@ export class SurveyController {
     }, SURVEY_IDLE_EVALUATION_DELAY_MS);
   }
 
-  notifyToolCallStarted(toolCallId?: string, toolName?: string): void {
+  notifyToolCallStarted(toolCallId: string, toolName: string): void {
     this.toolCallCount += 1;
-    if (toolCallId !== undefined && toolName !== undefined) {
-      this.toolCallFamilies.set(toolCallId, toolName);
-      if (toolName === 'AgentSwarm') this.swarmRunCount += 1;
-    }
+    this.toolCallFamilies.set(toolCallId, toolName);
+    if (toolName === 'AgentSwarm') this.swarmRunCount += 1;
   }
 
-  notifySubagentCompleted(
-    parentToolCallId: string | undefined,
-    model: string | undefined,
-  ): void {
-    this.subagentCount += 1;
-    if (model !== undefined && model.length > 0) this.subagentModels.add(model);
-    if (parentToolCallId === undefined) return;
-    if (this.toolCallFamilies.get(parentToolCallId) === 'AgentSwarm') {
-      this.swarmModels.add(model ?? '');
-      this.toolCallFamilies.delete(parentToolCallId);
+  notifyToolCallEnded(toolCallId: string): void {
+    this.toolCallFamilies.delete(toolCallId);
+  }
+
+  notifySubagentSpawned(event: {
+    readonly parentToolCallId?: string;
+    readonly swarmIndex?: number;
+    readonly model?: string;
+  }): void {
+    if (event.parentToolCallId === SESSION_INIT_PARENT_TOOL_CALL_ID) return;
+    const toolName =
+      event.parentToolCallId === undefined
+        ? undefined
+        : this.toolCallFamilies.get(event.parentToolCallId);
+    if (toolName === 'Agent') {
+      this.subagentCount += 1;
+      recordModel(this.subagentModels, event.model);
+      return;
     }
+    if (toolName === 'AgentSwarm') {
+      recordModel(this.swarmModels, event.model);
+      return;
+    }
+    if (toolName !== undefined) return;
+    if (event.swarmIndex !== undefined) {
+      recordModel(this.swarmModels, event.model);
+      return;
+    }
+    this.subagentCount += 1;
+    recordModel(this.subagentModels, event.model);
+  }
+
+  seedFromResumedAgents(agents: Readonly<Record<string, ResumedAgentSeed>>): void {
+    this.subagentCount = Object.values(agents).filter(
+      (agent) =>
+        agent.type === 'sub' &&
+        agent.swarmItem === undefined &&
+        agent.sessionInit === undefined &&
+        agent.profileName !== TOWER_WORKER_PROFILE_NAME,
+    ).length;
   }
 
   notifyCompactionFinished(): void {
@@ -259,17 +314,15 @@ export class SurveyController {
 
   notifyInputModeChanged(mode: 'prompt' | 'bash'): void {
     if (mode !== 'bash') return;
-    if (this.machine.phase === 'closed') return;
+    this.notifyDisplaced();
+  }
+
+  notifyDisplaced(): void {
     if (this.machine.phase === 'open') {
       this.applyAction({ type: 'abandon' });
       return;
     }
-    this.applyAction({ type: 'close-silently' });
-  }
-
-  closeSilently(): void {
-    if (this.machine.phase === 'closed') return;
-    this.applyAction({ type: 'close-silently' });
+    if (this.machine.phase !== 'closed') this.applyAction({ type: 'close-silently' });
   }
 
   handlePreInput(data: string): boolean {
@@ -500,6 +553,9 @@ export class SurveyController {
     };
     const shownAt = this.now();
     this.appearanceConfig = config;
+    const traceId = this.pendingTraceId;
+    this.pendingTraceId = undefined;
+    this.appearanceSnapshot = this.captureSnapshot(traceId);
     this.applyAction({ type: 'open', appearance });
     if (this.machine.phase !== 'open') return;
     this.openedAt = shownAt;
@@ -532,19 +588,22 @@ export class SurveyController {
     switch (effect.type) {
       case 'report': {
         if (appearance === undefined) return;
-        this.host.track(
-          SURVEY_EVENT_NAMES[appearance.survey],
-          buildSurveyEventProperties(
-            {
-              event_type: effect.eventType,
-              appearance_id: appearance.appearanceId,
-              appearance_index: appearance.appearanceIndex,
-              response: effect.response,
-            },
-            this.environmentFields(),
-            this.appearanceConfig ?? (this.deps.config ?? defaultDeps.config)(),
-          ),
+        const properties = buildSurveyEventProperties(
+          {
+            event_type: effect.eventType,
+            appearance_id: appearance.appearanceId,
+            appearance_index: appearance.appearanceIndex,
+            response: effect.response,
+          },
+          this.appearanceSnapshot?.fields ?? this.environmentFields(),
+          this.appearanceConfig ?? (this.deps.config ?? defaultDeps.config)(),
         );
+        const sessionId = this.appearanceSnapshot?.sessionId ?? '';
+        if (sessionId.length > 0) {
+          this.host.track(SURVEY_EVENT_NAMES[appearance.survey], properties, { sessionId });
+        } else {
+          this.host.track(SURVEY_EVENT_NAMES[appearance.survey], properties);
+        }
         return;
       }
       case 'schedule': {
@@ -626,6 +685,18 @@ export class SurveyController {
         ? (delta > 0 ? 0 : SURVEY_OPTION_COUNT - 1)
         : (current + delta + SURVEY_OPTION_COUNT) % SURVEY_OPTION_COUNT;
     this.host.state.ui.requestRender();
+  }
+
+  private captureSnapshot(traceId: string | undefined): SurveyAppearanceSnapshot {
+    const { appState } = this.host.state;
+    const kfcModelId = resolveKfcModelId(appState);
+    return {
+      sessionId: appState.sessionId,
+      fields: {
+        ...this.environmentFields(),
+        kfc_trace_id: kfcModelId === undefined ? undefined : traceId,
+      },
+    };
   }
 
   private environmentFields(): SurveyEventEnvironmentFields {

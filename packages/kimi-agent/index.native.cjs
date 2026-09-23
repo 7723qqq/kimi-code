@@ -62,6 +62,29 @@ function loadBinding() {
     // Fall through.
   }
 
+  // Packaged single-file binary: the addon is an embedded asset extracted to a
+  // cache directory, so every path above misses. `native-assets.ts` publishes
+  // its resolver as a global for modules that cannot import it directly — the
+  // same hook `session-handle.ts` uses. Without this the wrapper throws, and
+  // the bundler's CommonJS helper caches the empty `exports` it had already
+  // allocated, so every later `import('@moonshot-ai/kimi-agent/native')` in the
+  // process silently resolves to `{}` instead of retrying.
+  const getNativePackageRoot = globalThis['__kimi_getNativePackageRoot'];
+  if (typeof getNativePackageRoot === 'function') {
+    const pkgRoot = getNativePackageRoot('@moonshot-ai/kimi-agent');
+    if (typeof pkgRoot === 'string' && pkgRoot.length > 0) {
+      try {
+        for (const entry of fs.readdirSync(pkgRoot)) {
+          if (entry.startsWith(BINDING_NAME) && entry.endsWith('.node')) {
+            return require(path.join(pkgRoot, entry));
+          }
+        }
+      } catch {
+        // Fall through to the error below.
+      }
+    }
+  }
+
   throw new Error(
     `Failed to load kimi_agent binding for ${process.platform}-${process.arch}. ` +
       'Run `npm run build` or `cargo build --release` to compile the native module.',

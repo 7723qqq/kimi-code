@@ -3,7 +3,7 @@
   "publisher": "moonshot-ai",
   "displayName": "Kimi Code",
   "description": "Official Kimi Code plugin for VS Code",
-  "version": "0.7.5",
+  "version": "0.8.1",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -95,11 +95,6 @@
             "Share when active file changes"
           ],
           "description": "Control when to share the active editor's file and cursor position with Kimi"
-        },
-        "kimi.useAgentCoreV1": {
-          "type": "boolean",
-          "default": false,
-          "description": "Deprecated: the legacy v1 engine was removed; this setting has no effect. Kept for compatibility."
         }
       }
     },

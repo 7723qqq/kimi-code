@@ -171,10 +171,9 @@ kimi web --port 58628    # 指定绑定端口
 | --- | --- |
 | `--port <port>` | 绑定端口；默认 `58627`；被占用时自动 +1 重试 |
 | `--host [host]` | 绑定地址；缺省 `127.0.0.1`（仅本机），裸 `--host` 绑 `0.0.0.0`（所有网卡） |
-| `--allowed-host <host...>` | DNS 重绑定检查额外允许的 Host 头，可重复或逗号分隔；`KIMI_CODE_ALLOWED_HOSTS` 可再追加，逗号分隔 |
+| `--allowed-host <host...>` | DNS 重绑定检查额外允许的 Host 头，可重复或逗号分隔 |
 | `--log-level <level>` | 按所选级别开启服务日志；默认不输出 |
-| `--debug-endpoints` | 挂载 `/api/v1/debug/*` 调试路由（默认关闭，仅回环绑定可用） |
-| `--allow-remote-shutdown` | 在非回环绑定上保留 `POST /api/v1/shutdown`（默认关闭，该路由返回 404） |
+| `--debug-endpoints` | 挂载 `/api/v1/debug/*` 调试路由（默认关闭） |
 | `--dangerous-bypass-auth` | 关闭所有 REST 与 WebSocket 路由的 bearer token 鉴权，使 web UI 无需 token 即可连接；仅用于可信网络或自有鉴权代理之后 |
 | `--web-title <title>` | 自定义 web UI 的浏览器标签页标题；默认为工作区目录名 |
 | `--no-open` | 就绪后不自动打开浏览器 |
@@ -262,6 +261,16 @@ kimi export 01HZ...XYZ -o ./bug-report.zip
 kimi export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
 ```
 
+### `kimi migrate`
+
+将旧版 kimi-cli 的本地数据迁移到 kimi-code，包括历史会话和配置文件。纯交互式运行，会引导你完成全流程。
+
+```sh
+kimi migrate
+```
+
+完整迁移说明见[从 kimi-cli 迁移](../guides/migration.md)。
+
 ### `kimi upgrade`
 
 立即检查最新版本并展示更新提示，选择操作后退出。也可以使用别名 `kimi update`。
@@ -310,18 +319,21 @@ kimi provider <action> [options]
 
 #### `kimi provider add <url>`
 
-从自定义 registry（`api.json`）批量导入所有供应商。命令会拉取 registry，为每个条目创建 `[providers.<id>]` 和 `[models.<alias>]`，并写入 `source` 元数据，使 TUI 下次启动时自动刷新同一 registry 地址下的供应商和模型。
+从自定义 registry（`api.json`）批量导入所有供应商。命令会拉取 registry，为每个条目创建 `[providers.<id>]` 和 `[models.<alias>]`，并写入 `source` 元数据，使 TUI 下次启动时自动刷新同一 registry 地址下的供应商和模型。当 registry 条目声明了 `env` 字段时，命令会打印一条提示，指明声明的变量名——想用就在 `config.toml` 里设置 `api_key_env`，详见[平台与模型](../configuration/providers.md)。
 
 | 参数 / 选项 | 说明 |
 | --- | --- |
 | `<url>` | Registry 地址 |
-| `--api-key <key>` | 访问 registry 时携带的 Bearer token。推荐使用环境变量 `KIMI_PROVIDER_API_KEY`，或传 `-` 从标准输入（程序读取输入的通道）读取；`KIMI_REGISTRY_API_KEY` 仍可作为回退。直接在此传入的密钥会出现在进程列表中，必填 |
+| `--api-key <key>` | 访问 registry 时携带的 Bearer token。未传时回退到环境变量 `KIMI_REGISTRY_API_KEY`；可选，两者都不传即可导入公开 registry |
 
 ```sh
 kimi provider add https://registry.example.com/v1/models/api.json --api-key YOUR_KEY
 
 # 或通过环境变量（适合 CI / .envrc）
-KIMI_PROVIDER_API_KEY=YOUR_KEY kimi provider add https://registry.example.com/v1/models/api.json
+KIMI_REGISTRY_API_KEY=YOUR_KEY kimi provider add https://registry.example.com/v1/models/api.json
+
+# 公开 registry：无需密钥
+kimi provider add https://registry.example.com/v1/models/api.json
 ```
 
 如果某个 provider id 已存在，会先删除再重新写入。不会自动设置默认模型，后续可用 `-m` 或 TUI 内的 `/model` 选择。
@@ -367,7 +379,7 @@ kimi provider catalog list anthropic
 | 参数 / 选项 | 说明 |
 | --- | --- |
 | `<providerId>` | catalog 中的供应商 id，如 `anthropic`、`openai` |
-| `--api-key <key>` | 供应商 API key。推荐使用 `KIMI_PROVIDER_API_KEY`，或传 `-` 从标准输入读取；`KIMI_REGISTRY_API_KEY` 仍可作为回退。直接在此传入的密钥会出现在进程列表中，必填 |
+| `--api-key <key>` | 供应商 API key。未传时回退到 `KIMI_REGISTRY_API_KEY`，必填 |
 | `--default-model <modelId>` | 可选，导入后把 `default_model` 设为 `<providerId>/<modelId>` |
 | `--base-url <url>` | 覆盖 catalog 声明的端点；catalog 未提供端点（或仅有环境变量占位符）时必填 |
 | `--url <url>` | 覆盖 catalog 地址，默认 `https://models.dev/api.json` |

@@ -12,7 +12,11 @@ import {
   getNativePackageRoot,
 } from './native-assets';
 
-const smokePackages = ['@mariozechner/clipboard', '@moonshot-ai/pi-tui'];
+const smokePackages = [
+  '@mariozechner/clipboard',
+  '@moonshot-ai/pi-tui',
+  '@moonshot-ai/kimi-agent',
+];
 
 function smokePiTuiNativeLoad(): void {
   const platform = process.platform;
@@ -75,6 +79,21 @@ async function smokeMinidbWorker(): Promise<void> {
   }
 }
 
+/**
+ * The SDK reaches the addon through `import('@moonshot-ai/kimi-agent/native')`,
+ * which the native bundle inlines as a CommonJS module. When that module's
+ * binding load throws, the bundler's helper caches the empty `exports` object
+ * it had already allocated, so every later import in the process silently
+ * resolves to `{}` — no error, just missing functions. Loading it here is the
+ * only check that covers that path.
+ */
+async function smokeKimiAgentNativeLoad(): Promise<void> {
+  const mod = (await import('@moonshot-ai/kimi-agent/native')) as { initPluginStore?: unknown };
+  if (typeof mod.initPluginStore !== 'function') {
+    throw new TypeError('@moonshot-ai/kimi-agent/native did not expose initPluginStore');
+  }
+}
+
 async function runSmoke(): Promise<void> {
   const manifest = getEmbeddedNativeAssetManifest();
   if (manifest === null) throw new Error(t('tui.statusMessages.nativeManifestNotAvailable'));
@@ -84,6 +103,7 @@ async function runSmoke(): Promise<void> {
     }
   }
   smokePiTuiNativeLoad();
+  await smokeKimiAgentNativeLoad();
   await smokeMinidbWorker();
   process.stdout.write(
     `Native asset smoke passed: ${manifest.target}; MiniDb worker build passed\n`,

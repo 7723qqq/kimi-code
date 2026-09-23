@@ -21,6 +21,8 @@ import type {
   ForkSessionInput,
   GenerateSessionTitleInput,
   GetConfigOptions,
+  ImportCustomRegistryOptions,
+  ImportCustomRegistryResult,
   GlobalMcpServerAuthStatus,
   KimiConfig,
   KimiConfigPatch,
@@ -132,6 +134,14 @@ export class KimiHarness {
 
   track(event: string, properties?: TelemetryProperties): void {
     this.telemetry.track(event, properties);
+  }
+
+  trackWithContext(
+    event: string,
+    properties: TelemetryProperties | undefined,
+    context: TelemetryContextPatch,
+  ): void {
+    withTelemetryContext(this.telemetry, context).track(event, properties);
   }
 
   setTelemetryContext(patch: TelemetryContextPatch): void {
@@ -474,6 +484,12 @@ export class KimiHarness {
    */
   supportsAtomicSectionReplace(): boolean {
     return this.rpc.supportsAtomicSectionReplace();
+  }
+
+  async importCustomRegistry(
+    options: ImportCustomRegistryOptions,
+  ): Promise<ImportCustomRegistryResult> {
+    return this.rpc.importCustomRegistry(options);
   }
 
   /**

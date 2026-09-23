@@ -8,28 +8,36 @@ REM   start-native.bat --web         - Run Web UI powered by native Rust server 
 setlocal
 
 set "WEB_NATIVE=0"
-if "%~1"=="--web" (
-    set "WEB_NATIVE=1"
-    shift
-)
-if "%~1"=="--web-native" (
-    set "WEB_NATIVE=1"
-    shift
-)
-
 set "PURE_RUST=0"
-if "%~1"=="--pure-rust" (
-    set "PURE_RUST=1"
-    shift
-)
 if "%KIMI_PURE_RUST%"=="1" set "PURE_RUST=1"
 
 REM `shift` never updates `%*`, so rebuild the argument list after consuming the
 REM launcher flags; otherwise `--web` / `--pure-rust` leak into the CLI parser.
+REM The flags are recognised in any position, so `--model X --web` works the same
+REM as `--web --model X`.
+REM The accumulator is written without the `set "VAR=..."` wrapper on purpose:
+REM that wrapper pairs its own quotes with the ones around `%~1`, which leaves
+REM `&`, `|`, `<` and `>` inside an argument unquoted -- the line then splits and
+REM the argument is silently dropped.
 set "REST_ARGS="
 :collect_args
 if "%~1"=="" goto :args_ready
-set "REST_ARGS=%REST_ARGS% "%~1""
+if "%~1"=="--web" (
+    set "WEB_NATIVE=1"
+    shift
+    goto :collect_args
+)
+if "%~1"=="--web-native" (
+    set "WEB_NATIVE=1"
+    shift
+    goto :collect_args
+)
+if "%~1"=="--pure-rust" (
+    set "PURE_RUST=1"
+    shift
+    goto :collect_args
+)
+set REST_ARGS=%REST_ARGS% "%~1"
 shift
 goto :collect_args
 :args_ready

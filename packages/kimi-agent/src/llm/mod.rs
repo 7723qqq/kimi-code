@@ -8,6 +8,7 @@ pub mod media_resolver;
 pub mod multi;
 pub mod openai;
 pub mod openai_responses;
+pub mod opencode_adapter;
 pub mod prompt_media;
 pub mod proxy;
 pub mod thinking_guard;

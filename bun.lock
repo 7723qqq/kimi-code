@@ -28,7 +28,7 @@
     },
     "apps/kimi-code": {
       "name": "@moonshot-ai/kimi-code",
-      "version": "2.0.0",
+      "version": "2.0.2",
       "bin": {
         "kimi": "dist/main.mjs",
       },
@@ -71,8 +71,7 @@
       "name": "@moonshot-ai/kimi-inspect",
       "version": "0.0.0",
       "dependencies": {
-        "@moonshot-ai/i18n-shared": "workspace:^",
-        "@moonshot-ai/protocol": "workspace:^",
+        "@moonshot-ai/transcript": "workspace:^",
         "@tanstack/react-query": "^5.74.4",
         "react": "^19.1.0",
         "react-dom": "^19.1.0",
@@ -138,7 +137,7 @@
     },
     "apps/vscode": {
       "name": "kimi-code",
-      "version": "0.7.5",
+      "version": "0.8.1",
       "dependencies": {
         "@base-ui/react": "^1.0.0",
         "@fontsource-variable/inter": "5.2.8",
@@ -315,7 +314,7 @@
     },
     "packages/telemetry": {
       "name": "@moonshot-ai/kimi-telemetry",
-      "version": "0.1.1",
+      "version": "0.2.0",
     },
     "packages/transcript": {
       "name": "@moonshot-ai/transcript",

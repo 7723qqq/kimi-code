@@ -104,13 +104,11 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | `builtin_product_skills` | `boolean` | `true` | Whether the built-in skills that document Kimi Code itself are offered to the model |
 | `telemetry` | `boolean` | `true` | Whether anonymous telemetry is enabled; disabled only when explicitly set to `false` |
 | `auto_session_title` | `boolean` | `true` | Whether clients may automatically generate session titles; disabled only when explicitly set to `false` |
-| `multi_llm` | `array<string>` | — | Two or more `models` aliases to query concurrently: the same prompt goes to all of them at once and the first successful reply wins. The losers are cancelled. Each alias must resolve to a provider with credentials |
 | [`providers`](#providers) | `table` | `{}` | API provider table |
 | [`models`](#models) | `table` | — | Model alias table |
 | [`thinking`](#thinking) | `table` | — | Default parameters for Thinking mode |
 | [`loop_control`](#loop_control) | `table` | — | Agent loop control parameters |
 | [`background`](#background) | `table` | — | Background task runtime parameters |
-| [`shell`](#shell) | `table` | — | Local command shell preference |
 | [`tools`](#tools) | `table` | — | Global tool switch |
 | [`image`](#image) | `table` | — | Image compression parameters |
 | [`services`](#services) | `table` | — | Built-in external service configuration |
@@ -120,12 +118,13 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 
 ## `providers`
 
-Each entry in the `providers` table defines an API provider, keyed by a unique name. The CLI reads credentials only from here. It does **not** fall back to shell environment variables automatically: running `export KIMI_API_KEY` in the terminal does not give any provider its key; you must write it explicitly in the config file (see [Config overrides](./overrides.md#provider-credentials)).
+Each entry in the `providers` table defines an API provider, keyed by a unique name. The CLI reads credentials only from here. It does **not** fall back to shell environment variables automatically: running `export KIMI_API_KEY` in the terminal does not give any provider its key; you must write it explicitly in the config file, or point `api_key_env` at a variable name yourself (see [Config overrides](./overrides.md#provider-credentials)).
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `type` | `string` | Yes | Provider type: `kimi`, `anthropic`, `openai`, `openai_responses`, `google-genai`, `vertexai` |
 | `api_key` | `string` | No | API key, written in plain text in the config file |
+| `api_key_env` | `string` | No | Name of a shell environment variable to read the API key from instead of storing it in the config file; re-read on every request. Mutually exclusive with `api_key` and `oauth`; an unset or empty variable fails the request with an error naming the variable |
 | `base_url` | `string` | No | API base URL |
 | `oauth` | `table` | No | OAuth credential reference (`storage` and `key` fields); injected automatically by the login flow, so you normally never write this by hand |
 | `env` | `table<string, string>` | No | Fallback source for provider credentials; see the `env` sub-table |
@@ -139,7 +138,7 @@ KIMI_API_KEY = "sk-xxx"
 KIMI_BASE_URL = "https://api.moonshot.ai/v1"
 ```
 
-Priority: `api_key` field > `env` sub-table key > if both are absent, startup fails with an error.
+Priority: `api_key` or `api_key_env` (mutually exclusive alternatives — set exactly one) > `env` sub-table key (only when neither is present) > if all are absent, startup fails with an error. During a `/models` refresh, a provider whose declared variable is unset or empty is reported as failed without affecting other providers.
 
 ## `models`
 
@@ -187,7 +186,7 @@ display_name = "Kimi for Coding (custom)"
 
 `[models."<alias>".overrides]` accepts ordinary model fields such as `max_context_size`, `max_input_size`, `max_output_size`, `capabilities`, `display_name`, `reasoning_key`, `adaptive_thinking`, `support_efforts`, `default_effort`, and `off_effort`. It does not accept identity / routing fields: `provider`, `model`, `protocol`, `beta_api`, and `base_url`.
 
-You can also switch models temporarily without touching the config file: setting `KIMI_MODEL_*` environment variables synthesizes a temporary provider in memory that does not persist after restart. See [Define a model from environment variables](./env-vars.md#define-a-model-from-environment-variables-kimi-model).
+You can also switch models temporarily without touching the config file: setting `KIMI_MODEL_*` environment variables synthesizes a temporary provider in memory that does not persist after restart. See [Define a model from environment variables](./env-vars.md#define-a-model-from-environment-variables-kimi_model_).
 
 ## `secondary_model`
 
@@ -298,28 +297,6 @@ Configuration errors fail loudly instead of falling back silently. Session creat
 - `force` is set without `default_model`, or combined with a `models` table.
 :::
 
-## `agent.multi_llm`
-
-Send the same request to several models at once and keep the first successful reply. This trades extra tokens for latency and availability: a slow or rate-limited provider no longer stalls the turn, because a faster one answers first.
-
-```toml
-[agent]
-multi_llm = ["kimi-code/k3", "kimi-code/kimi-for-coding"]
-```
-
-Each entry is a [`[models]`](#models) alias, resolved exactly like `default_model`. The engine calls every provider directly over its own HTTP connection, so there is no per-request hop back through the client.
-
-::: info How the winner is chosen
-- A provider that fails first does not win: its error is recorded and the race continues, and only if every provider fails are the errors reported together.
-- An empty reply does not win either — it is held aside as a fallback while the others keep running, so one relay hiccup cannot fail the turn.
-- The losers are cancelled as soon as a winner is decided.
-- Nothing is streamed while the race runs: the winner is the first *complete* response, so a turn using `multi_llm` shows no incremental output.
-:::
-
-::: warning
-`multi_llm` needs at least two entries — with one there is nothing to race, and it would silently replace `default_model`. An alias that cannot resolve to a provider with credentials fails at session creation and names the offending alias, rather than quietly racing fewer models.
-:::
-
 ## `thinking`
 
 `thinking` sets the global default behavior for Thinking mode.
@@ -385,16 +362,6 @@ Retries only apply to transient failures: connection errors, timeouts, HTTP 429 
 
 In print mode (`kimi -p "<prompt>"`), Kimi Code stays alive after the main agent's turn as long as background tasks are still pending: each completion is fed back to the main agent as a synthetic user message, steering it into a new turn (`print_background_mode = "steer"` by default), and the run exits once a turn ends with nothing pending. The loop is bounded by `print_wait_ceiling_s` and `print_max_turns`, both effectively unbounded by default. Background work is never killed by a wall-clock cap in print mode either: background `Bash` tasks default to no timeout (`bash_task_timeout_s = 0`), and subagents run without a timeout (`[subagent] timeout_ms` and `[swarm] timeout_ms` both default to `0` unless explicitly set), so only the model itself stops a task. Set `print_background_mode` to `"drain"` to wait for tasks without feeding results back, or `"exit"` to end the run as soon as the main agent finishes.
 
-## `shell`
-
-`shell` pins the command interpreter the `Bash` tool uses for local execution. On Windows the default is auto-detection — PowerShell 7 (`pwsh`) → Windows PowerShell → Git Bash → `cmd`; on other platforms it is `/bin/bash`.
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `preference` | `"auto" \| "bash" \| "powershell" \| "pwsh" \| "cmd"` | `"auto"` | Which shell to run commands under. `auto` detects as described above; `bash` / `powershell` / `pwsh` / `cmd` pins one explicitly. Any other value falls back to `auto` |
-
-`KIMI_SHELL_PATH` takes higher priority than `[shell].preference`: when set, it pins the shell executable directly (its basename decides the command prefix). `[shell].preference` applies to the Rust engine, which owns `Bash` execution.
-
 ## `subagent`
 
 `subagent` controls how subagents spawned by the `Agent` tool run.
@@ -445,9 +412,7 @@ A name that contains no ASCII letters or digits (for example a purely Chinese na
 
 The identity is resolved once at startup and holds for the life of the process: it is announced to MCP servers and providers when connections are made, so it cannot change midway. Edits to this section take effect on the next start, for new sessions: a resumed session keeps the system prompt it was recorded with, since its past turns already speak under that identity. Likewise, an MCP OAuth authorization keeps the client registration it was granted under; reset that server's authentication to register under the new identity.
 
-::: warning Not yet honored
-The native agent engine does not consume this section yet; configuring it currently has no effect.
-:::
+This section is read by the `agent-core-v2` engine, which powers every Kimi Code surface.
 
 ## `tools`
 
@@ -488,12 +453,12 @@ Both values must be positive integers. A call's `max_chars` overrides the defaul
 
 ## `image`
 
-`image` controls how images are compressed before being sent to the model, across every ingestion point (pasted images, `Read` image reads, images in MCP tool results, and so on).
+`image` controls how images are compressed before being sent to the model, across every ingestion point (pasted images, `ReadMediaFile` reads, images in MCP tool results, and so on).
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `max_edge_px` | `integer` | `2000` | Longest-edge ceiling in pixels. Larger images are scaled down proportionally to fit; raising it preserves more detail at the cost of larger request bodies |
-| `read_byte_budget` | `integer` | `262144` (256 KB) | Per-image byte budget for images the model reads for itself (`Read` image reads). It bounds the accumulated request-body size when the model keeps screenshotting and reading images; fine detail stays reachable through the `region` parameter, which reads a crop back at full fidelity (`region` and `full_resolution` are not subject to this budget) |
+| `max_edge_px` | `integer` | `2000` | Longest-edge ceiling in pixels; larger images scale down proportionally. Raising it preserves more detail at the cost of larger request bodies |
+| `read_byte_budget` | `integer` | `262144` (256 KB) | Per-image byte budget for images the model reads for itself (`ReadMediaFile` default reads); `region` and `full_resolution` read-backs are exempt |
 
 `max_edge_px` can be overridden by the `KIMI_IMAGE_MAX_EDGE_PX` environment variable and `read_byte_budget` by `KIMI_IMAGE_READ_BYTE_BUDGET`; both take higher priority than `config.toml`.
 
@@ -507,6 +472,16 @@ Both values must be positive integers. A call's `max_chars` overrides the defaul
 | `search` | `boolean` | `true` | Run the global search index in a dedicated worker thread; `false` runs it in the server process |
 
 `base` can be overridden by the `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` environment variable and `search` by `KIMI_CODE_SEARCH_WORKER`; both take higher priority than `config.toml`.
+
+## `watch`
+
+`watch` controls filesystem watchers that reload local.toml, AGENTS.md, skills, MCP config, and `config.toml` itself. It defaults to off. Set `enabled` to `true` to attach watchers; with watchers off, changing the file later will not be picked up until restart.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `enabled` | `boolean` | `false` | Attach filesystem watchers; `false` disables every `watch()` for the process |
+
+`enabled` can be overridden by the `KIMI_CODE_WATCH` environment variable, which takes higher priority than `config.toml`.
 
 <!--
 ## `experimental`
@@ -540,27 +515,6 @@ api_key = "sk-xxx"
 base_url = "https://api.moonshot.cn/v1/fetch"
 api_key = "sk-xxx"
 ```
-
-## `github`
-
-Configures the built-in GitHub tools — the PR, issue, commit, and search tools the agent uses for GitHub-hosted work. The tools stay out of the agent's tool list until a token is available, so with nothing configured here you have no `GitHub*` tools and can leave this section out entirely.
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `token` | `string` | — | GitHub personal access token used by the built-in GitHub tools. Falls back to `GITHUB_TOKEN`, then `GH_TOKEN` |
-| `base_url` | `string` | `https://api.github.com` | REST API base URL. Set it to point the tools at a GitHub Enterprise Server instance instead of GitHub's public API |
-
-```toml
-[github]
-token = "YOUR_GITHUB_TOKEN"
-base_url = "https://github.example.com/api/v3" # optional — GitHub Enterprise Server
-```
-
-A value written here always wins over the environment: `GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_API_URL` are read only as a fallback for a field the file leaves unset, and an env-sourced value is never written back to `config.toml` — convenient for containers and CI, where writing a config file is awkward. See [Environment variables](./env-vars.md#github-credentials).
-
-The token is read when the tools activate, not only at startup: adding `token` here (or exporting `GITHUB_TOKEN`) makes the tools available from the next step of a running turn, with no restart. Removing it does not take tools away from an agent that already activated them — start a new session for that.
-
-For the tool list itself and which entries need approval, see [Built-in Tools](../reference/tools.md#github).
 
 ## `permission`
 
@@ -606,7 +560,6 @@ Alongside `config.toml`, the CLI keeps terminal-UI and client preferences in a c
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `theme` | `string` | `auto` | Color theme: `auto`, `dark`, `light`, or the name of a [custom theme](../customization/themes.md) |
-| `locale` | `string` | auto-detected | UI language for the terminal: `en` or `zh`. The `/settings` dialog writes it for you. Unset, the CLI picks `zh` when `KIMI_LANG` or the system `LANG` / `LC_ALL` / `LC_MESSAGES` says Chinese, and `en` otherwise; set it explicitly to pin one language |
 | `render_latex` | `boolean` | `true` | Render LaTeX math expressions in Markdown messages as Unicode text; `false` keeps the raw source |
 | `disable_paste_burst` | `boolean` | `false` | Disable the non-bracketed paste-burst fallback that keeps rapid multi-line pastes from submitting line by line |
 | `cache_expiry_hint` | `boolean` | `true` | On resume or when submitting after a long idle stretch, warn that the context cache may have expired and offer to compact or start a new session (v2 engine only) |

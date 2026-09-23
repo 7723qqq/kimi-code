@@ -36,8 +36,8 @@ export default {
     optionDescriptions: {
       session: 'Resume a session. With ID: resume that session. Without ID: interactively pick.',
       continue: 'Continue the previous session for the working directory.',
-      yolo: 'Automatically approve all actions.',
-      auto: 'Start in auto permission mode.',
+      yolo: 'Start in Ask When Needed mode: routine edits and commands run automatically; risky actions, questions, and plans still ask.',
+      auto: 'Start in Never Ask mode: never interrupts you; everything runs and is decided automatically.',
       plan: 'Start in plan mode.',
       model:
         'LLM model alias to use for this invocation. Defaults to default_model in config.toml.',
@@ -47,8 +47,9 @@ export default {
         'Load skills from this directory instead of auto-discovered user and project directories. Can be repeated.',
       addDir: 'Add an additional workspace directory for this session. Can be repeated.',
       agent:
-        'Agent profile to use for this invocation. Custom profiles are discovered from agent directories or loaded via --agent-file.',
-      agentFile: 'Load an agent definition from a Markdown file and select it.',
+        'Agent profile to start the new session with. Custom profiles are discovered from agent directories or loaded via --agent-file. Cannot be combined with --session/--continue.',
+      agentFile:
+        'Load an agent definition from a Markdown file and select it for the new session. Cannot be combined with --session/--continue.',
       upgradeYes: 'Skip the confirmation prompt and install the update directly.',
       installDesktop: 'Print the Kimi Code desktop app page and open it in your browser.',
       exportOutput: 'Output ZIP path.',
@@ -225,8 +226,8 @@ export default {
       },
     },
     slashCommands: {
-      yolo: 'Toggle YOLO mode: AI auto-approves safe actions, asks for approval on risky ones.',
-      auto: 'Toggle Auto mode: run all actions automatically, including risky ones.',
+      yolo: 'Ask When Needed mode: routine edits and commands run automatically; risky actions, questions, and plans still ask.',
+      auto: 'Never Ask mode: never interrupts you; everything runs and is decided automatically.',
       permission: 'Select permission mode',
       settings: 'Open TUI settings',
       plan: 'Toggle plan mode',

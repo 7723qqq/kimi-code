@@ -26,7 +26,7 @@ function makeKokubResponseBody(): Record<string, CustomRegistryProviderEntry> {
         'claude-opus-4-7': { id: 'claude-opus-4-7', name: 'Claude Opus 4.7' },
       },
     },
-    registry_messages: {
+    'registry_messages': {
       id: 'registry_messages',
       name: 'Sample Registry (messages)',
       api: 'https://registry.example.test',
@@ -35,7 +35,7 @@ function makeKokubResponseBody(): Record<string, CustomRegistryProviderEntry> {
         'claude-opus-4-7': { id: 'claude-opus-4-7', name: 'Claude Opus 4.7' },
       },
     },
-    registry_responses: {
+    'registry_responses': {
       id: 'registry_responses',
       name: 'Sample Registry (responses)',
       api: 'https://registry.example.test/v1',
@@ -64,9 +64,10 @@ describe('fetchCustomRegistry', () => {
   it('parses a kokub-shaped 200 response into three providers', async () => {
     const fetchMock = vi.fn(async () => makeJsonResponse(makeKokubResponseBody()));
 
-    const result = await fetchCustomRegistry(KOKUB_SOURCE, {
-      fetchImpl: fetchMock as unknown as typeof fetch,
-    });
+    const result = await fetchCustomRegistry(
+      KOKUB_SOURCE,
+      { fetchImpl: fetchMock as unknown as typeof fetch },
+    );
 
     expect(Object.keys(result)).toHaveLength(3);
     expect(result['registry_chat-completions']?.type).toBe('openai');
@@ -98,9 +99,10 @@ describe('fetchCustomRegistry', () => {
     };
     const fetchMock = vi.fn(async () => makeJsonResponse(body));
 
-    const result = await fetchCustomRegistry(KOKUB_SOURCE, {
-      fetchImpl: fetchMock as unknown as typeof fetch,
-    });
+    const result = await fetchCustomRegistry(
+      KOKUB_SOURCE,
+      { fetchImpl: fetchMock as unknown as typeof fetch },
+    );
 
     expect(result['registry_chat-completions']?.models['gpt-5.5']).toEqual({
       id: 'gpt-5.5',
@@ -128,13 +130,18 @@ describe('fetchCustomRegistry', () => {
   it('sends the given User-Agent, and none by default', async () => {
     const fetchMock = vi.fn(async () => makeJsonResponse(makeKokubResponseBody()));
 
-    await fetchCustomRegistry(KOKUB_SOURCE, {
-      fetchImpl: fetchMock as unknown as typeof fetch,
-      userAgent: 'kimi-code-cli/1.2.3',
-    });
+    await fetchCustomRegistry(
+      KOKUB_SOURCE,
+      {
+        fetchImpl: fetchMock as unknown as typeof fetch,
+        userAgent: 'kimi-code-cli/1.2.3',
+      },
+    );
 
     const withUa = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect((withUa[1].headers as Record<string, string>)['User-Agent']).toBe('kimi-code-cli/1.2.3');
+    expect((withUa[1].headers as Record<string, string>)['User-Agent']).toBe(
+      'kimi-code-cli/1.2.3',
+    );
 
     fetchMock.mockClear();
     await fetchCustomRegistry(KOKUB_SOURCE, {
@@ -149,57 +156,28 @@ describe('fetchCustomRegistry', () => {
     const fetchMock = vi.fn(async () => makeJsonResponse(makeKokubResponseBody()));
     const controller = new AbortController();
 
-    await fetchCustomRegistry(KOKUB_SOURCE, {
-      fetchImpl: fetchMock as unknown as typeof fetch,
-      signal: controller.signal,
-    });
+    await fetchCustomRegistry(
+      KOKUB_SOURCE,
+      {
+        fetchImpl: fetchMock as unknown as typeof fetch,
+        signal: controller.signal,
+      },
+    );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const call = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    // The caller's signal is combined with a 15s timeout, so the init signal is
-    // a derived signal rather than the exact controller signal.
-    expect(call[1].signal).toBeInstanceOf(AbortSignal);
-    expect(call[1].signal?.aborted).toBe(false);
-  });
-
-  it('applies a 15s timeout even without a caller signal', async () => {
-    const fetchMock = vi.fn(async () => makeJsonResponse(makeKokubResponseBody()));
-
-    await fetchCustomRegistry(KOKUB_SOURCE, {
-      fetchImpl: fetchMock as unknown as typeof fetch,
-    });
-
-    const call = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(call[1].signal).toBeInstanceOf(AbortSignal);
-  });
-
-  it('rejects responses above the body size cap', async () => {
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(JSON.stringify(makeKokubResponseBody()), {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': String(10 * 1024 * 1024 + 1),
-          },
-        }),
-    );
-
-    await expect(
-      fetchCustomRegistry(KOKUB_SOURCE, {
-        fetchImpl: fetchMock as unknown as typeof fetch,
-      }),
-    ).rejects.toThrow(/Response body too large/);
+    expect(call[1].signal).toBe(controller.signal);
   });
 
   it('throws CustomRegistryApiError with status on 401', async () => {
-    const fetchMock = vi.fn(async () =>
-      makeJsonResponse({ error: { message: 'invalid bearer' } }, 401),
+    const fetchMock = vi.fn(
+      async () => makeJsonResponse({ error: { message: 'invalid bearer' } }, 401),
     );
 
-    const error = await fetchCustomRegistry(KOKUB_SOURCE, {
-      fetchImpl: fetchMock as unknown as typeof fetch,
-    }).catch((error: unknown) => error);
+    const error = await fetchCustomRegistry(
+      KOKUB_SOURCE,
+      { fetchImpl: fetchMock as unknown as typeof fetch },
+    ).catch((error: unknown) => error);
 
     expect(error).toBeInstanceOf(CustomRegistryApiError);
     expect((error as CustomRegistryApiError).status).toBe(401);
@@ -218,25 +196,27 @@ describe('fetchCustomRegistry', () => {
 
   it('skips invalid entries and keeps valid ones', async () => {
     const goodEntry = makeKokubResponseBody()['registry_chat-completions'];
-    const fetchMock = vi.fn(async () =>
-      makeJsonResponse({
-        'broken-entry': { id: 'broken-entry', name: 'Broken' },
-        'unknown-type': {
-          id: 'unknown-type',
-          name: 'Unknown Type',
-          api: 'https://example.test/v1',
-          type: 'google-genai',
-          models: { 'm-1': { id: 'm-1' } },
-        },
-        'registry_chat-completions': goodEntry,
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        makeJsonResponse({
+          'broken-entry': { id: 'broken-entry', name: 'Broken' },
+          'unknown-type': {
+            id: 'unknown-type',
+            name: 'Unknown Type',
+            api: 'https://example.test/v1',
+            type: 'google-genai',
+            models: { 'm-1': { id: 'm-1' } },
+          },
+          'registry_chat-completions': goodEntry,
+        }),
     );
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     try {
-      const result = await fetchCustomRegistry(KOKUB_SOURCE, {
-        fetchImpl: fetchMock as unknown as typeof fetch,
-      });
+      const result = await fetchCustomRegistry(
+        KOKUB_SOURCE,
+        { fetchImpl: fetchMock as unknown as typeof fetch },
+      );
 
       expect(Object.keys(result)).toEqual(['registry_chat-completions']);
       expect(result['broken-entry']).toBeUndefined();
@@ -346,9 +326,7 @@ describe('applyCustomRegistryProvider', () => {
       capabilities: string[];
     };
     expect(alias.maxContextSize).toBe(200000);
-    expect(alias.capabilities).toEqual(
-      expect.arrayContaining(['tool_use', 'thinking', 'image_in']),
-    );
+    expect(alias.capabilities).toEqual(expect.arrayContaining(['tool_use', 'thinking', 'image_in']));
     expect(alias.capabilities).not.toContain('image_out');
   });
 
@@ -516,6 +494,34 @@ describe('applyCustomRegistryProvider', () => {
     expect(alias?.['supportEfforts']).toBeUndefined();
     expect(alias?.['defaultEffort']).toBeUndefined();
   });
+
+  it('does not preserve apiKeyEnv when the colliding provider is manual (no registry source)', () => {
+    const config: ManagedKimiConfigShape = {
+      providers: {
+        acme: {
+          type: 'openai',
+          baseUrl: 'https://acme.example.test/v1',
+          apiKeyEnv: 'VICTIM_KEY',
+        },
+      },
+    };
+    const entry: CustomRegistryProviderEntry = {
+      id: 'acme',
+      name: 'Acme',
+      api: 'https://attacker.example.test/v1',
+      type: 'openai',
+      models: { m1: { id: 'm1' } },
+    };
+
+    applyCustomRegistryProvider(config, entry, KOKUB_SOURCE);
+
+    expect(config.providers['acme']).toEqual({
+      type: 'openai',
+      baseUrl: 'https://attacker.example.test/v1',
+      apiKey: 'sk-token',
+      source: KOKUB_SOURCE,
+    });
+  });
 });
 
 describe('removeCustomRegistryProvider', () => {
@@ -593,27 +599,9 @@ describe('applyCustomRegistryEntries', () => {
       apiKey: 'sk-token',
     };
     const entries: Record<string, CustomRegistryProviderEntry> = {
-      a: {
-        id: 'a',
-        name: 'A',
-        api: 'https://a.test/v1',
-        type: 'openai',
-        models: { m1: { id: 'm1' } },
-      },
-      b: {
-        id: 'b',
-        name: 'B',
-        api: 'https://b.test/v1',
-        type: 'openai',
-        models: { m1: { id: 'm1' } },
-      },
-      c: {
-        id: 'c',
-        name: 'C',
-        api: 'https://c.test/v1',
-        type: 'openai',
-        models: { m1: { id: 'm1' } },
-      },
+      a: { id: 'a', name: 'A', api: 'https://a.test/v1', type: 'openai', models: { 'm1': { id: 'm1' } } },
+      b: { id: 'b', name: 'B', api: 'https://b.test/v1', type: 'openai', models: { 'm1': { id: 'm1' } } },
+      c: { id: 'c', name: 'C', api: 'https://c.test/v1', type: 'openai', models: { 'm1': { id: 'm1' } } },
     };
 
     const config: ManagedKimiConfigShape = { providers: {} };
@@ -682,20 +670,8 @@ describe('applyCustomRegistryEntries', () => {
       apiKey: 'sk-token',
     };
     const firstEntries: Record<string, CustomRegistryProviderEntry> = {
-      a: {
-        id: 'a',
-        name: 'A',
-        api: 'https://a.test/v1',
-        type: 'openai',
-        models: { m1: { id: 'm1' } },
-      },
-      b: {
-        id: 'b',
-        name: 'B',
-        api: 'https://b.test/v1',
-        type: 'openai',
-        models: { m1: { id: 'm1' } },
-      },
+      a: { id: 'a', name: 'A', api: 'https://a.test/v1', type: 'openai', models: { m1: { id: 'm1' } } },
+      b: { id: 'b', name: 'B', api: 'https://b.test/v1', type: 'openai', models: { m1: { id: 'm1' } } },
     };
 
     const config: ManagedKimiConfigShape = {
@@ -804,16 +780,7 @@ describe('capabilitiesFromCustomEntry', () => {
         reasoning: true,
         modalities: { input: ['text', 'image', 'video'], output: ['text', 'image', 'audio'] },
       }),
-    ).toEqual(
-      expect.arrayContaining([
-        'tool_use',
-        'thinking',
-        'image_in',
-        'video_in',
-        'image_out',
-        'audio_out',
-      ]),
-    );
+    ).toEqual(expect.arrayContaining(['tool_use', 'thinking', 'image_in', 'video_in', 'image_out', 'audio_out']));
   });
 
   it('omits capabilities that are explicitly false', () => {

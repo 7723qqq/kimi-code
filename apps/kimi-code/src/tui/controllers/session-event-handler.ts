@@ -396,15 +396,13 @@ export class SessionEventHandler {
         this.handleCompactionCancel(event, sendQueued);
         break;
       case 'subagent.spawned':
+        this.host.surveyController.notifySubagentSpawned(event);
+        this.subAgentEventHandler.handleLifecycleEvent(event); break;
       case 'subagent.started':
       case 'subagent.suspended':
       case 'subagent.completed':
       case 'subagent.failed':
       case 'subagent.cancelled':
-        // v2 #3907: completed subagents feed the survey's copilot statistics.
-        if (event.type === 'subagent.completed') {
-          this.host.surveyController.notifySubagentCompleted(undefined, undefined);
-        }
         this.subAgentEventHandler.handleLifecycleEvent(event);
         break;
       case 'background.task.started':
@@ -830,6 +828,7 @@ export class SessionEventHandler {
 
   private handleToolResult(event: ToolResultEvent): void {
     const { streamingUI } = this.host;
+    this.host.surveyController.notifyToolCallEnded(event.toolCallId);
     streamingUI.flushNow();
     this.clearStepRetry();
     const startMs = this.toolStartTimes.get(event.toolCallId);

@@ -6,81 +6,107 @@ outline: 2
 
 This page documents the changes in each Kimi Code CLI release.
 
+## 2.0.2 (2026-09-19)
+
+### Polish
+
+- The agent no longer assumes the current working directory is the project root.
+
+### Bug Fixes
+
+- Fix compaction failing after switching to a model with a smaller context window.
+- Fix new messages occasionally landing at an old position in the conversation after resuming a session.
+- Fix a message sent while the agent was running sometimes appearing twice in the chat.
+- web: Improved interactions and fixed known bugs.
+
+## 2.0.1 (2026-09-18)
+
+### Polish
+
+- Remove the system-prompt rule that forbade all file access outside the working directory.
+- Providers can read their API key from a named environment variable via [`api_key_env`](../configuration/providers.md) in `config.toml`.
+- Stop workspace file watchers from scanning an unbounded project root, and add `[watch] enabled` / `KIMI_CODE_WATCH` to disable watching entirely. See [`watch`](../configuration/config-files.md#watch) for details.
+- Stop asking for approval of bash commands that cannot be statically analyzed in Ask When Needed permission mode.
+- Rename the `kimi install-app` subcommand to `kimi install-desktop`; the old name keeps working as a hidden alias.
+
+### Bug Fixes
+
+- Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md) for more technical entries.
+
 ## 2.0.0 (2026-09-17)
 
 ### Features
 
-- Add the `/desktop` slash command (alias `/install-desktop`) and the `kimi install-app` subcommand; both open the Kimi Code desktop app page in your browser.
-- Render mermaid code blocks as diagrams in the terminal. Turn it off in `/settings` → Mermaid diagrams, or set `mermaid = "off"` under `[markdown]` in [`tui.toml`](../configuration/config-files.md#tui-toml).
+- Add the `/desktop` slash command (alias `/install-desktop`) and the `kimi install-app` subcommand.
+- Render mermaid code blocks as diagrams in the terminal; turn it off under `/settings` → Mermaid diagrams, or set `mermaid = "off"` in the `[markdown]` section of tui.toml.
 
 ### Polish
 
-- The built-in browser plugin is now named "Kimi Browser Extension" in the plugins panel, the marketplace catalog, and the docs.
-- Highlight diff code blocks in the transcript.
+- The built-in browser plugin now appears as "Kimi Browser Extension" in the plugins panel, marketplace catalog, and docs, matching the product rename.
 
 ### Bug Fixes
 
-- Fix several issues when steering a running turn: steered messages and user messages appearing twice, slash commands or attachments missing from the transcript until a reload, and messages disappearing or reappearing after undoing a steered message.
-- Keep the original prompt visible when steering a running turn, instead of replacing it with the steered text.
-- Fix several known issues. See the [changelog on GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md) for more technical entries.
+- Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md) for more technical entries.
 
 ## 0.43.1 (2026-09-15)
 
+### Features
+
+- Add native clipboard support on Linux X11, so copying from the TUI no longer depends on the terminal's OSC 52 support.
+
 ### Polish
 
-- Update the terminal UI engine: link colors render correctly in wrapped Markdown tables, `@` file completion lists entries in the expected order, and Linux X11 gains native clipboard support.
+- Reduce event-loop stalls and GC churn in sessions with many concurrent subagents.
 
 ### Bug Fixes
 
-- Fix large agent swarms slowing down round after round, and release subagent memory and event-loop work promptly so sessions with many concurrent subagents stay responsive.
-- Pressing `Ctrl-C` while subagents are running now interrupts those subagents instead of exiting the CLI.
-- Fix several known issues. See the [changelog on GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md) for more technical entries.
+- Fix pressing Ctrl+C while subagents are running exiting the whole CLI instead of just interrupting the subagents.
+- Fix progressively slower rendering on each round of large agent swarm runs.
+- Fix memory not being released when subagent scopes are disposed.
+- Fix tower mode mistaking newly spawned agents for previous sessions' roster entries.
+- Stop returning deleted sessions from global search before the search index catches up.
+- Fix link colors in wrapped markdown tables and `@` file-completion ordering.
 
 ## 0.43.0 (2026-09-14)
 
 ### Features
 
-- Delete sessions from the session picker: press `Ctrl-X` on a session, then `y` to confirm.
-- Add the `loop_control.compaction_max_attempts` option to cap the total attempts a failing compaction request makes (default `5`) — see [`loop_control`](../configuration/config-files.md#loop-control).
-- Add the `KIMI_CODE_PERMISSION_MODE_REMINDER` environment variable; set it to `0` to stop injecting automatic permission-mode reminders into the model context.
-- Add `-y, --yes` to `kimi upgrade` (alias `kimi update`) to install an update without the confirmation prompt.
+- web: AI session titles are now always on — a title is generated after the first turn and can be regenerated from the rename field, with no experimental flag required.
+- Delete sessions from the session picker: press Ctrl+X on a session, then y to confirm.
+- Add `-y, --yes` to `kimi upgrade` (alias `kimi update`) to skip the confirmation prompt and install the update directly.
+- Add the `loop_control.compaction_max_attempts` config option to set the maximum total attempts for a failing compaction request (default 5). See [`loop_control`](../configuration/config-files.md#loop_control) for details.
 
 ### Polish
 
-- web: Session titles are generated after the first turn and can be regenerated from the rename field; no experimental flag is required.
-- web: Restructure the Settings pages — Account now follows General, Agent is renamed to Agents & Sessions and includes message folding, Advanced is renamed to About, and data & privacy settings move into General.
-- Goal time budgets no longer stop after 24 hours, and time spent with the session closed is excluded from them.
-- Steer messages now interrupt waits for background tasks.
-- `rm -rf` commands that target only `/tmp` or `/temp` paths no longer ask for confirmation.
+- Skip the confirmation prompt for rm -rf commands that target only /tmp or /temp paths.
+- Allow steering messages to interrupt waits for background tasks.
+- Goal time budgets no longer count time spent with the session closed, and the 24-hour limit is removed.
+- Add the `KIMI_CODE_PERMISSION_MODE_REMINDER` environment variable: set it to `0` to stop injecting the auto permission-mode reminders into the model context.
 
 ### Bug Fixes
 
-- Fix several web issues that made conversations stutter, become unresponsive, or get stuck while loading — including while streaming in long sessions, and when rendering formulas, links, tool results, log contents, or sessions containing many brackets and backslashes.
-- Fix several web glitches: the send button staying disabled when starting a new session, previous sessions being wrongly marked unread with spurious turn-complete notifications, and small Settings control defects such as a flashing segmented control, a deforming switch thumb, and tooltips popping up without mouse movement.
-- Fix several known issues. See the [changelog on GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md) for more technical entries.
+- Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md) for more technical entries.
 
 ## 0.42.0 (2026-09-09)
 
 ### Features
 
-- Add read-only tools to the `/btw` side agent.
-- web: Preview images and videos in a reorderable media rail in the composer, mention them in the text on demand, and keep previews after queueing and sending.
+- Remote Control is now always on; the experimental `KIMI_CODE_EXPERIMENTAL_REMOTE_CONTROL` flag has been removed. See [Remote Control](https://moonshotai.github.io/kimi-code/guides/remote-control.html) for details.
 - web: Support permanently deleting sessions from the session row context menu, with a confirmation prompt.
-- Add an experimental Updates panel with paginated progress messages from the main agent and subagents; enable it with `KIMI_CODE_EXPERIMENTAL_NOTIFY_USER=1`.
+- Add read-only tools to the `/btw` side agent.
+- web: Preview images and videos in a reorderable media rail in the composer, mention them in the text on demand, and keep the previews after queueing and sending.
+- Accept HEIC, HEIF, and BMP images in prompt attachments and `ReadMediaFile` when the model is served by Kimi.
 
 ### Polish
 
-- Remote Control and the subagent model pool (`[secondary_model]`) are now always on; their experimental flags have been removed.
-- Watch user-level skill roots (`~/.kimi-code/skills` and `~/.agents/skills`) so the workspace skill catalog refreshes automatically when skills are created, modified, or deleted without restarting.
-- Support HEIC, HEIF, and BMP images in file reads and prompt attachments when the model is served by Kimi.
-- Allow file searches to retrieve matches beyond the first 100 results, and add configurable character limits and resumable reads to long-line file viewing.
-- Collapse finished tool calls in the transcript to a concise outcome row; hidden output is counted and revealed by `Ctrl-O`.
+- Collapse finished tool calls in the transcript to a header plus one marked outcome row: short output is shown whole, hidden output is counted (`N more lines`, `+N more`) and revealed by `Ctrl-O`, which the footer advertises while it is available.
+- Upgrade the default thinking effort to the recommended level for eligible users.
+- The subagent model pool (`[secondary_model]`) is now always on; the experimental secondary-model flag and the `KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL` opt-out have been removed.
+- Add configurable character limits and resumable long-line file reads without repeated output truncation; see [`read`](https://moonshotai.github.io/kimi-code/configuration/config-files.html#read) for details.
+- The minidb session-index read model and global search worker are now always on; the experimental flags have been replaced by the `[database]` config section and the `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` / `KIMI_CODE_SEARCH_WORKER` env vars; see [`database`](https://moonshotai.github.io/kimi-code/configuration/config-files.html#database) for details.
 
 ### Bug Fixes
 
-- Fix the agent resuming the wrong request after automatic context compaction in long sessions.
-- Fix recent sessions missing from the session list when the sessions directory contains stray files.
-- web: Reduce jank when opening and scrolling back through long conversations, and avoid simultaneous request spikes when reloading sessions with background tasks.
 - Fix several known issues and make various refinements. See the [changelog on GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md) for more technical entries.
 
 ## 0.41.0 (2026-09-04)

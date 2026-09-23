@@ -496,6 +496,7 @@ export interface IDebugCascadeServiceContract {
 
 export interface IAgentLoopServiceContract {
   readonly _serviceBrand: undefined;
+  cancel(target?: unknown, reason?: unknown): boolean;
   cancelFromUser(turnId?: number): void;
   status(): unknown;
   settled(): Promise<void>;

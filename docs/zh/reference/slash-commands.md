@@ -13,12 +13,12 @@
 | 命令 | 别名 | 说明 | 随时可用 |
 | --- | --- | --- | --- |
 | `/login` | — | 选择账号或平台并登录：Kimi Code 走 OAuth 验证码流程，Kimi Platform 通过 API 密钥登录 | 否 |
-| `/logout` | `/disconnect` | 清除当前所选账号的凭据 | 否 |
-| `/provider` | `/providers` | 打开交互式供应商管理器，查看、添加和删除已配置的供应商。详见[平台与模型 — `/provider` 与供应商管理](../configuration/providers.md#provider-—-交互式供应商管理) | 是 |
+| `/logout` | — | 清除当前所选账号的凭据 | 否 |
+| `/provider` | — | 打开交互式供应商管理器，查看、添加和删除已配置的供应商。详见[平台与模型 — `/provider` 与供应商管理](../configuration/providers.md#provider-—-交互式供应商管理) | 是 |
 | `/model` | — | 切换当前会话使用的 LLM 模型 | 是 |
 | `/secondary-model` | `/subagent-model` | 选择 subagent 的默认模型（写入 `[secondary_model] default_model`，详见[subagent 模型池](../configuration/config-files.md#subagent-模型池)） | 是 |
 | `/settings` | `/config` | 打开 TUI 内的设置面板 | 是 |
-| `/experiments` | `/experimental` | 打开实验功能面板 | 否 |
+| `/experiments` | `/experimental` | 打开实验功能面板 | 是 |
 | `/permission` | — | 选择权限模式 | 是 |
 | `/editor` | — | 配置 `Ctrl-G` 调起的外部编辑器 | 是 |
 | `/theme` | — | 切换终端 UI 配色主题 | 是 |
@@ -34,15 +34,12 @@
 | `/title [<text>]` | `/rename` | 不带参数时显示当前会话标题；带参数时设置为新标题（最长 200 字符） | 是 |
 | `/compact [<instruction>]` | — | 压缩当前对话上下文，释放 token 占用；可附带自定义指令，提示模型压缩时保留哪些信息 | 否 |
 | `/undo [<count>]` | — | 从当前上下文撤销最近的提示词。不带数量时打开选择器；带数量时撤销对应条数。最后一次上下文压缩之前的提示词不能撤销。撤销会一并回滚这些提示词产生的 todo 列表和计划模式状态（不回滚代码改动） | 否 |
-| `/reload` | — | 重新加载当前会话并应用最新的 `config.toml` 设置（供应商、模型等）与 `tui.toml` UI 偏好，无需重启 CLI | 否 |
-| `/reload-tui` | — | 仅重新加载 `tui.toml` UI 偏好（主题、编辑器、通知等），不重建会话 | 是 |
 | `/init` | — | 分析当前代码库并生成 `AGENTS.md` | 否 |
 | `/export-md [<path>]` | `/export` | 将当前会话导出为 Markdown 文件 | 否 |
 | `/export-debug-zip` | — | 将当前会话导出为调试用 ZIP 压缩包（与 [`kimi export`](./kimi-command.md#kimi-export) 行为一致） | 否 |
 | `/copy` | — | 将最后一条 AI 回复复制到剪贴板 | 否 |
 | `/add-dir [<path>]` | — | 为当前会话添加额外的工作目录。不带路径（或传入 `list`）运行时列出已配置的目录。添加时可选择是否将目录记入项目的 `.kimi-code/local.toml` | 否 |
 | `/web` | — | 在 web UI 中打开当前会话：选择一个运行中的实例进行连接，或在 TUI 退出后新开一个前台服务器。参见 [`kimi web`](./kimi-command.md#kimi-web) | 是 |
-| `/remote-control` | `/rc` | 为当前会话开启远程控制隧道。需要 `remote-control` 实验特性开关 | 是 |
 | `/desktop` | `/install-desktop` | 在浏览器中打开 Kimi Code 桌面端页面（地址随当前区域而定：`https://www.kimi.com/code` 或 `https://www.kimi.ai/code`）。参见 [`kimi install-desktop`](./kimi-command.md#kimi-install-desktop) | 是 |
 
 ## 模式与运行控制
@@ -53,12 +50,8 @@
 | `/auto` | — | 打开权限模式列表并预选 "Never Ask"，按 `Enter` 确认开启。该模式下完全不打断，所有操作和判断自动完成 | 是 |
 | `/plan [on\|off]` | — | 切换 Plan 模式。不带参数时翻转；显式传 `on`/`off` 时强制设置。单纯切换不会创建空计划文件 | 是 |
 | `/plan clear` | — | 清除当前 plan 方案 | 否 |
-| `/effort` | `/thinking` | 切换思考模式 | 是 |
-| `/swarm on\|off` | — | 开启或关闭 swarm mode，但不发送提示词。 | 否 |
-| `/swarm <task>` | — | 先开启 swarm mode，再把 `<task>` 作为普通提示词发送。如果该轮次正常完成，swarm mode 会自动关闭。若当前是 `manual` 权限模式，启动前会提示是否切换到「必要时询问」或「完全自动」模式。 | 否 |
-| `/team <topic>` | — | 启动多 Agent 团队讨论 | 否 |
-| `/workflow <name> [<args>...]` | — | 运行或管理工作流（列表、状态、取消或按名称运行） | 是 |
-| `/tower [status\|teardown\|on\|off] \| <base-branch>` | — | 管理实验性的 Tower 多工作区编排：启用/关闭、查看状态、拆除，或选择基础分支。需要 `tower` 实验特性开关 | 是 |
+| `/swarm on\|off` | — | 开启或关闭 swarm mode，但不发送提示词。 | 是 |
+| `/swarm <task>` | — | 先开启 swarm mode，再把 `<task>` 作为普通提示词发送。如果该轮次正常完成，swarm mode 会自动关闭。若当前是 `manual` 权限模式，启动前会提示是否切换到 "Ask When Needed" 或 "Never Ask" 模式。 | 否 |
 | `/goal [...]` | — | 开始或管理目标模式 | 见下文 |
 
 ::: warning 注意

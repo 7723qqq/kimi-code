@@ -352,13 +352,13 @@ export interface SurveyEventEnvironmentFields {
   readonly virtual_context_tokens: number;
   readonly tool_call_count: number;
   readonly compaction_count: number;
-  /** v2 #3907: copilot statistics for the turn the survey answers. */
-  readonly subagent_count?: number;
-  readonly subagent_models?: string;
-  readonly swarm_run_count?: number;
-  readonly swarm_models?: string;
   readonly permission_mode: string;
   readonly thinking_effort: string;
+  /** v2 #3907: copilot statistics for the turn the survey answers. */
+  readonly subagent_count: number;
+  readonly subagent_models?: string;
+  readonly swarm_run_count: number;
+  readonly swarm_models?: string;
 }
 
 export function buildSurveyEventProperties(

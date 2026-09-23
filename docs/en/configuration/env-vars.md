@@ -5,7 +5,7 @@ Kimi Code CLI uses environment variables to control a small number of runtime be
 ::: warning Important: API keys are not configured here
 Credential variables such as `KIMI_API_KEY`, `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY` are **not** read automatically from shell environment variables. Running `export KIMI_API_KEY=xxx` in the terminal does not give any provider its key. They must be written in `config.toml` under `[providers.<name>]` or the `[providers.<name>.env]` sub-table.
 
-The only exception is the `KIMI_MODEL_*` family, an explicit channel that *does* read credentials from the shell. See [Define a model from environment variables](#define-a-model-from-environment-variables-kimi-model).
+The only exceptions are the `KIMI_MODEL_*` family and a provider's `api_key_env` field, two explicit channels that *do* read credentials from the shell. See [Define a model from environment variables](#define-a-model-from-environment-variables-kimi_model_) and [Provider credential key names](#provider-credential-key-names-written-in-configtoml).
 
 For background, see [Config overrides: provider credentials](./overrides.md#provider-credentials).
 :::
@@ -34,7 +34,7 @@ export KIMI_DISABLE_TELEMETRY=1
 
 ### `KIMI_MODEL_*` family
 
-Switch models temporarily without modifying `config.toml`: when `KIMI_MODEL_NAME` is set, the CLI synthesizes a temporary provider in memory, and the change does not persist after restart. See [Define a model from environment variables](#define-a-model-from-environment-variables-kimi-model).
+Switch models temporarily without modifying `config.toml`: when `KIMI_MODEL_NAME` is set, the CLI synthesizes a temporary provider in memory, and the change does not persist after restart. See [Define a model from environment variables](#define-a-model-from-environment-variables-kimi_model_).
 
 ### `KIMI_CODE_CUSTOM_HEADERS`
 
@@ -56,7 +56,7 @@ The format mirrors `ANTHROPIC_CUSTOM_HEADERS`: newline-separated `Name: Value` l
 
 The key names below are not read directly from the shell. They are key names written inside the `[providers.<name>.env]` sub-table of `config.toml`, serving as fallback values for `api_key` / `base_url`. The CLI reads only from the config file, not from `process.env`.
 
-One exception applies to base URLs on the surfaces that run sessions on the engine directly (`kimi acp`, `kimi web`): when a provider declares no `base_url`, the matching `*_BASE_URL` variable is read from the shell environment as the fallback, followed by the provider type's default endpoint (see [Providers and models](./providers.md)). API key names still come from the config file only.
+These conventional names are fixed per provider type. If you would rather keep the key in the shell environment under a name of your choosing, set [`api_key_env`](./config-files.md#providers) on the provider instead: the CLI then reads the key from that variable on every request.
 
 This design lets you keep familiar key name conventions while centralizing secret management in the config file:
 
@@ -82,7 +82,7 @@ Key names per provider:
 | `GOOGLE_CLOUD_LOCATION` | Vertex AI | None |
 
 ::: warning
-`GOOGLE_APPLICATION_CREDENTIALS` (path to a service account JSON file) is another exception that goes through the system environment variable mechanism: it is read by the Google SDK directly via the standard ADC flow, and the CLI does not participate. Every other key name must be placed in the `[providers.<name>.env]` sub-table to take effect; the `*_BASE_URL` shell fallback above applies only when no `base_url` is declared.
+`GOOGLE_APPLICATION_CREDENTIALS` (path to a service account JSON file) is the only exception that goes through the system environment variable mechanism. It is read by the Google SDK directly via the standard ADC flow; the CLI does not participate. All other key names must be placed in the `[providers.<name>.env]` sub-table to take effect.
 :::
 
 For the full provider type and field reference, see [Providers and models](./providers.md).
@@ -100,18 +100,6 @@ This group of variables redirects OAuth authentication and managed service endpo
 ::: warning
 `KIMI_CODE_BASE_URL` (OAuth-managed service, targeting `kimi.com`) and `KIMI_BASE_URL` (direct API key connection, targeting `moonshot.ai`) are two distinct variables. Use each one in its appropriate context.
 :::
-
-## GitHub credentials
-
-Unlike the provider key names above, these three are read from the real shell environment: the built-in GitHub tools appear in the agent's tool list only when a token is available, and a token can come from the environment instead of the config file.
-
-| Variable | Purpose | Default |
-| --- | --- | --- |
-| `GITHUB_TOKEN` | Personal access token for the built-in GitHub tools | None |
-| `GH_TOKEN` | Equal alternative to `GITHUB_TOKEN`, the name the `gh` CLI uses; `GITHUB_TOKEN` wins when both are set | None |
-| `GITHUB_API_URL` | REST API base URL for a GitHub Enterprise Server instance | `https://api.github.com` |
-
-A `token` or `base_url` written in the `[github]` section of `config.toml` always wins; the environment only fills a field the file leaves unset, and an env-sourced value is never written back to `config.toml`. See [Configuration files](./config-files.md#github) for the section itself and for when a token added mid-session takes effect.
 
 ## Define a model from environment variables (`KIMI_MODEL_*`)
 
@@ -151,7 +139,6 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | Variable | Purpose | Valid values |
 | --- | --- | --- |
 | `KIMI_DISABLE_TELEMETRY` | Disable anonymous telemetry reporting | `1`, `true`, `yes`, `y` (case-insensitive) |
-| `KIMI_LANG` | Pin the auto-detected UI language of the terminal at startup; only the detection step reads it, so a `locale` written in `tui.toml` still wins | `zh`, `en` |
 | `KIMI_CODE_PASSWORD` | Parallel auth credential for `kimi web`, recommended when binding beyond loopback (see [Security notes](../guides/web.md#security-notes)) | Any non-empty string; when unset, only the token is valid |
 | `KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT` | Keep background tasks when the session closes; higher priority than `config.toml` (default: stop them on exit) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` | Cap on concurrently running background tasks; higher priority than `[background] max_running_tasks` (unset = no cap) | Positive integer; invalid values are ignored |
@@ -173,6 +160,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_CODE_TUI_FULL_SCREEN` | Experimental fullscreen UI: scrollable transcript, mouse selection, clickable links, Ctrl-Shift-F search | `1` enables it; anything else keeps the regular inline UI |
 | `KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK` | Experimental `fork` parameter on `Agent`/`AgentSwarm`: start the subagent from a snapshot of the caller's history instead of an empty context; `KIMI_CODE_EXPERIMENTAL_FLAG=1` also enables it | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_TOOL_SELECT` | Experimental on-demand tool loading: tools of MCP servers marked `deferred: true` stay out of the top-level tool list and are loaded via `select_tools`; also requires the model to declare the `dynamically_loaded_tools` capability — see [MCP](../customization/mcp.md#loading-tools-on-demand) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
+| `KIMI_CODE_WATCH` | Attach filesystem watchers that reload config and workspace files; higher priority than `[watch] enabled` (default `false`) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `KIMI_CODE_SEARCH_WORKER` | Run the global search index in a dedicated worker thread; higher priority than `[database] search` (default `true`) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` | Use the minidb-backed read model for session indexing; higher priority than `[database] base` (default `true`) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `KIMI_MCP_STARTUP_TIMEOUT_MS` | Global default connection timeout (ms) for MCP servers; overrides the config file, but `mcp.json` `startupTimeoutMs` still wins | Integer from `1` to `2147483647`; invalid values are ignored |
@@ -186,7 +174,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_WEB_FETCH_BASE_URL` | Web fetch (`FetchURL`) service API URL; higher priority than the config file; credentials not forwarded. Without an endpoint, signed-in users get the managed Kimi OAuth fetch service before direct local requests | Non-blank string; blank values are ignored |
 | `KIMI_WEB_FETCH_API_KEY` | Web fetch (`FetchURL`) service API key; replaces both the configured key and the OAuth credential | Non-blank string; blank values are ignored |
 | `KIMI_CODE_EXPERIMENTAL_FLAG` | Enable all registered experimental features for this process | `1`, `true`, `yes`, `on` |
-| `KIMI_SHELL_PATH` | Pin the shell executable on Windows (highest priority, above `[shell].preference` and auto-detection). The basename decides the shell semantics: `pwsh`/`powershell` → PowerShell, `cmd` → cmd, anything else → bash. Pointing it at a missing file is an error, not a silent fallback | Absolute path to a shell executable |
+| `KIMI_SHELL_PATH` | Override the Git Bash path on Windows (used when auto-detection fails) | Absolute path |
 | `KIMI_MODEL_MAX_COMPLETION_TOKENS` | Hard cap on `max_completion_tokens` per LLM step; applies to the `kimi` provider only | Positive integer; `0` or negative disables clamping |
 | `KIMI_MODEL_TEMPERATURE` | Sampling temperature for every request; `kimi` provider only (global, independent of `KIMI_MODEL_NAME`) | Number, e.g. `0.3` |
 | `KIMI_MODEL_TOP_P` | Nucleus-sampling `top_p` for every request; `kimi` provider only (global) | Number, e.g. `0.95` |
@@ -195,7 +183,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_CODE_NO_AUTO_UPDATE` | Fully disable the update preflight: no check, background install, or prompt. Legacy alias `KIMI_CLI_NO_AUTO_UPDATE` also honored | Truthy: `1`/`true`/`yes`/`on` |
 | `KIMI_DISABLE_CRON` | Disable the scheduled-task tool (`CronCreate` rejects new schedules; existing tasks do not fire) | `1` to disable |
 
-The `KIMI_CODE_INFINITE_RETRY`, `KIMI_CODE_IDENTITY_*`, and `KIMI_CODE_BUILTIN_PRODUCT_SKILLS` variables are read by the native agent engine.
+The `KIMI_CODE_INFINITE_RETRY`, `KIMI_CODE_IDENTITY_*`, and `KIMI_CODE_BUILTIN_PRODUCT_SKILLS` variables are read by the `agent-core-v2` engine.
 
 ## Diagnostic logs
 
@@ -215,13 +203,13 @@ The CLI also reads several standard system variables to detect the runtime envir
 
 - `HOME`: used to resolve the default data path
 - `VISUAL`, `EDITOR`: external editor command (`VISUAL` takes precedence)
-- `PATH`: used to locate dependencies such as `rg`, `fd`, `fdfind`, and `git`; on Windows, bash detection checks each `git.exe` found on `PATH` (including package-manager shims such as Scoop) and probes Git Bash and MSYS2 install locations
+- `PATH`: used to locate dependencies such as `rg`, `fd`, `fdfind`, and `git`; on Windows, Git Bash detection checks each `git.exe` found on `PATH`, including package-manager shims such as Scoop
 - `NO_COLOR`, `FORCE_COLOR`: control color output (following the [no-color.org](https://no-color.org) convention)
 - `CI`: when non-empty and not `"0"`, disables theme detection and falls back to the dark theme
 - `TERM_PROGRAM`, `TERM`, `TMUX`: detect terminal features and notification support
 - `DISPLAY`, `WAYLAND_DISPLAY`, `XDG_SESSION_TYPE`: detect Linux graphical sessions (for clipboard and image features)
 - `WSL_DISTRO_NAME`, `WSLENV`: detect WSL for the clipboard PowerShell bridge
-- `LOCALAPPDATA`: used on Windows when probing for PowerShell 7 and Git Bash install paths
+- `LOCALAPPDATA`: used on Windows as a fallback when probing for the Git Bash installation path
 
 ## HTTP proxy
 

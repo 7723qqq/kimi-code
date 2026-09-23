@@ -6,81 +6,107 @@ outline: 2
 
 本页记录 Kimi Code CLI 每个版本的变更内容。
 
+## 2.0.2（2026-09-19）
+
+### 优化
+
+- 优化系统提示词：Agent 不再假设当前工作目录就是项目根目录。
+
+### 修复
+
+- 修复切换到上下文窗口更小的模型后 compaction 失败的问题。
+- 修复恢复会话后新消息偶尔出现在对话中旧位置的问题。
+- 修复 Agent 运行期间发送的消息有时在聊天中重复显示的问题。
+- web：改进交互体验并修复已知问题。
+
+## 2.0.1（2026-09-18）
+
+### 优化
+
+- 移除系统提示词中禁止访问工作目录以外所有文件的规则。
+- 供应商可通过 `config.toml` 中的 [`api_key_env`](../configuration/providers.md) 从指定的环境变量读取 API 密钥。
+- 工作区文件监听不再无上限地扫描项目根目录，并新增 `[watch] enabled` 配置与 `KIMI_CODE_WATCH` 环境变量，可完全关闭文件监听，详见 [`watch`](../configuration/config-files.md#watch)。
+- 「必要时询问」权限模式下，无法静态分析的 bash 命令不再触发审批请求。
+- `kimi install-app` 子命令更名为 `kimi install-desktop`，旧名称仍作为隐藏别名可用。
+
+### 修复
+
+- 修复了一些已知问题，并做了若干细节优化。更详细的变更记录见 [GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md)。
+
 ## 2.0.0（2026-09-17）
 
 ### 新功能
 
-- 新增 `/desktop` 斜杠命令（别名 `/install-desktop`）与 `kimi install-app` 子命令，用于在浏览器中打开 Kimi Code 桌面端页面。
-- 终端中支持将 mermaid 代码块渲染为图形。可在 `/settings` → Mermaid diagrams 关闭，或在 [`tui.toml`](../configuration/config-files.md#tui-toml) 的 `[markdown]` 段设置 `mermaid = "off"`。
+- 新增 `/desktop` 斜杠命令（别名 `/install-desktop`）与 `kimi install-app` 子命令。
+- Mermaid 代码块现在会在终端中渲染为图表；可在 `/settings` → Mermaid diagrams 中关闭，或在 tui.toml 的 `[markdown]` 配置段中设置 `mermaid = "off"`。
 
 ### 优化
 
-- 内置浏览器插件更名为「Kimi Browser Extension」，插件面板、插件市场与文档同步更新。
-- 终端对话历史中的 diff 代码块支持语法高亮。
+- 内置浏览器插件更名为 "Kimi Browser Extension"，插件面板、插件市场与文档中的名称同步更新。
 
 ### 修复
 
-- 修复 steer 运行中的轮次时的多个问题：steer 消息与 User 消息重复出现、斜杠命令与附件需重载后才出现在对话历史中，以及撤销 steer 消息后消息丢失或重复出现。
-- steer 运行中的轮次时，原始提示词保持可见，不再被 steer 文本替换。
-- 修复了一些已知问题。更详细的变更记录见 [GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md)。
+- 修复了一些已知问题，并做了若干细节优化。更详细的变更记录见 [GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md)。
 
 ## 0.43.1（2026-09-15）
 
+### 新功能
+
+- Linux X11 环境新增原生剪贴板支持，从终端界面复制内容不再依赖终端的 OSC 52 能力。
+
 ### 优化
 
-- 升级终端 UI 引擎：折行 Markdown 表格中的链接颜色恢复正常，`@` 文件补全按预期顺序列出条目，Linux X11 下新增原生剪贴板支持。
+- 减少同时运行大量 subagent 的会话中的事件循环卡顿与 GC 开销。
 
 ### 修复
 
-- 修复大型 agent swarm 逐轮变慢的问题，并及时释放子 agent 占用的内存与事件循环开销，多子 agent 并发时会话保持流畅。
-- 子 agent 运行期间按 `Ctrl-C` 现在只中断子 agent，不再直接退出整个 CLI。
-- 修复了一些已知问题。更详细的变更记录见 [GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md)。
+- 修复在 subagent 运行时按 `Ctrl-C` 会直接退出整个 CLI 的问题，现在只会中断正在运行的 subagent。
+- 修复大型 agent swarm 运行时渲染逐轮变慢的问题。
+- 修复 subagent 运行结束后内存未释放的问题。
+- 修复 tower 模式将新生成的 agent 误识别为历史会话 roster 条目的问题。
+- 修复全局搜索在索引更新前仍会返回已删除会话的问题。
+- 修复折行 markdown 表格中的链接颜色错误，以及 `@` 文件补全的排序问题。
 
 ## 0.43.0（2026-09-14）
 
 ### 新功能
 
-- 会话选择器支持删除会话：按 `Ctrl-X` 选中会话，再按 `y` 确认。
-- 新增 `loop_control.compaction_max_attempts` 配置项，用于设置压缩请求失败后的最大总尝试次数（默认 `5`），详见 [`loop_control`](../configuration/config-files.md#loop-control)。
-- 新增 `KIMI_CODE_PERMISSION_MODE_REMINDER` 环境变量，设为 `0` 后不再向模型上下文注入自动权限模式提醒。
+- Web 版会话的 AI 标题功能默认开启：首轮对话后自动生成标题，并可在重命名输入框中重新生成。
+- 会话选择器中可删除会话：在目标会话上按 `Ctrl-X`，再按 `y` 确认。
 - `kimi upgrade`（别名 `kimi update`）新增 `-y, --yes` 选项，跳过确认提示直接安装更新。
+- 新增 `loop_control.compaction_max_attempts` 配置项，可设置压缩请求失败后的最大总尝试次数（默认 5 次），详见 [`loop_control`](../configuration/config-files.md#loop_control)。
 
 ### 优化
 
-- Web 版会话标题改为自动生成：首轮对话结束后生成，可在重命名处重新生成，无需实验性开关。
-- Web 版设置页结构调整：Account 移到 General 之后，Agent 更名为 Agents & Sessions 并纳入消息折叠，Advanced 更名为 About，数据与隐私设置移入 General。
-- 目标（goal）时间预算不再受 24 小时上限约束，会话关闭期间的时间也不计入预算。
-- 现在可以用 steer 消息打断后台任务等待。
-- 仅针对 `/tmp` 或 `/temp` 路径的 `rm -rf` 命令不再弹出确认提示。
+- 仅作用于 `/tmp` 或 `/temp` 路径的 `rm -rf` 命令不再弹出确认提示。
+- 引导消息现在可以打断对后台任务的等待。
+- 目标模式的时间预算不再计入会话关闭期间的时间，并取消 24 小时上限。
+- 新增 `KIMI_CODE_PERMISSION_MODE_REMINDER` 环境变量：设为 `0` 后不再向模型上下文注入自动权限模式提醒。
 
 ### 修复
 
-- 修复 Web 版多处卡顿、无响应与加载卡住的问题，包括长会话流式输出时、以及渲染公式、链接、工具结果、日志内容和含大量方括号与反斜杠的会话时。
-- 修复 Web 版若干界面缺陷：新建会话时发送按钮持续禁用、历史会话被误标为未读并触发「轮次完成」通知，以及设置页分段控件闪烁、开关滑块变形、鼠标未移动就弹出提示等。
-- 修复了一些已知问题。更详细的变更记录见 [GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md)。
+- 修复了一些已知问题，并做了若干细节优化。更详细的变更记录见 [GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md)。
 
 ## 0.42.0（2026-09-09）
 
 ### 新功能
 
-- `/btw` 辅助对话支持只读工具，可直接查阅工作区文件。
-- Web 版输入框新增可拖拽排序的媒体预览轨，支持图片与视频预览、按需引用到文本中，并在发送后保留预览。
-- Web 版会话列表右键菜单新增永久删除会话功能，操作前带有二次确认。
-- 新增实验性的 Updates 动态面板，分页展示主 Agent 与子 Agent 的运行进展；设置 `KIMI_CODE_EXPERIMENTAL_NOTIFY_USER=1` 即可开启。
+- Remote Control 由实验性转为正式，无需再设置 `KIMI_CODE_EXPERIMENTAL_REMOTE_CONTROL` 实验开关。详见 [Remote Control](https://moonshotai.github.io/kimi-code/zh/guides/remote-control.html)。
+- Web 版支持从会话行的右键菜单永久删除会话，删除前会要求确认。
+- `/btw` 侧边聊天的 subagent 新增只读工具。
+- Web 版输入框新增可排序的媒体预览栏，可在文本中按需引用图片和视频，排队与发送后预览仍然保留。
+- 模型由 Kimi 提供时，支持在提示词附件与 `ReadMediaFile` 中使用 HEIC、HEIF 和 BMP 图片。
 
 ### 优化
 
-- Remote Control 与子 Agent 模型池（`[secondary_model]`）正式常态化开启，移除实验性开关配置。
-- 自动监听用户级技能目录（`~/.kimi-code/skills` 与 `~/.agents/skills`），新增、修改或删除技能时实时刷新目录，无需重启守护进程。
-- 使用 Kimi 模型时，文件读取与消息附件支持 HEIC、HEIF 与 BMP 格式图片。
-- 文件搜索支持获取超过 100 条的匹配结果；长行文件读取支持自定义字符上限与断点续读。
-- 终端对话历史中已完成的工具调用折叠为精简结果行；超出内容显示折叠行数，可按 `Ctrl-O` 展开查看。
+- 消息记录中已完成的工具调用现折叠为标题加一行结果摘要：短输出完整展示，隐藏内容以 `N more lines`、`+N more` 计数并按 `Ctrl-O` 展开，页脚会在可用时提示。
+- 符合条件的用户的默认思考强度升级为推荐级别。
+- 子 Agent 模型池（`[secondary_model]`）现已始终开启，实验开关与 `KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL` 退出选项已移除。
+- `Read` 新增可配置的字符上限，长行文件可续读，输出不再被反复截断。详见 [`read`](https://moonshotai.github.io/kimi-code/zh/configuration/config-files.html#read)。
+- minidb 会话索引读模型与全局搜索 worker 现已始终开启，实验开关由 `[database]` 配置段与 `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` / `KIMI_CODE_SEARCH_WORKER` 环境变量取代。详见 [`database`](https://moonshotai.github.io/kimi-code/zh/configuration/config-files.html#database)。
 
 ### 修复
 
-- 修复长对话在自动上下文压缩后可能错误恢复历史请求的问题。
-- 修复会话目录存在残留文件时导致最近会话无法在列表中显示的问题。
-- Web 版优化打开与滚动长对话时的卡顿，并避免在包含多个后台任务的会话重载时产生高并发请求峰值。
 - 修复了一些已知问题，并做了若干细节优化。更详细的变更记录见 [GitHub](https://github.com/MoonshotAI/kimi-code/blob/main/apps/kimi-code/CHANGELOG.md)。
 
 ## 0.41.0（2026-09-04）

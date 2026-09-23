@@ -571,28 +571,27 @@ describe('KimiOAuthToolkit', () => {
   it('propagates the managed quota response', async () => {
     const storage = new MemoryTokenStorage();
     storage.tokens.set('kimi-code', token('access-1'));
-    const fetchImpl = vi.fn(
-      async (_input: unknown, _init?: RequestInit) =>
-        new Response(
-          JSON.stringify({
-            goods_version: 1,
-            usages: {
-              limit_5h: { used_ratio: 0.5, reset_time: '2026-09-11T18:00:00Z' },
-              limit_7d: { used_ratio: 0.1, reset_time: '2026-09-17T00:00:00Z' },
+    const fetchImpl = vi.fn(async (_input: unknown, _init?: RequestInit) =>
+      new Response(
+        JSON.stringify({
+          goods_version: 1,
+          usages: {
+            limit_5h: { used_ratio: 0.5, reset_time: '2026-09-11T18:00:00Z' },
+            limit_7d: { used_ratio: 0.1, reset_time: '2026-09-17T00:00:00Z' },
+          },
+          boosterWallet: {
+            balance: {
+              type: 'BOOSTER',
+              amount: '20000000000',
+              amountLeft: '10000000000',
             },
-            boosterWallet: {
-              balance: {
-                type: 'BOOSTER',
-                amount: '20000000000',
-                amountLeft: '10000000000',
-              },
-              monthlyChargeLimitEnabled: true,
-              monthlyChargeLimit: { currency: 'USD', priceInCents: '20000' },
-              monthlyUsed: { currency: 'USD', priceInCents: '5000' },
-            },
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
+            monthlyChargeLimitEnabled: true,
+            monthlyChargeLimit: { currency: 'USD', priceInCents: '20000' },
+            monthlyUsed: { currency: 'USD', priceInCents: '5000' },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
     ) as unknown as typeof fetch;
     vi.stubGlobal('fetch', fetchImpl);
     const toolkit = new KimiOAuthToolkit({
@@ -624,17 +623,16 @@ describe('KimiOAuthToolkit', () => {
   it('returns null extraUsage when the payload has no boosterWallet', async () => {
     const storage = new MemoryTokenStorage();
     storage.tokens.set('kimi-code', token('access-1'));
-    const fetchImpl = vi.fn(
-      async (_input: unknown, _init?: RequestInit) =>
-        new Response(
-          JSON.stringify({
-            goods_version: 2,
-            usages: {
-              limit_month_total: { used_ratio: 0.4, reset_time: '2026-10-01T00:00:00Z' },
-            },
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
+    const fetchImpl = vi.fn(async (_input: unknown, _init?: RequestInit) =>
+      new Response(
+        JSON.stringify({
+          goods_version: 2,
+          usages: {
+            limit_month_total: { used_ratio: 0.4, reset_time: '2026-10-01T00:00:00Z' },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
     ) as unknown as typeof fetch;
     vi.stubGlobal('fetch', fetchImpl);
     const toolkit = new KimiOAuthToolkit({
@@ -658,23 +656,22 @@ describe('KimiOAuthToolkit', () => {
   it('propagates the managed profile response', async () => {
     const storage = new MemoryTokenStorage();
     storage.tokens.set('kimi-code', token('access-1'));
-    const fetchImpl = vi.fn(
-      async (_input: unknown, _init?: RequestInit) =>
-        new Response(
-          JSON.stringify({
-            user_id: 'u_123',
-            global_id: 'u_123',
-            goods_version: '2',
-            nickname: 'moonwalker',
-            avatar: 'https://example.com/avatar.png',
-            phone: { country_code: '86', number: '176****0000' },
-            status: 'USER_STATUS_NORMAL',
-            region: 'REGION_CN',
-            created_time: '2026-06-11T13:26:47.561184Z',
-            last_login_time: '2026-07-16T03:12:03.033412Z',
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
+    const fetchImpl = vi.fn(async (_input: unknown, _init?: RequestInit) =>
+      new Response(
+        JSON.stringify({
+          user_id: 'u_123',
+          global_id: 'u_123',
+          goods_version: '2',
+          nickname: 'moonwalker',
+          avatar: 'https://example.com/avatar.png',
+          phone: { country_code: '86', number: '176****0000' },
+          status: 'USER_STATUS_NORMAL',
+          region: 'REGION_CN',
+          created_time: '2026-06-11T13:26:47.561184Z',
+          last_login_time: '2026-07-16T03:12:03.033412Z',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
     ) as unknown as typeof fetch;
     vi.stubGlobal('fetch', fetchImpl);
     const toolkit = new KimiOAuthToolkit({

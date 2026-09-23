@@ -117,6 +117,15 @@ export function createProgram(
       await onUpgrade(options.yes === true);
     });
 
+  program
+    .command('__plugin_run_node', { hidden: true })
+    .argument('<entry>')
+    .argument('[args...]')
+    .allowUnknownOption(true)
+    .action((entry: string, args: string[]) => {
+      onPluginNodeRunner(entry, args);
+    });
+
   // Self-spawned worker for native staged updates (detached background
   // download, or foreground from `kimi upgrade` — `--manual` marks the
   // latter's stage as user-requested). Hidden: not user-facing.
@@ -126,15 +135,6 @@ export function createProgram(
     .option('--manual', 'the stage answers an explicit user-initiated upgrade')
     .action((targetVersion: string, options: { manual?: boolean }) => {
       onUpdateDownload(targetVersion, options.manual === true);
-    });
-
-  program
-    .command('__plugin_run_node', { hidden: true })
-    .argument('<entry>')
-    .argument('[args...]')
-    .allowUnknownOption(true)
-    .action((entry: string, args: string[]) => {
-      onPluginNodeRunner(entry, args);
     });
 
   program.argument('[args...]').action((args: string[]) => {

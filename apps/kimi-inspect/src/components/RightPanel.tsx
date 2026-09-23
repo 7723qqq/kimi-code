@@ -13,13 +13,11 @@
  * rows) survives tab switches.
  */
 
-import { IAgentStateService } from '../compat/v2';
 import { useState } from 'react';
 
 import type { AuditTrail } from '../audit/trail';
+import { IAgentStateService } from '../compat/v2';
 import { useConnection } from '../connection';
-import type { ChatState } from '../transcript/store';
-import { t } from '../i18n';
 import { Badge } from '../ui';
 import { AuditPanel } from './audit/AuditPanel';
 import { Inspector } from './Inspector';
@@ -34,7 +32,6 @@ export function RightPanel({
   onAgentChange,
   ready,
   trail,
-  chatState,
 }: {
   sessionId: string | null;
   agentId: string;
@@ -42,8 +39,6 @@ export function RightPanel({
   ready: boolean;
   /** The chat view's audit trail; null until its transcript channel exists. */
   trail: AuditTrail | null;
-  /** The chat view's projected timeline, for the plan lookup. */
-  chatState?: ChatState | undefined;
 }) {
   const { klient } = useConnection();
   const [tab, setTab] = useState<Tab>('audit');
@@ -69,7 +64,7 @@ export function RightPanel({
         ) : (
           <div className="p-3 text-[12px] text-neutral-600">
             {sessionId === null
-              ? t('inspector.noSessionSelected')
+              ? 'No session selected.'
               : 'Loading transcript — the audit trail appears once the channel is up.'}
           </div>
         )}
@@ -80,14 +75,13 @@ export function RightPanel({
           agentId={agentId}
           onAgentChange={onAgentChange}
           ready={ready}
-          chatState={chatState}
         />
       </div>
       <div className={tab === 'state' ? 'min-h-0 flex-1 overflow-y-auto' : 'hidden'}>
         <div className="p-3">
           {sessionId === null || !ready ? (
             <div className="text-[12px] text-neutral-600">
-              {sessionId === null ? t('inspector.noSessionSelected') : t('chat.loadingSession')}
+              {sessionId === null ? 'No session selected.' : 'Loading session…'}
             </div>
           ) : (
             <StateCard

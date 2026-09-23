@@ -1,6 +1,7 @@
 import type { Kaos } from '@moonshot-ai/kaos';
 import type { KimiHostIdentity, OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
 import type { ContentPart, ModelCapability, ToolCall } from '@moonshot-ai/kosong';
+import type { ProviderCatalogItem } from '@moonshot-ai/protocol';
 
 export interface ImageCompressionTelemetryClient {
   track(
@@ -917,6 +918,18 @@ export interface SessionSummaryPage {
 
 export interface GetConfigOptions {
   readonly reload?: boolean | undefined;
+}
+
+export interface ImportCustomRegistryOptions {
+  readonly url: string;
+  readonly apiKey?: string;
+  readonly setDefaultWhenUnset?: boolean;
+}
+
+export interface ImportCustomRegistryResult {
+  readonly providers: readonly ProviderCatalogItem[];
+  readonly modelsImported: number;
+  readonly credentialEnv: Readonly<Record<string, string>>;
 }
 
 export interface AuthenticateMcpServerOptions {

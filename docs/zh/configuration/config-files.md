@@ -104,13 +104,11 @@ timeout = 5
 | `builtin_product_skills` | `boolean` | `true` | 是否向模型提供介绍 Kimi Code 自身的内置 Skills |
 | `telemetry` | `boolean` | `true` | 是否启用匿名遥测；显式设为 `false` 时关闭 |
 | `auto_session_title` | `boolean` | `true` | 是否允许客户端自动生成会话标题；显式设为 `false` 时关闭 |
-| `multi_llm` | `array<string>` | — | 两个及以上的 `models` 别名：同一个请求同时发给它们，最先成功返回的那个生效，败者被取消。每个别名都必须能解析到带凭据的供应商 |
 | [`providers`](#providers) | `table` | `{}` | API 供应商表 |
 | [`models`](#models) | `table` | — | 模型别名表 |
 | [`thinking`](#thinking) | `table` | — | Thinking 模式默认参数 |
 | [`loop_control`](#loop_control) | `table` | — | Agent 循环控制参数 |
 | [`background`](#background) | `table` | — | 后台任务运行参数 |
-| [`shell`](#shell) | `table` | — | 本地命令 shell 偏好 |
 | [`tools`](#tools) | `table` | — | 全局工具开关 |
 | [`image`](#image) | `table` | — | 图片压缩参数 |
 | [`services`](#services) | `table` | — | 内置外部服务配置 |
@@ -120,12 +118,13 @@ timeout = 5
 
 ## `providers`
 
-`providers` 表的每一项定义一个 API 供应商，以唯一名称为 key。CLI 只从这里读取凭证，**不会**从 shell 环境变量自动取后备值。在终端里 `export KIMI_API_KEY` 不会让供应商自动获得密钥，必须显式写在配置文件里（详见[配置覆盖](./overrides.md#供应商凭证)）。
+`providers` 表的每一项定义一个 API 供应商，以唯一名称为 key。CLI 只从这里读取凭证，**不会**从 shell 环境变量自动取后备值。在终端里 `export KIMI_API_KEY` 不会让供应商自动获得密钥，必须显式写在配置文件里，或者用 `api_key_env` 指定一个变量名（详见[配置覆盖](./overrides.md#供应商凭证)）。
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `type` | `string` | 是 | 供应商类型：`kimi`、`anthropic`、`openai`、`openai_responses`、`google-genai`、`vertexai` |
 | `api_key` | `string` | 否 | API 密钥，明文写在配置文件里 |
+| `api_key_env` | `string` | 否 | 指定一个 shell 环境变量名，从该变量读取 API 密钥，密钥不写入配置文件；每次请求时读取。与 `api_key`、`oauth` 互斥；变量未设置或为空时请求报错并指明变量名 |
 | `base_url` | `string` | 否 | API 基础 URL |
 | `oauth` | `table` | 否 | OAuth 凭据引用（`storage`、`key` 两个字段），由登录流程自动注入，通常无需手写 |
 | `env` | `table<string, string>` | 否 | 供应商凭证的备用来源，见 `env` 子表 |
@@ -139,7 +138,7 @@ KIMI_API_KEY = "sk-xxx"
 KIMI_BASE_URL = "https://api.moonshot.ai/v1"
 ```
 
-优先级：`api_key` 字段 > `env` 子表键 > 两者都缺时启动报错。
+优先级：`api_key` 或 `api_key_env`（互斥替代项，只能设置其中一个）> `env` 子表键（两者都不存在时才读）> 全部缺失时启动报错。刷新 `/models` 时，声明的变量未设置或为空的供应商会被记为失败，不影响其他供应商。
 
 ## `models`
 
@@ -187,7 +186,7 @@ display_name = "Kimi for Coding (custom)"
 
 `[models."<alias>".overrides]` 接受普通模型字段，例如 `max_context_size`、`max_input_size`、`max_output_size`、`capabilities`、`display_name`、`reasoning_key`、`adaptive_thinking`、`support_efforts`、`default_effort` 和 `off_effort`。不接受身份 / 路由字段：`provider`、`model`、`protocol`、`beta_api` 和 `base_url`。
 
-无需修改配置文件也可以临时切换模型：通过 `KIMI_MODEL_*` 环境变量在内存里合成一个临时供应商，详见[用环境变量定义模型](./env-vars.md#用环境变量定义模型-kimi-model)。
+无需修改配置文件也可以临时切换模型：通过 `KIMI_MODEL_*` 环境变量在内存里合成一个临时供应商，详见[用环境变量定义模型](./env-vars.md#用环境变量定义模型kimi_model_)。
 
 ## `secondary_model`
 
@@ -297,28 +296,6 @@ k3-max = "同一模型的 max Thinking 档位。适合最难的子任务。"
 - `force` 未搭配 `default_model`，或与 `models` 表同时使用。
 :::
 
-## `agent.multi_llm`
-
-把同一个请求同时发给多个模型，取最先成功返回的那个。它用额外的 token 换取延迟与可用性：某个供应商变慢或被限流时，更快的那个先答完，整轮不会卡住。
-
-```toml
-[agent]
-multi_llm = ["kimi-code/k3", "kimi-code/kimi-for-coding"]
-```
-
-每一项都是一个 [`[models]`](#models) 别名，解析方式与 `default_model` 完全相同。引擎直接经各自的 HTTP 连接调用供应商，不需要再经客户端中转。
-
-::: info 胜者是怎么定的
-- **先失败不算赢**：错误记录下来，竞速继续；只有全部失败才会把错误合并报出。
-- **空回复也不算赢**：它被留作兜底，其余继续跑，因此一次中转抖动不会毁掉整轮。
-- **定出胜者后立刻取消败者**。
-- **竞速期间没有流式输出**：胜者是第一个**完整**响应，所以使用 `multi_llm` 的回合不会显示增量内容。
-:::
-
-::: warning
-`multi_llm` 至少需要两项——只写一项等于没有对手，只会悄悄顶替掉 `default_model`。某个别名无法解析到带凭据的供应商时，会话创建会直接失败并点名该别名，而不是静默少跑几个模型。
-:::
-
 ## `thinking`
 
 `thinking` 设置 Thinking 模式的全局默认行为。
@@ -384,16 +361,6 @@ multi_llm = ["kimi-code/k3", "kimi-code/kimi-for-coding"]
 
 在 print 模式（`kimi -p "<prompt>"`）下，只要还有未决的后台任务，Kimi Code 在 main agent 的 turn 结束后不会退出：每个任务完成都会以合成 user 消息回馈给 main agent，steer 出新的 turn（默认 `print_background_mode = "steer"`），直到某 turn 结束时没有任何未决任务才退出。该循环受 `print_wait_ceiling_s` 与 `print_max_turns` 约束，默认值都近似不设限。print 模式下后台工作也不会被墙钟超时杀掉：后台 `Bash` 任务默认无超时（`bash_task_timeout_s = 0`），subagent 默认无超时（`[subagent] timeout_ms` 与 `[swarm] timeout_ms` 未显式设置时均为 `0`），只有模型自己能停止任务。将 `print_background_mode` 设为 `"drain"` 可等待任务结束但不回馈结果，设为 `"exit"` 则在 main agent 结束后立即退出。
 
-## `shell`
-
-`shell` 用于固定 `Bash` 工具本地执行命令所使用的解释器。Windows 上默认自动探测——PowerShell 7（`pwsh`）→ Windows PowerShell → Git Bash → `cmd`；其他平台为 `/bin/bash`。
-
-| 字段 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `preference` | `"auto" \| "bash" \| "powershell" \| "pwsh" \| "cmd"` | `"auto"` | 命令使用哪种 shell。`auto` 按上述顺序自动探测；`bash` / `powershell` / `pwsh` / `cmd` 显式固定其一。其他值回退到 `auto` |
-
-`KIMI_SHELL_PATH` 的优先级高于 `[shell].preference`：设置后直接固定 shell 可执行文件（其文件名决定命令前缀）。`[shell].preference` 作用于负责 `Bash` 执行的 Rust 引擎。
-
 ## `subagent`
 
 `subagent` 控制 `Agent` 工具派生的 subagent 的运行方式。
@@ -444,9 +411,7 @@ slug = "acme-dev"        # 可选
 
 身份在启动时解析一次，进程生命周期内保持不变：建立连接时它已宣告给 MCP 服务器和 provider，中途无法更换。修改本节配置在下次启动时对新会话生效；resume 的会话保留录制时的系统提示词，因为其历史轮次本就以原身份自称。同理，已完成的 MCP OAuth 授权保留其授予时的客户端注册；重置该服务器的认证即可在新身份下重新注册。
 
-::: warning 暂未生效
-原生 agent 引擎尚未读取本节配置；当前配置它不会产生任何效果。
-:::
+本节由 `agent-core-v2` 引擎读取，Kimi Code 的所有界面都运行在该引擎上。
 
 ## `tools`
 
@@ -487,12 +452,12 @@ max_chars = 500000
 
 ## `image`
 
-`image` 控制图片发送给模型前的压缩行为，对所有图片入口生效（粘贴图片、`Read` 读图、MCP 工具结果里的图片等）。
+`image` 控制图片发送给模型前的压缩行为，对所有图片入口生效（粘贴图片、`ReadMediaFile` 读图、MCP 工具结果里的图片等）。
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `max_edge_px` | `integer` | `2000` | 图片最长边上限（像素）。超过时按比例缩小到该值以内；调大可保留更多细节，代价是更大的请求体积 |
-| `read_byte_budget` | `integer` | `262144`（256 KB） | 模型自行读取的图片（`Read` 读图）的单图字节预算。会话中模型反复截图、读图时，累计请求体大小由它控制；细节可通过 `region` 参数按原图坐标全保真回读（`region` 与 `full_resolution` 不受此预算限制） |
+| `read_byte_budget` | `integer` | `262144`（256 KB） | 模型自行读取图片的单图字节预算（`ReadMediaFile` 默认读取）；`region` 与 `full_resolution` 回读不受此限制 |
 
 `max_edge_px` 可被环境变量 `KIMI_IMAGE_MAX_EDGE_PX` 覆盖，`read_byte_budget` 可被 `KIMI_IMAGE_READ_BYTE_BUDGET` 覆盖，优先级均高于配置文件。
 
@@ -506,6 +471,16 @@ max_chars = 500000
 | `search` | `boolean` | `true` | 在独立 worker 线程中运行全局搜索索引；`false` 在服务器进程内运行 |
 
 `base` 可被环境变量 `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` 覆盖，`search` 可被 `KIMI_CODE_SEARCH_WORKER` 覆盖，优先级均高于配置文件。
+
+## `watch`
+
+`watch` 控制 local.toml、AGENTS.md、skills、MCP 配置以及 `config.toml` 自身的文件系统热更新。默认关闭。把 `enabled` 设为 `true` 后进程内才会挂 watcher；关闭时改文件要重启才会再读。
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | `boolean` | `false` | 是否挂文件系统 watch；`false` 关闭进程内全部 `watch()` |
+
+`enabled` 可被环境变量 `KIMI_CODE_WATCH` 覆盖，优先级高于配置文件。
 
 <!--
 ## `experimental`
@@ -539,27 +514,6 @@ api_key = "sk-xxx"
 base_url = "https://api.moonshot.cn/v1/fetch"
 api_key = "sk-xxx"
 ```
-
-## `github`
-
-配置内置的 GitHub 工具——Agent 处理 GitHub 上的 PR、issue、提交和搜索时用的那组工具。只有配好 token，这组工具才会进入 Agent 的工具列表；没配就完全没有 `GitHub*` 工具，这一段也可以整段不写。
-
-| 字段 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `token` | `string` | — | 内置 GitHub 工具使用的 GitHub 个人访问令牌。未设置时回退到 `GITHUB_TOKEN`，再到 `GH_TOKEN` |
-| `base_url` | `string` | `https://api.github.com` | REST API 基地址。要连 GitHub 企业版（GitHub Enterprise Server）实例时改它，而不是用 GitHub 公网 API |
-
-```toml
-[github]
-token = "YOUR_GITHUB_TOKEN"
-base_url = "https://github.example.com/api/v3" # 可选 —— GitHub 企业版实例
-```
-
-写在这里的值始终优先于环境变量：`GITHUB_TOKEN`、`GH_TOKEN`、`GITHUB_API_URL` 只在配置文件没有给出对应字段时被当作回退读取，并且来自环境变量的值永远不会写回 `config.toml`——容器和 CI 里写配置文件不方便，这个行为正好用得上。详见[环境变量：GitHub 凭证](./env-vars.md#github-凭证)。
-
-token 是在工具激活时读取的，不是只在启动时读一次：在这里补上 `token`（或导出 `GITHUB_TOKEN`）之后，正在运行的那一轮的下一步就能用上这些工具，不需要重启。反过来撤掉 token，不会从已经激活这些工具的 Agent 手里收回它们——要彻底收回，请新开一个会话。
-
-工具清单和审批规则见[内置工具](../reference/tools.md#github)。
 
 ## `permission`
 
@@ -605,7 +559,6 @@ MCP server 的声明配置写在 `~/.kimi-code/mcp.json` 或项目内 `.kimi-cod
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `theme` | `string` | `auto` | 配色主题：`auto`、`dark`、`light` 或[自定义主题](../customization/themes.md)名 |
-| `locale` | `string` | 自动探测 | 终端界面语言：`en` 或 `zh`，用 `/settings` 对话框即可切换并写入。未设置时，若 `KIMI_LANG` 或系统的 `LANG` / `LC_ALL` / `LC_MESSAGES` 表明是中文则取 `zh`，否则取 `en`；显式设置可固定为某一种语言 |
 | `render_latex` | `boolean` | `true` | 将 Markdown 中的 LaTeX 公式渲染为 Unicode 文本；`false` 保留原始源码 |
 | `disable_paste_burst` | `boolean` | `false` | 禁用非 bracketed paste 的粘贴突发兜底；默认开启，避免快速多行粘贴被逐行提交 |
 | `cache_expiry_hint` | `boolean` | `true` | resume 或长时间空闲后发消息时，若上下文缓存可能过期则提醒，可先压缩或新建会话（仅 v2 引擎） |

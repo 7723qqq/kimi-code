@@ -401,14 +401,14 @@ describe('CLI options parsing', () => {
   });
 
   describe('--agent / --agent-file', () => {
-    it('describes agent selectors as per-invocation', () => {
+    it('describes agent selectors as per-session', () => {
       const help = createProgram(
         '0.1.0-test',
         () => {},
       ).helpInformation();
       const normalizedHelp = help.replaceAll(/\s+/g, ' ');
 
-      expect(normalizedHelp).toContain('Agent profile to use for this invocation.');
+      expect(normalizedHelp).toContain('Agent profile to start the new session with.');
       expect(normalizedHelp).not.toContain('print-mode invocation');
     });
 
@@ -598,6 +598,7 @@ describe('CLI options parsing', () => {
         'doctor',
         'vis',
         'install-desktop',
+
         'upgrade',
       ]);
     });

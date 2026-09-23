@@ -11,7 +11,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **Author**: Moonshot AI
 - **License**: MIT
 - **Homepage**: https://github.com/MoonshotAI/kimi-code
-- **Version**: `@moonshot-ai/kimi-code` 2.0.0 (the main CLI app); `@moonshot-ai/kimi-web` 2.0.0 (the fork's Vue 3 web UI)
+- **Version**: `@moonshot-ai/kimi-code` 2.0.2 (the main CLI app); `@moonshot-ai/kimi-web` 2.0.0 (the fork's Vue 3 web UI)
 
 > **Note**: This repository is a personal experimental fork of MoonshotAI/kimi-code. Not affiliated with Moonshot AI. Use at your own risk — do not submit PRs from this fork to upstream.
 
@@ -355,7 +355,6 @@ Pushes to `main` run `release.yml`: the changesets action opens/updates a **"ci:
 - Split functions only along abstraction levels: each function reads as one level of narrative (Step-down Rule), and a wrapper that adds no new abstraction level — especially one with a single call site — is inlined instead of extracted.
 - Except for a package's `index.ts`, other `index.ts` files should prefer `export * from './module';`.
 - Prefer importing via `import ... from '#/...'` (subpath imports), which serves the same purpose as `import ... from '@/...'`.
-- When writing or updating tests, follow the `tdd` skill (`.agents/skills/tdd/SKILL.md`).
 - Do not add too many new test files. Prefer adding tests to the existing test file of the corresponding component or module.
 - When a test fails because of a user modification, default to fixing the test first; do not change the implementation to satisfy an old test unless the implementation truly has a bug.
 - Do not sacrifice code quality for external compatibility unless the user explicitly asks for it.

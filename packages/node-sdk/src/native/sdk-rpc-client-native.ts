@@ -25,6 +25,8 @@ import type {
   AgentMeta,
   AgentType,
   ClientPromptMetadata,
+  ImportCustomRegistryOptions,
+  ImportCustomRegistryResult,
   JsonObject,
   PromptOrigin,
   ResumedAgentState,
@@ -40,10 +42,19 @@ import {
   type SessionPrompt,
   type SessionTurnOutcome,
 } from '@moonshot-ai/kimi-agent/session-handle';
-import type { OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
+import type {
+  CustomRegistryProviderEntry,
+  CustomRegistrySource,
+  ManagedKimiConfigShape,
+  OAuthRefreshOutcome,
+} from '@moonshot-ai/kimi-code-oauth';
 import {
+  applyCustomRegistryEntries,
   assertKimiHostIdentity,
   createKimiDefaultHeaders,
+  credentialEnvHints,
+  CustomRegistryApiError,
+  fetchCustomRegistry,
   parseKimiCodeCustomHeaders,
 } from '@moonshot-ai/kimi-code-oauth';
 import { estimateTokensForMessages } from '@moonshot-ai/kosong/tokens';
@@ -70,6 +81,7 @@ import {
   type KimiConfig,
   type KimiConfigPatch,
 } from '#/config-local';
+import { RegistryImportError } from '#/catalog';
 import { ensureConfigFile as ensureConfigFileScaffold } from '#/config-helpers';
 import { resolveConfigPath, resolveKimiHome } from '#/config-local/path';
 import type { QuestionItem, ToolInputDisplay } from '#/events';
@@ -347,6 +359,41 @@ function applySessionLlmOverrides(
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The api key a previous import from `url` parked on its providers' `source`
+ * blob. The URL is the stable identity of "the same registry" — the key
+ * commonly rotates between imports — so a re-import that omits `--api-key`
+ * reuses this one instead of failing the fetch.
+ */
+function registryKeyFromExisting(
+  providers: Record<string, unknown>,
+  url: string,
+): string | undefined {
+  for (const provider of Object.values(providers)) {
+    if (!isPlainObject(provider)) continue;
+    const source = provider['source'];
+    if (isPlainObject(source) && source['kind'] === 'apiJson' && source['url'] === url) {
+      const key = source['apiKey'];
+      if (typeof key === 'string' && key.length > 0) return key;
+    }
+  }
+  return undefined;
+}
+
+function truncateUpstreamMessage(error: unknown, limit = 300): string {
+  const text = error instanceof Error ? error.message : String(error);
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+/** `undefined` clears the key rather than persisting an explicit null. */
+function assignOrDelete(target: Record<string, unknown>, key: string, value: unknown): void {
+  if (value === undefined) {
+    delete target[key];
+  } else {
+    target[key] = value;
+  }
 }
 
 /**
@@ -3122,6 +3169,112 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     const updated = validateConfig(next);
     await writeConfigFile(this.configPath, updated);
     return updated;
+  }
+
+  override async importCustomRegistry(
+    options: ImportCustomRegistryOptions,
+  ): Promise<ImportCustomRegistryResult> {
+    const { url } = options;
+    const current = loadRuntimeConfig(this.configPath) as unknown as Record<string, unknown>;
+    const providers = (current['providers'] ?? {}) as Record<string, unknown>;
+    // A re-import commonly omits the key: the registry URL is the stable
+    // identity, so fall back to the key a previous import from the same URL
+    // parked on its providers.
+    const source: CustomRegistrySource = {
+      kind: 'apiJson',
+      url,
+      apiKey: options.apiKey ?? registryKeyFromExisting(providers, url) ?? '',
+    };
+
+    let entries: Record<string, CustomRegistryProviderEntry>;
+    try {
+      entries = await fetchCustomRegistry(source, { userAgent: this.outboundUserAgent() });
+    } catch (error) {
+      throw new RegistryImportError(
+        `custom registry at ${url} cannot be imported: ${truncateUpstreamMessage(error)}`,
+        'fetch',
+        error instanceof CustomRegistryApiError ? error.status : undefined,
+      );
+    }
+    const entryList = Object.values(entries);
+    if (entryList.length === 0) {
+      throw new RegistryImportError(`custom registry at ${url} has no importable providers`, 'empty');
+    }
+    for (const entry of entryList) {
+      const existing = providers[entry.id];
+      if (isPlainObject(existing) && existing['oauth'] !== undefined) {
+        throw new RegistryImportError(
+          `provider ${entry.id} is managed by OAuth login; log out before importing it`,
+          'apply',
+        );
+      }
+    }
+
+    const previousDefault = current['defaultModel'];
+    const previousDefaultProvider = current['defaultProvider'];
+    const previousThinking = current['thinking'];
+    const next = {
+      providers: { ...providers },
+      models: { ...((current['models'] ?? {}) as Record<string, unknown>) },
+    } as unknown as ManagedKimiConfigShape;
+    next.defaultModel = typeof previousDefault === 'string' ? previousDefault : undefined;
+    next['defaultProvider'] =
+      typeof previousDefaultProvider === 'string' ? previousDefaultProvider : undefined;
+    next.thinking = previousThinking as ManagedKimiConfigShape['thinking'];
+
+    try {
+      applyCustomRegistryEntries(next, entries, source);
+    } catch (error) {
+      throw new RegistryImportError(
+        `custom registry at ${url} cannot be imported: ${truncateUpstreamMessage(error)}`,
+        'apply',
+      );
+    }
+
+    const firstEntry = entryList[0];
+    const firstModelKey = firstEntry === undefined ? undefined : Object.keys(firstEntry.models)[0];
+    const hadDefault = typeof previousDefault === 'string' && previousDefault.trim().length > 0;
+    if (
+      options.setDefaultWhenUnset !== false &&
+      !hadDefault &&
+      firstEntry !== undefined &&
+      firstModelKey !== undefined
+    ) {
+      next.defaultModel = `${firstEntry.id}/${firstModelKey}`;
+    }
+
+    const merged: Record<string, unknown> = {
+      ...current,
+      providers: next.providers,
+      models: next.models,
+    };
+    assignOrDelete(merged, 'defaultModel', next.defaultModel);
+    assignOrDelete(merged, 'defaultProvider', next['defaultProvider']);
+    assignOrDelete(merged, 'thinking', next.thinking);
+    const updated = validateConfig(merged);
+    await writeConfigFile(this.configPath, updated);
+
+    const hasCredential = source.apiKey.length > 0;
+    return {
+      providers: entryList.map((entry) => ({
+        id: entry.id,
+        type: entry.type,
+        base_url: entry.api,
+        has_api_key: hasCredential,
+        status: hasCredential ? 'connected' : 'unconfigured',
+        models: Object.keys(entry.models),
+      })),
+      modelsImported: entryList.reduce(
+        (total, entry) => total + Object.keys(entry.models).length,
+        0,
+      ),
+      credentialEnv: credentialEnvHints(entryList),
+    };
+  }
+
+  private outboundUserAgent(): string | undefined {
+    if (!this.identity) return undefined;
+    return createKimiDefaultHeaders({ homeDir: this.homeDir, ...this.identity })['User-Agent'];
   }
 
   override supportsAtomicSectionReplace(): boolean {
