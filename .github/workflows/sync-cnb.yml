@@ -3,25 +3,27 @@ name: Sync to CNB
 # Reverse direction of the cross-platform mirror: GitHub -> CNB.
 #
 # The forward direction (CNB -> GitHub) lives in `.cnb.yml` and runs
-# `tencentcom/git-sync` on every push to `main`. This workflow is its mirror
-# image, and it uses `rebase` for the same reason: the two sides are not
-# mirrors of each other. The CNB side owns `.cnb.yml` (NPC pipeline tuning),
-# the GitHub side owns the upstream workflows in this directory. A plain push
-# would delete `.cnb.yml` on CNB; rebase replays GitHub's commits on top of
-# CNB's, so both survive.
+# `tencentcom/git-sync` on every push to `main`. Both directions mirror *every*
+# branch and every tag, and both use `rebase`, for the same reason: the two
+# sides are not mirrors of each other. The CNB side owns `.cnb.yml` (NPC
+# pipeline tuning), the GitHub side owns the upstream workflows in this
+# directory. A plain push would delete `.cnb.yml` on CNB; rebase replays
+# GitHub's commits on top of CNB's, so both survive.
 #
 # Required secret: `CNB_TOKEN` — a CNB access token with read/write access to
 # `kimicode.all/kimicode`, stored under Settings -> Secrets and variables ->
 # Actions. See the issue discussion for how to create it.
 #
-# `schedule` is the safety net for commits that GitHub receives without
-# triggering this workflow (e.g. force pushes on other branches); `push` keeps
-# the common case near-instant.
+# `push` covers every branch, `schedule` is the safety net for refs this
+# workflow cannot see (tags are not covered by `push` here, and force pushes on
+# a branch whose tip was already mirrored would otherwise be missed).
 
 on:
   push:
     branches:
-      - main
+      - '**'
+    tags:
+      - '**'
   schedule:
     - cron: '0 2 * * *'
   workflow_dispatch:
@@ -42,9 +44,27 @@ jobs:
         uses: actions/checkout@v4
         with:
           # git-sync needs the full history to replay commits onto the target.
+          # It resolves the branches to mirror from this checkout's remotes, so
+          # fetch every branch rather than just the triggering one.
           fetch-depth: 0
+          fetch-tags: true
 
-      - name: Sync main to CNB
+      - name: Fetch all branches and tags
+        # git-sync resolves what to mirror with `git branch -r | grep source/`
+        # against a `source` remote pointing at this checkout, so every branch
+        # must exist as a local ref here. `actions/checkout` only creates the
+        # triggering branch, and does not fetch tags at all, so materialize
+        # both before the plugin runs.
+        run: |
+          git fetch --prune --tags origin '+refs/heads/*:refs/remotes/origin/*'
+          git for-each-ref --format='%(refname:short)' refs/remotes/origin \
+            | sed 's|^origin/||' \
+            | grep -v '^HEAD$' \
+            | while read -r branch; do
+                git branch --force "$branch" "origin/$branch"
+              done
+
+      - name: Sync all branches to CNB
         uses: docker://tencentcom/git-sync
         env:
           PLUGIN_TARGET_URL: 'https://cnb.cool/kimicode.all/kimicode.git'
@@ -52,5 +72,7 @@ jobs:
           # CNB accepts the literal username `cnb` for token-based HTTPS auth.
           PLUGIN_USERNAME: 'cnb'
           PLUGIN_PASSWORD: ${{ secrets.CNB_TOKEN }}
-          PLUGIN_BRANCH: 'main'
+          # No PLUGIN_BRANCH: the plugin then mirrors every branch
+          # (`git push target --all`) instead of a single one.
+          PLUGIN_PUSH_TAGS: 'true'
           PLUGIN_SYNC_MODE: 'rebase'

@@ -100,8 +100,16 @@ $:
 #   allow_slugs:    [kimicode.all/kimicode]
 #   allow_events:   [push]
 #   allow_branches: [main]
-# so this pipeline is only allowed to read it on a `main` push — which is
-# exactly the single trigger configured below.
+# `allow_branches` gates the *triggering* branch (CNB_BRANCH), not the branches
+# being mirrored, so it still matches the `main` trigger below even though the
+# job now mirrors every branch.
+#
+# Scope: this job mirrors *all* branches and all tags, not just `main`.
+# `branch` is deliberately left unset — the plugin's `git push target --all`
+# path — and `push_tags: true` adds `--tags`. Note that rebase mode always
+# force-pushes, so every mirrored branch is rewritten on GitHub to carry this
+# side's commits on top of GitHub's. Branches that exist only on GitHub are
+# left alone.
 #
 # Reference: https://cnb.cool/cnb/plugins/market/-/tree/main/plugins/tencentcom/git-sync
 #            https://docs.cnb.cool/zh/build/file-reference.md (imports auth)
@@ -115,14 +123,16 @@ main:
       imports:
         - https://cnb.cool/kimicode.all/key/-/blob/main/github-sync.yml
       stages:
-        - name: mirror main to github
+        - name: mirror all branches to github
           image: tencentcom/git-sync
           settings:
             target_url: https://github.com/7723qqq/kimi-code.git
             auth_type: https
             username: ${GIT_USERNAME}
             password: ${GIT_ACCESS_TOKEN}
-            branch: main
+            # No `branch`: the plugin then pushes every branch
+            # (`git push target --all`) instead of a single one.
+            push_tags: true
             # Preserve GitHub-side files (`.github/workflows/`) instead of
             # clobbering them with this side's tree.
             sync_mode: rebase
