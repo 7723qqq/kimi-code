@@ -1,0 +1,56 @@
+name: Sync to CNB
+
+# Reverse direction of the cross-platform mirror: GitHub -> CNB.
+#
+# The forward direction (CNB -> GitHub) lives in `.cnb.yml` and runs
+# `tencentcom/git-sync` on every push to `main`. This workflow is its mirror
+# image, and it uses `rebase` for the same reason: the two sides are not
+# mirrors of each other. The CNB side owns `.cnb.yml` (NPC pipeline tuning),
+# the GitHub side owns the upstream workflows in this directory. A plain push
+# would delete `.cnb.yml` on CNB; rebase replays GitHub's commits on top of
+# CNB's, so both survive.
+#
+# Required secret: `CNB_TOKEN` — a CNB access token with read/write access to
+# `kimicode.all/kimicode`, stored under Settings -> Secrets and variables ->
+# Actions. See the issue discussion for how to create it.
+#
+# `schedule` is the safety net for commits that GitHub receives without
+# triggering this workflow (e.g. force pushes on other branches); `push` keeps
+# the common case near-instant.
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: sync-to-cnb
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: Sync to CNB
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # git-sync needs the full history to replay commits onto the target.
+          fetch-depth: 0
+
+      - name: Sync main to CNB
+        uses: docker://tencentcom/git-sync
+        env:
+          PLUGIN_TARGET_URL: 'https://cnb.cool/kimicode.all/kimicode.git'
+          PLUGIN_AUTH_TYPE: 'https'
+          # CNB accepts the literal username `cnb` for token-based HTTPS auth.
+          PLUGIN_USERNAME: 'cnb'
+          PLUGIN_PASSWORD: ${{ secrets.CNB_TOKEN }}
+          PLUGIN_BRANCH: 'main'
+          PLUGIN_SYNC_MODE: 'rebase'

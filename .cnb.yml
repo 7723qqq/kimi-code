@@ -82,3 +82,47 @@ $:
   # CNB merges NPC config per event, so this must be repeated or PR comments
   # fall back to the platform defaults.
   pull_request.comment@npc: *npc-event
+
+# ---------------------------------------------------------------------------
+# Cross-platform mirroring to GitHub (tencentcom/git-sync).
+#
+# The repository is deliberately two-legged: this side owns `.cnb.yml` (the
+# NPC tuning above), while the GitHub side owns `.github/workflows/` (the
+# upstream workflows merged from MoonshotAI/kimi-code). Neither side is a
+# mirror of the other, so the sync must never overwrite the target's files.
+# That is why `sync_mode: rebase` is used instead of the plugin's default
+# `push` — rebase replays this branch's commits on top of the target's, so
+# `.github/workflows/` survives on GitHub while `.cnb.yml` survives here.
+#
+# Credentials (GIT_USERNAME / GIT_ACCESS_TOKEN) live in the secret repository
+# `kimicode.all/key`, file `github-sync.yml`, and are injected through
+# `imports`. The secret file declares:
+#   allow_slugs:    [kimicode.all/kimicode]
+#   allow_events:   [push]
+#   allow_branches: [main]
+# so this pipeline is only allowed to read it on a `main` push — which is
+# exactly the single trigger configured below.
+#
+# Reference: https://cnb.cool/cnb/plugins/market/-/tree/main/plugins/tencentcom/git-sync
+#            https://docs.cnb.cool/zh/build/file-reference.md (imports auth)
+
+# The mirror job, kept as an anchor-free sibling of the NPC config so that the
+# two never interfere: NPC config is merged per event, and this is a distinct
+# event (`push`) on a distinct branch key (`main`).
+main:
+  push:
+    - name: sync to github
+      imports:
+        - https://cnb.cool/kimicode.all/key/-/blob/main/github-sync.yml
+      stages:
+        - name: mirror main to github
+          image: tencentcom/git-sync
+          settings:
+            target_url: https://github.com/7723qqq/kimi-code.git
+            auth_type: https
+            username: ${GIT_USERNAME}
+            password: ${GIT_ACCESS_TOKEN}
+            branch: main
+            # Preserve GitHub-side files (`.github/workflows/`) instead of
+            # clobbering them with this side's tree.
+            sync_mode: rebase
