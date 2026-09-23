@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 // test/lock.test.ts
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 
 import { MiniDb } from '../src/index.js';
 import { LockError, LockFile } from '../src/lockfile.js';
@@ -557,6 +557,46 @@ test('a contender that cannot list the directory does not claim over a live co-b
     // already failed above, so this is plain cleanup now.
     await fs.rm(dir, { recursive: true, force: true });
     fs.readdir = originalReaddir;
+  }
+});
+
+// The holder detail in the "database is locked" error is best-effort: a
+// describeHolder() read that fails must not REPLACE the LockError with a
+// raw fs error — the lock pool retries `instanceof LockError` and
+// openOrRebuild classifies on it.
+test('a failing holder-detail read still surfaces a LockError', async () => {
+  const dir = await tmpDir();
+  try {
+    // A LIVE foreign holder (our own pid, a foreign token): acquire declines
+    // without entering the settle loop, straight into the detail read.
+    await fs.writeFile(
+      path.join(dir, 'db.lock'),
+      JSON.stringify({ pid: process.pid, ts: Date.now(), token: 'foreign:token' }),
+    );
+    const spy = vi
+      .spyOn(LockFile.prototype, 'describeHolder')
+      .mockRejectedValueOnce(new Error('EACCES: permission denied, read'));
+    try {
+      await assert.rejects(
+        () => MiniDb.open({ dir, valueCodec: 'string' }),
+        (error: unknown) =>
+          error instanceof LockError &&
+          error.message.includes('database is locked by another process') &&
+          !error.message.includes('holder pid'),
+        'the LockError survives without the annotation',
+      );
+      assert.equal(spy.mock.calls.length, 1, 'the detail read was attempted and failed');
+    } finally {
+      spy.mockRestore();
+    }
+    // Without the fault the holder detail comes back.
+    await assert.rejects(
+      () => MiniDb.open({ dir, valueCodec: 'string' }),
+      (error: unknown) => error instanceof LockError && error.message.includes('holder pid'),
+      'the annotation is present when the read works',
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
   }
 });
 

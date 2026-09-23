@@ -196,15 +196,24 @@ export async function openMiniDb<V>(db: LifecycleHost<V>, opts: OpenOptions, hoo
       } else {
         // Name the holder: "locked by another process" alone cannot tell a
         // live owner from a lock a dying process left behind, which is the
-        // first thing a reader of this error needs to know.
-        const holder = await db.lock.describeHolder();
-        const detail =
-          holder === null
-            ? 'the lock file vanished while opening'
-            : `holder pid ${holder.pid ?? 'unknown'}` +
-              (holder.alive ? '' : ' (no longer running)') +
-              (holder.ageMs === undefined ? '' : `, lock age ${holder.ageMs}ms`);
-        throw new LockError(`database is locked by another process: ${db.dir} — ${detail}`);
+        // first thing a reader of this error needs to know. The detail is
+        // BEST-EFFORT: describeHolder() reads the lock line, and a failing
+        // read must never replace the LockError with a raw fs error — the
+        // lock pool retries `instanceof LockError` (an EACCES here would
+        // abort its retry loop) and openOrRebuild classifies on it too.
+        let detail = '';
+        try {
+          const holder = await db.lock.describeHolder();
+          detail =
+            holder === null
+              ? ' — the lock file vanished while opening'
+              : ` — holder pid ${holder.pid ?? 'unknown'}` +
+                (holder.alive ? '' : ' (no longer running)') +
+                (holder.ageMs === undefined ? '' : `, lock age ${holder.ageMs}ms`);
+        } catch {
+          // Losing the annotation is acceptable; losing the LockError type is not.
+        }
+        throw new LockError(`database is locked by another process: ${db.dir}${detail}`);
       }
     } else {
       // Report the held token BEFORE the heavy recovery work below: a
