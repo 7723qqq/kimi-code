@@ -19,7 +19,7 @@ import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { renameReplace } from './rename-replace.js';
+import { renameReplace, withWindowsEpermRetry } from './rename-replace.js';
 import { createSerializer } from './serialize.js';
 
 export class LockError extends Error {
@@ -68,9 +68,16 @@ const TAKEOVER_SETTLE_MAX_MS = 2_000;
 function hookExit(): void {
   if (exitHooked) return;
   exitHooked = true;
-  process.on('beforeExit', () => {
+  const releaseAll = (): void => {
     for (const lock of HELD) lock.releaseSync();
-  });
+  };
+  // `exit` is the one that runs on an explicit process.exit() or an uncaught
+  // throw; `beforeExit` alone missed both, so an ordinary exit could leave the
+  // lock line behind for a later opener to reclaim. Both are registered —
+  // `beforeExit` still covers a clean event-loop drain, and releaseSync is
+  // idempotent (it clears `held`), so firing twice is a no-op.
+  process.on('exit', releaseAll);
+  process.on('beforeExit', releaseAll);
 }
 
 export class LockFile {
@@ -288,25 +295,73 @@ export class LockFile {
   /** Read the lock file and decide its state. null = the file vanished.
    *  `mine` is decided by the owner token, `alive` still by pid liveness: a
    *  legacy tokenless line is never mine and follows the stale rules. */
-  private async inspect(): Promise<{ ino: number | bigint; alive: boolean; mine: boolean } | null> {
+  private async inspect(): Promise<{
+    ino: number | bigint;
+    alive: boolean;
+    mine: boolean;
+    pid?: number;
+    token?: string;
+    ts?: number;
+  } | null> {
     let raw: string;
     let st: { ino: number | bigint };
     try {
-      [raw, st] = await Promise.all([fs.readFile(this.path, 'utf8'), fs.stat(this.path)]);
+      // Both reads ride the EPERM retry: the lock line is replaced in place by
+      // renew() and by a stale-lock takeover, and Windows answers a reader that
+      // lands in that window with EPERM ("operation not permitted") instead of
+      // serving the old or new content. Without the retry a contender's
+      // inspect() throws out of acquire() and the whole open fails — the
+      // failure a cluster write storm produced. `stat` is retried too: it races
+      // the same replace, and an EPERM there would escape the same way.
+      [raw, st] = await withWindowsEpermRetry(() =>
+        Promise.all([fs.readFile(this.path, 'utf8'), fs.stat(this.path)]),
+      );
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
       throw error;
     }
     let pid: number | undefined;
     let token: string | undefined;
+    let ts: number | undefined;
     try {
-      const parsed = JSON.parse(raw) as { pid?: number; token?: string };
+      const parsed = JSON.parse(raw) as { pid?: number; token?: string; ts?: number };
       pid = parsed.pid;
       token = parsed.token;
+      ts = parsed.ts;
     } catch {
       pid = undefined; // unparsable content looks abandoned, same as a dead PID
     }
-    return { ino: st.ino, alive: pidAlive(pid), mine: this.token !== null && token === this.token };
+    return {
+      ino: st.ino,
+      alive: pidAlive(pid),
+      mine: this.token !== null && token === this.token,
+      pid,
+      token,
+      ts,
+    };
+  }
+
+  /** Who holds the lock right now, for a diagnostic message when an acquire is
+   *  declined. `null` means the file is gone. Carries the raw owner fields so a
+   *  caller can report WHICH process blocked it and whether that process is
+   *  still alive — the two facts needed to tell a genuine live holder from a
+   *  lock a dying process left behind. */
+  async describeHolder(): Promise<{
+    pid?: number;
+    token?: string;
+    ageMs?: number;
+    alive: boolean;
+    mine: boolean;
+  } | null> {
+    const seen = await this.inspect();
+    if (seen === null) return null;
+    return {
+      pid: seen.pid,
+      token: seen.token,
+      ageMs: seen.ts !== undefined ? Date.now() - seen.ts : undefined,
+      alive: seen.alive,
+      mine: seen.mine,
+    };
   }
 
   private inspectSync(): { ino: number | bigint; alive: boolean; mine: boolean } | null {

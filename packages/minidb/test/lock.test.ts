@@ -418,3 +418,82 @@ test('onLockAcquired fires with the held token; read-only fallback opens skip it
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+// Windows replaces a file by renaming over it, and a reader that lands in that
+// window gets EPERM rather than ENOENT ("operation not permitted" opening a
+// path that is momentarily being swapped). `inspect()` reads the lock file, and
+// the lock line is rewritten by renew() and by a stale-lock takeover, so this
+// window is reachable in normal operation — a cluster storm hit it and the
+// open failed outright. Every other replace-sensitive read in this package
+// rides the EPERM retry; inspect() must too.
+test('inspect tolerates a transient EPERM while the lock line is being replaced', async () => {
+  const dir = await tmpDir();
+  try {
+    const lockPath = path.join(dir, 'db.lock');
+    const lock = new LockFile(lockPath);
+    assert.equal(await lock.acquire(), true);
+
+    // Fail the first read the way Windows does mid-replace, then serve it.
+    const originalReadFile = fs.readFile;
+    let injected = 0;
+    fs.readFile = ((...args: Parameters<typeof fs.readFile>) => {
+      if (injected === 0) {
+        injected++;
+        const err = new Error('EPERM: operation not permitted') as NodeJS.ErrnoException;
+        err.code = 'EPERM';
+        return Promise.reject(err);
+      }
+      return originalReadFile(...args);
+    }) as typeof fs.readFile;
+    try {
+      const holder = await lock.describeHolder();
+      assert.equal(injected, 1, 'the injected EPERM was actually exercised');
+      assert.equal(holder?.pid, process.pid, 'the holder is still reported');
+      assert.equal(holder?.alive, true);
+    } finally {
+      fs.readFile = originalReadFile;
+    }
+    await lock.release();
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+// The exit hook releases held locks, but it hung off `beforeExit`, which does
+// NOT run when a process calls process.exit() (or dies on an uncaught throw) —
+// so an ordinary exit could leave the lock line behind. The hook is
+// best-effort by design: a SIGKILL still cannot be caught, and a surviving
+// line is reclaimed as stale. But `exit` is what fires on the paths that
+// actually happen, and releaseSync is synchronous, so it belongs there too.
+test('a process exiting via process.exit() does not leave its lock behind', async () => {
+  const dir = await tmpDir();
+  try {
+    const lockPath = path.join(dir, 'db.lock');
+    const script = `
+      import { LockFile } from ${JSON.stringify(new URL('../src/lockfile.ts', import.meta.url).href)};
+      const lock = new LockFile(${JSON.stringify(lockPath)});
+      await lock.acquire();
+      process.exit(0);
+    `;
+    const { spawn } = await import('node:child_process');
+    const child = spawn(
+      process.execPath,
+      // Bun executes .ts natively; Node needs the tsx loader hook.
+      [...(typeof Bun !== 'undefined' ? [] : ['--import', 'tsx']), '-e', script],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    let stderr = '';
+    child.stderr.on('data', (c) => {
+      stderr += String(c);
+    });
+    const code = await new Promise((resolve) => child.on('exit', resolve));
+    assert.equal(code, 0, `child exited cleanly; stderr=${stderr}`);
+    const exists = await fs.stat(lockPath).then(
+      () => true,
+      () => false,
+    );
+    assert.equal(exists, false, 'the exit hook released the lock on process.exit()');
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
