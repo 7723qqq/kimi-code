@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { test } from 'vitest';
+import { test, vi } from 'vitest';
 
 import { ClusterDb, wipeCluster } from '../../src/cluster/index.js';
 import { ShardLockPool } from '../../src/cluster/lock-pool.js';
@@ -17,7 +17,7 @@ import { shardDirName } from '../../src/cluster/utils.js';
 import { MiniDb } from '../../src/index.js';
 import { LockError, LockFile } from '../../src/lockfile.js';
 import { tmpDir, rmrf } from '../e2e/helpers/tmp.js';
-import { deferred } from '../helpers.js';
+import { deferred, waitFor } from '../helpers.js';
 import { keyOnShard, sleep } from './helpers.js';
 
 test('two writers contend on the same shard; loser times out with LockError', async () => {
@@ -166,6 +166,43 @@ test('lock lease: db.lock timestamp advances while a writer is held', async () =
     const second = await read();
     assert.ok(second.ts > first.ts, `timestamp renewed (${first.ts} -> ${second.ts})`);
     await db.close();
+  } finally {
+    await rmrf(dir);
+  }
+});
+
+// The lease timer is what keeps the recorded lock timestamp fresh — the one
+// thing it exists to do. A renew that could not land used to be swallowed,
+// leaving a stale lease indistinguishable from a healthy one; the failure is
+// now recorded on the handle and cleared by the next successful renew.
+test('leaseRenewError records a failed renew and clears it once a renew lands', async () => {
+  const dir = await tmpDir('minidb-cluster-');
+  try {
+    const handle = await ShardHandle.openWriter(
+      0,
+      path.join(dir, shardDirName(0, 4)),
+      { valueCodec: 'json' },
+      15,
+    );
+    const boom = new Error('lease renew failed');
+    const renewSpy = vi.spyOn(handle.db, 'renewLock').mockRejectedValueOnce(boom);
+    try {
+      assert.equal(handle.leaseRenewError, undefined, 'a fresh handle starts healthy');
+      await waitFor(
+        () => handle.leaseRenewError !== undefined,
+        'the failed renew to be recorded',
+        5_000,
+      );
+      assert.equal(handle.leaseRenewError, boom, 'the failure is readable on the handle');
+      await waitFor(
+        () => handle.leaseRenewError === undefined,
+        'the next successful renew to clear it',
+        5_000,
+      );
+    } finally {
+      renewSpy.mockRestore();
+      await handle.close();
+    }
   } finally {
     await rmrf(dir);
   }
