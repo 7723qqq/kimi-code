@@ -497,3 +497,56 @@ test('a process exiting via process.exit() does not leave its lock behind', asyn
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+// Exactly-one rests on the watch check: a contender may claim only once no
+// OTHER contender's registration is on disk. That check lists the directory,
+// and a listing that cannot be read must not be read as "no contender is in
+// flight" — the same reason an unreadable registration counts as live. Read as
+// empty, it lets a contender claim while a co-bidder is still mid-attempt, and
+// the co-bidder then claims too: the double-win the watch check exists to
+// prevent. (Reproduced by injecting a directory-listing failure together with
+// a delayed co-bidder rename: two winners.)
+test('a contender that cannot list the directory does not claim over a live co-bidder', async () => {
+  const dir = await tmpDir();
+  const originalReaddir = fs.readdir;
+  try {
+    const lockPath = path.join(dir, 'db.lock');
+    await fs.writeFile(lockPath, JSON.stringify({ pid: 999999, ts: Date.now() }));
+    // A co-bidder mid-attempt: its registration is on disk for the whole
+    // attempt, so this is exactly the state the check has to respect.
+    const foreignWatch = `${lockPath}.watch-${process.pid}-999999`;
+    await fs.writeFile(
+      foreignWatch,
+      JSON.stringify({ pid: process.pid, ts: Date.now(), token: 'other:token' }),
+    );
+
+    fs.readdir = ((...args: Parameters<typeof fs.readdir>) => {
+      if (String(args[0]) === dir) {
+        const err = new Error('EPERM: operation not permitted, scandir') as NodeJS.ErrnoException;
+        err.code = 'EPERM';
+        return Promise.reject(err);
+      }
+      return originalReaddir(...args);
+    }) as typeof fs.readdir;
+
+    const lock = new LockFile(lockPath);
+    // The claim is the thing under test, so bound the wait instead of letting
+    // a correct implementation settle forever: a contender that respects the
+    // co-bidder never claims, and the timer wins the race. The contender is
+    // still settling when the timer fires — removing the directory below is
+    // what ends it, and `release()` cannot be used here because it queues
+    // behind the acquire still in flight.
+    const pending = lock.acquire();
+    const claimed = await Promise.race([
+      pending,
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500)),
+    ]);
+    assert.equal(claimed, false, 'must not claim while a co-bidder is in flight');
+    void pending.catch(() => {});
+  } finally {
+    // The listing stays broken until the directory is gone, so the settling
+    // contender can only ever exit through the vanished lock file.
+    await fs.rm(dir, { recursive: true, force: true });
+    fs.readdir = originalReaddir;
+  }
+});

@@ -249,12 +249,24 @@ export class LockFile {
    *  tokenless watch line cannot be told apart from our own when its pid is
    *  ours, so it keeps the old pid-based exclusion. `ownWatch` (basename) is
    *  this instance's own registration — never foreign. A registration that
-   *  cannot be read is conservatively live: skipping it could let us claim
-   *  on incomplete evidence and re-open the double-win this check closes. */
+   *  cannot be read is conservatively live, and so is a directory listing that
+   *  cannot be read at all: skipping either could let us claim on incomplete
+   *  evidence and re-open the double-win this check closes. */
   private async hasLiveForeignWatch(ownWatch: string): Promise<boolean> {
     const dir = path.dirname(this.path);
     const prefix = `${path.basename(this.path)}.watch-`;
-    for (const f of await fs.readdir(dir).catch(() => [] as string[])) {
+    let entries: string[];
+    try {
+      entries = await fs.readdir(dir);
+    } catch {
+      // A listing that cannot be read is NOT evidence that no contender is in
+      // flight — the same reason an unreadable registration counts as live
+      // below. Read as empty, it lets us claim while a co-bidder is still
+      // mid-attempt, and the co-bidder then claims too: the double-win this
+      // check exists to prevent. Wait one more settle period instead.
+      return true;
+    }
+    for (const f of entries) {
       if (!f.startsWith(prefix) || f === ownWatch) continue;
       const pid = Number(f.slice(prefix.length).split('-')[0]);
       if (!Number.isInteger(pid)) continue;
