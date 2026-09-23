@@ -184,3 +184,43 @@ main:
             # Preserve GitHub-side files (`.github/workflows/`) instead of
             # clobbering them with this side's tree.
             sync_mode: rebase
+
+ci/npc-custom-image:
+  api_trigger:
+  - name: npc image
+    services:
+    - docker
+    stages:
+    - name: docker login
+      script: docker login -u ${CNB_TOKEN_USER_NAME} -p "${CNB_TOKEN}" ${CNB_DOCKER_REGISTRY}
+    - name: docker build
+      script: 'set -e
+
+        IMAGE=${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc
+
+        docker build -f .cnb/npc.Dockerfile -t "${IMAGE}:latest" -t "${IMAGE}:${CNB_COMMIT_SHORT}"
+        .
+
+        echo "IMAGE=${IMAGE}:latest" >> "$CNB_EXPORTS"
+
+        '
+    - name: docker push
+      script: 'set -e
+
+        docker push "${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc:latest"
+
+        docker push "${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc:${CNB_COMMIT_SHORT}"
+
+        '
+    - name: smoke test
+      script: "set -e\nIMAGE=${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc:${CNB_COMMIT_SHORT}\n\
+        # Assert the three things the image exists to guarantee, so a\n# regression\
+        \ fails the push instead of surfacing as an NPC run\n# that mysteriously fails\
+        \ an hour later.\ndocker run --rm \"$IMAGE\" sh -eu -c '\n  rg --version |\
+        \ grep -q \"^ripgrep 15\\.\" || { echo \"rg is not 15.x: $(rg --version |\
+        \ head -1)\"; exit 1; }\n  rg --type-list | wc -l | grep -qx \"217\" || {\
+        \ echo \"rg file-type count is $(rg --type-list | wc -l), expected 217\";\
+        \ exit 1; }\n  cargo --version >/dev/null || { echo \"cargo missing\"; exit\
+        \ 1; }\n  rustc --version >/dev/null || { echo \"rustc missing\"; exit 1;\
+        \ }\n  cc --version >/dev/null || { echo \"no C compiler\"; exit 1; }\n  echo\
+        \ \"smoke test ok: $(rg --version | head -1), $(cargo --version)\"\n'\n"
