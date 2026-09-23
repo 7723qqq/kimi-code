@@ -134,6 +134,8 @@ The input box remains usable while the agent is thinking or calling tools, and s
 
 When the agent is waiting for background tasks through `WaitFor`, pressing `Ctrl-S` ends that wait early. Background tasks keep running and existing tool results are preserved. If other foreground tools remain in the same batch, the agent processes your message after they return.
 
+Background tasks belong to the session that started them and do not survive exiting Kimi Code. On the next session the agent is told that the previous session's tasks lost contact, so it does not assume they finished — it checks their recorded state and can offer to resume a subagent from its earlier context.
+
 If the turn is interrupted before a steered message joins it, the message is not lost — the next turn carries it.
 
 ## External editor
