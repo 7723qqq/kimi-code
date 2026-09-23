@@ -44,14 +44,16 @@ export function flushTelemetrySync(): void {
 export async function shutdownTelemetry(
   options: { readonly timeoutMs?: number } = {},
 ): Promise<void> {
-  await shutdown(options);
+  try {
+    await shutdown(options);
+  } catch {}
 }
 
 export { initializeTelemetry, isTelemetryDisabledByEnv, shouldEnableTelemetry } from './bootstrap';
 export type { TelemetryBootstrapOptions } from './bootstrap';
 
 export { EventSink } from './sink';
-export { AsyncTransport, TELEMETRY_ENDPOINT } from './transport';
+export { AsyncTransport } from './transport';
 
 export { installCrashHandlers, setCrashPhase } from './crash';
 export type { CrashPhase } from './crash';

@@ -26,6 +26,9 @@ export function getOauthLoginRequiredStartupNotice(): string {
 export function getSessionlessStartupNotice(): string {
   return t('tui.chrome.hints.sessionlessStartup');
 }
+export function getTuiModeRestartNotice(): string {
+  return t('tui.chrome.hints.tuiModeRestart');
+}
 export const TOWER_STATUS_PROMPT =
   'Report the current tower status: call TowerStatus and give a compact summary.';
 export const TOWER_TEARDOWN_PROMPT =

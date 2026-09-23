@@ -1446,6 +1446,20 @@ protocol、thinkingEffort）并把 `telemetry` 回调转发到宿主遥传客户
 （实测令 8 个 config 测试 EBUSY），故按 v2「无插件快照」语义留空；开关时的启用集仍由
 `plugin_toggle` 事件按需携带。
 
+### 6.7 合并上游 2.1.0（2026-09-23，merge-base `e796bb5d48`）
+
+合并范围 `e796bb5d48..52437299ff` 中触碰已退役包（agent-core-v2 / kap-server / klient /
+acp-server）的 5 个提交逐条裁决，门禁 `scripts/check-upstream-v2-delta.mjs` 对应条目均记
+`tracked`——每条的 TS/词表半随合并落地或补移植，但都留有引擎侧缺口（见证据列）。
+
+| 提交 | 主题 | 裁决与证据 |
+|------|------|-----------|
+| `b3212fd9ab` #3969 | 按登录区域选择凭据槽与中继 | **tracked（TS 半已随本次合并移植）**：`apps/kimi-code/src/cli/sub/web/remote-control.ts` 补移植 `resolveKimiRemoteControlAuth` → 凭据槽 `resolveKimiTokenStorageName({ oauthKey })`、中继回退 `resolveRemoteControlRelayOrigin(env, auth.relayOrigin)`、`RemoteControlHandle.relayOrigin`、`buildRemoteControlUrl` 强制显式中继源；oauth 区域解析（`oauth/region.ts`）与遥测 skip-dead-collector 随合并自动落地，`run.ts`/`web.ts` 调用点补齐 `configuredOAuthKey/Host`。**缺口**：Rust `server/remote_control.rs` REST-toggle 路径仍持硬编码 `code-rc.kimi.com` 默认（`server/mod.rs:3217` `..Default::default()`）——补 relay-origin 字段属协议变更，待用户许可 |
+| `a54e6f6a9b` #3995 | `KIMI_CODE_REPEAT_BREAKER` 环境开关 | **tracked**：断路器行为已在引擎（`turn_loop/types.rs:75` `RepeatBreaker`，#3459 随前轮移植），但 Rust 侧无 `KIMI_CODE_REPEAT_BREAKER` 读取；合并带入的 docs（`docs/{en,zh}/configuration/env-vars.md:160`）已按上游记录该开关 → 文档-引擎漂移。缺口 = 按 `injection/permission_mode.rs` 既有模式补 env 门 |
+| `895e9d9b86` #3970 | swarm 成员随持久化事件恢复 | **tracked（词表半随合并落地）**：vis `agent-record-types.ts` 联合类型（冲突已解）、`context-projector.ts`、`renderers.tsx` 与 `transcript/foldFacts.ts` 均已合并；Rust 冷折叠已有 Lost 状态（`server/transcript/project.rs:1589`）与用量合并（`project.rs:1421-1422`）。**缺口**：丢失成员的回合归属与任务占位采纳未核（`project.rs:1665` 仅 `placeholder: None`）；drain 前置子修复不适用（fork 冷折叠直读 SQLite，无 wire journal 可 drain） |
+| `f7012aa23b` #3976 | tower 完备性断言 + 活跃 tower 时拒 `AgentSwarm` | **tracked**：合并带入的仅退役路径外的 `.changeset`；Rust `tools/tower/store.rs` 无 `assertCompletable`/`MAX_REVIEW_ROUNDS`/`task_drop`，`tools/swarm_tool.rs` 无 tower 否决（mode_mutex 改为暂停任务——pre-#3976 语义） |
+| `6451f1e056` #3964 | 工作区信任边界加固 | **tracked（TS 半随合并落地）**：`git-args.ts`、`git-status.ts`（冲突已解）、footer、scanner、`kimi-tui.ts` 与 docs `config-files.md` 均已合并。**缺口**（docs 已承诺、引擎未实现）：(a) 后台 git 仓库配置中和——Rust 无 `hooksPath`/`GIT_CONFIG_*` 防护；(b) `with_extra_roots`（`tools/mod.rs:579-590`）仅 `filter(is_dir)`、无 home/root 拒绝，而合并带入的 `docs/en/configuration/config-files.md:629`（zh:628 同段）承诺拒绝；(c) 符号链接 fail-closed 矩阵未核（词法 `path_access.rs` vs `fs::canonicalize` `tools/mod.rs:1808-1831`）；(d) `.kimi-code/local.toml` 读取面整体缺席——树内除 docs/tests/CHANGELOG 外零 `local.toml` 命中、`additional_dir` 只存在于引擎会话参数与 ACP 元数据（`/add-dir` 持久化走会话 meta），docs 却按上游描述了「信任后生效 + 未信任忽略 + home/root 拒绝」三条门控。web-server Origin 半上游已 revert，不适用 |
+
 ---
 
 ## 7. v1 / v3 协议面自创实现审计（2026-09-20，按铁律）

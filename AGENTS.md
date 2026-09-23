@@ -593,7 +593,15 @@ Standing rules for every `upstream` tag merge (decided 2026-09-03). Upstream is 
 
 - Prefer `rg` / `rg --files` when reading code.
 - When designing changes, follow existing boundaries and local patterns first.
-- In public text and test data, replace real internal identifiers with neutral placeholders such as `example.com`, `example.test`, and `YOUR_API_KEY`.
-- When opening a PR, fill in `PULL_REQUEST_TEMPLATE.md` — link the related issue or explain the problem, then describe what changed. Do not leave placeholder text.
-- After finishing a task and before submitting a PR, you must run the `gen-changesets` skill.
-- Do not commit throwaway scratch or exploratory files. Never stage: handoff documents (`HANDOVER-*.md`, `HANDOFF-*.md`, `handoff.md`), UI mockups (`*-designs.html`, `*-mockup.html`, `*-demo.html`), or any `.tmp/` content.
+- In public text and test data, replace real internal identifiers with neutral placeholders such as `example.com`, `example.test`, and `YOUR_API_KEY`. Before opening a PR, ask a read-only agent to audit the diff for context-specific internal identifiers.
+- When creating a PR, use the `write-pr` skill (`.agents/skills/write-pr/SKILL.md`) to write the PR description. The PR title must follow Conventional Commit style, e.g. `chore: remove legacy format commands`.
+- When an AI agent opens or updates a PR, fill in `.github/pull_request_template.md` — link the related issue or explain the problem, then describe what changed. Do not leave placeholder text or submit a generic summary of the diff.
+- Do not submit vague AI-generated PR text. The human author must understand the change well enough to explain the code, edge cases, and why the approach fits this repository.
+- After finishing a task and before submitting a PR, you must run the `gen-changesets` skill (see `.agents/skills/gen-changesets/SKILL.md`) and generate a changeset under `.changeset/` according to its rules.
+- Changesets must strictly follow the rules in `.agents/skills/gen-changesets/SKILL.md`: write one short user-facing sentence that states only what changed, and skip any change users cannot perceive.
+- When generating a changeset, **never** decide on a `major` bump on your own — stop, explain, and get explicit user confirmation first; default to `minor`, fall back to `patch`. See `.agents/skills/gen-changesets/SKILL.md`.
+- Prefer importing via `import ... from '#/...'`, which serves the same purpose as `import ... from '@/...'`.
+- Do not commit throwaway scratch or exploratory files. Never stage:
+  - Agent working notes or handoff/summary documents (e.g. `HANDOVER-*.md`, `HANDOFF-*.md`, `handoff.md`).
+  - Throwaway UI/UX prototypes or design mockups (e.g. `*-designs.html`, `*-mockup.html`, `*-demo(s).html`) at the repo root or under a `design/` folder. The only tracked `.html` files should be Vite `index.html` entrypoints.
+  Before committing or opening a PR, run `git status` and `git diff --staged --stat` and remove anything matching these patterns. Put scratch work under `.tmp/` (gitignored) instead of the repo root or the source tree.

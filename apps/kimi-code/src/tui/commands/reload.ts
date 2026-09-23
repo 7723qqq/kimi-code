@@ -4,6 +4,7 @@ import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 
 import { DEFAULT_MARKDOWN_CONFIG, loadTuiConfig, type TuiConfig } from '../config';
+import { getTuiModeRestartNotice } from '../constant/kimi-tui';
 import { setMarkdownMermaidMode, setMarkdownRenderLatex } from '../utils/markdown-options';
 import type { SlashCommandHost } from './types';
 import { setExperimentalFeatures } from './experimental-flags';
@@ -68,6 +69,7 @@ export async function applyReloadedTuiConfig(
   host.refreshTerminalThemeTracking();
   host.setAppState({
     editorCommand: config.editorCommand,
+    tuiMode: config.tuiMode,
     disablePasteBurst: config.disablePasteBurst,
     renderLatex: config.renderLatex,
     cacheExpiryHint: config.cacheExpiryHint,
@@ -78,6 +80,9 @@ export async function applyReloadedTuiConfig(
     markdown: config.markdown,
   });
   host.state.editor.setDisablePasteBurst(config.disablePasteBurst);
+  if ((config.tuiMode ?? 'regular') !== host.state.ui.mode) {
+    host.showNotice(getTuiModeRestartNotice());
+  }
 }
 
 function applyRuntimeConfig(host: SlashCommandHost, config: KimiConfig): void {

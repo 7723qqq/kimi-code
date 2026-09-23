@@ -494,6 +494,45 @@ export interface StaleGuardRecorded {
 export interface StaleGuardCleared {}
 
 // ════════════════════════════════════════════════════════════════════════════
+// Subagent lifecycle records
+// ════════════════════════════════════════════════════════════════════════════
+
+export interface SubagentSpawned {
+  readonly subagentId: string;
+  readonly subagentName: string;
+  readonly parentToolCallId: string;
+  readonly parentToolCallUuid?: string;
+  readonly parentAgentId?: string;
+  readonly callerAgentId?: string;
+  readonly description?: string;
+  readonly swarmIndex?: number;
+  readonly runInBackground: boolean;
+  readonly model?: string;
+  readonly thinkingEffort?: string;
+  readonly taskId?: string;
+}
+
+export interface SubagentStarted {
+  readonly subagentId: string;
+}
+
+export interface SubagentCompleted {
+  readonly subagentId: string;
+  readonly resultSummary: string;
+  readonly usage?: TokenUsage;
+  readonly contextTokens?: number;
+}
+
+export interface SubagentFailed {
+  readonly subagentId: string;
+  readonly error: string;
+}
+
+export interface SubagentCancelled {
+  readonly subagentId: string;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // Swarm / Tower / Task / Todo records
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -796,6 +835,11 @@ export interface WireRecordEvents {
   'runtime.set_binding': RuntimeSetBinding;
   'staleGuard.cleared': StaleGuardCleared;
   'staleGuard.recorded': StaleGuardRecorded;
+  'subagent.cancelled': SubagentCancelled;
+  'subagent.completed': SubagentCompleted;
+  'subagent.failed': SubagentFailed;
+  'subagent.spawned': SubagentSpawned;
+  'subagent.started': SubagentStarted;
   'swarm_mode.enter': SwarmModeEnter;
   'swarm_mode.exit': SwarmModeExit;
   'task.started': TaskStarted;

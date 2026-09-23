@@ -37,6 +37,7 @@ import {
 import { SurveyPreferenceSelectorComponent } from '../components/dialogs/survey-preference-selector';
 import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
 import { ThemeSelectorComponent } from '../components/dialogs/theme-selector';
+import { TuiModeSelectorComponent } from '../components/dialogs/tui-mode-selector';
 import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-preference-selector';
 import {
   DEFAULT_MARKDOWN_CONFIG,
@@ -44,8 +45,9 @@ import {
   saveTuiConfig,
   type MarkdownConfig,
   type TuiConfig,
+  type TuiMode,
 } from '../config';
-import { getNoActiveSessionMessage } from '../constant/kimi-tui';
+import { getNoActiveSessionMessage, getTuiModeRestartNotice } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import { setMarkdownMermaidMode, type MermaidRenderMode } from '../utils/markdown-options';
 import { permissionModeDescription, permissionModeDisplayName } from '../utils/permission-mode';
@@ -92,6 +94,7 @@ export function currentTuiConfig(host: Pick<SlashCommandHost, 'state'>): TuiConf
     locale: host.state.appState.locale
       ? (host.state.appState.locale as Locale)
       : getLocale(),
+    tuiMode: host.state.appState.tuiMode,
     editorCommand: host.state.appState.editorCommand,
     disablePasteBurst:
       host.state.appState.disablePasteBurst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
@@ -1140,6 +1143,57 @@ export async function applyMermaidPreferenceChoice(
   host.showStatus(`Mermaid diagrams ${enabled ? 'enabled' : 'disabled'}.`);
 }
 
+export function showTuiModePicker(host: SlashCommandHost): void {
+  host.mountEditorReplacement(
+    new TuiModeSelectorComponent({
+      currentValue: host.state.appState.tuiMode ?? 'regular',
+      onSelect: (value) => {
+        host.restoreEditor();
+        void applyTuiModeChoice(host, value);
+      },
+      onCancel: () => {
+        host.restoreEditor();
+      },
+    }),
+  );
+}
+
+type TuiModeHost = {
+  readonly state: {
+    readonly appState: Pick<SlashCommandHost['state']['appState'], 'tuiMode'>;
+    readonly ui: Pick<SlashCommandHost['state']['ui'], 'mode'>;
+  };
+  setAppState(patch: Pick<SlashCommandHost['state']['appState'], 'tuiMode'>): void;
+  showStatus(msg: string, color?: string): void;
+  showNotice(msg: string): void;
+};
+
+export async function applyTuiModeChoice(host: TuiModeHost, tuiMode: TuiMode): Promise<void> {
+  if (tuiMode === (host.state.appState.tuiMode ?? 'regular')) {
+    host.showStatus(t('tui.messages.configTuiModeUnchanged', { mode: tuiMode }));
+    return;
+  }
+
+  try {
+    await saveTuiConfig({
+      ...currentTuiConfig(host as unknown as SlashCommandHost),
+      tuiMode,
+    });
+  } catch (error) {
+    host.showStatus(
+      t('tui.messages.configTuiModeSaveFailed', { error: formatErrorMessage(error) }),
+      'error',
+    );
+    return;
+  }
+
+  host.setAppState({ tuiMode });
+  host.showStatus(t('tui.messages.configTuiModeSet', { mode: tuiMode }), 'success');
+  if (tuiMode !== host.state.ui.mode) {
+    host.showNotice(getTuiModeRestartNotice());
+  }
+}
+
 export function showSettingsSelector(host: SlashCommandHost): void {
   host.mountEditorReplacement(
     new SettingsSelectorComponent({
@@ -1164,6 +1218,9 @@ function handleSettingsSelection(host: SlashCommandHost, value: SettingsSelectio
       return;
     case 'theme':
       showThemePicker(host);
+      return;
+    case 'tuiMode':
+      showTuiModePicker(host);
       return;
     case 'mermaid':
       showMermaidPreferencePicker(host);

@@ -75,7 +75,7 @@ function readTelemetryConfig(configPath: string): Pick<KimiConfig, 'telemetry' |
   }
 }
 
-function telemetryEndpoint(homeDir: string): string {
+function telemetryEndpoint(homeDir: string): string | undefined {
   const oauth = loadRuntimeConfigSafe(resolveConfigPath({ homeDir })).config.providers?.[
     KIMI_CODE_PROVIDER_NAME
   ]?.oauth;

@@ -111,6 +111,8 @@ describe('ChoicePickerComponent', () => {
     const settingsOutput = settings.render(120).map(strip);
     expect(settingsOutput).toContain('  ❯ Model');
     expect(settingsOutput).toContain('    Switch the active model and thinking mode.');
+    expect(settingsOutput).toContain('    TUI mode');
+    expect(settingsOutput).toContain('    Choose the regular or fullscreen layout.');
     // "Automatic updates" sits past the first page now that the list paginates
     // at eight entries; page right to reach it.
     settings.handleInput('\x1b[C');

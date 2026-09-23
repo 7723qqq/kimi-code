@@ -215,12 +215,14 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
     track: vi.fn(),
     setTelemetryContext: vi.fn(),
     getExperimentalFeatures: vi.fn(async () => []),
+    getWorkspaceTrustInfo: vi.fn(async () => ({ trusted: true, gatedMcpServers: [] })),
     supportsAtomicSectionReplace: vi.fn(() => false),
     auth: {
       status: vi.fn(async () => ({ providers: [] })),
       login: vi.fn(async () => {}),
       logout: vi.fn(),
       getManagedUsage: vi.fn(),
+      getCachedAccessToken: vi.fn(async () => undefined),
     },
     ...overrides,
   };
@@ -290,11 +292,9 @@ describe('KimiTUI startup', () => {
     });
   });
 
-  it('mounts the docked fullscreen layout when KIMI_CODE_TUI_FULL_SCREEN=1', async () => {
+  it('mounts the docked fullscreen layout when tui_mode is fullscreen', async () => {
     const harness = makeHarness(makeSession());
-    vi.stubEnv('KIMI_CODE_TUI_FULL_SCREEN', '1');
-    const driver = makeDriver(harness, { ...makeStartupInput() });
-    vi.unstubAllEnvs();
+    const driver = makeDriver(harness, { ...makeStartupInput({}, { tuiMode: 'fullscreen' }) });
 
     expect(driver.state.ui.mode).toBe('fullscreen');
     expect(driver.state.ui.children).toHaveLength(0);
@@ -2682,6 +2682,43 @@ describe('KimiTUI startup', () => {
       process.env = { ...originalEnv };
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('still loads the banner when the access-token lookup fails', async () => {
+    const banner = {
+      key: 'new-banner',
+      tag: null,
+      mainText: 'Banner main',
+      subText: null,
+      display: 'always' as const,
+    };
+    let capturedAudience: unknown;
+    const loadSpy = vi.spyOn(BannerProvider.prototype, 'load').mockImplementation(async (options) => {
+      capturedAudience = await options?.audience;
+      return banner;
+    });
+    const session = makeSession({ id: 'ses-target' });
+    const harness = makeHarness(session, {
+      listSessions: vi.fn(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
+    });
+    harness.auth.getCachedAccessToken = vi.fn(async () => {
+      throw new Error('credential storage broken');
+    });
+    const driver = makeDriver(
+      harness,
+      makeStartupInput({ session: 'ses-target' }),
+    ) as unknown as MigrateExitDriver;
+
+    await driver.initMainTui();
+
+    await vi.waitFor(() => {
+      expect(
+        driver.state.transcriptContainer.children.some((child) => child instanceof BannerComponent),
+      ).toBe(true);
+    });
+    expect(capturedAudience).toEqual({ login: 'unknown' });
+
+    loadSpy.mockRestore();
   });
 
   it('resumes a startup session when Windows workdir uses backslashes', async () => {

@@ -62,6 +62,11 @@ import type {
   RuntimeSetBinding,
   StaleGuardCleared,
   StaleGuardRecorded,
+  SubagentCancelled,
+  SubagentCompleted,
+  SubagentFailed,
+  SubagentSpawned,
+  SubagentStarted,
   SwarmModeEnter,
   SwarmModeExit,
   TaskStarted,
@@ -170,6 +175,11 @@ export type AgentRecord =
   | WireRecordOf<'runtime.set_binding', RuntimeSetBinding>
   | WireRecordOf<'staleGuard.cleared', StaleGuardCleared>
   | WireRecordOf<'staleGuard.recorded', StaleGuardRecorded>
+  | WireRecordOf<'subagent.cancelled', SubagentCancelled>
+  | WireRecordOf<'subagent.completed', SubagentCompleted>
+  | WireRecordOf<'subagent.failed', SubagentFailed>
+  | WireRecordOf<'subagent.spawned', SubagentSpawned>
+  | WireRecordOf<'subagent.started', SubagentStarted>
   | WireRecordOf<'swarm_mode.enter', SwarmModeEnter>
   | WireRecordOf<'swarm_mode.exit', SwarmModeExit>
   | WireRecordOf<'task.started', TaskStarted>

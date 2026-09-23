@@ -1,239 +1,48 @@
 {
   "note": "Verdicts for upstream commits touching packages this fork deleted. Regenerate with `bun scripts/check-upstream-v2-delta.mjs --update`; see scripts/check-upstream-v2-delta.mjs for the gate itself. `tracked` = accepted debt recorded in packages/kimi-agent/ROADMAP.md §6; `not-applicable` = internal refactor with no observable engine behavior to port.",
   "upstreamRef": "upstream/main",
-  "recordedMergeBase": "1b89e4b039f052d10f258464413b2047acca12ba",
-  "recordedAt": "2026-09-22",
+  "recordedMergeBase": "e796bb5d482ecb7976c25dad0563b74cc9ec2c68",
+  "recordedAt": "2026-09-23",
   "entries": [
     {
-      "sha": "994287acb3a7428b580c09cabd5aba1b5a818aaa",
+      "sha": "b3212fd9abc1f4670fb47df16f0137957aed6f2d",
+      "date": "2026-09-23",
+      "subject": "fix(remote-control): pick credential slot and relay from login region (#3969)",
+      "verdict": "tracked",
+      "note": "TS client half ported in this merge (apps remote-control.ts: auth-resolved credential slot + relay fallback + handle.relayOrigin); Rust REST-toggle relay origin remains hardcoded.",
+      "roadmap": "§6.7"
+    },
+    {
+      "sha": "a54e6f6a9b36bc1346e41da576d96ff54aa557b6",
+      "date": "2026-09-23",
+      "subject": "feat(agent-core-v2): add KIMI_CODE_REPEAT_BREAKER env switch (#3995)",
+      "verdict": "tracked",
+      "note": "Engine repeat-breaker behavior exists, but Rust never reads KIMI_CODE_REPEAT_BREAKER while the merged env-vars docs document it.",
+      "roadmap": "§6.7"
+    },
+    {
+      "sha": "895e9d9b868cf9899e444784130fa1946c6cef6c",
+      "date": "2026-09-23",
+      "subject": "fix: restore swarm members from persisted lifecycle events (#3970)",
+      "verdict": "tracked",
+      "note": "Wire vocabulary and transcript foldFacts merged with the tree; lost-member turn association and task placeholder adoption still unverified on the Rust cold-fold path.",
+      "roadmap": "§6.7"
+    },
+    {
+      "sha": "f7012aa23b38d90d1a643166e2e78f706a606a34",
+      "date": "2026-09-23",
+      "subject": "feat(tower): enforce protocol invariants and deny AgentSwarm (#3976)",
+      "verdict": "tracked",
+      "note": "Rust tower store lacks assertCompletable / MAX_REVIEW_ROUNDS / task_drop and swarm_tool has no tower veto; mode_mutex still pauses instead.",
+      "roadmap": "§6.7"
+    },
+    {
+      "sha": "6451f1e056e90037bbf832f3578955cf8e55db64",
       "date": "2026-09-22",
-      "subject": "fix(session): inherit titleKind for default fork titles (#3974)",
-      "verdict": "ported",
-      "note": "Ported in full, both halves. (a) SDK forkSession (sdk-rpc-client-native.ts): a fork without an explicit title now takes the `Fork: <source title || source id>` default and inherits the source's titleKind/isCustomTitle, instead of keeping createSession's untitled 'New Session' with kind 'default' — which the first-prompt path (recordPromptMetadata's isUntitledTitle branch) then overwrote with the prompt text. An explicit title still forces kind 'custom'. (b) TUI /fork (apps/kimi-code/src/tui/commands/session.ts): stopped passing `title: \\\"Fork: …\\\"` (and dropped the forkSourceTitle helper plus the now-unused Session import) — the SDK mints the same default itself, and passing it explicitly would mark the fork custom and block the auto-title generator, which is the overwrite bug #3974 fixes. The CLI fork subcommands already passed no title. Tests: fork-without-title takes the default and a non-forced generateSessionTitle returns it unchanged (the inherited kind is the protection); the two TUI assertions now expect the bare { id } call.",
-      "roadmap": "§6.6"
-    },
-    {
-      "sha": "0dc4d4fba8c744721600ede2dce27e3af6e9b6ec",
-      "date": "2026-09-22",
-      "subject": "feat(agent-core-v2): prepend wall-time header to persisted tool results (#3966)",
-      "verdict": "ported",
-      "note": "Ported in full, all three observable pieces. (a) Tool-result header: turn_loop/wall_time.rs carries the v2 set (Agent/AgentSwarm/Bash/FetchURL/Glob/Grep/WebSearch) plus the mcp__ prefix (shouldRenderWallTime) and the `Wall time: X.XXX seconds` format (formatTaskWallTime, clamped at 0); tool_scheduler measures the duration around execute_fn (after the permit acquire, mirroring the executor) and returns it index-aligned via ScheduledToolOutcome (results stay in call order, which test_execute_scheduled_preserves_call_order pins); run_turn prepends the header at the tool-result message site for set members only — the persisted/model-facing history carries it, the raw tool.native event does not. (b) Task records: task_format::format_task_record replaces startedAt/endedAt with the wall-time line (endedAt falling back to now), routed through render_task_entry so TaskList entries, TaskOutput metadata, WaitFor [finished] and [still_running] all carry it; TaskStop's two branches prepend the line when the response carries timing (the state store's stop response is the full entry, so production always does). (c) Notifications: TaskNotification gains started_at (populated in settle_task) and render_task_notifications opens each block with the wall-time line (the tower wake keeps its early return). Not ported: v2's durationMs field on the wire/state manifests — the fork bakes the header into content and its LLMMessage carries no timing field, so there is nothing to add; and v2's <system>ERROR/empty status render stays absent (pre-existing, separate gap). Tests: wall_time unit tests, scheduler duration test (executed vs skipped), run_turn header test (Bash in, read out), format_task_record goldens, updated TaskList/WaitFor goldens, timed TaskStop render, notification render.",
-      "roadmap": "§6.6"
-    },
-    {
-      "sha": "0523bafb39101d471683f4f53e052767f3add2ef",
-      "date": "2026-09-21",
-      "subject": "feat(agent-core-v2): report enabled plugins and plugin toggles in telemetry (#3963)",
-      "verdict": "ported",
-      "note": "Ported in 9681ec28c9: TelemetryContext / JsTelemetryContext / napi-contract carry enabled_plugins (comma-joined sorted ids; host-injected like thinking_effort — no in-tree host populates the turn context yet, the field rides the seam), telemetry_payload emits it on turn_started/turn_ended (absent when no snapshot), and plugin_toggle fires at both toggle surfaces: the REST /api/v1/plugins/<id>:enable|:disable route through the server telemetry sink and the TUI applyPluginEnabled point through host.track. Tests: enabled_plugin_ids sorted set, REST toggle payload (empty string for a known empty set), turn payload carries/omits the field, TUI reports/omits the set.",
-      "roadmap": "§6.6"
-    },
-    {
-      "sha": "6a52dd781b959328190b0cd66082154b96ef6a47",
-      "date": "2026-09-21",
-      "subject": "feat(config): add auto_session_title config option (#3962)",
-      "verdict": "ported",
-      "note": "Ported in acd5c8f16f: auto_session_title plumbed end to end the way telemetry is — KimiConfig (absent = enabled, explicit false disables), node-sdk config schema and patch, protocol REST config response/patch schemas, config-mapper domain list, both doc locales. The engine only generates titles when the host asks (session/generate_title), so the flag is the host gate, matching upstream.",
-      "roadmap": "§6.6"
-    },
-    {
-      "sha": "b428bfd0049a6bfafb1833ee1c43e03aacfb689c",
-      "date": "2026-09-21",
-      "subject": "feat(transcript): include step timing and usage in cold-folded steps (#3938)",
-      "verdict": "ported",
-      "note": "Ported in full after the audit re-opened the verdict (the original not-applicable conflated a moot v3 hunk with a missing module). New llm/timing.rs carries LlmTiming (v2 ModelRequestTiming): firstTokenLatencyMs / streamDurationMs / requestBuildMs / serverFirstTokenMs measured by the native HTTP transport around one request (marks: started_at, sent, first SSE event, stream end; v2 formulas with zero clamping), serverDecodeMs / clientConsumeMs stay None (the fork SSE reader produces no decode stats). The timing rides LLMChatResponse -> StepResult -> the llm.step.end event (turn_id + step + usage + timing) the turn loop now emits per step, and the transcript projector folds it into the step (StepTiming was defined since the v3 retirement but never filled). The host-proxy path reports None (the host owns the call). Tests: from_marks formulas/clamping/serde, projector step-end timing fold, subagent lifecycle sequence now includes the step end.",
-      "roadmap": "§6.6"
-    },
-    {
-      "sha": "6a214b85e53e58a9ef6480f27bcb7b0103c0e34e",
-      "date": "2026-09-21",
-      "subject": "fix(kap-server): avoid stack overflow when caching large wire files (#3957)",
-      "verdict": "not-applicable",
-      "note": "kap-server (and its WireRecordCache) is retired. The fork's only wire.jsonl reader, apps/vis/server/src/lib/wire-reader.ts:124, pushes one record at a time in a loop — no spread-into-push, so the large-file stack overflow cannot occur.",
-      "roadmap": "§6.6"
-    },
-    {
-      "sha": "65ae3e368c7cfa096242cacc12eeeb661e682977",
-      "date": "2026-09-20",
-      "subject": "feat(project): reject non-ASCII mission titles and record token usage (#3847)",
-      "verdict": "ported",
-      "note": "Mixed commit, all three parts now closed. (a) Non-ASCII mission-title rejection: intentional divergence, unchanged — the fork unique_slug dedup (tools/tower/store.rs:412-424, paths.rs:96-114) already fixes the branch-collision defect the rejection targets, and accepting the title is friendlier for this fork Chinese-first users. (b) Token usage on tower records: PORTED (2026-09-22) — SubagentManager now keeps a per-instance cumulative usage counter folded at every turn-completion path (foreground, background spawn_and_run, persistent), and caller_tokens reports v2 grandTotal (input + cacheRead + cacheCreation + output, all four dimensions); the tower finding/review/send writers carry it into the records (finding **Tokens** line, review/inbox frontmatter field, round-tripped by read_inbox). Recorded divergence: the main agent reports None (v2 -1) because the session total lives in the host SQLite turn records, unreachable from the toolset; subagent callers — the ones who actually file tower records — are fully covered. (c) The spawn task description: the fork tower spawn registers no described background task, so there is no description to change.",
-      "roadmap": "§6.6"
-    },
-    {
-      "sha": "f17a22ebf4e21b8196bfaaa9a2490707676bf519",
-      "date": "2026-09-19",
-      "subject": "feat: turn off filesystem watch by default (#3931)",
-      "verdict": "not-applicable",
-      "note": "Re-classified from tracked back to not-applicable after the port attempt found no consumer (2026-09-22). v2 watches files because it caches AGENTS.md / skills / agent profiles across turns and must invalidate them; the fork rebuilds the system prompt — AGENTS.md cascade and skills scan included — on every turn (napi_bindings.rs build_session_system_prompt runs per JsRunTurnParams; the server path answers the same per turn), so there is no stale cache for a watcher to invalidate. Restoring the module would add a watcher with no consumer plus [watch] enabled / KIMI_CODE_WATCH knobs that control nothing — inventing surface, which the no-inventing rule forbids. The fork fs_watch removal (ROADMAP §7.3) therefore stands as the correct end state, not debt.",
-      "roadmap": "§6.6"
-    },
-    {
-      "sha": "97212596f7d694b9683046ec7aad4d1247d29468",
-      "date": "2026-09-19",
-      "subject": "fix(agent-core-v2): don't record turn.steer when an unconsumed steer seeds the next turn (#3933)",
-      "verdict": "not-applicable",
-      "note": "The fork has no seeded-turn path (consumeDrainedNudges has no counterpart; drain_steers only appends to the running turn's messages), so the duplicate-record bug cannot occur. `turn.steer` now rides the wire journal and is folded once into the transcript's buffered steer frames (ROADMAP §6.1-34): one emission, one fold, and the pending buffer lands the frame exactly once when a running turn's step begins — an unconsumed steer seeding the next turn cannot produce a second record. The review did surface a real divergence — the server path dropped undrained steers when the turn ended — fixed separately in ee882ab5e2: release_turn_steer_state keeps a non-empty queue across the turn boundary so the next turn drains it, matching the session path and v2's unconsumed-steer semantics.",
-      "roadmap": "§6.6"
-    },
-    {
-      "sha": "6ffdf0d579fa1a9f30c2d00c437c6c8de0c03997",
-      "date": "2026-09-19",
-      "subject": "fix(agent-core-v2): remove the project-root assertion for cwd from the system prompt (#3929)",
-      "verdict": "ported",
-      "note": "Ported in acd5c8f16f: the system prompt no longer claims the cwd is the project root and no longer promises a two-level listing; prompt/system.md still carried the old sentence and was corrected.",
-      "roadmap": "§6.6"
-    },
-    {
-      "sha": "9df7a9ccfb0d7d0713b51ae1ac165d0634fc40d2",
-      "date": "2026-09-19",
-      "subject": "fix: keep turn ids above the wire-wide max and fold cold transcripts over the active branch (#3922)",
-      "verdict": "not-applicable",
-      "note": "Two halves. (a) Turn-id regression on replay: the fork derives turn numbers from durable SQLite state (COALESCE(MAX(turn_number),0)+1, session/sqlite_store.rs:1085) on every turn — there is no in-memory counter a replayed seed record could dial back. (b) Cold fold over the active branch: the fork has no wire journal and no branches — undo deletes rows (sqlite_store.rs:911) and fork copies history into a new session (fork_session) — the transcript reads SQLite directly, and the v3 entity protocol this fix extends was deleted in 86f30ecc2c.",
-      "roadmap": "§6.6"
-    },
-    {
-      "sha": "2502d2157fa43aa6e514da14c84096b08132310c",
-      "date": "2026-09-19",
-      "subject": "revert(kap-server): drop the flat entity message protocol (v3 WS + history API) (#3532) (#3920)",
-      "verdict": "ported",
-      "note": "Followed in 86f30ecc2c: the v3 flat-entity protocol revert landed engine-side (ws_v3 + server/v3 + contract + history route + in_flight + the scan-parity dimension) and kimi-inspect reverted to the v1 transcript model. Upstream's rationale and the fork decision are recorded in ROADMAP §8.11.",
-      "roadmap": "§6.6"
-    },
-    {
-      "sha": "2cedfaf1257a5a4401161354907206c7d4f4213a",
-      "date": "2026-09-19",
-      "subject": "fix(kap-server): deliver session-level interaction events past agent filters (#3901)",
-      "verdict": "not-applicable",
-      "note": "The fork's WS fan-out is session-scoped (server/ws.rs:444-447 filters by the session set only) — there is no agent filter for sub-agent interaction events to be suppressed by. The agent_id wire field has no consumer (the committed dist-web approval/question mappers do not read it), and the fork's interaction registry is session-scoped with no agent attribution to fill it with.",
-      "roadmap": "§6.6"
-    },
-    {
-      "sha": "88a7d932f1cda95c78bf5488d34ff974a160fb08",
-      "date": "2026-09-18",
-      "subject": "fix(agent-core-v2): pre-shrink compaction history to the effective model window (#3911)",
-      "verdict": "ported",
-      "note": "Compaction pre-shrink (v2 `preShrinkHistoryToWindowBudget`, fullCompactionService.ts:818-841): `compaction/mod.rs` gains `summarize_with_llm_budgeted` + `pre_shrink_to_window_budget` / `take_recent_within_budget` (safety ratio 0.85, output reserve window/8, request-scaffold allowance), and `run_turn`'s overflow-recovery passes `max_context_tokens` through `force_compact_messages_with_summary_budgeted`. 3 unit tests pin fit/tail/tool-result-drop, plus the nothing-fits fallback (v2 returns an empty slice; the caller sends the original).",
-      "roadmap": "§6.1-22"
-    },
-    {
-      "sha": "7dc253c5cefac7c277e5fc7071acf3e855fd503e",
-      "date": "2026-09-18",
-      "subject": "fix(agent-core-v2): restore thinking for the openrouter reasoning dialect (#3910)",
-      "verdict": "ported",
-      "note": "The ported half: replayed think blocks ride the model's declared reasoning field (`[models.<alias>].reasoning_key`) instead of flattening to assistant prose (`openai.rs::project_message` now takes the key; `http.rs` passes it through). No fork equivalent of v2's `reasoning_details`-array think-part stamping exists (fork stores no detailsIndex), so the string-vs-details coexistence case keeps the string, which the fork already read. Regression test pins both shapes.",
-      "roadmap": "§6.1-23"
-    },
-    {
-      "sha": "92c3c59b223a1195155a887b6dfc0376889e6523",
-      "date": "2026-09-18",
-      "subject": "feat: expose resolved base_url on models.dev catalog provider items (#3909)",
-      "verdict": "ported",
-      "note": "`base_url` now rides every `/api/v1/catalog/providers` item (resolved endpoint per built-in entry; the fork serves a built-in list, not a models.dev proxy, so the endpoint is stated rather than resolved), the per-id route reads the same shared source instead of fabricating a placeholder (unknown id = 404), and server-api.md documents the new field. Matches the v2 item shape (`modelsDevImport.ts` `ModelsDevProviderItem.base_url`).",
-      "roadmap": "§6.1-24"
-    },
-    {
-      "sha": "3cc6b2a330fe29e54e12f7a676c16acb8dca2cf9",
-      "date": "2026-09-18",
-      "subject": "feat(kimi-code): carry turn trace id and copilot stats in rating surveys (#3907)",
-      "verdict": "ported",
-      "note": "Survey trace id + copilot stats: the engine `turn_ended` telemetry payload now carries `trace_id` (engine-minted `turn-<id>`; a provider request id is still not visible to the engine, noted in wire-schema.ts), `TurnEndedEvent` gains an optional `traceId` (interface + zod) passed through the napi bridge, and the survey controller records `kfc_trace_id` plus `subagent_count`/`subagent_models`/`swarm_run_count`/`swarm_models` per turn. `tower_mode_enter/exit` emit from the SDK `setTowerMode` flip point, where the flag actually lives.",
-      "roadmap": "§6.1-25"
-    },
-    {
-      "sha": "60f2a63278f28b77d9358cf589b2da6193bd2614",
-      "date": "2026-09-18",
-      "subject": "fix(agent-core-v2): reuse the queued prompt id for a single steer (#3906)",
-      "verdict": "ported",
-      "note": "Steer identity end to end: `LLMMessage.prompt_id` (new optional field, persisted as a `messages.prompt_id` column with the store's idempotent ALTER pattern), `ServerEngine::enqueue_steer` mints an id when the caller sent none, the REST `prompt_ids` steer route reuses the queued prompt's own id (v2 `children[0].waiter.id`), and the transcript keeps a steered user message inside the current turn under that id: the cold rebuild buffers it as a user frame carrying the id in `promptIds` instead of minting a turn of its own (server/transcript.rs), and the live fold buffers `turn.steer` to the same placement (server/transcript/project.rs, ROADMAP §6.1-34). (The v3 projection and `translate_wire_event` this note originally described were deleted with v3 in 86f30ecc2c.) Tests pin in-turn placement and the no-open-turn fallback on both paths.",
-      "roadmap": "§6.1-26"
-    },
-    {
-      "sha": "b0d0a80c3288cdc09e0caae0f92c19eabcb20a1b",
-      "date": "2026-09-18",
-      "subject": "feat: add usage telemetry for swarm, tower, external hooks, and remote control (#3897)",
-      "verdict": "ported",
-      "note": "Telemetry emissions: `swarm_mode_entered/exited` on the profile-write transition, `external_hook_resolved` in `HookGuard::denial` (action/matched_count/failed_count, verdict untouched) riding `HostCallbacks::telemetry` via a OnceLock sink, `remote_control_toggle` with v2 outcome vocabulary on the REST route. Server routes without a host callback fall back to `tracing::info` via `HttpServer::emit_session_telemetry` (`with_telemetry_sink` for host integration). Only `tower_mode_enter/exit` remains: tower mode has no engine-side flip point yet.",
-      "roadmap": "§6.1-27"
-    },
-    {
-      "sha": "73ebe9ab2fbf9bf0ffc8fe5a5375060ce8e984b5",
-      "date": "2026-09-18",
-      "subject": "fix(transcript): attach promptIds to cold-folded steer frames (#3896)",
-      "verdict": "not-applicable",
-      "note": "v2 synthesizes cold-rebuilt transcript frames after reload, so a steered frame needed its promptIds re-attached. The fork's engine persists steered user messages as real messages in the sqlite history, and its cold fold (server/transcript.rs build_items, ROADMAP §6.1-34) lands them as user frames with the prompt id attached by construction — the id rides `messages.prompt_id` through reload — while the live fold attaches the same ids from the `turn.steer` payload, so neither path can lose the linkage. packages/transcript itself is a live fork-kept package and takes upstream changes via normal merges."
-    },
-    {
-      "sha": "5acc863ae60c092457bd9ecdde55266b5fad7040",
-      "date": "2026-09-18",
-      "subject": "feat(agent-core-v2): make select_tools failures actionable (#3885)",
-      "verdict": "ported",
-      "note": "tools/select_tools.rs gains the already-callable classification (advertised minus deferred → direct-call guidance, not an error), suggest_tool_names (case-fix, mcp__-stripped substring, last __ segment; sorted, capped at 3), the loadable-count-based unknown guidance arms, and the new description/announcement wording. The dispatch arm computes the callable set as the full catalogue minus deferred_tool_names_blocking. Loadable lists render sorted (a Rust HashSet has no insertion order to inherit). Tests: evaluate/suggest/lifecycle suites extended."
-    },
-    {
-      "sha": "910aba273e2bee3a8815666a3a9c4fff609f2366",
-      "date": "2026-09-18",
-      "subject": "fix(agent-core-v2): drop literal decision clauses from system prompt and auto reminder (#3894)",
-      "verdict": "ported",
-      "note": "Both upstream-aligned texts applied: prompt/system.md 'Delivering work' paragraph and injection/permission_mode.rs AUTO_ENTER_REMINDER AskUserQuestion line ('decide and continue.'). The fork's AutoModeAskUserQuestionDeny message is fork-authored ('Auto mode cannot ask interactive questions'), not the upstream string, and stays. permission_mode 8 tests and prompt 33 tests pass."
-    },
-    {
-      "sha": "53e5e3fca6bf377662bc4d61d220dde4ded8e7b7",
-      "date": "2026-09-18",
-      "subject": "fix(agent-core-v2): pair steered follow-ups by reserved message id (#3891)",
-      "verdict": "ported",
-      "note": "The steered-message identity the pairing needs now exists: the persisted `prompt_id` rides history reload, the cold rebuild emits the steered user frame under its prompt id (frame `promptIds`, inside the host turn), and the live fold mirrors it from the `turn.steer` payload (ROADMAP §6.1-34) — so a client can pair a steered follow-up to its reserved prompt id instead of matching by content. (v2's `steeredMessageIds` join lives in `packages/transcript`, which has no fork consumer; the equivalent information now travels on the transcript's steered user frames.)",
-      "roadmap": "§6.1-26"
-    },
-    {
-      "sha": "a80fe31cff0ebae686e60d7d5d0559ad2d2e843d",
-      "date": "2026-09-18",
-      "subject": "fix(agent-core-v2): stop workspace watchers from listing a flooded project root (#3892)",
-      "verdict": "not-applicable",
-      "note": "Same re-classification as #3931 (2026-09-22): the fixed failure mode is v2 OS directory watcher inventorying a project root into the V8 heap. The fork has no watcher at all — its fs_watch was removed (ROADMAP §7.3) and its per-turn system-prompt rebuild (napi_bindings.rs build_session_system_prompt) leaves no cache to invalidate — so there is no root scan to bound and no [watch] knob to wire. Not debt; the removal is the correct end state."
-    },
-    {
-      "sha": "5108cad9b65845ae992520dcf732cbbccc6a34b9",
-      "date": "2026-09-18",
-      "subject": "perf: speed up session resume and session index on large workspaces (#3889)",
-      "verdict": "not-applicable",
-      "note": "The optimized layers (wire restore single-pass, immer freeze deferral, kap-server incremental wire cache, O(1) by-id session index, dir-mtime freshness) are all v2/kap-server architecture the fork does not have: session restore is a direct SQLite read (session/sqlite_store.rs), the session index is table lookups, and there is no immer/wire-restore replay path. Nothing to port; the fork's equivalent hot paths have a different shape entirely."
-    },
-    {
-      "sha": "e3f48a225bbedbe167b30510e67d66ee67fcb0ec",
-      "date": "2026-09-18",
-      "subject": "fix(agent-core-v2): keep session deletion from hanging (#3887)",
-      "verdict": "not-applicable",
-      "note": "All three hang mechanisms are v2-lifecycle-internal: (1) AgentLifecycleService.remove awaiting loop.settled past its quiesce deadline, (2) setSessionArchived awaiting a pending resume inside the lifecycle critical section, (3) an unbounded taskkill wait. The fork's delete route (server/mod.rs :4107) reads the row, deletes via the store, cancels interactions, fires SessionEnd hooks and publishes event.session.deleted — there is no lifecycle chain to wedge and no settle await to bound. The compaction-after-abort guard (signal check between summary return and apply) the fork already has: summarize_with_llm re-checks the CancellationToken immediately after the chat await returns, before any apply."
-    },
-    {
-      "sha": "f233f9de04d71c42d27df870b18e1bc1a6605f16",
-      "date": "2026-09-18",
-      "subject": "fix(agent-core-v2): stop advertising unregistered tools and clarify Read media errors (#3878)",
-      "verdict": "ported",
-      "note": "Half 1 (invariant): `every_advertised_builtin_tool_is_resolvable` in `tools/agent_tool.rs` pins that every builtin profile's advertised tool name resolves (`is_native_tool_name`) and passes its own `ToolPolicyFilter` gate — the listing and the gate share one source, so the class of bug upstream fixed cannot occur. Half 2 (Read media wording): verified against v2 by diff — the three limit messages (`delivery_limit_error` / `decode_limit_error` / `full_resolution_limit_error`) match `buildImageDeliveryLimitError` / `buildImageDecodeLimitError` / `buildFullResolutionLimitError` word for word, differing only in the tool name (`Read`, not `ReadMediaFile`), which is correct because the fork has no separate media tool — media rides `Read` itself (`tool-name-contract.json`); the capability-gated refusal names the file kind and the missing `image_in`/`video_in` capability per v2, so the `ReadMediaFile`-pointer variant is not applicable.",
-      "roadmap": "§6.1-28"
-    },
-    {
-      "sha": "1fddc16e3ea2de4c26a18acd764380adf9e2ed64",
-      "date": "2026-09-18",
-      "subject": "fix(agent-core-v2): drop the outside-working-directory access ban from the system prompt (#3879)",
-      "verdict": "ported",
-      "note": "The engine's own system-prompt template carried the same sentence the commit removes from v2's system.md: packages/kimi-agent/src/prompt/system.md:108 ended `Unless the user explicitly instructs otherwise, never read, write, or execute files outside the working directory.` That sentence is dropped, leaving the 'not a sandbox' framing upstream keeps. Behavior, not just a doc string: the sentence is templated into every turn's system prompt."
-    },
-    {
-      "sha": "c5ad17f06aa12702d2b30dff63acba9ed08f688d",
-      "date": "2026-09-17",
-      "subject": "feat(agent-core-v2): support api_key_env for provider credentials (#3762)",
-      "verdict": "ported",
-      "note": "api_key_env for provider credentials, completed 2026-09-18: `ResolvedNativeLlm` now carries `api_key_env`, `KimiConfig::extract_native_llm` resolves the env channel (model key > model oauth > provider static key > provider oauth > provider api_key_env > unresolved), and `main.rs`'s two PipelineSpec constructors pass it to the transport, which already consumed it (`llm/http.rs:621`: env read per request, inline-key and auth_provider conflicts refused, missing/blank variable fails as `config.invalid`). Tests: `llm/http.rs` api_key_env suite (missing env, per-request reads, conflict rejection)."
-    },
-    {
-      "sha": "86e08208e3445171f6500c948234d7e3a0684324",
-      "date": "2026-09-17",
-      "subject": "feat(agent-core-v2): approve unanalyzable bash commands in yolo permission mode (#3869)",
-      "verdict": "ported",
-      "note": "Ported in full after the 0.30-2.0.2 audit re-opened the verdict: the original not-applicable called the missing unanalyzable state \"no counterpart\", but the consequence was a live divergence — the fork allowed unanalyzable commands in EVERY mode while v2 asks in every non-yolo mode. DangerousVerdict gains Unanalyzable (unbalanced quote, or a command name that is not a literal after wrapper stripping); the policy asks with a distinct reason unless the mode is Yolo (v2 dangerous-command-ask.ts:144 returns undefined for yolo, asks with unanalyzable_command otherwise). Dangerous still wins over unanalyzable. Documented residual: v2 also treats bash -c \"echo $HOME\" as unanalyzable (its tree-sitter grammar bails); the fork reads the inner command and calls it safe — a variable ARGUMENT is analyzable, only a variable command NAME is not. Tests: unanalyzable shapes, dangerous-wins, variable-arguments-stay-analyzable, and the policy matrix (Manual/Auto ask, Yolo falls through to YoloModeApprove)."
+      "subject": "fix: harden workspace trust boundaries across git, file tools, and the local web server (#3964)",
+      "verdict": "tracked",
+      "note": "TS halves merged; engine still lacks git repo-config neutralization, home/root rejection in with_extra_roots, a verified symlink fail-closed matrix, and any local.toml reader/gate.",
+      "roadmap": "§6.7"
     }
   ]
 }

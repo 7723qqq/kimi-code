@@ -14,9 +14,11 @@ import {
 } from '#/cli/sub/web/remote-control-lock';
 import { formatReadyBanner, startServerForeground } from '#/cli/sub/web/run';
 import { parseServerOptions, tryResolveServerToken } from '#/cli/sub/web/shared';
+import { getVersion } from '#/cli/version';
 import { t } from '#/i18n';
 import { openUrl } from '#/utils/open-url';
 import { getDataDir } from '#/utils/paths';
+import { persistedKimiOAuthRef } from '#/utils/region';
 import { generateRemoteControlQr } from '#/utils/remote-control-qr';
 
 import { getNoActiveSessionMessage } from '../constant/kimi-tui';
@@ -62,6 +64,7 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
           const dataDir = getDataDir();
           const token = tryResolveServerToken(dataDir);
           if (token === undefined) throw new Error(t('tui.statusMessages.unableToReadServerToken'));
+          const persisted = persistedKimiOAuthRef();
           let outputReady = false;
           const pendingStatuses: string[] = [];
           const onStatus = (status: RemoteControlStatus): void => {
@@ -73,9 +76,16 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
             homeDir: dataDir,
             localOrigin: origin,
             localServerToken: token,
+            clientVersion: `kimi-code/${getVersion()}`,
+            configuredOAuthKey: persisted?.key,
+            configuredOAuthHost: persisted?.oauthHost,
             onStatus,
           });
-          const url = buildRemoteControlUrl(remoteControl.deviceId, session?.id);
+          const url = buildRemoteControlUrl(
+            remoteControl.deviceId,
+            session?.id,
+            remoteControl.relayOrigin,
+          );
           const qrCode = await generateRemoteControlQr(url, dataDir);
           process.stdout.write(
             formatRemoteControlOutput({

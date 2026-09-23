@@ -21,6 +21,7 @@ import {
   Spacer,
   TuiAltScreen,
   TuiMainScreen,
+  type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
 import { resolve } from 'pathe';
 
@@ -45,6 +46,7 @@ import { startupTrace } from '#/utils/startup-trace';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
 
 import { BannerProvider } from './banner/banner-provider';
+import { resolveBannerAudienceContext, type BannerAudienceContext } from './banner/audience';
 import { readBannerDisplayState, writeBannerDisplayState } from './banner/state';
 import {
   BUILTIN_SLASH_COMMANDS,
@@ -126,6 +128,7 @@ import {
   type TUIStartupState,
 } from './types';
 import {
+  countedByExpandHint,
   hasHiddenContent,
   isExpandable,
   isExpandedComponent,
@@ -222,6 +225,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     streamingStartTime: 0,
     stepRetry: null,
     theme: input.tuiConfig.theme,
+    tuiMode: input.tuiConfig.tuiMode,
     version: input.version,
     editorCommand: input.tuiConfig.editorCommand,
     disablePasteBurst: input.tuiConfig.disablePasteBurst,
@@ -384,6 +388,9 @@ export class KimiTUI {
     this.startupNotice = startupInput.startupNotice;
     this.state = createTUIState(tuiOptions);
     this.state.footer.setExpandHintProvider(() => this.toolOutputExpandHint());
+    this.state.transcriptContainer.setUnhandledClick((index) =>
+      this.toggleClickedFoldBlock(index),
+    );
     this.uninstallRainbowDance = installRainbowDance(() => {
       this.state.ui.requestRender();
     });
@@ -601,9 +608,14 @@ export class KimiTUI {
     const provider = new BannerProvider(this.state.appState.version);
     const displayState = await readBannerDisplayState();
     const now = new Date();
+    const audience = this.harness.auth.getCachedAccessToken().then(
+      (accessToken) => resolveBannerAudienceContext(accessToken),
+      (): BannerAudienceContext => ({ login: 'unknown' }),
+    );
     const banner = await provider.load({
       state: displayState,
       now,
+      audience,
     });
     this.state.appState.banner = banner;
     if (banner === null) return;
@@ -2255,15 +2267,30 @@ export class KimiTUI {
       // card with hidden content keeps the collapse hint on.
       for (let i = children.length - 1; i >= 0; i--) {
         const child = children[i];
-        if (isExpandedComponent(child) && hasHiddenContent(child)) return 'collapse';
+        if (isExpandedComponent(child) && countedByExpandHint(child)) return 'collapse';
       }
       return null;
     }
     const cutoff = this.expandCutoff(children);
     for (let i = children.length - 1; i >= cutoff; i--) {
-      if (hasHiddenContent(children[i])) return 'expand';
+      if (countedByExpandHint(children[i])) return 'expand';
     }
     return null;
+  }
+
+  private toggleClickedFoldBlock(index: number): TuiMouseEventResult | undefined {
+    const children = this.state.transcriptContainer.children;
+    const hit = children[index];
+    if (hit === undefined || !isExpandable(hit) || !hasHiddenContent(hit)) return undefined;
+    if (isExpandedComponent(hit)) {
+      hit.setExpanded(false);
+    } else if (index >= this.expandCutoff(children)) {
+      hit.setExpanded(true);
+    } else {
+      return undefined;
+    }
+    this.state.ui.requestRender();
+    return { handled: true };
   }
 
   toggleToolOutputExpansion(): void {
@@ -2591,12 +2618,11 @@ export class KimiTUI {
   /**
    * Workspace-trust startup gate: before any session is created, ask whether to
    * trust this folder when the workspace is not trusted yet (project-level MCP
-   * servers stay disabled while untrusted). Best-effort throughout — a failed
-   * check or trust write never blocks startup. Choosing "don't trust" (or Esc)
-   * exits the program before any session is created; the prompt reappears on
-   * the next launch: the engine's untrusted state is indistinguishable from
-   * never-trusted. Returns true when the prompt started the event loop (the
-   * caller must not start it again).
+   * servers stay disabled while untrusted). A failed trust-info read is treated
+   * as untrusted and still prompts. Choosing "don't trust" (or Esc) exits the
+   * program before any session is created. A failed trust write still enters
+   * the TUI for this process and re-asks on the next launch. Returns true when
+   * the prompt started the event loop (the caller must not start it again).
    */
   /**
    * One-time MSYS2 install gate (Windows only). Skipping or a successful
@@ -2652,9 +2678,11 @@ export class KimiTUI {
     try {
       info = await this.harness.getWorkspaceTrustInfo(workDir);
     } catch {
+      info = { trusted: false, gatedMcpServers: [] };
+    }
+    if (info.trusted) {
       return false;
     }
-    if (info.trusted) return false;
     this.startEventLoop();
     const choice = await new Promise<TrustPromptChoice>((resolve) => {
       this.state.activeDialog = 'trust-prompt';
@@ -2681,7 +2709,6 @@ export class KimiTUI {
     try {
       await this.harness.trustWorkspace(workDir);
     } catch {
-      // A failed write leaves the workspace untrusted (re-asked next launch).
     }
     return true;
   }
