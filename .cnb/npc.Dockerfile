@@ -1,32 +1,31 @@
 # Custom NPC image for kimicode.all/kimicode.
 #
 # Layered on top of the platform NPC image rather than rebuilt from a bare distro:
-# the platform image already carries the NPC runtime (node, @cnbcool/cnb-cli,
-# skills, the preset skill set under /root/.agents/skills) and the `/workspace`
-# conventions npc:go expects. Rebuilding it from `node:22-bookworm-slim` would
-# make the image a moving target for platform changes.
+# the base already carries the NPC runtime (node, @cnbcool/cnb-cli, skills, the
+# preset skill set under /root/.agents/skills) and the `/workspace` conventions
+# `npc:go` expects. Rebuilding from a bare distro would make this image a moving
+# target for platform changes.
 #
-# Why this image exists — three defects in `cnbcool/default-npc:latest`, each
-# measured inside the NPC container, none of them repository code:
+# Why this image exists — two defects in `cnbcool/default-npc:latest`, both
+# measured inside the NPC container and neither of them repository code:
 #
-#   1. `/root/.gitconfig` sets `commit.gpgsign = true` with
-#      `gpg.program = cnb-gpgsign`, a signer that cannot sign in this container.
-#      Every `git commit` in a temporary test repository therefore dies with
-#      "gpg failed to sign the data". Ten `cargo test --features cli --lib`
-#      tests in packages/kimi-agent commit into temp repos and fail on it.
-#
-#   2. The image ships ripgrep 13.0.0 (169 file types), while
+#   1. The image ships ripgrep 13.0.0 (169 file types), while
 #      packages/kimi-agent/src/tools/grep_types.rs transcribes the ripgrep
 #      15.0.0 table (217 file types). The reconciliation test reports
 #      "73 of 217 types disagree".
 #
-#   3. It carries no Rust toolchain. The NPC agent installs cargo/rustc/gcc from
-#      scratch on every single run — 30-50 s of the run spent on setup, and the
-#      cold build's long silent phases are what trip the default 10-minute
-#      no-output timeout (the actual cause of the `cnb-91b-1k37mvioj` abort).
+#   2. It carries no Rust toolchain. The NPC agent installs cargo/rustc/gcc from
+#      scratch on every run — setup alone costs 30-50 s, and the cold build's
+#      long silent phases are what tripped the default 10-minute no-output
+#      timeout, the actual cause of the `cnb-91b-1k37mvioj` abort.
 #
-# Fixing 1 and 2 here is what makes the `.cnb.yml` `prepare toolchain` stage
-# unnecessary; fixing 3 is what gives the run its time back.
+# A third candidate was investigated and rejected. The old `.cnb.yml` also
+# disabled `commit.gpgsign` on the theory that `/root/.gitconfig` breaks
+# `git commit` in temporary test repositories. That does not reproduce:
+# `cnb-gpgsign` is present and signs fine, and a `git commit` in a fresh
+# `git init` repo returns 0 with that config in place. So nothing here touches
+# signing — turning it off would only hide the real cause if those tests fail
+# again.
 #
 # Reference: https://docs.cnb.cool/zh/build/npc.md (自定义运行环境)
 
@@ -76,10 +75,3 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
       build-essential pkg-config libssl-dev zlib1g-dev; \
     rm -rf /var/lib/apt/lists/*
-
-# Defect 1. Fixed at the image level instead of per repository, so any test that
-# shells out to `git commit` works without the repository knowing about it.
-# `--system` writes /etc/gitconfig, which /root/.gitconfig continues to override
-# for everything else, so this only turns signing off.
-RUN git config --system commit.gpgsign false && \
-    git config --system --get commit.gpgsign
