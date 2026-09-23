@@ -524,6 +524,14 @@ export async function renewMiniDbLock<V>(db: LifecycleHost<V>): Promise<void> {
   await db.lock?.renew();
 }
 
+/** True when an open failure means the database is corrupt rather than
+ *  temporarily unreadable. Only these may lead to a rebuild: a transient I/O
+ *  error (EACCES, ENOSPC, EIO, EMFILE, …) must be rethrown so a cache opener
+ *  never destroys data because of a recoverable system error. */
+function isRebuildableOpenError(error: unknown): boolean {
+  return error instanceof SyntaxError || (error as { name?: string }).name === 'CorruptFrameError';
+}
+
 /** Open a database, and if opening fails due to corruption (not due to a live
  *  lock), attempt the non-destructive repairs: drop the derived index-definition
  *  sidecars and retry. A full destructive rebuild — deleting the directory and
@@ -553,8 +561,7 @@ export async function openOrRebuildMiniDb<T>(
     // malformed index-definition JSON). Transient I/O errors (EACCES, ENOSPC,
     // EIO, EMFILE, …) are rethrown so a cache opener never destroys data
     // because of a recoverable system error.
-    const rebuildable = error instanceof SyntaxError || (error as { name?: string }).name === 'CorruptFrameError';
-    if (!rebuildable) throw error;
+    if (!isRebuildableOpenError(error)) throw error;
     if ((error as { readOnlyOpen?: boolean }).readOnlyOpen) throw error;
     if (hooks.onRebuild) hooks.onRebuild(error);
     if (error instanceof SyntaxError) {
@@ -570,8 +577,13 @@ export async function openOrRebuildMiniDb<T>(
           await fs.rm(path.join(opts.dir, `${f}.tmp`), { force: true });
         }
         return await open(opts);
-      } catch {
-        /* fall through to a full rebuild */
+      } catch (retryError) {
+        // The retry's failure gets the same classification as the first
+        // attempt. Dropping the sidecars is exactly where a locked or
+        // unwritable file surfaces, and the retry itself can hit a transient
+        // I/O error — neither may fall through to the destructive rebuild.
+        if (!isRebuildableOpenError(retryError)) throw retryError;
+        if ((retryError as { readOnlyOpen?: boolean }).readOnlyOpen) throw retryError;
       }
     }
     if (hooks.allowDestructiveRebuild !== true) {

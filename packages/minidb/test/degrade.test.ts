@@ -8,6 +8,7 @@ import { test } from 'vitest';
 
 import { CorruptFrameError, encodeFrame, TYPE_SET } from '../src/codec.js';
 import { MiniDb, classifyStorageError } from '../src/index.js';
+import { openOrRebuildMiniDb } from '../src/lifecycle.js';
 import { LockError } from '../src/lockfile.js';
 import { retryEperm } from '../src/rename-replace.js';
 
@@ -221,4 +222,68 @@ test('classifyStorageError and retryEperm drive the rebuild/transient recovery p
     /operation not permitted/,
   );
   assert.equal(attempts, 3);
+});
+
+// The sidecar-drop retry is the second chance for a corrupt index definition,
+// and it is exactly where a locked or unwritable file surfaces. Its failure
+// must get the same classification as the first attempt: a transient I/O
+// error (EACCES, ENOSPC, EIO, EMFILE, …) is rethrown, never turned into the
+// destructive rebuild below — the contract stated at the top of
+// openOrRebuildMiniDb, which the retry's bare `catch {}` used to break.
+test('a transient failure of the sidecar-drop retry is rethrown, not turned into a wipe', async () => {
+  const dir = await tmpDir();
+  try {
+    await fs.writeFile(path.join(dir, 'precious.txt'), 'keep me');
+    let calls = 0;
+    const open = (): Promise<string> => {
+      calls++;
+      if (calls === 1) return Promise.reject(new SyntaxError('corrupt index definition'));
+      if (calls === 2) {
+        return Promise.reject(
+          Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }),
+        );
+      }
+      // Only reachable if the retry's failure was swallowed and the
+      // destructive rebuild ran.
+      return Promise.resolve('opened');
+    };
+    await assert.rejects(
+      () => openOrRebuildMiniDb({ dir }, { allowDestructiveRebuild: true }, open),
+      /EACCES/,
+    );
+    assert.equal(calls, 2, 'the retry ran and its failure was not retried as a rebuild');
+    assert.equal(
+      await fs.readFile(path.join(dir, 'precious.txt'), 'utf8'),
+      'keep me',
+      'the directory was not wiped',
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a still-corrupt sidecar-drop retry still falls through to the destructive rebuild', async () => {
+  const dir = await tmpDir();
+  try {
+    await fs.writeFile(path.join(dir, 'precious.txt'), 'keep me');
+    let calls = 0;
+    const open = (): Promise<string> => {
+      calls++;
+      if (calls <= 2) return Promise.reject(new SyntaxError('corrupt index definition'));
+      return Promise.resolve('opened');
+    };
+    const result = await openOrRebuildMiniDb({ dir }, { allowDestructiveRebuild: true }, open);
+    assert.equal(result, 'opened');
+    assert.equal(calls, 3, 'first attempt, sidecar-drop retry, then the rebuild');
+    assert.equal(
+      await fs.stat(path.join(dir, 'precious.txt')).then(
+        () => true,
+        () => false,
+      ),
+      false,
+      'the rebuild wiped the directory',
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
