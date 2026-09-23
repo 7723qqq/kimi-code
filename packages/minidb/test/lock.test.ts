@@ -430,7 +430,8 @@ test('inspect tolerates a transient EPERM while the lock line is being replaced'
   const dir = await tmpDir();
   try {
     const lockPath = path.join(dir, 'db.lock');
-    const lock = new LockFile(lockPath);
+    // The retry is Windows-gated; the seam lets this host exercise it.
+    const lock = new LockFile(lockPath, 'win32');
     assert.equal(await lock.acquire(), true);
 
     // Fail the first read the way Windows does mid-replace, then serve it.
@@ -608,7 +609,8 @@ test('release() rides out a transient EPERM unlinking the lock line', async () =
   const dir = await tmpDir();
   try {
     const lockPath = path.join(dir, 'db.lock');
-    const lock = new LockFile(lockPath);
+    // The retry is Windows-gated; the seam lets this host exercise it.
+    const lock = new LockFile(lockPath, 'win32');
     assert.equal(await lock.acquire(), true);
 
     const originalUnlink = fs.unlink;

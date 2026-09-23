@@ -109,7 +109,12 @@ export class LockFile {
    *  unlinks. */
   private readonly serialized = createSerializer();
 
-  constructor(path: string) {
+  constructor(
+    path: string,
+    /** Platform the EPERM retries are gated on; injectable so the Windows-only
+     *  paths are reachable from a test on any host. Production passes nothing. */
+    private readonly platform: NodeJS.Platform = process.platform,
+  ) {
     this.path = path;
   }
 
@@ -350,7 +355,7 @@ export class LockFile {
     const cur = await this.inspect();
     if (!cur?.mine) return;
     try {
-      await withWindowsEpermRetry(() => fs.unlink(this.path));
+      await withWindowsEpermRetry(() => fs.unlink(this.path), { platform: this.platform });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
@@ -393,8 +398,9 @@ export class LockFile {
       // inspect() throws out of acquire() and the whole open fails — the
       // failure a cluster write storm produced. `stat` is retried too: it races
       // the same replace, and an EPERM there would escape the same way.
-      [raw, st] = await withWindowsEpermRetry(() =>
-        Promise.all([fs.readFile(this.path, 'utf8'), fs.stat(this.path)]),
+      [raw, st] = await withWindowsEpermRetry(
+        () => Promise.all([fs.readFile(this.path, 'utf8'), fs.stat(this.path)]),
+        { platform: this.platform },
       );
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
@@ -516,7 +522,7 @@ export class LockFile {
         // exit hook already told the lock is gone. `held` stays true so the
         // hook — and a retried release() — can still clean up.
         try {
-          await withWindowsEpermRetry(() => fs.unlink(this.path));
+          await withWindowsEpermRetry(() => fs.unlink(this.path), { platform: this.platform });
         } catch (error) {
           // The line vanished between the ownership check and the unlink: the
           // lock is gone, which is what release() was after.
