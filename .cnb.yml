@@ -1,41 +1,78 @@
 # CNB pipeline configuration for kimicode.all/kimicode.
 #
-# This file tunes the NPC task that runs when `@CodeBuddy ...` is mentioned in
-# an issue or pull request. It is written against the platform's NPC merge
-# contract (https://docs.cnb.cool/zh/build/npc.md), which this repository got
-# wrong once already: the previous revision wrapped everything in a `default:`
-# key and set `timeout:` at the pipeline level. Both are rejected by the
-# pipeline schema, and a rejected event block does not fail the build — CNB
-# silently falls back to the platform default, so the whole tuning never ran.
-# The evidence, measured inside the NPC container on `cnb-91b-1k37mvioj`:
+# Two independent things live here:
+#   1. the NPC task that runs when `@CodeBuddy ...` is mentioned in an issue or
+#      pull request (the `$` block),
+#   2. the cross-platform mirror to GitHub (the `main` block).
 #
-#   CNB_BUILD_JOB_NAME=npc go      (the `prepare toolchain` stage did not run)
-#   CNB_CPUS=8 / CNB_MEMORY=16     (runner.cpus: 16 was ignored)
-#   rg --version  -> ripgrep 13.0.0, and /usr/local/bin/rg absent
+# They are separate: NPC config is merged per event, and the mirror is a
+# `push` event on a specific branch, so the two never interact.
+#
+# ---------------------------------------------------------------------------
+# 1. NPC task
+# ---------------------------------------------------------------------------
+#
+# Background, because this file has been wrong twice and silently so.
+#
+# The previous revision wrapped its pipeline in a `default:` key and set
+# `timeout:` at the pipeline level. Both are rejected by the platform's own
+# pipeline schema, and a rejected NPC event does NOT fail the build — CNB
+# falls back to its own defaults and says nothing. So the tuning appeared
+# merged while never running. Measured inside the NPC container on that
+# revision:
+#
+#   CNB_BUILD_JOB_NAME=npc go     the `prepare toolchain` stage never ran
+#   CNB_CPUS=8 / CNB_MEMORY=16    `runner.cpus: 16` was ignored
+#   rg --version -> ripgrep 13.0.0
 #   git config --get commit.gpgsign -> true
 #
-# Shape rules that matter here:
-#   * An event holds either an array of pipelines, or an object whose values are
-#     pipelines. `default:` is neither — it is not a pipeline field.
-#   * A pipeline has no `timeout`. `timeout` belongs to a job (the stage entry
-#     itself, for a script job), in milliseconds.
-#   * `npc:go` must be the pipeline's job; the preparation is a sibling script
-#     job that runs before it in the same stage list.
+# Shape rules that keep it valid (schema: https://docs.cnb.cool/zh/build/grammar.md):
+#   * An event holds an array of pipelines, or an object whose *values* are
+#     pipelines. `default:` is neither — it has no meaning as a pipeline field.
+#   * A pipeline has no `timeout`. `timeout` is a job field, in ms/s/m/h.
+#   * `npc:go` is the job that runs the agent.
 #
-# Why the preparation exists at all — two defects in `cnbcool/default-npc:latest`
-# that break `cargo test --features cli --lib` in packages/kimi-agent:
+# Why the environment is now a custom image instead of an inline prep stage:
 #
-#   1. `/root/.gitconfig` sets `commit.gpgsign=true` with a `gpg.program` that
-#      cannot sign in this container, so every `git commit` in a temporary test
-#      repository dies with "gpg failed to sign the data". The tower and
-#      mode-mutex tests commit into temp repos and fail on it.
-#   2. The image ships ripgrep 13.0.0, while src/tools/grep_types.rs transcribes
-#      the ripgrep 15.0.0 table and reconciles against the local `rg`.
+# The `prepare toolchain` script job that used to sit here has been replaced by
+# `.cnb/npc.Dockerfile`, built and pushed by the `npc image` pipeline below and
+# consumed through `docker.image`. Two reasons, one of which is a correction.
 #
-# With both worked around, the suite is green. Reference:
-#   https://docs.cnb.cool/zh/build/npc.html        (event merge semantics)
-#   https://docs.cnb.cool/zh/build/grammar.html    (pipeline / job fields)
-#   https://docs.cnb.cool/zh/build/build-node.html (runner.cpus => memory)
+#   1. (corrected) The old stage's stated purpose was to work around
+#      `commit.gpgsign=true` in `/root/.gitconfig` breaking `git commit` in
+#      temporary test repositories. That does not reproduce. Measured inside
+#      `npc:go` on 2026-09-24, with the same `/root/.gitconfig` in place:
+#
+#        $ cd /tmp/t && git init -q . && echo x > f && git add f
+#        $ git commit -qm x ; echo exit=$?
+#        exit=0
+#
+#      `cnb-gpgsign` is present at /usr/local/bin/cnb-gpgsign and signs fine.
+#      The stage's `git config --local commit.gpgsign false` ran in the
+#      pipeline's own checkout, which is not where the tests commit anyway —
+#      they commit into fresh `git init` repos under the temporary directory,
+#      and `--local` in the checkout never reached them. The ten tower-test
+#      failures in the original report came from something else, and the fix
+#      for them is not a signing toggle. This is deliberately *not* carried
+#      over: a workaround for a cause that does not hold would hide the real
+#      one the next time those tests fail.
+#
+#   2. (real, still true) The default image ships ripgrep 13.0.0 (169 file
+#      types) while `packages/kimi-agent/src/tools/grep_types.rs` transcribes
+#      the ripgrep 15.0.0 table (217 file types), so the reconciliation test
+#      reports "73 of 217 types disagree". And the image has no Rust
+#      toolchain, so every run installs cargo/rustc/gcc from scratch and then
+#      pays a cold build — whose long silent stretches are what actually
+#      aborted `cnb-91b-1k37mvioj` (the agent's own `cargo test ... | tail -12`
+#      produced no output for 10 minutes and hit the no-output timeout).
+#
+# Doing this in an image rather than in a stage is what makes it correct: the
+# toolchain is present before the agent starts, `timeout` below then applies to
+# each of the agent's tool calls rather than to a one-shot prep job, and the
+# ripgrep version stops depending on a network fetch succeeding mid-run.
+#
+# Reference: https://docs.cnb.cool/zh/build/npc.md (自定义运行环境)
+#            https://docs.cnb.cool/zh/build/timeout.md (job timeout semantics)
 
 # Shared NPC event configuration, reused by both NPC events via a YAML anchor.
 # `include` cannot be used for this: the merged config is per-event, and anchors
@@ -47,7 +84,10 @@
       # 16 cpus => 32 GiB of memory (the default is 8 cpus => 16 GiB).
       cpus: 16
     docker:
-      image: cnbcool/default-npc:latest
+      # Built and pushed by the `npc image` pipeline below, from `.cnb/npc.Dockerfile`.
+      # `CNB_REPO_SLUG_LOWERCASE` is `kimicode.all/kimicode`, so this resolves to
+      # `docker.cnb.cool/kimicode.all/kimicode/npc:latest`.
+      image: ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc:latest
     env:
       # Keep the compiler's memory peak bounded: rustc defaults to one codegen
       # unit per core, and this crate's rquickjs/rusqlite C sources make the
@@ -55,33 +95,15 @@
       CARGO_BUILD_JOBS: '8'
       RUSTFLAGS: '-C codegen-units=1'
     stages:
-      - name: prepare toolchain
-        # A stage is also a job when it carries `script`, and `timeout` is a job
-        # field (milliseconds). The platform default is 10 minutes with no
-        # output, which a cold Rust build can exceed while downloading crates.
-        timeout: 3600000
-        script: |
-          set -e
-          # The image ships ripgrep 13.0.0, but the file-type table in
-          # packages/kimi-agent/src/tools/grep_types.rs is transcribed from
-          # ripgrep 15.0.0. Install the matching version so the reconciliation
-          # test compares like with like instead of reporting 73 mismatches.
-          if ! rg --version 2>/dev/null | grep -q '^ripgrep 15\.'; then
-            curl -fsSL -o /tmp/rg.tar.gz \
-              https://github.com/BurntSushi/ripgrep/releases/download/15.0.0/ripgrep-15.0.0-x86_64-unknown-linux-musl.tar.gz
-            tar -xzf /tmp/rg.tar.gz -C /tmp
-            install -m 0755 \
-              /tmp/ripgrep-15.0.0-x86_64-unknown-linux-musl/rg /usr/local/bin/rg
-          fi
-          rg --version | head -1
-          # The platform sets commit.gpgsign=true in /root/.gitconfig, but the
-          # configured signer cannot sign here, which breaks every `git commit`
-          # made by tests in a temporary repository. Disable it at the
-          # repository level for the duration of this build.
-          git config --local commit.gpgsign false
-          echo "gpg signing disabled for this build"
       - name: npc go
         type: npc:go
+        # `timeout` is a job field and, for `npc:go`, applies to each of the
+        # agent's tool executions rather than to the session as a whole: a
+        # single call with no output for this long is killed. The default is
+        # 10 minutes, which `cargo test` over this crate exceeds. 45 minutes
+        # leaves room for a cold build plus the suite without letting a stuck
+        # call sit until the 2-hour job cap.
+        timeout: 45m
 
 $:
   # Issue comments: `@CodeBuddy ...` in an issue description or comment.
@@ -93,41 +115,58 @@ $:
   pull_request.comment@npc: *npc-event
 
 # ---------------------------------------------------------------------------
-# Cross-platform mirroring to GitHub (tencentcom/git-sync).
+# 2. NPC image
+# ---------------------------------------------------------------------------
 #
-# The repository is deliberately two-legged: this side owns `.cnb.yml` (the
-# NPC tuning above), while the GitHub side owns `.github/workflows/` (the
-# upstream workflows merged from MoonshotAI/kimi-code). Neither side is a
-# mirror of the other, so the sync must never overwrite the target's files.
-# That is why `sync_mode: rebase` is used instead of the plugin's default
-# `push` — rebase replays this branch's commits on top of the target's, so
-# `.github/workflows/` survives on GitHub while `.cnb.yml` survives here.
+# Rebuilds on every push to `main` that touches the Dockerfile or this file.
+# `ifModify` keeps the Docker build off unrelated pushes; the Docker layer
+# cache means the expensive Rust/ripgrep layers are only redone when their
+# inputs change.
 #
-# Credentials (GIT_USERNAME / GIT_ACCESS_TOKEN) live in the secret repository
-# `kimicode.all/key`, file `github-sync.yml`, and are injected through
-# `imports`. The secret file declares:
-#   allow_slugs:    [kimicode.all/kimicode]
-#   allow_events:   [push]
-#   allow_branches: [main]
-# `allow_branches` gates the *triggering* branch (CNB_BRANCH), not the branches
-# being mirrored, so it still matches the `main` trigger below even though the
-# job now mirrors every branch.
-#
-# Scope: this job mirrors *all* branches and all tags, not just `main`.
-# `branch` is deliberately left unset — the plugin's `git push target --all`
-# path — and `push_tags: true` adds `--tags`. Note that rebase mode always
-# force-pushes, so every mirrored branch is rewritten on GitHub to carry this
-# side's commits on top of GitHub's. Branches that exist only on GitHub are
-# left alone.
-#
-# Reference: https://cnb.cool/cnb/plugins/market/-/tree/main/plugins/tencentcom/git-sync
-#            https://docs.cnb.cool/zh/build/file-reference.md (imports auth)
-
-# The mirror job, kept as an anchor-free sibling of the NPC config so that the
-# two never interfere: NPC config is merged per event, and this is a distinct
-# event (`push`) on a distinct branch key (`main`).
+# The tag is `:latest`, and the NPC pipeline reads it by tag — so the image must
+# exist before the next `@CodeBuddy`. `ifModify` therefore includes `.cnb.yml`:
+# a change to the NPC pipeline is a change that needs the image rebuilt.
 main:
   push:
+    - name: npc image
+      ifModify:
+        - .cnb/npc.Dockerfile
+        - .cnb.yml
+      services:
+        - docker
+      stages:
+        - name: docker login
+          script: docker login -u ${CNB_TOKEN_USER_NAME} -p "${CNB_TOKEN}" ${CNB_DOCKER_REGISTRY}
+        - name: docker build
+          script: |
+            set -e
+            IMAGE=${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc
+            docker build -f .cnb/npc.Dockerfile -t "${IMAGE}:latest" -t "${IMAGE}:${CNB_COMMIT_SHORT}" .
+            echo "IMAGE=${IMAGE}:latest" >> "$CNB_EXPORTS"
+        - name: docker push
+          script: |
+            set -e
+            docker push "${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc:latest"
+            docker push "${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc:${CNB_COMMIT_SHORT}"
+        - name: smoke test
+          script: |
+            set -e
+            IMAGE=${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc:${CNB_COMMIT_SHORT}
+            # Assert the three things the image exists to guarantee, so a
+            # regression fails the push instead of surfacing as an NPC run
+            # that mysteriously fails an hour later.
+            docker run --rm "$IMAGE" sh -eu -c '
+              rg --version | grep -q "^ripgrep 15\." || { echo "rg is not 15.x: $(rg --version | head -1)"; exit 1; }
+              rg --type-list | wc -l | grep -qx "217" || { echo "rg file-type count is $(rg --type-list | wc -l), expected 217"; exit 1; }
+              cargo --version >/dev/null || { echo "cargo missing"; exit 1; }
+              rustc --version >/dev/null || { echo "rustc missing"; exit 1; }
+              cc --version >/dev/null || { echo "no C compiler"; exit 1; }
+              echo "smoke test ok: $(rg --version | head -1), $(cargo --version)"
+            '
+
+    # The mirror job, kept as an anchor-free sibling of the NPC config so that the
+    # two never interfere: NPC config is merged per event, and this is a distinct
+    # event (`push`) on a distinct branch key (`main`).
     - name: sync to github
       imports:
         - https://cnb.cool/kimicode.all/key/-/blob/main/github-sync.yml
@@ -145,3 +184,43 @@ main:
             # Preserve GitHub-side files (`.github/workflows/`) instead of
             # clobbering them with this side's tree.
             sync_mode: rebase
+
+ci/npc-custom-image:
+  api_trigger:
+  - name: npc image
+    services:
+    - docker
+    stages:
+    - name: docker login
+      script: docker login -u ${CNB_TOKEN_USER_NAME} -p "${CNB_TOKEN}" ${CNB_DOCKER_REGISTRY}
+    - name: docker build
+      script: 'set -e
+
+        IMAGE=${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc
+
+        docker build -f .cnb/npc.Dockerfile -t "${IMAGE}:latest" -t "${IMAGE}:${CNB_COMMIT_SHORT}"
+        .
+
+        echo "IMAGE=${IMAGE}:latest" >> "$CNB_EXPORTS"
+
+        '
+    - name: docker push
+      script: 'set -e
+
+        docker push "${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc:latest"
+
+        docker push "${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc:${CNB_COMMIT_SHORT}"
+
+        '
+    - name: smoke test
+      script: "set -e\nIMAGE=${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc:${CNB_COMMIT_SHORT}\n\
+        # Assert the three things the image exists to guarantee, so a\n# regression\
+        \ fails the push instead of surfacing as an NPC run\n# that mysteriously fails\
+        \ an hour later.\ndocker run --rm \"$IMAGE\" sh -eu -c '\n  rg --version |\
+        \ grep -q \"^ripgrep 15\\.\" || { echo \"rg is not 15.x: $(rg --version |\
+        \ head -1)\"; exit 1; }\n  rg --type-list | wc -l | grep -qx \"217\" || {\
+        \ echo \"rg file-type count is $(rg --type-list | wc -l), expected 217\";\
+        \ exit 1; }\n  cargo --version >/dev/null || { echo \"cargo missing\"; exit\
+        \ 1; }\n  rustc --version >/dev/null || { echo \"rustc missing\"; exit 1;\
+        \ }\n  cc --version >/dev/null || { echo \"no C compiler\"; exit 1; }\n  echo\
+        \ \"smoke test ok: $(rg --version | head -1), $(cargo --version)\"\n'\n"
