@@ -5,7 +5,7 @@
  * 0600 is enforced; corrupted files return undefined rather than throwing.
  */
 
-import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -153,6 +153,24 @@ describe('FileTokenStorage', () => {
     writeFileSync(join(dir, 'readme.txt'), 'readme', 'utf-8');
     const names = await storage.list();
     expect(names).toEqual(['kimi-code']);
+  });
+
+  // list() follows load()'s rule: only a MISSING directory means "no tokens
+  // stored". A listing failure read as [] reports an empty credentials store
+  // for a directory that still holds the tokens.
+  it('list() returns [] only when the credentials dir does not exist', async () => {
+    await expect(new FileTokenStorage(join(dir, 'no-such-dir')).list()).resolves.toEqual([]);
+  });
+
+  it('list() propagates a listing failure that is not a missing dir', async () => {
+    vi.mocked(readdirSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('EACCES: permission denied, scandir'), { code: 'EACCES' });
+    });
+    await expect(storage.list()).rejects.toThrow(/EACCES/);
+
+    // The credentials are still there and list fine once the fault clears.
+    await storage.save('kimi-code', sampleToken());
+    expect(await storage.list()).toEqual(['kimi-code']);
   });
 
   it.skipIf(process.platform === 'win32')('creates the credentials dir with mode 0700 if missing', async () => {

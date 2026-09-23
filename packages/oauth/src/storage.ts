@@ -139,8 +139,13 @@ export class FileTokenStorage implements TokenStorage {
     let entries: string[];
     try {
       entries = readdirSync(this.dir);
-    } catch {
-      return [];
+    } catch (error) {
+      // Same rule as load(): only a MISSING directory means "no tokens
+      // stored". Any other listing failure propagates — read as [] it would
+      // report an empty credentials store for a directory that still holds
+      // the tokens (remove() rethrows non-ENOENT for the same reason).
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
     }
     return entries.filter((e) => e.endsWith('.json')).map((e) => e.slice(0, -'.json'.length));
   }
