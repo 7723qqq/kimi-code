@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
+use crate::i18n::{LocalizedText, i18n_params};
 use crate::native::shell_path_bridge::ShellPathBridge;
 
 /// P57: mid-execution output stream callback (bash stdout/stderr chunks).
@@ -1127,9 +1128,12 @@ impl NativeToolset {
             return Some(ExecutableToolResult {
                 delivery: None,
                 stop_turn: false,
-                content: format!(
-                    "Tool '{tool_name}' is disabled by the [tools] configuration and cannot run."
-                ),
+                content: LocalizedText::fmt(
+                    "engine.tools.disabled",
+                    format!("Tool '{tool_name}' is disabled by the [tools] configuration and cannot run."),
+                    i18n_params!["tool_name" => tool_name],
+                )
+                .render(),
                 is_error: true,
                 note: Some("tool_policy".into()),
             });
@@ -1872,7 +1876,11 @@ impl NativeToolset {
     ) -> Option<ExecutableToolResult> {
         let Some(path) = args.get("path").and_then(Value::as_str) else {
             return Some(err_result(
-                "\"path\" is required and must be a string.".into(),
+                LocalizedText::plain(
+                    "engine.tools.read.pathRequired",
+                    "\"path\" is required and must be a string.",
+                )
+                .render(),
             ));
         };
         // The dispatcher's media path owns `region` / `full_resolution` and
@@ -1891,9 +1899,14 @@ impl NativeToolset {
             None | Some(Value::Null) => (1i64, 0usize),
             Some(v) => {
                 let Some(n) = parse_integer_arg(v) else {
-                    return Some(err_result(format!(
-                        "\"line_offset\" must be an integer, got {v}."
-                    )));
+                    return Some(err_result(
+                        LocalizedText::fmt(
+                            "engine.tools.read.lineOffsetInvalid",
+                            format!("\"line_offset\" must be an integer, got {v}."),
+                            i18n_params!["value" => v],
+                        )
+                        .render(),
+                    ));
                 };
                 if n == 0 {
                     // v2 `readTool` reads forward from `line_offset ?? 1`, so 0
@@ -1917,9 +1930,14 @@ impl NativeToolset {
             Some(v) => match parse_integer_arg(v).filter(|n| *n >= 0) {
                 Some(n) => n as usize,
                 None => {
-                    return Some(err_result(format!(
-                        "\"column_offset\" must be a non-negative integer, got {v}."
-                    )));
+                    return Some(err_result(
+                        LocalizedText::fmt(
+                            "engine.tools.read.columnOffsetInvalid",
+                            format!("\"column_offset\" must be a non-negative integer, got {v}."),
+                            i18n_params!["value" => v],
+                        )
+                        .render(),
+                    ));
                 }
             },
         };
@@ -1928,9 +1946,14 @@ impl NativeToolset {
             Some(v) => match parse_integer_arg(v).filter(|n| *n >= 0) {
                 Some(n) => (n as usize).clamp(1, 500_000),
                 None => {
-                    return Some(err_result(format!(
-                        "\"max_chars\" must be a non-negative integer, got {v}."
-                    )));
+                    return Some(err_result(
+                        LocalizedText::fmt(
+                            "engine.tools.read.maxCharsInvalid",
+                            format!("\"max_chars\" must be a non-negative integer, got {v}."),
+                            i18n_params!["value" => v],
+                        )
+                        .render(),
+                    ));
                 }
             },
         };
@@ -1939,9 +1962,14 @@ impl NativeToolset {
             Some(v) => match parse_integer_arg(v).filter(|n| *n >= 0) {
                 Some(n) => (n as usize).min(READ_MAX_LINES),
                 None => {
-                    return Some(err_result(format!(
-                        "\"n_lines\" must be a non-negative integer, got {v}."
-                    )));
+                    return Some(err_result(
+                        LocalizedText::fmt(
+                            "engine.tools.read.nLinesInvalid",
+                            format!("\"n_lines\" must be a non-negative integer, got {v}."),
+                            i18n_params!["value" => v],
+                        )
+                        .render(),
+                    ));
                 }
             },
         };
@@ -1953,19 +1981,47 @@ impl NativeToolset {
         // host-owned and not yet wired on the native harness` instead of the
         // path being wrong.
         let Some(resolved) = Self::resolve(sandbox, bridge, path) else {
-            return Some(err_result(format!("\"{path}\" does not exist.")));
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.read.notExist",
+                    format!("\"{path}\" does not exist."),
+                    i18n_params!["path" => path],
+                )
+                .render(),
+            ));
         };
         let Ok(meta) = std::fs::metadata(&resolved) else {
-            return Some(err_result(format!("\"{path}\" does not exist.")));
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.read.notExist",
+                    format!("\"{path}\" does not exist."),
+                    i18n_params!["path" => path],
+                )
+                .render(),
+            ));
         };
         if !meta.is_file() {
-            return Some(err_result(format!("\"{path}\" is not a file.")));
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.read.notAFile",
+                    format!("\"{path}\" is not a file."),
+                    i18n_params!["path" => path],
+                )
+                .render(),
+            ));
         }
 
         // Encoding detection needs only the first bytes — reads are ranged
         // (v2 #3645), so a 30MB+ file must never load whole just to be read.
         let Ok(mut file) = std::fs::File::open(&resolved) else {
-            return Some(err_result(format!("\"{path}\" could not be opened.")));
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.read.cannotOpen",
+                    format!("\"{path}\" could not be opened."),
+                    i18n_params!["path" => path],
+                )
+                .render(),
+            ));
         };
         let sample_len = (meta.len() as usize).min(encoding::ENCODING_DETECTION_SAMPLE_BYTES);
         let mut header = vec![0u8; sample_len];
@@ -1973,16 +2029,30 @@ impl NativeToolset {
             && (std::io::Read::read_exact(&mut file, &mut header).is_err()
                 || std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(0)).is_err())
         {
-            return Some(err_result(format!("\"{path}\" could not be read.")));
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.read.cannotRead",
+                    format!("\"{path}\" could not be read."),
+                    i18n_params!["path" => path],
+                )
+                .render(),
+            ));
         }
         let detection = encoding::detect_text_encoding(&header);
         if detection.seems_binary {
             // v2 `readTool` refuses a file whose type it cannot place
             // (`notReadableFileOutput`); returning `None` sent it to a host
             // with no file-tool runtime instead.
-            return Some(err_result(format!(
-                "\"{path}\" is not readable as UTF-8 text. Only text files can be read."
-            )));
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.read.notUtf8",
+                    format!(
+                        "\"{path}\" is not readable as UTF-8 text. Only text files can be read."
+                    ),
+                    i18n_params!["path" => path],
+                )
+                .render(),
+            ));
         }
 
         // Tail reads on UTF-8/ASCII files: count lines in a streaming pass
@@ -2031,7 +2101,14 @@ impl NativeToolset {
                 )));
             }
             let Ok(bytes) = std::fs::read(&resolved) else {
-                return Some(err_result(format!("\"{path}\" could not be read.")));
+                return Some(err_result(
+                    LocalizedText::fmt(
+                        "engine.tools.read.cannotRead",
+                        format!("\"{path}\" could not be read."),
+                        i18n_params!["path" => path],
+                    )
+                    .render(),
+                ));
             };
             let text = encoding::decode_utf_text(&bytes, detection.encoding);
             let text_lines: Vec<String> = text.split('\n').map(|l| l.to_string()).collect();
@@ -2071,9 +2148,16 @@ impl NativeToolset {
                 if raw.contains(&0) {
                     // v2 `readTool` refuses a NUL-bearing line
                     // (`notReadableFileOutput`) rather than declining the call.
-                    return Some(err_result(format!(
-                        "\"{path}\" is not readable as UTF-8 text. Only text files can be read."
-                    )));
+                    return Some(err_result(
+                        LocalizedText::fmt(
+                            "engine.tools.read.notUtf8",
+                            format!(
+                                "\"{path}\" is not readable as UTF-8 text. Only text files can be read."
+                            ),
+                            i18n_params!["path" => path],
+                        )
+                        .render(),
+                    ));
                 }
                 let mut l = raw.clone();
                 if l.last() == Some(&b'\n') {
@@ -2086,9 +2170,14 @@ impl NativeToolset {
                     // `tool "Read" is host-owned and not yet wired on the
                     // native harness`.
                     Err(_) => {
-                        return Some(err_result(format!(
-                            "\"{path}\" is not valid UTF-8 or UTF-16 text. Only UTF-8 and UTF-16 text files can be read; for other encodings (e.g. GBK), convert the file to UTF-8 first (e.g. with `iconv`)."
-                        )));
+                        return Some(err_result(
+                            LocalizedText::fmt(
+                                "engine.tools.read.notUtf8Or16",
+                                format!("\"{path}\" is not valid UTF-8 or UTF-16 text. Only UTF-8 and UTF-16 text files can be read; for other encodings (e.g. GBK), convert the file to UTF-8 first (e.g. with `iconv`)."),
+                                i18n_params!["path" => path],
+                            )
+                            .render(),
+                        ));
                     }
                 }
             }
@@ -2114,9 +2203,14 @@ impl NativeToolset {
         let style = encoding::detect_line_ending_style(&window_bytes);
 
         if total_lines > 0 && offset > total_lines {
-            return Some(err_result(format!(
-                "line_offset {offset} is past the end of {path} ({total_lines} lines)"
-            )));
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.read.offsetPastEnd",
+                    format!("line_offset {offset} is past the end of {path} ({total_lines} lines)"),
+                    i18n_params!["offset" => offset, "path" => path, "total" => total_lines],
+                )
+                .render(),
+            ));
         }
         let start = 0usize;
         let end = all.len();
@@ -2288,7 +2382,11 @@ impl NativeToolset {
         // both mean "the schema default".
         let Some(pattern) = args.get("pattern").and_then(Value::as_str) else {
             return Some(err_result(
-                "\"pattern\" is required and must be a string.".into(),
+                LocalizedText::plain(
+                    "engine.tools.grep.patternRequired",
+                    "\"pattern\" is required and must be a string.",
+                )
+                .render(),
             ));
         };
         // `type` -> rg `--type NAME`: restrict the walk to files whose basename
@@ -2301,15 +2399,34 @@ impl NativeToolset {
             None | Some(Value::Null) => None,
             Some(value) => {
                 let Some(name) = value.as_str() else {
-                    return Some(err_result(format!(
-                        "\"type\" must be a string, got {value}."
-                    )));
+                    return Some(err_result(
+                        LocalizedText::fmt(
+                            "engine.tools.grep.typeInvalid",
+                            format!("\"type\" must be a string, got {value}."),
+                            i18n_params!["value" => value],
+                        )
+                        .render(),
+                    ));
                 };
                 let Some(globs) = grep_types::rg_type_globs(name) else {
-                    return Some(err_result(format!("unrecognized file type: {name}")));
+                    return Some(err_result(
+                        LocalizedText::fmt(
+                            "engine.tools.grep.unrecognizedFileType",
+                            format!("unrecognized file type: {name}"),
+                            i18n_params!["name" => name],
+                        )
+                        .render(),
+                    ));
                 };
                 let Some(glob) = build_type_glob(globs) else {
-                    return Some(err_result(format!("invalid file type glob for: {name}")));
+                    return Some(err_result(
+                        LocalizedText::fmt(
+                            "engine.tools.grep.invalidFileTypeGlob",
+                            format!("invalid file type glob for: {name}"),
+                            i18n_params!["name" => name],
+                        )
+                        .render(),
+                    ));
                 };
                 Some(glob)
             }
@@ -2342,9 +2459,14 @@ impl NativeToolset {
             Some(value) => match value.as_str() {
                 Some(mode @ ("files_with_matches" | "content" | "count_matches")) => mode,
                 _ => {
-                    return Some(err_result(format!(
-                        "\"output_mode\" must be one of files_with_matches, content, count_matches; got {value}."
-                    )));
+                    return Some(err_result(
+                        LocalizedText::fmt(
+                            "engine.tools.grep.outputModeInvalid",
+                            format!("\"output_mode\" must be one of files_with_matches, content, count_matches; got {value}."),
+                            i18n_params!["value" => value],
+                        )
+                        .render(),
+                    ));
                 }
             },
         };
@@ -2380,18 +2502,39 @@ impl NativeToolset {
         builder.multi_line(multiline);
         let regex = match builder.build() {
             Ok(r) => r,
-            Err(e) => return Some(err_result(format!("invalid regex: {e}"))),
+            Err(e) => {
+                return Some(err_result(
+                    LocalizedText::fmt(
+                        "engine.tools.grep.invalidRegex",
+                        format!("invalid regex: {e}"),
+                        i18n_params!["error" => e],
+                    )
+                    .render(),
+                ));
+            }
         };
         let glob_filter = match args.get("glob") {
             None | Some(Value::Null) => None,
             Some(value) => {
                 let Some(pattern) = value.as_str() else {
-                    return Some(err_result(format!(
-                        "\"glob\" must be a string, got {value}."
-                    )));
+                    return Some(err_result(
+                        LocalizedText::fmt(
+                            "engine.tools.grep.globInvalid",
+                            format!("\"glob\" must be a string, got {value}."),
+                            i18n_params!["value" => value],
+                        )
+                        .render(),
+                    ));
                 };
                 let Some(glob) = build_glob(pattern) else {
-                    return Some(err_result(format!("invalid glob pattern: {pattern}")));
+                    return Some(err_result(
+                        LocalizedText::fmt(
+                            "engine.tools.grep.invalidGlobPattern",
+                            format!("invalid glob pattern: {pattern}"),
+                            i18n_params!["pattern" => pattern],
+                        )
+                        .render(),
+                    ));
                 };
                 Some(glob)
             }
@@ -2401,14 +2544,27 @@ impl NativeToolset {
             None | Some(Value::Null) => sandbox.primary().to_path_buf(),
             Some(value) => {
                 let Some(path) = value.as_str() else {
-                    return Some(err_result("\"path\" must be a string.".into()));
+                    return Some(err_result(
+                        LocalizedText::plain(
+                            "engine.tools.grep.pathNotString",
+                            "\"path\" must be a string.",
+                        )
+                        .render(),
+                    ));
                 };
                 // A path the engine cannot resolve is a tool error, not a call
                 // it cannot serve: returning `None` forwarded it to a host with
                 // no file-tool runtime, and the model saw `tool "Grep" is
                 // host-owned and not yet wired on the native harness`.
                 let Some(resolved) = Self::resolve(sandbox, bridge, path) else {
-                    return Some(err_result(format!("\"{path}\" does not exist.")));
+                    return Some(err_result(
+                        LocalizedText::fmt(
+                            "engine.tools.grep.pathNotExist",
+                            format!("\"{path}\" does not exist."),
+                            i18n_params!["path" => path],
+                        )
+                        .render(),
+                    ));
                 };
                 resolved
             }
@@ -2508,9 +2664,18 @@ impl NativeToolset {
 
         let mut out = if limited.is_empty() {
             if !filtered_sensitive.is_empty() {
-                "No non-sensitive matches found".to_string()
+                LocalizedText::plain(
+                    "engine.tools.grep.noNonSensitive",
+                    "No non-sensitive matches found",
+                )
+                .render()
             } else {
-                format!("No matches found for pattern: {pattern}")
+                LocalizedText::fmt(
+                    "engine.tools.grep.noMatches",
+                    format!("No matches found for pattern: {pattern}"),
+                    i18n_params!["pattern" => pattern],
+                )
+                .render()
             }
         } else {
             limited.join("\n")
@@ -2531,10 +2696,23 @@ impl NativeToolset {
             } else {
                 "total non-sensitive"
             };
-            headers.push(format!(
-                "Found {total_occurrences} {scope} {occurrence_word} across {} {file_word}.",
-                per_file.len()
-            ));
+            headers.push(
+                LocalizedText::fmt(
+                    "engine.tools.grep.foundAcross",
+                    format!(
+                        "Found {total_occurrences} {scope} {occurrence_word} across {files} {file_word}.",
+                        files = per_file.len()
+                    ),
+                    i18n_params![
+                        "total_occurrences" => total_occurrences,
+                        "scope" => scope,
+                        "occurrence_word" => occurrence_word,
+                        "files" => per_file.len(),
+                        "file_word" => file_word,
+                    ],
+                )
+                .render(),
+            );
         }
         if pagination_truncated {
             let total = after_offset.len() + page_offset;
@@ -2560,11 +2738,21 @@ impl NativeToolset {
             ));
         }
         if !filtered_sensitive.is_empty() {
-            messages.push(format!(
-                "Filtered {} sensitive file(s): {}",
-                filtered_sensitive.len(),
-                filtered_sensitive.join(", ")
-            ));
+            messages.push(
+                LocalizedText::fmt(
+                    "engine.tools.grep.filteredSensitiveWithList",
+                    format!(
+                        "Filtered {count} sensitive file(s): {list}",
+                        count = filtered_sensitive.len(),
+                        list = filtered_sensitive.join(", ")
+                    ),
+                    i18n_params![
+                        "count" => filtered_sensitive.len(),
+                        "list" => filtered_sensitive.join(", "),
+                    ],
+                )
+                .render(),
+            );
         }
 
         if !headers.is_empty() {
@@ -2588,7 +2776,11 @@ impl NativeToolset {
     ) -> Option<ExecutableToolResult> {
         let Some(pattern) = args.get("pattern").and_then(Value::as_str) else {
             return Some(err_result(
-                "\"pattern\" is required and must be a string.".into(),
+                LocalizedText::plain(
+                    "engine.tools.glob.patternRequired",
+                    "\"pattern\" is required and must be a string.",
+                )
+                .render(),
             ));
         };
         let include_ignored = args
@@ -2609,7 +2801,14 @@ impl NativeToolset {
                 // it cannot serve — `None` forwarded it to a host with no
                 // file-tool runtime.
                 let Some(resolved) = Self::resolve(sandbox, bridge, p) else {
-                    return Some(err_result(format!("\"{p}\" does not exist.")));
+                    return Some(err_result(
+                        LocalizedText::fmt(
+                            "engine.tools.glob.pathNotExist",
+                            format!("\"{p}\" does not exist."),
+                            i18n_params!["path" => p],
+                        )
+                        .render(),
+                    ));
                 };
                 resolved
             }
@@ -2669,15 +2868,36 @@ impl NativeToolset {
 
         if count == 0 {
             if total > 0 {
-                lines.push(format!(
-                    "No more matches at offset={offset} in the current result set ({total} matches)."
-                ));
+                lines.push(
+                    LocalizedText::fmt(
+                        "engine.tools.grep.noMoreMatches",
+                        format!(
+                            "No more matches at offset={offset} in the current result set ({total} matches)."
+                        ),
+                        i18n_params!["offset" => offset, "total" => total],
+                    )
+                    .render(),
+                );
             } else if filtered_sensitive > 0 {
-                lines.push(format!(
-                    "No non-sensitive matches found ({filtered_sensitive} sensitive file(s) filtered)."
-                ));
+                lines.push(
+                    LocalizedText::fmt(
+                        "engine.tools.grep.noNonSensitiveFiltered",
+                        format!(
+                            "No non-sensitive matches found ({filtered_sensitive} sensitive file(s) filtered)."
+                        ),
+                        i18n_params!["count" => filtered_sensitive],
+                    )
+                    .render(),
+                );
             } else {
-                lines.push(format!("No files matched pattern: {pattern}"));
+                lines.push(
+                    LocalizedText::fmt(
+                        "engine.tools.grep.noFilesMatched",
+                        format!("No files matched pattern: {pattern}"),
+                        i18n_params!["pattern" => pattern],
+                    )
+                    .render(),
+                );
             }
         } else {
             if truncated || offset > 0 {
@@ -2699,7 +2919,14 @@ impl NativeToolset {
             }
         }
         if filtered_sensitive > 0 && total > 0 {
-            footer.push(format!("Filtered {filtered_sensitive} sensitive file(s)."));
+            footer.push(
+                LocalizedText::fmt(
+                    "engine.tools.grep.filteredSensitive",
+                    format!("Filtered {filtered_sensitive} sensitive file(s)."),
+                    i18n_params!["count" => filtered_sensitive],
+                )
+                .render(),
+            );
         }
 
         let out = [lines, footer].concat().join("\n");
@@ -2742,12 +2969,20 @@ impl NativeToolset {
     ) -> Option<ExecutableToolResult> {
         let Some(path) = args.get("path").and_then(Value::as_str) else {
             return Some(err_result(
-                "\"path\" is required and must be a string.".into(),
+                LocalizedText::plain(
+                    "engine.tools.write.pathRequired",
+                    "\"path\" is required and must be a string.",
+                )
+                .render(),
             ));
         };
         let Some(content) = args.get("content").and_then(Value::as_str) else {
             return Some(err_result(
-                "\"content\" is required and must be a string.".into(),
+                LocalizedText::plain(
+                    "engine.tools.write.contentRequired",
+                    "\"content\" is required and must be a string.",
+                )
+                .render(),
             ));
         };
         let mode = match args.get("mode") {
@@ -2755,9 +2990,14 @@ impl NativeToolset {
             Some(v) => match v.as_str() {
                 Some(mode @ ("overwrite" | "append")) => mode,
                 _ => {
-                    return Some(err_result(format!(
-                        "\"mode\" must be one of overwrite, append; got {v}."
-                    )));
+                    return Some(err_result(
+                        LocalizedText::fmt(
+                            "engine.tools.write.modeInvalid",
+                            format!("\"mode\" must be one of overwrite, append; got {v}."),
+                            i18n_params!["value" => v],
+                        )
+                        .render(),
+                    ));
                 }
             },
         };
@@ -2766,16 +3006,26 @@ impl NativeToolset {
         // runtime, and the model saw `tool "Write" is host-owned and not yet
         // wired on the native harness` instead of the boundary it crossed.
         let Some(resolved) = Self::resolve_for_write(sandbox, bridge, path) else {
-            return Some(err_result(format!(
-                "\"{path}\" is outside the workspace and cannot be written."
-            )));
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.write.outsideWorkspace",
+                    format!("\"{path}\" is outside the workspace and cannot be written."),
+                    i18n_params!["path" => path],
+                )
+                .render(),
+            ));
         };
         if let Some(parent) = resolved.parent()
             && let Err(error) = std::fs::create_dir_all(parent)
         {
-            return Some(err_result(format!(
-                "\"{path}\" could not be written: {error}"
-            )));
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.write.cannotWrite",
+                    format!("\"{path}\" could not be written: {error}"),
+                    i18n_params!["path" => path, "error" => error],
+                )
+                .render(),
+            ));
         }
         // Snapshot the pre-image before the write so the recorder can store
         // the diff (v2 `fileHistoryService.onWillExecuteTool` capture).
@@ -2800,9 +3050,14 @@ impl NativeToolset {
         let bytes_written = match written {
             Ok(bytes) => bytes,
             Err(error) => {
-                return Some(err_result(format!(
-                    "\"{path}\" could not be written: {error}"
-                )));
+                return Some(err_result(
+                    LocalizedText::fmt(
+                        "engine.tools.write.cannotWrite",
+                        format!("\"{path}\" could not be written: {error}"),
+                        i18n_params!["path" => path, "error" => error],
+                    )
+                    .render(),
+                ));
             }
         };
         Self::record_file_history(&resolved, pre_image.as_deref(), Some(content));
@@ -2826,17 +3081,29 @@ impl NativeToolset {
     ) -> Option<ExecutableToolResult> {
         let Some(path) = args.get("path").and_then(Value::as_str) else {
             return Some(err_result(
-                "\"path\" is required and must be a string.".into(),
+                LocalizedText::plain(
+                    "engine.tools.edit.pathRequired",
+                    "\"path\" is required and must be a string.",
+                )
+                .render(),
             ));
         };
         let Some(old) = args.get("old_string").and_then(Value::as_str) else {
             return Some(err_result(
-                "\"old_string\" is required and must be a string.".into(),
+                LocalizedText::plain(
+                    "engine.tools.edit.oldStringRequired",
+                    "\"old_string\" is required and must be a string.",
+                )
+                .render(),
             ));
         };
         let Some(new) = args.get("new_string").and_then(Value::as_str) else {
             return Some(err_result(
-                "\"new_string\" is required and must be a string.".into(),
+                LocalizedText::plain(
+                    "engine.tools.edit.newStringRequired",
+                    "\"new_string\" is required and must be a string.",
+                )
+                .render(),
             ));
         };
         let replace_all = args
@@ -2844,48 +3111,91 @@ impl NativeToolset {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         let Some(resolved) = Self::resolve_for_write(sandbox, bridge, path) else {
-            return Some(err_result(format!(
-                "\"{path}\" is outside the workspace and cannot be edited."
-            )));
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.edit.outsideWorkspace",
+                    format!("\"{path}\" is outside the workspace and cannot be edited."),
+                    i18n_params!["path" => path],
+                )
+                .render(),
+            ));
         };
 
         let Ok(bytes) = std::fs::read(&resolved) else {
-            return Some(err_result(format!("\"{path}\" does not exist.")));
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.edit.notExist",
+                    format!("\"{path}\" does not exist."),
+                    i18n_params!["path" => path],
+                )
+                .render(),
+            ));
         };
         if bytes.contains(&0) {
             // v2 `readTool` refuses a file it cannot place; the host has no
             // file-tool runtime to hand it to.
-            return Some(err_result(format!(
-                "\"{path}\" is not readable as UTF-8 text. Only text files can be edited."
-            )));
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.edit.notUtf8",
+                    format!(
+                        "\"{path}\" is not readable as UTF-8 text. Only text files can be edited."
+                    ),
+                    i18n_params!["path" => path],
+                )
+                .render(),
+            ));
         }
         let text = String::from_utf8_lossy(&bytes).into_owned();
         let occurrence_count = text.matches(old).count();
         let updated = if replace_all {
             if occurrence_count == 0 {
-                return Some(err_result(format!("old_string not found in {path}")));
+                return Some(err_result(
+                    LocalizedText::fmt(
+                        "engine.tools.edit.oldStringNotFound",
+                        format!("old_string not found in {path}"),
+                        i18n_params!["path" => path],
+                    )
+                    .render(),
+                ));
             }
             text.replace(old, new)
         } else {
             if occurrence_count != 1 {
-                return Some(err_result(format!(
-                    "old_string matched {occurrence_count} times in {path} (expected exactly 1; widen the string or pass replace_all)"
-                )));
+                return Some(err_result(
+                    LocalizedText::fmt(
+                        "engine.tools.edit.oldStringMatchedMultiple",
+                        format!("old_string matched {occurrence_count} times in {path} (expected exactly 1; widen the string or pass replace_all)"),
+                        i18n_params!["count" => occurrence_count, "path" => path],
+                    )
+                    .render(),
+                ));
             }
             text.replacen(old, new, 1)
         };
         // `text` is the pre-image; capture the diff before writing.
         Self::record_file_history(&resolved, Some(text.as_str()), Some(updated.as_str()));
         if let Err(error) = std::fs::write(&resolved, updated) {
-            return Some(err_result(format!(
-                "\"{path}\" could not be written: {error}"
-            )));
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.edit.cannotWrite",
+                    format!("\"{path}\" could not be written: {error}"),
+                    i18n_params!["path" => path, "error" => error],
+                )
+                .render(),
+            ));
         }
         let display = resolved
             .strip_prefix(sandbox.primary())
             .unwrap_or(&resolved)
             .display();
-        Some(ok_result(format!("Edited {display}")))
+        Some(ok_result(
+            LocalizedText::fmt(
+                "engine.tools.edit.edited",
+                format!("Edited {display}"),
+                i18n_params!["display" => display],
+            )
+            .render(),
+        ))
     }
 
     // ── Bash ───────────────────────────────────────────────────────────
@@ -2952,7 +3262,14 @@ impl NativeToolset {
                         .kill_on_drop(true);
                     let mut child = match cmd.spawn() {
                         Ok(child) => child,
-                        Err(e) => return format!("Command execution failed: {e}"),
+                        Err(e) => {
+                            return LocalizedText::fmt(
+                                "engine.tools.bash.commandFailed",
+                                format!("Command execution failed: {e}"),
+                                i18n_params!["error" => e],
+                            )
+                            .render();
+                        }
                     };
                     let mut stdout_pipe = child.stdout.take();
                     let mut stderr_pipe = child.stderr.take();
@@ -3152,7 +3469,12 @@ impl NativeToolset {
                     && let Some(runner) = &self.task_runner
                 {
                     let task_id = format!("task_{}", fastrand::u64(..));
-                    let desc = format!("Timed out: {command}");
+                    let desc = LocalizedText::fmt(
+                        "engine.tools.bash.timedOut",
+                        format!("Timed out: {command}"),
+                        i18n_params!["command" => command],
+                    )
+                    .render();
                     // The migrated task is re-armed with the *background*
                     // bounds (600s unless the call or
                     // `[background].bash_task_timeout_s` says otherwise) — the
@@ -3197,10 +3519,14 @@ impl NativeToolset {
                 // waited on, and this loop can hit the timeout repeatedly
                 // within one turn.
                 let _ = child.wait().await;
-                return Some(err_result(format!(
-                    "Command killed by timeout ({}s)",
-                    timeout_s
-                )));
+                return Some(err_result(
+                    LocalizedText::fmt(
+                        "engine.tools.bash.killedByTimeout",
+                        format!("Command killed by timeout ({timeout_s}s)"),
+                        i18n_params!["seconds" => timeout_s],
+                    )
+                    .render(),
+                ));
             }
         };
 
@@ -3245,9 +3571,14 @@ impl NativeToolset {
 fn bool_arg(args: &Value, key: &str, default: bool) -> Result<bool, String> {
     match args.get(key) {
         None | Some(Value::Null) => Ok(default),
-        Some(value) => value
-            .as_bool()
-            .ok_or_else(|| format!("\"{key}\" must be a boolean, got {value}.")),
+        Some(value) => value.as_bool().ok_or_else(|| {
+            LocalizedText::fmt(
+                "engine.tools.boolInvalid",
+                format!("\"{key}\" must be a boolean, got {value}."),
+                i18n_params!["key" => key, "value" => value],
+            )
+            .render()
+        }),
     }
 }
 
@@ -3257,9 +3588,14 @@ fn bool_arg(args: &Value, key: &str, default: bool) -> Result<bool, String> {
 fn u64_arg(args: &Value, key: &str, default: u64) -> Result<u64, String> {
     match args.get(key) {
         None | Some(Value::Null) => Ok(default),
-        Some(value) => value
-            .as_u64()
-            .ok_or_else(|| format!("\"{key}\" must be a non-negative integer, got {value}.")),
+        Some(value) => value.as_u64().ok_or_else(|| {
+            LocalizedText::fmt(
+                "engine.tools.nonNegativeIntInvalid",
+                format!("\"{key}\" must be a non-negative integer, got {value}."),
+                i18n_params!["key" => key, "value" => value],
+            )
+            .render()
+        }),
     }
 }
 

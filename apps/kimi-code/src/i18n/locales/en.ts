@@ -111,6 +111,208 @@ export default {
         'MSYS2 (full Linux command-line environment) not detected. Install it with: winget install MSYS2.MSYS2',
     },
   },
+  // Strings the Rust engine (packages/kimi-agent) produces itself. The engine
+  // carries an English fallback for every key so an unwired host still renders
+  // correctly; `scripts/check-engine-i18n-parity.mjs` keeps the two in sync.
+  engine: {
+    permission: {
+      autoModeCannotAsk: 'Auto mode cannot ask interactive questions',
+      deniedByUserRule: 'Denied by user rule: {{rule}}: {{why}}',
+      deniedByUserRuleNoWhy: 'Denied by user rule: {{rule}}',
+      highRiskShellCommand: 'High-risk shell command requires approval',
+      shellCommandUnanalyzable: 'Shell command could not be statically analyzed',
+      approvedBySessionHistory: 'Approved by session history rule: {{rule}}',
+      approvalRequiredByUserRule: 'Approval required by user rule: {{rule}}',
+      allowedByUserRule: 'Allowed by user rule: {{rule}}',
+      sensitiveFileAccess: 'Access to sensitive file requires approval: {{path}}',
+      gitControlPathAccess: 'Access to git control path requires approval: {{path}}',
+      toolExecutionRequiresApproval: 'Tool execution requires approval: {{tool_name}}',
+      deniedByLocalPolicy: 'Denied by local permission policy',
+      deniedByHostPermission: 'denied by host permission',
+      operationDeniedByEngine: 'Operation denied by local permission engine',
+      operationRequiresConfirmation: 'Operation requires user confirmation',
+      executionDeniedByEngine: 'Execution denied by local permission engine',
+      approveOnce: 'Approve once',
+      approveForSession: 'Approve for this session',
+      reject: 'Reject',
+    },
+    tools: {
+      // The failure surface of the native file tools and Bash — what a user
+      // stops to read when something breaks. Informational footers ("Total
+      // lines in file", "Showing matches …") are deliberately not here yet.
+      disabled: "Tool '{{tool_name}}' is disabled by the [tools] configuration and cannot run.",
+      read: {
+        pathRequired: '"path" is required and must be a string.',
+        lineOffsetInvalid: '"line_offset" must be an integer, got {{v}}.',
+        columnOffsetInvalid: '"column_offset" must be a non-negative integer, got {{v}}.',
+        maxCharsInvalid: '"max_chars" must be a non-negative integer, got {{v}}.',
+        nLinesInvalid: '"n_lines" must be a non-negative integer, got {{v}}.',
+        notExist: '"{{path}}" does not exist.',
+        notAFile: '"{{path}}" is not a file.',
+        cannotOpen: '"{{path}}" could not be opened.',
+        cannotRead: '"{{path}}" could not be read.',
+        notUtf8: '"{{path}}" is not readable as UTF-8 text. Only text files can be read.',
+        notUtf8Or16:
+          '"{{path}}" is not valid UTF-8 or UTF-16 text. Only UTF-8 and UTF-16 text files can be read; for other encodings (e.g. GBK), convert the file to UTF-8 first (e.g. with `iconv`).',
+        offsetPastEnd: 'line_offset {{offset}} is past the end of {{path}} ({{total_lines}} lines)',
+      },
+      grep: {
+        patternRequired: '"pattern" is required and must be a string.',
+        typeInvalid: '"type" must be a string, got {{value}}.',
+        unrecognizedFileType: 'unrecognized file type: {{name}}',
+        invalidFileTypeGlob: 'invalid file type glob for: {{name}}',
+        invalidRegex: 'invalid regex: {{e}}',
+        outputModeInvalid: '"output_mode" must be one of files_with_matches, content, count_matches; got {{value}}.',
+        globInvalid: '"glob" must be a string, got {{value}}.',
+        invalidGlobPattern: 'invalid glob pattern: {{pattern}}',
+        pathNotString: '"path" must be a string.',
+        pathNotExist: '"{{path}}" does not exist.',
+        noMatches: 'No matches found for pattern: {{pattern}}',
+        noNonSensitive: 'No non-sensitive matches found',
+        noNonSensitiveFiltered: 'No non-sensitive matches found ({{filtered_sensitive}} sensitive file(s) filtered).',
+        foundAcross: 'Found {{total_occurrences}} {{scope}} {{occurrence_word}} across {{files}} {{file_word}}.',
+        filteredSensitiveWithList: 'Filtered {{count}} sensitive file(s): {{list}}',
+        filteredSensitive: 'Filtered {{filtered_sensitive}} sensitive file(s).',
+        noMoreMatches: 'No more matches at offset={{offset}} in the current result set ({{total}} matches).',
+        noFilesMatched: 'No files matched pattern: {{pattern}}',
+      },
+      glob: {
+        patternRequired: '"pattern" is required and must be a string.',
+        pathNotExist: '"{{p}}" does not exist.',
+      },
+      write: {
+        pathRequired: '"path" is required and must be a string.',
+        contentRequired: '"content" is required and must be a string.',
+        modeInvalid: '"mode" must be one of overwrite, append; got {{v}}.',
+        outsideWorkspace: '"{{path}}" is outside the workspace and cannot be written.',
+        cannotWrite: '"{{path}}" could not be written: {{error}}',
+      },
+      edit: {
+        pathRequired: '"path" is required and must be a string.',
+        oldStringRequired: '"old_string" is required and must be a string.',
+        newStringRequired: '"new_string" is required and must be a string.',
+        outsideWorkspace: '"{{path}}" is outside the workspace and cannot be edited.',
+        notExist: '"{{path}}" does not exist.',
+        notUtf8: '"{{path}}" is not readable as UTF-8 text. Only text files can be edited.',
+        oldStringNotFound: 'old_string not found in {{path}}',
+        oldStringMatchedMultiple:
+          'old_string matched {{occurrence_count}} times in {{path}} (expected exactly 1; widen the string or pass replace_all)',
+        cannotWrite: '"{{path}}" could not be written: {{error}}',
+        edited: 'Edited {{display}}',
+      },
+      bash: {
+        commandFailed: 'Command execution failed: {{e}}',
+        timedOut: 'Timed out: {{command}}',
+        killedByTimeout: 'Command killed by timeout ({{timeout_s}}s)',
+      },
+      fetchUrl: {
+        invalidUrl: 'Failed to fetch URL: Invalid URL: {{e}}',
+        fetchFailed: 'Failed to fetch URL: {{err}}',
+        noHost: 'Failed to fetch URL: URL has no host',
+        clientInitFailed: 'Failed to initialize HTTP client: {{e}}',
+        networkError: 'Failed to fetch URL due to network error: {{current_url}}. {{e}}',
+        tooManyRedirects: 'Failed to fetch URL: too many redirects (max {{MAX_REDIRECT_HOPS}})',
+        redirectNoLocation: 'Failed to fetch URL: Redirect without Location header',
+        invalidRedirectUrl: 'Failed to fetch URL: Invalid redirect URL: {{e}}',
+        httpStatus: 'Failed to fetch URL. Status: {{status}}.',
+        readBodyFailed: 'Failed to read response body: {{e}}',
+        bodyTooLarge: 'Response body too large: exceeds limit ({{DEFAULT_MAX_BYTES}} bytes).',
+        unsupportedScheme: 'Unsupported scheme "{{scheme}}" — only http(s) allowed.',
+        privateHost: 'Refusing to fetch private host: "{{host}}"',
+        privateAddress: 'Refusing to fetch private address: "{{host}}"',
+        cannotResolveHost: 'Cannot resolve host "{{host}}": {{e}}',
+        cannotResolveNoAddresses: 'Cannot resolve host "{{host}}": no addresses',
+        resolvesToPrivate:
+          'Refusing to fetch host "{{host}}": resolves to private address "{{ip}}".',
+      },
+      webSearch: {
+        invalidJson: 'invalid JSON: {{e}}',        resultTitle: 'Title: {{title}}\n',
+        resultSite: 'Site: {{site}}\n',
+        resultDate: 'Date: {{date}}\n',
+        resultUrl: 'URL: {{url}}\n',
+        resultSnippet: 'Snippet: {{snippet}}\n\n',
+        clientInitFailed: 'Search failed: Failed to initialize HTTP client: {{e}}',
+        timedOut: 'Search timed out: {{e}}',
+        networkFailed: 'Search failed (network): {{e}}',
+        readBodyFailed: 'Search failed: failed to read response body: {{e}}',
+        moonshotHttpFailed: 'Moonshot search request failed: HTTP {{status}}{{qualifier}}. {{body}}',
+        failed: 'Search failed: {{e}}',
+        duckduckgoHttpFailed: 'Search failed: DuckDuckGo search returned HTTP {{status}}',
+      },
+      readMedia: {
+        tooLargeToSend:
+          'Image is too large to send safely after compression ({{final_bytes}} bytes; limit {{read_byte_budget}} bytes and {{max_edge}}px on the longest edge). The original image was not sent to the model. Do not retry the same file unchanged. Use Bash or an available image-processing tool to create a smaller copy within both limits, then call Read on the smaller copy.',
+        tooLargeToProcess:
+          'Image is too large to process safely for region or full_resolution ({{final_bytes}} bytes; safe decode limit {{MAX_IMAGE_DECODE_BYTES}} bytes). The original image was not sent to the model. Do not retry the same file unchanged. Use Bash or an available image-processing tool to create a smaller copy or crop the needed region into a separate image, then call Read on the resulting file.',
+        readImageFile: 'Read image file.',
+        mimeType: 'Mime type: {{mime_type}}.',
+        sizeBytes: 'Size: {{byte_size}} bytes.',
+        originalDimensions: 'Original dimensions: {{width}}x{{height}} pixels.',
+        downsampled:
+          'The attached image was downsampled to {{width}}x{{height}} pixels ({{mime}}, {{sent}}) to fit model limits; fine detail may be lost.',
+        showingRegion:
+          'Showing region (x={{x}}, y={{y}}, width={{region_width}}, height={{region_height}}) of the original image{{scale}}.',
+        regionOffsetHint:
+          'To output coordinates in original-image pixels, locate them within this crop and add the region offset (x={{x}}, y={{y}}).',
+        isTextFile:
+          '"{{path}}" is a text file. Use Read without region or full_resolution to read text files.',
+        notSupported:
+          '"{{path}}" is not a supported image or video file. Use Read for text files, or Bash or an MCP tool for other binary formats.',
+        empty: '"{{path}}" is empty.',
+        exceedsMaxMedia:
+          '"{{path}}" is {{byte_size}} bytes, which exceeds the maximum {{max_mb}}MB for media files.',
+        videoTooLarge:
+          '"{{path}}" is a {{byte_size}}-byte video, which exceeds the {{inline_budget}}-byte inline limit. Trim or re-encode it first, then read the smaller file.',
+        readVideoFile:
+          'Read video file. Mime type: {{mime}}. Size: {{byte_size}} bytes. The attached video is the original file, not re-encoded or trimmed; providers without native video blocks receive a text notice in its place.',
+        providerRejectsMime:
+          '"{{path}}" is an {{mime}} image, which the provider does not accept. Convert it to JPEG first, then read the converted file.',
+        croppingUnsupported:
+          'Cropping region is not supported for {{mime}} images. Convert to PNG or JPEG first.',
+        exceedsInlineLimit:
+          '"{{path}}" is an {{byte_size}}-byte {{mime}} image, which exceeds the {{inline_limit}}-byte limit. Convert it to JPEG or PNG first, then read the converted file.',
+        cannotReadRegion: 'Cannot read region from "{{path}}": {{error}}',
+      },
+      knowledge: {
+        unknownAction:
+          'Error: unknown knowledge action `{{action}}`. Valid actions: search, add, confirm, reject, remove, stats, import.',
+        openDbFailed:
+          'Failed to open knowledge DB at {{project}}: {{project_err}} (no home dir for fallback)',
+        openDbFallbackFailed:
+          'Failed to open knowledge DB at {{project}} ({{project_err}}) and fallback {{user}} ({{user_err}})',
+        searchFailed: 'Knowledge search failed: {{e}}',
+        addFailed: 'Failed to add knowledge entry: {{e}}',
+        entryNotFound: 'Entry {{id}} not found.',
+        confirmFailed: 'Knowledge confirm failed: {{e}}',
+        rejectedAndRemoved: 'Rejected and removed entry {{id}}',
+        removeFailed: 'Knowledge remove failed: {{e}}',
+        removed: 'Removed entry {{id}}',
+        statsFailed: 'Knowledge stats failed: {{e}}',
+        importFailed: 'Knowledge import failed: {{e}}',
+      },
+      memory: {
+        cannotRead: 'Cannot read {{rel}}: {{e}}',
+        cannotDelete: 'Cannot delete {{rel}}: {{e}}',
+        oldStrNotFound:
+          '`old_str` was not found in {{rel}}. Match the file\'s text exactly.\n\nCurrent content:\n{{content}}',
+        oldStrMatchedMultiple:
+          '`old_str` matches {{matches}} times in {{rel}}; it must match exactly once. Add surrounding context to make it unique.\n\nCurrent content:\n{{content}}',
+        outsideStore: 'Error: `{{path}}` resolves outside the memory store.',
+        notMemoryPath:
+          'Error: `{{rel_path}}` is not a memory path. Use a relative path under `global/`, `projects/<id>/`, or `sessions/<id>/`.',
+        notExistHint: '{{rel}} does not exist. Pass `if_version: "new"` to create it.',
+        versionMismatch: 'expected version {{expected}}, current version is {{version}}',
+        notExist: '{{rel}} does not exist.',
+        versionConflict:
+          'Version conflict on {{rel}} (current version {{current}}): {{reason}}.\n\nCurrent content:\n{{content}}',
+        cannotCreate: 'Cannot create {{path}}: {{e}}',
+        cannotWrite: 'Cannot write {{path}}: {{e}}',
+        cannotReplace: 'Cannot replace {{path}}: {{e}}',
+      },
+      boolInvalid: '"{{key}}" must be a boolean, got {{value}}.',
+      nonNegativeIntInvalid: '"{{key}}" must be a non-negative integer, got {{value}}.',
+    },
+  },
   startup: {
     operations: {
       runPrompt: 'run prompt',

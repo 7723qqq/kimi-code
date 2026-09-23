@@ -330,4 +330,43 @@ describe('approval adapter', () => {
       selectedLabel: 'Approve for this session',
     });
   });
+
+  // The engine's policy explanation ("access to sensitive file …") is what the
+  // prompt leads with; without it the panel can only name the tool.
+  it('carries the engine reason through to the panel data', () => {
+    const adapted = adaptApprovalRequest({
+      toolCallId: 'tc-reason',
+      toolName: 'Read',
+      action: 'read',
+      display: { kind: 'generic', summary: 'read .env' },
+      reason: 'Access to sensitive file requires approval: .env',
+    });
+
+    expect(adapted.reason).toBe('Access to sensitive file requires approval: .env');
+    // The description still describes the call; the reason is separate.
+    expect(adapted.description).toBe('read .env');
+  });
+
+  it('omits the reason entirely when the engine has none to give', () => {
+    const adapted = adaptApprovalRequest({
+      toolCallId: 'tc-no-reason',
+      toolName: 'Read',
+      action: 'read',
+      display: { kind: 'generic', summary: 'read .env' },
+    });
+
+    expect('reason' in adapted).toBe(false);
+  });
+
+  it('treats an empty engine reason as absent', () => {
+    const adapted = adaptApprovalRequest({
+      toolCallId: 'tc-empty-reason',
+      toolName: 'Read',
+      action: 'read',
+      display: { kind: 'generic', summary: 'read .env' },
+      reason: '',
+    });
+
+    expect('reason' in adapted).toBe(false);
+  });
 });

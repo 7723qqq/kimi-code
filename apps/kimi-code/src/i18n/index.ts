@@ -90,6 +90,15 @@ interface NativeModule {
     keys: string[],
     params: Record<string, string> | null | undefined,
   ) => { key: string; message: string }[];
+  /**
+   * Install the engine-side locale so the Rust engine's own user-facing text
+   * (permission reasons, tool-result notes, error prefixes) renders in the
+   * host's language instead of its English fallback.
+   *
+   * Absent on older native builds; those keep the English fallbacks.
+   */
+  setEngineLocale?: (localeJson: string, fallbackJson: string) => void;
+  clearEngineLocale?: () => void;
 }
 
 let nativeModule: NativeModule | undefined;
@@ -129,6 +138,31 @@ function toNativeParams(
     : undefined;
 }
 
+/**
+ * Push the current locale to the Rust engine so its own user-facing text —
+ * permission reasons, tool-result notes, error prefixes — renders in the same
+ * language as the host UI. See `packages/kimi-agent/src/i18n.rs`.
+ *
+ * The engine resolves keys locally against the JSON handed over here, so this
+ * is a one-shot install rather than a per-message round-trip.
+ *
+ * Best-effort by design: a native build without the binding, or no native
+ * module at all, leaves the engine on its English fallbacks — the pre-existing
+ * behaviour — rather than failing the host.
+ */
+function syncEngineLocale(localeJson: string): void {
+  try {
+    const native = ensureNative();
+    // `ensureNative()` populates `localeJsonEn` as a side effect; the guard
+    // keeps that invariant visible to the type checker without an assertion.
+    if (localeJsonEn !== undefined) {
+      native.setEngineLocale?.(localeJson, localeJsonEn);
+    }
+  } catch {
+    /* the engine keeps its English fallbacks */
+  }
+}
+
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 export interface CreateI18nOptions {
@@ -152,11 +186,22 @@ export function createI18n(options: CreateI18nOptions = {}): I18nInstance {
     options.initialLocale ?? (options.noDetect ? 'en' : detectLocaleNode());
 
   let localeCurrentJson = JSON.stringify(messages[currentLocale]);
+  // The engine only needs its locale once, but `createI18n()` runs at module
+  // load — before we know a native module is even present — so the first
+  // `t()` performs the install instead. `setLocale()` re-installs on every
+  // switch, which also covers the common path where the app sets an explicit
+  // locale at startup.
+  let engineLocaleInstalled = false;
 
   return {
     t(key: TranslationKey | (string & {}), params?: Record<string, string | number>): string {
       const native = ensureNative();
       const stringParams = toNativeParams(params);
+
+      if (!engineLocaleInstalled) {
+        engineLocaleInstalled = true;
+        syncEngineLocale(localeCurrentJson);
+      }
 
       if (native.nativeTranslateCached) {
         return native.nativeTranslateCached(localeCurrentJson, localeJsonEn!, key, stringParams);
@@ -167,10 +212,16 @@ export function createI18n(options: CreateI18nOptions = {}): I18nInstance {
     setLocale(locale: Locale): void {
       if (locale in messages) {
         currentLocale = locale;
-        localeCurrentJson = JSON.stringify(messages[currentLocale]);
+        localeCurrentJson = JSON.stringify(messages[locale]);
         try {
           const native = ensureNative();
           native.nativeTranslateClearCache?.();
+          // Re-point the engine at the new locale in the same breath, so a
+          // message the engine produces mid-turn cannot come out in the
+          // language the user just switched away from.
+          if (localeJsonEn !== undefined) {
+            native.setEngineLocale?.(localeCurrentJson, localeJsonEn);
+          }
         } catch {
           /* native module may not be loaded yet */
         }

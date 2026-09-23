@@ -46,6 +46,12 @@ export function adaptApprovalRequest(event: ApprovalRequest): ApprovalPanelData 
     tool_name: event.toolName,
     action: event.action,
     description: resolved.description,
+    // The engine's policy explanation, already localized on the Rust side.
+    // Omitted rather than emptied when absent so the panel can tell "no
+    // explanation" from "empty explanation".
+    ...(typeof event.reason === 'string' && event.reason.length > 0
+      ? { reason: event.reason }
+      : {}),
     display: resolved.blocks,
     choices: adaptChoices(event.toolName, event.display),
   };

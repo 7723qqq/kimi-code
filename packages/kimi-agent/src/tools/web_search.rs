@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 
 use super::err_result;
 use super::moonshot_service::{self, MoonshotServiceConfig};
+use crate::i18n::{LocalizedText, i18n_params};
 use crate::turn_loop::types::ExecutableToolResult;
 
 const DDG_HTML_URL: &str = "https://html.duckduckgo.com/html/";
@@ -68,7 +69,14 @@ pub fn moonshot_search_request_parts(
 /// Parse a Moonshot search response (`{"search_results": […]}`) into the
 /// tool's result entries, mirroring v2's field mapping and defaults.
 pub fn parse_moonshot_search_response(body: &str) -> Result<Vec<WebSearchResultEntry>, String> {
-    let json: Value = serde_json::from_str(body).map_err(|e| format!("invalid JSON: {e}"))?;
+    let json: Value = serde_json::from_str(body).map_err(|e| {
+        LocalizedText::fmt(
+            "engine.tools.webSearch.invalidJson",
+            format!("invalid JSON: {e}"),
+            i18n_params!["e" => e],
+        )
+        .render()
+    })?;
     let raw = match json.get("search_results").and_then(|v| v.as_array()) {
         Some(arr) => arr,
         None => return Ok(Vec::new()),
@@ -101,15 +109,50 @@ fn format_search_results(results: Vec<WebSearchResultEntry>) -> String {
             output.push_str("---\n\n");
         }
         first = false;
-        output.push_str(&format!("Title: {}\n", result.title));
+        output.push_str(
+            &LocalizedText::fmt(
+                "engine.tools.webSearch.resultTitle",
+                format!("Title: {title}\n", title = result.title),
+                i18n_params!["title" => result.title],
+            )
+            .render(),
+        );
         if let Some(ref site) = result.site_name {
-            output.push_str(&format!("Site: {site}\n"));
+            output.push_str(
+                &LocalizedText::fmt(
+                    "engine.tools.webSearch.resultSite",
+                    format!("Site: {site}\n"),
+                    i18n_params!["site" => site],
+                )
+                .render(),
+            );
         }
         if let Some(ref date) = result.date {
-            output.push_str(&format!("Date: {date}\n"));
+            output.push_str(
+                &LocalizedText::fmt(
+                    "engine.tools.webSearch.resultDate",
+                    format!("Date: {date}\n"),
+                    i18n_params!["date" => date],
+                )
+                .render(),
+            );
         }
-        output.push_str(&format!("URL: {}\n", result.url));
-        output.push_str(&format!("Snippet: {}\n\n", result.snippet));
+        output.push_str(
+            &LocalizedText::fmt(
+                "engine.tools.webSearch.resultUrl",
+                format!("URL: {url}\n", url = result.url),
+                i18n_params!["url" => result.url],
+            )
+            .render(),
+        );
+        output.push_str(
+            &LocalizedText::fmt(
+                "engine.tools.webSearch.resultSnippet",
+                format!("Snippet: {snippet}\n\n", snippet = result.snippet),
+                i18n_params!["snippet" => result.snippet],
+            )
+            .render(),
+        );
     }
     output.push_str("When you rely on a result in your answer, cite it inline as a markdown link, e.g. [title](url).");
     output
@@ -133,9 +176,14 @@ async fn search_via_moonshot(
     let client = match moonshot_service::build_client() {
         Ok(c) => c,
         Err(e) => {
-            return Some(err_result(format!(
-                "Search failed: Failed to initialize HTTP client: {e}"
-            )));
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.webSearch.clientInitFailed",
+                    format!("Search failed: Failed to initialize HTTP client: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
+            ));
         }
     };
     let mut request = client.post(&url).body(body);
@@ -144,9 +192,19 @@ async fn search_via_moonshot(
         Ok(resp) => resp,
         Err(e) => {
             let msg = if e.is_timeout() {
-                format!("Search timed out: {e}")
+                LocalizedText::fmt(
+                    "engine.tools.webSearch.timedOut",
+                    format!("Search timed out: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render()
             } else {
-                format!("Search failed (network): {e}")
+                LocalizedText::fmt(
+                    "engine.tools.webSearch.networkFailed",
+                    format!("Search failed (network): {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render()
             };
             return Some(err_result(msg));
         }
@@ -155,9 +213,14 @@ async fn search_via_moonshot(
     let text = match response.text().await {
         Ok(t) => t,
         Err(e) => {
-            return Some(err_result(format!(
-                "Search failed: failed to read response body: {e}"
-            )));
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.webSearch.readBodyFailed",
+                    format!("Search failed: failed to read response body: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
+            ));
         }
     };
     if status.as_u16() != 200 {
@@ -169,14 +232,30 @@ async fn search_via_moonshot(
         } else {
             ""
         };
-        return Some(err_result(format!(
-            "Moonshot search request failed: HTTP {status}{qualifier}. {}",
-            text.trim()
-        )));
+        return Some(err_result(
+            LocalizedText::fmt(
+                "engine.tools.webSearch.moonshotHttpFailed",
+                format!(
+                    "Moonshot search request failed: HTTP {status}{qualifier}. {body}",
+                    body = text.trim()
+                ),
+                i18n_params!["status" => status, "qualifier" => qualifier, "body" => text.trim()],
+            )
+            .render(),
+        ));
     }
     let results = match parse_moonshot_search_response(&text) {
         Ok(r) => r,
-        Err(e) => return Some(err_result(format!("Search failed: {e}"))),
+        Err(e) => {
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.webSearch.failed",
+                    format!("Search failed: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
+            ));
+        }
     };
     if results.is_empty() {
         return Some(ExecutableToolResult {
@@ -227,7 +306,12 @@ pub async fn execute_web_search(
             return Some(ExecutableToolResult {
                 delivery: None,
                 stop_turn: false,
-                content: format!("Search failed: Failed to initialize HTTP client: {e}"),
+                content: LocalizedText::fmt(
+                    "engine.tools.webSearch.clientInitFailed",
+                    format!("Search failed: Failed to initialize HTTP client: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
                 is_error: true,
                 note: None,
             });
@@ -247,9 +331,19 @@ pub async fn execute_web_search(
         Ok(resp) => resp,
         Err(e) => {
             let msg = if e.is_timeout() {
-                format!("Search timed out: {e}")
+                LocalizedText::fmt(
+                    "engine.tools.webSearch.timedOut",
+                    format!("Search timed out: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render()
             } else {
-                format!("Search failed (network): {e}")
+                LocalizedText::fmt(
+                    "engine.tools.webSearch.networkFailed",
+                    format!("Search failed (network): {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render()
             };
             return Some(ExecutableToolResult {
                 delivery: None,
@@ -266,7 +360,12 @@ pub async fn execute_web_search(
         return Some(ExecutableToolResult {
             delivery: None,
             stop_turn: false,
-            content: format!("Search failed: DuckDuckGo search returned HTTP {status}"),
+            content: LocalizedText::fmt(
+                "engine.tools.webSearch.duckduckgoHttpFailed",
+                format!("Search failed: DuckDuckGo search returned HTTP {status}"),
+                i18n_params!["status" => status],
+            )
+            .render(),
             is_error: true,
             note: None,
         });
@@ -278,7 +377,12 @@ pub async fn execute_web_search(
             return Some(ExecutableToolResult {
                 delivery: None,
                 stop_turn: false,
-                content: format!("Search failed: Failed to read response body: {e}"),
+                content: LocalizedText::fmt(
+                    "engine.tools.webSearch.readBodyFailed",
+                    format!("Search failed: failed to read response body: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
                 is_error: true,
                 note: None,
             });
@@ -291,7 +395,12 @@ pub async fn execute_web_search(
             return Some(ExecutableToolResult {
                 delivery: None,
                 stop_turn: false,
-                content: format!("Search failed: {e}"),
+                content: LocalizedText::fmt(
+                    "engine.tools.webSearch.failed",
+                    format!("Search failed: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
                 is_error: true,
                 note: None,
             });

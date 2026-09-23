@@ -30,6 +30,11 @@ struct ActiveApproval {
     tool_call_id: String,
     arguments: Value,
     action: String,
+    /// Why the engine is asking, already in the host's locale. `None` when the
+    /// engine has no policy-specific explanation; kept so a late-joining
+    /// client listing pending approvals sees the same text the original
+    /// `event.approval.requested` carried.
+    reason: Option<String>,
     created_at_iso: String,
     tx: oneshot::Sender<PermissionDecision>,
 }
@@ -423,6 +428,7 @@ impl InteractionManager {
             tool_call_id: req.tool_call_id.clone(),
             arguments: req.arguments.clone(),
             action: action.to_string(),
+            reason: req.reason.clone(),
             created_at_iso: now_iso.clone(),
             tx,
         };
@@ -438,24 +444,27 @@ impl InteractionManager {
         // kimi-web vocabulary (`event.approval.requested`): the shape the
         // Web client's `toAppApprovalRequest` folds (snake_case, with the
         // display form of the tool input).
-        self.publish_event(
-            session_id,
-            crate::events::EngineEvent::Custom(json!({
-                "type": "event.approval.requested",
-                "approval_id": approval_id,
-                "session_id": session_id,
-                "tool_call_id": req.tool_call_id,
-                "tool_name": req.tool_name,
-                "action": action,
-                "tool_input_display": req.arguments,
-                "created_at": now_iso,
-                // The TTL surfaced on the wire (upstream `expires_at`), so a
-                // client can show its own countdown instead of guessing.
-                "expires_at": (chrono::DateTime::parse_from_rfc3339(&now_iso)
-                    .map(|t| (t + chrono::Duration::milliseconds(APPROVAL_TTL_MS)).to_rfc3339())
-                    .unwrap_or_else(|_| now_iso)),
-            })),
-        );
+        let mut payload = json!({
+            "type": "event.approval.requested",
+            "approval_id": approval_id,
+            "session_id": session_id,
+            "tool_call_id": req.tool_call_id,
+            "tool_name": req.tool_name,
+            "action": action,
+            "tool_input_display": req.arguments,
+            "created_at": now_iso,
+            // The TTL surfaced on the wire (upstream `expires_at`), so a
+            // client can show its own countdown instead of guessing.
+            "expires_at": (chrono::DateTime::parse_from_rfc3339(&now_iso)
+                .map(|t| (t + chrono::Duration::milliseconds(APPROVAL_TTL_MS)).to_rfc3339())
+                .unwrap_or_else(|_| now_iso)),
+        });
+        // Only present when the engine actually has an explanation, so the wire
+        // stays unchanged for the policies that carry none.
+        if let Some(reason) = &req.reason {
+            payload["reason"] = json!(reason);
+        }
+        self.publish_event(session_id, crate::events::EngineEvent::Custom(payload));
         self.publish_event(
             session_id,
             crate::events::EngineEvent::SessionStatusChanged {
@@ -484,7 +493,7 @@ impl InteractionManager {
         let mut items = Vec::new();
         for (aid, a) in lock.iter() {
             if a.session_id == session_id {
-                items.push(json!({
+                let mut item = json!({
                     "approval_id": aid,
                     "session_id": a.session_id,
                     "tool_name": a.tool_name,
@@ -492,7 +501,14 @@ impl InteractionManager {
                     "action": a.action,
                     "tool_input_display": a.arguments,
                     "created_at": a.created_at_iso,
-                }));
+                });
+                // Same conditional as the requested event: a late joiner listing
+                // pending approvals must see the explanation the original event
+                // carried, and nothing extra when there was none.
+                if let Some(reason) = &a.reason {
+                    item["reason"] = json!(reason);
+                }
+                items.push(item);
             }
         }
         items.sort_by(|a, b| {
@@ -688,6 +704,7 @@ mod tests {
                 tool_call_id: "call_bash_sig".into(),
                 turn_id: "turn-sig".into(),
                 arguments: serde_json::json!({ "command": "ls" }),
+                reason: None,
             },
             "Run test command",
         );
@@ -748,6 +765,7 @@ mod tests {
                 tool_call_id: "call_bash_kind".into(),
                 turn_id: "turn-kind".into(),
                 arguments: serde_json::json!({ "command": "ls" }),
+                reason: None,
             },
             "Run test command",
         );
@@ -815,6 +833,7 @@ mod tests {
             tool_call_id: "call_read_1".into(),
             turn_id: "turn-appr".into(),
             arguments: json!({ "path": "/tmp/safe.txt" }),
+            reason: None,
         };
         let (aid_allow, mut rx_allow) =
             manager.register_approval("sess-appr", req_allow, "read file contents");
@@ -836,6 +855,7 @@ mod tests {
             tool_call_id: "call_cmd".into(),
             turn_id: "turn-appr".into(),
             arguments: json!({ "command": "rm -rf /tmp/foo" }),
+            reason: None,
         };
         let (aid_deny, mut rx_deny) =
             manager.register_approval("sess-appr", req_deny, "execute bash command");
@@ -872,6 +892,7 @@ mod tests {
             tool_call_id: "c_appr_a".into(),
             turn_id: "turn-a".into(),
             arguments: json!({}),
+            reason: None,
         };
         let (_aid_a, mut rx_appr_a) = manager.register_approval("sess-A", appr_a, "action A");
 
@@ -891,6 +912,7 @@ mod tests {
             tool_call_id: "c_appr_b".into(),
             turn_id: "turn-b".into(),
             arguments: json!({}),
+            reason: None,
         };
         let (_aid_b, mut rx_appr_b) = manager.register_approval("sess-B", appr_b, "action B");
 

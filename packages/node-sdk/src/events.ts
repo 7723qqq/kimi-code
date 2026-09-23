@@ -34,6 +34,13 @@ export interface ApprovalRequest {
   readonly toolName: string;
   readonly action: string;
   readonly display: ToolInputDisplay;
+  /**
+   * Why the engine is asking, already rendered in the host's locale — the local
+   * permission policy that fired ("access to sensitive file …"). Distinct from
+   * `display`, which describes what would run; this explains why approval is
+   * needed at all. Absent when the engine has no policy-specific explanation.
+   */
+  readonly reason?: string | undefined;
 }
 
 export interface QuestionOption {

@@ -211,6 +211,7 @@ async fn server_e2e_http_rest_full_roundtrip() {
         tool_call_id: "call_bash_e2e".into(),
         turn_id: "turn-e2e".into(),
         arguments: json!({ "command": "npm test" }),
+        reason: None,
     };
     let (approval_id, rx_a) =
         server

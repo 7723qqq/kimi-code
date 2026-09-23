@@ -17,6 +17,13 @@ export const approvalRequestSchema = z.object({
   tool_name: z.string().min(1),
   action: z.string(),
   tool_input_display: z.unknown(),
+  /**
+   * Why the engine is asking, already rendered in the host's locale — the local
+   * permission policy that fired ("access to sensitive file …"). Absent when
+   * the engine has no policy-specific explanation, in which case the host
+   * describes the call from `tool_input_display` as before.
+   */
+  reason: z.string().optional(),
   created_at: isoDateTimeSchema,
   expires_at: isoDateTimeSchema,
 });

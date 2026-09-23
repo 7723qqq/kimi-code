@@ -245,6 +245,11 @@ jobs:
       - run: bun scripts/check-service-naming.mjs
       # Every t() call must resolve to a locale key.
       - run: bun scripts/check-t-call-coverage.mjs
+      # The Rust engine's English fallbacks must stay byte-identical to the
+      # locale entries they mirror, and every engine.* locale key must be used
+      # by some LocalizedText (an orphan means a Rust call site typo'd its key
+      # and is silently rendering English).
+      - run: bun scripts/check-engine-i18n-parity.mjs
       # Hardcoded user-facing strings that duplicate an existing locale value.
       - run: bun scripts/scan-hardcoded-v2.mjs
       # Retired-package delta ratchet: this fork deleted packages/agent-core-v2,

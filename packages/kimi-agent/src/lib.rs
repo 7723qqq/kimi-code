@@ -11,6 +11,7 @@ pub mod cron;
 pub mod engine;
 pub mod events;
 pub mod goal;
+pub mod i18n;
 pub mod injection;
 pub mod knowledge;
 pub mod llm;
@@ -152,12 +153,20 @@ impl crate::callbacks::HostCallbacks for NativeHostCallbacks {
                 }
                 crate::native::permission_engine::PermissionDecision::Deny => {
                     Ok(crate::rpc::types::PermissionDecision::deny(
-                        "Operation denied by local permission engine",
+                        LocalizedText::plain(
+                            "engine.permission.operationDeniedByEngine",
+                            "Operation denied by local permission engine",
+                        )
+                        .render(),
                     ))
                 }
                 crate::native::permission_engine::PermissionDecision::AskUser => {
                     Ok(crate::rpc::types::PermissionDecision::deny(
-                        "Operation requires user confirmation",
+                        LocalizedText::plain(
+                            "engine.permission.operationRequiresConfirmation",
+                            "Operation requires user confirmation",
+                        )
+                        .render(),
                     ))
                 }
             }
@@ -229,6 +238,7 @@ impl crate::callbacks::HostCallbacks for NativeHostCallbacks {
 }
 
 use crate::engine::EngineConfig;
+use crate::i18n::LocalizedText;
 
 /// Legacy in-crate engine facade.
 ///
@@ -325,7 +335,12 @@ impl KimiEngine {
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         // Native permission evaluation — the one real decision this path owns.
         if !self.permission.prompt_user_if_needed("agent_turn", None) {
-            return Err("Execution denied by local permission engine".into());
+            return Err(LocalizedText::plain(
+                "engine.permission.executionDeniedByEngine",
+                "Execution denied by local permission engine",
+            )
+            .render()
+            .into());
         }
 
         Err(format!(

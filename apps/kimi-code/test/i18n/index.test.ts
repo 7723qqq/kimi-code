@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
+import { createRequire } from 'node:module';
+
 import { t, setLocale, getLocale } from '#/i18n';
 import en from '#/i18n/locales/en';
 import zh from '#/i18n/locales/zh';
@@ -70,6 +72,72 @@ describe('i18n', () => {
       setLocale('en');
       setLocale('fr' as any);
       expect(getLocale()).toBe('en');
+    });
+  });
+
+  describe('engine locale sync', () => {
+    /**
+     * The Rust engine renders its own user-facing text (permission reasons,
+     * tool-result notes, error prefixes) from the locale the host installs via
+     * `setEngineLocale`. Without that install those messages stay English, so
+     * the wiring — not just the types — needs covering.
+     */
+    interface EngineLocaleCall {
+      localeJson: string;
+      fallbackJson: string;
+    }
+
+    function spyOnEngineLocale(): { calls: EngineLocaleCall[]; restore: () => void } {
+      const native = createRequire(import.meta.url)('@moonshot-ai/kimi-agent/native') as {
+        setEngineLocale?: (localeJson: string, fallbackJson: string) => void;
+      };
+      const original = native.setEngineLocale;
+      const calls: EngineLocaleCall[] = [];
+      native.setEngineLocale = (localeJson, fallbackJson) => {
+        calls.push({ localeJson, fallbackJson });
+        original?.(localeJson, fallbackJson);
+      };
+      return { calls, restore: () => (native.setEngineLocale = original) };
+    }
+
+    /** The most recent install, asserting one happened. */
+    function lastCall(calls: EngineLocaleCall[]): EngineLocaleCall {
+      const last = calls.at(-1);
+      expect(last, 'setEngineLocale was never called').toBeDefined();
+      if (!last) throw new Error('unreachable');
+      return last;
+    }
+
+    it('re-installs the engine locale when the host locale switches', () => {
+      const { calls, restore } = spyOnEngineLocale();
+      try {
+        setLocale('zh');
+        const { localeJson, fallbackJson } = lastCall(calls);
+
+        // The engine resolves keys against exactly the trees the host serves,
+        // so the payload must be the real locale data, not a stub.
+        const locale = JSON.parse(localeJson) as Record<string, unknown>;
+        const fallback = JSON.parse(fallbackJson) as Record<string, unknown>;
+        expect(Object.keys(locale).length).toBeGreaterThan(0);
+        expect(Object.keys(fallback).length).toBeGreaterThan(0);
+        // English is the fallback language the engine resolves against.
+        expect(fallback).toHaveProperty('common.ok');
+      } finally {
+        restore();
+      }
+    });
+
+    it('hands the engine the same tree the host translates with', () => {
+      const { calls, restore } = spyOnEngineLocale();
+      try {
+        setLocale('zh');
+        const { localeJson } = lastCall(calls);
+        // A key the host can translate must be resolvable by the engine too,
+        // otherwise the two would drift apart on the same locale.
+        expect(JSON.parse(localeJson)).toHaveProperty('common.ok');
+      } finally {
+        restore();
+      }
     });
   });
 

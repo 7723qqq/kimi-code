@@ -9,8 +9,6 @@ use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::pin::Pin;
 
-use crate::turn_loop::types::ToolDelivery;
-
 /// A boxed future type alias for async handlers.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -243,6 +241,16 @@ pub struct PermissionCheckRequest {
     #[serde(default)]
     pub turn_id: String,
     pub arguments: serde_json::Value,
+    /// Why the engine is asking, in the host's locale — the local permission
+    /// policy that fired (`SensitiveFileAccessAsk`, `DangerousCommandAsk`, …)
+    /// rendered through `i18n::LocalizedText`. `None` when the engine has no
+    /// policy-specific explanation, in which case the host falls back to
+    /// describing the tool call itself.
+    ///
+    /// `#[serde(default)]` keeps a host built before this field wire-compatible:
+    /// it simply never sees a reason, exactly as before.
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 /// The host's permission verdict for a [`PermissionCheckRequest`].
@@ -438,7 +446,7 @@ pub struct StateWriteResponse {
 /// can swap them interchangeably.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListToolsResponse {
-    pub tools: Vec<crate::turn_loop::types::ToolInfo>,
+    pub tools: Vec<ToolInfo>,
 }
 
 /// Response body of `host/auth_token`: the bearer token the transport puts in
@@ -739,7 +747,7 @@ pub struct RunTurnParams {
     /// When present, the loop checks budgets before each step and
     /// injects steering text into the system prompt.
     #[serde(default)]
-    pub goal: Option<crate::turn_loop::types::GoalContext>,
+    pub goal: Option<GoalContext>,
     /// Native HTTP LLM transport. When present, the Rust engine calls the
     /// provider directly (streaming) instead of proxying through the host.
     #[serde(default)]
@@ -782,7 +790,7 @@ pub struct RunTurnParams {
     /// Host-injected telemetry context (M1c): the host's model configuration
     /// merged into the engine-emitted `host/telemetry` events.
     #[serde(default)]
-    pub telemetry: Option<crate::turn_loop::types::TelemetryContext>,
+    pub telemetry: Option<TelemetryContext>,
     /// Session profile catalog snapshot (P46): the profiles the host lets
     /// the native `Agent` tool spawn. Empty = every `Agent` call falls
     /// back to the host tool.
@@ -1168,7 +1176,7 @@ pub struct ToolExecuteResponse {
     #[serde(default)]
     pub stop_turn: bool,
     /// Rich content the tool wants delivered to the model as a follow-up
-    /// `user` message (see [`crate::turn_loop::types::ToolDelivery`]). Native
+    /// `user` message (see [`ToolDelivery`]). Native
     /// tools carry it through this bridge; hosts that produce none omit it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delivery: Option<ToolDelivery>,
@@ -1478,6 +1486,7 @@ mod tests {
             tool_call_id: "c2".into(),
             turn_id: "turn-1".into(),
             arguments: serde_json::json!({"path": "a"}),
+            reason: None,
         };
         assert_eq!(serde_json::to_value(&perm).unwrap()["tool_name"], "Write");
         // A producer that carries no turn id still deserializes; the approval
@@ -2255,4 +2264,146 @@ mod tests {
             "<sessionDir>/agents/agent-1/plans/plan-7f3a.md"
         );
     }
+}
+
+// ── Engine/LLM contract types shared with the turn loop ────────────────────
+
+/// Information about an available tool.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolInfo {
+    pub name: String,
+    pub description: String,
+    pub input_schema: serde_json::Value,
+}
+
+/// Media (or rich content) a tool attaches to its result. The turn loop
+/// appends it as a follow-up `user` message right after the tool message:
+/// content parts on a tool message are rejected by OpenAI-compatible APIs, so
+/// an image the model asked to read reaches the conversation the same way a
+/// user-pasted image does (v2 `ToolDelivery`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolDelivery {
+    pub blocks: Vec<ContentBlock>,
+}
+
+/// Goal status, matching the 6-state machine in `kimi-native-tools::goal::state`.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+pub enum GoalStatus {
+    #[serde(rename = "active")]
+    Active,
+    #[serde(rename = "paused")]
+    Paused,
+    #[serde(rename = "blocked")]
+    Blocked,
+    #[serde(rename = "complete")]
+    Complete,
+    #[serde(rename = "budgetLimited")]
+    BudgetLimited,
+    #[serde(rename = "usageLimited")]
+    UsageLimited,
+}
+
+impl GoalStatus {
+    /// Returns true if the goal is actively being pursued.
+    pub fn is_active(self) -> bool {
+        matches!(self, GoalStatus::Active)
+    }
+}
+
+/// Goal context passed from the host for budget-aware turn execution.
+///
+/// The host owns the durable goal state; this struct carries a snapshot
+/// so the Rust loop can check budgets locally and render steering text
+/// without an extra round-trip per step.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GoalContext {
+    pub goal_id: String,
+    pub objective: String,
+    pub status: GoalStatus,
+    /// Optional token budget (total tokens allowed).
+    pub token_budget: Option<i64>,
+    /// Optional turn budget (max turns).
+    pub turn_budget: Option<i64>,
+    /// Optional wall-clock budget (milliseconds for the whole goal).
+    #[serde(default)]
+    pub wall_clock_budget_ms: Option<i64>,
+    /// Wall-clock milliseconds already consumed before this turn.
+    #[serde(default)]
+    pub wall_clock_ms: i64,
+    /// Cumulative tokens consumed so far (before this turn).
+    pub tokens_used: i64,
+    /// Cumulative turns run so far (before this turn).
+    pub turns_used: i64,
+}
+
+impl GoalContext {
+    /// Returns true if adding `turn_tokens`, one more turn, and
+    /// `turn_wall_clock_ms` of wall-clock time would exceed any configured
+    /// budget.
+    pub fn would_exceed_budget(
+        &self,
+        turn_tokens: i64,
+        turns_this_turn: i64,
+        turn_wall_clock_ms: i64,
+    ) -> bool {
+        if let Some(budget) = self.token_budget
+            && self.tokens_used + turn_tokens >= budget
+        {
+            return true;
+        }
+        if let Some(budget) = self.turn_budget
+            && self.turns_used + turns_this_turn >= budget
+        {
+            return true;
+        }
+        if let Some(budget) = self.wall_clock_budget_ms
+            && self.wall_clock_ms + turn_wall_clock_ms >= budget
+        {
+            return true;
+        }
+        false
+    }
+
+    /// Maximum fraction of any budget dimension currently consumed
+    /// (0.0 when no budgets configured).
+    pub fn budget_fraction(
+        &self,
+        turn_tokens: i64,
+        turns_this_turn: i64,
+        turn_wall_clock_ms: i64,
+    ) -> f64 {
+        let mut fractions = Vec::new();
+        if let Some(budget) = self.token_budget
+            && budget > 0
+        {
+            fractions.push((self.tokens_used + turn_tokens) as f64 / budget as f64);
+        }
+        if let Some(budget) = self.turn_budget
+            && budget > 0
+        {
+            fractions.push((self.turns_used + turns_this_turn) as f64 / budget as f64);
+        }
+        if let Some(budget) = self.wall_clock_budget_ms
+            && budget > 0
+        {
+            fractions.push((self.wall_clock_ms + turn_wall_clock_ms) as f64 / budget as f64);
+        }
+        fractions.iter().cloned().fold(0.0_f64, f64::max)
+    }
+}
+
+/// Host-injected context for the engine's turn telemetry (M1c). The host
+/// knows the model configuration; the engine observes the turn outcome and
+/// emits `turn_started` / `turn_ended` / `turn_interrupted` through
+/// `host/telemetry` with both merged.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct TelemetryContext {
+    pub mode: String,
+    pub provider_type: String,
+    pub protocol: String,
+    pub thinking_effort: Option<String>,
+    /// Comma-separated sorted ids of the enabled, loaded plugins (v2 #3963):
+    /// an empty string is a known empty set, `None` means the host has no
+    /// plugin snapshot to report.
+    pub enabled_plugins: Option<String>,
 }

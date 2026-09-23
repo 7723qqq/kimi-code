@@ -480,4 +480,36 @@ describe('ApprovalPanelComponent', () => {
       { response: 'rejected', feedback: 'no', selected_label: 'Revise' },
     ]);
   });
+
+  // The engine's policy explanation leads the prompt: it says why approval is
+  // needed, ahead of the preview of what would actually run.
+  it('renders the engine reason beneath the title, ahead of the preview', () => {
+    const pending = makePending();
+    pending.data.reason = 'Access to sensitive file requires approval: .env';
+    const dialog = new ApprovalPanelComponent(pending, () => {});
+
+    const out = strip(dialog.render(80).join('\n'));
+    expect(out).toContain('Access to sensitive file requires approval: .env');
+
+    // And it precedes the tool description further down the panel.
+    expect(out.indexOf('Access to sensitive file')).toBeLessThan(out.indexOf('Update README.md'));
+  });
+
+  it('renders no reason line when the engine has none to give', () => {
+    const { dialog } = makeDialog();
+    const out = strip(dialog.render(80).join('\n'));
+    // The panel is unchanged from before the reason field existed.
+    expect(out).not.toContain('requires approval');
+    expect(out).toContain('Update README.md');
+  });
+
+  it('renders a multi-line engine reason line by line', () => {
+    const pending = makePending();
+    pending.data.reason = 'first line\nsecond line';
+    const dialog = new ApprovalPanelComponent(pending, () => {});
+
+    const out = strip(dialog.render(80).join('\n'));
+    expect(out).toContain('first line');
+    expect(out).toContain('second line');
+  });
 });

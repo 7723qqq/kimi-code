@@ -7,6 +7,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use crate::i18n::LocalizedText;
 use crate::rpc::types::{
     AskQuestionRequest, AskQuestionResponse, AuthTokenResponse, BoxFuture, CheckpointRequest,
     ListToolsResponse, LlmChatRequest, LlmChatResponse, PermissionCheckRequest, PermissionDecision,
@@ -778,11 +779,15 @@ impl HostCallbacks for NativeToolCallbacks {
                 let verdict = engine.evaluate(&request.tool_name, &request.arguments);
                 match verdict.decision {
                     crate::permission::VerdictDecision::Allow => PermissionDecision::allow(),
-                    crate::permission::VerdictDecision::Deny => PermissionDecision::deny(
-                        verdict
-                            .reason
-                            .unwrap_or_else(|| "Denied by local permission policy".into()),
-                    ),
+                    crate::permission::VerdictDecision::Deny => {
+                        PermissionDecision::deny(verdict.reason.unwrap_or_else(|| {
+                            LocalizedText::plain(
+                                "engine.permission.deniedByLocalPolicy",
+                                "Denied by local permission policy",
+                            )
+                            .render()
+                        }))
+                    }
                     crate::permission::VerdictDecision::Ask => {
                         this.inner
                             .check_permission(PermissionCheckRequest {
@@ -790,6 +795,11 @@ impl HostCallbacks for NativeToolCallbacks {
                                 tool_call_id: request.tool_call_id.clone(),
                                 turn_id: request.turn_id.clone(),
                                 arguments: request.arguments.clone(),
+                                // Carry the policy's explanation to the host so
+                                // the approval prompt can say *why* it is asking
+                                // ("access to sensitive file …") instead of only
+                                // naming the tool. Localized on the engine side.
+                                reason: verdict.reason.clone(),
                             })
                             .await?
                     }
@@ -801,13 +811,20 @@ impl HostCallbacks for NativeToolCallbacks {
                         tool_call_id: request.tool_call_id.clone(),
                         turn_id: request.turn_id.clone(),
                         arguments: request.arguments.clone(),
+                        // The host owns this tool, so no local policy ran and
+                        // there is no engine-side explanation to carry.
+                        reason: None,
                     })
                     .await?
             };
             if !decision.is_allow() {
-                let reason = decision
-                    .reason
-                    .unwrap_or_else(|| "denied by host permission".into());
+                let reason = decision.reason.unwrap_or_else(|| {
+                    LocalizedText::plain(
+                        "engine.permission.deniedByHostPermission",
+                        "denied by host permission",
+                    )
+                    .render()
+                });
                 // The refusal is the tool result the model sees — report it so
                 // the host transcript records the card's terminal state too.
                 this.inner.emit_event(serde_json::json!({
@@ -3717,5 +3734,209 @@ mod tests {
         let res = callbacks.list_tools().await.unwrap();
         let names: Vec<&str> = res.tools.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(names, vec!["Read", "host_custom_tool"]);
+    }
+
+    // ── Local permission reasons reaching the host ───────────────────────
+    //
+    // The local permission engine renders *why* it is asking, and that
+    // explanation has to survive the hop to the host — otherwise the approval
+    // prompt can only name the tool. These cover the hand-off, which no other
+    // test exercises (the existing `ScriptedPermissionCallbacks` discards the
+    // request).
+
+    /// Records every `PermissionCheckRequest` the wrapper forwards.
+    struct CapturingPermissionCallbacks {
+        seen: Arc<std::sync::Mutex<Vec<PermissionCheckRequest>>>,
+    }
+
+    impl HostCallbacks for CapturingPermissionCallbacks {
+        fn llm_chat(
+            &self,
+            _: LlmChatRequest,
+        ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+            Box::pin(async { Err("not used".into()) })
+        }
+
+        fn execute_tool(
+            &self,
+            _: ToolExecuteRequest,
+        ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+            Box::pin(async {
+                Ok(ToolExecuteResponse {
+                    delivery: None,
+                    stop_turn: false,
+                    content: "host executed".into(),
+                    is_error: false,
+                    note: None,
+                })
+            })
+        }
+
+        fn check_permission(
+            &self,
+            request: PermissionCheckRequest,
+        ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+            self.seen
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(request);
+            Box::pin(async { Ok(PermissionDecision::allow()) })
+        }
+    }
+
+    fn capturing_setup() -> (
+        tempfile::TempDir,
+        NativeToolCallbacks,
+        Arc<std::sync::Mutex<Vec<PermissionCheckRequest>>>,
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        // A default (Manual) snapshot asks for a sensitive path, so `evaluate`
+        // returns an Ask verdict whose reason must reach the host.
+        let engine = Arc::new(crate::permission::PermissionEngine::new(
+            crate::permission::PolicySnapshot::default(),
+        ));
+        let native = NativeToolCallbacks {
+            inner: Arc::new(CapturingPermissionCallbacks { seen: seen.clone() }),
+            toolset: Arc::new(NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap()),
+            native_count: Arc::new(AtomicU32::new(0)),
+            truncator: None,
+            permission_engine: Some(engine),
+            plan_guard: None,
+            stale_guard: None,
+            goal_guard: None,
+            hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
+            todo_tool_veto: None,
+            tower_worktree_root: None,
+            tower_enabled: false,
+            sandbox_policy: None,
+        };
+        (dir, native, seen)
+    }
+
+    /// The permission evaluation happens inside `execute_tool`, not
+    /// `check_permission` (which is a bare pass-through on this wrapper), so the
+    /// hand-off is driven from there. `Read` is native, so the toolset handles it
+    /// and the local engine gets to decide.
+    fn exec_request(tool_name: &str, arguments: serde_json::Value) -> ToolExecuteRequest {
+        ToolExecuteRequest {
+            turn_id: "turn-1".into(),
+            tool_call_id: "call_1".into(),
+            tool_name: tool_name.into(),
+            arguments,
+        }
+    }
+
+    /// Serializes the tests below.
+    ///
+    /// One of them installs a process-wide locale, and the others assert the
+    /// English fallback for a key that locale *does* translate — without this,
+    /// a parallel run would hand one test the other's language.
+    ///
+    /// A tokio `Mutex` rather than a `std` one: the guard is held across the
+    /// `execute_tool` await, which `clippy::await_holding_lock` rejects on the
+    /// blocking kind.
+    static REASON_LOCK: once_cell::sync::Lazy<tokio::sync::Mutex<()>> =
+        once_cell::sync::Lazy::new(|| tokio::sync::Mutex::new(()));
+
+    async fn reason_lock() -> tokio::sync::MutexGuard<'static, ()> {
+        REASON_LOCK.lock().await
+    }
+
+    #[tokio::test]
+    async fn an_ask_verdict_forwards_its_reason_to_the_host() {
+        let _lock = reason_lock().await;
+        let (_dir, callbacks, seen) = capturing_setup();
+
+        let _ = callbacks
+            .execute_tool(exec_request("Read", serde_json::json!({ "path": ".env" })))
+            .await
+            .expect("the host answers the ask");
+
+        let requests = seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert_eq!(requests.len(), 1, "exactly one permission consult");
+        assert_eq!(
+            requests[0].reason.as_deref(),
+            Some("Access to sensitive file requires approval: .env"),
+            "the policy's explanation must reach the host, not just the tool name"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_forwarded_reason_follows_the_host_locale() {
+        let _lock = reason_lock().await;
+        // Same hand-off, with a locale installed: the host receives the
+        // localized sentence, so it needs no translation table of its own.
+        crate::i18n::set_engine_locale(
+            serde_json::json!({
+                "engine": {
+                    "permission": {
+                        "sensitiveFileAccess": "访问敏感文件需要审批：{{path}}"
+                    }
+                }
+            })
+            .to_string(),
+            serde_json::json!({}).to_string(),
+        );
+
+        let (_dir, callbacks, seen) = capturing_setup();
+        let _ = callbacks
+            .execute_tool(exec_request("Read", serde_json::json!({ "path": ".env" })))
+            .await
+            .expect("the host answers the ask");
+
+        crate::i18n::clear_engine_locale();
+
+        let requests = seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        assert_eq!(
+            requests[0].reason.as_deref(),
+            Some("访问敏感文件需要审批：.env")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_deny_verdict_keeps_its_reason_on_the_returned_decision() {
+        let _lock = reason_lock().await;
+        // A deny never reaches the host: the engine answers it itself, and the
+        // reason becomes the tool result the model sees.
+        let dir = tempfile::tempdir().unwrap();
+        let snapshot = crate::permission::PolicySnapshot {
+            deny_rules: vec!["Read".to_string()],
+            ..Default::default()
+        };
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let callbacks = NativeToolCallbacks {
+            inner: Arc::new(CapturingPermissionCallbacks { seen: seen.clone() }),
+            toolset: Arc::new(NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap()),
+            native_count: Arc::new(AtomicU32::new(0)),
+            truncator: None,
+            permission_engine: Some(Arc::new(crate::permission::PermissionEngine::new(snapshot))),
+            plan_guard: None,
+            stale_guard: None,
+            goal_guard: None,
+            hook_guard: None,
+            agent_tool_veto: None,
+            tools_veto: None,
+            todo_tool_veto: None,
+            tower_worktree_root: None,
+            tower_enabled: false,
+            sandbox_policy: None,
+        };
+
+        let response = callbacks
+            .execute_tool(exec_request("Read", serde_json::json!({ "path": "a.txt" })))
+            .await
+            .expect("the engine answers a deny itself");
+
+        assert!(response.is_error);
+        assert_eq!(response.content, "Denied by user rule: Read");
+        assert!(
+            seen.lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .is_empty(),
+            "a deny must not consult the host"
+        );
     }
 }

@@ -30,7 +30,7 @@ pub(crate) mod shell_path_bridge;
 mod tokens;
 mod tool_access;
 pub(crate) mod tool_naming;
-mod translation;
+pub(crate) mod translation;
 /// Synchronous DuckDuckGo search. Shared by the `native_search` binding and by
 /// the workflow runtime's `search()` primitive (which takes a sync provider).
 pub mod web_search;

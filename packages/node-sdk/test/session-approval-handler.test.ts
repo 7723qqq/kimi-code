@@ -162,12 +162,65 @@ describe('Session approval handler', () => {
       }),
     );
   });
+
+  // The engine's policy explanation has to survive `requestApproval` so the
+  // host's prompt can say why it is asking, not just what it would run.
+  it('delivers the engine reason to the registered handler', async () => {
+    const rpc = new FakeSDKRpcClient();
+    const session = new Session({
+      id: 'ses_approval_reason',
+      workDir: '/tmp',
+      rpc: rpc.asRpc(),
+    });
+    const seen: Array<string | undefined> = [];
+    session.setApprovalHandler(async (request) => {
+      seen.push(request.reason);
+      return { decision: 'approved' };
+    });
+
+    await rpc.requestApproval(
+      session.id,
+      'main',
+      approvalRequest({
+        toolCallId: 'tool_r',
+        toolName: 'Read',
+        action: 'read',
+        reason: 'Access to sensitive file requires approval: .env',
+      }),
+    );
+
+    expect(seen).toEqual(['Access to sensitive file requires approval: .env']);
+  });
+
+  it('leaves the reason undefined when the engine has none to give', async () => {
+    const rpc = new FakeSDKRpcClient();
+    const session = new Session({
+      id: 'ses_approval_no_reason',
+      workDir: '/tmp',
+      rpc: rpc.asRpc(),
+    });
+    const seen: Array<string | undefined> = [];
+    session.setApprovalHandler(async (request) => {
+      seen.push(request.reason);
+      return { decision: 'approved' };
+    });
+
+    await rpc.requestApproval(
+      session.id,
+      'main',
+      approvalRequest({ toolCallId: 'tool_n', toolName: 'Read', action: 'read' }),
+    );
+
+    expect(seen).toEqual([undefined]);
+  });
 });
 
 interface ApprovalRequestInput {
   readonly toolCallId: string;
   readonly toolName: string;
   readonly action: string;
+  /** Why the engine is asking; omitted when it has no policy explanation. */
+  readonly reason?: string;
 }
 
 function approvalRequest(input: ApprovalRequestInput): ApprovalRequest {
@@ -176,9 +229,9 @@ function approvalRequest(input: ApprovalRequestInput): ApprovalRequest {
     toolName: input.toolName,
     action: input.action,
     display: { kind: 'generic', summary: input.action },
+    ...(input.reason !== undefined ? { reason: input.reason } : {}),
   };
 }
-
 class FakeSDKRpcClient {
   private readonly approvalHandlers = new Map<string, ApprovalHandler>();
   readonly closeSession = vi.fn(async (_input: { readonly sessionId: string }) => {});

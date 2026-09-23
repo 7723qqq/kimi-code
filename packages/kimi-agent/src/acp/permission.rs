@@ -14,6 +14,7 @@ use crate::acp::channel::AcpChannel;
 use crate::acp::events_map::infer_tool_kind;
 use crate::acp::types::AcpClientCapabilities;
 use crate::callbacks::HostCallbacks;
+use crate::i18n::LocalizedText;
 use crate::rpc::types::{
     AskQuestionRequest, AskQuestionResponse, BoxFuture, LlmChatRequest, LlmChatResponse,
     PermissionCheckRequest, PermissionDecision, ToolExecuteRequest, ToolExecuteResponse,
@@ -184,15 +185,31 @@ async fn run_bash_on_terminal(
 
 /// The option set offered to the client: allow-once is the primary action,
 /// allow-always the secondary, reject last (v2 `buildApprovalOptions`).
+///
+/// The labels follow the host locale; the `optionId` / `kind` pairs stay fixed
+/// because [`decision_from_response`] matches on them, so a translation can
+/// never change which button a click resolves to.
 pub fn permission_options() -> Value {
     json!([
-        { "optionId": APPROVE_ONCE_OPTION_ID, "name": "Approve once", "kind": "allow_once" },
+        {
+            "optionId": APPROVE_ONCE_OPTION_ID,
+            "name": LocalizedText::plain("engine.permission.approveOnce", "Approve once").render(),
+            "kind": "allow_once"
+        },
         {
             "optionId": APPROVE_ALWAYS_OPTION_ID,
-            "name": "Approve for this session",
-            "kind": "allow_always",
+            "name": LocalizedText::plain(
+                "engine.permission.approveForSession",
+                "Approve for this session"
+            )
+            .render(),
+            "kind": "allow_always"
         },
-        { "optionId": REJECT_OPTION_ID, "name": "Reject", "kind": "reject_once" },
+        {
+            "optionId": REJECT_OPTION_ID,
+            "name": LocalizedText::plain("engine.permission.reject", "Reject").render(),
+            "kind": "reject_once"
+        },
     ])
 }
 
@@ -546,6 +563,7 @@ mod tests {
             tool_call_id: "call_1".into(),
             turn_id: "turn-1".into(),
             arguments: json!({ "path": "a.txt" }),
+            reason: None,
         };
 
         // The check blocks on the client, so run it in a task and play the
@@ -611,6 +629,7 @@ mod tests {
             tool_call_id: "call_2".into(),
             turn_id: "turn-1".into(),
             arguments: json!({ "command": "rm -rf /" }),
+            reason: None,
         };
 
         let pending = {

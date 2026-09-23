@@ -8,6 +8,11 @@
 *.swo
 # napi build artifacts
 *.node
+# napi-rs writes this to the package root when invoked without `--dts`. The
+# build script always passes `--dts target/napi-generated.d.ts`, so a root
+# `index.d.ts` is always a stray — and it is not covered by the root
+# .gitignore, where it shows up as hundreds of lint errors.
+/index.d.ts
 # napi-rs atomic-replace transaction artifacts (retired old binaries + swap dirs)
 *.retired.tmp.*
 .napi-rs-filesystem-transaction.swp/

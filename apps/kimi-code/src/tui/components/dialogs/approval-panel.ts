@@ -353,6 +353,17 @@ export class ApprovalPanelComponent extends Container implements Focusable {
       indent(`${borderColorBold('▶')} ${borderColorBold(title)}`),
     ];
 
+    // The engine's policy explanation, when it has one: why this call needs
+    // approval at all ("access to sensitive file …"). It sits directly under
+    // the title because it is the context a decision turns on, ahead of the
+    // preview of what would actually run.
+    if (data.reason !== undefined && data.reason.length > 0) {
+      lines.push('');
+      for (const reasonLine of data.reason.split('\n')) {
+        lines.push(indent(dim(reasonLine)));
+      }
+    }
+
     const dedupedBlocks = data.display.filter(
       (block) => !isDuplicateBriefBlock(block, data.description),
     );

@@ -118,6 +118,32 @@ pub fn native_translate_batch_cached(
 }
 
 // ============================================================================
+// Engine locale
+// ============================================================================
+
+/// Install the engine-side locale.
+///
+/// The `native_translate*` family above serves the host's own UI strings. This
+/// one serves the engine's own user-facing text — permission reasons,
+/// tool-result notes, error prefixes — which is otherwise hardcoded English.
+///
+/// `fallback_json` is the language a key missing from `locale_json` resolves
+/// against (English here). Passing an empty `locale_json` drops the locale and
+/// restores the English fallbacks, so an embedder that never localizes does not
+/// have to call [`clear_engine_locale`] explicitly.
+#[napi]
+pub fn set_engine_locale(locale_json: String, fallback_json: String) {
+    crate::i18n::set_engine_locale(locale_json, fallback_json);
+}
+
+/// Drop the engine-side locale; the engine's own messages render their English
+/// fallback again.
+#[napi]
+pub fn clear_engine_locale() {
+    crate::i18n::clear_engine_locale();
+}
+
+// ============================================================================
 // Read tool
 // ============================================================================
 

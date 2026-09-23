@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 use url::Url;
 
 use super::moonshot_service::{self, MoonshotServiceConfig};
+use crate::i18n::{LocalizedText, i18n_params};
 use crate::turn_loop::types::ExecutableToolResult;
 
 const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
@@ -152,7 +153,12 @@ pub async fn execute_fetch_url(
                 return Some(ExecutableToolResult {
                     delivery: None,
                     stop_turn: false,
-                    content: format!("Failed to fetch URL: Invalid URL: {e}"),
+                    content: LocalizedText::fmt(
+                        "engine.tools.fetchUrl.invalidUrl",
+                        format!("Failed to fetch URL: Invalid URL: {e}"),
+                        i18n_params!["e" => e],
+                    )
+                    .render(),
                     is_error: true,
                     note: None,
                 });
@@ -165,7 +171,12 @@ pub async fn execute_fetch_url(
                 return Some(ExecutableToolResult {
                     delivery: None,
                     stop_turn: false,
-                    content: format!("Failed to fetch URL: {err}"),
+                    content: LocalizedText::fmt(
+                        "engine.tools.fetchUrl.fetchFailed",
+                        format!("Failed to fetch URL: {err}"),
+                        i18n_params!["err" => err],
+                    )
+                    .render(),
                     is_error: true,
                     note: None,
                 });
@@ -178,7 +189,11 @@ pub async fn execute_fetch_url(
                 return Some(ExecutableToolResult {
                     delivery: None,
                     stop_turn: false,
-                    content: "Failed to fetch URL: URL has no host".to_string(),
+                    content: LocalizedText::plain(
+                        "engine.tools.fetchUrl.noHost",
+                        "Failed to fetch URL: URL has no host",
+                    )
+                    .render(),
                     is_error: true,
                     note: None,
                 });
@@ -202,7 +217,12 @@ pub async fn execute_fetch_url(
                 return Some(ExecutableToolResult {
                     delivery: None,
                     stop_turn: false,
-                    content: format!("Failed to initialize HTTP client: {e}"),
+                    content: LocalizedText::fmt(
+                        "engine.tools.fetchUrl.clientInitFailed",
+                        format!("Failed to initialize HTTP client: {e}"),
+                        i18n_params!["e" => e],
+                    )
+                    .render(),
                     is_error: true,
                     note: None,
                 });
@@ -215,9 +235,12 @@ pub async fn execute_fetch_url(
                 return Some(ExecutableToolResult {
                     delivery: None,
                     stop_turn: false,
-                    content: format!(
-                        "Failed to fetch URL due to network error: {current_url}. {e}"
-                    ),
+                    content: LocalizedText::fmt(
+                        "engine.tools.fetchUrl.networkError",
+                        format!("Failed to fetch URL due to network error: {current_url}. {e}"),
+                        i18n_params!["current_url" => current_url, "e" => e],
+                    )
+                    .render(),
                     is_error: true,
                     note: None,
                 });
@@ -230,9 +253,14 @@ pub async fn execute_fetch_url(
                 return Some(ExecutableToolResult {
                     delivery: None,
                     stop_turn: false,
-                    content: format!(
-                        "Failed to fetch URL: too many redirects (max {MAX_REDIRECT_HOPS})"
-                    ),
+                    content: LocalizedText::fmt(
+                        "engine.tools.fetchUrl.tooManyRedirects",
+                        format!(
+                            "Failed to fetch URL: too many redirects (max {MAX_REDIRECT_HOPS})"
+                        ),
+                        i18n_params!["MAX_REDIRECT_HOPS" => MAX_REDIRECT_HOPS],
+                    )
+                    .render(),
                     is_error: true,
                     note: None,
                 });
@@ -248,8 +276,11 @@ pub async fn execute_fetch_url(
                     return Some(ExecutableToolResult {
                         delivery: None,
                         stop_turn: false,
-                        content: "Failed to fetch URL: Redirect without Location header"
-                            .to_string(),
+                        content: LocalizedText::plain(
+                            "engine.tools.fetchUrl.redirectNoLocation",
+                            "Failed to fetch URL: Redirect without Location header",
+                        )
+                        .render(),
                         is_error: true,
                         note: None,
                     });
@@ -264,7 +295,12 @@ pub async fn execute_fetch_url(
                     return Some(ExecutableToolResult {
                         delivery: None,
                         stop_turn: false,
-                        content: format!("Failed to fetch URL: Invalid redirect URL: {e}"),
+                        content: LocalizedText::fmt(
+                            "engine.tools.fetchUrl.invalidRedirectUrl",
+                            format!("Failed to fetch URL: Invalid redirect URL: {e}"),
+                            i18n_params!["e" => e],
+                        )
+                        .render(),
                         is_error: true,
                         note: None,
                     });
@@ -280,7 +316,12 @@ pub async fn execute_fetch_url(
         return Some(ExecutableToolResult {
             delivery: None,
             stop_turn: false,
-            content: format!("Failed to fetch URL. Status: {status}."),
+            content: LocalizedText::fmt(
+                "engine.tools.fetchUrl.httpStatus",
+                format!("Failed to fetch URL. Status: {status}."),
+                i18n_params!["status" => status],
+            )
+            .render(),
             is_error: true,
             note: None,
         });
@@ -299,7 +340,12 @@ pub async fn execute_fetch_url(
             return Some(ExecutableToolResult {
                 delivery: None,
                 stop_turn: false,
-                content: format!("Failed to read response body: {e}"),
+                content: LocalizedText::fmt(
+                    "engine.tools.fetchUrl.readBodyFailed",
+                    format!("Failed to read response body: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
                 is_error: true,
                 note: None,
             });
@@ -320,7 +366,12 @@ pub async fn execute_fetch_url(
         return Some(ExecutableToolResult {
             delivery: None,
             stop_turn: false,
-            content: format!("Response body too large: exceeds limit ({DEFAULT_MAX_BYTES} bytes)."),
+            content: LocalizedText::fmt(
+                "engine.tools.fetchUrl.bodyTooLarge",
+                format!("Response body too large: exceeds limit ({DEFAULT_MAX_BYTES} bytes)."),
+                i18n_params!["DEFAULT_MAX_BYTES" => DEFAULT_MAX_BYTES],
+            )
+            .render(),
             is_error: true,
             note: None,
         });
@@ -370,9 +421,12 @@ pub fn resolve_and_validate_url(
     match parsed.scheme() {
         "http" | "https" => {}
         scheme => {
-            return Err(format!(
-                "Unsupported scheme \"{scheme}\" — only http(s) allowed."
-            ));
+            return Err(LocalizedText::fmt(
+                "engine.tools.fetchUrl.unsupportedScheme",
+                format!("Unsupported scheme \"{scheme}\" — only http(s) allowed."),
+                i18n_params!["scheme" => scheme],
+            )
+            .render());
         }
     }
 
@@ -384,32 +438,59 @@ pub fn resolve_and_validate_url(
 
     let host_lower = host.to_lowercase();
     if !allow_private && (host_lower == "localhost" || host_lower.ends_with(".localhost")) {
-        return Err(format!("Refusing to fetch private host: \"{host}\""));
+        return Err(LocalizedText::fmt(
+            "engine.tools.fetchUrl.privateHost",
+            format!("Refusing to fetch private host: \"{host}\""),
+            i18n_params!["host" => host],
+        )
+        .render());
     }
 
     if let Ok(ip) = host.parse::<IpAddr>() {
         if !allow_private && is_private_ip(ip) {
-            return Err(format!("Refusing to fetch private address: \"{host}\""));
+            return Err(LocalizedText::fmt(
+                "engine.tools.fetchUrl.privateAddress",
+                format!("Refusing to fetch private address: \"{host}\""),
+                i18n_params!["host" => host],
+            )
+            .render());
         }
         return Ok(vec![SocketAddr::new(ip, port)]);
     }
 
     let addrs: Vec<SocketAddr> = format!("{host}:{port}")
         .to_socket_addrs()
-        .map_err(|e| format!("Cannot resolve host \"{host}\": {e}"))?
+        .map_err(|e| {
+            LocalizedText::fmt(
+                "engine.tools.fetchUrl.cannotResolveHost",
+                format!("Cannot resolve host \"{host}\": {e}"),
+                i18n_params!["host" => host, "e" => e],
+            )
+            .render()
+        })?
         .collect();
 
     if addrs.is_empty() {
-        return Err(format!("Cannot resolve host \"{host}\": no addresses"));
+        return Err(LocalizedText::fmt(
+            "engine.tools.fetchUrl.cannotResolveNoAddresses",
+            format!("Cannot resolve host \"{host}\": no addresses"),
+            i18n_params!["host" => host],
+        )
+        .render());
     }
 
     if !allow_private {
         for addr in &addrs {
             if is_private_ip(addr.ip()) {
-                return Err(format!(
-                    "Refusing to fetch host \"{host}\": resolves to private address \"{}\".",
-                    addr.ip()
-                ));
+                return Err(LocalizedText::fmt(
+                    "engine.tools.fetchUrl.resolvesToPrivate",
+                    format!(
+                        "Refusing to fetch host \"{host}\": resolves to private address \"{ip}\".",
+                        ip = addr.ip()
+                    ),
+                    i18n_params!["host" => host, "ip" => addr.ip()],
+                )
+                .render());
             }
         }
     }
@@ -418,7 +499,14 @@ pub fn resolve_and_validate_url(
 }
 
 pub fn validate_url(url_str: &str, allow_private: bool) -> Result<(), String> {
-    let parsed = Url::parse(url_str).map_err(|e| format!("Invalid URL: {e}"))?;
+    let parsed = Url::parse(url_str).map_err(|e| {
+        LocalizedText::fmt(
+            "engine.tools.fetchUrl.invalidUrl",
+            format!("Invalid URL: {e}"),
+            i18n_params!["e" => e],
+        )
+        .render()
+    })?;
     resolve_and_validate_url(&parsed, allow_private).map(|_| ())
 }
 

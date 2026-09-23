@@ -116,6 +116,13 @@ export interface ApprovalPanelData {
   tool_name: string;
   action: string;
   description: string;
+  /**
+   * Why the engine is asking, already in the active locale — the local
+   * permission policy that fired. Distinct from `description`, which describes
+   * *what* is about to run; this explains *why* it needs approval at all.
+   * Absent when the engine has no policy-specific explanation.
+   */
+  reason?: string;
   display: DisplayBlock[];
   choices: ApprovalPanelChoice[];
 }

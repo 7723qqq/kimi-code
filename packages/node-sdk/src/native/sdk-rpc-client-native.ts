@@ -1712,6 +1712,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
             tool_name?: string;
             action?: string;
             display?: ToolInputDisplay;
+            reason?: string;
           };
           const res = await this.requestApproval({
             sessionId,
@@ -1720,6 +1721,12 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
             action: parsed.action ?? 'execute',
             toolName: parsed.tool_name ?? 'unknown',
             display: parsed.display ?? { kind: 'command', command: parsed.tool_name ?? 'action' },
+            // The engine's policy-specific explanation, already localized. Passed
+            // through so the prompt can say why it is asking rather than only
+            // naming the tool; omitted when the engine has nothing to add.
+            ...(typeof parsed.reason === 'string' && parsed.reason.length > 0
+              ? { reason: parsed.reason }
+              : {}),
           });
           if (res.decision === 'approved') {
             return JSON.stringify({ decision: 'allow' });

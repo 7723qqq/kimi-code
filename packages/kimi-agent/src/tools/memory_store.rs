@@ -23,6 +23,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use crate::i18n::{LocalizedText, i18n_params};
 use crate::tools::memory_paths::{
     MemoryScope, MemoryType, build_rel_path, content_version, detect_type, extract_title,
     memory_dir, parse_memory_path, project_id_from_cwd, sanitize_file_name, scope_dir,
@@ -61,7 +62,14 @@ pub fn project_id_for(workspace_root: &Path) -> String {
 /// Read a memory file: its content and the version token of that content.
 pub fn read(base: &Path, rel_path: &str) -> Result<(String, String), String> {
     let (rel, path) = resolve_path(base, rel_path)?;
-    let content = fs::read_to_string(&path).map_err(|e| format!("Cannot read {rel}: {e}"))?;
+    let content = fs::read_to_string(&path).map_err(|e| {
+        LocalizedText::fmt(
+            "engine.tools.memory.cannotRead",
+            format!("Cannot read {rel}: {e}"),
+            i18n_params!["rel" => rel, "e" => e],
+        )
+        .render()
+    })?;
     let version = content_version(&content);
     Ok((content, version))
 }
@@ -96,14 +104,24 @@ pub fn str_replace(
     let content = require_current(&rel, &path, if_version)?;
     let matches = content.matches(old_str).count();
     if matches == 0 {
-        return Err(format!(
-            "`old_str` was not found in {rel}. Match the file's text exactly.\n\nCurrent content:\n{content}"
-        ));
+        return Err(LocalizedText::fmt(
+            "engine.tools.memory.oldStrNotFound",
+            format!(
+                "`old_str` was not found in {rel}. Match the file's text exactly.\n\nCurrent content:\n{content}"
+            ),
+            i18n_params!["rel" => rel, "content" => content],
+        )
+        .render());
     }
     if matches > 1 {
-        return Err(format!(
-            "`old_str` matches {matches} times in {rel}; it must match exactly once. Add surrounding context to make it unique.\n\nCurrent content:\n{content}"
-        ));
+        return Err(LocalizedText::fmt(
+            "engine.tools.memory.oldStrMatchedMultiple",
+            format!(
+                "`old_str` matches {matches} times in {rel}; it must match exactly once. Add surrounding context to make it unique.\n\nCurrent content:\n{content}"
+            ),
+            i18n_params!["matches" => matches, "rel" => rel, "content" => content],
+        )
+        .render());
     }
     let updated = content.replacen(old_str, new_str, 1);
     write_atomic(&path, &updated)?;
@@ -129,7 +147,14 @@ pub fn append(
 pub fn delete(base: &Path, rel_path: &str, if_version: &str) -> Result<(), String> {
     let (rel, path) = resolve_path(base, rel_path)?;
     require_current(&rel, &path, if_version)?;
-    fs::remove_file(&path).map_err(|e| format!("Cannot delete {rel}: {e}"))
+    fs::remove_file(&path).map_err(|e| {
+        LocalizedText::fmt(
+            "engine.tools.memory.cannotDelete",
+            format!("Cannot delete {rel}: {e}"),
+            i18n_params!["rel" => rel, "e" => e],
+        )
+        .render()
+    })
 }
 
 /// Every `*.md` file under one scope directory, sorted by relative path.
@@ -256,17 +281,28 @@ fn resolve_path(base: &Path, rel_path: &str) -> Result<(String, PathBuf), String
     let rel = build_rel_path(parsed.scope, &parsed.scope_id, &parts.join("/"));
     let path = base.join(&rel);
     if !path.starts_with(base) {
-        return Err(format!(
-            "Error: `{trimmed}` resolves outside the memory store."
-        ));
+        return Err(LocalizedText::fmt(
+            "engine.tools.memory.outsideStore",
+            format!(
+                "Error: `{path}` resolves outside the memory store.",
+                path = trimmed
+            ),
+            i18n_params!["path" => trimmed],
+        )
+        .render());
     }
     Ok((rel, path))
 }
 
 fn not_a_memory_path(rel_path: &str) -> String {
-    format!(
-        "Error: `{rel_path}` is not a memory path. Use a relative path under `global/`, `projects/<id>/`, or `sessions/<id>/`."
+    LocalizedText::fmt(
+        "engine.tools.memory.notMemoryPath",
+        format!(
+            "Error: `{rel_path}` is not a memory path. Use a relative path under `global/`, `projects/<id>/`, or `sessions/<id>/`."
+        ),
+        i18n_params!["rel_path" => rel_path],
     )
+    .render()
 }
 
 /// Whether a path segment is safe to join under the memory base: no empty
@@ -329,9 +365,12 @@ fn check_version(rel: &str, path: &Path, if_version: &str) -> Result<Option<Stri
             content,
             "the path is already in use and `if_version: \"new\"` requires an unused path",
         )),
-        (_, None) => Err(format!(
-            "{rel} does not exist. Pass `if_version: \"new\"` to create it."
-        )),
+        (_, None) => Err(LocalizedText::fmt(
+            "engine.tools.memory.notExistHint",
+            format!("{rel} does not exist. Pass `if_version: \"new\"` to create it."),
+            i18n_params!["rel" => rel],
+        )
+        .render()),
         (expected, Some(content)) => {
             let version = content_version(content);
             if version == expected {
@@ -340,7 +379,12 @@ fn check_version(rel: &str, path: &Path, if_version: &str) -> Result<Option<Stri
                 Err(conflict(
                     rel,
                     content,
-                    &format!("expected version {expected}, current version is {version}"),
+                    &LocalizedText::fmt(
+                        "engine.tools.memory.versionMismatch",
+                        format!("expected version {expected}, current version is {version}"),
+                        i18n_params!["expected" => expected, "version" => version],
+                    )
+                    .render(),
                 ))
             }
         }
@@ -349,21 +393,43 @@ fn check_version(rel: &str, path: &Path, if_version: &str) -> Result<Option<Stri
 
 /// [`check_version`] for the operations that cannot create a file.
 fn require_current(rel: &str, path: &Path, if_version: &str) -> Result<String, String> {
-    check_version(rel, path, if_version)?.ok_or_else(|| format!("{rel} does not exist."))
+    check_version(rel, path, if_version)?.ok_or_else(|| {
+        LocalizedText::fmt(
+            "engine.tools.memory.notExist",
+            format!("{rel} does not exist."),
+            i18n_params!["rel" => rel],
+        )
+        .render()
+    })
 }
 
 fn conflict(rel: &str, content: &str, reason: &str) -> String {
-    format!(
-        "Version conflict on {rel} (current version {}): {reason}.\n\nCurrent content:\n{content}",
-        content_version(content)
+    LocalizedText::fmt(
+        "engine.tools.memory.versionConflict",
+        format!(
+            "Version conflict on {rel} (current version {current}): {reason}.\n\nCurrent content:\n{content}",
+            current = content_version(content)
+        ),
+        i18n_params![
+            "rel" => rel,
+            "current" => content_version(content),
+            "reason" => reason,
+            "content" => content
+        ],
     )
+    .render()
 }
 
 fn current_content(rel: &str, path: &Path) -> Result<Option<String>, String> {
     match fs::read_to_string(path) {
         Ok(content) => Ok(Some(content)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("Cannot read {rel}: {e}")),
+        Err(e) => Err(LocalizedText::fmt(
+            "engine.tools.memory.cannotRead",
+            format!("Cannot read {rel}: {e}"),
+            i18n_params!["rel" => rel, "e" => e],
+        )
+        .render()),
     }
 }
 
@@ -371,16 +437,42 @@ fn current_content(rel: &str, path: &Path) -> Result<Option<String>, String> {
 /// leaves a truncated memory file behind.
 fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Cannot create {}: {e}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|e| {
+            LocalizedText::fmt(
+                "engine.tools.memory.cannotCreate",
+                format!("Cannot create {path}: {e}", path = parent.display()),
+                i18n_params!["path" => parent.display(), "e" => e],
+            )
+            .render()
+        })?;
     }
     let tmp = path.with_extension("md.tmp");
-    let mut file =
-        fs::File::create(&tmp).map_err(|e| format!("Cannot write {}: {e}", tmp.display()))?;
+    let mut file = fs::File::create(&tmp).map_err(|e| {
+        LocalizedText::fmt(
+            "engine.tools.memory.cannotWrite",
+            format!("Cannot write {path}: {e}", path = tmp.display()),
+            i18n_params!["path" => tmp.display(), "e" => e],
+        )
+        .render()
+    })?;
     file.write_all(content.as_bytes())
         .and_then(|_| file.sync_all())
-        .map_err(|e| format!("Cannot write {}: {e}", tmp.display()))?;
-    fs::rename(&tmp, path).map_err(|e| format!("Cannot replace {}: {e}", path.display()))
+        .map_err(|e| {
+            LocalizedText::fmt(
+                "engine.tools.memory.cannotWrite",
+                format!("Cannot write {path}: {e}", path = tmp.display()),
+                i18n_params!["path" => tmp.display(), "e" => e],
+            )
+            .render()
+        })?;
+    fs::rename(&tmp, path).map_err(|e| {
+        LocalizedText::fmt(
+            "engine.tools.memory.cannotReplace",
+            format!("Cannot replace {path}: {e}", path = path.display()),
+            i18n_params!["path" => path.display(), "e" => e],
+        )
+        .render()
+    })
 }
 
 /// Append `addition` as a line, keeping exactly one newline between the

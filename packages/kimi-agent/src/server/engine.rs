@@ -2052,6 +2052,7 @@ model = "gpt-x"
                 tool_call_id: "c".into(),
                 turn_id: "turn-1".into(),
                 arguments: serde_json::json!({}),
+                reason: None,
             })
             .await
             .unwrap();

@@ -11296,6 +11296,7 @@ max_context_size = 1000
             tool_call_id: "call_bash_1".into(),
             turn_id: "turn-inter".into(),
             arguments: json!({ "command": "cargo build" }),
+            reason: None,
         };
         let (aid, rx_a) =
             inter_mgr.register_approval("sess-inter", appr_req, "build project binary");
@@ -11335,6 +11336,7 @@ max_context_size = 1000
             tool_call_id: "call_write_1".into(),
             turn_id: "turn-inter".into(),
             arguments: json!({ "path": "/root/important.conf" }),
+            reason: None,
         };
         let (aid_deny, rx_deny) =
             inter_mgr.register_approval("sess-inter", appr_req_deny, "overwrite system file");
@@ -11378,6 +11380,7 @@ max_context_size = 1000
             tool_call_id: "call_fc".into(),
             turn_id: "turn-fc".into(),
             arguments: json!({ "command": "rm -rf /" }),
+            reason: None,
         };
 
         // Empty body must not approve.

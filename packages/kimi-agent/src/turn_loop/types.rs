@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::rpc::types::TokenUsage;
 
-pub use crate::rpc::types::ContentBlock;
+pub use crate::rpc::types::{
+    ContentBlock, GoalContext, GoalStatus, TelemetryContext, ToolDelivery, ToolInfo,
+};
 
 // ── TurnResult ─────────────────────────────────────────────────────────────
 
@@ -222,14 +224,6 @@ impl LLMMessage {
     }
 }
 
-/// Information about an available tool.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolInfo {
-    pub name: String,
-    pub description: String,
-    pub input_schema: serde_json::Value,
-}
-
 /// The LLM's response to a chat call.
 #[derive(Debug, Clone, Default)]
 pub struct LLMChatResponse {
@@ -289,16 +283,6 @@ pub type ToolExecutor = Box<
 pub struct ToolExecContext {
     pub turn_id: String,
     pub tool_call_id: String,
-}
-
-/// Media (or rich content) a tool attaches to its result. The turn loop
-/// appends it as a follow-up `user` message right after the tool message:
-/// content parts on a tool message are rejected by OpenAI-compatible APIs, so
-/// an image the model asked to read reaches the conversation the same way a
-/// user-pasted image does (v2 `ToolDelivery`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ToolDelivery {
-    pub blocks: Vec<ContentBlock>,
 }
 
 /// The result of a tool execution.
@@ -852,114 +836,6 @@ pub trait ExecutableTool: Send + Sync {
     ) -> Result<ToolExecution, Box<dyn std::error::Error>>;
 }
 
-// ── GoalContext (budget-aware turn execution) ──────────────────────────────
-
-/// Goal status, matching the 6-state machine in `kimi-native-tools::goal::state`.
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
-pub enum GoalStatus {
-    #[serde(rename = "active")]
-    Active,
-    #[serde(rename = "paused")]
-    Paused,
-    #[serde(rename = "blocked")]
-    Blocked,
-    #[serde(rename = "complete")]
-    Complete,
-    #[serde(rename = "budgetLimited")]
-    BudgetLimited,
-    #[serde(rename = "usageLimited")]
-    UsageLimited,
-}
-
-impl GoalStatus {
-    /// Returns true if the goal is actively being pursued.
-    pub fn is_active(self) -> bool {
-        matches!(self, GoalStatus::Active)
-    }
-}
-
-/// Goal context passed from the host for budget-aware turn execution.
-///
-/// The host owns the durable goal state; this struct carries a snapshot
-/// so the Rust loop can check budgets locally and render steering text
-/// without an extra round-trip per step.
-#[derive(Debug, Clone, Deserialize)]
-pub struct GoalContext {
-    pub goal_id: String,
-    pub objective: String,
-    pub status: GoalStatus,
-    /// Optional token budget (total tokens allowed).
-    pub token_budget: Option<i64>,
-    /// Optional turn budget (max turns).
-    pub turn_budget: Option<i64>,
-    /// Optional wall-clock budget (milliseconds for the whole goal).
-    #[serde(default)]
-    pub wall_clock_budget_ms: Option<i64>,
-    /// Wall-clock milliseconds already consumed before this turn.
-    #[serde(default)]
-    pub wall_clock_ms: i64,
-    /// Cumulative tokens consumed so far (before this turn).
-    pub tokens_used: i64,
-    /// Cumulative turns run so far (before this turn).
-    pub turns_used: i64,
-}
-
-impl GoalContext {
-    /// Returns true if adding `turn_tokens`, one more turn, and
-    /// `turn_wall_clock_ms` of wall-clock time would exceed any configured
-    /// budget.
-    pub fn would_exceed_budget(
-        &self,
-        turn_tokens: i64,
-        turns_this_turn: i64,
-        turn_wall_clock_ms: i64,
-    ) -> bool {
-        if let Some(budget) = self.token_budget
-            && self.tokens_used + turn_tokens >= budget
-        {
-            return true;
-        }
-        if let Some(budget) = self.turn_budget
-            && self.turns_used + turns_this_turn >= budget
-        {
-            return true;
-        }
-        if let Some(budget) = self.wall_clock_budget_ms
-            && self.wall_clock_ms + turn_wall_clock_ms >= budget
-        {
-            return true;
-        }
-        false
-    }
-
-    /// Maximum fraction of any budget dimension currently consumed
-    /// (0.0 when no budgets configured).
-    pub fn budget_fraction(
-        &self,
-        turn_tokens: i64,
-        turns_this_turn: i64,
-        turn_wall_clock_ms: i64,
-    ) -> f64 {
-        let mut fractions = Vec::new();
-        if let Some(budget) = self.token_budget
-            && budget > 0
-        {
-            fractions.push((self.tokens_used + turn_tokens) as f64 / budget as f64);
-        }
-        if let Some(budget) = self.turn_budget
-            && budget > 0
-        {
-            fractions.push((self.turns_used + turns_this_turn) as f64 / budget as f64);
-        }
-        if let Some(budget) = self.wall_clock_budget_ms
-            && budget > 0
-        {
-            fractions.push((self.wall_clock_ms + turn_wall_clock_ms) as f64 / budget as f64);
-        }
-        fractions.iter().cloned().fold(0.0_f64, f64::max)
-    }
-}
-
 // ── RunTurnInput ───────────────────────────────────────────────────────────
 
 /// Input to the `run_turn` function.
@@ -1014,22 +890,6 @@ pub struct RunTurnInput<'a> {
     /// reads the deferred set and the announced diff from it; `None` skips
     /// the provider — host-proxy turns and subagent turns.
     pub toolset: Option<std::sync::Arc<crate::tools::NativeToolset>>,
-}
-
-/// Host-injected context for the engine's turn telemetry (M1c). The host
-/// knows the model configuration; the engine observes the turn outcome and
-/// emits `turn_started` / `turn_ended` / `turn_interrupted` through
-/// `host/telemetry` with both merged.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct TelemetryContext {
-    pub mode: String,
-    pub provider_type: String,
-    pub protocol: String,
-    pub thinking_effort: Option<String>,
-    /// Comma-separated sorted ids of the enabled, loaded plugins (v2 #3963):
-    /// an empty string is a known empty set, `None` means the host has no
-    /// plugin snapshot to report.
-    pub enabled_plugins: Option<String>,
 }
 
 // ── Step-level types ───────────────────────────────────────────────────────

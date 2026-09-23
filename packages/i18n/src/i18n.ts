@@ -55,6 +55,14 @@ interface NativeModule {
     params: Record<string, string> | null | undefined,
   ) => string;
   nativeTranslateClearCache?: () => void;
+  /**
+   * Install the engine-side locale so the Rust engine's own user-facing text
+   * (permission reasons, tool-result notes, error prefixes) renders in the
+   * host's language instead of its English fallback. Absent on older native
+   * builds, which keep the English fallbacks.
+   */
+  setEngineLocale?: (localeJson: string, fallbackJson: string) => void;
+  clearEngineLocale?: () => void;
 }
 
 // Load native module lazily on first use (not at module init) to respect
@@ -105,8 +113,33 @@ export function setLocale(locale: Locale): void {
     currentLocale = locale;
     // Invalidate the Rust-side cache so stale parsed JSON is evicted.
     getNative()?.nativeTranslateClearCache?.();
+    // Re-point the engine at the new locale in the same breath, so a message
+    // the engine produces mid-turn cannot come out in the language the user
+    // just switched away from.
+    syncEngineLocale();
   }
 }
+
+/**
+ * Push the current locale to the Rust engine so its own user-facing text —
+ * permission reasons, tool-result notes, error prefixes — renders in the same
+ * language as the host UI. See `packages/kimi-agent/src/i18n.rs`.
+ *
+ * The engine resolves keys locally against the JSON handed over here, so this
+ * is a one-shot install rather than a per-message round-trip.
+ *
+ * Best-effort: an older native build without the binding, or no native module
+ * at all (the `KIMI_I18N_FORCE_JS` path), leaves the engine on its English
+ * fallbacks.
+ */
+function syncEngineLocale(): void {
+  getNative()?.setEngineLocale?.(localeJsonMap[currentLocale], localeJsonMap.en);
+}
+
+// Whether the engine has been handed a locale yet. Flipped on the first `t()`
+// so the install stays lazy — `getNative()` must not run at module load, or a
+// `KIMI_I18N_FORCE_JS` test setup would already have loaded the real module.
+let engineLocaleInstalled = false;
 
 export function getLocale(): Locale {
   return currentLocale;
@@ -157,6 +190,14 @@ export function t(
 ): string {
   const native = getNative();
   if (native) {
+    // The engine needs its locale once. `setLocale()` covers an explicit
+    // switch; this covers the case where the detected default is never
+    // overridden, so the engine would otherwise stay unwired.
+    if (!engineLocaleInstalled) {
+      engineLocaleInstalled = true;
+      syncEngineLocale();
+    }
+
     // Use the Rust native engine with pre-serialized JSON.
     const stringParams = params ? toStringParams(params) : undefined;
 

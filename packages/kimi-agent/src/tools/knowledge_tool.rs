@@ -15,6 +15,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::{err_result, ok_result};
+use crate::i18n::{LocalizedText, i18n_params};
 use crate::knowledge;
 use crate::turn_loop::types::ExecutableToolResult;
 
@@ -41,9 +42,13 @@ pub fn execute_knowledge(workspace_root: &Path, args: &Value) -> ExecutableToolR
         "remove" => execute_remove(args),
         "stats" => execute_stats(),
         "import" => execute_import(args),
-        other => err_result(format!(
-            "Error: unknown knowledge action `{other}`. Valid actions: search, add, confirm, reject, remove, stats, import."
-        )),
+        other => err_result(LocalizedText::fmt(
+            "engine.tools.knowledge.unknownAction",
+            format!("Error: unknown knowledge action `{action}`. Valid actions: search, add, confirm, reject, remove, stats, import."),
+            i18n_params!["action" => other],
+        )
+        .render()
+        ),
     }
 }
 
@@ -78,15 +83,24 @@ fn ensure_open(workspace_root: &Path) -> Result<(), String> {
         Ok(()) => Ok(()),
         Err(project_err) => {
             let user = user_db_path().ok_or_else(|| {
-                format!(
-                    "Failed to open knowledge DB at {project}: {project_err} (no home dir for fallback)"
+                LocalizedText::fmt(
+                    "engine.tools.knowledge.openDbFailed",
+                    format!(
+                        "Failed to open knowledge DB at {project}: {project_err} (no home dir for fallback)"
+                    ),
+                    i18n_params!["project" => project, "project_err" => project_err],
                 )
+                .render()
             })?;
             match knowledge::open(user.clone()) {
                 Ok(()) => Ok(()),
-                Err(user_err) => Err(format!(
-                    "Failed to open knowledge DB at {project} ({project_err}) and fallback {user} ({user_err})"
-                )),
+                Err(user_err) => Err(LocalizedText::fmt(
+                    "engine.tools.knowledge.openDbFallbackFailed",
+                    format!("Failed to open knowledge DB at {project} ({project_err}) and fallback {user} ({user_err})"),
+                    i18n_params!["project" => project, "project_err" => project_err, "user" => user, "user_err" => user_err],
+                )
+                .render()
+                ),
             }
         }
     }
@@ -108,7 +122,16 @@ fn execute_search(args: &Value) -> ExecutableToolResult {
         .map(str::to_string);
     let json = match knowledge::search(query, scope, tags, SEARCH_LIMIT, SEARCH_MIN_CONFIDENCE) {
         Ok(json) => json,
-        Err(e) => return err_result(format!("Knowledge search failed: {e}")),
+        Err(e) => {
+            return err_result(
+                LocalizedText::fmt(
+                    "engine.tools.knowledge.searchFailed",
+                    format!("Knowledge search failed: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
+            );
+        }
     };
     let results: Vec<Value> = match serde_json::from_str(&json) {
         Ok(results) => results,
@@ -171,7 +194,16 @@ fn execute_add(args: &Value) -> ExecutableToolResult {
         0.7,
     ) {
         Ok(json) => json,
-        Err(e) => return err_result(format!("Failed to add knowledge entry: {e}")),
+        Err(e) => {
+            return err_result(
+                LocalizedText::fmt(
+                    "engine.tools.knowledge.addFailed",
+                    format!("Failed to add knowledge entry: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
+            );
+        }
     };
     let entry: Value = match serde_json::from_str(&json) {
         Ok(entry) => entry,
@@ -189,8 +221,22 @@ fn execute_confirm(args: &Value) -> ExecutableToolResult {
     };
     match knowledge::confirm(id.to_string()) {
         Ok(true) => ok_result(format!("Confirmed entry {id} (confidence → 1.0)")),
-        Ok(false) => err_result(format!("Entry {id} not found.")),
-        Err(e) => err_result(format!("Knowledge confirm failed: {e}")),
+        Ok(false) => err_result(
+            LocalizedText::fmt(
+                "engine.tools.knowledge.entryNotFound",
+                format!("Entry {id} not found."),
+                i18n_params!["id" => id],
+            )
+            .render(),
+        ),
+        Err(e) => err_result(
+            LocalizedText::fmt(
+                "engine.tools.knowledge.confirmFailed",
+                format!("Knowledge confirm failed: {e}"),
+                i18n_params!["e" => e],
+            )
+            .render(),
+        ),
     }
 }
 
@@ -199,9 +245,30 @@ fn execute_reject(args: &Value) -> ExecutableToolResult {
         return err_result("Error: id is required for reject action.".into());
     };
     match knowledge::remove(id.to_string()) {
-        Ok(true) => ok_result(format!("Rejected and removed entry {id}")),
-        Ok(false) => err_result(format!("Entry {id} not found.")),
-        Err(e) => err_result(format!("Knowledge remove failed: {e}")),
+        Ok(true) => ok_result(
+            LocalizedText::fmt(
+                "engine.tools.knowledge.rejectedAndRemoved",
+                format!("Rejected and removed entry {id}"),
+                i18n_params!["id" => id],
+            )
+            .render(),
+        ),
+        Ok(false) => err_result(
+            LocalizedText::fmt(
+                "engine.tools.knowledge.entryNotFound",
+                format!("Entry {id} not found."),
+                i18n_params!["id" => id],
+            )
+            .render(),
+        ),
+        Err(e) => err_result(
+            LocalizedText::fmt(
+                "engine.tools.knowledge.removeFailed",
+                format!("Knowledge remove failed: {e}"),
+                i18n_params!["e" => e],
+            )
+            .render(),
+        ),
     }
 }
 
@@ -210,16 +277,46 @@ fn execute_remove(args: &Value) -> ExecutableToolResult {
         return err_result("Error: id is required for remove action.".into());
     };
     match knowledge::remove(id.to_string()) {
-        Ok(true) => ok_result(format!("Removed entry {id}")),
-        Ok(false) => err_result(format!("Entry {id} not found.")),
-        Err(e) => err_result(format!("Knowledge remove failed: {e}")),
+        Ok(true) => ok_result(
+            LocalizedText::fmt(
+                "engine.tools.knowledge.removed",
+                format!("Removed entry {id}"),
+                i18n_params!["id" => id],
+            )
+            .render(),
+        ),
+        Ok(false) => err_result(
+            LocalizedText::fmt(
+                "engine.tools.knowledge.entryNotFound",
+                format!("Entry {id} not found."),
+                i18n_params!["id" => id],
+            )
+            .render(),
+        ),
+        Err(e) => err_result(
+            LocalizedText::fmt(
+                "engine.tools.knowledge.removeFailed",
+                format!("Knowledge remove failed: {e}"),
+                i18n_params!["e" => e],
+            )
+            .render(),
+        ),
     }
 }
 
 fn execute_stats() -> ExecutableToolResult {
     let json = match knowledge::stats() {
         Ok(json) => json,
-        Err(e) => return err_result(format!("Knowledge stats failed: {e}")),
+        Err(e) => {
+            return err_result(
+                LocalizedText::fmt(
+                    "engine.tools.knowledge.statsFailed",
+                    format!("Knowledge stats failed: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
+            );
+        }
     };
     let stats: Value = match serde_json::from_str(&json) {
         Ok(stats) => stats,
@@ -266,7 +363,14 @@ fn execute_import(args: &Value) -> ExecutableToolResult {
                 if n == 1 { "y" } else { "ies" }
             ))
         }
-        Err(e) => err_result(format!("Knowledge import failed: {e}")),
+        Err(e) => err_result(
+            LocalizedText::fmt(
+                "engine.tools.knowledge.importFailed",
+                format!("Knowledge import failed: {e}"),
+                i18n_params!["e" => e],
+            )
+            .render(),
+        ),
     }
 }
 

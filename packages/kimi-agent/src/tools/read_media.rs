@@ -23,6 +23,7 @@ use base64::prelude::*;
 use serde_json::Value;
 
 use super::err_result;
+use crate::i18n::{LocalizedText, i18n_params};
 use crate::native::file_type::{
     FileKind, MEDIA_SNIFF_BYTES, detect_file_type, resolve_mime, sniff_image_dimensions,
 };
@@ -228,17 +229,25 @@ fn format_byte_size(bytes: usize) -> String {
 }
 
 fn delivery_limit_error(final_bytes: u64, read_byte_budget: u64, max_edge: u32) -> String {
-    format!(
-        "Image is too large to send safely after compression ({final_bytes} bytes; limit {read_byte_budget} bytes and {max_edge}px on the longest edge). The original image was not sent to the model. Do not retry the same file unchanged. Use Bash or an available image-processing tool to create a smaller copy within both limits, then call Read on the smaller copy."
-    )
+    LocalizedText::fmt(
+                "engine.tools.readMedia.tooLargeToSend",
+                format!("Image is too large to send safely after compression ({final_bytes} bytes; limit {read_byte_budget} bytes and {max_edge}px on the longest edge). The original image was not sent to the model. Do not retry the same file unchanged. Use Bash or an available image-processing tool to create a smaller copy within both limits, then call Read on the smaller copy."),
+                i18n_params!["final_bytes" => final_bytes, "read_byte_budget" => read_byte_budget, "max_edge" => max_edge],
+            )
+            .render()
 }
 
 /// v2 `buildImageDecodeLimitError`: `region` and `full_resolution` both need
 /// a full decode, which is refused past the safe decode ceiling.
 fn decode_limit_error(final_bytes: u64) -> String {
-    format!(
-        "Image is too large to process safely for region or full_resolution ({final_bytes} bytes; safe decode limit {MAX_IMAGE_DECODE_BYTES} bytes). The original image was not sent to the model. Do not retry the same file unchanged. Use Bash or an available image-processing tool to create a smaller copy or crop the needed region into a separate image, then call Read on the resulting file."
+    LocalizedText::fmt(
+        "engine.tools.readMedia.tooLargeToProcess",
+        format!(
+            "Image is too large to process safely for region or full_resolution ({final_bytes} bytes; safe decode limit {MAX_IMAGE_DECODE_BYTES} bytes). The original image was not sent to the model. Do not retry the same file unchanged. Use Bash or an available image-processing tool to create a smaller copy or crop the needed region into a separate image, then call Read on the resulting file."
+        ),
+        i18n_params!["final_bytes" => final_bytes, "MAX_IMAGE_DECODE_BYTES" => MAX_IMAGE_DECODE_BYTES],
     )
+    .render()
 }
 
 /// v2 `buildFullResolutionLimitError`: `full_resolution` must fit the provider's
@@ -260,12 +269,29 @@ fn build_media_note(
     delivery: &ImageDelivery,
 ) -> String {
     let mut parts: Vec<String> = vec![
-        "Read image file.".to_string(),
-        format!("Mime type: {mime_type}."),
-        format!("Size: {byte_size} bytes."),
+        LocalizedText::plain("engine.tools.readMedia.readImageFile", "Read image file.").render(),
+        LocalizedText::fmt(
+            "engine.tools.readMedia.mimeType",
+            format!("Mime type: {mime_type}."),
+            i18n_params!["mime_type" => mime_type],
+        )
+        .render(),
+        LocalizedText::fmt(
+            "engine.tools.readMedia.sizeBytes",
+            format!("Size: {byte_size} bytes."),
+            i18n_params!["byte_size" => byte_size],
+        )
+        .render(),
     ];
     if let Some((width, height)) = dimensions {
-        parts.push(format!("Original dimensions: {width}x{height} pixels."));
+        parts.push(
+            LocalizedText::fmt(
+                "engine.tools.readMedia.originalDimensions",
+                format!("Original dimensions: {width}x{height} pixels."),
+                i18n_params!["width" => width, "height" => height],
+            )
+            .render(),
+        );
     }
     match delivery {
         ImageDelivery::Downsampled {
@@ -274,10 +300,15 @@ fn build_media_note(
             mime,
             bytes,
         } => {
-            parts.push(format!(
-                "The attached image was downsampled to {width}x{height} pixels ({mime}, {}) to fit model limits; fine detail may be lost.",
-                format_byte_size(*bytes)
-            ));
+            parts.push(LocalizedText::fmt(
+                "engine.tools.readMedia.downsampled",
+                format!(
+                    "The attached image was downsampled to {width}x{height} pixels ({mime}, {sent}) to fit model limits; fine detail may be lost.",
+                    sent = format_byte_size(*bytes)
+                ),
+                i18n_params!["width" => width, "height" => height, "mime" => mime, "sent" => format_byte_size(*bytes)],
+            )
+            .render());
             parts.push(
                 "To inspect fine detail, call Read again with the region parameter (original-image pixel coordinates) to view a crop at full fidelity."
                     .to_string(),
@@ -296,12 +327,18 @@ fn build_media_note(
             } else {
                 " at native resolution".to_string()
             };
-            parts.push(format!(
-                "Showing region (x={x}, y={y}, width={region_width}, height={region_height}) of the original image{scale}."
-            ));
-            parts.push(format!(
-                "To output coordinates in original-image pixels, locate them within this crop and add the region offset (x={x}, y={y})."
-            ));
+            parts.push(LocalizedText::fmt(
+                "engine.tools.readMedia.showingRegion",
+                format!("Showing region (x={x}, y={y}, width={region_width}, height={region_height}) of the original image{scale}."),
+                i18n_params!["x" => x, "y" => y, "region_width" => region_width, "region_height" => region_height, "scale" => scale],
+            )
+            .render());
+            parts.push(LocalizedText::fmt(
+                "engine.tools.readMedia.regionOffsetHint",
+                format!("To output coordinates in original-image pixels, locate them within this crop and add the region offset (x={x}, y={y})."),
+                i18n_params!["x" => x, "y" => y],
+            )
+            .render());
         }
         ImageDelivery::Full => {
             parts.push("Shown at native resolution; no downscaling applied.".to_string());
@@ -347,19 +384,30 @@ pub fn read_image_media(
             // v2 routes text files away from the media path explicitly: the
             // crop / full-resolution args are meaningless for text.
             if request.is_explicit() {
-                return Some(err_result(format!(
-                    "\"{}\" is a text file. Use Read without region or full_resolution to read text files.",
-                    path.display()
-                )));
+                return Some(err_result(LocalizedText::fmt(
+                "engine.tools.readMedia.isTextFile",
+                format!("\"{path}\" is a text file. Use Read without region or full_resolution to read text files.",
+                    path = path.display()
+                ),
+                i18n_params!["path" => path.display()],
+            )
+            .render()));
             }
             return None;
         }
         FileKind::Unknown => {
             if request.is_explicit() {
-                return Some(err_result(format!(
-                    "\"{}\" is not a supported image or video file. Use Read for text files, or Bash or an MCP tool for other binary formats.",
-                    path.display()
-                )));
+                return Some(err_result(
+                    LocalizedText::fmt(
+                        "engine.tools.readMedia.notSupported",
+                        format!(
+                            "\"{path}\" is not a supported image or video file. Use Read for text files, or Bash or an MCP tool for other binary formats.",
+                            path = path.display()
+                        ),
+                        i18n_params!["path" => path.display()],
+                    )
+                    .render(),
+                ));
             }
             return None;
         }
@@ -379,24 +427,40 @@ pub fn read_image_media(
             }
             let byte_size = std::fs::metadata(path).ok()?.len();
             if byte_size == 0 {
-                return Some(err_result(format!("\"{}\" is empty.", path.display())));
+                return Some(err_result(
+                    LocalizedText::fmt(
+                        "engine.tools.readMedia.empty",
+                        format!("\"{path}\" is empty.", path = path.display()),
+                        i18n_params!["path" => path.display()],
+                    )
+                    .render(),
+                ));
             }
             if byte_size > MAX_MEDIA_BYTES {
-                return Some(err_result(format!(
-                    "\"{}\" is {byte_size} bytes, which exceeds the maximum {}MB for media files.",
-                    path.display(),
-                    MAX_MEDIA_BYTES / 1024 / 1024
-                )));
+                return Some(err_result(LocalizedText::fmt(
+                "engine.tools.readMedia.exceedsMaxMedia",
+                format!(
+                    "\"{path}\" is {byte_size} bytes, which exceeds the maximum {max_mb}MB for media files.",
+                    path = path.display(),
+                    max_mb = MAX_MEDIA_BYTES / 1024 / 1024
+                ),
+                i18n_params!["path" => path.display(), "byte_size" => byte_size, "max_mb" => MAX_MEDIA_BYTES / 1024 / 1024],
+            )
+            .render()));
             }
             // Video cannot be re-encoded or trimmed here, so the only delivery
             // is the original bytes — which must fit the provider's inline
             // budget. `full_resolution` is a no-op: video is always sent as-is.
             let inline_budget = inline_image_byte_budget(limits.provider.as_deref());
             if byte_size > inline_budget {
-                return Some(err_result(format!(
-                    "\"{}\" is a {byte_size}-byte video, which exceeds the {inline_budget}-byte inline limit. Trim or re-encode it first, then read the smaller file.",
-                    path.display()
-                )));
+                return Some(err_result(LocalizedText::fmt(
+                "engine.tools.readMedia.videoTooLarge",
+                format!("\"{path}\" is a {byte_size}-byte video, which exceeds the {inline_budget}-byte inline limit. Trim or re-encode it first, then read the smaller file.",
+                    path = path.display()
+                ),
+                i18n_params!["path" => path.display(), "byte_size" => byte_size, "inline_budget" => inline_budget],
+            )
+            .render()));
             }
             let mime = resolve_mime(path, &header);
             let data = std::fs::read(path).ok()?;
@@ -408,9 +472,14 @@ pub fn read_image_media(
                     path.display()
                 ),
                 is_error: false,
-                note: Some(format!(
-                    "Read video file. Mime type: {mime}. Size: {byte_size} bytes. The attached video is the original file, not re-encoded or trimmed; providers without native video blocks receive a text notice in its place."
-                )),
+                note: Some(LocalizedText::fmt(
+                    "engine.tools.readMedia.readVideoFile",
+                    format!(
+                        "Read video file. Mime type: {mime}. Size: {byte_size} bytes. The attached video is the original file, not re-encoded or trimmed; providers without native video blocks receive a text notice in its place."
+                    ),
+                    i18n_params!["mime" => mime, "byte_size" => byte_size],
+                )
+                .render()),
                 delivery: Some(ToolDelivery {
                     blocks: vec![ContentBlock::VideoUrl {
                         url: format!("data:{mime};base64,{base64}"),
@@ -437,22 +506,44 @@ pub fn read_image_media(
 
     let byte_size = std::fs::metadata(path).ok()?.len();
     if byte_size == 0 {
-        return Some(err_result(format!("\"{}\" is empty.", path.display())));
+        return Some(err_result(
+            LocalizedText::fmt(
+                "engine.tools.readMedia.empty",
+                format!("\"{path}\" is empty.", path = path.display()),
+                i18n_params!["path" => path.display()],
+            )
+            .render(),
+        ));
     }
     if byte_size > MAX_MEDIA_BYTES {
-        return Some(err_result(format!(
-            "\"{}\" is {byte_size} bytes, which exceeds the maximum {}MB for media files.",
-            path.display(),
-            MAX_MEDIA_BYTES / 1024 / 1024
-        )));
+        return Some(err_result(
+            LocalizedText::fmt(
+                "engine.tools.readMedia.exceedsMaxMedia",
+                format!(
+                    "\"{path}\" is {byte_size} bytes, which exceeds the maximum {max_mb}MB for media files.",
+                    path = path.display(),
+                    max_mb = MAX_MEDIA_BYTES / 1024 / 1024
+                ),
+                i18n_params![
+                    "path" => path.display(),
+                    "byte_size" => byte_size,
+                    "max_mb" => MAX_MEDIA_BYTES / 1024 / 1024
+                ],
+            )
+            .render(),
+        ));
     }
 
     let mime = resolve_mime(path, &header);
     if !is_model_accepted_image_mime(&mime, limits.provider.as_deref()) {
-        return Some(err_result(format!(
-            "\"{}\" is an {mime} image, which the provider does not accept. Convert it to JPEG first, then read the converted file.",
-            path.display()
-        )));
+        return Some(err_result(LocalizedText::fmt(
+                "engine.tools.readMedia.providerRejectsMime",
+                format!("\"{path}\" is an {mime} image, which the provider does not accept. Convert it to JPEG first, then read the converted file.",
+                    path = path.display()
+                ),
+                i18n_params!["path" => path.display(), "mime" => mime],
+            )
+            .render()));
     }
 
     let budget = limits.budget();
@@ -483,16 +574,23 @@ pub fn read_image_media(
     // HEIC/HEIF cannot be re-encoded locally; upstream #3649 sends them inline up to the inline budget.
     if mime == "image/heic" || mime == "image/heif" {
         if request.region.is_some() {
-            return Some(err_result(format!(
-                "Cropping region is not supported for {mime} images. Convert to PNG or JPEG first."
-            )));
+            return Some(err_result(LocalizedText::fmt(
+                "engine.tools.readMedia.croppingUnsupported",
+                format!("Cropping region is not supported for {mime} images. Convert to PNG or JPEG first."),
+                i18n_params!["mime" => mime],
+            )
+            .render()));
         }
         let inline_limit = std::cmp::max(budget, inline_budget);
         if byte_size > inline_limit {
-            return Some(err_result(format!(
-                "\"{}\" is an {byte_size}-byte {mime} image, which exceeds the {inline_limit}-byte limit. Convert it to JPEG or PNG first, then read the converted file.",
-                path.display()
-            )));
+            return Some(err_result(LocalizedText::fmt(
+                "engine.tools.readMedia.exceedsInlineLimit",
+                format!("\"{path}\" is an {byte_size}-byte {mime} image, which exceeds the {inline_limit}-byte limit. Convert it to JPEG or PNG first, then read the converted file.",
+                    path = path.display()
+                ),
+                i18n_params!["path" => path.display(), "byte_size" => byte_size, "mime" => mime, "inline_limit" => inline_limit],
+            )
+            .render()));
         }
         let data = std::fs::read(path).ok()?;
         let (width, height) = sniff_image_dimensions(&data)
@@ -542,16 +640,22 @@ pub fn read_image_media(
                 jpeg_quality_steps: JPEG_QUALITY_STEPS.to_vec(),
             },
         );
-        let result = match outcome {
-            Ok(result) => result,
-            Err(error) => {
-                return Some(err_result(format!(
-                    "Cannot read region from \"{}\": {}",
-                    path.display(),
-                    error.error_message()
-                )));
-            }
-        };
+        let result =
+            match outcome {
+                Ok(result) => result,
+                Err(error) => {
+                    return Some(err_result(LocalizedText::fmt(
+                "engine.tools.readMedia.cannotReadRegion",
+                format!(
+                    "Cannot read region from \"{path}\": {error}",
+                    path = path.display(),
+                    error = error.error_message()
+                ),
+                i18n_params!["path" => path.display(), "error" => error.error_message()],
+            )
+            .render()));
+                }
+            };
         Delivered {
             delivery: ImageDelivery::Crop {
                 region: (
