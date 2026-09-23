@@ -756,6 +756,17 @@ impl NativeToolset {
         self
     }
 
+    /// The previous-session reminder for tasks the last process left behind,
+    /// taken once so a turn only ever announces it a single time.
+    ///
+    /// The caller is the turn-level injection registry, which asks on every
+    /// new turn; the runner's persisted `resumeReminded` marker is what keeps
+    /// this silent afterwards, so a later process does not repeat it either.
+    pub(crate) fn take_previous_session_reminder(&self) -> Option<String> {
+        let runner = self.task_runner.as_ref()?;
+        runner.reconcile_previous_session()
+    }
+
     pub fn with_caller_agent_id(mut self, agent_id: impl Into<String>) -> Self {
         self.caller_agent_id = Some(agent_id.into());
         self
@@ -3354,6 +3365,7 @@ impl NativeToolset {
                             session_id: self.session_id.as_deref(),
                             kind: "bash",
                             subagent_type: None,
+                            agent_id: None,
                         },
                         task_id.clone(),
                         desc.clone(),
@@ -3504,6 +3516,7 @@ impl NativeToolset {
                             session_id: self.session_id.as_deref(),
                             kind: "bash",
                             subagent_type: None,
+                            agent_id: None,
                         },
                         task_id.clone(),
                         desc,
@@ -7243,6 +7256,50 @@ m2
             result.content.contains("hello from outside"),
             "content: {}",
             result.content
+        );
+    }
+
+    /// The whole path a restart takes: a task the previous process left
+    /// running is announced to the model through the turn's injection
+    /// registry, exactly once (v2 `reconcile` → reminder).
+    #[test]
+    fn previous_session_reminder_reaches_the_injection_registry_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = crate::storage::StateStore::for_dir(dir.path().join("state")).unwrap();
+        store
+            .write_domain(
+                "task",
+                &json!([{ "taskId": "task-9", "description": "build the app", "kind": "bash", "status": "running", "startedAt": 1u64 }]),
+            )
+            .unwrap();
+        let runner = std::sync::Arc::new(crate::storage::TaskRunner::new(Some(store)));
+        let (_dir2, ts) = setup();
+        let ts = std::sync::Arc::new(ts.with_task_runner(runner));
+
+        let mut registry = crate::injection::InjectionRegistry::new();
+        let reminder_ts = ts.clone();
+        registry.register(
+            "previous_session_tasks",
+            Box::new(move |_ctx| reminder_ts.take_previous_session_reminder()),
+        );
+
+        let texts = registry.build_injections(true);
+        assert_eq!(texts.len(), 1, "the loss is announced once: {texts:?}");
+        assert!(
+            texts[0].contains("lost contact"),
+            "injection carries the reminder: {}",
+            texts[0]
+        );
+        assert!(
+            texts[0].contains("- task-9 \"build the app\" (bash)"),
+            "injection lists the task with its tool: {}",
+            texts[0]
+        );
+
+        // A later turn in the same process stays silent.
+        assert!(
+            registry.build_injections(true).is_empty(),
+            "the reminder is one-shot"
         );
     }
 

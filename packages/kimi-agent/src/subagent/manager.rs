@@ -1005,6 +1005,7 @@ worktree root the tower assigns you as your full authority scope.";
                     session_id: parent_session.as_deref(),
                     kind: "subagent",
                     subagent_type: Some(type_name),
+                    agent_id: Some(id.as_str()),
                 },
                 id.clone(),
                 description,

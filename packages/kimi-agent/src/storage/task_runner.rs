@@ -39,21 +39,27 @@ use crate::storage::StateStore;
 const STOP_GRACE: Duration = Duration::from_secs(5);
 
 /// The runner's view of a task's status; the wire strings match the v2
-/// task domain (`running` / `completed` / `killed`).
+/// task domain (`running` / `completed` / `killed` / `lost`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TaskStatus {
     Running,
     Completed,
     Killed,
+    /// A task the previous process left mid-flight: the entry was persisted
+    /// as running when the app exited, so this process has no handle to it
+    /// (v2 `AgentTaskStatus`'s `lost`).
+    Lost,
 }
 
 impl TaskStatus {
-    /// The v2 task-domain wire string (`running` / `completed` / `killed`).
+    /// The v2 task-domain wire string
+    /// (`running` / `completed` / `killed` / `lost`).
     pub fn as_str(&self) -> &'static str {
         match self {
             TaskStatus::Running => "running",
             TaskStatus::Completed => "completed",
             TaskStatus::Killed => "killed",
+            TaskStatus::Lost => "lost",
         }
     }
 }
@@ -84,6 +90,10 @@ pub struct TaskSpawnMeta<'a> {
     /// `subagent` | `bash` | `tool` (kimi-web `WireTask.kind`).
     pub kind: &'a str,
     pub subagent_type: Option<&'a str>,
+    /// The subagent's stable id, for a subagent task. Persisted so the
+    /// previous-session reminder can name the `Agent(resume=…)` that picks the
+    /// context back up (v2 `previousSessionTaskLine`'s `agentId`).
+    pub agent_id: Option<&'a str>,
 }
 
 /// One registered background task.
@@ -100,6 +110,9 @@ struct TaskEntry {
     /// `subagent` | `bash` | `tool`.
     kind: String,
     subagent_type: Option<String>,
+    /// The subagent's stable id (`kind == "subagent"`); see
+    /// [`TaskSpawnMeta::agent_id`].
+    agent_id: Option<String>,
     /// Cooperative cancellation flag, set by `stop()`; the spawned
     /// wrapper checks it at the task's next yield point.
     cancel: Arc<AtomicBool>,
@@ -345,6 +358,7 @@ impl TaskRunner {
                 session_id: None,
                 kind: "tool",
                 subagent_type: None,
+                agent_id: None,
             },
             id,
             description,
@@ -400,6 +414,7 @@ impl TaskRunner {
             session_id: meta.session_id.map(str::to_string),
             kind: meta.kind.to_string(),
             subagent_type: meta.subagent_type.map(str::to_string),
+            agent_id: meta.agent_id.map(str::to_string),
             cancel: Arc::new(AtomicBool::new(false)),
             cancel_notify: Arc::new(Notify::new()),
             done,
@@ -481,6 +496,78 @@ impl TaskRunner {
             .collect();
         running.sort_by_key(|(started_at, _)| **started_at);
         running.into_iter().map(|(_, id)| id.clone()).collect()
+    }
+
+    /// Reconcile tasks the previous process left behind, returning the
+    /// previous-session reminder text when there is anything to report.
+    ///
+    /// A previous process wrote its in-flight tasks into the `task` domain but
+    /// died before settling them, so this process has no handle to them: they
+    /// are marked `lost` and written back, and the model is told they lost
+    /// contact rather than being left to assume they completed. Ports v2
+    /// `AgentTaskService::reconcile` — `markLoadedTasksLost` then
+    /// `appendPreviousSessionTasksReminder` — including the one-shot
+    /// `resumeReminded` marker that keeps a task out of later reminders.
+    ///
+    /// `None` when no store is attached, or when nothing needs reporting.
+    pub fn reconcile_previous_session(&self) -> Option<String> {
+        let store = self.store.as_ref()?;
+        let _guard = self.persist_lock.lock().unwrap();
+        let tasks = store
+            .read_domain("task")
+            .and_then(|v| v.as_array().cloned())
+            .unwrap_or_default();
+
+        let mut reported: Vec<String> = Vec::new();
+        let mut updated: Vec<Value> = Vec::with_capacity(tasks.len());
+        let mut changed = false;
+        for task in tasks {
+            let status = task
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let remindable = task
+                .get("resumeReminded")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            // Only a still-running entry is a previous-session loss; a settled
+            // one already told its story.
+            if status != TaskStatus::Running.as_str() {
+                updated.push(task);
+                continue;
+            }
+            let mut task = task;
+            if let Some(object) = task.as_object_mut() {
+                object.insert("status".into(), json!(TaskStatus::Lost.as_str()));
+                if !object.contains_key("endedAt") {
+                    object.insert("endedAt".into(), json!(now_ms()));
+                }
+                // The marker is persisted with the loss so a later reconcile
+                // stays silent (v2 `persistPreviousSessionReminderMarker`).
+                if !remindable {
+                    object.insert("resumeReminded".into(), json!(true));
+                    changed = true;
+                }
+                if !remindable {
+                    reported.push(previous_session_task_line(&task));
+                }
+            }
+            updated.push(task);
+        }
+
+        if changed && store.write_domain("task", &Value::Array(updated)).is_err() {
+            // A failed write means the reminder would fire again next time;
+            // reporting it now is still the honest outcome.
+        }
+        if reported.is_empty() {
+            return None;
+        }
+        Some(format!(
+            "{}\n{}\n{}",
+            "The user exited the application after your last turn, so your background tasks from the previous session lost contact:",
+            reported.join("\n"),
+            "Don't assume any of them completed; check current state (they may still be running), then re-run or resume only what you still need.",
+        ))
     }
 
     /// The output snapshot of a settled task; `None` while the task is
@@ -915,6 +1002,12 @@ impl TaskRunner {
         if let Some(subagent_type) = &entry.subagent_type {
             obj.insert("subagent_type".into(), json!(subagent_type));
         }
+        // The subagent's stable id: the previous-session reminder names it in
+        // an `Agent(resume=…)` hint, so it has to survive the process that
+        // spawned the task.
+        if let Some(agent_id) = &entry.agent_id {
+            obj.insert("agentId".into(), json!(agent_id));
+        }
         // Every task the runner tracks outlives its spawning tool call, so the
         // protocol flag is definitionally true (the event producer hardcodes
         // the same value).
@@ -1004,6 +1097,37 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// One reminder line for a lost task (v2 `previousSessionTaskLine`).
+///
+/// A subagent entry names the `Agent(resume=…)` that picks its context back
+/// up; a process entry renders as `bash`, matching the tool the user ran.
+///
+/// The engine's wire kind for a subagent is `subagent` where v2 said `agent`
+/// (`sdk-rpc-client-native.ts` maps the two the same way). `agentId` stays a
+/// separate field because the two ids are not always equal: the foreground
+/// spawn uses the agent id as the task id, while a background resume mints a
+/// fresh task id and carries the agent id alongside it.
+fn previous_session_task_line(task: &Value) -> String {
+    let task_id = task
+        .get("taskId")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let description = task
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let kind = task.get("kind").and_then(Value::as_str).unwrap_or_default();
+    if kind == "subagent"
+        && let Some(agent_id) = task.get("agentId").and_then(Value::as_str)
+    {
+        return format!(
+            "- {task_id} \"{description}\" (subagent) — resume it with Agent(resume=\"{agent_id}\", prompt=\"Pick up where you left off; redo the last tool call if its result was never observed.\") to continue from its prior context."
+        );
+    }
+    let label = if kind == "bash" { "bash" } else { kind };
+    format!("- {task_id} \"{description}\" ({label})")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1025,6 +1149,108 @@ mod tests {
             .unwrap()
             .read_domain("task")
             .unwrap_or(Value::Array(vec![]))
+    }
+
+    /// A task persisted as still-running by a previous process is marked
+    /// `lost` on reconcile, and the run produces the previous-session reminder
+    /// (v2 `markLoadedTasksLost` + `appendPreviousSessionTasksReminder`).
+    #[test]
+    fn reconcile_marks_orphaned_tasks_lost_and_reminds_once() {
+        let tmp = TempDir::new().unwrap();
+        let store = StateStore::for_dir(tmp.path().join("state")).unwrap();
+        // A task the previous process left mid-flight.
+        store
+            .write_domain(
+                "task",
+                &json!([{ "taskId": "task-1", "description": "run tests", "status": "running", "startedAt": 1u64 }]),
+            )
+            .unwrap();
+        let runner = TaskRunner::new(Some(store));
+
+        let text = runner
+            .reconcile_previous_session()
+            .expect("the orphaned task must be reported");
+        assert!(
+            text.contains("lost contact"),
+            "reminder must announce the lost contact: {text}"
+        );
+        assert!(
+            text.contains("- task-1 \"run tests\""),
+            "reminder must list the task: {text}"
+        );
+        assert!(
+            text.contains("Don't assume any of them completed"),
+            "reminder must carry the v2 closing line: {text}"
+        );
+
+        let stored = stored_tasks(&runner);
+        assert_eq!(
+            stored[0].get("status").and_then(Value::as_str),
+            Some("lost"),
+            "the orphaned task is persisted as lost: {stored}"
+        );
+        assert_eq!(
+            stored[0].get("resumeReminded").and_then(Value::as_bool),
+            Some(true),
+            "the one-shot marker is persisted: {stored}"
+        );
+
+        // Idempotent: a second reconcile reports nothing.
+        assert!(
+            runner.reconcile_previous_session().is_none(),
+            "the reminder fires once per task"
+        );
+    }
+
+    /// A lost subagent names the `Agent(resume=…)` that picks its context back
+    /// up, rather than the generic kind-only line (v2
+    /// `previousSessionTaskLine`'s subagent branch).
+    #[test]
+    fn reconcile_names_the_resume_hint_for_a_lost_subagent() {
+        let tmp = TempDir::new().unwrap();
+        let store = StateStore::for_dir(tmp.path().join("state")).unwrap();
+        store
+            .write_domain(
+                "task",
+                &json!([{
+                    "taskId": "task-7",
+                    "description": "Resume researcher: audit",
+                    "kind": "subagent",
+                    "agentId": "agent-42",
+                    "status": "running",
+                    "startedAt": 1u64
+                }]),
+            )
+            .unwrap();
+        let runner = TaskRunner::new(Some(store));
+        let text = runner.reconcile_previous_session().expect("reported");
+        assert!(
+            text.contains("(subagent) — resume it with Agent(resume=\"agent-42\""),
+            "the lost subagent carries its resume hint: {text}"
+        );
+    }
+
+    #[test]
+    fn reconcile_ignores_tasks_that_already_settled() {
+        let tmp = TempDir::new().unwrap();
+        let store = StateStore::for_dir(tmp.path().join("state")).unwrap();
+        store
+            .write_domain(
+                "task",
+                &json!([{ "taskId": "task-done", "description": "finished", "status": "completed", "startedAt": 1u64 }]),
+            )
+            .unwrap();
+        let runner = TaskRunner::new(Some(store));
+        assert!(
+            runner.reconcile_previous_session().is_none(),
+            "a terminal task is not a previous-session loss"
+        );
+        let stored = stored_tasks(&runner);
+        assert_eq!(
+            stored[0].get("status").and_then(Value::as_str),
+            Some("completed"),
+            "a settled task keeps its status: {stored}"
+        );
     }
 
     #[test]
@@ -1081,6 +1307,7 @@ mod tests {
                     session_id: Some("sess-9"),
                     kind: "subagent",
                     subagent_type: Some("research"),
+                    agent_id: None,
                 },
                 "task-ev".into(),
                 "Subagent research: investigate".into(),
@@ -1143,6 +1370,7 @@ mod tests {
                     session_id: Some("sess-prog"),
                     kind: "bash",
                     subagent_type: None,
+                    agent_id: None,
                 },
                 "task-prog".into(),
                 "background job".into(),
@@ -1625,6 +1853,7 @@ mod tests {
                         session_id: Some(session),
                         kind: "bash",
                         subagent_type: None,
+                        agent_id: None,
                     },
                     id.into(),
                     format!("job {id}"),
@@ -1714,6 +1943,7 @@ mod tests {
                     session_id: Some("sess-gone"),
                     kind: "bash",
                     subagent_type: None,
+                    agent_id: None,
                 },
                 "task-gone".into(),
                 "job".into(),
@@ -1767,6 +1997,7 @@ mod tests {
                         session_id: Some(session),
                         kind: "bash",
                         subagent_type: None,
+                        agent_id: None,
                     },
                     id.into(),
                     format!("job {id}"),
@@ -1814,6 +2045,7 @@ mod tests {
                     session_id: Some("sess-legacy"),
                     kind: "bash",
                     subagent_type: None,
+                    agent_id: None,
                 },
                 "task-legacy".into(),
                 "job".into(),

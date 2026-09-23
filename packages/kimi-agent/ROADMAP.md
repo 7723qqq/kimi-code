@@ -2162,3 +2162,68 @@ kimi-inspect 106、protocol 555、全量 `bun run test` 492 文件 / 8350 通过
 （与上游同词表），因此回退后两边仍同构；fork 额外保留了三样上游 revert 时没有的
 东西——audit 面板（重写在 ops 批次上）、Plan 查询（从 timeline 推导）、以及
 `transcript/model.ts` 这层本地视图模型（上游直接渲染 transcript item）。
+
+---
+
+## 9. 跨会话后台任务失联提醒移植（2026-09-23，用户批准）
+
+> **本轮授权**：用户明示「这个功能缺失」，批准移植 v2 的 previous-session 任务提醒。
+> 该行为在参考里有完整出处，属于移植而非自创。
+
+### 9.1 参考出处
+
+**双参考已对照**，`agent/task/taskService.ts` 两边的唯一差异是 upstream #3966 引入的
+`formatTaskWallTime`（`wallTime.ts`，已在本次上游 2.0.2 合并中落地）；
+**提醒语义两侧逐字相同**，因此不存在需要上报的参考分歧。
+
+- `appendPreviousSessionTasksReminder`（upstream 参考 `:1151`，退役参考同名函数）
+- `markLoadedTasksLost`（`:931`）——把非终态 ghost 标记为 `lost` 并写回持久化
+- `reconcile`（`:541`）——三者按序调用：mark lost → record terminated → reminder
+- `isPreviousSessionTermination`（`:1619`）——`lost`，或 `killed` +
+  `terminalNotificationSuppressed` + `stopReason === 'Session closed'`
+- `previousSessionTaskLine`（`:1612`）——每行的渲染形状
+- `hasPreviousSessionReminder`（`:1177`）——按 `- <taskId> "` 前缀在 transcript 里查重
+- `persistPreviousSessionReminderMarker`（`:1204`）——写 `resumeReminded: true`
+- `TASK_RESUME_TERMINATION_VARIANT = 'task_resume_termination'`（`:167`）
+
+提醒正文三行（英文 fallback 逐字保留）：
+
+```
+The user exited the application after your last turn, so your background tasks from the previous session lost contact:
+- <taskId> "<description>" (<kind 或 subagent 行>)
+Don't assume any of them completed; check current state (they may still be running), then re-run or resume only what you still need.
+```
+
+`kind === 'agent' && agentId !== undefined` 的行走 subagent 变体，附
+`resume it with Agent(resume="<agentId>", ...)` 指引；`process` 渲染为 `bash`。
+
+### 9.2 Rust 侧缺口（本次对齐前的实测）
+
+- `TaskStatus` 只有 `Running` / `Completed` / `Killed`——**没有 `Lost`**。
+- 任务**只写不读**：`TaskRunner::persist_wire` 把条目镜像进 `task` 域，但
+  `TaskRunner::new` 从不把该域读回 `tasks`，也没有任何 `lost` 转移。
+  后果：进程重启后遗留的后台任务**静默消失**，模型与用户都收不到任何告知——
+  正是本次要补的缺失。
+- 没有 `resumeReminded` 标记，也没有 `Session closed` 结束因。
+
+### 9.3 移植范围（本次落地）
+
+1. `TaskStatus::Lost`（wire 串 `lost`），并入 `task_tools` 的终态集合。
+2. `TaskRunner::reconcile_previous_session()`：读回 `task` 域 → 非终态条目转
+   `lost`（补 `endedAt`）→ 写回 → 产出提醒文本 → 置 `resumeReminded` 标记写回。
+   **幂等**：已标记过的条目不重复产出（v2 `resumeReminded === true` 同义）。
+3. 提醒走既有注入通道（`LocalizedText` + 既有 injection 通道），
+   variant 为 `task_resume_termination`，与 v2 同词表。
+4. `hasPreviousSessionReminder` 的 transcript 前缀查重：Rust 侧按注入历史查。
+
+### 9.4 刻意不移植
+
+- `restoreAgentTaskNotifications`（`:1132`）——v2 恢复"已完成但未投递"任务的
+  完成通知。**不适用**：fork 的 `pending_notifications` 是进程内队列，不跨重启持久化，
+  没有可恢复的投递态。
+- `ghosts` 这套 Map 结构本身——v2 用它区分"内存中的活任务"与"持久化读回的幽灵"；
+  Rust 用 `task` 域单一事实源即可表达同一区分，不引入第二个容器。
+
+### 9.5 验证
+
+见提交内的单元测试与端到端断言（`storage::task_runner::tests`）。

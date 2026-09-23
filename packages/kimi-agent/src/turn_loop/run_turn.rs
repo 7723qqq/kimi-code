@@ -807,10 +807,21 @@ pub fn run_turn<'a>(
         // model has not seen yet, removed names whose servers went away. The
         // provider is turn-gated (`is_new_turn`), matching v2's variant gate.
         if let Some(toolset) = &input.toolset {
-            let toolset = toolset.clone();
+            let disclosure_toolset = toolset.clone();
             injection_registry.register(
                 "tool_select",
-                Box::new(move |_ctx| toolset.take_disclosure_announcement()),
+                Box::new(move |_ctx| disclosure_toolset.take_disclosure_announcement()),
+            );
+            // Previous-session background tasks (v2 `taskService.reconcile` →
+            // `appendPreviousSessionTasksReminder`): a task the last process
+            // left mid-flight lost contact with it, so the model is told
+            // rather than left to assume it completed. The runner's persisted
+            // `resumeReminded` marker makes this one-shot, so registering it
+            // per turn is safe.
+            let reminder_toolset = toolset.clone();
+            injection_registry.register(
+                "previous_session_tasks",
+                Box::new(move |_ctx| reminder_toolset.take_previous_session_reminder()),
             );
         }
 
