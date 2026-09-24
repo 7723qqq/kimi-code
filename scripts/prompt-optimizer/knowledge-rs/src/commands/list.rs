@@ -1,18 +1,29 @@
-use rusqlite::Connection;
 use crate::store;
+use rusqlite::Connection;
 
-pub fn run(conn: &Connection, category: Option<&str>, tag: Option<&str>, source: Option<&str>, json_output: bool) -> Result<(), String> {
+pub fn run(
+    conn: &Connection,
+    category: Option<&str>,
+    tag: Option<&str>,
+    source: Option<&str>,
+    json_output: bool,
+) -> Result<(), String> {
     let entries = store::list_entries(conn, category, tag, source)
         .map_err(|e| format!("Failed to list entries: {e}"))?;
 
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&entries).unwrap());
+        let json = serde_json::to_string_pretty(&entries)
+            .map_err(|e| format!("Failed to serialize output: {e}"))?;
+        println!("{json}");
     } else {
         if entries.is_empty() {
             println!("No entries found.");
             return Ok(());
         }
-        println!("{:<8} {:<14} {:<40} {:<6} Tags", "ID", "Category", "Title", "Conf");
+        println!(
+            "{:<8} {:<14} {:<40} {:<6} Tags",
+            "ID", "Category", "Title", "Conf"
+        );
         println!("{}", "─".repeat(90));
         for e in &entries {
             let id_short = &e.id[..8.min(e.id.len())];
@@ -22,7 +33,14 @@ pub fn run(conn: &Connection, category: Option<&str>, tag: Option<&str>, source:
             } else {
                 e.title.clone()
             };
-            println!("{:<8} {:<14} {:<40} {:<6.2} {}", id_short, e.category, title_short, e.confidence, e.tags.join(","));
+            println!(
+                "{:<8} {:<14} {:<40} {:<6.2} {}",
+                id_short,
+                e.category,
+                title_short,
+                e.confidence,
+                e.tags.join(",")
+            );
         }
         println!("\n{} entries total.", entries.len());
     }

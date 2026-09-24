@@ -1,9 +1,8 @@
-use rusqlite::Connection;
 use crate::store;
+use rusqlite::Connection;
 
 pub fn run(conn: &Connection, id: &str, json_output: bool) -> Result<(), String> {
-    let removed = store::remove_entry(conn, id)
-        .map_err(|e| format!("Failed to remove: {e}"))?;
+    let removed = store::remove_entry(conn, id).map_err(|e| format!("Failed to remove: {e}"))?;
 
     if !removed {
         return Err(format!("Entry not found: {id}"));
@@ -11,7 +10,9 @@ pub fn run(conn: &Connection, id: &str, json_output: bool) -> Result<(), String>
 
     if json_output {
         let result = serde_json::json!({"removed": id});
-        println!("{}", serde_json::to_string(&result).unwrap());
+        let json = serde_json::to_string(&result)
+            .map_err(|e| format!("Failed to serialize output: {e}"))?;
+        println!("{json}");
     } else {
         println!("Removed entry: {id}");
     }

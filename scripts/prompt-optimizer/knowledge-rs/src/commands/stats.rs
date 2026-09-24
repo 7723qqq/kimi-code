@@ -1,11 +1,13 @@
-use rusqlite::Connection;
 use crate::store;
+use rusqlite::Connection;
 
 pub fn run(conn: &Connection, json_output: bool) -> Result<(), String> {
     let stats = store::get_stats(conn).map_err(|e| format!("Failed to get stats: {e}"))?;
 
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&stats).unwrap());
+        let json = serde_json::to_string_pretty(&stats)
+            .map_err(|e| format!("Failed to serialize output: {e}"))?;
+        println!("{json}");
     } else {
         println!("Knowledge Base Statistics");
         println!("═══════════════════════════════════");

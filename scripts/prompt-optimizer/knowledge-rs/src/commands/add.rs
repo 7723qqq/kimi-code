@@ -1,6 +1,6 @@
-use rusqlite::Connection;
 use crate::models::{Category, Source};
 use crate::store;
+use rusqlite::Connection;
 
 // CLI entry: args come straight from command-line parsing; keep the flat signature
 #[allow(clippy::too_many_arguments)]
@@ -16,19 +16,34 @@ pub fn run(
     json_output: bool,
 ) -> Result<(), String> {
     let category = Category::from_str(category)?;
-    let source = source.map(Source::from_str).transpose()?.unwrap_or(Source::Human);
+    let source = source
+        .map(Source::from_str)
+        .transpose()?
+        .unwrap_or(Source::Human);
     let confidence = confidence.unwrap_or(1.0);
     let tags: Vec<String> = tags
-        .map(|t| t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+        .map(|t| {
+            t.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
         .unwrap_or_default();
 
-    let entry = store::add_entry(conn, &category, title, content, &tags, scope, &source, confidence)
-        .map_err(|e| format!("Failed to add entry: {e}"))?;
+    let entry = store::add_entry(
+        conn, &category, title, content, &tags, scope, &source, confidence,
+    )
+    .map_err(|e| format!("Failed to add entry: {e}"))?;
 
     if json_output {
-        println!("{}", serde_json::to_string_pretty(&entry).unwrap());
+        let json = serde_json::to_string_pretty(&entry)
+            .map_err(|e| format!("Failed to serialize output: {e}"))?;
+        println!("{json}");
     } else {
-        println!("Added: [{}] {} (id: {})", entry.category, entry.title, entry.id);
+        println!(
+            "Added: [{}] {} (id: {})",
+            entry.category, entry.title, entry.id
+        );
     }
     Ok(())
 }
