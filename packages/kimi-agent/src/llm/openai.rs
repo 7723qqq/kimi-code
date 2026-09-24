@@ -63,11 +63,7 @@ pub fn build_request_full(
     if stream {
         req["stream_options"] = json!({ "include_usage": true });
     }
-    if let Some(effort) = reasoning_effort
-        && !effort.is_empty()
-        && effort != "off"
-        && effort != "none"
-    {
+    if let Some(effort) = crate::llm::effort::wire_reasoning_effort(reasoning_effort) {
         req["reasoning_effort"] = json!(effort);
     }
     if let Some(keep) = thinking_keep
@@ -1412,8 +1408,21 @@ mod tests {
         let req_off = build_request_full("gpt-4o", &msgs, &[], true, Some("off"), None, None);
         assert!(req_off.get("reasoning_effort").is_none());
 
-        let req_none = build_request_full("gpt-4o", &msgs, &[], true, None, None, None);
-        assert!(req_none.get("reasoning_effort").is_none());
+        // The boolean-model sentinel: the host resolves a model that declares
+        // `thinking` but no `support_efforts` to `on`, which is not a wire
+        // value. Forwarding it verbatim is a 400 from every OpenAI-compatible
+        // vendor ("Invalid option: expected one of max|xhigh|high|medium|low|
+        // minimal|none"). v2 encodes it silently, so the field is omitted.
+        let req_on = build_request_full("gpt-4o", &msgs, &[], true, Some("on"), None, None);
+        assert!(req_on.get("reasoning_effort").is_none());
+
+        // A declared `off_effort` of `none` is a real wire value — dropping it
+        // left thinking on for every model that encodes "off" that way.
+        let req_none = build_request_full("gpt-4o", &msgs, &[], true, Some("none"), None, None);
+        assert_eq!(req_none["reasoning_effort"], "none");
+
+        let req_absent = build_request_full("gpt-4o", &msgs, &[], true, None, None, None);
+        assert!(req_absent.get("reasoning_effort").is_none());
     }
 
     #[test]

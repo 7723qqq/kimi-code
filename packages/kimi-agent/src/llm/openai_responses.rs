@@ -116,7 +116,10 @@ pub fn build_request_full(
         req["tools"] = json!(tool_defs);
     }
 
-    if let Some(effort) = reasoning_effort {
+    // Same host-level tokens as the chat-completions body: `on` is the
+    // boolean-model sentinel and has no wire meaning, while a declared
+    // `none` / `minimal` / `xhigh` is a real effort the provider accepts.
+    if let Some(effort) = crate::llm::effort::wire_reasoning_effort(reasoning_effort) {
         req["reasoning"] = json!({ "effort": effort });
     }
 
@@ -494,6 +497,24 @@ mod tests {
         assert_eq!(parsed.content, "4");
         assert_eq!(parsed.finish_reason.as_deref(), Some("completed"));
         assert_eq!(parsed.usage.total_tokens, 12);
+    }
+
+    #[test]
+    fn test_build_request_omits_host_level_efforts() {
+        let messages = vec![WireMessage::text("user", "hi")];
+
+        // `on` is the boolean-model sentinel, not a wire value; `off` means
+        // thinking is disabled. Neither belongs in `reasoning.effort`.
+        for effort in ["on", "off", ""] {
+            let req = build_request_full("gpt-5", &messages, &[], true, Some(effort));
+            assert!(
+                req.get("reasoning").is_none(),
+                "effort {effort:?} must not reach the wire"
+            );
+        }
+
+        let req_none = build_request_full("gpt-5", &messages, &[], true, Some("none"));
+        assert_eq!(req_none["reasoning"]["effort"], "none");
     }
 
     #[test]
