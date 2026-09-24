@@ -70,7 +70,7 @@ Done when all of the following hold:
 2. Files are ported, not wholesale-copied. New upstream files are added explicitly and read.
 3. `package.json` `name`, `exports`, `imports`, and the `test` script stay ours.
 4. The fork is reconstructed against the **new** Last Sync Point. Every `keep` intent still has a matching per-file diff, or is marked `absorbed`.
-5. `pnpm --filter @moonshot-ai/pi-tui test` passes.
+5. `cd packages/pi-tui && bun run test` passes (see `scripts/test.mjs` — dispatches to `bun test` under Bun, `node --test` under real Node; both runtimes must stay green).
 6. The Last Sync Point section is updated to the new commit. Do not reuse the previous range.
 
 When upstream reworked a module (new abstractions, renamed concepts, changed data flow), port by behavior against the intent cards. Do not merge by file identity.

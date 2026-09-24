@@ -1,6 +1,6 @@
 # transcript Agent Guide
 
-The isomorphic transcript rendering data layer — agent-granular L1 store, idempotent L2 operations, `off/turn/block/delta` L3 subscription granularity, framework-free L4 view registry, and turn-cursor pagination. Pure TypeScript (browser-safe, no engine imports) and the sole owner of all transcript contract types (`src/contract/`). Its former consumer, `packages/kap-server` (engine events → transcript, REST + WS surface), has been retired and nothing in-tree imports this package today; the cold-rebuild semantics that consumer relied on (live stores backfill history from the persisted per-agent wire records — main on first attach, any agent on demand, cold sessions rebuild any agent — with 0-based turn ordinals matching the engine's) still describe this package's behavior.
+The isomorphic transcript rendering data layer — agent-granular L1 store, idempotent L2 operations, `off/turn/block/delta` L3 subscription granularity, framework-free L4 view registry, and turn-cursor pagination. Pure TypeScript (browser-safe, no engine imports) and the sole owner of all transcript contract types (`src/contract/`). Its original consumer, `packages/kap-server`, has been retired; today `apps/kimi-inspect` consumes the package's L2 reducer over the `/api/v1` surface (its own REST/WS clients live in `apps/kimi-inspect/src/transcript/`). The cold-rebuild semantics that original consumer relied on (live stores backfill history from the persisted per-agent wire records — main on first attach, any agent on demand, cold sessions rebuild any agent — with 0-based turn ordinals matching the engine's) still describe this package's behavior.
 
 ## Comment conventions
 
@@ -8,7 +8,7 @@ No comments — no file headers, no section banners, no statement-level narratio
 
 ## Contract documentation
 
-`docs/sdk.md` is the readable form of the package's external contract as currently implemented (data model, ops, WS/REST surface, event sources) plus the versioning rule: any contract change (entity fields, op types, frame shapes, REST responses, grade semantics) must ship with a numbered migration doc under `docs/migrations/NNNN-<title>.md`; pure additions need only a changeset. `src/contract/` remains the authority — when the two diverge, fix the doc.
+The package's external contract is documented by its types (`src/contract/` is the authority). Any contract change (entity fields, op types, frame shapes, REST responses, grade semantics) must be reviewed as a protocol change — pure additions need only a changeset; breaking changes need the consumer (`apps/kimi-inspect`) updated in the same change.
 
 ## Cold rebuild
 

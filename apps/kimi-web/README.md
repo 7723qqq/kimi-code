@@ -3,6 +3,13 @@
 A browser client for Kimi Code — a peer to the TUI (`apps/kimi-code`) that talks
 to a local **server** over REST + WebSocket. Vue 3 + Vite + TypeScript.
 
+> **Status: stale snapshot (dev-sandbox).** The shipped web UI lives in the
+> committed `apps/kimi-code/dist-web` bundle, synced from the separate code-app
+> repo — web features newer than this snapshot do not exist here, and
+> `dist-web` must **never** be built from this source (see root `AGENTS.md` →
+> "Web UI"). Treat this directory as a sandbox for hacking against
+> `bun run dev:server`.
+
 ---
 
 ## Quick start
@@ -113,19 +120,13 @@ release.
 
 ### Suggested improvements
 
+> Note: with the snapshot status above, suggestions that assume this source is
+> the shipping web UI (an independent deploy workflow, CI build coverage) are
+> moot — the shipping bundle comes from the code-app repo, not from here.
+
 - **Keep the current coupling for now.** Because Kimi Code is primarily a local
   CLI/server product, bundling the web UI into the CLI package keeps installs
   self-contained and avoids cross-origin/CORS complexity.
-- **Add an independent web-deploy workflow only when needed.** If a public
-  standalone web deployment is required later, create
-  `.github/workflows/web-deploy.yml` that builds `apps/kimi-web` and uploads
-  `dist/` to the chosen static host (S3/CloudFront, Cloudflare Pages, Vercel,
-  etc.). Until then, do not maintain a separate deploy target.
 - **Keep versioning owned by the CLI release.** `apps/kimi-web/package.json`
-  remains internal workspace metadata; do not surface it as a separate user
+  remains internal metadata; do not surface it as a separate user
   version unless the web app becomes an independently published product.
-- **Exercise the web build explicitly.** `apps/kimi-web` is excluded from the
-  root Bun workspace (excluded via `workspaces` in the root `package.json`), so the root `bun run build`
-  does **not** cover it. Build it explicitly (`cd apps/kimi-web && bun run build`; Bun manages this app
-  through its own `apps/kimi-web/bun.lock`)
-  in CI; keep the release pipeline doing the same.

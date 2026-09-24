@@ -1,6 +1,6 @@
 # pi-tui Agent Guide
 
-`packages/pi-tui` is a vendored copy of pi-tui from [`earendil-works/pi`](https://github.com/earendil-works/pi) `packages/tui` (baseline: upstream 0.85.1, see the Last Sync Point commit in [UPSTREAM.md](./UPSTREAM.md); package version now 0.84.5). It is no longer patched via pnpm patches — all local fixes are applied directly to the source. The differential-rendering behavior in `src/tui.ts` matches upstream: the fork's viewport/scrollback rendering patches were reverted; the only remaining divergences are listed below.
+`packages/pi-tui` is a vendored copy of pi-tui from [`earendil-works/pi`](https://github.com/earendil-works/pi) `packages/tui` (baseline: upstream 0.85.1, see the Last Sync Point commit in [UPSTREAM.md](./UPSTREAM.md); package version now 0.84.5). It is no longer patched via pnpm patches — all local fixes are applied directly to the source. The differential-rendering behavior in `src/tui.ts` matches upstream: the fork's viewport/scrollback rendering patches were reverted. For the complete divergence record, [UPSTREAM.md](./UPSTREAM.md) is the source of truth — the list below is a quick index and may lag behind it.
 
 **Syncing from upstream, adding a local patch, or reviewing a pi-tui diff:** read [UPSTREAM.md](./UPSTREAM.md). It holds the sync procedure and the intent-card contract (one card per divergence, each `keep` or `absorbed`); this file stays the directory guide and the quick divergence index.
 

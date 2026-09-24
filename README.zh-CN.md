@@ -17,7 +17,7 @@
 - **🤖 Team 多 Agent 讨论**：多 Agent 讨论协作工具，Agent 之间可辩论、交叉审查并达成共识后输出。
 - **⚡ Rust 原生工具加速**：性能关键工具（grep、glob、edit、read、write、bash、token 统计、输出截断）用 Rust 重写为原生 Node addon，显著快于 JS 实现。
 - **🪟 Windows 启动脚本**：`start-native.bat` 一键启动原生 CLI（使用 `--web` 参数一键启动由原生 Rust 后端驱动的 Web UI）；`start-web-native.bat` 双击即开原生 Web UI；`start-desktop.bat` 用于构建并启动本地 vendored 桌面壳（仅当 `apps/kimi-desktop` 存在时可用）。
-- **🥖 Bun 唯一打包引擎**:发布二进制通过 `bun build --compile` 产出单文件构建,由 CI 六平台矩阵(linux/darwin/win32 × x64/arm64)生成。原默认的 Node.js SEA 流水线已退役:pi-tui helper 由打包资产缓存加载、URL-fetch SSRF 语义跨运行时一致(统一捆绑 undici)、自更新感知引擎且仍识别旧 SEA 安装、`/status` 显示 Runtime 行。
+- **🥖 Bun 唯一打包引擎**:发布二进制通过 `bun build --compile` 产出单文件构建,由 CI 六平台矩阵(linux/darwin/win32 × x64/arm64)生成。原默认的 Node.js SEA 流水线已退役:pi-tui helper 由打包资产缓存加载、URL-fetch SSRF 语义跨运行时一致(统一捆绑 undici)、`/status` 显示 Runtime 行。自更新只分发 Bun 原生二进制——不支持从旧 SEA 安装就地升级,如遇此情况请重新安装。
 - 其他多项修复和体验优化。
 
 如需了解面向贡献者的更深入说明与集成细节，请参见根目录 `AGENTS.md` → "Fork-specific additions vs upstream"（中文语境参见对应章节）。
@@ -73,7 +73,7 @@ kimi
 - **极速启动** TUI 在毫秒级就绪，开一个新会话没有任何心智负担。
 - **精致的 TUI 体验** 端到端打磨的交互界面，专为长时间、专注的 Agent 会话优化。
 - **视频也能输入** 把屏幕录像、演示视频拖进对话，让 Agent 看那些难以用文字描述的东西——把参考片段做成 LUT、把长视频剪成短视频、把录屏变成代码，等等。
-- **AI-native 的 MCP 配置** 通过 `/mcp-config` 对话式添加、编辑、认证 MCP 服务器，无需手写 JSON。
+- **AI-native 的 MCP 配置** 通过 `/mcp` 对话式添加、编辑、认证 MCP 服务器，无需手写 JSON。
 - **丰富的插件生态** 从插件市场或任意 GitHub 仓库安装 skills、MCP 服务器和数据源，每次安装都会标明来源的信任级别。
 - **子 Agent 聚焦并行工作** 内置 `coder`、`explore`、`plan` 子 Agent 在隔离上下文中处理子任务，主对话保持清爽。
 - **生命周期 hooks** 在关键节点执行本地命令：拦截高风险工具调用、审计决策、发送桌面通知，或对接你自己的自动化脚本。

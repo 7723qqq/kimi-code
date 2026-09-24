@@ -4,6 +4,20 @@ Reply in the same language as the user.
 
 This is a TypeScript monorepo built for agent-assisted development. This file is the single source of truth for project-wide knowledge. Keep it focused on the project map, hard constraints, and workflow requirements — things every task needs to know.
 
+> **Merging, porting, or triaging upstream changes? Read `## Upstream Merge Policy` before judging
+> anything.** `packages/kimi-agent` is a **port of v2 (`agent-core-v2`)**, not an independent
+> implementation, so an upstream change under `packages/agent-core-v2/**` is a **behavior spec the
+> Rust engine must follow** — *even though those files no longer exist in this fork*. The judgement
+> criterion is the v2 → Rust module mapping, **never** "the path is absent from `HEAD`, so it is
+> irrelevant": deleting `packages/agent-core-v2/**` erased upstream's diff carrier, so `git log` /
+> `git blame` show no link at all. There is a mechanical gate for exactly this: run
+> **`bun run check:upstream-v2-delta`** (allowlist `scripts/upstream-v2-delta-allowlist.json`,
+> verdicts recorded in `packages/kimi-agent/ROADMAP.md` §6). **Refresh the ref before you trust
+> it** — a stale `refs/remotes/upstream/main` silently narrows the range and reports a green
+> "all triaged": `git fetch upstream main:refs/remotes/upstream/main --force`.
+> (This pointer sits near the top on purpose — tooling truncates this file when it is injected as
+> project context, so it would otherwise not reach an agent that only reads the injected copy.)
+
 ## Project Overview
 
 **Kimi Code CLI** is an AI coding agent that runs in the terminal — it can read and edit code, run shell commands, search files, fetch web pages, and choose the next step based on the feedback it receives. It works out of the box with Moonshot AI's Kimi models and can also be configured to use other compatible providers.
@@ -11,7 +25,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **Author**: Moonshot AI
 - **License**: MIT
 - **Homepage**: https://github.com/MoonshotAI/kimi-code
-- **Version**: `@moonshot-ai/kimi-code` 2.0.2 (the main CLI app); `@moonshot-ai/kimi-web` 2.0.0 (the fork's Vue 3 web UI)
+- **Version**: follows `upstream/main` — see `apps/kimi-code/package.json` (do not hardcode here)
 
 > **Note**: This repository is a personal experimental fork of MoonshotAI/kimi-code. Not affiliated with Moonshot AI. Use at your own risk — do not submit PRs from this fork to upstream.
 
@@ -110,7 +124,7 @@ gates on it.
 | Dev runtime | **Bun** >= 1.4 — install, build, lint, typecheck, and the vitest suites (`bun --bun run test`) all run through bun |
 | Published CLI runtime | **Bun** >= 1.4 (`engines` of the published app and native packages — `bun build --compile` single-file binaries). Upstream's `node >= 22.19.0` floor is deliberately not carried in this fork |
 | Native code | **Rust** (via napi-rs for Node addon, pure Rust CLI tools) |
-| Web UI (peer) | **Vue 3** + **Vite** |
+| Web UI (stale snapshot in `apps/kimi-web`) | **Vue 3** + **Vite** |
 | VS Code extension | **React 19** + **TailwindCSS 4** + **shadcn/ui** |
 
 ### Package Management & Build
@@ -170,7 +184,7 @@ src/
     kimi-tui.ts       — TUI initialization and main loop
     config.ts         — TUI configuration
     banner/           — Startup banner
-    commands/         — Slash command handlers (43 commands)
+    commands/         — Slash command handlers (see `src/tui/commands/registry.ts` for the live count)
     components/       — UI components (panes, messages, dialogs, editor, media)
     controllers/      — UI controllers (auth-flow, session, streaming, keyboard, etc.)
     theme/            — Theme system
@@ -184,9 +198,9 @@ src/
   generated/          — Generated asset references
 ```
 
-**CLI subcommands:** `acp`, `doctor`, `export`, `login`, `migrate`, `provider`, `upgrade`, `vis`, `web` (plus the hidden `__plugin_run_node` for plugin execution)
+**CLI subcommands:** defined in `src/cli/commands.ts` — read it for the live list (the set drifts with features; do not trust a snapshot here).
 
-**TUI slash commands (44 built-in, see `src/tui/commands/registry.ts`):** `yolo`, `auto`, `permission`, `settings`, `plan`, `swarm`, `team`, `workflow`, `tower`, `model`, `secondary-model`, `effort`, `provider`, `btw`, `help`, `new`, `sessions`, `tasks`, `mcp`, `plugins`, `add-dir`, `experiments`, `reload`, `reload-tui`, `compact`, `goal`, `init`, `fork`, `title`, `usage`, `status`, `feedback`, `undo`, `editor`, `theme`, `logout`, `login`, `export-md`, `export-debug-zip`, `copy`, `web`, `remote-control`, `exit`, `version`
+**TUI slash commands:** all built-ins live in `src/tui/commands/registry.ts` — read it for the live list.
 
 **Build output:**
 | Output | Path |
@@ -200,7 +214,7 @@ src/
 
 The shipped `apps/kimi-code/dist-web` bundle is a committed, prebuilt bundle synced from the code-app repo; the fork also carries its own Vue 3 web UI source in `apps/kimi-web` (excluded from the workspace, see below). To hack on the web UI against this repo's server, run `bun run dev:server` here and point the web UI dev server at it via `KIMI_SERVER_URL`.
 
-**Sync convention: replace, never overlay.** A Vite build emits content-hashed filenames, so copying a new bundle over the old one leaves every previous generation behind — the directory once accumulated 616 files / 44 MB across a dozen stale entry chunks, and nothing in the repo detected it because `scripts/check-web-assets.mjs` only verifies that the assets `index.html` names still exist. Delete `apps/kimi-code/dist-web/` first, then copy the fresh bundle in, then commit; the diff should show the old generation removed, not merely a new one added. To audit an existing directory, walk reachability from `index.html` (and `boot.js`) and delete what the walk cannot reach — a reference *count* is not enough, since a whole dead generation cross-references itself.
+**Sync convention: replace, never overlay.** A Vite build emits content-hashed filenames, so copying a new bundle over the old one leaves every previous generation behind — the directory once accumulated 616 files / 44 MB across a dozen stale entry chunks, and nothing in the repo detected it because `apps/kimi-code/scripts/check-web-assets.mjs` only verifies that the assets `index.html` names still exist. Delete `apps/kimi-code/dist-web/` first, then copy the fresh bundle in, then commit; the diff should show the old generation removed, not merely a new one added. To audit an existing directory, walk reachability from `index.html` (and `boot.js`) and delete what the walk cannot reach — a reference *count* is not enough, since a whole dead generation cross-references itself.
 
 **Never rebuild `dist-web` from `apps/kimi-web`.** The fork's `apps/kimi-web` source is a stale snapshot: the 0.40–0.43 web features (Plugins settings panel, the 0.43 settings restructure and About agreements, composer media rail, selection quote-to-chat, frontmatter cards, tower mode in web, …) were developed in the separate code-app repo and shipped through the committed bundle only — they do not exist in `apps/kimi-web`. A build from that source silently drops them. Treat `apps/kimi-web` as a dev-sandbox against `bun run dev:server`, and take `dist-web` solely from code-app syncs.
 
@@ -234,7 +248,7 @@ packages/
   minidb/              — Embedded JSON document store (snapshot + WAL, full-text index)
   node-sdk/            — Public TypeScript SDK (@moonshot-ai/kimi-code-sdk)
   oauth/               — Kimi OAuth and managed auth utilities
-  pi-tui/              — Terminal UI framework (upstream dependency, node:test suite)
+  pi-tui/              — Terminal UI framework (vendored from earendil-works/pi; see its AGENTS.md + UPSTREAM.md)
   protocol/            — Shared REST + WS protocol schemas (Zod types)
   telemetry/           — Shared client-side telemetry infrastructure
   transcript/          — Isomorphic transcript rendering data layer
@@ -360,7 +374,7 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job install
 2. **test** — `bun --bun run test` (vitest under the Bun runtime) split across 5 parallel shards on Ubuntu
 3. **test-rust** — `cargo fmt --check` + `cargo clippy --all-targets --features cli -- -D warnings` (Ubuntu only), then `cargo test --no-default-features --features cli,workflow-js` on Ubuntu and Windows
 4. **test-windows** — the full vitest suite on `windows-latest` (napi addon built first), so Windows-only regressions are caught
-5. **test-pi-tui** — `pi-tui` suite (uses node:test via Bun's node:test shim)
+5. **test-pi-tui** — `pi-tui` suite (dispatches to `bun test` under Bun and `node --test` under Node; CI runs it via Bun)
 6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, `check-no-legacy-engine.mjs`, Rust ↔ TS interface parity (`scan-parity.mjs`), no-comment policy (`check-no-comments.mjs`), service naming (`check-service-naming.mjs`), `t()` coverage (`check-t-call-coverage.mjs`), engine i18n parity (`check-engine-i18n-parity.mjs`), hardcoded-string scan (`scan-hardcoded-v2.mjs`), retired-package upstream delta ratchet (`check-upstream-v2-delta.mjs`), locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
 7. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
 8. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-agent && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test.
@@ -374,7 +388,7 @@ Pushes to `main` run `release.yml`: the changesets action opens/updates a **"ci:
 
 ### Nix build maintenance
 
-`nix-build.yml` builds the CLI in a pure sandbox. Dependencies come from the `bunDeps` fixed-output derivation in `flake.nix` (hoisted `node_modules` + cargo vendor dirs for both napi packages). After changing `bun.lock` or either `Cargo.lock`, expect one hash-mismatch round: set `outputHash` to `lib.fakeSha256`, push, then paste the `got:` hash (the nix-build bot posts it on PRs). Sandbox quirks: no `/usr/bin/env` (invoke node-gyp/napi via `node <js-entry>`), and FOD outputs must not contain store paths. See CONTRIBUTING → "Nix build".
+`nix-build.yml` builds the CLI in a pure sandbox. Dependencies come from the `bunDeps` fixed-output derivation in `flake.nix` (hoisted `node_modules` + the cargo vendor dir for the napi package, `kimi-agent`). After changing `bun.lock` or a `Cargo.lock`, expect one hash-mismatch round: set `outputHash` to `lib.fakeSha256`, push, then paste the `got:` hash (the nix-build bot posts it on PRs). Sandbox quirks: no `/usr/bin/env` (invoke node-gyp/napi via `node <js-entry>`), and FOD outputs must not contain store paths. See CONTRIBUTING → "Nix build".
 
 ---
 
@@ -446,22 +460,13 @@ Pushes to `main` run `release.yml`: the changesets action opens/updates a **"ci:
 ### Test Framework
 
 - **vitest 4.1.10** for all TypeScript/JavaScript tests (root-level)
-- **node:test** for `@moonshot-ai/pi-tui` (not part of vitest workspace; this suite still runs under Node)
+- **node:test-style suite** for `@moonshot-ai/pi-tui` (not part of the vitest workspace; `scripts/test.mjs` dispatches to `bun test` under Bun and `node --test` under real Node — both must pass)
 - **cargo test** for the Rust package (`kimi-agent`)
 - **Coverage**: v8 provider, reports in text + HTML
 
 ### Vitest Configuration
 
-Defined in root `vitest.config.ts`. Projects:
-```
-packages/*
-apps/kimi-code
-apps/kimi-web
-apps/kimi-inspect
-apps/vis/server
-apps/vis/web
-apps/vscode
-```
+Defined in root `vitest.config.ts` — read it for the live project list (it matches the workspace minus `apps/kimi-web`, which is excluded from the workspace).
 
 Coverage includes `packages/*/src/**/*.ts` and `apps/*/src/**/*.ts`, excludes test files and dist directories.
 
@@ -523,6 +528,8 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 
 Standing rules for every `upstream` tag merge (decided 2026-09-03). Upstream is the source of truth for product behavior; the fork keeps only four kinds of delta: i18n, the Rust engine / native-tools gate, `packages/kimi-agent`, and the Bun toolchain. Anything else in the fork's `HEAD` side of a conflict is legacy and should lose.
 
+- **Upstream updates are merged by hand. Do not `git pull` / `git merge` against upstream** (user's standing rule, 2026-09-24; order of operations: sync `cnb` first, upstream second). `packages/kimi-agent` is a hand-port of v2, so an upstream change lands as a manual edit judged against the rules below — TS takes upstream's shape, engine behavior lands in Rust, and every behavior delta gets a verdict in `scripts/upstream-v2-delta-allowlist.json` plus a `packages/kimi-agent/ROADMAP.md` §6 entry. A direct `git merge upstream/main` also proved unsafe in practice: it hung twice on this repo (476k objects) and each time left `.git/refs/` deleted, requiring manual ref reconstruction from `.git/logs/HEAD` and a re-fetch to restore the missing objects.
+
 - **The Rust agent is a port; inventing behavior is forbidden.** `packages/kimi-agent` reimplements existing behavior and must not be a design surface: every behavior it implements has to be traceable to a reference or to an explicit decision by the user, and anything else is a defect rather than a design choice. Two axes of reference — **do not conflate them: v1 / v3 are communication protocol versions, v2 is an engine package** (`agent-core-v2`):
   - **Engine behavior → v2** (`agent-core-v2`): the engine internals this package reimplements — turn loop, tool execution, LLM wire transport, permission, compaction, injection. The Verification Standard's "v2 is the behavioral reference" rule below applies here.
   - **v1 protocol** — REST `/api/v1` (`routes/`, prefix set in `registerApiV1Routes.ts`) and WebSocket `/api/v1/ws` (`WS_PATH` in `transport/ws/v1/registerWsV1.ts`), carried by the transport in `transport/ws/v1/` (`sessionEventBroadcaster`, `sessionEventJournal`, `wsConnectionV1`, `inFlightTurnTracker`, `subagentRosterTracker`). Its op and entity types come from `packages/transcript`; the event → op fold is `services/transcript/` (`coreEventMap`, `transcriptService`).
@@ -531,7 +538,9 @@ Standing rules for every `upstream` tag merge (decided 2026-09-03). Upstream is 
   A new event name, payload field, state-machine arm, policy step, route, or entity with no counterpart on its own axis requires the user's permission before implementation, and the granted delta is then recorded in `packages/kimi-agent/ROADMAP.md`. Fork-original modules already recorded there (sandbox guard, stale guard, team/memory/knowledge, mode mutex) stand as they are.
 - **What counts as evidence.** Where a name or shape is defined in the TypeScript references, cite the file. A name the committed `apps/kimi-code/dist-web` bundle consumes is evidence too, even when it is defined nowhere in `upstream`'s source tree — some web-facing vocabulary exists only in that synced bundle. A name only the fork's Rust emits is not evidence, and a consumer's tolerance never justifies extending a vocabulary with names the fork invented.
 - **Upstream engine behavior lands in Rust, not in TS.** Resolve the TS conflict by taking `theirs` so the TS build and tests stay faithful to upstream's shape, then register the behavior delta as a work item in `packages/kimi-agent/ROADMAP.md`. Do not re-implement new upstream engine behavior in TS — that builds the thing being retired.
+- **The retired-package delta ratchet is the mechanical half of this policy.** `bun run check:upstream-v2-delta` requires every upstream commit touching a deleted package since the merge base to carry a recorded verdict in `scripts/upstream-v2-delta-allowlist.json` (`ported` / `tracked` / `not-applicable`; `pending` or absent fails). It is wired into CI, but **fetch the ref first**: it reads `refs/remotes/upstream/main`, and a stale ref silently narrows the range and prints a green "all triaged" — `git fetch upstream main:refs/remotes/upstream/main --force`. Deleting those packages is exactly why the delta is invisible to `git log`; this gate exists because 21 behavior commits once piled up unnoticed (ROADMAP §6.0).
 - **Node-side toolchain content is never pulled back** — see Environment Requirements above. Audit the **auto-merged index**, not just conflicted files: git merges `package.json`, `flake.nix`, `vitest.config.ts`, and `.github/workflows` without asking, so a Node floor or a pnpm job can land silently.
+- **pi-tui is a second upstream** (`earendil-works/pi`, vendored). It is outside the MoonshotAI merge policy above — sync it per `packages/pi-tui/UPSTREAM.md` (intent-card contract), not via this section.
 - **Fork-only files upstream deletes stay deleted only when the fork's coupling is migrated.** A modify/delete conflict is not resolved by `git rm` alone — grep the removed module for importers first; fork-only importers (absent from both base and upstream) mean the fork built on top of it and needs a new home.
 - `packages/node-sdk` is `@moonshot-ai/kimi-code-sdk`, the internal SDK seam used by `apps/kimi-code` and `apps/vscode`. Its directory name refers to its Node runtime target; it is product surface, not toolchain.
 

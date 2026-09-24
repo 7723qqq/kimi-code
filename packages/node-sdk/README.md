@@ -10,11 +10,14 @@ A programmatic interface to the Kimi Code agent: create a harness (`KimiHarness`
 
 ## Install
 
+This package is **not published** to npm (`"private": true`) — it is an
+in-workspace package consumed via the Bun workspace:
+
 ```sh
-npm install @moonshot-ai/kimi-code-sdk
+bun install   # from the repo root; resolve via the workspace, e.g. "workspace:^"
 ```
 
-Requires Node.js 22.19.0 or later.
+Requires Bun >= 1.4 (the package rides the native `kimi-agent` addon, built from `packages/kimi-agent`).
 
 ## Quick start
 
@@ -34,7 +37,7 @@ The harness exposes:
 - **Auth** — Kimi Code OAuth and API-key flows (`auth.ts`)
 - **Sessions** — create, cancel, export, rename, resume, and steer sessions (`session.ts`)
 - **Events** — subscribe to the session event stream (`events.ts`)
-- **RPC client** — the v2 contract-driven client with zod validation (`sdk-rpc-client-v2.ts`)
+- **RPC client** — the native Rust-engine client via the napi addon (`native/sdk-rpc-client-native.ts`, facade in `sdk-rpc-client-v2.ts`)
 
 ## Examples
 

@@ -19,13 +19,13 @@ Part of the [Kimi Code](https://github.com/MoonshotAI/kimi-code) monorepo.
   error classification, and the surviving provider metadata helpers
   (`anthropic-profile`, `astron-models`).
 
-## Relationship to agent-core-v2
+## Consumers
 
-`agent-core-v2` depends on this package. Its `src/kosong/` layer keeps the
-DI/trait composition machinery (model services, protocol adapter registry,
-protocol bases) and imports the contract/error/pure-function layers from
-here — the engine's `contract/` directory is a thin re-export of this
-package.
+The retired TypeScript engine (`agent-core-v2`) was the original consumer; its
+successor, the Rust engine (`packages/kimi-agent`), consumes the contract via
+frozen generated types instead. Today this package is imported by
+`packages/node-sdk`, `packages/oauth`, and `apps/vis/server`, and re-exported
+through the SDK seam (`@moonshot-ai/kimi-code-sdk`).
 
 ## License
 

@@ -1,12 +1,12 @@
 # kimi-inspect Agent Guide
 
-Web inspector for the kap-server `/api/v1/debug` RPC surface — workspace/session browser, per-session chat, and Service panels (data + trigger buttons) for the Session and Agent scopes.
+Web inspector for the native Rust engine's `/api/v1/debug` RPC surface (`packages/kimi-agent --serve`) — workspace/session browser, per-session chat, and Service panels (data + trigger buttons) for the Session and Agent scopes.
 
 ## Top-level views
 
 A left icon rail (`src/components/NavRail.tsx`) switches top-level views:
 
-- **Chat workspace** — the per-session chat (see "Chat view" below), with the session tree on the left: `src/components/Sidebar.tsx` is a single-column workspace → session tree over the v2 list's grouped projection (`GET /api/v2/sessions?view=by_workspace`, client in `src/sessions/api.ts` — v1-style `{ code, msg, data }` envelope, opaque-cursor pagination over groups; each workspace group carries its first `group.page_size` sessions plus the full matching total, and a "Show all" row falls back to the flat per-workspace listing). Preset views in `src/sessions/views.ts` map onto the endpoint's status / archived / git query conditions; the active view, collapsed workspaces, and panel width persist to localStorage; live activity badges come from the hub.
+- **Chat workspace** — the per-session chat (see "Chat view" below), with the session tree on the left: `src/components/Sidebar.tsx` is a single-column workspace → session tree over the grouped session listing (`GET /api/v2/sessions?view=by_workspace`, client in `src/sessions/api.ts` — v1-style `{ code, msg, data }` envelope, opaque-cursor pagination over groups; each workspace group carries its first `group.page_size` sessions plus the full matching total, and a "Show all" row falls back to the flat per-workspace listing). Preset views in `src/sessions/views.ts` map onto the endpoint's status / archived / git query conditions; the active view, collapsed workspaces, and panel width persist to localStorage; live activity badges come from the hub.
 - **Global message search** (`src/components/SearchView.tsx`) — cross-session full-text search over `POST /api/v1/search`, cursor-paged via a manual Load more; an exact-match checkbox maps to the API's `mode: 'literal'` substring search, which ignores sort and orders newest-first; a `live`/`index` badge on the results shows which server route served them (in-memory session transcript vs the persisted index).
 - **Model Catalog** (`src/components/ModelCatalogView.tsx`) — every Provider with its Models and the default marker, via `IModelCatalog` / `IModelService` channel proxies, with per-model ping and session creation actions.
 - **App Services** (`src/components/AppServicesView.tsx`) — the app-scope Service reflection, full width, joined by the **Workspace Services** view (`src/components/WorkspaceServicesView.tsx`) — the workspace-scope counterpart with a left sidebar directory browser (`src/components/WorkspaceDirBrowser.tsx` — server-side fs browsing over the App-scope `IHostFolderBrowser`, marking entries that are registered workspaces with their `IWorkspaceTrust` trust state, and registering a picked folder on demand via `IWorkspaceService.createOrTouch`), its proxies riding the `/workspace/:id` route, which materializes the handler on demand via `IWorkspaceLifecycleService.handlerFor`.
@@ -21,7 +21,7 @@ The **Session scope** lives in the same right dock as the `Session` tab (`src/co
 
 ## Channel layer
 
-Built on its own old-klient-style channel layer (`src/channel/`: the VS Code `ProxyChannel` model — service-bound `IChannel`, HTTP `ProxyChannel` for calls routed to `/api/v1/debug`), typed by `agent-core-v2` Service interfaces; `GET /api/v1/debug/channels` loads the whole wire protocol 1:1 (every scoped Service, no whitelist). There is no Service-event push channel: panels fetch/refresh on demand (`Sidebar` polls react-query on a 15 s interval), and a connection failure shows a blocking "Debug surface unavailable" screen instead of falling back anywhere.
+Built on its own VS Code-style channel layer (`src/channel/`: the VS Code `ProxyChannel` model — service-bound `IChannel`, HTTP `ProxyChannel` for calls routed to `/api/v1/debug`), typed by the engine's Rust debug surface; `GET /api/v1/debug/channels` loads the whole wire protocol 1:1 (every scoped Service, no whitelist). There is no Service-event push channel: panels fetch/refresh on demand (`Sidebar` polls react-query on a 15 s interval), and a connection failure shows a blocking "Debug surface unavailable" screen instead of falling back anywhere.
 
 ## Session activity
 
@@ -29,7 +29,7 @@ Session-level coarse status is the one exception to no-push: `src/activity/` hol
 
 ## Dev server
 
-The Vite dev server proxies `/api` to a running kap-server (`KIMI_SERVER_URL`, default `http://127.0.0.1:58627`) and exposes `GET /__inspect/servers` (`vite/serverDiscovery.ts`), which scans the local kap-server instance registry (`~/.kimi-code/server/instances` + legacy `lock`) and the home token so the app can zero-config auto-connect and switch servers from the header dropdown at runtime.
+The Vite dev server proxies `/api` to a running engine server (`KIMI_SERVER_URL`, default `http://127.0.0.1:58627`) and exposes `GET /__inspect/servers` (`vite/serverDiscovery.ts`), which scans the local engine instance registry (`~/.kimi-code/server/instances` + legacy `lock`) and the home token so the app can zero-config auto-connect and switch servers from the header dropdown at runtime.
 
 ## Chat view
 

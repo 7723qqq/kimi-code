@@ -66,7 +66,4 @@ The theme apply/switch mechanics live in the `write-tui` skill. The following ru
 ## General Coding Requirements
 
 - The startup path before the workspace trust gate (`KimiTUI.start()` -> `maybeRunWorkspaceTrustPrompt()`) must not spawn child processes by bare command name — on Windows, cmd.exe / CreateProcess resolve them from the current directory first, so a binary planted in an untrusted workspace would run before the user confirms trust. When an external command is unavoidable, resolve it with `resolveCommandPath` from `src/utils/process/resolve-command.ts`, which returns an absolute PATH hit and refuses matches inside the cwd.
-- For optional object properties, pass `undefined` directly — do not use conditional spread.
-- Optional object properties do not need to additionally allow `undefined` in the type.
-- Internal methods with only a single parameter should not be turned into options objects just for stylistic uniformity.
-- Except for a package's own `index.ts`, other `index.ts` files should prefer `export * from './module'`.
+- General repo-wide coding conventions (optional object properties, single-parameter methods, `index.ts` exports) live in the root `AGENTS.md` → "General Coding Rules"; they apply here unchanged.

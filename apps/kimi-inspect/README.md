@@ -1,13 +1,14 @@
 # kimi-inspect
 
-Web inspector for the kap-server `/api/v1/debug` RPC surface — a read/trigger
+Web inspector for the native Rust engine's `/api/v1/debug` RPC surface (served by `packages/kimi-agent --serve`) — a read/trigger
 window into a running Kimi Code engine (workspaces, sessions, agents, and the
 scoped DI registry).
 
 ## Run
 
-1. Start a kap-server with the debug surface mounted (repo dev scripts do this
-   for you): `bun run dev:v2` from the repo root passes `--debug-endpoints` on a
+1. Start the engine with the debug surface mounted (repo dev scripts do this
+   for you): `bun run dev:server` from the repo root runs `kimi-agent --serve`
+   with `--debug-endpoints` on a
    loopback bind; the surface inherits the global bearer auth.
 2. `cd apps/kimi-inspect && bun run dev` — the Vite dev server proxies
    `/api` to the server (`KIMI_SERVER_URL`, default `http://127.0.0.1:58627`)

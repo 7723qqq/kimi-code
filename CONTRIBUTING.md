@@ -29,7 +29,7 @@ This is a Bun monorepo. The most relevant entry points are:
 - `apps/vscode` — VS Code extension
 - `apps/vis` — session debug visualizer
 - `packages/node-sdk` — public TypeScript SDK (`@moonshot-ai/kimi-code-sdk`)
-- `packages/kimi-agent` — the Rust agent engine (napi addon + standalone `kimi-agent-cli`); the former TypeScript engine packages (`agent-core-v2`, `klient`, `kap-server`, `acp-server`) have been removed
+- `packages/kimi-agent` — the Rust agent engine (napi addon + standalone `kimi-agent-cli`). The former TypeScript engine packages (`agent-core-v2`, `klient`, `kap-server`, `acp-server`) are retired, but `agent-core-v2` remains the **behavioral reference** the Rust engine is ported from — see [AGENTS.md](AGENTS.md) → "Upstream Merge Policy" before touching engine behavior
 - `packages/protocol`, `transcript`, `kosong`, `kaos`, `oauth`, `telemetry`, `minidb`, `pi-tui`, `tree-sitter-bash` — internal engine packages
 - `docs/` — VitePress bilingual docs site
 
@@ -52,11 +52,11 @@ bun install
 > patch cache key changed from a 16 KiB hash to the full-file SHA-1. This is
 > expected, not a bug.
 
-**Syncing upstream:** this fork deletes `packages/agent-core` (the v1 engine)
-while upstream keeps patching it. `.gitattributes` marks those paths
-`merge=ours`, so merges auto-resolve to "kept deleted" instead of raising
-modify/delete conflicts. One-time setup per clone:
-`git config merge.ours.driver true`.
+**Syncing upstream: do not `git merge` / `git pull` against upstream.**
+Upstream updates are merged by hand and ported manually — the policy, the
+v2 → Rust mapping, and the mechanical `check:upstream-v2-delta` gate are
+defined in [AGENTS.md](AGENTS.md) → "Upstream Merge Policy". Read that
+section before attempting any upstream sync.
 
 Useful scripts:
 
@@ -118,7 +118,7 @@ Copy-Item -Force packages/kimi-agent/kimi_agent.win32-x64-msvc.node `
 
 ```powershell
 $env:KIMI_LANG="zh"
-node $env:USERPROFILE\.kimi-code\dist\main.mjs
+bun $env:USERPROFILE\.kimi-code\dist\main.mjs
 ```
 
 To make `kimi` command use the local build, rename the CDN binary and create a launcher:
@@ -138,7 +138,7 @@ if "%KIMI_LANG%"=="" (
     ) do set KIMI_LANG=%%~a
 )
 set KIMI_CODE_HOME=%USERPROFILE%\.kimi-code
-node "%KIMI_CODE_HOME%\dist\main.mjs" %*
+bun "%KIMI_CODE_HOME%\dist\main.mjs" %*
 ```
 
 ### Native build (self-contained binary)

@@ -10,8 +10,10 @@
 *.png binary
 
 # Upstream keeps patching packages/agent-core (v1), which this fork deleted
-# wholesale. Keep merges auto-resolving to "deleted" instead of raising
-# modify/delete conflicts on every upstream sync. Requires the driver below
-# to be configured once per clone:
+# wholesale. Merges against upstream are forbidden (see AGENTS.md →
+# "Upstream Merge Policy" — upstream updates are merged by hand), but if a
+# merge is ever attempted anyway, keep it auto-resolving to "deleted" instead
+# of raising modify/delete conflicts. Requires the driver below to be
+# configured once per clone:
 #   git config merge.ours.driver true
 packages/agent-core/** merge=ours -diff
