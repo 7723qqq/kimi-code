@@ -825,6 +825,19 @@ impl HostCallbacks for NativeToolCallbacks {
                     )
                     .render()
                 });
+                // v2 `formatDenyMessage` / `usesWorkerRejectionGuidance`: a
+                // non-main agent's rejection appends the retry guidance — a
+                // worker cannot ask the user, so it must change approach.
+                let reason = if crate::tools::CALLER_AGENT_ID
+                    .try_with(|id| id != "main")
+                    .unwrap_or(false)
+                {
+                    format!(
+                        "{reason} Try a different approach — don't retry the same call, don't attempt to bypass the restriction."
+                    )
+                } else {
+                    reason
+                };
                 // The refusal is the tool result the model sees — report it so
                 // the host transcript records the card's terminal state too.
                 this.inner.emit_event(serde_json::json!({

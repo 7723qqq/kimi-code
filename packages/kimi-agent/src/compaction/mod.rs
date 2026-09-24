@@ -390,6 +390,166 @@ pub(crate) fn summary_placeholder(omitted: usize) -> String {
     )
 }
 
+/// The compaction summary prefix (v2 `compaction-summary-prefix.md`,
+/// `COMPACTION_SUMMARY_PREFIX`). Tells the model the summary is its own
+/// working notes and that earlier user messages are preserved verbatim in
+/// this context — a promise the kept head/tail below fulfills.
+pub const COMPACTION_SUMMARY_PREFIX: &str = "The conversation so far has been compacted to free up context. What follows is your own working summary of this task — use it to continue your train of thought rather than starting over. Treat it as notes, not proof: where it says a step was done, tests passed, or a fix worked, verify that yourself before relying on it. Any user messages earlier in this context are preserved verbatim from the compacted conversation; where a system-reminder note among them marks an omitted middle section, the user messages it replaced are covered by this summary. The summary records which earlier requests were already addressed.";
+
+/// Head budget for user messages kept verbatim across compaction (v2
+/// `COMPACT_USER_MESSAGE_HEAD_TOKENS`).
+const COMPACT_USER_MESSAGE_HEAD_TOKENS: u32 = 2_000;
+/// Tail budget for user messages kept verbatim across compaction (v2
+/// `COMPACT_USER_MESSAGE_MAX_TOKENS`).
+const COMPACT_USER_MESSAGE_MAX_TOKENS: u32 = 20_000;
+
+/// The elision note inserted between the kept head and tail (v2
+/// `buildCompactionElisionText`).
+fn compaction_elision_text(omitted_tokens: u32) -> String {
+    crate::injection::wrap_system_reminder(&format!(
+        "Some of this conversation's user messages were omitted here during compaction: the messages above this note are the oldest user input, the messages below are the most recent, and roughly {omitted_tokens} tokens in between were dropped. The omitted content is covered by the compaction summary at the end of the conversation."
+    ))
+}
+
+/// Truncate text to at most `max_tokens` estimated tokens, keeping the END
+/// (v2 `truncateTextToTokensFromEnd`).
+fn truncate_text_to_tokens_from_end(text: &str, max_tokens: u32) -> &str {
+    if max_tokens == 0 {
+        return "";
+    }
+    let mut ascii_count: u32 = 0;
+    let mut non_ascii_count: u32 = 0;
+    let mut start = text.len();
+    for (byte_offset, ch) in text.char_indices().rev() {
+        if ch.is_ascii() {
+            ascii_count += 1;
+        } else {
+            non_ascii_count += 1;
+        }
+        if ascii_count.div_ceil(4) + non_ascii_count > max_tokens {
+            break;
+        }
+        start = byte_offset;
+    }
+    &text[start..]
+}
+
+/// Truncate text to at most `max_tokens` estimated tokens, keeping the HEAD
+/// (v2 `truncateTextToTokens`).
+fn truncate_text_to_tokens(text: &str, max_tokens: u32) -> &str {
+    if max_tokens == 0 {
+        return "";
+    }
+    let mut ascii_count: u32 = 0;
+    let mut non_ascii_count: u32 = 0;
+    let mut end = text.len();
+    for (byte_offset, ch) in text.char_indices() {
+        if ch.is_ascii() {
+            ascii_count += 1;
+        } else {
+            non_ascii_count += 1;
+        }
+        if ascii_count.div_ceil(4) + non_ascii_count > max_tokens {
+            break;
+        }
+        end = byte_offset + ch.len_utf8();
+    }
+    &text[..end]
+}
+
+/// The kept-verbatim user messages v2's `selectCompactionUserMessages`
+/// picks from the compacted range: the tail fits `max_tokens` (the newest
+/// input, possibly suffix-truncated at the boundary), then the head fills
+/// `head_tokens` (oldest input, possibly truncated), with an elision note
+/// between when anything was omitted.
+fn select_kept_user_messages(
+    user_messages: &[LLMMessage],
+) -> (Vec<LLMMessage>, Option<LLMMessage>) {
+    let total_tokens: u32 = user_messages.iter().map(estimate_message_tokens).sum();
+    if total_tokens <= COMPACT_USER_MESSAGE_MAX_TOKENS {
+        return (user_messages.to_vec(), None);
+    }
+
+    let head_budget = COMPACT_USER_MESSAGE_HEAD_TOKENS.min(COMPACT_USER_MESSAGE_MAX_TOKENS);
+    let tail_budget = COMPACT_USER_MESSAGE_MAX_TOKENS - head_budget;
+
+    let mut tail: Vec<LLMMessage> = Vec::new();
+    let mut tail_remaining = tail_budget;
+    let mut head_end_exclusive = user_messages.len();
+    let mut tail_boundary_prefix: Option<String> = None;
+    for index in (0..user_messages.len()).rev() {
+        let message = &user_messages[index];
+        let tokens = estimate_message_tokens(message);
+        if tokens <= tail_remaining {
+            tail.push(message.clone());
+            tail_remaining -= tokens;
+            head_end_exclusive = index;
+            continue;
+        }
+        let full_text = message.content.clone();
+        let kept_suffix = truncate_text_to_tokens_from_end(&full_text, tail_remaining);
+        let mut kept = message.clone();
+        kept.content = kept_suffix.to_string();
+        tail.push(kept);
+        head_end_exclusive = index;
+        let dropped = &full_text[..full_text.len() - kept_suffix.len()];
+        if !dropped.is_empty() {
+            let mut prefix = message.clone();
+            prefix.content = dropped.to_string();
+            tail_boundary_prefix = Some(prefix.content);
+        }
+        break;
+    }
+    tail.reverse();
+
+    let mut head: Vec<LLMMessage> = Vec::new();
+    let mut head_remaining = head_budget;
+    let head_candidates_len = head_end_exclusive + usize::from(tail_boundary_prefix.is_some());
+    #[allow(clippy::needless_range_loop)] // indexes user_messages and the boundary prefix
+    for index in 0..head_candidates_len {
+        if head_remaining == 0 {
+            break;
+        }
+        if tail_boundary_prefix.is_some() && index == head_end_exclusive {
+            // v2 order: truncate the head-side half to the remaining budget
+            // FIRST (truncateUserMessage), then spend exactly that many
+            // tokens — the truncation itself must not be driven to empty by
+            // a budget the message is about to consume.
+            let text = tail_boundary_prefix.as_deref().unwrap_or_default();
+            let kept_text = truncate_text_to_tokens(text, head_remaining);
+            head_remaining = head_remaining.saturating_sub(estimate_tokens(kept_text));
+            let mut head_message = user_messages[index].clone();
+            head_message.content = kept_text.to_string();
+            head.push(head_message);
+        } else {
+            let message = &user_messages[index];
+            let tokens = estimate_message_tokens(message);
+            if tokens <= head_remaining {
+                head.push(message.clone());
+                head_remaining -= tokens;
+            } else {
+                let mut truncated = message.clone();
+                truncated.content =
+                    truncate_text_to_tokens(&message.content, head_remaining).to_string();
+                head.push(truncated);
+            }
+        }
+    }
+
+    let kept_tokens: u32 = head
+        .iter()
+        .chain(tail.iter())
+        .map(estimate_message_tokens)
+        .sum();
+    let omitted = total_tokens.saturating_sub(kept_tokens);
+    let elision = LLMMessage {
+        role: "user".into(),
+        content: compaction_elision_text(omitted),
+        ..Default::default()
+    };
+    (head, Some(elision))
+}
+
 /// Continuation reminder appended after context compaction, matching upstream #3537.
 pub const COMPACTION_CONTINUATION_TEXT: &str = "<system-reminder>\nContext compaction is complete — continue the work that was in progress when it began.\n</system-reminder>";
 
@@ -906,13 +1066,35 @@ pub(crate) fn apply_compaction_with_summary(
     if count == 0 {
         return messages.to_vec();
     }
-    let mut compacted = Vec::with_capacity(messages.len() - count as usize + 2);
+    // v2 `buildContextCompactionShape`: the compacted range's real user input
+    // survives verbatim — head (2k tokens) + elision note + tail (20k tokens)
+    // — then the prefixed summary and the continuation note close the block.
+    // The system message (index 0) and the uncompacted tail are untouched.
+    let user_in_range: Vec<LLMMessage> = messages[1..count as usize]
+        .iter()
+        .filter(|m| m.role == "user")
+        .cloned()
+        .collect();
+    let (kept, elision) = select_kept_user_messages(&user_in_range);
+    let summary_text = format!(
+        "{COMPACTION_SUMMARY_PREFIX}
+{}",
+        summary.trim()
+    );
+    let mut compacted = Vec::with_capacity(
+        1 + kept.len() + usize::from(elision.is_some()) + 2 + (messages.len() - count as usize),
+    );
     compacted.push(messages[0].clone());
+    compacted.extend(kept);
+    if let Some(elision) = elision {
+        compacted.push(elision);
+    }
     compacted.push(LLMMessage {
         role: "user".into(),
-        content: summary,
+        content: summary_text,
         ..Default::default()
     });
+    compacted.push(compaction_continuation_message());
     compacted.extend_from_slice(&messages[count as usize..]);
     compacted
 }
@@ -2385,13 +2567,23 @@ mod tests {
         let compacted = force_compact_messages_with_summary(&messages, &config, &llm, None, None)
             .await
             .unwrap();
-        let count = compute_compact_count(&messages, &config);
-        assert_eq!(compacted.len(), messages.len() - count as usize + 2);
         assert_eq!(compacted[0].role, "system");
         assert_eq!(compacted[0].content, "system-prompt");
-        assert_eq!(compacted[1].role, "user");
-        assert_eq!(compacted[1].content, "LLM summary of the conversation.");
-        assert_messages_eq(&compacted[2..], &messages[count as usize..]);
+        let summary_message = compacted
+            .iter()
+            .find(|m| m.content.contains(COMPACTION_SUMMARY_PREFIX))
+            .expect("the prefixed summary must be present");
+        assert!(
+            summary_message
+                .content
+                .ends_with("LLM summary of the conversation.")
+        );
+        assert!(
+            compacted
+                .iter()
+                .any(|m| m.content.contains(COMPACTION_CONTINUATION_TEXT)),
+            "the continuation note must be present after the summary"
+        );
     }
 
     #[tokio::test]
@@ -2445,8 +2637,11 @@ mod tests {
             .await
             .unwrap()
             .expect("above threshold must compact");
-        assert_ne!(compacted.len(), messages.len());
-        assert_eq!(compacted[1].content, "Real summary.");
+        let summary_message = compacted
+            .iter()
+            .find(|m| m.content.contains(COMPACTION_SUMMARY_PREFIX))
+            .expect("the prefixed summary must be present");
+        assert!(summary_message.content.ends_with("Real summary."));
     }
 
     #[tokio::test]
@@ -2464,7 +2659,15 @@ mod tests {
         .await
         .unwrap()
         .expect("above threshold must compact");
-        assert_eq!(compacted[1].content, "Instruction-aware summary.");
+        let summary_message = compacted
+            .iter()
+            .find(|m| m.content.contains(COMPACTION_SUMMARY_PREFIX))
+            .expect("the prefixed summary must be present");
+        assert!(
+            summary_message
+                .content
+                .ends_with("Instruction-aware summary.")
+        );
         assert!(
             llm.last_user_content().contains("Focus on user goals."),
             "the custom instruction must ride into the summarizer prompt, got: {}",
@@ -2483,11 +2686,13 @@ mod tests {
                 .unwrap();
         let count = compute_compact_count_manual(&messages, &config);
         assert!(count >= 2, "manual compaction must remove messages");
-        assert_eq!(compacted.len(), messages.len() - count as usize + 2);
         assert_eq!(compacted[0].role, "system");
         assert_eq!(compacted[0].content, "system-prompt");
-        assert_eq!(compacted[1].content, "Manual summary.");
-        assert_messages_eq(&compacted[2..], &messages[count as usize..]);
+        let summary_message = compacted
+            .iter()
+            .find(|m| m.content.contains(COMPACTION_SUMMARY_PREFIX))
+            .expect("the prefixed summary must be present");
+        assert!(summary_message.content.ends_with("Manual summary."));
         assert!(
             compacted.len()
                 < force_compact_messages_with_summary(&messages, &config, &llm, None, None)

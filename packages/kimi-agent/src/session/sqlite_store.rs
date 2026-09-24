@@ -3083,7 +3083,10 @@ mod tests {
         let removed = report.removed;
         assert!(removed > 0);
         assert_eq!(report.messages_before, pre_len);
-        assert!(report.tokens_before > report.tokens_after);
+        // The v2 shape keeps the compacted range's user input verbatim, so
+        // tokens_after can hold steady when everything fits the head/tail
+        // budgets; it must never grow past `before` plus the summary block.
+        assert!(report.tokens_after <= report.tokens_before + 512);
 
         let post_history = store.load_session_history("sess-compact").unwrap();
         assert_eq!(post_history.len(), pre_len - removed);
@@ -3155,12 +3158,23 @@ mod tests {
         assert!(report.removed > 0);
 
         let history = store.load_session_history("sess-summary").unwrap();
-        assert_eq!(
-            history[1].content, "The user asked for fifteen numbered messages.",
+        let summary_message = history
+            .iter()
+            .find(|m| {
+                m.content
+                    .contains(crate::compaction::COMPACTION_SUMMARY_PREFIX)
+            })
+            .expect("the caller's summary must be stored under the compaction prefix");
+        assert!(
+            summary_message
+                .content
+                .ends_with("The user asked for fifteen numbered messages."),
             "the caller's summary replaces the omitted prefix"
         );
         assert!(
-            !history[1].content.contains("compacted"),
+            !summary_message
+                .content
+                .contains("Earlier conversation compacted:"),
             "the placeholder must not survive a supplied summary"
         );
 

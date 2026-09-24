@@ -464,6 +464,7 @@ pub fn run_turn_continued<'a>(
         media,
         media_dropped,
         toolset,
+        previous_turn_aborted: _,
     } = input;
     Box::pin(async move {
         let mut messages = messages;
@@ -495,6 +496,9 @@ pub fn run_turn_continued<'a>(
                 media,
                 media_dropped: media_dropped.clone(),
                 toolset: toolset.clone(),
+                // The continuation is the same turn, not a new one: the
+                // interruption reminder only fires at a fresh turn's head.
+                previous_turn_aborted: false,
             };
             let mut result = run_turn(iter_input, callbacks).await?;
             steps += result.steps;
@@ -662,6 +666,12 @@ pub fn run_turn<'a>(
     // `hasPreviousSessionReminder` scans the transcript the same way).
     let previous_session_reminder_baseline =
         crate::storage::scan_previous_session_reminders(&user_messages);
+    // The interruption reminder (v2 `interruptionReminderService`): when the
+    // previous turn aborted, the history scan keeps a resumed session from
+    // re-announcing a reminder that is already in the transcript.
+    let interruption_baseline =
+        crate::injection::interruption_reminder::scan_interruption_baseline(&user_messages);
+    let previous_turn_aborted = input.previous_turn_aborted;
     let tool_defs = input.tool_defs.clone();
     let goal = input.goal.clone();
     let submitted_prompt = latest_user_text(&user_messages);
@@ -802,6 +812,15 @@ pub fn run_turn<'a>(
             input.permission_mode,
             permission_mode_baseline,
         );
+        // The interruption reminder's baseline was scanned at the top of the
+        // function (before `user_messages` moved); register from that result.
+        if previous_turn_aborted && !interruption_baseline {
+            crate::injection::interruption_reminder::register_interruption_reminder(
+                &mut injection_registry,
+                true,
+                &[],
+            );
+        }
         let goal_plan_state = Arc::new(CallbackStateSnapshot::default());
         if input.llm.transport() != "host-proxy" {
             crate::injection::goal_plan::register_goal_plan_injections(
@@ -1246,10 +1265,13 @@ pub fn run_turn<'a>(
                             "tokensAfter": report.tokens_after,
                         },
                     }));
-                    // A compaction that removed nothing cannot change the next
-                    // request, so retrying would just burn the remaining
-                    // attempts on an identical prompt.
-                    if force_compacted.len() >= messages.len() {
+                    // A compaction that produced no summary cannot change the
+                    // next request, so retrying would just burn the remaining
+                    // attempts on an identical prompt. The v2 shape keeps the
+                    // compacted range's user input verbatim (head + tail), so
+                    // the message count alone cannot prove progress; the
+                    // consecutive-attempt budget above bounds the loop.
+                    if report.summary.is_empty() && force_compacted.len() >= messages.len() {
                         return Err(Box::new(std::io::Error::other(err_str))
                             as Box<dyn std::error::Error + 'a>);
                     }
@@ -1517,34 +1539,37 @@ pub fn run_turn<'a>(
                             accesses: tool_scheduler::infer_tool_accesses(&tc.name, &tc.arguments),
                         })
                         .collect();
-                    let (mut results, durations_ms) = match tool_scheduler::execute_scheduled(
-                        input.cancellation.as_ref(),
-                        scheduled,
-                        exec_fn,
-                    )
-                    .await
-                    {
-                        Ok(outcome) => (outcome.results, outcome.durations_ms),
-                        Err(err) => {
-                            // The scheduler stops mid-batch when the host
-                            // cancels. That is a clean abort, not a failed
-                            // turn — mirror the step-top and step-result paths.
-                            let cancelled = input.cancellation.as_ref().is_some_and(|flag| {
-                                flag.load(std::sync::atomic::Ordering::Relaxed)
-                            });
-                            if cancelled {
-                                return Ok(turn_result(
-                                    LoopTurnStopReason::Aborted,
-                                    steps,
-                                    total_usage,
-                                    0,
-                                    llm_retries,
-                                    messages.clone(),
-                                ));
+                    let (mut results, durations_ms, _batch_cancelled) =
+                        match tool_scheduler::execute_scheduled(
+                            input.cancellation.as_ref(),
+                            scheduled,
+                            exec_fn,
+                        )
+                        .await
+                        {
+                            Ok(outcome) => {
+                                (outcome.results, outcome.durations_ms, outcome.cancelled)
                             }
-                            return Err(err);
-                        }
-                    };
+                            Err(err) => {
+                                // The scheduler stops mid-batch when the host
+                                // cancels. That is a clean abort, not a failed
+                                // turn — mirror the step-top and step-result paths.
+                                let cancelled = input.cancellation.as_ref().is_some_and(|flag| {
+                                    flag.load(std::sync::atomic::Ordering::Relaxed)
+                                });
+                                if cancelled {
+                                    return Ok(turn_result(
+                                        LoopTurnStopReason::Aborted,
+                                        steps,
+                                        total_usage,
+                                        0,
+                                        llm_retries,
+                                        messages.clone(),
+                                    ));
+                                }
+                                return Err(err);
+                            }
+                        };
 
                     // Dedup finalize (v2 `finalizeResult` + `endStep`):
                     // streak reminders are appended to the originals'
@@ -1980,6 +2005,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-turn-1".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -2038,6 +2064,7 @@ mod tests {
         ]));
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-turn-hooks".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -2107,6 +2134,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-turn-stop-veto".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -2159,6 +2187,7 @@ mod tests {
         ]));
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-turn-stop-allow".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -2203,6 +2232,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-turn-continued".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -2272,6 +2302,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-max-steps-exhaustion".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -2333,6 +2364,7 @@ mod tests {
         let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-tool-call-lifecycle".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -2426,6 +2458,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-filtered".into(),
             llm: &FilteredLlm,
             messages: vec![LLMMessage {
@@ -2524,6 +2557,7 @@ mod tests {
             wall_clock_ms: 0,
         };
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "turn-goal".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -2571,6 +2605,7 @@ mod tests {
             bound: bound.clone(),
         });
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "turn-goal-free".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -2615,6 +2650,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-turn-3".into(),
             llm: &llm,
             messages: vec![
@@ -2749,6 +2785,7 @@ mod tests {
         let server = Arc::new(RpcServer::new());
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-finish-length".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -2782,6 +2819,7 @@ mod tests {
         let server = Arc::new(RpcServer::new());
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-finish-max-tokens".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -2815,6 +2853,7 @@ mod tests {
         let server = Arc::new(RpcServer::new());
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-finish-filtered".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -2901,6 +2940,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-exhausted-truncated".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -3006,6 +3046,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-cache-usage".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -3111,6 +3152,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-history-accumulation".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -3205,6 +3247,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-wall-time-header".into(),
             llm: &OneShotToolLlm,
             messages: vec![LLMMessage {
@@ -3320,6 +3363,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-thinking-round-trip".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -3444,6 +3488,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-same-step-dedup".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -3565,6 +3610,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-host-tool-no-dedup".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -3653,6 +3699,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-repeat-streak".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -3772,6 +3819,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-retry-counter".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -3840,6 +3888,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             max_attempts: Some(2),
             turn_id: "test-max-attempts".into(),
             llm: &llm,
@@ -3899,6 +3948,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-paused".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -3952,6 +4002,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-blocked".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -4008,6 +4059,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-budget-tokens".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -4073,6 +4125,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-budget-turns".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -4129,6 +4182,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-active-goal".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -4226,6 +4280,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-deadline-turn".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -4278,6 +4333,7 @@ mod tests {
         let cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(true));
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-cancel-before".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -4384,6 +4440,7 @@ mod tests {
         });
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-cancel-during-tools".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -4449,6 +4506,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-stop-turn".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -4493,6 +4551,7 @@ mod tests {
         let cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-cancel-clear".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -4593,6 +4652,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-steering".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -4673,6 +4733,7 @@ mod tests {
 
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-max-steps".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -4867,6 +4928,7 @@ mod tests {
         let server = Arc::new(RpcServer::new());
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-compaction".into(),
             llm: &llm,
             messages: vec![
@@ -4905,25 +4967,46 @@ mod tests {
         assert!(matches!(result.stop_reason, LoopTurnStopReason::EndTurn));
 
         let captured = captured.lock().unwrap();
-        assert_eq!(
-            captured.len(),
-            5,
-            "system + summary + recent user + continuation reminder + injections"
-        );
+        // v2 compaction shape: system, the compacted range's head user input
+        // (verbatim), the elision note, the prefixed summary, the continuation
+        // note, the preserved recent user input, then the turn injections.
         assert_eq!(captured[0].role, "system");
-        assert_eq!(captured[1].role, "user");
-        assert_eq!(
-            captured[1].content, "Earlier user and assistant discussed the task.",
-            "the generated summary must replace the omitted history"
+        let summary_message = captured
+            .iter()
+            .find(|m| {
+                m.content
+                    .contains(crate::compaction::COMPACTION_SUMMARY_PREFIX)
+            })
+            .expect("the prefixed summary must be present");
+        assert!(
+            summary_message
+                .content
+                .ends_with("Earlier user and assistant discussed the task."),
+            "the generated summary must ride the compaction prefix"
         );
-        assert_eq!(captured[2].content, big, "most recent message preserved");
-        assert_eq!(
-            captured[3].content,
-            crate::compaction::COMPACTION_CONTINUATION_TEXT,
+        assert!(
+            captured.iter().any(|m| {
+                m.content.contains("roughly")
+                    && m.content.contains("tokens in between were dropped")
+            }),
+            "the elision note must mark the omitted middle"
+        );
+        assert!(
+            captured.iter().any(|m| m
+                .content
+                .contains(crate::compaction::COMPACTION_CONTINUATION_TEXT)),
             "compaction continuation reminder anchored on latest context"
         );
         assert!(
-            captured[4].content.starts_with("<system-reminder>\n"),
+            captured.iter().any(|m| m.content == big),
+            "most recent message preserved"
+        );
+        assert!(
+            captured
+                .iter()
+                .any(|m| m.content.starts_with("<system-reminder>\n")
+                    && !m.content.contains("roughly")
+                    && !m.content.contains("compaction")),
             "injection appended after compaction"
         );
     }
@@ -4982,6 +5065,7 @@ mod tests {
         let server = Arc::new(RpcServer::new());
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-injection".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -5052,6 +5136,7 @@ mod tests {
                 media: None,
                 media_dropped: None,
                 toolset: None,
+                previous_turn_aborted: false,
             }
         }
 
@@ -5133,6 +5218,7 @@ mod tests {
         let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-telemetry-ok".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -5199,6 +5285,7 @@ mod tests {
         let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-telemetry-no-plugins".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -5260,6 +5347,7 @@ mod tests {
         let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-telemetry-stop-hook".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -5322,6 +5410,7 @@ mod tests {
 
         let cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(true));
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-telemetry-cancel".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -5474,6 +5563,7 @@ mod tests {
         });
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-list-tools-refresh".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -5570,6 +5660,7 @@ mod tests {
         });
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-list-tools-fallback".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -5664,6 +5755,7 @@ mod tests {
         });
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-list-tools-host-proxy".into(),
             llm: &llm,
             messages: vec![LLMMessage {
@@ -5737,30 +5829,43 @@ mod tests {
                         })
                     } else {
                         // Third call succeeds after compaction.
-                        assert_eq!(
-                            params.messages.len(),
-                            7,
-                            "expected exact 7 messages: system + summary + u2 + a2 + u3 + continuation reminder + date reminder"
-                        );
+                        // Third call succeeds after compaction. v2 shape:
+                        // system + head user input (u1, kept verbatim) +
+                        // elision note + prefixed summary + continuation +
+                        // the uncompacted tail (u2/a2/u3) + date reminder.
+                        assert_eq!(params.messages.len(), 9);
                         assert_eq!(params.messages[0].role, "system");
-                        assert_eq!(params.messages[1].role, "user");
-                        assert_eq!(
-                            params.messages[1].content,
-                            "Earlier user and assistant discussed the task.",
+                        assert_eq!(params.messages[1].content, "u1");
+                        // The compacted range here covers only u1/a1 — its
+                        // head keeps u1 verbatim; u2/u3 live in the
+                        // uncompacted tail.
+                        assert_eq!(params.messages[2].role, "user");
+                        assert!(
+                            params.messages[2]
+                                .content
+                                .contains(crate::compaction::COMPACTION_SUMMARY_PREFIX),
+                            "the summary must ride the compaction prefix"
+                        );
+                        let summary_message = &params.messages[2];
+                        assert!(
+                            summary_message
+                                .content
+                                .ends_with("Earlier user and assistant discussed the task."),
                             "the generated summary must replace the omitted history"
                         );
-                        assert_eq!(params.messages[2].content, "u2");
-                        assert_eq!(params.messages[3].content, "a2");
-                        assert_eq!(params.messages[4].content, "u3");
                         assert_eq!(
-                            params.messages[5].content,
+                            params.messages[3].content,
                             crate::compaction::COMPACTION_CONTINUATION_TEXT,
                             "compaction continuation reminder anchored before injection"
                         );
+                        assert_eq!(params.messages[4].content, "u2");
+                        assert_eq!(params.messages[5].content, "a2");
+                        assert_eq!(params.messages[6].content, "u3");
                         assert!(
-                            params.messages[6]
-                                .content
-                                .starts_with("<system-reminder>\n"),
+                            params.messages[8].content.starts_with(
+                                "<system-reminder>
+"
+                            ),
                             "date reminder appended after emergency compaction"
                         );
                         Ok(LLMChatResponse {
@@ -5783,6 +5888,7 @@ mod tests {
         let callbacks = rpc_callbacks(server);
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-overflow-recovery".into(),
             llm: &llm,
             messages: vec![
@@ -5911,6 +6017,7 @@ mod tests {
         let callbacks = rpc_callbacks(server);
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-compaction-cap".into(),
             llm: &llm,
             messages: vec![
@@ -6060,6 +6167,7 @@ mod tests {
         }
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-overflow-retry".into(),
             llm: &llm,
             messages,
@@ -6201,6 +6309,7 @@ mod tests {
         }
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-too-large".into(),
             llm: llm.as_ref(),
             messages,
@@ -6330,6 +6439,7 @@ mod tests {
         }
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-image-format".into(),
             llm: llm.as_ref(),
             messages,
@@ -6427,6 +6537,7 @@ mod tests {
         let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
 
         let input = RunTurnInput {
+            previous_turn_aborted: false,
             turn_id: "test-media-budget".into(),
             llm: &llm,
             messages: vec![

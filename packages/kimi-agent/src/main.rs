@@ -308,6 +308,11 @@ async fn main() -> anyhow::Result<()> {
                 .collect();
 
             let tools: Vec<&dyn ExecutableTool> = vec![];
+            // The standalone binary cannot distinguish a user cancellation
+            // from an internal abort (the reason does not cross the loop
+            // boundary), so the interruption reminder stays off here until
+            // the reason travels with the cancel request.
+            let previous_turn_aborted = false;
 
             let run_input = RunTurnInput {
                 max_attempts: input.max_attempts,
@@ -326,6 +331,7 @@ async fn main() -> anyhow::Result<()> {
                 media: Some(&pipeline.media),
                 media_dropped: Some(pipeline.media_dropped.clone()),
                 toolset: pipeline.toolset.clone(),
+                previous_turn_aborted,
             };
 
             let result = match input.telemetry {
@@ -1640,6 +1646,7 @@ async fn run_self_test() -> anyhow::Result<()> {
         media: None,
         media_dropped: None,
         toolset: None,
+        previous_turn_aborted: false,
     };
 
     // Create a minimal server for the test

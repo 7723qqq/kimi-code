@@ -30,6 +30,10 @@ pub mod goal_plan;
 /// Permission-mode injection providers (v2 `PermissionModeInjection`).
 pub mod permission_mode;
 
+/// The interruption reminder (v2 `interruptionReminderService`): a one-shot
+/// head-of-turn reminder after a user-cancelled turn.
+pub mod interruption_reminder;
+
 /// Wrap an injection text in the `<system-reminder>` envelope. The content
 /// is trimmed and placed between the prefix and suffix, exactly like v2's
 /// `wrapSystemReminder`.

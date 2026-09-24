@@ -13451,9 +13451,17 @@ max_context_size = 1000
         assert_eq!(body["compacted"], true);
 
         let history = store.load_session_history(sid).unwrap();
-        assert_eq!(
-            history[1].content, "The user sent twelve filler messages.",
-            "the endpoint must store the model's summary, not the placeholder"
+        let summary_message = history
+            .iter()
+            .find(|m| {
+                m.content
+                    .contains(crate::compaction::COMPACTION_SUMMARY_PREFIX)
+            })
+            .expect("the endpoint must store the model's summary, not the placeholder");
+        assert!(
+            summary_message
+                .content
+                .ends_with("The user sent twelve filler messages.")
         );
     }
 

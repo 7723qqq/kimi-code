@@ -262,6 +262,10 @@ pub struct ServerEngine {
     /// re-publish with unchanged state stays silent (kap-server dedups its
     /// legacy status the same way, by snapshot equality).
     status_hashes: Mutex<HashMap<String, u64>>,
+    /// Whether the session's last finished turn ended `Aborted` (the
+    /// interruption reminder's trigger, v2 `TurnEnded` reason filter). Read
+    /// and cleared when the next turn's spec is built.
+    last_turn_aborted: Mutex<HashMap<String, bool>>,
     /// Per-session activity trackers (the `agent.status.updated` phase
     /// machine), shared with the interaction manager so a pending
     /// approval/question moves the phase too.
@@ -306,6 +310,7 @@ impl ServerEngine {
             config_source: Mutex::new(None),
             host_factory: Mutex::new(None),
             status_hashes: Mutex::new(HashMap::new()),
+            last_turn_aborted: Mutex::new(HashMap::new()),
             media: crate::llm::media_resolver::MediaResolver::new()
                 .with_upload_cache(store.clone()),
             media_dropped: Mutex::new(HashMap::new()),
@@ -815,6 +820,13 @@ impl ServerEngine {
     /// client that gates its busy indicator on the last turn's state must
     /// see the turn closed before the session says idle.
     fn publish_turn_ended(&self, session_id: &str, turn_number: u32, reason: &str) {
+        // Record the interruption-reminder trigger for the next turn's spec
+        // (v2 filters `TurnEnded` on reason `cancelled`).
+        let aborted = reason == "cancelled";
+        self.last_turn_aborted
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(session_id.to_string(), aborted);
         self.hub
             .bus_for(session_id)
             .publish(&crate::events::EngineEvent::TurnEnded {
@@ -822,6 +834,16 @@ impl ServerEngine {
                 turn_id: u64::from(turn_number),
                 reason: reason.to_string(),
             });
+    }
+
+    /// Take (read and clear) whether the session's last turn ended aborted —
+    /// the next turn's interruption-reminder trigger.
+    fn take_last_turn_aborted(&self, session_id: &str) -> bool {
+        self.last_turn_aborted
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(session_id)
+            .unwrap_or(false)
     }
 
     /// Publish the `agent.status.updated` fact the Web client's status bar
@@ -1429,6 +1451,10 @@ impl ServerEngine {
         // results sit below `min_content_tokens`.
 
         let goal = callbacks.goal().await.ok().flatten();
+        // The interruption-reminder trigger: whether this session's last
+        // finished turn ended aborted (read-and-clear, v2 filters `TurnEnded`
+        // on the cancelled reason).
+        let previous_turn_aborted = self.take_last_turn_aborted(session_id);
         let input = RunTurnInput {
             max_attempts: self.max_attempts,
             turn_id: turn_id.clone(),
@@ -1453,6 +1479,7 @@ impl ServerEngine {
             // announcement state must span the session's turns, and it is the
             // same handle the turn loop's select_tools arm executes through.
             toolset,
+            previous_turn_aborted,
         };
 
         // Flatten the loop error before any later await: `Box<dyn StdError>`

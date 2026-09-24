@@ -890,6 +890,13 @@ pub struct RunTurnInput<'a> {
     /// reads the deferred set and the announced diff from it; `None` skips
     /// the provider — host-proxy turns and subagent turns.
     pub toolset: Option<std::sync::Arc<crate::tools::NativeToolset>>,
+    /// The previous turn ended with `LoopTurnStopReason::Aborted` (the
+    /// caller owns that outcome; the turn loop is stateless). When true, the
+    /// interruption reminder (v2 `interruptionReminderService`) injects once
+    /// at this turn's head — any partial output from the aborted turn is
+    /// incomplete. Host-side aborts that are not user cancellations should
+    /// not set this until the cancel reason travels with the request.
+    pub previous_turn_aborted: bool,
 }
 
 // ── Step-level types ───────────────────────────────────────────────────────

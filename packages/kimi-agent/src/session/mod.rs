@@ -422,6 +422,11 @@ struct SessionContext {
     /// Host-injected turn-telemetry context; see
     /// [`SessionConfig::telemetry`].
     telemetry: Option<crate::turn_loop::types::TelemetryContext>,
+    /// Whether the session's previous turn ended aborted — the next turn's
+    /// interruption-reminder trigger (v2 filters `TurnEnded` on the cancelled
+    /// reason). The pump writes it when a turn settles; `run_session_turn`
+    /// reads and clears it.
+    last_turn_aborted: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// The turn lifecycle owner. A cloneable handle; the pump task runs turns
@@ -487,6 +492,7 @@ impl EngineSession {
             media: crate::llm::media_resolver::MediaResolver::new(),
             media_dropped: Default::default(),
             telemetry: config.telemetry,
+            last_turn_aborted: Arc::new(AtomicBool::new(false)),
         });
         let wakeup = Arc::new(Notify::new());
         let shutdown = Arc::new(AtomicBool::new(false));
@@ -1043,6 +1049,12 @@ async fn pump(
                 *slot.lock().unwrap_or_else(|e| e.into_inner()) = None;
             }
             if let Ok(TurnOutcome::Ran(result)) = &outcome {
+                // Record the interruption-reminder trigger for the next turn
+                // (v2 filters `TurnEnded` on the cancelled reason).
+                ctx.last_turn_aborted.store(
+                    result.stop_reason == crate::turn_loop::types::LoopTurnStopReason::Aborted,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
                 core.history
                     .extend(result.messages.iter().skip(1 + history_len).cloned());
                 // P56 (G-5): remember how this turn executed for the
@@ -1699,6 +1711,11 @@ async fn run_session_turn(
         hook();
     }
     let tool_defs = (ctx.tool_defs)().await;
+    // Read-and-clear the previous turn's abort outcome for the interruption
+    // reminder (v2 `interruptionReminderService`).
+    let previous_turn_aborted = ctx
+        .last_turn_aborted
+        .swap(false, std::sync::atomic::Ordering::Relaxed);
     let goal = match ctx.goal.as_ref() {
         Some(provider) => provider().await,
         None => None,
@@ -1727,6 +1744,7 @@ async fn run_session_turn(
         media: Some(&ctx.media),
         media_dropped: Some(ctx.media_dropped.clone()),
         toolset: ctx.toolset.clone(),
+        previous_turn_aborted,
     };
     let result = match &ctx.telemetry {
         // M1c (v2 #3963): the host injected a telemetry context, so the turn

@@ -103,6 +103,10 @@ const MAX_PARALLEL_TOOLS: usize = 16;
 pub struct ScheduledToolOutcome {
     pub results: Vec<ExecutableToolResult>,
     pub durations_ms: Vec<Option<u64>>,
+    /// The turn was cancelled mid-batch: every call that did not finish
+    /// carries an `abortedToolOutput` error result (v2 `raceWithAbortGrace`)
+    /// so the assistant's tool calls stay paired with results in history.
+    pub cancelled: bool,
 }
 
 ///
@@ -123,6 +127,7 @@ where
         return Ok(ScheduledToolOutcome {
             results: Vec::new(),
             durations_ms: Vec::new(),
+            cancelled: false,
         });
     }
     let execute_fn = Arc::new(execute_fn);
@@ -130,9 +135,33 @@ where
     let mut all_results = Vec::with_capacity(batches.iter().map(Vec::len).sum());
     let mut all_durations = Vec::with_capacity(all_results.capacity());
     let mut batch_stopped = false;
+    let total_calls = batches.iter().map(Vec::len).sum::<usize>();
+    let call_names: Vec<String> = batches
+        .iter()
+        .flatten()
+        .map(|s| s.tool_call.name.clone())
+        .collect();
     for batch in batches {
         if is_cancelled(cancellation) {
-            return Err("turn cancelled".into());
+            // v2 `abortedToolOutput`: every call that never ran still gets an
+            // error result, so the assistant's tool calls stay paired in
+            // history and the model reads a deliberate user action — not a
+            // system failure to retry.
+            for scheduled in batch {
+                all_results.push(ExecutableToolResult {
+                    delivery: None,
+                    stop_turn: false,
+                    content: aborted_tool_output(&scheduled.tool_call.name),
+                    is_error: true,
+                    note: None,
+                });
+                all_durations.push(None);
+            }
+            return Ok(ScheduledToolOutcome {
+                results: all_results,
+                durations_ms: all_durations,
+                cancelled: true,
+            });
         }
         if batch_stopped {
             for _ in batch {
@@ -243,14 +272,47 @@ where
             handle.abort();
         }
 
-        if let Some(e) = failure {
-            return Err(e.into());
+        // A cancellation mid-collect leaves calls without results. v2
+        // (`raceWithAbortGrace` + `abortedToolOutput`) settles every in-flight
+        // call with an error result after a 2 s grace; the Rust scheduler
+        // aborts the tasks instead (their futures are dropped), but the
+        // history pairing requirement is the same — fill the gaps so the
+        // model reads one deliberate user action per interrupted call.
+        if failure.is_some() {
+            while all_results.len() < total_calls {
+                let index = all_results.len();
+                let name = call_names.get(index).cloned().unwrap_or_default();
+                all_results.push(ExecutableToolResult {
+                    delivery: None,
+                    stop_turn: false,
+                    content: aborted_tool_output(&name),
+                    is_error: true,
+                    note: None,
+                });
+                all_durations.push(None);
+            }
+            return Ok(ScheduledToolOutcome {
+                results: all_results,
+                durations_ms: all_durations,
+                cancelled: true,
+            });
         }
     }
     Ok(ScheduledToolOutcome {
         results: all_results,
         durations_ms: all_durations,
+        cancelled: false,
     })
+}
+
+/// v2 `abortedToolOutput` (toolExecutorService.ts:938-943): the cancellation
+/// reason the Rust engine carries is always the engine's own flag — the
+/// user-vs-host distinction does not travel with it — so the user-cancellation
+/// text is the one this engine can emit.
+fn aborted_tool_output(tool_name: &str) -> String {
+    format!(
+        "The user manually interrupted \"{tool_name}\" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause — wait for the user's next instruction."
+    )
 }
 
 fn is_cancelled(cancellation: Option<&Arc<AtomicBool>>) -> bool {
@@ -1081,12 +1143,19 @@ mod tests {
                 note: None,
             })
         };
-        let err = execute_scheduled(Some(&cancel), scheduled, executor)
+        // v2 `abortedToolOutput`: the cancelled call settles with an error
+        // result (never executes), and the outcome carries the cancelled flag.
+        let outcome = execute_scheduled(Some(&cancel), scheduled, executor)
             .await
-            .expect_err("a cancelled turn must not run tools");
+            .expect("a cancelled turn settles, it does not error the batch");
+        assert!(outcome.cancelled);
+        assert!(!outcome.results.is_empty());
         assert!(
-            err.to_string().contains("cancelled"),
-            "unexpected error: {err}"
+            outcome.results[0]
+                .content
+                .contains("The user manually interrupted"),
+            "unexpected output: {:?}",
+            outcome.results[0].content
         );
     }
 
@@ -1121,13 +1190,10 @@ mod tests {
             canceller.store(true, Ordering::Relaxed);
         });
         let started = std::time::Instant::now();
-        let err = execute_scheduled(Some(&cancel), scheduled, executor)
+        let outcome = execute_scheduled(Some(&cancel), scheduled, executor)
             .await
-            .expect_err("cancellation must win over the hung tool");
-        assert!(
-            err.to_string().contains("cancelled"),
-            "unexpected error: {err}"
-        );
+            .expect("cancellation must win over the hung tool");
+        assert!(outcome.cancelled);
         assert!(
             started.elapsed() < std::time::Duration::from_secs(10),
             "cancel took {:?}, the hung tool pinned the collector",

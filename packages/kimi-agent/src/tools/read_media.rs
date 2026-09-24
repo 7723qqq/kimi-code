@@ -536,16 +536,39 @@ pub fn read_image_media(
 
     let mime = resolve_mime(path, &header);
     if !is_model_accepted_image_mime(&mime, limits.provider.as_deref()) {
-        return Some(err_result(LocalizedText::fmt(
-                "engine.tools.readMedia.providerRejectsMime",
-                format!("\"{path}\" is an {mime} image, which the provider does not accept. Convert it to JPEG first, then read the converted file.",
-                    path = path.display()
-                ),
-                i18n_params!["path" => path.display(), "mime" => mime],
-            )
-            .render()));
+        // v2 `buildImageConversionGuidance` appends the platform-specific
+        // conversion command (`imageConversionCommand`): sips on macOS, the
+        // format's Linux decoder / ImageMagick there, and winget+ImageMagick
+        // on Windows.
+        let converted = path.with_extension("jpg");
+        let (path_display, converted_display) =
+            (path.display().to_string(), converted.display().to_string());
+        let command = match std::env::consts::OS {
+            "macos" => {
+                format!(
+                    "On macOS: sips -s format jpeg \"{path_display}\" --out \"{converted_display}\""
+                )
+            }
+            "linux" => format!(
+                "On Linux, with ImageMagick: magick \"{path_display}\" \"{converted_display}\""
+            ),
+            "windows" => format!(
+                "On Windows, with ImageMagick: magick \"{path_display}\" \"{converted_display}\" (install it first if missing: winget install ImageMagick.ImageMagick)"
+            ),
+            _ => format!(
+                "Options: sips -s format jpeg \"{path_display}\" --out \"{converted_display}\" (macOS), or magick \"{path_display}\" \"{converted_display}\" (ImageMagick)"
+            ),
+        };
+        let rendered = LocalizedText::fmt(
+            "engine.tools.readMedia.providerRejectsMime",
+            format!("\"{path}\" is an {mime} image, which the provider does not accept. Convert it to JPEG first, then read the converted file.",
+                path = path.display()
+            ),
+            i18n_params!["path" => path.display(), "mime" => mime],
+        )
+        .render();
+        return Some(err_result(format!("{rendered} {command}")));
     }
-
     let budget = limits.budget();
     let max_edge = limits.max_edge();
     let inline_budget = inline_image_byte_budget(limits.provider.as_deref());

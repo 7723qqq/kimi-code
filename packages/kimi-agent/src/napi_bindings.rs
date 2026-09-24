@@ -2190,6 +2190,15 @@ async fn run_turn_rust_impl(
     // included) while this turn is in flight — and, since P51, abort a
     // foreground subagent immediately.
     let turn_id = params.turn_id.clone();
+    // The interruption-reminder trigger for this turn: whether the session's
+    // previous turn settled `Aborted` (read-and-clear; the next settle writes
+    // it again from the outcome).
+    let last_turn_aborted = session_entry(&turn_id)
+        .ok()
+        .map(|entry| entry.last_turn_aborted.clone());
+    let previous_turn_aborted = last_turn_aborted
+        .as_ref()
+        .is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed));
     let cancellation = Arc::new(AtomicBool::new(false));
     let parent_cancel = crate::subagent::types::ParentCancel::from_flag(cancellation.clone());
     // The guard, not a trailing `remove`: the pipeline build below can return
@@ -2298,6 +2307,7 @@ async fn run_turn_rust_impl(
         media: Some(&pipeline.media),
         media_dropped: Some(pipeline.media_dropped.clone()),
         toolset: pipeline.toolset.clone(),
+        previous_turn_aborted,
     };
 
     let telemetry_context = params.telemetry.map(|t| TelemetryContext {
@@ -2313,6 +2323,12 @@ async fn run_turn_rust_impl(
     };
 
     let result = result.map_err(|e| napi::Error::from_reason(format!("run_turn failed: {e}")))?;
+    if let Some(flag) = &last_turn_aborted {
+        flag.store(
+            result.stop_reason == crate::turn_loop::types::LoopTurnStopReason::Aborted,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
 
     Ok(js_run_turn_result(
         result,
@@ -2426,6 +2442,11 @@ struct SessionEntry {
     /// The value is never read — the field exists for its `Drop`.
     #[allow(dead_code)]
     mcp_status: Option<Arc<McpStatusBridge>>,
+    /// Whether the session's last finished turn ended aborted — the next
+    /// turn's interruption-reminder trigger (v2 filters `TurnEnded` on the
+    /// cancelled reason). Written when a turn settles, read and cleared by
+    /// the next `run_turn`.
+    last_turn_aborted: Arc<std::sync::atomic::AtomicBool>,
 }
 
 fn session_entry(session_id: &str) -> napi::Result<SessionEntry> {
@@ -2691,6 +2712,7 @@ pub fn create_engine_session(
                         workspace: params.workspace_root.clone().unwrap_or_default(),
                         callbacks: pipeline.callbacks.clone(),
                         mcp_status,
+                        last_turn_aborted: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     },
                 );
             Ok(session_id)
