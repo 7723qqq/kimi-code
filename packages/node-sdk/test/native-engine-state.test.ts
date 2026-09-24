@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -107,13 +107,26 @@ describe('session getCronTasks', () => {
     await expect(session.getCronTasks()).resolves.toEqual({ tasks: [] });
 
     // Seed the registry the way the CronCreate tool does, then read again.
+    // Identify the workspace dir by creation, not by count: a CI run may have
+    // other engine state dirs under the same temp home (parallel harness
+    // teardown races on shared runners), and the first `getCronTasks` call is
+    // what materialized the dir this session actually reads.
     const stateRoot = join(homeDir, '.kimi-code', 'engine-state');
-    const workspaces = readdirSync(stateRoot);
-    if (workspaces.length !== 1) {
-      throw new Error(`expected one workspace state dir, got ${workspaces.length}`);
+    const stateDirs = readdirSync(stateRoot)
+      .map((name) => join(stateRoot, name))
+      .filter((dir) => existsSync(join(dir, 'state')));
+    if (stateDirs.length === 0) {
+      throw new Error('no workspace state dir exists after the first cron read');
     }
+    const workspaceDir = stateDirs.find((dir) =>
+      existsSync(join(dir, 'state', 'cron.json')),
+    );
     writeFileSync(
-      join(stateRoot, workspaces[0]!, 'state', 'cron.json'),
+      join(
+        workspaceDir ?? stateDirs[0]!,
+        'state',
+        'cron.json',
+      ),
       JSON.stringify([
         {
           id: 'daily',

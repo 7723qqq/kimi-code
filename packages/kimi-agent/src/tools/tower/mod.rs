@@ -59,7 +59,8 @@ pub async fn tower_resume_target(
     cwd: Option<std::path::PathBuf>,
     agent_id: &str,
 ) -> Result<Option<TowerRosterEntry>, String> {
-    let cwd = cwd.ok_or_else(|| "no working directory to resolve the tower repo root".to_string())?;
+    let cwd =
+        cwd.ok_or_else(|| "no working directory to resolve the tower repo root".to_string())?;
     let repo_root = resolve_tower_repo_root(&cwd.to_string_lossy());
     let store = TowerStore::new(PathBuf::from(repo_root));
     let state = store
