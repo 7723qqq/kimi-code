@@ -1728,6 +1728,9 @@ async fn run_session_turn(
     let mut messages = history;
     messages.push(prompt);
     let input = RunTurnInput {
+        previous_turn_aborted: ctx
+            .last_turn_aborted
+            .swap(false, std::sync::atomic::Ordering::Relaxed),
         max_attempts: ctx.max_attempts,
         turn_id: format!("turn-{turn_id}"),
         llm: ctx.llm.as_ref(),
@@ -1744,7 +1747,6 @@ async fn run_session_turn(
         media: Some(&ctx.media),
         media_dropped: Some(ctx.media_dropped.clone()),
         toolset: ctx.toolset.clone(),
-        previous_turn_aborted,
     };
     let result = match &ctx.telemetry {
         // M1c (v2 #3963): the host injected a telemetry context, so the turn

@@ -496,6 +496,7 @@ async fn run_one(
     parent_cancel: Option<&crate::subagent::types::ParentCancel>,
 ) -> Result<crate::turn_loop::types::TurnResult, RunExit> {
     let run_input = crate::turn_loop::types::RunTurnInput {
+        previous_turn_aborted: false,
         max_attempts: None,
         turn_id: format!("subturn-{}", fastrand::u64(..)),
         llm: runtime.llm.as_ref(),
@@ -962,6 +963,7 @@ worktree root the tower assigns you as your full authority scope.";
                 media: None,
                 media_dropped: None,
                 toolset: None,
+                previous_turn_aborted: false,
             };
 
             let run_result = crate::tools::CALLER_AGENT_ID
@@ -1654,6 +1656,7 @@ worktree root the tower assigns you as your full authority scope.";
             media: None,
             media_dropped: None,
             toolset: None,
+            previous_turn_aborted: false,
         };
         let run_result = crate::tools::CALLER_AGENT_ID
             .scope(
