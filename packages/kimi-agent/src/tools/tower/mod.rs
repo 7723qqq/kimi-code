@@ -58,11 +58,14 @@ const TOWER_WORKER_PROFILE: &str = "tower-worker";
 pub async fn tower_resume_target(
     cwd: Option<std::path::PathBuf>,
     agent_id: &str,
-) -> Result<Option<TowerRosterEntry>, ()> {
-    let cwd = cwd.ok_or(())?;
+) -> Result<Option<TowerRosterEntry>, String> {
+    let cwd = cwd.ok_or_else(|| "no working directory to resolve the tower repo root".to_string())?;
     let repo_root = resolve_tower_repo_root(&cwd.to_string_lossy());
     let store = TowerStore::new(PathBuf::from(repo_root));
-    let state = store.load().await.map_err(|_| ())?;
+    let state = store
+        .load()
+        .await
+        .map_err(|e| format!("failed to load the tower store: {e}"))?;
     Ok(state
         .roster
         .agents

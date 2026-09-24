@@ -2444,6 +2444,9 @@ describe.skipIf(!nativeEntry)('EngineSessionHandle quiescence (M1c via handle)',
   }
 
   it('initializes native MCP servers via mcpServers param', async () => {
+    // CI runners start the mock MCP server + engine session well past the
+    // vitest default; both MCP tests time out at 5 s on ubuntu shards while
+    // passing locally, so they carry an explicit budget.
     process.env['KIMI_NATIVE_ALLOW_MOCK_MCP'] = '1';
     try {
       const handle = await createMockMcpSession();
@@ -2461,11 +2464,10 @@ describe.skipIf(!nativeEntry)('EngineSessionHandle quiescence (M1c via handle)',
     } finally {
       delete process.env['KIMI_NATIVE_ALLOW_MOCK_MCP'];
     }
-  });
+  }, 30_000);
 
   it('emits mcp.server.status transitions after the session is created', async () => {
-    process.env['KIMI_NATIVE_ALLOW_MOCK_MCP'] = '1';
-    try {
+    process.env['KIMI_NATIVE_ALLOW_MOCK_MCP'] = '1';    try {
       const statuses: Array<{ name?: string; status?: string }> = [];
       const handle = await EngineSessionHandle.create(
         {
@@ -2514,7 +2516,7 @@ describe.skipIf(!nativeEntry)('EngineSessionHandle quiescence (M1c via handle)',
     } finally {
       delete process.env['KIMI_NATIVE_ALLOW_MOCK_MCP'];
     }
-  });
+  }, 30_000);
 
   it('refuses a mock transport without the test opt-in', async () => {
     const handle = await createMockMcpSession();

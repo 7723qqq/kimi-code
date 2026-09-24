@@ -365,7 +365,7 @@ async fn tower_resume_denial(
         Ok(hit) => hit,
         // No tower (or no cwd): the tower cannot vouch for any id, so no
         // foreground resume is refused here.
-        Err(()) => return None,
+        Err(_) => return None,
     };
     if profile_name != TOWER_WORKER_PROFILE && roster_hit.is_none() {
         return None;
