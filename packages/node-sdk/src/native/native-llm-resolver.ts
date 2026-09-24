@@ -364,7 +364,17 @@ export function buildPolicySnapshot(config: KimiConfig, workDir: string): Policy
     | 'yolo'
     | 'plan';
   const rules = config.permission?.rules ?? [];
-  const dangerousCommandGuard = config.permission?.dangerousCommandGuard;
+  // `[permission] dangerousCommandGuard`, with the v2 env override
+  // (`KIMI_CODE_DANGEROUS_COMMAND_GUARD`): only the literal `true` / `false`
+  // overrides the file setting; any other value leaves the config in charge
+  // (v2 `parseDangerousCommandGuardEnv`).
+  const dangerousCommandGuardRaw = process.env['KIMI_CODE_DANGEROUS_COMMAND_GUARD'];
+  const dangerousCommandGuard =
+    dangerousCommandGuardRaw === 'true'
+      ? true
+      : dangerousCommandGuardRaw === 'false'
+        ? false
+        : config.permission?.dangerousCommandGuard;
   const hooks = config.hooks ?? [];
   const tools = config.tools;
   const toolsFilter =

@@ -1445,11 +1445,18 @@ impl KimiConfig {
             pre_tool_hooks: self.hooks.clone(),
             rule_reasons,
             non_interactive: false,
-            dangerous_command_guard: self
-                .permission
-                .as_ref()
-                .and_then(|p| p.dangerous_command_guard)
-                .unwrap_or(true),
+            // v2 env binding (`KIMI_CODE_DANGEROUS_COMMAND_GUARD`): only the
+            // literal `true` / `false` overrides the file setting; anything
+            // else leaves the config in charge (`parseDangerousCommandGuardEnv`).
+            dangerous_command_guard: match std::env::var("KIMI_CODE_DANGEROUS_COMMAND_GUARD") {
+                Ok(v) if v == "true" => true,
+                Ok(v) if v == "false" => false,
+                _ => self
+                    .permission
+                    .as_ref()
+                    .and_then(|p| p.dangerous_command_guard)
+                    .unwrap_or(true),
+            },
         }
     }
 }
