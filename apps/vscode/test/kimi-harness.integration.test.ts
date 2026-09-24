@@ -1233,7 +1233,12 @@ describe('VS Code Kimi harness integration (shares one in-process SDK home)', ()
     await rig.runtime.detachView('view-1');
     const resumed = await openRuntimeSession(rig, sessionId);
 
-    expect(resumed.session.summary?.additionalDirs).toContain(additionalDir);
+    // The engine persists additional dirs through `resolveAdditionalDirs`,
+    // which normalizes separators to forward slashes; compare canonically so
+    // the assertion holds on Windows (backslash join + case-insensitive FS).
+    const stored = resumed.session.summary?.additionalDirs ?? [];
+    const expected = additionalDir.replaceAll('\\', '/').toLowerCase();
+    expect(stored.map((dir) => dir.replaceAll('\\', '/').toLowerCase())).toContain(expected);
   });
 
   it('rejects an invalid plan subcommand without leaving the runtime busy', async () => {
