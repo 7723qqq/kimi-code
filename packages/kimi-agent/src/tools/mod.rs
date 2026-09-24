@@ -15,6 +15,7 @@
 //! the native harness`. A bad path, a mistyped argument, or a file that is
 //! not readable text is an error result.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -760,11 +761,16 @@ impl NativeToolset {
     /// taken once so a turn only ever announces it a single time.
     ///
     /// The caller is the turn-level injection registry, which asks on every
-    /// new turn; the runner's persisted `resumeReminded` marker is what keeps
-    /// this silent afterwards, so a later process does not repeat it either.
-    pub(crate) fn take_previous_session_reminder(&self) -> Option<String> {
+    /// new turn; two gates keep it silent afterwards: the runner's persisted
+    /// `resumeReminded` marker (so a later process does not repeat it
+    /// either), and `already` — the ids an earlier reminder in this
+    /// conversation already named (v2 `hasPreviousSessionReminder`).
+    pub(crate) fn take_previous_session_reminder(
+        &self,
+        already: &HashSet<String>,
+    ) -> Option<String> {
         let runner = self.task_runner.as_ref()?;
-        runner.reconcile_previous_session()
+        runner.reconcile_previous_session(already)
     }
 
     pub fn with_caller_agent_id(mut self, agent_id: impl Into<String>) -> Self {
@@ -1379,19 +1385,21 @@ impl NativeToolset {
                 .await
             }
             "agentswarm" | "agent_swarm" => {
+                // v2 #3976: swarm and tower modes are mutually exclusive — the
+                // veto replaces the pre-#3976 auto-pause. With tower active
+                // the fleet runs through TowerSpawn; a batch here would race
+                // worker writes in the same repo. The gate runs before the
+                // manager lookup, so a missing subagent runtime cannot turn a
+                // refusal into a silent decline. Main agent only (v2 swarm
+                // mode is Agent-scoped).
+                if self.effective_caller_agent_id() == "main"
+                    && let Some(denial) =
+                        mode_mutex::refuse_swarm_with_active_tower(&self.root).await
+                {
+                    return Some(err_result(denial));
+                }
                 let mgr = self.subagent_manager.as_ref()?;
-                // Mode mutex (v2 `SwarmModeEnter` → tower exit): v2 enters
-                // swarm mode *before* the batch runs, so pause tower here too
-                // — pausing after the batch would let a sibling tool call race
-                // worker writes against the not-yet-paused state. Main agent
-                // only (v2 swarm mode is Agent-scoped).
-                let paused = if self.effective_caller_agent_id() == "main" {
-                    mode_mutex::pause_tower_for_mode_enter(&self.root, "AgentSwarm dispatched")
-                        .await
-                } else {
-                    Vec::new()
-                };
-                let result = swarm_tool::execute_agent_swarm(
+                swarm_tool::execute_agent_swarm(
                     mgr,
                     args,
                     self.subagent_timeout_ms,
@@ -1399,19 +1407,7 @@ impl NativeToolset {
                     tool_call_id,
                     self.secondary_model.as_deref(),
                 )
-                .await;
-                match result {
-                    Some(mut r) => {
-                        // The pause already happened (v2 enters swarm mode
-                        // before execution), so report it even when the batch
-                        // itself failed — the state change is real either way.
-                        if !paused.is_empty() {
-                            r.content.push_str(&mode_mutex::tower_paused_note(&paused));
-                        }
-                        Some(r)
-                    }
-                    None => None,
-                }
+                .await
             }
             "knowledge" => Some(knowledge_tool::execute_knowledge(&self.root, args)),
             "memoryread" | "memory_read" => {
@@ -7278,9 +7274,10 @@ m2
 
         let mut registry = crate::injection::InjectionRegistry::new();
         let reminder_ts = ts.clone();
+        let announced = HashSet::new();
         registry.register(
-            "previous_session_tasks",
-            Box::new(move |_ctx| reminder_ts.take_previous_session_reminder()),
+            "task_resume_termination",
+            Box::new(move |_ctx| reminder_ts.take_previous_session_reminder(&announced)),
         );
 
         let texts = registry.build_injections(true);
@@ -7577,6 +7574,80 @@ m2
             );
             // The refusal happens before the worktree is created.
             assert!(!dir.path().join(".tower/worktrees/wt-1").exists());
+        }
+
+        /// v2 #3976: AgentSwarm is refused outright while a tower has open
+        /// missions — the pre-#3976 auto-pause is gone, and the batch must not
+        /// run at all (no subagents, and the mission keeps its status).
+        #[tokio::test]
+        async fn agent_swarm_is_refused_while_tower_is_active() {
+            let dir = init_repo();
+            let (callbacks, _) = host(false);
+            let toolset = NativeToolset::new(dir.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_callbacks(callbacks)
+                .with_subagents(std::sync::Arc::new(crate::subagent::SubagentManager::new()));
+            repo_with_open_mission(dir.path(), &toolset).await;
+
+            let before = TowerStore::new(dir.path().to_path_buf())
+                .load()
+                .await
+                .unwrap();
+            assert_eq!(status_of(&before, "M1"), Some(TowerMissionStatus::Planned));
+
+            let result = toolset
+                .execute_tool("AgentSwarm", &json!({ "tasks": [] }))
+                .await
+                .expect("AgentSwarm is native");
+            assert!(result.is_error, "{}", result.content);
+            assert!(
+                result
+                    .content
+                    .contains("not available while tower mode is active")
+                    && result.content.contains("mutually exclusive")
+                    && result.content.contains("M1"),
+                "the refusal must name the open missions it is gated on: {}",
+                result.content
+            );
+
+            // No mission was paused (the pause half is gone in #3976) and no
+            // swarm side effect landed.
+            let after = TowerStore::new(dir.path().to_path_buf())
+                .load()
+                .await
+                .unwrap();
+            assert_eq!(status_of(&after, "M1"), Some(TowerMissionStatus::Planned));
+        }
+
+        /// With no tower, the swarm dispatch is untouched: the call reaches the
+        /// swarm tool instead of the tower mutex.
+        #[tokio::test]
+        async fn agent_swarm_is_not_vetoed_when_no_tower_is_initialized() {
+            let dir = init_repo();
+            let (callbacks, _) = host(false);
+            let toolset = NativeToolset::new(dir.path().to_str().unwrap(), None)
+                .unwrap()
+                .with_callbacks(callbacks)
+                .with_subagents(std::sync::Arc::new(crate::subagent::SubagentManager::new()));
+            assert!(
+                crate::tools::mode_mutex::refuse_swarm_with_active_tower(dir.path())
+                    .await
+                    .is_none()
+            );
+            // `None` means the call fell through to the host (this fixture has no
+            // subagent runtime); either way the tower mutex did not veto it.
+            if let Some(result) = toolset
+                .execute_tool("AgentSwarm", &json!({ "tasks": [] }))
+                .await
+            {
+                assert!(
+                    !result
+                        .content
+                        .contains("not available while tower mode is active"),
+                    "the swarm must not be vetoed without a tower: {}",
+                    result.content
+                );
+            }
         }
 
         /// TowerMerge on a paused mission's branch must be refused even though

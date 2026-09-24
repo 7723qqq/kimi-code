@@ -508,6 +508,10 @@ pub async fn start_repl(
             .with_model_capabilities(native_llm_def.capabilities.clone())
             .with_mcp(mcp_manager.clone())
             .with_callbacks(base_callbacks.clone())
+            // The same runner the dummy host delegates task stop/wait to: it
+            // spawns native background tasks and reconciles previous-session
+            // losses for the turn's reminder.
+            .with_task_runner(task_runner.clone())
             .with_github_credentials(github_credentials.clone()),
     );
     let shell_bridge = toolset.shell_bridge();
@@ -529,7 +533,7 @@ pub async fn start_repl(
     ));
     let tool_callbacks: Arc<dyn HostCallbacks> = Arc::new(NativeToolCallbacks {
         inner: base_callbacks,
-        toolset,
+        toolset: toolset.clone(),
         native_count,
         permission_engine: Some(permission_engine),
         truncator: Some(tool_truncator),
@@ -600,7 +604,10 @@ pub async fn start_repl(
         // The REPL has no host session id, so it drains no task notifications.
         session_id: None,
         task_runner: None,
-        toolset: None,
+        // The same Arc the tool callbacks execute on: it carries the
+        // previous-session reminder runner and the disclosure announcement
+        // state across turns.
+        toolset: Some(toolset),
         // The REPL is its own host: no host-injected telemetry context, so the
         // turn lifecycle stays off the host/telemetry seam.
         telemetry: None,

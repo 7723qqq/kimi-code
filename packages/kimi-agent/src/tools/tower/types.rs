@@ -111,6 +111,10 @@ impl TowerMissionKind {
 pub struct TowerMissionTask {
     pub text: String,
     pub done: bool,
+    /// Escape hatch for legitimately descoped work (upstream #3976): a
+    /// dropped task stays visible but no longer blocks completion.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dropped: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -285,6 +289,14 @@ pub struct TowerReviewInput {
     pub decision: String,
 }
 
+/// The `task_drop` patch payload (upstream #3976): the task text to match
+/// and the mandatory reason recorded in the mission notes and activity log.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TowerTaskDrop {
+    pub text: String,
+    pub reason: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TowerMissionPatch {
     pub status: Option<TowerMissionStatus>,
@@ -292,6 +304,7 @@ pub struct TowerMissionPatch {
     pub blocker: Option<String>,
     pub clear_blockers: Option<bool>,
     pub task_done: Option<String>,
+    pub task_drop: Option<TowerTaskDrop>,
     pub owner: Option<String>,
     pub scope: Option<Vec<String>>,
 }

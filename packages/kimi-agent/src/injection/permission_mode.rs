@@ -33,22 +33,11 @@ const AUTO_ENTER_MARKER: &str = "Auto permission mode is active.";
 /// The exit reminder's opening line.
 const AUTO_EXIT_MARKER: &str = "Auto permission mode is no longer active.";
 
-/// Whether the env switch value keeps the injection on (v2 `parseBooleanEnv`
-/// semantics): only an explicit false disables it, an unset or unrecognized
-/// value leaves it on.
-fn reminder_env_enabled(value: Option<&str>) -> bool {
-    match value {
-        Some(value) => !matches!(
-            value.trim().to_ascii_lowercase().as_str(),
-            "0" | "false" | "no" | "off"
-        ),
-        None => true,
-    }
-}
-
-/// Whether the injection is registered (v2 #3728).
+/// Whether the injection is registered (v2 #3728). The switch defaults on:
+/// only an explicit falsy `KIMI_CODE_PERMISSION_MODE_REMINDER` value turns it
+/// off (`crate::env::env_switch_default_on`, v2 `parseBooleanEnv`).
 pub fn permission_mode_reminder_enabled() -> bool {
-    reminder_env_enabled(std::env::var(PERMISSION_MODE_REMINDER_ENV).ok().as_deref())
+    crate::env::env_switch_default_on(PERMISSION_MODE_REMINDER_ENV)
 }
 
 /// State machine for the permission-mode reminders (v2
@@ -265,23 +254,6 @@ mod tests {
             ]),
             Some(PermissionMode::Auto)
         );
-    }
-
-    #[test]
-    fn test_reminder_env_gate() {
-        assert!(reminder_env_enabled(None));
-        assert!(reminder_env_enabled(Some("")));
-        assert!(reminder_env_enabled(Some("1")));
-        assert!(reminder_env_enabled(Some("true")));
-        assert!(reminder_env_enabled(Some(" TRUE ")));
-        assert!(reminder_env_enabled(Some("yes")));
-        assert!(reminder_env_enabled(Some("on")));
-        assert!(reminder_env_enabled(Some("banana")));
-        assert!(!reminder_env_enabled(Some("0")));
-        assert!(!reminder_env_enabled(Some("false")));
-        assert!(!reminder_env_enabled(Some(" FALSE ")));
-        assert!(!reminder_env_enabled(Some("no")));
-        assert!(!reminder_env_enabled(Some("off")));
     }
 
     #[test]

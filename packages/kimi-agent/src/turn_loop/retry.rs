@@ -20,13 +20,7 @@ pub const DEFAULT_MAX_DELAY_MS: u64 = 32_000;
 /// `1` / `true` / `yes` / `on`, case-insensitive; anything else — including an
 /// unset variable — is false.
 pub fn parse_truthy_env(name: &str) -> bool {
-    match std::env::var(name) {
-        Ok(value) => matches!(
-            value.trim().to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        ),
-        Err(_) => false,
-    }
+    crate::env::env_switch_default_off(name)
 }
 
 /// `KIMI_CODE_INFINITE_RETRY` (v2 #3240, llmRequesterService.ts): retry every

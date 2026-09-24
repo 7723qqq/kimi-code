@@ -5,15 +5,18 @@
 //! `SwarmModeEnter` exit tower, `TowerModeEnter` exits plan and swarm). The
 //! native engine has no tower/swarm mode flags — tower state is file-based
 //! (`.tower/`) and swarm is a one-shot batch tool — so the mutex is expressed
-//! in those terms. Plan enter and swarm dispatch with open tower missions
-//! pause them (`Paused`, never deleted or torn down; resume via TowerMission).
-//! Tower init with plan active deactivates plan through the host state bridge
+//! in those terms. Plan enter with open tower missions pauses them (`Paused`,
+//! never deleted or torn down; resume via TowerMission), while a swarm dispatch
+//! is *refused* while any mission is open (v2 #3976: the modes are exclusive,
+//! and the tower fleet already runs through TowerSpawn). Tower init with plan
+//! active deactivates plan through the host state bridge
 //! (`{active:false}`, undoable, like ExitPlanMode).
 //!
 //! Swarm has no persistent mode to exit on the tower side (each AgentSwarm
 //! call runs its batch and returns), so that half of v2's tower-enter rule
-//! is a documented no-op. Like v2, the mutex never blocks entry: on any
-//! I/O error it degrades to doing nothing.
+//! is a documented no-op. Like v2, the mutex never blocks entry on an I/O
+//! error — except the swarm gate, which denies when a tower's state exists but
+//! cannot be read (a tower it cannot clear is not a tower it may ignore).
 
 use std::path::{Path, PathBuf};
 
@@ -60,11 +63,7 @@ pub async fn pause_tower_for_mode_enter(workspace_root: &Path, reason: &str) -> 
             note: Some(format!(
                 "mode mutex: auto-paused ({reason}); resume with TowerMission status=active"
             )),
-            blocker: None,
-            clear_blockers: None,
-            task_done: None,
-            owner: None,
-            scope: None,
+            ..Default::default()
         };
         // The mutex acts as the tower itself, so ownership checks pass;
         // a mission that refuses the patch keeps its status and is skipped.
@@ -100,6 +99,46 @@ pub async fn exit_plan_for_tower_enter(callbacks: &dyn HostCallbacks) -> bool {
         tool_call_id: String::new(),
     };
     callbacks.state_write(write).await.is_ok()
+}
+
+/// v2 #3976: swarm and tower modes are mutually exclusive, and with tower
+/// active the fleet runs through TowerSpawn — one mission per worker in its own
+/// worktree. Returns the denial message when a tower has open missions, or
+/// `None` to let the swarm run. Never fails: like [`pause_tower_for_mode_enter`],
+/// an uninitialized or unreadable tower simply yields no denial, so the mutex
+/// degrades to doing nothing rather than wedging the tool.
+/// Fail-closed where it counts: a tower whose state exists but cannot be read is
+/// a tower this gate cannot clear, so it denies rather than waving the batch
+/// through. A workspace with no tower at all (`is_initialized` false) is the one
+/// case that yields no denial — that is the documented "no mutex here" path,
+/// not a swallowed error.
+pub async fn refuse_swarm_with_active_tower(workspace_root: &Path) -> Option<String> {
+    let repo_root = resolve_tower_repo_root(&workspace_root.to_string_lossy());
+    let store = TowerStore::new(PathBuf::from(repo_root));
+    if !store.is_initialized().await.unwrap_or(false) {
+        return None;
+    }
+    let state_lock = store.state_lock();
+    let _state_guard = state_lock.lock().await;
+    let state = match store.load().await {
+        Ok(state) => state,
+        Err(error) => {
+            return Some(format!(
+                "AgentSwarm is not available: this workspace has a tower whose state could not be read ({error}), so the mode mutex cannot confirm that swarm and tower are exclusive. Repair or remove the tower state under .tower/, or run the swarm from a workspace without one."
+            ));
+        }
+    };
+    let open = open_mission_ids(&state);
+    if open.is_empty() {
+        return None;
+    }
+    // The remedy has to be the action that actually clears the gate: this
+    // mutex reads open missions, not the host's tower-mode flag, and turning
+    // that flag off leaves the missions open.
+    Some(format!(
+        "AgentSwarm is not available while tower mode is active — swarm and tower modes are mutually exclusive, and the tower fleet runs through TowerSpawn, one mission per worker in its own worktree. Open mission(s): {}. Finish them (merge or abandon with TowerMission) before dispatching a swarm.",
+        open.join(", ")
+    ))
 }
 
 /// Enforcement half of the pause: worker spawns and merges against a paused
@@ -241,6 +280,57 @@ mod tests {
         assert_eq!(status_of("m1"), Some(TowerMissionStatus::Paused));
         assert_eq!(status_of("m3"), Some(TowerMissionStatus::Paused));
         assert_eq!(status_of("m2"), Some(TowerMissionStatus::Merged));
+    }
+
+    /// The #3976 swarm veto: an active tower refuses the batch outright.
+    #[tokio::test]
+    async fn refuse_swarm_with_active_tower_denies_when_missions_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(".tower/comms/missions")).unwrap();
+        std::fs::create_dir_all(root.join(".tower/comms/log")).unwrap();
+        let store = TowerStore::new(root.to_path_buf());
+        store.save(&state_with(Vec::new())).await.unwrap();
+        assert!(
+            refuse_swarm_with_active_tower(root).await.is_none(),
+            "an initialized tower with no open mission still allows a swarm"
+        );
+
+        store
+            .save(&state_with(vec![mission("m1", TowerMissionStatus::Active)]))
+            .await
+            .unwrap();
+        let denial = refuse_swarm_with_active_tower(root)
+            .await
+            .expect("open mission denies the swarm");
+        assert!(denial.contains("not available while tower mode is active"));
+        assert!(denial.contains("mutually exclusive"));
+        // The remedy must be the action that actually clears the gate: this
+        // mutex reads open missions, and turning the tower-mode flag off leaves
+        // them open.
+        assert!(denial.contains("m1"), "{denial}");
+        assert!(denial.contains("merge or abandon"), "{denial}");
+    }
+
+    /// A tower whose state file exists but cannot be parsed is a tower this gate
+    /// cannot clear, so the swarm is refused rather than waved through.
+    #[tokio::test]
+    async fn refuse_swarm_with_active_tower_denies_when_the_state_is_unreadable() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(".tower/comms")).unwrap();
+        std::fs::write(root.join(".tower/comms/state.json"), "{ not json").unwrap();
+
+        let denial = refuse_swarm_with_active_tower(root)
+            .await
+            .expect("an unreadable tower state denies the swarm");
+        assert!(denial.contains("could not be read"), "{denial}");
+    }
+
+    #[tokio::test]
+    async fn refuse_swarm_with_active_tower_skips_uninitialized_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(refuse_swarm_with_active_tower(dir.path()).await.is_none());
     }
 
     /// Scriptable state-bridge host: reads answer with `plan_active`, writes

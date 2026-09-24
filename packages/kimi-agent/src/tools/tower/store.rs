@@ -7,8 +7,8 @@ use tokio::sync::Mutex;
 
 use crate::tools::tower::frontmatter::{parse_frontmatter, render_frontmatter};
 use crate::tools::tower::git::{
-    branch_exists, branch_tip, current_branch, diff_name_only, has_any_commit, is_inside_repo,
-    is_worktree_dirty, merge_no_ff, worktree_add, worktree_remove,
+    branch_exists, branch_tip, current_branch, diff_name_only, has_any_commit, is_ancestor,
+    is_inside_repo, is_worktree_dirty, merge_no_ff, worktree_add, worktree_remove,
 };
 use crate::tools::tower::paths::{
     ACTIVITY_LOG, BROADCAST_NAME, FINDINGS_DIR, INBOX_DIR, LOG_DIR, MISSIONS_DIR, MISSIONS_INDEX,
@@ -16,10 +16,14 @@ use crate::tools::tower::paths::{
     inbox_file_name, mission_file_name, review_file_name, slugify, target_slug, unique_slug,
 };
 use crate::tools::tower::types::{
-    TowerFindingInput, TowerInboxItem, TowerInitResult, TowerMission, TowerMissionPatch,
-    TowerMissionStatus, TowerPlanInput, TowerReviewInfo, TowerReviewInput, TowerRoster,
-    TowerRosterEntry, TowerSendInput, TowerState,
+    TowerFindingInput, TowerInboxItem, TowerInitResult, TowerMission, TowerMissionKind,
+    TowerMissionPatch, TowerMissionStatus, TowerMissionTask, TowerPlanInput, TowerReviewInfo,
+    TowerReviewInput, TowerRoster, TowerRosterEntry, TowerSendInput, TowerState,
 };
+
+/// v2 `MAX_REVIEW_ROUNDS` (#3976): a branch stops converging long before this
+/// many rounds from the same reviewer.
+pub const MAX_REVIEW_ROUNDS: u32 = 5;
 
 /// Process-global tower-state locks keyed by the resolved repo root. Tower
 /// workers run as concurrent tasks in one engine process and share a single
@@ -277,6 +281,17 @@ impl TowerStore {
         serde_json::from_str(&raw).map_err(|e| format!("corrupted tower state: {e}"))
     }
 
+    /// One field of an activity-log line.
+    ///
+    /// The log is a space-separated line per event, so a value carrying a
+    /// newline would forge a second entry — a drop reason or a note is free text
+    /// that reaches here from the model. Fold the line structure away and keep
+    /// the text readable: a backslash-escaped space would be lossless, but every
+    /// reader of this log is a human, so readability wins over reversibility.
+    fn log_field(value: &str) -> String {
+        value.replace(['\r', '\n', '\t'], " ")
+    }
+
     pub async fn save(&self, state: &TowerState) -> Result<(), String> {
         let file = self.abs(STATE_FILE);
         // A random suffix keeps two saves from ever interleaving into one tmp
@@ -300,16 +315,16 @@ impl TowerStore {
     ) -> Result<(), String> {
         let mut parts = vec![
             chrono::Utc::now().to_rfc3339(),
-            actor.to_string(),
-            action.to_string(),
+            Self::log_field(actor),
+            Self::log_field(action),
         ];
         for &(k, v) in details {
             if !v.is_empty() {
-                parts.push(format!("{k}={v}"));
+                parts.push(format!("{}={}", Self::log_field(k), Self::log_field(v)));
             }
         }
         if let Some(r) = ref_path {
-            parts.push(format!("ref={r}"));
+            parts.push(format!("ref={}", Self::log_field(r)));
         }
         let line = format!("{}\n", parts.join(" "));
         let mut file = OpenOptions::new()
@@ -439,7 +454,11 @@ impl TowerStore {
                     .clone()
                     .unwrap_or_default()
                     .into_iter()
-                    .map(|text| crate::tools::tower::types::TowerMissionTask { text, done: false })
+                    .map(|text| crate::tools::tower::types::TowerMissionTask {
+                        text,
+                        done: false,
+                        dropped: false,
+                    })
                     .collect(),
                 notes: Vec::new(),
                 blockers: Vec::new(),
@@ -628,7 +647,7 @@ impl TowerStore {
             let task = mission
                 .tasks
                 .iter_mut()
-                .find(|t| !t.done && t.text.contains(task_done_text));
+                .find(|t| !t.done && !t.dropped && t.text.contains(task_done_text));
             match task {
                 Some(t) => t.done = true,
                 None => {
@@ -637,6 +656,49 @@ impl TowerStore {
                     ));
                 }
             }
+        }
+
+        let mut task_drop_log: Option<String> = None;
+        if let Some(ref drop) = patch.task_drop {
+            // v2 #3976: the drop is the escape hatch for legitimately
+            // descoped work, so the reason is mandatory and auditable.
+            let reason = drop.reason.as_deref().unwrap_or("").trim();
+            if reason.is_empty() {
+                return Err(format!(
+                    "dropping a task from mission {id} requires a reason — the drop is the escape hatch for legitimately descoped work, and the reason is recorded in the mission notes and the activity log for audit"
+                ));
+            }
+            // An empty needle matches every task (`str::contains("")`), which
+            // would silently drop the first open one — reject it instead.
+            let needle = drop.text.trim();
+            if needle.is_empty() {
+                return Err(format!(
+                    "dropping a task from mission {id} requires the task text — pass task_drop with the task to drop"
+                ));
+            }
+            let Some(task) = mission
+                .tasks
+                .iter_mut()
+                .find(|t| !t.done && !t.dropped && t.text.contains(needle))
+            else {
+                return Err(format!(
+                    "mission {id} has no open task matching \"{needle}\""
+                ));
+            };
+            task.dropped = true;
+            let log = format!("dropped task \"{}\": {reason}", task.text);
+            mission.notes.push(log.clone());
+            task_drop_log = Some(log);
+        }
+
+        // v2 `assertCompletable` (#3976): completing with open tasks or a
+        // zero-diff build branch is refused outright. Runs after the task
+        // mutations so ticking/dropping the last task in the same patch
+        // passes.
+        if patch.status == Some(TowerMissionStatus::Completed) && patch.blocker.is_none() {
+            let patched = mission.clone();
+            let base = state.base.clone();
+            self.assert_completable(&patched, &base).await?;
         }
 
         let updated = mission.clone();
@@ -648,15 +710,75 @@ impl TowerStore {
             .status
             .map(|s| s.as_str().to_string())
             .unwrap_or_default();
-        self.append_log(
-            caller_name,
-            "mission.update",
-            &[("id", id), ("status", &status_str)],
-            None,
-        )
-        .await?;
+        let mut log_fields: Vec<(&str, &str)> = vec![("id", id), ("status", &status_str)];
+        if let Some(ref dropped) = task_drop_log {
+            log_fields.push(("task_drop", dropped.as_str()));
+        }
+        self.append_log(caller_name, "mission.update", &log_fields, None)
+            .await?;
 
         Ok(updated)
+    }
+
+    /// v2 `assertCompletable` (#3976): a mission may not flip to `completed`
+    /// while open tasks remain or its build branch carries no work. Survey
+    /// missions are exempt — they are read-only and close with a zero-diff
+    /// merge.
+    async fn assert_completable(&self, mission: &TowerMission, base: &str) -> Result<(), String> {
+        let open: Vec<&TowerMissionTask> = mission
+            .tasks
+            .iter()
+            .filter(|t| !t.done && !t.dropped)
+            .collect();
+        if !open.is_empty() {
+            return Err(format!(
+                "mission {} cannot transition to completed — {} open task(s): {}; tick finished tasks with task_done, or drop legitimately descoped ones with task_drop (a reason is mandatory and lands in the mission notes and the activity log)",
+                mission.id,
+                open.len(),
+                open.iter()
+                    .map(|t| format!("\"{}\"", t.text))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ));
+        }
+        if mission.kind == TowerMissionKind::Survey {
+            return Ok(());
+        }
+        if !branch_exists(&self.repo_root, &mission.branch).await {
+            return Err(format!(
+                "mission {} cannot transition to completed — its branch \"{}\" is not available (missing, or git cannot resolve it), so no work has landed; a build mission must produce a diff on its branch: spawn a worker to do the work, or have the tower abandon the mission (status=abandoned) if it is no longer needed",
+                mission.id, mission.branch,
+            ));
+        }
+        // An undecidable ancestry check is not "not an ancestor": falling back to
+        // the tower base on a git error would judge the diff against the wrong
+        // base, so the completion is refused instead.
+        let base = self.diff_base(base, mission).await?;
+        let changed = diff_name_only(&self.repo_root, &base, &mission.branch).await?;
+        if changed.is_empty() {
+            return Err(format!(
+                "mission {} cannot transition to completed — branch \"{}\" has no changes vs \"{base}\"; a build mission must produce a diff on its branch: commit the work there first, or if the work turned out unnecessary, have the tower abandon the mission (status=abandoned) instead",
+                mission.id, mission.branch,
+            ));
+        }
+        Ok(())
+    }
+
+    /// v2 `diffBase`: the mission's spawn base wins while it is still an
+    /// ancestor of the mission branch; otherwise the tower base does. An
+    /// undecidable check propagates: this base decides whether the mission has
+    /// any work at all, so guessing it would be the wrong answer to give.
+    async fn diff_base(&self, base: &str, mission: &TowerMission) -> Result<String, String> {
+        match mission.spawn_base {
+            Some(ref spawn_base) => {
+                if is_ancestor(&self.repo_root, spawn_base, &mission.branch).await? {
+                    Ok(spawn_base.clone())
+                } else {
+                    Ok(base.to_string())
+                }
+            }
+            None => Ok(base.to_string()),
+        }
     }
 
     pub async fn send(
@@ -911,6 +1033,14 @@ impl TowerStore {
             .iter()
             .filter(|r| r.reviewer == caller_name)
             .count() as u32;
+        // v2 #3976: cap the rework loop. Past the cap the same reviewer is
+        // not converging, so the fix is to reassign or descope, not round 6.
+        if my_rounds >= MAX_REVIEW_ROUNDS {
+            return Err(format!(
+                "branch \"{}\" has already been through {MAX_REVIEW_ROUNDS} review rounds by \"{caller_name}\" — the rework loop is not converging, so another round from the same reviewer is refused; redirect instead: reassign the work (spawn a different worker or a fresh reviewer), split the mission into smaller pieces, or descope it (TowerMission status=abandoned)",
+                input.target,
+            ));
+        }
         let round = my_rounds + 1;
         let reviewed_commit = branch_tip(&self.repo_root, &input.target).await?;
 
@@ -974,6 +1104,66 @@ impl TowerStore {
         )
         .await?;
 
+        // v2 #3976: a non-clean verdict against a mission the reviewer tracks
+        // re-opens that completed mission so the rework loop can resume.
+        if input.status != "clean" {
+            let mut state = self.load().await?;
+            let caller = self.find_agent(&state, caller_name);
+            let reviewed_branch = &input.target;
+            // A recorded `review_mission_id` only counts when that mission
+            // actually owns the reviewed branch; a stale roster entry must not
+            // be able to flip an unrelated mission.
+            let recorded = caller
+                .and_then(|c| c.review_mission_id.clone())
+                .filter(|id| {
+                    state
+                        .missions
+                        .iter()
+                        .any(|m| &m.id == id && &m.branch == reviewed_branch)
+                });
+            // Prefer the recorded id, then the live mission on that branch, and
+            // only then a closed one: with two missions sharing a branch, the
+            // first array match may be the historical record, not the work that
+            // is actually under review.
+            let rework_idx = recorded
+                .and_then(|id| {
+                    state
+                        .missions
+                        .iter()
+                        .position(|m| m.id == id && m.status == TowerMissionStatus::Completed)
+                })
+                .or_else(|| {
+                    state.missions.iter().position(|m| {
+                        m.branch == *reviewed_branch && m.status != TowerMissionStatus::Merged
+                    })
+                })
+                .or_else(|| {
+                    state
+                        .missions
+                        .iter()
+                        .position(|m| m.branch == *reviewed_branch)
+                });
+            if let Some(idx) = rework_idx
+                && state.missions[idx].status == TowerMissionStatus::Completed
+            {
+                state.missions[idx].status = TowerMissionStatus::Active;
+                let mission = state.missions[idx].clone();
+                self.save(&state).await?;
+                self.render_missions_index(&state).await?;
+                self.render_mission_file(&mission).await?;
+                self.append_log(
+                    caller_name,
+                    "mission.rework",
+                    &[("id", &mission.id), ("verdict", &input.status)],
+                    Some(&format!(
+                        "{MISSIONS_DIR}/{}",
+                        mission_file_name(&mission.id, &mission.slug)
+                    )),
+                )
+                .await?;
+            }
+        }
+
         Ok(written)
     }
 
@@ -1009,6 +1199,15 @@ impl TowerStore {
                 .and_then(|s| s.parse::<u32>().ok())
                 .unwrap_or(0);
             if round == 0 {
+                continue;
+            }
+            // The file-name prefix is a lossy key: `feat/foo` and `feat-foo`
+            // slug to the same prefix, and a long branch shares one with its
+            // truncation. Only a review whose own frontmatter names this exact
+            // branch counts, so one branch's rounds never refuse another's
+            // reviewer. A file with no `target` cannot be attributed and is not
+            // counted — one redundant round beats a wedged mission.
+            if fields.get("target").map(String::as_str) != Some(target) {
                 continue;
             }
             reviews.push(TowerReviewInfo {
@@ -1465,7 +1664,17 @@ impl TowerStore {
             mission
                 .tasks
                 .iter()
-                .map(|t| format!("- [{}] {}", if t.done { "x" } else { " " }, t.text))
+                .map(|t| {
+                    let marker = if t.done {
+                        "x"
+                    } else if t.dropped {
+                        "-"
+                    } else {
+                        " "
+                    };
+                    let suffix = if t.dropped { " (dropped)" } else { "" };
+                    format!("- [{marker}] {}{suffix}", t.text)
+                })
                 .collect::<Vec<_>>()
                 .join("\n")
         };
@@ -1625,6 +1834,9 @@ mod tests {
     /// place (production gets them from `TowerInit`).
     async fn store_with_record_dirs(dir: &Path) -> TowerStore {
         let store = store_in(dir).await;
+        tokio::fs::create_dir_all(store.abs(MISSIONS_DIR))
+            .await
+            .unwrap();
         tokio::fs::create_dir_all(store.abs(FINDINGS_DIR))
             .await
             .unwrap();
@@ -1792,6 +2004,43 @@ mod tests {
         store.mark_agent_dead("agent-missing").await.unwrap();
     }
 
+    /// [`state_with`] takes a roster; this variant takes missions (the tower
+    /// invariants under test are all mission-level). `base` is explicit
+    /// because `git init` names the first branch `master` or `main`
+    /// depending on the host's config, and the diff check resolves it.
+    fn state_with_missions(base: &str, missions: Vec<TowerMission>) -> TowerState {
+        TowerState {
+            base: base.into(),
+            missions,
+            ..state_with(Vec::new())
+        }
+    }
+
+    /// A reviewer roster entry for the given branch (the review cap counts
+    /// rounds per assigned reviewer).
+    fn review_entry(name: &str, target: &str) -> TowerRosterEntry {
+        TowerRosterEntry {
+            kind: crate::tools::tower::types::TowerAgentKind::Reviewer,
+            review_target: Some(target.into()),
+            review_mission_id: None,
+            ..entry(name, "agent-0")
+        }
+    }
+
+    /// A git repo with one commit, plus its actual first-branch name (the
+    /// completion diff check resolves `state.base` against the repo).
+    async fn repo_with_commit(root: &Path) -> String {
+        git::git(root, &["init", "-q"]).await.unwrap();
+        let _ = git::git(root, &["config", "user.email", "t@e.test"]).await;
+        let _ = git::git(root, &["config", "user.name", "t"]).await;
+        std::fs::write(root.join("f.txt"), "base").unwrap();
+        git::git(root, &["add", "."]).await.unwrap();
+        git::git(root, &["commit", "-qm", "init"]).await.unwrap();
+        git::git(root, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .await
+            .unwrap()
+    }
+
     fn mission(id: &str, branch: &str, status: TowerMissionStatus) -> TowerMission {
         TowerMission {
             id: id.into(),
@@ -1851,6 +2100,390 @@ mod tests {
         // No mission for the branch at all still errors distinctly.
         let err = store.merge("feat/unknown").await.unwrap_err();
         assert!(err.contains("no tower mission owns branch"), "got: {err}");
+    }
+
+    /// v2 #3976: the completion invariants. A real git repo with a build
+    /// mission whose branch has a commit passes; the refusals name the open
+    /// tasks, the missing branch, and the zero-diff case.
+    #[tokio::test]
+    async fn completion_refuses_open_tasks_missing_branch_and_zero_diff() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let base_branch = repo_with_commit(root).await;
+        let head = git::git(root, &["rev-parse", "HEAD"]).await.unwrap();
+        let store = store_with_record_dirs(root).await;
+
+        // (a) open task blocks completion even on a branch that exists.
+        let mut with_task = mission("M1", "feat/open", TowerMissionStatus::Active);
+        with_task.tasks = vec![TowerMissionTask {
+            text: "write the thing".into(),
+            done: false,
+            dropped: false,
+        }];
+        // The branch is created so the refusal is about the task, not the branch.
+        git::git(root, &["branch", "feat/open"]).await.unwrap();
+        store
+            .save(&state_with_missions(&base_branch, vec![with_task.clone()]))
+            .await
+            .unwrap();
+        let err = store
+            .update_mission(
+                TOWER_NAME,
+                "M1",
+                TowerMissionPatch {
+                    status: Some(TowerMissionStatus::Completed),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(err.contains("open task"), "got: {err}");
+        assert!(
+            err.contains("task_done") && err.contains("task_drop"),
+            "got: {err}"
+        );
+        // The refused transition left the state untouched.
+        assert_eq!(
+            store.load().await.unwrap().missions[0].status,
+            TowerMissionStatus::Active
+        );
+
+        // (b) a missing branch is refused once the tasks are clear.
+        let mut no_branch = with_task.clone();
+        no_branch.tasks = Vec::new();
+        no_branch.status = TowerMissionStatus::Active;
+        no_branch.branch = "feat/never-created".into();
+        store
+            .save(&state_with_missions(&base_branch, vec![no_branch.clone()]))
+            .await
+            .unwrap();
+        let err = store
+            .update_mission(
+                TOWER_NAME,
+                "M1",
+                TowerMissionPatch {
+                    status: Some(TowerMissionStatus::Completed),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(err.contains("is not available"), "got: {err}");
+        assert!(err.contains("abandoned"), "got: {err}");
+
+        // (c) a branch that exists but has no diff against the base is refused.
+        let mut zero_diff = no_branch.clone();
+        zero_diff.branch = "feat/no-diff".into();
+        git::git(root, &["branch", "feat/no-diff"]).await.unwrap();
+        store
+            .save(&state_with_missions(&base_branch, vec![zero_diff]))
+            .await
+            .unwrap();
+        let err = store
+            .update_mission(
+                TOWER_NAME,
+                "M1",
+                TowerMissionPatch {
+                    status: Some(TowerMissionStatus::Completed),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(err.contains("no changes"), "got: {err}");
+
+        // (d) a branch with a real diff completes, and a survey mission with
+        // no diff is exempt.
+        let mut landed = no_branch.clone();
+        landed.branch = "feat/landed".into();
+        git::git(root, &["branch", "feat/landed"]).await.unwrap();
+        git::git(root, &["checkout", "-q", "feat/landed"])
+            .await
+            .unwrap();
+        std::fs::write(root.join("f.txt"), "landed").unwrap();
+        git::git(root, &["add", "."]).await.unwrap();
+        git::git(root, &["commit", "-qm", "work"]).await.unwrap();
+        git::git(root, &["checkout", "-q", &head]).await.unwrap();
+        store
+            .save(&state_with_missions(&base_branch, vec![landed]))
+            .await
+            .unwrap();
+        let completed = store
+            .update_mission(
+                TOWER_NAME,
+                "M1",
+                TowerMissionPatch {
+                    status: Some(TowerMissionStatus::Completed),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(completed.status, TowerMissionStatus::Completed);
+
+        let mut survey = no_branch.clone();
+        survey.kind = crate::tools::tower::types::TowerMissionKind::Survey;
+        survey.status = TowerMissionStatus::Active;
+        store
+            .save(&state_with_missions(&base_branch, vec![survey]))
+            .await
+            .unwrap();
+        let completed = store
+            .update_mission(
+                TOWER_NAME,
+                "M1",
+                TowerMissionPatch {
+                    status: Some(TowerMissionStatus::Completed),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(completed.status, TowerMissionStatus::Completed);
+    }
+
+    /// v2 #3976: `task_drop` requires a reason, records the drop in the
+    /// mission notes and the activity log, and unblocks completion.
+    #[tokio::test]
+    async fn task_drop_requires_a_reason_and_records_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let base_branch = repo_with_commit(root).await;
+        let store = store_with_record_dirs(root).await;
+
+        let mut m = mission("M1", "feat/x", TowerMissionStatus::Active);
+        m.tasks = vec![
+            TowerMissionTask {
+                text: "keep this".into(),
+                done: false,
+                dropped: false,
+            },
+            TowerMissionTask {
+                text: "drop that".into(),
+                done: false,
+                dropped: false,
+            },
+        ];
+        store
+            .save(&state_with_missions(&base_branch, vec![m]))
+            .await
+            .unwrap();
+
+        // A reasonless drop is refused and changes nothing.
+        let err = store
+            .update_mission(
+                TOWER_NAME,
+                "M1",
+                TowerMissionPatch {
+                    task_drop: Some(crate::tools::tower::types::TowerTaskDrop {
+                        text: "drop that".into(),
+                        reason: None,
+                    }),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(err.contains("requires a reason"), "got: {err}");
+        let reloaded = store.load().await.unwrap();
+        assert!(!reloaded.missions[0].tasks[1].dropped);
+        assert!(reloaded.missions[0].notes.is_empty());
+
+        // With a reason the task is marked and audited in notes + activity log.
+        let updated = store
+            .update_mission(
+                TOWER_NAME,
+                "M1",
+                TowerMissionPatch {
+                    task_drop: Some(crate::tools::tower::types::TowerTaskDrop {
+                        text: "drop that".into(),
+                        reason: Some("turned out unnecessary".into()),
+                    }),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert!(updated.tasks[1].dropped);
+        assert!(!updated.tasks[0].dropped);
+        assert!(
+            updated
+                .notes
+                .iter()
+                .any(|n| n.contains("dropped task \"drop that\"")
+                    && n.contains("turned out unnecessary")),
+            "{:?}",
+            updated.notes
+        );
+        let log = tokio::fs::read_to_string(store.abs(ACTIVITY_LOG))
+            .await
+            .unwrap();
+        assert!(log.contains("task_drop"), "{log}");
+
+        // A dropped task no longer blocks completion (`keep this` still does).
+        let err = store
+            .update_mission(
+                TOWER_NAME,
+                "M1",
+                TowerMissionPatch {
+                    status: Some(TowerMissionStatus::Completed),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(err.contains("keep this"), "got: {err}");
+        assert!(!err.contains("drop that"), "got: {err}");
+    }
+
+    /// v2 #3976: after `MAX_REVIEW_ROUNDS` rounds the same reviewer is
+    /// refused, with the redirect guidance in the error.
+    ///
+    /// The loop below reads the constant, so a test that only counted rounds
+    /// would still pass if the value changed. The literal pins the contract
+    /// v2 fixes: five rounds per reviewer, then a redirect.
+    #[test]
+    fn the_review_round_cap_is_five() {
+        assert_eq!(MAX_REVIEW_ROUNDS, 5);
+    }
+
+    /// The review file name is a lossy key — `feat/x` and `feat-x` slug to the
+    /// same prefix — so a review of one branch must never be read as a review of
+    /// the other. The merge gate reads `latest_review`, which is where a
+    /// collision is dangerous: it could wave an unreviewed branch through.
+    #[tokio::test]
+    async fn a_colliding_branch_slug_does_not_stand_in_for_another_branch() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        repo_with_commit(root).await;
+        git::git(root, &["branch", "feat/x"]).await.unwrap();
+        git::git(root, &["branch", "feat-x"]).await.unwrap();
+        let store = store_with_record_dirs(root).await;
+        store
+            .save(&state_with(vec![review_entry("reviewer-1", "feat/x")]))
+            .await
+            .unwrap();
+        store
+            .submit_review(
+                "reviewer-1",
+                TowerReviewInput {
+                    target: "feat/x".into(),
+                    status: "clean".into(),
+                    merge: "merge".into(),
+                    findings: "f".into(),
+                    checks: None,
+                    decision: "d".into(),
+                },
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store.reviews_for("feat/x").await.unwrap().len(),
+            1,
+            "the branch's own review is found"
+        );
+        assert!(
+            store.reviews_for("feat-x").await.unwrap().is_empty(),
+            "a colliding slug must not inherit the other branch's review"
+        );
+        assert!(
+            store.latest_review("feat-x").await.unwrap().is_none(),
+            "the merge gate must see no review for the unreviewed branch"
+        );
+    }
+
+    #[tokio::test]
+    async fn review_rounds_cap_after_the_max() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        repo_with_commit(root).await;
+        git::git(root, &["branch", "feat/r"]).await.unwrap();
+        let store = store_with_record_dirs(root).await;
+        // Two assigned reviewers: the cap counts rounds per reviewer, so the
+        // second one starts fresh on the same branch.
+        store
+            .save(&state_with(vec![
+                review_entry("reviewer-1", "feat/r"),
+                review_entry("reviewer-2", "feat/r"),
+            ]))
+            .await
+            .unwrap();
+
+        let review = || TowerReviewInput {
+            target: "feat/r".into(),
+            status: "clean".into(),
+            merge: "merge".into(),
+            findings: "f".into(),
+            checks: None,
+            decision: "d".into(),
+        };
+
+        for expected in 1..=MAX_REVIEW_ROUNDS {
+            store
+                .submit_review("reviewer-1", review(), None)
+                .await
+                .unwrap_or_else(|error| panic!("round {expected} must be accepted: {error}"));
+        }
+        let err = store
+            .submit_review("reviewer-1", review(), None)
+            .await
+            .unwrap_err();
+        assert!(err.contains("not converging"), "got: {err}");
+        assert!(
+            err.contains("reassign") && err.contains("split"),
+            "got: {err}"
+        );
+        // A different reviewer on the same branch is still welcome.
+        store
+            .submit_review("reviewer-2", review(), None)
+            .await
+            .unwrap();
+    }
+
+    /// v2 #3976: a non-clean review flips a completed mission back to active
+    /// so the rework loop can resume, and the flip is logged.
+    #[tokio::test]
+    async fn a_non_clean_review_reopens_a_completed_mission() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        repo_with_commit(root).await;
+        git::git(root, &["branch", "feat/rework"]).await.unwrap();
+        let store = store_with_record_dirs(root).await;
+        // A reviewer assigned to the mission's branch: the non-clean verdict
+        // resolves the mission by the caller's recorded target.
+        let mut state = state_with(vec![review_entry("reviewer-1", "feat/rework")]);
+        state
+            .missions
+            .push(mission("M1", "feat/rework", TowerMissionStatus::Completed));
+        store.save(&state).await.unwrap();
+
+        store
+            .submit_review(
+                "reviewer-1",
+                TowerReviewInput {
+                    target: "feat/rework".into(),
+                    status: "p1-2items".into(),
+                    merge: "fix-then-merge".into(),
+                    findings: "f".into(),
+                    checks: None,
+                    decision: "d".into(),
+                },
+                None,
+            )
+            .await
+            .unwrap();
+        let reloaded = store.load().await.unwrap();
+        assert_eq!(
+            reloaded.missions[0].status,
+            TowerMissionStatus::Active,
+            "a non-clean verdict reopens the completed mission"
+        );
+        let log = tokio::fs::read_to_string(store.abs(ACTIVITY_LOG))
+            .await
+            .unwrap();
+        assert!(log.contains("mission.rework"), "{log}");
     }
 
     /// Only a missing state file means "uninitialized". An existing but

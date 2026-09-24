@@ -7574,6 +7574,55 @@ mod tests {
         assert_eq!(val_disable["state"], "off");
     }
 
+    /// v2 #3969 on the server side: the relay the toggle arms follows the
+    /// login region, resolved from the persisted OAuth ref — with no new wire
+    /// field. An operator's relay env override still wins over both.
+    #[test]
+    fn remote_control_relay_follows_the_persisted_login_region() {
+        let override_relay = || {
+            std::env::var("KIMI_CODE_REMOTE_CONTROL_RELAY_URL")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .map(|value| value.trim().to_string())
+        };
+        let expected_for =
+            |region_relay: &str| override_relay().unwrap_or_else(|| region_relay.to_string());
+
+        let global: crate::config::KimiConfig = concat!(
+            "[providers.\"managed:kimi-code\"]\n",
+            "type = \"kimi\"\n\n",
+            "[providers.\"managed:kimi-code\".oauth]\n",
+            "key = \"oauth/kimi-code-env-0e4f99c69cc27850\"\n",
+            "oauthHost = \"https://auth.kimi.ai\"\n",
+        )
+        .parse()
+        .unwrap();
+        assert_eq!(
+            remote_control_relay_origin(&global),
+            expected_for("https://code-rc.kimi.ai"),
+            "a global login must reach the .ai relay"
+        );
+
+        let mainland: crate::config::KimiConfig =
+            "[providers.\"managed:kimi-code\"]\ntype = \"kimi\"\n\n\
+             [providers.\"managed:kimi-code\".oauth]\nkey = \"oauth/kimi-code\"\n"
+                .parse()
+                .unwrap();
+        assert_eq!(
+            remote_control_relay_origin(&mainland),
+            expected_for(crate::server::remote_control::REMOTE_CONTROL_RELAY_ORIGIN),
+            "a mainland login keeps the .com relay"
+        );
+
+        // A provider without an oauth ref (never logged in) is mainland, too.
+        let no_login: crate::config::KimiConfig =
+            "[providers.openai]\ntype = \"openai\"\n".parse().unwrap();
+        assert_eq!(
+            remote_control_relay_origin(&no_login),
+            expected_for(crate::server::remote_control::REMOTE_CONTROL_RELAY_ORIGIN)
+        );
+    }
+
     #[tokio::test]
     async fn test_session_delete_action_endpoint() {
         let server = HttpServer::in_memory().unwrap();

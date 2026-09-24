@@ -9,6 +9,7 @@ pub mod compaction;
 pub mod config;
 pub mod cron;
 pub mod engine;
+pub mod env;
 pub mod events;
 pub mod goal;
 pub mod i18n;

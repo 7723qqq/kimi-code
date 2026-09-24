@@ -18,7 +18,7 @@ use crate::tools::tower::rate_limit::TowerRateLimit;
 use crate::tools::tower::store::TowerStore;
 use crate::tools::tower::types::{
     TowerFindingInput, TowerMissionPatch, TowerPlanInput, TowerReviewInput, TowerRosterEntry,
-    TowerSendInput,
+    TowerSendInput, TowerTaskDrop,
 };
 use crate::turn_loop::types::{ExecutableToolResult, ToolInfo};
 
@@ -976,6 +976,8 @@ pub async fn execute_tower_mission(
         blocker: Option<String>,
         clear_blockers: Option<bool>,
         task_done: Option<String>,
+        task_drop: Option<String>,
+        task_drop_reason: Option<String>,
         scope: Option<Vec<String>>,
     }
     let args: MissionArgs = match serde_json::from_str(raw_args) {
@@ -988,6 +990,7 @@ pub async fn execute_tower_mission(
         || args.blocker.is_some()
         || args.clear_blockers.is_some()
         || args.task_done.is_some()
+        || args.task_drop.is_some()
         || args.scope.is_some();
 
     if !has_patch {
@@ -1024,13 +1027,21 @@ pub async fn execute_tower_mission(
         blocker: args.blocker,
         clear_blockers: args.clear_blockers,
         task_done: args.task_done,
+        task_drop: args.task_drop.map(|text| TowerTaskDrop {
+            text,
+            reason: args.task_drop_reason,
+        }),
         owner: None,
         scope: args.scope,
     };
 
     match store.update_mission(&caller, &args.id, patch).await {
         Ok(mission) => {
-            let open_tasks = mission.tasks.iter().filter(|t| !t.done).count();
+            let open_tasks = mission
+                .tasks
+                .iter()
+                .filter(|t| !t.done && !t.dropped)
+                .count();
             let file_path = store.abs(&format!(
                 "{MISSIONS_DIR}/{}",
                 mission_file_name(&mission.id, &mission.slug)
@@ -1348,6 +1359,14 @@ pub fn tower_tool_defs() -> Vec<ToolInfo> {
                     "blocker": { "type": "string" },
                     "clear_blockers": { "type": "boolean" },
                     "task_done": { "type": "string" },
+                    "task_drop": {
+                        "type": "string",
+                        "description": "Mark the first open task containing this text as dropped — the escape hatch for legitimately descoped tasks; requires task_drop_reason and is recorded in the mission notes and the activity log"
+                    },
+                    "task_drop_reason": {
+                        "type": "string",
+                        "description": "Mandatory with task_drop: why the task is legitimately descoped"
+                    },
                     "scope": { "type": "array", "items": { "type": "string" } }
                 }
             }),

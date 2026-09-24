@@ -60,6 +60,36 @@ pub async fn branch_exists(cwd: &Path, branch: &str) -> bool {
         .is_some()
 }
 
+/// Whether `maybe_ancestor` is an ancestor of `ref_name` (v2 `isAncestor`):
+/// `git merge-base --is-ancestor A B` exits 0 when it is, 1 when it is not.
+///
+/// A third outcome exists — any other non-zero exit (unknown ref, shallow
+/// clone missing the object, unreadable repo) plus a failure to spawn git — and
+/// it is NOT "not an ancestor". The completion gate picks its diff base from
+/// this answer, so folding an error into `false` would silently re-base the
+/// check onto the tower base. Errors propagate instead, and the caller refuses.
+pub async fn is_ancestor(cwd: &Path, maybe_ancestor: &str, ref_name: &str) -> Result<bool, String> {
+    let output = Command::new("git")
+        .args(["merge-base", "--is-ancestor", maybe_ancestor, ref_name])
+        .current_dir(cwd)
+        .output()
+        .await
+        .map_err(|error| {
+            format!("git merge-base --is-ancestor {maybe_ancestor} {ref_name} failed: {error}")
+        })?;
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => {
+            let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            Err(format!(
+                "git merge-base --is-ancestor {maybe_ancestor} {ref_name} could not decide (status {:?}): {detail}",
+                output.status.code()
+            ))
+        }
+    }
+}
+
 pub async fn worktree_add(cwd: &Path, path: &Path, branch: &str, base: &str) -> Result<(), String> {
     let path_str = path.to_str().ok_or("invalid path")?;
     if branch_exists(cwd, branch).await {
@@ -114,6 +144,48 @@ pub async fn diff_name_only(cwd: &Path, base: &str, ref_name: &str) -> Result<Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The three outcomes of `merge-base --is-ancestor` are three different
+    /// answers. Exit 1 is a real "no"; anything else is a git failure the
+    /// completion gate must not read as "no" — it would silently judge the
+    /// mission's diff against the tower base instead of its spawn base.
+    #[tokio::test]
+    async fn is_ancestor_separates_no_from_a_git_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        git(root, &["init", "-q"]).await.unwrap();
+        let _ = git(root, &["config", "user.email", "t@e.test"]).await;
+        let _ = git(root, &["config", "user.name", "t"]).await;
+        std::fs::write(root.join("f.txt"), "base").unwrap();
+        git(root, &["add", "."]).await.unwrap();
+        git(root, &["commit", "-qm", "init"]).await.unwrap();
+        let base = git(root, &["rev-parse", "HEAD"]).await.unwrap();
+        git(root, &["branch", "feat/x"]).await.unwrap();
+        // Advance the branch so the base is a strict ancestor.
+        git(root, &["checkout", "-q", "feat/x"]).await.unwrap();
+        std::fs::write(root.join("f.txt"), "work").unwrap();
+        git(root, &["add", "."]).await.unwrap();
+        git(root, &["commit", "-qm", "work"]).await.unwrap();
+
+        assert_eq!(
+            is_ancestor(root, &base, "feat/x").await,
+            Ok(true),
+            "a real ancestor is Ok(true)"
+        );
+        assert_eq!(
+            is_ancestor(root, "feat/x", &base).await,
+            Ok(false),
+            "exit 1 is a real 'not an ancestor', not an error"
+        );
+        assert!(
+            is_ancestor(root, "no-such-ref", "feat/x").await.is_err(),
+            "an unknown ref must surface as an error, not Ok(false)"
+        );
+        assert!(
+            is_ancestor(root, &base, "also-missing").await.is_err(),
+            "an unknown target must surface as an error too"
+        );
+    }
 
     /// Idempotent teardown (v2 #3648): removing a worktree path git no longer
     /// knows about succeeds instead of failing the whole teardown.

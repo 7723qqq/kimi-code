@@ -18,8 +18,22 @@
 //! is not emitted here — the `host/telemetry` seam is deliberately not
 //! activated in the product yet (double reporting until the M1d ownership
 //! flip), and its wire schema only carries the three turn-lifecycle events.
+//!
+//! `KIMI_CODE_REPEAT_BREAKER` (upstream #3995, v2 `REPEAT_BREAKER_ENV`): an
+//! explicit falsy value turns the repeat ladder off — no streak reminders and
+//! no force-stop — while same-step dedup stays active (v2 test
+//! `keeps same-step dedupe active when KIMI_CODE_REPEAT_BREAKER is 0`).
 
 use crate::turn_loop::types::{ExecutableToolResult, ToolCall};
+
+/// The env switch for the repeat ladder (v2 `REPEAT_BREAKER_ENV`).
+pub const REPEAT_BREAKER_ENV: &str = "KIMI_CODE_REPEAT_BREAKER";
+
+/// Whether the repeat ladder (reminders + force-stop) is on: defaults on,
+/// only an explicit falsy env value disables it.
+pub fn repeat_breaker_enabled() -> bool {
+    crate::env::env_switch_default_on(REPEAT_BREAKER_ENV)
+}
 
 const REPEAT_REMINDER_1_START: u32 = 3;
 const REPEAT_REMINDER_2_START: u32 = 5;
@@ -87,11 +101,23 @@ pub struct DedupeGuard {
     /// streak against another call (including an exempt call in a later
     /// step at the same in-step position), so every one gets a fresh key.
     exempt_seq: u64,
+    /// The repeat ladder switch (#3995): when off, no reminders and no
+    /// force-stop, while same-step dedup and streak tracking stay active.
+    repeat_breaker: bool,
 }
 
 impl DedupeGuard {
     pub fn new() -> Self {
-        Self::default()
+        Self::with_repeat_breaker(repeat_breaker_enabled())
+    }
+
+    /// Constructor with the breaker switch made explicit — tests must not
+    /// depend on process-global env state.
+    pub fn with_repeat_breaker(repeat_breaker: bool) -> Self {
+        Self {
+            repeat_breaker,
+            ..Self::default()
+        }
     }
 
     /// Plan a step: key every call and mark same-step duplicates (the
@@ -140,6 +166,11 @@ impl DedupeGuard {
 
         for (i, result) in results.iter_mut().enumerate() {
             if plan.original_of[i] != i {
+                continue;
+            }
+            // The ladder is gated by the breaker switch (#3995); the streak
+            // itself advances either way, like v2's `endStep`.
+            if !self.repeat_breaker {
                 continue;
             }
             let streak = streak_at(&plan.keys, i, pre_key.as_deref(), pre_count);
@@ -235,7 +266,7 @@ mod tests {
 
     #[test]
     fn plan_step_marks_same_step_duplicates() {
-        let mut guard = DedupeGuard::new();
+        let mut guard = DedupeGuard::with_repeat_breaker(true);
         let plan = guard.plan_step(&[
             read_call("c1", "a.rs"),
             read_call("c2", "b.rs"),
@@ -247,7 +278,7 @@ mod tests {
 
     #[test]
     fn plan_step_by_exempts_none_keyed_calls() {
-        let mut guard = DedupeGuard::new();
+        let mut guard = DedupeGuard::with_repeat_breaker(true);
         // Both calls share arguments, but the keyer exempts the second
         // family — no dedup between them.
         let plan = guard.plan_step_by(
@@ -259,7 +290,7 @@ mod tests {
 
     #[test]
     fn exempt_calls_never_streak_across_steps() {
-        let mut guard = DedupeGuard::new();
+        let mut guard = DedupeGuard::with_repeat_breaker(true);
         // The same exempt call repeated once per step for well past the
         // force-stop threshold must never earn a reminder or a stop:
         // exempt sentinels are unique per call, not per in-step position.
@@ -273,7 +304,7 @@ mod tests {
 
     #[test]
     fn no_reminder_below_threshold() {
-        let mut guard = DedupeGuard::new();
+        let mut guard = DedupeGuard::with_repeat_breaker(true);
         for _ in 0..2 {
             let plan = guard.plan_step(&[read_call("c1", "a.rs")]);
             let mut results = vec![result("ok")];
@@ -284,7 +315,7 @@ mod tests {
 
     #[test]
     fn reminder_1_at_streak_3_across_steps() {
-        let mut guard = DedupeGuard::new();
+        let mut guard = DedupeGuard::with_repeat_breaker(true);
         let mut last = String::new();
         for _ in 0..3 {
             let plan = guard.plan_step(&[read_call("c1", "a.rs")]);
@@ -298,7 +329,7 @@ mod tests {
 
     #[test]
     fn reminder_2_embeds_streak_count_at_5() {
-        let mut guard = DedupeGuard::new();
+        let mut guard = DedupeGuard::with_repeat_breaker(true);
         let mut last = String::new();
         for _ in 0..5 {
             let plan = guard.plan_step(&[read_call("c1", "a.rs")]);
@@ -311,7 +342,7 @@ mod tests {
 
     #[test]
     fn reminder_3_at_8_and_force_stop_at_12() {
-        let mut guard = DedupeGuard::new();
+        let mut guard = DedupeGuard::with_repeat_breaker(true);
         let mut stopped = false;
         for round in 0..12 {
             let plan = guard.plan_step(&[read_call("c1", "a.rs")]);
@@ -327,7 +358,7 @@ mod tests {
 
     #[test]
     fn different_call_resets_the_streak() {
-        let mut guard = DedupeGuard::new();
+        let mut guard = DedupeGuard::with_repeat_breaker(true);
         for _ in 0..2 {
             let plan = guard.plan_step(&[read_call("c1", "a.rs")]);
             let mut results = vec![result("ok")];
@@ -348,7 +379,7 @@ mod tests {
 
     #[test]
     fn streak_extends_within_a_multi_call_step() {
-        let mut guard = DedupeGuard::new();
+        let mut guard = DedupeGuard::with_repeat_breaker(true);
         // One call in step 1 starts the streak.
         let plan = guard.plan_step(&[read_call("c1", "a.rs")]);
         let mut results = vec![result("ok")];
@@ -374,8 +405,28 @@ mod tests {
     }
 
     #[test]
+    fn breaker_disabled_skips_ladder_but_keeps_same_step_dedupe() {
+        // v2 #3995: with KIMI_CODE_REPEAT_BREAKER=0 no reminders are injected
+        // and the turn never force-stops, while same-step dedupe stays on.
+        let mut guard = DedupeGuard::with_repeat_breaker(false);
+        for _ in 0..12 {
+            let plan = guard.plan_step(&[read_call("c1", "a.rs")]);
+            let mut results = vec![result("ok")];
+            assert!(
+                !guard.finalize_step(&plan, &mut results),
+                "breaker off must never force-stop"
+            );
+            assert_eq!(results[0].content, "ok", "breaker off injects nothing");
+        }
+        let plan = guard.plan_step(&[read_call("c2", "b.rs"), read_call("c3", "b.rs")]);
+        let mut results = vec![result("ran"), result("never-ran")];
+        assert!(!guard.finalize_step(&plan, &mut results));
+        assert_eq!(results[1].content, results[0].content);
+    }
+
+    #[test]
     fn duplicate_gets_original_final_result() {
-        let mut guard = DedupeGuard::new();
+        let mut guard = DedupeGuard::with_repeat_breaker(true);
         // Streak 2 pre-step so the original earns a reminder-less result.
         for _ in 0..2 {
             let plan = guard.plan_step(&[read_call("c1", "a.rs")]);
@@ -391,7 +442,7 @@ mod tests {
 
     #[test]
     fn force_stop_preserves_error_flag() {
-        let mut guard = DedupeGuard::new();
+        let mut guard = DedupeGuard::with_repeat_breaker(true);
         for _ in 0..11 {
             let plan = guard.plan_step(&[read_call("c1", "a.rs")]);
             let mut results = vec![result("ok")];

@@ -19,7 +19,7 @@
 //! every waiter — including waiters that register after the task already
 //! settled — so a wait can never miss the completion.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -33,6 +33,7 @@ use tokio::sync::{Notify, oneshot};
 use tokio::task::JoinHandle;
 
 use crate::storage::StateStore;
+use crate::turn_loop::types::LLMMessage;
 
 /// The grace period [`TaskRunner::stop`] waits for a task to settle at
 /// its next cooperative point before returning (v2 `SIGTERM_GRACE_MS`).
@@ -426,6 +427,7 @@ impl TaskRunner {
         let spawn_session = entry.session_id.clone();
         let spawn_kind = entry.kind.clone();
         let spawn_subagent_type = entry.subagent_type.clone();
+        let spawn_agent_id = entry.agent_id.clone();
         tasks.insert(id.clone(), entry);
         let runner = Arc::clone(self);
         let task_id = id.clone();
@@ -466,6 +468,10 @@ impl TaskRunner {
                     "created_at": chrono::Utc::now().to_rfc3339(),
                     "started_at": chrono::Utc::now().to_rfc3339(),
                     "subagent_type": spawn_subagent_type,
+                    // The agent↔task association (upstream #3970): the
+                    // transcript fold adopts the spawn placeholder keyed by
+                    // this id instead of duplicating the task.
+                    "agent_id": spawn_agent_id,
                     "run_in_background": true,
                 },
             }),
@@ -509,62 +515,114 @@ impl TaskRunner {
     /// `appendPreviousSessionTasksReminder` — including the one-shot
     /// `resumeReminded` marker that keeps a task out of later reminders.
     ///
+    /// Two gates decide whether a loss is *reported*: an id this process
+    /// still holds a handle to (an in-process task is not a previous-session
+    /// loss — v2's `ghosts` distinction), and an id `already` contains —
+    /// the ids an earlier reminder in this conversation named (v2
+    /// `hasPreviousSessionReminder`). Either way the entry itself is still
+    /// marked `lost` and persisted with its marker. Each newly reported
+    /// loss also queues a [`TaskNotification`] behind the settle path's
+    /// session-liveness gate.
+    ///
     /// `None` when no store is attached, or when nothing needs reporting.
-    pub fn reconcile_previous_session(&self) -> Option<String> {
+    pub fn reconcile_previous_session(&self, already: &HashSet<String>) -> Option<String> {
         let store = self.store.as_ref()?;
-        let _guard = self.persist_lock.lock().unwrap();
-        let tasks = store
-            .read_domain("task")
-            .and_then(|v| v.as_array().cloned())
-            .unwrap_or_default();
-
-        let mut reported: Vec<String> = Vec::new();
-        let mut updated: Vec<Value> = Vec::with_capacity(tasks.len());
-        let mut changed = false;
-        for task in tasks {
-            let status = task
-                .get("status")
-                .and_then(Value::as_str)
+        let (reported, notifications) = {
+            // A task *this process* spawned live sits in the domain as
+            // `running` (`spawn_task_with_meta` persists it) with an
+            // in-process handle behind it, so it is not a previous-session
+            // loss. The registry is held across the domain read — a spawn
+            // landing between a snapshot and the read would otherwise be
+            // misreported. Lock order is `tasks` before `persist_lock`:
+            // spawn and settle take the two in that order, and reversing it
+            // deadlocks.
+            let live_tasks = self.tasks.lock().unwrap();
+            let _guard = self.persist_lock.lock().unwrap();
+            let tasks = store
+                .read_domain("task")
+                .and_then(|v| v.as_array().cloned())
                 .unwrap_or_default();
-            let remindable = task
-                .get("resumeReminded")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            // Only a still-running entry is a previous-session loss; a settled
-            // one already told its story.
-            if status != TaskStatus::Running.as_str() {
-                updated.push(task);
-                continue;
-            }
-            let mut task = task;
-            if let Some(object) = task.as_object_mut() {
-                object.insert("status".into(), json!(TaskStatus::Lost.as_str()));
-                if !object.contains_key("endedAt") {
-                    object.insert("endedAt".into(), json!(now_ms()));
+
+            let mut reported: Vec<String> = Vec::new();
+            let mut notifications: Vec<TaskNotification> = Vec::new();
+            let mut updated: Vec<Value> = Vec::with_capacity(tasks.len());
+            let mut changed = false;
+            for task in tasks {
+                let status = task
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                // Only a still-running entry is a previous-session loss; a settled
+                // one already told its story.
+                if status != TaskStatus::Running.as_str() {
+                    updated.push(task);
+                    continue;
                 }
-                // The marker is persisted with the loss so a later reconcile
-                // stays silent (v2 `persistPreviousSessionReminderMarker`).
-                if !remindable {
-                    object.insert("resumeReminded".into(), json!(true));
-                    changed = true;
+                let task_id = task
+                    .get("taskId")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                if live_tasks.contains_key(&task_id) {
+                    updated.push(task);
+                    continue;
                 }
-                if !remindable {
+                let remindable = task
+                    .get("resumeReminded")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                // A task an earlier reminder already announced is never
+                // announced again — but its loss is still persisted, and the
+                // marker keeps later reconciles silent too.
+                let report = !remindable && !already.contains(&task_id);
+                let mut task = task;
+                if let Some(object) = task.as_object_mut() {
+                    object.insert("status".into(), json!(TaskStatus::Lost.as_str()));
+                    if !object.contains_key("endedAt") {
+                        object.insert("endedAt".into(), json!(now_ms()));
+                    }
+                    // The marker is persisted with the loss so a later reconcile
+                    // stays silent (v2 `persistPreviousSessionReminderMarker`).
+                    if !remindable {
+                        object.insert("resumeReminded".into(), json!(true));
+                        changed = true;
+                    }
+                }
+                if report {
+                    notifications.push(previous_session_notification(&task));
                     reported.push(previous_session_task_line(&task));
                 }
+                updated.push(task);
             }
-            updated.push(task);
-        }
 
-        if changed && store.write_domain("task", &Value::Array(updated)).is_err() {
-            // A failed write means the reminder would fire again next time;
-            // reporting it now is still the honest outcome.
+            if changed && store.write_domain("task", &Value::Array(updated)).is_err() {
+                // A failed write means the reminder would fire again next time;
+                // reporting it now is still the honest outcome.
+            }
+            (reported, notifications)
+        };
+        // Enqueue only now that `persist_lock` is released (the settle path
+        // takes the two in that order too), behind the same session-liveness
+        // gate and deduped by `(task_id, status)` — a marker write that
+        // failed re-reports the loss, but never re-queues its notification.
+        for notification in notifications {
+            if !self.session_alive(notification.session_id.as_deref()) {
+                continue;
+            }
+            let mut queue = self.pending_notifications.lock().unwrap();
+            let duplicate = queue.iter().any(|queued| {
+                queued.task_id == notification.task_id && queued.status == notification.status
+            });
+            if !duplicate {
+                queue.push(notification);
+            }
         }
         if reported.is_empty() {
             return None;
         }
         Some(format!(
             "{}\n{}\n{}",
-            "The user exited the application after your last turn, so your background tasks from the previous session lost contact:",
+            PREVIOUS_SESSION_REMINDER_HEADER,
             reported.join("\n"),
             "Don't assume any of them completed; check current state (they may still be running), then re-run or resume only what you still need.",
         ))
@@ -1128,6 +1186,82 @@ fn previous_session_task_line(task: &Value) -> String {
     format!("- {task_id} \"{description}\" ({label})")
 }
 
+/// The opening line of the previous-session reminder (v2
+/// `appendPreviousSessionTasksReminder`'s verbatim first line). Shared by
+/// [`TaskRunner::reconcile_previous_session`], which emits it, and
+/// [`scan_previous_session_reminders`], which recognises a reminder by it,
+/// so the two cannot drift.
+const PREVIOUS_SESSION_REMINDER_HEADER: &str = "The user exited the application after your last turn, so your background tasks from the previous session lost contact:";
+
+/// The notification for one newly reported previous-session loss, in the
+/// same payload shape [`TaskRunner::settle_task`] queues (v2
+/// `task.notificationDelivery`): the ids off the persisted entry, an
+/// optional output preview, and wall-clock start/end — `startedAt` falls
+/// back to `endedAt` for an entry persisted without a start time.
+fn previous_session_notification(task: &Value) -> TaskNotification {
+    let ended_at = task
+        .get("endedAt")
+        .and_then(Value::as_u64)
+        .unwrap_or_else(now_ms);
+    TaskNotification {
+        task_id: task
+            .get("taskId")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        description: task
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        status: TaskStatus::Lost,
+        output_preview: task
+            .get("output")
+            .and_then(Value::as_str)
+            .and_then(truncate_preview),
+        started_at: task
+            .get("startedAt")
+            .and_then(Value::as_u64)
+            .unwrap_or(ended_at),
+        ended_at,
+        session_id: task
+            .get("sessionId")
+            .or_else(|| task.get("session_id"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    }
+}
+
+/// The task ids an earlier previous-session reminder already named in this
+/// conversation, scanned off the injection history (v2
+/// `hasPreviousSessionReminder`'s transcript prefix lookup). Feeds
+/// [`TaskRunner::reconcile_previous_session`], which reports a loss only
+/// when the id is absent here — so a lost `resumeReminded` write cannot
+/// repeat a reminder the model has already seen.
+pub fn scan_previous_session_reminders(messages: &[LLMMessage]) -> HashSet<String> {
+    let mut seen = HashSet::new();
+    for message in messages {
+        if !crate::injection::is_system_reminder(&message.content)
+            || !message.content.contains(PREVIOUS_SESSION_REMINDER_HEADER)
+        {
+            continue;
+        }
+        for line in message.content.lines() {
+            let Some(rest) = line.strip_prefix("- ") else {
+                continue;
+            };
+            // `- <taskId> "<description>" (<kind>)` — v2 looks the id up by
+            // the same `- <taskId> "` prefix.
+            if let Some((id, _)) = rest.split_once(" \"")
+                && !id.is_empty()
+            {
+                seen.insert(id.to_string());
+            }
+        }
+    }
+    seen
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1168,7 +1302,7 @@ mod tests {
         let runner = TaskRunner::new(Some(store));
 
         let text = runner
-            .reconcile_previous_session()
+            .reconcile_previous_session(&HashSet::new())
             .expect("the orphaned task must be reported");
         assert!(
             text.contains("lost contact"),
@@ -1197,7 +1331,7 @@ mod tests {
 
         // Idempotent: a second reconcile reports nothing.
         assert!(
-            runner.reconcile_previous_session().is_none(),
+            runner.reconcile_previous_session(&HashSet::new()).is_none(),
             "the reminder fires once per task"
         );
     }
@@ -1223,10 +1357,46 @@ mod tests {
             )
             .unwrap();
         let runner = TaskRunner::new(Some(store));
-        let text = runner.reconcile_previous_session().expect("reported");
+        let text = runner
+            .reconcile_previous_session(&HashSet::new())
+            .expect("reported");
         assert!(
             text.contains("(subagent) — resume it with Agent(resume=\"agent-42\""),
             "the lost subagent carries its resume hint: {text}"
+        );
+    }
+
+    /// A task *this process* spawned live sits in the domain as `running`
+    /// (`spawn_task_with_meta` persists it), so reconcile must not treat it
+    /// as a previous-session loss (v2 keeps live tasks out of `ghosts`;
+    /// `markLoadedTasksLost` only sees load-time ghosts) — regression test
+    /// for the live-task misreport.
+    #[tokio::test]
+    async fn reconcile_does_not_misreport_a_live_in_process_task() {
+        let (_tmp, runner) = runner();
+        runner
+            .spawn_task_with_meta(
+                TaskSpawnMeta {
+                    session_id: None,
+                    kind: "bash",
+                    subagent_type: None,
+                    agent_id: None,
+                },
+                "task-live".into(),
+                "long build".into(),
+                std::future::pending::<String>(),
+            )
+            .unwrap();
+
+        assert!(
+            runner.reconcile_previous_session(&HashSet::new()).is_none(),
+            "a live task spawned by this process must not be reported as lost"
+        );
+        let stored = stored_tasks(&runner);
+        assert_eq!(
+            stored[0].get("status").and_then(Value::as_str),
+            Some("running"),
+            "the live task keeps its running status: {stored}"
         );
     }
 
@@ -1242,7 +1412,7 @@ mod tests {
             .unwrap();
         let runner = TaskRunner::new(Some(store));
         assert!(
-            runner.reconcile_previous_session().is_none(),
+            runner.reconcile_previous_session(&HashSet::new()).is_none(),
             "a terminal task is not a previous-session loss"
         );
         let stored = stored_tasks(&runner);
@@ -1250,6 +1420,257 @@ mod tests {
             stored[0].get("status").and_then(Value::as_str),
             Some("completed"),
             "a settled task keeps its status: {stored}"
+        );
+    }
+
+    /// A task an earlier reminder already named (scanned off the
+    /// conversation's injection history) is never announced again — but its
+    /// loss is still persisted with the marker (v2
+    /// `hasPreviousSessionReminder` gates only the report).
+    #[test]
+    fn reconcile_stays_silent_for_a_task_the_history_already_announced() {
+        let tmp = TempDir::new().unwrap();
+        let store = StateStore::for_dir(tmp.path().join("state")).unwrap();
+        store
+            .write_domain(
+                "task",
+                &json!([{ "taskId": "task-2", "description": "index docs", "status": "running", "startedAt": 1u64 }]),
+            )
+            .unwrap();
+        let runner = TaskRunner::new(Some(store));
+
+        assert!(
+            runner
+                .reconcile_previous_session(&HashSet::from([String::from("task-2")]))
+                .is_none(),
+            "a task the history already announced is not reported again"
+        );
+        let stored = stored_tasks(&runner);
+        assert_eq!(
+            stored[0].get("status").and_then(Value::as_str),
+            Some("lost"),
+            "the loss itself is still persisted: {stored}"
+        );
+        assert_eq!(
+            stored[0].get("resumeReminded").and_then(Value::as_bool),
+            Some(true),
+            "the one-shot marker is persisted for the pre-seen task: {stored}"
+        );
+        assert!(
+            runner.reconcile_previous_session(&HashSet::new()).is_none(),
+            "the marker keeps later reconciles silent"
+        );
+    }
+
+    /// The baseline scan reads task ids off previous-session reminders in the
+    /// history: only `<system-reminder>` messages carrying the reminder
+    /// header, only their `- <taskId> "` lines — a reminder-shaped message
+    /// without the header, or a dash line in an ordinary message,
+    /// contributes nothing.
+    #[test]
+    fn scan_previous_session_reminders_reads_ids_off_reminder_messages() {
+        let reminder = crate::injection::wrap_system_reminder(&format!(
+            "{PREVIOUS_SESSION_REMINDER_HEADER}\n- task-1 \"run tests\" (bash)\n- task-7 \"Resume researcher: audit\" (subagent) — resume it with Agent(resume=\"agent-42\", prompt=\"Pick up where you left off.\")\nDon't assume any of them completed; check current state (they may still be running), then re-run or resume only what you still need."
+        ));
+        let headerless =
+            crate::injection::wrap_system_reminder("- task-x \"not a reminder\" (bash)");
+        let plain = LLMMessage {
+            role: "user".into(),
+            content: "- task-y \"user pasted a dash line\" (bash)".into(),
+            ..Default::default()
+        };
+
+        let seen = scan_previous_session_reminders(&[
+            crate::injection::injection_message(reminder),
+            crate::injection::injection_message(headerless),
+            plain,
+        ]);
+        assert_eq!(
+            seen,
+            HashSet::from([String::from("task-1"), String::from("task-7")]),
+            "only the reminder's own task lines contribute ids"
+        );
+    }
+
+    /// Each newly reported loss queues a `Lost` notification for the owning
+    /// session (v2 `task.notificationDelivery`), and a re-report with the
+    /// first notification still queued must not queue the same
+    /// `(task_id, status)` twice.
+    #[test]
+    fn reconcile_queues_a_lost_notification_for_a_newly_reported_task() {
+        let tmp = TempDir::new().unwrap();
+        let store = StateStore::for_dir(tmp.path().join("state")).unwrap();
+        store
+            .write_domain(
+                "task",
+                &json!([{
+                    "taskId": "task-3",
+                    "description": "nightly build",
+                    "status": "running",
+                    "startedAt": 1u64,
+                    "sessionId": "sess-old",
+                    "output": "built 42 crates",
+                }]),
+            )
+            .unwrap();
+        let runner = TaskRunner::new(Some(store));
+
+        assert!(
+            runner.reconcile_previous_session(&HashSet::new()).is_some(),
+            "the loss is reported"
+        );
+        assert_eq!(
+            runner.pending_notification_count(Some("sess-old")),
+            1,
+            "the reported loss is queued for its session"
+        );
+
+        // Bypass the marker write: the loss re-reports, but the already
+        // queued (task_id, status) pair is never queued twice.
+        runner
+            .store
+            .as_ref()
+            .unwrap()
+            .write_domain(
+                "task",
+                &json!([{
+                    "taskId": "task-3",
+                    "description": "nightly build",
+                    "status": "running",
+                    "startedAt": 1u64,
+                    "sessionId": "sess-old",
+                    "output": "built 42 crates",
+                }]),
+            )
+            .unwrap();
+        assert!(
+            runner.reconcile_previous_session(&HashSet::new()).is_some(),
+            "the bypassed marker re-reports the loss"
+        );
+        assert_eq!(
+            runner.pending_notification_count(Some("sess-old")),
+            1,
+            "a re-report must not queue the same (task_id, status) twice"
+        );
+
+        let queued = runner.take_pending_notifications(Some("sess-old"));
+        assert_eq!(queued.len(), 1);
+        let notification = &queued[0];
+        assert_eq!(notification.task_id, "task-3");
+        assert_eq!(notification.status, TaskStatus::Lost);
+        assert_eq!(notification.description, "nightly build");
+        assert_eq!(notification.session_id.as_deref(), Some("sess-old"));
+        assert_eq!(notification.started_at, 1, "startedAt off the entry");
+        assert!(
+            notification.ended_at >= 1,
+            "endedAt was stamped by the reconcile: {}",
+            notification.ended_at
+        );
+        assert_eq!(
+            notification.output_preview.as_deref(),
+            Some("built 42 crates"),
+            "the output rides through the same preview truncation"
+        );
+    }
+
+    /// A dead session gets no queued notification — the same liveness gate
+    /// the settle path uses (nobody would ever drain it) — while the
+    /// reminder itself still reports the loss to the model.
+    #[test]
+    fn reconcile_queues_the_notification_only_while_the_session_is_alive() {
+        let tmp = TempDir::new().unwrap();
+        let store = StateStore::for_dir(tmp.path().join("state")).unwrap();
+        store
+            .write_domain(
+                "task",
+                &json!([{
+                    "taskId": "task-4",
+                    "description": "churn the cache",
+                    "status": "running",
+                    "startedAt": 1u64,
+                    "sessionId": "sess-gone",
+                }]),
+            )
+            .unwrap();
+        let runner = TaskRunner::new(Some(store));
+        runner.set_liveness_check(Arc::new(|session: Option<&str>| {
+            session != Some("sess-gone")
+        }));
+
+        assert!(
+            runner.reconcile_previous_session(&HashSet::new()).is_some(),
+            "the reminder still reports the loss"
+        );
+        assert_eq!(
+            runner.pending_notification_count(Some("sess-gone")),
+            0,
+            "a dead session's queue must not grow"
+        );
+    }
+
+    /// The live-task exclusion is per id: the orphan is still reported while
+    /// the in-process task keeps `running` and is never named.
+    #[tokio::test]
+    async fn reconcile_reports_the_orphan_but_never_the_live_task() {
+        let (_tmp, runner) = runner();
+        runner
+            .store
+            .as_ref()
+            .unwrap()
+            .write_domain(
+                "task",
+                &json!([{ "taskId": "task-orphan", "description": "run tests", "status": "running", "startedAt": 1u64 }]),
+            )
+            .unwrap();
+        runner
+            .spawn_task_with_meta(
+                TaskSpawnMeta {
+                    session_id: None,
+                    kind: "bash",
+                    subagent_type: None,
+                    agent_id: None,
+                },
+                "task-live".into(),
+                "long build".into(),
+                std::future::pending::<String>(),
+            )
+            .unwrap();
+
+        let text = runner
+            .reconcile_previous_session(&HashSet::new())
+            .expect("the orphan is reported");
+        assert!(
+            text.contains("- task-orphan \"run tests\""),
+            "the orphan is named: {text}"
+        );
+        assert!(
+            !text.contains("task-live"),
+            "the live task is never named: {text}"
+        );
+
+        let stored = stored_tasks(&runner);
+        let stored_task = |id: &str| -> Value {
+            stored
+                .as_array()
+                .expect("task domain is an array")
+                .iter()
+                .find(|entry| entry.get("taskId").and_then(Value::as_str) == Some(id))
+                .expect("the task is persisted")
+                .clone()
+        };
+        assert_eq!(
+            stored_task("task-orphan")
+                .get("status")
+                .and_then(Value::as_str),
+            Some("lost"),
+            "the orphan is persisted as lost: {stored}"
+        );
+        assert_eq!(
+            stored_task("task-live")
+                .get("status")
+                .and_then(Value::as_str),
+            Some("running"),
+            "the live task keeps its running status: {stored}"
         );
     }
 

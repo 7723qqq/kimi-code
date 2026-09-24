@@ -458,7 +458,10 @@ async fn main() -> anyhow::Result<()> {
                     // The host's session id is also the task-notification key:
                     // the print settle drains only this session's completions.
                     session_id: input.session_id.clone(),
-                    toolset: None,
+                    // The pipeline's toolset carries the previous-session
+                    // reminder runner and the disclosure announcement state
+                    // across turns (the same handle napi passes).
+                    toolset: pipeline.toolset.clone(),
                     task_runner: subagent_manager.get_task_runner_sync(),
                     // The stdio host owns its telemetry end to end (no
                     // host-injected context on this path).

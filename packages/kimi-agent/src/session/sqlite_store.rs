@@ -1845,6 +1845,53 @@ impl SqliteSessionStore {
         rows.collect()
     }
 
+    /// The session's task-relevant events (subagent lifecycle, task
+    /// lifecycle, and the turn boundaries the lost-member decision keys off),
+    /// oldest first — the cold baseline's source for task entities
+    /// (`transcript::cold_tasks`, upstream #3970). Same journal as
+    /// [`Self::prompt_wire_events`], different slice.
+    pub fn task_wire_events(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<WireEventRecord>, rusqlite::Error> {
+        const TYPES: [&str; 8] = [
+            "subagent.spawned",
+            "subagent.completed",
+            "subagent.failed",
+            "event.task.created",
+            "event.task.completed",
+            "event.task.progress",
+            "turn.started",
+            "turn.ended",
+        ];
+        let placeholders = TYPES.map(|_| "?").join(", ");
+        let sql = format!(
+            "SELECT seq, id, session_id, event_type, payload, is_checkpoint, is_compaction, created_at
+             FROM wire_events
+             WHERE session_id = ?1 AND event_type IN ({placeholders})
+             ORDER BY seq ASC"
+        );
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(&sql)?;
+        let mut params: Vec<&dyn rusqlite::types::ToSql> = vec![&session_id];
+        params.extend(TYPES.iter().map(|t| t as &dyn rusqlite::types::ToSql));
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            let payload_str: String = row.get(4)?;
+            let payload: Value = serde_json::from_str(&payload_str).unwrap_or(Value::Null);
+            Ok(WireEventRecord {
+                seq: row.get(0)?,
+                id: row.get(1)?,
+                session_id: row.get(2)?,
+                event_type: row.get(3)?,
+                payload,
+                is_checkpoint: row.get(5)?,
+                is_compaction: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        })?;
+        rows.collect()
+    }
+
     /// Count total wire events recorded for a session.
     pub fn count_wire_events(&self, session_id: &str) -> Result<usize, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();

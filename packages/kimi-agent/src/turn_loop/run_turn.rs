@@ -655,6 +655,13 @@ pub fn run_turn<'a>(
     // re-announce a mode the model was already told about.
     let permission_mode_baseline =
         crate::injection::permission_mode::scan_permission_mode_baseline(&user_messages);
+    // Same for the previous-session task reminder: the ids an earlier
+    // reminder already named in this conversation are scanned out of the
+    // history, so reconcile reports a loss only once even when the persisted
+    // `resumeReminded` marker write was lost (v2
+    // `hasPreviousSessionReminder` scans the transcript the same way).
+    let previous_session_reminder_baseline =
+        crate::storage::scan_previous_session_reminders(&user_messages);
     let tool_defs = input.tool_defs.clone();
     let goal = input.goal.clone();
     let submitted_prompt = latest_user_text(&user_messages);
@@ -815,13 +822,15 @@ pub fn run_turn<'a>(
             // Previous-session background tasks (v2 `taskService.reconcile` →
             // `appendPreviousSessionTasksReminder`): a task the last process
             // left mid-flight lost contact with it, so the model is told
-            // rather than left to assume it completed. The runner's persisted
-            // `resumeReminded` marker makes this one-shot, so registering it
-            // per turn is safe.
+            // rather than left to assume it completed. Two gates keep it
+            // one-shot: the runner's persisted `resumeReminded` marker, and
+            // the ids an earlier reminder already named in this
+            // conversation, so registering per turn is safe.
             let reminder_toolset = toolset.clone();
+            let announced = previous_session_reminder_baseline;
             injection_registry.register(
-                "previous_session_tasks",
-                Box::new(move |_ctx| reminder_toolset.take_previous_session_reminder()),
+                "task_resume_termination",
+                Box::new(move |_ctx| reminder_toolset.take_previous_session_reminder(&announced)),
             );
         }
 

@@ -139,14 +139,31 @@ pub enum EngineEvent {
     },
     #[serde(rename = "subagent.spawned")]
     SubagentSpawned {
-        agent_id: String,
-        parent_agent_id: String,
-        profile_name: String,
+        subagent_id: String,
+        #[serde(default)]
+        subagent_name: Option<String>,
+        /// The parent tool call that spawned the member (v2
+        /// `SubagentSpawnedPayload.parentToolCallId`, upstream #3970) — the
+        /// transcript fold keys the agent↔task association off it.
+        #[serde(default)]
+        parent_tool_call_id: Option<String>,
+        #[serde(default)]
+        description: Option<String>,
+        #[serde(default)]
+        run_in_background: bool,
     },
     #[serde(rename = "subagent.completed")]
-    SubagentCompleted { agent_id: String, summary: String },
+    SubagentCompleted {
+        subagent_id: String,
+        #[serde(default)]
+        result_summary: Option<String>,
+        /// The member's token usage (upstream #3970): the durable record
+        /// carries it and the fold restores it onto the task.
+        #[serde(default)]
+        usage: Option<TokenUsage>,
+    },
     #[serde(rename = "subagent.failed")]
-    SubagentFailed { agent_id: String, error: String },
+    SubagentFailed { subagent_id: String, error: String },
     #[serde(untagged)]
     Custom(Value),
 }
