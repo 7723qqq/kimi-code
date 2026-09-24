@@ -54,8 +54,11 @@ jobs:
         # against a `source` remote pointing at this checkout, so every branch
         # must exist as a local ref here. `actions/checkout` only creates the
         # triggering branch, and does not fetch tags at all, so materialize
-        # both before the plugin runs.
+        # both before the plugin runs. Detach first: `git branch --force`
+        # refuses to update the branch that is checked out, which is exactly
+        # the triggering branch on every push to main.
         run: |
+          git checkout --detach
           git fetch --prune --tags origin '+refs/heads/*:refs/remotes/origin/*'
           git for-each-ref --format='%(refname:short)' refs/remotes/origin \
             | sed 's|^origin/||' \
