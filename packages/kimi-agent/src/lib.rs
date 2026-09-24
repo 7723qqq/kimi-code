@@ -22,6 +22,7 @@ pub mod napi_bindings;
 pub mod native;
 pub mod permission;
 pub mod pipeline;
+pub mod project_local_config;
 pub mod prompt;
 pub mod region;
 pub mod repl;

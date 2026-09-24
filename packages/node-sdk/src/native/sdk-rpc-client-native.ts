@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   unlinkSync,
   writeFileSync,
@@ -107,6 +108,7 @@ import {
   type SetSessionTowerModeRpcInput,
   type UpdateSessionMetadataRpcInput,
 } from '#/rpc';
+import { appendAdditionalDir, readAdditionalDirs, resolveAdditionalDirs } from '#/project-local-config';
 import type {
   AddAdditionalDirInput,
   AddAdditionalDirResult,
@@ -482,6 +484,35 @@ function normalizeRequiredWorkDir(operation: string, workDir: unknown): string {
     throw new KimiError(ErrorCodes.REQUEST_WORK_DIR_REQUIRED, `${operation} requires workDir`);
   }
   return posixPath(resolve(workDir));
+}
+
+/**
+ * v2 keys a workspace trust record by the canonical root
+ * (`trustRecord.trustKey`), so one directory matches however the caller spelled
+ * it. Comparing the raw strings instead made a trusted workspace read as
+ * untrusted — silently dropping the roots its `local.toml` asks for — whenever
+ * the two spellings differed in separators or drive case.
+ *
+ * The key is the *real* path, not a normalized string: a symlink or junction
+ * spelled one way today and another tomorrow names the same directory, and a
+ * junction retargeted later would otherwise keep the trust its old target had.
+ * `realpathSync.native` also collapses Windows' 8.3 short names, which are a
+ * different string for the same directory.
+ *
+ * A path that cannot be resolved falls back to its absolute normalized form:
+ * a workspace deleted after being trusted still has to match its stored entry
+ * (and a missing path is never a *different* directory we would trust instead).
+ */
+function workspaceTrustKey(root: string): string {
+  const absolute = resolve(root);
+  let real: string;
+  try {
+    real = realpathSync.native(absolute);
+  } catch {
+    real = absolute;
+  }
+  const canonical = posixPath(real).replace(/\/+$/, '');
+  return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
 }
 
 /**
@@ -873,8 +904,24 @@ interface NativeSessionMeta {
   promptMetadata: NativePromptMetadataRecord[];
   /** User-layer session metadata (v2 `session.custom`), merged by updateSessionMetadata. */
   custom: Record<string, unknown>;
-  /** Workspace-level additional directories added via addAdditionalDir. */
+  /**
+   * Workspace-level additional directories added via addAdditionalDir, or passed
+   * by the host at create/resume. These are the caller's own choices, so they
+   * are persisted with the session.
+   */
   additionalDirs: string[];
+  /**
+   * Roots the *project* asked for through `workspace.additional_dir`, resolved
+   * while the workspace is trusted (v2 `WorkspaceDirsService`'s `fileDirs`, as
+   * opposed to its `ephemeralDirs`).
+   *
+   * Deliberately never persisted: the project's file is re-read on every
+   * create/resume/rebuild, so revoking trust withdraws these roots instead of
+   * leaving a session that still carries what the file said while it was
+   * trusted. Keeping the two lists apart is also what keeps an untrusted
+   * checkout from smuggling its file's roots in as "caller-requested" ones.
+   */
+  projectAdditionalDirs: string[];
   /**
    * Headless session (`kimi -p`): rides the policy snapshot to the engine,
    * which skips its `DangerousCommandAsk` policy for the session's turns.
@@ -1179,6 +1226,10 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     }
 
     const config = loadRuntimeConfigLenient(this.configPath);
+    const { explicit, project } = await this.resolveSessionAdditionalDirs(
+      workDir,
+      input.additionalDirs ?? [],
+    );
 
     const meta: NativeSessionMeta = {
       id: sessionId,
@@ -1194,7 +1245,8 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       messageCount: 0,
       promptMetadata: [],
       custom: input.metadata !== undefined ? { ...input.metadata } : {},
-      additionalDirs: [],
+      additionalDirs: explicit,
+      projectAdditionalDirs: project,
       nonInteractive: input.nonInteractive === true,
       ...initialRuntimeState(config, input.model ?? config.defaultModel),
       plan: undefined,
@@ -1241,6 +1293,11 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   private async buildHandle(meta: NativeSessionMeta): Promise<EngineSessionHandle> {
     const sessionId = meta.id;
     const workDir = meta.workDir;
+    // Re-read the project's roots on every build: the sandbox is constructed
+    // from them here, so trusting or revoking the workspace takes effect on the
+    // next handle build rather than needing a new session.
+    await this.refreshProjectRoots(meta);
+    const authorizedRoots = this.authorizedRoots(meta);
     const config = loadRuntimeConfigLenient(this.configPath);
     const shellPath = probeShellPath();
     const defaultHeaders = {
@@ -1959,7 +2016,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       // this they fall outside `workspace_root` and the only fallback — the
       // host `execute_tool` seam — has no tool runtime to serve them.
       // `?? undefined` (never null): napi Option fields reject null.
-      additionalDirs: meta.additionalDirs.length > 0 ? [...meta.additionalDirs] : undefined,
+      additionalDirs: authorizedRoots.length > 0 ? [...authorizedRoots] : undefined,
       shellPath,
       policySnapshotJson: JSON.stringify(policySnapshot),
       secondaryModelJson:
@@ -2041,9 +2098,18 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       const persisted = this.loadMeta(sessionDir);
       const config = loadRuntimeConfigLenient(this.configPath);
       const defaults = initialRuntimeState(config, persisted?.model ?? config.defaultModel);
+      const workDir =
+        persisted?.workDir ?? normalizeRequiredWorkDir('resumeSession', process.cwd());
+      // Only the caller's own roots come back from the session file; the
+      // project's are re-read under the *current* trust state, so a workspace
+      // that lost trust stops contributing them.
+      const { explicit, project } = await this.resolveSessionAdditionalDirs(workDir, [
+        ...(persisted?.additionalDirs ?? []),
+        ...(input.additionalDirs ?? []),
+      ]);
       const created: NativeSessionMeta = {
         id: sessionId,
-        workDir: persisted?.workDir ?? normalizeRequiredWorkDir('resumeSession', process.cwd()),
+        workDir,
         sessionDir,
         createdAt: persisted?.createdAt ?? now,
         updatedAt: persisted?.updatedAt ?? now,
@@ -2056,7 +2122,8 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         currentTurnId: 0,
         promptMetadata: [],
         custom: persisted?.custom ?? {},
-        additionalDirs: persisted?.additionalDirs ?? [],
+        additionalDirs: explicit,
+        projectAdditionalDirs: project,
         nonInteractive: persisted?.nonInteractive ?? false,
         model: persisted?.model ?? config.defaultModel,
         thinkingEffort: persisted?.thinkingEffort ?? defaults.thinkingEffort,
@@ -2097,8 +2164,120 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         await created.handle.setHistory(history);
         created.messageCount = history.length;
       }
+    } else if (input.additionalDirs !== undefined && input.additionalDirs.length > 0) {
+      // A live session still honors a resume that carries roots: the caller's
+      // list (plus the project's, when trusted) is authorized the same way
+      // `/add-dir` authorizes one, handle rebuild included.
+      await this.authorizeAdditionalDirs(meta, input.additionalDirs);
     }
     return this.resumedSessionSummary(meta, input);
+  }
+
+  /**
+   * v2 `WorkspaceDirsService`: a session's extra roots are the roots the caller
+   * asked for (`ephemeralDirs`) plus the project's `workspace.additional_dir`
+   * (`fileDirs`), and the project's half is gated on workspace trust — an
+   * untrusted checkout cannot widen its own sandbox with a file it ships.
+   *
+   * The two halves stay in separate fields (v2 keeps the same split) so the
+   * project half is re-derived on every create/resume/rebuild and never
+   * persists: revoking trust withdraws it, and it can never be handed back to
+   * the engine as if the caller had asked for it.
+   *
+   * The caller's own roots go through the same resolver the project file uses,
+   * so `~`, relative paths, missing directories and broad-scope roots are judged
+   * once, at the workspace, before anything is authorized (v2
+   * `mergeAdditionalDirs` → `resolveAdditionalDirs`).
+   */
+  private async resolveSessionAdditionalDirs(
+    workDir: string,
+    requested: readonly string[],
+  ): Promise<{ explicit: string[]; project: string[] }> {
+    const explicit = await this.resolveCallerDirs(workDir, requested);
+    const { trusted } = await this.getWorkspaceTrustInfo(workDir);
+    if (!trusted) return { explicit, project: [] };
+    try {
+      const { additionalDirs } = await readAdditionalDirs(workDir);
+      return { explicit, project: [...additionalDirs] };
+    } catch (error) {
+      log.warn('ignoring the project-local config of an unreadable workspace', {
+        workDir,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { explicit, project: [] };
+    }
+  }
+
+  /**
+   * The caller's roots, resolved against the workspace. One unusable entry is
+   * reported and skipped rather than taking the whole session's roots with it:
+   * a stale `/add-dir` from an earlier session must not block starting work.
+   */
+  private async resolveCallerDirs(
+    workDir: string,
+    requested: readonly string[],
+  ): Promise<string[]> {
+    const resolved: string[] = [];
+    for (const dir of requested) {
+      try {
+        for (const one of await resolveAdditionalDirs(workDir, [dir])) {
+          if (!resolved.includes(one)) resolved.push(one);
+        }
+      } catch (error) {
+        log.warn('ignoring an additional directory that cannot be authorized', {
+          workDir,
+          dir,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return resolved;
+  }
+
+  /**
+   * Every root the engine is authorized for: the caller's, then the project's.
+   */
+  private authorizedRoots(meta: NativeSessionMeta): string[] {
+    return [...new Set([...meta.additionalDirs, ...meta.projectAdditionalDirs])];
+  }
+
+  /**
+   * Authorize `requested` roots for a live session, rebuilding the engine
+   * handle so the sandbox and the directory listing both see them. A failed
+   * rebuild leaves the previous roots in place.
+   */
+  private async authorizeAdditionalDirs(
+    meta: NativeSessionMeta,
+    requested: readonly string[],
+  ): Promise<void> {
+    const previous = meta.additionalDirs;
+    // Only the caller's own roots are authorized here; the project's half is
+    // re-read by `buildHandle` so a trust change takes effect on the rebuild.
+    const { explicit } = await this.resolveSessionAdditionalDirs(meta.workDir, [
+      ...previous,
+      ...requested,
+    ]);
+    if (explicit.length === previous.length) return;
+    meta.additionalDirs = explicit;
+    await this.refreshProjectRoots(meta);
+    try {
+      await this.rebuildHandle(meta);
+    } catch (error) {
+      meta.additionalDirs = previous;
+      throw error;
+    }
+    // `rebuildHandle` already stamped `meta.updatedAt`.
+    this.persistMeta(meta);
+  }
+
+  /**
+   * Re-derive the project's roots for `meta` from the current trust state.
+   * Called before every handle build, so trusting or revoking a workspace
+   * takes effect without recreating the session.
+   */
+  private async refreshProjectRoots(meta: NativeSessionMeta): Promise<void> {
+    const { project } = await this.resolveSessionAdditionalDirs(meta.workDir, []);
+    meta.projectAdditionalDirs = project;
   }
 
   /** The `ResumedSessionSummary` of a session, including the per-agent main snapshot and any subagents. */
@@ -2299,7 +2478,9 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       createdAt: meta.createdAt,
       updatedAt: meta.updatedAt,
       metadata: { ...meta.custom } as JsonObject,
-      additionalDirs: [...meta.additionalDirs],
+      // What the session authorizes, which includes the project's roots while
+      // the workspace is trusted (v2 reports `fileDirs ∪ ephemeralDirs`).
+      additionalDirs: this.authorizedRoots(meta),
       lastPrompt: meta.lastPrompt,
       sessionMetadata: {
         createdAt: new Date(meta.createdAt).toISOString(),
@@ -2354,14 +2535,22 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   override async addAdditionalDir(input: AddAdditionalDirInput): Promise<AddAdditionalDirResult> {
     const meta = this.requireSession(input.id);
-    if (!meta.additionalDirs.includes(input.path)) {
+    // v2 resolves the argument against the workspace before it is stored, so
+    // the session and the file agree on one spelling of the same directory —
+    // and so `~`, a relative path, a missing directory or a broad-scope root
+    // is rejected here rather than authorized. Resolution either yields exactly
+    // one path or throws, so the fallback is unreachable.
+    const [resolvedPath] = await resolveAdditionalDirs(meta.workDir, [input.path]);
+    const path = resolvedPath ?? input.path;
+    const changed = !meta.additionalDirs.includes(path);
+    if (changed) {
       // The extra roots are baked into the engine handle at build time — the
-      // native toolset's sandbox is constructed from `meta.additionalDirs` —
-      // so a newly authorized directory only takes effect after a rebuild.
-      // Same contract as setModel / setPermission: carry the history over, and
-      // drop the root again when the rebuild fails.
+      // native toolset's sandbox is constructed from them — so a newly
+      // authorized directory only takes effect after a rebuild. Same contract as
+      // setModel / setPermission: carry the history over, and drop the root
+      // again when the rebuild fails.
       const previous = meta.additionalDirs;
-      meta.additionalDirs = [...previous, input.path];
+      meta.additionalDirs = [...previous, path];
       try {
         await this.rebuildHandle(meta);
       } catch (error) {
@@ -2371,11 +2560,24 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       // `rebuildHandle` already stamped `meta.updatedAt`.
       this.persistMeta(meta);
     }
+    // `persist` writes the root into the project's `.kimi-code/local.toml`, so
+    // every later session of this checkout starts with it — the promise
+    // `docs/*/configuration/config-files.md` makes for "remember this
+    // directory". The write comes *after* the rebuild: a rebuild that failed
+    // must not leave a remembered directory behind that no session authorizes.
+    const persisted = input.persist === true
+      ? await appendAdditionalDir(meta.workDir, path)
+      : undefined;
+    // What this session actually authorizes, never what the file happens to
+    // list: an untrusted checkout's `local.toml` is not the caller's business,
+    // and its entries must not travel back as if they had been requested here
+    // (they would return as "explicit" roots on the next session).
+    const additionalDirs = [...new Set([...this.authorizedRoots(meta), ...meta.additionalDirs])];
     return {
-      additionalDirs: [...meta.additionalDirs],
-      projectRoot: meta.workDir,
-      configPath: this.configPath,
-      persisted: input.persist,
+      additionalDirs,
+      projectRoot: persisted?.projectRoot ?? meta.workDir,
+      configPath: persisted?.configPath ?? this.configPath,
+      persisted: persisted !== undefined,
     };
   }
 
@@ -2385,30 +2587,45 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     const workDir =
       input.workDir === undefined ? undefined : normalizeRequiredWorkDir('listSessions', input.workDir);
     const sessionsMap = new Map<string, SessionSummary>();
+    // The project's roots are per workspace, not per session: read them once per
+    // distinct work dir instead of once per session, and never persist them —
+    // a stored copy would keep authorizing a workspace that lost trust.
+    const storedMetas: PersistedSessionMeta[] = [];
     if (existsSync(this.sessionBaseDir)) {
       try {
         const dirs = readdirSync(this.sessionBaseDir, { withFileTypes: true });
         for (const dir of dirs) {
-          if (dir.isDirectory()) {
-            const meta = this.loadMeta(join(this.sessionBaseDir, dir.name));
-            if (meta) {
-              sessionsMap.set(meta.id, {
-                id: meta.id,
-                workDir: meta.workDir,
-                sessionDir: posixPath(join(this.sessionBaseDir, meta.id)),
-                title: meta.title,
-                createdAt: meta.createdAt,
-                updatedAt: meta.updatedAt,
-                lastPrompt: meta.lastPrompt,
-                metadata: { ...meta.custom } as JsonObject,
-                additionalDirs: [...meta.additionalDirs],
-              });
-            }
-          }
+          if (!dir.isDirectory()) continue;
+          const meta = this.loadMeta(join(this.sessionBaseDir, dir.name));
+          if (meta !== undefined) storedMetas.push(meta);
         }
       } catch {
         // ignore
       }
+    }
+    const projectRootsByWorkDir = new Map<string, string[]>();
+    for (const meta of storedMetas) {
+      if (projectRootsByWorkDir.has(meta.workDir)) continue;
+      const { project } = await this.resolveSessionAdditionalDirs(meta.workDir, []);
+      projectRootsByWorkDir.set(meta.workDir, project);
+    }
+    for (const meta of storedMetas) {
+      sessionsMap.set(meta.id, {
+        id: meta.id,
+        workDir: meta.workDir,
+        sessionDir: posixPath(join(this.sessionBaseDir, meta.id)),
+        title: meta.title,
+        createdAt: meta.createdAt,
+        updatedAt: meta.updatedAt,
+        lastPrompt: meta.lastPrompt,
+        metadata: { ...meta.custom } as JsonObject,
+        additionalDirs: [
+          ...new Set([
+            ...meta.additionalDirs,
+            ...(projectRootsByWorkDir.get(meta.workDir) ?? []),
+          ]),
+        ],
+      });
     }
     for (const meta of this.liveSessions.values()) {
       sessionsMap.set(meta.id, {
@@ -2420,7 +2637,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         updatedAt: meta.updatedAt,
         lastPrompt: meta.lastPrompt,
         metadata: { ...meta.custom } as JsonObject,
-        additionalDirs: [...meta.additionalDirs],
+        additionalDirs: this.authorizedRoots(meta),
       });
     }
     const all = Array.from(sessionsMap.values()).sort(
@@ -4626,12 +4843,15 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // and skills were loaded and run without any prompt. gatedMcpServers stays
     // empty until the MCP catalog is wired; the trust decision itself is persisted
     // so the prompt is shown once, not on every launch.
-    return { trusted: this.readTrustedWorkspaces().includes(workDir), gatedMcpServers: [] };
+    const trusted = this.readTrustedWorkspaces().some(
+      (entry) => workspaceTrustKey(entry) === workspaceTrustKey(workDir),
+    );
+    return { trusted, gatedMcpServers: [] };
   }
 
   override async trustWorkspace(workDir: string): Promise<void> {
     const trusted = this.readTrustedWorkspaces();
-    if (!trusted.includes(workDir)) {
+    if (!trusted.some((entry) => workspaceTrustKey(entry) === workspaceTrustKey(workDir))) {
       trusted.push(workDir);
       this.writeTrustedWorkspaces(trusted);
     }

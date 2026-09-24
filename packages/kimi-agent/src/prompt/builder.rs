@@ -144,6 +144,16 @@ impl SystemPromptBuilder {
         self
     }
 
+    /// Every extra root the sandbox authorizes, in one call. The
+    /// `${additional_dirs_section}` block is what tells the model these
+    /// directories are in scope (v2 `loadAdditionalDirsInfo`), so a host that
+    /// authorizes roots must pass them here or the model never learns they exist.
+    #[must_use]
+    pub fn with_additional_dirs(mut self, dirs: Vec<PathBuf>) -> Self {
+        self.additional_dirs = dirs;
+        self
+    }
+
     /// Build the default system prompt for the given workspace path.
     ///
     /// The default prompt carries the memory section: the memory tools are in

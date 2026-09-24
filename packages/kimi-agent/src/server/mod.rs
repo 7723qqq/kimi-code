@@ -4945,7 +4945,7 @@ impl HttpServer {
                     let items = crate::server::transcript::build_items(&history);
                     let snapshot = json!({
                         "items": items,
-                        "tasks": [],
+                        "tasks": crate::server::transcript::cold_tasks(&self.store, session_id),
                         "interactions": [],
                         "attachments": [],
                         "todos": [],

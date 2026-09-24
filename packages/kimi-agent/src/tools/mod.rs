@@ -387,6 +387,33 @@ impl Sandbox {
     }
 }
 
+/// User home directory, cross-platform (`HOME`, then `USERPROFILE`).
+pub(crate) fn user_home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+}
+
+/// `std::fs::canonicalize` on Windows returns verbatim (`\\?\C:\…`) paths;
+/// strip the prefix so lexical comparisons against plain paths still work.
+#[cfg(windows)]
+pub(crate) fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{rest}"))
+    } else if let Some(rest) = raw.strip_prefix(r"\\?\") {
+        PathBuf::from(rest)
+    } else {
+        path
+    }
+}
+
+/// No verbatim prefixes off Windows.
+#[cfg(not(windows))]
+pub(crate) fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+    path
+}
+
 /// Sandboxed native executor, rooted at the workspace.
 pub struct NativeToolset {
     root: PathBuf,

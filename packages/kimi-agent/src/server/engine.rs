@@ -943,6 +943,24 @@ impl ServerEngine {
                 }
             }
         }
+        // Extra workspace roots this session runs with: the engine-wide list
+        // (`--add-dir`, ACP `additionalDirectories`), the ones recorded on the
+        // session, and the project's `.kimi-code/local.toml`. The sandbox, the
+        // directory listing AND the prompt's `${additional_dirs_section}` all
+        // read this one list, so a root is either unknown to the model or
+        // unauthorized — never authorized-but-unmentioned.
+        let mut extra_roots = self.spec.extra_roots.clone();
+        if let Some(dirs) = session_metadata
+            .get("additional_dirs")
+            .and_then(|v| v.as_array())
+        {
+            extra_roots.extend(
+                dirs.iter()
+                    .filter_map(|dir| dir.as_str().map(str::to_string)),
+            );
+        }
+        extra_roots.extend(self.project_local_roots(session_id));
+
         let mut session_system_prompt = self.spec.system_prompt.clone();
         if (session_system_prompt.is_empty()
             || session_system_prompt == "sys"
@@ -950,11 +968,11 @@ impl ServerEngine {
                 .starts_with("You are kimi-agent, running as a standalone service."))
             && let Some(ref ws) = self.spec.workspace_root
         {
-            session_system_prompt =
-                crate::prompt::SystemPromptBuilder::build_default_with_skill_dirs(
-                    ws,
-                    self.spec.skill_dirs.clone(),
-                );
+            session_system_prompt = crate::prompt::SystemPromptBuilder::new(ws)
+                .with_skill_dirs(self.spec.skill_dirs.clone())
+                .with_additional_dirs(extra_roots.iter().map(std::path::PathBuf::from).collect())
+                .with_memory(true)
+                .build();
         }
 
         let mut spec = PipelineSpec {
@@ -962,21 +980,9 @@ impl ServerEngine {
             policy_snapshot: Some(policy_snapshot),
             session_id: Some(session_id.to_string()),
             system_prompt: session_system_prompt,
+            extra_roots,
             ..clone_spec(&self.spec)
         };
-        // Extra workspace roots the session was created with (`/add-dir`, ACP
-        // `additionalDirectories`). They extend the engine-wide list: the
-        // sandbox and the directory listing both read `extra_roots`, so a root
-        // recorded here is authorized for this session only.
-        if let Some(dirs) = session_metadata
-            .get("additional_dirs")
-            .and_then(|v| v.as_array())
-        {
-            spec.extra_roots.extend(
-                dirs.iter()
-                    .filter_map(|dir| dir.as_str().map(str::to_string)),
-            );
-        }
         // The session's persisted profile (`agent_config`) overrides the
         // engine-wide spec for this turn: the REST prompt/profile surface
         // writes model / thinking / disabled-tools there and the standalone
@@ -1001,6 +1007,56 @@ impl ServerEngine {
         }
         apply_session_overrides(&mut spec, &session_profile);
         spec
+    }
+
+    /// The registered workspace a session belongs to, or `None` for a session
+    /// created before the workspace registry existed.
+    fn session_workspace(
+        &self,
+        session_id: &str,
+    ) -> Option<crate::session::sqlite_store::WorkspaceSummary> {
+        let workspace_id = self
+            .store
+            .get_session(session_id)
+            .ok()
+            .flatten()
+            .and_then(|session| session.workspace_id)?;
+        self.store.get_workspace(&workspace_id).ok().flatten()
+    }
+
+    /// The project's `workspace.additional_dir` roots.
+    ///
+    /// v2 `WorkspaceDirsService.reloadFromDisk` reads the project-local config
+    /// from the workspace directory on every reload and hands the entries to
+    /// the sandbox and to `${additional_dirs_section}`. Upstream #4013 removed
+    /// the `IWorkspaceTrust` gate that #3964 had wrapped around that read
+    /// ("once a user trusts a repository, content inside it is the user's own
+    /// responsibility"), so the file applies whether or not the workspace is
+    /// marked trusted — the engine no longer consults its own registry flag
+    /// here. The standalone server still resolves the *directory* from the
+    /// session's workspace record: the engine-wide `workspace_root` is the
+    /// directory the *server* started in, and a server hosts several
+    /// registered workspaces, so pairing it with one session would read
+    /// another workspace's config.
+    ///
+    /// A malformed file is reported and skipped rather than failing the turn:
+    /// v2 loads it on a background reload and only logs the failure.
+    fn project_local_roots(&self, session_id: &str) -> Vec<String> {
+        let Some(workspace) = self.session_workspace(session_id) else {
+            return Vec::new();
+        };
+        match crate::project_local_config::read_additional_dirs(std::path::Path::new(
+            &workspace.root,
+        )) {
+            Ok(dirs) => dirs
+                .into_iter()
+                .map(|dir| dir.to_string_lossy().into_owned())
+                .collect(),
+            Err(error) => {
+                tracing::warn!("ignoring the project-local config of a workspace: {error}");
+                Vec::new()
+            }
+        }
     }
 
     /// The host callbacks one session's pipeline runs with, wrapped in the
