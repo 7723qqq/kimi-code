@@ -50,6 +50,7 @@
     "scan:hardcoded": "bun scripts/scan-hardcoded-v2.mjs",
     "check:no-legacy-engine": "bun scripts/check-no-legacy-engine.mjs",
     "check:parity": "bun scripts/scan-parity.mjs",
+    "check:upstream-v2-delta": "bun scripts/check-upstream-v2-delta.mjs",
     "check:engine-i18n": "bun scripts/check-engine-i18n-parity.mjs",
     "changeset": "changeset",
     "version": "changeset version",

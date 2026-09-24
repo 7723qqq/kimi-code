@@ -257,13 +257,18 @@ jobs:
       # silently and their behavior is never ported. Every such commit since the
       # merge base must carry a recorded verdict (ported / tracked /
       # not-applicable) in scripts/upstream-v2-delta-allowlist.json.
+      #
+      # Run the script directly: it already exits 2 with an explanation when the
+      # ref cannot be resolved. The previous `if rev-parse upstream/main` wrapper
+      # downgraded that to a `::warning::` and passed, which defeated the tool's
+      # whole contract ("fails loudly when the ref is unavailable rather than
+      # passing silently") — an unavailable upstream is indistinguishable from
+      # having no upstream deltas at all. The fetch above is not best-effort
+      # either (only the `remote add` is guarded), so a network failure already
+      # fails this job one step earlier; the wrapper bought no stability, only a
+      # blind spot.
       - name: Check retired-package upstream delta
-        run: |
-          if git rev-parse --verify --quiet upstream/main >/dev/null; then
-            bun scripts/check-upstream-v2-delta.mjs
-          else
-            echo "::warning::upstream/main unreachable — the retired-package delta ratchet did not run"
-          fi
+        run: bun scripts/check-upstream-v2-delta.mjs
       # Locale consistency: en/zh key parity, placeholder validity, and JSON
       # freshness (regenerate, then fail if tracked JSON drifted from the TS sources).
       - run: bun scripts/check-locale-keys.mjs

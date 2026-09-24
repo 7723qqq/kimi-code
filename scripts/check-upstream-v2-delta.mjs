@@ -112,6 +112,13 @@ function writeAllowlist(entries, mergeBase, note) {
 // fail loudly instead of looking like "upstream has no deltas".
 resolveUpstreamRef();
 
+// What the ref actually points at, plus its date. A *stale* local
+// `refs/remotes/upstream/main` silently narrows the range and reports a green
+// "all triaged" — that is how the 2.1.1 deltas were missed on 2026-09-24
+// (packages/kimi-agent/ROADMAP.md §6.8). The commit date is the only offline
+// signal a reviewer has for freshness, so it belongs in every run's output.
+const refTip = git('log', '-1', '--date=short', '--format=%h %cs', UPSTREAM_REF);
+
 const { mergeBase, commits } = collectDeltas();
 const allowlist = readAllowlist();
 const known = new Map(allowlist.entries.map((entry) => [entry.sha, entry]));
@@ -156,7 +163,7 @@ for (const commit of commits) {
 if (problems.length > 0) {
   console.error(
     `check-upstream-v2-delta: ${problems.length} unhandled upstream delta(s) in retired packages.\n` +
-      `  merge base ${mergeBase.slice(0, 10)} .. ${UPSTREAM_REF}\n`,
+      `  merge base ${mergeBase.slice(0, 10)} .. ${UPSTREAM_REF} (ref tip ${refTip})\n`,
   );
   for (const { commit, reason } of problems) {
     console.error(`  ${commit.sha.slice(0, 10)} ${commit.date} ${commit.subject}\n      -> ${reason}`);
@@ -181,3 +188,11 @@ console.log(
   `check-upstream-v2-delta: ${commits.length} delta(s) since ${mergeBase.slice(0, 10)} all triaged` +
     (summary === '' ? '' : ` (${summary})`),
 );
+console.log(`  upstream ref: ${UPSTREAM_REF} @ ${refTip}`);
+if (commits.length === 0) {
+  console.log(
+    '  NOTE: zero deltas is also exactly what a stale local ref looks like. Refresh it before\n' +
+      '        trusting this line:\n' +
+      '        git fetch upstream main:refs/remotes/upstream/main --force',
+  );
+}

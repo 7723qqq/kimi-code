@@ -1,48 +1,24 @@
 {
   "note": "Verdicts for upstream commits touching packages this fork deleted. Regenerate with `bun scripts/check-upstream-v2-delta.mjs --update`; see scripts/check-upstream-v2-delta.mjs for the gate itself. `tracked` = accepted debt recorded in packages/kimi-agent/ROADMAP.md §6; `not-applicable` = internal refactor with no observable engine behavior to port.",
   "upstreamRef": "upstream/main",
-  "recordedMergeBase": "e796bb5d482ecb7976c25dad0563b74cc9ec2c68",
-  "recordedAt": "2026-09-23",
+  "recordedMergeBase": "52437299ff78de3d0aff7f38f054e5eb20c512e5",
+  "recordedAt": "2026-09-24",
   "entries": [
     {
-      "sha": "b3212fd9abc1f4670fb47df16f0137957aed6f2d",
-      "date": "2026-09-23",
-      "subject": "fix(remote-control): pick credential slot and relay from login region (#3969)",
+      "sha": "c7dd84124a00d2dc1a68fbbc3e54b1095ee9ac23",
+      "date": "2026-09-24",
+      "subject": "feat: turn filesystem watch back on by default (#4015)",
       "verdict": "tracked",
-      "note": "TS client half ported in this merge (apps remote-control.ts: auth-resolved credential slot + relay fallback + handle.relayOrigin); Rust REST-toggle relay origin remains hardcoded.",
-      "roadmap": "§6.7"
+      "note": "A two-line default flip in v2 (`human/utils/watch.ts` `watchEnabledFromConfig = false -> true`, `app/config/configService.ts` `?? false -> ?? true`), but the thing being flipped does not exist here: no `KIMI_CODE_WATCH`, no `setWatchEnabled`, no `[watch]` section in `packages/node-sdk/src/config-local/schema.ts`, and no watcher crate in `packages/kimi-agent/src` (no notify / inotify / ReadDirectoryChangesW). Measured port size: `watch.ts` is 756 lines exporting a whole `WatchService` + `NativeFsWatcher` runtime abstraction, with 12 production consumers (configService, fileWorkspacePersistence, app/watch/configSection, both skill sources, sessionInstructions, workspaceDirs, workspaceAgentProfileLoader, workspaceInstructions x2, workspaceMcpConfig) watching 8 kinds of config/workspace file. A subsystem port that first needs a layering decision (Rust engine vs TS host), not a default bump. Upstream hot-reloads; the fork only has explicit `/reload` and `/reload-tui`. **Docs half synced 2026-09-24** while the code half stays unported: `docs/{en,zh}/configuration/{config-files.md,env-vars.md}` taken byte-identical from `be7d5f5fea`, so the 2.1.1 changelog entry and the config reference do not contradict each other. Known resulting inaccuracy, recorded in ROADMAP §6.8.2: the fork documents `[watch] enabled` / `KIMI_CODE_WATCH` without implementing either (same class as `KIMI_CODE_SEARCH_WORKER` and `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL`, both also verified absent here).",
+      "roadmap": "§6.8.2"
     },
     {
-      "sha": "a54e6f6a9b36bc1346e41da576d96ff54aa557b6",
-      "date": "2026-09-23",
-      "subject": "feat(agent-core-v2): add KIMI_CODE_REPEAT_BREAKER env switch (#3995)",
-      "verdict": "tracked",
-      "note": "Engine repeat-breaker behavior exists, but Rust never reads KIMI_CODE_REPEAT_BREAKER while the merged env-vars docs document it.",
-      "roadmap": "§6.7"
-    },
-    {
-      "sha": "895e9d9b868cf9899e444784130fa1946c6cef6c",
-      "date": "2026-09-23",
-      "subject": "fix: restore swarm members from persisted lifecycle events (#3970)",
-      "verdict": "tracked",
-      "note": "Wire vocabulary and transcript foldFacts merged with the tree; lost-member turn association and task placeholder adoption still unverified on the Rust cold-fold path.",
-      "roadmap": "§6.7"
-    },
-    {
-      "sha": "f7012aa23b38d90d1a643166e2e78f706a606a34",
-      "date": "2026-09-23",
-      "subject": "feat(tower): enforce protocol invariants and deny AgentSwarm (#3976)",
-      "verdict": "tracked",
-      "note": "Rust tower store lacks assertCompletable / MAX_REVIEW_ROUNDS / task_drop and swarm_tool has no tower veto; mode_mutex still pauses instead.",
-      "roadmap": "§6.7"
-    },
-    {
-      "sha": "6451f1e056e90037bbf832f3578955cf8e55db64",
-      "date": "2026-09-22",
-      "subject": "fix: harden workspace trust boundaries across git, file tools, and the local web server (#3964)",
-      "verdict": "tracked",
-      "note": "TS halves merged; engine still lacks git repo-config neutralization, home/root rejection in with_extra_roots, a verified symlink fail-closed matrix, and any local.toml reader/gate.",
-      "roadmap": "§6.7"
+      "sha": "929403b6db219eae6099dd23eae2f0efa2bb2823",
+      "date": "2026-09-24",
+      "subject": "revert: roll back workspace trust-boundary hardening (#4013)",
+      "verdict": "ported",
+      "note": "**Followed (2026-09-24).** Reverts #3964, which this fork had ported (see §6.7). Upstream's stated reason is a product principle, not a defect: once a user trusts a repository, content inside it is the user's own responsibility, so the engine stops defending against it (PR #4013, `Root Cause: N/A`). Kept upstream and kept here: the fail-closed trust prompt and the lazy footer git detection — only the pre-trust window stays guarded. Removed in this fork, mirroring `929403b6db` line for line: (a) the static `-c` flags — `src/git.rs` deleted, its `CONFIG_ARGS`/`DIFF_ARGS` wiring removed from `tools/tower/git.rs` and `server/fs_routes.rs`; (b) the symlink re-resolution write gates — `native/path_access.rs::is_project_local_config_path`, `tools/mod.rs::symlink_lands_on_project_local_config` + both Write/Edit call sites, `permission/mod.rs` policy 12's opt-out; (c) the `local.toml` trust gate — `server/engine.rs::project_local_roots` no longer consults `is_workspace_trusted`; (d) the home / filesystem-root rejection in `project_local_config.rs` and `packages/node-sdk/src/project-local-config.ts`; (e) the TS side — `utils/git/git-args.ts` deleted, `utils/git/git-status.ts` + `feedback/codebase/scanner.ts` + `codebase-upload.test.ts` + `docs/{en,zh}/configuration/config-files.md` taken from `929403b6db` byte for byte. **Deliberately kept, because #4013 kept them too:** the whole `local.toml` read+write feature (post-revert v2 still calls `readAdditionalDirs` unconditionally and still renders `${additional_dirs_section}`) and `tools/mod.rs::resolve_for_write`'s canonicalization, which is `762f405811` (2026-08-30) baseline, not hardening. **Residual divergence:** `resolve_for_write` resolves write targets to their real path where post-revert v2 resolves lexically; observable only under the non-default `sandbox_write_guard`. Recorded in ROADMAP §6.8.1, not fixed this round.",
+      "roadmap": "§6.8.1"
     }
   ]
 }
