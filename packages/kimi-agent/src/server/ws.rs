@@ -743,7 +743,7 @@ async fn handle_inbound(
                 let items = crate::server::transcript::build_items(&history);
                 let snapshot = json!({
                     "items": items,
-                    "tasks": [],
+                    "tasks": crate::server::transcript::cold_tasks(st, &session_id),
                     "interactions": [],
                     "attachments": [],
                     "todos": [],

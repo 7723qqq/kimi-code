@@ -35,6 +35,10 @@ pub struct TranscriptProjector {
     /// Steers folded before their step was open (v2 `pendingSteers`,
     /// coreEventMap.ts:1438): drained at the next `llm.step.begin`.
     pending_steers: Vec<PendingSteer>,
+    /// agent_id → the turn that was running when its spawn folded (upstream
+    /// #3970): the lost-member decision keys off the spawning turn, not the
+    /// parent's current idleness.
+    spawning_turns: HashMap<String, String>,
 }
 
 /// A buffered steer awaiting the step it lands in (v2 `pendingSteers`,
@@ -69,6 +73,7 @@ impl TranscriptProjector {
             meta: TranscriptMeta::default(),
             cursor: None,
             pending_steers: Vec::new(),
+            spawning_turns: HashMap::new(),
         }
     }
 
@@ -409,15 +414,39 @@ impl TranscriptProjector {
                 }
                 ops
             }
-            EngineEvent::SubagentSpawned { agent_id, .. } => {
-                self.subagent_task_ops(agent_id, TaskState::Running, None, None)
+            EngineEvent::SubagentSpawned { subagent_id, .. } => {
+                // The fold reads the journal in order, so the turn running at
+                // this moment IS the turn that spawned the member (upstream
+                // #3970 keys the lost decision on it).
+                if let Some(turn) = self
+                    .turns
+                    .iter()
+                    .rev()
+                    .find(|t| t.state == TurnState::Running)
+                {
+                    self.spawning_turns
+                        .insert(subagent_id.clone(), turn.turn_id.clone());
+                }
+                self.subagent_task_ops(subagent_id, TaskState::Running, None, None, None)
             }
-            EngineEvent::SubagentCompleted { agent_id, summary } => {
-                self.subagent_task_ops(agent_id, TaskState::Completed, Some(summary.clone()), None)
-            }
-            EngineEvent::SubagentFailed { agent_id, error } => {
-                self.subagent_task_ops(agent_id, TaskState::Failed, None, Some(error.clone()))
-            }
+            EngineEvent::SubagentCompleted {
+                subagent_id,
+                result_summary,
+                usage,
+            } => self.subagent_task_ops(
+                subagent_id,
+                TaskState::Completed,
+                result_summary.clone(),
+                None,
+                usage.clone().map(rpc_usage_as_step_usage),
+            ),
+            EngineEvent::SubagentFailed { subagent_id, error } => self.subagent_task_ops(
+                subagent_id,
+                TaskState::Failed,
+                None,
+                Some(error.clone()),
+                None,
+            ),
             // The engine publishes this as a typed event, so it never reaches
             // the string-keyed `Custom` arm below. v2 opens the turn with
             // `meta.merge { activity: 'turn' }` (coreEventMap.ts:437) and
@@ -724,6 +753,37 @@ impl TranscriptProjector {
             meta: self.meta.clone(),
             has_more_older: None,
         }
+    }
+
+    /// The task list as of a COLD rebuild (upstream #3970's lost-member
+    /// rule): every loop is dead after a restart, so a member left `running`
+    /// survives only while the turn that spawned it is itself still running
+    /// in the rebuild — anything else settles to `lost`. The live path keeps
+    /// using `snapshot()`: a background member there can legitimately outlive
+    /// its spawning turn and terminalises on its own completion event.
+    pub fn cold_snapshot_tasks(&self) -> Vec<TranscriptTask> {
+        self.tasks
+            .iter()
+            .map(|task| {
+                let mut task = task.clone();
+                if task.kind == TaskKind::Subagent && task.state == TaskState::Running {
+                    let spawning_turn_running = task
+                        .agent_id
+                        .as_deref()
+                        .and_then(|agent_id| self.spawning_turns.get(agent_id))
+                        .is_some_and(|turn_id| {
+                            self.turns.iter().any(|turn| {
+                                turn.turn_id == *turn_id && turn.state == TurnState::Running
+                            })
+                        });
+                    if !spawning_turn_running {
+                        task.state = TaskState::Lost;
+                        task.ended_at = task.ended_at.or_else(|| Some(now_iso()));
+                    }
+                }
+                task
+            })
+            .collect()
     }
 
     fn upsert_interaction(&mut self, interaction: TranscriptInteraction) -> TranscriptOperation {
@@ -1112,6 +1172,7 @@ impl TranscriptProjector {
         state: TaskState,
         summary: Option<String>,
         error: Option<String>,
+        usage: Option<StepUsage>,
     ) -> Vec<TranscriptOperation> {
         let task = TranscriptTask {
             task_id: agent_id.to_string(),
@@ -1130,7 +1191,7 @@ impl TranscriptProjector {
             result_summary: summary,
             error,
             state_reason: None,
-            usage: None,
+            usage,
             model: None,
             thinking_effort: None,
         };
@@ -1385,52 +1446,111 @@ impl TranscriptProjector {
     }
 
     fn merge_task(&mut self, incoming: TranscriptTask) -> TranscriptTask {
-        if let Some(existing) = self
-            .tasks
-            .iter_mut()
-            .find(|task| task.task_id == incoming.task_id)
-        {
-            existing.state = incoming.state;
-            if incoming.kind != TaskKind::Other {
-                existing.kind = incoming.kind;
+        // v2 #3970 (foldFacts): a spawn published before its task was
+        // registered (the Tower worker path) leaves a placeholder keyed by
+        // the agent id; the later registration must ADOPT it — one task under
+        // the registered id — or the duplicate would stay `running` forever
+        // (no terminal event ever reaches it). The lookup matches on the
+        // agent id as well so terminal subagent records still land on the
+        // adopted task.
+        let position = self.tasks.iter().position(|task| {
+            task.task_id == incoming.task_id
+                || (incoming.agent_id.is_some() && task.agent_id == incoming.agent_id)
+        });
+        if let Some(position) = position {
+            let existing = &mut self.tasks[position];
+            // The registered id wins over the agent-keyed placeholder id.
+            if existing.task_id != incoming.task_id
+                && incoming.agent_id.as_deref() == Some(existing.task_id.as_str())
+            {
+                existing.task_id = incoming.task_id.clone();
             }
-            if !incoming.output_tail.is_empty() {
-                existing.output_tail = incoming.output_tail;
-            }
-            if incoming.description.is_some() {
-                existing.description = incoming.description;
-            }
-            if incoming.agent_id.is_some() {
-                existing.agent_id = incoming.agent_id;
-            }
-            if incoming.started_at.is_some() {
-                existing.started_at = incoming.started_at;
-            }
-            if incoming.ended_at.is_some() {
-                existing.ended_at = incoming.ended_at;
-            }
-            if incoming.result_summary.is_some() {
-                existing.result_summary = incoming.result_summary;
-            }
-            if incoming.error.is_some() {
-                existing.error = incoming.error;
-            }
-            if incoming.state_reason.is_some() {
-                existing.state_reason = incoming.state_reason;
-            }
-            if incoming.usage.is_some() {
-                existing.usage = incoming.usage;
-            }
-            if incoming.model.is_some() {
-                existing.model = incoming.model;
-            }
-            if incoming.thinking_effort.is_some() {
-                existing.thinking_effort = incoming.thinking_effort;
-            }
+            apply_task_fields(existing, &incoming);
             return existing.clone();
         }
         self.tasks.push(incoming.clone());
         incoming
+    }
+}
+
+/// Field-level merge of an incoming task record into an existing one:
+/// terminal state and any populated fields move over, the retained fields
+/// (output tail, placeholders) survive an empty incoming record.
+///
+/// The state is monotonic in one direction only: a task that already reached a
+/// terminal state does not go back to `running`. The journal's writers can
+/// interleave — `TaskRunner` spawns the subagent future before it publishes the
+/// registration, so `subagent.completed` may be persisted ahead of
+/// `event.task.created(status = "running")` — and a plain last-writer-wins
+/// merge turned that ordering into a task that reports `running` forever.
+fn apply_task_fields(existing: &mut TranscriptTask, incoming: &TranscriptTask) {
+    if !is_terminal_task_state(existing.state) {
+        existing.state = incoming.state;
+    } else if !is_terminal_task_state(incoming.state) && incoming.state != existing.state {
+        // A terminal task keeps its outcome; the losing event may still
+        // contribute the fields it carries (below), just not a new state.
+        tracing::debug!(
+            task_id = %existing.task_id,
+            kept = ?existing.state,
+            ignored = ?incoming.state,
+            "ignoring a non-terminal task state for an already-settled task",
+        );
+    }
+    if incoming.kind != TaskKind::Other {
+        existing.kind = incoming.kind;
+    }
+    if !incoming.output_tail.is_empty() {
+        existing.output_tail = incoming.output_tail.clone();
+    }
+    if incoming.description.is_some() {
+        existing.description = incoming.description.clone();
+    }
+    if incoming.agent_id.is_some() {
+        existing.agent_id = incoming.agent_id.clone();
+    }
+    if incoming.started_at.is_some() {
+        existing.started_at = incoming.started_at.clone();
+    }
+    if incoming.ended_at.is_some() {
+        existing.ended_at = incoming.ended_at.clone();
+    }
+    if incoming.result_summary.is_some() {
+        existing.result_summary = incoming.result_summary.clone();
+    }
+    if incoming.error.is_some() {
+        existing.error = incoming.error.clone();
+    }
+    if incoming.state_reason.is_some() {
+        existing.state_reason = incoming.state_reason.clone();
+    }
+    if incoming.usage.is_some() {
+        existing.usage = incoming.usage.clone();
+    }
+    if incoming.model.is_some() {
+        existing.model = incoming.model.clone();
+    }
+    if incoming.thinking_effort.is_some() {
+        existing.thinking_effort = incoming.thinking_effort.clone();
+    }
+}
+
+/// Whether a task state is final. `running` and `queued` are not: a task in
+/// either can still settle.
+fn is_terminal_task_state(state: TaskState) -> bool {
+    matches!(
+        state,
+        TaskState::Completed | TaskState::Failed | TaskState::Killed | TaskState::Lost
+    )
+}
+
+/// The rpc-layer usage shape as the transcript's step usage (four counters,
+/// v2 `grandTotal` vocabulary).
+fn rpc_usage_as_step_usage(usage: crate::rpc::types::TokenUsage) -> StepUsage {
+    StepUsage {
+        input_other: i64::from(usage.input_tokens),
+        output: i64::from(usage.output_tokens),
+        input_cache_read: i64::from(usage.input_cache_read),
+        input_cache_creation: i64::from(usage.input_cache_creation),
     }
 }
 
@@ -2203,9 +2323,11 @@ mod tests {
 
         // Subagent lifecycle maps onto a transcript task.
         let ops = projector.apply_event(&EngineEvent::SubagentSpawned {
-            agent_id: "sub-1".into(),
-            parent_agent_id: "main".into(),
-            profile_name: "research".into(),
+            subagent_id: "sub-1".into(),
+            subagent_name: Some("research".into()),
+            parent_tool_call_id: Some("call-1".into()),
+            description: None,
+            run_in_background: false,
         });
         match &ops[0] {
             TranscriptOperation::TaskUpsert { task } => {
@@ -2216,13 +2338,27 @@ mod tests {
             other => panic!("expected task upsert, got {other:?}"),
         }
         let ops = projector.apply_event(&EngineEvent::SubagentCompleted {
-            agent_id: "sub-1".into(),
-            summary: "done".into(),
+            subagent_id: "sub-1".into(),
+            result_summary: Some("done".into()),
+            usage: Some(crate::rpc::types::TokenUsage {
+                input_tokens: 10,
+                output_tokens: 4,
+                total_tokens: 14,
+                input_cache_read: 3,
+                input_cache_creation: 2,
+            }),
         });
         match &ops[0] {
             TranscriptOperation::TaskUpsert { task } => {
                 assert_eq!(task.state, TaskState::Completed);
                 assert_eq!(task.result_summary.as_deref(), Some("done"));
+                // #3970: the durable record's four counters restore onto the
+                // folded task.
+                let usage = task.usage.as_ref().expect("usage restored");
+                assert_eq!(usage.input_other, 10);
+                assert_eq!(usage.output, 4);
+                assert_eq!(usage.input_cache_read, 3);
+                assert_eq!(usage.input_cache_creation, 2);
             }
             other => panic!("expected task upsert, got {other:?}"),
         }
@@ -2253,6 +2389,197 @@ mod tests {
         assert_eq!(snapshot.attachments.len(), 1);
         assert_eq!(snapshot.tasks.len(), 1);
         assert!(snapshot.meta.agent.is_some());
+    }
+
+    #[test]
+    fn wire_form_subagent_lifecycle_folds_with_usage() {
+        // The durable wire record (snake_case JSON) must parse into the typed
+        // variant and fold — previously it fell through to `Custom` and was
+        // dropped wholesale, so no task ever appeared.
+        let mut projector = TranscriptProjector::new();
+        projector.apply_event(&EngineEvent::from_json(json!({
+            "type": "subagent.spawned",
+            "subagent_id": "sub-9",
+            "subagent_name": "tower-worker",
+            "parent_tool_call_id": "call-42",
+            "run_in_background": true
+        })));
+        projector.apply_event(&EngineEvent::from_json(json!({
+            "type": "subagent.completed",
+            "subagent_id": "sub-9",
+            "result_summary": "ok",
+            "usage": {
+                "input_tokens": 7,
+                "output_tokens": 2,
+                "total_tokens": 9,
+                "input_cache_read": 1,
+                "input_cache_creation": 0
+            }
+        })));
+        let tasks = projector.snapshot().tasks;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].state, TaskState::Completed);
+        assert_eq!(tasks[0].usage.as_ref().map(|u| u.input_other), Some(7));
+    }
+
+    #[test]
+    fn a_task_registered_after_the_spawn_adopts_the_placeholder() {
+        // #3970 (Tower worker path): spawn first, task registration later —
+        // the registered id must replace the agent-keyed placeholder, and the
+        // terminal record (still keyed by agent id) must reach it.
+        let mut projector = TranscriptProjector::new();
+        projector.apply_event(&EngineEvent::from_json(json!({
+            "type": "subagent.spawned",
+            "subagent_id": "agent-7",
+            "run_in_background": true
+        })));
+        projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "event.task.created",
+            "task": {
+                "id": "task-77",
+                "kind": "subagent",
+                "agent_id": "agent-7",
+                "status": "running",
+                "description": "worker"
+            }
+        })));
+        assert_eq!(projector.snapshot().tasks.len(), 1, "no duplicate task");
+        projector.apply_event(&EngineEvent::from_json(json!({
+            "type": "subagent.completed",
+            "subagent_id": "agent-7",
+            "result_summary": "done"
+        })));
+        let tasks = projector.snapshot().tasks;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].task_id, "task-77");
+        assert_eq!(tasks[0].state, TaskState::Completed);
+        assert_eq!(tasks[0].agent_id.as_deref(), Some("agent-7"));
+    }
+
+    /// The journal writers interleave: `TaskRunner` starts the subagent future
+    /// before it publishes the registration, so a fast subagent's terminal event
+    /// can be persisted *ahead* of `event.task.created(status = "running")`. A
+    /// last-writer-wins merge turned that ordering into a task stuck at
+    /// `running` forever.
+    #[test]
+    fn a_late_task_registration_cannot_resurrect_a_settled_task() {
+        let mut projector = TranscriptProjector::new();
+        projector.apply_event(&EngineEvent::from_json(json!({
+            "type": "subagent.spawned",
+            "subagent_id": "agent-7",
+            "run_in_background": true
+        })));
+        // Terminal first, registration second — the ordering the spawn-then-
+        // publish path produces.
+        projector.apply_event(&EngineEvent::from_json(json!({
+            "type": "subagent.completed",
+            "subagent_id": "agent-7",
+            "result_summary": "done"
+        })));
+        projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "event.task.created",
+            "task": {
+                "id": "task-77",
+                "kind": "subagent",
+                "agent_id": "agent-7",
+                "status": "running",
+                "description": "worker"
+            }
+        })));
+
+        let tasks = projector.snapshot().tasks;
+        assert_eq!(tasks.len(), 1, "still one task");
+        assert_eq!(
+            tasks[0].state,
+            TaskState::Completed,
+            "the late registration must not reopen a finished task"
+        );
+        // The registration's own fields still land — only its state is refused.
+        assert_eq!(tasks[0].description.as_deref(), Some("worker"));
+        assert_eq!(tasks[0].task_id, "task-77");
+    }
+
+    /// A failure is a terminal outcome too: the generic task-completion event
+    /// that follows a failed subagent must not report it as completed.
+    #[test]
+    fn a_settled_failure_is_not_overwritten_by_a_completion() {
+        let mut projector = TranscriptProjector::new();
+        projector.apply_event(&EngineEvent::from_json(json!({
+            "type": "subagent.spawned",
+            "subagent_id": "agent-8"
+        })));
+        projector.apply_event(&EngineEvent::from_json(json!({
+            "type": "subagent.failed",
+            "subagent_id": "agent-8",
+            "error": "boom"
+        })));
+        projector.apply_event(&EngineEvent::Custom(json!({
+            "type": "event.task.completed",
+            "task": {
+                "id": "agent-8",
+                "kind": "subagent",
+                "agent_id": "agent-8",
+                "status": "completed",
+                "output": "partial"
+            }
+        })));
+
+        let tasks = projector.snapshot().tasks;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(
+            tasks[0].state,
+            TaskState::Failed,
+            "a failed subagent stays failed whatever the generic task event says"
+        );
+    }
+
+    #[test]
+    fn cold_snapshot_settles_members_to_lost_by_the_spawning_turn() {
+        // #3970: a member left running is lost unless the turn that spawned
+        // it is itself still running in the rebuild.
+        let mut projector = TranscriptProjector::new();
+        projector.apply_event(&EngineEvent::TurnStarted {
+            agent_id: "main".into(),
+            turn_id: 1,
+            prompt: None,
+        });
+        projector.apply_event(&EngineEvent::from_json(json!({
+            "type": "subagent.spawned",
+            "subagent_id": "agent-a"
+        })));
+        projector.apply_event(&EngineEvent::TurnEnded {
+            agent_id: "main".into(),
+            turn_id: 1,
+            reason: "completed".into(),
+        });
+        projector.apply_event(&EngineEvent::TurnStarted {
+            agent_id: "main".into(),
+            turn_id: 2,
+            prompt: None,
+        });
+        projector.apply_event(&EngineEvent::from_json(json!({
+            "type": "subagent.spawned",
+            "subagent_id": "agent-b"
+        })));
+
+        // Live: both members legitimately stay running (background members
+        // outlive their spawning turn and settle on their own events).
+        let live = projector.snapshot().tasks;
+        assert!(live.iter().all(|t| t.state == TaskState::Running));
+
+        // Cold: agent-a's spawning turn ended → lost; agent-b's turn (t2)
+        // still runs → survives.
+        let cold = projector.cold_snapshot_tasks();
+        let a = cold
+            .iter()
+            .find(|t| t.agent_id.as_deref() == Some("agent-a"))
+            .unwrap();
+        let b = cold
+            .iter()
+            .find(|t| t.agent_id.as_deref() == Some("agent-b"))
+            .unwrap();
+        assert_eq!(a.state, TaskState::Lost);
+        assert_eq!(b.state, TaskState::Running);
     }
 
     /// Reproduces the production defect: the server path publishes

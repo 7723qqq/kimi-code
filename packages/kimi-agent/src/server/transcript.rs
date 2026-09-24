@@ -257,6 +257,56 @@ pub fn cold_prompts(store: &SqliteSessionStore, session_id: &str) -> Value {
     serde_json::to_value(&prompts).unwrap_or(Value::Array(Vec::new()))
 }
 
+/// The cold baseline's task entities: fold the persisted task journal through
+/// a fresh projector — the same fold the live path runs — so a reopened
+/// session restores its task list (upstream #3970). The cold snapshot settles
+/// members whose spawning turn is no longer running to `lost` (every loop is
+/// dead after a restart); live members keep their recorded state.
+pub fn cold_tasks(store: &SqliteSessionStore, session_id: &str) -> Value {
+    let Ok(records) = store.task_wire_events(session_id) else {
+        return Value::Array(Vec::new());
+    };
+    let mut projector = project::TranscriptProjector::new();
+    for record in records {
+        projector.apply_event(&EngineEvent::from_json(cold_fold_payload(record.payload)));
+    }
+    let tasks = projector.cold_snapshot_tasks();
+    serde_json::to_value(&tasks).unwrap_or(Value::Array(Vec::new()))
+}
+
+/// The agent id a journal turn belongs to: a turn in the wire journal is the
+/// main agent's, the same id the live `EngineEvent` turn events carry.
+const MAIN_AGENT_ID: &str = "main";
+
+/// The journal's own turn-event shape, normalized into the typed event the
+/// projector folds.
+///
+/// The turn events on the wire come from `TurnEvent` (`turnId`, no
+/// `agent_id`), not from the `EngineEvent` the live projector receives, so
+/// feeding them to `from_json` verbatim left them `Custom` — the fold then never
+/// saw a turn, `spawning_turns` stayed empty, and every member looked like it
+/// had outlived its spawning turn. The main agent's id is the one the live
+/// `EngineEvent::TurnStarted` / `TurnEnded` carry, and a journal turn can only
+/// be the main agent's.
+fn cold_fold_payload(payload: Value) -> Value {
+    let mut value = payload;
+    let Some(kind) = value.get("type").and_then(Value::as_str) else {
+        return value;
+    };
+    if !matches!(kind, "turn.started" | "turn.ended") {
+        return value;
+    }
+    if let Some(object) = value.as_object_mut() {
+        if let Some(turn_id) = object.remove("turnId") {
+            object.entry("turn_id").or_insert(turn_id);
+        }
+        object
+            .entry("agent_id")
+            .or_insert_with(|| Value::String(MAIN_AGENT_ID.to_string()));
+    }
+    value
+}
+
 fn patch_tool_frame(turn: &mut TurnDraft, tool_call_id: &str, output: &str) {
     for step in turn.steps.iter_mut().rev() {
         for frame in step.frames.iter_mut().rev() {
@@ -639,6 +689,135 @@ mod tests {
         // A session with no journal yields an empty array, not null.
         store.create_session("sess-cold-empty", None).unwrap();
         assert_eq!(cold_prompts(&store, "sess-cold-empty"), json!([]));
+    }
+
+    /// `cold_tasks` restores the task list from the persisted journal
+    /// (#3970): the spawn→register→complete chain folds into one adopted
+    /// task, and an unfinished member whose spawning turn ended settles to
+    /// `lost`.
+    #[test]
+    fn cold_tasks_restores_tasks_and_settles_lost_members() {
+        use crate::native::event_store::RawWireEvent;
+        use crate::session::sqlite_store::SqliteSessionStore;
+
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store
+            .create_session("sess-cold-tasks", Some("Cold"))
+            .unwrap();
+        let seq = std::cell::Cell::new(0u32);
+        let append = |event_type: &str, payload: Value| {
+            seq.set(seq.get() + 1);
+            store
+                .append_wire_event(&RawWireEvent {
+                    id: format!("evt-{}", seq.get()),
+                    session_id: "sess-cold-tasks".into(),
+                    event_type: event_type.into(),
+                    payload,
+                    is_checkpoint: false,
+                    is_compaction: false,
+                    created_at: 1_000,
+                })
+                .unwrap();
+        };
+        append(
+            "turn.started",
+            // The journal's own shape (`TurnEvent::Started`: `turnId`, no
+            // `agent_id`), not the live `EngineEvent` shape — the fold has to
+            // read what the writer actually persists.
+            json!({ "type": "turn.started", "turnId": 1, "origin": Value::Null }),
+        );
+        // Tower-worker shape: spawn first (agent-keyed), registration after.
+        append(
+            "subagent.spawned",
+            json!({ "type": "subagent.spawned", "subagent_id": "agent-7", "run_in_background": true }),
+        );
+        append(
+            "event.task.created",
+            json!({
+                "type": "event.task.created",
+                "task": {
+                    "id": "task-77",
+                    "kind": "subagent",
+                    "agent_id": "agent-7",
+                    "status": "running",
+                    "description": "worker"
+                }
+            }),
+        );
+        append(
+            "subagent.completed",
+            json!({
+                "type": "subagent.completed",
+                "subagent_id": "agent-7",
+                "result_summary": "done",
+                "usage": { "input_tokens": 7, "output_tokens": 2, "total_tokens": 9 }
+            }),
+        );
+        // A second member whose spawning turn ended with no completion.
+        append(
+            "subagent.spawned",
+            json!({ "type": "subagent.spawned", "subagent_id": "agent-8" }),
+        );
+        append(
+            "turn.ended",
+            // Same journal shape as above: `turnId`, no `agent_id`.
+            json!({ "type": "turn.ended", "turnId": 1, "reason": "completed" }),
+        );
+
+        let tasks = cold_tasks(&store, "sess-cold-tasks");
+        let tasks = tasks.as_array().expect("tasks serialize to an array");
+        assert_eq!(tasks.len(), 2, "adoption keeps a single task per member");
+
+        let adopted = tasks.iter().find(|t| t["taskId"] == "task-77").unwrap();
+        assert_eq!(adopted["state"], "completed");
+        assert_eq!(adopted["agentId"], "agent-7");
+        assert_eq!(adopted["usage"]["inputOther"], 7);
+
+        // The turn was read at all: without the normalization this member would
+        // have no recorded spawning turn, and the fold would have had to guess
+        // it was lost. `agent-8` really did lose contact with a turn that ended.
+        let lost = tasks.iter().find(|t| t["taskId"] == "agent-8").unwrap();
+        assert_eq!(lost["state"], "lost");
+
+        // A member whose spawning turn is still running keeps its recorded
+        // state — that is what makes the Lost rule a *cold* one.
+        store
+            .create_session("sess-cold-running", Some("Running"))
+            .unwrap();
+        let seq = std::cell::Cell::new(100u32);
+        let append_running = |event_type: &str, payload: Value| {
+            seq.set(seq.get() + 1);
+            store
+                .append_wire_event(&RawWireEvent {
+                    id: format!("evt-run-{}", seq.get()),
+                    session_id: "sess-cold-running".into(),
+                    event_type: event_type.into(),
+                    payload,
+                    is_checkpoint: false,
+                    is_compaction: false,
+                    created_at: 1_000,
+                })
+                .unwrap();
+        };
+        append_running(
+            "turn.started",
+            json!({ "type": "turn.started", "turnId": 2, "origin": Value::Null }),
+        );
+        append_running(
+            "subagent.spawned",
+            json!({ "type": "subagent.spawned", "subagent_id": "agent-9" }),
+        );
+        let running = cold_tasks(&store, "sess-cold-running");
+        let running = running.as_array().expect("tasks serialize to an array");
+        assert_eq!(running.len(), 1);
+        assert_eq!(
+            running[0]["state"], "running",
+            "a member of a still-running turn is not lost"
+        );
+
+        // A session with no journal yields an empty array.
+        store.create_session("sess-cold-tasks-empty", None).unwrap();
+        assert_eq!(cold_tasks(&store, "sess-cold-tasks-empty"), json!([]));
     }
 
     #[test]
