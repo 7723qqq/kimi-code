@@ -1844,27 +1844,15 @@ impl NativeToolset {
         // (`SandboxExecutionPolicy::sandbox_write_guard`, Off by default —
         // mirroring v2), not to this resolver: an unconditional root check here
         // also blocked writes the configured mode had already allowed.
-        let candidate = Self::candidate_path(sandbox.primary(), bridge, path);
-        if let Ok(resolved) = std::fs::canonicalize(&candidate) {
-            return Some(resolved);
-        }
-        let mut missing: Vec<std::ffi::OsString> = Vec::new();
-        let mut cursor = candidate.as_path();
-        loop {
-            match std::fs::canonicalize(cursor) {
-                Ok(existing) => {
-                    let mut resolved = existing;
-                    for segment in missing.iter().rev() {
-                        resolved = resolved.join(segment);
-                    }
-                    return Some(resolved);
-                }
-                Err(_) => {
-                    missing.push(cursor.file_name()?.to_os_string());
-                    cursor = cursor.parent()?;
-                }
-            }
-        }
+        //
+        // Lexical, mirroring v2's `resolvePathAccessPath` (post-#4013): no
+        // `fs::canonicalize`, no nearest-existing-ancestor fallback. The
+        // pre-hardening baseline (`762f405811`, 2026-08-30) canonicalized the
+        // nearest existing ancestor, which left a registered divergence —
+        // under the non-default `sandbox_write_guard` the guard saw the real
+        // path where v2 sees the lexical one (ROADMAP §6.8.1). Resolved by
+        // returning the lexical candidate verbatim.
+        Some(Self::candidate_path(sandbox.primary(), bridge, path))
     }
 
     fn candidate_path(

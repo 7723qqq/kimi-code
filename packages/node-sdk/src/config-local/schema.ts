@@ -192,6 +192,13 @@ export const PermissionRuleSchema = z.object({
 
 export const PermissionConfigSchema = z.object({
   rules: z.array(PermissionRuleSchema).optional(),
+  /**
+   * `[permission] dangerousCommandGuard` (v2
+   * `isDangerousCommandGuardEnabled`, default true): `false` disables the
+   * engine's DangerousCommandAsk policy, letting the remaining policies
+   * decide every Bash call.
+   */
+  dangerousCommandGuard: z.boolean().optional(),
 });
 
 export type PermissionConfig = z.infer<typeof PermissionConfigSchema>;

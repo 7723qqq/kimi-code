@@ -2432,9 +2432,11 @@ describe.skipIf(!nativeEntry)('EngineSessionHandle quiescence (M1c via handle)',
 
   // The two mock-MCP tests below never observe `connected` on GitHub CI
   // runners — deterministic across every main push (10 s and 20 s waits both
-  // expire), instant locally. The CI environment deterministically starves
-  // the engine's background MCP connect; until that is root-caused, run them
-  // outside CI only, same escape hatch as the local-only suites above.
+  // expire), instant locally. Static triage found no gate the CI env could
+  // trip (KIMI_NATIVE_ALLOW_MOCK_MCP is read at create-time in-process, the
+  // mock transport is pure); the next forensics step is dumping
+  // `handle.mcpServers()` entries and the engine's `mcp.server.status`
+  // events from a failing CI run before re-enabling.
   const ON_CI = process.env['CI'] === 'true';
 
   /** The roster entry for `test_mcp`, once the session's connect has settled. */

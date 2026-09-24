@@ -3,11 +3,14 @@
 //! Evaluates tool execution permissions locally in Rust based on a
 //! `PolicySnapshot` injected from the host per turn.
 //!
-//! Mirrors the 12-policy chain in `agent-core-v2/src/agent/permissionPolicy/permissionPolicyService.ts`
-//! plus a fork-only DangerousCommandAsk policy (ported from kimi-native-tools):
+//! Mirrors the 13-policy chain in `agent-core-v2/src/agent/permissionPolicy/permissionPolicyService.ts`
+//! including v2's DangerousCommandAsk mode gating (skipped under auto, and its
+//! `[permission] dangerousCommandGuard` off-switch):
 //!   1. AutoModeAskUserQuestionDeny
 //!   2. UserConfiguredDeny
-//!   3. DangerousCommandAsk (fork-only; asks even in Yolo/Auto for shutdown/reboot/rm -rf/format/sudo …)
+//!   3. DangerousCommandAsk (asks in manual; auto and yolo pass dangerous
+//!      commands through, unanalyzable commands still ask; headless sessions
+//!      and `dangerousCommandGuard: false` skip the policy)
 //!   4. AutoModeApprove
 //!   5. SessionApprovalHistory
 //!   6. UserConfiguredAsk
@@ -134,7 +137,7 @@ pub struct HookDef {
 }
 
 /// Snapshot of permission configuration passed from host at step boundary.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolicySnapshot {
     #[serde(default)]
     pub mode: PermissionMode,
@@ -172,6 +175,39 @@ pub struct PolicySnapshot {
     /// from the chain), so the remaining policies decide the command.
     #[serde(default)]
     pub non_interactive: bool,
+    /// `[permission] dangerousCommandGuard` (v2
+    /// `isDangerousCommandGuardEnabled`, default true): `false` disables the
+    /// whole DangerousCommandAsk policy, letting the remaining policies
+    /// decide every Bash call.
+    #[serde(default = "crate::permission::default_true")]
+    pub dangerous_command_guard: bool,
+}
+
+/// `Default` for [`PolicySnapshot`]: the guard is on unless the config
+/// explicitly turns it off — matching the serde default and v2's `?? true`.
+/// Handwritten (not derived) because a derived `bool` default is `false`.
+impl Default for PolicySnapshot {
+    fn default() -> Self {
+        Self {
+            mode: PermissionMode::default(),
+            deny_rules: Vec::new(),
+            ask_rules: Vec::new(),
+            allow_rules: Vec::new(),
+            session_approvals: Vec::new(),
+            git_cwd: None,
+            tools_filter: None,
+            pre_tool_hooks: Vec::new(),
+            rule_reasons: std::collections::HashMap::new(),
+            non_interactive: false,
+            dangerous_command_guard: true,
+        }
+    }
+}
+
+/// Serde default for [`PolicySnapshot::dangerous_command_guard`] — the guard
+/// is on unless the config explicitly turns it off (v2's `?? true`).
+fn default_true() -> bool {
+    true
 }
 
 /// Verdict returned by the local permission engine.
@@ -405,22 +441,24 @@ impl PermissionEngine {
             };
         }
 
-        // 3. DangerousCommandAsk: high-risk shell commands must be confirmed even
-        //    under Auto/Yolo — mirrors v2 dangerous-command-ask and the native
-        //    `evaluate_bash_command` gate (`sudo reboot` refused in Yolo).
-        //    Skipped for headless sessions (`non_interactive`, upstream
-        //    `permissionPolicyService.ts` drops this ask-policy when the host
-        //    cannot answer a prompt): the remaining policies decide.
-        //    Upstream #3869: a command the analyzer cannot read (unbalanced
-        //    quote, non-literal command name) is approved only in Yolo — v2's
-        //    DangerousCommandAsk returns undefined for yolo and asks with
-        //    `unanalyzable_command` in every other mode.
+        // 3. DangerousCommandAsk (v2 `dangerous-command-ask.ts`). Mode gating
+        //    mirrors v2 exactly: auto skips the policy entirely (AutoModeApprove
+        //    decides); a dangerous command asks in manual; yolo passes it but an
+        //    unanalyzable command still asks (v2 #3869). Skipped for headless
+        //    sessions (`non_interactive`, upstream `permissionPolicyService.ts`
+        //    drops this ask-policy when the host cannot answer a prompt), and
+        //    for `[permission] dangerousCommandGuard: false` (v2
+        //    `isDangerousCommandGuardEnabled`).
         if !self.snapshot.non_interactive
+            && self.snapshot.dangerous_command_guard
             && tool_lower == "bash"
             && let Some(command) = target_subject.as_deref()
         {
             match analyze_bash_command(command) {
-                DangerousVerdict::Dangerous(_) => {
+                // v2: `if (mode === 'auto') return undefined` happens before the
+                // verdict, and `if (mode === 'yolo') return undefined`
+                // after it — so only manual asks here.
+                DangerousVerdict::Dangerous(_) if self.mode() == PermissionMode::Manual => {
                     return LocalPermissionVerdict {
                         decision: VerdictDecision::Ask,
                         policy_name: "DangerousCommandAsk".into(),
@@ -578,7 +616,12 @@ impl PermissionEngine {
             };
         }
 
-        // 12. GitCwdWriteApprove (if git_cwd matches target path write)
+        // 12. GitCwdWriteApprove — deliberately broader than v2
+        //     (`git-cwd-write-approve.ts`): v2 gates on Write/Edit only, a
+        //     posix path class, and `findWorkTree`; the fork approves any
+        //     tool whose path subject lands inside `git_cwd` on any platform.
+        //     Intentional: the fork's natively-executed tools (Edit, the
+        //     tower git flows, …) expose path subjects v2's list does not.
         if let Some(ref git_cwd) = self.snapshot.git_cwd
             && let Some(path) = target_subject.as_deref()
             && path.starts_with(git_cwd)
@@ -1778,27 +1821,75 @@ mod tests {
         assert_eq!(snapshot.pre_tool_hooks[0].timeout, Some(15));
     }
 
+    /// v2 mode gating (dangerous-command-ask.ts): dangerous commands ask in
+    /// manual only — auto skips the policy (AutoModeApprove decides), yolo
+    /// passes them to YoloModeApprove. Benign commands are approved in auto
+    /// and yolo; manual falls through to FallbackAsk.
     #[test]
-    fn test_dangerous_bash_command_asks_in_yolo_and_auto() {
-        let yolo = PermissionEngine::new(PolicySnapshot {
-            mode: PermissionMode::Yolo,
+    fn test_dangerous_bash_command_asks_only_in_manual() {
+        let manual = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Manual,
             ..Default::default()
         });
         let auto = PermissionEngine::new(PolicySnapshot {
             mode: PermissionMode::Auto,
             ..Default::default()
         });
+        let yolo = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Yolo,
+            ..Default::default()
+        });
 
-        for engine in [&yolo, &auto] {
-            for cmd in ["sudo reboot", "shutdown -h now", "rm -rf /", "format C: /q"] {
+        for cmd in ["sudo reboot", "shutdown -h now", "rm -rf /", "format C: /q"] {
+            let verdict = manual.evaluate("bash", &json!({ "command": cmd }));
+            assert_eq!(verdict.decision, VerdictDecision::Ask, "cmd: {cmd}");
+            assert_eq!(verdict.policy_name, "DangerousCommandAsk");
+
+            for engine in [&auto, &yolo] {
                 let verdict = engine.evaluate("bash", &json!({ "command": cmd }));
-                assert_eq!(verdict.decision, VerdictDecision::Ask, "cmd: {cmd}");
-                assert_eq!(verdict.policy_name, "DangerousCommandAsk");
+                assert_eq!(verdict.decision, VerdictDecision::Allow, "cmd: {cmd}");
             }
+        }
 
+        // Auto/Yolo approve a benign command outright; manual falls through
+        // the rest of the chain to FallbackAsk (v2 behavior: a non-dangerous,
+        // non-allow-listed Bash call asks in manual).
+        for engine in [&auto, &yolo] {
             let benign = engine.evaluate("bash", &json!({ "command": "git status" }));
             assert_eq!(benign.decision, VerdictDecision::Allow, "benign command");
         }
+        let benign = manual.evaluate("bash", &json!({ "command": "git status" }));
+        assert_eq!(benign.decision, VerdictDecision::Ask);
+        assert_eq!(benign.policy_name, "FallbackAsk");
+    }
+
+    /// v2 `isDangerousCommandGuardEnabled`: `[permission]
+    /// dangerousCommandGuard = false` skips the whole policy — the remaining
+    /// policies decide every Bash call.
+    #[test]
+    fn test_dangerous_command_guard_off_skips_the_policy() {
+        let guard_on = PermissionEngine::new(PolicySnapshot {
+            dangerous_command_guard: true,
+            ..Default::default()
+        });
+        let guard_off = PermissionEngine::new(PolicySnapshot {
+            dangerous_command_guard: false,
+            ..Default::default()
+        });
+
+        let verdict = guard_on.evaluate("bash", &json!({ "command": "sudo reboot" }));
+        assert_eq!(verdict.decision, VerdictDecision::Ask);
+        assert_eq!(verdict.policy_name, "DangerousCommandAsk");
+
+        // Guard off: the ask falls through to FallbackAsk (manual mode).
+        let verdict = guard_off.evaluate("bash", &json!({ "command": "sudo reboot" }));
+        assert_eq!(verdict.decision, VerdictDecision::Ask);
+        assert_eq!(verdict.policy_name, "FallbackAsk");
+
+        // Default is on: a snapshot without the field keeps the guard.
+        let default = PermissionEngine::new(PolicySnapshot::default());
+        let verdict = default.evaluate("bash", &json!({ "command": "sudo reboot" }));
+        assert_eq!(verdict.policy_name, "DangerousCommandAsk");
     }
 
     /// Upstream #3869: a command the analyzer cannot read is approved only

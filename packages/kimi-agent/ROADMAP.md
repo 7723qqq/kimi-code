@@ -1544,11 +1544,10 @@ docs / release / changelog：`a1e4c13d41`、`f67e6398fb`、`be7d5f5fea`）。两
    默认 `sandbox_write_guard` 关闭时与 v2 的词法解析写同一文件，**无可观察差异**。仅在其打开时，
    fork 让守卫看到真实路径、v2 看到词法路径 —— 这一条是**残留偏差**，见下。
 
-**残留偏差（如实登记，未修）**：`resolve_for_write` 规范化写目标，而回退后的 v2 走词法
+**残留偏差（已修，2026-09-24 打磨轮）**：`resolve_for_write` 曾规范化写目标，而回退后的 v2 走词法
 （`resolvePathAccessPath`，无 `realpath`）。影响面限于非默认的 `sandbox_write_guard` 模式。
-本次不动它，因为它是**已提交基线**而非本次工作区改动，且改动会影响 Write/Edit 的审批路径参数；
-需要时另起一轮 triage。同一批还删掉了断言该行为的 `#3964` 用例
-（`resolve_for_write_resolves_symlink_escapes_to_the_real_path`），因为它的期望值来自实现而非 v2。
+本轮已改为纯词法（返回 `candidate_path` 原样，注释内登记出处），断言该行为的 `#3964` 用例
+（`resolve_for_write_resolves_symlink_escapes_to_the_real_path`）此前已随回退删除——其期望值来自实现而非 v2。
 
 **初版的三条「保留」依据（第 1、2 条已失效，第 3 条仅剩事实价值）**：
 

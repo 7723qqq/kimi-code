@@ -254,6 +254,11 @@ pub struct PermissionConfig {
     pub mode: Option<String>,
     #[serde(default)]
     pub rules: Option<Vec<PermissionRuleConfig>>,
+    /// `[permission] dangerousCommandGuard` (v2
+    /// `isDangerousCommandGuardEnabled`): `false` skips the engine's
+    /// DangerousCommandAsk policy. Unset keeps the guard on.
+    #[serde(rename = "dangerousCommandGuard", default)]
+    pub dangerous_command_guard: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1440,6 +1445,11 @@ impl KimiConfig {
             pre_tool_hooks: self.hooks.clone(),
             rule_reasons,
             non_interactive: false,
+            dangerous_command_guard: self
+                .permission
+                .as_ref()
+                .and_then(|p| p.dangerous_command_guard)
+                .unwrap_or(true),
         }
     }
 }

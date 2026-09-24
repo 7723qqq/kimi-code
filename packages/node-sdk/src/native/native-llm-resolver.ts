@@ -95,6 +95,12 @@ export interface PolicySnapshotDto {
    * the engine's `DangerousCommandAsk` policy — no human to answer the prompt.
    */
   non_interactive?: boolean;
+  /**
+   * `[permission] dangerousCommandGuard` (v2 `isDangerousCommandGuardEnabled`):
+   * `false` skips the engine's `DangerousCommandAsk` policy entirely. Absent
+   * means on (the engine's serde default).
+   */
+  dangerous_command_guard?: boolean;
 }
 
 /** A trailing API version segment (`/v1`, `/v1beta`, `/v2alpha`, …). */
@@ -358,6 +364,7 @@ export function buildPolicySnapshot(config: KimiConfig, workDir: string): Policy
     | 'yolo'
     | 'plan';
   const rules = config.permission?.rules ?? [];
+  const dangerousCommandGuard = config.permission?.dangerousCommandGuard;
   const hooks = config.hooks ?? [];
   const tools = config.tools;
   const toolsFilter =
@@ -378,6 +385,9 @@ export function buildPolicySnapshot(config: KimiConfig, workDir: string): Policy
       .map((r) => r.pattern),
     session_approvals: [],
     git_cwd: workDir,
+    ...(dangerousCommandGuard === undefined
+      ? {}
+      : { dangerous_command_guard: dangerousCommandGuard }),
     tools_filter: toolsFilter,
     pre_tool_hooks: hooks
       .filter((h) => typeof h.command === 'string')
