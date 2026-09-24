@@ -189,6 +189,29 @@ main:
             cd packages/kimi-agent
             cargo test --quiet --lib
 
+    # Second gate: the pure-TypeScript vitest suites (node-sdk / kaos /
+    # transcript / protocol / minidb / i18n). Bun installs from the committed
+    # lockfile; packages whose tests need the compiled napi addon self-skip
+    # (`describe.skipIf(!hasNativeAddon)`), so no Rust build is required here.
+    - name: ts tests
+      image: ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc:latest
+      stages:
+        - name: install bun
+          script: |
+            set -e
+            npm install -g bun
+            bun --version
+        - name: bun install
+          timeout: 15m
+          script: |
+            set -e
+            bun install --frozen-lockfile
+        - name: vitest (pure TS packages)
+          timeout: 30m
+          script: |
+            set -e
+            bun --bun run vitest run --project kimi-sdk --project kaos --project transcript --project protocol --project minidb
+
     # The mirror job, kept as an anchor-free sibling of the NPC config so that the
     # two never interfere: NPC config is merged per event, and this is a distinct
     # event (`push`) on a distinct branch key (`main`).
