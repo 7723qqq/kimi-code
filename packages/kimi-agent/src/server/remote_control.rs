@@ -112,8 +112,13 @@ const BLOCKED_RESPONSE_HEADERS: &[&str] = &[
 /// by the caller (wiring layer) and injected.
 #[derive(Clone)]
 pub struct RemoteControlOptions {
-    /// Relay origin; defaults to [`REMOTE_CONTROL_RELAY_ORIGIN`]. (ts:27)
+    /// Explicit relay origin. When set it wins outright, including over the
+    /// env override (v2 `options.relayOrigin ?? resolveRemoteControl…`).
     pub relay_origin: String,
+    /// The relay origin the login region resolves to (v2 `auth.relayOrigin`).
+    /// It is the fallback the env override resolves against, so an operator
+    /// override still wins over the region default.
+    pub region_relay_origin: String,
     /// Stable device id (TS: `createKimiDeviceId(homeDir)`).
     pub device_id: String,
     /// Human-readable device name (TS: `hostname()`).
@@ -137,7 +142,8 @@ pub struct RemoteControlOptions {
 impl Default for RemoteControlOptions {
     fn default() -> Self {
         Self {
-            relay_origin: REMOTE_CONTROL_RELAY_ORIGIN.to_string(),
+            relay_origin: String::new(),
+            region_relay_origin: REMOTE_CONTROL_RELAY_ORIGIN.to_string(),
             device_id: String::new(),
             device_name: whoami::fallible::hostname().unwrap_or_else(|_| "unknown".to_string()),
             local_base_url: "http://127.0.0.1:3461".to_string(),
@@ -194,12 +200,13 @@ impl RemoteControlHandle {
 pub struct RemoteControlRuntime;
 
 impl RemoteControlRuntime {
-    /// Start the Remote Control client. The relay origin falls back to the
-    /// `KIMI_CODE_REMOTE_CONTROL_RELAY_URL` env var when `relay_origin` is empty,
-    /// mirroring `resolveRemoteControlRelayOrigin` (ts:33-38).
+    /// Start the Remote Control client. With no explicit `relay_origin`, the
+    /// `KIMI_CODE_REMOTE_CONTROL_RELAY_URL` env override wins, then the
+    /// region-resolved fallback — the v2 precedence
+    /// `resolveRemoteControlRelayOrigin(env, auth.relayOrigin)` (ts:33-38).
     pub fn start(options: RemoteControlOptions) -> RemoteControlHandle {
         let relay_origin = if options.relay_origin.trim().is_empty() {
-            resolve_remote_control_relay_origin()
+            resolve_remote_control_relay_origin(&options.region_relay_origin)
         } else {
             options.relay_origin.clone()
         };
@@ -233,12 +240,13 @@ impl RemoteControlRuntime {
     }
 }
 
-/// Resolve the relay origin, honoring the `KIMI_CODE_REMOTE_CONTROL_RELAY_URL`
-/// env override (ts:33-38).
-pub fn resolve_remote_control_relay_origin() -> String {
+/// Resolve the relay origin: the `KIMI_CODE_REMOTE_CONTROL_RELAY_URL` env
+/// override, else `fallback` (ts:33-38, v2 `resolveRemoteControlRelayOrigin`).
+pub fn resolve_remote_control_relay_origin(fallback: &str) -> String {
     match std::env::var(REMOTE_CONTROL_RELAY_URL_ENV) {
         Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
-        _ => REMOTE_CONTROL_RELAY_ORIGIN.to_string(),
+        _ if fallback.trim().is_empty() => REMOTE_CONTROL_RELAY_ORIGIN.to_string(),
+        _ => fallback.to_string(),
     }
 }
 
@@ -1374,6 +1382,37 @@ mod tests {
         assert!(parse_raw_http_request(b"GET / HTTP/1.1").is_err());
         // Invalid: double-slash path.
         assert!(parse_raw_http_request(b"GET //evil HTTP/1.1\r\n\r\n").is_err());
+    }
+
+    /// v2 #3969 precedence: the env override wins over the region-resolved
+    /// fallback, and an explicitly passed origin wins over both (the
+    /// `options.relayOrigin ?? resolveRemoteControlRelayOrigin(env, auth…)`
+    /// shape).
+    #[test]
+    fn relay_origin_precedence_is_env_then_region_then_default() {
+        let env = std::env::var(REMOTE_CONTROL_RELAY_URL_ENV)
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| value.trim().to_string());
+        assert_eq!(
+            resolve_remote_control_relay_origin("https://code-rc.kimi.ai"),
+            env.clone()
+                .unwrap_or_else(|| "https://code-rc.kimi.ai".to_string()),
+        );
+        assert_eq!(
+            resolve_remote_control_relay_origin(REMOTE_CONTROL_RELAY_ORIGIN),
+            env.unwrap_or_else(|| REMOTE_CONTROL_RELAY_ORIGIN.to_string()),
+        );
+        // An empty fallback falls back to the built-in default rather than
+        // producing an origin the URL builder cannot parse.
+        assert_eq!(
+            resolve_remote_control_relay_origin("  "),
+            std::env::var(REMOTE_CONTROL_RELAY_URL_ENV)
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .map(|value| value.trim().to_string())
+                .unwrap_or_else(|| REMOTE_CONTROL_RELAY_ORIGIN.to_string()),
+        );
     }
 
     #[test]

@@ -23,6 +23,7 @@ pub mod native;
 pub mod permission;
 pub mod pipeline;
 pub mod prompt;
+pub mod region;
 pub mod repl;
 pub mod rpc;
 pub mod server;

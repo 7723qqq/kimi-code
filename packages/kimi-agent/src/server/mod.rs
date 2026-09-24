@@ -1215,6 +1215,24 @@ fn new_device_id() -> String {
     ulid::Ulid::new().to_string()
 }
 
+/// The relay origin the Remote Control toggle must use.
+///
+/// v2 #3969: a global (`.ai`) login must reach `code-rc.kimi.ai`; the mainland
+/// login keeps `code-rc.kimi.com`. The region comes from the same persisted
+/// OAuth ref upstream's server hands to the Remote Control manager (the managed
+/// provider's `oauth` table in `config.toml`), with the install-channel marker
+/// deciding only before the first login. An operator's
+/// `KIMI_CODE_REMOTE_CONTROL_RELAY_URL` still overrides both — no wire field
+/// was added for this, upstream's request schema stayed `{ enabled }`.
+fn remote_control_relay_origin(config: &crate::config::KimiConfig) -> String {
+    let configured_oauth = crate::region::ConfiguredOAuthRef::from_config(config);
+    let region_relay = crate::region::resolve_kimi_remote_control_relay_origin(
+        &configured_oauth,
+        crate::workflow::kimi_home().as_deref(),
+    );
+    crate::server::remote_control::resolve_remote_control_relay_origin(&region_relay)
+}
+
 /// The engine's built-in capabilities, served by `GET /api/v1/capabilities` and
 /// `GET /api/v1/capabilities/{id}`. A single source so the list route and the
 /// detail route cannot drift apart.
@@ -3219,6 +3237,7 @@ impl HttpServer {
                     local_base_url,
                     local_server_token,
                     refresh_token,
+                    region_relay_origin: remote_control_relay_origin(&self.config().await),
                     ..Default::default()
                 };
                 let handle = crate::server::remote_control::RemoteControlRuntime::start(options);
