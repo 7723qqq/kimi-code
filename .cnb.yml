@@ -163,6 +163,32 @@ main:
               echo "smoke test ok: $(rg --version | head -1), $(cargo --version)"
             '
 
+    # First CI gate: cargo check + clippy + lib tests on the Tencent side,
+    # before the GitHub mirror fans out to the full matrix. Uses the NPC
+    # image (cargo/rustc/clippy/rustfmt + the base's node) — the same
+    # toolchain CI's rust jobs use. `cargo test --lib` covers the unit
+    # suites; the napi/integration tests need the compiled addon and stay
+    # on GitHub Actions.
+    - name: rust tests
+      image: ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}/npc:latest
+      stages:
+        - name: cargo check
+          script: |
+            set -e
+            cd packages/kimi-agent
+            cargo check --quiet --all-targets --features cli
+        - name: cargo clippy
+          script: |
+            set -e
+            cd packages/kimi-agent
+            cargo clippy --quiet --all-targets --features cli -- -D warnings
+        - name: cargo test (lib)
+          timeout: 30m
+          script: |
+            set -e
+            cd packages/kimi-agent
+            cargo test --quiet --lib
+
     # The mirror job, kept as an anchor-free sibling of the NPC config so that the
     # two never interfere: NPC config is merged per event, and this is a distinct
     # event (`push`) on a distinct branch key (`main`).
