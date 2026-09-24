@@ -20,7 +20,7 @@
 //! tool call can run after the budget — the data protection is structural.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::callbacks::HostCallbacks;
 use crate::permission::PermissionMode;
@@ -57,9 +57,10 @@ pub struct GoalGuard {
     /// `turn_id -> goal_id` bound when the turn started. `None` records a
     /// turn that started with no active goal.
     pub bindings: Arc<Mutex<HashMap<String, Option<String>>>>,
-    /// Permission mode from the policy snapshot (same lifetime as the
-    /// in-process permission engine: the session's initial snapshot).
-    mode: Option<PermissionMode>,
+    /// Permission mode from the policy snapshot, live-updated on a
+    /// `set_mode` switch (same lifetime as the in-process permission
+    /// engine's own mode lock).
+    mode: RwLock<Option<PermissionMode>>,
     /// Route non-auto CreateGoal to the host (product paths). The REPL's
     /// dummy host cannot execute CreateGoal, so it stays native.
     route_to_host: bool,
@@ -69,9 +70,16 @@ impl GoalGuard {
     pub fn new(mode: Option<PermissionMode>, route_to_host: bool) -> Self {
         Self {
             bindings: Arc::new(Mutex::new(HashMap::new())),
-            mode,
+            mode: RwLock::new(mode),
             route_to_host,
         }
+    }
+
+    /// Track a live permission-mode switch (`PermissionEngine::set_mode`):
+    /// the guard's `requires_host` verdict must follow the mode the engine
+    /// actually evaluates with, not the session's startup snapshot.
+    pub fn set_mode(&self, mode: Option<PermissionMode>) {
+        *self.mode.write().unwrap_or_else(|e| e.into_inner()) = mode;
     }
 
     /// Bind a turn to the goal that was active when it started. `None`
@@ -88,7 +96,8 @@ impl GoalGuard {
     /// review fires (v2: any mode other than `auto`). An unknown mode fails
     /// closed — route to the host, which decides.
     pub fn requires_host(&self, tool_name: &str) -> bool {
-        self.route_to_host && is_create_goal(tool_name) && self.mode != Some(PermissionMode::Auto)
+        let mode = self.mode.read().unwrap_or_else(|e| e.into_inner());
+        self.route_to_host && is_create_goal(tool_name) && *mode != Some(PermissionMode::Auto)
     }
 
     /// The stale-call veto for goal mutation tools (v2 `isStaleGoalToolCall`:

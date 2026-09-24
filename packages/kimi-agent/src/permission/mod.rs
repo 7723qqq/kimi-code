@@ -22,6 +22,7 @@
 use globset::Glob;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::RwLock;
 
 use crate::i18n::{LocalizedText, i18n_params};
 use crate::native::permission_engine::dangerous_command::{DangerousVerdict, analyze_bash_command};
@@ -287,8 +288,15 @@ impl CompiledRule {
 }
 
 /// Local permission engine evaluating tool calls against a `PolicySnapshot`.
+///
+/// The mode is interior-mutable ([`PermissionEngine::set_mode`]) so an
+/// interactive entry can switch it live — the REPL's `/yolo`, which previously
+/// only mutated config for the next restart (the M1a limitation). Everything
+/// else about the snapshot (rules, hooks) stays fixed; hosts that need a
+/// different rule set rebuild the engine instead.
 pub struct PermissionEngine {
     snapshot: PolicySnapshot,
+    mode: RwLock<PermissionMode>,
     compiled_deny: Vec<CompiledRule>,
     compiled_ask: Vec<CompiledRule>,
     compiled_allow: Vec<CompiledRule>,
@@ -318,8 +326,10 @@ impl PermissionEngine {
             .filter_map(|r| CompiledRule::compile(r))
             .collect();
 
+        let mode = snapshot.mode;
         Self {
             snapshot,
+            mode: RwLock::new(mode),
             compiled_deny,
             compiled_ask,
             compiled_allow,
@@ -331,7 +341,14 @@ impl PermissionEngine {
     /// The permission mode of the snapshot (G-6 #7: the goal-start review
     /// gate reads it to decide whether CreateGoal routes to the host).
     pub fn mode(&self) -> PermissionMode {
-        self.snapshot.mode
+        *self.mode.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Switch the permission mode live. The REPL's `/yolo` and `/permission`
+    /// use this instead of asking the user to restart; every subsequent
+    /// [`PermissionEngine::evaluate`] sees the new mode at its own chain arm.
+    pub fn set_mode(&self, mode: PermissionMode) {
+        *self.mode.write().unwrap_or_else(|e| e.into_inner()) = mode;
     }
 
     pub fn evaluate(&self, tool_name: &str, args: &Value) -> LocalPermissionVerdict {
@@ -339,7 +356,7 @@ impl PermissionEngine {
         let target_subject = extract_rule_subject(&tool_lower, args);
 
         // 1. AutoModeAskUserQuestionDeny
-        if self.snapshot.mode == PermissionMode::Auto
+        if self.mode() == PermissionMode::Auto
             && matches!(tool_lower.as_str(), "askuserquestion" | "ask_user_question")
         {
             return LocalPermissionVerdict {
@@ -416,7 +433,7 @@ impl PermissionEngine {
                         ),
                     };
                 }
-                DangerousVerdict::Unanalyzable(_) if self.snapshot.mode != PermissionMode::Yolo => {
+                DangerousVerdict::Unanalyzable(_) if self.mode() != PermissionMode::Yolo => {
                     return LocalPermissionVerdict {
                         decision: VerdictDecision::Ask,
                         policy_name: "DangerousCommandAsk".into(),
@@ -434,7 +451,7 @@ impl PermissionEngine {
         }
 
         // 4. AutoModeApprove
-        if self.snapshot.mode == PermissionMode::Auto {
+        if self.mode() == PermissionMode::Auto {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Allow,
                 policy_name: "AutoModeApprove".into(),
@@ -535,7 +552,7 @@ impl PermissionEngine {
         }
 
         // 10. YoloModeApprove
-        if self.snapshot.mode == PermissionMode::Yolo {
+        if self.mode() == PermissionMode::Yolo {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Allow,
                 policy_name: "YoloModeApprove".into(),

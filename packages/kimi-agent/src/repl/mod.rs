@@ -379,10 +379,10 @@ pub async fn start_repl(
     // ── One-time per-REPL-session setup ──────────────────────────────────
     // The EngineSession is persistent for the loop's lifetime so turns run
     // serially through one pump (preserves the M1a exit: multi-turn +
-    // queuing + cancellation). M1a limitation: the LLM and PermissionEngine
-    // are fixed at this point — /model and /yolo print a notice that they
-    // take effect on next REPL restart. Future work can lift both to
-    // providers so the session can hot-swap them.
+    // queuing + cancellation). M1a limitation: the LLM is fixed at this
+    // point — /model prints a notice that it takes effect on next REPL
+    // restart. The permission engine's mode is hot-swappable
+    // (`PermissionEngine::set_mode`), so /yolo takes effect immediately.
     let initial_model = current_model.as_deref().unwrap_or("default");
     let native_llm_def = match config.extract_native_llm(Some(initial_model)) {
         Some(def) => def,
@@ -531,6 +531,10 @@ pub async fn start_repl(
         Some(permission_engine.mode()),
         false,
     ));
+    // Handles for the REPL loop's live mode switches (`/yolo`): the callbacks
+    // and the toolset own their own Arc clones.
+    let loop_permission_engine = Arc::clone(&permission_engine);
+    let loop_goal_guard = Arc::clone(&goal_guard);
     let tool_callbacks: Arc<dyn HostCallbacks> = Arc::new(NativeToolCallbacks {
         inner: base_callbacks,
         toolset: toolset.clone(),
@@ -788,14 +792,21 @@ pub async fn start_repl(
                     continue;
                 }
                 "/yolo" => {
-                    // M1a limitation: the EngineSession's PermissionEngine
-                    // is built once from the startup policy snapshot; /yolo
-                    // mutates config but the snapshot is fixed. Future work
-                    // can make the snapshot a provider.
+                    // The engine's PermissionEngine carries the mode behind an
+                    // RwLock, so the switch lands on the next `evaluate` — no
+                    // restart. Config records the new default for sessions the
+                    // user starts later.
                     let current = config.agent.yolo.unwrap_or(false);
                     config.agent.yolo = Some(!current);
+                    let mode = if !current {
+                        crate::permission::PermissionMode::Yolo
+                    } else {
+                        crate::permission::PermissionMode::Manual
+                    };
+                    loop_permission_engine.set_mode(mode);
+                    loop_goal_guard.set_mode(Some(mode));
                     println!(
-                        "YOLO Mode {} (active on next REPL restart; M1a limitation)",
+                        "YOLO Mode {} (active immediately)",
                         if !current { "ENABLED" } else { "DISABLED" }
                     );
                     continue;
