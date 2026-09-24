@@ -93,6 +93,8 @@ interface ServerFrame {
 }
 
 const WS_BEARER_PROTOCOL_PREFIX = 'kimi-code.bearer.';
+const DEFAULT_RECONNECT_DELAY_MS = 500;
+const MAX_RECONNECT_DELAY_MS = 10_000;
 
 export class TranscriptWs {
   private readonly wsUrl: string;
@@ -124,7 +126,7 @@ export class TranscriptWs {
       throw new Error('no WebSocket implementation available; pass WebSocketImpl');
     }
     this.WsCtor = ctor;
-    this.reconnectDelayMs = opts.reconnectDelayMs ?? 500;
+    this.reconnectDelayMs = opts.reconnectDelayMs ?? DEFAULT_RECONNECT_DELAY_MS;
     this.connect();
   }
 
@@ -257,7 +259,10 @@ export class TranscriptWs {
   private scheduleReconnect(): void {
     if (this.manualClose) return;
     this.reconnectAttempt += 1;
-    const delay = Math.min(this.reconnectDelayMs * 2 ** (this.reconnectAttempt - 1), 10_000);
+    const delay = Math.min(
+      this.reconnectDelayMs * 2 ** (this.reconnectAttempt - 1),
+      MAX_RECONNECT_DELAY_MS,
+    );
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined;
       this.connect();

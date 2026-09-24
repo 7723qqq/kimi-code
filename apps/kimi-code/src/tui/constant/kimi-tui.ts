@@ -34,6 +34,10 @@ export const TOWER_STATUS_PROMPT =
 export const TOWER_TEARDOWN_PROMPT =
   'Tear down the tower: call TowerTeardown and report what it did. It refuses to destroy dirty worktrees unless forced.';
 export const EXIT_CONFIRM_WINDOW_MS = 1500;
+// Upper bound on waiting for the startup provider-model refresh during
+// stop(): its config writes are each atomic, so draining can only ever leave
+// a complete file behind. Bounded so a slow network never delays the exit.
+export const STARTUP_REFRESH_DRAIN_TIMEOUT_MS = 1500;
 // Time window for treating two consecutive Esc presses as a double-Esc, which
 // opens the undo selector. Kept short (double-click feel) so two deliberate
 // presses far apart don't accidentally trigger undo.

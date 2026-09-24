@@ -18,6 +18,18 @@ const WS_BEARER_PROTOCOL_PREFIX = 'kimi-code.bearer.';
 // heartbeat, with a floor so a misconfigured tiny heartbeat can't thrash.
 const STALE_SOCKET_FLOOR_MS = 30_000;
 
+// Reconnect backoff: exponential from RECONNECT_BASE_DELAY_MS, capped at
+// RECONNECT_MAX_DELAY_MS, plus up to RECONNECT_JITTER_MS of jitter so a
+// simultaneous drop doesn't make every client retry in lockstep.
+const RECONNECT_BASE_DELAY_MS = 1000;
+const RECONNECT_MAX_DELAY_MS = 30_000;
+const RECONNECT_JITTER_MS = 250;
+
+// Subscription cursor for callers with no saved position: start at seq 0 so
+// the server replays its full retained buffer. Shared object is safe — every
+// consumer copies it (`{ ...cursor }`) before storing.
+const INITIAL_SESSION_CURSOR: SessionCursor = { seq: 0 };
+
 // ---------------------------------------------------------------------------
 // Handler interface
 // ---------------------------------------------------------------------------
@@ -158,8 +170,11 @@ export class DaemonEventSocket {
 
   private scheduleReconnect(): void {
     if (this.closed || this.reconnectTimer !== null) return;
-    const base = Math.min(30_000, 1000 * 2 ** this.reconnectAttempts);
-    const delay = base + Math.floor(Math.random() * 250); // jitter
+    const base = Math.min(
+      RECONNECT_MAX_DELAY_MS,
+      RECONNECT_BASE_DELAY_MS * 2 ** this.reconnectAttempts,
+    );
+    const delay = base + Math.floor(Math.random() * RECONNECT_JITTER_MS);
     this.reconnectAttempts += 1;
     traceWsLifecycle('reconnect-scheduled', { delayMs: delay, attempt: this.reconnectAttempts });
     this.reconnectTimer = setTimeout(() => {
@@ -172,7 +187,7 @@ export class DaemonEventSocket {
    * Subscribe to events for a session at a `{seq, epoch}` cursor.
    * If connected, sends immediately; otherwise queues until after server_hello.
    */
-  subscribe(sessionId: string, cursor: SessionCursor = { seq: 0 }): void {
+  subscribe(sessionId: string, cursor: SessionCursor = INITIAL_SESSION_CURSOR): void {
     this.subscriptions.set(sessionId, { ...cursor });
 
     if (this.connected) {

@@ -11,6 +11,7 @@ import { dirname, join, resolve } from 'node:path';
 
 import { KIMI_CODE_ENGINE_DATA_DIR_NAME } from '#/constant/app';
 import { getDataDir } from '#/utils/paths';
+
 import type { StartForegroundHooks } from './run';
 import type { ParsedServerOptions } from './shared';
 
@@ -86,29 +87,41 @@ export function buildRustServerArgs(
 }
 
 /**
+ * Wait-for-ready budgets for `waitForServerReady`: total time to keep polling,
+ * cadence between polls, and per-request cap on a single health fetch.
+ */
+const SERVER_READY_TIMEOUT_MS = 15_000;
+const SERVER_READY_POLL_INTERVAL_MS = 150;
+const HEALTH_PROBE_TIMEOUT_MS = 1_000;
+
+/**
  * Wait for the server health endpoint to report healthy status.
  */
 export async function waitForServerReady(
   origin: string,
-  timeoutMs = 15000,
-  pollIntervalMs = 150,
+  timeoutMs = SERVER_READY_TIMEOUT_MS,
+  pollIntervalMs = SERVER_READY_POLL_INTERVAL_MS,
 ): Promise<void> {
   const start = Date.now();
   const healthUrl = `${origin}/api/v1/health`;
 
   while (Date.now() - start < timeoutMs) {
     try {
-      const res = await fetch(healthUrl, { signal: AbortSignal.timeout(1000) });
+      const res = await fetch(healthUrl, { signal: AbortSignal.timeout(HEALTH_PROBE_TIMEOUT_MS) });
       if (res.status === 200) {
         return;
       }
     } catch {
       // Server not accepting connections yet, retry
     }
-    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    await new Promise((resolve) => {
+      setTimeout(resolve, pollIntervalMs);
+    });
   }
 
-  throw new Error(`Timed out waiting for Rust server to become ready at ${healthUrl} after ${timeoutMs}ms`);
+  throw new Error(
+    `Timed out waiting for Rust server to become ready at ${healthUrl} after ${timeoutMs}ms`,
+  );
 }
 
 export interface RustServerRunnerDeps {
@@ -171,17 +184,17 @@ export async function startRustServerForeground(
   });
 
   child.on('error', (err) => {
-    console.error(`[kimi-agent] Process error: ${err.message}`);
+    process.stderr.write(`[kimi-agent] Process error: ${err.message}\n`);
     process.exit(1);
   });
 
   child.on('exit', (code, signal) => {
     if (!exiting) {
       if (code !== 0 && code !== null) {
-        console.error(`[kimi-agent] Native server exited with code ${code}`);
+        process.stderr.write(`[kimi-agent] Native server exited with code ${code}\n`);
         process.exit(code);
       } else if (signal) {
-        console.error(`[kimi-agent] Native server terminated by signal ${signal}`);
+        process.stderr.write(`[kimi-agent] Native server terminated by signal ${signal}\n`);
         process.exit(1);
       }
     }
@@ -193,9 +206,9 @@ export async function startRustServerForeground(
   try {
     await waiter(origin);
     await hooks.onReady?.(origin);
-  } catch (err) {
+  } catch (error) {
     await cleanup('startup_error');
-    throw err;
+    throw error;
   }
 
   // Keep alive until process exits via signal or child termination

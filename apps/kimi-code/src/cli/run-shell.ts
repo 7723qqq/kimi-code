@@ -17,9 +17,9 @@ import {
   withTelemetryContext,
 } from '@moonshot-ai/kimi-telemetry';
 
+import { assertRustEngineAvailable } from '#/cli/rust-engine';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
 import { setLocale, t } from '#/i18n';
-import { assertRustEngineAvailable } from '#/cli/rust-engine';
 import type { TuiConfig } from '#/tui/config';
 import { loadTuiConfig, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
@@ -73,7 +73,7 @@ export async function runShell(
   try {
     assertRustEngineAvailable(telemetryBootstrap.homeDir);
   } catch (error: unknown) {
-    console.error(error instanceof Error ? error.message : String(error));
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exit(1);
   }
   const harnessOptions: KimiHarnessOptions = {
@@ -231,7 +231,9 @@ export async function runShell(
     trackLifecycle('exit', { duration_ms: Date.now() - startedAt, tui_mode: tui.state.ui.mode });
     try {
       await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
-    } catch {}
+    } catch (error) {
+      log.warn('telemetry shutdown failed', { error: String(error) });
+    }
     const gutter = ' '.repeat(CHROME_GUTTER);
     process.stdout.write(`${gutter}${t('tui.statusMessages.shellBye')}\n`);
     const hints: string[] = [];
@@ -278,7 +280,9 @@ export async function runShell(
     trackLifecycle('exit', { duration_ms: Date.now() - startedAt, tui_mode: tui.state.ui.mode });
     try {
       await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
-    } catch {}
+    } catch (error) {
+      log.warn('telemetry shutdown failed', { error: String(error) });
+    }
     await harness.close();
     throw error;
   }

@@ -35,9 +35,9 @@ import { runPluginNodeEntry } from './cli/sub/plugin-run-node';
 import { runUpdateDownloadCommand } from './cli/sub/update-download';
 import { handleUpgrade } from './cli/sub/upgrade';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './cli/telemetry';
+import { maybeRelaunchWithStagedNativeUpdate } from './cli/update/native-swap';
 import { runUpdatePreflight } from './cli/update/preflight';
 import { detectNativeInstall } from './cli/update/source';
-import { maybeRelaunchWithStagedNativeUpdate } from './cli/update/native-swap';
 import { createKimiCodeHostIdentity, getVersion } from './cli/version';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, PROCESS_NAME } from './constant/app';
 import { installMinidbTextBuildWorker } from './native/minidb-worker';
@@ -118,8 +118,12 @@ export async function handleUpgradeCommand(version: string, yes: boolean): Promi
     });
     exitCode = await handleUpgrade(version, { track, logger: log, yes });
   } finally {
-    await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS }).catch(() => {});
-    await harness.close().catch(() => {});
+    await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS }).catch((error: unknown) => {
+      log.warn('telemetry shutdown failed', { error: String(error) });
+    });
+    await harness.close().catch((error: unknown) => {
+      log.warn('harness close failed', { error: String(error) });
+    });
   }
   process.exit(exitCode);
 }
@@ -128,7 +132,7 @@ export function main(): void {
   // The Bun runtime check only applies when running as the entry binary.
   // Importing `main` (tests, the ACP host, embedders) must not hard-exit the
   // caller's process even if it happens to run under a non-Bun runtime.
-  if (import.meta.main && typeof (globalThis as { Bun?: unknown }).Bun === 'undefined') {
+  if (import.meta.main && (globalThis as { Bun?: unknown }).Bun === undefined) {
     process.stderr.write(`${t('tui.statusMessages.bunRuntimeRequired')}\n`);
     process.exit(1);
   }
@@ -148,6 +152,7 @@ export function main(): void {
     .catch(() => false)
     .then((relaunched) => {
       if (!relaunched) bootstrap();
+      return null;
     });
 }
 
@@ -196,6 +201,7 @@ function bootstrap(): void {
               () => Number(process.exitCode) || 0,
             );
           }
+          return null;
         })
         .catch(async (error: unknown) => {
           // Set the failure exit code synchronously, before any `await`. The

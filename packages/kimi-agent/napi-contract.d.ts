@@ -38,16 +38,16 @@ export const BASH_MAX_TIMEOUT: number
 export declare function cancelTurn(turnId: string): void
 
 /**
- * Drop the plugin registry and close its SQLite connection. The host calls
- * this on shutdown: Windows keeps a lock on an open database, which blocks
- * removing the data directory.
- */
-/**
  * Drop the engine-side locale; the engine's own messages render their English
  * fallback again.
  */
 export declare function clearEngineLocale(): void
 
+/**
+ * Drop the plugin registry and close its SQLite connection. The host calls
+ * this on shutdown: Windows keeps a lock on an open database, which blocks
+ * removing the data directory.
+ */
 export declare function closePluginStore(): void
 
 /**
@@ -1636,14 +1636,14 @@ export declare function sessionWarnings(sessionId: string): object
 /**
  * Install the engine-side locale.
  *
- * The `nativeTranslate*` family serves the host's own UI strings. This one
- * serves the engine's own user-facing text — permission reasons, tool-result
- * notes, error prefixes — which is otherwise hardcoded English.
+ * The `native_translate*` family above serves the host's own UI strings. This
+ * one serves the engine's own user-facing text — permission reasons,
+ * tool-result notes, error prefixes — which is otherwise hardcoded English.
  *
  * `fallback_json` is the language a key missing from `locale_json` resolves
  * against (English here). Passing an empty `locale_json` drops the locale and
  * restores the English fallbacks, so an embedder that never localizes does not
- * have to call `clear_engine_locale` explicitly.
+ * have to call [`clear_engine_locale`] explicitly.
  */
 export declare function setEngineLocale(localeJson: string, fallbackJson: string): void
 

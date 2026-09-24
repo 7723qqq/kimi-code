@@ -38,15 +38,15 @@ import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { appendInputHistory, loadInputHistory } from '#/utils/history/input-history';
 import { openUrl } from '#/utils/open-url';
 import { getInputHistoryFile } from '#/utils/paths';
+import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { applyRecommendedEffort } from '#/utils/recommended-effort';
 import { getRecommendedEffortConfig } from '#/utils/recommended-effort-config';
-import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { quoteShellArg } from '#/utils/shell-quote';
 import { startupTrace } from '#/utils/startup-trace';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
 
-import { BannerProvider } from './banner/banner-provider';
 import { resolveBannerAudienceContext, type BannerAudienceContext } from './banner/audience';
+import { BannerProvider } from './banner/banner-provider';
 import { readBannerDisplayState, writeBannerDisplayState } from './banner/state';
 import {
   BUILTIN_SLASH_COMMANDS,
@@ -85,6 +85,7 @@ import {
   getNoActiveSessionMessage,
   PRODUCT_NAME,
   SESSION_LIST_PAGE_SIZE,
+  STARTUP_REFRESH_DRAIN_TIMEOUT_MS,
   getSessionlessStartupNotice,
 } from './constant/kimi-tui';
 import { CHROME_GUTTER } from './constant/rendering';
@@ -361,8 +362,8 @@ export class KimiTUI {
       },
       deleteFiles: async (fileIds, paths) => {
         await Promise.all([
-          ...fileIds.map((fileId) => this.harness.deleteFile(fileId).catch(() => undefined)),
-          ...paths.map((path) => unlink(path).catch(() => undefined)),
+          ...fileIds.map((fileId) => this.harness.deleteFile(fileId).catch(() => null)),
+          ...paths.map((path) => unlink(path).catch(() => null)),
         ]);
       },
       warn: (message) => {
@@ -388,9 +389,7 @@ export class KimiTUI {
     this.startupNotice = startupInput.startupNotice;
     this.state = createTUIState(tuiOptions);
     this.state.footer.setExpandHintProvider(() => this.toolOutputExpandHint());
-    this.state.transcriptContainer.setUnhandledClick((index) =>
-      this.toggleClickedFoldBlock(index),
-    );
+    this.state.transcriptContainer.setUnhandledClick((index) => this.toggleClickedFoldBlock(index));
     this.uninstallRainbowDance = installRainbowDance(() => {
       this.state.ui.requestRender();
     });
@@ -706,9 +705,11 @@ export class KimiTUI {
 
     void ensureFdPath()
       .then((fdPath) => {
-        if (fdPath === null) return;
-        this.fdPath = fdPath;
-        this.setupAutocomplete();
+        if (fdPath !== null) {
+          this.fdPath = fdPath;
+          this.setupAutocomplete();
+        }
+        return null;
       })
       .catch(() => {
         // Best-effort background bootstrap: autocomplete keeps using the filesystem fallback.
@@ -716,8 +717,8 @@ export class KimiTUI {
   }
 
   private applyRecommendedEffortInBackground(): void {
-    void this.backgroundRefreshPromise?.then(async () => {
-      await applyRecommendedEffort({
+    void this.backgroundRefreshPromise?.then(() =>
+      applyRecommendedEffort({
         fetchConfig: async () =>
           getRecommendedEffortConfig({
             accessToken: await this.harness.auth.getCachedAccessToken(),
@@ -727,8 +728,8 @@ export class KimiTUI {
         track: (event, properties) => {
           this.track(event, properties);
         },
-      });
-    });
+      }),
+    );
   }
 
   private async refreshProviderModelsInBackground(): Promise<void> {
@@ -959,7 +960,9 @@ export class KimiTUI {
     if (this.backgroundRefreshPromise !== undefined) {
       await Promise.race([
         this.backgroundRefreshPromise,
-        new Promise((resolve) => setTimeout(resolve, 1500)),
+        new Promise((resolve) => {
+          setTimeout(resolve, STARTUP_REFRESH_DRAIN_TIMEOUT_MS);
+        }),
       ]);
     }
     this.streamingUI.discardPending();
@@ -1246,9 +1249,8 @@ export class KimiTUI {
     this.track('shell_command');
 
     void session.runShellCommand(command, { commandId }).then(
-      ({ stdout, stderr, isError, backgrounded }) => {
-        this.finishShellOutput(commandId, stdout, stderr, isError, backgrounded);
-      },
+      ({ stdout, stderr, isError, backgrounded }) =>
+        this.finishShellOutput(commandId, stdout, stderr, isError, backgrounded),
       (error: unknown) => {
         const message = formatErrorMessage(error);
         this.finishShellOutput(commandId, '', message, true);
@@ -1620,7 +1622,7 @@ export class KimiTUI {
     this.setAppState(patch);
   }
 
-  private async createSessionFromCurrentState(bindStartupAgent = false): Promise<Session> {
+  private createSessionFromCurrentState(bindStartupAgent = false): Promise<Session> {
     // Background warm-up of the cache-hint config on every new session.
     this.cacheHint.refreshConfigInBackground();
     const model = this.state.appState.model.trim();
@@ -1680,13 +1682,13 @@ export class KimiTUI {
    * two sessions would be created and the later `setSession` would close the
    * first one mid-dispatch.
    */
-  async ensureSession(): Promise<Session | undefined> {
+  ensureSession(): Promise<Session | undefined> {
     // Even when a session is already assigned, a previous lazy creation may
     // still be finishing its assembly (runtime sync, command refresh,
     // subscription). Wait for it so callers never dispatch against a
     // partially initialized session.
     if (this.ensureSessionPromise !== null) return this.ensureSessionPromise;
-    if (this.session !== undefined) return this.session;
+    if (this.session !== undefined) return Promise.resolve(this.session);
     this.ensureSessionPromise = this.lazyCreateSession().finally(() => {
       this.ensureSessionPromise = null;
     });
@@ -1766,8 +1768,7 @@ export class KimiTUI {
       contextTokens: status.contextTokens,
       maxContextTokens: status.maxContextTokens,
       contextUsage: status.contextUsage,
-      cumulativeTokens:
-        status.usage?.total === undefined ? 0 : sumTokenUsage(status.usage.total),
+      cumulativeTokens: status.usage?.total === undefined ? 0 : sumTokenUsage(status.usage.total),
       sessionTitle: session.summary?.title ?? null,
       goal: goalResult.goal,
     });
@@ -2249,7 +2250,10 @@ export class KimiTUI {
   private expandCutoff(children: readonly Component[]): number {
     const boundaries: number[] = [];
     for (let i = 0; i < children.length; i++) {
-      if (this.transcriptRenderer.isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
+      const child = children[i];
+      if (child !== undefined && this.transcriptRenderer.isTurnBoundaryComponent(child)) {
+        boundaries.push(i);
+      }
     }
     return expandCutoffIndex(children.length, boundaries, TRANSCRIPT_EXPAND_TURNS);
   }
@@ -2299,8 +2303,8 @@ export class KimiTUI {
     const expandCutoff = this.expandCutoff(children);
 
     for (let i = 0; i < children.length; i++) {
-      const child = children[i]!;
-      if (!isExpandable(child)) continue;
+      const child = children[i];
+      if (child === undefined || !isExpandable(child)) continue;
       child.setExpanded(this.state.toolOutputExpanded && i >= expandCutoff);
     }
     // Differential render only — no destructive full redraw on expand/collapse.
@@ -2479,7 +2483,7 @@ export class KimiTUI {
     if (!isBuiltInTheme(this.state.appState.theme) || this.state.appState.theme !== 'auto') return;
 
     this.terminalThemeTrackingDispose = installTerminalThemeTracking(this.state, (resolved) => {
-      void this.applyResolvedAutoTheme(resolved);
+      this.applyResolvedAutoTheme(resolved);
     });
   }
 
@@ -2488,7 +2492,7 @@ export class KimiTUI {
     this.terminalThemeTrackingDispose = undefined;
   }
 
-  private async applyResolvedAutoTheme(resolved: ResolvedTheme): Promise<void> {
+  private applyResolvedAutoTheme(resolved: ResolvedTheme): void {
     if (this.state.appState.theme !== 'auto') return;
     const palette = getBuiltInPalette(resolved);
     if (currentTheme.palette === palette) return;
@@ -2708,8 +2712,7 @@ export class KimiTUI {
     this.restoreEditor();
     try {
       await this.harness.trustWorkspace(workDir);
-    } catch {
-    }
+    } catch {}
     return true;
   }
 
@@ -2720,7 +2723,6 @@ export class KimiTUI {
   showSessionPicker(): Promise<void> {
     return this.dialogController.showSessionPicker();
   }
-
 
   hideSessionPicker(): void {
     this.dialogController.hideSessionPicker();

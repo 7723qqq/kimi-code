@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
 import { isManagedKimiCodeBaseUrl } from '@moonshot-ai/kimi-code-oauth';
+import { log } from '@moonshot-ai/kimi-code-sdk';
 import { isTelemetryDisabledByEnv } from '@moonshot-ai/kimi-telemetry';
 import { Key, matchesKey, Spacer } from '@moonshot-ai/pi-tui';
 
+import { currentKimiRegion } from '#/utils/region';
 import {
   getSurveyPopupConfig,
   peekSurveyPopupConfig,
@@ -11,11 +13,9 @@ import {
   type SurveyPopupConfig,
 } from '#/utils/survey-popup-config';
 import { readSurveyLastShownTime, writeSurveyLastShownTime } from '#/utils/survey-state-store';
-import { currentKimiRegion } from '#/utils/region';
 
 import { SurveyPanelComponent, type SurveyPanelView } from '../components/panes/survey-panel';
 import { CHROME_GUTTER } from '../constant/rendering';
-import { printableChar } from '../utils/printable-key';
 import {
   SURVEY_DIGIT_DEBOUNCE_MS,
   SURVEY_IDLE_EVALUATION_DELAY_MS,
@@ -32,6 +32,7 @@ import {
   SURVEY_THANKS_DURATION_MS,
 } from '../constant/survey';
 import type { TUIState } from '../tui-state';
+import { printableChar } from '../utils/printable-key';
 import {
   buildSurveyEventProperties,
   evaluateSurveyGate,
@@ -213,11 +214,12 @@ export class SurveyController {
     this.cooldownReady = false;
     void (this.deps.readGlobalLastShown ?? defaultDeps.readGlobalLastShown)()
       .then((lastShown) => {
-        if (this.generation !== generation) return;
+        if (this.generation !== generation) return null;
         if (lastShown !== undefined) {
           this.globalLastShownAt = Math.max(lastShown, this.globalLastShownAt ?? 0);
         }
         this.cooldownReady = true;
+        return null;
       })
       .catch(() => {
         if (this.generation === generation) this.cooldownReady = true;
@@ -500,7 +502,9 @@ export class SurveyController {
             : this.userTurnCount - this.userTurnsAtLastShown,
         sample: this.currentSample(),
         msSinceGlobalLastShown:
-          this.globalLastShownAt === undefined ? undefined : this.wallNow() - this.globalLastShownAt,
+          this.globalLastShownAt === undefined
+            ? undefined
+            : this.wallNow() - this.globalLastShownAt,
       },
       longContext: {
         ...shared,
@@ -527,8 +531,8 @@ export class SurveyController {
   private lastUserMessageStartsOrderedList(): boolean {
     const entries = this.host.state.transcriptEntries;
     for (let index = entries.length - 1; index >= 0; index--) {
-      const entry = entries[index]!;
-      if (entry.kind !== 'user' || entry.bullet === '') continue;
+      const entry = entries[index];
+      if (entry === undefined || entry.kind !== 'user' || entry.bullet === '') continue;
       return SURVEY_ORDERED_LIST_START.test(entry.content);
     }
     return false;
@@ -565,10 +569,11 @@ export class SurveyController {
     if (survey !== 'session') return;
     this.globalLastShownAt = this.wallNow();
     try {
-      (this.deps.writeGlobalLastShown ?? defaultDeps.writeGlobalLastShown)(
-        this.globalLastShownAt,
-      );
-    } catch {}
+      (this.deps.writeGlobalLastShown ?? defaultDeps.writeGlobalLastShown)(this.globalLastShownAt);
+    } catch (error) {
+      // The timestamp only throttles re-showing; losing it must not break the survey flow.
+      log.warn('failed to persist survey last-shown time', { error: String(error) });
+    }
   }
 
   private applyAction(action: SurveyMachineAction): void {
@@ -682,7 +687,9 @@ export class SurveyController {
     const current = this.view.hoverIndex;
     this.view.hoverIndex =
       current === undefined
-        ? (delta > 0 ? 0 : SURVEY_OPTION_COUNT - 1)
+        ? delta > 0
+          ? 0
+          : SURVEY_OPTION_COUNT - 1
         : (current + delta + SURVEY_OPTION_COUNT) % SURVEY_OPTION_COUNT;
     this.host.state.ui.requestRender();
   }
@@ -702,7 +709,7 @@ export class SurveyController {
   private environmentFields(): SurveyEventEnvironmentFields {
     const { appState } = this.host.state;
     const joinModels = (models: ReadonlySet<string>): string | undefined => {
-      const filtered = [...models].filter((model) => model.length > 0).sort();
+      const filtered = [...models].filter((model) => model.length > 0).toSorted();
       return filtered.length === 0 ? undefined : filtered.join(',');
     };
     return {
@@ -733,7 +740,7 @@ export class SurveyController {
     if (this.deps.refreshConfig !== undefined) {
       this.configReady = false;
       void Promise.resolve(this.deps.refreshConfig())
-        .catch(() => undefined)
+        .catch(() => null)
         .finally(markReady);
       return true;
     }
@@ -747,7 +754,7 @@ export class SurveyController {
       const token = await accessToken();
       await getSurveyPopupConfig({ accessToken: token });
     })()
-      .catch(() => undefined)
+      .catch(() => null)
       .finally(markReady);
     return true;
   }

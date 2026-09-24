@@ -2,6 +2,7 @@ import type { BackgroundTaskInfo, Session } from '@moonshot-ai/kimi-code-sdk';
 import type { ProcessTerminal, TUI } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
+import { TASKS_POLL_INTERVAL_MS } from '#/tui/constant/tasks';
 import type { Theme } from '#/tui/theme';
 
 import {
@@ -111,7 +112,7 @@ export class TasksBrowserController {
 
     const pollTimer = setInterval(() => {
       void this.refresh({ silent: true });
-    }, 1000);
+    }, TASKS_POLL_INTERVAL_MS);
 
     this.host.setTasksBrowser({
       component,
@@ -211,7 +212,7 @@ export class TasksBrowserController {
               t.status !== 'lost',
           );
     if (candidates.length === 0) return undefined;
-    return candidates.find((t) => t.status === 'running')?.taskId ?? candidates[0]!.taskId;
+    return candidates.find((t) => t.status === 'running')?.taskId ?? candidates[0]?.taskId;
   }
 
   private async refresh(opts: { silent?: boolean } = {}): Promise<void> {
@@ -415,7 +416,7 @@ export class TasksBrowserController {
 
     const pollTimer = setInterval(() => {
       void this.refreshOutputViewer({ silent: true });
-    }, 1000);
+    }, TASKS_POLL_INTERVAL_MS);
 
     browser.viewer = {
       component: viewer,
@@ -456,7 +457,7 @@ export class TasksBrowserController {
     // The activity store is in-memory — refreshing is a local read, no RPC.
     const pollTimer = setInterval(() => {
       this.refreshAgentActivityViewer();
-    }, 1000);
+    }, TASKS_POLL_INTERVAL_MS);
 
     browser.viewer = {
       component: viewer,
@@ -527,25 +528,24 @@ export class TasksBrowserController {
     }
 
     const requestId = ++browser.tailRequestId;
+    const applyTail = (output: string): void => {
+      const current = state.tasksBrowser;
+      if (current === undefined) return;
+      if (current !== browser || current.tailRequestId !== requestId) return;
+      if (current.selectedTaskId !== taskId) return;
+      current.tailOutput = output;
+      current.tailLoading = false;
+      this.repaint();
+    };
     void session
       .getBackgroundTaskOutput(taskId, { tail: 4000 })
       .then((output) => {
-        const current = state.tasksBrowser;
-        if (current === undefined) return;
-        if (current !== browser || current.tailRequestId !== requestId) return;
-        if (current.selectedTaskId !== taskId) return;
-        current.tailOutput = output;
-        current.tailLoading = false;
-        this.repaint();
+        applyTail(output);
+        return null;
       })
       .catch(() => {
-        const current = state.tasksBrowser;
-        if (current === undefined) return;
-        if (current !== browser || current.tailRequestId !== requestId) return;
-        if (current.selectedTaskId !== taskId) return;
-        current.tailOutput = '';
-        current.tailLoading = false;
-        this.repaint();
+        applyTail('');
+        return null;
       });
   }
 

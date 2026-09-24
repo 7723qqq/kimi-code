@@ -9,6 +9,11 @@
 
 import { useQuery } from '@tanstack/react-query';
 
+// Poll cadence for server discovery: instances come and go (the server-side
+// heartbeat is 15 s), so re-scan well under that.
+const DISCOVERY_REFETCH_INTERVAL_MS = 10_000;
+const DISCOVERY_STALE_TIME_MS = 5_000;
+
 export type DiscoveredServerSource = 'instance' | 'lock' | 'proxy';
 
 export interface DiscoveredServer {
@@ -47,9 +52,9 @@ export function useServerDiscovery() {
   return useQuery({
     queryKey: ['local-server-discovery'],
     queryFn: fetchServerDiscovery,
-    refetchInterval: 10_000,
+    refetchInterval: DISCOVERY_REFETCH_INTERVAL_MS,
     retry: false,
-    staleTime: 5_000,
+    staleTime: DISCOVERY_STALE_TIME_MS,
   });
 }
 

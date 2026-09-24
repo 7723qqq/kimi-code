@@ -13,6 +13,7 @@ import { t } from '#/i18n';
 import type { ColorToken } from '#/tui/theme';
 import { getCacheHintConfig, peekCacheHintConfig } from '#/utils/cache-hint-config';
 import { formatTokenCount } from '#/utils/usage/usage-format';
+
 import { currentTuiConfig } from '../commands/config';
 import {
   CacheHintDialogComponent,
@@ -71,6 +72,11 @@ const CACHE_BREAK_DROP_RATIO = 0.95;
 /** Minimum completed steps between two cache-break status notices — one
  *  busted cache key otherwise re-warns on every step until it rebuilds. */
 const CACHE_BREAK_NOTICE_MIN_STEPS = 10;
+
+/** Bounded wait for the engine to flip `isCompacting` after a compact RPC. */
+const COMPACTION_START_WAIT_TIMEOUT_MS = 3_000;
+/** Poll cadence inside that wait — the flag is in-memory, so this is cheap. */
+const COMPACTION_START_POLL_INTERVAL_MS = 25;
 
 interface CacheBreakBaseline {
   readonly model: string;
@@ -200,9 +206,7 @@ export class CacheHintController {
     const baseline = this.breakBaseline;
     if (baseline === undefined) return undefined;
     const total =
-      baseline.usage.inputOther +
-      baseline.usage.inputCacheRead +
-      baseline.usage.inputCacheCreation;
+      baseline.usage.inputOther + baseline.usage.inputCacheRead + baseline.usage.inputCacheCreation;
     return total > 0 ? total : undefined;
   }
 
@@ -287,7 +291,7 @@ export class CacheHintController {
     // The resume dialog also covers this idle cycle: the first submit right
     // after it must not be intercepted again.
     this.idlePrompted = true;
-    await this.showDialog('resume', decision, undefined);
+    await this.showDialog('resume', decision);
   }
 
   /**
@@ -450,7 +454,7 @@ export class CacheHintController {
       accessToken = await this.host.harness.auth.getCachedAccessToken();
     } catch {
       // Facade unavailable (test doubles) — never fetch.
-      return undefined;
+      return;
     }
     // The endpoint is public: apiKey-only users fetch anonymously.
     return getCacheHintConfig({ accessToken });
@@ -459,7 +463,7 @@ export class CacheHintController {
   private async showDialog(
     scene: 'resume' | 'idle',
     decision: HintDecision,
-    stashed: StashedSubmit | undefined,
+    stashed?: StashedSubmit,
   ): Promise<void> {
     const { host } = this;
     host.track('cache_hint_shown', {
@@ -553,12 +557,14 @@ export class CacheHintController {
   }
 
   /** Bounded wait for the engine to flip `isCompacting` after a compact RPC. */
-  private async waitForCompactionStart(timeoutMs = 3000): Promise<boolean> {
+  private async waitForCompactionStart(
+    timeoutMs = COMPACTION_START_WAIT_TIMEOUT_MS,
+  ): Promise<boolean> {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (this.host.state.appState.isCompacting) return true;
       await new Promise((resolve) => {
-        setTimeout(resolve, 25);
+        setTimeout(resolve, COMPACTION_START_POLL_INTERVAL_MS);
       });
     }
     return false;
