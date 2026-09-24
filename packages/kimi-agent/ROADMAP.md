@@ -201,7 +201,7 @@
 
 1. ~~沙箱仅覆盖 write/edit 路径级 + 命令执行；TS 的 bash 拦截层是 permission 策略链（与沙箱无关），Rust 的 permission 链是否等价覆盖命令 glob 审批未在本批审计。~~ **已解决**：`permission/mod.rs` 的策略链新增 fork 专属 `DangerousCommandAsk`（#3），对 bash 调用 `kimi_native_tools::permission_engine::dangerous_command::analyze_bash_command`，高风险命令（shutdown/reboot/rm -rf/format/sudo …）在 Yolo/Auto 下也强制 Ask，对齐 native-tools `test_yolo_mode_refuses_dangerous_reboot` 语义。
 2. ~~kimi-agent/src/native/event_store/ 的细粒度事件账本未完整接入 standalone server；session/patch.rs（RFC 6902）无全局生产调用点。~~ **已解决**：event_store 经 `hub.set_persister` 对每个事件落账（server/mod.rs:88-104），fold/checkpoint/undo 已接入；session/patch.rs 由 REST state-PATCH/undo-redo（server/mod.rs:3345-3467）、sqlite_store.rs:1130-1153 与 state_store.rs:187-205 生产调用。persister 错误现已结构化记入 warn 日志；standalone 的 TaskRunner 为进程内内存任务提供生命周期事件分发。
-3. ~~standalone 服务端面仍有大量 mock/缺失（2026-09-09 审计修正，此前"均已对齐"结论失实）~~ **已完成（2026-09-11）**：Wave 3 服务端契约与 Wave 4 新能力全部落地——transcript L1/L2（`/transcript`、`/ops`、`/user-messages`、`/plan`，从持久化历史重建 + turn 游标分页）、prompt 侧附件 intake（`POST /prompts` 解析 `content[]`、`f_`/`path` → 原生媒体块注入模型）、debug 三方法（association/runtime-binding/workspace-snapshot）按契约整形且未知方法 404、WS 词汇黄金契约 `ws-event-contract.json`（Rust / kimi-web / protocol 三方断言）与 `event.model_catalog.changed` 发射、ACP（`session/new` 的 `cwd`/`mcpServers`、`fs`/`terminal` 反向 RPC 与 Read/Write/Bash 执行改道、`elicitation/create` 表单桥 + `session/request_permission` 回退，客户端反向 RPC 9 个，其中 `terminal/kill` 无调用点）、Workflow 引擎（内嵌 QuickJS，JS 运行时经 `workflow-js` feature 可选，9 内置工作流 + `Workflow` 工具接线）。校验：`cargo test --lib` 2,349 项（2026-09-15 复核，原写 2,107） + `--tests --features cli` 全绿，clean 构建两种 feature 组合均通过。已知边界（非缺口）：kimi-web 标注为 no-op 的 4 个事件、`elicitation/complete`（规格可选）、`session/set_model`（引擎无运行时模型目录）。
+3. ~~standalone 服务端面仍有大量 mock/缺失（2026-09-09 审计修正，此前"均已对齐"结论失实）~~ **已完成（2026-09-11）**：Wave 3 服务端契约与 Wave 4 新能力全部落地——transcript L1/L2（`/transcript`、`/ops`、`/user-messages`、`/plan`，从持久化历史重建 + turn 游标分页）、prompt 侧附件 intake（`POST /prompts` 解析 `content[]`、`f_`/`path` → 原生媒体块注入模型）、debug 三方法（association/runtime-binding/workspace-snapshot）按契约整形且未知方法 404、WS 词汇黄金契约 `ws-event-contract.json`（Rust / kimi-web / protocol 三方断言）与 `event.model_catalog.changed` 发射、ACP（`session/new` 的 `cwd`/`mcpServers`、`fs`/`terminal` 反向 RPC 与 Read/Write/Bash 执行改道、`elicitation/create` 表单桥 + `session/request_permission` 回退，客户端反向 RPC 9 个，其中 `terminal/kill` 无调用点）、Workflow 引擎（内嵌 QuickJS，JS 运行时经 `workflow-js` feature 可选，9 内置工作流 + `Workflow` 工具接线）。校验：`cargo test --lib` 2,349 项（2026-09-15 复核，原写 2,107） + `--tests --features cli` 全绿，clean 构建两种 feature 组合均通过。已知边界（非缺口）：kimi-web 标注为 no-op 的 4 个事件、`elicitation/complete`（规格可选）。**2026-09-24 更正**：本条原写的另两项边界已不成立——`terminal/kill` 有调用点（`acp/permission.rs:934`，超时后杀掉客户端终端里的进程），`session/set_model` 已服务（`acp/mod.rs:1152`，板块 8 表已记），与本行前半句「客户端反向 RPC 9 个」自相矛盾；一并作废。
 4. ~~**只读工具漏进 `FallbackAsk`（2026-09-20 复核新增）**~~ **已闭环（2026-09-21）**：`DEFAULT_APPROVE_TOOLS` 只镜像了 v2 名单 + `ListDirectory`，fork 自有的只读工具（`Lsp`、`memory_read`/`memory_list`、`TowerInbox`/`TowerStatus`）没进名单，于是在 Manual（"Always Ask"）下这些纯读调用也弹审批——与 v2「只读工具免审」的语义不一致。**已落地**：上述工具（含下划线/紧凑两种拼写）已补进 `permission/mod.rs:86-94` 的名单；测试 `test_default_tool_approve_for_all_readonly_tools` 的 21 条用例断言 `DefaultToolApprove`。**混合读写工具经 v2 参考裁定为「不适用」**：`Knowledge`（search/stats 只读，add/confirm/reject/remove/import 写）与 `TowerMission`（inspect 只读 / update 写）按 `action` 拆分的设想**不成立**——v2 的 `default-tool-approve.ts` 是扁平名字判定且**不含这两个工具**，全部 13 个 permissionPolicy 也无一提及它们；即 v2 对它们的所有 action 一律走 `fallback-ask`，fork 现状（不在名单、Manual 下弹审批）与 v2 逐字一致。按 `action` 拆分免审会是发明 v2 没有的行为，按铁律不做。
 5. ~~**对话中切换权限模式不落库（2026-09-20 复核新增，SDK 侧）**~~ **已闭环（2026-09-21 复核确认）**：`node-sdk` 的 `applyRebuiltSetting`（`setPermission` / `setModel` / `setThinking` / `setSwarmMode` 共用，`sdk-rpc-client-native.ts`）只改内存 `meta` 并 `rebuildHandle`，**没有 `persistMeta`**；同文件的 `addAdditionalDir` 却会落库。后果：对话中切到 yolo 后 `session-meta.json` 仍是旧模式，`resumeSession` 用旧模式建引擎，而 replay 头（`session-replay.ts:725`）显示引擎自己记录的 yolo —— 表现为「界面 yolo、实际 manual」，恢复会话后只读工具又开始弹审批。**已落地**：`applyRebuiltSetting` 重建成功后 `persistMeta(meta)`（失败回滚旧值不落库）；回归测试 `session-set-permission.test.ts` 的「persists the mode so a resumed session keeps it」在位。
 6. ~~**原生 SDK 丢弃引擎事件（2026-09-20 复核新增，SDK 侧）**~~ **已闭环（2026-09-22 复核确认标题）**：`sdk-rpc-client-native.ts::emitEvent` 此前只映射 `llm.delta`(text/think) / `tool.native` / `tool.native.progress` / `subagent.spawned`(仅写 meta，不转发) / `warning` / `error`，其余一律丢弃。引擎经 `HostCallbacks::emit_event` 实际还会发 `subagent.started/completed/failed/cancelled`（`tools/agent_tool.rs`）、`llm.step.begin`/`llm.step.end`（`llm/http.rs`，原生 LLM 路径）、以及 `llm.delta` 的 `tool_call` 分片（`llm/wire.rs::StreamDelta::to_part`）——这些都没有分支，TUI 的 `turn.step.*`、`subagent.*` 生命周期与 `tool.call.delta` handler 永不触发。修法：补齐映射（`llm.step.begin/end` → `turn.step.started/completed`，步号由 host 合成、`turn.started` 时重置；`tool_call` 分片 → `tool.call.delta`；`subagent.spawned` 转发并保留 meta 写入；`subagent.started/completed/failed/cancelled`；`usage` 由 `toTokenUsage` 转 camelCase）。验证：真实 SDK + 真实引擎 + mock OpenAI SSE 的探针（`native-harness.test.ts` 新增「forwards native-LLM step and subagent lifecycle events to onEvent」）断言 `turn.step.started/completed`、`subagent.spawned/started/completed` 到达 `onEvent`；node-sdk 全量 279 项通过。**仍未接线**：`background.task.started/terminated` 在 napi 路径没有生产者（`storage/task_runner.rs` 的 `event_sink` 只在 `server/mod.rs` 设置），`cron.fired` 同理（native host 无 cron 派发器）；要补需在 napi pipeline 给 task runner 装 sink。 **2026-09-20 后续补齐（本项已闭环，`cron.fired` 除外）**：① `background.task.*` —— `PipelineHost` 新增 `task_event_sink`，pipeline 给自己的 `TaskRunner` 装上（napi 传「转发到 host callbacks」的 sink），SDK 把 `event.task.created/completed` 映射成协议 `background.task.started/terminated`（`kind: subagent→agent，其余→process`；agent 任务的 `taskId` 即 agentId）。② 自动压缩 —— turn loop 两个压缩点（step 前阈值、溢出应急）发 `compaction.started/completed/cancelled`；为拿到 summary/token 数新增 `compaction::CompactionReport` 与 `compact_messages_with_summary_at_report` / `force_compact_messages_with_summary_report`（旧入口委托并丢弃 report，签名不变）。③ `hook.result` —— `HookGuard` 新增 `with_hook_result` sink，`run_hook_with_denial` 返回 `(block reason, stdout)`，PreToolUse 与 observe-only 各路径都上报；pipeline 把 sink 接到 `emit_event`。④ `goal.updated` —— SDK 的 `createGoal` 与逐轮 goal 计数后各发一次（此前无任何生产者）。⑤ `shell.started/output/completed` —— SDK 的 `runShellCommand` 在 `nativeBashSpawn` 回调里边跑边发。验证：`native-harness.test.ts` 新增 `background.task` 与 `goal.updated` 两条用例；`external_hooks.rs` 新增 `denial_emits_a_hook_result_per_hook`；`cargo test --lib` 2764、napi 集成 60、node-sdk 281 全绿。**仍未接线**：`cron.fired` —— CLI 下 CronCreate 的定时任务不会触发（native host 无派发器），需在 napi 会话移植 `main.rs:1429` 的 15s tick 循环（emit + enqueue turn），属功能移植；`tool.list.updated` 的 TUI handler 是 no-op，不做。 **2026-09-21 cron 派发器已移植**：`napi_bindings.rs` 新增 `spawn_cron_dispatcher`（每个 workspace 一个进程级 dispatcher，每 15s 经 `live_session_for_workspace` 取一个活着的会话，`state_read("cron")` 读注册表 → `CronScheduler::tick` → 发 `cron.fired` + 删一次性/过期任务 + `enqueue_turn` 跑 `<cron-fire>` 轮），`SessionEntry` 补 `workspace`/`callbacks` 以便每 tick 解析活会话（设置重建会换会话句柄，按 workspace 归属才不会丢）；SDK 映射 `cron.fired` → 协议 `{origin, prompt}`。验证：确定性探针（直接按 `storage/paths.rs` 的 FNV-1a key 写 `<USERPROFILE>/.kimi-code/engine-state/<key>/state/cron.json`，等 dispatcher tick）连续 3 次都发出 `cron.fired` 且一次性任务被删；napi 集成 60、node-sdk 281 全绿。`tool.list.updated` 仍不做。
@@ -1452,13 +1452,188 @@ protocol、thinkingEffort）并把 `telemetry` 回调转发到宿主遥传客户
 acp-server）的 5 个提交逐条裁决，门禁 `scripts/check-upstream-v2-delta.mjs` 对应条目均记
 `tracked`——每条的 TS/词表半随合并落地或补移植，但都留有引擎侧缺口（见证据列）。
 
+> **2026-09-24 更新 + 参照更正**：五条已全部补齐（见下表 `ported` 行）。同时更正本节此前的参照来源：v2 侧证据一律
+> 取自**主仓 git 对象** `git show 52437299ff:packages/agent-core-v2/...`（fork 的 2.1.0 合并点），
+> 而不是 `.tmp/` 下的抽取树——`.tmp/v2-ref` 比合并点落后 66 个文件，`.tmp/v2-ref-upstream` 是
+> 120 提交的浅克隆（HEAD=`994287a`，早于合并点），两者都不含 #3969 / #3995 / #3970 / #3976 /
+> #3964，据它们得出的「缺口」结论需按主仓对象复核。#3969 另据退役 `kap-server` 核实：其 REST
+> 契约本就只有 `{ enabled }`，所以 Rust 侧的正解是读同一份持久化 OAuth ref 决定中继，而不是给
+> 请求体加字段。
+
 | 提交 | 主题 | 裁决与证据 |
 |------|------|-----------|
-| `b3212fd9ab` #3969 | 按登录区域选择凭据槽与中继 | **tracked（TS 半已随本次合并移植）**：`apps/kimi-code/src/cli/sub/web/remote-control.ts` 补移植 `resolveKimiRemoteControlAuth` → 凭据槽 `resolveKimiTokenStorageName({ oauthKey })`、中继回退 `resolveRemoteControlRelayOrigin(env, auth.relayOrigin)`、`RemoteControlHandle.relayOrigin`、`buildRemoteControlUrl` 强制显式中继源；oauth 区域解析（`oauth/region.ts`）与遥测 skip-dead-collector 随合并自动落地，`run.ts`/`web.ts` 调用点补齐 `configuredOAuthKey/Host`。**缺口**：Rust `server/remote_control.rs` REST-toggle 路径仍持硬编码 `code-rc.kimi.com` 默认（`server/mod.rs:3217` `..Default::default()`）——补 relay-origin 字段属协议变更，待用户许可 |
-| `a54e6f6a9b` #3995 | `KIMI_CODE_REPEAT_BREAKER` 环境开关 | **tracked**：断路器行为已在引擎（`turn_loop/types.rs:75` `RepeatBreaker`，#3459 随前轮移植），但 Rust 侧无 `KIMI_CODE_REPEAT_BREAKER` 读取；合并带入的 docs（`docs/{en,zh}/configuration/env-vars.md:160`）已按上游记录该开关 → 文档-引擎漂移。缺口 = 按 `injection/permission_mode.rs` 既有模式补 env 门 |
-| `895e9d9b86` #3970 | swarm 成员随持久化事件恢复 | **tracked（词表半随合并落地）**：vis `agent-record-types.ts` 联合类型（冲突已解）、`context-projector.ts`、`renderers.tsx` 与 `transcript/foldFacts.ts` 均已合并；Rust 冷折叠已有 Lost 状态（`server/transcript/project.rs:1589`）与用量合并（`project.rs:1421-1422`）。**缺口**：丢失成员的回合归属与任务占位采纳未核（`project.rs:1665` 仅 `placeholder: None`）；drain 前置子修复不适用（fork 冷折叠直读 SQLite，无 wire journal 可 drain） |
-| `f7012aa23b` #3976 | tower 完备性断言 + 活跃 tower 时拒 `AgentSwarm` | **tracked**：合并带入的仅退役路径外的 `.changeset`；Rust `tools/tower/store.rs` 无 `assertCompletable`/`MAX_REVIEW_ROUNDS`/`task_drop`，`tools/swarm_tool.rs` 无 tower 否决（mode_mutex 改为暂停任务——pre-#3976 语义） |
-| `6451f1e056` #3964 | 工作区信任边界加固 | **tracked（TS 半随合并落地）**：`git-args.ts`、`git-status.ts`（冲突已解）、footer、scanner、`kimi-tui.ts` 与 docs `config-files.md` 均已合并。**缺口**（docs 已承诺、引擎未实现）：(a) 后台 git 仓库配置中和——Rust 无 `hooksPath`/`GIT_CONFIG_*` 防护；(b) `with_extra_roots`（`tools/mod.rs:579-590`）仅 `filter(is_dir)`、无 home/root 拒绝，而合并带入的 `docs/en/configuration/config-files.md:629`（zh:628 同段）承诺拒绝；(c) 符号链接 fail-closed 矩阵未核（词法 `path_access.rs` vs `fs::canonicalize` `tools/mod.rs:1808-1831`）；(d) `.kimi-code/local.toml` 读取面整体缺席——树内除 docs/tests/CHANGELOG 外零 `local.toml` 命中、`additional_dir` 只存在于引擎会话参数与 ACP 元数据（`/add-dir` 持久化走会话 meta），docs 却按上游描述了「信任后生效 + 未信任忽略 + home/root 拒绝」三条门控。web-server Origin 半上游已 revert，不适用 |
+| `b3212fd9ab` #3969 | 按登录区域选择凭据槽与中继 | **ported**：TS 半随合并落地（`apps/kimi-code/src/cli/sub/web/remote-control.ts:307-318` = `resolveKimiRemoteControlAuth` → `resolveRemoteControlRelayOrigin(env, auth.relayOrigin)`，`RemoteControlHandle.relayOrigin`，`buildRemoteControlUrl` 强制显式中继源；`run.ts`/`web.ts` 传 `configuredOAuthKey/Host`）。**Rust 半（本轮）**：新建 `src/region.rs`（v2 `oauth/src/region.ts` 的 `resolveKimiRegion` / `kimiRegionProfile` / `resolveKimiRemoteControlAuth` 中继半 + `managed-kimi-code.ts` 的 `resolveKimiCodeOAuthKey` 摘要槽名），`server/mod.rs` 新增 `remote_control_relay_origin()`，REST toggle 用**自己 config.toml 的** `providers."managed:kimi-code".oauth.{key,oauthHost}`（上游 `kap-server/start.ts` 交给 manager 的同一份 ref）加 `<kimi-home>/region` 安装渠道标记解析中继；`RemoteControlOptions.region_relay_origin` 承接 v2 的 `auth.relayOrigin` 回退位，`resolve_remote_control_relay_origin(fallback)` 保持「env 覆盖 > 区域回退 > 内置默认」优先级。**未新增 wire 字段**：上游该提交的 REST 契约未变（退役 `kap-server/src/protocol/rest-remote-control.ts:13-15` 的 `setRemoteControlRequestSchema` 就是 `{ enabled: boolean }`，#3969 只改了 `start.ts` 的接线），此前把「补 relay-origin 字段」记作协议变更是误判，已更正 |
+| `a54e6f6a9b` #3995 | `KIMI_CODE_REPEAT_BREAKER` 环境开关 | **ported**：新建 `src/env.rs`（v2 `_base/utils/env.ts` `parseBooleanEnv` 三态 + `env_switch_default_on/off`），`turn_loop/retry.rs`、`injection/permission_mode.rs`、`tools/tool_dedupe.rs` 共用；断路器本体受 `env_switch_default_off` 门控，同 step 去重保留（v2 语义：只关断路器，不关去重） |
+| `895e9d9b86` #3970 | swarm 成员随持久化事件恢复 | **ported**：`events/types.rs` 三个 subagent 变体改为对齐线上 wire 字段（`subagent_id` / `parent_tool_call_id` / `result_summary` / `usage`）——旧字段名使 `from_json` 退回 `Custom`，冷折叠把持久化的 swarm 成员整段丢弃；`server/transcript/project.rs` 补 `spawning_turns`、`merge_task`（任务占位采纳）、`cold_snapshot_tasks`（Lost 判定只在冷路径，live 走 `snapshot()` 以免误杀后台成员）与 `rpc_usage_as_step_usage`；`session/sqlite_store.rs` 补 `task_wire_events` 八类事件；`server/transcript.rs` 补 `cold_tasks`，`server/mod.rs` / `server/ws.rs` 两处冷基线由 `"tasks": []` 改为真实冷快照 |
+| `f7012aa23b` #3976 | tower 完备性断言 + 活跃 tower 时拒 `AgentSwarm` | **ported**：`tools/tower/store.rs` 补 `assert_completable`（未完成任务 / 分支不存在 / 相对 base 无 diff 三条拒绝，survey 任务豁免）、`diff_base`（spawn_base 仍是分支祖先时优先）、`MAX_REVIEW_ROUNDS` 轮次上限与非 clean 评审把 completed 任务翻回 active（`mission.rework`）、`TowerMissionPatch.task_drop`（强制 reason，记 mission notes + activity log，`TowerMissionTask.dropped` 在任务行渲染为 `[-] (dropped)`）；`tools/mode_mutex.rs` 补 `refuse_swarm_with_active_tower`，`tools/mod.rs` 的 swarm 分支由「自动暂停 tower 任务」改为直接否决（v2 #3976 语义），tower 工具参数与 schema 补 `task_drop` / `task_drop_reason` |
+| `6451f1e056` #3964 | 工作区信任边界加固 | **ported（a/b/c/d 全部落地）**：(a) 新建 `src/git.rs`（v2 `GIT_CONFIG_ARGS` / `GIT_DIFF_ARGS` + 平台 null device），`tower/git.rs` 与 `server/fs_routes.rs` 五处生产 git 调用接入；(b) `tools/mod.rs` 补 `is_broad_scope_dir`（v2 `isBroadScopeDir` 语义：文件系统根、home 本身、home 的祖先），`Sandbox::with_extra` 作为唯一漏斗丢弃宽域根；(c) 符号链接矩阵核实并补测试：`resolve_for_write` 规范化最近的**存在**祖先（逃逸链接落到真实路径，悬挂链接词法落到自身，fail-closed）；(d) `.kimi-code/local.toml` 读取面在两个宿主各自落地（两套运行时无法共享代码，故按同一份规则各实现一次、测试用例互为镜像）：TS 侧新建 `packages/node-sdk/src/project-local-config.ts`（v2 `FileProjectLocalConfigService` 移植：`.git` 上溯定位项目根、`workspace.additional_dir` 解析/去重/校验、home 与文件系统根拒绝、缺失或非目录拒绝、原子写追加），`SDKRpcClientNative` 在 create/resume 时把「调用方列表 ∪ 信任后的项目列表」并入 `meta.additionalDirs`（信任门复用宿主已有的 workspace trust，未信任忽略），`/add-dir … remember` 真正写入该文件并返回其 `configPath`（此前 `persist: true` 只落到会话 meta、`configPath` 谎报全局 `config.toml`）；Rust 侧新建 `src/project_local_config.rs`（同一规则的读取半，供 standalone server / web UI / VS Code 用），`server/engine.rs` 的 `session_spec` 在**该会话所属 workspace 的 `workspaces.trusted` 为真**时把项目根并入 `spec.extra_roots`（无 workspace 记录按未信任处理，坏文件只 warn 不阻断）。顺带修掉 `CreateSessionOptions/ResumeSessionInput.additionalDirs` 在 native client 里被丢弃、`workspace trust` 按原始字符串比较导致同一目录因分隔符/盘符大小写不同而读成未信任两个既有缺陷。同批补 v2 `isProjectLocalConfigPath` 的两处写入门：`permission/mod.rs` 策略 12（`GitCwdWriteApprove`）对该文件 opt-out 走审批，`tools/mod.rs` 的 Write/Edit 拒绝经符号链接落到该文件的写入。写入半（`/add-dir … remember` 生成该文件）只有 TS 宿主有 `/add-dir` 命令，Rust 侧不移植。web-server Origin 半上游已 revert，不适用。**⚠️ 2026-09-24 已整体回退**：上游 `929403b6db` #4013 撤销了 #3964，本 fork 已跟随执行，(a)–(d) 全部加固与 TS 侧对位文件均已删除，`local.toml` 功能本身保留但去掉信任门控 —— 详见 §6.8.1。本行自此只作历史记录，**不再代表当前代码状态** |
+
+### 6.8 合并上游 2.1.1（2026-09-24，merge-base `52437299ff`）
+
+范围 `52437299ff..be7d5f5fea` 共 5 个提交，其中**触及已退役包**的只有 2 个（其余 3 个是
+docs / release / changelog：`a1e4c13d41`、`f67e6398fb`、`be7d5f5fea`）。两条均裁 `tracked`，
+门禁 allowlist 对应条目已写入。
+
+> **本轮复核方式（三个坑，都值得记）**
+>
+> 1. **本地 `refs/remotes/upstream/main` 是过期的**（停在 `e796bb5d48`），闸门据此算出的是
+>    「已全部裁定」的绿灯 —— 正是 §6.0 记录过的那个坑。本轮改用
+>    `KIMI_UPSTREAM_REF=be7d5f5fea`（真实 `upstream/main` 的 SHA，对象已随 fetch 落地）显式
+>    指定参照，才看到这 2 条。**复核前必须先**：
+>    `git fetch upstream main:refs/remotes/upstream/main --force`。
+> 2. **闸门此前没有本地入口**：它只挂在 `.github/workflows/ci.yml:260`，`package.json` 里没有
+>    对应的 `check:*`，所以任何**本地**合并复核都不会撞上它（CI 也要等下一次 push 才跑）。
+>    本轮补了 `"check:upstream-v2-delta"`。
+> 3. **CI 那条 `else` 分支把「ref 不可达」降级成 `::warning::` 并通过**，与脚本自身
+>    「fails loudly when the ref is unavailable rather than passing silently」的契约相反 ——
+>    fetch 是 best-effort 的，网络抖动时棘轮会静默不跑。是否改为硬失败属 CI 语义决策，
+>    留待用户裁定。
+>
+> 另一条方法论教训：`packages/agent-core-v2/**` 在 fork 里已被删除，于是上游改它的提交
+> **不冲突、不报错**。判断「与 fork 无关」**不能**用「这个路径在 `HEAD` 里不存在」——
+> Rust 侧有一一对应的模块，见下表证据列。
+
+| 提交 | 主题 | 裁决 |
+|------|------|------|
+| `929403b6db` #4013 | 回退工作区信任边界加固（revert #3964） | `ported`（**已跟随回退**，2026-09-24）→ §6.8.1 |
+| `c7dd84124a` #4015 | 配置文件 / 工作区文件的 fs watcher 默认开启 | `tracked`（功能缺口；**文档半边已同步**）→ §6.8.2 |
+| `f67e6398fb` #4016 | release packages（2.1.1 CHANGELOG + 版本号） | 不触及退役包，无需裁决；**已同步** → §6.8.3 |
+| `be7d5f5fea` #4018 | docs changelog 同步 2.1.1 | 不触及退役包，无需裁决；**已同步** → §6.8.3 |
+| `a1e4c13d41` #4006 | docs changelog 同步 2.1.0（上一轮漏做） | 不触及退役包，无需裁决；**已补做** → §6.8.3 |
+
+#### 6.8.1 `929403b6db` #4013 —— 信任边界加固（**已跟随回退**，2026-09-24 执行）
+
+**官方为什么回退（PR #4013 原文，2026-09-24）**：
+
+> Revert the workspace trust-boundary hardening from #3964: **once a user trusts a repository,
+> content inside it is the user's own responsibility — we no longer harden against it.**
+>
+> Root Cause: N/A
+
+**这不是 bug 回退，是产品原则决策** —— 「信任 = 责任转移」。官方保留了「信任前」的防护
+（fail-closed trust prompt、footer 惰性检测），只撤销「信任后」的加固：信任既然是用户的明确
+决策，之后再叠加限制就与这一点自相矛盾。
+
+> **本节初版判断有误，已更正（2026-09-24 晚）**：初版写「上游『overly defensive』的定性在
+> 这一点上站不住」，依据是「加固只作用于引擎自己的 git 调用、不碰用户手敲的 git，故误伤面
+> 可控」。该事实成立，但它**不是官方的顾虑** —— PR 里 `Root Cause: N/A`、`pnpm typecheck` 绿、
+> 受影响的 vitest 文件通过，**没有任何误伤或性能证据**。官方撤销的理由是产品原则，不是缺陷，
+> 「站不住」的说法**撤回**。
+
+**执行记录（2026-09-24）** —— 已按上游 `929403b6db` 的语义逐层落地，`HEAD` 侧不再保留任何
+「信任后」加固：
+
+| 加固层次 | 上游 2.1.1（回退后） | **fork 执行后** | 落地方式 |
+|---|---|---|---|
+| 静态 `-c`（hooksPath / gpg / editor / fsmonitor / submodule / 签名） | ❌ | ❌ | 删 `src/git.rs`（v2 `utils/git/git-args.ts` 的对位），`tools/tower/git.rs`、`server/fs_routes.rs` 的 `CONFIG_ARGS` / `DIFF_ARGS` 接线全部撤除 |
+| 动态探测 repo 定义的 filter / merge driver / textconv | ❌ | ❌ | fork 本就没移植 `app/git/hardening.ts`，无需改动 |
+| 符号链接重解析（写目标落点判定） | ❌ | ❌ | 删 `native/path_access.rs::is_project_local_config_path`、`tools/mod.rs::symlink_lands_on_project_local_config` 及 Write/Edit 两处调用点、`permission/mod.rs` 策略 12 的 opt-out |
+| `local.toml` 信任门控 | ❌ | ❌ | `server/engine.rs::project_local_roots` 不再查 `is_workspace_trusted`（**功能保留**：文件照读、目录照并入 `extra_roots` 并写进 `${additional_dirs_section}`） |
+| `additional_dir` 的 home / 文件系统根拒绝 | ❌ | ❌ | 删 `project_local_config.rs::resolve_additional_dir` 的 `is_broad_scope_dir` 判定与 `BROAD_SCOPE_ERROR`；`packages/node-sdk/src/project-local-config.ts` 同步删 `isBroadScopeDir`（含其私有的 `isWithinDirectory` / `realpathOrLexical`），`resolvePath` / `resolveExistingAdditionalDirs` 回到同步词法解析 |
+| TS 侧（`apps/kimi-code`） | ❌ 已删 | ❌ | 删 `utils/git/git-args.ts`；`utils/git/git-status.ts`、`feedback/codebase/scanner.ts`、`test/feedback/codebase-upload/codebase-upload.test.ts`、`docs/{en,zh}/configuration/config-files.md` 取上游回退后版本（**逐字节一致**）；`test/utils/git/git-status.test.ts` 只删加固用例，保留 fork 自己的非 ASCII 路径用例 |
+
+**刻意保留的两项（都不是加固，是上游回退后仍存在的行为）**：
+
+1. **`local.toml` 的读取与写入功能整体保留**。上游 `#4013` 删的是**信任门控**，不是这个功能 ——
+   回退后的 `workspaceDirsService.reloadFromDisk` 依然无条件 `readAdditionalDirs`，`agent/profile/context.ts`
+   的 `loadAdditionalDirsInfo` 依然把目录写进 `${additional_dirs_section}`。fork 的
+   `project_local_config.rs`（Rust 宿主）与 `packages/node-sdk/src/project-local-config.ts`
+   （TS 宿主）因此都留下，只摘掉门控与宽域拒绝。若一并删掉，就是**新造**一个 v2 没有的分叉。
+2. **`tools/mod.rs::resolve_for_write` 的 canonicalize 保留**。它是 `762f405811`（2026-08-30）的既有
+   基线（当时的「逃逸即拒」判定已在此前移除，现状只做解析、不做拦截），不是本次加固新增；
+   默认 `sandbox_write_guard` 关闭时与 v2 的词法解析写同一文件，**无可观察差异**。仅在其打开时，
+   fork 让守卫看到真实路径、v2 看到词法路径 —— 这一条是**残留偏差**，见下。
+
+**残留偏差（如实登记，未修）**：`resolve_for_write` 规范化写目标，而回退后的 v2 走词法
+（`resolvePathAccessPath`，无 `realpath`）。影响面限于非默认的 `sandbox_write_guard` 模式。
+本次不动它，因为它是**已提交基线**而非本次工作区改动，且改动会影响 Write/Edit 的审批路径参数；
+需要时另起一轮 triage。同一批还删掉了断言该行为的 `#3964` 用例
+（`resolve_for_write_resolves_symlink_escapes_to_the_real_path`），因为它的期望值来自实现而非 v2。
+
+**初版的三条「保留」依据（第 1、2 条已失效，第 3 条仅剩事实价值）**：
+
+1. ~~「完整」这一维 fork 明确胜出~~ —— 事实成立（上游零加固、fork 四层），但**「完整」不等于
+   「优秀」**：官方撤销的是产品原则，不是能力缺口，多出来的层次是**与官方原则相悖的层次**。
+2. ~~误伤面可控~~ —— 见上「初版判断有误」。爆炸半径确实限于引擎自身的 git 调用
+   （`server/fs_routes.rs` 5 处 + `tools/tower/git.rs` 2 处；用户在 Bash 里手敲的 git 走
+   `bash_spawn.rs`，不受影响），但官方**不是**因为误伤而回退，故该条不构成保留理由。
+3. **TS 侧是活跃代码，不是死代码**（事实，用于估**改动面**，不支持保留）——
+   `tui/components/chrome/footer.ts:346` 的 `createGitStatusCache` 直接 `execFile`/`spawnSync`
+   跑 git，**不走 Rust**。所以「TS 取 theirs」是**真实的行为回退**而非形状对齐：若改判跟随，
+   必须连同 TS 侧一起改，并同步删掉断言加固的测试。
+
+**覆盖边界（历史记录，随本次删除一并消解）** —— fork 当年只移植了**静态**那一半。上游
+`app/git/hardening.ts` 还会读仓库自身 config、展开 `include` 段、逐个中和它发现的
+`filter.<name>.smudge|clean`、`merge.<driver>.driver`、`diff.<driver>.textconv`：git 会把这三者
+当**命令**执行，且都无法静态钉死。fork 未实现该探测，因此当年 `src/git.rs` 的头注释声称
+"Repo-local config must never influence the engine's own git calls" **与实现不符** —— 2026-09-24
+曾就地改为如实描述覆盖边界；**本次回退直接删掉了 `src/git.rs`，该不实声明与其缺口一同消失**。
+留档的意义在于：它解释了「保留静态半」当时也并非完整防护，不能作为「fork 更安全」的论据。
+
+- **是否补齐：暂不补**，保持 `tracked`。上游为这 237 行花了 40+ 个提交反复修 fail-closed 边界
+  （Windows 路径语义、`includeIf`、悬挂符号链接、`core.worktree` 逃逸……），最后仍以 revert 收场 ——
+  接手它的维护成本高于当前收益。补齐前需用户明确要求。
+- 上游若重新落地修正版，须重开此条。
+
+**按项目自身规则，天平指向跟随回退**：`AGENTS.md` `## Upstream Merge Policy` 写明
+「Upstream is the source of truth for **product behavior**」，fork 只保留四类 delta
+（i18n / Rust engine gate / `packages/kimi-agent` / Bun toolchain），且
+「Anything else in the fork's `HEAD` side of a conflict is legacy and **should lose**」。
+「信任后是否加固」正是产品行为，且不属于那四类。
+
+| | 跟随回退 | 保留现状 |
+|---|---|---|
+| 与官方产品原则 | 一致 | **冲突** |
+| 与 `AGENTS.md` 的 delta 白名单 | 一致 | 超出范围 |
+| 分叉维护成本 | 无 | **上游每次动 git 相关代码都要手工对齐** |
+| 安全 | 零加固（= 上游现状） | 静态半，不完整（filter / merge driver / textconv 仍可执行） |
+| 改动面 | 删 `src/git.rs`、`path_access.rs` 的 `resolve_for_write`、`project_local_config.rs`、`permission/mod.rs` 策略 12；TS 侧 3 个源文件 + 2 个测试取 theirs | 0 |
+
+**当前状态：`ported`（2026-09-24 执行完毕）。** 初版按「优秀 + 完整」判「保留」，官方 PR 理由
+落地后改判「跟随」并经用户确认执行。`HEAD` 侧已无「信任后」加固，剩余的唯一偏差是
+`resolve_for_write` 的 canonicalize（见上「残留偏差」）。**若上游日后重新落地修正版加固，
+须重开此条并重新评估**——届时判据仍是「v2 路径 → Rust 模块映射」，不是「fork 里有没有这个文件」。
+
+#### 6.8.2 `c7dd84124a` #4015 —— fs watcher 默认开启（功能缺口）
+
+**`tracked`（功能缺口，不是行为差异；规模已核实）**：v2 侧这次改动确实只有两行（`human/utils/watch.ts` 的 `watchEnabledFromConfig` `false→true`、`app/config/configService.ts` 的 `?? false→?? true`），但**被翻转的东西在 fork 里整个不存在** —— 无 `KIMI_CODE_WATCH`、无 `setWatchEnabled`、`packages/node-sdk/src/config-local/schema.ts` 无 `[watch]` 段、`packages/kimi-agent/src` 无 watcher 依赖（无 notify / inotify / ReadDirectoryChangesW）。**移植量实测：`watch.ts` 756 行**，导出整套 `WatchService` / `watch` / `watchCandidates` / `NativeFsWatcher` 运行时抽象，**12 个生产消费方**（`app/config/configService`、`app/workspace/fileWorkspacePersistence`、`app/watch/configSection`、`features/skill/{catalog/userFileSkillSource, workspace/rootFileSkillSource}`、`session/sessionInstructions/instructionsProvider`、`workspace/{workspaceDirs, workspaceAgentProfileLoader, workspaceInstructions, workspaceInstructionsService, workspaceMcpConfig}`），监听面覆盖 `config.toml`、工作区 catalog、用户/工作区 skill 目录、AGENTS.md 类 instructions、workspace MCP 配置等 8 类文件。**结论：这是一个子系统级移植（还牵涉「watcher 归 Rust 还是归 TS 宿主」的架构选择），不是补默认值** —— fork 现在只有显式 `/reload`、`/reload-tui`。保持 `tracked`，动手前需先定层。
+
+**已同步的文档半边（2026-09-24）**：本提交的代码半边裁 `tracked`，但**文档半边照上游镜像同步**
+了 —— `docs/{en,zh}/configuration/{config-files.md,env-vars.md}` 四个文件取自 `be7d5f5fea`，
+逐字节校验一致（`19a644393f9d` / `dd1a9ea93437` / `a4f26a0b9129` / `5e673452b9d9`）。理由是
+fork 的 `docs/` 一直是上游文档的镜像，而 2.1.1 的 changelog 条目已经写进「监听默认恢复为开启」，
+若不同步这四个文件，fork 自己的文档就会**自相矛盾**（changelog 说 on、config 参考说 off）。
+> ⚠️ 由此产生的已知失真：fork 的引擎**没有** watcher 子系统，所以 `[watch] enabled` 与
+> `KIMI_CODE_WATCH` 在本仓是**「有文档、无实现」**（与 `KIMI_CODE_SEARCH_WORKER`、
+> `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` 同类，那两条也已核实为 fork 内不存在）。
+> 文档写「默认开启」不等于 fork 实现了热更新 —— 读到这里请以本节为准。
+
+#### 6.8.3 release / docs 同步（`a1e4c13d41`、`f67e6398fb`、`be7d5f5fea`）
+
+这 3 个提交**不触及已退役包**，因此不在棘轮门禁范围内，但属于「更新到 2.1.1」的组成部分，
+本轮一并落地（全部取自上游，逐字节校验）：
+
+| 文件 | 上游来源 | 本地 blob = 上游 blob |
+|------|----------|----------------------|
+| `apps/kimi-code/CHANGELOG.md` | `f67e6398fb`（2.1.1 段，+8 行） | `bde892eb9b35` ✅ |
+| `docs/{en,zh}/release-notes/changelog.md` | `a1e4c13d41`（2.1.0 段）+ `be7d5f5fea`（2.1.1 段） | `424292d4ceb6` / `2cd9df77dfef` ✅ |
+| `docs/{en,zh}/configuration/{config-files.md,env-vars.md}` | `c7dd84124a`/`be7d5f5fea` | 见 §6.8.2 ✅ |
+
+`apps/kimi-code/package.json` 的 `2.1.0 → 2.1.1` 在本次会话前就已在工作区改好（未提交），
+本轮未重复改动。
+
+> **本轮新发现（未修，需用户裁定）：fork 的 `docs/` 内容面整体滞后于上游，且含 fork 自写内容，
+> 不能整体覆盖。** 证据：`52437299ff`（2.1.0 的 merge-base）与 `be7d5f5fea` 之间，上游**没有**
+> 改过 `docs/en/reference/tools.md`（两侧 blob 同为 `d2d16365c9db`），但 fork 的 `HEAD` 是
+> `ba21cde252f5` —— 说明 2.1.0 那次手工合并把该文件按「ours」留下了，上游的更新没进来。
+> 同类的还有 `data-locations.md`（±41 行）、`guides/sessions.md`（±34）、`guides/migration.md`、
+> `customization/*`、`reference/{kimi-acp,server-api}.md` 等，**中英各 12 个内容文件**
+> （外加 `docs/.vitepress/**`、`docs/AGENTS.md`、`docs/package.json` 这类 fork 自有设施）。
+> **为什么不能直接照搬上游**：fork 的这些文件里有**上游没有的 fork 自写修正** —— 例如
+> `a04a07c4fc` 把 `CreateGoal` 的交叉引用从失效的 `../guides/goals.md` 改成
+> `../guides/interaction.md#goal-mode`，而 `be7d5f5fea` 版 `tools.md` **整段 `CreateGoal` 都不存在**；
+> 而 fork 的引擎**确实实现了** `CreateGoal`（`callbacks.rs` + TUI `tool-renderers/goal.ts`）。
+> 即上游这份 `tools.md` 相对 fork 是**更旧 + 结构不同**，不是「更新版」。逐文件判定后才能动。
 
 ---
 
@@ -2226,9 +2401,16 @@ Don't assume any of them completed; check current state (they may still be runni
 2. `TaskRunner::reconcile_previous_session()`：读回 `task` 域 → 非终态条目转
    `lost`（补 `endedAt`）→ 写回 → 产出提醒文本 → 置 `resumeReminded` 标记写回。
    **幂等**：已标记过的条目不重复产出（v2 `resumeReminded === true` 同义）。
-3. 提醒走既有注入通道（`LocalizedText` + 既有 injection 通道），
-   variant 为 `task_resume_termination`，与 v2 同词表。
-4. `hasPreviousSessionReminder` 的 transcript 前缀查重：Rust 侧按注入历史查。
+3. 提醒走既有 injection 通道，variant 为 `task_resume_termination`，与 v2
+   `TASK_RESUME_TERMINATION_VARIANT` 同词表。**正文是 model input**
+   （AGENTS.md "What not to translate"）：保留英文原文，不走 `LocalizedText`、
+   不做本地化——初稿这里的 "`LocalizedText`" 表述是笔误（复审②更正）。
+4. `hasPreviousSessionReminder` 的 transcript 前缀查重（复审③落地）：
+   `scan_previous_session_reminders`（`task_runner.rs`）以
+   `is_system_reminder` + 提醒头行识别注入历史里的旧提醒，按 `- <taskId> "` 前缀
+   抽 id；`run_turn` 每轮把该基线传入 `reconcile_previous_session(&already)`，
+   仅当 `!resumeReminded && !already` 才报告——预见过的任务照常转 `lost` +
+   写标记，只是不再报告。
 
 ### 9.4 刻意不移植
 
@@ -2236,8 +2418,48 @@ Don't assume any of them completed; check current state (they may still be runni
   完成通知。**不适用**：fork 的 `pending_notifications` 是进程内队列，不跨重启持久化，
   没有可恢复的投递态。
 - `ghosts` 这套 Map 结构本身——v2 用它区分"内存中的活任务"与"持久化读回的幽灵"；
-  Rust 用 `task` 域单一事实源即可表达同一区分，不引入第二个容器。
+  Rust 不新增第二个容器，同一区分由既有注册表给出：`reconcile_previous_session`
+  先取 `self.tasks` 再取 `persist_lock`，仍在册（本进程在跑）的 id 直接跳过，
+  读回的条目才是幽灵（复审⑥，见 9.6）。**初稿"`task` 域单一事实源即可表达同一
+  区分"的断言是错的**：本进程 spawn 的活任务在域里同样是 `running`，
+  只看域必然误报（已由探针测试实证）。
 
 ### 9.5 验证
 
 见提交内的单元测试与端到端断言（`storage::task_runner::tests`）。
+
+### 9.6 复审修复（2026-09-24，用户批准 ①–⑥）
+
+1. **① 注入 variant 更名**：`previous_session_tasks` → `task_resume_termination`
+   （`run_turn` 注册处与 `tools/mod.rs` 的 e2e），对齐 9.1 已写明的 v2
+   `TASK_RESUME_TERMINATION_VARIANT`——初稿文字写对了、代码用错了词。
+2. **② 9.3.3 表述更正**：落在上文——提醒是 model input，不走 `LocalizedText`。
+3. **③ transcript 查重真正接线**：见 9.3.4 的展开。`already` 里的任务只做
+   `lost` + `resumeReminded` 持久化，不进提醒文本、不入通知队列。
+4. **④ 失联任务入通知队列**：每个新报告的任务在释放 `persist_lock` 之后入队一条
+   `TaskNotification { status: Lost }`——`taskId`/`description`/`startedAt`
+   （缺失回退 `endedAt`）/`endedAt`/`sessionId`|`session_id`、可选 `output` 走
+   `truncate_preview`。与 settle 同款的 `session_alive` 闸 + 队内
+   `(task_id, status)` 去重（标记写失败导致的重复报告不会重复入队）。
+   **不写任何投递键、不触发 `recordTaskTerminated` / 桌面 Notification 钩子**；
+   REPL 入口 `session_id: None` 从不 drain 该队列，通知只对会 drain 的宿主
+   （stdio/napi）有意义。队列仍是进程内的，9.4 对
+   `restoreAgentTaskNotifications` 的"不适用"结论不变。
+5. **⑤ 提醒接线到 REPL 与 stdio**：初稿只有 pipeline/napi 路径把 toolset 放进
+   `SessionConfig`，REPL 与 stdio 传 `None` → `run_turn` 的注入块不执行，
+   提醒（连同 `tool_select` 披露 provider）在这两个入口永远注册不上。
+   现在 REPL 给 toolset 挂 `with_task_runner`（与 dummy host 的 stop/wait
+   委托、subagent manager 是同一个 runner），三处（toolset 链 /
+   `NativeToolCallbacks` / `SessionConfig`）共享同一 Arc；stdio 传
+   `pipeline.toolset.clone()`（与 napi 同法）。副作用（如实记录）：REPL 的
+   `Bash run_in_background` 与超时自动转后台由此接上原生 runner——此前
+   toolset 无 runner 走 host fallback，在 REPL 里是 "tool not available"
+   错误；`tool_select` 披露 provider 同时在 REPL/stdio 激活。两者都是
+   `input.toolset` 唯一消费点（`run_turn` 注册块）的既有语义，napi 上早已如此。
+6. **⑥ 活任务不再被误报为失联**：见 9.4 的 ghosts 更正——`reconcile` 持锁对照
+   `self.tasks` 跳过在册 id。锁序 `tasks` → `persist_lock`（spawn 与 settle
+   同序；反序死锁），且 `tasks` 守卫横跨域读写，堵住"快照后并发 spawn 落进
+   窗口"的 TOCTOU（已全量核实：没有任何路径先取 `persist_lock` 再取
+   `tasks`）。探针测试 `reconcile_does_not_misreport_a_live_in_process_task`
+   由失败转为常驻回归测试；新增 mixed（活 + 孤儿）、`already` 查重、扫描、
+   通知（入队/去重/存活闸）用例。

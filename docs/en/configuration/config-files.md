@@ -475,11 +475,11 @@ Both values must be positive integers. A call's `max_chars` overrides the defaul
 
 ## `watch`
 
-`watch` controls filesystem watchers that reload local.toml, AGENTS.md, skills, MCP config, and `config.toml` itself. It defaults to off. Set `enabled` to `true` to attach watchers; with watchers off, changing the file later will not be picked up until restart.
+`watch` controls filesystem watchers that reload local.toml, AGENTS.md, skills, MCP config, and `config.toml` itself. It defaults to on. Set `enabled` to `false` to start with no watchers; changing the file later will not be picked up until restart.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `enabled` | `boolean` | `false` | Attach filesystem watchers; `false` disables every `watch()` for the process |
+| `enabled` | `boolean` | `true` | Attach filesystem watchers; `false` disables every `watch()` for the process |
 
 `enabled` can be overridden by the `KIMI_CODE_WATCH` environment variable, which takes higher priority than `config.toml`.
 
@@ -625,8 +625,6 @@ additional_dir = ["/absolute/path/to/shared"]
 ```
 
 Because directories are stored as absolute paths, which are specific to your machine, we recommend adding `.kimi-code/local.toml` to your project's `.gitignore` so it is not committed.
-
-`.kimi-code/local.toml` is gated by workspace trust: it takes effect only after you trust the project folder in the startup trust prompt, and its `additional_dir` entries are ignored while the workspace is untrusted. Entries that resolve to your home directory or the filesystem root are rejected.
 
 ## Next steps
 
