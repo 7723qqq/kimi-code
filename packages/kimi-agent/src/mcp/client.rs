@@ -735,9 +735,16 @@ mod tests {
 
         let res = McpClient::spawn_stdio("junk_stdout", cmd, &args, &HashMap::new(), None).await;
         assert!(res.is_err());
-        assert_eq!(
-            res.err().unwrap().to_string(),
-            "MCP child closed stdout prematurely"
+        // The child prints one invalid line and exits immediately: the engine
+        // may lose the race either way — the stdout read loop sees EOF
+        // ("closed stdout prematurely"), or the handshake write lands after
+        // the child is gone ("Broken pipe", observed on loaded CI runners).
+        // Both outcomes prove the junk line never produced a handshake.
+        let message = res.err().unwrap().to_string();
+        assert!(
+            message == "MCP child closed stdout prematurely"
+                || message.contains("Failed to write to MCP stdin"),
+            "unexpected error: {message}"
         );
     }
 
