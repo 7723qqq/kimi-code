@@ -1720,6 +1720,344 @@ kimi-web vitest 42 文件/724 项 ✅｜`bun run lint` 0 errors。
 
 ---
 
+### 6.9 压缩窗口与摘要指令（2026-09-25，按 v2 裁定）
+
+复核起因：用户粘贴的真实 TUI 会话里，压缩之后模型把有歧义的「继续检查项目硬编码」解到了
+**会话 workDir**（`G:\kimi\kimi-code`），而任务目标一直在另一目录。
+
+> **复现能证明什么、不能证明什么（先说清楚，免得本节被当成因果结论）**。
+> 复现脚本 `.tmp/probe-workdir.ts`（真 napi 引擎 + MiniMax M3；临时目录 A = 会话
+> workDir、B = 目标目录；第 1 轮只把 B 当数据提一次，第 2 轮用**不提 B 路径**的 34 万
+> 字符把历史顶过阈值，第 3 轮发那句有歧义的追问）确实稳定判到
+> `REPRODUCED (contaminated) — pulled the session workDir into the task`：第 3 轮读了 A 的
+> `scripts/scan-hardcoded-v2.mjs`、`package.json` 并 `ls -la A/scripts/` —— 与用户会话里
+> `Read (scripts\scan-hardcoded-v2.mjs)` 同一动作。**但 A1 落地后同一脚本
+> `compaction fired: false`（1M 窗口下 189k 本就不该压），污染依旧 `touchedA: true`** ——
+> 即**该复现没有把「压缩」隔离成原因**：污染在压与不压两种条件下都出现。
+> 真正的判别变量是「B 的路径在近期上下文里还剩多少」：第 2 轮载荷反复出现 B 路径时
+> `touchedA: false`（干净），不出现时 `touchedA: true`（污染），与是否压缩正交。
+> 两轮都只是**污染**（两个目录都扫、先报 B），并未复现出用户那句「切到当前项目了」的
+> **整体切换**。本节的 6.9.1 / 6.9.2 各自以代码事实与判别实验立论，不依赖上述归因。
+
+**6.9.1 压缩窗口在 FFI 边界丢失（已修 = A1）**
+
+- v2：`agent/fullCompaction/strategy.ts:85` 取
+  `max_input_tokens ?? max_context_tokens`；`strategy.ts:117`
+  `if (this.maxSize <= 0) return false` —— 窗口未知则**永不**压缩。
+- fork：压缩搬进 Rust 时窗口没跟着过去。契约字段 `JsRunTurnParams.maxContextTokens`
+  一直存在（`napi-contract.d.ts:378`，注释即 "Context window the host resolved for the
+  active model"），Rust 三处 `compaction_window(native_llm.max_input_size,
+  params.max_context_tokens)` 也都在等它，**唯独 `sdk-rpc-client-native.ts` 从不赋值**
+ （全仓只有两条 resume 路径往 `NativeSessionMeta.maxContextTokens` 写，且取的是
+  `config.defaultModel`，与会话自身模型无关）。
+- 后果：`config_for_window(None)` → `DEFAULT_MAX_CONTEXT_TOKENS` = 131_072，
+  `should_compact` 在 `128*1024 - 50_000 = 81_072` 触发。声明 1M 窗口的模型在 ~84k 就
+  自动压缩（用户实测 `84359 → 36649`），而状态栏同时显示 `95.5k/977k` —— 两个数字来自
+  两条互不相干的路径。
+- 修复：`buildHandle` 的 params 新增
+  `maxContextTokens: resolveModelContextWindow(config, modelAlias) || undefined`。
+  按**会话自身**的模型（`modelAlias = meta.model ?? config.defaultModel`）解析而非
+  `config.defaultModel` —— 用 `/model` 切换过的会话永远匹配不上后者。`maxInputSize` 仍由
+  引擎侧 `compaction_window` 优先，与 v2 的 `max_input_tokens ?? max_context_tokens`
+  同序；声明窗口为 0（模型未声明）时传 `undefined` → 引擎默认，沿用 fork 原有语义，
+  **不**引入 v2 的「未知窗口则不压缩」。`buildHandle` 被 create / resume / rebuild 三处
+  共用，一条改动全覆盖。
+- 判别验证 `.tmp/probe-compact.ts`（真 napi 引擎，同一 360k payload ≈ 90k token，
+  模型 `opencode/mimo-v2.6-flash-free` 声明 `max_context_size = 1000000`）：
+  A1 前 `compaction fired: true` → A1 后 `compaction fired: false` ✅；
+  **负控**（`PROBE_CTX=100000` 改小声明窗口）`compaction fired: true` ✅ ——
+  证明新字段确实被引擎读取，排除「测试因别的原因变绿」。
+
+**6.9.2 摘要指令退化成一句话（已修 = A2）**
+
+- v2 两条路径（`human/compaction/summarize.ts:13`、
+  `agent/fullCompaction/compactionInstruction.ts:3`）共用同一份 73 行
+  `compaction-instruction.md`，两处引用**字节一致**（SHA256
+  `9578d8c2088f64d0b58f2ec0f10b4a0cf2a70caa9b08d46c847a8d12e6ec6545`）；
+  `fullCompactionService.ts:659` 是 `[...messagesToCompact, createUserMessage(instruction)]`
+  —— 指令**单独一条 user 消息、追加在历史之后**；`renderCompactionInstruction` 恒用模板、
+  把调用方 instruction 插进 `${custom_instruction_block}`、结果 `.trimEnd()`。
+- fork：`DEFAULT_SUMMARIZATION_INSTRUCTION` 三句话，在两份 v2 参考里 **0 处对应**。
+  模板明确要求保留 "the exact commands that were run, the exact file paths touched" 和
+  "The forward plan … give the exact next command or tool call"，单句版一条都没有 ——
+  于是摘要写下「**任务已完成 … 无未决事项**」，`cd` 前缀与目标目录被当噪声丢掉；歧义追问
+  失去可挂靠的未决工作，只能拿系统提示词的 `cwd` + `${cwd_listing}`
+ （那里正列着 `scripts/scan-hardcoded-v2.mjs`）解歧义。
+- 修复：`src/compaction/compaction-instruction.md` 从 v2 参考**整文件复制**（复制后哈希
+  复核一致），`const COMPACTION_INSTRUCTION_TEMPLATE = include_str!(...)` +
+  `render_compaction_instruction(Option<&str>)` 复刻 v2 语义（模板恒用、空与空白
+  instruction 走 v2 的 `custom.length > 0` 守卫、结果 `.trimEnd()`）。指令改为**追加在
+  transcript 之后**，与 v2 位置一致，也让模板自己那句 `--- This message is a direct task,
+  not part of the above conversation ---` 读得通（原先压在 transcript 前面读不通）。
+  消息条数与角色不变，既有约束（`len()==2`、`system`+`user`、含 transcript、
+  `[tool_call: …]` 内联）全部保持。指令是模型输入，随其余 prompt 面保持英文。
+- 契约钉死：`compaction::tests::test_summarization_prompt_uses_the_v2_handoff_template_when_none`
+ （模板整份下发、占位符不外漏、v2 两条硬要求在场）与
+  `compaction::tests::test_a_caller_instruction_lands_inside_the_template`
+ （调用方 instruction 落在模板**内部**而非顶替模板；空白 instruction 不产生空块）。
+- **端到端实测（重建 napi 后，`PROBE_CTX=100000` 强制压缩以真正调到摘要器）**：
+  摘要形态确实换成交接体 —— `# 对话交接摘要` / `## 任务状态` / `## 用户原始请求` /
+  `## 已完成的工作` / `## 关键发现（最终结果）` / `## 环境与约束`，并且**显式区分了 B 与
+  A 的 AGENTS.md**（「本任务目录为独立的 neon-project，未触发该约束的修改操作」），
+  比单句版多保留了目标信号。**但它仍写下「任务已基本完成 …… 后续无需操作」** ——
+  原因是该场景里第 1 轮的任务（列目录、数 Python 文件）**确实做完了**，而模板自己就说
+  "a trivial or nearly finished exchange needs only a sentence or two"，模型是照办的；
+  第 3 轮那句更大的任务从未出现在压缩前的历史里。**故 A2 未改变本场景的污染结论**
+ （`turn3 touched A: true` 照旧）。要让模板的 forward-plan 条款真正生效，需要复现场景里
+  存在**跨轮未完成的工作** —— 这正是下一条 6.9.4 的活。
+
+**6.9.3 本轮记录但未修的 delta**
+
+- **消息形态**：v2 传真实历史（**含 session 的 system prompt**）+ 一条 instruction user
+  消息；fork 是合成 system（"You are a conversation summarizer…"）+ 把 `omitted` 拍平成
+  单条 user 文本（`[tool_call: Name(args)]` 内联）。拍平正是用户粘贴输出里
+  `[tool_call: Bash({...})]` 指纹的来源 —— 模型照抄了喂给它的序列化格式。对齐需把 session
+  system prompt 接进 `summarization_prompt`，动的是成本与结构，本轮不动。
+- **免费档摘要必 403**：zen 关卡三个**并发**条件（逐项 bisect 实测，
+  `.tmp/probe-notools.mjs`）—— `x-opencode-session` 头缺失 → 403；`tools` 不含同时的小写
+  `bash` + `read`（`tools: []`、`[calculate]`、无 `tools` 键均）→ 403；`stream: false` → 403；
+  FULL 头 + `stream:true` + `tools=[bash,read]` → 200。`summarization_prompt` 不带 tools
+  → 摘要调用**必** 403 → `compaction.cancelled`，即用户原始的「压缩已取消」。适配器
+  `opencode_adapter.rs::apply` 只改工具名，不补 tools 也不补头 —— 需单独裁定是补形状还是
+  承认免费档不支持压缩。
+
+**6.9.4 未闭环工单**
+
+- **「整体切换」尚未复现。** 现有脚本三轮就把第 1 轮任务做完，压缩时**没有跨轮未完成的
+  工作**可保 —— 摘要写「后续无需操作」是模板明文允许的，第 3 轮于是只能拿 `cwd` +
+  `${cwd_listing}` 解歧义，于是**污染与压缩正交**（见本节开头的证据边界）。
+  要真正复现用户那句「切到当前项目了」，场景必须同时满足三条：目标目录**只**经 `cd`
+  前缀隐式存在（从不作为显式指令给出）、压缩落在**任务中途**（摘要里有未完成的 forward
+  plan 可丢）、追问对**两个目录都有歧义**。用户的真实会话是 504 步 / 13 轮、压缩发生在
+  84k 的任务中途，三条齐备 —— 应在那里复现，而不是在合成三轮里。
+
+**6.9.5 空转循环已修（2026-09-25 第二轮）**
+
+- **根因（插桩实测，非推断）**：在 `compute_compact_count` 上临时插桩跑
+  `.tmp/probe-workdir.ts`，第二次压缩拿到
+  `n=11 roles=[system, user×7, assistant, tool, tool] valid=[1] best_n=Some(1) fit=1`。
+  即**第一次压缩把前缀换成了纯 user 形状的消息** —— `apply_compaction_with_summary`
+  保留的用户输入、省略说明、摘要、续接全是 `role="user"`，而 `can_split_after` 拒绝在
+  `user` 消息后切分；尾部的 assistant/tool 对又因工具交换未闭合被拒，全历史只剩
+  「切在 system 之后」一个候选 → `best_n=1` → 被 `count <= 1` 地板归零 →
+  `force_compact_messages_with_summary_report` 走 `count == 0` 分支返回
+  `tokensAfter == tokensBefore`、`summary: ""`，turn loop 却已按成功发了
+  `compaction.started` / `completed`，且触发条件未变，下一步再来一次。
+  单轮 `[system, 单条巨型 user]` 是同一根因的退化情形（`n=2` 时唯一候选也是 `best_n=1`）。
+  修前实测：`.tmp/probe-workdir.ts` 一轮 3 次（1 次真压缩 + 2 次空转
+  `187970→187970`、`189804→189804`）、`.tmp/probe-compact.ts` 单轮 1 次全 0。
+- **修法**：`compaction::should_compact_auto(messages, used, config)` =
+  `should_compact(…)` **且** `compute_compact_count(…) > 0`；turn loop 的自动路径
+  （`run_turn.rs`）改用它 —— 判定必须移到**发 `compaction.started` 之前**：`started`
+  一旦发出就必须有配对的终态事件，不能先发再补。没有切点就**什么都不发** —— 确实没发生
+  任何事，发卡才是谎报。`count == 0` 的 no-op 返回本身保留给溢出应急路径（
+  `run_turn.rs` 的 `report.summary.is_empty() && 未变短` 把那条路收敛为
+  `compaction.cancelled` + `Err`（终态事件的取值在 §6.9.9 修过：不能先发成功卡再报错）。
+- **端到端实测（重建 napi 后）**：`.tmp/probe-compact.ts PROBE_CTX=100000` 修前
+  `compaction.completed{compactedCount:0, tokensBefore:196919, tokensAfter:196919,
+  summary:""}` → 修后**零压缩事件**；`.tmp/probe-workdir.ts PROBE_CTX=100000` 修前 3 次
+  → 修后**恰好 1 次** `188609→187669 compacted=8`。
+- **单测**：`compaction::tests::test_should_compact_auto_stays_silent_when_the_split_search_finds_nowhere_to_cut`
+  —— 同一阈值下，纯 user 头（切点为 0）必须被否决、可切的交替历史必须放行、阈值未到一律否决。
+
+**6.9.6 `turn.step.completed` 每步重复已修（2026-09-25 第二轮）**
+
+- **根因（定位到发射点）**：Rust 侧有**两个** `llm.step.end` 发射点 ——
+  `llm/http.rs:581`（传输层：`content` / `tool_calls` / `finish_reason` / `latency_ms` /
+  `timing`，**无 turn/step id**，供 `server/message_events.rs::on_step_end` 折叠
+  assistant 消息）与 `turn_loop/run_turn.rs`（`turn_id` + `step` + `usage` + `timing`）。
+  SDK `sdk-rpc-client-native.ts` 把**两条都**映射成 `turn.step.completed`，且都用
+  `stepSeq` / `meta.currentTurnId` 填 id → 每步两个 `turn.step.completed`。
+  引擎自身不受影响：`on_step_end` 是 `state.current.take()`，第二条拿到 `None` 直接返回，
+  所以重复只发生在 SDK 映射层。
+- **危害**：TUI `handleStepCompleted` 每次都 `noteStepUsage` /
+  `noteSessionStepCompleted` —— **token 用量与流式耗时被加两遍**；`finishReason ===
+  'filtered'` 的提示会弹两次。
+- **修法（去重落在映射层，两个引擎事件都保留）**：SDK 只映射**带 `turn_id` / `step` 的
+  那条**；`llmStreamDurationMs` 的来源由传输层的 `latency_ms`（整段墙钟）换成 turn loop
+  事件的 `timing` —— 即 v2 `ModelRequestTiming` 原生字段：`streamDurationMs` →
+  `llmStreamDurationMs`（协议字段语义本就是解码窗口）、`firstTokenLatencyMs` →
+  `llmFirstTokenLatencyMs`、`requestBuildMs` → `llmRequestBuildMs`、
+  `serverFirstTokenMs` → `llmServerFirstTokenMs`；同时 `run_turn.rs` 的 `llm.step.end`
+  补 `finish_reason`，否则去掉传输层那条会丢 `max_tokens` / `filtered` 终态信号。
+- **端到端实测（`.tmp/probe-stepcount.ts`，MiniMax M3，读文件两步任务）**：守卫开着 →
+  `turn.step.started=[1,2]`、`turn.step.completed=[1,2]`、`duplicated=[]`、
+  `streamMs=410/417`、`finish=tool_use/end_turn`；**负控**（只把 TS 守卫改成恒真、
+  不重建引擎）→ `completed=[1,1,2,2]`、`duplicated=[[1,2],[2,2]]` —— 证明起作用的是这条
+  守卫，而不是引擎改动顺带掩盖。
+- **残余（已在第四轮闭合，见 §6.9.8）**：`turn.step.started` 当时只由传输层的
+  `llm.step.begin` 产生，而它在 `chat_impl` 每次请求各发一次，重试由 `turn_step.rs:199` 的
+  退避循环重新调 `llm.chat` —— 所以一次失败重试会多出一个 `started` 而没有配对的
+  `completed`。这是重试记账的既有不对称，与本条重复缺陷正交；边界整体挪到 turn loop
+  之后传输层不再发 `begin`，重试与压缩摘要器都产生不了多余的 `started`。
+
+- **地雷（未修，第四轮记账）**：`begin` 已收成 turn loop **单一发射点**，`end` **仍是双源**
+  —— 传输层 `llm/http.rs`（带 `content` / `tool_calls` / `finish_reason` / `latency_ms` /
+  `timing`，`server/message_events.rs::on_step_end` 折叠助手消息要用）与
+  `turn_loop/run_turn.rs`（带 `turn_id` + `step` + `usage` + `timing`）。**去重只落在
+  SDK 映射层**：`sdk-rpc-client-native.ts` 只映射带 `turn_id`/`step` 的那条。
+  推论：**谁给传输层的 `end` 补上 `turn_id`，本节的每步重复会立刻复发**，而且没有测试
+  会拦 —— 现有断言只覆盖"SDK 只映射一条"，不覆盖"两条的字段形状互不重叠"这个前提。
+  根治要像 `begin` 一样给 `end` 定单一 owner，但 `on_step_end` 需要传输层那份负载，
+  所以不能直接删，得先让 turn loop 的 `end` 携带折叠所需字段。**本轮没做**：改动面
+  横跨消息折叠路径，缺真实流式会话做验证。
+
+**6.9.7 spill 指针已查：非引擎缺陷（2026-09-25 第三轮）**
+
+- **原始记录**：`G:/kimi/kimi-code/.kimi/spill/Read-call_5d89c5863ca34adf9f4ad6c4-84d88043765a03b8-40d8.txt`
+  被引用但不存在。
+- **该路径不可能由引擎生成**：文件名是 `{safe_stem}-{nanos:x}-{pid:x}.txt`
+  （`tool_result_truncation.rs::short_uuid`）。`0x84d88043765a03b8` 纳秒换算是
+  **2273-05-05**，不是 `SystemTime::now()` 能产出的值；同 stem 同 pid 的真实文件
+  `…-18d88043765a03b8-40d8.txt` 存在（91,340 字节），其 `0x18d88043765a03b8` 换算是
+  **2026-09-25 07:37:59 UTC（本地 15:37:59）**，与该文件的创建时间/mtime **逐秒吻合**。
+  `short_uuid` 自引入（`83bd34a846`，是 HEAD 的祖先）从未改过格式 —— 记录里被改掉的是
+  中间 2 个十六进制位，即这个引用从一开始就没指向引擎写的那个文件。
+- **引擎没有指向不存在文件的路径**：`save_spill()` 返回它刚写成功的那个 `path.to_string_lossy()`，
+  指针逐字节照抄；写失败走 `render_unpersisted_pointer()`（根本不带路径），由单测
+  `spill_failure_falls_back_to_unpersisted_pointer` 覆盖。
+- **端到端实测（`.tmp/probe-spill.ts`，MiniMax M3，真实会话）**：让模型 `cat` 一个 378,000 字符
+  的文件 → 工具结果超 50,000 上限 → 引擎落盘 `<workDir>/.kimi/spill/`（262,163 字节），再回扫
+  `history.jsonl` 里带出的指针并 `existsSync` —— **指针解析到的正是刚创建的文件，OK**。
+- **结论**：非引擎缺陷。记录里的引用与引擎指针**不一致**（中间 2 个十六进制位不同），
+  最可能是模型复述长十六进制串时出错，也可能是当初抄录时笔误 —— 手头没有原始会话文本，
+  两者无法区分，但**两种情况都不指向引擎**。真正能让被引用 spill 消失的只有两条：
+  7 天的 `SPILL_RETENTION` 清理，或指针记下后工作区被移动/改名 —— 二者都是环境因素。
+- **本轮未改任何源码**（只加了 gitignored 的 `.tmp/probe-spill.ts`），因此不重复跑门禁；
+  门禁以 6.9 末尾第二轮的记录为准。
+
+**6.9.8 `turn.step.started` 悬空已修（2026-09-25 第四轮，复核发现）**
+
+- **发现方式**：复核 §6.9.6 时把 `llm.step.begin` 一并纳入实测（`.tmp/probe-workdir.ts`
+  加 STEP 打点，`PROBE_CTX=100000` 逼出真压缩）。
+- **修前现象**：压缩轮 `turn.step.started=[1,2,3]` 而 `turn.step.completed=[2,3]` ——
+  **step=1 悬空**，该轮真实步号整体后移一位（首步永远等不到 `completed`）。
+- **根因**：`llm.step.begin` 的唯一发射点是传输层 `llm/http.rs::chat_impl`，而
+  **一次 chat 请求 ≠ 一个 step** —— 每次重试各发一次，且同一个 LLM 实例
+  （`pipeline/mod.rs` 把 sink 接到 host callbacks）还被**压缩摘要器**
+  （`compaction/mod.rs` 的 `llm.chat`）、标题生成、memory filing 借用。
+  §6.9.6 只把 `llm.step.end` 收敛到 turn loop，`begin` 仍在传输层 → 摘要器的请求换来
+  一个没有 `completed` 配对的 `started`。这是 §6.9.6 修完后**新暴露的不对称**
+  （修前是幻影但成对：`started=1, completed=2`，修后变悬空 `started=1, completed=[]`）。
+- **v2 对照**：`TurnStepStarted` 由 loopService 在 step 开始时 dispatch
+  （`loopService.ts:1393-1408`，payload `turnId`/`step`/`stepId`）；typed 契约
+  `EngineEvent::LlmStepBegin { turn_id, step }` 一直就是这么声明的，只有传输层发的
+  `{type, model}` 填不出来 —— `EngineEvent::from_json` 解析失败走 `Custom` 兜底，
+  因此 typed 臂 `project.rs:102` 一直吃不到这条事件。
+- **修法（步边界归 turn loop，单一发射点）**：
+  1. 删掉 `llm/http.rs::chat_impl` 的 `llm.step.begin` 发射（原地注释写明为什么
+     传输层不该发：一次请求 ≠ 一个 step，且会被摘要器借用）；
+  2. `run_turn.rs` 新增 `emit_step_begin_event`，发在预算/取消/压缩三道守卫**之后**、
+     `'overflow_recovery` 循环**之外** —— 守卫 `return` 时不留下悬空边界，溢出重压
+     也不重复 announce；
+  3. 把原先内联的 `llm.step.end` JSON 抽成 `emit_step_end_event` 两处共用：主循环 +
+     repeat-breaker 的 handoff 步（该步在 `for` 循环之外，此前全靠传输层才有边界；
+     不补的话它的最终回复会串进上一张已 `completed` 的步骤卡片）；
+  4. SDK 映射**不动**（现在所有 begin 都带 turn/step），**不加守卫** —— 老 `.node` 组合
+     会退化成旧行为，而不是变成零事件。
+- **顺带闭合的既有残余**：§6.9.6 记的"失败重试多一个 `started`"随传输层 begin 一起
+  消失（重试不再产生任何 begin）；host-proxy 传输此前**根本发不出** `llm.step.begin`
+  （只有 http 发），现在所有传输统一由 turn loop 发；`EngineEvent::LlmStepBegin` 的
+  typed 臂从死代码变成活路径 —— `ensure_step` 在步开始时建实体 + `flush_pending_steers`，
+  正是 v2 `coreEventMap.ts:568-571` 的语义（原 `Custom` 兜底臂保留，注释已改）。
+- **端到端实测（修后，同 `PROBE_CTX=100000`）**：turn0 `started=[1..5]`/`completed=[1..5]`；
+  turn1（压缩轮）`compaction.started → compaction.completed` 后 `started=[1,2]`/
+  `completed=[1,2]`；turn2 `[1..5]`/`[1..5]` —— **全程 1:1，无悬空，真实步号从 1 起**。
+- **测试**：新增 `turn_loop::run_turn::tests::step_boundaries_are_paired_one_begin_and_one_end_per_step`
+  （两步工具轮，序列严格 `begin,end,begin,end`，两条都带 `turn_id` + 1-based `step`）。
+  两处按旧事实写的精确事件序列断言随实现更新：
+  - `session::tests::test_failed_turn_reports_ended_with_error` —— 失败轮现在先有
+    `llm.step.begin`（步在请求前打开，provider 拒绝后边界悬着；v2 会用
+    `turn.step.interrupted` 收，本引擎没有这个事件）。这与真实 HTTP 下的旧行为一致，
+    旧的桩 LLM 不发 begin 才让断言看起来"只有 error"。
+  - `tools::agent_tool::tests::lifecycle_events_mirror_the_v2_surface` —— 子代理跑的是
+    完整 turn loop，begin/end 成对出现。
+- **记账（已知、未修，非本轮引入）**：子代理的 `run_turn` 事件走**父会话**的 callbacks
+  （`agent_tool.rs` 用 `runtime.callbacks`），其步边界会推进父会话 SDK 的 `stepSeq`。
+  传输层 begin 时代同样污染（修前 `started=1/completed=2`，修后 1:1），本轮没有加重；
+  要根治需按 agentId 隔离步号，未做。
+
+**6.9.9 溢出应急压缩的假 `compaction.completed` 已修（2026-09-25 第四轮，复核发现）**
+
+- **复核提出**：溢出路径先发 `compaction.completed{summary:""}`，**然后**才判
+  `report.summary.is_empty() && 未变短` 并 `return Err` —— 一次零工作的压缩拿到成功
+  卡片，紧接着 turn 报错。§6.9.5 写的"已把那条路收敛为 `Err`"只保证**循环**停住，
+  不保证**事件**不说谎。
+- **v2 读证（`fullCompactionService.ts`）**：`compactionRound` 内 summary 为空直接
+  `throw`（`:900` "did not contain a non-empty summary"），于是 `compactionWorker`
+  **永远走不到** `dispatch(CompactionCompleted)`（`:588`），`catch` 落到
+  `cancelActive` → `CompactionCancelled`。**v2 对这个结局发的是 cancelled，不是
+  completed。**
+- **修前形状（实证，§6.9.5 插桩实测记录）**：`compaction.started` →
+  `compaction.completed{compactedCount:0, tokensBefore:196919, tokensAfter:196919,
+  summary:""}` → `Err`。中间那一步是**纯 no-op** —— `force_compact_messages_with_summary_report`
+  的 `count == 0` 分支早退（`compaction/mod.rs`），**连摘要器请求都不发**，
+  消息原样返回、`tokensAfter == tokensBefore`。
+- **修法**：把判空守卫**移到 `compaction.completed` 发射之前**，命中时先发
+  `compaction.cancelled` 再 `return Err`。`compaction.started` 已经出去，终态事件欠
+  一个；`cancelled` 是既有词表（同一溢出路径的 Err 分支早在用，SDK
+  `sdk-rpc-client-native.ts` 有现成映射），**不新增任何协议词**。守卫条件与 §6.9.5
+  记录的 fork delta 逐字不变，只改终态事件的取值与顺序。
+- **测试**：新增 `turn_loop::run_turn::tests::overflow_without_a_split_point_reports_cancelled_not_completed`
+  —— `[system, 单条 user]` 逼出 `count == 0`（`can_split_after` 拒绝在 `user` 后切，
+  切点搜索无候选 → `fit_compact_count_to_window(0)` → `<=1` 地板归零），桩 LLM 每步返回
+  `llm http status 400 … context_length_exceeded` 走真实的溢出恢复。断言 ① 摘要器调用数
+  **== 0**（既证明路径是 no-op，也证明测试真打中了这条分支，前提错了会先炸在这里），
+  ② 事件序列严格 `["compaction.started", "compaction.cancelled"]` —— 多出 `completed`
+  即失败。
+- **守卫只有一条可达路径（核实结论，推翻本节初稿）**：初稿写过"摘要器真跑但返回
+  空摘要、消息变短时本引擎仍发 `completed{summary:""}`，v2 会 throw，属另一处 fork
+  松紧度，不做"。**那条是错的** —— `summarize_with_llm_budgeted` 对空摘要先裁掉历史
+  重试，耗尽后返回 `Err(CompactionError::EmptySummary)`（`compaction/mod.rs` 两处
+  `return`），**绝不返回 `Ok("")`**；与 v2 `fullCompactionService.ts:900` 的 throw
+  同构，且早已由
+  `tests::test_force_compact_with_summary_returns_error_on_empty_content` 钉住。
+  于是 `report.summary.is_empty()` 在溢出路径上**只能**来自 `count == 0` 的 no-op
+  早退（`force_compact_messages_with_summary_report` 返回 `String::new()` 且消息原样）。
+  推论：`force_compacted.len() >= messages.len()` 这一半恒为真，保留它只是防御性
+  写法，**不代表还有第二条分支** —— 这里没有未修的 delta。教训：写"已知不做"的记账
+  之前，先证明那个分支可达。
+
+**验证（2026-09-25 第四轮）**：`cargo fmt --check` ✅｜`cargo clippy --all-targets
+--features cli -- -D warnings` ✅｜`cargo test --features cli`（全 target）**lib 2879
+passed / 0 failed / 1 ignored**（= 2880 项，含 §6.9.8 的步边界配对测试与 §6.9.9 的
+假 completed 测试），其余 9 个 target 全 0 failed ✅｜`bun run typecheck`（全仓）✅｜
+`bun run lint` **0 errors**（4038 warning，与第二轮同数）｜node-sdk vitest
+`--maxWorkers=1` **33 files passed** ✅｜apps/kimi-code vitest `--maxWorkers=1`
+**253 files passed / 3 skipped** ✅｜`check:engine-i18n` 146 keys OK ✅｜
+`check:upstream-v2-delta` ✅（2 delta 已 triaged，upstream ref 仍是 `be7d5f5fea`
+2026-09-24）。TS 侧四项跑在本轮源码改动之前，之后的改动只碰 `run_turn.rs` 与本文件，
+故结论仍覆盖；但工作树仍在被并发写入（见下），这些数字是**时点值**。
+
+> **计数会漂，别当固定值抄。** 本轮观察到 lib 总项数 2876 → 2878 → 2879 → 2880
+> （末次一项就是 §6.9.9 新增的 `overflow_without_a_split_point_…`），但五次运行
+> **一律 0 failed**，`cargo test -- --list` 与 `test result` 行自洽，排除套件不稳定。
+> 漂移来源是**工作树在本轮期间被并发修改**：未跟踪 changeset 从 3 个涨到 6 个
+> （新增 `reasoning-details-summary-no-longer-duplicates` 等）、`src/llm/openai.rs`
+> 于 21:16:06 被写入并新增 reasoning-details 去重测试（vs HEAD +2 测试，diff 167→237 行）、
+> `napi-contract.d.ts` 在 napi 构建报完成之后的 21:21:14 又被重写。
+> 教训：门禁记录必须**带命令与时间**，跨轮比较前先确认树没动。
+
+**验证（2026-09-25 第二轮，历史记录，数字已被上条覆盖）**：`cargo fmt --check` ✅｜`cargo clippy --all-targets
+--features cli -- -D warnings` ✅｜`cargo test --features cli --lib` **2867 passed /
+0 failed / 1 ignored**｜`bun run typecheck`（全仓）✅｜`bun run lint` 0 errors
+（4038 既有 warning，与第一轮同数）｜node-sdk vitest `--maxWorkers=1` 33 files /
+315 passed ✅｜`bun run check:engine-i18n` 146 keys OK ✅｜
+`bun run check:upstream-v2-delta` ✅（ref 已按门禁要求
+`git fetch upstream main:refs/remotes/upstream/main --force` 刷新，仍是 `be7d5f5fea`
+2026-09-24，上游无新提交）。**本节两轮均无新增 allowlist 判决**：allowlist 按上游提交
+记账，两条既有 delta 已 triaged，本节是 fork 自身相对 v2 的行为差。
+apps/kimi-code 全量 `--maxWorkers=1` **253 files / 3985 passed / 3 skipped** ✅
+（首跑曾有 `test/scripts/native/release-artifacts.test.ts` 1 例失败 —— 上一次被中断的
+运行在 `dist-native/bin/test-zip-artifact/` 留下 `kimi-agent-cli` 残件使 zip 多一个成员；
+清理后复跑全绿，单跑该文件亦 5/5，与本节改动无关）。
+> 相邻未动项：`NativeSessionMeta.maxContextTokens`（`sdk-rpc-client-native.ts:315` /
+> `:2184`）仍取 `config.defaultModel`，只喂状态栏上下文占比（`:2940`）与导出快照的
+> `modelCapabilities.max_context_tokens`（`:2431` / `:2471`），**不进引擎** ——
+> `/model` 切换过的会话在这两处显示/导出的窗口仍是默认模型的，同源不同症。
+
+---
+
 ### 6.10 2026-09-25 独立审查后的打磨（提示词↔工具一致性、发布物记账）
 
 本轮由一次针对上述工作树的独立审查驱动：修的是同一批改动里**自己引入的承诺未闭合**，

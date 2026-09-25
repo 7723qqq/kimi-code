@@ -173,6 +173,30 @@ pub fn should_compact(used_size: u32, config: &CompactionConfig) -> bool {
             && used_size.saturating_add(config.reserved_context_size) >= config.max_context_tokens)
 }
 
+/// [`should_compact`] *and* a safe split point exists — what the turn loop
+/// must check **before** it announces `compaction.started`.
+///
+/// Crossing the threshold only says the history is too long; it says nothing
+/// about whether [`compute_compact_count`] can find anywhere to cut, and a
+/// count of 0 makes [`force_compact_messages_with_summary_report`] a no-op
+/// that still reports `tokensAfter == tokensBefore` with an empty summary.
+/// Announced from the turn loop that reads as a `compaction.completed`
+/// success that changed nothing — and because the trigger is unchanged, the
+/// next step would announce it again.
+///
+/// The empty case is not exotic: the compacted head is a run of user-shaped
+/// messages (kept user input + elision + summary + continuation) and
+/// [`can_split_after`] refuses to cut after a user message, so a second
+/// compaction arriving before the model has written another assistant turn
+/// has nowhere to split.
+pub fn should_compact_auto(
+    messages: &[LLMMessage],
+    used_size: u32,
+    config: &CompactionConfig,
+) -> bool {
+    should_compact(used_size, config) && compute_compact_count(messages, config) > 0
+}
+
 /// Compact `messages`, replacing the oldest non-system messages with a
 /// summary placeholder.
 ///
@@ -562,18 +586,42 @@ pub fn compaction_continuation_message() -> LLMMessage {
     }
 }
 
-/// Default instruction for the summarizer when the caller provides none.
-const DEFAULT_SUMMARIZATION_INSTRUCTION: &str = "\
-Summarize the conversation below concisely. Preserve key context, decisions, \
-user goals, and any unresolved tool exchanges. The summary replaces the \
-original messages in the conversation history, so it must be self-contained.";
+/// v2's handoff template — `agent/fullCompaction/compaction-instruction.md`,
+/// byte-identical (SHA256 `9578d8c2088f64d0b58f2ec0f10b4a0cf2a70caa9b08d46c847a8d12e6ec6545`)
+/// to the copy `human/compaction/` ships. Model input, so it stays English like
+/// the rest of the prompt surface. The trailing `${custom_instruction_block}` is
+/// filled by [`render_compaction_instruction`].
+const COMPACTION_INSTRUCTION_TEMPLATE: &str = include_str!("compaction-instruction.md");
+
+/// v2 `renderCompactionInstruction` (`fullCompaction/compactionInstruction.ts`)
+/// and `human/compaction/summarize.ts`'s `compactionInstructionText`: the
+/// template always ships in full, and a caller instruction is appended *inside*
+/// it rather than substituted for it. An absent or blank instruction leaves the
+/// placeholder empty. Mirrors v2's `.trimEnd()` on the rendered result.
+fn render_compaction_instruction(instruction: Option<&str>) -> String {
+    let block = match instruction
+        .map(str::trim)
+        .filter(|custom| !custom.is_empty())
+    {
+        Some(custom) => format!("\nOptional user instruction:\n{custom}\n"),
+        None => String::new(),
+    };
+    COMPACTION_INSTRUCTION_TEMPLATE
+        .replace("${custom_instruction_block}", &block)
+        .trim_end()
+        .to_string()
+}
 
 /// Build the prompt messages for the summarizer LLM call.
 ///
 /// The system message instructs the model to summarize; the user message
 /// carries the omitted conversation as a flat `role: content` transcript,
-/// prefixed by the optional instruction. Tool calls are serialized inline so
-/// the summarizer can see what was done.
+/// *followed by* the handoff instruction. v2 appends that instruction as the
+/// last message after the history (`fullCompactionService.ts`: `[...
+/// messagesToCompact, createUserMessage(instruction)]`), which is also the
+/// only position where the template's own "This message is a direct task, not
+/// part of the above conversation" reads correctly. Tool calls are serialized
+/// inline so the summarizer can see what was done.
 fn summarization_prompt(omitted: &[LLMMessage], instruction: Option<&str>) -> Vec<LLMMessage> {
     let mut transcript = String::new();
     for m in omitted {
@@ -588,10 +636,8 @@ fn summarization_prompt(omitted: &[LLMMessage], instruction: Option<&str>) -> Ve
         }
     }
 
-    let user_content = match instruction {
-        Some(custom) => format!("{custom}\n\n{transcript}"),
-        None => format!("{DEFAULT_SUMMARIZATION_INSTRUCTION}\n\n{transcript}"),
-    };
+    let rendered = render_compaction_instruction(instruction);
+    let user_content = format!("{transcript}\n\n{rendered}");
 
     vec![
         LLMMessage::system(
@@ -1652,6 +1698,59 @@ mod tests {
     }
 
     #[test]
+    fn test_should_compact_auto_stays_silent_when_the_split_search_finds_nowhere_to_cut() {
+        let config = CompactionConfig {
+            max_context_tokens: 1_000,
+            trigger_ratio: 0.01,
+            reserved_context_size: 0,
+            max_recent_messages: 4,
+            max_recent_user_messages: u32::MAX,
+            max_recent_size_ratio: 0.5,
+            max_attempts: None,
+            max_overflow_compaction_attempts: DEFAULT_MAX_OVERFLOW_COMPACTION_ATTEMPTS,
+        };
+
+        // The shape a previous compaction leaves behind: the kept user input,
+        // the elision note, the summary and the continuation are all user
+        // messages, and `can_split_after` refuses to cut after a user message.
+        // The only split left is after the system prompt, which floors to 0 —
+        // so crossing the threshold alone must not get the turn loop to
+        // announce a compaction that folds nothing.
+        let compacted_head = vec![
+            msg("system", "system-prompt"),
+            msg("user", "kept user input"),
+            msg("user", "[messages omitted during compaction]"),
+            msg("user", "[summary of the compacted conversation]"),
+            msg("user", "[context compaction is complete]"),
+        ];
+        assert_eq!(compute_compact_count(&compacted_head, &config), 0);
+        let used = estimate_messages_tokens(&compacted_head);
+        assert!(
+            should_compact(used, &config),
+            "the threshold itself must be crossed, so only the split search can veto"
+        );
+        assert!(!should_compact_auto(&compacted_head, used, &config));
+
+        // The same threshold with a real split point still runs.
+        let splittable = vec![
+            msg("system", "system-prompt"),
+            msg("user", "user-1"),
+            msg("assistant", "assistant-1"),
+            msg("user", "user-2"),
+            msg("assistant", "assistant-2"),
+            msg("user", "user-3"),
+            msg("assistant", "assistant-3"),
+            msg("user", "user-4"),
+        ];
+        assert!(compute_compact_count(&splittable, &config) > 0);
+        assert!(should_compact_auto(&splittable, used, &config));
+
+        // Under the threshold it stays out of the way either way.
+        assert!(!should_compact_auto(&splittable, 0, &config));
+        assert!(!should_compact_auto(&compacted_head, 0, &config));
+    }
+
+    #[test]
     fn test_summary_placeholder_format_exact() {
         assert_eq!(
             summary_placeholder(0),
@@ -2530,19 +2629,46 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_summarization_prompt_uses_default_instruction_when_none() {
+    async fn test_summarization_prompt_uses_the_v2_handoff_template_when_none() {
         let omitted = vec![msg("user", "hello")];
         let prompt = summarization_prompt(&omitted, None);
         assert_eq!(prompt.len(), 2);
-        assert!(
-            prompt[1]
-                .content
-                .contains(DEFAULT_SUMMARIZATION_INSTRUCTION),
-            "user message must contain the default instruction"
+        assert_eq!(
+            prompt[1].content,
+            format!("user: hello\n\n{}", render_compaction_instruction(None)),
+            "the transcript is followed by the rendered v2 template"
         );
         assert!(
-            prompt[1].content.contains("user: hello"),
-            "user message must contain the transcript"
+            !prompt[1].content.contains("${custom_instruction_block}"),
+            "the template placeholder must be filled, never sent verbatim"
+        );
+        // The two demands the retired one-liner omitted and the observed
+        // summaries then omitted too: exact history, and a forward plan.
+        assert!(
+            prompt[1].content.contains("the exact file paths touched")
+                && prompt[1].content.contains("The forward plan"),
+            "the v2 handoff template must ship in full"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_a_caller_instruction_lands_inside_the_template() {
+        let omitted = vec![msg("user", "hello")];
+        let prompt = summarization_prompt(&omitted, Some("Custom instruction."));
+        let rendered = render_compaction_instruction(Some("Custom instruction."));
+        assert_eq!(prompt[1].content, format!("user: hello\n\n{rendered}"));
+        assert!(
+            rendered.contains("Optional user instruction:\nCustom instruction."),
+            "v2 appends the caller's instruction inside the template"
+        );
+        assert!(
+            rendered.contains("The forward plan"),
+            "a caller instruction must not replace the template"
+        );
+        // A blank instruction is v2's `custom.length > 0` guard: no empty block.
+        assert_eq!(
+            render_compaction_instruction(Some("   ")),
+            render_compaction_instruction(None)
         );
     }
 

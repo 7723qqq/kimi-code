@@ -3249,12 +3249,23 @@ mod tests {
         let emitted = emitted.lock().unwrap().clone();
         assert_eq!(
             emitted,
-            vec![serde_json::json!({
-                "type": "error",
-                "code": "internal",
-                "message": "provider is offline",
-                "retryable": false,
-            })],
+            vec![
+                // The loop opens the step before the request goes out, so a
+                // provider refusal leaves the boundary standing ahead of the
+                // error. v2 would close it with `turn.step.interrupted`, which
+                // this engine does not emit.
+                serde_json::json!({
+                    "type": "llm.step.begin",
+                    "turn_id": "turn-0",
+                    "step": 1,
+                }),
+                serde_json::json!({
+                    "type": "error",
+                    "code": "internal",
+                    "message": "provider is offline",
+                    "retryable": false,
+                }),
+            ],
             "the failure must reach the host's error channel"
         );
     }

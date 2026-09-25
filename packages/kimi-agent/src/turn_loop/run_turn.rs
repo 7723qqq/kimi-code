@@ -136,6 +136,49 @@ fn turn_result(
     }
 }
 
+/// v2 `turn.step.started` (loopService.ts:1393-1408): the step boundary belongs
+/// to the turn loop, which is the only layer that can name the turn and the
+/// step. Call it once per step, after the budget/cancel/compaction guards and
+/// outside the overflow-recovery loop, so every `started` is paired with exactly
+/// one [`emit_step_end_event`] — a summarizer or retry request that shares this
+/// transport never announces a step of its own.
+fn emit_step_begin_event(callbacks: &dyn HostCallbacks, turn_id: &str, step: u32) {
+    callbacks.emit_event(serde_json::json!({
+        "type": "llm.step.begin",
+        "turn_id": turn_id,
+        "step": step,
+    }));
+}
+
+/// The turn loop's addressed copy of v2 `turn.step.completed` (upstream #3938
+/// puts the request timing on it): the transcript projector folds this into the
+/// step — completion, usage, and the timing breakdown. The transport's own sink
+/// emission (llm/http.rs) serves the host's message fold and carries no
+/// turn/step id, so it cannot address a step; this one can — and `finish_reason`
+/// rides along with it so the step's terminal signal (`max_tokens`, `filtered`)
+/// is still readable from the only `llm.step.end` that names a step.
+fn emit_step_end_event(
+    callbacks: &dyn HostCallbacks,
+    turn_id: &str,
+    step: u32,
+    result: &StepResult,
+) {
+    callbacks.emit_event(serde_json::json!({
+        "type": "llm.step.end",
+        "turn_id": turn_id,
+        "step": step,
+        "finish_reason": result.finish_reason.as_deref(),
+        "usage": {
+            "input_tokens": result.usage.input_tokens,
+            "output_tokens": result.usage.output_tokens,
+            "total_tokens": result.usage.total_tokens,
+            "input_cache_read": result.usage.input_cache_read,
+            "input_cache_creation": result.usage.input_cache_creation,
+        },
+        "timing": serde_json::to_value(&result.timing).unwrap_or(serde_json::Value::Null),
+    }));
+}
+
 /// Map a provider finish reason onto a turn-level stop reason.
 ///
 /// `length` (OpenAI) / `max_tokens` (Anthropic) mean the response was cut off
@@ -979,8 +1022,14 @@ pub fn run_turn<'a>(
             // card (v2 `compaction.started` / `completed` / `cancelled`); the
             // host adds the session id. Guarded on the same trigger the
             // compaction itself uses, so `started` never fires without a
-            // matching terminal event.
-            if crate::compaction::should_compact(context_tokens.tokens(), &compaction_config) {
+            // matching terminal event — and on the split search, so a history
+            // the split cannot cut (see `should_compact_auto`) stays silent
+            // instead of announcing a `completed` that folded nothing.
+            if crate::compaction::should_compact_auto(
+                &messages,
+                context_tokens.tokens(),
+                &compaction_config,
+            ) {
                 callbacks.emit_event(serde_json::json!({
                     "type": "compaction.started",
                     "trigger": "auto",
@@ -1088,6 +1137,12 @@ pub fn run_turn<'a>(
             // The counter is per-step-run, and reset below as soon as a step
             // completes: the window evidently fits again, so the next overflow
             // starts a fresh budget (v2 `afterStep`).
+            //
+            // Announced here rather than at the loop top: the goal/cancel
+            // guards above return with `step_num` ("this step didn't run") and
+            // the compaction guard can fail the turn, and outside the recovery
+            // loop so an overflow round does not announce the same step twice.
+            emit_step_begin_event(callbacks.as_ref(), &turn_id, steps);
             let step_result = 'overflow_recovery: loop {
                 let request_messages = match budgeted_request(
                     &mut media_budget,
@@ -1256,6 +1311,37 @@ pub fn run_turn<'a>(
                             return Err(Box::new(error) as Box<dyn std::error::Error + 'a>);
                         }
                     };
+                    // A compaction that produced no summary cannot change the
+                    // next request, so retrying would just burn the remaining
+                    // attempts on an identical prompt. The v2 shape keeps the
+                    // compacted range's user input verbatim (head + tail), so
+                    // the message count alone cannot prove progress; the
+                    // consecutive-attempt budget above bounds the loop.
+                    //
+                    // This branch has to run *before* the terminal event.
+                    // `force_compact_messages_with_summary_report` returns
+                    // `count == 0` as a bare no-op (no summarizer request, the
+                    // messages unchanged, `tokensAfter == tokensBefore`), so
+                    // announcing `compaction.completed` for it would report a
+                    // success card for zero work and only then fail the turn.
+                    // It is the only source of an empty summary here:
+                    // `summarize_with_llm_budgeted` answers an empty response
+                    // with `Err(EmptySummary)`, never `Ok("")`.
+                    // v2 does the same thing from the other direction:
+                    // `fullCompactionService` throws on an empty summary
+                    // inside `compactionRound`, so `compactionWorker` never
+                    // dispatches `CompactionCompleted` for it and the `catch`
+                    // lands on `cancelActive` -> `CompactionCancelled`.
+                    // `compaction.started` is already out either way, so a
+                    // terminal event is owed; `cancelled` is the one that
+                    // matches what actually happened.
+                    if report.summary.is_empty() && force_compacted.len() >= messages.len() {
+                        callbacks.emit_event(serde_json::json!({
+                            "type": "compaction.cancelled",
+                        }));
+                        return Err(Box::new(std::io::Error::other(err_str))
+                            as Box<dyn std::error::Error + 'a>);
+                    }
                     callbacks.emit_event(serde_json::json!({
                         "type": "compaction.completed",
                         "result": {
@@ -1265,16 +1351,6 @@ pub fn run_turn<'a>(
                             "tokensAfter": report.tokens_after,
                         },
                     }));
-                    // A compaction that produced no summary cannot change the
-                    // next request, so retrying would just burn the remaining
-                    // attempts on an identical prompt. The v2 shape keeps the
-                    // compacted range's user input verbatim (head + tail), so
-                    // the message count alone cannot prove progress; the
-                    // consecutive-attempt budget above bounds the loop.
-                    if report.summary.is_empty() && force_compacted.len() >= messages.len() {
-                        return Err(Box::new(std::io::Error::other(err_str))
-                            as Box<dyn std::error::Error + 'a>);
-                    }
                     tracing::warn!(
                         turn_id = %turn_id,
                         step = step_num,
@@ -1299,26 +1375,9 @@ pub fn run_turn<'a>(
             llm_retries += step_result.attempts.saturating_sub(1);
             last_finish_reason = step_result.finish_reason.clone();
 
-            // v2 `turn.step.completed` (upstream #3938 puts the request
-            // timing on it): the transcript projector folds this into the
-            // step — completion, usage, and the timing breakdown. The
-            // transport's own sink emission (llm/http.rs) serves the host's
-            // message fold and carries no turn/step id, so it cannot address
-            // a step; this one can.
-            callbacks.emit_event(serde_json::json!({
-                "type": "llm.step.end",
-                "turn_id": turn_id,
-                "step": steps,
-                "usage": {
-                    "input_tokens": step_result.usage.input_tokens,
-                    "output_tokens": step_result.usage.output_tokens,
-                    "total_tokens": step_result.usage.total_tokens,
-                    "input_cache_read": step_result.usage.input_cache_read,
-                    "input_cache_creation": step_result.usage.input_cache_creation,
-                },
-                "timing": serde_json::to_value(&step_result.timing)
-                    .unwrap_or(serde_json::Value::Null),
-            }));
+            // v2 `turn.step.completed` — the addressed copy of this step's
+            // boundary, paired with the `emit_step_begin_event` above.
+            emit_step_end_event(callbacks.as_ref(), &turn_id, steps, &step_result);
 
             match step_result.stop_reason {
                 LoopStepStopReason::Complete => {
@@ -1676,6 +1735,11 @@ Deliver your final response as text now. Further tool calls are refused.",
                         });
 
                         steps += 1;
+                        // The handoff step sits outside the `for` loop, so it
+                        // needs its own boundary pair — without it the final
+                        // reply would stream into the card of the step that
+                        // already completed.
+                        emit_step_begin_event(callbacks.as_ref(), &turn_id, steps);
                         let handoff_res = execute_loop_step_with_retry(
                             &turn_id,
                             steps,
@@ -1688,6 +1752,10 @@ Deliver your final response as text now. Further tool calls are refused.",
                             Some(&telemetry),
                         )
                         .await;
+
+                        if let Ok(step_res) = &handoff_res {
+                            emit_step_end_event(callbacks.as_ref(), &turn_id, steps, step_res);
+                        }
 
                         if let Ok(step_res) = handoff_res
                             && !step_res.content.is_empty()
@@ -2417,6 +2485,105 @@ mod tests {
             .unwrap();
         assert_eq!(started["tool_call_id"], "tc-lifecycle");
         assert_eq!(started["tool_name"], "WebSearch");
+    }
+
+    /// v2 pairs `TurnStepStarted` with `TurnStepCompleted` from the loop itself
+    /// (loopService.ts:1393-1408). The boundary events must therefore come from
+    /// `run_turn`, not from the transport: one `llm.step.begin` per step, each
+    /// naming the turn and the 1-based ordinal, strictly before its `end` — a
+    /// summarizer or retry request that reuses the LLM instance can no longer
+    /// announce a step of its own.
+    #[tokio::test]
+    async fn step_boundaries_are_paired_one_begin_and_one_end_per_step() {
+        let llm = PredictTestLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            return_tool_calls: true,
+            tool_responses: vec![ToolCall {
+                id: "tc-boundary".into(),
+                name: "WebSearch".into(),
+                arguments: serde_json::json!({ "query": "x" }),
+                extras: None,
+            }],
+        };
+
+        let server = Arc::new(RpcServer::new());
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    delivery: None,
+                    stop_turn: false,
+                    content: "stub".into(),
+                    is_error: false,
+                    note: None,
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        let (capturing, events) = EventCapturingCallbacks::new(rpc_callbacks(server.clone()));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
+
+        let input = RunTurnInput {
+            previous_turn_aborted: false,
+            turn_id: "test-step-boundaries".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "Hello!".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 2,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+            toolset: None,
+        };
+
+        let turn = run_turn(input, &callbacks).await.unwrap();
+        assert_eq!(turn.steps, 2, "two tool steps ran");
+
+        let boundaries: Vec<serde_json::Value> = events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event.get("type").and_then(|t| t.as_str()),
+                    Some("llm.step.begin" | "llm.step.end")
+                )
+            })
+            .cloned()
+            .collect();
+
+        let sequence: Vec<&str> = boundaries
+            .iter()
+            .filter_map(|event| event.get("type").and_then(|t| t.as_str()))
+            .collect();
+        assert_eq!(
+            sequence,
+            [
+                "llm.step.begin",
+                "llm.step.end",
+                "llm.step.begin",
+                "llm.step.end"
+            ],
+            "every begin is closed by exactly one end before the next step: {sequence:?}"
+        );
+
+        for (index, pair) in boundaries.chunks(2).enumerate() {
+            for event in pair {
+                assert_eq!(event["turn_id"], "test-step-boundaries");
+                assert_eq!(event["step"], serde_json::json!(index + 1));
+            }
+        }
     }
 
     /// A provider `content_filter` finish on the final step must surface
@@ -6205,6 +6372,146 @@ mod tests {
             step_calls,
             rounds + 1,
             "each round retries the step exactly once"
+        );
+    }
+
+    /// The emergency path used to announce `compaction.completed` and only
+    /// then decide the round had done nothing. `count == 0` makes
+    /// `force_compact_messages_with_summary_report` answer with a bare no-op —
+    /// no summarizer request, the messages untouched,
+    /// `tokensAfter == tokensBefore` — so that card claimed a success for zero
+    /// work and the turn failed a line later anyway.
+    ///
+    /// v2 gets the same outcome from the other side: `fullCompactionService`
+    /// throws on an empty summary inside `compactionRound`, so
+    /// `compactionWorker` never reaches its `CompactionCompleted` dispatch and
+    /// the `catch` lands on `cancelActive` -> `CompactionCancelled`. The turn
+    /// loop already owes a terminal event once `compaction.started` is out, so
+    /// the question is only which one; `cancelled` is the one that matches
+    /// what happened.
+    ///
+    /// `[system, single user]` is what drives `count` to 0:
+    /// `can_split_after` refuses to cut after a `user` message, so the split
+    /// search finds no candidate and `fit_compact_count_to_window(0)` floors
+    /// the count.
+    #[tokio::test]
+    async fn overflow_without_a_split_point_reports_cancelled_not_completed() {
+        struct AlwaysOverflowLlm {
+            summarizer_calls: AtomicU32,
+            step_calls: AtomicU32,
+        }
+        impl LLM for AlwaysOverflowLlm {
+            fn system_prompt(&self) -> &str {
+                "sys"
+            }
+            fn model_name(&self) -> &str {
+                "overflow-model"
+            }
+            fn is_retryable_error(&self, _error: &str) -> bool {
+                false
+            }
+            fn transport(&self) -> &'static str {
+                "native-http"
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let is_summarizer = params
+                    .messages
+                    .first()
+                    .is_some_and(|message| message.content.contains("conversation summarizer"));
+                if is_summarizer {
+                    self.summarizer_calls.fetch_add(1, Ordering::SeqCst);
+                    return Box::pin(async move {
+                        Ok(LLMChatResponse {
+                            content: "summary of the omitted prefix".into(),
+                            thinking: vec![],
+                            tool_calls: vec![],
+                            finish_reason: Some("stop".into()),
+                            usage: TokenUsage {
+                                input_tokens: 1,
+                                output_tokens: 1,
+                                total_tokens: 2,
+                                ..Default::default()
+                            },
+                            timing: None,
+                        })
+                    });
+                }
+                self.step_calls.fetch_add(1, Ordering::SeqCst);
+                let message =
+                    "llm http status 400 Bad Request: context_length_exceeded".to_string();
+                Box::pin(async move {
+                    Err(Box::new(std::io::Error::other(message))
+                        as Box<dyn std::error::Error + Send + Sync>)
+                })
+            }
+        }
+
+        let llm = AlwaysOverflowLlm {
+            summarizer_calls: AtomicU32::new(0),
+            step_calls: AtomicU32::new(0),
+        };
+        let server = Arc::new(RpcServer::new());
+        let (capturing, events) = EventCapturingCallbacks::new(rpc_callbacks(server.clone()));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
+
+        let messages = vec![
+            LLMMessage {
+                role: "system".into(),
+                content: "sys".into(),
+                ..Default::default()
+            },
+            LLMMessage {
+                role: "user".into(),
+                content: "one oversized turn that cannot be split anywhere".into(),
+                ..Default::default()
+            },
+        ];
+
+        let input = RunTurnInput {
+            previous_turn_aborted: false,
+            turn_id: "test-overflow-no-split".into(),
+            llm: &llm,
+            messages,
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: Some(100_000),
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+            toolset: None,
+        };
+
+        assert!(run_turn(input, &callbacks).await.is_err());
+        assert_eq!(
+            llm.summarizer_calls.load(Ordering::SeqCst),
+            0,
+            "count == 0 must not reach the summarizer; if this is non-zero the \
+             history has a split point and the test is not exercising the no-op"
+        );
+
+        let compaction: Vec<String> = events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|event| event.get("type").and_then(|kind| kind.as_str()))
+            .filter(|kind| kind.starts_with("compaction."))
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(
+            compaction,
+            ["compaction.started", "compaction.cancelled"],
+            "an emergency compaction that did nothing must close with a terminal \
+             event saying so, not with a success card the turn then fails on"
         );
     }
 

@@ -1317,10 +1317,11 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // resolve rather than silently racing fewer providers.
     const multiLlmProviders = resolveMultiLlmProviders(config, defaultHeaders);
 
-    // 1-based LLM step counter for the current turn. The engine's
-    // `llm.step.begin` / `llm.step.end` events carry no step number (unlike its
-    // internal `EngineEvent::LlmStepBegin`), so the host synthesizes one; it is
-    // reset by `turn.started` in `turnEvent` below.
+    // 1-based LLM step counter for the current turn, reset by `turn.started`
+    // in `turnEvent` below. The turn loop emits exactly one `llm.step.begin`
+    // and one `llm.step.end` per step, both naming the turn and the step; the
+    // host still counts on its own so the numbering stays contiguous if an
+    // engine-side boundary is ever dropped.
     let stepSeq = 0;
 
     // Background tasks seen this handle. `event.task.completed` carries only
@@ -1460,9 +1461,13 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
             update: { kind: 'stdout', text: String(parsed.text ?? '') },
           });
         } else if (parsed.type === 'llm.step.begin') {
-          // Native-LLM step boundary (`llm/http.rs`). The protocol step events
-          // drive the TUI's step counter and streaming phase; without this arm
-          // the step display stayed at 0 for the whole turn.
+          // Turn-loop step boundary (`run_turn`). The transport used to emit one
+          // per chat *request*, which also counted compaction summarizer calls
+          // and retry attempts — a `turn.step.started` with nothing to close it
+          // and an ordinal that skipped ahead. Only the loop can name a step,
+          // so only the loop's boundary reaches the host now. The protocol step
+          // events drive the TUI's step counter and streaming phase; without
+          // this arm the step display stayed at 0 for the whole turn.
           stepSeq += 1;
           this.receiveEvent({
             sessionId,
@@ -1472,21 +1477,53 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
             step: stepSeq,
           });
         } else if (parsed.type === 'llm.step.end') {
-          const usage = toTokenUsage(parsed.usage);
-          this.receiveEvent({
-            sessionId,
-            agentId: eventAgentId,
-            type: 'turn.step.completed',
-            turnId: meta.currentTurnId,
-            step: stepSeq,
-            ...(usage !== undefined ? { usage } : {}),
-            ...(typeof parsed.finish_reason === 'string'
-              ? { finishReason: parsed.finish_reason }
-              : {}),
-            ...(typeof parsed.latency_ms === 'number'
-              ? { llmStreamDurationMs: parsed.latency_ms }
-              : {}),
-          });
+          // Two emitters send `llm.step.end`. The transport (llm/http.rs)
+          // hands the host the assistant text plus `latency_ms` and names no
+          // turn or step — it is what folds the message. The turn loop's
+          // emission is the one that addresses a step, and carries the same
+          // usage plus the v2 `ModelRequestTiming` breakdown that
+          // `turn.step.completed` is specified to carry. Mapping both gave
+          // every step a second `turn.step.completed` with the same turnId,
+          // step and usage, so the TUI counted the same token usage twice
+          // and a `filtered` finish was announced twice. Only the addressed
+          // one maps; the transport's stays the engine's own message fold.
+          if (parsed.turn_id !== undefined || parsed.step !== undefined) {
+            const usage = toTokenUsage(parsed.usage);
+            const timing = parsed.timing as
+              | {
+                  firstTokenLatencyMs?: number;
+                  requestBuildMs?: number;
+                  serverFirstTokenMs?: number;
+                  streamDurationMs?: number;
+                }
+              | null
+              | undefined;
+            const numberFrom = (value: unknown): number | undefined =>
+              typeof value === 'number' ? value : undefined;
+            const firstTokenLatencyMs = numberFrom(timing?.firstTokenLatencyMs);
+            const streamDurationMs = numberFrom(timing?.streamDurationMs);
+            const requestBuildMs = numberFrom(timing?.requestBuildMs);
+            const serverFirstTokenMs = numberFrom(timing?.serverFirstTokenMs);
+            this.receiveEvent({
+              sessionId,
+              agentId: eventAgentId,
+              type: 'turn.step.completed',
+              turnId: meta.currentTurnId,
+              step: stepSeq,
+              ...(usage !== undefined ? { usage } : {}),
+              ...(typeof parsed.finish_reason === 'string'
+                ? { finishReason: parsed.finish_reason }
+                : {}),
+              ...(firstTokenLatencyMs !== undefined
+                ? { llmFirstTokenLatencyMs: firstTokenLatencyMs }
+                : {}),
+              ...(streamDurationMs !== undefined ? { llmStreamDurationMs: streamDurationMs } : {}),
+              ...(requestBuildMs !== undefined ? { llmRequestBuildMs: requestBuildMs } : {}),
+              ...(serverFirstTokenMs !== undefined
+                ? { llmServerFirstTokenMs: serverFirstTokenMs }
+                : {}),
+            });
+          }
         } else if (parsed.type === 'subagent.spawned') {
           if (typeof parsed.subagent_id === 'string') {
             meta.agents = meta.agents ?? {
@@ -2069,6 +2106,14 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       swarmTimeoutMs: swarmTimeoutMs ?? undefined,
       maxAttempts: maxAttempts ?? undefined,
       compactionMaxAttempts: compactionMaxAttempts ?? undefined,
+      // The window `should_compact` compares history against, resolved for
+      // *this session's* model — not `config.defaultModel`, which a session
+      // switched with `/model` never matches. Without it the engine falls back
+      // to its own 128k default and compacts a 1M-window model at ~81k tokens
+      // (`128*1024 - 50_000` reserved). `[models.*].maxInputSize` still wins
+      // inside `compaction_window`, matching v2's `max_input_tokens ??
+      // max_context_tokens`. 0 (no declared window) means "engine default".
+      maxContextTokens: resolveModelContextWindow(config, modelAlias) || undefined,
       maxSteps: maxSteps ?? undefined,
       webSearch: webSearch ?? undefined,
       webFetch: webFetch ?? undefined,

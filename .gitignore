@@ -65,6 +65,10 @@ outputs/
 # Engine runtime home: sessions.db + WAL/SHM, written wherever the engine runs
 .kimi-agent/
 
+# Per-workspace engine home (spill files, tool output) when a run resolves it
+# relative to the repo instead of KIMI_CODE_HOME
+.kimi/
+
 # Trae IDE scratch documents (working plans, not project docs)
 .trae/
 

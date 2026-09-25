@@ -289,8 +289,17 @@ impl NativeHttpLlm {
         );
         let started_at = std::time::Instant::now();
 
-        // Step boundary: the host mirrors these into transcript step events.
-        self.emit(serde_json::json!({ "type": "llm.step.begin", "model": self.config.model }));
+        // `llm.step.begin` is deliberately *not* emitted here. A step boundary
+        // belongs to the turn loop (`run_turn`), the only layer that knows the
+        // turn and the step ordinal — the typed contract
+        // (`EngineEvent::LlmStepBegin { turn_id, step }`) has required both all
+        // along, and this transport cannot fill them in. One chat call is not
+        // one step either: this method runs once per retry *attempt*, and the
+        // same LLM instance is borrowed by the compaction summarizer, the
+        // title generator and the memory filer. Mirroring each request as a
+        // step boundary handed the host a `turn.step.started` for calls that
+        // are not steps, with no `turn.step.completed` to close them once the
+        // addressed emissions were gated.
 
         let mut body = if is_anthropic {
             anthropic::build_request_full(

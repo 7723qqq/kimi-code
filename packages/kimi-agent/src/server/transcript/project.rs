@@ -695,11 +695,11 @@ impl TranscriptProjector {
                     })]
                 }
                 Some("llm.step.begin") => {
-                    // The transport's `llm.step.begin` names no turn
-                    // (llm/http.rs:275 emits `{type, model}` only) — the
-                    // cursor resolves the turn the way an un-idled delta
-                    // does (`custom_delta_turn`), and with no cursor yet
-                    // the pending steers wait for the next one.
+                    // An *unscoped* step boundary. The turn loop's own
+                    // (`run_turn`) names the turn and takes the typed arm
+                    // above, which creates the step and drains `pendingSteers`;
+                    // only a malformed copy can land here, and with no cursor
+                    // yet the pending steers wait for the next one.
                     self.flush_pending_steers()
                 }
                 Some("turn.steer") => self.fold_turn_steer(value),
