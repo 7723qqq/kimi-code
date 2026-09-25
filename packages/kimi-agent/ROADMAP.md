@@ -1899,6 +1899,144 @@ TUI `turn.cancel` 3 ✅｜node-sdk `session-cancel` 6 ✅｜kimi-web 投影器 2
 > 原因：缺导出时宿主行为与从前一致，不会崩。
 
 ---
+
+### 6.12 2026-09-25 思考内容重复报障的排查结论（**前两轮的结论被推翻，见 6.12.4**）
+
+用户报障：**思考模式下思考内容会额外输出一份到正文**（"展开的那个就是思考"），且**只有 opencode 免费线路复现**。
+
+> **6.12.4 更正**：本节前两轮（6.12.1/6.12.2 的"根因"与"修法"）写的是 `reasoning_details` 数组方言导致重复。
+> **该结论已被现场数据推翻** —— 那条线路根本不发那种方言（见 6.12.3）。前两轮的改动作为**独立加固**保留，
+> 但**不是**本报障的修复；本节已按实测重写结论。
+
+**6.12.3 实测：线路与引擎都是干净的（`.tmp/sse-dump.txt`，13 帧真实 SSE）**
+
+- 帧 0-3 只有 `reasoning`，帧 4-10 只有 `content`；`reasoning head present in content? false`
+  → 从不镜像，**没有"网关把思考塞进 content"**。
+- 真实方言是**字段名 `reasoning`**（不是 `reasoning_content`），`reasoning_details` 元素是
+  `{"type":"reasoning.text","text":…,"format":"unknown","index":0}`。
+- `reasoning_details_parts` 只认 `summary`/`encrypted`，`reasoning.text` 元素**被整条丢弃**
+  → 6.12.1/6.12.2 改的那条分支，这条线路**根本走不到**。
+- 引擎→SDK 事件流实测分离正确（`thinking.delta`=英文思考、`assistant.delta`=中文答案，零重叠）。
+
+**6.12.5 思考块"收尾时内容跳变"—— 撤回：这是刻意设计，不是缺陷**
+
+- 现象：`ThinkingComponent` 折叠预览在 `live` 取**尾部** 2 行（`thinking.ts:123`）、
+  `finalized` 取**头部** 2 行 + 展开提示（`thinking.ts:145`），同一条思考在收尾瞬间可见行会变。
+- **曾判为缺陷并改动，复跑既有测试后撤回**：`thinking.test.ts::keeps live thinking height-limited
+  to the tail` 明确钉住"live 取尾、高度受限、不给展开提示"；`kimi-tui-message-flow.test.ts`
+  也依赖该行为。改成统一取头部会让流式期间可见文本**永远停在开头两行**（对"跟随当前思考"更差），
+  并多出一行提示（破坏高度上限）。**原实现是对的，改动是错的。**
+- 保留的只有**通道隔离**回归测试 `.../controllers/thinking-answer-channels.test.ts`（用真实 delta
+  序列钉住"思考通道与正文通道不串"），它与预览取法无关。
+- 结论：这一条**不是 bug**。若确实希望收尾时不跳变，那是产品取舍（finalized 也取尾部 + 改提示
+  文案为"前面还有 N 行"），需要先定意图再改，并同步上面两处既有测试 —— 不在本次打磨范围。
+
+**6.12.6 后端同源隐患（已修）**：`openai.rs` 里两个函数对"字符串方言"的字段集不一致 ——
+`reasoning_delta()` 依次探 `reasoning_content` / `reasoning` / `reasoning_text` / `thought`，
+而 `reasoning_content_seen()` **只认 `reasoning_content`**。对 opencode 这条线路（字段是
+`reasoning`）后者**恒为 false**，尽管字符串方言确实在场；而 6.12.2 的显示裁决正挂在它上面 →
+任何"发 `reasoning` + `summary` 型 details"的网关都会把摘要提升为可见文本。
+- 修法：合并为单一真相 `saw_reasoning_text()`，直接复用 `reasoning_delta()`；标志改名
+  `saw_reasoning_text`。契约钉死：`a_reasoning_field_counts_as_the_string_dialect`。
+
+**6.12.7 顺带查出（未修，待定）**：`~/.kimi-code/logs/kimi-code.log` 里有 **4421 条**
+`WARN Skipping invalid skill`，全部来自同一个坏文件 `~/.kimi-code/skills/B3ehive/SKILL.md`
+（frontmatter 截断，`unexpected end of the stream`）。扫描器每次启动/每轮都重新告警，无去重。
+属用户本地数据 + 扫描器噪声策略问题，与本议题无关。
+
+**6.12.8 全链对了一遍（结论：数据链无第二处问题）**
+
+| 层 | 结论 |
+|---|---|
+| 线路 SSE | 干净（实测） |
+| 引擎 `openai.rs` 分类/finish | 数据干净；定义不一致见 6.12.6 |
+| `llm.step.end` / 服务端消息折叠 | 干净（只折 `content` + `tool_use`） |
+| 宿主 SDK 映射 | 干净（实测） |
+| TUI 事件分派 | 干净（回归测试钉住） |
+| streaming-ui draft/flush/收尾 | 干净（thinking 先、assistant 后，各一次） |
+| `ThinkingComponent` 渲染 | 预览取法为刻意设计（6.12.5），非缺陷 |
+| 折叠 `foldCurrentTurnContent` | 干净（旧思考块是被**移除**并折成计数，不是复制） |
+| 回放 `flushAssistant` | 干净 |
+| 实时面板 | 不渲染思考正文（只有 spinner/tip） |
+| `event.message.updated` 旁路 | TUI 根本不处理（只影响 Web） |
+
+**6.12.9 未复现的部分（如实记录）**：用户描述的"正文多一份"在上述每一层都未复现 —— 数据链
+可证明分离。已排除两处视觉误读来源（`●` 为 assistant/tool/agent/thinking **共用**符号，
+纯文本粘贴无法区分；思考块收尾时的预览跳变已由 6.12.5 消除）。若仍能复现，需要带颜色的
+截图或 `KIMI_LOG_LEVEL=debug` 的事件流来进一步定位 —— 现有 CLI 日志只有 warn/info 级，
+不含事件明细。
+
+**验证（2026-09-25）**：`llm::openai` 41 passed / 0 failed（含 6.12.6 新增契约）｜
+TUI 定向 3 passed（6.12.5 两条 + 6.12.5 通道隔离一条）｜`cargo fmt --check` ✅｜
+`cargo clippy --all-targets --features cli -- -D warnings` ✅｜`check:parity` ✅｜addon 已重建。
+> 全量 `cargo test --features cli --lib` 仍只有 §6.10.5 记录的沙箱 cwd 用例失败。
+
+**6.12.1 / 6.12.2 旧结论（保留原文存档，结论已被 6.12.3 推翻）**
+
+> 以下两小节是第一轮在没有现场数据时写下的推断，当时把"数组方言摘要被重复渲染"当成根因。
+> 实测证明该线路不发这种方言（`reasoning.text` 元素被丢弃），**故它不是本报障的成因**。
+> 其中的**重构本身是成立的**（`hidden` 确实无人读取、显示与回放确实挤在同一个字段），
+> 作为独立加固保留。存档于此以便日后分辨"当时为什么这么想"。
+
+<details><summary>6.12.1 / 6.12.2 原文（已证伪，仅存档）</summary>
+
+**根因（`packages/kimi-agent/src/llm/openai.rs` + `rpc/types.rs`）**
+
+- v2 的 `ThinkPart` 有两个概念在 fork 挤在**同一个字段** `think` 里：
+  ①给用户看的思考文本；②`reasoning_details` 数组元素的 `summary`（回放时要原样还给 provider）。
+  区分靠 `hidden` 标志 + `detailsIndex` 戳。
+- `openai.rs::reasoning_details_parts` 在**同一条流已经出现 `reasoning_content` 字符串方言**时
+  （即那段思考用户已经在实时面板看过了），仍把数组摘要写进 `think`，只额外打一个
+  `hidden: true`（旧 `a_hidden_summary_keeps_its_array_entry_but_not_its_string` 钉的就是这个形状）。
+- 而 `hidden` 的**唯一读取方是请求侧投影** `project_message`（`openai.rs:130-160`）—— 它靠它把
+  摘要排除出字符串字段，保证 provider 只收到一次思考。**客户端一律不认这个标志**
+  （TS 侧全仓检索：`hidden` 只命中无关的 `show_hidden`/commander/CSS），于是同一段思考在最终消息里
+  被渲染两次：实时思考面板一次，`think` 里的摘要一次 —— 表现为正文多一份。
+- 为什么只有 opencode 免费线路：两个条件叠在这条线路上 ——
+  ① 只有它背后的模型说 `reasoning_details` **数组方言**且别名未声明 `reasoning_key`
+  （才走 `openai.rs:626` 那个分支产生摘要块）；
+  ② **它把数组发在字符串之前**。这一点是决定性的：原先"要不要显示摘要"是**逐 chunk 判断**的
+  （`reasoning_details_parts(delta, self.seen_reasoning_content)`），而 `seen_reasoning_content`
+  只有字符串方言**已经出现过之后**才为真 —— 数组先到时，摘要被判成"用户还没看过"而被写进 `think`，
+  字符串随后到达，正文里就有了第二份。别的线路若把字符串先发（或只说一种方言），这条路径不成立。
+
+**修法（重构：把两个角色按字段拆开，而不是再加一个标志）**
+
+- 删掉 `ContentBlock::Think.hidden`（它只对请求侧有意义，客户端永远不认，留在消息里就是陷阱）。
+- 新增 `ContentBlock::Think.details_summary`（serde `detailsSummary`）：**回放载荷字段**，
+  装数组元素的 summary 文本。
+- 不变式写进类型文档：**`think` 只放给用户看的文本**。于是
+  - 同流已有字符串方言 → 摘要进 `details_summary`，`think` 留空 → 客户端无从渲染（**不需要改任何客户端**）；
+  - 只有数组方言 → 摘要同时进 `think`（用户要看，这是他唯一的思考）与 `details_summary`
+    （回放要重建数组）→ **功能不缺失**。
+- `project_message` 改为从 `details_summary` 重建数组元素，并保留 `think` 兜底
+  （`details_summary` 缺失时仍按 `think` 重建）→ **旧会话数据库里已存的旧形状消息照旧能回放**。
+- **显示裁决从"逐 chunk"改为"整条流结束时"**（`StreamAccumulator::finish`）：`feed` 阶段一律把摘要
+  停放到 `details_summary`，`finish` 看到整条流确实没有字符串方言时才把它提升为 `think`。
+  这是本轮真正的修复点 —— 它一次覆盖"数组先到 / 数组后到 / 只有数组"三种形态，
+  不再依赖**分块顺序**这种我们无权控制的线路行为。
+
+**契约钉死（`llm::openai`）**
+
+- `a_seen_summary_keeps_its_array_entry_without_repeating_its_text`：双方言流 → 摘要块 `think` 为空、
+  `details_summary` 有值、`response.content` 不含摘要；`build_request_full` 仍产出
+  `reasoning_details: [{type: summary, summary: …}]` 且 `reasoning_content` 只有流式那份。
+- `an_array_only_summary_stays_visible_and_keeps_its_entry`：只有数组方言 → 摘要**仍然可显示**，
+  且数组照旧重建。
+- `a_reasoning_details_delta_produces_stamped_think_parts`（既有）按新契约更新期望值。
+
+**已知边界（如实记录）**：修复只对**新产生**的消息生效。本地会话库里**修复前**写入的 assistant
+消息仍是旧形状（`think` 带摘要、无 `detailsSummary`），回放这类历史消息时那段摘要仍会显示在它自己的
+思考块里 —— 功能不受影响（数组照旧由 `think` 兜底重建），只是观感与修复前一致。
+
+</details>
+
+**本轮最终验证（2026-09-25）**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli
+-- -D warnings` ✅｜`cargo test --features cli --lib` **2877 passed / 1 failed**（唯一失败为
+§6.10.5 已定位的沙箱 cwd 用例）｜`llm::openai` 41 passed（含 6.12.6 新契约）｜TUI 定向 3 passed
+（`thinking-preview` 2 + `thinking-answer-channels` 1）｜`bun scripts/scan-parity.mjs` ✅
+（REST 67 / WS 27 / ctl 12 / tools 88 / napi 103 / config 31）｜addon 已重建。
+
 ---
 
 ## 7. v1 / v3 协议面自创实现审计（2026-09-20，按铁律）

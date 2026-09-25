@@ -127,20 +127,19 @@ fn project_message(m: &WireMessage, reasoning_key: Option<&str>) -> Value {
             encrypted,
             details_index,
             reasoning_key: part_key,
-            hidden,
+            details_summary,
         } = block
         else {
             continue;
         };
-        // v2 `lowerMessage`: a hidden part's text is already carried by the
-        // string dialect, so it stays out of every string accumulation —
-        // its array entry below still stands.
-        let hidden = hidden == &Some(true);
-        if !hidden {
-            all_thinking.push_str(think);
-        }
+        // `think` is the displayable text, `details_summary` the array entry's
+        // payload. They never overlap unless the model speaks no string dialect
+        // at all, in which case the summary is also what the user must read.
+        all_thinking.push_str(think);
         if details_index.is_some() {
-            if !think.is_empty() {
+            if let Some(summary) = details_summary {
+                details.push(json!({ "type": "summary", "summary": summary }));
+            } else if !think.is_empty() {
                 details.push(json!({ "type": "summary", "summary": think }));
             }
             if let Some(encrypted) = encrypted {
@@ -152,14 +151,10 @@ fn project_message(m: &WireMessage, reasoning_key: Option<&str>) -> Value {
             .as_deref()
             .filter(|key| *key != REASONING_DETAILS_KEY)
         {
-            if !hidden {
-                push_string_field(&mut string_fields, key, think);
-            }
+            push_string_field(&mut string_fields, key, think);
             continue;
         }
-        if !hidden {
-            unstamped.push_str(think);
-        }
+        unstamped.push_str(think);
     }
     let redirected = reasoning_key.is_some() || !details.is_empty() || !string_fields.is_empty();
     if redirected && !unstamped.is_empty() {
@@ -380,7 +375,7 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
             encrypted: None,
             details_index: None,
             reasoning_key: None,
-            hidden: None,
+            details_summary: None,
         });
     }
 
@@ -466,12 +461,16 @@ pub struct StreamAccumulator {
     /// dialect, stamped with their position (v2 #3910's unported half). They
     /// ride the final message beside the unstamped `thinking` text so the
     /// replay can rebuild the array.
+    ///
+    /// The summary text is parked in `details_summary` and the decision to
+    /// *display* it is deferred to [`Self::finish`], because a gateway may put
+    /// the array before the string dialect: judging per chunk would render a
+    /// summary that the string then repeats.
     stamped: Vec<ContentBlock>,
     /// Whether the stream carried the `reasoning_content` string dialect
-    /// (v2's `seenReasoningContent`): the details-derived summaries are then
-    /// stamped `hidden`, so the replay does not send the same reasoning
-    /// twice.
-    seen_reasoning_content: bool,
+    /// (v2's `seenReasoningContent`): when it did, the details-derived
+    /// summaries stay replay-only, so the reasoning is not shown twice.
+    saw_reasoning_text: bool,
     tool_calls: Vec<PartialToolCall>,
     finish_reason: Option<String>,
     usage: TokenUsage,
@@ -519,14 +518,15 @@ impl StreamAccumulator {
             .or_else(|| delta.get("thought").and_then(|c| c.as_str()))
     }
 
-    /// Whether this delta carried the `reasoning_content` string (v2's
-    /// `seenReasoningContent`): once it has, the details-derived summaries
-    /// are stamped `hidden` — the replay keeps their array entries but
-    /// leaves their text out of the string fields.
-    fn reasoning_content_seen(&self, delta: &Value) -> bool {
-        delta
-            .get("reasoning_content")
-            .and_then(|c| c.as_str())
+    /// Whether this delta carried reasoning as **text** (v2's
+    /// `seenReasoningContent`). It must answer from the same fields as
+    /// [`Self::reasoning_delta`]: a gateway that spells the field `reasoning`
+    /// — the opencode free tier does — streams the string dialect perfectly
+    /// well, and asking only for `reasoning_content` would report "no string
+    /// reasoning" for it, leaving the `reasoning_details` summaries eligible
+    /// for display and so rendering reasoning the user already read twice.
+    fn saw_reasoning_text(&self, delta: &Value) -> bool {
+        self.reasoning_delta(delta)
             .is_some_and(|text| !text.is_empty())
     }
 
@@ -610,22 +610,20 @@ impl StreamAccumulator {
             think_delta = Some(StreamDelta::Think(think.to_string()));
         }
         // v2 `seenReasoningContent`: once the `reasoning_content` string has
-        // been seen, the details-derived summaries are stamped `hidden` —
-        // the replay keeps their array entries but leaves their text out of
-        // the string fields, so the provider does not see the same reasoning
-        // twice.
-        if self.reasoning_content_seen(delta) {
-            self.seen_reasoning_content = true;
+        // been seen, the details-derived parts keep their *position* only —
+        // the replay keeps their array entries, and because a stamped part is
+        // replay-only, no text is left to show twice.
+        if self.saw_reasoning_text(delta) {
+            self.saw_reasoning_text = true;
         }
         // v2 `extractReasoningDetails`: a model that declares no reasoning
         // key speaks the raw `reasoning_details` dialect — each array
-        // element becomes a think part stamped with its position, which the
-        // request replay rebuilds into the array (v2 #3910's unported half).
-        // The stamps ride the final message only; the live stream shows the
-        // string dialect, and a stamped part has no string form to show.
+        // element becomes a stamped think part carrying its position, which
+        // the request replay rebuilds into the array (v2 #3910's unported half).
+        // The live stream shows the string dialect.
         if self.reasoning_key.is_none() {
             self.stamped
-                .extend(reasoning_details_parts(delta, self.seen_reasoning_content));
+                .extend(reasoning_details_parts(delta, self.saw_reasoning_text));
         }
         if let Some(delta) = think_delta {
             return Some(delta);
@@ -670,13 +668,34 @@ impl StreamAccumulator {
                 encrypted: None,
                 details_index: None,
                 reasoning_key: None,
-                hidden: None,
+                details_summary: None,
             }]
         };
         let mut thinking = thinking;
         // The stamped parts follow the unstamped text: the replay partitions
         // by stamp, so the order only affects how a reader folds them.
         thinking.extend(self.stamped);
+        // Settle displayability now that the whole stream is in. With a string
+        // dialect present, the streamed text is the user's copy and the parked
+        // summaries stay replay-only — `reasoning_details_parts` already left
+        // `think` empty, so there is nothing to undo. Only a stream that carried
+        // no string at all promotes its summaries into the visible text.
+        // Deciding per chunk would miss a gateway that sends the array first
+        // and the string after.
+        if !self.saw_reasoning_text {
+            for block in &mut thinking {
+                if let ContentBlock::Think {
+                    think,
+                    details_summary,
+                    ..
+                } = block
+                    && think.is_empty()
+                    && let Some(summary) = details_summary.clone()
+                {
+                    *think = summary;
+                }
+            }
+        }
 
         LLMChatResponse {
             content: self.content,
@@ -698,10 +717,16 @@ impl StreamAccumulator {
 /// `extractReasoningDetails` + `convertReasoningDetails`): each element's
 /// position is the part's `detailsIndex`, a summary element carries its
 /// text, an encrypted element its attestation. An element that is neither
-/// is dropped, the way v2's converter drops it. `hidden_summary` stamps the
-/// summary parts hidden — the string dialect already carried them (v2's
-/// `seenReasoningContent`).
-fn reasoning_details_parts(delta: &Value, hidden_summary: bool) -> Vec<ContentBlock> {
+/// is dropped, the way v2's converter drops it.
+///
+/// `string_dialect_seen` is accepted for symmetry with v2's
+/// `seenReasoningContent`, but the display decision is deliberately *not* made
+/// here: a gateway may put the `reasoning_details` array **before** the string
+/// dialect, and a per-chunk judgement would then render a summary the string
+/// goes on to repeat. Every summary is parked in `details_summary` here and
+/// [`StreamAccumulator::finish`] promotes it to `think` only if the stream
+/// turned out to carry no string at all.
+fn reasoning_details_parts(delta: &Value, _string_dialect_seen: bool) -> Vec<ContentBlock> {
     let Some(array) = delta.get(REASONING_DETAILS_KEY).and_then(Value::as_array) else {
         return Vec::new();
     };
@@ -713,19 +738,22 @@ fn reasoning_details_parts(delta: &Value, hidden_summary: bool) -> Vec<ContentBl
             .unwrap_or_default();
         let summary = element.get("summary").and_then(Value::as_str);
         let encrypted = element.get("encrypted").and_then(Value::as_str);
-        let stamped =
-            |think: String, encrypted: Option<String>, hidden: Option<bool>| ContentBlock::Think {
+        let stamped = |think: String, encrypted: Option<String>, summary: Option<String>| {
+            ContentBlock::Think {
                 think,
                 encrypted,
                 details_index: Some(index as u32),
                 reasoning_key: Some(REASONING_DETAILS_KEY.to_string()),
-                hidden,
-            };
+                details_summary: summary,
+            }
+        };
         if kind != "encrypted" && summary.is_some_and(|text| !text.is_empty()) {
+            // Display is settled in `finish`, once the whole stream has said
+            // whether a string dialect appeared at all.
             parts.push(stamped(
-                summary.unwrap_or_default().to_string(),
+                String::new(),
                 None,
-                hidden_summary.then_some(true),
+                Some(summary.unwrap_or_default().to_string()),
             ));
         }
         if kind != "summary" && encrypted.is_some_and(|text| !text.is_empty()) {
@@ -905,7 +933,7 @@ mod tests {
                     encrypted: None,
                     details_index: None,
                     reasoning_key: None,
-                    hidden: None,
+                    details_summary: None,
                 },
                 ContentBlock::Text {
                     text: "The answer is 7.".into(),
@@ -959,21 +987,21 @@ mod tests {
                     encrypted: None,
                     details_index: Some(0),
                     reasoning_key: Some("reasoning_details".into()),
-                    hidden: None,
+                    details_summary: None,
                 },
                 ContentBlock::Think {
                     think: String::new(),
                     encrypted: Some("sig-abc".into()),
                     details_index: Some(1),
                     reasoning_key: Some("reasoning_details".into()),
-                    hidden: None,
+                    details_summary: None,
                 },
                 ContentBlock::Think {
                     think: "and the plain rest".into(),
                     encrypted: None,
                     details_index: None,
                     reasoning_key: None,
-                    hidden: None,
+                    details_summary: None,
                 },
                 ContentBlock::Text {
                     text: "done".into(),
@@ -1014,14 +1042,14 @@ mod tests {
                     encrypted: None,
                     details_index: None,
                     reasoning_key: Some("reasoning".into()),
-                    hidden: None,
+                    details_summary: None,
                 },
                 ContentBlock::Think {
                     think: "second".into(),
                     encrypted: None,
                     details_index: None,
                     reasoning_key: Some("reasoning".into()),
-                    hidden: None,
+                    details_summary: None,
                 },
             ],
             tool_calls: Vec::new(),
@@ -1060,14 +1088,17 @@ mod tests {
                     encrypted: None,
                     details_index: Some(0),
                     reasoning_key: Some("reasoning_details".into()),
-                    hidden: None,
+                    // No string dialect in this stream, so the summary is also
+                    // what the user reads — and the array entry keeps its own
+                    // copy for the replay.
+                    details_summary: Some("step one".into()),
                 },
                 ContentBlock::Think {
                     think: String::new(),
                     encrypted: Some("sig-1".into()),
                     details_index: Some(1),
                     reasoning_key: Some("reasoning_details".into()),
-                    hidden: None,
+                    details_summary: None,
                 },
             ],
             "an element that is neither summary nor encrypted is dropped"
@@ -1075,12 +1106,12 @@ mod tests {
     }
 
     /// v2 `seenReasoningContent`: once the stream carried the
-    /// `reasoning_content` string, the details-derived summaries are stamped
-    /// hidden — the replay keeps their array entries but leaves their text
-    /// out of the string fields, so the provider does not see the same
-    /// reasoning twice.
+    /// `reasoning_content` string, the details-derived summary has already been
+    /// shown, so it moves into `details_summary` and `think` — the only field a
+    /// client renders — stays empty. The array entry still round-trips, and the
+    /// provider still sees the reasoning once.
     #[test]
-    fn a_hidden_summary_keeps_its_array_entry_but_not_its_string() {
+    fn a_seen_summary_keeps_its_array_entry_without_repeating_its_text() {
         let mut acc = StreamAccumulator::new();
         acc.feed(&json!({
             "choices": [{ "delta": { "reasoning_content": "the short form" } }],
@@ -1099,16 +1130,22 @@ mod tests {
                     encrypted: None,
                     details_index: None,
                     reasoning_key: None,
-                    hidden: None,
+                    details_summary: None,
                 },
                 ContentBlock::Think {
-                    think: "the long form".into(),
+                    // Nothing for a client to render: the user already read the
+                    // reasoning through the string dialect.
+                    think: String::new(),
                     encrypted: None,
                     details_index: Some(0),
                     reasoning_key: Some("reasoning_details".into()),
-                    hidden: Some(true),
+                    details_summary: Some("the long form".into()),
                 },
             ],
+        );
+        assert_eq!(
+            response.content, "",
+            "the summary must not leak into the answer text either"
         );
 
         let req = build_request_full(
@@ -1127,12 +1164,136 @@ mod tests {
             None,
         );
         let first = &req["messages"][0];
-        // The array entry stands; the hidden text stays out of the string.
+        // The array entry stands, with its summary intact.
         assert_eq!(
             first["reasoning_details"],
             json!([{ "type": "summary", "summary": "the long form" }]),
         );
         assert_eq!(first["reasoning_content"], "the short form");
+    }
+
+    /// The array arriving **before** the string is the ordering that made this
+    /// show up on one gateway only: judging per chunk would have rendered the
+    /// summary, which the string then repeated. The final message must carry
+    /// the string as the displayable text and the summary as replay payload.
+    #[test]
+    fn an_array_before_the_string_still_yields_one_visible_copy() {
+        let mut acc = StreamAccumulator::new();
+        acc.feed(&json!({
+            "choices": [{ "delta": {
+                "reasoning_details": [{ "type": "summary", "summary": "the long form" }],
+            } }],
+        }));
+        acc.feed(&json!({
+            "choices": [{ "delta": { "reasoning_content": "the short form" } }],
+        }));
+        acc.feed(&json!({
+            "choices": [{ "delta": { "content": "the answer" } }],
+        }));
+        let response = acc.finish();
+
+        let visible: String = response
+            .thinking
+            .iter()
+            .map(|block| match block {
+                ContentBlock::Think { think, .. } => think.as_str(),
+                _ => "",
+            })
+            .collect();
+        assert_eq!(
+            visible, "the short form",
+            "the summary must not be rendered when the string dialect showed up later"
+        );
+        assert_eq!(response.content, "the answer");
+        assert!(
+            response.thinking.iter().any(|block| matches!(
+                block,
+                ContentBlock::Think { details_summary: Some(summary), .. } if summary == "the long form"
+            )),
+            "the array entry still round-trips"
+        );
+    }
+
+    /// The field-name mismatch this guards: a gateway that spells the string
+    /// dialect `reasoning` (the opencode free tier does) must count as *having*
+    /// shown its reasoning, so a `reasoning_details` summary arriving alongside
+    /// it stays replay-only. Asking only about `reasoning_content` reported "no
+    /// string reasoning" here and promoted the summary into the visible text.
+    #[test]
+    fn a_reasoning_field_counts_as_the_string_dialect() {
+        let mut acc = StreamAccumulator::new();
+        acc.feed(&json!({
+            "choices": [{ "delta": {
+                "reasoning": "the streamed thought",
+                "reasoning_details": [{ "type": "summary", "summary": "the summary" }],
+            } }],
+        }));
+        let response = acc.finish();
+
+        let visible: String = response
+            .thinking
+            .iter()
+            .map(|b| match b {
+                ContentBlock::Think { think, .. } => think.as_str(),
+                _ => "",
+            })
+            .collect();
+        assert_eq!(
+            visible, "the streamed thought",
+            "only the string dialect may be rendered"
+        );
+        assert!(
+            response.thinking.iter().any(|b| matches!(
+                b,
+                ContentBlock::Think { details_summary: Some(s), .. } if s == "the summary"
+            )),
+            "the summary survives as replay payload"
+        );
+    }
+
+    /// The mirror image: a model that speaks *only* the array dialect has no
+    /// streamed string to show, so the summary stays displayable — and the
+    /// replay still rebuilds the array from the same part.
+    #[test]
+    fn an_array_only_summary_stays_visible_and_keeps_its_entry() {
+        let mut acc = StreamAccumulator::new();
+        acc.feed(&json!({
+            "choices": [{ "delta": {
+                "reasoning_details": [{ "type": "summary", "summary": "only reasoning" }],
+            } }],
+        }));
+        let response = acc.finish();
+        assert_eq!(
+            response.thinking,
+            vec![ContentBlock::Think {
+                think: "only reasoning".into(),
+                encrypted: None,
+                details_index: Some(0),
+                reasoning_key: Some("reasoning_details".into()),
+                details_summary: Some("only reasoning".into()),
+            }],
+            "with no string dialect the summary is the user's only reasoning"
+        );
+
+        let req = build_request_full(
+            "m",
+            &[WireMessage {
+                role: "assistant".into(),
+                content: String::new(),
+                blocks: response.thinking,
+                tool_calls: Vec::new(),
+                tool_call_id: None,
+            }],
+            &[],
+            true,
+            None,
+            None,
+            None,
+        );
+        assert_eq!(
+            req["messages"][0]["reasoning_details"],
+            json!([{ "type": "summary", "summary": "only reasoning" }]),
+        );
     }
 
     #[test]
@@ -1343,7 +1504,7 @@ mod tests {
                 encrypted: None,
                 details_index: None,
                 reasoning_key: None,
-                hidden: None,
+                details_summary: None,
             }
         );
     }
@@ -1388,7 +1549,7 @@ mod tests {
                 encrypted: None,
                 details_index: None,
                 reasoning_key: None,
-                hidden: None,
+                details_summary: None,
             }
         );
     }

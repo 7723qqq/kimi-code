@@ -188,7 +188,7 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
                                     encrypted: encrypted.clone(),
                                     details_index: None,
                                     reasoning_key: None,
-                                    hidden: None,
+                                    details_summary: None,
                                 });
                             }
                         }
@@ -442,7 +442,7 @@ impl StreamAccumulator {
                 encrypted: None,
                 details_index: None,
                 reasoning_key: None,
-                hidden: None,
+                details_summary: None,
             });
         }
 

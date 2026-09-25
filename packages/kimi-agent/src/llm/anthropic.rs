@@ -283,7 +283,7 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
                     encrypted: signature,
                     details_index: None,
                     reasoning_key: None,
-                    hidden: None,
+                    details_summary: None,
                 });
             }
             Some("text") => {
@@ -627,7 +627,7 @@ impl StreamAccumulator {
                             encrypted: signature,
                             details_index: None,
                             reasoning_key: None,
-                            hidden: None,
+                            details_summary: None,
                         });
                     }
                 }
@@ -1035,7 +1035,7 @@ mod tests {
                 encrypted: Some("sig_abc123".into()),
                 details_index: None,
                 reasoning_key: None,
-                hidden: None,
+                details_summary: None,
             }
         );
     }
@@ -1070,7 +1070,7 @@ mod tests {
                 encrypted: Some("sig_xyz".into()),
                 details_index: None,
                 reasoning_key: None,
-                hidden: None,
+                details_summary: None,
             }
         );
     }
@@ -1310,7 +1310,7 @@ mod tests {
                 encrypted: Some("sig-abc".into()),
                 details_index: None,
                 reasoning_key: None,
-                hidden: None,
+                details_summary: None,
             }],
             tool_calls: vec![ToolCall {
                 id: "call_ls".into(),

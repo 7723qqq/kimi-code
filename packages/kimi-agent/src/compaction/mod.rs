@@ -1483,7 +1483,7 @@ mod tests {
             encrypted: None,
             details_index: None,
             reasoning_key: None,
-            hidden: None,
+            details_summary: None,
         });
         assert_eq!(estimate_message_tokens(&m_think), 4);
 
@@ -1530,7 +1530,7 @@ mod tests {
             encrypted: None,
             details_index: None,
             reasoning_key: None,
-            hidden: None,
+            details_summary: None,
         });
         m_combo.blocks.push(ContentBlock::ImageUrl {
             url: "http://example.com/img.jpg".into(), // 2000 tokens

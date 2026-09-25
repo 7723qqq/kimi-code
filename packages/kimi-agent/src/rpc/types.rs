@@ -536,6 +536,15 @@ pub enum ContentBlock {
     /// signature (Anthropic `signature`), which must come back with the block.
     /// The JSON shape is the host's `ThinkPart`, so a block crosses into the
     /// transcript unchanged.
+    ///
+    /// **`think` is displayable text and nothing else.** A block that exists
+    /// only to rebuild the provider's `reasoning_details` array carries its
+    /// payload in `details_summary` and leaves `think` empty, so no client can
+    /// render reasoning the user has already seen: the OpenAI replay
+    /// (`llm/openai.rs::project_message`) rebuilds the array from
+    /// `details_summary` and sends unstamped `think` in the model's declared
+    /// reasoning field. Keeping both roles in one field is what made a
+    /// details-derived summary show up a second time, inside the answer.
     Think {
         think: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -559,12 +568,17 @@ pub enum ContentBlock {
             skip_serializing_if = "Option::is_none"
         )]
         reasoning_key: Option<String>,
-        /// A summary the string dialect already carried (v2
-        /// `ThinkPart.hidden`): the replay keeps its array entry but leaves
-        /// its text out of the string fields, so the provider does not see
-        /// the same reasoning twice.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        hidden: Option<bool>,
+        /// The `summary` text of this part's `reasoning_details` array entry
+        /// (v2 `ThinkPart.detailsSummary`) — replay payload, never rendered.
+        /// Set instead of `think` when the same reasoning already reached the
+        /// user through the string dialect, so the array survives the round
+        /// trip without a second copy on screen.
+        #[serde(
+            rename = "detailsSummary",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        details_summary: Option<String>,
     },
 }
 
@@ -1658,7 +1672,7 @@ mod tests {
                 encrypted: None,
                 details_index: None,
                 reasoning_key: None,
-                hidden: None,
+                details_summary: None,
             }],
             finish_reason: Some("stop".to_string()),
             usage: TokenUsage {

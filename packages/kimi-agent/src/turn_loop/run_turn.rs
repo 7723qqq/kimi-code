@@ -3319,7 +3319,7 @@ mod tests {
                                 encrypted: Some("sig-abc".into()),
                                 details_index: None,
                                 reasoning_key: None,
-                                hidden: None,
+                                details_summary: None,
                             }],
                             tool_calls: vec![ToolCall {
                                 id: "tc1".into(),
