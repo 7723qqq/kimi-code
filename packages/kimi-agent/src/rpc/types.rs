@@ -2284,6 +2284,11 @@ pub struct ToolInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolDelivery {
     pub blocks: Vec<ContentBlock>,
+    /// Origin of the delivered user message (v2
+    /// `ToolDeliveryMessage.origin`), e.g. a `skill_activation` origin so the
+    /// transcript attributes it. `None` stays an ordinary user message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<serde_json::Value>,
 }
 
 /// Goal status, matching the 6-state machine in `kimi-native-tools::goal::state`.

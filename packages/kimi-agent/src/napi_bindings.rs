@@ -2106,6 +2106,7 @@ async fn build_engine_pipeline(
         // Enabled plugins contribute skill roots; the host's own
         // `extra_skill_dirs` arrive through the config the host resolved.
         skill_dirs: plugin_skill_dirs(),
+        merge_all_available_skills: crate::config::resolved_merge_all_available_skills(),
         background: crate::storage::BackgroundLimits::from_wire(
             params
                 .kill_grace_period_ms
@@ -2413,6 +2414,13 @@ static SESSION_NEXT_ID: AtomicU32 = AtomicU32::new(1);
 #[derive(Clone)]
 struct SessionEntry {
     session: Arc<EngineSession>,
+    /// The live permission engine, so a host can switch the mode mid-turn
+    /// (`session_set_permission_mode`) without rebuilding the session. `None`
+    /// when the pipeline built without a policy snapshot.
+    permission_engine: Option<Arc<crate::permission::PermissionEngine>>,
+    /// The roots and policy the engine's skill catalog is scanned with, so
+    /// `session_skills` can serve that catalog to the host.
+    skill_scan: crate::skills::SkillScanRoots,
     turn_event_count: Arc<std::sync::atomic::AtomicU32>,
     native_tool_count: Arc<std::sync::atomic::AtomicU32>,
     llm_transport: String,
@@ -2699,6 +2707,8 @@ pub fn create_engine_session(
                     session_id.clone(),
                     SessionEntry {
                         session,
+                        permission_engine: pipeline.permission_engine.clone(),
+                        skill_scan: pipeline.skill_scan.clone(),
                         turn_event_count: pipeline.turn_event_count,
                         native_tool_count: pipeline.native_tool_count,
                         llm_transport: pipeline.llm.transport().to_string(),
@@ -2847,6 +2857,33 @@ pub fn session_cancel_turn(session_id: String, turn_id: Option<f64>) -> napi::Re
     })
 }
 
+/// Switch the permission mode on the live session, so the change takes
+/// effect for the turn already running — the next tool evaluation reads the
+/// new mode — instead of only after a pipeline rebuild. Returns `false` when
+/// the session has no local permission engine; the caller then falls back to
+/// rebuilding the handle.
+#[napi]
+pub fn session_set_permission_mode(session_id: String, mode: String) -> napi::Result<bool> {
+    guard_sync_panic(|| {
+        let entry = session_entry(&session_id)?;
+        let Some(engine) = entry.permission_engine.as_ref() else {
+            return Ok(false);
+        };
+        let new_mode = match mode.as_str() {
+            "manual" => crate::permission::PermissionMode::Manual,
+            "yolo" => crate::permission::PermissionMode::Yolo,
+            "auto" => crate::permission::PermissionMode::Auto,
+            other => {
+                return Err(napi::Error::from_reason(format!(
+                    "unknown permission mode: {other}"
+                )));
+            }
+        };
+        engine.set_mode(new_mode);
+        Ok(true)
+    })
+}
+
 /// Live session shape: the active turn id and the queued turn ids.
 #[napi]
 pub fn session_status(session_id: String) -> napi::Result<JsSessionStatus> {
@@ -2887,6 +2924,25 @@ pub fn session_mcp_servers(env: Env, session_id: String) -> napi::Result<JsObjec
             let entries = manager.server_entries().await;
             serde_json::to_string(&entries)
                 .map_err(|e| napi::Error::from_reason(format!("serialize MCP roster: {e}")))
+        },
+        |env, json: String| env.create_string(&json),
+    )
+}
+
+/// The engine's skill catalog for this session, as a JSON array of
+/// `SkillDescriptor` — the same shape the `/api/v1/…/skills` routes serve.
+///
+/// v2 serves the catalog from the engine, so a host renders the builtin product
+/// skills, the dotted sub-skill commands and the configured `extra_skill_dirs`
+/// from it. A host that re-scanned the filesystem on its own would list none of
+/// those (and would disagree with the system prompt's `# Skills` section).
+#[napi]
+pub fn session_skills(env: Env, session_id: String) -> napi::Result<JsObject> {
+    let scan = session_entry(&session_id)?.skill_scan;
+    env.execute_tokio_future(
+        async move {
+            serde_json::to_string(&scan.catalog())
+                .map_err(|e| napi::Error::from_reason(format!("serialize skill catalog: {e}")))
         },
         |env, json: String| env.create_string(&json),
     )
@@ -3391,27 +3447,24 @@ fn build_session_system_prompt(params: &JsRunTurnParams) -> String {
         return params.system_prompt.clone();
     };
     let skill_dirs = plugin_skill_dirs();
+    // The same value the pipeline spec carries (`with_skill_scan`), so the
+    // prompt's skills section and the `Skill` tool's scan cannot disagree.
+    let merge_all_available_skills = crate::config::resolved_merge_all_available_skills();
     match params.agent_profile.as_deref().map(str::trim) {
         Some(profile) if !profile.is_empty() => {
             crate::prompt::SystemPromptBuilder::build_for_profile(
                 root,
                 skill_dirs,
-                merge_all_available_skills(),
+                merge_all_available_skills,
                 profile,
             )
         }
-        _ => crate::prompt::SystemPromptBuilder::build_default_with_skill_dirs(root, skill_dirs),
+        _ => crate::prompt::SystemPromptBuilder::build_default_with_skill_config(
+            root,
+            skill_dirs,
+            merge_all_available_skills,
+        ),
     }
-}
-
-/// `[merge_all_available_skills]` for the prompt builder, read from the
-/// process-wide config the host pinned. Unset keeps the documented default
-/// (`true`), so a process that never loaded a config scans every directory it
-/// did before.
-fn merge_all_available_skills() -> bool {
-    crate::config::KimiConfig::discover()
-        .map(|(config, _)| config.resolve_merge_all_available_skills())
-        .unwrap_or(true)
 }
 
 /// The enabled plugins' MCP servers, read from the process-wide registry.

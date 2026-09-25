@@ -486,6 +486,7 @@ pub fn read_image_media(
                         id: None,
                         name: None,
                     }],
+                    origin: None,
                 }),
             });
         }
@@ -640,6 +641,7 @@ pub fn read_image_media(
                     data: base64,
                     name: None,
                 }],
+                origin: None,
             }),
         });
     }
@@ -781,6 +783,7 @@ pub fn read_image_media(
                 data: base64,
                 name: None,
             }],
+            origin: None,
         }),
     })
 }

@@ -1708,6 +1708,25 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
               },
             });
           }
+        } else if (parsed.type === 'skill.activated') {
+          // The engine's native Skill tool records model-tool activations (v2
+          // `SkillTool.execution`): forward the same fields the host-side
+          // user-slash activation sends.
+          this.receiveEvent({
+            sessionId,
+            agentId: eventAgentId,
+            type: 'skill.activated',
+            activationId: String(parsed.activationId ?? ''),
+            skillName: String(parsed.skillName ?? ''),
+            ...(typeof parsed.skillArgs === 'string' && parsed.skillArgs.length > 0
+              ? { skillArgs: parsed.skillArgs }
+              : {}),
+            trigger: parsed.trigger === 'nested-skill' ? 'nested-skill' : 'model-tool',
+            ...(typeof parsed.skillPath === 'string' ? { skillPath: parsed.skillPath } : {}),
+            ...(typeof parsed.skillSource === 'string'
+              ? { skillSource: parsed.skillSource }
+              : {}),
+          });
         } else if (parsed.type === 'warning') {
           // Engine-side turn warnings (media budget, MCP startup, …). Without
           // this arm they were dropped on the floor: the engine emitted them
@@ -1926,6 +1945,29 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
             ...(parsed.trace_id ? { traceId: parsed.trace_id } : {}),
           });
           meta.activeAgentId = undefined;
+        } else if (parsed.type === 'turn.cancel') {
+          // v2 `TurnCancel`. A turn cancelled while still queued never starts,
+          // so it emits **no** `turn.ended` — this is the only terminal signal
+          // a client ever gets for it. Dropping it here (the old behaviour)
+          // left the busy indicator and the composer stuck forever.
+          const target =
+            parsed.target === 'active' || parsed.target === 'queued'
+              ? (parsed.target as 'active' | 'queued')
+              : undefined;
+          const reason =
+            parsed.reason === 'user_cancelled' || parsed.reason === 'aborted'
+              ? (parsed.reason as 'user_cancelled' | 'aborted')
+              : undefined;
+          this.receiveEvent({
+            sessionId,
+            agentId: eventAgentId,
+            type: 'turn.cancel',
+            ...(parsed.turnId !== undefined || parsed.turn_id !== undefined
+              ? { turnId }
+              : {}),
+            ...(target !== undefined ? { target } : {}),
+            ...(reason !== undefined ? { reason } : {}),
+          });
         }
         // Unknown turn events are dropped (see emitEvent).
       },
@@ -3080,9 +3122,29 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   override async setPermission(input: SetSessionPermissionRpcInput): Promise<void> {
     const meta = this.requireSession(input.sessionId);
-    // The permission mode lives in the policy snapshot the engine's
-    // PermissionEngine was built from, so changing it rebuilds the handle.
-    await this.applyRebuiltSetting(meta, 'permissionMode', input.mode);
+    if (meta.permissionMode === input.mode) {
+      this.emitStatusUpdated(meta);
+      return;
+    }
+    const previous = meta.permissionMode;
+    meta.permissionMode = input.mode;
+    // Both attempts are compensated the same way: an unknown mode makes the
+    // engine's switch return an error, and a failed rebuild leaves the previous
+    // handle in place. Either failure must restore the recorded mode, or the
+    // session reports one mode while the engine enforces another.
+    try {
+      // The engine's PermissionEngine supports a live mode switch, so the new
+      // mode reaches the turn already running instead of waiting for the next
+      // handle. A session without a live engine falls back to a rebuild.
+      const switchedLive = meta.handle ? await meta.handle.setPermissionMode(input.mode) : false;
+      if (!switchedLive) {
+        await this.rebuildHandle(meta);
+      }
+    } catch (error) {
+      meta.permissionMode = previous;
+      throw error;
+    }
+    this.persistMeta(meta);
     this.emitStatusUpdated(meta);
   }
 
@@ -4029,7 +4091,25 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   override async listSkills(input: SessionIdRpcInput): Promise<readonly SkillSummary[]> {
     const meta = this.requireSession(input.sessionId);
-    return this.listWorkspaceSkills(meta.workDir);
+    // v2 serves the skill catalog from the engine, and this list drives the
+    // slash panel: the builtin product skills, the dotted sub-skill commands
+    // and `extra_skill_dirs` exist only there — a host-side scan listed none of
+    // them, so `/custom-theme` and `/sub-skill.review` never appeared even
+    // though the system prompt advertised them.
+    const engine = meta.handle ? await meta.handle.skills() : undefined;
+    if (engine === undefined) {
+      return this.listWorkspaceSkills(meta.workDir);
+    }
+    const merged: SkillSummary[] = [...(engine as SkillSummary[])];
+    const seen = new Set(merged.map((skill) => skill.name.toLowerCase()));
+    // Keep the host's own roots (it scans `<home>/skills`, which the engine
+    // does not) and let the engine's precedence win on a name clash.
+    for (const skill of await this.listWorkspaceSkills(meta.workDir)) {
+      if (seen.has(skill.name.toLowerCase())) continue;
+      seen.add(skill.name.toLowerCase());
+      merged.push(skill);
+    }
+    return merged;
   }
 
   override async activateSkill(input: ActivateSkillRpcInput): Promise<void> {

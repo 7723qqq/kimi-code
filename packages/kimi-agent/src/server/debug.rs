@@ -1343,6 +1343,7 @@ mod tests {
                 image_max_edge_px: None,
                 model_capabilities: None,
                 skill_dirs: Vec::new(),
+                merge_all_available_skills: true,
                 background: crate::storage::BackgroundLimits::default(),
             },
             hub,

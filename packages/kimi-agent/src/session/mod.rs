@@ -1728,9 +1728,10 @@ async fn run_session_turn(
     let mut messages = history;
     messages.push(prompt);
     let input = RunTurnInput {
-        previous_turn_aborted: ctx
-            .last_turn_aborted
-            .swap(false, std::sync::atomic::Ordering::Relaxed),
+        // Use the value read above: `swap` is read-and-clear, so re-reading
+        // `last_turn_aborted` here would consume the flag a second time and
+        // always observe `false` — the interruption reminder would never fire.
+        previous_turn_aborted,
         max_attempts: ctx.max_attempts,
         turn_id: format!("turn-{turn_id}"),
         llm: ctx.llm.as_ref(),
@@ -2621,6 +2622,66 @@ mod tests {
         let o1 = r1.outcome().await.unwrap();
         assert!(matches!(o1, TurnOutcome::Ran(_)));
         assert_eq!(requests.lock().unwrap().len(), 1);
+    }
+
+    /// A queued turn cancelled before it starts must announce the cancel and
+    /// **never** a `turn.ended` — the v2 `cancelWaiter` contract
+    /// (`loopService.ts:735-750`: `cancelQueueItem` → `publishPromptAborted`,
+    /// with no `TurnEnded` anywhere on that path). A client that only watches
+    /// `turn.ended` therefore stays busy forever after such a cancel, which is
+    /// exactly why `turn.cancel` has to be a wire event.
+    #[tokio::test]
+    async fn test_queued_cancel_emits_turn_cancel_and_no_turn_ended() {
+        let (llm, gates) = ScriptedLlm::with_gate(vec![text_response("first")]);
+        let llm = Arc::new(llm);
+        let requests = llm.requests.clone();
+        let (callbacks, events) = TurnRecordingCallbacks::new(serde_json::json!({}));
+        let session = make_session(llm, Arc::new(callbacks)).await;
+
+        let mut r1 = session
+            .enqueue_turn(TurnRequest::user(msg("user", "first"), Admission::NewTurn))
+            .unwrap();
+        wait_until(|| !requests.lock().unwrap().is_empty()).await;
+        let mut r2 = session
+            .enqueue_turn(TurnRequest::user(msg("user", "second"), Admission::NewTurn))
+            .unwrap();
+        assert!(session.cancel_turn(Some(r2.turn_id)));
+        assert!(matches!(
+            r2.outcome().await.unwrap(),
+            TurnOutcome::CancelledBeforeStart
+        ));
+
+        // The cancel is announced…
+        let seen = recorded(&events);
+        assert!(
+            seen.iter().any(|event| matches!(
+                event,
+                TurnEvent::Cancel {
+                    target: Some(TurnCancelTarget::Queued),
+                    ..
+                }
+            )),
+            "the queued cancel must reach the host: {seen:?}"
+        );
+        // …and the turn that never started reports no end at all.
+        assert!(
+            !seen
+                .iter()
+                .any(|event| matches!(event, TurnEvent::Ended { .. })),
+            "a turn that never started must not report turn.ended: {seen:?}"
+        );
+
+        gates.into_iter().next().unwrap().send(()).unwrap();
+        assert!(matches!(r1.outcome().await.unwrap(), TurnOutcome::Ran(_)));
+        // Only the turn that actually ran closes with `turn.ended`.
+        let seen = recorded(&events);
+        assert_eq!(
+            seen.iter()
+                .filter(|event| matches!(event, TurnEvent::Ended { .. }))
+                .count(),
+            1,
+            "only the turn that ran reports ended: {seen:?}"
+        );
     }
 
     #[tokio::test]

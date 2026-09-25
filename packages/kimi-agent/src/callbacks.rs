@@ -1432,9 +1432,26 @@ impl HostCallbacks for StateStoreCallbacks {
             }
             match inner.state_read(request.clone()).await {
                 Ok(resp) => Ok(resp),
-                Err(_) => store
-                    .read_state(&request.domain, &request.key)
-                    .map(|value| StateReadResponse { value }),
+                Err(host_err) => match store.read_state(&request.domain, &request.key) {
+                    Ok(value) => Ok(StateReadResponse { value }),
+                    Err(store_err) => {
+                        // A domain the local store does not own (v2's
+                        // host-owned ones — `skill` today) has no authoritative
+                        // local answer, so `-32001 unknown state domain` is a
+                        // fact about *this* store, not about the request.
+                        // Returning it both hides why the host failed and
+                        // defeats the caller's own error mapping: the Skill
+                        // tool matches on the "does not support state bridge"
+                        // phrase to tell the model to stop calling it.
+                        if crate::storage::state_store::STATE_DOMAINS
+                            .contains(&request.domain.as_str())
+                        {
+                            Err(store_err)
+                        } else {
+                            Err(host_err)
+                        }
+                    }
+                },
             }
         })
     }
@@ -3382,6 +3399,51 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(store.checkpoint_depth(), 1);
+    }
+
+    /// A domain the local store does not own (v2's host-owned `skill`) must
+    /// surface the *host's* error, not the store's `-32001 unknown state
+    /// domain`: the latter is a fact about this store, not about the request,
+    /// and it defeats the Skill tool's own error mapping (which matches on the
+    /// host's "does not support state bridge" phrase to tell the model to stop
+    /// calling the tool). An engine-owned domain keeps the store's verdict.
+    #[tokio::test]
+    async fn test_unowned_domain_surfaces_the_host_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store =
+            Arc::new(crate::storage::StateStore::for_dir(tmp.path().join("state")).unwrap());
+        // RecordingCallbacks does not override `state_read`, so it answers with
+        // the trait default: "host does not support state bridge".
+        let adapter = StateStoreCallbacks {
+            inner: Arc::new(RecordingCallbacks {
+                events: Arc::new(std::sync::Mutex::new(Vec::new())),
+            }),
+            store: store.clone(),
+        };
+
+        let err = adapter
+            .state_read(StateReadRequest {
+                domain: "skill".into(),
+                key: "commit".into(),
+                turn_id: "turn-1".into(),
+                tool_call_id: "call-1".into(),
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err, "host does not support state bridge");
+
+        // Engine-owned domain: the store stays the authority, so its own
+        // verdict survives (task output lookup misses are `-32002`).
+        let err = adapter
+            .state_read(StateReadRequest {
+                domain: "task".into(),
+                key: "no-such-task".into(),
+                turn_id: "turn-1".into(),
+                tool_call_id: "call-1".into(),
+            })
+            .await
+            .unwrap_err();
+        assert!(err.contains("-32002"), "{err}");
     }
 
     /// A host whose checkpoint reports a real failure (not the unsupported

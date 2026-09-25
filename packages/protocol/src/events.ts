@@ -752,6 +752,23 @@ export interface TurnEndedEvent {
   readonly traceId?: string;
 }
 
+/**
+ * v2 `TurnCancel` (`agent/loop/turnOps.ts`, dispatched from
+ * `loopService.ts:826`). A cancellation aimed at the active turn or at one
+ * still sitting in the queue.
+ *
+ * A turn cancelled while queued never starts, so it produces **no**
+ * `turn.ended` — this event is its only terminal signal. A client that only
+ * watches `turn.ended` therefore stays "running" forever after such a
+ * cancel, which is why it has to be handled on the client side too.
+ */
+export interface TurnCancelEvent {
+  readonly type: 'turn.cancel';
+  readonly turnId?: number;
+  readonly target?: 'active' | 'queued';
+  readonly reason?: 'user_cancelled' | 'aborted';
+}
+
 export interface TurnStepStartedEvent {
   readonly type: 'turn.step.started';
   readonly turnId: number;
@@ -1086,6 +1103,7 @@ export type AgentEvent =
   | PluginCommandActivatedEvent
   | TurnStartedEvent
   | TurnEndedEvent
+  | TurnCancelEvent
   | TurnStepStartedEvent
   | TurnStepCompletedEvent
   | TurnStepRetryingEvent
@@ -1809,6 +1827,13 @@ export const turnEndedEventSchema = z.object({
   traceId: z.string().optional(),
 }) satisfies z.ZodType<TurnEndedEvent>;
 
+export const turnCancelEventSchema = z.object({
+  type: z.literal('turn.cancel'),
+  turnId: z.number().optional(),
+  target: z.enum(['active', 'queued']).optional(),
+  reason: z.enum(['user_cancelled', 'aborted']).optional(),
+}) satisfies z.ZodType<TurnCancelEvent>;
+
 export const turnStepStartedEventSchema = z.object({
   type: z.literal('turn.step.started'),
   turnId: z.number(),
@@ -2107,6 +2132,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   pluginCommandActivatedEventSchema,
   turnStartedEventSchema,
   turnEndedEventSchema,
+  turnCancelEventSchema,
   turnStepStartedEventSchema,
   turnStepCompletedEventSchema,
   turnStepRetryingEventSchema,

@@ -14,9 +14,12 @@ DISREGARD any earlier skill listings. Current available skills:";
 
 /// Render a list of skill descriptors into the formatted Markdown `# Skills` section.
 pub fn render_skills_markdown(skills: &[SkillDescriptor]) -> String {
+    // Sub-skills are user-invocable only: v2's catalog filters them out
+    // (`listInvocableSkills` drops `isSubSkill`) and advertises the parent
+    // instead, so the model never sees `<parent>.<child>`.
     let active_skills: Vec<&SkillDescriptor> = skills
         .iter()
-        .filter(|s| !s.disable_model_invocation)
+        .filter(|s| !s.disable_model_invocation && s.is_sub_skill != Some(true))
         .collect();
 
     if active_skills.is_empty() {
@@ -111,6 +114,7 @@ mod tests {
                 path: "path/1".into(),
                 disable_model_invocation: true,
                 scopes: None,
+                is_sub_skill: None,
             },
             SkillDescriptor {
                 name: "hidden-2".into(),
@@ -119,6 +123,7 @@ mod tests {
                 path: "path/2".into(),
                 disable_model_invocation: true,
                 scopes: None,
+                is_sub_skill: None,
             },
         ];
         assert_eq!(render_skills_markdown(&hidden_skills), "");
@@ -135,6 +140,7 @@ mod tests {
                 path: "G:/ws/skills/proj-tool".into(),
                 disable_model_invocation: false,
                 scopes: None,
+                is_sub_skill: None,
             },
             // Disabled skill in project scope must be omitted
             SkillDescriptor {
@@ -144,6 +150,7 @@ mod tests {
                 path: "G:/ws/skills/secret-tool".into(),
                 disable_model_invocation: true,
                 scopes: None,
+                is_sub_skill: None,
             },
             // User scope
             SkillDescriptor {
@@ -153,6 +160,7 @@ mod tests {
                 path: "C:/Users/name/.skills/user-helper".into(),
                 disable_model_invocation: false,
                 scopes: None,
+                is_sub_skill: None,
             },
             // Built-in scope with empty description fallback
             SkillDescriptor {
@@ -162,6 +170,7 @@ mod tests {
                 path: "builtin://exec".into(),
                 disable_model_invocation: false,
                 scopes: None,
+                is_sub_skill: None,
             },
             // Extra scope (any unrecognized source string)
             SkillDescriptor {
@@ -171,6 +180,7 @@ mod tests {
                 path: "plugins/marketplace/custom".into(),
                 disable_model_invocation: false,
                 scopes: None,
+                is_sub_skill: None,
             },
         ];
 
@@ -202,6 +212,39 @@ mod tests {
         assert!(md.contains("### Extra\n- plugin-custom: External plugin skill\n  Path: plugins/marketplace/custom\n"));
     }
 
+    /// v2's catalog drops `isSubSkill` from the model-facing list: a sub-skill
+    /// is user-invocable, and the parent is what the prompt advertises.
+    #[test]
+    fn test_render_skills_omits_sub_skills_and_keeps_the_parent() {
+        let skills = vec![
+            SkillDescriptor {
+                name: "bundle".into(),
+                description: "Container skill".into(),
+                source: "project".into(),
+                path: "G:/ws/skills/bundle".into(),
+                disable_model_invocation: false,
+                scopes: None,
+                is_sub_skill: None,
+            },
+            SkillDescriptor {
+                name: "bundle.child".into(),
+                description: "A sub-skill".into(),
+                source: "project".into(),
+                path: "G:/ws/skills/bundle/child".into(),
+                // A file-discovered sub-skill carries no disable flag: only
+                // `is_sub_skill` keeps it out of the prompt.
+                disable_model_invocation: false,
+                scopes: None,
+                is_sub_skill: Some(true),
+            },
+        ];
+
+        let md = render_skills_markdown(&skills);
+        assert!(md.contains("- bundle: Container skill\n"), "{md}");
+        assert!(!md.contains("bundle.child"), "{md}");
+        assert!(!md.contains("A sub-skill"), "{md}");
+    }
+
     #[test]
     fn test_render_skills_omits_empty_groups() {
         // Only User skills provided
@@ -212,6 +255,7 @@ mod tests {
             path: "path/user".into(),
             disable_model_invocation: false,
             scopes: None,
+            is_sub_skill: None,
         }];
 
         let md = render_skills_markdown(&skills);

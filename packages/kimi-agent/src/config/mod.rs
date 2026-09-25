@@ -1461,6 +1461,20 @@ impl KimiConfig {
     }
 }
 
+/// `merge_all_available_skills` as the process config resolves it — `true` when
+/// no config file is discoverable (the documented default).
+///
+/// The prompt builder and the `Skill` tool must read the **same** value: an
+/// entry that builds a [`PipelineSpec`] without a loaded config (the addon, the
+/// stdio run-turn adapter) resolves it here, so both halves of the pair agree.
+///
+/// [`PipelineSpec`]: crate::pipeline::PipelineSpec
+pub fn resolved_merge_all_available_skills() -> bool {
+    KimiConfig::discover()
+        .map(|(config, _)| config.resolve_merge_all_available_skills())
+        .unwrap_or(true)
+}
+
 /// A non-blank trimmed string (v2 `nonBlankEnv` / `nonEmptyString`).
 fn non_blank(value: Option<&str>) -> Option<String> {
     let trimmed = value?.trim();

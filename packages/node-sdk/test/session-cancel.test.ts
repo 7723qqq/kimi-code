@@ -78,6 +78,35 @@ describe('Session.cancel', () => {
     }
   });
 
+  // The host used to forward only `turn.started` / `turn.ended` and drop every
+  // other turn record ("Unknown turn events are dropped"). `turn.cancel` is
+  // v2's `TurnCancel`, and for a turn cancelled while still queued it is the
+  // **only** terminal signal — a client that never sees it stays busy forever.
+  it('forwards the turn.cancel record to SDK listeners', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-cancel-record-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-cancel-record-work-');
+    await writeFakeModelConfig(homeDir);
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_cancel_record', workDir });
+      const started = waitForSDKEvent(session, (event) => event.type === 'turn.started');
+      const cancelRecord = waitForSDKEvent(session, (event) => event.type === 'turn.cancel');
+
+      await session.prompt('start a turn that will be cancelled');
+      await started;
+      await session.cancel();
+
+      await expect(cancelRecord).resolves.toMatchObject({
+        type: 'turn.cancel',
+        sessionId: session.id,
+        target: 'active',
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
   it('rejects manual compaction on an empty session with compaction.unable', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-cancel-compact-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-cancel-compact-work-');

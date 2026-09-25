@@ -909,6 +909,7 @@ impl McpManager {
                 Some(ExecutableToolResult {
                     delivery: (!converted.delivery.is_empty()).then_some(ToolDelivery {
                         blocks: converted.delivery,
+                        origin: None,
                     }),
                     stop_turn: false,
                     content: text_parts.join("\n"),

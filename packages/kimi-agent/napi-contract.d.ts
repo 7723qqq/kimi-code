@@ -1592,10 +1592,30 @@ export declare function sessionReleaseQuiescence(sessionId: string): void
 export declare function sessionSetHistory(sessionId: string, historyJson: string): void
 
 /**
+ * Switch the permission mode on the live session, so the change takes
+ * effect for the turn already running — the next tool evaluation reads the
+ * new mode — instead of only after a pipeline rebuild. Returns `false` when
+ * the session has no local permission engine; the caller then falls back to
+ * rebuilding the handle.
+ */
+export declare function sessionSetPermissionMode(sessionId: string, mode: string): boolean
+
+/**
  * Resolves once the session is fully idle: no active turn, no pending or
  * held turns.
  */
 export declare function sessionSettled(sessionId: string): object
+
+/**
+ * The engine's skill catalog for this session, as a JSON array of
+ * `SkillDescriptor` — the same shape the `/api/v1/…/skills` routes serve.
+ *
+ * v2 serves the catalog from the engine, so a host renders the builtin product
+ * skills, the dotted sub-skill commands and the configured `extra_skill_dirs`
+ * from it. A host that re-scanned the filesystem on its own would list none of
+ * those (and would disagree with the system prompt's `# Skills` section).
+ */
+export declare function sessionSkills(sessionId: string): object
 
 /**
  * Start a btw side-channel instance forked from the session's current

@@ -2048,4 +2048,36 @@ mod tests {
         let verdict = engine.evaluate("Bash", &json!({ "command": "ls -la" }));
         assert_eq!(verdict.decision, VerdictDecision::Ask, "plan mode asks");
     }
+
+    #[test]
+    fn test_set_mode_switches_live_verdicts() {
+        // Start manual: an ordinary Bash call falls through to FallbackAsk.
+        let engine = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Manual,
+            ..Default::default()
+        });
+        let before = engine.evaluate("Bash", &json!({ "command": "cargo check" }));
+        assert_eq!(before.decision, VerdictDecision::Ask);
+        assert_eq!(before.policy_name, "FallbackAsk");
+
+        // Live switch to yolo — the same call is now approved without a
+        // pipeline rebuild, so a mode change reaches the turn already running.
+        engine.set_mode(PermissionMode::Yolo);
+        let after = engine.evaluate("Bash", &json!({ "command": "cargo check" }));
+        assert_eq!(after.decision, VerdictDecision::Allow);
+        assert_eq!(after.policy_name, "YoloModeApprove");
+        assert_eq!(engine.mode(), PermissionMode::Yolo);
+
+        // Switching back to manual restores the ask verdict.
+        engine.set_mode(PermissionMode::Manual);
+        let again = engine.evaluate("Bash", &json!({ "command": "cargo check" }));
+        assert_eq!(again.decision, VerdictDecision::Ask);
+
+        // Auto approves outright; a dangerous command still passes (the
+        // dangerous-ask policy is skipped before it runs).
+        engine.set_mode(PermissionMode::Auto);
+        let auto = engine.evaluate("Bash", &json!({ "command": "sudo rm -rf /" }));
+        assert_eq!(auto.decision, VerdictDecision::Allow);
+        assert_eq!(auto.policy_name, "AutoModeApprove");
+    }
 }

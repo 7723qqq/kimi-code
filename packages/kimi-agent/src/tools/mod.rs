@@ -420,6 +420,16 @@ pub struct NativeToolset {
     /// Host-authorized extra roots (`additionalDirs`). Already canonicalized;
     /// see [`Sandbox::with_extra`].
     extra_roots: Vec<PathBuf>,
+    /// Extra skill scan roots (`extra_skill_dirs`), the same list the system
+    /// prompt's `# Skills` section was rendered from. The `Skill` tool
+    /// resolves from the engine's scan, so it must scan the same roots or it
+    /// cannot load skills the prompt advertised.
+    skill_dirs: Vec<PathBuf>,
+    /// `merge_all_available_skills` (`true` = the documented default): whether
+    /// each scope group scans every available directory or only its first
+    /// existing one. The prompt is rendered with this switch, so the tool must
+    /// apply the same policy or it resolves names the prompt never listed.
+    merge_all_available_skills: bool,
     /// Host shell for Bash (the host always uses bash, including Git Bash on
     /// Windows). `None` on Windows means "host owns Bash" — native Bash would
     /// otherwise run commands under a different shell than the tool's
@@ -569,6 +579,8 @@ impl NativeToolset {
         Some(Self {
             root,
             extra_roots: Vec::new(),
+            skill_dirs: Vec::new(),
+            merge_all_available_skills: true,
             shell_bridge: std::sync::Arc::new(
                 crate::native::shell_path_bridge::ShellPathBridge::new(
                     shell.as_deref().unwrap_or_default(),
@@ -604,6 +616,20 @@ impl NativeToolset {
 
     /// Host-authorized extra roots (`additionalDirs`): directories outside the
     /// workspace root that this session may still read and write natively.
+    /// Bind the skill scan: the extra roots the `Skill` tool scans **and** the
+    /// `merge_all_available_skills` policy — both must match what the system
+    /// prompt's skills section was rendered from, or the tool and the prompt
+    /// advertise different skills.
+    pub fn with_skill_scan(
+        mut self,
+        dirs: impl IntoIterator<Item = PathBuf>,
+        merge_all_available_skills: bool,
+    ) -> Self {
+        self.skill_dirs = dirs.into_iter().collect();
+        self.merge_all_available_skills = merge_all_available_skills;
+        self
+    }
+
     pub fn with_extra_roots(mut self, extra: Vec<String>) -> Self {
         let roots: Vec<PathBuf> = extra
             .into_iter()
@@ -1333,7 +1359,19 @@ impl NativeToolset {
             }
             "skill" => {
                 let callbacks = self.callbacks.as_deref()?;
-                Some(skill::execute_skill(callbacks, self.session_id.as_deref(), args).await)
+                Some(
+                    skill::execute_skill(
+                        callbacks,
+                        self.session_id.as_deref(),
+                        args,
+                        skill::SkillScan {
+                            root: Some(self.root.as_path()),
+                            extra_dirs: &self.skill_dirs,
+                            merge_all_available_skills: self.merge_all_available_skills,
+                        },
+                    )
+                    .await,
+                )
             }
             "notifyuser" | "notify_user" => {
                 let message = args.get("message").and_then(Value::as_str).unwrap_or("");

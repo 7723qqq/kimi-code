@@ -194,6 +194,7 @@ async fn main() -> anyhow::Result<()> {
                 image_max_edge_px: config.resolve_image_max_edge_px(),
                 model_capabilities,
                 skill_dirs: config.extra_skill_dirs_paths(),
+                merge_all_available_skills: config.resolve_merge_all_available_skills(),
                 background: config.background_limits(),
             };
             let hub = Arc::new(kimi_agent::server::hub::EventHub::new());
@@ -1103,6 +1104,7 @@ async fn build_engine_pipeline(
         image_max_edge_px: params.image_max_edge_px,
         model_capabilities: params.model_capabilities.clone(),
         skill_dirs: Vec::new(),
+        merge_all_available_skills: kimi_agent::config::resolved_merge_all_available_skills(),
         background: kimi_agent::storage::BackgroundLimits::from_wire(
             params.kill_grace_period_ms,
             params.max_running_tasks.map(u64::from),
@@ -1339,6 +1341,7 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         image_max_edge_px: config.resolve_image_max_edge_px(),
         model_capabilities,
         skill_dirs: config.extra_skill_dirs_paths(),
+        merge_all_available_skills: config.resolve_merge_all_available_skills(),
         background: config.background_limits(),
     };
 

@@ -21,6 +21,24 @@ use crate::turn_loop::types::{LLM, LLMChatParams, LLMChatResponse};
 /// the connect/idle behavior of the pool.
 const REQUEST_TIMEOUT_SECS: u64 = 600;
 
+/// `KIMI_SSE_DUMP=<path>`: append each raw SSE frame to a file while a
+/// request streams. Diagnostic for gateway field behavior — e.g. reasoning
+/// text re-emitted as content — that the typed event surface cannot show.
+/// Reading the env var per frame keeps the dump behind an explicit opt-in.
+fn dump_raw_frame(protocol: &str, data: &str) {
+    use std::io::Write;
+    let Ok(path) = std::env::var("KIMI_SSE_DUMP") else {
+        return;
+    };
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(file, "[{protocol}] {data}");
+    }
+}
+
 /// Fire-and-forget sink for streaming events (text or thinking deltas). The value is a
 /// JSON event object; the receiver forwards it to the JS host transcript.
 pub type EventSink = Arc<dyn Fn(serde_json::Value) + Send + Sync>;
@@ -456,6 +474,7 @@ impl NativeHttpLlm {
                     continue;
                 }
             };
+            dump_raw_frame(&self.config.protocol, &event.data);
             if let Some(message) = crate::native::extract_in_band_error(&value) {
                 in_band_error = Some(message);
                 break;

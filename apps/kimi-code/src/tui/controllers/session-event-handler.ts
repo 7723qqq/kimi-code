@@ -324,6 +324,15 @@ export class SessionEventHandler {
       case 'turn.ended':
         this.handleTurnEnd(event, sendQueued);
         break;
+      case 'turn.cancel':
+        // v2 `TurnCancel`. Only the queued target is terminal here: that turn
+        // never starts, so no `turn.ended` ever follows and this is the sole
+        // signal that the composer may leave the busy state. The active target
+        // is still running — its own `turn.ended(cancelled)` finalizes it.
+        if (event.target === 'queued') {
+          this.handleTurnCancelledBeforeStart(sendQueued);
+        }
+        break;
       case 'turn.step.started':
         this.handleStepBegin(event);
         break;
@@ -471,6 +480,22 @@ export class SessionEventHandler {
         stale: event.origin.stale,
       },
     });
+  }
+
+  /**
+   * A turn was dropped while still queued (v2 `TurnCancel` with
+   * `target: 'queued'`). Nothing of it reached the transcript, so this is a
+   * lighter cleanup than {@link handleTurnEnd}: drop the turn-scoped tool
+   * bookkeeping, hand the composer back, and let `finalizeTurn` release one
+   * queued message. Without it the session stayed busy forever, because no
+   * `turn.ended` is emitted for a turn that never started.
+   */
+  private handleTurnCancelledBeforeStart(sendQueued: (item: QueuedMessage) => void): void {
+    this.clearStepRetry();
+    this.toolStartTimes.clear();
+    this.host.streamingUI.resetToolUi();
+    this.host.streamingUI.finalizeTurn(sendQueued);
+    this.host.recordSessionActivity();
   }
 
   private handleTurnEnd(event: TurnEndedEvent, sendQueued: (item: QueuedMessage) => void): void {

@@ -48,6 +48,7 @@ const MAIN_AGENT_TRANSCRIPT_FRAMES = new Set<string>([
   'turn.step.retrying',
   'turn.step.interrupted',
   'turn.ended',
+  'turn.cancel',
   'thinking.delta',
   'assistant.delta',
   'tool.use',
@@ -1114,6 +1115,23 @@ export function createAgentProjector(): AgentProjector {
       }
 
       // -----------------------------------------------------------------------
+      case 'turn.cancel': {
+        // v2 `TurnCancel`. A turn cancelled while still queued never starts,
+        // so it emits **no** `turn.ended` — this is the only terminal signal
+        // the client gets for it. Project it onto the same "the main turn is
+        // no longer active" fact the `turn.ended` arm produces, otherwise the
+        // working moon and the composer stay stuck forever.
+        //
+        // `target: 'active'` is deliberately a no-op: that turn is still
+        // running and its own `turn.ended(cancelled)` closes it, so acting
+        // here would finish the turn twice.
+        if (p?.target === 'queued') {
+          out.push({ type: 'turnActiveChanged', sessionId, active: false, reason: 'cancelled' });
+        }
+        break;
+      }
+
+      // -----------------------------------------------------------------------
       case 'prompt.completed': {
         // No state change at AppEvent level — turn.ended / the session
         // status_changed ahead of this event already finished the prompt. The
@@ -1547,6 +1565,7 @@ const KNOWN_AGENT_CORE_TYPES = new Set([
   'turn.step.retrying',
   'turn.step.interrupted',
   'turn.ended',
+  'turn.cancel',
   'thinking.delta',
   'assistant.delta',
   'tool.call.started',

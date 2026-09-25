@@ -138,10 +138,17 @@ export interface SessionNativeModule {
   sessionEnqueueTurn(sessionId: string, prompt: string, admission: string): number;
   sessionTurnOutcome(sessionId: string, turnId: number): Promise<SessionTurnOutcome>;
   sessionCancelTurn(sessionId: string, turnId?: number): boolean;
+  /** Switch the permission mode on the live engine; false when the session
+   *  has no local permission engine (caller falls back to a rebuild). */
+  sessionSetPermissionMode(sessionId: string, mode: string): boolean;
   sessionStatus(sessionId: string): SessionStatus;
   /** The MCP roster this session's pipeline connected, as a JSON array of
    *  `McpServerEntry`. `[]` when the session was built without `mcp_servers`. */
   sessionMcpServers(sessionId: string): Promise<string>;
+  /** The engine's skill catalog as a JSON array of `SkillDescriptor`.
+   *  Optional: an addon that predates the export reports `undefined`, and the
+   *  caller keeps its own scan. */
+  sessionSkills?(sessionId: string): Promise<string>;
   /** Startup warnings for this session, as a JSON array of
    *  `{ code, message, severity }`. `[]` when nothing is degraded. */
   sessionWarnings(sessionId: string): Promise<string>;
@@ -306,6 +313,11 @@ export class EngineSessionHandle {
     return this.transport.cancelTurn(this.id, turnId);
   }
 
+  /** Switch the permission mode live so it reaches the turn already running. */
+  setPermissionMode(mode: string): Promise<boolean> {
+    return this.transport.setPermissionMode!(this.id, mode);
+  }
+
   status(): Promise<SessionStatus> {
     return this.transport.status(this.id);
   }
@@ -314,6 +326,12 @@ export class EngineSessionHandle {
    *  transport carries none. */
   async mcpServers(): Promise<unknown[]> {
     return (await this.transport.mcpServers?.(this.id)) ?? [];
+  }
+
+  /** The engine's skill catalog. `undefined` when the transport cannot serve
+   *  it, so the caller falls back to its own scan. */
+  async skills(): Promise<unknown[] | undefined> {
+    return this.transport.skills?.(this.id);
   }
 
   /** Startup warnings for this session; `[]` when the transport carries none. */
@@ -453,6 +471,9 @@ export interface SessionTransport {
   ): Promise<number>;
   turnOutcome(sessionId: string, turnId: number): Promise<SessionTurnOutcome>;
   cancelTurn(sessionId: string, turnId?: number): Promise<boolean>;
+  /** Optional: live permission-mode switch (napi today). When absent the
+   *  host rebuilds the handle instead. */
+  setPermissionMode?(sessionId: string, mode: string): Promise<boolean>;
   status(sessionId: string): Promise<SessionStatus>;
   isSettled(sessionId: string): Promise<boolean>;
   settled(sessionId: string): Promise<void>;
@@ -468,6 +489,12 @@ export interface SessionTransport {
   startBtw?(sessionId: string): Promise<string>;
   /** The MCP roster this session's pipeline connected. */
   mcpServers?(sessionId: string): Promise<unknown[]>;
+  /**
+   * The engine's skill catalog (`SkillDescriptor` records). `undefined` when the
+   * transport cannot serve it (an addon that predates the export, or stdio), so
+   * the caller keeps its own scan as the fallback.
+   */
+  skills?(sessionId: string): Promise<unknown[] | undefined>;
   /** Startup warnings for this session. */
   warnings?(sessionId: string): Promise<unknown[]>;
   btwPrompt?(
@@ -564,6 +591,10 @@ class NapiSessionTransport implements SessionTransport {
     return this.mod.sessionCancelTurn(sessionId, turnId);
   }
 
+  async setPermissionMode(sessionId: string, mode: string): Promise<boolean> {
+    return this.mod.sessionSetPermissionMode(sessionId, mode);
+  }
+
   async status(sessionId: string): Promise<SessionStatus> {
     return this.mod.sessionStatus(sessionId);
   }
@@ -571,6 +602,19 @@ class NapiSessionTransport implements SessionTransport {
   /** The MCP roster this session's pipeline connected. */
   async mcpServers(sessionId: string): Promise<unknown[]> {
     const raw = await this.mod.sessionMcpServers(sessionId);
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** The engine's skill catalog; `undefined` when the running addon predates
+   *  `sessionSkills`, so the host keeps its own scan. */
+  async skills(sessionId: string): Promise<unknown[] | undefined> {
+    if (this.mod.sessionSkills === undefined) return undefined;
+    const raw = await this.mod.sessionSkills(sessionId);
     try {
       const parsed: unknown = JSON.parse(raw);
       return Array.isArray(parsed) ? parsed : [];

@@ -248,6 +248,7 @@ use the tools you already have."
     let delivery = render_loadable_tools_announcement(&result.to_load, &[]).map(|text| {
         crate::turn_loop::types::ToolDelivery {
             blocks: vec![crate::rpc::types::ContentBlock::Text { text }],
+            origin: None,
         }
     });
 

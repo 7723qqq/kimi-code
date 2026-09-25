@@ -79,7 +79,7 @@ impl SystemPromptBuilder {
 
     /// Set whether the memory section is injected into the system prompt.
     /// [`Self::new`] leaves it off; the production entry points
-    /// ([`Self::build_default`] and [`Self::build_default_with_skill_dirs`])
+    /// ([`Self::build_default`] and [`Self::build_default_with_skill_config`])
     /// turn it on, because the memory tools are in the session tool table and
     /// the section is what tells the model how to use them.
     #[must_use]
@@ -96,8 +96,9 @@ impl SystemPromptBuilder {
     }
 
     /// `merge_all_available_skills` (schema): off restricts each scope group
-    /// to its first existing directory, matching the scan the `Skill` tool
-    /// reads.
+    /// to its first existing directory. The same value has to reach the `Skill`
+    /// tool (`NativeToolset::with_skill_scan`), or the tool resolves skills the
+    /// prompt never listed.
     #[must_use]
     pub fn with_merge_all_available_skills(mut self, merge: bool) -> Self {
         self.merge_all_available_skills = merge;
@@ -163,21 +164,9 @@ impl SystemPromptBuilder {
         Self::new(workspace_root).with_memory(true).build()
     }
 
-    /// [`Self::build_default`] with extra skill scan roots (schema
-    /// `extra_skill_dirs`).
-    pub fn build_default_with_skill_dirs(
-        workspace_root: impl AsRef<Path>,
-        skill_dirs: Vec<PathBuf>,
-    ) -> String {
-        Self::new(workspace_root)
-            .with_skill_dirs(skill_dirs)
-            .with_memory(true)
-            .build()
-    }
-
-    /// [`Self::build_default_with_skill_dirs`] with
-    /// `merge_all_available_skills` (schema): the file-reading entry points
-    /// resolve the flag from config and pass it here.
+    /// [`Self::build_default`] with the skill scan (schema `extra_skill_dirs`
+    /// plus `merge_all_available_skills`): the file-reading entry points resolve
+    /// both from config and pass them here.
     pub fn build_default_with_skill_config(
         workspace_root: impl AsRef<Path>,
         skill_dirs: Vec<PathBuf>,

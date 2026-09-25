@@ -1640,7 +1640,7 @@ pub fn run_turn<'a>(
                                 tool_call_id: None,
 
                                 prompt_id: None,
-                                origin: None,
+                                origin: delivery.origin.clone(),
                             });
                         }
                     }

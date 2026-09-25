@@ -84,6 +84,7 @@
     "plugin_command.activated",
     "turn.started",
     "turn.ended",
+    "turn.cancel",
     "turn.step.started",
     "turn.step.completed",
     "turn.step.retrying",

@@ -1634,6 +1634,271 @@ fork 的 `docs/` 一直是上游文档的镜像，而 2.1.1 的 changelog 条目
 > 而 fork 的引擎**确实实现了** `CreateGoal`（`callbacks.rs` + TUI `tool-renderers/goal.ts`）。
 > 即上游这份 `tools.md` 相对 fork 是**更旧 + 结构不同**，不是「更新版」。逐文件判定后才能动。
 
+#### 6.8.4 2026-09-25：两项行为决策（用户报障驱动，**不是**上游 delta）
+
+本轮由两个用户报的故障驱动，不是跟随上游提交；但其中两项构成**需要入账的行为决策**，
+按 `AGENTS.md`「granted delta 记录在 `ROADMAP.md`」补记于此。
+
+**(1) `turn.cancel` 补进协议联合（v2 既有事件词汇的补齐）**
+
+- 事实：引擎**早就在发** `TurnEvent::Cancel`（线上名 `turn.cancel`，`session/mod.rs` 的
+  `cancel_turn` 两个分支都发），但 `packages/protocol/src/events.ts` 的 `AgentEvent` 联合里
+  **没有**这个名字，宿主 `sdk-rpc-client-native.ts` 的 `turnEvent` 又只转发
+  `turn.started` / `turn.ended`（末尾注释自陈 "Unknown turn events are dropped"）
+  → 该事件在到达任何客户端之前就被丢弃。
+- 后果（实测的断链）：回合**在排队中被取消**时不会产生 `turn.ended`
+  （`session/mod.rs` 只在 `Ok(Ran)` 与 `Err` 下发 `Ended`；`TurnOutcome` 只有
+  `Ran` / `CancelledBeforeStart` 两个变体），而它唯一的信号 `turn.cancel` 又被宿主丢掉
+  → 客户端永久停在「运行中」。
+- v2 真源：`agent/loop/turnOps.ts` 定义 `TurnCancel`（`type = 'turn.cancel'`、`durable = true`、
+  schema `{agentId, turnId?, target?: 'active'|'queued', reason?: 'user_cancelled'|'aborted'}`）；
+  `loopService.ts:735-750` 的 `cancelWaiter` 对排队取消走 `publishPromptAborted`，
+  **全程不派发 `TurnEnded`**（全仓 `new TurnEnded(` 仅 `:2049` 一处，只在回合跑过之后）。
+  本次**按该 schema 逐字补齐，未新增 v2 没有的名字或字段**。
+- 影响面：`protocol/events.ts`（接口 + zod + TS/zod 两个联合）、`ws-event-contract.json` 的
+  `protocolEvents`、宿主 `turnEvent` 转发、TUI `session-event-handler`（**只**处理
+  `target === 'queued'`，active 仍由它自己的 `turn.ended(cancelled)` 收尾）、
+  web `agentEventProjector`（投影为既有的 `turnActiveChanged{active:false}`，并把名字加入
+  `KNOWN_AGENT_CORE_TYPES` —— 否则 `classifyFrame` 根本不会路由到投影器）。
+- 契约钉死：`session::tests::test_queued_cancel_emits_turn_cancel_and_no_turn_ended` ——
+  排队取消**必须**广播 `turn.cancel{target: queued}`，且该回合**绝不**产生 `turn.ended`。
+  这条同时挡住「给 `CancelledBeforeStart` 补发 `turn.ended`」的错修法（与 v2 语义相悖）。
+
+**(2) `skill` 域由「宿主提供」改为「引擎扫描优先」**
+
+- 原设计（`tools/skill.rs` 文件头）是引擎经 `host/state_read {domain:"skill"}` 取技能正文，
+  与 v2 的宿主 catalog 一致。但 fork 的宿主（`sdk-rpc-client-native.ts` 的 `stateRead`）
+  **只实现了 `plan`**，其余一律抛 `host does not support state bridge`
+  → `Skill` 工具在本 fork 上**完全不可用**（用户可见的 `-32001 unknown state domain: skill`）。
+- 更关键的是**两侧扫描目录不同**：引擎 `skills/mod.rs` 扫项目 `.agents/skills` + `.kimi-code/skills`、
+  `extra_skill_dirs`、用户 `~/.kimi-code/skills` + `~/.agents/skills`、builtins；
+  宿主 `listWorkspaceSkills` 扫项目两项 + `~/skills` + `skillDirs`。
+  而系统提示词的技能清单由**引擎**渲染（`prompt/skills_renderer.rs`），
+  该文件自己就要求「the prompt must list what `Skill` can actually load」。
+  若改由宿主提供，会**稳定复现**它警告的那条不一致。
+- 决策：`Skill` 工具**先走引擎自己的扫描**（与提示词同源），扫不到再退回宿主 state bridge。
+  `NativeToolset` 新增 `skill_dirs` 字段 + `with_skill_dirs()`，由 `pipeline/mod.rs` 用
+  `spec.skill_dirs` 绑定 —— 保证与提示词扫同一批根目录。
+- 保留项：宿主 bridge 仍是兜底，**只存在于宿主侧、引擎扫不到的技能仍可加载**
+  （v2 的宿主 catalog 语义不丢）。
+- 契约钉死：`tools::skill::tests::test_workspace_skill_loads_without_the_host_bridge`
+  （宿主直接拒绝 bridge 时工作区技能仍能加载；未知名仍回退宿主）。
+
+**同轮另两处修复（行为缺陷，非决策）**
+
+- `callbacks.rs` `StateStoreCallbacks::state_read`：宿主报错后不再无条件用本地 store 的
+  `-32001` 覆盖 —— **本地 store 不拥有的域透传宿主错误**。否则 `skill.rs` 的
+  `map_state_error` 匹配不到 "does not support state bridge"，设计好的
+  「Do NOT call this tool again」永远发不出去。测试
+  `callbacks::tests::test_unowned_domain_surfaces_the_host_error`。
+- `session/mod.rs` 构造 `RunTurnInput` 时**重复** `ctx.last_turn_aborted.swap(false, …)`：
+  `swap` 是 read-and-clear，上面已读走一次 → 该字段**恒为 false** →
+  `injection/interruption_reminder.rs` 的中断提醒在 session 路径上**永不注入**。
+  改为复用已读出的局部变量（对照 `server/engine.rs` 的 `take_last_turn_aborted` 只读一次）。
+
+**验证（2026-09-25）**：`cargo fmt --check` ✅｜`clippy --all-targets -D warnings` ✅｜
+`cargo check --no-default-features --features cli,workflow-js` ✅｜
+`cargo test --features cli --lib` 2864 passed / 0 failed / 1 ignored｜
+`bun run typecheck` 全仓 ✅｜kimi-web `vue-tsc` ✅｜协议 vitest 29 文件/555 项 ✅｜
+kimi-web vitest 42 文件/724 项 ✅｜`bun run lint` 0 errors。
+
+> **复核补记（同日稍晚）**：`clippy --all-targets` 实际**未**一次通过 ——
+> `tools/skill.rs` 测试助手 `scripted()` 的三元组返回值触发 `clippy::type_complexity`
+> （`-D warnings` 下为 error）。已加 `type Scripted = (…)` 别名修复，重新跑通。
+> `cargo test --lib` 复跑为 **2864 passed / 0 failed**（下述两条既有问题本次未复现，
+> 属并行/环境相关，保留记录备查）；另 `check:parity` ✅、涉及改动的 4 个 vitest 文件
+> （TUI `turn.cancel` 3 项、`session-cancel` 6 项、web `agentEventProjector` 2 项、
+> 协议 555 项）全绿。
+
+> **本机既有失败（与代码无关，2026-09-25 首次全量记录）**：`callbacks::tests::the_forwarded_reason_follows_the_host_locale`
+> （`i18n::set_engine_locale` 是进程全局，并行串味）、`tools::external_hooks::tests::`
+> 的 `session_start_matches_on_the_create_source_and_carries_the_event_name`
+> （依赖外部 hook 进程，沙箱拉黑 `reg.exe`）。
+> 前端全量 `bun run test` 在本机会大量假红（`Timed out waiting for session event`）：
+> 同一批 33 个 node-sdk 文件默认并行 **78 failed**、`--maxWorkers=1` **33 files passed / 0 failed**
+> —— 失败由并行争用造成，复核时用单 worker。
+
+---
+
+### 6.10 2026-09-25 独立审查后的打磨（提示词↔工具一致性、发布物记账）
+
+本轮由一次针对上述工作树的独立审查驱动：修的是同一批改动里**自己引入的承诺未闭合**，
+另补两项记账。§6.9.6 已记录的 `turn.step.completed` 去重不在本节重述。
+
+**6.10.1 `Skill` 工具与提示词现在同读 `merge_all_available_skills`（已修）**
+
+- 事实：提示词按 config 的开关决定每个 scope group 是扫全部目录还是只扫第一个已存在目录
+  （`prompt/builder.rs::with_merge_all_available_skills`，入口 `main.rs:129/1270`），
+  而 `Skill` 工具走 `scan_all_skills_with_extra`（`skills/mod.rs:356`）**恒为 merge=true**；
+  `builder.rs` 当时的注释还写着 "matching the scan the `Skill` tool reads" —— merge=false 时为假。
+- 后果：`merge_all_available_skills = false` 时模型能加载提示词**没列过**的技能，且同名技能
+  两次扫描可能解析到不同来源（scope 组首目录 vs 合并集）。
+- 修法：`SkillScan { root, extra_dirs, merge_all_available_skills }`（`tools/skill.rs`）、
+  `NativeToolset::with_skill_scan(dirs, merge)`（`tools/mod.rs`）、
+  `PipelineSpec.merge_all_available_skills`（`pipeline/mod.rs:174`）—— **14 处** `PipelineSpec`
+  构造点全部显式赋值（生产路径取 config，测试/默认 `true`；`ServerEngine::session_spec` 经
+  `..clone_spec()` 继承）。新增 `config::resolved_merge_all_available_skills()` 作为唯一解析点，
+  addon 与 stdio run-turn 适配器共用。
+- 同源缺陷一并修：napi 的**默认分支**提示词原先走 `build_default_with_skill_dirs`（不传标志 → 恒 true），
+  只有带 `agent_profile` 的分支传 → 同一函数两种语义；现两分支共用一次解析出的值，
+  已无引用的 `build_default_with_skill_dirs` 删除（保留 `build_default_with_skill_config`）。
+  `ServerEngine` 重建会话提示词时补 `.with_merge_all_available_skills(spec…)`（`server/engine.rs:995`）。
+- 契约钉死：`tools::skill::tests::test_skill_scan_honors_the_merge_switch` —— merge=true 时第二目录的
+  技能可加载；merge=false 时**必须** miss 并回退宿主 bridge；两态下 scope 组首目录都可达。
+
+**6.10.2 `turn.cancel` 的发布物边界（记账）**
+
+- 已提交的 `apps/kimi-code/dist-web`（`assets/index-CiJ6FDOC.js`）**不含** `turn.cancel`
+  （同文件含 `turn.step.retrying`）→ **发布的 Web UI 仍会停在「运行中」**。`apps/kimi-web`
+  的投影器修复在工作区外（`!apps/kimi-web`），根 `bun run test` 与 CI 都不覆盖，
+  只能单跑（`cd apps/kimi-web && bun run test`，2 项 ✅）。
+- 决议：待下次 code-app bundle 同步才对用户生效；同步前不得声称 Web 侧已修
+  （changeset 已收窄为「TUI 与本仓 Web 源」）。§6.8.4 的该条只描述协议/宿主/TUI 面。
+
+**6.10.3 `setPermission` 的补偿补全（已修）**
+
+- 原先 `meta.permissionMode = input.mode` 之后的两次尝试只有 `rebuildHandle` 一支有回滚；
+  而 `session_set_permission_mode` 对未知 mode 返回 `Err`，该失败会留下「meta 记新模式、
+  引擎仍跑旧模式」的分叉。现两次尝试同处一个 `try/catch`，任一失败都回滚 `previous`。
+
+**6.10.4 两项记账补齐**
+
+- **`KIMI_SSE_DUMP`**（`llm/http.rs:24-40`）：fork 自有的 SSE 原始帧转储诊断（两份 v2 参考 0 处对应），
+  显式 opt-in（按帧读环境变量，未设则不落盘）；在此记录，避免下次审计当成未记账的自创行为。
+- **v2 builtin 注册表 9 vs 4（用户可见缺口，待裁定）**：v2
+  `features/skill/catalog/builtin/builtin.ts` 的 `BUILTIN_SKILLS` 共 9 项，fork
+  `skills/mod.rs::builtin_skill_defs` 落 4 项（正文与两份 v2 参考**逐字节一致**，本轮 SHA256 复核）。
+  缺的 5 项不是「无对应物」，而是 fork **自己已经承诺**的：
+  `docs/en/reference/slash-commands.md:126/130/131/145-148` 分别列出 `/mcp-config`、
+  `/import-from-cc-codex`、`/sub-skill`、`/sub-skill.review`、`/sub-skill.consolidate`
+  与外部子技能的虚线名形式；SDK 协议也有 `isSubSkill`（`packages/node-sdk/src/types.ts:488`），
+  TUI 依此渲染（`apps/kimi-code/src/tui/commands/skills.ts:41`），而斜杠技能表来自引擎扫描
+  （`kimi-tui.ts` 的 `session.listSkills()`）→ **这 5 个命令目前无法被任何客户端列出**。
+  不能直接移植的原因：`mcp-config` 正文要求调用 `mcp__<server>__authenticate` 工具，
+  本引擎**没有**该工具（全仓 0 命中；引擎自身文案是 `/mcp-config login <name>`，见 #3846），
+  需要 fork 版正文；`sub-skill` 三件依赖 `has-sub-skill` / `isSubSkill` frontmatter 与描述符字段，
+  本引擎 0 命中 → 属**功能移植**（描述符加字段 + 提示词/工具词表扩展），不是打磨项。
+  本轮**只记账不动手**，等用户裁定「补齐」还是记为 `not-applicable`。
+
+**6.10.5 既有失败清单：`mcp::client::tests::test_stdio_cwd_is_applied`（环境敏感）**
+
+- 本会话两次全量 `cargo test --features cli --lib` 均为 **2867 passed / 1 failed / 1 ignored**，
+  唯一失败即此用例（`'probe.bat' is not recognized…`）；而**同一工作树在另一会话的实测为 0 failed**
+  （见 §6.9.6 验证块），故这是**环境/会话相关**，与本轮代码无关。
+- 对照实验：同一 shell 用 Node 直接 `spawnSync('cmd', ['/c','probe.bat'], { cwd })` 复现**完全相同**的
+  报错，改绝对路径则成功（`.tmp/cwd-probe.mjs`）→ 该环境下子进程 cwd 未被应用，与 Rust 实现无关。
+  引用本文件中的 "0 failed" 时必须带实测环境。
+
+**验证（2026-09-25 打磨轮）**：`cargo fmt` ✅｜`cargo check --features cli --lib` ✅｜
+`cargo test --features cli --lib` **2867 passed / 1 failed（上条环境项）/ 1 ignored**（新增测试 +1）｜
+`check:parity` ✅（REST 67 / WS 27 / ctl 12 / tools 88 / napi 102 / config 31）｜
+`check:engine-i18n` 146 keys ✅｜`check:no-legacy-engine` ✅｜协议 vitest 555 ✅｜
+TUI `turn.cancel` 3 ✅｜node-sdk `session-cancel` 6 ✅｜kimi-web 投影器 2 ✅。
+
+---
+
+### 6.11 2026-09-25 补齐 v2 builtin 技能与子技能发现（用户裁定「补功能」后）
+
+§6.10.4 记的是「5 项 builtin 缺失、待裁定」；用户裁定**补**。本节落地其中 4 项，第 5 项
+（`mcp-config`）因缺前置能力而**只记账不移植**（见 6.11.5）。
+
+**6.11.1 四个 builtin 正文（逐字节移植）**
+
+- 新增 `src/skills/builtin/{import-from-cc-codex.md, sub-skill/SKILL.md,
+  sub-skill/review/SKILL.md, sub-skill/consolidate/SKILL.md}`，从两份 v2 参考
+  （`.tmp/v2-ref` 与 `.tmp/v2-ref-upstream`）**整文件复制**，复制后 SHA256 与两份参考全部一致。
+- 描述符标志照 v2 的 wrapper override 落：四个都是 `disableModelInvocation: true`
+  （`import-from-cc-codex.ts` / `sub-skill.ts`）；`sub-skill` 另带 `has-sub-skill: true`，
+  两个子技能带 `isSubSkill: true` 且名字取**限定名**（`sub-skill.review` / `sub-skill.consolidate`，
+  body 内只写 `review` / `consolidate`），伪路径沿 v2（`builtin://sub-skill/review` 等）。
+  实现见 `skills/mod.rs::sub_skill_def`（对应 v2 `makeBuiltin`）。
+
+**6.11.2 `isSubSkill` 进描述符 / 线协议，提示词按 v2 过滤**
+
+- `SkillDescriptor` 新增 `is_sub_skill: Option<bool>`（serde camelCase `isSubSkill`，缺省不出现）。
+  这**不是新造词**：`packages/node-sdk/src/types.ts:488` 的 `SkillSummary.isSubSkill` 与
+  `apps/kimi-code/src/tui/commands/skills.ts:41`（`skill.isSubSkill === true` → 虚线命令名）早就存在，
+  引擎此前从不下发，本轮是**补齐既有契约**。
+- 提示词侧对齐 v2 `registry.ts:109`（`listInvocableSkills` 过滤 `isSubSkill`）：
+  `render_skills_markdown` 现在同时过滤 `disable_model_invocation` 与 `is_sub_skill` ——
+  文件式子技能没有 disable 标志，只靠 `isSubSkill` 才能挡在模型之外。
+- 文件式嵌套发现（v2 `fileSkillDiscovery` 的 `allowedSubSkillBundles` +
+  `qualifySubSkillName`）：`scan_directory` 遇到 `has-sub-skill: true` 的父技能后扫其子目录，
+  以 `<parent>.<child>` 注册并标记 `is_sub_skill`；两种拼写 `has-sub-skill` / `hasSubSkill`
+  都接受（v2 `hasSubSkillEnabled`），**不含** v2 那个嵌套 `metadata.has-sub-skill` 变体
+  （本仓 frontmatter 解析器没有嵌套概念，见 6.11.6 待办）。
+- **顺带暴露并修掉的前端解析缺口**：既有用例
+  `packages/node-sdk/test/session-skills.test.ts` 用 `disable_model_invocation:`（下划线）写
+  frontmatter，而引擎解析器只认连字符形式 —— 从前 TUI 走宿主扫描（其正则认下划线）所以看不出来，
+  一旦改读引擎目录就暴露了。v2 `parser.ts` 的 `METADATA_ALIASES` 两种拼写都接受 →
+  解析器补上别名（本仓文档与磁盘上现存技能写的也是下划线），并加契约测试
+  `test_parse_disable_model_invocation_accepts_both_spellings`。
+
+**6.11.3 宿主技能列表改读引擎目录（最后一公里，修的是既有缺口）**
+
+- 事实：`session.listSkills()` 在 napi 路径上走**宿主** `listWorkspaceSkills`
+  （`sdk-rpc-client-native.ts:4067`），它只扫 `.agents/skills`、`.kimi-code/skills`、
+  `<home>/skills` 与宿主 `skillDirs` —— **一个 builtin 都没有**。而斜杠技能表正是由它渲染
+  （`kimi-tui.ts` → `buildSkillSlashCommands`），所以文档承诺的 `/custom-theme`、
+  `/sub-skill.review` 在 TUI 里从来就没出现过（`skills.ts` 的 `source === 'builtin'` 分支
+  在该路径上不可达）；Web/REST 路径本来就用引擎目录（`server/mod.rs` 四处），所以只差 napi 侧。
+- 修法（回到 v2 拓扑：目录由引擎提供）：新增 napi 导出 `sessionSkills`（与
+  `sessionMcpServers` 同形，返回 `SkillDescriptor` JSON 数组），`EnginePipeline` 带出
+  `skill_scan: skills::SkillScanRoots`（root + `extra_skill_dirs` + merge 开关），
+  `SessionEntry` 存一份供该导出使用；宿主 `listSkills` 以引擎目录为准，并**合并**宿主自己的根
+  （`<home>/skills` 引擎不扫），同名以引擎优先。
+- 兼容：导出声明为**可选**（`sessionSkills?` / `sessionSkills?:`），运行中的旧 addon
+  返回 `undefined` → 宿主自动回退原扫描，不炸。stdio 传输不具备该能力（接口注释已注明
+  "Optional: capabilities only the napi transport carries today"）。
+
+**6.11.4 契约钉死**
+
+- `skills::tests::test_builtin_sub_skill_bundle_is_user_only_and_qualified`（三件标志 + 伪路径 + 正文非空，
+  importer 为 user-only）
+- `skills::tests::test_a_sub_skill_parent_qualifies_its_children` / `test_a_parent_without_the_flag_keeps_its_children_unlisted`
+  （有/无 `has-sub-skill` 两种目录布局）
+- `skills::tests::test_parse_has_sub_skill_frontmatter`（两种拼写 + 大小写 + off）
+- `prompt::skills_renderer::tests::test_render_skills_omits_sub_skills_and_keeps_the_parent`
+  （无 disable 标志的子技能也必须挡在提示词外，父技能保留）
+- `tools::skill::tests::test_sub_skill_is_not_model_invocable`（模型不得加载子技能）
+- `packages/node-sdk/test/session-skills.test.ts` 新增一例（沿用既有文件，不另起新文件）：
+  端到端 —— 真实引擎会话的 `listSkills()` 含 `update-config`（`source: builtin`）、
+  `import-from-cc-codex`（user-only）、`sub-skill`（无 `isSubSkill`）与两个限定名子技能
+  （`isSubSkill: true` + user-only），以及工作区技能与 `bundle.child`；且目录仍不含正文。
+
+**6.11.5 `mcp-config` 仍不移植（待裁定，缺前置能力）**
+
+- v2 的 `mcp-config.md` 登录分支要求调用 `mcp__<server>__authenticate` 工具；本引擎
+  **没有**该工具（全仓 0 命中，引擎自身给用户的文案是 `/mcp-config login <name>`，见 §6.2 的 #3846）。
+  逐字节复制会让模型去调一个不存在的工具。
+- 配置编辑分支本身与 fork 布局一致（`~/.kimi-code/mcp.json` + 项目 `.kimi-code/mcp.json`，
+  `docs/en/configuration/{config-files,data-locations,customization/mcp}.md` 同款；引擎自身另外读
+  `config.toml` 的 `[mcp_servers]`，由宿主把 `mcp.json` 经 `params.mcp_servers` 喂进来），
+  但登录分支必须换成 fork 的真实流程 → 需要 fork 版正文，**本轮不擅自撰写**。
+- 因此 `/mcp-config` 仍**不会**出现在斜杠面板；引擎文案 `/mcp-config login <name>` 仍指向一个
+  不存在的命令（既有问题，本轮未动）。
+
+**6.11.6 后续待办（记账，未做）**
+
+- frontmatter 解析器补 v2 的嵌套 `metadata.has-sub-skill` 变体（当前只有顶层两种拼写）。
+- `mcp-config` 的 fork 版正文（需先定 fork 的 MCP 登录形态：模型工具？TUI `/mcp`？）。
+- stdio 传输的技能目录能力（`sessionSkills` 目前只有 napi；`rpc.ts:864` 的 `listSkills`
+  在 stdio 下无对应 Rust 处理）。
+
+**验证（2026-09-25 补功能轮）**：`cargo fmt --check` ✅｜`cargo clippy --all-targets
+--features cli -- -D warnings` ✅｜`cargo check --features cli --lib` ✅｜
+`cargo test --features cli --lib` **2874 passed / 1 failed（§6.10.5 同一沙箱 cwd 用例）/ 1 ignored**
+（本轮 +7 个测试）｜`check:parity` ✅（napi 102 → **103**：新增 `sessionSkills`，门禁已核对其与
+`napi-contract.d.ts` 声明一致）｜`check:engine-i18n` 146 keys ✅｜node-sdk / kimi-agent `typecheck` ✅｜
+`oxlint` 0 error｜**addon 已重建**（`napi build --release`，3m32s，产物 `kimi_agent.win32-x64-msvc.node`
+21,867,520 B @ 20:29，含新导出）→ 端到端 `packages/node-sdk/test/list-skills.test.ts` **1 passed**
+（真实引擎会话）：`listSkills()` 返回 `update-config`、`import-from-cc-codex`（user-only）、
+`sub-skill`（无 `isSubSkill`）、`sub-skill.review` / `sub-skill.consolidate`（`isSubSkill: true`
++ user-only），以及工作区技能与 `bundle.child`（`isSubSkill: true`）。
+> 重建前（旧 addon）该测试会走回退路径而拿不到 builtin —— 这正是 `sessionSkills?` 做成可选的
+> 原因：缺导出时宿主行为与从前一致，不会崩。
+
+---
 ---
 
 ## 7. v1 / v3 协议面自创实现审计（2026-09-20，按铁律）

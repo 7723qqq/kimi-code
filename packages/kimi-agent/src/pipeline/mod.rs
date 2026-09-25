@@ -60,6 +60,16 @@ pub struct EnginePipeline {
     /// drivers to pass as `RunTurnInput.permission_mode`. `None` when the
     /// spec carries no policy snapshot.
     pub permission_mode: Option<crate::permission::PermissionMode>,
+    /// The live permission engine the native-tool wrapper evaluates each call
+    /// with. Kept so an entry point can switch the mode mid-turn through
+    /// [`crate::permission::PermissionEngine::set_mode`] instead of rebuilding
+    /// the whole pipeline. `None` when no policy snapshot configured one.
+    pub permission_engine: Option<Arc<crate::permission::PermissionEngine>>,
+    /// The roots and policy the skill catalog is scanned with, owned so a host
+    /// can read the *engine's* catalog (v2 serves it from the engine) instead
+    /// of re-scanning the filesystem itself — the builtins, the dotted
+    /// sub-skill commands and `extra_skill_dirs` only exist on this side.
+    pub skill_scan: crate::skills::SkillScanRoots,
     /// The MCP manager this pipeline connected from the spec's
     /// `mcp_manager`. Handed back so an embedder can read the roster — the
     /// manager is built once per pipeline, and without the handle a host had
@@ -162,6 +172,11 @@ pub struct PipelineSpec {
     /// Extra skill scan roots (`extra_skill_dirs`) for the system prompt's
     /// skills section.
     pub skill_dirs: Vec<std::path::PathBuf>,
+    /// `merge_all_available_skills` resolved by the entry: whether each skill
+    /// scope group scans every available directory or only its first existing
+    /// one. The prompt is rendered with this switch, so the `Skill` tool must
+    /// read the same value or the two disagree about what exists.
+    pub merge_all_available_skills: bool,
     /// `[background]` knobs for this context's own task runner and Bash tool:
     /// cooperative-stop grace, concurrent-task cap, auto-background on
     /// timeout, and the background Bash timeout. Every field is optional —
@@ -292,7 +307,14 @@ pub async fn build_engine_pipeline(
     let mut pipeline_toolset: Option<Arc<crate::tools::NativeToolset>> = None;
     let callbacks: Arc<dyn HostCallbacks> =
         match (spec.native_tools, spec.workspace_root.as_deref()) {
-            (true, Some(root)) => match NativeToolset::new(root, spec.shell_path.as_deref()) {
+            (true, Some(root)) => match NativeToolset::new(root, spec.shell_path.as_deref())
+                // The `Skill` tool resolves from the engine's scan, so it needs
+                // the same roots *and* the same scope-group policy the prompt
+                // was rendered with.
+                .map(|toolset| {
+                    toolset
+                        .with_skill_scan(spec.skill_dirs.clone(), spec.merge_all_available_skills)
+                }) {
                 Some(toolset) => {
                     let (base_callbacks, task_runner): (
                         Arc<dyn HostCallbacks>,
@@ -444,7 +466,7 @@ pub async fn build_engine_pipeline(
                         toolset,
                         native_count: native_tool_count.clone(),
                         truncator: truncator.clone(),
-                        permission_engine,
+                        permission_engine: permission_engine.clone(),
                         plan_guard: Some(Arc::new(move |tool_name, args| {
                             if !plan_mode::plan_guarded_tool(tool_name) {
                                 return Box::pin(async { None });
@@ -536,6 +558,12 @@ pub async fn build_engine_pipeline(
         hook_guard,
         secondary_llm,
         permission_mode: spec.policy_snapshot.as_ref().map(|snapshot| snapshot.mode),
+        permission_engine,
+        skill_scan: crate::skills::SkillScanRoots {
+            root: spec.workspace_root.as_deref().map(std::path::PathBuf::from),
+            extra_dirs: spec.skill_dirs.clone(),
+            merge_all_available_skills: spec.merge_all_available_skills,
+        },
         mcp_manager,
         media: crate::llm::media_resolver::MediaResolver::new(),
         media_dropped: Default::default(),
@@ -779,6 +807,7 @@ mod tests {
             image_max_edge_px: None,
             model_capabilities: None,
             skill_dirs: Vec::new(),
+            merge_all_available_skills: true,
             background: crate::storage::BackgroundLimits::default(),
         }
     }

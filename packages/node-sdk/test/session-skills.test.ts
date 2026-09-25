@@ -114,6 +114,57 @@ describe('Session skills', () => {
     }
   });
 
+  // v2 serves the skill catalog from the engine, so the slash panel can offer
+  // the builtin product skills and the dotted sub-skill commands. The host used
+  // to scan the filesystem itself and therefore listed no builtins at all, even
+  // though the system prompt advertised them.
+  it('lists the engine catalog: builtins and dotted sub-skills', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-builtin-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-builtin-work-');
+    // A nested skill under a `has-sub-skill: true` parent: only the engine scan
+    // registers it, and it is offered as `<parent>.<child>`.
+    const bundle = join(workDir, '.agents', 'skills', 'bundle');
+    await mkdir(join(bundle, 'child'), { recursive: true });
+    await writeFile(
+      join(bundle, 'SKILL.md'),
+      ['---', 'name: bundle', 'description: Container', 'has-sub-skill: true', '---', '', 'Body.'].join(
+        '\n',
+      ),
+    );
+    await writeFile(
+      join(bundle, 'child', 'SKILL.md'),
+      ['---', 'name: child', 'description: A child', '---', '', 'Child body.'].join('\n'),
+    );
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_sdk_skill_builtin_list', workDir });
+
+      const skills = await session.listSkills();
+      const byName = new Map(skills.map((skill) => [skill.name, skill]));
+
+      // Builtin product skills — a host-side scan never produced these.
+      expect(byName.get('update-config')?.source).toBe('builtin');
+      expect(byName.get('import-from-cc-codex')?.disableModelInvocation).toBe(true);
+
+      // The sub-skill bundle: the parent is an ordinary skill, the children
+      // carry the flag the TUI uses to expose `/sub-skill.review` unprefixed.
+      expect(byName.get('sub-skill')?.isSubSkill).toBeUndefined();
+      for (const child of ['sub-skill.review', 'sub-skill.consolidate']) {
+        expect(byName.get(child)?.isSubSkill).toBe(true);
+        expect(byName.get(child)?.disableModelInvocation).toBe(true);
+      }
+
+      // A file-discovered parent, and the child its parent qualified.
+      expect(byName.get('bundle')?.isSubSkill).toBeUndefined();
+      expect(byName.get('bundle.child')?.isSubSkill).toBe(true);
+      // The catalog still carries metadata only, never a body.
+      expect(JSON.stringify(skills)).not.toContain('Child body.');
+    } finally {
+      await harness.close();
+    }
+  });
+
   it('activates a skill through core and emits the public skill event', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-work-');

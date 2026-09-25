@@ -992,6 +992,7 @@ impl ServerEngine {
         {
             session_system_prompt = crate::prompt::SystemPromptBuilder::new(ws)
                 .with_skill_dirs(self.spec.skill_dirs.clone())
+                .with_merge_all_available_skills(self.spec.merge_all_available_skills)
                 .with_additional_dirs(extra_roots.iter().map(std::path::PathBuf::from).collect())
                 .with_memory(true)
                 .build();
@@ -1718,6 +1719,7 @@ fn clone_spec(spec: &PipelineSpec) -> PipelineSpec {
         image_max_edge_px: spec.image_max_edge_px,
         model_capabilities: spec.model_capabilities.clone(),
         skill_dirs: spec.skill_dirs.clone(),
+        merge_all_available_skills: spec.merge_all_available_skills,
         background: spec.background,
     }
 }
@@ -1758,6 +1760,7 @@ mod tests {
             image_max_edge_px: None,
             model_capabilities: None,
             skill_dirs: Vec::new(),
+            merge_all_available_skills: true,
             background: crate::storage::BackgroundLimits::default(),
         }
     }
