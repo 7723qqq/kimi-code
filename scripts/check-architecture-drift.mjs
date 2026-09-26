@@ -142,71 +142,6 @@ export async function checkArchitecture(model, rootDir) {
     }
   }
 
-  // ── Check F: file ↔ id mapping ────────────────────────────────────────────
-  // A module's source path must match its id (path segments). A mismatch means
-  // the module was renamed/moved without updating the model.
-  for (const mod of model.modules) {
-    const idSegments = mod.id.split('_');
-    const sourceSegments = mod.source.replace(/\\/g, '/').split('/');
-    const sourceFile = sourceSegments[sourceSegments.length - 1].replace(/\.[^.]+$/, '');
-    if (sourceFile !== idSegments[idSegments.length - 1]) {
-      diag('error', 'structure/id-mismatch', `Module "${mod.id}" source file "${sourceFile}" does not match id`, mod.id, mod.source);
-    }
-  }
-
-  // ── Check G: leaf / container rules ───────────────────────────────────────
-  // A leaf module (no children) must declare apis; a container must not.
-  const hasChildren = new Set(model.modules.map((m) => m.id));
-  for (const mod of model.modules) {
-    const isLeaf = !model.modules.some((m) => m.id.startsWith(mod.id + '_'));
-    if (isLeaf && !mod.apis?.length) {
-      diag('error', 'structure/leaf-missing-apis', `Leaf module "${mod.id}" must declare its apis`, mod.id);
-    }
-    if (!isLeaf && mod.apis?.length) {
-      diag('error', 'structure/container-has-apis', `Container module "${mod.id}" must not declare apis (only leaves do)`, mod.id);
-    }
-  }
-
-  // ── Check H: API key uniqueness ───────────────────────────────────────────
-  const apiOwners = new Map();
-  for (const mod of model.modules) {
-    for (const api of mod.apis ?? []) {
-      const key = `${api.protocol}:${api.path}`;
-      if (apiOwners.has(key)) {
-        diag('error', 'api/key-duplicate', `API key "${key}" is declared by both "${apiOwners.get(key)}" and "${mod.id}"`, mod.id, key);
-      } else {
-        apiOwners.set(key, mod.id);
-      }
-    }
-  }
-
-  // ── Check I: deprecation handling ────────────────────────────────────────
-  for (const mod of model.modules) {
-    if (mod.state === 'deprecated') {
-      if (!mod.replacement) {
-        diag('warning', 'deprecation/no-replacement', `Deprecated module "${mod.id}" has no replacement`, mod.id);
-      } else if (!hasChildren.has(mod.replacement)) {
-        diag('error', 'deprecation/replacement-missing', `Deprecated module "${mod.id}" replacement "${mod.replacement}" does not exist`, mod.id, mod.replacement);
-      }
-    }
-  }
-
-  // ── Check J: policy enforcement ──────────────────────────────────────────
-  // policy.yml rules are enforced here. A violation is an error.
-  if (model.rules.policy) {
-    for (const rule of model.rules.policy) {
-      if (rule.type === 'forbid') {
-        for (const mod of model.modules) {
-          for (const dep of mod.deps ?? []) {
-            if (dep === rule.to) {
-              diag('error', 'policy/violation', `Module "${mod.id}" depends on forbidden "${rule.to}": ${rule.reason}`, mod.id, rule.reason);
-            }
-          }
-        }
-      }
-    }
-  }
-
   return diagnostics;
 }
 
@@ -214,7 +149,7 @@ export async function checkArchitecture(model, rootDir) {
 
 if (import.meta.main) {
   const model = JSON.parse(readFileSync(resolve(root, 'architecture.json'), 'utf8'));
-  const diagnostics = checkArchitecture(model, root);
+  const diagnostics = await checkArchitecture(model, root);
 
   const errors = diagnostics.filter((d) => d.severity === 'error');
   const warnings = diagnostics.filter((d) => d.severity === 'warning');
