@@ -246,6 +246,8 @@ export default {
         moonshotHttpFailed: 'Moonshot search request failed: HTTP {{status}}{{qualifier}}. {{body}}',
         failed: 'Search failed: {{e}}',
         duckduckgoHttpFailed: 'Search failed: DuckDuckGo search returned HTTP {{status}}',
+        missingApiKey: 'Moonshot search service is not configured: missing API key.',
+        emptyQuery: 'Query parameter cannot be empty',
       },
       readMedia: {
         tooLargeToSend:

@@ -240,6 +240,8 @@ export default {
         moonshotHttpFailed: 'Moonshot 搜索请求失败：HTTP {{status}}{{qualifier}}。{{body}}',
         failed: '搜索失败：{{e}}',
         duckduckgoHttpFailed: '搜索失败：DuckDuckGo 搜索返回 HTTP {{status}}',
+        missingApiKey: 'Moonshot 搜索服务未配置：缺少 API key。',
+        emptyQuery: '查询参数不能为空',
       },
       readMedia: {
         tooLargeToSend:

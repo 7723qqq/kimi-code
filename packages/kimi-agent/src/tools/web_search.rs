@@ -10,12 +10,12 @@
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
-use scraper::{Html, Selector};
 use serde_json::{Value, json};
 
 use super::err_result;
 use super::moonshot_service::{self, MoonshotServiceConfig};
 use crate::i18n::{LocalizedText, i18n_params};
+use crate::native::web_search::{DdgResult, parse_ddg_results, urlencoded};
 use crate::turn_loop::types::ExecutableToolResult;
 
 const DDG_HTML_URL: &str = "https://html.duckduckgo.com/html/";
@@ -31,6 +31,20 @@ pub struct WebSearchResultEntry {
     pub snippet: String,
     pub site_name: Option<String>,
     pub date: Option<String>,
+}
+
+impl From<DdgResult> for WebSearchResultEntry {
+    fn from(r: DdgResult) -> Self {
+        Self {
+            title: r.title,
+            url: r.url,
+            snippet: r.snippet,
+            site_name: r.site_name,
+            // The DDG scrape carries no publication date (v2 only maps
+            // `date` on the Moonshot provider path).
+            date: None,
+        }
+    }
 }
 
 /// One host-resolved `[services.moonshot_search]` backend (v2
@@ -169,7 +183,11 @@ async fn search_via_moonshot(
     // first with the direct fetch as fallback.
     let Some(api_key) = moonshot_service::non_blank_key(&config.api_key) else {
         return Some(err_result(
-            "Moonshot search service is not configured: missing API key.".to_string(),
+            LocalizedText::plain(
+                "engine.tools.webSearch.missingApiKey",
+                "Moonshot search service is not configured: missing API key.",
+            )
+            .render(),
         ));
     };
     let (url, body, headers) = moonshot_search_request_parts(config, query, &api_key, tool_call_id);
@@ -286,7 +304,11 @@ pub async fn execute_web_search(
         return Some(ExecutableToolResult {
             delivery: None,
             stop_turn: false,
-            content: "Query parameter cannot be empty".to_string(),
+            content: LocalizedText::plain(
+                "engine.tools.webSearch.emptyQuery",
+                "Query parameter cannot be empty",
+            )
+            .render(),
             is_error: true,
             note: None,
             display: None,
@@ -396,7 +418,11 @@ pub async fn execute_web_search(
         }
     };
 
-    let results = match parse_ddg_results(&body, MAX_RESULTS) {
+    let results = match parse_ddg_results(&body, MAX_RESULTS).map(|rs| {
+        rs.into_iter()
+            .map(WebSearchResultEntry::from)
+            .collect::<Vec<_>>()
+    }) {
         Ok(res) => res,
         Err(e) => {
             return Some(ExecutableToolResult {
@@ -439,93 +465,11 @@ pub async fn execute_web_search(
 }
 
 // ── HTML Parsing ─────────────────────────────────────────────────────────────
-
-pub fn parse_ddg_results(
-    html: &str,
-    max_results: usize,
-) -> Result<Vec<WebSearchResultEntry>, String> {
-    let document = Html::parse_document(html);
-
-    let result_sel =
-        Selector::parse("div.result").map_err(|_| "Failed to parse selector".to_string())?;
-    let title_sel =
-        Selector::parse("a.result__a").map_err(|_| "Failed to parse selector".to_string())?;
-    let snippet_sel =
-        Selector::parse(".result__snippet").map_err(|_| "Failed to parse selector".to_string())?;
-    let url_sel =
-        Selector::parse(".result__url").map_err(|_| "Failed to parse selector".to_string())?;
-
-    let mut results = Vec::new();
-
-    for element in document.select(&result_sel) {
-        if results.len() >= max_results {
-            break;
-        }
-
-        // Skip ads
-        let classes = element.value().attr("class").unwrap_or("");
-        if classes.contains("result--ad") {
-            continue;
-        }
-
-        let title_el = match element.select(&title_sel).next() {
-            Some(el) => el,
-            None => continue,
-        };
-        let title: String = title_el.text().collect::<String>().trim().to_string();
-        let url = title_el.value().attr("href").unwrap_or("").to_string();
-
-        if title.is_empty() || url.is_empty() {
-            continue;
-        }
-
-        let snippet = element
-            .select(&snippet_sel)
-            .next()
-            .map(|el| el.text().collect::<String>().trim().to_string())
-            .unwrap_or_default();
-
-        let site_name = element
-            .select(&url_sel)
-            .next()
-            .map(|el| el.text().collect::<String>().trim().to_string())
-            .filter(|s| !s.is_empty());
-
-        results.push(WebSearchResultEntry {
-            title,
-            url,
-            snippet,
-            site_name,
-            // The DDG scrape carries no publication date (v2 only maps
-            // `date` on the Moonshot provider path).
-            date: None,
-        });
-    }
-
-    Ok(results)
-}
-
-// ── URL encoding ─────────────────────────────────────────────────────────────
-
-pub fn urlencoded(s: &str) -> String {
-    let mut result = String::with_capacity(s.len() * 3);
-    for byte in s.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                result.push(byte as char);
-            }
-            b' ' => result.push('+'),
-            _ => {
-                result.push('%');
-                result.push(HEX_CHARS[(byte >> 4) as usize] as char);
-                result.push(HEX_CHARS[(byte & 0x0F) as usize] as char);
-            }
-        }
-    }
-    result
-}
-
-const HEX_CHARS: &[u8; 16] = b"0123456789ABCDEF";
+//
+// The DDG scrape (selectors, ad skip, URL encoding) lives in
+// `native::web_search` so the workflow `SearchProvider` and this tool share
+// one implementation. This module only maps `DdgResult` into its own entry
+// type via `From` above.
 
 #[cfg(test)]
 mod tests {
@@ -537,36 +481,6 @@ mod tests {
         assert_eq!(urlencoded("rust lang"), "rust+lang");
         assert_eq!(urlencoded("a&b=c"), "a%26b%3Dc");
         assert_eq!(urlencoded("你好"), "%E4%BD%A0%E5%A5%BD");
-    }
-
-    #[test]
-    fn test_parse_ddg_results() {
-        let html = r#"
-        <html><body>
-            <div class="result">
-                <a class="result__a" href="https://example.com/rust">Rust Programming</a>
-                <span class="result__snippet">A language empowering everyone.</span>
-                <span class="result__url">example.com</span>
-            </div>
-            <div class="result result--ad">
-                <a class="result__a" href="https://ad.com">Ad link</a>
-            </div>
-            <div class="result">
-                <a class="result__a" href="https://github.com">GitHub</a>
-                <span class="result__snippet">Where the world builds software.</span>
-            </div>
-        </body></html>
-        "#;
-        let results = parse_ddg_results(html, 5).unwrap();
-        assert_eq!(results.len(), 2);
-        assert_eq!(results[0].title, "Rust Programming");
-        assert_eq!(results[0].url, "https://example.com/rust");
-        assert_eq!(results[0].snippet, "A language empowering everyone.");
-        assert_eq!(results[0].site_name, Some("example.com".to_string()));
-
-        assert_eq!(results[1].title, "GitHub");
-        assert_eq!(results[1].url, "https://github.com");
-        assert_eq!(results[1].site_name, None);
     }
 
     #[test]

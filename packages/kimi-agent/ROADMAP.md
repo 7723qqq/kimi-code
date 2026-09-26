@@ -2533,6 +2533,123 @@ Glob for reliable file listing and correct directory **structure**」—— 两�
 
 ---
 
+### 6.13 2026-09-26 子代理事件归属更正（**推翻 6.12.11 的两处前提**）
+
+用户复报同一症状：主 transcript 出现逐 chunk 交错的思考碎片（`● The awk` / `● $1 issue as warned`
+这类被拦腰截断的句子），且每次子代理一调工具就多出几条。6.12.11 加的 guard 挡住了 thinking/assistant
+两条通道，**但工具通道没挡住**，于是报障重现。
+
+**6.12.11 的两处前提经代码核实是错的：**
+
+1. **「宿主 `:1389-1392` 正确归属」不成立。** 那段是**启发式**，不是可靠归属：
+   ```ts
+   const eventAgentId =
+     typeof parsed.turn_id === 'string' && parsed.turn_id.startsWith('subturn-')
+       ? (meta.activeAgentId ?? 'main')
+       : 'main';
+   ```
+   两个缺陷：①判据是 **turn id 字符串前缀**，引擎从未在事件里给出过真实 agent 身份；
+   ②`meta.activeAgentId` 是**侧通道当前活跃 agent**，不是发出该事件的 agent ——
+   `AgentSwarm` 并行跑多个子代理时它们**共用**同一个值。
+2. **「只有文本 delta 漏了」不成立。** 判据 `turn_id.startsWith('subturn-')` 只对 `llm.delta`
+   成立；子代理的工具事件走 `tool.native` 分支（`sdk-rpc-client-native.ts:1428-1450`），
+   其 `turn_id` 不是 `subturn-` 形态 ⇒ 判据为 false ⇒ `eventAgentId = 'main'`
+   ⇒ **子代理的工具调用被谎报成主代理的**。
+
+**这就是症状的确切成因**：每个子代理 `tool.native` 都以 `agentId: 'main'` 进入主 transcript，
+`handleToolCall`（`session-event-handler.ts:797`）无条件执行 `finalizeLiveTextBuffers('tool')`
+（`:806`），把主代理正在写的思考拦腰截断 —— 故碎片总在子代理调用工具处断开，
+且 thinking 被 guard 挡住、tool 没有。6.12.11 的「子代理工具调用是被分流的」只对
+**已注册 `parentToolCallId` 的前台子代理**成立，走不到那条路的事件仍落到主 switch。
+
+**为什么引擎侧不产生身份（此前一直查错的地方）**：v2 每个 agent 有独立 event dispatcher
+（`runAgentTurn.ts:40` 从自己的 accessor 解析 `IEventDispatcher`），dispatcher 硬拒跨 agent 事件
+（`eventDispatcherService.ts:500-510`），transcript 也按 `agentId` 分键
+（`transcriptStore.ts:16`）。fork 的 `EventBus` 是**每会话一条 lane**
+（`hub.rs:227 bus_for`），且 `publish`（`bus.rs:103-114`）的过滤**只有事件类型一个维度**，
+`hub.rs` 全文零次 `agent_id` —— 没有可按 agent 分流的维度。**但真正的断点更靠前**：
+`turn_loop/` 零次出现 `agent_id`，发的是裸 JSON；`EngineEvent::from_json`（`types.rs:176-178`）
+的兜底把它降级为 `EngineEvent::Custom(Value)`。那 9 个声明了 `agent_id: String` 的定型变体
+（`types.rs:50-125`）**在生产代码中从未被构造过**，只有测试手工填 `"main"`
+（`acp/events_map.rs:495,514,533,553,565,580`、`acp/mod.rs:2257,2262,2281`）。
+`project.rs:453-459` 的注释误以为「引擎以定型事件发布这个，所以它永远不会走到 `Custom` 分支」——
+**生产路径恰恰全是 `Custom`**。
+
+**修法（按 v2 语义补身份，而非继续加 filter）**：
+
+- `callbacks.rs` 新增共享 `stamp_agent_id()` 与 `MAIN_AGENT_ID`：往事件 JSON 注入 `agent_id`，
+  **不覆盖生产者已设的值**（`subagent.spawned` 这类父发子事件的 `agent_id` 语义是父的）。
+- `ToolFilterCallbacks`（`subagent/manager.rs`）新增 `agent_id` 字段，在 `emit_event`/`turn_event`
+  转发前打上**子代理自己的 id** —— 这条链与主代理共用，此前完全没有身份。
+- `CountingCallbacks::emit_event`/`turn_event`（`callbacks.rs`）对称打上 `"main"`。
+- 宿主 `sdk-rpc-client-native.ts:1389` 改为**优先读 `parsed.agent_id`**，回退到 `subturn-` 启发式
+  （保留兼容，向后兼容面为零）。
+
+**与计划中作废的项**（原计划读 `run_turn.rs` 后被自身证据推翻）：改 `tool_name`→`name` /
+`turn_id`→u64 使事件贴合定型变体。**作废**：那组定型变体是历史死代码；真正被使用且与 loop 路径
+**自洽**的是 `ToolNative`（`types.rs:31-40`，`tool_name` + String `turn_id`），
+改键名会与它冲突。同理作废 `EventBus` 加 agent 维度与 `web_events.rs` 键名兼容 ——
+前者是纵深防御（当前修复后 `Custom` 的 JSON 原文已带 `agent_id`），
+后者针对的是不打算成立的形状变更。
+
+**6.12.11 的 guard 保留**：修复后它们成了冗余的第二道防线（身份正确时 `routeChildAgentEvent`
+先于它们分流），不删除以免回退风险。6.12.11 的「未决：子代理思考完全不显示」仍然未决 ——
+那是产品取舍，本轮未动。
+
+**测试**：`callbacks::tests::the_main_agent_chain_stamps_main_onto_every_event`、
+`callbacks::tests::stamping_never_overwrites_an_existing_agent_id`、
+`subagent::manager::tests::a_subagents_events_carry_its_own_id`。
+
+**验证（2026-09-26）**：`cargo test --lib --features cli,workflow-js` **2930 passed / 0 failed / 1 ignored** ✅｜
+`cargo fmt --check` ✅（本轮改动文件）｜`cargo clippy --lib --features cli -- -D warnings` ✅（余 2 项在
+`src/repl/terminal_image.rs`，属本议题之外的既有未提交改动）｜`bun scripts/scan-parity.mjs` ✅｜
+`tsgo --noEmit -p packages/node-sdk` ✅｜`oxlint --type-aware` 0 errors。
+
+**未验证（如实记录）**：未跑真实 `AgentSwarm` 场景抓事件流确认端到端 —— node-sdk 的 vitest 套件
+在本机因 napi addon 未构建而无法启动（`git stash` 后同样失败，属环境问题而非本轮改动），
+故 TS 侧改动目前只有类型检查 + lint 背书，**行为验证仍待 addon 重建后补做**。
+
+---
+
+### 6.14 Web 搜索模块 v2 对比打磨与 DDG 路径登记（2026-09-26，用户裁定「保留并登记」）
+
+**背景**：v2 的 `WebSearch` 只走 Moonshot 服务（`webSearchService.ts` 的
+`fromServicesConfig() ?? fromManagedOAuth()`），**无免密钥搜索路径**；无 provider 时
+工具不注册（`when: hasWebSearchProvider()`）。fork 的 Rust 端口增加了 DuckDuckGo
+HTML 抓取作为无 provider 时的默认路径，并恒注册工具——这是 v2 中不存在的 fork 发明，
+此前未在 ROADMAP 登记。
+
+**用户裁定（2026-09-26）**：保留 DDG 路径（fork 的开箱搜索能力，删除会让无
+Moonshot 后端的用户失去搜索），并登记为 fork delta。
+
+**v2 对比结论**：
+- 结果格式化（Title/Site/Date/URL/Snippet + 引用提示）、Moonshot 请求构造
+  （POST/`text_query`/bearer/`X-Msh-Tool-Call-Id`/custom headers）、响应解析、
+  401 限定词、非 200 报错、空结果文案、配置 env 覆盖 + 凭据边界
+  （`isolateEnvServiceCredentials`）、工具描述——**均与 v2 一致**。
+- fork 发明：DDG 抓取路径、恒注册、`native/web_search.rs`（workflow 专用）、
+  空 query 报错（v2 传给 provider）。
+
+**本轮打磨**：
+- **DDG 解析去重**：`parse_ddg_results` + `urlencoded` 原先在
+  `tools/web_search.rs` 与 `native/web_search.rs` 各有一份（选择器/广告跳过/URL
+  编码逻辑完全相同）。提取到 `native::web_search`（`DdgResult` + pub
+  `parse_ddg_results` + pub `urlencoded`），`tools/web_search.rs` 经
+  `From<DdgResult>` 映射为自身 entry 类型（`date: None`）。DDG 选择器从此单一维护。
+- **i18n 修复**：missing-key 错误与空 query 错误原先是硬编码英文，与同函数其他
+  错误全走 `LocalizedText` 不一致。新增 `engine.tools.webSearch.missingApiKey` /
+  `emptyQuery` 键（en + zh），改用 `LocalizedText::plain`。
+
+**已知缺口（跨切面，非 web search 独有，未修）**：v2 的
+`display: { kind: 'search', query }` 在 Rust 端口未接线——`RunnableToolExecution`
+从未被构造，`run_turn.rs` 发布结果时恒置 `display: None`。display 子系统整体是
+已移植未接线的死代码，需跨工具统一接线，不在本轮模块打磨范围内。
+
+**验证**：`cargo check --lib` ✅｜`cargo test --lib web_search` 14 passed /
+0 failed ✅（native 9 + tools 5）。
+
+---
+
 ## 7. v1 / v3 协议面自创实现审计（2026-09-20，按铁律）
 
 > **v3 部分已作废**：上游 2.0.2 整体 revert 了 v3（`2502d2157`），fork 跟随撤销

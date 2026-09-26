@@ -34,8 +34,11 @@ impl Default for WebSearchConfig {
     }
 }
 
+/// One DuckDuckGo HTML result. Shared by the workflow `SearchProvider`
+/// (this module) and the LLM `WebSearch` tool (`tools/web_search.rs`), so
+/// the scraping selectors have a single home.
 #[derive(Debug, Clone)]
-pub struct WebSearchResultEntry {
+pub struct DdgResult {
     pub title: String,
     pub url: String,
     pub snippet: String,
@@ -44,7 +47,7 @@ pub struct WebSearchResultEntry {
 
 #[derive(Debug)]
 pub struct WebSearchResult {
-    pub results: Vec<WebSearchResultEntry>,
+    pub results: Vec<DdgResult>,
     pub error: Option<String>,
 }
 
@@ -63,7 +66,7 @@ pub fn web_search(config: &WebSearchConfig) -> WebSearchResult {
     }
 }
 
-fn web_search_inner(config: &WebSearchConfig) -> Result<Vec<WebSearchResultEntry>, String> {
+fn web_search_inner(config: &WebSearchConfig) -> Result<Vec<DdgResult>, String> {
     let timeout = Duration::from_millis(config.timeout_ms);
 
     let agent = ureq::AgentBuilder::new()
@@ -99,7 +102,7 @@ fn web_search_inner(config: &WebSearchConfig) -> Result<Vec<WebSearchResultEntry
 
 // ── HTML Parsing ─────────────────────────────────────────────────────────────
 
-fn parse_ddg_results(html: &str, max_results: usize) -> Result<Vec<WebSearchResultEntry>, String> {
+pub fn parse_ddg_results(html: &str, max_results: usize) -> Result<Vec<DdgResult>, String> {
     let document = Html::parse_document(html);
 
     let result_sel =
@@ -150,7 +153,7 @@ fn parse_ddg_results(html: &str, max_results: usize) -> Result<Vec<WebSearchResu
             .map(|el| el.text().collect::<String>().trim().to_string())
             .filter(|s| !s.is_empty());
 
-        results.push(WebSearchResultEntry {
+        results.push(DdgResult {
             title,
             url,
             snippet,
@@ -163,7 +166,7 @@ fn parse_ddg_results(html: &str, max_results: usize) -> Result<Vec<WebSearchResu
 
 // ── URL encoding ─────────────────────────────────────────────────────────────
 
-fn urlencoded(s: &str) -> String {
+pub fn urlencoded(s: &str) -> String {
     let mut result = String::with_capacity(s.len() * 3);
     for byte in s.bytes() {
         match byte {
