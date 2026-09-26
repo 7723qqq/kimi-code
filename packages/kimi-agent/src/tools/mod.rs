@@ -205,6 +205,9 @@ pub const NATIVE_TOOL_NAMES: &[&str] = &[
     "fetch_url",
     "websearch",
     "web_search",
+    "switchengine",
+    "switch_engine",
+    "switchsearchengine",
     "listdirectory",
     "list_directory",
     // Lsp has an execution arm (`Self::execute_tool`) and a tool definition in
@@ -1306,6 +1309,7 @@ impl NativeToolset {
             ),
             "fetchurl" | "fetch_url" => fetch_url::execute_fetch_url(args, tool_call_id).await,
             "websearch" | "web_search" => web_search::execute_web_search(args, tool_call_id).await,
+            "switchengine" | "switch_engine" => web_search::execute_switch_engine(args).await,
             "lsp" => lsp_tool::execute_lsp_tool(&self.root, &self.shell_bridge, args).await,
             "invokesubagent" | "invoke_subagent" => {
                 let mgr = self.subagent_manager.as_ref()?;

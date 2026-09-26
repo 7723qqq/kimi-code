@@ -406,6 +406,7 @@ export type MoonshotServiceConfig = z.infer<typeof MoonshotServiceConfigSchema>;
 export const ServicesConfigSchema = z.object({
   moonshotSearch: MoonshotServiceConfigSchema.optional(),
   moonshotFetch: MoonshotServiceConfigSchema.optional(),
+  bingApi: MoonshotServiceConfigSchema.optional(),
 });
 
 export type ServicesConfig = z.infer<typeof ServicesConfigSchema>;
@@ -549,6 +550,7 @@ const GithubConfigPatchSchema = GithubConfigSchema.partial();
 const ServicesConfigPatchSchema = z.object({
   moonshotSearch: MoonshotServiceConfigPatchSchema.optional(),
   moonshotFetch: MoonshotServiceConfigPatchSchema.optional(),
+  bingApi: MoonshotServiceConfigPatchSchema.optional(),
 });
 
 export const KimiConfigPatchSchema = z

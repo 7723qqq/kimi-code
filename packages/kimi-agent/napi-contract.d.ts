@@ -509,6 +509,12 @@ export interface JsRunTurnParams {
    */
   webFetch?: JsWebServiceConfig
   /**
+   * Host-resolved `[services.bing_api]` / `KIMI_BING_*` backend. When set,
+   * the native WebSearch tool falls back to the Bing Web Search API if the
+   * Bing HTML scrape fails.
+   */
+  bingApi?: JsWebServiceConfig
+  /**
    * Host-resolved `[image].read_byte_budget` (v2
    * `resolveReadImageByteBudget`). `None` keeps the 256KB default.
    */
@@ -1666,6 +1672,12 @@ export declare function sessionWarnings(sessionId: string): object
  * have to call [`clear_engine_locale`] explicitly.
  */
 export declare function setEngineLocale(localeJson: string, fallbackJson: string): void
+
+/**
+ * Switch the active web search engine at runtime (manual hot-switch from the
+ * host). `engine` is `"bing"` or `"ddg"`. Returns the active engine name.
+ */
+export declare function setSearchEngine(engine: string): string
 
 /**
  * Lightweight projection of a `ToolResourceAccess` for conflict detection.

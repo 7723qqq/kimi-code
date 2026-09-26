@@ -554,6 +554,15 @@ export const BUILTIN_SLASH_COMMANDS = [
     availability: 'always',
   },
   {
+    name: 'search',
+    aliases: ['search-engine'],
+    get description() {
+      return t('tui.slashCommands.search');
+    },
+    priority: 40,
+    availability: 'always',
+  },
+  {
     name: 'desktop',
     aliases: ['install-desktop'],
     get description() {

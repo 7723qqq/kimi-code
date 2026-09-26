@@ -929,6 +929,17 @@ export function resolveWebFetchService(config: {
   );
 }
 
+/** `[services.bing_api]` / `KIMI_BING_*` → Bing Web Search API fallback. */
+export function resolveBingApiService(config: {
+  services?: { bingApi?: MoonshotServiceConfigShape };
+}): WebServiceConfig | undefined {
+  return resolveWebService(
+    config.services?.bingApi,
+    'KIMI_BING_BASE_URL',
+    'KIMI_BING_API_KEY',
+  );
+}
+
 export function probeShellPath(): string | undefined {
   const envShell = process.env['KIMI_SHELL_PATH'];
   if (envShell) {

@@ -349,13 +349,16 @@ pub struct MoonshotServiceConfig {
 }
 
 /// The `[services]` section (v2 `configSection.ts`): optional Moonshot
-/// backends that replace (search) or front (fetch) the built-in web tools.
+/// backends that replace (search) or front (fetch) the built-in web tools,
+/// plus the Bing Web Search API fallback.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ServicesConfig {
     #[serde(rename = "moonshot_search", alias = "moonshotSearch", default)]
     pub moonshot_search: Option<MoonshotServiceConfig>,
     #[serde(rename = "moonshot_fetch", alias = "moonshotFetch", default)]
     pub moonshot_fetch: Option<MoonshotServiceConfig>,
+    #[serde(rename = "bing_api", alias = "bingApi", default)]
+    pub bing_api: Option<MoonshotServiceConfig>,
 }
 
 /// One web-service backend after the `KIMI_WEB_*` env overlay, ready for the
@@ -1267,6 +1270,16 @@ impl KimiConfig {
             self.services.moonshot_fetch.as_ref(),
             "KIMI_WEB_FETCH_BASE_URL",
             "KIMI_WEB_FETCH_API_KEY",
+        )
+    }
+
+    /// Resolve `[services.bing_api]` into the Bing Web Search API fallback
+    /// (env `KIMI_BING_BASE_URL` / `KIMI_BING_API_KEY` over `config.toml`).
+    pub fn resolve_bing_api_service(&self) -> Option<ResolvedWebService> {
+        resolve_web_service(
+            self.services.bing_api.as_ref(),
+            "KIMI_BING_BASE_URL",
+            "KIMI_BING_API_KEY",
         )
     }
 
@@ -2805,6 +2818,10 @@ custom_headers = { "X-Trace" = "t1" }
 [services.moonshotFetch]
 baseUrl = "https://fetch.example.test/v1"
 apiKey = "sk-fetch"
+
+[services.bing_api]
+base_url = "https://api.bing.microsoft.com/v7.0/search"
+api_key = "sk-bing"
 "#;
 
     #[test]
@@ -2833,12 +2850,48 @@ apiKey = "sk-fetch"
             Some("https://fetch.example.test/v1")
         );
         assert_eq!(fetch.api_key.as_deref(), Some("sk-fetch"));
+        let bing = config.services.bing_api.as_ref().unwrap();
+        assert_eq!(
+            bing.base_url.as_deref(),
+            Some("https://api.bing.microsoft.com/v7.0/search")
+        );
+        assert_eq!(bing.api_key.as_deref(), Some("sk-bing"));
         // An absent section stays inert.
         assert!(
             KimiConfig::from_str(SAMPLE_CONFIG)
                 .unwrap()
                 .services
                 .moonshot_search
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn test_resolve_bing_api_service() {
+        let config = KimiConfig::from_str(SERVICES_CONFIG).unwrap();
+        let bing = config.resolve_bing_api_service().unwrap();
+        assert_eq!(bing.base_url, "https://api.bing.microsoft.com/v7.0/search");
+        assert_eq!(bing.api_key.as_deref(), Some("sk-bing"));
+
+        // Env overlay: an env base URL is a credential boundary (mirrors the
+        // moonshot search resolution).
+        unsafe {
+            std::env::set_var("KIMI_BING_BASE_URL", "https://env.example.test/bing");
+            std::env::set_var("KIMI_BING_API_KEY", "sk-env-bing");
+        }
+        let bing = config.resolve_bing_api_service().unwrap();
+        assert_eq!(bing.base_url, "https://env.example.test/bing");
+        assert_eq!(bing.api_key.as_deref(), Some("sk-env-bing"));
+        unsafe {
+            std::env::remove_var("KIMI_BING_BASE_URL");
+            std::env::remove_var("KIMI_BING_API_KEY");
+        }
+
+        // An absent section resolves to None.
+        assert!(
+            KimiConfig::from_str(SAMPLE_CONFIG)
+                .unwrap()
+                .resolve_bing_api_service()
                 .is_none()
         );
     }

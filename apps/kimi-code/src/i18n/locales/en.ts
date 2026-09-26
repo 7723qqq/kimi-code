@@ -245,9 +245,15 @@ export default {
         readBodyFailed: 'Search failed: failed to read response body: {{e}}',
         moonshotHttpFailed: 'Moonshot search request failed: HTTP {{status}}{{qualifier}}. {{body}}',
         failed: 'Search failed: {{e}}',
-        duckduckgoHttpFailed: 'Search failed: DuckDuckGo search returned HTTP {{status}}',
         missingApiKey: 'Moonshot search service is not configured: missing API key.',
         emptyQuery: 'Query parameter cannot be empty',
+        bingHttpFailed: 'Search failed: Bing search returned HTTP {{status}}',
+        bingApiHttpFailed: 'Bing API request failed: HTTP {{status}}{{qualifier}}. {{body}}',
+        ddgHttpFailed: 'Search failed: DuckDuckGo search returned HTTP {{status}}',
+      },
+      switchEngine: {
+        unknown: 'Unknown search engine: {{name}}. Available: bing, ddg.',
+        switched: 'Search engine switched to {{name}}.',
       },
       readMedia: {
         tooLargeToSend:
@@ -496,6 +502,9 @@ export default {
       tower: 'Report tower status, toggle tower mode, or set the tower objective',
       exit: 'Exit the application',
       version: 'Show version information',
+      search: 'Switch the web search engine (bing or ddg)',
+      searchCurrent: 'Current search engine: {{engine}}. Usage: /search <bing|ddg>',
+      searchSwitched: 'Search engine switched to {{engine}}.',
     },
     commands: {
       plugins: {

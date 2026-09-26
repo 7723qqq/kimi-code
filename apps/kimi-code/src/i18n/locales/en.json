@@ -219,9 +219,15 @@
         "readBodyFailed": "Search failed: failed to read response body: {{e}}",
         "moonshotHttpFailed": "Moonshot search request failed: HTTP {{status}}{{qualifier}}. {{body}}",
         "failed": "Search failed: {{e}}",
-        "duckduckgoHttpFailed": "Search failed: DuckDuckGo search returned HTTP {{status}}",
         "missingApiKey": "Moonshot search service is not configured: missing API key.",
-        "emptyQuery": "Query parameter cannot be empty"
+        "emptyQuery": "Query parameter cannot be empty",
+        "bingHttpFailed": "Search failed: Bing search returned HTTP {{status}}",
+        "bingApiHttpFailed": "Bing API request failed: HTTP {{status}}{{qualifier}}. {{body}}",
+        "ddgHttpFailed": "Search failed: DuckDuckGo search returned HTTP {{status}}"
+      },
+      "switchEngine": {
+        "unknown": "Unknown search engine: {{name}}. Available: bing, ddg.",
+        "switched": "Search engine switched to {{name}}."
       },
       "readMedia": {
         "tooLargeToSend": "Image is too large to send safely after compression ({{final_bytes}} bytes; limit {{read_byte_budget}} bytes and {{max_edge}}px on the longest edge). The original image was not sent to the model. Do not retry the same file unchanged. Use Bash or an available image-processing tool to create a smaller copy within both limits, then call Read on the smaller copy.",
@@ -446,7 +452,10 @@
       "remoteControl": "Open the current session through Kimi Remote Control (experimental)",
       "tower": "Report tower status, toggle tower mode, or set the tower objective",
       "exit": "Exit the application",
-      "version": "Show version information"
+      "version": "Show version information",
+      "search": "Switch the web search engine (bing or ddg)",
+      "searchCurrent": "Current search engine: {{engine}}. Usage: /search <bing|ddg>",
+      "searchSwitched": "Search engine switched to {{engine}}."
     },
     "commands": {
       "plugins": {

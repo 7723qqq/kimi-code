@@ -353,6 +353,20 @@ async function handleBuiltInSlashCommand(
         t('tui.messages.configVersionDisplay', { version: host.state.appState.version }),
       );
       return;
+    case 'search': {
+      const engine = args.trim().toLowerCase();
+      if (engine === '') {
+        host.showStatus(t('tui.slashCommands.searchCurrent', { engine: 'bing' }));
+        return;
+      }
+      try {
+        const active = await host.harness.setSearchEngine(engine);
+        host.showStatus(t('tui.slashCommands.searchSwitched', { engine: active }));
+      } catch (error) {
+        host.showError(formatErrorMessage(error));
+      }
+      return;
+    }
     case 'new': {
       // A first-use lazy creation may still be in flight: wait it out so /new
       // never races a second createSession against the pending prompt.

@@ -1,11 +1,14 @@
-//! WebSearch — DuckDuckGo HTML scraping without API keys.
+//! WebSearch — Bing HTML scraping without API keys, with a Bing Web Search
+//! API backup.
 //!
-//! Ported for `kimi-agent` (P26 批 2). Posts search queries to DuckDuckGo,
-//! parses HTML results with `scraper`, and formats them for the LLM.
+//! Ported for `kimi-agent` (P26 批 2). GETs a search query to Bing, parses
+//! HTML results with `scraper`, and formats them for the LLM.
 //! When the host resolves a `[services.moonshot_search]` backend (v2
 //! `configSection.ts`), the Moonshot service is called instead: `POST
 //! {base_url}` with `{"text_query": …}` and a bearer credential, response
 //! `{ "search_results": […] }` (v2 `MoonshotWebSearchProvider`).
+//! When the Bing HTML scrape fails and a `[services.bing_api]` backend is
+//! configured, the Bing Web Search API is the fallback.
 
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
@@ -15,14 +18,54 @@ use serde_json::{Value, json};
 use super::err_result;
 use super::moonshot_service::{self, MoonshotServiceConfig};
 use crate::i18n::{LocalizedText, i18n_params};
-use crate::native::web_search::{DdgResult, parse_ddg_results, urlencoded};
+use crate::native::web_search::{SearchResult, parse_bing_results, parse_ddg_results, urlencoded};
 use crate::turn_loop::types::ExecutableToolResult;
 
-const DDG_HTML_URL: &str = "https://html.duckduckgo.com/html/";
-const DDG_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+const BING_HTML_URL: &str = "https://www.bing.com/search";
+const BING_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
      (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36";
+const DDG_HTML_URL: &str = "https://html.duckduckgo.com/html/";
+const DDG_USER_AGENT: &str = BING_USER_AGENT;
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const MAX_RESULTS: usize = 10;
+
+/// A key-free search engine. The active engine is process-global and can be
+/// switched at runtime (AI tool or host napi call) without a restart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchEngine {
+    Bing,
+    Ddg,
+}
+
+impl SearchEngine {
+    pub fn from_name(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "bing" => Some(Self::Bing),
+            "ddg" | "duckduckgo" => Some(Self::Ddg),
+            _ => None,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Bing => "bing",
+            Self::Ddg => "ddg",
+        }
+    }
+}
+
+static ACTIVE_ENGINE: LazyLock<Mutex<SearchEngine>> =
+    LazyLock::new(|| Mutex::new(SearchEngine::Bing));
+
+/// Switch the active search engine at runtime. Returns `false` if the name is
+/// not a known engine.
+pub fn set_active_engine(engine: SearchEngine) {
+    *ACTIVE_ENGINE.lock().unwrap() = engine;
+}
+
+pub fn active_engine() -> SearchEngine {
+    *ACTIVE_ENGINE.lock().unwrap()
+}
 
 #[derive(Debug, Clone)]
 pub struct WebSearchResultEntry {
@@ -33,16 +76,14 @@ pub struct WebSearchResultEntry {
     pub date: Option<String>,
 }
 
-impl From<DdgResult> for WebSearchResultEntry {
-    fn from(r: DdgResult) -> Self {
+impl From<SearchResult> for WebSearchResultEntry {
+    fn from(r: SearchResult) -> Self {
         Self {
             title: r.title,
             url: r.url,
             snippet: r.snippet,
             site_name: r.site_name,
-            // The DDG scrape carries no publication date (v2 only maps
-            // `date` on the Moonshot provider path).
-            date: None,
+            date: r.date,
         }
     }
 }
@@ -64,6 +105,38 @@ pub fn set_service_config(config: Option<MoonshotServiceConfig>) {
 
 fn service_config() -> Option<MoonshotServiceConfig> {
     moonshot_service::current(&SERVICE_CONFIG)
+}
+
+/// One host-resolved `[services.bing_api]` backend — the Bing Web Search API
+/// fallback when the HTML scrape fails. Distinct from the Moonshot backend:
+/// Bing authenticates with `Ocp-Apim-Subscription-Key`, not a bearer token.
+#[derive(Debug, Clone)]
+pub struct BingApiConfig {
+    pub base_url: String,
+    pub api_key: Option<String>,
+}
+
+impl Default for BingApiConfig {
+    fn default() -> Self {
+        Self {
+            base_url: "https://api.bing.microsoft.com/v7.0/search".to_string(),
+            api_key: None,
+        }
+    }
+}
+
+static BING_API_CONFIG: LazyLock<Mutex<Option<BingApiConfig>>> = LazyLock::new(|| Mutex::new(None));
+
+/// Install (or clear with `None`) the Bing API backend. Always installed per
+/// pipeline build — including `None` — so a backend resolved for one session
+/// never leaks into the next.
+pub fn set_bing_api_config(config: Option<BingApiConfig>) {
+    let mut guard = BING_API_CONFIG.lock().unwrap();
+    *guard = config;
+}
+
+fn bing_api_config() -> Option<BingApiConfig> {
+    BING_API_CONFIG.lock().unwrap().clone()
 }
 
 /// Build the Moonshot search request: body, URL, and headers (bearer,
@@ -295,6 +368,162 @@ async fn search_via_moonshot(
     })
 }
 
+/// Bing Web Search API fallback. Runs only when the HTML scrape failed and
+/// a `[services.bing_api]` backend is configured. Bing authenticates with
+/// `Ocp-Apim-Subscription-Key`, not a bearer token.
+async fn search_via_bing_api(
+    query: &str,
+    tool_call_id: Option<&str>,
+) -> Option<ExecutableToolResult> {
+    let config = bing_api_config()?;
+    let api_key = config.api_key.as_deref().filter(|k| !k.trim().is_empty())?;
+    let url = format!("{}?q={}", config.base_url, urlencoded(query));
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.webSearch.clientInitFailed",
+                    format!("Search failed: Failed to initialize HTTP client: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
+            ));
+        }
+    };
+    let mut request = client
+        .get(&url)
+        .header("Ocp-Apim-Subscription-Key", api_key)
+        .header("Accept", "application/json");
+    if let Some(id) = tool_call_id.filter(|id| !id.trim().is_empty()) {
+        request = request.header("X-Msh-Tool-Call-Id", id);
+    }
+    let response = match request.send().await {
+        Ok(resp) => resp,
+        Err(e) => {
+            let msg = if e.is_timeout() {
+                LocalizedText::fmt(
+                    "engine.tools.webSearch.timedOut",
+                    format!("Search timed out: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render()
+            } else {
+                LocalizedText::fmt(
+                    "engine.tools.webSearch.networkFailed",
+                    format!("Search failed (network): {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render()
+            };
+            return Some(err_result(msg));
+        }
+    };
+    let status = response.status();
+    let text = match response.text().await {
+        Ok(t) => t,
+        Err(e) => {
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.webSearch.readBodyFailed",
+                    format!("Search failed: failed to read response body: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
+            ));
+        }
+    };
+    if status.as_u16() != 200 {
+        let qualifier = if status.as_u16() == 401 {
+            " (auth/unauthorized)"
+        } else {
+            ""
+        };
+        return Some(err_result(
+            LocalizedText::fmt(
+                "engine.tools.webSearch.bingApiHttpFailed",
+                format!(
+                    "Bing API request failed: HTTP {status}{qualifier}. {body}",
+                    body = text.trim()
+                ),
+                i18n_params!["status" => status, "qualifier" => qualifier, "body" => text.trim()],
+            )
+            .render(),
+        ));
+    }
+    let results = match parse_bing_api_response(&text) {
+        Ok(r) => r,
+        Err(e) => {
+            return Some(err_result(
+                LocalizedText::fmt(
+                    "engine.tools.webSearch.failed",
+                    format!("Search failed: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
+            ));
+        }
+    };
+    if results.is_empty() {
+        return Some(ExecutableToolResult {
+            delivery: None,
+            stop_turn: false,
+            content: "No search results found.".to_string(),
+            is_error: false,
+            note: None,
+            display: None,
+        });
+    }
+    Some(ExecutableToolResult {
+        delivery: None,
+        stop_turn: false,
+        content: format_search_results(results),
+        is_error: false,
+        note: None,
+        display: None,
+    })
+}
+
+/// Parse a Bing Web Search API response (`{"webPages":{"value":[…]}}`).
+pub fn parse_bing_api_response(body: &str) -> Result<Vec<WebSearchResultEntry>, String> {
+    let json: Value = serde_json::from_str(body).map_err(|e| {
+        LocalizedText::fmt(
+            "engine.tools.webSearch.invalidJson",
+            format!("invalid JSON: {e}"),
+            i18n_params!["e" => e],
+        )
+        .render()
+    })?;
+    let raw = json
+        .get("webPages")
+        .and_then(|v| v.get("value"))
+        .and_then(|v| v.as_array());
+    let Some(raw) = raw else {
+        return Ok(Vec::new());
+    };
+    let mut results = Vec::with_capacity(raw.len());
+    for entry in raw {
+        let text = |key: &str| {
+            entry
+                .get(key)
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .filter(|s| !s.is_empty())
+        };
+        results.push(WebSearchResultEntry {
+            title: text("name").unwrap_or_default(),
+            url: text("url").unwrap_or_default(),
+            snippet: text("snippet").unwrap_or_default(),
+            site_name: text("displayUrl"),
+            date: text("dateLastCrawled"),
+        });
+    }
+    Ok(results)
+}
+
 pub async fn execute_web_search(
     args: &Value,
     tool_call_id: Option<&str>,
@@ -315,12 +544,166 @@ pub async fn execute_web_search(
         });
     }
 
-    // A host-resolved `[services.moonshot_search]` backend replaces the DDG
+    // A host-resolved `[services.moonshot_search]` backend replaces the Bing
     // scrape (v2 `WebSearchProviderService.fromServicesConfig`).
     if let Some(config) = service_config() {
         return search_via_moonshot(&config, query, tool_call_id).await;
     }
 
+    // Primary: key-free HTML scrape via the active engine. Call once; on
+    // failure fall back to the Bing API, then return the HTML error.
+    let html_result = match active_engine() {
+        SearchEngine::Bing => search_via_bing_html(query).await,
+        SearchEngine::Ddg => search_via_ddg_html(query).await,
+    };
+    if html_result.as_ref().is_some_and(|r| !r.is_error) {
+        return html_result;
+    }
+    if let Some(api_result) = search_via_bing_api(query, tool_call_id).await {
+        return Some(api_result);
+    }
+    html_result
+}
+
+/// Bing HTML scrape: GET the search page and parse `li.b_algo` results.
+async fn search_via_bing_html(query: &str) -> Option<ExecutableToolResult> {
+    let client = match reqwest::Client::builder()
+        .user_agent(BING_USER_AGENT)
+        .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return Some(ExecutableToolResult {
+                delivery: None,
+                stop_turn: false,
+                content: LocalizedText::fmt(
+                    "engine.tools.webSearch.clientInitFailed",
+                    format!("Search failed: Failed to initialize HTTP client: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
+                is_error: true,
+                note: None,
+                display: None,
+            });
+        }
+    };
+
+    let url = format!("{}?q={}&setlang=en", BING_HTML_URL, urlencoded(query));
+    let response = match client.get(&url).header("Accept", "text/html").send().await {
+        Ok(resp) => resp,
+        Err(e) => {
+            let msg = if e.is_timeout() {
+                LocalizedText::fmt(
+                    "engine.tools.webSearch.timedOut",
+                    format!("Search timed out: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render()
+            } else {
+                LocalizedText::fmt(
+                    "engine.tools.webSearch.networkFailed",
+                    format!("Search failed (network): {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render()
+            };
+            return Some(ExecutableToolResult {
+                delivery: None,
+                stop_turn: false,
+                content: msg,
+                is_error: true,
+                note: None,
+                display: None,
+            });
+        }
+    };
+
+    let status = response.status();
+    if !status.is_success() {
+        return Some(ExecutableToolResult {
+            delivery: None,
+            stop_turn: false,
+            content: LocalizedText::fmt(
+                "engine.tools.webSearch.bingHttpFailed",
+                format!("Search failed: Bing search returned HTTP {status}"),
+                i18n_params!["status" => status],
+            )
+            .render(),
+            is_error: true,
+            note: None,
+            display: None,
+        });
+    }
+
+    let body = match response.text().await {
+        Ok(t) => t,
+        Err(e) => {
+            return Some(ExecutableToolResult {
+                delivery: None,
+                stop_turn: false,
+                content: LocalizedText::fmt(
+                    "engine.tools.webSearch.readBodyFailed",
+                    format!("Search failed: failed to read response body: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
+                is_error: true,
+                note: None,
+                display: None,
+            });
+        }
+    };
+
+    let results = match parse_bing_results(&body, MAX_RESULTS).map(|rs| {
+        rs.into_iter()
+            .map(WebSearchResultEntry::from)
+            .collect::<Vec<_>>()
+    }) {
+        Ok(res) => res,
+        Err(e) => {
+            return Some(ExecutableToolResult {
+                delivery: None,
+                stop_turn: false,
+                content: LocalizedText::fmt(
+                    "engine.tools.webSearch.failed",
+                    format!("Search failed: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
+                is_error: true,
+                note: None,
+                display: None,
+            });
+        }
+    };
+
+    if results.is_empty() {
+        return Some(ExecutableToolResult {
+            delivery: None,
+            stop_turn: false,
+            content: "No search results found.".to_string(),
+            is_error: false,
+            note: None,
+            display: None,
+        });
+    }
+
+    // One renderer for both paths (v2 formats in `webSearchTool`); Bing
+    // entries carry no date, so no `Date:` line is emitted for them.
+    Some(ExecutableToolResult {
+        delivery: None,
+        stop_turn: false,
+        content: format_search_results(results),
+        is_error: false,
+        note: None,
+        display: None,
+    })
+}
+
+/// DuckDuckGo HTML scrape: POST form-encoded query, parse `div.result`.
+async fn search_via_ddg_html(query: &str) -> Option<ExecutableToolResult> {
     let client = match reqwest::Client::builder()
         .user_agent(DDG_USER_AGENT)
         .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
@@ -349,7 +732,6 @@ pub async fn execute_web_search(
         .post(DDG_HTML_URL)
         .header("Content-Type", "application/x-www-form-urlencoded")
         .header("Accept", "*/*")
-        .header("Host", "html.duckduckgo.com")
         .body(form_body)
         .send()
         .await
@@ -388,7 +770,7 @@ pub async fn execute_web_search(
             delivery: None,
             stop_turn: false,
             content: LocalizedText::fmt(
-                "engine.tools.webSearch.duckduckgoHttpFailed",
+                "engine.tools.webSearch.ddgHttpFailed",
                 format!("Search failed: DuckDuckGo search returned HTTP {status}"),
                 i18n_params!["status" => status],
             )
@@ -452,8 +834,6 @@ pub async fn execute_web_search(
         });
     }
 
-    // One renderer for both paths (v2 formats in `webSearchTool`); DDG
-    // entries carry no date, so no `Date:` line is emitted for them.
     Some(ExecutableToolResult {
         delivery: None,
         stop_turn: false,
@@ -464,12 +844,42 @@ pub async fn execute_web_search(
     })
 }
 
+/// SwitchSearchEngine tool — lets the AI change the active search engine at
+/// runtime. This is the "AI can switch" half of the hot-switch; the host napi
+/// call is the manual half.
+pub async fn execute_switch_engine(args: &Value) -> Option<ExecutableToolResult> {
+    let name = args.get("engine")?.as_str()?;
+    let Some(engine) = SearchEngine::from_name(name) else {
+        return Some(err_result(
+            LocalizedText::fmt(
+                "engine.tools.switchEngine.unknown",
+                format!("Unknown search engine: {name}. Available: bing, ddg."),
+                i18n_params!["name" => name],
+            )
+            .render(),
+        ));
+    };
+    set_active_engine(engine);
+    Some(ExecutableToolResult {
+        delivery: None,
+        stop_turn: false,
+        content: LocalizedText::fmt(
+            "engine.tools.switchEngine.switched",
+            format!("Search engine switched to {name}.", name = engine.name()),
+            i18n_params!["name" => engine.name()],
+        )
+        .render(),
+        is_error: false,
+        note: None,
+        display: None,
+    })
+}
+
 // ── HTML Parsing ─────────────────────────────────────────────────────────────
 //
-// The DDG scrape (selectors, ad skip, URL encoding) lives in
-// `native::web_search` so the workflow `SearchProvider` and this tool share
-// one implementation. This module only maps `DdgResult` into its own entry
-// type via `From` above.
+// The Bing scrape (selectors, URL encoding) lives in `native::web_search` so
+// the workflow `SearchProvider` and this tool share one implementation. This
+// module only maps `SearchResult` into its own entry type via `From` above.
 
 #[cfg(test)]
 mod tests {
@@ -536,5 +946,73 @@ mod tests {
                 .is_empty()
         );
         assert!(parse_moonshot_search_response("not json").is_err());
+    }
+
+    #[test]
+    fn test_parse_bing_api_response() {
+        let body = r#"{"webPages":{"value":[
+            {"name":"Rust","url":"https://rust.example.test","snippet":"lang","displayUrl":"rust.example.test","dateLastCrawled":"2026-01-01"},
+            {"name":"No Site"}
+        ]}}"#;
+        let results = parse_bing_api_response(body).unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].title, "Rust");
+        assert_eq!(results[0].url, "https://rust.example.test");
+        assert_eq!(results[0].snippet, "lang");
+        assert_eq!(results[0].site_name.as_deref(), Some("rust.example.test"));
+        assert_eq!(results[0].date.as_deref(), Some("2026-01-01"));
+        assert_eq!(results[1].site_name, None);
+        assert_eq!(results[1].date, None);
+        assert_eq!(results[1].url, "");
+    }
+
+    #[test]
+    fn test_parse_bing_api_response_empty_and_invalid() {
+        assert!(parse_bing_api_response("{}").unwrap().is_empty());
+        assert!(
+            parse_bing_api_response(r#"{"webPages":{"value":[]}}"#)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(parse_bing_api_response("not json").is_err());
+    }
+
+    #[test]
+    fn test_search_engine_from_name() {
+        assert_eq!(SearchEngine::from_name("bing"), Some(SearchEngine::Bing));
+        assert_eq!(SearchEngine::from_name("Bing"), Some(SearchEngine::Bing));
+        assert_eq!(SearchEngine::from_name("ddg"), Some(SearchEngine::Ddg));
+        assert_eq!(
+            SearchEngine::from_name("duckduckgo"),
+            Some(SearchEngine::Ddg)
+        );
+        assert_eq!(SearchEngine::from_name("google"), None);
+        assert_eq!(SearchEngine::from_name(""), None);
+    }
+
+    #[test]
+    fn test_set_and_active_engine() {
+        let prev = active_engine();
+        set_active_engine(SearchEngine::Ddg);
+        assert_eq!(active_engine(), SearchEngine::Ddg);
+        set_active_engine(SearchEngine::Bing);
+        assert_eq!(active_engine(), SearchEngine::Bing);
+        set_active_engine(prev);
+    }
+
+    #[tokio::test]
+    async fn test_execute_switch_engine() {
+        let prev = active_engine();
+        let args = json!({ "engine": "ddg" });
+        let result = execute_switch_engine(&args).await.unwrap();
+        assert!(!result.is_error);
+        assert!(result.content.contains("ddg"));
+        assert_eq!(active_engine(), SearchEngine::Ddg);
+
+        let args = json!({ "engine": "google" });
+        let result = execute_switch_engine(&args).await.unwrap();
+        assert!(result.is_error);
+
+        set_active_engine(prev);
     }
 }

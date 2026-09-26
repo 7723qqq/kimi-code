@@ -757,6 +757,12 @@ export function backgroundTaskList(): string;
 export function backgroundTaskOutput(id: string): string | null;
 
 /**
+ * Switch the active web search engine at runtime (manual hot-switch).
+ * `engine` is `"bing"` or `"ddg"`. Returns the active engine name.
+ */
+export function setSearchEngine(engine: string): string;
+
+/**
  * Request a cooperative stop for one background task; resolves with its
  * entry wire (`killed` once settled). Rejects for an unknown id or when no
  * engine pipeline is live.

@@ -239,9 +239,15 @@ export default {
         readBodyFailed: '搜索失败：读取响应体失败：{{e}}',
         moonshotHttpFailed: 'Moonshot 搜索请求失败：HTTP {{status}}{{qualifier}}。{{body}}',
         failed: '搜索失败：{{e}}',
-        duckduckgoHttpFailed: '搜索失败：DuckDuckGo 搜索返回 HTTP {{status}}',
         missingApiKey: 'Moonshot 搜索服务未配置：缺少 API key。',
         emptyQuery: '查询参数不能为空',
+        bingHttpFailed: '搜索失败：Bing 搜索返回 HTTP {{status}}',
+        bingApiHttpFailed: 'Bing API 请求失败：HTTP {{status}}{{qualifier}}。{{body}}',
+        ddgHttpFailed: '搜索失败：DuckDuckGo 搜索返回 HTTP {{status}}',
+      },
+      switchEngine: {
+        unknown: '未知搜索引擎：{{name}}。可用：bing、ddg。',
+        switched: '搜索引擎已切换为 {{name}}。',
       },
       readMedia: {
         tooLargeToSend:
@@ -484,6 +490,9 @@ export default {
       tower: '查看 tower 状态、切换 tower 模式或设置 tower 目标',
       exit: '退出应用程序',
       version: '显示版本信息',
+      search: '切换网页搜索引擎（bing 或 ddg）',
+      searchCurrent: '当前搜索引擎：{{engine}}。用法：/search <bing|ddg>',
+      searchSwitched: '搜索引擎已切换为 {{engine}}。',
     },
     commands: {
       plugins: {

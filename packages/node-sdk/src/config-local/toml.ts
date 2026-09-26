@@ -750,6 +750,11 @@ function servicesToToml(services: ServicesConfig, rawServices: unknown): Record<
   } else {
     delete out['moonshot_fetch'];
   }
+  if (services.bingApi !== undefined) {
+    out['bing_api'] = serviceToToml(services.bingApi);
+  } else {
+    delete out['bing_api'];
+  }
   return out;
 }
 

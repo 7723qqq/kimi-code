@@ -829,6 +829,11 @@ pub struct RunTurnParams {
     /// first and falls back to the direct fetch on failure (v2 semantics).
     #[serde(default)]
     pub web_fetch: Option<WebServiceConfig>,
+    /// Host-resolved `[services.bing_api]` / `KIMI_BING_*` backend. When set,
+    /// the native WebSearch tool falls back to the Bing Web Search API if the
+    /// Bing HTML scrape fails.
+    #[serde(default)]
+    pub bing_api: Option<WebServiceConfig>,
     /// Host-resolved `[image].read_byte_budget` (v2
     /// `resolveReadImageByteBudget`): raw-byte budget for model-initiated
     /// image reads. `None` keeps the 256KB default.

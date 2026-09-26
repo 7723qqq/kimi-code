@@ -1145,6 +1145,12 @@ async fn build_engine_pipeline(
             custom_headers: cfg.custom_headers.clone(),
         }
     }));
+    kimi_agent::tools::web_search::set_bing_api_config(params.bing_api.as_ref().map(|cfg| {
+        kimi_agent::tools::web_search::BingApiConfig {
+            base_url: cfg.base_url.clone(),
+            api_key: cfg.api_key.clone(),
+        }
+    }));
 
     pipeline::build_engine_pipeline(
         &spec,
@@ -1205,6 +1211,12 @@ fn install_web_services(config: &kimi_agent::config::KimiConfig) {
     kimi_agent::tools::fetch_url::set_service_config(
         config.resolve_web_fetch_service().map(to_seam),
     );
+    kimi_agent::tools::web_search::set_bing_api_config(config.resolve_bing_api_service().map(
+        |service| kimi_agent::tools::web_search::BingApiConfig {
+            base_url: service.base_url,
+            api_key: service.api_key,
+        },
+    ));
 }
 
 /// The composition root for the standalone server: config -> `PipelineSpec` ->

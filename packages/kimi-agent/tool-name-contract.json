@@ -8,6 +8,7 @@
     "Glob",
     "FetchURL",
     "WebSearch",
+    "SwitchSearchEngine",
     "AskUserQuestion",
     "TodoList",
     "EnterPlanMode",
@@ -98,6 +99,8 @@
   "aliases": {
     "fetch_url": "snake twin of FetchURL — subagent/manager.rs allowlists and permission/mod.rs match it",
     "web_search": "snake twin of WebSearch — subagent/manager.rs allowlists and permission/mod.rs match it",
+    "switchengine": "collapsed twin of switch_engine (the def name, web_search.rs)",
+    "switch_engine": "snake twin of SwitchSearchEngine — the def name, web_search.rs",
     "listdirectory": "collapsed twin of list_directory (no def advertises either spelling)",
     "invokesubagent": "collapsed twin of invoke_subagent (the REPL def name, subagent_tools.rs)",
     "managesubagents": "collapsed twin of manage_subagents (the REPL def name, subagent_tools.rs)",

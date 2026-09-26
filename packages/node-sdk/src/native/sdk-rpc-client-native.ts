@@ -178,6 +178,7 @@ import {
   resolveMaxStepsPerTurn,
   resolveWebSearchService,
   resolveWebFetchService,
+  resolveBingApiService,
   resolveImageReadByteBudget,
   resolveImageMaxEdgePx,
   resolveModelCapabilities,
@@ -1382,14 +1383,35 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         } catch {
           return;
         }
-        // Session turns run as `turn-<n>` (session/mod.rs); a foreground
-        // subagent turn is `subturn-<rand>` (subagent/manager.rs run_one) and
-        // belongs to the active side channel (btw), which the main session
-        // event attribution must not claim.
+        // Agent attribution, most reliable source first.
+        //
+        // The engine stamps `agent_id` on every event a subagent's turn emits
+        // (see `ToolFilterCallbacks::emit_event` in
+        // `kimi-agent/src/subagent/manager.rs`); the main agent's events carry
+        // `"main"`. That stamp is authoritative.
+        //
+        // The `subturn-` prefix test below is a legacy fallback for events
+        // that predate the stamp. It cannot stand in for it: it only ever
+        // matches the turn-level `llm.delta` stream, and the subagent id it
+        // resolves to is `meta.activeAgentId` — the *side channel's* currently
+        // active agent, which is not the agent that emitted the event. With
+        // `AgentSwarm` running several subagents at once they all share it, so
+        // every subagent event was attributed to the same id; and tool events
+        // (`tool.native`) do not carry a `subturn-` turn id at all, so they
+        // fell through to `'main'` outright — a subagent's tool call was
+        // announced as the main agent's and landed in the main transcript,
+        // truncating the main agent's own reasoning. Prefer the stamp.
         const eventAgentId =
-          typeof parsed.turn_id === 'string' && parsed.turn_id.startsWith('subturn-')
-            ? (meta.activeAgentId ?? 'main')
-            : 'main';
+          typeof parsed.agent_id === 'string'
+            ? parsed.agent_id
+            : typeof parsed.turn_id === 'string' && parsed.turn_id.startsWith('subturn-')
+              ? (meta.activeAgentId ?? 'main')
+              : 'main';
+        if (process.env['KIMI_DEBUG_AGENT_ID'] === '1') {
+          console.error(
+            `[agent-id] type=${String(parsed.type)} raw_agent_id=${JSON.stringify(parsed.agent_id)} turn_id=${JSON.stringify(parsed.turn_id)} -> ${eventAgentId}`,
+          );
+        }
         if (parsed.type === 'llm.delta') {
           if (parsed.part?.type === 'text' && typeof parsed.part.text === 'string') {
             this.receiveEvent({
@@ -2044,6 +2066,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     const maxSteps = resolveMaxStepsPerTurn(config);
     const webSearch = resolveWebSearchService(config);
     const webFetch = resolveWebFetchService(config);
+    const bingApi = resolveBingApiService(config);
     const imageReadByteBudget = resolveImageReadByteBudget(config);
     const imageMaxEdgePx = resolveImageMaxEdgePx(config);
     const modelCapabilities = resolveModelCapabilities(config, meta.model);
@@ -2127,6 +2150,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       maxSteps: maxSteps ?? undefined,
       webSearch: webSearch ?? undefined,
       webFetch: webFetch ?? undefined,
+      bingApi: bingApi ?? undefined,
       imageReadByteBudget: imageReadByteBudget ?? undefined,
       imageMaxEdgePx: imageMaxEdgePx ?? undefined,
       modelCapabilities: modelCapabilities ?? undefined,
@@ -4759,6 +4783,15 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       tasks = tasks.slice(tasks.length - input.limit);
     }
     return tasks;
+  }
+
+  /**
+   * Switch the active web search engine at runtime (manual hot-switch).
+   * `engine` is `"bing"` or `"ddg"`. Returns the active engine name.
+   */
+  override async setSearchEngine(engine: string): Promise<string> {
+    const { setSearchEngine } = await import('@moonshot-ai/kimi-agent/native');
+    return setSearchEngine(engine);
   }
 
   override async getBackgroundTaskOutput(

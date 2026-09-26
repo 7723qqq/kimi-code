@@ -350,6 +350,15 @@ export abstract class SDKRpcClientBase {
     return rpc.getExperimentalFeatures({});
   }
 
+  /**
+   * Switch the active web search engine at runtime (manual hot-switch).
+   * `engine` is `"bing"` or `"ddg"`. Returns the active engine name.
+   */
+  async setSearchEngine(engine: string): Promise<string> {
+    const { setSearchEngine } = await import('@moonshot-ai/kimi-agent/native');
+    return setSearchEngine(engine);
+  }
+
   async setConfig(input: KimiConfigPatch): Promise<KimiConfig> {
     const rpc = await this.getRpc();
     return rpc.setKimiConfig(input);

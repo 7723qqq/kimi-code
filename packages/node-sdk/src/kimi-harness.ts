@@ -453,6 +453,14 @@ export class KimiHarness {
   }
 
   /**
+   * Switch the active web search engine at runtime (manual hot-switch).
+   * `engine` is `"bing"` or `"ddg"`. Returns the active engine name.
+   */
+  async setSearchEngine(engine: string): Promise<string> {
+    return this.rpc.setSearchEngine(engine);
+  }
+
+  /**
    * Upload media bytes to the engine's file store; pair the returned meta
    * with `buildDaemonFileUrl` to reference the file from a prompt.
    * Native engine client only — the base client throws `not_implemented`.

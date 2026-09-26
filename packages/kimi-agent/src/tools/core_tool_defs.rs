@@ -148,6 +148,11 @@ Each result includes its title, its URL, and a snippet, plus its source site and
 When you rely on a result in your answer, cite its source URL so the user can verify it.
 "#;
 
+const SWITCH_ENGINE_DESCRIPTION: &str = r#"Switch the active web search engine at runtime. Use this when the current engine is failing or returning poor results, to try an alternative without restarting.
+
+Available engines: bing (Bing HTML scrape, key-free), ddg (DuckDuckGo HTML scrape, key-free). The switch takes effect immediately for subsequent WebSearch calls.
+"#;
+
 /// Windows-only suffix appended to the Glob description, mirroring the v2
 /// `GlobTool.description` getter (pathClass === 'win32').
 const GLOB_WINDOWS_PATH_HINT: &str = r#"
@@ -531,6 +536,24 @@ fn build_core_tool_defs() -> Vec<ToolInfo> {
                 "additionalProperties": false
             }),
         },
+        ToolInfo {
+            name: "SwitchSearchEngine".into(),
+            description: SWITCH_ENGINE_DESCRIPTION.into(),
+            input_schema: json!({
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "type": "object",
+                "properties": {
+                    "engine": {
+                        "type": "string",
+                        "description": "The search engine to activate: bing or ddg."
+                    }
+                },
+                "required": [
+                    "engine"
+                ],
+                "additionalProperties": false
+            }),
+        },
     ]
 }
 
@@ -888,7 +911,8 @@ mod tests {
                 "Edit",
                 "Bash",
                 "FetchURL",
-                "WebSearch"
+                "WebSearch",
+                "SwitchSearchEngine"
             ]
         );
     }
@@ -964,6 +988,7 @@ mod tests {
         assert_eq!(required("Bash"), json!(["command"]));
         assert_eq!(required("FetchURL"), json!(["url"]));
         assert_eq!(required("WebSearch"), json!(["query"]));
+        assert_eq!(required("SwitchSearchEngine"), json!(["engine"]));
     }
 
     #[test]
@@ -1022,7 +1047,7 @@ mod tests {
         assert_eq!(lsp.input_schema["additionalProperties"], false);
 
         let all = all_native_tool_defs();
-        assert_eq!(all.len(), 17);
+        assert_eq!(all.len(), 18);
         assert!(all.iter().any(|d| d.name == "Lsp"));
         assert!(all.iter().any(|d| d.name == "ListDirectory"));
         assert!(all.iter().any(|d| d.name == "NotifyUser"));

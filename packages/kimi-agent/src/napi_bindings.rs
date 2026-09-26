@@ -937,6 +937,10 @@ pub struct JsRunTurnParams {
     /// backend. When set, the native FetchURL tool tries this endpoint
     /// first and falls back to the direct fetch on failure (v2 semantics).
     pub web_fetch: Option<JsWebServiceConfig>,
+    /// Host-resolved `[services.bing_api]` / `KIMI_BING_*` backend. When set,
+    /// the native WebSearch tool falls back to the Bing Web Search API if the
+    /// Bing HTML scrape fails.
+    pub bing_api: Option<JsWebServiceConfig>,
     /// Host-resolved `[image].read_byte_budget` (v2
     /// `resolveReadImageByteBudget`). `None` keeps the 256KB default.
     pub image_read_byte_budget: Option<i64>,
@@ -1956,6 +1960,12 @@ async fn build_engine_pipeline(
             base_url: cfg.base_url.clone(),
             api_key: cfg.api_key.clone(),
             custom_headers: cfg.custom_headers.clone().unwrap_or_default(),
+        }
+    }));
+    crate::tools::web_search::set_bing_api_config(params.bing_api.as_ref().map(|cfg| {
+        crate::tools::web_search::BingApiConfig {
+            base_url: cfg.base_url.clone(),
+            api_key: cfg.api_key.clone(),
         }
     }));
 
@@ -3685,6 +3695,18 @@ pub fn background_task_stop(
                 )
             },
         )
+    })
+}
+
+/// Switch the active web search engine at runtime (manual hot-switch from the
+/// host). `engine` is `"bing"` or `"ddg"`. Returns the active engine name.
+#[napi]
+pub fn set_search_engine(engine: String) -> napi::Result<String> {
+    guard_sync_panic(|| {
+        let engine = crate::tools::web_search::SearchEngine::from_name(&engine)
+            .ok_or_else(|| napi::Error::from_reason("unknown search engine"))?;
+        crate::tools::web_search::set_active_engine(engine);
+        Ok(engine.name().to_string())
     })
 }
 
