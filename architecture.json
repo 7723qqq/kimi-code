@@ -10,8 +10,24 @@
         "minidb",
         "protocol"
       ],
-      "fingerprint": "127b20d07296282a",
-      "fileCount": 251
+      "apis": [
+        {
+          "protocol": "rpc",
+          "path": "execute_tool",
+          "description": "Execute a native tool call"
+        },
+        {
+          "protocol": "rpc",
+          "path": "generate",
+          "description": "Run LLM generation"
+        },
+        {
+          "protocol": "stdio",
+          "path": "acp",
+          "description": "ACP stdio protocol server"
+        }
+      ],
+      "fingerprint": "127b20d07296282a"
     },
     {
       "id": "node-sdk",
@@ -26,8 +42,14 @@
         "oauth",
         "i18n"
       ],
-      "fingerprint": "356370da8188ab3a",
-      "fileCount": 44
+      "apis": [
+        {
+          "protocol": "npm",
+          "path": "@moonshot-ai/kimi-code-sdk",
+          "description": "Public SDK package"
+        }
+      ],
+      "fingerprint": "356370da8188ab3a"
     },
     {
       "id": "kimi-code",
@@ -43,8 +65,19 @@
         "pi-tui",
         "vis-server"
       ],
-      "fingerprint": "0888dc437fa591a4",
-      "fileCount": 366
+      "apis": [
+        {
+          "protocol": "cli",
+          "path": "main",
+          "description": "CLI entry point"
+        },
+        {
+          "protocol": "tui",
+          "path": "kimi-tui",
+          "description": "Terminal UI"
+        }
+      ],
+      "fingerprint": "0888dc437fa591a4"
     },
     {
       "id": "kosong",
@@ -52,8 +85,7 @@
       "source": "packages/kosong/src",
       "layer": "engine",
       "deps": [],
-      "fingerprint": "b7440b8c9ae82282",
-      "fileCount": 21
+      "fingerprint": "b7440b8c9ae82282"
     },
     {
       "id": "minidb",
@@ -61,8 +93,7 @@
       "source": "packages/minidb/src",
       "layer": "engine",
       "deps": [],
-      "fingerprint": "8aa46daed50c21c8",
-      "fileCount": 61
+      "fingerprint": "8aa46daed50c21c8"
     },
     {
       "id": "protocol",
@@ -72,8 +103,7 @@
       "deps": [
         "transcript"
       ],
-      "fingerprint": "2e26c68d1c6cb684",
-      "fileCount": 73
+      "fingerprint": "2e26c68d1c6cb684"
     },
     {
       "id": "transcript",
@@ -81,8 +111,7 @@
       "source": "packages/transcript/src",
       "layer": "engine",
       "deps": [],
-      "fingerprint": "ac5741f015ad0b20",
-      "fileCount": 25
+      "fingerprint": "ac5741f015ad0b20"
     },
     {
       "id": "kaos",
@@ -90,8 +119,7 @@
       "source": "packages/kaos/src",
       "layer": "engine",
       "deps": [],
-      "fingerprint": "41fdcd1d183c68b6",
-      "fileCount": 12
+      "fingerprint": "41fdcd1d183c68b6"
     },
     {
       "id": "oauth",
@@ -101,8 +129,7 @@
       "deps": [
         "kosong"
       ],
-      "fingerprint": "373e1a08705790b3",
-      "fileCount": 29
+      "fingerprint": "373e1a08705790b3"
     },
     {
       "id": "i18n",
@@ -112,8 +139,7 @@
       "deps": [
         "i18n-shared"
       ],
-      "fingerprint": "d1d2d81d518ea906",
-      "fileCount": 4
+      "fingerprint": "d1d2d81d518ea906"
     },
     {
       "id": "i18n-shared",
@@ -121,8 +147,7 @@
       "source": "packages/i18n-shared/src",
       "layer": "shared",
       "deps": [],
-      "fingerprint": "6e83f9e183f04819",
-      "fileCount": 5
+      "fingerprint": "6e83f9e183f04819"
     },
     {
       "id": "telemetry",
@@ -130,8 +155,7 @@
       "source": "packages/telemetry/src",
       "layer": "shared",
       "deps": [],
-      "fingerprint": "d0faf8d28e83f9c1",
-      "fileCount": 11
+      "fingerprint": "d0faf8d28e83f9c1"
     },
     {
       "id": "pi-tui",
@@ -139,8 +163,7 @@
       "source": "packages/pi-tui/src",
       "layer": "shared",
       "deps": [],
-      "fingerprint": "540b93ab4d94d528",
-      "fileCount": 43
+      "fingerprint": "540b93ab4d94d528"
     },
     {
       "id": "vis-server",
@@ -151,8 +174,7 @@
         "kosong",
         "protocol"
       ],
-      "fingerprint": "ec4e8a6be297f4e5",
-      "fileCount": 31
+      "fingerprint": "ec4e8a6be297f4e5"
     },
     {
       "id": "vscode",
@@ -165,8 +187,7 @@
         "oauth",
         "telemetry"
       ],
-      "fingerprint": "0f38dcde56972dcd",
-      "fileCount": 30
+      "fingerprint": "0f38dcde56972dcd"
     },
     {
       "id": "kimi-inspect",
@@ -176,8 +197,7 @@
       "deps": [
         "transcript"
       ],
-      "fingerprint": "f862484ee1dce28e",
-      "fileCount": 70
+      "fingerprint": "f862484ee1dce28e"
     }
   ],
   "rules": {
