@@ -705,6 +705,13 @@ export class SessionEventHandler {
   }
 
   private handleThinkingDelta(event: ThinkingDeltaEvent): void {
+    // A subagent's reasoning rides the same event name: the engine stamps it
+    // with a `subturn-` turn id and the host attributes it to the active
+    // subagent. Its progress is already shown by the subagent's own activity
+    // row, so appending it here would interleave it with the main agent's
+    // reasoning inside one block — with two subagents running, three streams
+    // end up shredded together.
+    if (event.agentId !== 'main') return;
     const { state, streamingUI } = this.host;
     // Encrypted / redacted reasoning (e.g. Kimi over the Anthropic-compatible
     // protocol) streams thinking deltas whose visible text is empty — only an
@@ -731,6 +738,9 @@ export class SessionEventHandler {
   }
 
   private handleAssistantDelta(event: AssistantDeltaEvent): void {
+    // Same split as `handleThinkingDelta`: a subagent's body text is not the
+    // main transcript's assistant message.
+    if (event.agentId !== 'main') return;
     const { state, streamingUI } = this.host;
     if (streamingUI.hasThinkingDraft()) {
       streamingUI.flushThinkingToTranscript('idle');
@@ -787,7 +797,13 @@ export class SessionEventHandler {
   private handleToolCall(event: ToolCallStartedEvent): void {
     const { streamingUI } = this.host;
     this.host.surveyController.notifyToolCallStarted(event.toolCallId, event.name);
-    streamingUI.flushNow();
+    // A tool call ends this step's live text: settle it and clear the draft.
+    // `flushNow()` alone only pushed the draft into the component — it neither
+    // finalized the thinking block nor emptied `_thinkingDraft`, so the next
+    // step's reasoning kept appending to the same component and the same
+    // buffer. Since consecutive steps reason about an unchanged task, the
+    // appended text is the same text, and the block rendered it twice.
+    streamingUI.finalizeLiveTextBuffers('tool');
     this.toolStartTimes.set(event.toolCallId, Date.now());
     const { turnId, step } = streamingUI.getTurnContext();
     const toolCall: ToolCallBlockData = {
@@ -854,7 +870,9 @@ export class SessionEventHandler {
   private handleToolResult(event: ToolResultEvent): void {
     const { streamingUI } = this.host;
     this.host.surveyController.notifyToolCallEnded(event.toolCallId);
-    streamingUI.flushNow();
+    // Same reason as `handleToolCall`: the result closes the step's live text,
+    // so the next step starts from an empty draft instead of appending.
+    streamingUI.finalizeLiveTextBuffers('waiting');
     this.clearStepRetry();
     const startMs = this.toolStartTimes.get(event.toolCallId);
     this.toolStartTimes.delete(event.toolCallId);

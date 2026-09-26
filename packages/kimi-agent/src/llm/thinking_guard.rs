@@ -79,13 +79,17 @@ pub fn set_enabled(enabled: bool) {
 
 /// Whether the guard runs. `KIMI_AGENT_THINKING_GUARD` overrides the
 /// configured value, so a single run can be compared with and without it.
+///
+/// The env switch follows the repo-wide v2 `parseBooleanEnv` rule (see
+/// [`crate::env::env_switch_default_on`]): only an explicit falsy value
+/// disables the guard, so unset, empty, or unrecognized keeps it on. Parsed
+/// through the shared helper rather than a local list, so this switch cannot
+/// drift from the other engine switches.
 pub fn enabled() -> bool {
-    match std::env::var(GUARD_ENV) {
-        Ok(raw) => !matches!(
-            raw.trim().to_ascii_lowercase().as_str(),
-            "0" | "false" | "off" | "no"
-        ),
-        Err(_) => ENABLED.load(std::sync::atomic::Ordering::Relaxed),
+    match crate::env::parse_bool_env(std::env::var(GUARD_ENV).ok().as_deref()) {
+        Some(from_env) => from_env,
+        // Unset / empty / unrecognized: fall back to `[experimental]`.
+        None => ENABLED.load(std::sync::atomic::Ordering::Relaxed),
     }
 }
 
@@ -228,6 +232,10 @@ mod tests {
     use super::*;
     use crate::llm::wire::StreamDelta;
 
+    /// `KIMI_AGENT_THINKING_GUARD` and `ENABLED` are process-global, so any two
+    /// tests touching them would otherwise race.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn guard() -> ThinkingGuard {
         ThinkingGuard::new(ThinkingGuardConfig::default())
     }
@@ -316,6 +324,40 @@ mod tests {
         let mut g = guard();
         feed(&mut g, &"word ".repeat(2000));
         assert!(g.tail.chars().count() <= ThinkingGuardConfig::default().window_chars);
+    }
+
+    #[test]
+    fn the_env_switch_follows_the_shared_v2_parse_boolean_env_rule() {
+        // The env var is process-global, so serialize against other env-touching
+        // tests rather than racing them.
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let saved = std::env::var(GUARD_ENV).ok();
+
+        // Explicit falsy values turn it off…
+        set_enabled(true);
+        for value in ["0", "false", "no", "off", " FALSE "] {
+            unsafe { std::env::set_var(GUARD_ENV, value) };
+            assert!(!enabled(), "{value:?} must disable the guard");
+        }
+        // …explicit truthy values turn it on even when config said otherwise.
+        set_enabled(false);
+        for value in ["1", "true", "yes", "on", " ON "] {
+            unsafe { std::env::set_var(GUARD_ENV, value) };
+            assert!(enabled(), "{value:?} must enable the guard");
+        }
+        // Unset / empty / unrecognized fall back to `[experimental]` (on here):
+        // a typo must not silently disable the guard.
+        set_enabled(true);
+        for value in ["", "banana", "2"] {
+            unsafe { std::env::set_var(GUARD_ENV, value) };
+            assert!(enabled(), "{value:?} must fall back to the config value");
+        }
+
+        match saved {
+            Some(v) => unsafe { std::env::set_var(GUARD_ENV, v) },
+            None => unsafe { std::env::remove_var(GUARD_ENV) },
+        }
+        set_enabled(true);
     }
 
     #[test]

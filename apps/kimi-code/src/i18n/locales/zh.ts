@@ -111,6 +111,11 @@ export default {
   // Rust 引擎（packages/kimi-agent）自身产生的文案。引擎为每个 key 都带有英文
   // 兜底，未接线时仍能正确渲染；scripts/check-engine-i18n-parity.mjs 负责保持同步。
   engine: {
+    compaction: {
+      cancelled: '压缩已取消',
+      emptySummary: '压缩响应中没有可用的摘要。',
+      overflowFailed: '压缩在 {{max_attempts}} 次尝试后仍未能将上下文降至模型窗口以下。',
+    },
     permission: {
       autoModeCannotAsk: '自动模式无法提出交互式问题',
       deniedByUserRule: '已被用户规则拒绝：{{rule}}：{{why}}',

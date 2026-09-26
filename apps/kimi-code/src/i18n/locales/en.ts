@@ -115,6 +115,12 @@ export default {
   // carries an English fallback for every key so an unwired host still renders
   // correctly; `scripts/check-engine-i18n-parity.mjs` keeps the two in sync.
   engine: {
+    compaction: {
+      cancelled: 'compaction cancelled',
+      emptySummary: 'The compaction response did not contain a usable summary.',
+      overflowFailed:
+        'Compaction failed to bring the context under the model window after {{max_attempts}} attempts.',
+    },
     permission: {
       autoModeCannotAsk: 'Auto mode cannot ask interactive questions',
       deniedByUserRule: 'Denied by user rule: {{rule}}: {{why}}',

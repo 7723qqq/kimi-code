@@ -482,16 +482,15 @@ fn truncate_text_to_tokens(text: &str, max_tokens: u32) -> &str {
 }
 
 /// The kept-verbatim user messages v2's `selectCompactionUserMessages`
-/// picks from the compacted range: the tail fits `max_tokens` (the newest
-/// input, possibly suffix-truncated at the boundary), then the head fills
-/// `head_tokens` (oldest input, possibly truncated), with an elision note
-/// between when anything was omitted.
-fn select_kept_user_messages(
-    user_messages: &[LLMMessage],
-) -> (Vec<LLMMessage>, Option<LLMMessage>) {
+/// picks from the compacted range, returned as the assembled v2 kept
+/// sequence: the head fills `head_tokens` (oldest input, possibly
+/// truncated — one truncating message ends the head), then the elision
+/// note (when anything was omitted), then the tail fits `max_tokens` (the
+/// newest input, possibly suffix-truncated at the boundary).
+fn select_kept_user_messages(user_messages: &[LLMMessage]) -> Vec<LLMMessage> {
     let total_tokens: u32 = user_messages.iter().map(estimate_message_tokens).sum();
     if total_tokens <= COMPACT_USER_MESSAGE_MAX_TOKENS {
-        return (user_messages.to_vec(), None);
+        return user_messages.to_vec();
     }
 
     let head_budget = COMPACT_USER_MESSAGE_HEAD_TOKENS.min(COMPACT_USER_MESSAGE_MAX_TOKENS);
@@ -502,6 +501,12 @@ fn select_kept_user_messages(
     let mut head_end_exclusive = user_messages.len();
     let mut tail_boundary_prefix: Option<String> = None;
     for index in (0..user_messages.len()).rev() {
+        // v2 `i >= 0 && tailRemaining > 0`: once the tail budget is spent the
+        // loop stops before straddling — the next message belongs whole to
+        // the head side, and no empty suffix message is emitted.
+        if tail_remaining == 0 {
+            break;
+        }
         let message = &user_messages[index];
         let tokens = estimate_message_tokens(message);
         if tokens <= tail_remaining {
@@ -556,6 +561,10 @@ fn select_kept_user_messages(
                 truncated.content =
                     truncate_text_to_tokens(&message.content, head_remaining).to_string();
                 head.push(truncated);
+                // v2: one truncated message ends the head — without this the
+                // budget is never spent and every further candidate is
+                // truncated and kept too.
+                break;
             }
         }
     }
@@ -571,7 +580,9 @@ fn select_kept_user_messages(
         content: compaction_elision_text(omitted),
         ..Default::default()
     };
-    (head, Some(elision))
+    head.push(elision);
+    head.extend(tail);
+    head
 }
 
 /// Continuation reminder appended after context compaction, matching upstream #3537.
@@ -647,14 +658,51 @@ fn summarization_prompt(omitted: &[LLMMessage], instruction: Option<&str>) -> Ve
     ]
 }
 
-#[derive(Debug, thiserror::Error)]
+/// The compaction's failure modes. `Display` renders through the engine i18n
+/// layer (`LocalizedText`), so a host that installed a locale sees its own
+/// language — hand-written instead of `thiserror` for exactly that reason;
+/// `Provider` keeps `transparent` semantics (its text and `source()` are the
+/// wrapped error's).
+#[derive(Debug)]
 pub enum CompactionError {
-    #[error("compaction cancelled")]
     Cancelled,
-    #[error("The compaction response did not contain a usable summary.")]
     EmptySummary,
-    #[error(transparent)]
     Provider(Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl std::fmt::Display for CompactionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Cancelled => write!(
+                f,
+                "{}",
+                crate::i18n::LocalizedText::plain(
+                    "engine.compaction.cancelled",
+                    "compaction cancelled",
+                )
+                .render()
+            ),
+            Self::EmptySummary => write!(
+                f,
+                "{}",
+                crate::i18n::LocalizedText::plain(
+                    "engine.compaction.emptySummary",
+                    "The compaction response did not contain a usable summary.",
+                )
+                .render()
+            ),
+            Self::Provider(error) => std::fmt::Display::fmt(error, f),
+        }
+    }
+}
+
+impl std::error::Error for CompactionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Provider(error) => Some(error.as_ref()),
+            Self::Cancelled | Self::EmptySummary => None,
+        }
+    }
 }
 
 /// Generate a usable summary before any history is replaced. Empty responses
@@ -854,7 +902,7 @@ fn pre_shrink_to_window_budget(
         return None;
     }
 
-    let instruction_tokens = instruction.map(estimate_text_tokens).unwrap_or(0);
+    let instruction_tokens = instruction.map(estimate_tokens).unwrap_or(0);
     let total: u32 = history
         .iter()
         .map(estimate_message_tokens)
@@ -899,8 +947,51 @@ fn take_recent_within_budget(history: &[LLMMessage], budget: u32) -> Vec<LLMMess
     slice
 }
 
-fn estimate_text_tokens(text: &str) -> u32 {
-    (text.chars().count() / 4) as u32
+/// v2 `postProcessSummary` (fullCompactionService.ts:844-851): when the
+/// session has todos, the compaction summary carries the rendered list so the
+/// model's working notes keep the todo state once the history is folded away.
+/// `todos` is the rendered list; `None` (an empty list) leaves the summary
+/// untouched — v2 returns it untrimmed in that case too.
+pub fn post_process_summary(summary: String, todos: Option<String>) -> String {
+    match todos {
+        None => summary,
+        Some(list) => format!("{}\n\n{list}", summary.trim()),
+    }
+}
+
+/// The rendered todo list a compaction summary carries: `None` when the raw
+/// domain value is missing or holds no items (v2's `todos.length === 0`
+/// guard). Shared by the host-bridge read and the server's own state store,
+/// so both seams append the same bytes.
+pub fn todo_list_for_summary(raw: Option<&serde_json::Value>) -> Option<String> {
+    let todos = crate::tools::todo_item::read_todo_items(raw?);
+    if todos.is_empty() {
+        None
+    } else {
+        Some(crate::tools::todo_item::render_todo_list_with_title(
+            &todos,
+            "## TODO List",
+        ))
+    }
+}
+
+/// Read the session's todos through the host state bridge and render the
+/// list [`post_process_summary`] appends. A host without the state bridge or
+/// without todos degrades to `None` (a plain summary) instead of erroring
+/// the compaction.
+pub async fn read_todos_for_summary(
+    callbacks: &dyn crate::callbacks::HostCallbacks,
+) -> Option<String> {
+    let response = callbacks
+        .state_read(crate::rpc::types::StateReadRequest {
+            domain: "todo".into(),
+            key: "todo".into(),
+            turn_id: String::new(),
+            tool_call_id: String::new(),
+        })
+        .await
+        .ok()?;
+    todo_list_for_summary(Some(&response.value))
 }
 
 /// Unconditionally compact `messages` only after a usable LLM summary succeeds.
@@ -921,8 +1012,9 @@ pub async fn force_compact_messages_with_summary(
 
 /// [`force_compact_messages_with_summary`] with the model's effective window,
 /// so the summarizer's first request is pre-shrunk to fit it (v2 #3911).
-/// Callers that know the window — the turn loop and the REST `:compact` route —
-/// pass it; the rest keep the unbudgeted behaviour.
+/// Callers that know the window pass it — the turn loop on both the threshold
+/// and the overflow path, the REST `:compact` route, and the NAPI manual
+/// compaction; the convenience wrappers keep the unbudgeted behaviour.
 pub async fn force_compact_messages_with_summary_budgeted(
     messages: &[LLMMessage],
     config: &CompactionConfig,
@@ -940,6 +1032,7 @@ pub async fn force_compact_messages_with_summary_budgeted(
         cancel,
         effective_max_tokens,
         tokens_before,
+        None,
     )
     .await?
     .0)
@@ -961,7 +1054,10 @@ pub struct CompactionReport {
 /// existing entry point delegates here and discards the report, so callers that
 /// only need the messages are untouched. `tokens_before` is the caller's own
 /// estimate for the pre-compaction history (the threshold path already has it;
-/// the overflow-recovery path passes its own).
+/// the overflow-recovery path passes its own). `todos` is the rendered todo
+/// list from [`read_todos_for_summary`] — v2 `postProcessSummary` appends it
+/// to the written summary; `None` skips the suffix.
+#[allow(clippy::too_many_arguments)]
 pub async fn force_compact_messages_with_summary_report(
     messages: &[LLMMessage],
     config: &CompactionConfig,
@@ -970,6 +1066,7 @@ pub async fn force_compact_messages_with_summary_report(
     cancel: Option<&CancellationToken>,
     effective_max_tokens: Option<u32>,
     tokens_before: u32,
+    todos: Option<String>,
 ) -> Result<(Vec<LLMMessage>, CompactionReport), CompactionError> {
     let count = compute_compact_count(messages, config);
     if count == 0 {
@@ -993,6 +1090,7 @@ pub async fn force_compact_messages_with_summary_report(
         effective_max_tokens,
     )
     .await?;
+    let summary = post_process_summary(summary, todos);
     let compacted = apply_compaction_with_summary(messages, count, summary.clone());
     let tokens_after = estimate_messages_tokens(&compacted);
     Ok((
@@ -1010,21 +1108,40 @@ pub async fn force_compact_messages_with_summary_report(
 ///
 /// Like [`force_compact_messages_manual`] but the compacted prefix is
 /// replaced by the LLM-written summary (honoring the caller's `instruction`).
+/// The raw summary rides back next to the compacted history (the split
+/// [`force_compact_messages_with_summary_report`] makes): the summary message
+/// inside the history carries the `COMPACTION_SUMMARY_PREFIX` preamble, which
+/// is not what a host-facing report should show. `effective_max_tokens` (the
+/// model's effective window) pre-shrinks the summarizer's first request the
+/// same way the automatic paths do (v2 #3911). `todos` follows
+/// [`force_compact_messages_with_summary_report`]: the rendered list v2's
+/// `postProcessSummary` appends to the summary, `None` for no suffix.
 pub async fn force_compact_messages_manual_with_summary(
     messages: &[LLMMessage],
     config: &CompactionConfig,
     llm: &dyn LLM,
     instruction: Option<&str>,
     cancel: Option<&CancellationToken>,
-) -> Result<Vec<LLMMessage>, CompactionError> {
+    effective_max_tokens: Option<u32>,
+    todos: Option<String>,
+) -> Result<(Vec<LLMMessage>, String), CompactionError> {
     let count = compute_compact_count_manual(messages, config);
     if count == 0 {
-        return Ok(messages.to_vec());
+        return Ok((messages.to_vec(), String::new()));
     }
     let omitted = &messages[1..count as usize];
-    let summary =
-        summarize_with_llm(omitted, llm, instruction, cancel, config.max_attempts).await?;
-    Ok(apply_compaction_with_summary(messages, count, summary))
+    let summary = summarize_with_llm_budgeted(
+        omitted,
+        llm,
+        instruction,
+        cancel,
+        config.max_attempts,
+        effective_max_tokens,
+    )
+    .await?;
+    let summary = post_process_summary(summary, todos);
+    let compacted = apply_compaction_with_summary(messages, count, summary.clone());
+    Ok((compacted, summary))
 }
 
 /// Threshold-gated compaction with a real LLM summary.
@@ -1069,6 +1186,8 @@ pub async fn compact_messages_with_summary_at(
         llm,
         instruction,
         cancel,
+        None,
+        None,
     )
     .await?
     .map(|(messages, _)| messages))
@@ -1076,6 +1195,10 @@ pub async fn compact_messages_with_summary_at(
 
 /// [`compact_messages_with_summary_at`] that also returns the report, so the
 /// turn loop can emit `compaction.completed` with the summary and token counts.
+/// `effective_max_tokens` (the model's effective window) pre-shrinks the
+/// summarizer's first request to fit it (v2 #3911); pass `None` when the
+/// caller does not know the window.
+#[allow(clippy::too_many_arguments)]
 pub async fn compact_messages_with_summary_at_report(
     messages: &[LLMMessage],
     used_tokens: u32,
@@ -1083,6 +1206,8 @@ pub async fn compact_messages_with_summary_at_report(
     llm: &dyn LLM,
     instruction: Option<&str>,
     cancel: Option<&CancellationToken>,
+    effective_max_tokens: Option<u32>,
+    todos: Option<String>,
 ) -> Result<Option<(Vec<LLMMessage>, CompactionReport)>, CompactionError> {
     if !should_compact(used_tokens, config) {
         return Ok(None);
@@ -1094,8 +1219,9 @@ pub async fn compact_messages_with_summary_at_report(
             llm,
             instruction,
             cancel,
-            None,
+            effective_max_tokens,
             used_tokens,
+            todos,
         )
         .await?,
     ))
@@ -1121,20 +1247,15 @@ pub(crate) fn apply_compaction_with_summary(
         .filter(|m| m.role == "user")
         .cloned()
         .collect();
-    let (kept, elision) = select_kept_user_messages(&user_in_range);
+    let kept = select_kept_user_messages(&user_in_range);
     let summary_text = format!(
         "{COMPACTION_SUMMARY_PREFIX}
 {}",
         summary.trim()
     );
-    let mut compacted = Vec::with_capacity(
-        1 + kept.len() + usize::from(elision.is_some()) + 2 + (messages.len() - count as usize),
-    );
+    let mut compacted = Vec::with_capacity(1 + kept.len() + 2 + (messages.len() - count as usize));
     compacted.push(messages[0].clone());
     compacted.extend(kept);
-    if let Some(elision) = elision {
-        compacted.push(elision);
-    }
     compacted.push(LLMMessage {
         role: "user".into(),
         content: summary_text,
@@ -2685,6 +2806,22 @@ mod tests {
         );
     }
 
+    /// v2 `postProcessSummary`: no todos means the summary passes through
+    /// untouched (v2 returns it untrimmed); with todos it is trimmed and the
+    /// rendered list rides after exactly one blank line.
+    #[test]
+    fn test_post_process_summary_appends_todo_list() {
+        let raw = "  The earlier work, padded.  ".to_string();
+        assert_eq!(
+            post_process_summary(raw.clone(), None),
+            "  The earlier work, padded.  "
+        );
+        assert_eq!(
+            post_process_summary(raw, Some("## TODO List\n  [in_progress] t1: ship".into())),
+            "The earlier work, padded.\n\n## TODO List\n  [in_progress] t1: ship"
+        );
+    }
+
     #[tokio::test]
     async fn test_force_compact_with_summary_uses_llm_summary() {
         let messages = compactable_messages();
@@ -2806,10 +2943,12 @@ mod tests {
         let messages = compactable_messages();
         let config = compacting_config();
         let llm = SummarizerMockLlm::ok("Manual summary.");
-        let compacted =
-            force_compact_messages_manual_with_summary(&messages, &config, &llm, None, None)
-                .await
-                .unwrap();
+        let (compacted, raw_summary) = force_compact_messages_manual_with_summary(
+            &messages, &config, &llm, None, None, None, None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(raw_summary, "Manual summary.");
         let count = compute_compact_count_manual(&messages, &config);
         assert!(count >= 2, "manual compaction must remove messages");
         assert_eq!(compacted[0].role, "system");
@@ -2845,10 +2984,12 @@ mod tests {
         };
         assert_eq!(compute_compact_count_manual(&messages, &config), 0);
         let llm = SummarizerMockLlm::ok("unused");
-        let compacted =
-            force_compact_messages_manual_with_summary(&messages, &config, &llm, None, None)
-                .await
-                .unwrap();
+        let (compacted, raw_summary) = force_compact_messages_manual_with_summary(
+            &messages, &config, &llm, None, None, None, None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(raw_summary, "");
         assert_messages_eq(&compacted, &messages);
         assert_eq!(
             llm.call_count(),
@@ -2977,5 +3118,57 @@ mod tests {
         assert!(msg.content.contains("Context compaction is complete"));
         assert!(msg.content.starts_with("<system-reminder>\n"));
         assert!(msg.content.ends_with("\n</system-reminder>"));
+    }
+
+    #[test]
+    fn test_select_kept_user_messages_head_elision_tail_budget() {
+        // v2 `selectCompactionUserMessages` (compactionHandoff.ts:234): above
+        // the 20k budget the selection keeps at most the 2k head (ended by the
+        // first truncating message) plus the 18k tail, with the elision note
+        // between. 10 user messages x 3000 tokens = 30000 > 20000.
+        let user_messages: Vec<LLMMessage> = (0..10)
+            .map(|i| LLMMessage {
+                role: "user".into(),
+                content: format!("m{i:02}") + &"x".repeat(11_997), // 12000 chars = 3000 tokens
+                ..Default::default()
+            })
+            .collect();
+        assert_eq!(estimate_messages_tokens(&user_messages), 30_000);
+
+        let kept = select_kept_user_messages(&user_messages);
+        // [1 truncated head, elision, 6 full tail messages]
+        assert_eq!(kept.len(), 8);
+        let head_message = &kept[0];
+        assert_eq!(
+            estimate_message_tokens(head_message),
+            COMPACT_USER_MESSAGE_HEAD_TOKENS,
+            "one truncating message ends the head at the head budget"
+        );
+        let elision = &kept[1];
+        assert_eq!(elision.role, "user");
+        assert!(
+            elision.content.contains("omitted here during compaction"),
+            "kept[1] must be the elision note, got: {}",
+            &elision.content[..elision.content.len().min(80)]
+        );
+        assert!(
+            elision.content.contains("roughly 10000 tokens"),
+            "elision records 30000 - 20000 = 10000 omitted tokens"
+        );
+        let tail = &kept[2..];
+        assert_eq!(tail.len(), 6, "the tail survives verbatim below the note");
+        for message in tail {
+            assert_eq!(estimate_message_tokens(message), 3_000);
+        }
+        let verbatim: u32 = std::iter::once(head_message)
+            .chain(tail.iter())
+            .map(estimate_message_tokens)
+            .sum();
+        assert_eq!(verbatim, COMPACT_USER_MESSAGE_MAX_TOKENS);
+        // The tail loop stops at tail_remaining == 0 — no empty suffix message.
+        assert!(
+            kept.iter().all(|m| !m.content.is_empty()),
+            "no empty-content message may be kept"
+        );
     }
 }

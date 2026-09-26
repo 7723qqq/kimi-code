@@ -28,7 +28,7 @@ use crate::native::shell_path_bridge::ShellPathBridge;
 /// P57: mid-execution output stream callback (bash stdout/stderr chunks).
 pub type OutputUpdate<'a> = &'a (dyn Fn(&str, &str) + Send + Sync);
 
-use crate::turn_loop::types::ExecutableToolResult;
+use crate::turn_loop::types::{ExecutableToolResult, ToolInfo};
 
 /// Maximum number of lines a native Read returns (host Read cap).
 const READ_MAX_LINES: usize = 1000;
@@ -312,6 +312,27 @@ pub fn is_native_tool_name(tool_name: &str) -> bool {
     NATIVE_TOOL_NAMES.contains(&lowered.as_str())
         || github::is_github_tool(tool_name)
         || tool_name.starts_with("mcp__")
+}
+
+/// The engine's own spelling for a tool name the model echoed back.
+///
+/// A wire may advertise a name the engine does not use internally: the opencode
+/// free tier's gate demands the lowercase `bash` / `read` in the tools list
+/// (`llm::opencode_adapter`), so a model on that line answers with `bash` where
+/// every other wire says `Bash`. Dispatch, permission matching and the tool
+/// policy are all case-insensitive, but the consumers that *name* a tool for a
+/// human are not — the `tool.call.*` events, ACP's tool-kind map
+/// (`acp::events_map::infer_tool_kind`), the TUI's result renderers and chips,
+/// and a user's `[[hooks]]` matcher. Restoring the table's spelling before
+/// anything acts on the call is what keeps them aligned.
+///
+/// `table` is the tool table the model was shown. A name the table does not
+/// carry — a hallucinated or not-yet-loaded tool — is returned unchanged.
+pub fn canonical_tool_name<'a>(name: &'a str, table: &'a [ToolInfo]) -> &'a str {
+    table
+        .iter()
+        .find(|tool| tool.name.eq_ignore_ascii_case(name))
+        .map_or(name, |tool| tool.name.as_str())
 }
 
 tokio::task_local! {
@@ -1206,6 +1227,7 @@ impl NativeToolset {
                 .render(),
                 is_error: true,
                 note: Some("tool_policy".into()),
+                display: None,
             });
         }
 
@@ -1235,6 +1257,7 @@ impl NativeToolset {
                     content: select_tools::not_loaded_tool_output(tool_name),
                     is_error: true,
                     note: Some("tool_select".into()),
+                    display: None,
                 });
             }
         }
@@ -1382,6 +1405,7 @@ impl NativeToolset {
                         content: "message must not be empty.".to_string(),
                         is_error: true,
                         note: None,
+                        display: None,
                     })
                 } else {
                     Some(ExecutableToolResult {
@@ -1390,6 +1414,7 @@ impl NativeToolset {
                         content: "Update shown to the user.".to_string(),
                         is_error: false,
                         note: None,
+                        display: None,
                     })
                 }
             }
@@ -1545,6 +1570,7 @@ impl NativeToolset {
                     content: outcome.content,
                     is_error: outcome.is_error,
                     note: None,
+                    display: None,
                 })
             }
             "towerinit" | "tower_init" => {
@@ -2908,7 +2934,7 @@ impl NativeToolset {
                 continue;
             }
             if glob.is_match(relative) || glob.is_match(path) {
-                if is_sensitive_file(&path.to_string_lossy()) {
+                if crate::native::file_type::is_sensitive_file(&path.to_string_lossy()) {
                     filtered_sensitive += 1;
                     continue;
                 }
@@ -3903,7 +3929,7 @@ fn grep_collect(
             }
             // Mirror the host Grep tool: matches inside sensitive files
             // (.env, keys, credentials, ...) are never reported.
-            if is_sensitive_file(&path.to_string_lossy()) {
+            if crate::native::file_type::is_sensitive_file(&path.to_string_lossy()) {
                 let display = path.strip_prefix(root).unwrap_or(path);
                 sensitive
                     .lock()
@@ -4365,6 +4391,7 @@ fn ok_result(content: String) -> ExecutableToolResult {
         content,
         is_error: false,
         note: None,
+        display: None,
     }
 }
 
@@ -4375,76 +4402,8 @@ fn err_result(content: String) -> ExecutableToolResult {
         content,
         is_error: true,
         note: None,
+        display: None,
     }
-}
-
-// ── Sensitive file detection (port of host path-access.ts) ────────────────
-
-const SENSITIVE_BASENAMES: [&str; 5] = [".env", "id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
-const SENSITIVE_PATH_SUFFIXES: [&str; 2] = [".aws/credentials", ".gcp/credentials"];
-const ENV_PREFIX: &str = ".env.";
-const ENV_EXEMPTIONS: [&str; 3] = [".env.example", ".env.sample", ".env.template"];
-const SENSITIVE_BASENAME_PREFIXES: [&str; 4] = ["id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
-const PUBLIC_KEY_BASENAMES: [&str; 3] = ["id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub"];
-const SENSITIVE_DOT_VARIANT_SUFFIXES: [&str; 10] = [
-    ".bak",
-    ".backup",
-    ".copy",
-    ".disabled",
-    ".key",
-    ".old",
-    ".orig",
-    ".pem",
-    ".save",
-    ".tmp",
-];
-
-/// Mirror of the host's `isSensitiveFile` (path-access.ts), including the
-/// native fast path's separator equivalence (both `/` and `\` match).
-fn is_sensitive_file(path: &str) -> bool {
-    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
-    let comparable_name = name.to_ascii_lowercase();
-    let comparable_path = path.to_ascii_lowercase().replace('\\', "/");
-
-    if ENV_EXEMPTIONS.contains(&comparable_name.as_str()) {
-        return false;
-    }
-    if PUBLIC_KEY_BASENAMES.contains(&comparable_name.as_str()) {
-        return false;
-    }
-    if SENSITIVE_BASENAMES.contains(&comparable_name.as_str()) {
-        return true;
-    }
-    if comparable_name.starts_with(ENV_PREFIX) {
-        return true;
-    }
-
-    for prefix in SENSITIVE_BASENAME_PREFIXES {
-        if comparable_name == prefix {
-            return true;
-        }
-        if comparable_name.len() > prefix.len() && comparable_name.starts_with(prefix) {
-            let suffix = &comparable_name[prefix.len()..];
-            let next = suffix.chars().next();
-            if next == Some('-') || next == Some('_') {
-                return true;
-            }
-            if next == Some('.') && SENSITIVE_DOT_VARIANT_SUFFIXES.contains(&suffix) {
-                return true;
-            }
-        }
-    }
-
-    for suffix in SENSITIVE_PATH_SUFFIXES {
-        if comparable_path.ends_with(&format!("/{suffix}")) {
-            return true;
-        }
-        if comparable_path.contains(&format!("/{suffix}/")) {
-            return true;
-        }
-    }
-
-    false
 }
 
 #[cfg(test)]
@@ -4460,6 +4419,36 @@ mod tests {
     /// on the host's real shell, so this is the same bridge the toolset builds.
     fn bridge() -> ShellPathBridge {
         ShellPathBridge::new(&crate::native::shell::resolve_shell(None).program)
+    }
+
+    #[test]
+    fn canonical_tool_name_restores_the_tables_spelling() {
+        let table = vec![
+            ToolInfo {
+                name: "Bash".into(),
+                description: String::new(),
+                input_schema: json!({}),
+            },
+            ToolInfo {
+                name: "Read".into(),
+                description: String::new(),
+                input_schema: json!({}),
+            },
+        ];
+        // The lowercase name a free-tier wire advertises resolves back to the
+        // engine's spelling, whatever case the model echoed.
+        assert_eq!(canonical_tool_name("bash", &table), "Bash");
+        assert_eq!(canonical_tool_name("READ", &table), "Read");
+        // An exact hit is a no-op, and a name the table does not carry keeps the
+        // model's own words (a hallucinated or not-yet-loaded tool).
+        assert_eq!(canonical_tool_name("Bash", &table), "Bash");
+        assert_eq!(
+            canonical_tool_name("mcp__github__search", &table),
+            "mcp__github__search"
+        );
+        assert_eq!(canonical_tool_name("Nope", &table), "Nope");
+        // A turn whose table never arrived has nothing to match against.
+        assert_eq!(canonical_tool_name("bash", &[]), "bash");
     }
 
     fn setup_with_shell(shell: Option<&str>) -> (tempfile::TempDir, NativeToolset) {
@@ -5080,16 +5069,20 @@ mod tests {
     }
 
     #[test]
-    fn is_sensitive_file_matches_host_list() {
-        assert!(is_sensitive_file(".env"));
-        assert!(is_sensitive_file("config/.env"));
-        assert!(is_sensitive_file("keys/id_rsa"));
-        assert!(is_sensitive_file("id_rsa.pem"));
-        assert!(is_sensitive_file(".aws/credentials"));
-        assert!(is_sensitive_file("C:/repo/.env.local"));
-        assert!(!is_sensitive_file(".env.example"));
-        assert!(!is_sensitive_file("id_rsa.pub"));
-        assert!(!is_sensitive_file("src/main.rs"));
+    fn sensitive_file_rules_match_v2() {
+        assert!(crate::native::file_type::is_sensitive_file(".env"));
+        assert!(crate::native::file_type::is_sensitive_file("config/.env"));
+        assert!(crate::native::file_type::is_sensitive_file("keys/id_rsa"));
+        assert!(crate::native::file_type::is_sensitive_file("id_rsa.pem"));
+        assert!(crate::native::file_type::is_sensitive_file(
+            ".aws/credentials"
+        ));
+        assert!(crate::native::file_type::is_sensitive_file(
+            "C:/repo/.env.local"
+        ));
+        assert!(!crate::native::file_type::is_sensitive_file(".env.example"));
+        assert!(!crate::native::file_type::is_sensitive_file("id_rsa.pub"));
+        assert!(!crate::native::file_type::is_sensitive_file("src/main.rs"));
     }
 
     /// Reads are not path-gated: v2's sandbox (`sandboxWriteGuard`) covers

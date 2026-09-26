@@ -13,6 +13,7 @@ function makeHost() {
   const streamingUI = {
     setTurnId: vi.fn(),
     flushNow: vi.fn(),
+    finalizeLiveTextBuffers: vi.fn(),
     resetToolUi: vi.fn(),
     clearNotifyPanel: vi.fn(),
     markNotifyPanelEnded: vi.fn(),

@@ -9,6 +9,7 @@ function makeHarness() {
   const streamingUI = {
     setTurnId: vi.fn(),
     flushNow: vi.fn(),
+    finalizeLiveTextBuffers: vi.fn(),
     getTurnContext: vi.fn(() => ({ turnId: 1, step: 0 })),
     registerToolCall: vi.fn((call: ToolCallBlockData) => {
       activeCalls.set(call.id, call);
