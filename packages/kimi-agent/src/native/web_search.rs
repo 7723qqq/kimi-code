@@ -270,6 +270,71 @@ pub fn parse_ddg_results(html: &str, max_results: usize) -> Result<Vec<SearchRes
     Ok(results)
 }
 
+/// Parse Sogou HTML results (`div.vrwrap` containers). Sogou marks up query
+/// terms with `<em>`; the direct URL is in a `data-url` attribute when present,
+/// otherwise the title link's redirect href is used.
+pub fn parse_sogou_results(html: &str, max_results: usize) -> Result<Vec<SearchResult>, String> {
+    let document = Html::parse_document(html);
+
+    let result_sel =
+        Selector::parse("div.vrwrap").map_err(|_| "Failed to parse selector".to_string())?;
+    let title_sel =
+        Selector::parse("h3.vr-title a").map_err(|_| "Failed to parse selector".to_string())?;
+    let snippet_sel =
+        Selector::parse(".fz-mid.space-txt").map_err(|_| "Failed to parse selector".to_string())?;
+
+    let mut results = Vec::new();
+
+    for element in document.select(&result_sel) {
+        if results.len() >= max_results {
+            break;
+        }
+
+        let title_el = match element.select(&title_sel).next() {
+            Some(el) => el,
+            None => continue,
+        };
+        let title: String = title_el.text().collect::<String>().trim().to_string();
+        if title.is_empty() {
+            continue;
+        }
+
+        // Prefer the direct URL from data-url; fall back to the redirect href.
+        let url = title_el
+            .value()
+            .attr("data-url")
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                title_el
+                    .value()
+                    .attr("href")
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+            })
+            .unwrap_or_default();
+        if url.is_empty() {
+            continue;
+        }
+
+        let snippet = element
+            .select(&snippet_sel)
+            .next()
+            .map(|el| el.text().collect::<String>().trim().to_string())
+            .unwrap_or_default();
+
+        results.push(SearchResult {
+            title,
+            url,
+            snippet,
+            site_name: None,
+            date: None,
+        });
+    }
+
+    Ok(results)
+}
+
 /// Split a leading date prefix off a Bing snippet. Bing prefixes snippets with
 /// the publication date followed by `" · "`: relative (`"1 day ago · …"`) or
 /// absolute (`"Apr 16, 2026 · …"`). Returns `(date, rest)`; `date` is `None`
@@ -617,5 +682,38 @@ mod tests {
 
         // Empty results → not a fallback.
         assert!(!is_hot_feed_fallback("noUncheckedIndexedAccess", &[]));
+    }
+
+    #[test]
+    fn test_parse_sogou_results() {
+        let html = r#"
+        <html><body>
+            <div class="vrwrap">
+                <h3 class="vr-title"><a href="/link?url=abc" data-url="https://realpython.com/async-io-python">Python's <em>asyncio</em> Walkthrough</a></h3>
+                <div class="fz-mid space-txt">Learn how Python asyncio works with async/await.</div>
+            </div>
+            <div class="vrwrap">
+                <h3 class="vr-title"><a href="/link?url=def" data-url="https://docs.python.org/3/library/asyncio">Developing with asyncio</a></h3>
+                <div class="fz-mid space-txt">Official Python asyncio documentation.</div>
+            </div>
+            <div class="vrwrap">
+                <h3 class="vr-title"><a href="/link?url=ghi">No data-url here</a></h3>
+                <div class="fz-mid space-txt">Fallback to redirect href.</div>
+            </div>
+        </body></html>
+        "#;
+        let results = parse_sogou_results(html, 10).unwrap();
+        assert_eq!(results.len(), 3);
+        // data-url preferred over redirect href.
+        assert_eq!(results[0].url, "https://realpython.com/async-io-python");
+        assert_eq!(results[0].title, "Python's asyncio Walkthrough");
+        assert_eq!(
+            results[0].snippet,
+            "Learn how Python asyncio works with async/await."
+        );
+        // Second result.
+        assert_eq!(results[1].url, "https://docs.python.org/3/library/asyncio");
+        // Third falls back to redirect href.
+        assert_eq!(results[2].url, "/link?url=ghi");
     }
 }

@@ -18,7 +18,9 @@ use serde_json::{Value, json};
 use super::err_result;
 use super::moonshot_service::{self, MoonshotServiceConfig};
 use crate::i18n::{LocalizedText, i18n_params};
-use crate::native::web_search::{SearchResult, parse_bing_results, parse_ddg_results, urlencoded};
+use crate::native::web_search::{
+    SearchResult, parse_bing_results, parse_ddg_results, parse_sogou_results, urlencoded,
+};
 use crate::turn_loop::types::ExecutableToolResult;
 
 const BING_HTML_URL: &str = "https://www.bing.com/search";
@@ -26,6 +28,7 @@ const BING_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWe
      (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36";
 const DDG_HTML_URL: &str = "https://html.duckduckgo.com/html/";
 const DDG_USER_AGENT: &str = BING_USER_AGENT;
+const SOGOU_HTML_URL: &str = "https://www.sogou.com/web";
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const MAX_RESULTS: usize = 10;
 
@@ -35,6 +38,7 @@ const MAX_RESULTS: usize = 10;
 pub enum SearchEngine {
     Bing,
     Ddg,
+    Sogou,
 }
 
 impl SearchEngine {
@@ -42,6 +46,7 @@ impl SearchEngine {
         match s.to_ascii_lowercase().as_str() {
             "bing" => Some(Self::Bing),
             "ddg" | "duckduckgo" => Some(Self::Ddg),
+            "sogou" => Some(Self::Sogou),
             _ => None,
         }
     }
@@ -50,6 +55,7 @@ impl SearchEngine {
         match self {
             Self::Bing => "bing",
             Self::Ddg => "ddg",
+            Self::Sogou => "sogou",
         }
     }
 }
@@ -561,6 +567,7 @@ pub async fn execute_web_search(
     let html_result = match active_engine() {
         SearchEngine::Bing => search_via_bing_html(query).await,
         SearchEngine::Ddg => search_via_ddg_html(query).await,
+        SearchEngine::Sogou => search_via_sogou_html(query).await,
     };
     if html_result.as_ref().is_some_and(|r| !r.is_error) {
         return html_result;
@@ -880,6 +887,149 @@ async fn search_via_ddg_html(query: &str) -> Option<ExecutableToolResult> {
     })
 }
 
+/// Sogou HTML scrape: GET the search page and parse `div.vrwrap` results.
+async fn search_via_sogou_html(query: &str) -> Option<ExecutableToolResult> {
+    let client = match reqwest::Client::builder()
+        .user_agent(BING_USER_AGENT)
+        .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
+        .cookie_store(true)
+        .cookie_provider(BING_COOKIES.clone())
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return Some(ExecutableToolResult {
+                delivery: None,
+                stop_turn: false,
+                content: LocalizedText::fmt(
+                    "engine.tools.webSearch.clientInitFailed",
+                    format!("Search failed: Failed to initialize HTTP client: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
+                is_error: true,
+                note: None,
+                display: None,
+            });
+        }
+    };
+
+    let url = format!("{}?query={}", SOGOU_HTML_URL, urlencoded(query));
+    let response = match client
+        .get(&url)
+        .header("Accept", "text/html")
+        .header("Accept-Language", "en-US,en;q=0.9")
+        .send()
+        .await
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            let msg = if e.is_timeout() {
+                LocalizedText::fmt(
+                    "engine.tools.webSearch.timedOut",
+                    format!("Search timed out: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render()
+            } else {
+                LocalizedText::fmt(
+                    "engine.tools.webSearch.networkFailed",
+                    format!("Search failed (network): {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render()
+            };
+            return Some(ExecutableToolResult {
+                delivery: None,
+                stop_turn: false,
+                content: msg,
+                is_error: true,
+                note: None,
+                display: None,
+            });
+        }
+    };
+
+    let status = response.status();
+    if !status.is_success() {
+        return Some(ExecutableToolResult {
+            delivery: None,
+            stop_turn: false,
+            content: LocalizedText::fmt(
+                "engine.tools.webSearch.sogouHttpFailed",
+                format!("Search failed: Sogou search returned HTTP {status}"),
+                i18n_params!["status" => status],
+            )
+            .render(),
+            is_error: true,
+            note: None,
+            display: None,
+        });
+    }
+
+    let body = match response.text().await {
+        Ok(t) => t,
+        Err(e) => {
+            return Some(ExecutableToolResult {
+                delivery: None,
+                stop_turn: false,
+                content: LocalizedText::fmt(
+                    "engine.tools.webSearch.readBodyFailed",
+                    format!("Search failed: failed to read response body: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
+                is_error: true,
+                note: None,
+                display: None,
+            });
+        }
+    };
+
+    let results = match parse_sogou_results(&body, MAX_RESULTS).map(|rs| {
+        rs.into_iter()
+            .map(WebSearchResultEntry::from)
+            .collect::<Vec<_>>()
+    }) {
+        Ok(res) => res,
+        Err(e) => {
+            return Some(ExecutableToolResult {
+                delivery: None,
+                stop_turn: false,
+                content: LocalizedText::fmt(
+                    "engine.tools.webSearch.failed",
+                    format!("Search failed: {e}"),
+                    i18n_params!["e" => e],
+                )
+                .render(),
+                is_error: true,
+                note: None,
+                display: None,
+            });
+        }
+    };
+
+    if results.is_empty() {
+        return Some(ExecutableToolResult {
+            delivery: None,
+            stop_turn: false,
+            content: "No search results found.".to_string(),
+            is_error: false,
+            note: None,
+            display: None,
+        });
+    }
+
+    Some(ExecutableToolResult {
+        delivery: None,
+        stop_turn: false,
+        content: format_search_results(results),
+        is_error: false,
+        note: None,
+        display: None,
+    })
+}
+
 /// SwitchSearchEngine tool — lets the AI change the active search engine at
 /// runtime. This is the "AI can switch" half of the hot-switch; the host napi
 /// call is the manual half.
@@ -889,7 +1039,7 @@ pub async fn execute_switch_engine(args: &Value) -> Option<ExecutableToolResult>
         return Some(err_result(
             LocalizedText::fmt(
                 "engine.tools.switchEngine.unknown",
-                format!("Unknown search engine: {name}. Available: bing, ddg."),
+                format!("Unknown search engine: {name}. Available: bing, ddg, sogou."),
                 i18n_params!["name" => name],
             )
             .render(),

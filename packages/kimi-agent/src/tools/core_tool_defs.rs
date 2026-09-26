@@ -150,7 +150,7 @@ When you rely on a result in your answer, cite its source URL so the user can ve
 
 const SWITCH_ENGINE_DESCRIPTION: &str = r#"Switch the active web search engine at runtime. Use this when the current engine is failing or returning poor results, to try an alternative without restarting.
 
-Available engines: bing (Bing HTML scrape, key-free), ddg (DuckDuckGo HTML scrape, key-free). The switch takes effect immediately for subsequent WebSearch calls.
+Available engines: bing (Bing HTML scrape, key-free), ddg (DuckDuckGo HTML scrape, key-free), sogou (Sogou HTML scrape, key-free). The switch takes effect immediately for subsequent WebSearch calls.
 "#;
 
 /// Windows-only suffix appended to the Glob description, mirroring the v2

@@ -245,9 +245,10 @@ export default {
         bingApiHttpFailed: 'Bing API 请求失败：HTTP {{status}}{{qualifier}}。{{body}}',
         ddgHttpFailed: '搜索失败：DuckDuckGo 搜索返回 HTTP {{status}}',
         hotFeedFallback: '搜索未返回相关结果（Bing 回退到了热搜 feed）。请尝试更宽泛或不同的查询。',
+        sogouHttpFailed: '搜索失败：Sogou 搜索返回 HTTP {{status}}',
       },
       switchEngine: {
-        unknown: '未知搜索引擎：{{name}}。可用：bing、ddg。',
+        unknown: '未知搜索引擎：{{name}}。可用：bing、ddg、sogou。',
         switched: '搜索引擎已切换为 {{name}}。',
       },
       readMedia: {
@@ -491,7 +492,7 @@ export default {
       tower: '查看 tower 状态、切换 tower 模式或设置 tower 目标',
       exit: '退出应用程序',
       version: '显示版本信息',
-      search: '切换网页搜索引擎（bing 或 ddg）',
+      search: '切换网页搜索引擎（bing、ddg 或 sogou）',
       searchCurrent: '当前搜索引擎：{{engine}}。用法：/search <bing|ddg>',
       searchSwitched: '搜索引擎已切换为 {{engine}}。',
     },

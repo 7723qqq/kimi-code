@@ -224,10 +224,11 @@
         "bingHttpFailed": "Search failed: Bing search returned HTTP {{status}}",
         "bingApiHttpFailed": "Bing API request failed: HTTP {{status}}{{qualifier}}. {{body}}",
         "ddgHttpFailed": "Search failed: DuckDuckGo search returned HTTP {{status}}",
-        "hotFeedFallback": "Search returned no relevant results (Bing fell back to a hot-feed). Try a broader or different query."
+        "hotFeedFallback": "Search returned no relevant results (Bing fell back to a hot-feed). Try a broader or different query.",
+        "sogouHttpFailed": "Search failed: Sogou search returned HTTP {{status}}"
       },
       "switchEngine": {
-        "unknown": "Unknown search engine: {{name}}. Available: bing, ddg.",
+        "unknown": "Unknown search engine: {{name}}. Available: bing, ddg, sogou.",
         "switched": "Search engine switched to {{name}}."
       },
       "readMedia": {
@@ -454,7 +455,7 @@
       "tower": "Report tower status, toggle tower mode, or set the tower objective",
       "exit": "Exit the application",
       "version": "Show version information",
-      "search": "Switch the web search engine (bing or ddg)",
+      "search": "Switch the web search engine (bing, ddg, or sogou)",
       "searchCurrent": "Current search engine: {{engine}}. Usage: /search <bing|ddg>",
       "searchSwitched": "Search engine switched to {{engine}}."
     },
