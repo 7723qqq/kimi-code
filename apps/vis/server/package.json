@@ -25,7 +25,7 @@
     "dev": "bun --watch src/index.ts",
     "build": "tsdown",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

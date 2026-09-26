@@ -241,7 +241,7 @@
     "dev:prepare": "bun scripts/prepare-dev.mjs",
     "dev:extension": "bun scripts/watch-extension.mjs",
     "dev:webview": "vite build --config webview-ui/vite.config.ts --watch --sourcemap",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p webview-ui/tsconfig.json --noEmit",
+    "typecheck": "tsgo -p tsconfig.json --noEmit && tsgo -p webview-ui/tsconfig.json --noEmit",
     "build": "bun run build:extension && bun run build:webview",
     "build:webview": "vite build --config webview-ui/vite.config.ts",
     "build:extension": "tsdown --config tsdown.config.ts",

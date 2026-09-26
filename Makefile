@@ -24,6 +24,9 @@ lint-fix:
 sherif:
 	bun run sherif
 
+check-nix-workspace:
+	bun run check:nix-workspace
+
 lint-pkg:
 	bun run lint:pkg
 

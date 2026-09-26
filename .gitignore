@@ -34,6 +34,7 @@ reports/
 
 # Agent scratch / throwaway files - do not commit
 .tmp/
+.commandcode/
 HANDOVER*.md
 HANDOFF*.md
 handoff.md

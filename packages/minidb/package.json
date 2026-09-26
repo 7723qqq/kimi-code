@@ -45,7 +45,7 @@
   },
   "scripts": {
     "build": "tsdown",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsgo -p tsconfig.json --noEmit",
     "test": "vitest run",
     "bench": "bun bench/bench.ts",
     "bench:cluster": "bun bench/cluster.ts",
