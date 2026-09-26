@@ -349,7 +349,7 @@ function scanFile(filePath, content, moduleInfo, valueToKeys, valueRegexes) {
 
     // ── Detection 4: a display slot holding a literal (no locale lookup) ──
     if (moduleInfo.untranslatedScan !== false) {
-      for (const slot of scanDisplaySlots(line, relPath)) {
+      for (const slot of scanDisplaySlots(line, relPath, i > 0 ? lines[i - 1] : '')) {
         findings.push({
           file: relPath,
           line: lineNum,
@@ -417,6 +417,7 @@ const ALLOWED_LITERAL = [
 const ALLOWED_VALUES = new Set([
   'Kimi Code',
   'Kimi',
+  'Kimi Inspect',
   'Moonshot',
   'UTF-8',
   'Bash',
@@ -453,7 +454,7 @@ function lineIsTranslating(line) {
   return /(?:^|[^\w.$])\$?t\(\s*['"`]/.test(line);
 }
 
-function scanDisplaySlots(line, relPath) {
+function scanDisplaySlots(line, relPath, prevLine = '') {
   if (ALLOWED_FILES.some((re) => re.test(relPath))) return [];
   if (lineIsTranslating(line)) return [];
 
@@ -474,7 +475,74 @@ function scanDisplaySlots(line, relPath) {
     if (!looksLikeUserFacing(value)) continue;
     findings.push({ slot, value: value.trim() });
   }
+
+  for (const value of scanJsxText(line)) {
+    findings.push({ slot: 'jsx-text', value });
+  }
+  for (const value of scanJsxTextContinuation(line, prevLine)) {
+    findings.push({ slot: 'jsx-text', value });
+  }
   return findings;
+}
+
+/**
+ * JSX text children: `<span>Error details</span>`, `<button>Sign in</button>`.
+ *
+ * The slot rule above only sees `prop="…"`, so a whole class of user-facing
+ * copy was invisible — including the entire login and config-error screens.
+ * The text sits between the tags rather than in an attribute, so it needs its
+ * own pattern.
+ *
+ * Single-line form: `>text<` on one line.
+ */
+function scanJsxText(line) {
+  if (!/[<>]/.test(line)) return [];
+  // `>` … text … `<` where the text is not an expression, a comment, or a tag.
+  const re = />([^<>{}"'`/][^<>{}]*?)</g;
+  const out = [];
+  for (const m of line.matchAll(re)) {
+    const value = m[1].replace(/\s+/g, ' ').trim();
+    if (!value) continue;
+    if (isAllowlistedLiteral(value)) continue;
+    if (!looksLikeUserFacing(value)) continue;
+    out.push(value);
+  }
+  return out;
+}
+
+/**
+ * JSX text on its own line — the form oxfmt produces once a sentence exceeds
+ * the 100-column width:
+ *
+ *   <p className="…">
+ *     Sign in with a Kimi account, or configure a provider…
+ *     <code>config.toml</code>.
+ *   </p>
+ *
+ * The opening tag ended on the previous line, so `>text<` cannot match. Here
+ * the anchor is "a line that opens a tag and does not close it", and the text
+ * is that line's first run of words. A line that does close its tag, or that
+ * is a continuation of an expression, is skipped.
+ */
+function scanJsxTextContinuation(line, prevLine) {
+  // The previous line must leave a tag open: `>` present, no `<` after it.
+  const openTag = /<[A-Za-z][^<>]*>$/.test(prevLine.trimEnd());
+  if (!openTag) return [];
+  if (lineIsTranslating(line)) return [];
+  const trimmed = line.trim();
+  // The text must not itself be a tag, an expression, or a JSX comment.
+  if (/^[<{/*]/.test(trimmed)) return [];
+  // Strip a trailing `{' '}` join and any inline element that follows.
+  const value = trimmed
+    .replace(/\s*\{['"][^'"]*['"]\}\s*$/, '')
+    .replace(/\s*<[A-Za-z][^<>]*>.*$/, '')
+    .replace(/\s*<[A-Za-z][^<>]*\/>\s*$/, '')
+    .replace(/\s*$/, '')
+    .trim();
+  if (!value || !/[A-Za-z一-鿿]/.test(value)) return [];
+  if (isAllowlistedLiteral(value)) return [];
+  if (!looksLikeUserFacing(value)) return [];
+  return [value];
 }
 
 function walkDir(dirPath, moduleInfo, valueToKeys, valueRegexes) {
