@@ -11,6 +11,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { t } from '@/i18n';
 import { bridge } from '@/services';
 import { useSettingsStore, useChatStore } from '@/stores';
 
@@ -79,9 +80,13 @@ export function WorkDirModal() {
 
         <div className="space-y-1 max-h-64 overflow-y-auto -mx-1 px-1">
           {isPending ? (
-            <div className="px-3 py-8 text-center text-xs text-muted-foreground">Loading…</div>
+            <div className="px-3 py-8 text-center text-xs text-muted-foreground">
+              {t('status.loading')}
+            </div>
           ) : isError ? (
-            <div className="px-3 py-8 text-center text-xs text-destructive">Failed to load working directories</div>
+            <div className="px-3 py-8 text-center text-xs text-destructive">
+              {t('workDir.loadFailed')}
+            </div>
           ) : (
             workDirs.map((dir) => (
             <button

@@ -71,7 +71,9 @@ export function SessionPane({ sessionId, ready }: { sessionId: string | null; re
         ) : (
           <>
             <div className="mb-3 rounded border border-neutral-800 bg-neutral-950/40 p-2 text-[11px]">
-              <div className="mb-1 font-semibold uppercase tracking-wider text-neutral-500">Workspace association</div>
+              <div className="mb-1 font-semibold uppercase tracking-wider text-neutral-500">
+                {t('views.workspaceAssociation')}
+              </div>
               <div className="grid grid-cols-[80px_minmax(0,1fr)] gap-1 font-mono">
                 <span className="text-neutral-600">workspace</span>
                 <span className="break-all text-neutral-300">{association.data?.workspaceId ?? 'loading…'}</span>

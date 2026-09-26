@@ -20,6 +20,9 @@ export default {
     debugSurfaceUnavailable: '调试接口不可用',
     retry: '重试',
     changeServer: '切换服务器',
+    debugHint: '连接到以以下参数启动的服务器',
+    proxyHint: 'URL 留空则使用同源开发代理',
+    discoveredLocal: '在本机发现',
   },
   chat: {
     nonTextContent: '[非文本内容]',
@@ -148,5 +151,23 @@ export default {
     documentRole: '文档角色',
     substringMatch: '子串匹配，忽略大小写（较慢，可匹配 C++ 等符号）',
     openInChat: '在对话中打开',
+    searching: '搜索中…',
+  },
+  views: {
+    transcriptAudit: '记录审计',
+    noEntrySelected: '未选择条目。',
+    filesystemSuggest: '文件系统补全建议',
+    planLookup: '计划查询',
+    workspaceAssociation: '工作区关联',
+    pendingInteractions: '待处理交互',
+    history: '历史',
+  },
+  actions: {
+    load: '加载',
+    clear: '清空',
+  },
+  bashParser: {
+    budgetExhausted: '解析预算已耗尽',
+    budgetExhaustedHint: '无法分析该语法树；请提高预算或缩小输入。',
   },
 } as const;

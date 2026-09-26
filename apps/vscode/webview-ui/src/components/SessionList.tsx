@@ -225,10 +225,12 @@ export function SessionList({ onClose }: SessionListProps) {
         <div className="overflow-y-auto flex-1 min-h-0">
           <div className="p-1.5 space-y-1">
             {loading ? (
-              <div className="px-3 py-8 text-center text-xs text-muted-foreground">Loading…</div>
+              <div className="px-3 py-8 text-center text-xs text-muted-foreground">
+                {t('status.loading')}
+              </div>
             ) : filteredSessions.length === 0 ? (
               <div className="px-3 py-8 text-center text-xs text-muted-foreground">
-                {searchQuery ? 'No conversations found' : 'No conversations yet'}
+                {searchQuery ? t('sessionList.noResults') : t('sessionList.empty')}
               </div>
             ) : (
               filteredSessions.map((session) => (

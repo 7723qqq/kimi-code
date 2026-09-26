@@ -96,7 +96,9 @@ export function AuditPanel({ trail }: { trail: AuditTrail }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b border-neutral-800 px-3 py-2">
-        <span className="text-[12px] font-medium text-neutral-200">Transcript audit</span>
+        <span className="text-[12px] font-medium text-neutral-200">
+          {t('views.transcriptAudit')}
+        </span>
         <Badge tone="neutral">{entries.length} entries</Badge>
       </div>
 
@@ -177,7 +179,9 @@ export function AuditPanel({ trail }: { trail: AuditTrail }) {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2">
         {current === undefined ? (
-          <div className="px-1 py-2 text-[11px] text-neutral-600 italic">No entry selected.</div>
+          <div className="px-1 py-2 text-[11px] text-neutral-600 italic">
+            {t('views.noEntrySelected')}
+          </div>
         ) : tab === 'event' ? (
           <EventJson entry={current} />
         ) : root !== null ? (

@@ -10,6 +10,7 @@ import { useState } from 'react';
 import type { FileChange } from 'shared/types';
 
 import { Button } from '@/components/ui/button';
+import { t } from '@/i18n';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { bridge } from '@/services';
@@ -151,7 +152,9 @@ export function FileChangesPanel({ changes }: FileChangesPanelProps) {
 
   if (changes.length === 0) {
     return (
-      <div className="px-2.5 py-3 text-xs text-muted-foreground text-center">No file changes</div>
+      <div className="px-2.5 py-3 text-xs text-muted-foreground text-center">
+        {t('fileChanges.none')}
+      </div>
     );
   }
 

@@ -90,9 +90,10 @@ export function InteractionsCard({ sessionId }: { sessionId: string }) {
     <div className="mb-3 rounded-lg border border-amber-900/50 bg-amber-950/20">
       <div className="flex items-center justify-between border-b border-amber-900/40 px-3 py-2">
         <span className="text-[12px] font-medium text-amber-200">
-          Pending interactions {pending.length > 0 ? `(${pending.length})` : ''}
+          {t('views.pendingInteractions')}
+          {pending.length > 0 ? ` (${pending.length})` : ''}
         </span>
-        <ActionButton onClick={() => void reload()}>Load</ActionButton>
+        <ActionButton onClick={() => void reload()}>{t('actions.load')}</ActionButton>
       </div>
       <div className="px-3 py-2">
         {error !== null ? (

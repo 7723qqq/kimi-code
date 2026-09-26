@@ -222,7 +222,7 @@ function PlanCard({ sessionId, agentId }: { sessionId: string; agentId: string }
   return (
     <div className="mb-3 rounded-lg border border-neutral-800 bg-neutral-950/40">
       <div className="flex items-center justify-between border-b border-neutral-800 px-3 py-2">
-        <span className="text-[12px] font-medium text-neutral-200">Plan lookup</span>
+        <span className="text-[12px] font-medium text-neutral-200">{t('views.planLookup')}</span>
         <Badge tone="sky">{agentId}</Badge>
       </div>
       <div className="px-3 py-2">

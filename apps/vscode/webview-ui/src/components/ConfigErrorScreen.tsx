@@ -12,6 +12,7 @@ import {
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { t } from '@/i18n';
 import { bridge } from '@/services';
 
 import { KimiMascot } from './KimiMascot';
@@ -39,7 +40,7 @@ function ErrorDetails({ message }: { message?: string | null }) {
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
         <div className="flex items-center gap-2 min-w-0">
           <IconTerminal2 className="size-4" />
-          <span>Error details</span>
+          <span>{t('configError.errorDetails')}</span>
         </div>
         <Button
           onClick={() => {
@@ -66,22 +67,20 @@ function NoModelsContent({ onRefresh, onBackToLogin }: Pick<Props, 'onRefresh' |
       <div className="space-y-2">
         <div className="inline-flex items-center gap-2 text-amber-500">
           <IconAlertTriangle className="size-5" />
-          <span className="text-sm font-medium">Model setup required</span>
+          <span className="text-sm font-medium">{t('configError.modelSetupRequired')}</span>
         </div>
         <p className="text-xs text-muted-foreground">
-          Sign in with a Kimi account, or configure a provider and model in your shared Kimi Code{' '}
-          <code className="bg-muted px-1 rounded">config.toml</code>.
+          {t('configError.modelSetupHint')}
         </p>
       </div>
 
       <div className="bg-muted/50 rounded-lg p-4 text-left space-y-2">
         <div className="flex items-center gap-2 text-xs font-medium">
           <IconFileSettings className="size-4" />
-          Shared Kimi Code configuration
+          {t('configError.sharedConfig')}
         </div>
         <p className="text-xs text-muted-foreground">
-          VS Code and the terminal UI use the same Kimi Code home, configuration, credentials, and
-          sessions.
+          {t('configError.sharedConfigHint')}
         </p>
       </div>
 
@@ -94,7 +93,7 @@ function NoModelsContent({ onRefresh, onBackToLogin }: Pick<Props, 'onRefresh' |
             className="gap-1 text-muted-foreground"
           >
             <IconArrowLeft className="size-3" />
-            Back to sign in
+            {t('configError.backToSignIn')}
           </Button>
         )}
         {onRefresh && (
@@ -105,7 +104,7 @@ function NoModelsContent({ onRefresh, onBackToLogin }: Pick<Props, 'onRefresh' |
             className="gap-1 text-muted-foreground"
           >
             <IconRefresh className="size-3" />
-            Reload
+            {t('configError.reload')}
           </Button>
         )}
       </div>
@@ -121,7 +120,7 @@ export function ConfigErrorScreen({ type, errorMessage, onRefresh, onBackToLogin
           <KimiMascot className="h-10 mx-auto opacity-50" />
           <div className="inline-flex items-center gap-2 text-muted-foreground">
             <IconLoader2 className="size-4 animate-spin" />
-            <span className="text-sm">Starting Kimi Code…</span>
+            <span className="text-sm">{t('configError.starting')}</span>
           </div>
         </div>
       </div>
@@ -136,9 +135,11 @@ export function ConfigErrorScreen({ type, errorMessage, onRefresh, onBackToLogin
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 text-amber-500">
               <IconFolderOpen className="size-5" />
-              <span className="text-sm font-medium">No workspace open</span>
+              <span className="text-sm font-medium">{t('configError.noWorkspace')}</span>
             </div>
-            <p className="text-xs text-muted-foreground">Open a folder to start using Kimi Code.</p>
+            <p className="text-xs text-muted-foreground">
+              {t('configError.noWorkspaceHint')}
+            </p>
           </div>
           <Button
             onClick={() => {
@@ -147,7 +148,7 @@ export function ConfigErrorScreen({ type, errorMessage, onRefresh, onBackToLogin
             className="gap-2"
           >
             <IconFolderOpen className="size-4" />
-            Open Folder
+            {t('configError.openFolder')}
           </Button>
         </div>
       </div>
@@ -172,10 +173,10 @@ export function ConfigErrorScreen({ type, errorMessage, onRefresh, onBackToLogin
         <div className="space-y-2">
           <div className="inline-flex items-center gap-2 text-red-500">
             <IconAlertTriangle className="size-5" />
-            <span className="text-sm font-medium">Kimi Code could not start</span>
+            <span className="text-sm font-medium">{t('configError.couldNotStart')}</span>
           </div>
           <p className="text-xs text-muted-foreground">
-            Check the error below. Full diagnostics are available in the Kimi Code output channel.
+            {t('configError.diagnosticsHint')}
           </p>
         </div>
         <ErrorDetails message={errorMessage} />
@@ -187,12 +188,12 @@ export function ConfigErrorScreen({ type, errorMessage, onRefresh, onBackToLogin
             variant="outline"
             size="sm"
           >
-            Show Logs
+            {t('configError.showLogs')}
           </Button>
           {onRefresh && (
             <Button onClick={onRefresh} size="sm" className="gap-1">
               <IconRefresh className="size-3" />
-              Retry
+              {t('configError.retry')}
             </Button>
           )}
         </div>

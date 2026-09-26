@@ -281,7 +281,7 @@ function ServerForm({
                 }}
                 className="rounded size-3"
               />
-              <span className="text-xs text-muted-foreground">Requires OAuth</span>
+              <span className="text-xs text-muted-foreground">{t('mcpServers.requiresOauth')}</span>
             </label>
           </div>
           <KeyValueFields
@@ -685,7 +685,7 @@ export function MCPServersModal() {
         <div className="flex items-center justify-between px-3 py-2 border-b">
           <div className="flex items-center gap-2">
             <IconServer className="size-4 text-blue-500" />
-            <h2 className="text-xs font-medium">MCP Servers</h2>
+            <h2 className="text-xs font-medium">{t('mcpServers.title')}</h2>
           </div>
           <div className="flex items-center gap-1">
             <Button
@@ -722,7 +722,7 @@ export function MCPServersModal() {
               <div className="rounded-md border border-blue-500/5 p-2.5">
                 <div className="flex items-center gap-2 mb-2">
                   <IconPlus className="size-3.5 text-blue-500" />
-                  <span className="text-xs font-medium">Add MCP Server</span>
+                  <span className="text-xs font-medium">{t('mcpServers.addServer')}</span>
                 </div>
                 <ServerForm
                   data={addForm}
@@ -755,7 +755,7 @@ export function MCPServersModal() {
             {mcpServers.length === 0 && !showAdd && (
               <div className="py-6 text-center">
                 <IconServer className="size-6 mx-auto text-muted-foreground/30 mb-1" />
-                <p className="text-xs text-muted-foreground">No MCP servers configured</p>
+                <p className="text-xs text-muted-foreground">{t('mcpServers.noneConfigured')}</p>
               </div>
             )}
 
@@ -791,10 +791,9 @@ export function MCPServersModal() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete MCP Server?</AlertDialogTitle>
+            <AlertDialogTitle>{t('mcpServers.deleteTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove "{deleteTarget}" from your configuration. This action cannot be
-              undone.
+              {t('mcpServers.deleteWarning', { name: deleteTarget ?? '' })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

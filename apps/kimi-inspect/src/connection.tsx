@@ -307,16 +307,15 @@ function ConnectScreen({
       >
         <h1 className="mb-1 text-lg font-semibold text-neutral-100">Kimi Inspect</h1>
         <p className="mb-5 text-xs text-neutral-500">
-          Connect to a server started with{' '}
-          <code className="text-neutral-400">--debug-endpoints</code> (
-          <code className="text-neutral-400">/api/v1/debug</code>). Leave the URL empty to use the
-          same-origin dev proxy
+          {t('connection.debugHint')} <code className="text-neutral-400">--debug-endpoints</code>{' '}
+          (<code className="text-neutral-400">/api/v1/debug</code>) {t('connection.proxyHint')}
           {` (${__KIMI_INSPECT_PROXY_TARGET__})`}.
         </p>
         {servers.length > 0 ? (
           <div className="mb-5">
             <div className="mb-1 text-xs text-neutral-400">
-              Discovered on this machine{discovery.data?.home ? ` (${discovery.data.home})` : ''}
+              {t('connection.discoveredLocal')}{' '}
+              {discovery.data?.home ? `(${discovery.data.home})` : ''}
             </div>
             <div className="space-y-1.5">
               {servers.map((s) => (
@@ -341,14 +340,18 @@ function ConnectScreen({
             </div>
           </div>
         ) : null}
-        <label className="mb-1 block text-xs text-neutral-400">Server URL</label>
+        <label className="mb-1 block text-xs text-neutral-400">
+          {t('connection.serverUrl')}
+        </label>
         <input
           className="mb-4 w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-sky-600"
           placeholder={t('connection.urlPlaceholder')}
           value={url}
           onChange={(e) => setUrl(e.target.value)}
         />
-        <label className="mb-1 block text-xs text-neutral-400">Bearer token (optional)</label>
+        <label className="mb-1 block text-xs text-neutral-400">
+          {t('connection.tokenLabel')}
+        </label>
         <input
           className="mb-5 w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-sky-600"
           placeholder={t('connection.tokenPlaceholder')}

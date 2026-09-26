@@ -91,7 +91,9 @@ export function FsSuggestView() {
       <main className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4">
         <div className="mx-auto max-w-6xl space-y-4">
           <div>
-            <h1 className="text-sm font-semibold text-neutral-200">Filesystem Suggest</h1>
+            <h1 className="text-sm font-semibold text-neutral-200">
+              {t('views.filesystemSuggest')}
+            </h1>
             <p className="mt-1 text-[11px] text-neutral-500">
               Query file and directory completion candidates via the workspace-independent
               fs:suggest API — the selected workspace supplies its root, or enter arbitrary

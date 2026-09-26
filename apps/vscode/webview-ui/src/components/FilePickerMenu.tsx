@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef } from "react";
 import { IconFolder, IconFile, IconPhoto } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
+import { t } from "@/i18n";
 import { mentionMatchSpans, type MentionMatchSpan } from "@/lib/mention-match";
 
 export interface FileItem {
@@ -77,14 +78,18 @@ export function FilePickerMenu({
           className={cn("w-full px-2 py-1.5 text-left flex items-center gap-2 border-b border-border", selectedIndex === 0 ? "bg-accent" : "hover:bg-accent/50")}
         >
           <IconPhoto className="size-3.5 text-muted-foreground" />
-          <span className="text-xs">Select images or videos…</span>
+          <span className="text-xs">{t('filePicker.selectMedia')}</span>
         </button>
       )}
       <div className={cn("max-h-64 overflow-y-auto", isStale && "opacity-60")}>
         {isLoading ? (
-          <div className="px-2 py-4 text-center text-xs text-muted-foreground">Loading…</div>
+          <div className="px-2 py-4 text-center text-xs text-muted-foreground">
+            {t('status.loading')}
+          </div>
         ) : items.length === 0 ? (
-          <div className="px-2 py-4 text-center text-xs text-muted-foreground">No files found</div>
+          <div className="px-2 py-4 text-center text-xs text-muted-foreground">
+            {t('filePicker.noFiles')}
+          </div>
         ) : (
           items.map((item, idx) => {
             const itemIndex = idx + headerCount;

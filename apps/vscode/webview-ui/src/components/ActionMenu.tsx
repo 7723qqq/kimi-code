@@ -132,15 +132,15 @@ export function ActionMenu({ className, onAuthAction }: ActionMenuProps) {
         <MenuSection title={t('actionMenu.settings')}>
           <MenuItem onClick={handleChangeWorkDir}>
             <IconFolder className="size-4 text-muted-foreground" />
-            <span className="flex-1">Working Directory</span>
+            <span className="flex-1">{t('actionMenuItems.workingDirectory')}</span>
           </MenuItem>
           <MenuItem onClick={handleOpenMCPServers}>
             <IconServer className="size-4 text-muted-foreground" />
-            <span className="flex-1">MCP Servers</span>
+            <span className="flex-1">{t('actionMenuItems.mcpServers')}</span>
           </MenuItem>
           <MenuItem onClick={handleOpenSettings}>
             <IconSettings className="size-4 text-muted-foreground" />
-            <span className="flex-1">General Config</span>
+            <span className="flex-1">{t('actionMenuItems.generalConfig')}</span>
             <span className="text-[10px] text-muted-foreground">↗</span>
           </MenuItem>
         </MenuSection>
@@ -153,11 +153,11 @@ export function ActionMenu({ className, onAuthAction }: ActionMenuProps) {
         >
           <MenuItem onClick={handleShowLogs}>
             <IconFileText className="size-4 text-muted-foreground" />
-            <span className="flex-1">Show Logs</span>
+            <span className="flex-1">{t('actionMenuItems.showLogs')}</span>
           </MenuItem>
           <MenuItem onClick={handleReset}>
             <IconRefresh className="size-4 text-muted-foreground" />
-            <span className="flex-1">Reset Kimi</span>
+            <span className="flex-1">{t('actionMenuItems.resetKimi')}</span>
           </MenuItem>
         </MenuSection>
 

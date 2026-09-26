@@ -27,10 +27,6 @@ export default {
     messages: 'Messages',
     startNewConversation: 'Start New Conversation?',
   },
-  login: {
-    skip: 'Skip',
-    subscribe: 'Subscribe',
-  },
   mcpServers: {
     name: 'Name',
     transport: 'Transport',
@@ -40,6 +36,15 @@ export default {
     cancel: 'Cancel',
     environmentVariables: 'Environment Variables',
     allRecommendedInstalled: 'All recommended servers installed',
+    title: 'MCP Servers',
+    requiresOauth: 'Requires OAuth',
+    addServer: 'Add MCP Server',
+    noneConfigured: 'No MCP servers configured',
+    deleteTitle: 'Delete MCP Server?',
+    deleteWarning: 'This will remove "{name}" from your configuration. This action cannot be undone.',
+  },
+  workDir: {
+    loadFailed: 'Failed to load working directories',
   },
   actionMenu: {
     settings: 'Settings',
@@ -51,6 +56,8 @@ export default {
     switchConversation: 'Switch Conversation?',
     searchPlaceholder: 'Search conversations…',
     deleteWarning: 'This will permanently delete this conversation. This action cannot be undone.',
+    noResults: 'No conversations found',
+    empty: 'No conversations yet',
   },
   streamingConfirm: {
     startNew:
@@ -64,6 +71,8 @@ export default {
   },
   questionDialog: {
     responsePlaceholder: 'Enter your response…',
+    selectAll: 'Select all that apply',
+    customResponse: 'Custom response…',
   },
   recommendedMcp: {
     playwrightDescription: 'Browser automation and web scraping with headless Chrome',
@@ -116,5 +125,66 @@ export default {
   },
   inputArea: {
     exitPlanMode: 'Exit Plan Mode',
+  },
+  actionMenuItems: {
+    workingDirectory: 'Working Directory',
+    mcpServers: 'MCP Servers',
+    generalConfig: 'General Config',
+    showLogs: 'Show Logs',
+    resetKimi: 'Reset Kimi',
+  },
+  status: {
+    loading: 'Loading…',
+    processing: 'Processing…',
+    searching: 'Searching…',
+  },
+  configError: {
+    modelSetupRequired: 'Model setup required',
+    modelSetupHint:
+      'Sign in with a Kimi account, or configure a provider and model in your shared Kimi Code config.toml.',
+    starting: 'Starting Kimi Code…',
+    noWorkspace: 'No workspace open',
+    noWorkspaceHint: 'Open a folder to start using Kimi Code.',
+    couldNotStart: 'Kimi Code could not start',
+    errorDetails: 'Error details',
+    sharedConfig: 'Shared Kimi Code configuration',
+    sharedConfigHint:
+      'VS Code and the terminal UI use the same Kimi Code home, configuration, credentials, and sessions.',
+    backToSignIn: 'Back to sign in',
+    reload: 'Reload',
+    openFolder: 'Open Folder',
+    diagnosticsHint:
+      'Check the error below. Full diagnostics are available in the Kimi Code output channel.',
+    showLogs: 'Show Logs',
+    retry: 'Retry',
+  },
+  fileChanges: {
+    none: 'No file changes',
+  },
+  filePicker: {
+    selectMedia: 'Select images or videos…',
+    noFiles: 'No files found',
+  },
+  sessionDetails: {
+    title: 'Session Details',
+    description: 'Details for this conversation.',
+  },
+  login: {
+    skip: 'Skip',
+    subscribe: 'Subscribe',
+    waiting: 'Waiting for authentication…',
+    browserHint:
+      'A browser window should open automatically. Complete the sign-in process there.',
+    browserFallback: "If the browser didn't open, visit this URL:",
+    openInBrowser: 'Open in browser',
+    welcome: 'Welcome to Kimi Code',
+    intro: 'Use Kimi Code with your Kimi account subscription or your existing API setup.',
+    accountOption: 'Sign in with Kimi Account',
+    accountOptionHint: 'Use your Kimi account and Kimi Code subscription.',
+    apiOption: 'Use an API key',
+    apiOptionHint: 'Use your existing API key configuration.',
+    noSubscription:
+      'Your account does not have an active Kimi Code subscription. Please subscribe to continue using Kimi Code with your account.',
+    subscriptionRequired: 'Subscription Required',
   },
 } as const;

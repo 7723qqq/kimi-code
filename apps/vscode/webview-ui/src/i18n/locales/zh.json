@@ -27,10 +27,6 @@
     "messages": "消息",
     "startNewConversation": "开始新对话？"
   },
-  "login": {
-    "skip": "跳过",
-    "subscribe": "订阅"
-  },
   "mcpServers": {
     "name": "名称",
     "transport": "传输方式",
@@ -39,7 +35,16 @@
     "recommended": "推荐",
     "cancel": "取消",
     "environmentVariables": "环境变量",
-    "allRecommendedInstalled": "所有推荐服务器均已安装"
+    "allRecommendedInstalled": "所有推荐服务器均已安装",
+    "title": "MCP 服务器",
+    "requiresOauth": "需要 OAuth",
+    "addServer": "添加 MCP 服务器",
+    "noneConfigured": "尚未配置 MCP 服务器",
+    "deleteTitle": "删除 MCP 服务器？",
+    "deleteWarning": "这将从你的配置中移除「{name}」，且无法撤销。"
+  },
+  "workDir": {
+    "loadFailed": "加载工作目录失败"
   },
   "actionMenu": {
     "settings": "设置",
@@ -50,7 +55,9 @@
     "deleteConversation": "删除对话？",
     "switchConversation": "切换对话？",
     "searchPlaceholder": "搜索对话…",
-    "deleteWarning": "这将永久删除该对话，且无法撤销。"
+    "deleteWarning": "这将永久删除该对话，且无法撤销。",
+    "noResults": "未找到匹配的对话",
+    "empty": "还没有对话"
   },
   "streamingConfirm": {
     "startNew": "当前对话仍在生成回复。新建对话会截断当前输出，确定继续吗？",
@@ -59,7 +66,9 @@
     "exitPlanMode": "智能体仍在工作。现在退出计划模式会影响当前回合，确定立即退出吗？"
   },
   "questionDialog": {
-    "responsePlaceholder": "请输入你的回答…"
+    "responsePlaceholder": "请输入你的回答…",
+    "selectAll": "可多选",
+    "customResponse": "自定义回答…"
   },
   "recommendedMcp": {
     "playwrightDescription": "用无头 Chrome 做浏览器自动化与网页抓取",
@@ -107,5 +116,61 @@
   },
   "inputArea": {
     "exitPlanMode": "退出计划模式"
+  },
+  "login": {
+    "skip": "跳过",
+    "subscribe": "订阅",
+    "waiting": "等待认证…",
+    "browserHint": "浏览器窗口应会自动打开，请在其中完成登录。",
+    "browserFallback": "如果浏览器没有打开，请访问此地址：",
+    "openInBrowser": "在浏览器中打开",
+    "welcome": "欢迎使用 Kimi Code",
+    "intro": "使用你的 Kimi 账号订阅，或已有的 API 配置来使用 Kimi Code。",
+    "accountOption": "使用 Kimi 账号登录",
+    "accountOptionHint": "使用你的 Kimi 账号与 Kimi Code 订阅。",
+    "apiOption": "使用 API Key",
+    "apiOptionHint": "使用你已有的 API Key 配置。",
+    "noSubscription": "你的账号没有有效的 Kimi Code 订阅，请订阅后继续使用。",
+    "subscriptionRequired": "需要订阅"
+  },
+  "status": {
+    "loading": "加载中…",
+    "processing": "处理中…",
+    "searching": "搜索中…"
+  },
+  "actionMenuItems": {
+    "workingDirectory": "工作目录",
+    "mcpServers": "MCP 服务器",
+    "generalConfig": "通用配置",
+    "showLogs": "查看日志",
+    "resetKimi": "重置 Kimi"
+  },
+  "configError": {
+    "modelSetupRequired": "需要配置模型",
+    "modelSetupHint": "使用 Kimi 账号登录，或在共享的 Kimi Code config.toml 中配置 provider 与模型。",
+    "starting": "正在启动 Kimi Code…",
+    "noWorkspace": "未打开工作区",
+    "noWorkspaceHint": "打开一个文件夹即可开始使用 Kimi Code。",
+    "couldNotStart": "Kimi Code 启动失败",
+    "errorDetails": "错误详情",
+    "sharedConfig": "共享的 Kimi Code 配置",
+    "sharedConfigHint": "VS Code 与终端界面共用同一份 Kimi Code 主目录、配置、凭据与会话。",
+    "backToSignIn": "返回登录",
+    "reload": "重新加载",
+    "openFolder": "打开文件夹",
+    "diagnosticsHint": "请查看下方错误。完整诊断信息可在 Kimi Code 输出频道中获取。",
+    "showLogs": "查看日志",
+    "retry": "重试"
+  },
+  "fileChanges": {
+    "none": "没有文件变更"
+  },
+  "filePicker": {
+    "selectMedia": "选择图片或视频…",
+    "noFiles": "未找到文件"
+  },
+  "sessionDetails": {
+    "title": "会话详情",
+    "description": "本次会话的详细信息。"
   }
 }

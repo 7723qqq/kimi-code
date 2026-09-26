@@ -21,6 +21,9 @@ export default {
     debugSurfaceUnavailable: 'Debug surface unavailable',
     retry: 'Retry',
     changeServer: 'Change server',
+    debugHint: 'Connect to a server started with',
+    proxyHint: 'Leave the URL empty to use the same-origin dev proxy',
+    discoveredLocal: 'Discovered on this machine',
   },
   chat: {
     nonTextContent: '[non-text content]',
@@ -151,5 +154,24 @@ export default {
     documentRole: 'Document role',
     substringMatch: 'Substring match, case-insensitive (slower, matches symbols like C++)',
     openInChat: 'Open in chat',
+    searching: 'Searching…',
+  },
+  views: {
+    transcriptAudit: 'Transcript audit',
+    noEntrySelected: 'No entry selected.',
+    filesystemSuggest: 'Filesystem Suggest',
+    planLookup: 'Plan lookup',
+    workspaceAssociation: 'Workspace association',
+    pendingInteractions: 'Pending interactions',
+    history: 'History',
+  },
+  actions: {
+    load: 'Load',
+    clear: 'Clear',
+  },
+  bashParser: {
+    budgetExhausted: 'Parse budget exhausted',
+    budgetExhaustedHint:
+      'The tree cannot be analyzed; raise the budget or shrink the input.',
   },
 } as const;

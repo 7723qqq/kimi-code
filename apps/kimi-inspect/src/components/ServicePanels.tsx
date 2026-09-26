@@ -396,9 +396,12 @@ function HistoryPane({
     <div className="hidden w-[360px] shrink-0 flex-col border-l border-neutral-800 bg-neutral-900/30 lg:flex">
       <div className="flex items-center justify-between border-b border-neutral-800 px-3 py-2">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
-          History {records.length > 0 ? `(${records.length})` : ''}
+          {t('views.history')}
+          {records.length > 0 ? ` (${records.length})` : ''}
         </span>
-        {records.length > 0 ? <ActionButton onClick={onClear}>Clear</ActionButton> : null}
+        {records.length > 0 ? (
+          <ActionButton onClick={onClear}>{t('actions.clear')}</ActionButton>
+        ) : null}
       </div>
       <div className="flex-1 overflow-y-auto p-2">
         {records.length === 0 ? (

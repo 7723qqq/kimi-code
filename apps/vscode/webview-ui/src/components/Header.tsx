@@ -84,9 +84,9 @@ export function Header() {
       <Dialog open={showSessionInfo} onOpenChange={setShowSessionInfo}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-sm">Session Details</DialogTitle>
+            <DialogTitle className="text-sm">{t('sessionDetails.title')}</DialogTitle>
             <DialogDescription className="text-xs">
-              Details for this conversation.
+              {t('sessionDetails.description')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">

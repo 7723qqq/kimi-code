@@ -217,8 +217,9 @@ export function BashParserView() {
             <div className="text-[11px] text-neutral-600 italic">parsing…</div>
           ) : !result.ok ? (
             <div className="text-[11px] text-neutral-500">
-              Parse budget exhausted (<span className="font-mono">reason: {result.reason}</span>) —
-              the tree cannot be analyzed; raise the budget or shrink the input.
+              {t('bashParser.budgetExhausted')} (
+              <span className="font-mono">reason: {result.reason}</span>) —{' '}
+              {t('bashParser.budgetExhaustedHint')}
             </div>
           ) : (
             <SyntaxTreeNode node={result.root} depth={0} defaultDepth={2} />

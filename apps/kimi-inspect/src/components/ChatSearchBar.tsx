@@ -103,7 +103,9 @@ export function ChatSearchBar({
       {open ? (
         <div className="absolute inset-x-4 top-full z-10 mt-1 max-h-80 overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-900 p-2 shadow-lg shadow-black/40">
           {searching ? (
-            <div className="px-1 py-1 text-[12px] text-neutral-600 italic">Searching…</div>
+            <div className="px-1 py-1 text-[12px] text-neutral-600 italic">
+              {t('search.searching')}
+            </div>
           ) : error !== null ? (
             <ErrorLine error={error} />
           ) : hits === null ? null : hits.length === 0 ? (

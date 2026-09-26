@@ -81,7 +81,9 @@ export function QuestionDialog() {
         )}
         {question.header && <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{question.header}</div>}
         <div className="text-xs font-semibold text-foreground">{question.question}</div>
-        {isMultiSelect && <div className="text-[10px] text-muted-foreground">Select all that apply</div>}
+        {isMultiSelect && (
+          <div className="text-[10px] text-muted-foreground">{t('questionDialog.selectAll')}</div>
+        )}
         <div className="space-y-1.5">
           {options.map((option, idx) => {
             const isChecked = isMultiSelect && multiSelected.includes(option.label);
@@ -163,7 +165,7 @@ export function QuestionDialog() {
               )}
             >
               <span className={cn("mr-2", selectedIndex === customIndex ? "text-blue-200" : "text-muted-foreground")}>{customIndex}</span>
-              <span className="font-medium">Custom response…</span>
+              <span className="font-medium">{t('questionDialog.customResponse')}</span>
             </button>
           )}
           {isMultiSelect && (
