@@ -59,6 +59,15 @@ const MODULES = [
     skipDirs: ['i18n'],
     fileTypes: ['.ts', '.tsx', '.vue'],
     tImportName: '$t',
+    // Detections 1-3 still run: this tree keeps drifting out of sync, and
+    // catching a *translated* string that got hardcoded is still worth it.
+    //
+    // Detection 4 is off. `apps/kimi-web` is a stale dev sandbox, excluded
+    // from the workspace and never rebuilt into the shipped `dist-web` bundle
+    // (that comes from the separate code-app repo), so a finding here does not
+    // correspond to anything a user can see. Reporting it would train the gate
+    // to be ignored, which is how the original blind spot survived.
+    untranslatedScan: false,
   },
   {
     name: 'kimi-inspect',
@@ -224,12 +233,20 @@ function scanFile(filePath, content, moduleInfo, valueToKeys, valueRegexes) {
   const relPath = relative(ROOT, filePath).replaceAll('\\', '/');
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const rawLine = lines[i];
     const lineNum = i + 1;
-    const trimmed = line.trim();
 
-    // Skip comments
-    if (/^\s*(\/\/|\*|<!--)/.test(line)) continue;
+    // Skip comment-only lines.
+    if (/^\s*(\/\/|\*|<!--)/.test(rawLine)) continue;
+
+    // Strip trailing comments so a JSDoc or `//` note that quotes a locale
+    // value — `/** Card title, e.g. `Session state`. */ title: string;` — is
+    // not mistaken for a hardcoded string. A `//` inside a string literal
+    // (a URL) must survive, so only cut at a `//` not preceded by `:`.
+    const line = rawLine
+      .replace(/\/\*\*?[\s\S]*?\*\//g, ' ')
+      .replace(/(^|[^:])\/\/.*$/, '$1');
+    const trimmed = line.trim();
 
     // ── Detection 1: Locale value appears hardcoded (not in t() call) ──
     // Only applies to files that already use t() — files without t() imports
@@ -329,6 +346,20 @@ function scanFile(filePath, content, moduleInfo, valueToKeys, valueRegexes) {
         }
       }
     }
+
+    // ── Detection 4: a display slot holding a literal (no locale lookup) ──
+    if (moduleInfo.untranslatedScan !== false) {
+      for (const slot of scanDisplaySlots(line, relPath)) {
+        findings.push({
+          file: relPath,
+          line: lineNum,
+          type: 'untranslated_display_slot',
+          text: slot.value,
+          keys: [],
+          context: trimmed.slice(0, 100),
+        });
+      }
+    }
   }
 
   return findings;
@@ -340,7 +371,110 @@ function looksLikeUserFacing(str) {
   if (/^[A-Z][A-Z_]+$/.test(str)) return false; // ALL_CAPS
   if (/^[a-z][a-z0-9]*(?:[_-][a-z0-9]+)*$/.test(str) && str.length < 24) return false; // snake/kebab
   // Must start with a capital letter (English) or contain Chinese
-  return (/^[A-Z]/.test(str) && /[a-z]/.test(str)) || /[\u4E00-\u9FFF]/.test(str);
+  return (/^[A-Z]/.test(str) && /[a-z]/.test(str)) || /[一-鿿]/.test(str);
+}
+
+// ── Detection 4: untranslated user-facing slots ─────────────────────────────
+//
+// Detections 1-3 all derive their search patterns from the locale files, so
+// they can only catch text that is *already translated* and then hardcoded.
+// A user-facing string that was never translated at all — the case this fork
+// actually had in the VS Code webview, whose whole welcome carousel was plain
+// English — is invisible to all of them. The gate reported zero issues while
+// shipping that.
+//
+// This rule inverts the direction: instead of asking "is this string in the
+// locale file?", it asks "is this a display slot holding a literal?". The slot
+// is identified by the property it is assigned to, which is the one signal
+// available without the locale as a reference.
+
+/**
+ * Literals that are legitimately not display text. Values that name a
+ * protocol token, a format, a path, a product name or a keyboard key are
+ * identical in every locale and translating them is noise.
+ */
+const ALLOWED_LITERAL = [
+  /^\$/, // $-prefixed: env vars, template markers
+  /^https?:\/\//i,
+  /^wss?:\/\//i,
+  /^[a-z][a-z0-9+.-]*:\/\//, // any scheme://
+  /^\/[\w./-]*$/, // route or path
+  /^\.\.?\/[\w./-]*$/, // relative path
+  /^[A-Z0-9_]{2,}$/, // CONSTANT_CASE
+  /^[a-z0-9]+(?:[._-][a-z0-9]+)+$/, // kebab/snake/dotted token
+  /^[a-z]+$/, // bare lowercase word (css-ish, status-ish)
+  /^[A-Z][a-zA-Z0-9]*$/, // PascalCase identifier
+  /^[\w.+-]+@[\w.-]+$/, // email
+  /^[YMDHms\-:.TZ/+]+$/, // date/time format
+  /^[#%][\w#%()-]+$/, // color or format token
+  /^MCP_[A-Z0-9_]+$/,
+  /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/, // SCREAMING_SNAKE
+  /^\{.*\}$/, // template placeholder
+  /^\d+(\.\d+)?$/, // numbers
+];
+
+/** Inline `//` allowlist: string value → why it stays hardcoded. */
+const ALLOWED_VALUES = new Set([
+  'Kimi Code',
+  'Kimi',
+  'Moonshot',
+  'UTF-8',
+  'Bash',
+  'Read',
+  'Write',
+  'Edit',
+  'Grep',
+  'Glob',
+]);
+
+/** Per-file opt-out for components that are intentionally single-language. */
+const ALLOWED_FILES = [
+  // The vendored upstream shadcn primitives; their strings are re-exported
+  // through the app's own locale files where they are user-visible.
+  /webview-ui\/src\/components\/ui\//,
+  // Wire-format vocabulary that must stay identical across locales.
+  /webview-ui\/src\/lib\//,
+  // Test fixtures are not rendered; their literals are data under test.
+  /\.(?:test|spec)\.[jt]sx?$/,
+];
+
+function isAllowlistedLiteral(str) {
+  const trimmed = str.trim();
+  if (trimmed === '' || ALLOWED_VALUES.has(trimmed)) return true;
+  return ALLOWED_LITERAL.some((re) => re.test(trimmed));
+}
+
+/**
+ * `t('...')` / `$t('...')` anywhere on the line means the author is already
+ * localizing; a literal elsewhere on the same line is a separate expression
+ * (a key, a comparison target, a test fixture).
+ */
+function lineIsTranslating(line) {
+  return /(?:^|[^\w.$])\$?t\(\s*['"`]/.test(line);
+}
+
+function scanDisplaySlots(line, relPath) {
+  if (ALLOWED_FILES.some((re) => re.test(relPath))) return [];
+  if (lineIsTranslating(line)) return [];
+
+  const findings = [];
+  // `label: '...'` / `title="..."` / `placeholder='...'`
+  const slotRe = /\b(label|title|message|placeholder|aria-label|description|tooltip|heading|emptyText|emptyMessage|confirmText|cancelText|errorText|helperText|buttonText|actionText|bodyText|subtitle)\s*[:=]\s*(['"`])([^'"`]*)\2/g;
+  // A data property earlier on the same line means the line is a record
+  // literal, not a display slot: `{ id: 'x', label: 'Y' }` assigns a key, not
+  // copy. Matched on the leading `name: '…'` shape so `value: 'Bash'` cannot
+  // mask a real `label: 'Bash tool'` on the same line.
+  const recordLiteral = /^\s*\{[^}]*\b(?:id|key|value|variant|kind|type|icon|severity|status|transport|role)\s*:\s*['"`]/;
+
+  for (const m of line.matchAll(slotRe)) {
+    const [, slot, , value] = m;
+    if (!value) continue;
+    if (recordLiteral.test(line)) continue;
+    if (isAllowlistedLiteral(value)) continue;
+    if (!looksLikeUserFacing(value)) continue;
+    findings.push({ slot, value: value.trim() });
+  }
+  return findings;
 }
 
 function walkDir(dirPath, moduleInfo, valueToKeys, valueRegexes) {
@@ -424,15 +558,15 @@ async function main() {
       console.log(`    ${type}: ${Number(count)}`);
     }
 
-    // Show sample findings (up to 15)
+    // Show sample findings (up to 100)
     if (findings.length > 0) {
-      console.log(`\n  Sample findings (up to 15):`);
-      for (const f of findings.slice(0, 15)) {
+      console.log(`\n  Sample findings (up to 100):`);
+      for (const f of findings.slice(0, 100)) {
         const keyInfo = f.keys.length > 0 ? ` → ${f.keys[0]}` : '';
         console.log(`    ${f.file}:${f.line} [${f.type}] "${f.text}"${keyInfo}`);
       }
-      if (findings.length > 15) {
-        console.log(`    ... and ${findings.length - 15} more`);
+      if (findings.length > 100) {
+        console.log(`    ... and ${findings.length - 100} more`);
       }
     }
 
