@@ -8,7 +8,8 @@ use crate::llm::wire::{StreamDelta, WireMessage};
 use crate::rpc::types::TokenUsage;
 use crate::turn_loop::types::{ContentBlock, LLMChatResponse, ToolCall, ToolInfo};
 
-/// 判断模型是否在 Responses API 中要求使用 developer 角色替代 system 角色 (o1/o3/o4 系列)
+/// Whether the model requires the `developer` role in place of `system` in the
+/// Responses API (the o1/o3/o4 families)
 pub fn uses_developer_role(model: &str) -> bool {
     let lower = model.to_ascii_lowercase();
     lower.contains("o1") || lower.contains("o3") || lower.contains("o4")
@@ -693,14 +694,15 @@ mod tests {
         ];
         let req_o3 = build_request_full("o3-mini", &msgs, &[], true, None);
         let input_o3 = req_o3["input"].as_array().unwrap();
-        // o1/o3 模型断言：system 角色必须映射为 developer 且携带 type: message
+        // o1/o3 model assertion: the system role must map to developer and
+        // carry type: message
         assert_eq!(input_o3[0]["type"], "message");
         assert_eq!(input_o3[0]["role"], "developer");
         assert_eq!(input_o3[0]["content"], "You are an expert coder.");
         assert_eq!(input_o3[1]["type"], "message");
         assert_eq!(input_o3[1]["role"], "user");
 
-        // 普通模型保持 role: system
+        // An ordinary model keeps role: system
         let req_4o = build_request_full("gpt-4o", &msgs, &[], true, None);
         let input_4o = req_4o["input"].as_array().unwrap();
         assert_eq!(input_4o[0]["type"], "message");
@@ -718,7 +720,8 @@ mod tests {
         });
         let parsed = parse_usage(Some(&usage));
         assert_eq!(parsed.input_cache_read, 800);
-        // 关键断言：未缓存输入 Token 必须正确扣减已缓存部分 (1000 - 800 = 200)
+        // The key assertion: uncached input tokens must subtract the cached
+        // portion (1000 - 800 = 200)
         assert_eq!(parsed.input_tokens, 200);
         assert_eq!(parsed.output_tokens, 50);
     }

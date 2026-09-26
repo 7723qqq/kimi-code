@@ -93,7 +93,7 @@ pub fn build_request_full(
                     .cloned()
                     .unwrap_or_else(|| fallback_tool_name_from_id(call_id));
 
-                // Gemini 强制要求 functionResponse.response 必须为 JSON Object
+                // Gemini requires functionResponse.response to be a JSON Object
                 let response_obj = if let Ok(Value::Object(map)) = serde_json::from_str(&m.content)
                 {
                     Value::Object(map)
@@ -673,11 +673,13 @@ mod tests {
         let contents = req["contents"].as_array().unwrap();
         assert_eq!(contents.len(), 3);
 
-        // 关键断言：第 3 条消息 (tool) 被映射为 user 角色，且 functionResponse.name 必须是工具名 read_file，而不是 call_abc_123！
+        // The key assertion: the 3rd message (the tool one) maps to the `user`
+        // role, and functionResponse.name must be the tool name `read_file` —
+        // not the call id `call_abc_123`!
         assert_eq!(contents[2]["role"], "user");
         let resp_part = &contents[2]["parts"][0]["functionResponse"];
         assert_eq!(resp_part["name"], "read_file");
-        // 关键断言：response 必须为 JSON Object
+        // The key assertion: `response` must be a JSON Object
         assert!(resp_part["response"].is_object());
         assert_eq!(resp_part["response"]["output"], "file content here");
     }

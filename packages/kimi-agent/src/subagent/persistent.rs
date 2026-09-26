@@ -1,4 +1,4 @@
-//! 常驻多智能体生命周期与 Team 轮次协商编排器。
+//! Persistent multi-agent lifecycle and the Team round-negotiation orchestrator.
 
 use crate::native::event_store::{EventStore, RawWireEvent};
 use std::sync::Arc;
@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-/// 子代理初始化配置
+/// Subagent initialization config
 #[derive(Debug, Clone)]
 pub struct SubagentConfig {
     pub id: String,
@@ -14,7 +14,7 @@ pub struct SubagentConfig {
     pub max_turns: usize,
 }
 
-/// 常驻子代理操作句柄
+/// Handle for driving a persistent subagent
 pub struct SubagentHandle {
     pub id: String,
     tx: mpsc::Sender<String>,
@@ -23,7 +23,7 @@ pub struct SubagentHandle {
 }
 
 impl SubagentHandle {
-    /// 向常驻子代理发送驱动消息
+    /// Send a driving message to the persistent subagent
     pub async fn send_message(
         &self,
         message: &str,
@@ -35,30 +35,30 @@ impl SubagentHandle {
         Ok(())
     }
 
-    /// 轮询子代理响应，支持外部等待
+    /// Poll the subagent for a response, supporting an external wait
     pub async fn poll_response(&self) -> Option<String> {
         let mut rx = self.rx.lock().await;
         rx.recv().await
     }
 
-    /// 强制终止子代理后台任务
+    /// Force-terminate the subagent's background task
     pub fn abort(&self) {
         self.worker_task.abort();
     }
 }
 
-/// 常驻子代理调度管理器
+/// Persistent subagent scheduling manager
 pub struct PersistentSubagentManager {
     store: Arc<dyn EventStore>,
 }
 
 impl PersistentSubagentManager {
-    /// 创建调度管理器
+    /// Create the scheduling manager
     pub fn new(store: Arc<dyn EventStore>) -> Self {
         Self { store }
     }
 
-    /// 生成常驻长生命周期子代理
+    /// Spawn a persistent long-lived subagent
     pub fn spawn_persistent(&self, config: SubagentConfig) -> SubagentHandle {
         let (in_tx, mut in_rx) = mpsc::channel::<String>(32);
         let (out_tx, out_rx) = mpsc::channel::<String>(32);
@@ -78,7 +78,8 @@ impl PersistentSubagentManager {
                     .unwrap_or_default()
                     .as_millis() as i64;
 
-                // 记录进入子代理专用事件存储流，捕获并记录错误，保证 worker 健壮不崩溃
+                // Record into the subagent's dedicated event-store stream, capturing
+                // and logging errors so the worker stays robust instead of crashing
                 if let Err(e) = store.append_event(&RawWireEvent {
                     id: ulid::Ulid::new().to_string(),
                     session_id: agent_id.clone(),
@@ -108,7 +109,7 @@ impl PersistentSubagentManager {
         }
     }
 
-    /// 原生实现 Team 轮次协商调度器，带单步超时保护
+    /// The native Team round-negotiation scheduler, with a per-round timeout guard
     pub async fn run_team_round_robin(
         &self,
         agents: &[SubagentHandle],
@@ -136,8 +137,10 @@ impl PersistentSubagentManager {
         transcript
     }
 
-    /// 四阶段结构化辩论编排实现（参考 fork 自有的 TS debate-coordinator.ts
-    /// 阶段流程，由 `f6dd89f7c6` 引入并随 v2 引擎退役；上游无此文件）
+    /// The four-stage structured-debate orchestration, following the stage
+    /// flow of the fork's own TS `debate-coordinator.ts` — introduced by
+    /// `f6dd89f7c6` and carried through the v2 engine's retirement; upstream
+    /// has no such file.
     pub async fn run_structured_debate(
         &self,
         agents: &[SubagentHandle],
@@ -177,7 +180,8 @@ impl PersistentSubagentManager {
         debate_log
     }
 
-    /// 运行结构化辩论并提炼共识度与跨智能体引用图谱
+    /// Run the structured debate and distill the consensus score plus the
+    /// cross-agent citation graph
     pub async fn run_debate_with_consensus(
         &self,
         agents: &[SubagentHandle],
@@ -193,7 +197,8 @@ impl PersistentSubagentManager {
         (logs, evaluation, mentions)
     }
 
-    /// 运行带角色身份与立场驱动的四阶段结构化辩论编排
+    /// Run the four-stage structured-debate orchestration, with role identity and
+    /// stance driving each round
     pub async fn run_structured_debate_with_roles(
         &self,
         agents: &[SubagentHandle],
@@ -265,7 +270,8 @@ impl PersistentSubagentManager {
         debate_log
     }
 
-    /// 运行带角色身份与立场的结构化辩论，并提取共识评估与跨智能体引用
+    /// Run the structured debate with role identity and stance, and extract the
+    /// consensus assessment plus cross-agent citations
     pub async fn run_debate_with_roles_and_consensus(
         &self,
         agents: &[SubagentHandle],
@@ -285,7 +291,7 @@ impl PersistentSubagentManager {
     }
 }
 
-/// 辩论参与者配置（包含智能体 ID、角色名称与分配立场）
+/// Debate participant config (agent id, role name and assigned stance)
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DebateParticipant {
     pub id: String,
@@ -293,7 +299,7 @@ pub struct DebateParticipant {
     pub stance: Option<String>,
 }
 
-/// 结构化辩论阶段定义（对齐 TS StructuredDebateCoordinator 状态）
+/// Structured debate stage definition (aligned with TS `StructuredDebateCoordinator` state)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DebateStage {
     Opening,
@@ -302,31 +308,31 @@ pub enum DebateStage {
     Consensus,
 }
 
-/// 辩论共识评估结果
+/// The debate's consensus assessment result
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ConsensusEvaluation {
-    /// 共识度评分 (0.0 ~ 1.0)
+    /// The consensus score (0.0 ~ 1.0)
     pub score: f64,
-    /// 共同认同的关键观点
+    /// Key points everyone agreed on
     pub consensus_points: Vec<String>,
-    /// 尚未消解的分歧议题
+    /// Conflict topics that remain unresolved
     pub unresolved_conflicts: Vec<String>,
-    /// 是否达成有效共识（score >= 0.70）
+    /// Whether a real consensus was reached (score >= 0.70)
     pub reached_consensus: bool,
 }
 
-/// 跨智能体提及与引用记录
+/// A cross-agent mention / citation record
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AgentMention {
-    /// 引用发起方
+    /// The agent doing the citing
     pub source_agent: String,
-    /// 被引用的目标智能体
+    /// The agent being cited
     pub target_agent: String,
-    /// 引用上下文片段
+    /// The surrounding snippet of the citation
     pub snippet: String,
 }
 
-/// 从辩论发言记录中提取跨智能体提及与引用
+/// Extract cross-agent mentions and citations from the debate transcript
 pub fn extract_cross_references(entries: &[(DebateStage, String, String)]) -> Vec<AgentMention> {
     let mut mentions = Vec::new();
     let mut known_agents = std::collections::BTreeSet::new();
@@ -364,7 +370,8 @@ pub fn extract_cross_references(entries: &[(DebateStage, String, String)]) -> Ve
     mentions
 }
 
-/// 评估辩论各阶段（重点为 Consensus 阶段）的共识度并提取结论
+/// Score the consensus of the debate stages (Consensus above all) and extract
+/// the conclusions
 pub fn evaluate_consensus(entries: &[(DebateStage, String, String)]) -> ConsensusEvaluation {
     let consensus_entries: Vec<&(DebateStage, String, String)> = entries
         .iter()
@@ -427,7 +434,9 @@ pub fn evaluate_consensus(entries: &[(DebateStage, String, String)]) -> Consensu
             }
         }
 
-        // 提取带标记的结论点
+        // Extract the marked conclusion points. The `- 共识:` / `- consensus:`
+        // prefixes are the contract with the Consensus-stage prompt above, which
+        // tells the model to emit them — both sides must stay in sync.
         for line in text.lines() {
             let trimmed = line.trim();
             if trimmed.starts_with("- [x]")
@@ -512,7 +521,7 @@ mod tests {
         let logs = manager
             .run_structured_debate(&[d1, d2], "Rust vs TypeScript")
             .await;
-        // 4个阶段 × 2个辩手 = 8条记录
+        // 4 stages x 2 debaters = 8 records
         assert_eq!(logs.len(), 8);
         assert_eq!(logs[0].0, DebateStage::Opening);
         assert_eq!(logs[2].0, DebateStage::FreeDebate);
@@ -558,7 +567,7 @@ mod tests {
             )
             .await;
 
-        // 4 阶段 × 2 辩手 = 8 条记录
+        // 4 stages × 2 debaters = 8 records
         assert_eq!(logs.len(), 8);
         assert_eq!(logs[0].0, DebateStage::Opening);
         assert_eq!(logs[2].0, DebateStage::FreeDebate);

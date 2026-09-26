@@ -1290,7 +1290,8 @@ mod tests {
         let req_msgs = req["messages"].as_array().unwrap();
         assert_eq!(req_msgs.len(), 2);
 
-        // 关键断言：当末尾是 Assistant 时，尾部断点必须打在 Assistant 的 tool_use 块上，对齐 TS
+        // The key assertion: when the tail is an Assistant, the break point must
+        // land on that Assistant's tool_use block, aligned with TS
         let asst_content = req_msgs[1]["content"].as_array().unwrap();
         assert_eq!(asst_content.len(), 2);
         assert_eq!(asst_content[1]["type"], "tool_use");
@@ -1300,8 +1301,9 @@ mod tests {
     #[test]
     fn test_assistant_thinking_blocks_round_trip_first_with_signature() {
         use crate::rpc::types::ContentBlock;
-        // 回归：thinking 块（含 signature）必须原样回到下一次请求的最前面，
-        // 否则开启 thinking 的多步 tool 调用会被 provider 400 拒绝。
+        // Regression: the thinking block (with its signature) must return intact
+        // at the head of the next request, otherwise a thinking-enabled
+        // multi-step tool call is rejected by the provider with a 400.
         let msgs = vec![WireMessage {
             role: "assistant".into(),
             content: "Let me check.".into(),

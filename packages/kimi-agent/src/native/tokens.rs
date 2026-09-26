@@ -76,7 +76,8 @@ pub fn truncate_text_to_tokens(text: &str, max_tokens: usize) -> String {
         }
         end = i + 1;
     }
-    // 确保 end 截断点严格落在合法的 UTF-8 字符边界上，防止多字节字符被腰斩触发 Panic
+    // Keep the `end` cut point strictly on a valid UTF-8 character boundary, so
+    // a multi-byte character is never sliced in half and panics
     while end > 0 && !text.is_char_boundary(end) {
         end -= 1;
     }
@@ -139,6 +140,12 @@ mod tests {
         assert_eq!(estimate_tokens("abcde"), 2);
     }
 
+    /// CJK strings below are load-bearing test data, not incidental samples:
+    /// the tokenizer charges one token per non-ASCII code point, so an ASCII
+    /// rewrite would silently stop covering the multi-byte paths these tests
+    /// exist for (counting, truncation, and the no-split boundary). Comments
+    /// quote the same literals as the assertions on purpose, to keep the two
+    /// readable side by side.
     #[test]
     fn test_cjk() {
         assert_eq!(estimate_tokens("你好"), 2);
@@ -180,7 +187,9 @@ mod tests {
 
     #[test]
     fn test_batch() {
-        let texts: Vec<&str> = vec!["hello", "world", "你好"];
+        // Plain ASCII: this case is about summing across fragments, not about
+        // any particular character class. CJK coverage lives in `test_cjk`.
+        let texts: Vec<&str> = vec!["hello", "world", "there"];
         assert_eq!(estimate_tokens_batch(&texts), 6);
     }
 
@@ -225,7 +234,7 @@ mod tests {
 
     #[test]
     fn test_truncate_forward_cjk() {
-        // "你好世界" = 4 tokens (each CJK char = 1 token)
+        // "你好世界" = 4 tokens (each CJK char counts as 1 token)
         assert_eq!(truncate_text_to_tokens("你好世界", 1), "你");
         assert_eq!(truncate_text_to_tokens("你好世界", 2), "你好");
         assert_eq!(truncate_text_to_tokens("你好世界", 4), "你好世界");

@@ -1,80 +1,103 @@
-//! opencode 免费档的出站请求适配（兼容层）。
+//! Outbound request adapter for opencode's free tier (a compatibility layer).
 //!
-//! `https://opencode.ai/zen/*` 对免费档有一道**形状关卡**：三个条件必须**同时**
-//! 满足，否则一律 403，且错误文案完全一样，看不出是哪一条不合格：
+//! `https://opencode.ai/zen/*` applies a **shape gate** to the free tier: all
+//! three conditions must hold **simultaneously** or the request is rejected
+//! with 403, and the error text is identical in every case, so it never says
+//! which condition failed:
 //!
 //! ```text
 //! 403 {"type":"error","error":{"type":"FreeTierError",
 //!     "message":"OpenCode's free tier can only be used from within OpenCode"}}
 //! ```
 //!
-//! 1. **必须流式** —— `stream: false` → 403（逐项 bisect 实测，ROADMAP §6.9.3）；
-//! 2. **`tools` 必须同时含小写的 `bash` 与 `read`** —— `tools: []`、`[calculate]`、
-//!    乃至整个 `tools` 键缺失，都是 403；
-//! 3. **必须带 `x-opencode-*` 头** —— 这一条不在本层：引擎只组装 body，头由
-//!    provider 的 `custom_headers` 提供（见 `~/.kimi-code/config.toml`）。
+//! 1. **Must stream** — `stream: false` → 403 (measured by bisecting each
+//!    condition, ROADMAP §6.9.3);
+//! 2. **`tools` must contain both lowercase `bash` and `read`** — `tools: []`,
+//!    `[calculate]`, and even a missing `tools` key are all 403;
+//! 3. **Must carry `x-opencode-*` headers** — not this layer's job: the engine
+//!    only assembles the body, and the headers come from the provider's
+//!    `custom_headers` (see `~/.kimi-code/config.toml`).
 //!
-//! # 引擎的两类请求
+//! # The engine's two kinds of request
 //!
-//! * **带工具的主循环请求**。工具名是引擎的规范名（`Bash` / `Read`），首字母
-//!   大写，直接发会被关卡拒。本层把**出站**名改写成关卡点名的小写别名。
-//!   回程由引擎侧把名字**还原成规范名**（[`crate::tools::canonical_tool_name`]，
-//!   在 `run_turn` 里按工具表匹配）：派发与权限匹配虽然大小写不敏感
-//!   （`tools::NativeToolset::execute`、`permission::Rule::matches`），但
-//!   `tool.call.*` 事件、ACP 的工具类型映射、TUI 渲染器与用户的 hook matcher
-//!   都按精确大小写认名字，别名留在回程会让它们全部落空。
-//! * **不带工具的辅助请求**。摘要器、标题生成器、memory filer 都不传 tools，
-//!   因此原本**必然** 403 —— 摘要失败即 `compaction.cancelled`，也就是用户看到的
-//!   「压缩已取消」。本层在缺 `bash` / `read` 时**注入形状占位**让关卡放行。
-//!   占位按协议出形状（Chat Completions / Responses / Anthropic / Google）。
+//! * **The main loop request, with tools.** Tool names are the engine's
+//!   canonical names (`Bash` / `Read`), capitalized, and the gate rejects them
+//!   as sent. This layer rewrites the **outbound** names into the lowercase
+//!   aliases the gate names. The return trip restores them to **canonical
+//!   names** ([`crate::tools::canonical_tool_name`], matched against the tool
+//!   table in `run_turn`): dispatch and permission matching happen to be
+//!   case-insensitive (`tools::NativeToolset::execute`,
+//!   `permission::Rule::matches`), but `tool.call.*` events, ACP's tool-kind
+//!   mapping, the TUI renderers and the user's hook matchers all read names
+//!   by exact case, so an alias left on the return trip would miss them all.
+//! * **Auxiliary requests without tools.** The summarizer, title generator and
+//!   memory filer pass no tools, so they were **necessarily** 403 before —
+//!   a failed summary is `compaction.cancelled`, i.e. the user seeing
+//!   "compaction cancelled". This layer **injects shape placeholders** for the
+//!   missing `bash` / `read` so the gate lets the request through. The
+//!   placeholders take the shape of the protocol (Chat Completions / Responses
+//!   / Anthropic / Google).
 //!
-//! # 占位工具的风险与缓解
+//! # The placeholder tools' risk, and how it is mitigated
 //!
-//! 占位用的是关卡点名的两个名字，所以模型有可能真的去调它们。缓解有两层：
-//! 描述里显式写 `Do not call this tool`；调用方（摘要器 / 标题生成器）不消费
-//! `tool_calls`，只取文本。这仍属「补形状」这一取舍 —— ROADMAP §6.9.3 记录的
-//! 备选方案是「承认免费档不支持压缩」。
+//! The placeholders reuse the two names the gate asks for, so the model may
+//! genuinely try to call them. Two mitigations: the description says
+//! `Do not call this tool` explicitly; and the callers (summarizer / title
+//! generator) never consume `tool_calls` — they only take the text. This is
+//! still a "patch the shape" trade-off — ROADMAP §6.9.3 records the
+//! alternative as "admit the free tier does not support compaction".
 //!
-//! 注意占位的**投放范围不止无工具请求**：工具表被收窄的请求（只读子代理、
-//! `disallowedTools` 排除 Bash 的 profile）同样缺 `bash`，于是也会拿到一个
-//! `bash` 条目 —— 关卡是硬性的形状检查，不补就整条请求 403。执行的把关不在
-//! 这一层：仍然要过 `[tools]` 全局开关、子代理 allowlist 与权限引擎，占位不会
-//! 让任何一次调用绕过它们。这是**已知取舍**（ROADMAP §6.9.3）。
+//! Note the placeholders are **not** confined to tool-less requests: a request
+//! whose tool table is narrowed (a read-only subagent, a profile whose
+//! `disallowedTools` excludes Bash) is likewise missing `bash` and therefore
+//! receives a `bash` entry — the gate is a hard shape check, and skipping the
+//! patch fails the whole request with 403. The enforcement is **not** this
+//! layer's job: the call still goes through the global `[tools]` switch, the
+//! subagent allowlist and the permission engine, and a placeholder never lets
+//! any call bypass them. This is a **known trade-off** (ROADMAP §6.9.3).
 //!
-//! # 刻意不在这里做的事
+//! # Deliberately not done here
 //!
-//! **思考等级不改写。** 这里曾经有一张别名表，把 `max` / `xhigh` / `minimal`
-//! 收敛成 `high` / `low`，理由是上游当时只认 `low` / `medium` / `high` / `none`。
-//! 上游的校验集合已经变了 —— 它自己会把合法集合报出来：
+//! **Reasoning effort is not rewritten.** There used to be an alias table
+//! collapsing `max` / `xhigh` / `minimal` into `high` / `low`, on the grounds
+//! that upstream only accepted `low` / `medium` / `high` / `none`. Upstream's
+//! accepted set has since changed — it reports the legal set itself:
 //!
 //! ```text
 //! 400 ... reasoning_effort: Invalid option: expected one of
 //!     "max"|"xhigh"|"high"|"medium"|"low"|"minimal"|"none"
 //! ```
 //!
-//! 实测（`mimo-v2.6-flash-free`）七个值全部 200，`max` 也 200，于是别名表变成
-//! 了一次静默降级：用户配的 `max` 被改写成 `high` 发出去。所以 effort 一律按
-//! 配置原样出站，唯一的出站过滤在 [`crate::llm::effort`] —— 它拦的是 `on` 这种
-//! 主机侧记号，不是这里曾经收敛过的档位。
+//! Measured on `mimo-v2.6-flash-free`, all seven values return 200, `max`
+//! included, so the alias table became a silent downgrade: a user-configured
+//! `max` was rewritten to `high` on the wire. Effort therefore always goes out
+//! exactly as configured; the only outbound filter is [`crate::llm::effort`],
+//! which rejects host-side tokens like `on` — not the tiers this layer used to
+//! collapse.
 //!
-//! **消息与思考内容不改写。** 响应侧的方言（`reasoning` / `reasoning_content` /
-//! `reasoning_details`）由 [`crate::llm::openai`] 的累积器按探测表处理，这一层
-//! 只管出站形状。
+//! **Message and reasoning content is not rewritten.** The response-side
+//! dialects (`reasoning` / `reasoning_content` / `reasoning_details`) are
+//! handled by [`crate::llm::openai`]'s accumulator against a probe table; this
+//! layer only computes the placeholders' shape.
 
 use serde_json::{Map, Value, json};
 
-/// 需要改写的工具名。只列关卡实际检查的两个 —— 其余工具保持引擎的规范名，
-/// 模型看到的列表与别处一致。关卡将来要求更多名字时在这里加一行。
+/// The tool names this layer rewrites. Only the two the gate actually checks
+/// are listed — every other tool keeps the engine's canonical name, so the list
+/// the model sees matches the one everywhere else. Add a line here if the gate
+/// ever asks for more names.
 pub const TOOL_NAME_ALIASES: &[(&str, &str)] = &[("Bash", "bash"), ("Read", "read")];
 
-/// 关卡要求 `tools` 里必须出现的名字（小写）。
+/// The names the gate requires to appear in `tools` (lowercase).
 pub const FREE_TIER_REQUIRED_TOOLS: &[&str] = &["bash", "read"];
 
-/// 占位工具的描述：明确告知模型不要调用，它是为了满足网关的形状检查。
+/// The placeholder tools' description: it tells the model not to call them,
+/// because they exist only to satisfy the gateway's shape check.
 const PLACEHOLDER_DESCRIPTION: &str =
     "Shape placeholder required by the gateway. Do not call this tool.";
 
-/// `base_url` 是否指向 opencode 的 zen 端点（`/zen/v1`、`/zen/go/v1` 都命中）。
+/// Whether `base_url` points at an opencode zen endpoint (both `/zen/v1` and
+/// `/zen/go/v1` match).
 pub fn is_opencode_endpoint(base_url: &str) -> bool {
     let Ok(url) = url::Url::parse(base_url.trim()) else {
         return false;
@@ -82,21 +105,24 @@ pub fn is_opencode_endpoint(base_url: &str) -> bool {
     url.host_str() == Some("opencode.ai") && url.path().starts_with("/zen/")
 }
 
-/// 占位工具该按哪种线上形状生成 —— 与 [`rewrite_tool_names`] 覆盖的三种结构对应，
-/// 由请求的协议决定（取值与 `llm::http` 选协议的分支一致）。
+/// Which wire shape a placeholder tool takes — matching the three structures
+/// [`rewrite_tool_names`] covers, decided by the request's protocol (the values
+/// line up with the branch `llm::http` uses to pick a protocol).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PlaceholderShape {
-    /// OpenAI Chat Completions：定义嵌在 `function` 下。
+    /// OpenAI Chat Completions: the definition sits under `function`.
     ChatCompletions,
-    /// OpenAI Responses：`name` 与 `parameters` 在顶层。
+    /// OpenAI Responses: `name` and `parameters` are at the top level.
     Responses,
-    /// Anthropic：顶层没有 `type`，参数表叫 `input_schema`。
+    /// Anthropic: no `type` at the top level; the parameter schema is called
+    /// `input_schema`.
     Anthropic,
-    /// Google：声明必须装在 `functionDeclarations` 数组里。
+    /// Google: declarations must be wrapped in a `functionDeclarations` array.
     Google,
 }
 
-/// 按协议名选占位形状。未知协议按 Chat Completions 处理，与 `llm::http` 的兜底分支一致。
+/// Pick the placeholder shape by protocol name. An unknown protocol is handled
+/// as Chat Completions, matching `llm::http`'s fallback branch.
 fn placeholder_shape(protocol: &str) -> PlaceholderShape {
     match protocol {
         "anthropic" => PlaceholderShape::Anthropic,
@@ -106,19 +132,23 @@ fn placeholder_shape(protocol: &str) -> PlaceholderShape {
     }
 }
 
-/// 就地改写请求体，使其能通过免费档的形状关卡。
+/// Rewrite the request body in place so it passes the free tier's shape gate.
 ///
-/// 顺序有讲究：**先**改工具名（把引擎的规范名换成关卡要求的小写），**再**补形状
-/// （此时看到的名字已经是出站名，判断缺不缺才准）。`protocol` 决定占位工具的线上形状。
+/// The order matters: **first** rewrite the tool names (swapping the engine's
+/// canonical names for the lowercase the gate wants), **then** patch the shape
+/// (the names it sees are already the outbound ones by then, so the
+/// missing-entry check is accurate). `protocol` decides the placeholders' wire
+/// shape.
 pub fn apply(body: &mut Value, protocol: &str) {
     rewrite_tool_names(body);
     enforce_free_tier_shape(body, placeholder_shape(protocol));
 }
 
-/// 把 `tools` 里的工具名按别名表换成出站名。覆盖三种线上结构：OpenAI Chat
-/// Completions 把定义嵌在 `function` 下，Anthropic 与 OpenAI Responses 把 `name`
-/// 放在顶层，Google 把列表包在 `functionDeclarations` 里。没有对应字段、或值不在
-/// 别名表里时原样保留。
+/// Swap the tool names in `tools` for their outbound aliases. Covers three wire
+/// structures: OpenAI Chat Completions nests the definition under `function`,
+/// Anthropic and OpenAI Responses put `name` at the top level, and Google wraps
+/// the list in `functionDeclarations`. An entry with no matching field, or a
+/// value absent from the alias table, is left as is.
 fn rewrite_tool_names(body: &mut Value) {
     let Some(tools) = body.get_mut("tools").and_then(Value::as_array_mut) else {
         return;
@@ -139,7 +169,7 @@ fn rewrite_tool_names(body: &mut Value) {
     }
 }
 
-/// 把 `container[field]` 按别名表换成别名。
+/// Swap `container[field]` for its alias per the alias table.
 fn rewrite_field(container: &mut Value, field: &str, aliases: &[(&str, &str)]) {
     let Some(current) = container.get(field).and_then(Value::as_str) else {
         return;
@@ -152,11 +182,14 @@ fn rewrite_field(container: &mut Value, field: &str, aliases: &[(&str, &str)]) {
     }
 }
 
-/// 补齐关卡要求的形状：`stream: true`，且 `tools` 至少含 [`FREE_TIER_REQUIRED_TOOLS`]。
+/// Fill in the shape the gate requires: `stream: true`, and `tools` containing
+/// at least [`FREE_TIER_REQUIRED_TOOLS`].
 ///
-/// `stream` 是**强制**置为 `true`（关卡只认流式，显式写 `false` 同样 403）；其余只在
-/// 缺项时改动。畸形（非对象 body、非数组 `tools`）原样放行：把结构掰成能过关的
-/// 样子会掩盖调用方真正的 bug，不如让关卡去拒。
+/// `stream` is **forced** to `true` (the gate only accepts streaming; writing
+/// `false` explicitly is 403 too); everything else changes only when missing. A
+/// malformed body (a non-object body, a non-array `tools`) is let through
+/// untouched: bending the structure into something that passes would hide the
+/// caller's real bug, so the gate is better left to reject it.
 fn enforce_free_tier_shape(body: &mut Value, shape: PlaceholderShape) {
     let Some(object) = body.as_object_mut() else {
         return;
@@ -179,12 +212,14 @@ fn enforce_free_tier_shape(body: &mut Value, shape: PlaceholderShape) {
         .entry("tools".to_owned())
         .or_insert_with(|| Value::Array(Vec::new()));
     let Some(array) = entry.as_array_mut() else {
-        // `tools` 存在但不是数组：不猜调用方的意图，交给关卡。
+        // `tools` exists but is not an array: do not guess the caller's intent,
+        // leave it to the gate.
         return;
     };
 
-    // Google 的声明必须待在 `functionDeclarations` 里：已有分组就补进去，没有就新建
-    // 一个分组 —— 绝不往 `tools` 顶层塞裸声明。
+    // Google's declarations must stay inside `functionDeclarations`: append to an
+    // existing group, or create one — never drop a bare declaration at the top
+    // level of `tools`.
     if shape == PlaceholderShape::Google {
         let existing = array.iter_mut().find_map(|tool| {
             tool.get_mut("functionDeclarations")
@@ -209,7 +244,8 @@ fn enforce_free_tier_shape(body: &mut Value, shape: PlaceholderShape) {
     }
 }
 
-/// `tools` 里是否已经声明了某个出站名（大小写敏感 —— 关卡认的就是小写字面量）。
+/// Whether `tools` already declares an outbound name (case-sensitive — the
+/// lowercase literal is exactly what the gate reads).
 fn declares_tool(object: &Map<String, Value>, name: &str) -> bool {
     let Some(tools) = object.get("tools").and_then(Value::as_array) else {
         return false;
@@ -231,13 +267,15 @@ fn declares_tool(object: &Map<String, Value>, name: &str) -> bool {
     })
 }
 
-/// 空的参数表：占位只为过关，参数故意留空。
+/// An empty parameter schema: the placeholder exists only to pass the gate, so
+/// the parameters are deliberately left empty.
 fn empty_parameters() -> Value {
     json!({ "type": "object", "properties": {} })
 }
 
-/// 一个只为过关而存在的工具定义：名字是关卡点名的，参数表故意留空，
-/// 描述里写明不要调用。形状随协议走。
+/// A tool definition that exists only to pass the gate: the name is one the gate
+/// asks for, the parameter schema is deliberately empty, and the description
+/// says not to call it. The shape follows the protocol.
 fn placeholder_tool(name: &str, shape: PlaceholderShape) -> Value {
     match shape {
         PlaceholderShape::ChatCompletions => json!({
@@ -259,13 +297,14 @@ fn placeholder_tool(name: &str, shape: PlaceholderShape) -> Value {
             "description": PLACEHOLDER_DESCRIPTION,
             "input_schema": empty_parameters(),
         }),
-        // Google 的占位由 `enforce_free_tier_shape` 直接装进 `functionDeclarations`；
-        // 这里返回一个合法的单声明分组，免得将来多一处「不可达」。
+        // Google's placeholder is installed straight into `functionDeclarations` by
+        // `enforce_free_tier_shape`; returning a well-formed single-declaration
+        // group here keeps one fewer "unreachable" around if that ever changes.
         PlaceholderShape::Google => json!({ "functionDeclarations": [declaration(name)] }),
     }
 }
 
-/// Google 的一条函数声明。
+/// One Google function declaration.
 fn declaration(name: &str) -> Value {
     json!({
         "name": name,

@@ -403,17 +403,17 @@ fn parse_usage(usage: Option<&Value>) -> TokenUsage {
     let mut cached = 0u32;
     let mut miss: Option<u32> = None;
 
-    // 1. DeepSeek 专有字段：顶层 prompt_cache_hit_tokens / prompt_cache_miss_tokens
+    // 1. DeepSeek's own fields: top-level prompt_cache_hit_tokens / prompt_cache_miss_tokens
     if let Some(hit) = u.get("prompt_cache_hit_tokens").and_then(|x| x.as_u64()) {
         cached = hit as u32;
         if let Some(m) = u.get("prompt_cache_miss_tokens").and_then(|x| x.as_u64()) {
             miss = Some(m as u32);
         }
     } else if let Some(top_cached) = u.get("cached_tokens").and_then(|x| x.as_u64()) {
-        // 2. Moonshot AI (Kimi) 专有字段：顶层 cached_tokens
+        // 2. Moonshot AI (Kimi)'s own field: top-level cached_tokens
         cached = top_cached as u32;
     } else if let Some(details) = u.get("prompt_tokens_details") {
-        // 3. OpenAI 官方规范字段：prompt_tokens_details.cached_tokens
+        // 3. OpenAI's official spec field: prompt_tokens_details.cached_tokens
         if let Some(detail_cached) = details.get("cached_tokens").and_then(|x| x.as_u64()) {
             cached = detail_cached as u32;
         }
@@ -1598,7 +1598,7 @@ mod tests {
 
     #[test]
     fn test_parse_usage_cache_variants() {
-        // 1. DeepSeek 专有格式 (prompt_cache_hit_tokens)
+        // 1. DeepSeek's own format (prompt_cache_hit_tokens)
         let ds_usage = json!({
             "prompt_tokens": 100,
             "completion_tokens": 20,
@@ -1611,7 +1611,7 @@ mod tests {
         assert_eq!(ds_res.output_tokens, 20);
         assert_eq!(ds_res.total_tokens, 40);
 
-        // 2. Moonshot AI (Kimi) 专有格式 (cached_tokens)
+        // 2. Moonshot AI (Kimi)'s own format (cached_tokens)
         let moonshot_usage = json!({
             "prompt_tokens": 1000,
             "completion_tokens": 50,
@@ -1622,7 +1622,7 @@ mod tests {
         assert_eq!(ms_res.input_tokens, 100);
         assert_eq!(ms_res.output_tokens, 50);
 
-        // 3. OpenAI 官方嵌套格式 (prompt_tokens_details.cached_tokens)
+        // 3. OpenAI's official nested format (prompt_tokens_details.cached_tokens)
         let openai_usage = json!({
             "prompt_tokens": 500,
             "completion_tokens": 30,

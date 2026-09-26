@@ -1032,7 +1032,7 @@ mod tests {
 
     #[test]
     fn test_read_utf16le_with_bom() {
-        // BOM + "中\n文\n" in UTF-16 LE.
+        // A BOM plus "中\n文\n" encoded as UTF-16 LE.
         let mut bytes = vec![0xff, 0xfe];
         for unit in ["中", "\n", "文", "\n"] {
             let u: u16 = unit.chars().next().unwrap() as u16;
@@ -1103,7 +1103,7 @@ mod tests {
 
     #[test]
     fn test_read_gbk_transcodes() {
-        // "中文内容\n第二行" in GBK — strict UTF-8 fails, the legacy chain
+        // "中文内容\n第二行" encoded as GBK — strict UTF-8 fails on it, so the legacy chain
         // takes over and the note announces the transcode.
         let gbk = [
             0xd6, 0xd0, 0xce, 0xc4, 0xc4, 0xda, 0xc8, 0xdd, 0x0a, 0xb5, 0xda, 0xb6, 0xfe, 0xd0,
@@ -1153,7 +1153,7 @@ mod tests {
     fn test_read_almost_utf8_lenient() {
         // Valid UTF-8 line plus one junk byte → lenient display with the
         // replacement note.
-        let mut bytes = b"\xe6\xad\xa3\xe5\xb8\xb8\n".to_vec(); // 正常\n
+        let mut bytes = b"\xe6\xad\xa3\xe5\xb8\xb8\n".to_vec(); // "正常" plus a newline
         bytes.push(0x88);
         let f = write_temp(&bytes);
         let result = read_file(&ReadConfig {

@@ -512,11 +512,11 @@ pub struct NativeToolCallbacks {
     /// Counts the calls this wrapper executed in-process. The composition root
     /// holds the same handle to fill in `TurnResult::native_tool_calls`.
     pub native_count: Arc<AtomicU32>,
-    /// Optional in-process truncator (P26 批 4). When `Some`, large native
+    /// Optional in-process truncator (P26 batch 4). When `Some`, large native
     /// results are truncated and spilled locally. When `None` (no workspace
     /// root), results pass through untruncated.
     pub truncator: Option<Arc<crate::tool_result_truncation::ToolResultTruncator>>,
-    /// Optional in-process permission engine (P26 批 3). When `Some`, tool
+    /// Optional in-process permission engine (P26 batch 3). When `Some`, tool
     /// calls are evaluated against the per-turn `PolicySnapshot` locally in
     /// Rust, bypassing the host `host/check_permission` seam for allow/deny
     /// verdicts.
@@ -1240,7 +1240,7 @@ impl HostCallbacks for NativeToolCallbacks {
 pub struct CountingCallbacks {
     pub inner: Arc<dyn HostCallbacks>,
     pub event_count: Arc<AtomicU32>,
-    /// Optional in-process event bus (P26 批 5) for decoupled in-Rust event consumers.
+    /// Optional in-process event bus (P26 batch 5) for decoupled in-Rust event consumers.
     pub bus: Option<Arc<crate::events::EventBus>>,
 }
 

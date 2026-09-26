@@ -1694,7 +1694,7 @@ mod tests {
         assert_eq!(model["type"], "select");
         assert_eq!(model["id"], "model");
         assert_eq!(model["category"], "model");
-        // No engine attached 鈫?the model arm is honest: empty currentValue and
+        // No engine attached → the model arm is honest: empty currentValue and
         // no rows (v2 keeps the unbound defaults).
         assert_eq!(model["currentValue"], "");
         assert_eq!(model["options"].as_array().unwrap().len(), 0);
@@ -1797,7 +1797,7 @@ mod tests {
         let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
         let server = AcpServer::new(store);
 
-        // Wrong methodId 鈫?invalid params.
+        // Wrong methodId → invalid params.
         let bad = json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -1808,7 +1808,7 @@ mod tests {
         let err = resp.error.unwrap();
         assert_eq!(err.code, -32602);
 
-        // Correct methodId but no engine 鈫?auth_required.
+        // Correct methodId but no engine → auth_required.
         let good = json!({
             "jsonrpc": "2.0",
             "id": 2,
@@ -1873,7 +1873,7 @@ mod tests {
             "params": { "methodId": "login" }
         });
         let resp = server.handle_message(&auth.to_string()).await.unwrap();
-        assert!(resp.error.is_none(), "engine attached 鈫?authed");
+        assert!(resp.error.is_none(), "engine attached → authed");
 
         let logout = json!({
             "jsonrpc": "2.0",

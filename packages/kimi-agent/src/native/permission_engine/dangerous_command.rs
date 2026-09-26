@@ -1,16 +1,21 @@
-//! 原生危险命令词法分析器（对齐 v2 `dangerous-command-ask.ts`，即
-//! `agent/permissionPolicy/policies/` 下的那一个——裸文件名在上游会搜到两份
-//! 历史路径，只有带目录的这条是现存的）。
+//! Native dangerous-command lexical analyzer (aligned with v2
+//! `dangerous-command-ask.ts`, i.e. the one under
+//! `agent/permissionPolicy/policies/` — the bare filename matches two
+//! historical paths upstream, and only the one carrying the directory is
+//! current).
 //!
-//! 负责分析 Bash 命令行，检测关机、重启、格式化、dd 物理设备覆盖、
-//! 以及透过 sudo / doas / nohup / bash -c 等包装的高危破坏性指令。
+//! Analyzes a Bash command line for shutdown, reboot, format, dd physical
+//! device overwrite, and high-risk destructive commands hidden behind
+//! wrappers such as sudo / doas / nohup / bash -c.
 //!
-//! `rm -rf` 自 upstream #3714 起有一个豁免：当**全部**操作数都是 `/tmp`
-//! 或 `/temp` 下的字面量路径（逐段比较前缀、不含 `..`、不含参数展开/通配
-//! 元字符）时不再判危险。Rust 侧没有 tree-sitter 的字面量元数据，因此把
-//! 上游 `literalText` 的 `UNSAFE_OPERAND` 判据折叠进操作数自身的检查里；
-//! 重定向目标会被朴素分词器当成操作数，故 `rm -rf /tmp/x > log` 在 Rust 侧
-//! 仍判危险（偏保守，fail-closed）。
+//! `rm -rf` has had an exemption since upstream #3714: it is no longer
+//! classified as dangerous when **every** operand is a literal path under
+//! `/tmp` or `/temp` (compared segment by segment, with no `..`, and no
+//! parameter-expansion / glob metacharacters). Rust has no tree-sitter literal
+//! metadata, so upstream's `literalText` `UNSAFE_OPERAND` criterion is folded
+//! into the operand check itself. A redirection target is read as an operand by
+//! the naive tokenizer, so `rm -rf /tmp/x > log` is still classified as
+//! dangerous here (conservative, fail-closed).
 
 pub const SIMPLE_DANGEROUS_COMMANDS: &[&str] = &[
     "shutdown",
@@ -88,7 +93,8 @@ pub enum DangerousVerdict {
     Safe,
 }
 
-/// 分析复合 Bash 脚本或单条命令是否包含破坏性指令
+/// Analyze whether a compound Bash script or a single command contains a
+/// destructive instruction
 ///
 /// A `Dangerous` verdict anywhere wins; otherwise an unanalyzable shape
 /// anywhere makes the whole command unanalyzable (upstream #3869).
@@ -159,7 +165,7 @@ fn split_pipeline_commands(cmd: &str) -> (Vec<String>, bool) {
     (results, !in_single_quote && !in_double_quote)
 }
 
-/// 归一化命令名称：剥离路径前缀与 Windows .exe 后缀
+/// Normalize a command name: strip the path prefix and a Windows `.exe` suffix
 pub fn normalize_command_name(raw: &str) -> String {
     let mut name = raw;
     if let Some(pos) = name.rfind(['/', '\\']) {
@@ -208,12 +214,13 @@ fn check_single_command(cmd: &str) -> DangerousVerdict {
     while !current_tokens.is_empty() {
         let first = normalize_command_name(&current_tokens[0]);
 
-        // 1. 基础破坏性命令拦截 (含 mkfs.* 变体)
+        // 1. Block the basic destructive commands (including mkfs.* variants)
         if SIMPLE_DANGEROUS_COMMANDS.contains(&first.as_str()) || first.starts_with("mkfs.") {
             return DangerousVerdict::Dangerous(first);
         }
 
-        // 2. init / telinit 关机重启运行级别拦截 (init 0 / init 6)
+        // 2. Block init / telinit shutdown, reboot and runlevel changes
+        //    (init 0 / init 6)
         if first == "init" || first == "telinit" {
             for arg in &current_tokens[1..] {
                 if arg == "0" || arg == "6" {
@@ -222,7 +229,7 @@ fn check_single_command(cmd: &str) -> DangerousVerdict {
             }
         }
 
-        // 3. systemctl 致命子命令拦截
+        // 3. Block the fatal systemctl subcommands
         if first == "systemctl" {
             for sub in &current_tokens[1..] {
                 let norm_sub = normalize_command_name(sub);
@@ -234,7 +241,7 @@ fn check_single_command(cmd: &str) -> DangerousVerdict {
             }
         }
 
-        // 4. dd 物理存储设备覆写拦截
+        // 4. Block dd overwrites of physical storage devices
         if first == "dd" {
             for arg in &current_tokens[1..] {
                 if let Some(target) = arg.strip_prefix("of=")
@@ -248,8 +255,10 @@ fn check_single_command(cmd: &str) -> DangerousVerdict {
             }
         }
 
-        // 5. rm -rf 危险删除拦截 (对齐 TS dangerous-command-ask rm 递归强制规范)
-        //    仅当全部操作数都是 /tmp、/temp 下的字面量路径时放行 (upstream #3714)。
+        // 5. Block the dangerous `rm -rf` deletion (aligned with TS
+        //    dangerous-command-ask's recursive-force rule)
+        //    Allowed through only when every operand is a literal path under
+        //    /tmp or /temp (upstream #3714).
         if first == "rm" {
             let mut recursive = false;
             let mut force = false;
@@ -291,7 +300,7 @@ fn check_single_command(cmd: &str) -> DangerousVerdict {
             }
         }
 
-        // 6. busybox 提取子命令递归
+        // 6. Recurse into the subcommand extracted from busybox
         if first == "busybox" && current_tokens.len() > 1 {
             let applet = &current_tokens[1];
             if !applet.starts_with('-') {
@@ -300,13 +309,13 @@ fn check_single_command(cmd: &str) -> DangerousVerdict {
             }
         }
 
-        // 7. eval 递归分析
+        // 7. Recurse into eval
         if first == "eval" && current_tokens.len() > 1 {
             let joined = current_tokens[1..].join(" ");
             return analyze_bash_command(&joined);
         }
 
-        // 8. 递归剥离包装器 (sudo, doas, env, nohup, nice)
+        // 8. Recursively strip wrappers (sudo, doas, env, nohup, nice)
         if PRIVILEGE_WRAPPERS.contains(&first.as_str()) || LAUNCH_WRAPPERS.contains(&first.as_str())
         {
             let mut next_cmd_idx = 1;
@@ -334,7 +343,7 @@ fn check_single_command(cmd: &str) -> DangerousVerdict {
             }
         }
 
-        // 9. 递归分析嵌套 shell (bash -c "...")
+        // 9. Recurse into a nested shell (bash -c "...")
         if NESTED_SHELLS.contains(&first.as_str())
             && let Some(pos) = current_tokens.iter().position(|t| t == "-c")
             && pos + 1 < current_tokens.len()
@@ -345,10 +354,12 @@ fn check_single_command(cmd: &str) -> DangerousVerdict {
         break;
     }
 
-    // 10. 命令名不是字面量时无法静态解析（v2 的 tree-sitter 在同形态上解析失败，
-    //     upstream #3869 的 unanalyzable）：`$CMD --force` 之类要到执行时才知道
-    //     跑什么。危险判定全部落空之后才检查——`$SUDO reboot` 已被上面的包装器
-    //     剥离路径判危，且检查的是剥离后的当前命令名。
+    // 10. A command name that is not a literal cannot be resolved statically
+    //     (v2's tree-sitter fails to parse this shape; upstream #3869's
+    //     `unanalyzable`): something like `$CMD --force` is only known at
+    //     execution time. This is checked only after every dangerous match has
+    //     come up empty — `$SUDO reboot` is already classified by the wrapper
+    //     stripping above, which inspects the current name after stripping.
     let name = &current_tokens[0];
     if name.starts_with('$') || name.contains('`') {
         return DangerousVerdict::Unanalyzable(cmd.to_string());

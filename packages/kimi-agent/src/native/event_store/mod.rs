@@ -112,7 +112,8 @@ impl SqliteEventStore {
     }
 }
 
-/// 从 JSON payload 字段中鲁棒提取纯文本或多模态文本表示
+/// Robustly extract plain text or a multimodal text representation from a JSON
+/// payload field.
 fn extract_content_text(payload: &serde_json::Value, field: &str) -> Option<String> {
     if let Some(val) = payload.get(field) {
         if let Some(s) = val.as_str() {
@@ -148,7 +149,8 @@ fn extract_content_text(payload: &serde_json::Value, field: &str) -> Option<Stri
     None
 }
 
-/// 从 payload 中提取多模态内容块（wire JSON 数组），缺失或非数组时返回空数组。
+/// Extract the multimodal content blocks (a wire JSON array) from a payload;
+/// returns an empty array when missing or not an array.
 fn extract_blocks(payload: &serde_json::Value) -> serde_json::Value {
     payload
         .get("blocks")
@@ -157,7 +159,8 @@ fn extract_blocks(payload: &serde_json::Value) -> serde_json::Value {
         .unwrap_or_else(|| serde_json::json!([]))
 }
 
-/// 剥离 Assistant 回复中的思维链草稿（ thinking... response），防止历史上下文膨胀
+/// Strip the chain-of-thought draft out of an assistant reply
+/// (`thinking... response`) so the history does not bloat.
 fn strip_think_blocks(text: &str) -> String {
     let mut result = String::new();
     let mut remaining = text;
@@ -174,18 +177,23 @@ fn strip_think_blocks(text: &str) -> String {
     result.trim().to_string()
 }
 
-/// 严格自愈流水线：对齐 TS contextProjector/projection.ts（summarizeProjectionRepairs
-/// 共 9 类异常）；此处实现其中 4 类：
-/// 1. 过滤开头的孤儿 Tool 或孤立 Assistant（Anthropic/OpenAI 强制首条必须是 User 或 System）
-/// 2. 丢弃未声明对应的孤儿 Tool.result（防止 tool_call_id does not match any tool_calls 400 报错）
-/// 3. 合并连续同角色 Assistant 消息（防止 Anthropic 报 roles must alternate 400 报错）
-/// 4. 历史长轮次图片占位降级（保留最近 3 张，更早的图片降级为占位文字，防止爆窗口）
+/// The strict self-healing pipeline: aligned with TS
+/// `contextProjector/projection.ts` (`summarizeProjectionRepairs`, 9 anomaly
+/// classes in total); 4 of them are implemented here:
+/// 1. drop a leading orphan Tool or lone Assistant (Anthropic/OpenAI require the
+///    first message to be User or System)
+/// 2. drop an orphan `Tool.result` with no matching declaration (prevents the
+///    `tool_call_id does not match any tool_calls` 400)
+/// 3. merge consecutive same-role Assistant messages (prevents Anthropic's
+///    `roles must alternate` 400)
+/// 4. degrade placeholder images in long history turns (keep the most recent
+///    3, degrade older ones to placeholder text so the window cannot blow up)
 fn sanitize_and_repair_projection(messages: Vec<Message>) -> Vec<Message> {
     if messages.is_empty() {
         return messages;
     }
 
-    // 步骤 A：收集所有 Assistant 中声明过的合法 tool_call_id
+    // Step A: collect every legal tool_call_id declared by an Assistant message
     let mut declared_tool_call_ids = std::collections::HashSet::new();
     for msg in &messages {
         if msg.role == MessageRole::Assistant
@@ -200,7 +208,8 @@ fn sanitize_and_repair_projection(messages: Vec<Message>) -> Vec<Message> {
         }
     }
 
-    // 步骤 B：过滤孤儿 Tool 结果（Tool 的 call_id 必须存在于 declared_tool_call_ids）
+    // Step B: drop orphan Tool results (a Tool's call_id must exist in
+    // declared_tool_call_ids)
     let filtered_tools: Vec<Message> = messages
         .into_iter()
         .filter(|msg| {
@@ -216,7 +225,8 @@ fn sanitize_and_repair_projection(messages: Vec<Message>) -> Vec<Message> {
         })
         .collect();
 
-    // 步骤 C：连续 Assistant 消息合并（Anthropic 强制交替校验）
+    // Step C: merge consecutive Assistant messages (Anthropic enforces
+    // strict alternation)
     let mut merged_assistants: Vec<Message> = Vec::new();
     for msg in filtered_tools {
         if msg.role == MessageRole::Assistant
@@ -232,7 +242,8 @@ fn sanitize_and_repair_projection(messages: Vec<Message>) -> Vec<Message> {
         merged_assistants.push(msg);
     }
 
-    // 步骤 D：开头的孤立 Tool 或残留 Assistant 消息清理（仅当存在 User 消息时，清理首个有效消息前的孤立项）
+    // Step D: clear a leading orphan Tool or leftover Assistant message (only when
+    // a User message exists — the orphans before the first valid message go)
     let mut cleaned_leading = merged_assistants;
     let has_user = cleaned_leading.iter().any(|m| m.role == MessageRole::User);
     if has_user {
@@ -246,7 +257,8 @@ fn sanitize_and_repair_projection(messages: Vec<Message>) -> Vec<Message> {
         cleaned_leading.drain(..leading);
     }
 
-    // 步骤 E：图片多模态降级：仅保留最近 3 处内联图片，更早的图片降级为 [Image (stripped): ...]
+    // Step E: degrade image multimodal content — keep only the 3 most recent
+    // inline images, degrade older ones to `[Image (stripped): ...]`
     let mut image_count = 0;
     for msg in cleaned_leading.iter_mut().rev() {
         if msg.content.contains("[Image:") {
@@ -260,7 +272,8 @@ fn sanitize_and_repair_projection(messages: Vec<Message>) -> Vec<Message> {
     cleaned_leading
 }
 
-/// 将原始 wire 事件序列折叠投影为大模型所需的上下文消息列表，具备严格自愈与协议校正能力。
+/// Fold the raw wire event sequence into the context message list the model
+/// needs, with strict self-healing and protocol correction.
 pub fn fold_wire_events<'a, I>(events: I) -> Result<Vec<Message>, EventStoreError>
 where
     I: IntoIterator<Item = (&'a str, &'a serde_json::Value, bool)>,
@@ -289,7 +302,7 @@ where
     };
 
     for (event_type, payload, is_compaction) in events {
-        // 1. 压缩边界：重置会话折叠机状态
+        // 1. Compaction boundary: reset the fold state machine
         if is_compaction {
             messages.clear();
             pending_tool_calls.clear();
@@ -306,7 +319,7 @@ where
             continue;
         }
 
-        // 2. 状态机折叠投影
+        // 2. Fold-and-project through the state machine
         match event_type {
             "message.system" => {
                 if let Some(text) = extract_content_text(payload, "content") {
@@ -328,7 +341,9 @@ where
                         tool_calls: None,
                         tool_call_id: None,
                     };
-                    // 协议约束：当前有等待返回的工具调用时，暂存消息以保持 Tool 消息紧随 Assistant
+                    // Protocol constraint: while a tool call is awaiting a result,
+                    // park the message so the Tool message stays right after its
+                    // Assistant
                     if !pending_tool_calls.is_empty() {
                         deferred_messages.push(user_msg);
                     } else {
@@ -337,7 +352,8 @@ where
                 }
             }
             "message.assistant" => {
-                // 若上一轮仍有未决悬挂工具，先强制合成修复
+                // If the previous round still has a dangling unresolved tool,
+                // synthesize a repair first
                 if !pending_tool_calls.is_empty() {
                     flush_hanging_tools(
                         &mut messages,
@@ -364,7 +380,7 @@ where
                 }
 
                 if !text.is_empty() || tool_calls.is_some() {
-                    // 提取本条 Assistant 发起的工具调用 ID 列表
+                    // Collect the tool call ids this Assistant message started
                     if let Some(ref calls) = tool_calls
                         && let Some(calls_arr) = calls.as_array()
                     {
@@ -391,7 +407,8 @@ where
                     .map(String::from);
                 let content = extract_content_text(payload, "output").unwrap_or_default();
 
-                // FIFO 核销：若未传 tool_call_id，从 pending_tool_calls 队首弹出核销
+                // FIFO settlement: with no tool_call_id given, pop the head of
+                // pending_tool_calls to settle against
                 if tool_call_id.is_none() && !pending_tool_calls.is_empty() {
                     tool_call_id = Some(pending_tool_calls.remove(0));
                 } else if let Some(ref id) = tool_call_id
@@ -408,7 +425,7 @@ where
                     tool_call_id,
                 });
 
-                // 若所有未决工具全部返回，释放 deferred 队列消息
+                // Once every unresolved tool has returned, release the deferred queue
                 if pending_tool_calls.is_empty() && !deferred_messages.is_empty() {
                     messages.append(&mut deferred_messages);
                 }
@@ -487,7 +504,8 @@ where
         }
     }
 
-    // 3. 循环结束：若末尾存在未决悬挂工具（如进程崩溃或取消），自动合成修复
+    // 3. Loop finished: if a dangling unresolved tool remains at the end (a
+    // crashed process or a cancellation), synthesize a repair automatically
     flush_hanging_tools(
         &mut messages,
         &mut pending_tool_calls,
@@ -563,7 +581,7 @@ impl EventStore for SqliteEventStore {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
 
-        // 查找最近一个检查点
+        // Find the most recent checkpoint
         let last_checkpoint: Option<(i64, bool)> = tx
             .query_row(
                 "SELECT seq, is_compaction FROM wire_events 
@@ -577,7 +595,7 @@ impl EventStore for SqliteEventStore {
         let (target_seq, is_compaction) =
             last_checkpoint.ok_or(EventStoreError::CheckpointNotFound)?;
 
-        // 按协议阻断：跨越压缩边界时拒绝执行回滚
+        // Blocked by protocol: refuse to roll back across a compaction boundary
         if is_compaction {
             return Err(EventStoreError::UndoCompactionBoundary);
         }
@@ -601,7 +619,7 @@ mod tests {
         let store = SqliteEventStore::new_in_memory().unwrap();
         let session = "test_session_1";
 
-        // 用户提问
+        // User asks a question
         store
             .append_event(&RawWireEvent {
                 id: "evt_1".into(),
@@ -614,7 +632,7 @@ mod tests {
             })
             .unwrap();
 
-        // 助手回复
+        // Assistant replies
         store
             .append_event(&RawWireEvent {
                 id: "evt_2".into(),
@@ -632,7 +650,7 @@ mod tests {
         assert_eq!(msgs[0].role, MessageRole::User);
         assert_eq!(msgs[1].role, MessageRole::Assistant);
 
-        // 触发压缩
+        // Trigger a compaction
         store
             .checkpoint_compress(session, "Prior context summary")
             .unwrap();
@@ -642,7 +660,7 @@ mod tests {
         assert_eq!(msgs_after_compaction[0].role, MessageRole::System);
         assert_eq!(msgs_after_compaction[0].content, "Prior context summary");
 
-        // 验证跨越压缩边界时拒绝 Undo 回滚
+        // Verify undo is refused across a compaction boundary
         let undo_res = store.undo_to_last_checkpoint(session);
         assert!(matches!(
             undo_res,
@@ -655,7 +673,7 @@ mod tests {
         let store = SqliteEventStore::new_in_memory().unwrap();
         let session = "test_session_deferral";
 
-        // 1. Assistant 发出两个 tool calls
+        // 1. The Assistant issues two tool calls
         store
             .append_event(&RawWireEvent {
                 id: "evt_1".into(),
@@ -674,7 +692,7 @@ mod tests {
             })
             .unwrap();
 
-        // 2. 中途插入用户消息（或系统注入提示）
+        // 2. A user message is interleaved (or a system-injected prompt)
         store
             .append_event(&RawWireEvent {
                 id: "evt_2".into(),
@@ -687,7 +705,7 @@ mod tests {
             })
             .unwrap();
 
-        // 3. 第一个工具结果返回
+        // 3. The first tool result returns
         store
             .append_event(&RawWireEvent {
                 id: "evt_3".into(),
@@ -700,7 +718,7 @@ mod tests {
             })
             .unwrap();
 
-        // 4. 第二个工具结果返回
+        // 4. The second tool result returns
         store
             .append_event(&RawWireEvent {
                 id: "evt_4".into(),
@@ -715,7 +733,8 @@ mod tests {
 
         let msgs = store.fold_projection(session).unwrap();
         assert_eq!(msgs.len(), 4);
-        // 验证暂存保序：Tool 结果紧随对应调用，被打断的用户输入排在最后
+        // Verify deferred ordering: each Tool result stays right after its call,
+        // and the interrupted user input lands last
         assert_eq!(msgs[0].role, MessageRole::Assistant);
         assert_eq!(msgs[1].role, MessageRole::Tool);
         assert_eq!(msgs[1].tool_call_id.as_deref(), Some("call_a"));
@@ -730,7 +749,7 @@ mod tests {
         let store = SqliteEventStore::new_in_memory().unwrap();
         let session = "test_session_hanging";
 
-        // 1. Assistant 发出 tool call 但发生意外未决
+        // 1. The Assistant issues a tool call that is unexpectedly left unresolved
         store
             .append_event(&RawWireEvent {
                 id: "evt_1".into(),
@@ -748,11 +767,12 @@ mod tests {
             })
             .unwrap();
 
-        // 2. 直接结束或下一轮输入
+        // 2. End the turn directly, or start the next one with input
         let msgs = store.fold_projection(session).unwrap();
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0].role, MessageRole::Assistant);
-        // 关键断言：未收到结果的 tool call 必须自动合成 isError 消息进行自愈
+        // The key assertion: a tool call that never got a result must be healed by
+        // synthesizing an isError message
         assert_eq!(msgs[1].role, MessageRole::Tool);
         assert_eq!(msgs[1].tool_call_id.as_deref(), Some("call_hang"));
         assert!(msgs[1].content.contains("Tool execution was interrupted"));
@@ -763,7 +783,7 @@ mod tests {
         let store = SqliteEventStore::new_in_memory().unwrap();
         let session = "test_multimodal";
 
-        // 1. 系统提示词事件
+        // 1. System prompt event
         store
             .append_event(&RawWireEvent {
                 id: "evt_sys".into(),
@@ -776,7 +796,7 @@ mod tests {
             })
             .unwrap();
 
-        // 2. 多模态用户输入（含文本与图片数组）
+        // 2. Multimodal user input (a text plus an image array)
         store.append_event(&RawWireEvent {
             id: "evt_multi".into(),
             session_id: session.into(),
@@ -792,7 +812,7 @@ mod tests {
             created_at: 11,
         }).unwrap();
 
-        // 3. 助手回复带有 <think> 标签草稿
+        // 3. The assistant reply carries a `<think>` draft
         store.append_event(&RawWireEvent {
             id: "evt_asst".into(),
             session_id: session.into(),
@@ -817,7 +837,7 @@ mod tests {
                 .contains("[Image: data:image/png;base64,mock]")
         );
         assert_eq!(msgs[2].role, MessageRole::Assistant);
-        // 验证 think 标签已剥离，仅保留文本内容
+        // Verify the think tag is stripped and only the text survives
         assert_eq!(msgs[2].content, "This is a test diagram.");
     }
 
@@ -862,7 +882,7 @@ mod tests {
         assert_eq!(msgs[0].blocks, blocks_user);
         assert_eq!(msgs[1].blocks, blocks_asst);
 
-        // 无 blocks 的消息折叠后为空数组而非 null
+        // A message with no blocks folds to an empty array, not null
         store
             .append_event(&RawWireEvent {
                 id: "evt_plain".into(),
@@ -884,7 +904,7 @@ mod tests {
         let store = SqliteEventStore::new_in_memory().unwrap();
         let session = "test_fifo_id";
 
-        // Assistant 发起工具调用 call_1
+        // The Assistant starts tool call call_1
         store
             .append_event(&RawWireEvent {
                 id: "evt_1".into(),
@@ -902,7 +922,7 @@ mod tests {
             })
             .unwrap();
 
-        // 工具结果返回时丢失了 tool_call_id 字段
+        // The tool result comes back with its tool_call_id field missing
         store
             .append_event(&RawWireEvent {
                 id: "evt_2".into(),
@@ -920,7 +940,8 @@ mod tests {
         let msgs = store.fold_projection(session).unwrap();
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[1].role, MessageRole::Tool);
-        // 关键断言：通过 FIFO 自动关联上 call_1，避免伪悬挂错误
+        // The key assertion: FIFO re-associates it with call_1, so no bogus
+        // dangling-tool error is raised
         assert_eq!(msgs[1].tool_call_id.as_deref(), Some("call_1"));
         assert_eq!(msgs[1].content, "command success");
     }
@@ -930,7 +951,7 @@ mod tests {
         let store = SqliteEventStore::new_in_memory().unwrap();
         let session = "test_repair_rules";
 
-        // 1. 注入一条孤立的开头 Assistant 消息（比如截断残留）
+        // 1. Inject an orphan leading Assistant message (e.g. a truncation leftover)
         store
             .append_event(&RawWireEvent {
                 id: "evt_leading_bad".into(),
@@ -943,7 +964,7 @@ mod tests {
             })
             .unwrap();
 
-        // 2. 正确的 User 消息
+        // 2. A correct User message
         store
             .append_event(&RawWireEvent {
                 id: "evt_user_1".into(),
@@ -956,7 +977,7 @@ mod tests {
             })
             .unwrap();
 
-        // 3. 注入一条未声明任何 call_id 的孤儿 Tool.result
+        // 3. Inject an orphan Tool.result that declares no call_id at all
         store.append_event(&RawWireEvent {
             id: "evt_orphan_tool".into(),
             session_id: session.into(),
@@ -967,7 +988,7 @@ mod tests {
             created_at: 3,
         }).unwrap();
 
-        // 4. 连续两条 Assistant 消息（无 tool_calls）
+        // 4. Two consecutive Assistant messages (no tool_calls)
         store
             .append_event(&RawWireEvent {
                 id: "evt_asst_1".into(),
@@ -993,18 +1014,19 @@ mod tests {
             .unwrap();
 
         let msgs = store.fold_projection(session).unwrap();
-        // 1. 首条孤立 Assistant 消息被清理，首条消息对齐为 User
+        // 1. The leading orphan Assistant is cleared and the first message lines
+        //    up as User
         assert_eq!(msgs[0].role, MessageRole::User);
         assert_eq!(msgs[0].content, "Real first user message");
 
-        // 2. 未匹配对应调用 ID 的孤立 Tool 消息被丢弃
+        // 2. The orphan Tool message with no matching call id is dropped
         assert!(
             !msgs
                 .iter()
                 .any(|m| m.tool_call_id.as_deref() == Some("ghost_call_999"))
         );
 
-        // 3. 连续的 Assistant 消息被合并为单条
+        // 3. The consecutive Assistant messages are merged into one
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[1].role, MessageRole::Assistant);
         assert!(msgs[1].content.contains("Part 1 of response."));

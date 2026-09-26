@@ -1,6 +1,7 @@
-//! 原生 LSP 工具执行器。
+//! Native LSP tool executor.
 //!
-//! 允许模型通过标准协议向语言服务器查询定义位置（Definition）、引用等。
+//! Lets the model query a language server over the standard protocol for
+//! definition locations, references, and so on.
 
 use serde_json::Value;
 use std::path::Path;
@@ -10,7 +11,7 @@ use crate::native::lsp::{LanguageServerManager, LspClientSession};
 use crate::native::shell_path_bridge::ShellPathBridge;
 use crate::turn_loop::types::ExecutableToolResult;
 
-/// 推断文件扩展名对应的编程语言标识符
+/// Infer the programming-language identifier from a file extension
 pub fn detect_language_id(path: &Path) -> Option<&'static str> {
     match path.extension().and_then(|ext| ext.to_str()) {
         Some("rs") => Some("rust"),
@@ -22,8 +23,9 @@ pub fn detect_language_id(path: &Path) -> Option<&'static str> {
     }
 }
 
-/// 支持的 LSP 动作。校验在定位/启动语言服务器之前进行（fail-fast），
-/// 避免为无效请求付出 spawn 服务器的代价。
+/// The supported LSP actions. Validation happens before a language server is
+/// located or spawned (fail-fast), so an invalid request never pays the cost of
+/// spawning a server.
 const SUPPORTED_ACTIONS: &[&str] = &[
     "definition",
     "references",
@@ -32,7 +34,7 @@ const SUPPORTED_ACTIONS: &[&str] = &[
     "document_symbols",
 ];
 
-/// 执行 LSP 原生工具调用
+/// Execute a native LSP tool call
 pub async fn execute_lsp_tool(
     workspace_root: &Path,
     bridge: &ShellPathBridge,
@@ -167,7 +169,7 @@ pub async fn execute_lsp_tool(
         }
     };
 
-    // 1. 初始化握手
+    // 1. Initialize handshake
     if let Err(e) = session
         .initialize(workspace_root, Duration::from_secs(5))
         .await
@@ -183,12 +185,12 @@ pub async fn execute_lsp_tool(
         });
     }
 
-    // 2. 同步打开文档
+    // 2. Sync and open the document
     let _ = session
         .notify_did_open(&target_path, language_id, &file_text)
         .await;
 
-    // 3. 根据具体 action 发起 LSP 请求
+    // 3. Issue the LSP request for the requested action
     let action_res = match action {
         "definition" => {
             let line = args.get("line").and_then(|v| v.as_u64()).unwrap_or(0) as u32;

@@ -1,14 +1,18 @@
-//! 原生单步事件折叠状态机（对齐 TS agent-core-v2 loopEventFold.ts，355 行）。
+//! Native single-step event fold state machine (aligned with TS
+//! `agent-core-v2`'s `loopEventFold.ts`, 355 lines).
 //!
-//! 负责消费底层事件流（step.begin, content.part, tool.call, tool.result, step.end），
-//! 严格维护开放步生命周期、Vacuous 空内容丢弃、Tool 紧随保序与悬挂中断自愈。
+//! Consumes the low-level event stream (step.begin, content.part, tool.call,
+//! tool.result, step.end) and strictly maintains the open-step lifecycle,
+//! vacuous-empty-content dropping, Tool-immediately-after ordering, and
+//! self-healing for an interrupted dangling tool.
 
 use super::{Message, MessageRole};
 use std::collections::HashSet;
 
 pub const TOOL_INTERRUPTED_ON_RESUME_OUTPUT: &str = "Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.";
 
-/// 录制的单步循环底层事件定义（对齐 TS LoopRecordedEvent）
+/// The low-level events a recorded single-step loop emits (aligned with TS
+/// `LoopRecordedEvent`)
 #[derive(Debug, Clone)]
 pub enum LoopRecordedEvent {
     StepBegin {
@@ -39,7 +43,8 @@ pub enum LoopRecordedEvent {
     },
 }
 
-/// 折叠输出接收器接口（对齐 TS LoopEventFoldSink）
+/// The sink interface the fold writes its output to (aligned with TS
+/// `LoopEventFoldSink`)
 pub trait LoopEventFoldSink {
     fn open_assistant(&mut self);
     fn append_open_content(&mut self, text: &str);
@@ -51,7 +56,7 @@ pub trait LoopEventFoldSink {
     fn clear(&mut self);
 }
 
-/// 基于内存消息列表的标准接收器实现
+/// The standard sink implementation, backed by an in-memory message list
 #[derive(Default)]
 pub struct VectorFoldSink {
     pub messages: Vec<Message>,
@@ -121,7 +126,7 @@ impl LoopEventFoldSink for VectorFoldSink {
         if let Some(last) = self.messages.last_mut()
             && last.role == MessageRole::Assistant
         {
-            // 如果没有任何 tool_calls，将字段重置为 None
+            // With no tool_calls at all, reset the field to None
             if let Some(arr) = last.tool_calls.as_ref().and_then(|v| v.as_array())
                 && arr.is_empty()
             {
@@ -152,7 +157,7 @@ impl LoopEventFoldSink for VectorFoldSink {
     }
 }
 
-/// 原生单步事件折叠状态机
+/// Native single-step event fold state machine
 pub struct LoopEventFold<S: LoopEventFoldSink> {
     sink: S,
     open_step_uuid: Option<String>,
@@ -174,7 +179,7 @@ impl<S: LoopEventFoldSink> LoopEventFold<S> {
         }
     }
 
-    /// 释放暂存队列（对齐 TS flushDeferred）
+    /// Release the deferred queue (aligned with TS `flushDeferred`)
     fn flush_deferred(&mut self) {
         if !self.pending.is_empty() || self.deferred.is_empty() {
             return;
@@ -184,7 +189,8 @@ impl<S: LoopEventFoldSink> LoopEventFold<S> {
         }
     }
 
-    /// 悬挂工具中断关闭自愈（对齐 TS closePending）
+    /// Close and self-heal an interrupted dangling tool (aligned with TS
+    /// `closePending`)
     fn close_pending(&mut self) {
         if self.pending.is_empty() {
             return;
@@ -199,7 +205,7 @@ impl<S: LoopEventFoldSink> LoopEventFold<S> {
         self.flush_deferred();
     }
 
-    /// 结算当前开放步（对齐 TS settleOpen）
+    /// Settle the currently open step (aligned with TS `settleOpen`)
     pub fn settle_open(&mut self) {
         if self.open_step_uuid.is_none() {
             return;
@@ -213,7 +219,8 @@ impl<S: LoopEventFoldSink> LoopEventFold<S> {
         self.open_step_uuid = None;
     }
 
-    /// 校验是否接受指定 step 的事件（对齐 TS acceptsOpenStep）
+    /// Whether an event for the given step is accepted (aligned with TS
+    /// `acceptsOpenStep`)
     fn accepts_open_step(&mut self, step_uuid: &str) -> bool {
         match self.open_step_uuid.as_deref() {
             None => false,
@@ -221,17 +228,20 @@ impl<S: LoopEventFoldSink> LoopEventFold<S> {
         }
     }
 
-    /// 追加外部输入消息（如用户插话或系统注入，对齐 TS appendMessage）
+    /// Append an externally supplied input message (a user interjection or a
+    /// system injection; aligned with TS `appendMessage`)
     pub fn append_message(&mut self, role: MessageRole, content: String) {
         if !self.pending.is_empty() {
-            // 处于等待工具返回期间，暂存进入 deferred 队列保序
+            // While waiting for a tool result, park the input in the deferred
+            // queue to preserve ordering
             self.deferred.push((role, content));
             return;
         }
         self.sink.push_message(role, content);
     }
 
-    /// 处理流式底层录制事件（对齐 TS loopEvent）
+    /// Handle one streaming low-level recorded event (aligned with TS
+    /// `loopEvent`)
     pub fn loop_event(&mut self, event: LoopRecordedEvent) {
         match event {
             LoopRecordedEvent::StepBegin { uuid, .. } => {
@@ -242,7 +252,9 @@ impl<S: LoopEventFoldSink> LoopEventFold<S> {
                 self.open_vacuous = true;
             }
             LoopRecordedEvent::StepEnd { finish_reason, .. } => {
-                // 对齐 TS 第 155 行：interrupted 或 error 时保留 openStepUuid，等待后续恢复，不触发结算
+                // Aligned with TS line 155: on `interrupted` or `error`,
+                // openStepUuid is kept so a later resume can pick it up — no
+                // settle is triggered here.
                 if let Some(ref r) = finish_reason
                     && (r == "interrupted" || r == "error")
                 {
@@ -291,12 +303,12 @@ impl<S: LoopEventFoldSink> LoopEventFold<S> {
         }
     }
 
-    /// 会话结算收尾（对齐 TS settle）
+    /// Wrap up at session settle time (aligned with TS `settle`)
     pub fn settle(&mut self) {
         self.settle_open();
     }
 
-    /// 重置状态机（对齐 TS reset）
+    /// Reset the state machine (aligned with TS `reset`)
     pub fn reset(&mut self) {
         self.open_step_uuid = None;
         self.open_has_tool_calls = false;
@@ -320,17 +332,17 @@ mod tests {
         let sink = VectorFoldSink::new();
         let mut fold = LoopEventFold::new(sink);
 
-        // 1. 用户提问
+        // 1. The user asks a question
         fold.append_message(MessageRole::User, "Calculate 1 + 1".into());
 
-        // 2. 步骤开始
+        // 2. The step begins
         fold.loop_event(LoopRecordedEvent::StepBegin {
             uuid: "step_1".into(),
             turn_id: Some("turn_1".into()),
             step: Some(1),
         });
 
-        // 3. 模型流式输出文字 + 工具调用
+        // 3. The model streams text plus a tool call
         fold.loop_event(LoopRecordedEvent::ContentPart {
             step_uuid: "step_1".into(),
             text: "Let me calculate.".into(),
@@ -343,10 +355,10 @@ mod tests {
             arguments: Some(r#"{"expr":"1+1"}"#.into()),
         });
 
-        // 4. 用户在此刻插话 -> 必须被暂存
+        // 4. The user interjects right here -> it must be deferred
         fold.append_message(MessageRole::User, "Hurry up".into());
 
-        // 5. 工具结果返回
+        // 5. The tool result returns
         fold.loop_event(LoopRecordedEvent::ToolResult {
             tool_call_id: "calc_call_1".into(),
             output: "2".into(),
@@ -354,7 +366,7 @@ mod tests {
             note: None,
         });
 
-        // 6. 步骤结束
+        // 6. The step ends
         fold.loop_event(LoopRecordedEvent::StepEnd {
             uuid: "step_1".into(),
             finish_reason: Some("stop".into()),
@@ -373,7 +385,8 @@ mod tests {
         assert_eq!(msgs[1].content, "Let me calculate.");
         assert!(msgs[1].tool_calls.is_some());
 
-        // 关键断言：Tool 消息必须紧跟 Assistant，Hurry up 必须在工具结果之后！
+        // The key assertion: the Tool message must follow the Assistant
+        // immediately, and "Hurry up" must land after the tool result!
         assert_eq!(msgs[2].role, MessageRole::Tool);
         assert_eq!(msgs[2].tool_call_id.as_deref(), Some("calc_call_1"));
         assert_eq!(msgs[2].content, "2");
@@ -393,7 +406,7 @@ mod tests {
             step: None,
         });
 
-        // 仅产生空白占位内容
+        // Produces only blank placeholder content
         fold.loop_event(LoopRecordedEvent::ContentPart {
             step_uuid: "step_empty".into(),
             text: "".into(),
@@ -407,7 +420,8 @@ mod tests {
 
         fold.settle();
         let sink = fold.into_sink();
-        // 无工具调用且内容为空的空白消息会被过滤丢弃，不保留在历史中
+        // A blank message with no tool call and no content is filtered out and
+        // never kept in the history
         assert!(sink.messages.is_empty());
     }
 
@@ -429,7 +443,7 @@ mod tests {
             arguments: Some(r#"{"cmd":"sleep 100"}"#.into()),
         });
 
-        // 意外打断或开始下一个 step
+        // An unexpected interruption, or the next step starting
         fold.settle();
 
         let sink = fold.into_sink();
@@ -437,7 +451,8 @@ mod tests {
 
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0].role, MessageRole::Assistant);
-        // 关键断言：未决工具必须自动合成中断自愈结果
+        // The key assertion: an unresolved tool must be self-healed by
+        // synthesizing an interrupted result
         assert_eq!(msgs[1].role, MessageRole::Tool);
         assert_eq!(msgs[1].tool_call_id.as_deref(), Some("hang_call_1"));
         assert!(msgs[1].content.contains("Tool execution was interrupted"));

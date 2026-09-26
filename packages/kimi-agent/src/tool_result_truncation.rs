@@ -1,4 +1,4 @@
-//! Local tool-result truncation (P26 批 4).
+//! Local tool-result truncation (P26 batch 4).
 //!
 //! Mirrors `agent-core-v2/src/agent/toolResultTruncation/toolResultTruncationService.ts`
 //! so a natively-executed result that exceeds the per-call character cap
@@ -462,10 +462,12 @@ mod tests {
             is_error: true,
             note: Some("boom"),
         });
-        // 关键断言：超长错误输出绝不无脑放行进上下文，同样进行截断与磁盘溢出
+        // The key assertion: an oversized error output is never waved into the
+        // context unchecked — it is truncated and spilled to disk too
         assert!(r.truncated);
         assert!(r.spill_path.is_some());
-        // 关键断言：原版的 is_error 与 note 属性被完整保真透传
+        // The key assertion: the original is_error and note fields pass through
+        // faithfully
         assert!(r.is_error);
         assert_eq!(r.note.as_deref(), Some("boom"));
     }

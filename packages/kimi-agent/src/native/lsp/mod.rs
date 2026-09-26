@@ -1,15 +1,15 @@
-//! 原生 Language Server 进程管理。
+//! Native Language Server process management.
 
 use std::path::Path;
 use std::process::Stdio;
 use tokio::process::{Child, Command};
 use which::which;
 
-/// 语言服务器管理工具
+/// Language server management tool
 pub struct LanguageServerManager;
 
 impl LanguageServerManager {
-    /// 查找系统中对应的语言服务器可执行文件
+    /// Look up the language server executable for a language on this system
     pub fn locate_server(language: &str) -> Option<String> {
         let binary_name = match language {
             "typescript" | "javascript" => "typescript-language-server",
@@ -22,7 +22,7 @@ impl LanguageServerManager {
             .map(|p| p.to_string_lossy().to_string())
     }
 
-    /// 启动指定的语言服务器进程
+    /// Start the given language server process
     pub fn start_server(binary_path: &str) -> Result<Child, std::io::Error> {
         Command::new(binary_path)
             .stdin(Stdio::piped())
@@ -31,7 +31,7 @@ impl LanguageServerManager {
             .spawn()
     }
 
-    /// 优雅关闭语言服务器子进程
+    /// Shut the language server child process down gracefully
     pub async fn stop_server(child: &mut Child) -> Result<(), std::io::Error> {
         let _ = child.kill().await;
         let _ = child.wait().await?;
@@ -39,11 +39,12 @@ impl LanguageServerManager {
     }
 }
 
-/// LSP 协议消息帧编码与解码器
+/// LSP protocol message frame encoder and decoder
 pub struct LspFraming;
 
 impl LspFraming {
-    /// 将 JSON 负载编码为包含 Content-Length 头部的标准 LSP 协议字节流
+    /// Encode a JSON payload into a standard LSP protocol byte stream with a
+    /// Content-Length header
     pub fn encode(payload: &serde_json::Value) -> Result<Vec<u8>, serde_json::Error> {
         let body = serde_json::to_vec(payload)?;
         let header = format!("Content-Length: {}\r\n\r\n", body.len());
@@ -53,7 +54,8 @@ impl LspFraming {
         Ok(msg)
     }
 
-    /// 从字节流缓冲区中尝试解码一个完整的 LSP JSON 消息（处理粘包与分包）
+    /// Try to decode one complete LSP JSON message out of the byte-stream buffer
+    /// (handling both a coalesced batch and a split frame)
     pub fn decode(buffer: &mut Vec<u8>) -> Result<Option<serde_json::Value>, String> {
         let header_end_marker = b"\r\n\r\n";
         let marker_pos = match buffer.windows(4).position(|w| w == header_end_marker) {
@@ -95,7 +97,7 @@ impl LspFraming {
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-/// LSP 客户端会话句柄（封装子进程与双向管道交互）
+/// LSP client session handle (wrapping the child process and its two-way pipes)
 pub struct LspClientSession {
     child: Child,
     stdin: tokio::process::ChildStdin,
@@ -106,7 +108,8 @@ pub struct LspClientSession {
 }
 
 impl LspClientSession {
-    /// 从已启动的语言服务器子进程中接管标准输入输出构建会话
+    /// Take over the stdin/stdout of an already-started language server child
+    /// process to build a session
     pub fn from_child(mut child: Child) -> Result<Self, std::io::Error> {
         let stdin = child.stdin.take().ok_or_else(|| {
             std::io::Error::new(
@@ -131,7 +134,7 @@ impl LspClientSession {
         })
     }
 
-    /// 发送单向通知（如 initialized, textDocument/didOpen 等，不带 id）
+    /// Send a one-way notification (e.g. initialized, textDocument/didOpen — no id)
     pub async fn send_notification(
         &mut self,
         method: &str,
@@ -149,7 +152,7 @@ impl LspClientSession {
         Ok(())
     }
 
-    /// 发送带自增 ID 的请求并返回分配的请求 ID
+    /// Send a request with an auto-incrementing id and return the id assigned
     pub async fn send_request(
         &mut self,
         method: &str,
@@ -171,7 +174,8 @@ impl LspClientSession {
         Ok(id)
     }
 
-    /// 尝试从缓冲区解析或从管道中异步读取一个数据块
+    /// Try to parse a chunk out of the buffer, or read one asynchronously from
+    /// the pipe
     pub async fn read_message(&mut self) -> Result<Option<serde_json::Value>, String> {
         if let Some(msg) = LspFraming::decode(&mut self.buffer)? {
             return Ok(Some(msg));
@@ -192,7 +196,8 @@ impl LspClientSession {
         LspFraming::decode(&mut self.buffer)
     }
 
-    /// 循环等待特定请求 ID 的响应，超时抛出错误
+    /// Loop until the response for a given request id arrives, erroring on
+    /// timeout
     pub async fn wait_response(
         &mut self,
         target_id: i64,
@@ -222,12 +227,13 @@ impl LspClientSession {
         Err(format!("Timeout waiting for LSP response ID {target_id}"))
     }
 
-    /// 获取累积的服务器通知列表
+    /// Take the accumulated list of server notifications
     pub fn take_pending_notifications(&mut self) -> Vec<serde_json::Value> {
         std::mem::take(&mut self.pending_notifications)
     }
 
-    /// 发送 initialize 请求握手并回送 initialized 通知
+    /// Perform the handshake: send the initialize request, then the initialized
+    /// notification
     pub async fn initialize(
         &mut self,
         root_path: &Path,
@@ -255,7 +261,8 @@ impl LspClientSession {
 
         let response = self.wait_response(req_id, timeout).await?;
 
-        // 收到 initialize 响应后，按照规范必须立即发送 initialized 通知完成握手
+        // Once the initialize response arrives, the spec requires sending the
+        // initialized notification immediately to complete the handshake
         self.send_notification("initialized", serde_json::json!({}))
             .await
             .map_err(|e| format!("Failed to send initialized notification: {e}"))?;
@@ -263,7 +270,7 @@ impl LspClientSession {
         Ok(response)
     }
 
-    /// 通知服务器打开文档（同步文档内容与语言类型）
+    /// Tell the server a document is open (syncing its content and language)
     pub async fn notify_did_open(
         &mut self,
         file_path: &Path,
@@ -282,7 +289,7 @@ impl LspClientSession {
         self.send_notification("textDocument/didOpen", params).await
     }
 
-    /// 向服务器发起定义跳转请求
+    /// Issue a go-to-definition request to the server
     pub async fn goto_definition(
         &mut self,
         file_path: &Path,
@@ -309,7 +316,7 @@ impl LspClientSession {
         self.wait_response(req_id, timeout).await
     }
 
-    /// 向服务器发起查找引用（Find References）请求
+    /// Issue a find-references request to the server
     pub async fn find_references(
         &mut self,
         file_path: &Path,
@@ -340,7 +347,7 @@ impl LspClientSession {
         self.wait_response(req_id, timeout).await
     }
 
-    /// 向服务器发起悬停信息（Hover）请求
+    /// Issue a hover-info request to the server
     pub async fn get_hover(
         &mut self,
         file_path: &Path,
@@ -367,7 +374,7 @@ impl LspClientSession {
         self.wait_response(req_id, timeout).await
     }
 
-    /// 向服务器发起获取文档符号树（Document Symbols）请求
+    /// Issue a document-symbols request to the server
     pub async fn get_document_symbols(
         &mut self,
         file_path: &Path,
@@ -388,7 +395,7 @@ impl LspClientSession {
         self.wait_response(req_id, timeout).await
     }
 
-    /// 关闭并等待子进程退出
+    /// Close the session and wait for the child process to exit
     pub async fn shutdown(mut self) -> Result<(), std::io::Error> {
         let _ = self.child.kill().await;
         let _ = self.child.wait().await?;
@@ -396,7 +403,7 @@ impl LspClientSession {
     }
 }
 
-/// 将本地文件路径规范化为 LSP 标准 `file:///` URI
+/// Normalize a local file path into a standard LSP `file:///` URI
 pub fn path_to_uri(path: &Path) -> String {
     let raw = path.to_string_lossy().replace('\\', "/");
     if raw.starts_with('/') {
@@ -448,12 +455,12 @@ mod tests {
         let encoded = LspFraming::encode(&payload).unwrap();
 
         let mut buffer = Vec::new();
-        // 传入前 10 个字节（分包未完成）
+        // Feed the first 10 bytes (the frame is not complete yet)
         buffer.extend_from_slice(&encoded[..10]);
         let res1 = LspFraming::decode(&mut buffer).unwrap();
         assert!(res1.is_none());
 
-        // 补全剩余字节
+        // Complete the remaining bytes
         buffer.extend_from_slice(&encoded[10..]);
         let res2 = LspFraming::decode(&mut buffer).unwrap();
         assert_eq!(res2, Some(payload));
@@ -469,11 +476,11 @@ mod tests {
         combined.extend_from_slice(&LspFraming::encode(&msg2).unwrap());
 
         let mut buffer = combined;
-        // 第一次读取解析第一包
+        // The first read parses the first frame
         let res1 = LspFraming::decode(&mut buffer).unwrap();
         assert_eq!(res1, Some(msg1));
 
-        // 第二次读取解析第二包
+        // The second read parses the second frame
         let res2 = LspFraming::decode(&mut buffer).unwrap();
         assert_eq!(res2, Some(msg2));
 
