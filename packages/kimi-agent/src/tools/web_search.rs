@@ -57,6 +57,12 @@ impl SearchEngine {
 static ACTIVE_ENGINE: LazyLock<Mutex<SearchEngine>> =
     LazyLock::new(|| Mutex::new(SearchEngine::Bing));
 
+/// Shared Bing cookie store. Bing personalizes results based on cookies; a
+/// persistent store lets the tool behave like a returning browser rather than
+/// a first-time visitor (which gets generic, less relevant results).
+static BING_COOKIES: LazyLock<std::sync::Arc<reqwest::cookie::Jar>> =
+    LazyLock::new(|| std::sync::Arc::new(reqwest::cookie::Jar::default()));
+
 /// Switch the active search engine at runtime. Returns `false` if the name is
 /// not a known engine.
 pub fn set_active_engine(engine: SearchEngine) {
@@ -570,6 +576,8 @@ async fn search_via_bing_html(query: &str) -> Option<ExecutableToolResult> {
     let client = match reqwest::Client::builder()
         .user_agent(BING_USER_AGENT)
         .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
+        .cookie_store(true)
+        .cookie_provider(BING_COOKIES.clone())
         .build()
     {
         Ok(c) => c,
@@ -591,7 +599,14 @@ async fn search_via_bing_html(query: &str) -> Option<ExecutableToolResult> {
     };
 
     let url = format!("{}?q={}&setlang=en", BING_HTML_URL, urlencoded(query));
-    let response = match client.get(&url).header("Accept", "text/html").send().await {
+    let response = match client
+        .get(&url)
+        .header("Accept", "text/html")
+        .header("Accept-Language", "en-US,en;q=0.9")
+        .header("Referer", "https://www.bing.com/")
+        .send()
+        .await
+    {
         Ok(resp) => resp,
         Err(e) => {
             let msg = if e.is_timeout() {

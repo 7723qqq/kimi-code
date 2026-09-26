@@ -19,7 +19,10 @@ required-features = ["cli"]
 [features]
 default = ["napi", "workflow-js"]
 napi = ["dep:napi", "dep:napi-derive"]
-cli = []
+# The CLI binary. Also pulls in the terminal-control dependency the REPL's
+# interactive image preview needs, so a `--no-default-features --features cli`
+# build (the pure-Rust one, used by CI's integration tests) still compiles it.
+cli = ["dep:crossterm"]
 # The Workflow tool's embedded JS engine (QuickJS via rquickjs). On by default
 # so built-in workflow scripts run; `--no-default-features --features cli`
 # yields a pure-Rust build with no C dependency, where `run` reports the engine
@@ -38,7 +41,7 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "
 tokio-util = { version = "0.7", default-features = false, features = ["rt"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
-reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls", "gzip", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls", "gzip", "json", "cookies"] }
 rusqlite = { version = "0.32", features = ["bundled", "vtab"] }
 eventsource-stream = "0.2"
 httparse = "1.10"
@@ -71,6 +74,11 @@ ureq = { version = "2", features = ["json"] }
 parking_lot = "0.12"
 async-trait = "0.1"
 dialoguer = "0.11"
+# Terminal control for the standalone REPL's interactive image preview: raw-mode
+# key reading, alternate screen, and cursor reporting. Feature-gated off by
+# default so the napi addon and the library build never pull it in — the REPL
+# is the only consumer and it is behind the `cli` feature.
+crossterm = { version = "0.29", optional = true }
 which = "6.0"
 tower-lsp = "0.20"
 lsp-types = "0.95"
