@@ -483,6 +483,8 @@ pub struct NativeToolset {
     /// module itself (v2 `envOverlay.ts` semantics).
     github_credentials: Option<github::GitHubCredentials>,
     caller_agent_id: Option<String>,
+    /// The session's live permission mode; see [`Self::with_permission_mode`].
+    permission_mode: Option<crate::permission::PermissionMode>,
     session_id: Option<String>,
     task_runner: Option<std::sync::Arc<crate::storage::TaskRunner>>,
     /// Native file-history capture (v2 `fileHistoryService`): when set,
@@ -617,6 +619,7 @@ impl NativeToolset {
             callbacks: None,
             github_credentials: None,
             caller_agent_id: None,
+            permission_mode: None,
             session_id: None,
             task_runner: None,
             file_history: Arc::new(std::sync::Mutex::new(None)),
@@ -849,6 +852,19 @@ impl NativeToolset {
 
     pub fn with_caller_agent_id(mut self, agent_id: impl Into<String>) -> Self {
         self.caller_agent_id = Some(agent_id.into());
+        self
+    }
+
+    /// The session's *live* permission mode, as the host resolved it for this
+    /// turn (`/permissions` can change it mid-session, and it is deliberately
+    /// not the same thing as the mode in `config.toml`).
+    ///
+    /// `ExitPlanMode` needs it: an auto-mode session exits plan mode without
+    /// asking, and reading `config.toml` instead would let a session the user
+    /// set to `manual` auto-exit — silently, with no approval. `None` means
+    /// "not wired", and the tool falls back to asking.
+    pub fn with_permission_mode(mut self, mode: crate::permission::PermissionMode) -> Self {
+        self.permission_mode = Some(mode);
         self
     }
 
@@ -1300,6 +1316,21 @@ impl NativeToolset {
                 Some(subagent_tools::execute_manage_subagents(mgr, args).await)
             }
             "definesubagent" | "define_subagent" => {
+                // Registering a subagent profile is a main-agent decision: a
+                // profile is a standing grant of tools to future runs, and
+                // `ToolPolicyFilter` reads an empty `tools` list as "everything
+                // except the denylist". A subagent holding the unfiltered table
+                // could therefore mint a full-permission profile for itself
+                // and have the parent's own tool policy never re-checked. v2
+                // scopes the tool to the main agent the same way (its
+                // modeMutex and swarm gates are Agent-scoped).
+                if self.effective_caller_agent_id() != "main" {
+                    return Some(err_result(
+                        "Only the main agent can register a subagent profile. \
+                         Ask the main agent if you need one."
+                            .to_string(),
+                    ));
+                }
                 let mgr = self.subagent_manager.as_deref()?;
                 Some(subagent_tools::execute_define_subagent(mgr, args).await)
             }
@@ -1374,7 +1405,18 @@ impl NativeToolset {
             }
             "exitplanmode" | "exit_plan_mode" => {
                 let callbacks = self.callbacks.as_deref()?;
-                Some(exit_plan_mode::execute_exit_plan_mode(callbacks, args).await)
+                // The live session mode, not the mode in `config.toml`. Only
+                // auto exits without asking, so the two must not be confused:
+                // a session the user switched to `manual` this turn would
+                // otherwise auto-exit through a stale config value.
+                let mode = self.permission_mode.unwrap_or_else(|| {
+                    crate::config::KimiConfig::discover()
+                        .map(|(config, _)| config.build_policy_snapshot(None).mode)
+                        // Fail-safe: an unapproved plan must never deactivate
+                        // silently.
+                        .unwrap_or(crate::permission::PermissionMode::Manual)
+                });
+                Some(exit_plan_mode::execute_exit_plan_mode_with_mode(callbacks, args, mode).await)
             }
             "creategoal" | "create_goal" => {
                 let callbacks = self.callbacks.as_deref()?;

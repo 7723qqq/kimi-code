@@ -105,6 +105,7 @@
       "autoModeCannotAsk": "自动模式无法提出交互式问题",
       "deniedByUserRule": "已被用户规则拒绝：{{rule}}：{{why}}",
       "deniedByUserRuleNoWhy": "已被用户规则拒绝：{{rule}}",
+      "planStateUnavailable": "已拒绝 {{tool}}：引擎无法读取当前计划模式状态，因此无法确认是否允许写入。请重试一次；若持续失败，请用 /plan off 退出计划模式。",
       "highRiskShellCommand": "高风险 shell 命令需要审批",
       "shellCommandUnanalyzable": "无法对该 shell 命令进行静态分析",
       "approvedBySessionHistory": "已获会话历史规则批准：{{rule}}",

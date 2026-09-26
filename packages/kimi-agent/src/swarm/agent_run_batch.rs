@@ -182,6 +182,16 @@ pub struct AgentRunResult<T> {
     pub result: Option<String>,
     pub usage: Option<TokenUsage>,
     pub error: Option<String>,
+    /// Why the agent's turn ended, when it did not end on the model's own
+    /// terms (v2 `AgentRunResult.stopReason`).
+    ///
+    /// `Some(reason)` with `reason != EndTurn` means the worker stopped
+    /// early — step budget, goal budget, repeat breaker, a pause, output
+    /// truncation. The result text is then a *partial* answer, and the
+    /// aggregator needs the reason to render it as such. v2 renders this
+    /// attribute and uses its presence to decide whether to offer a resume
+    /// hint; without it a throttled or truncated worker reads as finished work.
+    pub stop_reason: Option<crate::turn_loop::types::LoopTurnStopReason>,
 }
 
 /// Successful completion payload of an agent run (v2
@@ -190,6 +200,11 @@ pub struct AgentRunResult<T> {
 pub struct AgentRunCompletion {
     pub result: String,
     pub usage: Option<TokenUsage>,
+    /// Set whenever the turn stopped for a reason other than the model
+    /// finishing its answer. The launcher records it; the aggregator renders
+    /// it and suppresses the resume hint only when the reason is `None` or
+    /// `EndTurn`.
+    pub stop_reason: Option<crate::turn_loop::types::LoopTurnStopReason>,
 }
 
 /// Error from an agent run completion. `is_rate_limit` mirrors the v2
@@ -720,6 +735,7 @@ impl<T: Clone + Send + Sync + 'static> AgentRunBatch<T> {
                         result: None,
                         usage: None,
                         error: Some(error),
+                        stop_reason: None,
                     });
                 } else {
                     self.requeue_rate_limited(state_index, agent_id, attempt.ready);
@@ -853,6 +869,7 @@ impl<T: Clone + Send + Sync + 'static> AgentRunBatch<T> {
                             "The user manually interrupted this subagent batch before this subagent finished."
                                 .to_string(),
                         ),
+                        stop_reason: Some(crate::turn_loop::types::LoopTurnStopReason::Aborted),
                     }
                 } else {
                     AgentRunResult {
@@ -866,6 +883,7 @@ impl<T: Clone + Send + Sync + 'static> AgentRunBatch<T> {
                             "The user manually interrupted this subagent batch before this subagent was started."
                                 .to_string(),
                         ),
+                        stop_reason: Some(crate::turn_loop::types::LoopTurnStopReason::Aborted),
                     }
                 }
             })
@@ -1036,6 +1054,7 @@ async fn run_attempt<T: Clone + Send + Sync + 'static>(
             result: Some(completion.result),
             usage: completion.usage,
             error: None,
+            stop_reason: completion.stop_reason,
         }),
         Err(error) => {
             if error.is_rate_limit {
@@ -1091,6 +1110,7 @@ fn failed_outcome<T: Clone>(
         result: None,
         usage: None,
         error: Some(attempt_error_message(timed_out, task, status, error)),
+        stop_reason: None,
     })
 }
 
@@ -1290,6 +1310,7 @@ mod tests {
                     Ok(AgentRunCompletion {
                         result: format!("result-{completion_agent_id}"),
                         usage: None,
+                        stop_reason: None,
                     })
                 });
                 Ok(AgentRunAttemptHandle {

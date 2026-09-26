@@ -434,6 +434,7 @@ pub async fn execute_tower_spawn(
                 tool_call_id,
                 Some(&args.name),
                 true,
+                None,
             );
             slot.disarm();
             spawn_detached_run(
@@ -517,6 +518,7 @@ pub async fn execute_tower_spawn(
                 tool_call_id,
                 Some(&args.name),
                 true,
+                None,
             );
             slot.disarm();
             spawn_detached_run(

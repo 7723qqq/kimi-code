@@ -72,20 +72,26 @@ pub async fn execute_exit_plan_mode(
     execute_exit_plan_mode_with_mode(callbacks, args, permission_mode()).await
 }
 
-/// The permission mode the engine acts on: the mode from its own
-/// configuration (the standalone CLI and REPL build their permission engines
-/// from the same source). An undiscoverable config defaults to `Manual` —
-/// the fail-safe direction, since an unapproved plan must never deactivate
-/// silently.
+/// The permission mode the engine acts on when the caller did not supply one:
+/// the mode from its own configuration (the standalone CLI and REPL build
+/// their permission engines from the same source). An undiscoverable config
+/// defaults to `Manual` — the fail-safe direction, since an unapproved plan
+/// must never deactivate silently.
 fn permission_mode() -> PermissionMode {
     crate::config::KimiConfig::discover()
         .map(|(config, _)| config.build_policy_snapshot(None).mode)
         .unwrap_or(PermissionMode::Manual)
 }
 
-/// Testable core: same as [`execute_exit_plan_mode`] with the permission
-/// mode supplied explicitly.
-async fn execute_exit_plan_mode_with_mode(
+/// Same as [`execute_exit_plan_mode`] with the permission mode supplied
+/// explicitly.
+///
+/// A session supplies its *live* mode here. Only `Auto` exits without asking,
+/// so the distinction matters: the on-disk `default_permission_mode` is the
+/// session's starting point, not its current state, and a user who switched
+/// the session to `manual` this turn must not have that overridden by a config
+/// value they changed in another window.
+pub async fn execute_exit_plan_mode_with_mode(
     callbacks: &dyn HostCallbacks,
     args: &Value,
     mode: PermissionMode,

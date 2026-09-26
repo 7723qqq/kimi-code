@@ -403,6 +403,13 @@ pub async fn build_engine_pipeline(
                     if let Some(ref caller) = spec.caller_agent_id {
                         toolset = toolset.with_caller_agent_id(caller);
                     }
+                    // The session's live permission mode, for `ExitPlanMode`.
+                    // The host owns it (`/permissions` can change it
+                    // mid-session), so the toolset cannot re-derive it from
+                    // `config.toml` without losing that.
+                    if let Some(mode) = policy_snapshot.as_ref().map(|s| s.mode) {
+                        toolset = toolset.with_permission_mode(mode);
+                    }
                     if let Some(ref session) = spec.session_id {
                         toolset = toolset.with_session_id(session);
                     }
@@ -500,7 +507,18 @@ pub async fn build_engine_pipeline(
                                         workspace.as_deref().map(std::path::Path::new),
                                         &plan_bridge,
                                     ),
-                                    Err(_) => None,
+                                    // Fail closed. A bridge read that fails is
+                                    // not evidence that plan mode is off — it
+                                    // is evidence that this call cannot tell.
+                                    // Answering `None` lets the write through
+                                    // for exactly the guarded tools, and the
+                                    // window is a real one: a host restart or a
+                                    // dropped RPC during plan mode would open
+                                    // it. Denying costs a spurious refusal the
+                                    // model can retry.
+                                    Err(_) => {
+                                        Some(plan_mode::plan_state_unavailable_message(&tool_name))
+                                    }
                                 }
                             })
                         })),

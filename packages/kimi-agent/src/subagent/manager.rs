@@ -214,6 +214,28 @@ impl ToolPolicyFilter {
     }
 }
 
+/// The host's tool table narrowed by a subagent profile's policy.
+///
+/// A failed enumeration is an error, not an empty catalogue. Degrading to
+/// `Ok(vec![])` handed the model a subagent with no tools at all and then
+/// reported the turn as `Completed` with whatever the model improvised — a
+/// plausible-looking answer to a task it was never equipped to do. The caller
+/// turns this into a failed subagent turn, which is at least truthful.
+async fn subagent_tool_defs(
+    callbacks: &Arc<dyn crate::callbacks::HostCallbacks>,
+    filter: &ToolPolicyFilter,
+) -> Result<Vec<crate::turn_loop::types::ToolInfo>, String> {
+    let response = callbacks
+        .list_tools()
+        .await
+        .map_err(|err| format!("Could not read the tool table for this subagent: {err}"))?;
+    Ok(response
+        .tools
+        .into_iter()
+        .filter(|tool| filter.allows(&tool.name))
+        .collect())
+}
+
 /// [`crate::callbacks::HostCallbacks`] decorator that narrows the tool
 /// table a subagent's turn sees to its profile policy (`list_tools`
 /// filter); every other seam passes through untouched.
@@ -1084,14 +1106,7 @@ worktree root the tower assigns you as your full authority scope.";
         // otherwise every tool except the disallowed names. Effective on
         // native transports; host-proxy rebuilds the table host-side.
         let filter = ToolPolicyFilter::from_definition(&def);
-        let tool_defs = match runtime.callbacks.list_tools().await {
-            Ok(response) => response
-                .tools
-                .into_iter()
-                .filter(|tool| filter.allows(&tool.name))
-                .collect(),
-            Err(_) => Vec::new(),
-        };
+        let tool_defs = subagent_tool_defs(&runtime.callbacks, &filter).await?;
         let callbacks: Arc<dyn crate::callbacks::HostCallbacks> = Arc::new(ToolFilterCallbacks {
             inner: runtime.callbacks.clone(),
             filter,
@@ -1292,13 +1307,14 @@ worktree root the tower assigns you as your full authority scope.";
             .definition_for(&record.profile_name, &record.role)
             .await;
         let filter = ToolPolicyFilter::from_definition(&def);
-        let tool_defs = match runtime.callbacks.list_tools().await {
-            Ok(response) => response
-                .tools
-                .into_iter()
-                .filter(|tool| filter.allows(&tool.name))
-                .collect(),
-            Err(_) => Vec::new(),
+        // A tool-table failure is not "no persisted record": returning `None`
+        // here would send the caller down the plain-foreground fallback and
+        // run the turn with an unfiltered table. Fail the resume instead.
+        let Ok(tool_defs) = subagent_tool_defs(&runtime.callbacks, &filter).await else {
+            let message = "Could not read the tool table for this subagent.".to_string();
+            self.update_state(id, SubagentState::Failed, Some(message.clone()))
+                .await;
+            return Some(Err(message));
         };
         let callbacks: Arc<dyn crate::callbacks::HostCallbacks> = Arc::new(ToolFilterCallbacks {
             inner: runtime.callbacks.clone(),
@@ -1314,6 +1330,23 @@ worktree root the tower assigns you as your full authority scope.";
             });
             history
         };
+        // The instance's *own* cancel flag, not a fresh one. `kill` (and so
+        // `TaskStop` / `ManageSubagents`) flips this flag; a locally
+        // constructed one would never be set, leaving a resumed agent running
+        // with no way to stop it. The foreground path has always read the real
+        // flag — this is the same lookup, so both paths honour a kill.
+        let cancel_flag = {
+            let instances = self.instances.read().await;
+            match instances.get(id) {
+                Some((_, flag)) => flag.clone(),
+                // No instance: the caller falls back to a plain foreground
+                // turn, which re-checks below and reports the unknown id.
+                None => Arc::new(AtomicBool::new(false)),
+            }
+        };
+        if cancel_flag.load(std::sync::atomic::Ordering::SeqCst) {
+            return Some(Ok(ForegroundTurnOutcome::ParentCancelled));
+        }
         let turn_res = match crate::tools::CALLER_AGENT_ID
             .scope(
                 id.to_string(),
@@ -1322,7 +1355,7 @@ worktree root the tower assigns you as your full authority scope.";
                     &callbacks,
                     messages.clone(),
                     tool_defs.clone(),
-                    &Arc::new(AtomicBool::new(false)),
+                    &cancel_flag,
                     parent_cancel,
                 ),
             )
@@ -2239,6 +2272,17 @@ mod tests {
 
     struct MockCallbacks;
     impl crate::callbacks::HostCallbacks for MockCallbacks {
+        fn list_tools(
+            &self,
+        ) -> futures_util::future::BoxFuture<
+            'static,
+            Result<crate::rpc::types::ListToolsResponse, String>,
+        > {
+            // The trait default answers with an error, and a subagent turn
+            // used to swallow that into an empty table. A subagent now fails
+            // instead, so a mock that exercises the turn has to offer a table.
+            Box::pin(async { Ok(crate::rpc::types::ListToolsResponse { tools: Vec::new() }) })
+        }
         fn llm_chat(
             &self,
             _req: crate::rpc::types::LlmChatRequest,
@@ -2510,6 +2554,14 @@ mod tests {
     struct OkToolCallbacks;
 
     impl crate::callbacks::HostCallbacks for OkToolCallbacks {
+        fn list_tools(
+            &self,
+        ) -> futures_util::future::BoxFuture<
+            'static,
+            Result<crate::rpc::types::ListToolsResponse, String>,
+        > {
+            Box::pin(async { Ok(crate::rpc::types::ListToolsResponse { tools: Vec::new() }) })
+        }
         fn llm_chat(
             &self,
             _req: crate::rpc::types::LlmChatRequest,

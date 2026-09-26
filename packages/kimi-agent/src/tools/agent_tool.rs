@@ -254,15 +254,21 @@ fn emit_subagent_event(callbacks: &dyn crate::callbacks::HostCallbacks, event: s
     callbacks.emit_event(event);
 }
 
-/// The spawned + started event pair (P59 extraction: identical at all four
-/// launch sites — foreground, resume, background).
-pub(crate) fn emit_spawned_started(
+/// The spawned + started event pair (P59 extraction: identical at every launch
+/// site — foreground, resume, background, and the `AgentSwarm` launcher).
+///
+/// `swarm_index` is `Some(n)` for a member of an `AgentSwarm` batch and `None`
+/// for a standalone subagent. The host's swarm progress component sorts and
+/// labels its members by this position, and it is the only place the index
+/// reaches it — the batch launcher holds no other channel to the UI.
+pub fn emit_spawned_started(
     callbacks: &dyn crate::callbacks::HostCallbacks,
     agent_id: &str,
     profile_name: &str,
     tool_call_id: Option<&str>,
     description: Option<&str>,
     run_in_background: bool,
+    swarm_index: Option<usize>,
 ) {
     emit_subagent_event(
         callbacks,
@@ -273,6 +279,7 @@ pub(crate) fn emit_spawned_started(
             "parent_tool_call_id": tool_call_id,
             "description": description,
             "run_in_background": run_in_background,
+            "swarm_index": swarm_index,
         }),
     );
     emit_subagent_event(
@@ -455,6 +462,7 @@ async fn execute_resume(
         tool_call_id,
         None,
         false,
+        None,
     );
 
     // v2 `taskService` arms the timeout only when `timeoutMs > 0` — an
@@ -585,6 +593,7 @@ async fn run_resume_in_background(
         tool_call_id,
         None,
         true,
+        None,
     );
     let mgr = manager.clone();
     let cb = callbacks.clone();
@@ -877,6 +886,7 @@ pub async fn execute_agent(
             tool_call_id,
             Some(&description),
             true,
+            None,
         );
         let mgr = manager.clone();
         let cb = runtime.callbacks.clone();
@@ -1025,6 +1035,7 @@ pub async fn execute_agent(
         tool_call_id,
         Some(&description),
         false,
+        None,
     );
 
     // v2 `taskService` arms the timeout only when `timeoutMs > 0` — an
@@ -2372,6 +2383,9 @@ mod tests {
     }
 
     impl HostCallbacks for EventRecorder {
+        fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
+            self.inner.list_tools()
+        }
         fn llm_chat(
             &self,
             request: LlmChatRequest,

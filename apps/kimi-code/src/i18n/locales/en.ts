@@ -125,6 +125,8 @@ export default {
       autoModeCannotAsk: 'Auto mode cannot ask interactive questions',
       deniedByUserRule: 'Denied by user rule: {{rule}}: {{why}}',
       deniedByUserRuleNoWhy: 'Denied by user rule: {{rule}}',
+      planStateUnavailable:
+        '{{tool}} was refused: the engine could not read the current plan-mode state, so it cannot confirm that writing is allowed. Retry once; if it keeps failing, leave plan mode with /plan off.',
       highRiskShellCommand: 'High-risk shell command requires approval',
       shellCommandUnanalyzable: 'Shell command could not be statically analyzed',
       approvedBySessionHistory: 'Approved by session history rule: {{rule}}',

@@ -18,8 +18,9 @@ use crate::subagent::types::ParentCancel;
 use crate::swarm::agent_run_batch::{
     AbortReason, AbortSignal, AgentRunAttemptHandle, AgentRunAttemptOptions, AgentRunBatch,
     AgentRunBatchLauncher, AgentRunBatchOptions, AgentRunBatchTiming, AgentRunCompletion,
-    AgentRunError, AgentRunResult, AgentRunState, AgentRunStatus, AgentRunTask, AgentRunTaskKind,
-    AgentSpawnAttemptOptions, SubagentSpawnPlan, resolve_swarm_max_concurrency,
+    AgentRunError, AgentRunResult, AgentRunState, AgentRunStatus, AgentRunSuspendedEvent,
+    AgentRunTask, AgentRunTaskKind, AgentSpawnAttemptOptions, SubagentSpawnPlan,
+    resolve_swarm_max_concurrency,
 };
 use crate::turn_loop::types::{ExecutableToolResult, LoopTurnStopReason, ToolInfo};
 
@@ -72,6 +73,53 @@ struct SubagentSwarmLauncher {
     /// `[secondary_model]` binding for item-spawned subagents; `None` inherits
     /// the session model.
     llm: Option<Arc<dyn crate::turn_loop::types::LLM>>,
+    /// The parent session's callback chain, used to emit the same
+    /// `subagent.*` lifecycle events the `Agent` tool emits.
+    ///
+    /// Without it the host never learns a swarm worker exists: the TUI routes
+    /// every child event through `subagentInfo`, which is populated *only* by
+    /// `subagent.spawned`, and drops the rest when the id is unknown
+    /// (`subagent-event-handler.ts:92`). The swarm progress component would
+    /// therefore never render and the user would see nothing until the batch
+    /// returned one XML blob.
+    callbacks: Arc<dyn crate::callbacks::HostCallbacks>,
+}
+
+/// Everything the lifecycle events need that does not change between
+/// attempts of one task. Cloned into each attempt future.
+#[derive(Clone)]
+struct Emitter {
+    callbacks: Arc<dyn crate::callbacks::HostCallbacks>,
+    profile_name: String,
+    parent_tool_call_id: String,
+    description: String,
+    swarm_index: Option<usize>,
+}
+
+impl Emitter {
+    fn emit(&self, agent_id: &str) {
+        super::agent_tool::emit_spawned_started(
+            self.callbacks.as_ref(),
+            agent_id,
+            &self.profile_name,
+            Some(&self.parent_tool_call_id),
+            Some(&self.description),
+            false,
+            self.swarm_index,
+        );
+    }
+
+    /// A rate-limited attempt requeued with backoff. The host shows the member
+    /// as suspended until the retry lands, rather than as failed or still
+    /// running — otherwise a throttled swarm looks like it lost the worker.
+    fn emit_suspended(&self, agent_id: &str, reason: &str) {
+        self.callbacks.emit_event(serde_json::json!({
+            "type": "subagent.suspended",
+            "subagent_id": agent_id,
+            "parent_tool_call_id": self.parent_tool_call_id,
+            "reason": reason,
+        }));
+    }
 }
 
 impl AgentRunBatchLauncher<SwarmTaskSpec> for SubagentSwarmLauncher {
@@ -82,6 +130,13 @@ impl AgentRunBatchLauncher<SwarmTaskSpec> for SubagentSwarmLauncher {
         let manager = self.manager.clone();
         let parent_cancel = self.parent_cancel.clone();
         let item_llm = self.llm.clone();
+        let emit = Emitter {
+            callbacks: self.callbacks.clone(),
+            profile_name: options.profile_name.clone(),
+            parent_tool_call_id: options.run.parent_tool_call_id.clone(),
+            description: options.run.description.clone(),
+            swarm_index: options.run.swarm_index,
+        };
         let fork_history = if options.plan.fork {
             self.inherited_history.clone()
         } else {
@@ -93,6 +148,7 @@ impl AgentRunBatchLauncher<SwarmTaskSpec> for SubagentSwarmLauncher {
             if let Some(llm) = item_llm.clone() {
                 manager.set_instance_llm(&agent_id, llm).await;
             }
+            emit.emit(&agent_id);
             let prompt = options.run.prompt;
             let signal = options.run.signal;
             let handle_id = agent_id.clone();
@@ -117,9 +173,22 @@ impl AgentRunBatchLauncher<SwarmTaskSpec> for SubagentSwarmLauncher {
                                         })
                                     } else {
                                         let summary = crate::subagent::manager::final_assistant_summary(&turn.messages);
+                                        // Anything but `EndTurn` means the model
+                                        // did not choose to stop: the step
+                                        // budget, goal budget, repeat breaker or
+                                        // a pause cut the turn short, so the
+                                        // summary is partial. Recording it lets
+                                        // the aggregator say so instead of
+                                        // reporting the worker as finished.
+                                        let stop_reason = (!matches!(
+                                            turn.stop_reason,
+                                            LoopTurnStopReason::EndTurn
+                                        ))
+                                        .then_some(turn.stop_reason);
                                         Ok(AgentRunCompletion {
                                             result: summary,
                                             usage: Some(turn.usage),
+                                            stop_reason,
                                         })
                                     }
                                 }
@@ -162,11 +231,21 @@ impl AgentRunBatchLauncher<SwarmTaskSpec> for SubagentSwarmLauncher {
     ) -> BoxFuture<'static, Result<AgentRunAttemptHandle, String>> {
         let manager = self.manager.clone();
         let parent_cancel = self.parent_cancel.clone();
+        // A resumed member was already announced with `subagent.spawned` when
+        // it first launched; only the lifecycle moves back to running. Emitting
+        // the pair again would re-register it in the host's `subagentInfo` and
+        // reset the progress row's counters mid-batch.
+        let callbacks = self.callbacks.clone();
         Box::pin(async move {
             let prompt = options.prompt;
             let signal = options.signal;
             let handle_id = agent_id.clone();
             let target_id = agent_id.clone();
+
+            callbacks.emit_event(serde_json::json!({
+                "type": "subagent.started",
+                "subagent_id": target_id,
+            }));
 
             let completion: BoxFuture<'static, Result<AgentRunCompletion, AgentRunError>> =
                 Box::pin(async move {
@@ -193,9 +272,22 @@ impl AgentRunBatchLauncher<SwarmTaskSpec> for SubagentSwarmLauncher {
                                         })
                                     } else {
                                         let summary = crate::subagent::manager::final_assistant_summary(&turn.messages);
+                                        // Anything but `EndTurn` means the model
+                                        // did not choose to stop: the step
+                                        // budget, goal budget, repeat breaker or
+                                        // a pause cut the turn short, so the
+                                        // summary is partial. Recording it lets
+                                        // the aggregator say so instead of
+                                        // reporting the worker as finished.
+                                        let stop_reason = (!matches!(
+                                            turn.stop_reason,
+                                            LoopTurnStopReason::EndTurn
+                                        ))
+                                        .then_some(turn.stop_reason);
                                         Ok(AgentRunCompletion {
                                             result: summary,
                                             usage: Some(turn.usage),
+                                            stop_reason,
                                         })
                                     }
                                 }
@@ -237,6 +329,17 @@ impl AgentRunBatchLauncher<SwarmTaskSpec> for SubagentSwarmLauncher {
         options: AgentRunAttemptOptions,
     ) -> BoxFuture<'static, Result<AgentRunAttemptHandle, String>> {
         self.resume(agent_id, options)
+    }
+
+    fn suspended(&self, event: AgentRunSuspendedEvent<SwarmTaskSpec>) {
+        Emitter {
+            callbacks: self.callbacks.clone(),
+            profile_name: event.task.profile_name.clone(),
+            parent_tool_call_id: event.task.parent_tool_call_id.clone(),
+            description: event.task.description.clone(),
+            swarm_index: event.task.swarm_index,
+        }
+        .emit_suspended(&event.agent_id, &event.reason);
     }
 }
 
@@ -302,9 +405,14 @@ fn render_swarm_results(results: &[AgentRunResult<SwarmTaskSpec>]) -> String {
         .filter(|r| r.status == AgentRunStatus::Aborted)
         .count();
 
-    let should_render_resume_hint = results
+    // A member that stopped for a budget, a breaker or a pause has *partial*
+    // output, so the batch as a whole is unfinished even though every task
+    // carries `Completed`. v2 offers the resume hint on exactly this
+    // condition (`stopReason !== undefined`).
+    let should_render_resume_hint = (results
         .iter()
         .any(|r| r.status != AgentRunStatus::Completed)
+        || results.iter().any(|r| r.stop_reason.is_some()))
         && results.iter().any(|r| r.agent_id.is_some());
 
     let mut lines = Vec::new();
@@ -344,6 +452,13 @@ fn render_swarm_results(results: &[AgentRunResult<SwarmTaskSpec>]) -> String {
             AgentRunStatus::Failed => "failed",
             AgentRunStatus::Aborted => "aborted",
         };
+        // The stop reason is what separates "the model answered" from "the
+        // model was cut off mid-answer". Without it the model reads a partial
+        // result as a finished one and moves on.
+        let stop_reason_attr = match res.stop_reason.as_ref() {
+            Some(reason) => format!(" stop_reason=\"{}\"", stop_reason_wire_name(reason)),
+            None => String::new(),
+        };
         // Escape the body's XML tags: a subagent's result (or an error string)
         // is untrusted text, and a literal `</subagent>` in it would otherwise
         // close the element early and corrupt the whole result block.
@@ -355,12 +470,29 @@ fn render_swarm_results(results: &[AgentRunResult<SwarmTaskSpec>]) -> String {
             });
 
         lines.push(format!(
-            "<subagent{mode_attr}{agent_id_attr}{item_attr}{state_attr} outcome=\"{outcome}\">{body}</subagent>"
+            "<subagent{mode_attr}{agent_id_attr}{item_attr}{state_attr}{stop_reason_attr} outcome=\"{outcome}\">{body}</subagent>"
         ));
     }
 
     lines.push("</agent_swarm_result>".to_string());
     lines.join("\n")
+}
+
+/// The stable wire spelling of a stop reason, matching the `LoopTurnStopReason`
+/// variant names the engine already uses on the wire (v2 renders the same
+/// camelCase tokens).
+fn stop_reason_wire_name(reason: &LoopTurnStopReason) -> &'static str {
+    match reason {
+        LoopTurnStopReason::EndTurn => "end_turn",
+        LoopTurnStopReason::MaxTokens => "max_tokens",
+        LoopTurnStopReason::Filtered => "filtered",
+        LoopTurnStopReason::Paused => "paused",
+        LoopTurnStopReason::Unknown => "unknown",
+        LoopTurnStopReason::Aborted => "aborted",
+        LoopTurnStopReason::BudgetLimited => "budget_limited",
+        LoopTurnStopReason::RepeatBreaker => "repeat_breaker",
+        LoopTurnStopReason::MaxSteps => "max_steps",
+    }
 }
 
 /// Execute the `AgentSwarm` tool natively.
@@ -584,6 +716,7 @@ pub async fn execute_agent_swarm(
         parent_cancel: parent_cancel.cloned(),
         inherited_history,
         llm: item_llm,
+        callbacks: runtime.callbacks.clone(),
     });
 
     let env_map: HashMap<String, String> = std::env::vars().collect();
@@ -787,6 +920,7 @@ mod tests {
                 result: Some("checked fileA.rs OK".into()),
                 usage: None,
                 error: None,
+                stop_reason: None,
             },
             AgentRunResult {
                 task: AgentRunTask {
@@ -814,6 +948,7 @@ mod tests {
                 result: None,
                 usage: None,
                 error: Some("syntax error".into()),
+                stop_reason: None,
             },
         ];
 
@@ -824,6 +959,51 @@ mod tests {
         assert!(xml.contains(r#"<subagent agent_id="subagent-1" item="fileA.rs" state="started" outcome="completed">checked fileA.rs OK</subagent>"#));
         assert!(xml.contains(r#"<subagent agent_id="subagent-2" item="fileB.rs" state="started" outcome="failed">syntax error</subagent>"#));
         assert!(xml.contains("</agent_swarm_result>"));
+    }
+
+    /// A worker stopped by a budget or a breaker carries partial output. The
+    /// XML has to say so, and the batch has to offer a resume — otherwise the
+    /// model reads a truncated answer as finished work and stops there.
+    #[test]
+    fn render_marks_a_budget_stopped_member_as_unfinished() {
+        let results = vec![AgentRunResult {
+            task: AgentRunTask {
+                data: SwarmTaskSpec {
+                    index: 1,
+                    item: Some("fileA.rs".into()),
+                    is_resume: false,
+                },
+                kind: AgentRunTaskKind::Spawn,
+                profile_name: "coder".into(),
+                parent_tool_call_id: "tc-1".into(),
+                parent_tool_call_uuid: None,
+                prompt: "check fileA.rs".into(),
+                description: "desc #1".into(),
+                swarm_index: Some(1),
+                swarm_item: Some("fileA.rs".into()),
+                run_in_background: false,
+                timeout: None,
+                signal: None,
+                plan: None,
+            },
+            agent_id: Some("subagent-1".into()),
+            status: AgentRunStatus::Completed,
+            state: Some(AgentRunState::Started),
+            result: Some("partial: got through the first f".into()),
+            usage: None,
+            error: None,
+            stop_reason: Some(LoopTurnStopReason::MaxSteps),
+        }];
+
+        let xml = render_swarm_results(&results);
+        assert!(
+            xml.contains(r#"stop_reason="max_steps""#),
+            "the stop reason must reach the model: {xml}"
+        );
+        assert!(
+            xml.contains("<resume_hint>"),
+            "an early stop leaves the batch unfinished, so it must offer a resume: {xml}"
+        );
     }
 
     use crate::callbacks::HostCallbacks;

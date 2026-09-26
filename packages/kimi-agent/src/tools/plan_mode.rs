@@ -93,6 +93,24 @@ pub fn plan_denial(
     }
 }
 
+/// Refusal used when the plan state itself could not be read.
+///
+/// This is not a plan-mode denial: the engine does not know whether plan mode
+/// is on. It still has to refuse, because the guarded tools are the ones that
+/// write, and "cannot tell" is not "safe to proceed". Localized because it is
+/// rendered straight into the transcript.
+pub fn plan_state_unavailable_message(tool_name: &str) -> String {
+    crate::i18n::LocalizedText::fmt(
+        "engine.permission.planStateUnavailable",
+        format!(
+            "{tool} was refused: the engine could not read the current plan-mode state, so it cannot confirm that writing is allowed. Retry once; if it keeps failing, leave plan mode with /plan off.",
+            tool = tool_name,
+        ),
+        crate::i18n::i18n_params!["tool" => tool_name],
+    )
+    .render()
+}
+
 /// Failure message when the connected host does not implement the state
 /// bridge. The model must not retry the tool — the host cannot activate plan
 /// mode for this session.
