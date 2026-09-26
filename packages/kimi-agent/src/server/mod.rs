@@ -5368,16 +5368,41 @@ impl HttpServer {
                     // Nothing to fold: the store's own no-op path reports it.
                     None
                 } else {
-                    match crate::compaction::summarize_with_llm(
+                    // v2 #3911: pre-shrink the summarizer's first request to
+                    // the effective window — the configured `max_context_tokens`
+                    // lowered by any overflow observed in this process (v2
+                    // `getEffectiveMaxContextTokens`).
+                    let configured_window = self
+                        .store
+                        .get_state("metadata", session_id)
+                        .ok()
+                        .flatten()
+                        .and_then(|metadata| {
+                            metadata
+                                .get("max_context_tokens")
+                                .and_then(|value| value.as_u64())
+                                .and_then(|value| u32::try_from(value).ok())
+                        });
+                    let effective_window = crate::compaction::effective_max_tokens(
+                        llm.model_name(),
+                        configured_window,
+                    );
+                    match crate::compaction::summarize_with_llm_budgeted(
                         &history[1..count as usize],
                         llm.as_ref(),
                         instruction,
                         None,
                         config.max_attempts,
+                        effective_window,
                     )
                     .await
                     {
-                        Ok(summary) => Some(summary),
+                        // v2 `postProcessSummary`: a session with todos keeps
+                        // them — the rendered list rides after the summary.
+                        Ok(summary) => Some(crate::compaction::post_process_summary(
+                            summary,
+                            engine.session_todo_summary(session_id),
+                        )),
                         Err(error) => return HttpResponse::internal_error(error.to_string()),
                     }
                 };
@@ -5391,7 +5416,7 @@ impl HttpServer {
                             .publish(&crate::events::EngineEvent::Custom(json!({
                                 "type": "compaction.completed",
                                 "sessionId": session_id,
-                                "compactedCount": report.messages_before,
+                                "compactedCount": report.compacted_count,
                                 "removed": report.removed,
                                 "tokensBefore": report.tokens_before,
                                 "tokensAfter": report.tokens_after,
@@ -5412,7 +5437,7 @@ impl HttpServer {
                             "compacted": true,
                             "removed": report.removed,
                             "sessionId": session_id,
-                            "compactedCount": report.messages_before,
+                            "compactedCount": report.compacted_count,
                             "tokensBefore": report.tokens_before,
                             "tokensAfter": report.tokens_after,
                         }))
@@ -13373,6 +13398,22 @@ max_context_size = 1000
         let hub = Arc::new(EventHub::new());
         let sid = "sess-compact-summary";
         store.create_session(sid, None).unwrap();
+        // Give the session a workspace and seed its todo domain: the route
+        // appends the rendered list to the summary (v2 `postProcessSummary`).
+        let ws = tempfile::tempdir().unwrap();
+        let workspace = store
+            .create_workspace(&ws.path().to_string_lossy(), None)
+            .unwrap();
+        store
+            .create_session_with_workspace(sid, None, Some(&workspace.id))
+            .unwrap();
+        let state = crate::storage::StateStore::for_workspace(ws.path()).unwrap();
+        state
+            .write_domain(
+                "todo",
+                &json!([{ "id": "t1", "title": "ship the fix", "status": "in_progress" }]),
+            )
+            .unwrap();
         for i in 1..=12 {
             let filler = "x".repeat(400);
             store
@@ -13389,6 +13430,23 @@ max_context_size = 1000
                 )
                 .unwrap();
         }
+        // A trailing user message is never a safe split point
+        // (`can_split_after` refuses user messages), so the fold stops one
+        // short of the end — exactly the distinction between `compactedCount`
+        // (messages folded) and the pre-compact length.
+        store
+            .save_turn(
+                sid,
+                "t-tail",
+                13,
+                &[crate::turn_loop::types::LLMMessage::user(
+                    "a trailing question".to_string(),
+                )],
+                None,
+                None,
+            )
+            .unwrap();
+        let pre_len = store.load_session_history(sid).unwrap().len();
 
         // A provider-backed spec: `build_llm_for_spec` resolves it to a
         // host-proxy LLM, which is the seam the factory below answers.
@@ -13452,6 +13510,11 @@ max_context_size = 1000
         assert_eq!(res.status, 200);
         let body: Value = serde_json::from_slice(&res.body).unwrap();
         assert_eq!(body["compacted"], true);
+        assert_eq!(
+            body["compactedCount"].as_u64().unwrap() as usize,
+            pre_len - 1,
+            "compactedCount is the folded range (first kept index), not the pre-compact length"
+        );
 
         let history = store.load_session_history(sid).unwrap();
         let summary_message = history
@@ -13461,10 +13524,21 @@ max_context_size = 1000
                     .contains(crate::compaction::COMPACTION_SUMMARY_PREFIX)
             })
             .expect("the endpoint must store the model's summary, not the placeholder");
+        let summary_pos = summary_message
+            .content
+            .find("The user sent twelve filler messages.")
+            .expect("the model's summary must be stored verbatim");
+        let todos_pos = summary_message
+            .content
+            .find("## TODO List")
+            .expect("the todo list must ride after the summary");
         assert!(
-            summary_message
-                .content
-                .ends_with("The user sent twelve filler messages.")
+            summary_pos < todos_pos,
+            "v2 postProcessSummary appends the todos after the summary"
+        );
+        assert!(
+            summary_message.content.contains("ship the fix"),
+            "the appended list is the session's own todo state"
         );
     }
 

@@ -18,15 +18,16 @@ use crate::llm::media_resolver::{build_media_path_tag, unavailable_text};
 use crate::rpc::types::{ContentBlock, MediaKind};
 use crate::turn_loop::types::LLMMessage;
 
-/// v2 `REQUEST_MEDIA_BUDGET_BYTES`: above this the request is over budget.
+/// v2 `REQUEST_MEDIA_BUDGET_BYTES` (agent/media/mediaResolverService.ts:48):
+/// above this the request is over budget.
 pub const REQUEST_MEDIA_BUDGET_BYTES: usize = 20 * 1024 * 1024;
-/// v2 `REQUEST_MEDIA_BUDGET_LOW_BYTES`: omission stops once the request is
-/// back under this, so one over-budget request does not evict every media it
-/// carries.
+/// v2 `REQUEST_MEDIA_BUDGET_LOW_BYTES` (mediaResolverService.ts:49): omission
+/// stops once the request is back under this, so one over-budget request does
+/// not evict every media it carries.
 pub const REQUEST_MEDIA_BUDGET_LOW_BYTES: usize = 10 * 1024 * 1024;
 
 /// The `WarningEvent.code` an omission is reported under (v2
-/// `media-budget-exceeded`).
+/// `media-budget-exceeded`, mediaResolverService.ts:210).
 pub const MEDIA_BUDGET_EXCEEDED_CODE: &str = "media-budget-exceeded";
 
 /// One media item that costs request bytes, in message order.

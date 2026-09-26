@@ -163,9 +163,11 @@ export type SecondaryModelConfig = z.infer<typeof SecondaryModelConfigSchema>;
 export const ThinkingConfigSchema = z.object({
   enabled: z.boolean().optional(),
   effort: z.string().optional(),
-  // Moonshot Preserved Thinking passthrough (`thinking.keep`). The value is
-  // forwarded verbatim to the wire; "all" enables it, an off-value
-  // (false/0/no/off/none/null) disables it. Defaults to "all" when unset.
+  // Moonshot Preserved Thinking passthrough (`thinking.keep`). This schema
+  // only declares the shape; the off-value filtering (false/0/no/off/none/null)
+  // and the env > config precedence live in `resolveThinkingKeep`
+  // (native/native-llm-resolver.ts), which resolves unset to `undefined` —
+  // the native wire keeps bodies unchanged until keep is configured.
   keep: z.string().optional(),
 });
 

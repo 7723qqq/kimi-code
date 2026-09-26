@@ -8,6 +8,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::rpc::types::TokenUsage;
+use crate::tool_input_display::ToolInputDisplay;
 
 pub use crate::rpc::types::{
     ContentBlock, GoalContext, GoalStatus, TelemetryContext, ToolDelivery, ToolInfo,
@@ -269,6 +270,10 @@ pub enum ToolExecution {
 pub struct RunnableToolExecution {
     pub accesses: ToolAccesses,
     pub approval_rule: String,
+    /// What the tool is about to do, for hosts that render a card instead of
+    /// the raw argument string (v2 `RunnableToolExecution.display`). Declared
+    /// before execution, so it rides the `tool.call.started` event.
+    pub display: Option<ToolInputDisplay>,
     /// The actual execution logic.
     pub execute: ToolExecutor,
 }
@@ -297,6 +302,16 @@ pub struct ExecutableToolResult {
     /// Rich content delivered to the model as a follow-up user message
     /// (see [`ToolDelivery`]). `None` for every text-only tool.
     pub delivery: Option<ToolDelivery>,
+    /// What the tool ended up doing, when it differs from what it declared
+    /// (v2 `ToolResult.display`). A `diff` that failed to apply, a `file_io`
+    /// whose write was rejected: the host shows this on the terminal card.
+    ///
+    /// Boxed because the union's widest variant carries several owned strings,
+    /// and inlining it pushed `ExecutableToolResult` past clippy's
+    /// `result_large_err` threshold on every function that returns one in its
+    /// `Err` variant. The block is absent for the overwhelming majority of
+    /// results, so the indirection costs nothing on the hot path.
+    pub display: Option<Box<ToolInputDisplay>>,
 }
 
 /// Error result from tool resolution.

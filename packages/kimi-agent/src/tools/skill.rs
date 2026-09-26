@@ -527,6 +527,7 @@ pub async fn execute_skill(
         stop_turn: false,
         is_error: false,
         note: None,
+        display: None,
     }
 }
 

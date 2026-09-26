@@ -216,6 +216,11 @@ pub struct CompactionReport {
     /// Messages in the history before compaction.
     pub messages_before: usize,
     pub removed: usize,
+    /// Messages the fold consumed — the index of the first kept message on
+    /// this axis (the store history carries the system prompt at `[0]`). This
+    /// is the `compactedCount` the host's `compaction.completed` event carries:
+    /// a replay slices the pre-compaction history here.
+    pub compacted_count: u32,
     pub tokens_before: u32,
     pub tokens_after: u32,
     pub kept_user_message_count: usize,
@@ -260,6 +265,7 @@ impl CompactionReport {
         Self {
             messages_before: 0,
             removed: 0,
+            compacted_count: 0,
             tokens_before: 0,
             tokens_after: 0,
             kept_user_message_count: 0,
@@ -1028,6 +1034,7 @@ impl SqliteSessionStore {
         let report = CompactionReport {
             messages_before: history.len(),
             removed,
+            compacted_count: count,
             tokens_before: crate::compaction::estimate_messages_tokens(&history),
             tokens_after: crate::compaction::estimate_messages_tokens(&compacted),
             kept_user_message_count: compacted
@@ -3070,8 +3077,22 @@ mod tests {
                 )
                 .unwrap();
         }
-        let pre_len = store.load_session_history("sess-compact").unwrap().len();
-        assert!(pre_len >= 29);
+        // A trailing user message is never a safe split point
+        // (`can_split_after` refuses user messages), so the fold stops one
+        // short of the end and the kept tail is observable.
+        store
+            .save_turn(
+                "sess-compact",
+                "t-tail",
+                16,
+                &[LLMMessage::user("Trailing question".to_string())],
+                None,
+                None,
+            )
+            .unwrap();
+        let pre_history = store.load_session_history("sess-compact").unwrap();
+        let pre_len = pre_history.len();
+        assert!(pre_len >= 30);
 
         let report = store
             .compact_session_with_summary(
@@ -3083,6 +3104,11 @@ mod tests {
         let removed = report.removed;
         assert!(removed > 0);
         assert_eq!(report.messages_before, pre_len);
+        assert_eq!(
+            report.compacted_count as usize,
+            pre_len - 1,
+            "the trailing user message stays outside the fold"
+        );
         // The v2 shape keeps the compacted range's user input verbatim, so
         // tokens_after can hold steady when everything fits the head/tail
         // budgets; it must never grow past `before` plus the summary block.
@@ -3091,6 +3117,12 @@ mod tests {
         let post_history = store.load_session_history("sess-compact").unwrap();
         assert_eq!(post_history.len(), pre_len - removed);
         assert!(post_history.len() < pre_len);
+        // `compacted_count` is the first kept index: everything beyond the
+        // summary block is `pre_history[count..]`, untouched.
+        assert!(
+            post_history.ends_with(&pre_history[report.compacted_count as usize..]),
+            "the kept tail starts exactly at compacted_count"
+        );
         assert_eq!(
             report.kept_user_message_count,
             post_history

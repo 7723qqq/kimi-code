@@ -618,6 +618,13 @@ fn decode_with_orientation(
     Ok(img)
 }
 
+/// Lowercase and fold the `image/jpg` alias onto `image/jpeg`.
+///
+/// Deliberately *not* the same rule as `mcp::output::strip_mime_params`, which
+/// only drops MIME parameters. This one picks an encoder, where `image/jpg` and
+/// `image/jpeg` must land on the same codec; the other compares wire metadata,
+/// where the parameters carry meaning. Folding them together would either lose
+/// `charset` or make a metadata comparison depend on an alias rule.
 fn normalize_mime(mime_type: &str) -> String {
     let lower = mime_type.trim().to_lowercase();
     if lower == "image/jpg" {

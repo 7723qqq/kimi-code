@@ -9,7 +9,8 @@
 //! blocks the call, and any hook execution failure fails closed),
 //! `PostToolUse` / `PostToolUseFailure` and `UserPromptSubmit` /
 //! `PreCompact` fire observe-only notifications, and `Stop` hooks can veto
-//! a clean text stop once per turn (v2 `runStopHooks`).
+//! a clean text stop once per turn (v2 `runStop`,
+//! agentExternalHooksService.ts:412).
 
 use std::process::ExitStatus;
 use std::sync::Arc;
@@ -326,7 +327,9 @@ impl HookGuard {
     }
 
     /// Run matching `Stop` hooks when a turn is about to end (v2
-    /// `agentExternalHooksService.runStopHooks` / `agentExternalHooksService.ts:239-263`).
+    /// `agentExternalHooksService`'s step-finish registration,
+    /// agentExternalHooksService.ts:239-258, calling its private `runStop` at
+    /// :412).
     /// A hook vetoes the stop by exiting 2 (reason: trimmed stderr) or by
     /// printing a stdout JSON `hookSpecificOutput.permissionDecision: "deny"`
     /// (reason: its `permissionDecisionReason`); the veto text is returned
@@ -388,8 +391,8 @@ fn spawn_hooks(event: &str, matched: Vec<HookDef>, payload: Value, sink: Option<
 }
 
 /// Run a Stop hook and resolve the continuation message, or `None` to let
-/// the stop proceed. v2 `runHook.ts` + `runStopHooks`
-/// (`agentExternalHooksService.ts:239-263`): exit code 2 blocks with the
+/// the stop proceed. v2 `runHook.ts` + `runStop`
+/// (`agentExternalHooksService.ts:412`): exit code 2 blocks with the
 /// trimmed stderr, exit 0 with a stdout JSON `permissionDecision: "deny"`
 /// blocks with its reason, spawn/timeout failures fail closed; anything
 /// else (including plain-text stdout) allows. Empty reasons fall back to

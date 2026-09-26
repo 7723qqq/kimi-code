@@ -1,5 +1,6 @@
 //! Config-driven model / provider catalog and the auth readiness summary
-//! (v2 `kosong/model/catalogService.ts` + `app/authLegacy/authLegacyService.ts`).
+//! (v2 `packages/kosong/src/catalog.ts` +
+//! `packages/agent-core-v2/src/app/authLegacy/authLegacyService.ts`).
 //!
 //! The standalone server has no JS host, so the REST surface projects the
 //! same `config.toml` the engine loads into the shapes `packages/protocol`

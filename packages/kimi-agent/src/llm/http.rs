@@ -356,7 +356,10 @@ impl NativeHttpLlm {
         };
 
         if opencode_adapter::is_opencode_endpoint(&self.config.base_url) {
-            opencode_adapter::apply(&mut body);
+            // The protocol decides the placeholder shape: the gate demands the
+            // same pair on every wire, but each wire spells a tool definition
+            // differently.
+            opencode_adapter::apply(&mut body, &self.config.protocol);
         }
 
         let mut token = self.credential().await?;
@@ -803,6 +806,30 @@ pub fn is_cancelled_error(error: &str) -> bool {
 
 /// Prefix for a response that is not an SSE stream at all. Re-exported from the
 /// native stream module so both transports classify it identically.
+/// The HTTP statuses the retry layer treats as transient.
+///
+/// **Single source of truth for the retry policy.** It lives here rather than
+/// inside one transport's `is_retryable_error` because both transports answer
+/// the same question — the native HTTP path and the host-proxy path — and when
+/// the set was written out twice they drifted: the host-proxy arm was missing
+/// 408/409/425, so a request the policy says to retry failed immediately, while
+/// its keyword fallback retried a 400 whose body merely mentioned
+/// "connection" (see `HostLlmProxy::is_retryable_error`).
+///
+/// The set mirrors v2 `RETRYABLE_STATUS_CODES`
+/// (`agent-core-v2/src/human/llm/requester/retry.ts`) and
+/// `isRetryableGenerateError` (`kosong/src/errors.ts`): the explicit list
+/// `[408, 409, 429, 500, 502, 503, 504, 529]` — **not** the whole 5xx range,
+/// so 501/505/506/… fail fast instead of burning the retry budget. 425 is the
+/// fork's recorded addition for retry-later transports.
+///
+/// What a transport does with a *status-less* error stays its own business:
+/// the native path matches its stamped `llm transport error ` prefix, the host
+/// proxy matches the raw strings a JS host produces. Only the policy is shared.
+pub fn is_retryable_status_code(code: u16) -> bool {
+    matches!(code, 408 | 409 | 425 | 429 | 500 | 502 | 503 | 504 | 529)
+}
+
 const NOT_AN_SSE_ENDPOINT_PREFIX: &str = crate::native::NOT_AN_SSE_ENDPOINT_PREFIX;
 
 /// The HTTP status the transport stamped into an error string, when the failure
@@ -1059,21 +1086,16 @@ impl LLM for NativeHttpLlm {
             // code decides, and the keyword list below is never consulted for
             // it. An unparseable code classifies as non-retryable.
             let code = llm_http_status(error).unwrap_or(0);
-            // The code set mirrors v2 `isRetryableGenerateError`
-            // (kosong/src/errors.ts) and `RETRYABLE_STATUS_CODES`
-            // (agent-core-v2/src/human/llm/requester/retry.ts): the explicit
-            // list [408, 409, 429, 500, 502, 503, 504, 529] — NOT the whole
-            // 5xx range, so 501/505/506/… fail fast instead of burning the
-            // retry budget. 425 stays: the fork adds it for retry-later
-            // transports (recorded delta). The quota exemption mirrors v2
-            // `APIProviderQuotaExhaustedError` (kimi-errors.ts /
-            // openai-common.ts): a 429 that is really "your account is out of
-            // quota / balance" is deterministic — retrying burns attempts for
-            // nothing.
+            // The code set is [`is_retryable_status_code`], shared with the
+            // host-proxy transport so the two cannot drift. The quota
+            // exemption mirrors v2 `APIProviderQuotaExhaustedError`
+            // (kimi-errors.ts / openai-common.ts): a 429 that is really
+            // "your account is out of quota / balance" is deterministic —
+            // retrying burns attempts for nothing.
             if code == 429 && is_quota_exhaustion_error(error) {
                 return false;
             }
-            return matches!(code, 408 | 409 | 425 | 429 | 500 | 502 | 503 | 504 | 529);
+            return is_retryable_status_code(code);
         }
         // 402 "Payment Required" (DeepSeek arrears, some Kimi plans) is
         // never in the retryable set, so no explicit exemption is needed.
@@ -1482,6 +1504,7 @@ mod tests {
             String::new(),
         );
         for code in [408, 409, 425, 429, 500, 502, 503, 504, 529] {
+            assert!(is_retryable_status_code(code), "{code} must be retryable");
             assert!(
                 llm.is_retryable_error(&format!("llm http status {code} Err: transient")),
                 "status {code} must be retryable"
@@ -1491,9 +1514,30 @@ mod tests {
             400, 401, 402, 403, 404, 410, 422, 423, 426, 501, 505, 506, 507, 508, 510, 511, 520,
             521, 523, 530, 599,
         ] {
+            assert!(!is_retryable_status_code(code), "{code} must fail fast");
             assert!(
                 !llm.is_retryable_error(&format!("llm http status {code} Err: deterministic")),
                 "status {code} must fail fast"
+            );
+        }
+    }
+
+    /// Both transports classify the same status-code policy. Pinned so that a
+    /// future edit making one arm stop delegating to [`is_retryable_status_code`]
+    /// fails here instead of silently changing one transport's retry budget.
+    #[test]
+    fn both_transports_agree_on_every_status() {
+        let native = NativeHttpLlm::new(
+            config("openai", "https://api.example.com/v1"),
+            String::new(),
+        );
+        let proxy = crate::llm::proxy::HostLlmProxy::new(String::new(), "m".into());
+        for code in 400..=599u16 {
+            let message = format!("llm http status {code} Err: boom");
+            assert_eq!(
+                native.is_retryable_error(&message),
+                proxy.is_retryable_error(&message),
+                "the transports disagree on status {code}"
             );
         }
     }

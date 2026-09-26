@@ -86,8 +86,13 @@ fn extension_for_mime(mime_type: &str, bytes: &[u8]) -> &'static str {
     }
 }
 
-/// Normalize a MIME type the way v2 does: parameters dropped, lowercased.
-fn normalize_mime(mime_type: &str) -> String {
+/// Strip MIME parameters and lowercase: `image/png; charset=x` → `image/png`.
+///
+/// Named apart from `image_compress::normalize_mime` on purpose — that one also
+/// folds the `image/jpg` → `image/jpeg` alias, this one does not, and the two are
+/// used for different jobs (wire/metadata comparison vs picking an encoder).
+/// Same name, different rule is how one of them ends up "unified" wrongly.
+fn strip_mime_params(mime_type: &str) -> String {
     mime_type
         .split(';')
         .next()
@@ -124,7 +129,7 @@ fn parse_data_url(url: &str) -> Option<(String, String)> {
     let mime = if meta.trim().is_empty() {
         "application/octet-stream".to_string()
     } else {
-        normalize_mime(meta)
+        strip_mime_params(meta)
     };
     Some((mime, payload.to_string()))
 }
@@ -136,7 +141,7 @@ pub fn save_attachment(
     mime_type: &str,
     files: &FileStore,
 ) -> Result<SavedAttachment, String> {
-    let mime = normalize_mime(mime_type);
+    let mime = strip_mime_params(mime_type);
     let mut hasher = Sha256::new();
     hasher.update(mime.as_bytes());
     hasher.update([0u8]);
@@ -160,7 +165,7 @@ pub fn save_attachment(
 /// `attachmentNotice`, output.ts:205-212): where it is, how to reference it,
 /// and which tools can open it.
 pub fn attachment_notice(saved: &SavedAttachment, mime_type: &str, size: usize) -> String {
-    let mime = normalize_mime(mime_type);
+    let mime = strip_mime_params(mime_type);
     let mut notice = String::new();
     if let Some(path) = &saved.path {
         let _ = writeln!(notice, "Original attachment saved at: {path:?}");
@@ -270,7 +275,7 @@ fn convert_block(block: &McpContent, provider_type: Option<&str>) -> ConvertedBl
                         "resource (uri: {uri}) carried no text or blob payload."
                     )));
                 };
-                let normalized = normalize_mime(blob_mime);
+                let normalized = strip_mime_params(blob_mime);
                 if media_kind_of(&normalized).is_some() {
                     return ConvertedBlock {
                         text: None,
@@ -309,7 +314,7 @@ fn convert_block(block: &McpContent, provider_type: Option<&str>) -> ConvertedBl
                 .unwrap_or_default()
                 .to_string();
             let mime_type = mime.as_deref().unwrap_or("application/octet-stream");
-            let normalized = normalize_mime(mime_type);
+            let normalized = strip_mime_params(mime_type);
             match media_kind_of(&normalized) {
                 Some(kind) => ConvertedBlock {
                     text: None,
@@ -348,7 +353,7 @@ impl ConvertedBlock {
     /// not delivered but its URL is still preserved.
     fn with_url(mut self, url: String, mime_type: &str, _provider_type: Option<&str>) -> Self {
         let kind = {
-            let normalized = normalize_mime(mime_type);
+            let normalized = strip_mime_params(mime_type);
             match media_kind_of(&normalized) {
                 Some(kind) => kind.as_str().to_string(),
                 None => "image".to_string(),
@@ -358,7 +363,7 @@ impl ConvertedBlock {
             self.text = Some(binary_part_too_large_notice(&kind, url.len()));
             self.media = None;
         } else {
-            self.media = Some(match normalize_mime(mime_type).as_str() {
+            self.media = Some(match strip_mime_params(mime_type).as_str() {
                 m if m.starts_with("image/") => ContentBlock::ImageUrl {
                     url,
                     id: None,
@@ -406,7 +411,7 @@ pub fn mcp_result_to_output(
         // Preserve the original before anything below can cap or drop it.
         let mut media_ref: Option<ContentBlock> = None;
         if let Some((mime, payload)) = converted.inline_url.take() {
-            let mime = normalize_mime(&mime);
+            let mime = strip_mime_params(&mime);
             let already_saved = preserved.get(&payload).cloned();
             if let Some(file_id) = already_saved {
                 media_ref =

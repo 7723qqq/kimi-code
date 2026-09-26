@@ -154,6 +154,7 @@ where
                     content: aborted_tool_output(&scheduled.tool_call.name),
                     is_error: true,
                     note: None,
+                    display: None,
                 });
                 all_durations.push(None);
             }
@@ -171,6 +172,7 @@ where
                     content: SKIPPED_TOOL_OUTPUT.to_string(),
                     is_error: true,
                     note: None,
+                    display: None,
                 });
                 all_durations.push(None);
             }
@@ -246,6 +248,7 @@ where
                         content: e,
                         is_error: true,
                         note: None,
+                        display: None,
                     });
                     all_durations.push(None);
                 }
@@ -260,6 +263,7 @@ where
                         content: format!("Tool task join error: {e}"),
                         is_error: true,
                         note: None,
+                        display: None,
                     });
                     all_durations.push(None);
                 }
@@ -288,6 +292,7 @@ where
                     content: aborted_tool_output(&name),
                     is_error: true,
                     note: None,
+                    display: None,
                 });
                 all_durations.push(None);
             }
@@ -1046,6 +1051,7 @@ mod tests {
                         content: "ok".into(),
                         is_error: false,
                         note: None,
+                        display: None,
                     })
                 }
             }
@@ -1106,6 +1112,7 @@ mod tests {
                 content: tc.id.clone(),
                 is_error: false,
                 note: None,
+                display: None,
             })
         };
         let results = execute_scheduled(None, scheduled, executor)
@@ -1141,6 +1148,7 @@ mod tests {
                 content: "ok".into(),
                 is_error: false,
                 note: None,
+                display: None,
             })
         };
         // v2 `abortedToolOutput`: the cancelled call settles with an error
@@ -1181,6 +1189,7 @@ mod tests {
                 content: "too late".into(),
                 is_error: false,
                 note: None,
+                display: None,
             })
         };
         let cancel = Arc::new(AtomicBool::new(false));
@@ -1235,6 +1244,7 @@ mod tests {
                     content: "ok-2".into(),
                     is_error: false,
                     note: None,
+                    display: None,
                 })
             }
         };
@@ -1303,6 +1313,7 @@ mod tests {
                         content: "ok".into(),
                         is_error: false,
                         note: None,
+                        display: None,
                     })
                 }
             }
@@ -1328,6 +1339,7 @@ mod tests {
                 content: "x".into(),
                 is_error: false,
                 note: None,
+                display: None,
             })
         })
         .await
@@ -1375,6 +1387,7 @@ mod tests {
                 content: tc.id,
                 is_error: false,
                 note: None,
+                display: None,
             })
         })
         .await
@@ -1417,6 +1430,7 @@ mod tests {
                     content: "stop".into(),
                     is_error: false,
                     note: None,
+                    display: None,
                 })
             } else {
                 Ok(ExecutableToolResult {
@@ -1425,6 +1439,7 @@ mod tests {
                     content: "skipped".into(),
                     is_error: true,
                     note: None,
+                    display: None,
                 })
             }
         })
@@ -1473,6 +1488,7 @@ mod tests {
                     content: "plan exited".into(),
                     is_error: false,
                     note: None,
+                    display: None,
                 })
             } else {
                 Ok(ExecutableToolResult {
@@ -1481,6 +1497,7 @@ mod tests {
                     content: "written".into(),
                     is_error: false,
                     note: None,
+                    display: None,
                 })
             }
         })

@@ -15,6 +15,8 @@
 
 pub mod channel;
 pub mod events_map;
+#[cfg(test)]
+mod events_map_golden;
 pub mod permission;
 pub mod question;
 pub mod types;
@@ -102,7 +104,8 @@ impl AcpServer {
         // Every turn of this engine asks the ACP client before executing a
         // mutating tool (v2 `interaction-bridge.ts` + `approval.ts`), and an
         // ACP client that advertises fs capabilities owns Read/Write (their
-        // execution is forwarded to the client, v2 `fs-bridge.ts`).
+        // execution is forwarded to the client, v2
+        // `packages/acp-server/src/acp-fs/acpFsService.ts`).
         let channel = AcpChannel::new();
         let capabilities = Arc::new(std::sync::Mutex::new(AcpClientCapabilities::default()));
         let factory_channel = channel.clone();
@@ -1515,7 +1518,7 @@ mod tests {
     }
 
     /// A client below the minimum revision still receives the server's current
-    /// one (v2 `negotiateVersion`, version.ts:38-41).
+    /// one (v2 `negotiateVersion`, acp-server/src/version.ts:38-50).
     #[tokio::test]
     async fn test_acp_initialize_negotiates_version() {
         let server = AcpServer::in_memory().unwrap();

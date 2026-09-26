@@ -1,7 +1,9 @@
 //! Native execution of the Team orchestration tool (P28/P32 第四批).
 //!
 //! Runs a roundtable discussion or structured debate among persistent
-//! subagents, mirroring `agent-core-v2`'s `teamTool.ts` semantics.
+//! subagents, mirroring the semantics of the fork's own retired
+//! `agent-core-v2` `teamTool.ts` (added in `5bc0484288`; upstream has no such
+//! tool today).
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -36,6 +38,7 @@ pub async fn execute_team(
                 content: "Invalid Team arguments: `topic` is required.".into(),
                 is_error: true,
                 note: None,
+                display: None,
             };
         }
     };
@@ -48,6 +51,7 @@ pub async fn execute_team(
                 content: "Invalid Team arguments: `participants` must be a non-empty array.".into(),
                 is_error: true,
                 note: None,
+                display: None,
             };
         }
     };
@@ -60,6 +64,7 @@ pub async fn execute_team(
                 content: "Team tool requires an injected subagent runtime (llm + callbacks); the host did not provide one.".into(),
                 is_error: true,
                 note: None,
+                display: None,
             };
         }
     };
@@ -88,6 +93,7 @@ pub async fn execute_team(
                                     .into(),
                             is_error: true,
                             note: None,
+                            display: None,
                         };
                     }
                 };
@@ -130,6 +136,7 @@ pub async fn execute_team(
                 content: format_debate_result(&result),
                 is_error: false,
                 note: Some("native_team".into()),
+                display: None,
             }
         }
         _ => {
@@ -146,6 +153,7 @@ pub async fn execute_team(
                                     .into(),
                             is_error: true,
                             note: None,
+                            display: None,
                         };
                     }
                 };
@@ -187,6 +195,7 @@ pub async fn execute_team(
                 content: format_discussion_result(&result),
                 is_error: false,
                 note: Some("native_team".into()),
+                display: None,
             }
         }
     }

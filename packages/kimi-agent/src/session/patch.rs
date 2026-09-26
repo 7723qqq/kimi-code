@@ -439,6 +439,50 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// RFC 6902 `move` is remove-then-add, so moving a value **forward** inside
+    /// the same array shifts the destination index by one. The inverse the
+    /// engine reports must account for that, or undoing a move corrupts the
+    /// document.
+    #[test]
+    fn move_inverse_round_trips_within_one_array() {
+        for (from, path) in [("/0", "/2"), ("/3", "/1"), ("/1", "/1")] {
+            let original = json!(["A", "B", "C", "D"]);
+            let mut doc = original.clone();
+            let inverse = apply_patch(
+                &mut doc,
+                &JsonPatchSet::new(vec![PatchOp::Move {
+                    from: from.into(),
+                    path: path.into(),
+                }]),
+            )
+            .unwrap();
+            assert_eq!(inverse.len(), 1, "move {from} -> {path}");
+            let mut undone = doc.clone();
+            apply_patch(&mut undone, &inverse).unwrap();
+            assert_eq!(
+                undone, original,
+                "undoing move {from} -> {path} must restore"
+            );
+        }
+    }
+
+    #[test]
+    fn move_inverse_round_trips_across_different_containers() {
+        let original = json!({ "x": ["A", "B"], "y": ["C"] });
+        let mut doc = original.clone();
+        let inverse = apply_patch(
+            &mut doc,
+            &JsonPatchSet::new(vec![PatchOp::Move {
+                from: "/x/0".into(),
+                path: "/y/0".into(),
+            }]),
+        )
+        .unwrap();
+        let mut undone = doc.clone();
+        apply_patch(&mut undone, &inverse).unwrap();
+        assert_eq!(undone, original);
+    }
+
     #[test]
     fn test_pointer_parse_and_escape() {
         assert_eq!(escape_pointer_token("a/b~c"), "a~1b~0c");

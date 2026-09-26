@@ -915,6 +915,7 @@ impl McpManager {
                     content: text_parts.join("\n"),
                     is_error: res.is_error,
                     note: Some(format!("mcp:{}", server_name)),
+                    display: None,
                 })
             }
             Err(e) => {
@@ -942,6 +943,7 @@ impl McpManager {
                     content,
                     is_error: true,
                     note: Some(format!("mcp:{}", server_name)),
+                    display: None,
                 })
             }
         }

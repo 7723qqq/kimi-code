@@ -893,30 +893,53 @@ mod tests {
         let _ = std::fs::remove_file(script);
     }
 
-    /// A `cwd` is applied to the child, so a script resolved by name from that
-    /// directory starts (v2 `McpServerStdioConfig.cwd`).
+    /// A `cwd` is applied to the child, so a script can resolve a file relative
+    /// to that directory (v2 `McpServerStdioConfig.cwd`).
+    ///
+    /// The script is launched by **absolute path** and probes a sibling file by
+    /// relative name, so the assertion depends on the child's working directory
+    /// alone. Resolving the *script itself* by bare name would instead depend on
+    /// whether the OS shell searches the current directory for executables —
+    /// which `NoDefaultCurrentDirectoryInExePath=1` (set by some Windows
+    /// hardening configurations) turns off, making the probe fail for reasons
+    /// unrelated to `cwd`.
     #[tokio::test]
     async fn test_stdio_cwd_is_applied() {
         let dir = std::env::temp_dir().join(format!("kimi_mcp_cwd_{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         let reply = r#"{"jsonrpc":"2.0","id":1,"result":{}}"#;
-        let (cmd, args, script) = if cfg!(windows) {
+        let (cmd, args, script, cleanup) = if cfg!(windows) {
             let script = dir.join("probe.bat");
             std::fs::write(
                 &script,
-                format!("@echo {reply}\r\n@ping -n 3 127.0.0.1 >nul\r\n"),
+                format!(
+                    "@if not exist marker.txt exit /b 3\r\n@echo {reply}\r\n@ping -n 3 127.0.0.1 >nul\r\n"
+                ),
             )
             .expect("write probe script");
+            let marker = dir.join("marker.txt");
+            std::fs::write(&marker, "").expect("write marker file");
             (
                 "cmd",
-                vec!["/c".to_string(), "probe.bat".to_string()],
+                vec!["/c".to_string(), script.to_string_lossy().into_owned()],
                 script,
+                vec![marker],
             )
         } else {
             let script = dir.join("probe.sh");
-            std::fs::write(&script, format!("echo '{reply}'\nsleep 3\n"))
-                .expect("write probe script");
-            ("sh", vec!["probe.sh".to_string()], script)
+            std::fs::write(
+                &script,
+                format!("test -f marker.txt || exit 3\necho '{reply}'\nsleep 3\n"),
+            )
+            .expect("write probe script");
+            let marker = dir.join("marker.txt");
+            std::fs::write(&marker, "").expect("write marker file");
+            (
+                "sh",
+                vec![script.to_string_lossy().into_owned()],
+                script,
+                vec![marker],
+            )
         };
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
 
@@ -928,10 +951,13 @@ mod tests {
             Some(dir.to_string_lossy().as_ref()),
         )
         .await
-        .expect("a script resolved from the configured cwd must start");
+        .expect("a script that resolves a sibling file from the configured cwd must start");
         assert_eq!(client.transport_type(), "stdio");
 
         let _ = std::fs::remove_file(script);
+        for path in cleanup {
+            let _ = std::fs::remove_file(path);
+        }
         let _ = std::fs::remove_dir(dir);
     }
 }

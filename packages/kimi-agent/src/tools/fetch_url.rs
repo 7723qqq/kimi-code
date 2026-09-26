@@ -117,6 +117,7 @@ async fn fetch_via_moonshot(
         content: text,
         is_error: false,
         note: None,
+        display: None,
     }))
 }
 
@@ -132,6 +133,7 @@ pub async fn execute_fetch_url(
             content: "URL parameter cannot be empty".to_string(),
             is_error: true,
             note: None,
+            display: None,
         });
     }
 
@@ -161,6 +163,7 @@ pub async fn execute_fetch_url(
                     .render(),
                     is_error: true,
                     note: None,
+                    display: None,
                 });
             }
         };
@@ -179,6 +182,7 @@ pub async fn execute_fetch_url(
                     .render(),
                     is_error: true,
                     note: None,
+                    display: None,
                 });
             }
         };
@@ -196,6 +200,7 @@ pub async fn execute_fetch_url(
                     .render(),
                     is_error: true,
                     note: None,
+                    display: None,
                 });
             }
         };
@@ -225,6 +230,7 @@ pub async fn execute_fetch_url(
                     .render(),
                     is_error: true,
                     note: None,
+                    display: None,
                 });
             }
         };
@@ -243,6 +249,7 @@ pub async fn execute_fetch_url(
                     .render(),
                     is_error: true,
                     note: None,
+                    display: None,
                 });
             }
         };
@@ -263,6 +270,7 @@ pub async fn execute_fetch_url(
                     .render(),
                     is_error: true,
                     note: None,
+                    display: None,
                 });
             }
             redirects += 1;
@@ -283,6 +291,7 @@ pub async fn execute_fetch_url(
                         .render(),
                         is_error: true,
                         note: None,
+                        display: None,
                     });
                 }
             };
@@ -303,6 +312,7 @@ pub async fn execute_fetch_url(
                         .render(),
                         is_error: true,
                         note: None,
+                        display: None,
                     });
                 }
             }
@@ -324,6 +334,7 @@ pub async fn execute_fetch_url(
             .render(),
             is_error: true,
             note: None,
+            display: None,
         });
     }
 
@@ -348,6 +359,7 @@ pub async fn execute_fetch_url(
                 .render(),
                 is_error: true,
                 note: None,
+                display: None,
             });
         }
     };
@@ -359,6 +371,7 @@ pub async fn execute_fetch_url(
             content: "The response body is empty.".to_string(),
             is_error: false,
             note: None,
+            display: None,
         });
     }
 
@@ -374,6 +387,7 @@ pub async fn execute_fetch_url(
             .render(),
             is_error: true,
             note: None,
+            display: None,
         });
     }
 
@@ -409,6 +423,7 @@ pub async fn execute_fetch_url(
         content: formatted,
         is_error: false,
         note: None,
+        display: None,
     })
 }
 

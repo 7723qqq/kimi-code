@@ -79,7 +79,14 @@ impl fmt::Display for GoalStatus {
 // GoalState – the durable, serialisable state of one thread's goal.
 // ---------------------------------------------------------------------------
 
-/// Core goal state, persisted via TS wire.jsonl (native is stateless w.r.t storage).
+/// Core goal state for the **napi addon** boundary: JSON in, JSON out, no
+/// serde derives and no persistence of its own.
+///
+/// The engine's own goal state is [`crate::goal::GoalState`], which is what
+/// `StateStore` actually writes to the `goal` domain. This one only carries the
+/// same fields across the addon seam. (It once claimed persistence "via TS
+/// wire.jsonl" — that was true while the JS host owned the store; since the
+/// engine took over, the durable copy is `state_store`'s.)
 #[derive(Debug, Clone)]
 pub struct GoalState {
     /// Opaque identifier (UUID v4), assigned by TS on creation.

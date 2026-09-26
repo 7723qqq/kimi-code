@@ -247,6 +247,7 @@ fn err_result(msg: impl Into<String>) -> ExecutableToolResult {
         content: msg.into(),
         is_error: true,
         note: None,
+        display: None,
     }
 }
 
@@ -257,6 +258,7 @@ fn ok_result(msg: impl Into<String>) -> ExecutableToolResult {
         content: msg.into(),
         is_error: false,
         note: None,
+        display: None,
     }
 }
 

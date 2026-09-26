@@ -62,6 +62,7 @@ pub fn execute_list_directory(
                         ),
                         is_error: true,
                         note: None,
+                        display: None,
                     });
                 }
                 p
@@ -73,6 +74,7 @@ pub fn execute_list_directory(
                     content: format!("Directory does not exist: {raw_path} ({e})"),
                     is_error: true,
                     note: None,
+                    display: None,
                 });
             }
         }
@@ -85,6 +87,7 @@ pub fn execute_list_directory(
             content: format!("{} is not a directory", target_dir.display()),
             is_error: true,
             note: None,
+            display: None,
         });
     }
 
@@ -98,6 +101,7 @@ pub fn execute_list_directory(
         content: output,
         is_error,
         note: None,
+        display: None,
     })
 }
 

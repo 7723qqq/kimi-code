@@ -1183,7 +1183,7 @@ pub struct ToolExecuteResponse {
     /// (e.g. Read's `<system>…</system>` summary).
     #[serde(default)]
     pub note: Option<String>,
-    /// v2 `TurnEngineToolResult.stopTurn` (engineOverride.ts:58): the host
+    /// v2 `TurnEngineToolResult.stopTurn` (loopService.ts:1705): the host
     /// asks the engine to end the turn as `completed` after this result
     /// lands in the history. `#[serde(default)]` keeps older hosts that
     /// omit the field wire-compatible.
@@ -1203,9 +1203,10 @@ pub struct ToolExecuteResponse {
 /// remainder: the providers subtract the cache fields from the provider's raw
 /// prompt total (`llm/openai.rs::parse_usage`, `llm/anthropic.rs`
 /// `parse_response` and its stream accumulator), which is also exactly what
-/// the host-proxy leg supplies (`rust-loop.ts:2262` maps kosong's `inputOther`
-/// in). `total_tokens` is `input_tokens + output_tokens` under the same
-/// convention — not the provider's raw total.
+/// the host-proxy leg supplies (the fork's own `rust-loop.ts:2262` maps
+/// kosong's `inputOther` in; upstream has no such file). `total_tokens` is
+/// `input_tokens + output_tokens` under the same convention — not the
+/// provider's raw total.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct TokenUsage {
     #[serde(default)]
@@ -1405,7 +1406,8 @@ mod tests {
     /// Stdio wire contract for the request/response types crossing the
     /// JSON-RPC boundary (M0 slice 3): snake_case field names, serde
     /// `default` / `skip_serializing_if` behavior pinned. The TS side
-    /// (`rust-loop.ts` + `wire-schema.ts`) mirrors these; a round-trip
+    /// (`rust-loop.ts` + the fork's own `wire-schema.ts` fixture) mirrors
+    /// these; a round-trip
     /// mismatch here is a wire break, not a refactor.
     #[test]
     fn test_stdio_wire_contract_roundtrip() {
@@ -2305,7 +2307,15 @@ pub struct ToolDelivery {
     pub origin: Option<serde_json::Value>,
 }
 
-/// Goal status, matching the 6-state machine in `kimi-native-tools::goal::state`.
+/// Goal status, matching the 6-state machine in [`crate::goal::GoalStatus`].
+///
+/// This is the **host-wire** spelling: `budgetLimited` / `usageLimited` in
+/// camelCase, because the field crosses the napi/stdio boundary. The persisted
+/// form is the snake_case spelling in [`crate::goal::GoalStatus`] — the two cover
+/// the same six states but are different contracts, so swapping one for the
+/// other silently changes either the wire or the on-disk state files.
+/// (The comment once pointed at `kimi-native-tools::goal::state` — that crate was
+/// folded into this one and its goal module has since been retired.)
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 pub enum GoalStatus {
     #[serde(rename = "active")]

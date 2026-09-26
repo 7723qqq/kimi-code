@@ -70,17 +70,26 @@ impl LLM for HostLlmProxy {
     }
 
     fn is_retryable_error(&self, error: &str) -> bool {
-        // Transport-level and throttling/server errors are retryable;
-        // auth, request-shape, and client errors are not. This mirrors
-        // NativeHttpLlm's classification so the host-proxy path doesn't
-        // waste time retrying 400/401/403 errors.
+        // A status-coded failure is classified **by its code, never by body
+        // text**: scanning the body for keywords would retry a 400 whose
+        // message merely contains "connection", or a 401 mentioning a session
+        // timeout — requests that can never succeed however often they repeat.
+        if crate::llm::http::is_cancelled_error(error) {
+            return false;
+        }
+        if let Some(code) = crate::llm::http::llm_http_status(error) {
+            // The policy itself is `http::is_retryable_status_code`, shared with
+            // the native transport: the two must not drift, because a divergence
+            // silently changes the retry budget the user actually experiences.
+            // An unparseable code classifies as non-retryable.
+            return crate::llm::http::is_retryable_status_code(code);
+        }
+        // No status code: a transport-level failure. The keyword list is this
+        // transport's own — a host renders these as raw strings ("socket hang
+        // up"), where the native path matches the `llm transport error ` prefix
+        // it stamps. Only the status-code policy above is shared.
         const RETRYABLE: &[&str] = &[
             "status 429",
-            "status 500",
-            "status 502",
-            "status 503",
-            "status 504",
-            "status 529",
             "overloaded",
             "timed out",
             "timeout",
@@ -196,5 +205,77 @@ impl LLM for HostLlmProxy {
             }
             Ok(result)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn proxy() -> HostLlmProxy {
+        HostLlmProxy::new(String::new(), String::new())
+    }
+
+    #[test]
+    fn status_coded_failures_follow_the_v2_retryable_set() {
+        let p = proxy();
+        // v2 RETRYABLE_STATUS_CODES plus the fork's 425.
+        for code in [408, 409, 425, 429, 500, 502, 503, 504, 529] {
+            assert!(
+                p.is_retryable_error(&format!("llm http status {code}: boom")),
+                "status {code} must be retryable"
+            );
+        }
+        // Explicit list, not "all of 5xx": these can never succeed.
+        for code in [400, 401, 402, 403, 404, 422, 501, 505, 511] {
+            assert!(
+                !p.is_retryable_error(&format!("llm http status {code}: boom")),
+                "status {code} must fail fast"
+            );
+        }
+    }
+
+    #[test]
+    fn a_body_mentioning_a_transport_word_does_not_make_a_client_error_retryable() {
+        let p = proxy();
+        // The regression this guards: keyword matching used to retry these,
+        // burning the whole retry budget on requests that can never succeed.
+        assert!(!p.is_retryable_error("llm http status 400: invalid connection parameter"));
+        assert!(
+            !p.is_retryable_error("llm http status 401: your session timed out, please reconnect")
+        );
+        assert!(
+            !p.is_retryable_error("llm http status 422: upstream socket hang up while parsing")
+        );
+    }
+
+    #[test]
+    fn an_unparseable_status_is_not_retryable() {
+        let p = proxy();
+        assert!(!p.is_retryable_error("llm http status abc: weird"));
+    }
+
+    #[test]
+    fn cancellation_is_never_retryable() {
+        let p = proxy();
+        // Built from the transport's own spelling so this cannot drift; a
+        // cancelled request that also mentions a transport word must still
+        // not be retried.
+        assert!(!p.is_retryable_error("llm cancelled: request aborted"));
+        assert!(!p.is_retryable_error("llm cancelled: request aborted (connection reset by peer)"));
+    }
+
+    #[test]
+    fn transport_level_failures_without_a_status_stay_retryable() {
+        let p = proxy();
+        for msg in [
+            "error sending request for url (https://example.test): connection refused",
+            "sse decode error: unexpected end of stream",
+            "socket hang up",
+            "overloaded",
+        ] {
+            assert!(p.is_retryable_error(msg), "{msg}");
+        }
+        assert!(!p.is_retryable_error("invalid api key"));
     }
 }

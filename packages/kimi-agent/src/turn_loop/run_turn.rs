@@ -409,18 +409,6 @@ fn strip_rebuilt_system_message(messages: Vec<LLMMessage>) -> Vec<LLMMessage> {
     messages.into_iter().skip(1).collect()
 }
 
-/// Where a compaction continuation belongs: right after the last message that
-/// is not a reminder, so the handoff precedes the reminders the step head
-/// appended (v2 `compactionRearmPending` re-injects after the splice). The
-/// continuation text is itself a `<system-reminder>`, so it cannot simply be
-/// pushed — that would leave it after the reminders it must precede.
-fn continuation_anchor(messages: &[LLMMessage]) -> usize {
-    messages
-        .iter()
-        .rposition(|message| !crate::injection::is_system_reminder(&message.content))
-        .map_or(0, |at| at + 1)
-}
-
 /// The messages one request carries, after media resolution and the media
 /// budget have had their say, with the omission warning surfaced as a
 /// `WarningEvent` (protocol `events.ts`) — the channel the host already
@@ -1034,6 +1022,10 @@ pub fn run_turn<'a>(
                     "type": "compaction.started",
                     "trigger": "auto",
                 }));
+                // v2 `postProcessSummary` reads the todo state at compaction
+                // time; a host without the bridge or without todos degrades
+                // to a plain summary.
+                let todos = crate::compaction::read_todos_for_summary(callbacks.as_ref()).await;
                 match crate::compaction::compact_messages_with_summary_at_report(
                     &messages,
                     context_tokens.tokens(),
@@ -1041,6 +1033,8 @@ pub fn run_turn<'a>(
                     input.llm,
                     None,
                     Some(turn_cancel.token()),
+                    effective_window,
+                    todos,
                 )
                 .await
                 {
@@ -1068,16 +1062,13 @@ pub fn run_turn<'a>(
                             guard.notify_pre_compact(&turn_id, messages.len()).await;
                         }
                         context_tokens.invalidate();
+                        // The compacted shape already closes its block with
+                        // the continuation note (v2 `buildContextCompactionShape`
+                        // splices exactly `result.messages`), so nothing is
+                        // rearmed here: v2's `compactionRearmPending`
+                        // re-injects reminders, which the injection pass below
+                        // owns, not a second continuation.
                         messages = compacted;
-                        // v2 `compactionRearmPending`: the continuation is anchored
-                        // before the reminders the step head appended, so the model
-                        // reads the handoff first. Inserting rather than re-appending
-                        // leaves every other message where it was — moving the
-                        // reminders would break `messages` = `[system] + carried
-                        // history + new`, which is what the callers' fold index
-                        // assumes.
-                        let at = continuation_anchor(&messages);
-                        messages.insert(at, crate::compaction::compaction_continuation_message());
                     }
                     Ok(None) => {}
                     Err(error) => {
@@ -1275,22 +1266,32 @@ pub fn run_turn<'a>(
                             as Box<dyn std::error::Error + 'a>);
                     }
                     // v2 `recordOverflowRecovery`: count the round, then refuse
-                    // once the budget is spent. The error text mirrors v2's
-                    // `Compaction failed to bring the context under the model
-                    // window after N attempts.` so a host can recognise it.
+                    // once the budget is spent. The English fallback mirrors
+                    // v2's `Compaction failed to bring the context under the
+                    // model window after N attempts.`; the sentence goes out
+                    // through the engine i18n layer, and no host matches on
+                    // the text itself (v2 hosts matched on error codes).
                     consecutive_overflow_compactions += 1;
                     let max_attempts = compaction_config.max_overflow_compaction_attempts;
                     if consecutive_overflow_compactions > max_attempts {
-                        return Err(Box::new(std::io::Error::other(format!(
-                            "Compaction failed to bring the context under the model window after \
-                             {max_attempts} attempts."
-                        )))
+                        let message = crate::i18n::LocalizedText::fmt(
+                            "engine.compaction.overflowFailed",
+                            format!(
+                                "Compaction failed to bring the context under the model window after {max_attempts} attempts."
+                            ),
+                            crate::i18n::i18n_params!["max_attempts" => max_attempts],
+                        )
+                        .render();
+                        return Err(Box::new(std::io::Error::other(message))
                             as Box<dyn std::error::Error + 'a>);
                     }
                     callbacks.emit_event(serde_json::json!({
                         "type": "compaction.started",
                         "trigger": "auto",
                     }));
+                    // Same todo suffix as the threshold path (v2
+                    // `postProcessSummary`), read at compaction time.
+                    let todos = crate::compaction::read_todos_for_summary(callbacks.as_ref()).await;
                     let compacted_report =
                         crate::compaction::force_compact_messages_with_summary_report(
                             &messages,
@@ -1300,6 +1301,7 @@ pub fn run_turn<'a>(
                             Some(turn_cancel.token()),
                             effective_window,
                             crate::compaction::estimate_messages_tokens(&messages),
+                            todos,
                         )
                         .await;
                     let (force_compacted, report) = match compacted_report {
@@ -1362,9 +1364,6 @@ pub fn run_turn<'a>(
                     );
                     messages = force_compacted;
                     context_tokens.invalidate();
-                    // v2 `compactionRearmPending`, as above.
-                    let at = continuation_anchor(&messages);
-                    messages.insert(at, crate::compaction::compaction_continuation_message());
                 }
             };
             // The step produced a result, so the window fits: v2 `afterStep`
@@ -1510,6 +1509,7 @@ pub fn run_turn<'a>(
                                                 content: "Tool call deduplicated but original result was lost".into(),
                                                 is_error: true,
                                                 note: None,
+                                                display: None,
                                             }
                                         })
                                         .await;
@@ -1558,6 +1558,7 @@ pub fn run_turn<'a>(
                                                 content: response.content,
                                                 is_error: response.is_error,
                                                 note: response.note,
+                                                display: None,
                                             }
                                         }
                                         Err(e) => {
@@ -1575,6 +1576,7 @@ pub fn run_turn<'a>(
                                                 content: format!("Tool execution error: {e}"),
                                                 is_error: true,
                                                 note: None,
+                                                display: None,
                                             }
                                         }
                                     }
@@ -5158,11 +5160,16 @@ mod tests {
             }),
             "the elision note must mark the omitted middle"
         );
-        assert!(
-            captured.iter().any(|m| m
-                .content
-                .contains(crate::compaction::COMPACTION_CONTINUATION_TEXT)),
-            "compaction continuation reminder anchored on latest context"
+        let continuation_count = captured
+            .iter()
+            .filter(|m| {
+                m.content
+                    .contains(crate::compaction::COMPACTION_CONTINUATION_TEXT)
+            })
+            .count();
+        assert_eq!(
+            continuation_count, 1,
+            "exactly one continuation note, carried by the compacted shape itself"
         );
         assert!(
             captured.iter().any(|m| m.content == big),
@@ -5175,6 +5182,143 @@ mod tests {
                     && !m.content.contains("roughly")
                     && !m.content.contains("compaction")),
             "injection appended after compaction"
+        );
+    }
+
+    /// v2 `postProcessSummary` (fullCompactionService.ts:844): a compaction
+    /// in a session with todos appends the rendered list to the written
+    /// summary, so the todo state survives the fold that dropped the older
+    /// history. The default `host/state_read` answers Null for every domain;
+    /// the todo domain gets a real list here.
+    #[tokio::test]
+    async fn test_auto_compaction_summary_carries_the_todo_list() {
+        use std::sync::Mutex;
+
+        struct CaptureLlm {
+            captured: Arc<Mutex<Vec<LLMMessage>>>,
+        }
+        impl LLM for CaptureLlm {
+            fn system_prompt(&self) -> &str {
+                "base prompt"
+            }
+            fn model_name(&self) -> &str {
+                "capture"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let captured = self.captured.clone();
+                Box::pin(async move {
+                    *captured.lock().unwrap() = params.messages.to_vec();
+                    Ok(LLMChatResponse {
+                        content: if params.messages[0]
+                            .content
+                            .contains("conversation summarizer")
+                        {
+                            "Earlier user and assistant discussed the task.".into()
+                        } else {
+                            String::new()
+                        },
+                        thinking: vec![],
+                        tool_calls: vec![],
+                        finish_reason: Some("stop".into()),
+                        usage: TokenUsage {
+                            input_tokens: 1,
+                            output_tokens: 1,
+                            total_tokens: 2,
+                            ..Default::default()
+                        },
+                        timing: None,
+                    })
+                })
+            }
+        }
+
+        let big = "x".repeat(120_000);
+        let captured: Arc<Mutex<Vec<LLMMessage>>> = Arc::new(Mutex::new(Vec::new()));
+        let llm = CaptureLlm {
+            captured: captured.clone(),
+        };
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server.clone());
+        // Overwrite the no-op state_read (a HashMap insert, so this wins) and
+        // answer only the todo domain — goal/plan keep the Null the step-head
+        // refresh expects.
+        RpcServer::register_arc(&server, types::methods::HOST_STATE_READ, |params| {
+            Box::pin(async move {
+                let value = if params.get("domain").and_then(|v| v.as_str()) == Some("todo") {
+                    serde_json::json!([
+                        { "id": "t1", "title": "ship the fix", "status": "in_progress" }
+                    ])
+                } else {
+                    serde_json::Value::Null
+                };
+                let resp = types::StateReadResponse { value };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        let input = RunTurnInput {
+            previous_turn_aborted: false,
+            turn_id: "test-compaction-todos".into(),
+            llm: &llm,
+            messages: vec![
+                LLMMessage {
+                    role: "user".into(),
+                    content: big.clone(),
+                    ..Default::default()
+                },
+                LLMMessage {
+                    role: "assistant".into(),
+                    content: big.clone(),
+                    ..Default::default()
+                },
+                LLMMessage {
+                    role: "user".into(),
+                    content: big.clone(),
+                    ..Default::default()
+                },
+            ],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+            toolset: None,
+        };
+
+        let result = run_turn(input, &callbacks).await.unwrap();
+        assert!(matches!(result.stop_reason, LoopTurnStopReason::EndTurn));
+
+        let captured = captured.lock().unwrap();
+        let summary_message = captured
+            .iter()
+            .find(|m| {
+                m.content
+                    .contains(crate::compaction::COMPACTION_SUMMARY_PREFIX)
+            })
+            .expect("the prefixed summary must be present");
+        assert!(
+            summary_message
+                .content
+                .contains("Earlier user and assistant discussed the task."),
+            "the generated summary rides the compaction prefix"
+        );
+        assert!(
+            summary_message.content.contains("## TODO List")
+                && summary_message.content.contains("ship the fix"),
+            "the summary carries the todo list (v2 postProcessSummary)"
         );
     }
 
@@ -5995,12 +6139,11 @@ mod tests {
                             timing: None,
                         })
                     } else {
-                        // Third call succeeds after compaction.
                         // Third call succeeds after compaction. v2 shape:
                         // system + head user input (u1, kept verbatim) +
                         // elision note + prefixed summary + continuation +
                         // the uncompacted tail (u2/a2/u3) + date reminder.
-                        assert_eq!(params.messages.len(), 9);
+                        assert_eq!(params.messages.len(), 8);
                         assert_eq!(params.messages[0].role, "system");
                         assert_eq!(params.messages[1].content, "u1");
                         // The compacted range here covers only u1/a1 — its
@@ -6023,13 +6166,13 @@ mod tests {
                         assert_eq!(
                             params.messages[3].content,
                             crate::compaction::COMPACTION_CONTINUATION_TEXT,
-                            "compaction continuation reminder anchored before injection"
+                            "continuation note carried by the compacted shape, ahead of the tail"
                         );
                         assert_eq!(params.messages[4].content, "u2");
                         assert_eq!(params.messages[5].content, "a2");
                         assert_eq!(params.messages[6].content, "u3");
                         assert!(
-                            params.messages[8].content.starts_with(
+                            params.messages[7].content.starts_with(
                                 "<system-reminder>
 "
                             ),

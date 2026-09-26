@@ -1133,6 +1133,30 @@ impl ServerEngine {
         crate::pipeline::build_llm_for_spec(&spec, &callbacks).ok()
     }
 
+    /// The session's todos rendered for the compaction summary (v2
+    /// `postProcessSummary`, fullCompactionService.ts:844): `None` when the
+    /// workspace has no todo list or it is empty. Resolves the workspace the
+    /// way [`Self::session_llm`] does, and reads the domain straight from the
+    /// store the way `StateStoreCallbacks` routes engine-owned domains, so
+    /// the REST `:compact` route appends exactly what a turn's
+    /// `host/state_read` would answer for this session.
+    pub fn session_todo_summary(&self, session_id: &str) -> Option<String> {
+        let ws_root = match self.store.get_session(session_id) {
+            Ok(Some(s)) if s.workspace_id.is_some() => {
+                let wid = s.workspace_id.unwrap();
+                self.store
+                    .get_workspace(&wid)
+                    .ok()
+                    .flatten()
+                    .map(|w| std::path::PathBuf::from(w.root))
+            }
+            _ => None,
+        };
+        let ws_ref = ws_root.as_deref().unwrap_or(std::path::Path::new("."));
+        let store = crate::storage::StateStore::for_workspace(ws_ref).ok()?;
+        crate::compaction::todo_list_for_summary(store.read_domain("todo").as_ref())
+    }
+
     /// The LLM one model alias resolves to, without a session or a pipeline.
     ///
     /// `None` when the alias resolves to no reachable provider — the caller

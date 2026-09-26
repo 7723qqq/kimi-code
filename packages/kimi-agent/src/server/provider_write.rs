@@ -1,5 +1,7 @@
 //! Provider create / replace / delete / get, porting kap-server's
-//! `routes/modelCatalog.ts` write half.
+//! `protocol/rest-modelCatalog.ts` write half (the write routes live in
+//! `routes/modelCatalog.ts`; the schemas they validate against are the ones
+//! re-exported from `protocol/`).
 //!
 //! Writes mutate `config.toml` through [`crate::config::write`] (toml_edit,
 //! format-preserving) and refresh the server's cached config, so the next
@@ -24,7 +26,8 @@ use crate::server::model_catalog::{self, non_empty};
 /// One protocol error: HTTP status, kap-server code, message.
 pub type WriteError = (u16, u32, String);
 
-/// `providerWireTypeSchema`.
+/// `providerWireTypeSchema` (protocol/rest-modelCatalog.ts:24-31) — the six
+/// values, in the same order.
 const WIRE_TYPES: [&str; 6] = [
     "kimi",
     "openai",

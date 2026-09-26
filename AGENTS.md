@@ -191,7 +191,6 @@ src/
     reverse-rpc/      — Reverse RPC for ACP communication
   i18n/               — Localization setup
   native/             — Native module integration
-  migration/          — Data migration
   feedback/           — User feedback collection
   utils/              — Shared utilities
   constant/           — Constants
@@ -259,9 +258,9 @@ packages/
 
 **`kimi-agent`** — Next-generation Rust agent engine that drives the entire agent execution. Implements multi-turn execution loops, native LLM wire transport (OpenAI, Anthropic, Google Gemini), concurrent tool scheduling with conflict detection, sandboxed native filesystem/bash tools, SQLite session persistence, ACP stdio protocol, and native HTTP/1.1 + RFC 6455 WebSocket streaming with backpressure event fan-out (`EventHub`). The former `kimi-native-tools` addon (bash, grep, glob, read, write, edit, token counting, output truncation, web fetching, image processing, SSE streaming, SQLite, ULID, i18n translation) was merged into this crate under `src/native/` — one crate, one `.node` binary, one npm package. See `packages/kimi-agent/ROADMAP.md`.
 
-**`kosong`** (v0.5.5) — The LLM / provider abstraction layer — the single shared home for the provider wire contract. Owns the contract types (`Message` / `ChatProvider` / `Tool` / `TokenUsage` / `ModelCapability`), the coded-error infrastructure (`Error2` + provider error taxonomy), and the pure-function layer (`generate()`, token estimation, error classification, provider wire helpers). Supports Anthropic, Google Gemini, and OpenAI-compatible providers. Uses `zod-to-json-schema` for tool schema conversion.
+**`kosong`** (v0.5.6) — The LLM / provider abstraction layer — the single shared home for the provider wire contract. Owns the contract types (`Message` / `ChatProvider` / `Tool` / `TokenUsage` / `ModelCapability`), the coded-error infrastructure (`Error2` + provider error taxonomy), and the pure-function layer (`generate()`, token estimation, error classification, provider wire helpers). Supports Anthropic, Google Gemini, and OpenAI-compatible providers. Uses `zod-to-json-schema` for tool schema conversion.
 
-**`transcript`** (v0.0.1) — Isomorphic transcript rendering data layer. Pure TypeScript (browser-safe). Agent-granular L1 store, idempotent L2 operations, granularity-gated L3 subscriptions (`off/turn/block/delta`), framework-free L4 view registry. Owns all transcript contract types in `src/contract/`.
+**`transcript`** (v0.0.2) — Isomorphic transcript rendering data layer. Pure TypeScript (browser-safe). Agent-granular L1 store, idempotent L2 operations, granularity-gated L3 subscriptions (`off/turn/block/delta`), framework-free L4 view registry. Owns all transcript contract types in `src/contract/`.
 
 **`minidb`** (v0.2.0) — Pure-Node.js embedded key-value database. Combines Redis-style in-memory KV with SQLite-style WAL + snapshot persistence. Includes cluster support.
 
@@ -283,7 +282,6 @@ scripts/
   check-locale-placeholders.cjs — Validate i18n placeholder consistency
   check-nix-workspace.mjs       — Validate flake.nix vs workspace membership
   check-no-comments.mjs         — Enforce no-comment policy (transcript)
-  check-service-naming.mjs      — Check service naming conventions
   check-t-call-coverage.mjs     — Check t() call coverage
   scan-hardcoded[-v2].mjs       — Scan for hardcoded strings (i18n compliance)
   scan-parity.mjs               — Rust ↔ TS interface parity (REST / WS events / WS control / tool names / napi / config keys)
@@ -297,8 +295,9 @@ scripts/
 ## Environment Requirements
 
 - **Bun**: `>= 1.4` — required. Package manager, script runner, and dev-toolchain runtime (`bun.lock` is the lockfile, specified via `bunVersion` in `flake.nix`); build, lint, typecheck, locale checks, and the vitest suites (`bun --bun run test`) all run through bun.
-- **Node.js**: no longer required for any development workflow — build, lint, typecheck, the native pipeline, and the test suites all run under Bun (pi-tui's node:test suite included). CI installs no Node.
-- **Published package engines**: 发布包与 native 包的 `engines` 一律是 `bun >= 1.4`（`apps/kimi-code`、`packages/kimi-agent`、`packages/pi-tui`），全仓没有任何 Node 下限。合并上游时**不要把 Node 侧工具链内容拉回来** —— `pnpm-lock.yaml`、`engines.node`、Node-only 脚本、SEA 构建步骤、装 Node 的 CI job 一律拒绝，相关需求在 Bun 上重新表达。唯一例外：`packages/node-sdk` 是产品 SDK 的包名，不属于工具链。
+- **Node.js**: no longer required for any development workflow — build, lint, typecheck, the native pipeline, and the test suites all run under Bun (pi-tui's node:test suite included). GitHub Actions installs no Node.
+- **Node.js (Nix build sandbox only)**: `flake.nix` still pins `nodejs_24` (`minNodeVersion = "24.15.0"`) and exports `npm_config_nodedir` so napi-rs can compile the Rust addon inside the Nix sandbox. This is the only Node dependency left; it is not a toolchain requirement and does not apply to the Bun dev workflow or GitHub Actions.
+- **Published package engines**: 发布包与 native 包的 `engines` 一律是 `bun >= 1.4`（`apps/kimi-code`、`packages/kimi-agent`、`packages/pi-tui`），发布包没有任何 Node 下限。合并上游时**不要把 Node 侧工具链内容拉回来** —— `pnpm-lock.yaml`、`engines.node`、Node-only 脚本、SEA 构建步骤、装 Node 的 CI job 一律拒绝，相关需求在 Bun 上重新表达。唯一例外：`packages/node-sdk` 是产品 SDK 的包名，不属于工具链。
 - **Rust** (optional, for native tools): Stable toolchain, MSVC on Windows.
 - **Git for Windows** (Windows only): Optional; used as the POSIX shell fallback when PowerShell is unavailable. Set `KIMI_SHELL_PATH` to pin a specific shell.
 
@@ -375,7 +374,7 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job install
 3. **test-rust** — `cargo fmt --check` + `cargo clippy --all-targets --features cli -- -D warnings` (Ubuntu only), then `cargo test --no-default-features --features cli,workflow-js` on Ubuntu and Windows
 4. **test-windows** — the full vitest suite on `windows-latest` (napi addon built first), so Windows-only regressions are caught
 5. **test-pi-tui** — `pi-tui` suite (dispatches to `bun test` under Bun and `node --test` under Node; CI runs it via Bun)
-6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, `check-no-legacy-engine.mjs`, Rust ↔ TS interface parity (`scan-parity.mjs`), no-comment policy (`check-no-comments.mjs`), service naming (`check-service-naming.mjs`), `t()` coverage (`check-t-call-coverage.mjs`), engine i18n parity (`check-engine-i18n-parity.mjs`), hardcoded-string scan (`scan-hardcoded-v2.mjs`), retired-package upstream delta ratchet (`check-upstream-v2-delta.mjs`), locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
+6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, `check-no-legacy-engine.mjs`, Rust ↔ TS interface parity (`scan-parity.mjs`), no-comment policy (`check-no-comments.mjs`), `t()` coverage (`check-t-call-coverage.mjs`), engine i18n parity (`check-engine-i18n-parity.mjs`), hardcoded-string scan (`scan-hardcoded-v2.mjs`), retired-package upstream delta ratchet (`check-upstream-v2-delta.mjs`), locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
 7. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
 8. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-agent && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test.
 9. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.

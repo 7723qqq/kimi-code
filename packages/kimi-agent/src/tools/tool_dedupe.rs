@@ -247,6 +247,7 @@ mod tests {
             content: content.into(),
             is_error: false,
             note: None,
+            display: None,
         }
     }
 
@@ -455,6 +456,7 @@ mod tests {
             content: "boom".into(),
             is_error: true,
             note: None,
+            display: None,
         }];
         assert!(guard.finalize_step(&plan, &mut results));
         assert!(results[0].is_error);

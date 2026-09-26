@@ -12,6 +12,14 @@
 use serde::{Deserialize, Serialize};
 
 /// Goal status, mirroring v2 `GoalStatus`.
+///
+/// This is the **persistence** spelling (`budget_limited`, `usage_limited`)
+/// used by `StateStore`'s `goal` domain — it is what lands in `goal.json` on
+/// disk. The host wire uses a different spelling for the same six states
+/// (`budgetLimited`), spelled [`crate::rpc::types::GoalStatus`]; the two are
+/// separate contracts on separate boundaries, and the serde attributes below are
+/// what keep them apart. Do not "unify" them — `state_store` must keep reading
+/// the files it already wrote, and the host must keep seeing camelCase.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GoalStatus {

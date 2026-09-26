@@ -119,6 +119,7 @@ pub async fn execute_invoke_subagent(
                     content: format!("Failed to invoke subagent: {e}"),
                     is_error: true,
                     note: None,
+                    display: None,
                 };
             }
         }
@@ -135,6 +136,7 @@ pub async fn execute_invoke_subagent(
         .unwrap_or_default(),
         is_error: false,
         note: Some("native_subagent".into()),
+        display: None,
     }
 }
 
@@ -158,6 +160,7 @@ pub async fn execute_manage_subagents(
                 content: serde_json::to_string_pretty(&list).unwrap_or_default(),
                 is_error: false,
                 note: Some("native_subagent".into()),
+                display: None,
             }
         }
         "kill" => {
@@ -183,6 +186,7 @@ pub async fn execute_manage_subagents(
                 content: serde_json::json!({ "killed": killed }).to_string(),
                 is_error: false,
                 note: Some("native_subagent".into()),
+                display: None,
             }
         }
         _ => ExecutableToolResult {
@@ -191,6 +195,7 @@ pub async fn execute_manage_subagents(
             content: format!("Unsupported manage_subagents action: '{action}'"),
             is_error: true,
             note: None,
+            display: None,
         },
     }
 }
@@ -213,6 +218,7 @@ pub async fn execute_define_subagent(
                 content: "Missing required 'name' argument".into(),
                 is_error: true,
                 note: None,
+                display: None,
             };
         }
     };
@@ -261,6 +267,7 @@ pub async fn execute_define_subagent(
         content: format!("Subagent '{name}' registered successfully."),
         is_error: false,
         note: Some("native_subagent".into()),
+        display: None,
     }
 }
 

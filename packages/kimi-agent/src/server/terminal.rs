@@ -87,6 +87,10 @@ pub struct TerminalManager {
     hub: Arc<EventHub>,
 }
 
+/// The pty's two ends: the writer that becomes the terminal's stdin, and a
+/// reader clone for the merged stdout/stderr stream.
+type PtyEndpoints = (Box<dyn Write + Send>, Box<dyn Read + Send>);
+
 impl TerminalManager {
     pub fn new(hub: Arc<EventHub>) -> Self {
         Self {
@@ -123,6 +127,36 @@ impl TerminalManager {
         }
     }
 
+    /// Take the pty's writer and a reader clone, killing the already-spawned
+    /// child if either step fails.
+    ///
+    /// The shell is a live process the moment `spawn_command` returns, so a
+    /// `?` on the two endpoint calls would strand it: it keeps its console
+    /// handle, its window stays on screen, and nothing in the manager holds a
+    /// reference to kill it. Termination is best-effort — the caller's error
+    /// message is the one that matters, and a child that ignores the kill
+    /// signal is the pty implementation's problem, not a reason to report a
+    /// different failure.
+    fn take_pty_endpoints(
+        master: &mut dyn MasterPty,
+        killer: &mut dyn ChildKiller,
+    ) -> Result<PtyEndpoints, String> {
+        let writer = match master.take_writer() {
+            Ok(writer) => writer,
+            Err(e) => {
+                let _ = killer.kill();
+                return Err(format!("Failed to take pty writer: {e}"));
+            }
+        };
+        match master.try_clone_reader() {
+            Ok(reader) => Ok((writer, reader)),
+            Err(e) => {
+                let _ = killer.kill();
+                Err(format!("Failed to take pty reader: {e}"))
+            }
+        }
+    }
+
     /// Create and spawn a new terminal child process inside a real pty.
     pub async fn create(
         &self,
@@ -142,7 +176,7 @@ impl TerminalManager {
 
         // Open a native pty with the requested geometry.
         let pty_system = native_pty_system();
-        let pair = pty_system
+        let mut pair = pty_system
             .openpty(PtySize {
                 rows: rows as u16,
                 cols: cols as u16,
@@ -166,18 +200,16 @@ impl TerminalManager {
         let child_pid = child.process_id();
         // A cloneable killer that can signal the process without holding the
         // `Child` (which is handed to the exit-watcher thread below).
-        let killer = child.clone_killer();
+        let mut killer = child.clone_killer();
 
         // Take the master's writer (stdin) and a readable clone (stdout/stderr
         // are merged into the single pty stream).
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|e| format!("Failed to take pty writer: {e}"))?;
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| format!("Failed to take pty reader: {e}"))?;
+        //
+        // From here on the child is already running, so every fallible step has
+        // to tear it down again: bailing out while the pty is open would leave
+        // an orphaned shell holding a console for the rest of the session.
+        // `take_pty_endpoints` kills the child on both failure paths.
+        let (writer, reader) = Self::take_pty_endpoints(pair.master.as_mut(), killer.as_mut())?;
         // Keep the master so resize() can reconfigure the window later.
         let master: Box<dyn MasterPty + Send> = pair.master;
 

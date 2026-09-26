@@ -19,8 +19,14 @@ pub mod image_compress;
 mod line_endings;
 pub mod list_directory;
 mod llm_stream;
+/// The `#[napi]` surface of this module's tools, re-exported for the addon.
+///
+/// Named `native_tool_bindings`, not `napi_bindings`: `crate::napi_bindings`
+/// (src/napi_bindings.rs) is the much larger host/session surface, and two files
+/// with the same name under different directories is a trap — a text search for
+/// `napi_bindings` silently misses one of them.
 #[cfg(feature = "napi")]
-mod napi_bindings;
+mod native_tool_bindings;
 mod output_truncate;
 pub(crate) mod path_access;
 mod permission;
@@ -61,4 +67,4 @@ pub fn native_list_directory(
 }
 
 #[cfg(feature = "napi")]
-pub use napi_bindings::*;
+pub use native_tool_bindings::*;

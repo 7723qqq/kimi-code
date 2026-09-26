@@ -24,6 +24,15 @@ const DEFAULT_POLL_INTERVAL_SECS: u64 = 5;
 const DEFAULT_FLOW_TTL_SECS: u64 = 900;
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 const REFRESH_MAX_ATTEMPTS: u32 = 3;
+/// Retryable statuses for the **token refresh** grant, mirroring TS
+/// `RETRYABLE_STATUSES` (`packages/oauth/src/oauth.ts:29`).
+///
+/// Deliberately *narrower* than the LLM request policy
+/// (`crate::llm::http::is_retryable_status_code`) and not to be merged with it:
+/// 408/409/425 answer a different question here — a refresh that conflicts or
+/// is too early will do the same thing on the next attempt — and 529 is an
+/// Anthropic-overload signal that means nothing to a token endpoint. Unifying
+/// the two would change refresh behaviour, not just tidy it.
 const REFRESH_RETRYABLE_STATUSES: [u16; 5] = [429, 500, 502, 503, 504];
 
 fn oauth_host() -> String {

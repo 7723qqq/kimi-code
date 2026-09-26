@@ -24,10 +24,19 @@ use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
 
 /// Maximum lines that can be read or tailed in one call.
+///
+/// **Fork-original, not a v2 constant.** Upstream's read tool has no line cap:
+/// it bounds output by *characters* — `DEFAULT_MAX_CHARS = 100_000` and
+/// `DEFAULT_MAX_CHARS_LIMIT = 500_000` (`agent/tools/os/read/read.ts:6-7`) —
+/// and has no per-line truncation. These three limits came from the retired v1
+/// engine, so a cap that behaves "right" here can still differ from v2 on a long
+/// line or a many-line file. The live `Read` tool (`tools/mod.rs`) is the other
+/// reader; it applies v2's `max_chars` and is what the model actually calls.
 pub const MAX_LINES: usize = 1000;
-/// Individual lines longer than this are truncated with `...`.
+/// Individual lines longer than this are truncated with `...` (fork-original).
 pub const MAX_LINE_LENGTH: usize = 2000;
-/// Output stops once rendered output exceeds this byte count (UTF-8).
+/// Output stops once rendered output exceeds this byte count (UTF-8;
+/// fork-original, and a *byte* budget where v2 counts characters).
 pub const MAX_BYTES: usize = 100 * 1024;
 
 /// Result of a read operation.

@@ -26,9 +26,15 @@ pub fn should_render_wall_time(tool_name: &str) -> bool {
     WALL_TIME_TOOL_NAMES.contains(&tool_name) || tool_name.starts_with("mcp__")
 }
 
-/// v2 `formatTaskWallTime`: `(ms / 1000).toFixed(3) seconds`, clamped at
-/// zero (a clock-skewed `endedAt` before `startedAt` must not render a
-/// negative duration).
+/// v2 `formatTaskWallTime`: `(ms / 1000).toFixed(3) seconds`.
+///
+/// Upstream clamps with `Math.max(0, endedAt - startedAt)` because it derives
+/// the duration from two wall-clock timestamps, which can skew backwards. The
+/// engine has no such pair: callers pass a duration already measured from a
+/// monotonic clock (`Instant::elapsed` in the tool scheduler, see
+/// `turn_loop::run_turn`), which cannot be negative — hence the `u64` parameter
+/// and the absent clamp. Callers computing a difference themselves must clamp
+/// before calling this.
 pub fn format_wall_time_ms(duration_ms: u64) -> String {
     format!("{:.3} seconds", duration_ms as f64 / 1000.0)
 }

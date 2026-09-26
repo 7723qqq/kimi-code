@@ -381,7 +381,10 @@ impl TranscriptProjector {
                 // v2 reaches `completed` on the normal path — `onStepCompleted`
                 // (coreEventMap.ts:598) sets it when `turn.step.completed`
                 // arrives, which is what `finalizeTurn`
-                // (agentProjector.ts:733) and `onTurnEnded`
+                // (agentProjector.ts:733 — the v3-era projector added in
+                // `64505e36e3`, reverted upstream by `2502d2157` and deleted
+                // here in `86f30ecc2c`; kept only as the reference for what
+                // `finalizeTurn` leaves alone) and `onTurnEnded`
                 // (coreEventMap.ts:452) then leave alone. The fork's turn loop
                 // publishes `llm.step.end` with the turn/step ids after every
                 // step (run_turn.rs), so a step that ran to completion is

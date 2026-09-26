@@ -14,8 +14,9 @@ pub const MAX_MATCHES: usize = 100;
 /// testing individual regexes.
 ///
 /// Uses case-sensitive matching with `literal_separator(true)` to mirror
-/// `globToRegExp` in `fsSearchService.ts` — `*` does NOT cross `/`, only `**`
-/// does. This also matches ripgrep's `--glob` semantics.
+/// `globToRegExp` in the fork's retired `fsSearchService.ts` (added in `83e4a0cf71`
+/// and gone with the v1 engine; upstream has no such function) — `*` does NOT
+/// cross `/`, only `**` does. This also matches ripgrep's `--glob` semantics.
 pub fn glob_matches_any(globs: &[String], path: &str) -> bool {
     if globs.is_empty() {
         return false;

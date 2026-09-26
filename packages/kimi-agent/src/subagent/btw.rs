@@ -79,6 +79,7 @@ pub fn check_btw_tool_denial(caller_agent_id: Option<&str>) -> Option<Executable
             content: TOOL_CALL_DISABLED_MESSAGE.into(),
             is_error: true,
             note: None,
+            display: None,
         });
     }
     None

@@ -237,83 +237,6 @@ pub fn is_within_workspace(candidate: &str, roots: &[String], path_class: PathCl
     false
 }
 
-const SENSITIVE_BASENAMES: &[&str] = &[".env", "id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
-
-const ENV_EXEMPTIONS: &[&str] = &[".env.example", ".env.sample", ".env.template"];
-
-const PUBLIC_KEY_BASENAMES: &[&str] = &["id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub"];
-
-const SENSITIVE_BASENAME_PREFIXES: &[&str] = &["id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
-
-const SENSITIVE_DOT_VARIANT_SUFFIXES: &[&str] = &[
-    ".bak",
-    ".backup",
-    ".copy",
-    ".disabled",
-    ".key",
-    ".old",
-    ".orig",
-    ".pem",
-    ".save",
-    ".tmp",
-];
-
-const SENSITIVE_PATH_SUFFIXES: &[&[&str]] = &[&[".aws", "credentials"], &[".gcp", "credentials"]];
-
-/// 原生敏感文件判断算法（严格对齐 TS tool/path-access.ts isSensitiveFile）
-pub fn is_sensitive_file(path: &str) -> bool {
-    let normalized = path.replace('\\', "/");
-    let comparable_path = normalized.to_ascii_lowercase();
-    let name = comparable_path
-        .rsplit('/')
-        .next()
-        .unwrap_or(&comparable_path);
-
-    // 1. 豁免检查
-    if ENV_EXEMPTIONS.contains(&name) {
-        return false;
-    }
-    if PUBLIC_KEY_BASENAMES.contains(&name) {
-        return false;
-    }
-
-    // 2. 基础敏感文件名
-    if SENSITIVE_BASENAMES.contains(&name) {
-        return true;
-    }
-    if name.starts_with(".env.") {
-        return true;
-    }
-
-    // 3. 敏感前缀衍生变体
-    for prefix in SENSITIVE_BASENAME_PREFIXES {
-        if name == *prefix {
-            return true;
-        }
-        if name.len() > prefix.len() && name.starts_with(prefix) {
-            let suffix = &name[prefix.len()..];
-            let first_char = suffix.chars().next().unwrap_or('\0');
-            if first_char == '-' || first_char == '_' {
-                return true;
-            }
-            if first_char == '.' && SENSITIVE_DOT_VARIANT_SUFFIXES.contains(&suffix) {
-                return true;
-            }
-        }
-    }
-
-    // 4. 敏感路径后缀
-    for parts in SENSITIVE_PATH_SUFFIXES {
-        let suffix = parts.join("/");
-        let needle = format!("/{}", suffix);
-        if comparable_path.ends_with(&needle) || comparable_path.contains(&format!("{}/", needle)) {
-            return true;
-        }
-    }
-
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -552,30 +475,5 @@ mod tests {
             &roots,
             PathClass::Posix
         ));
-    }
-
-    #[test]
-    fn test_is_sensitive_file_rules() {
-        // 豁免白名单
-        assert!(!is_sensitive_file(".env.example"));
-        assert!(!is_sensitive_file("/project/.env.sample"));
-        assert!(!is_sensitive_file("C:\\repo\\.env.template"));
-        assert!(!is_sensitive_file("id_rsa.pub"));
-        assert!(!is_sensitive_file("/home/user/.ssh/id_ed25519.pub"));
-
-        // 基础敏感文件
-        assert!(is_sensitive_file(".env"));
-        assert!(is_sensitive_file("/app/.env.local"));
-        assert!(is_sensitive_file("C:\\keys\\id_rsa"));
-        assert!(is_sensitive_file("id_ed25519"));
-
-        // 衍生变体与备份
-        assert!(is_sensitive_file("id_rsa.bak"));
-        assert!(is_sensitive_file("id_rsa.pem"));
-        assert!(is_sensitive_file("credentials_backup"));
-
-        // 云服务凭证路径
-        assert!(is_sensitive_file("/home/user/.aws/credentials"));
-        assert!(is_sensitive_file("C:\\Users\\admin\\.gcp\\credentials"));
     }
 }

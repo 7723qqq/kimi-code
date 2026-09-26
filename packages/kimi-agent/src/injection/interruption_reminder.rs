@@ -27,11 +27,16 @@ const REMINDER_MARKER: &str = "The previous turn was interrupted by the user";
 /// dedupe against the last comparable message's injection variant): the
 /// reminder is one-shot per abort, and a resumed session must not re-announce
 /// one the model was already shown.
+///
+/// The marker is trusted only inside a real injection. Injections carry role
+/// `user` (v2 appends them that way), so role cannot separate them, and a user
+/// quoting the line — asking what it means, or reporting a bug that shows it —
+/// would otherwise make a genuine post-abort reminder look already-sent.
 pub fn scan_interruption_baseline(messages: &[LLMMessage]) -> bool {
-    messages
-        .iter()
-        .rev()
-        .any(|message| message.content.contains(REMINDER_MARKER))
+    messages.iter().rev().any(|message| {
+        let content = message.content.as_str();
+        crate::injection::is_system_reminder(content) && content.contains(REMINDER_MARKER)
+    })
 }
 
 /// Register the one-shot provider when the previous turn aborted and the
@@ -79,6 +84,21 @@ mod tests {
         assert!(scan_interruption_baseline(&[message(
             &wrap_system_reminder(INTERRUPTION_REMINDER)
         )]));
+    }
+
+    #[test]
+    fn test_baseline_ignores_user_text_quoting_the_reminder() {
+        // A user reporting the reminder verbatim must not make a genuine
+        // post-abort reminder look already-sent, which would drop the one
+        // injection that tells the model its earlier output is incomplete.
+        assert!(
+            !scan_interruption_baseline(&[message(INTERRUPTION_REMINDER)]),
+            "an unwrapped user message is not an injection"
+        );
+        assert!(
+            scan_interruption_baseline(&[message(&wrap_system_reminder(INTERRUPTION_REMINDER))]),
+            "a real injection still counts"
+        );
     }
 
     #[test]

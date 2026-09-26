@@ -161,6 +161,7 @@ pub fn execute_select_tools(
                 content: "Invalid arguments: 'names' array is required.".into(),
                 is_error: true,
                 note: None,
+                display: None,
             };
         }
     };
@@ -172,6 +173,7 @@ pub fn execute_select_tools(
             content: "Invalid arguments: 'names' must contain at least one tool name.".into(),
             is_error: true,
             note: None,
+            display: None,
         };
     }
 
@@ -258,6 +260,7 @@ use the tools you already have."
         content: lines.join("\n"),
         is_error,
         note: None,
+        display: None,
     }
 }
 

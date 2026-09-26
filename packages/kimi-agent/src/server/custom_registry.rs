@@ -386,7 +386,8 @@ fn resolve_capabilities(model: &RegistryModelEntry) -> Vec<String> {
     }
 }
 
-/// v2 `applyCustomRegistryProvider`'s alias write: one upstream model as the
+/// v2 `applyCustomRegistryProvider` (`@moonshot-ai/kimi-code-oauth`
+/// `custom-registry.ts:410`)'s alias write: one upstream model as the
 /// `{provider}/{model key}` alias.
 pub fn alias_write(
     provider_id: &str,

@@ -3469,6 +3469,36 @@ keep = "all"
         .unwrap();
         assert_eq!(disabled.resolve_thinking_keep(), None);
 
+        // Every off value disables the passthrough, case- and
+        // whitespace-insensitively. The same six spellings are duplicated in
+        // `resolveThinkingKeep` (node-sdk/src/native/native-llm-resolver.ts),
+        // so this table is the Rust half of a cross-language contract: a
+        // spelling added on one side and not the other would silently change
+        // what a user can turn off.
+        for off_value in ["false", "0", "no", "off", "none", "null"] {
+            for spelling in [off_value.to_string(), off_value.to_uppercase()] {
+                let config =
+                    KimiConfig::from_str(&format!("[thinking]\nkeep = \"{spelling}\"\n")).unwrap();
+                assert_eq!(
+                    config.resolve_thinking_keep(),
+                    None,
+                    "{spelling:?} must disable the passthrough"
+                );
+            }
+        }
+        // Padded values trim to the same off value.
+        let padded = KimiConfig::from_str("[thinking]\nkeep = \"  OFF  \"\n").unwrap();
+        assert_eq!(padded.resolve_thinking_keep(), None);
+        // A value that merely contains an off word is not one, and a bare
+        // "all" is the enabling spelling.
+        let partial = KimiConfig::from_str("[thinking]\nkeep = \"none-of-the-above\"\n").unwrap();
+        assert_eq!(
+            partial.resolve_thinking_keep().as_deref(),
+            Some("none-of-the-above")
+        );
+        let all = KimiConfig::from_str("[thinking]\nkeep = \"all\"\n").unwrap();
+        assert_eq!(all.resolve_thinking_keep().as_deref(), Some("all"));
+
         // Env outranks the file, off values included.
         unsafe { std::env::set_var(key, "all") };
         assert_eq!(off.resolve_thinking_keep().as_deref(), Some("all"));

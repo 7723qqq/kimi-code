@@ -131,7 +131,7 @@ pub struct AcpClientInfo {
 /// Pick the highest supported revision that does not exceed the client's; a
 /// client below the minimum still receives the server's current revision so
 /// it can decide whether to disconnect (v2 `negotiateVersion`,
-/// version.ts:37-49).
+/// acp-server/src/version.ts:38-50).
 pub fn negotiate_protocol_version(client_version: Option<u32>) -> u32 {
     let requested = client_version.unwrap_or(0);
     SUPPORTED_PROTOCOL_VERSIONS

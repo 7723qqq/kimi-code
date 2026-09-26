@@ -1,4 +1,11 @@
 //! Append-only JSONL session storage for crash resilience.
+//!
+//! **Legacy since P75.** The engine persists session turns through
+//! [`crate::session::sqlite_store::SqliteSessionStore`]; nothing in the engine
+//! constructs this store, which is kept for its own tests and for hosts that
+//! want a dependency-free transcript. Its writes are append-only but not
+//! synchronised, so a host driving it concurrently must serialise access
+//! itself. See the `storage` module header before using it.
 
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};

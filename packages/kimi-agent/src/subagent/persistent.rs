@@ -136,7 +136,8 @@ impl PersistentSubagentManager {
         transcript
     }
 
-    /// 四阶段结构化辩论编排实现（参考 TS debate-coordinator.ts 阶段流程）
+    /// 四阶段结构化辩论编排实现（参考 fork 自有的 TS debate-coordinator.ts
+    /// 阶段流程，由 `f6dd89f7c6` 引入并随 v2 引擎退役；上游无此文件）
     pub async fn run_structured_debate(
         &self,
         agents: &[SubagentHandle],

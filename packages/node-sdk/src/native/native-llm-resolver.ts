@@ -74,7 +74,9 @@ export interface JsNativeLlmConfig {
 }
 
 export interface PolicySnapshotDto {
-  mode: 'manual' | 'auto' | 'yolo' | 'plan';
+  /** v2's `PermissionMode` (`agent/permissionPolicy/types.ts`) — plan mode is
+   *  a tool guard, not a permission mode, so it never appears here. */
+  mode: 'manual' | 'auto' | 'yolo';
   deny_rules: string[];
   ask_rules: string[];
   allow_rules: string[];
@@ -358,11 +360,10 @@ export function resolveModelContextWindow(
 }
 
 export function buildPolicySnapshot(config: KimiConfig, workDir: string): PolicySnapshotDto {
-  const mode = (config.yolo === true ? 'yolo' : (config.defaultPermissionMode ?? 'manual')) as
-    | 'manual'
-    | 'auto'
-    | 'yolo'
-    | 'plan';
+  // `default_permission_mode` is v2's `DefaultPermissionModeSchema`
+  // (`manual | auto | yolo`, `config-local/schema.ts`), so the config cannot
+  // name a mode the engine does not model — no cast needed and none allowed.
+  const mode = config.yolo === true ? 'yolo' : (config.defaultPermissionMode ?? 'manual');
   const rules = config.permission?.rules ?? [];
   // `[permission] dangerousCommandGuard`, with the v2 env override
   // (`KIMI_CODE_DANGEROUS_COMMAND_GUARD`): only the literal `true` / `false`

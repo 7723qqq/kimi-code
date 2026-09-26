@@ -264,6 +264,7 @@ async fn search_via_moonshot(
             content: "No search results found.".to_string(),
             is_error: false,
             note: None,
+            display: None,
         });
     }
     Some(ExecutableToolResult {
@@ -272,6 +273,7 @@ async fn search_via_moonshot(
         content: format_search_results(results),
         is_error: false,
         note: None,
+        display: None,
     })
 }
 
@@ -287,6 +289,7 @@ pub async fn execute_web_search(
             content: "Query parameter cannot be empty".to_string(),
             is_error: true,
             note: None,
+            display: None,
         });
     }
 
@@ -314,6 +317,7 @@ pub async fn execute_web_search(
                 .render(),
                 is_error: true,
                 note: None,
+                display: None,
             });
         }
     };
@@ -351,6 +355,7 @@ pub async fn execute_web_search(
                 content: msg,
                 is_error: true,
                 note: None,
+                display: None,
             });
         }
     };
@@ -368,6 +373,7 @@ pub async fn execute_web_search(
             .render(),
             is_error: true,
             note: None,
+            display: None,
         });
     }
 
@@ -385,6 +391,7 @@ pub async fn execute_web_search(
                 .render(),
                 is_error: true,
                 note: None,
+                display: None,
             });
         }
     };
@@ -403,6 +410,7 @@ pub async fn execute_web_search(
                 .render(),
                 is_error: true,
                 note: None,
+                display: None,
             });
         }
     };
@@ -414,6 +422,7 @@ pub async fn execute_web_search(
             content: "No search results found.".to_string(),
             is_error: false,
             note: None,
+            display: None,
         });
     }
 
@@ -425,6 +434,7 @@ pub async fn execute_web_search(
         content: format_search_results(results),
         is_error: false,
         note: None,
+        display: None,
     })
 }
 

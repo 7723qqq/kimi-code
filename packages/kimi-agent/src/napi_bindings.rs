@@ -3328,31 +3328,47 @@ async fn compact_session_with_summary(
         }));
     }
     let cancel = crate::turn_loop::run_turn::TurnCancellation::from_flag(Some(flag.clone()));
-    let compacted = crate::compaction::force_compact_messages_manual_with_summary(
+    // v2 #3911: pre-shrink the summarizer's first request to the effective
+    // window (configured, lowered by any in-process overflow observation).
+    let window =
+        crate::compaction::effective_max_tokens(llm.model_name(), entry.max_context_tokens);
+    // v2 `postProcessSummary`: carry the todo state into the summary when the
+    // session has one; a host without the state bridge degrades to None.
+    let todos = crate::compaction::read_todos_for_summary(entry.callbacks.as_ref()).await;
+    let (compacted, summary) = crate::compaction::force_compact_messages_manual_with_summary(
         &messages,
         &config,
         llm.as_ref(),
         instruction.as_deref(),
         Some(cancel.token()),
+        window,
+        todos,
     )
     .await
     .map_err(|error| napi::Error::from_reason(error.to_string()))?;
     if flag.load(Ordering::Relaxed) {
-        return Err(napi::Error::from_reason("compaction cancelled"));
+        return Err(napi::Error::from_reason(
+            crate::i18n::LocalizedText::plain(
+                "engine.compaction.cancelled",
+                "compaction cancelled",
+            )
+            .render(),
+        ));
     }
-    let summary = compacted
-        .get(1)
-        .map(|m| m.content.clone())
-        .unwrap_or_default();
     let tokens_after = crate::compaction::estimate_messages_tokens(&compacted);
+    // The compacted shape already closes with the continuation note (v2
+    // `buildContextCompactionShape`), so `compacted[1..]` goes in as-is:
+    // kept verbatim user input, prefixed summary, continuation, tail.
     let mut new_history = compacted[1..].to_vec();
-    new_history.push(crate::compaction::compaction_continuation_message());
     new_history.extend(injections);
     let message_count = new_history.len() as u32;
     entry.session.set_history(new_history);
     Ok(serde_json::json!({
         "changed": true,
         "messageCount": message_count,
+        // `count` is the first kept index over the engine's view (which has
+        // the system prompt at `[0]`); the host-side history never carries
+        // it (`compacted[1..]` above), so its first kept index is one short.
         "compactedCount": count - 1,
         "tokensBefore": tokens_before,
         "tokensAfter": tokens_after,

@@ -47,6 +47,7 @@ pub async fn execute_lsp_tool(
                 content: "Missing required parameter 'action' (e.g. 'definition')".into(),
                 is_error: true,
                 note: None,
+                display: None,
             });
         }
     };
@@ -60,6 +61,7 @@ pub async fn execute_lsp_tool(
             ),
             is_error: true,
             note: None,
+            display: None,
         });
     }
 
@@ -72,6 +74,7 @@ pub async fn execute_lsp_tool(
                 content: "Missing required parameter 'path'".into(),
                 is_error: true,
                 note: None,
+                display: None,
             });
         }
     };
@@ -88,6 +91,7 @@ pub async fn execute_lsp_tool(
             content: format!("Target file does not exist: {}", target_path.display()),
             is_error: true,
             note: None,
+            display: None,
         });
     }
 
@@ -100,6 +104,7 @@ pub async fn execute_lsp_tool(
                 content: format!("Unsupported file type for LSP: {}", target_path.display()),
                 is_error: true,
                 note: None,
+                display: None,
             });
         }
     };
@@ -115,6 +120,7 @@ pub async fn execute_lsp_tool(
                 ),
                 is_error: true,
                 note: None,
+                display: None,
             });
         }
     };
@@ -128,6 +134,7 @@ pub async fn execute_lsp_tool(
                 content: format!("Failed to read target file {}: {e}", target_path.display()),
                 is_error: true,
                 note: None,
+                display: None,
             });
         }
     };
@@ -141,6 +148,7 @@ pub async fn execute_lsp_tool(
                 content: format!("Failed to start language server '{server_bin}': {e}"),
                 is_error: true,
                 note: None,
+                display: None,
             });
         }
     };
@@ -154,6 +162,7 @@ pub async fn execute_lsp_tool(
                 content: format!("Failed to initialize LSP stdio pipes: {e}"),
                 is_error: true,
                 note: None,
+                display: None,
             });
         }
     };
@@ -170,6 +179,7 @@ pub async fn execute_lsp_tool(
             content: format!("LSP initialize failed: {e}"),
             is_error: true,
             note: None,
+            display: None,
         });
     }
 
@@ -226,6 +236,7 @@ pub async fn execute_lsp_tool(
                 ),
                 is_error: true,
                 note: None,
+                display: None,
             });
         }
     };
@@ -239,6 +250,7 @@ pub async fn execute_lsp_tool(
             content: serde_json::to_string_pretty(&val).unwrap_or_else(|_| val.to_string()),
             is_error: false,
             note: None,
+            display: None,
         }),
         Err(e) => Some(ExecutableToolResult {
             delivery: None,
@@ -246,6 +258,7 @@ pub async fn execute_lsp_tool(
             content: format!("LSP {action} failed: {e}"),
             is_error: true,
             note: None,
+            display: None,
         }),
     }
 }

@@ -54,21 +54,10 @@ const MAX_ALIASES: usize = 8;
 /// the process.
 const FILING_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// Parse a switch value: `1`/`true`/`on`/`yes` and their negatives, anything
-/// else unrecognized.
-pub fn parse_switch(value: &str) -> Option<bool> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "on" | "yes" => Some(true),
-        "0" | "false" | "off" | "no" => Some(false),
-        _ => None,
-    }
-}
-
-/// The env override, `None` when unset or unrecognized.
+/// The `KIMI_AGENT_MEMORY_FILING` override, `None` when unset or
+/// unrecognized so [`resolve_gate`] can defer to the config entry.
 pub fn env_switch() -> Option<bool> {
-    std::env::var(FILING_ENV)
-        .ok()
-        .and_then(|value| parse_switch(&value))
+    crate::env::parse_bool_env(std::env::var(FILING_ENV).ok().as_deref())
 }
 
 /// The `[experimental].memory_filing` entry: `true`, or any string but
@@ -627,15 +616,28 @@ mod tests {
     }
 
     #[test]
-    fn the_env_switch_parses_both_directions() {
-        assert_eq!(parse_switch("1"), Some(true));
-        assert_eq!(parse_switch(" TRUE "), Some(true));
-        assert_eq!(parse_switch("on"), Some(true));
-        assert_eq!(parse_switch("0"), Some(false));
-        assert_eq!(parse_switch("False"), Some(false));
-        assert_eq!(parse_switch("off"), Some(false));
-        assert_eq!(parse_switch("maybe"), None);
-        assert_eq!(parse_switch(""), None);
+    fn an_unrecognized_switch_falls_through_to_the_config_entry() {
+        // `env_switch` parses through the shared `env::parse_bool_env`, so an
+        // unrecognized value is `None` rather than a guess. `resolve_gate` must
+        // then defer to `[experimental].memory_filing` instead of reading the
+        // typo as a disable.
+        for typo in ["maybe", "", "  "] {
+            let parsed = crate::env::parse_bool_env(Some(typo));
+            assert_eq!(parsed, None, "{typo:?} must stay unrecognized");
+            assert!(
+                resolve_gate(parsed, Some(true)),
+                "{typo:?} must defer to config"
+            );
+            assert!(
+                !resolve_gate(parsed, Some(false)),
+                "{typo:?} must defer to config"
+            );
+        }
+        // An explicit value does not defer.
+        assert!(!resolve_gate(Some(false), Some(true)));
+        assert!(resolve_gate(Some(true), Some(false)));
+        // Neither side set: the pass stays on (the prompt promises it).
+        assert!(resolve_gate(None, None));
     }
 
     #[test]

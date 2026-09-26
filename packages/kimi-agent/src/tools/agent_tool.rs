@@ -95,6 +95,7 @@ fn required_string_arg(
         ),
         is_error: true,
         note: None,
+        display: None,
     })
 }
 
@@ -426,6 +427,7 @@ async fn execute_resume(
             content: reason,
             is_error: true,
             note: None,
+            display: None,
         });
     }
 
@@ -481,15 +483,22 @@ async fn execute_resume(
             emit_completed(runtime.callbacks.as_ref(), resume_id, &summary, &turn.usage);
             (format_success(resume_id, &profile_name, &summary), false)
         }
-        Ok(Some(Ok(ForegroundTurnOutcome::ParentCancelled))) => (
-            format_failure(
-                resume_id,
-                &profile_name,
-                USER_INTERRUPTED_SUBAGENT_MESSAGE,
-                false,
-            ),
-            true,
-        ),
+        Ok(Some(Ok(ForegroundTurnOutcome::ParentCancelled))) => {
+            // Same terminal the fresh-spawn and background-resume arms emit
+            // (`:1038`, `:611`): without it `subagent.started` from
+            // `emit_spawned_started` above is never settled and the member
+            // stays Running forever.
+            emit_cancelled(runtime.callbacks.as_ref(), resume_id);
+            (
+                format_failure(
+                    resume_id,
+                    &profile_name,
+                    USER_INTERRUPTED_SUBAGENT_MESSAGE,
+                    false,
+                ),
+                true,
+            )
+        }
         Ok(Some(Err(message))) => {
             emit_subagent_event(
                 runtime.callbacks.as_ref(),
@@ -546,6 +555,7 @@ async fn execute_resume(
         content,
         is_error,
         note: None,
+        display: None,
     })
 }
 
@@ -660,12 +670,21 @@ async fn run_resume_in_background(
             bg_future,
         );
         if let Err(error) = registered {
+            // `bg_future` is consumed by the failed registration, so the
+            // `subagent.started` already published above would never be
+            // settled. Settle it here before returning.
+            emit_failed(
+                callbacks.as_ref(),
+                resume_id,
+                &format!("failed to register the background resume task: {error}"),
+            );
             return ExecutableToolResult {
                 delivery: None,
                 stop_turn: false,
                 content: format!("failed to register the background resume task: {error}"),
                 is_error: true,
                 note: None,
+                display: None,
             };
         }
         return ExecutableToolResult {
@@ -690,6 +709,7 @@ async fn run_resume_in_background(
             .join("\n"),
             is_error: false,
             note: None,
+            display: None,
         };
     }
     tokio::spawn(bg_future);
@@ -710,6 +730,7 @@ async fn run_resume_in_background(
         .join("\n"),
         is_error: false,
         note: None,
+        display: None,
     }
 }
 
@@ -765,6 +786,7 @@ pub async fn execute_agent(
                         content: message,
                         is_error: true,
                         note: None,
+                        display: None,
                     });
                 }
             }
@@ -781,6 +803,7 @@ pub async fn execute_agent(
                     content: message,
                     is_error: true,
                     note: None,
+                    display: None,
                 });
             }
             None
@@ -807,6 +830,7 @@ pub async fn execute_agent(
                 content: err.to_string(),
                 is_error: true,
                 note: None,
+                display: None,
             });
         }
     }
@@ -911,7 +935,7 @@ pub async fn execute_agent(
             }
         };
 
-        if let Some(runner) = task_runner {
+        let spawn_error = if let Some(runner) = task_runner {
             // Session attribution rides the runtime the pipeline built for
             // this turn — background task events land on the right lane.
             let session_id = manager
@@ -919,20 +943,39 @@ pub async fn execute_agent(
                 .await
                 .and_then(|r| r.session_id.clone())
                 .filter(|session| !session.is_empty());
-            let _ = runner.spawn_task_with_meta(
-                crate::storage::TaskSpawnMeta {
-                    session_id: session_id.as_deref(),
-                    kind: "subagent",
-                    subagent_type: Some(&profile_name),
-                    agent_id: Some(agent_id.as_str()),
-                },
-                agent_id.clone(),
-                task_desc,
-                bg_future,
-            );
+            runner
+                .spawn_task_with_meta(
+                    crate::storage::TaskSpawnMeta {
+                        session_id: session_id.as_deref(),
+                        kind: "subagent",
+                        subagent_type: Some(&profile_name),
+                        agent_id: Some(agent_id.as_str()),
+                    },
+                    agent_id.clone(),
+                    task_desc,
+                    bg_future,
+                )
+                .err()
         } else {
             tokio::spawn(async move {
                 let _ = bg_future.await;
+            });
+            None
+        };
+        if let Some(error) = spawn_error {
+            // The registration consumed `bg_future`, so the subagent can never
+            // run to a terminal of its own. Reporting `status: running` here
+            // while the future is already gone is the worst of the two, so
+            // settle the lifecycle and hand the caller an error.
+            let message = format!("failed to register the background task: {error}");
+            emit_failed(runtime.callbacks.as_ref(), &agent_id, &message);
+            return Some(ExecutableToolResult {
+                delivery: None,
+                stop_turn: false,
+                content: message,
+                is_error: true,
+                note: None,
+                display: None,
             });
         }
         let content = [
@@ -961,6 +1004,7 @@ pub async fn execute_agent(
             content,
             is_error: false,
             note: None,
+            display: None,
         });
     }
 
@@ -1010,6 +1054,14 @@ pub async fn execute_agent(
                     emit_cancelled(runtime.callbacks.as_ref(), &agent_id);
                     USER_INTERRUPTED_SUBAGENT_MESSAGE
                 } else {
+                    // The instance stopped itself. The background path reports
+                    // exactly this shape as failed (`:876-881`), so leaving the
+                    // foreground one silent strands `subagent.started`.
+                    emit_failed(
+                        runtime.callbacks.as_ref(),
+                        &agent_id,
+                        SUBAGENT_STOPPED_MESSAGE,
+                    );
                     SUBAGENT_STOPPED_MESSAGE
                 };
                 (
@@ -1072,6 +1124,7 @@ pub async fn execute_agent(
         content,
         is_error,
         note: None,
+        display: None,
     })
 }
 

@@ -1,9 +1,10 @@
 //! Read-on-media: the model asking to look at an image or video file.
 //!
-//! Ported from v2's `execute-media-read.ts`: sniff the file, gate on the
-//! model's media capability and the size limits, then hand the media to the
-//! conversation through a [`ToolDelivery`] — a follow-up user message, the
-//! only shape OpenAI-compatible APIs accept for tool-produced media.
+//! Ported from v2's `readMediaFileTool.ts` (`agent/tools/read-media-file/`):
+//! sniff the file, gate on the model's media capability and the size limits,
+//! then hand the media to the conversation through a [`ToolDelivery`] — a
+//! follow-up user message, the only shape OpenAI-compatible APIs accept for
+//! tool-produced media.
 //!
 //! Images have three delivery shapes, exactly as v2:
 //! - default: compress to fit `[image].read_byte_budget` / `max_edge_px`;
@@ -488,6 +489,7 @@ pub fn read_image_media(
                     }],
                     origin: None,
                 }),
+                    display: None,
             });
         }
         FileKind::Image => {}
@@ -643,6 +645,7 @@ pub fn read_image_media(
                 }],
                 origin: None,
             }),
+            display: None,
         });
     }
 
@@ -785,6 +788,7 @@ pub fn read_image_media(
             }],
             origin: None,
         }),
+        display: None,
     })
 }
 

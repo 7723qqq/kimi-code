@@ -1309,6 +1309,61 @@ v2 用双冒号（`fs.ts:414,460`），bundle 用单冒号。fork 的 `::search`
   `$((`、`;;;`、`)))`、`\`、空串、纯空格全部 Safe，只有 `sudo reboot` 是
   `Dangerous("reboot")`。故这些命令在 yolo 下已由 `YoloModeApprove`（`permission/mod.rs:440`）
   放行、在 ask 下走常规审批 —— 与 #3869 的目标一致，只是路径不同。
+  > **2026-09-26 更正**：本条的「结构性无法表达」已过时 —— `DangerousVerdict` 后来补齐了
+  > `Unanalyzable`，而 #3 的**模式门控**在当时被写成「危险命令只在 manual 询问、auto 不跳过
+  > unanalyzable」，两者都与 v2 不符（见下一对条目）。
+- **#3 DangerousCommandAsk 的模式门控已对齐 v2（2026-09-26，用户按审查结论裁定）**：以
+  `git show upstream/main:packages/agent-core-v2/src/agent/permissionPolicy/policies/dangerous-command-ask.ts`
+  为准，v2 的顺序是「`mode === 'auto'` 先返回 undefined → 交给 #4 AutoModeApprove；**危险命令
+  在到达本策略的每个模式都询问（含 yolo）**；`unanalyzable` 再到 `mode === 'yolo'` 才放过」。
+  本引擎此前把 `Dangerous` 门控写成 `mode == Manual`（yolo 下 `rm -rf /` 直接由
+  `YoloModeApprove` 放行），且 auto 未在最外层跳过（auto 下 unanalyzable 反而会弹窗）。
+  现改为：外层加 `self.mode() != Auto`，`Dangerous(_)` 无模式条件返回 Ask，
+  `Unanalyzable(_)` 保留 `!= Yolo` 的例外。测试改名并重写期望：
+  `test_dangerous_bash_command_asks_in_manual_and_yolo`（manual/yolo→Ask，auto→AutoModeApprove）、
+  `test_unanalyzable_bash_command_asks_except_in_auto_and_yolo`（manual→Ask，auto/yolo→各自的
+  放行策略）。
+- **#12 GitCwdWriteApprove 收窄到与 v2 同口径（2026-09-26，同上裁定；同日补齐余下两道门）**：v2
+  （`git-cwd-write-approve.ts`）只在 **Write/Edit**、**`pathClass === 'posix'`**、且写入对象全在
+  `{workspaceDir, additionalDirs}` 内、且 `findWorkTree(cwd) !== null` 时放行；本 fork 此前对
+  **任意工具、任意平台**、只要路径 subject 落在 `git_cwd` 内就放行（旧注释自认
+  "deliberately broader"）。现四道门全部落地：
+  1. `matches!(tool_lower, "write" | "edit")`；
+  2. pathClass —— 引擎没有 pathClass 握手，改由**工作区根自身的形态**充当
+     （`is_posix_path(dir)`；v2 读的是执行运行时的 pathClass：win32 工作区＝本地 Windows 会话，
+     该策略永不在此放行，等价于 v2 的提前 return；posix 工作区（Linux/macOS、或远程 posix
+     运行时）照常；目标路径的形态同时要 posix 才继续）；
+  3. 包含性 —— `is_within_workspace` 按**规范化后的路径分量**比较（`.`/`..` 先解析、根 `/`
+     自带分量），`/repo2/x` 不再被当成 `/repo` 内（旧 `starts_with` 会放行），相对目标按
+     `canonicalizePath` 语义先对工作区拼绝对再比较；`additionalDirs` 取 `PipelineSpec.extra_roots`
+     （宿主已解析的 `/add-dir` 列表，不必再走 wire；`PermissionEngine::with_workspace`）；
+  4. `find_git_work_tree(cwd)` —— 从 cwd 向上找 `.git`（目录，或带 `gitdir:` 指针的文件＝
+     linked worktree / submodule；v2 `findGitWorkTree`），找不到就退出策略链。
+  副作用：Windows 上「按需询问」模式里 workspace 内的写入不再被本条自动放行（落到 #13
+  FallbackAsk），与 v2 在 win32 运行时一致；yolo 不受影响（#10 在前）。
+  测试：`test_git_cwd_write_approve`（真实临时 work tree，`#[cfg(unix)]` —— win32 根的 approve
+  路径按定义不可达，Windows CI 跳过）、`test_git_cwd_write_approve_requires_a_posix_work_tree`、
+  `test_find_git_work_tree`、`test_workspace_containment_is_component_wise`。
+- **plan 模式被折成权限模式的偏差已修（2026-09-26，复现后裁定）**：宿主曾按
+  `policySnapshot.mode = meta.planMode ? 'plan' : meta.permissionMode`（
+  `packages/node-sdk/src/native/sdk-rpc-client-native.ts`）把 plan 模式当权限模式发给引擎，
+  而 v2 的 `PermissionMode` 只有 `manual | yolo | auto`
+  （`git show upstream/main:packages/agent-core-v2/src/agent/permissionPolicy/types.ts:6`，
+  `DefaultPermissionModeSchema` 同样不含 `plan`）——plan 是**独立的工具守卫**
+  （`AgentPlanService.guardToolExecution`：非计划文件的写直接 veto，且不弹审批；注入文案明说
+  "Bash follows the normal permission mode and rules"）。本引擎早就有等价守卫
+  （`pipeline/mod.rs` 的 `plan_guard` → `tools/plan_mode.rs`，经 state bridge 读宿主 plan 域），
+  所以这个折叠纯属多余且有害：引擎把 `plan` 反序列化成 `PermissionMode::Unknown`（按 manual
+  处理），于是 **yolo 会话只要 `planMode` 为真，YoloModeApprove 就永不生效**——每次 handle
+  重建（`setThinking` / `setModel` / `additionalDirs`，以及带 `planMode: true` 的会话 resume）
+  都会重新烘进 `plan`。实测（临时 napi 探针，删前留证）：同一 `echo` 命令，manual 弹 1 次、
+  切 yolo 后不再弹、`setPlanMode(true)` + 重建后又弹、`setPlanMode(false)` + 重建后恢复；
+  这正是用户「中间档位 90%+ 操作都要批准」的来源（其会话 meta 为 `yolo` + `planMode: true`）。
+  修法：宿主只发真实权限模式（`policySnapshot.mode = meta.permissionMode`，DTO 联合类型去掉
+  `'plan'`），引擎侧保留对未知模式的容忍（`Unknown` → manual 语义，不会继承 yolo 的自动放行）。
+  回归测试：`packages/node-sdk/test/native-harness.test.ts`
+  「keeps a live permission mode when plan mode is on and the handle rebuilds」（临时改回旧写法
+  可复现失败：`expected [] to deeply equal ['Bash']` 反向）。
 - **非交互（`kimi -p`）下跳过 DangerousCommandAsk —— 已对齐（2026-09-19 本轮）**：上游
   `permissionPolicyService.ts` 在 bootstrap `nonInteractive` 时把该 ask 策略整体从链中移除
   （无人可应答）；本引擎的策略链此前无条件求值。现 `PolicySnapshot` 增 `non_interactive`
@@ -1813,13 +1868,57 @@ kimi-web vitest 42 文件/724 项 ✅｜`bun run lint` 0 errors。
   单条 user 文本（`[tool_call: Name(args)]` 内联）。拍平正是用户粘贴输出里
   `[tool_call: Bash({...})]` 指纹的来源 —— 模型照抄了喂给它的序列化格式。对齐需把 session
   system prompt 接进 `summarization_prompt`，动的是成本与结构，本轮不动。
-- **免费档摘要必 403**：zen 关卡三个**并发**条件（逐项 bisect 实测，
-  `.tmp/probe-notools.mjs`）—— `x-opencode-session` 头缺失 → 403；`tools` 不含同时的小写
-  `bash` + `read`（`tools: []`、`[calculate]`、无 `tools` 键均）→ 403；`stream: false` → 403；
-  FULL 头 + `stream:true` + `tools=[bash,read]` → 200。`summarization_prompt` 不带 tools
-  → 摘要调用**必** 403 → `compaction.cancelled`，即用户原始的「压缩已取消」。适配器
-  `opencode_adapter.rs::apply` 只改工具名，不补 tools 也不补头 —— 需单独裁定是补形状还是
-  承认免费档不支持压缩。
+- ~~**免费档摘要必 403**~~ **已修（2026-09-25，用户裁定「重写兼容层」）**：zen 关卡三个**并发**
+  条件（逐项 bisect 实测，`.tmp/probe-notools.mjs`）—— `x-opencode-session` 头缺失 → 403；
+  `tools` 不含同时的小写 `bash` + `read`（`tools: []`、`[calculate]`、无 `tools` 键均）→ 403；
+  `stream: false` → 403；FULL 头 + `stream:true` + `tools=[bash,read]` → 200。
+  `summarization_prompt` 不带 tools → 摘要调用**必** 403 → `compaction.cancelled`（即用户原始的
+  「压缩已取消」）。
+  **裁定：补形状**（备选「承认免费档不支持压缩」未采纳）。`opencode_adapter.rs` 重写为完整的
+  出站形状适配：`rewrite_tool_names()`（原有：`Bash`→`bash` / `Read`→`read`，三种线上结构都覆盖）
+  + `enforce_free_tier_shape()`（新：缺 `stream: true` 时补上；缺 `bash` / `read` 时注入**形状占位**）。
+  占位工具的风险与缓解：名字必须是关卡点名的两个，故模型可能真去调 —— 描述写死
+  `Do not call this tool`，且调用方（摘要器 / 标题生成器）不消费 `tool_calls`，只取文本。
+  `x-opencode-*` 头仍由 provider 的 `custom_headers` 提供，本层只管 body。
+  畸形 body（非对象、`tools` 非数组）**原样放行**交给关卡拒 —— 掰直会掩盖调用方真正的 bug。
+  覆盖范围：`http.rs:358` 在 `is_opencode_endpoint` 时调 `apply`；摘要器
+  （`compaction/mod.rs:719/721` 的 `llm.chat`）与标题生成器同走 `chat_impl`，因此一并生效。
+  测试：`llm::opencode_adapter` 共 15 项（含 `forces_streaming_on`、
+  `injects_the_shape_placeholders_when_tools_are_absent`、`appends_only_the_missing_placeholder`、
+  `a_full_toolset_is_left_alone`、`a_restricted_tool_table_still_gets_the_gate_pair`、
+  `the_placeholder_shape_follows_the_protocol`、`placeholders_join_the_google_declaration_group`、
+  `a_non_array_tools_value_is_left_to_the_gate`）。
+  **审查轮补记（2026-09-25 第三轮，用户裁定「完整修复缺失与错误的改动」）**：
+  ① 上一轮「只编译不测试」留下两处**红的新测试** —— `a_full_toolset_is_left_alone` 的 `before`
+  断言与它自己的第二条断言互相矛盾（`apply` 必然把 `Bash`→`bash`，第一条永远不成立）；
+  `tolerates_malformed_tool_entries` 调用的 `names()` 助手对畸形条目 `.unwrap()` panic。
+  两条都是测试缺陷（不是适配器缺陷），已修：`names()` 改 `filter_map`，前者改为断言「没有追加占位」。
+  ② **回程别名不再泄漏。** 原判「回程不需要映射」只对执行侧成立（派发 / 权限 / 工具策略 /
+  调度 access 都大小写不敏感）；**命名给人看**的消费方全是精确大小写 —— `tool.call.*` 事件、
+  ACP `infer_tool_kind`（`acp/events_map.rs:31`）、TUI 结果渲染器与 chip
+  （`tool-renderers/registry.ts:45`、`chip.ts:154`）、头部关键参数（`tool-call.ts:460`）、
+  Read 分组（`streaming-ui.ts:672`）、用户 `[[hooks]]` matcher（`external_hooks.rs:175`，
+  matcher 是正则且大小写敏感：配 `Bash` 的护栏在免费档**静默失效**）、vscode 扩展
+  （`event-adapter.ts:171`）与 web 客户端（`useKimiWebClient.ts:1655` 已自带 `'bash'` 兜底，
+  是同一泄漏的旁证）。
+  修法：新增 `tools::canonical_tool_name(name, table)`，按**模型看到的工具表**把名字还原成
+  引擎拼写；`run_turn` 收到 `ToolCalls` 后、进 dedup / 执行 / 事件**之前**规范化一次。
+  **历史消息保持模型原话**（`messages.push` 在规范化之前）—— 出站 body 因此与已验证通关的形状
+  逐字一致，不引入新的关卡风险；表里没有的名字（幻觉 / 未加载）原样保留。
+  测试：`run_turn::tests::tool_call_events_use_the_canonical_name_from_the_table`（事件拿到
+  `Bash`、历史保留 `bash`）+ `tools::tests::canonical_tool_name_restores_the_tables_spelling`。
+  ③ **占位形状随协议。** `apply(body, protocol)` 现在接收协议名：Anthropic 出 `input_schema`、
+  Responses 出顶层 `name` / `parameters`、Google 装进 `functionDeclarations`（已有分组就补进去，
+  不另开分组），修掉「rewrite 覆盖三种结构、占位只发 OpenAI 形状」的不一致。
+  ④ 注释与实现对齐：`enforce_free_tier_shape` 是**强制** `stream: true`（显式 `false` 也覆盖），
+  原文「只在缺项时改动」不准确，已改。
+  ⑤ 取舍固化：占位**不止**投给无工具请求 —— 工具表被收窄的请求（只读子代理、`disallowedTools`
+  排除 Bash 的 profile）同样缺 `bash`，不补则整条 403；执行侧仍要过 `[tools]` 全局开关、子代理
+  allowlist 与权限引擎，占位不构成旁路。由 `a_restricted_tool_table_still_gets_the_gate_pair` 钉住。
+  验证：`cargo fmt --check` ✅、`cargo check --all-targets --features cli` ✅、
+  `llm::opencode_adapter` 15/15 ✅、`run_turn` 全量 ✅（完整 lib 套件见提交说明）。
+  **仍未验证**：未打真实 zen 网关（无凭据），关卡三条件仍只有 §6.9.3 的 bisect 与单测为证；
+  TUI 端的渲染差异是代码事实，未做端到端复现。
 
 **6.9.4 未闭环工单**
 
@@ -2374,6 +2473,63 @@ TUI 定向 3 passed（6.12.5 两条 + 6.12.5 通道隔离一条）｜`cargo fmt 
 §6.10.5 已定位的沙箱 cwd 用例）｜`llm::openai` 41 passed（含 6.12.6 新契约）｜TUI 定向 3 passed
 （`thinking-preview` 2 + `thinking-answer-channels` 1）｜`bun scripts/scan-parity.mjs` ✅
 （REST 67 / WS 27 / ctl 12 / tools 88 / napi 103 / config 31）｜addon 已重建。
+
+**6.12.10 根因确认并修复（2026-09-25 深夜，TUI 侧）**
+
+用户补充两条决定性事实：**重复的两份「完全一样」且「必定一样」**，并提示 **「第一遍是灰色的，
+灰色全部出来后才会渲染正文的白色」**、怀疑 **「第一个思考不会，前 x 个思考不会」**。
+
+- **颜色是硬区分**：`ThinkingComponent` 恒用 `italicFg('textDim')`（灰，`thinking.ts:73`），
+  `AssistantMessageComponent` 用 `fg('text')`（白，`assistant-message.ts:165`）⇒ 「灰一份 + 白一份」
+  排除了渲染残留与重试（两者都只会是灰 + 灰）。
+- **「必定一样」排除了两次模型生成**（不可能逐字相同）⇒ 只能是**同一份数据被用了两次**。
+- **根因**：`handleToolCall`（`session-event-handler.ts:790`）与 `handleToolResult`（`:857`）只调
+  `streamingUI.flushNow()` —— 它只把 draft 刷进组件，**既不 finalize thinking 块、也不清
+  `_thinkingDraft`**。对照同文件其余 5 处 `flushNow()`（`:563-566`、`:685-688`、`:764`、`:1165-1167`）
+  后面都紧跟 `finalizeLiveTextBuffers`，**只有这两个工具边界没有**。
+  ⇒ 工具调用后 `_activeThinkingComponent` 与 `_thinkingDraft` 双双存活，下一步的思考继续
+  `setText(draft)` / 追加 ⇒ 同一组件里叠进两段。**而相邻 step 面对的仍是同一个任务
+  （工具结果尚未改变判断），思考内容本就相同** ⇒ 叠出来的就是「逐字相同的两份」，故**必定一样**。
+- **为什么「第一个不会」**：回合开始 `beginSessionRequest` → `resetLiveText()`（`:394-397`）强制
+  清空 draft 与组件，所以 step1 一定干净；从 step2 起是否干净取决于上一步有没有收尾。
+- **修复**：两处改为 `streamingUI.finalizeLiveTextBuffers('tool')` / `('waiting')`。
+  回归测试 `apps/kimi-code/test/tui/controllers/session-event-handler-tool-boundary.test.ts`
+  （3 项：工具调用收尾、工具结果收尾、仍打开 tool pane）。
+- **性质说明**：上游 TUI 的这两处同样是 `flushNow()`，**本修复是「比 v2 更好」的分叉**，
+  按铁律记录于此。
+- **验证**：`bun run typecheck` 全仓 ✅（13 包 + apps/kimi-code + apps/vscode + vis 全 0）。
+  **按用户指示未执行 vitest**（本轮只做类型校验）。
+
+**6.12.11 子代理思考被绞进主 transcript（2026-09-25 深夜，用户报「后面的不对劲」）**
+
+用户贴出的实跑日志里，后半段出现**逐 chunk 交错**的文本，最清楚的一处：
+
+```text
+refuses to run[The MS] if a Forge client is live (PowerShell/CIM probe shared with
+[probeLive][YS find is picking up a Windows FIND. Let me use Glob for reliable file
+listing and correct directory][Game]; override -PallowLiveDeploy=true)
+```
+
+正常句子是「refuses to run **the MS Game** …」与「**find** is picking up a Windows **FIND**. Let me use
+Glob for reliable file listing and correct directory **structure**」—— 两段按 chunk 交替拼接。
+另有 `root` + `all.zip`、`regex-read` + `s MekAdapterMod.VERSION` 同类形态。
+
+- **链路**：引擎给子代理的 delta 打 `subturn-` turn id → 宿主**正确**归属给
+  `meta.activeAgentId`（`sdk-rpc-client-native.ts:1389-1392`）→ **TUI 却不看 agentId**：
+  `handleThinkingDelta`（`session-event-handler.ts:707`）/ `handleAssistantDelta`（`:733`）
+  把**任何来源**的 delta 都追加进主 transcript 的同一个 `_thinkingDraft`。
+  ⇒ 两个 subagent 并行时，主代理 + 子代理 A + 子代理 B 三路思考写进同一个块 ⇒ 交错。
+- **子代理的**工具调用**是被分流的**（日志里 `↳ subagent explore (subagent-1…) · ↻ running`
+  是它自己的 activity 行，由 `subAgentEventHandler` / `activityStore` 按 agentId 驱动），
+  **只有文本 delta 漏了**。
+- **上游同形**：`be7d5f5fea` 的 `handleThinkingDelta`（`:555-572`）与 fork 逐字相同，
+  **同样不按 agentId 过滤** ⇒ **本修复是「比 v2 更好」的分叉**。
+- **修复**：两个 delta handler 各加一道 `if (event.agentId !== 'main') return;`（主代理恒为 `'main'`，
+  由宿主 `:1389-1392` 保证）。
+- **测试**：`session-event-handler-tool-boundary.test.ts` 新增 3 项（丢子代理 thinking、丢子代理
+  assistant、主代理两通道仍通）。
+- **未决**：子代理的思考目前**完全不显示**（只留 activity 行）。若要显示，应改成按 agentId 分块，
+  属于产品取舍，本轮未做。
 
 ---
 
@@ -3203,3 +3359,535 @@ Don't assume any of them completed; check current state (they may still be runni
    `tasks`）。探针测试 `reconcile_does_not_misreport_a_live_in_process_task`
    由失败转为常驻回归测试；新增 mixed（活 + 孤儿）、`already` 查重、扫描、
    通知（入队/去重/存活闸）用例。
+
+---
+
+## 10. 2026-09-26 独立审查轮：引用出处审计与一个环境脆弱测试
+
+> 范围：`packages/kimi-agent/src` 全量（Rust 注释里的 v2/上游引用）+ CI 门禁复跑。
+> 动机：§6.0 反复出现「文档失真」（allowlist 的 note 过期、路径写错），本轮把
+> 「引用出处」当作可机械核对的断言来处理——不看措辞，只看**被引文件在
+> `upstream/main`（`be7d5f5fea`）是否真实存在、该行是否存在**。
+
+### 10.1 方法与结果
+
+1. 抽出 `src/**/*.rs` 中全部 267 个 `.ts` 引用，与上游 3233 个 TS 文件按
+   basename 比对 → 39 个未命中；再逐个排除测试夹具路径（`/proj/file.ts`、
+   `combo.ts`、`anything.ts` 等）与 fork 自有文件（`sdk-rpc-client-native.ts`、
+   `project-local-config.ts`）→ 12 个**真失效引用**。
+2. 对每处失效引用，用 `git log --all --diff-filter=A -- '*<name>*'` 定位它
+   **真正**的来源（fork 哪个提交引入、是否随 v1/v2 引擎退役），再取上游真实
+   出处（`kosong/src/catalog.ts`、`acp-fs/acpFsService.ts`、
+   `readMediaFileTool.ts`、`requester/retry.ts`、`llm-adapter/contract/tokens.ts`…）
+   逐行核对语义。
+
+**已修正的 12 处**（全部为注释，无行为改动）：
+
+| 处 | 原引用 | 事实 |
+|---|---|---|
+| `tools/github.rs:1-9` | 「34 tools ported from agent-core-v2's `GITHUB_SPECS`」+ `agent/tools/github/github-tools.ts` | 上游**无 GitHub 工具族**（唯一的 `api.github.com` 是插件 `github-resolver`），无 `GITHUB_SPECS`、无该文件 |
+| `tools/github.rs:27` | 「verbatim from v2 `github-request.ts`」 | 同上；文案实出自 fork 自己的 v1 `agent-core` |
+| `tools/github.rs:131` | 「mirroring v2 `GITHUB_SPECS` verbatim」 | 同上 |
+| `tools/github.rs:2556` | 「v2 `github-request.ts` semantics」 | 同上 |
+| `tools/github.rs:2116` | 「v2 `mutating: true` specs (`GITHUB_MUTATING_TOOL_NAMES`)」 | 名单是 fork 自有；`default-tool-approve.ts` 本身**确为**上游文件（但上游无 GitHub 条目） |
+| `server/model_catalog.rs:2` | `kosong/model/catalogService.ts` | 真实路径 `packages/kosong/src/catalog.ts` |
+| `acp/mod.rs:105` | `fs-bridge.ts` | 真实路径 `packages/acp-server/src/acp-fs/acpFsService.ts` |
+| `native/glob.rs:17` | `globToRegExp` in `fsSearchService.ts` | 上游无 `globToRegExp`；出自 fork `83e4a0cf71` 的 v1 代码 |
+| `tools/read_media.rs:3` | 「Ported from v2's `execute-media-read.ts`」 | 真实路径 `agent/tools/read-media-file/readMediaFileTool.ts` |
+| `turn_loop/run_turn.rs:1725` / `:4774` | `loopService.ts:2117-2119` + `loopContinuationService.ts` | 行号实为 `1720-1723`（记录 `toolStopTurn`）与 `1521/1527`（以 `completed` 收尾）；`loopContinuationService.ts` 不存在 |
+| `turn_loop/run_turn.rs:4155` | `stepRetryService.ts:138-146` | 文件不存在；真实为 `human/llm/requester/retry.ts:23-25` 的 `resolveMaxAttempts` |
+| `rpc/types.rs:1186` | `engineOverride.ts:58` | `stopTurn` 字段实为 `loopService.ts:1705` |
+| `compaction/mod.rs:371` | `fullCompactionService.ts:305-318` | 行号正确，目录错：应为 `fullCompaction/`（非 `contextMemory/`） |
+| `team_tool.rs:4` / `subagent/persistent.rs:139` | 「mirroring `agent-core-v2`'s `teamTool.ts`」/「参考 TS debate-coordinator.ts」 | 二者均为 fork 自有（`5bc0484288` / `f6dd89f7c6`）并随 v2 退役，需标出 |
+| `rpc/types.rs:1206/1409`、`server/transcript/project.rs:384` | `rust-loop.ts` / `wire-schema.ts` / `agentProjector.ts` | 均为 fork 自有文件；`agentProjector.ts` 属已撤销的 v3 代（`64505e36e3` → 上游 `2502d2157` revert → 本 fork `86f30ecc2c` 删除） |
+
+**语义性更正（非仅路径）**：`turn_loop/wall_time.rs` 的 `format_wall_time_ms`
+原注释称「clamped at zero（clock-skewed `endedAt` before `startedAt`）」。上游
+`formatTaskWallTime` 确实用 `Math.max(0, endedAt - startedAt)`，但那是**两个墙上
+时钟相减**才需要的钳制；本引擎的时长来自调度器的单调钟（`Instant::elapsed`，
+`tool_scheduler.rs:195`），不可能为负——函数签名 `u64` 正是这一事实的结果。
+注释照抄上游语义会让读者去找一个不存在的钳制。已改写为说明钳制的归属。
+
+**`v2Github` 契约键名**（`tool-name-contract.json`）保留原名——它被
+`scan-parity.mjs:376` 与 `tools/mod.rs:6699` 消费，改名会牵动门禁且不属错误；
+已在 `scan-parity.mjs` 就地加注它是 misnomer、该族实为 fork 原创。
+
+### 10.2 一个真实缺陷：环境脆弱的 `cwd` 测试（非 Rust 实现错误）
+
+`mcp::client::tests::test_stdio_cwd_is_applied` 是全量套件里**唯一**的失败项
+（§6.10.5 早已记为「环境/会话相关」并给出 Node 对照实验）。本轮按复现优先
+实测，定位到确切机制：
+
+- 本机 `NoDefaultCurrentDirectoryInExePath=1`（Windows 加固常见配置），
+  `cmd /c probe.bat` **不再从当前目录搜索可执行文件**；改用绝对路径即成功。
+- Rust 实现无误：`mcp/client.rs:206-208` 确实调用了 `cmd.current_dir(dir)`。
+
+但「环境问题」不等于「测试没问题」：一个依赖 shell 搜索策略的 cwd 探针，在
+CI 的 Windows runner 或任何设了该变量的机器上都会假失败。已改为**以绝对路径
+启动脚本、由脚本用相对名探测同目录文件**（`@if not exist marker.txt exit /b 3`
+/ `test -f marker.txt || exit 3`）——仍然验证「子进程 cwd 被应用」（这正是
+被测语义），但不再依赖 shell 的可执行文件搜索规则。
+
+### 10.3 复核结论
+
+- **未发现任何 `todo!()` / `unimplemented!()` 桩**（全仓 0 命中）。
+- GitHub 工具族虽为 fork 自创，但**接线完整**（`tools/mod.rs:1698` dispatch、
+  `tool_policy.rs:155` 凭据门控、34 个 spec 与 dispatch 互相印证），非桩。
+  门控语义是「有 `[github]` token 才暴露」，是有意设计而非 v1 `github_tools`
+  实验标志的丢失。
+- 验证：`cargo clippy --all-targets --features cli -- -D warnings` ✅｜
+  `cargo test --no-default-features --features cli` **2877 passed / 0 failed /
+  1 ignored**（修前 2876/1）｜`scripts/scan-parity.mjs` ✅（REST 67 / WS 27 /
+  ctl 12 / tools 88 / napi 103 / config 31）｜`check:no-legacy-engine` ✅｜
+  `check:upstream-v2-delta` ✅（2 deltas all triaged）。
+- **未验证**：`cargo fmt --check` 在 `permission/mod.rs:1501` 报一处偏差，该 hunk
+  属本轮之前既有的未提交工作区改动（`@@ -1443,0 +1471,40 @@`），非本轮引入；
+  本轮修改的 13 个文件单独 `rustfmt --check` 全部干净。
+- 本轮只改注释、测试探针与 `scan-parity.mjs` 的说明注释，**无行为变更**。
+
+### 10.4 第二轮：行为层逐模块审查（同日续）
+
+10.1 的证据只能证明「文档没骗人」，不能证明「行为正确」。本轮换成两条更强的线：
+
+**(a) 协议面差分（结论：确实无缺失）。** 写临时脚本把上游 v1 参考与 Rust 实现对拍：
+- REST 路由：从 `.tmp/v2-ref/packages/kap-server/src/routes` 抽 94 条路径字面量 vs
+  Rust `src/server/**` → 10 个候选，**逐一人工核实后全部证伪**（`/capabilities/{id}`
+  已实现于 `mod.rs:2535`；其余是上游嵌套路径 vs Rust 扁平路径的匹配假象，
+  如上游 `/sessions/{id}/tasks/{id}` 对 Rust `/api/v1/tasks/{id}`）。
+- WS 控制帧：上游 18 个 type guard 全是内容块/worker 消息，非控制帧。
+- 工具名：上游 46 个 PascalCase 名全是错误类名。
+
+**(b) 行为缺陷审查（找到 1 个真实 bug）。** 按「测试密度低 + 行数大 + 安全敏感」排序审，
+发现 **`llm/proxy.rs` 的重试分类与原生传输不一致**（详见 10.5）——这是本轮唯一的
+行为修复。除该文件外的重点结论：
+
+| 模块 | 规模 / 测试密度 | 结论 |
+|---|---|---|
+| `swarm/agent_run_batch.rs` | 1530 行 / 11 测试 | 逐行比对上游 `agentRunBatch.ts` 的四个限流函数（`enterRateLimitMode` / `shrink` / `recover` / `nextRecoveryAt`），**语义完全一致**（含 `max(1)` 钳制与 `min(now)` 唤醒） |
+| `mcp/http.rs`、`mcp/output.rs` | 561+724 行 / 6+8 测试 | `mcp-session-id` 回显已实现；`MCP_MAX_BINARY_PART_BYTES=10MiB`、`MCP_MAX_INLINE_NOTICES_CHARS=4096` 与上游 `output.ts:31/33` 逐值一致，base64 换算 `ceil(x*4/3)` ≡ `div_ceil(4)` 亦一致 |
+| `cron/mod.rs` | 2025 行 | 9 处 `iter().next().unwrap()` 全有 `len()==1` 守卫；`MONTH_NAMES[mo-1]` 由 `parse_field(.., 1, 12)` 保证不越界 |
+| `session/patch.rs` | 931 行 / 9 测试 | RFC 6901/6902 实现规范。**曾怀疑 `Move` 逆操作在同数组 `from<path` 时因索引前移而出错，实测证伪**——`/0→/2` 的逆 `move /2→/0` 能正确还原（remove 已使索引前移）。已补两项 round-trip 回归测试（此前 `Move` 的逆操作**完全无测试**） |
+| `tools/grep_types.rs` | 651 行 / 3 测试 | 217 类型表与本机 ripgrep 15.0.0 的 `--type-list` 数目吻合，且仓库自带对账测试 `table_agrees_with_the_local_ripgrep_type_list`（有 rg 时真跑） |
+| `pipeline/mod.rs` | 917 行 / 6 测试 | 构造链与注释逐句相符，无缺陷 |
+| `llm/wire.rs`、`llm/thinking_guard.rs` | 170/330 行 | 见 10.5 |
+
+**本轮另修 5 处失效引用**（延续 10.1 的口径）：
+- `runStopHooks` → 上游真实名是私有方法 `runStop`（`agentExternalHooksService.ts:412`），
+  行号 `239-263` 实为 step-finish 注册块 `239-258`（`external_hooks.rs:12/330/394`、`run_turn.rs:474`）
+- `applyCustomRegistryProvider` 真实存在于上游，但在 **`packages/oauth/src/custom-registry.ts:410`**
+  （oauth 包，非 agent-core-v2）——函数级引用补包路径（`custom_registry.rs:389`）
+- `negotiateVersion` 行号三处不一致（38-41 / 37-49 / 无），统一为实测的
+  `acp-server/src/version.ts:38-50`；同时核实 `negotiate_protocol_version` 的实现与上游
+  `best ?? CURRENT_VERSION` 语义等价，**行为正确**
+- `REQUEST_MEDIA_BUDGET_BYTES` / `REQUEST_MEDIA_BUDGET_LOW_BYTES` 补出处
+  （`mediaResolverService.ts:48/49`，值 20MiB/10MiB **实测一致**）；`media-budget-exceeded` 在 `:210`
+
+> **方法论教训（值得留给后续审计）**：10.1 用「文件名」grep 校验出处，会**漏判**——
+> `REQUEST_MEDIA_BUDGET` 因我按全名在 `agent-core-v2` 内搜而误判为「上游不存在」，
+> 实际它在 `mediaResolverService.ts` 里定义。10.4 改用**符号级**对拍
+> （抽上游 9809 个符号 → 比对 Rust 注释里 993 个反引号符号）才把这类漏判清掉。
+> 同理，`agent-core-v2` 之外的 `packages/oauth` / `packages/kosong` /
+> `packages/acp-server` 也是合法引用出处，只搜 v2 引擎包会误报。
+
+### 10.5 `llm/proxy.rs` 重试分类与原生传输漂移（真实行为缺陷）
+
+`HostLlmProxy::is_retryable_error` 的注释声称 "mirrors NativeHttpLlm's classification"，
+实际是**关键词黑名单**，而原生路径（`llm/http.rs`）明确**按状态码分类**，其注释还专门
+写明理由：「scanning the body for keywords would retry a 400 whose text happens to
+contain "connection", or a 401 that mentions a session timeout — requests that can
+never succeed no matter how often they repeat」。两条路径的分歧是真实的：
+
+- **漏重试**：黑名单只有 `status 429/500/502/503/504/529`，缺 `408 / 409 / 425`
+  （上游 `RETRYABLE_STATUS_CODES` = `[408,409,429,500,502,503,504,529]`，425 是 fork
+  记录的增量）→ 该重试的请求直接失败。
+- **误重试**：`"llm http status 400: invalid connection parameter"` 之类会命中 `connect`
+  关键词而被反复重试，白烧整个重试预算。
+- **取消未排除**：含 `connection` 的取消串会被判为可重试。
+
+修法：先判 `is_cancelled_error`，再按 `llm_http_status` 的**状态码**分类，关键词表仅用于
+**无状态码**的传输层错误。新增 5 项回归测试（该文件此前 0 测试），含一条专门锁住
+「body 提到传输层词不得让 4xx 变得可重试」。
+
+### 10.6 第二轮验证
+
+`cargo clippy --all-targets --features cli -- -D warnings` ✅｜
+`cargo test --no-default-features --features cli --lib` **2885 passed / 0 failed / 1 ignored**
+（10.3 的 2877 → +8：proxy 5 项重试分类、thinking_guard 1 项 env 语义、patch 2 项 move 逆操作）｜
+`scripts/scan-parity.mjs` ✅（REST 67 / WS 27 / ctl 12 / tools 88 / napi 103 / config 31）｜
+本轮修改的 7 个文件 `rustfmt --check` 全干净。
+- **未覆盖**：`server/`（42.9k 行）、`tools/`（43.2k 行）、`native/`（18.5k 行）三大目录
+  尚未逐文件细审（子代理两度被 429 限额拒绝，只能串行推进）。
+
+### 10.7 第三轮：`native/` + `storage/` + `tower/`，以及一个失败的测试
+
+**`native/`（18.5k 行）**按「行数大 + 测试密度低」排序审完重点文件：
+- `loop_fold.rs`（379 行 / 3 测试）事件折叠状态机：曾怀疑 `append_open_content` 只查
+  `role == Assistant` 而不查 `has_open_assistant`，会在 `seal_open_assistant` 之后污染已封存
+  消息——**核实证伪**：`accepts_open_step` 以 `open_step_uuid` 把关，而 `settle_open` 必将其置
+  `None`，封存后不会有事件通过。
+- `bash_spawn.rs`（617 行）超时/kill/管道排空：kill 后有 `POST_KILL_EXIT_GRACE`(5s) 兜底、
+  管道排空有界(2s)、`dispose` 竞态有处理，无泄漏或死锁。
+- `dangerous_command.rs`（497 行）11 个危险命令与上游 `policies/dangerous-command-ask.ts:28-37`
+  **逐项同序一致**。
+- `read.rs`（1125 行）**发现一处会误导的出处**：三个截断常量
+  `MAX_LINES=1000` / `MAX_LINE_LENGTH=2000` / `MAX_BYTES=100KiB` 在上游 v2 **并不存在**
+  ——v2 按**字符**计预算（`DEFAULT_MAX_CHARS=100_000` / `LIMIT=500_000`，`read.ts:6-7`），
+  且无行数与单行截断。这三个来自已退役的 v1。文件头却写 "Mirrors v2 read.ts"，会让人以为
+  与 v2 等价。已在常量处标出来源与差异，并指明模型实际调用的是 `tools/mod.rs` 的活体 `Read`
+  （它用的是 v2 的 `max_chars`），`native/read.rs` 仅供 napi 读取路径（`file_cache.rs` 使用）。
+- `permission_engine/dangerous-command-ask.ts` 的**路径漂移**：上游真实位置是
+  `agent/permissionPolicy/policies/`，三处注释都用裸文件名——本轮按 `permissionPolicy/`
+  直接 `git show` 会报「路径不存在」，差点误判成上游无此文件。已在
+  `dangerous_command.rs:1` 与 `permission/mod.rs:479/2036` 补目录。
+
+**`storage/`**：`session_store.rs`（JSONL）自 P75 起被 `SqliteSessionStore` 取代，
+`grep` 全仓确认**无任何生产调用方**（`main.rs` / `napi_bindings.rs` / `server/` / `rpc/`
+全用 SQLite）。它自述为「crash-resilient multi-turn sessions」且 `append_turn` 无锁，
+易被误用——已在 `storage/mod.rs` 与 `session_store.rs` 双头部标注遗留状态。
+
+**`tools/tower/`**（`mod.rs` 1288 行零内联测试）：审 `execute_tower_merge` 的锁与门禁——
+`state_lock()` 返回按 repo 归一的进程级 mutex，`store.merge()` 内部**不再取锁**（避免死锁），
+由调用方持锁完成 load→mutate→save，契约写在 `store.rs:61-66`；`#3648` 的「全部 closed 则拒绝
+merge」门禁在 `store.rs:1252`。**设计正确，无需修改**。
+
+### 10.8 一个失败的测试（既有未提交改动里的断言错误）
+
+`permission::tests::test_workspace_containment_is_component_wise` 在全量套件里失败：
+
+```text
+panicked at src\permission\mod.rs:1800:9:
+a relative candidate is not the absolute path it resolves to
+```
+
+该测试属本会话之前既有的未提交改动（`git show HEAD:` 里没有这个用例）。原断言是
+`!is_within_directory("repo/src/lib.rs", "repo")` —— **两个参数都是相对路径**，于是
+`normalized_posix_parts` 不会给任一侧插入前导 `"/"` 组件，两者的 parts 就是
+`["repo","src","lib.rs"]` 与 `["repo"]`，前缀相等、函数如实返回 `true`。也就是说
+**该断言的期望本身不成立**，不是实现有 bug。已按「测试落后/写错先修测试」改为真正测到
+文档注释所述语义的形态（base 用绝对路径），并保留了原有的「绝对 candidate 不在同名相对
+base 内」那一条。
+
+### 10.9 第三轮验证
+
+`cargo fmt --check` ✅（**本轮修掉了 10.3 记为「非本轮引入、留待后续」的那处偏差**——
+`permission/mod.rs` 的超宽 `assert_eq!` 折行，纯格式化无语义变化）｜
+`cargo clippy --all-targets --features cli -- -D warnings` ✅｜
+`cargo test --no-default-features --features cli` **2887 passed / 0 failed / 1 ignored**
+（9 个测试二进制全绿）｜`scripts/scan-parity.mjs` ✅｜`check:upstream-v2-delta` ✅。
+- **仍未覆盖**：`server/`（42.9k 行）尚未逐文件细审；`tools/` 只审了 `tower/`。
+
+### 10.10 第四轮：`server/` 低覆盖文件，一个真实资源泄漏
+
+按「行数大 + 测试密度低」审 `server/`：`provider_write.rs`（463/1）、
+`transcript/model.rs`（846/2）、`terminal.rs`（541/2）、`oauth.rs`（1050/4）。
+
+**① 真实缺陷：`terminal.rs::create` 在 pty 端点获取失败时泄漏子进程（已修）**
+
+`spawn_command` 一返回，shell 就是**活着的进程**；但紧接着的
+`take_writer()`（原 `:176`）与 `try_clone_reader()`（原 `:180`）都用 `?` 直接返回。
+这两步任一失败，函数就带着一个**无人持有的活 shell** 退出：控制台句柄不释放、
+窗口留着、manager 里也没有任何引用能再杀掉它——直到会话结束。已抽出
+`TerminalManager::take_pty_endpoints`，在两条失败路径上都调用 `killer.kill()`
+（best-effort：调用方的错误信息才是要报的那条，child 不响应 kill 信号是 pty
+实现的问题，不该改写成别的错误）。为满足 `clippy::type_complexity` 引入
+`type PtyEndpoints`。类型上：`ChildKiller` 是 trait，`clone_killer()` 给的是
+`Box<dyn ChildKiller + Send + Sync>`，故形参取 `&mut dyn ChildKiller`；
+`master` 以 `&mut dyn MasterPty` 借用，因为取完两端后仍要把它存进 entry 供
+`resize()` 复用。
+
+**② `oauth.rs` 核实后确认无差异**（一度怀疑）：曾以为 poll 间隔硬编码
+`DEFAULT_POLL_INTERVAL_SECS=5` 而未采纳服务端下发的 `interval`。实际成功路径
+（`:376-380`）正是 `data["interval"] … .unwrap_or(DEFAULT_POLL_INTERVAL_SECS)`，
+与上游 `oauth.ts:170` 的 `data['interval'] ?? 5` 一致；两处硬编码只出现在
+**错误分支**（无服务端数据时用默认值，合理）。host / client_id / 端点 /
+`expires_in` 处理也均与 `packages/oauth` 对齐。
+
+**③ 补正路径漂移**：`providerWireTypeSchema` 的六个值与上游
+`protocol/rest-modelCatalog.ts:24-31` **逐项同序一致**，但注释写的是
+`routes/modelCatalog.ts`（写路由在那儿，schema 在 `protocol/`）。已在
+`provider_write.rs` 头部与常量处标明这也是一处路径差。
+
+**④ `provider_write.rs` 的 `delete` / `get` 核实**：`delete` 有存在性与
+oauth-托管两道门禁，并连带 `remove_model_aliases_of` 清别名（不留悬空别名）；
+`get` 回显 `api_key` 明文**与上游 `getProviderResponseSchema` 一致**
+（`api_key: z.string().optional()`，供编辑表单预填），非 fork 自创暴露。
+
+### 10.11 第四轮验证
+
+`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -- -D warnings` ✅｜
+`cargo test --no-default-features --features cli` **2887 passed / 0 failed / 1 ignored**。
+- **仍未覆盖**：`server/mod.rs`（13.6k 行）、`ws.rs`（1975/19）、
+  `project.rs`（3089/25）、`engine.rs`（2391/21）等大文件尚未逐段细审。
+
+### 10.12 重整轮：把「修复」升级为「结构上不可能再犯」
+
+10.5 修的是**症状**（把 proxy 的规则改对），但那组状态码仍然在 `http.rs` 与
+`proxy.rs` 各写一遍——下一次改动照样能漂移。重整的目的是消除这个漂移面本身。
+
+**① 抽出 `llm::http::is_retryable_status_code` 作为重试策略的唯一来源。**
+`NativeHttpLlm::is_retryable_error` 与 `HostLlmProxy::is_retryable_error` 现在都
+委托给它。关键取舍：**只共享策略，不合并实现**——状态码集合是策略（会漂移，
+且 10.5 的 bug 正是它漂移造成的），而**无状态码时的关键词回退是传输相关的**：
+原生路径匹配自己戳的 `llm transport error ` 前缀，host 路径匹配 JS host 产出的
+裸串（`socket hang up` 等）。把两者合并会改变刷新/传输行为，那不是整理而是改语义。
+
+**② 新增跨传输一致性测试** `both_transports_agree_on_every_status`：遍历 400..=599
+断言两个传输对同一消息给出相同答案。此前 `retryable_status_set_matches_v2_explicit_list`
+只钉在 `NativeHttpLlm` 上——这正是漂移能溜过去的原因：host-proxy 那份从来没人测。
+今后任何一处不再委托，测试立刻红。
+
+**③ `oauth.rs` 的 `REFRESH_RETRYABLE_STATUSES` 明确不与 LLM 集合合并**，并写下
+理由：它与上游 `packages/oauth/src/oauth.ts:29` 一致（`[429,500,502,503,504]`），
+且**刻意更窄**——408/409/425 在令牌刷新语境下重试同样会失败，529 是 Anthropic
+过载信号对 token 端点无意义。不写这句话，下一个"顺手统一"的人会改掉刷新行为。
+
+**④ 双向验证了 10.2 修的那个 cwd 测试**：此前只在本机（`NoDefaultCurrentDirectoryInExePath=1`）
+验证过。补测变量**未设**时同样成立（cwd 正确→退出 0，cwd 错误→退出 3），
+确认它不会在 CI 的 Windows runner 上假失败。
+
+**⑤ 清理**本轮审计产生的临时脚本（`.tmp/extract-routes.mjs` 等 6 个 + 产物），
+未触碰 `.tmp/` 下前几轮遗留的文件（该目录已 gitignore）。
+
+### 10.13 重整轮验证
+
+`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -- -D warnings` ✅｜
+`cargo test --no-default-features --features cli` **2888 passed / 0 failed / 1 ignored**
+（10.11 的 2887 → +1 跨传输一致性测试）。
+
+### 10.14 重整轮二：同名不同义的两个 MIME 归一化 + 一次自我推翻
+
+**① `mcp::output::normalize_mime` → `strip_mime_params`。** 仓里有**两个都叫
+`normalize_mime` 的函数**而语义不同：`mcp/output.rs` 剥 MIME 参数并小写，
+`native/image_compress.rs` 额外把 `image/jpg` 折叠成 `image/jpeg`。同名不同义比
+重复更危险——它看起来该被"统一"，而统一会真的改行为。已给前者改名
+（8 处调用点同步），并在两侧互指注释里写明各自的理由（前者用于 wire/metadata
+比较，参数有意义；后者用于挑编码器，别名必须收敛）。**刻意不合并。**
+
+**② 三处 `GoalStatus` 其实是两个契约。** `goal/mod.rs`（snake_case，进
+`state_store` 的 `goal.json`）与 `rpc/types.rs`（camelCase，走宿主 wire）是
+**不同边界的不同拼写**，`turn_loop/types.rs` 只是重导出后者。serde 属性正是把
+两者隔开的东西。已在两侧各加说明，并明确「不要统一」——统一会静默改变磁盘上
+已写出的状态文件或宿主看到的 wire。
+
+**③ `native/goal/state.rs` 的持久化声明已过时**：原注释称 goal 状态
+"persisted via TS wire.jsonl（native is stateless w.r.t storage）"。那是 JS 宿主
+还在持有存储时的说法；引擎接管后耐久副本是 `StateStore` 的 `goal` 域。已改写为
+"napi addon 边界类型，JSON 进 JSON 出，自身不持久化"。
+
+**④ 一次自我推翻（记录在案，因为它正是 Verification Standard 的做法）**：
+本轮一度认定 `native/goal/{state,accounting}.rs`（734 行 + 21 测试）是死代码——
+`rg 'goal::state|goal::accounting'` 只命中 `steering`，且 `napi_bindings.rs`
+的 `use` 看似未使用。**结论是错的**：真正的调用方是 `src/native/napi_bindings.rs`
+（15 处 `state::` / `accounting::` 调用，提供 `native_goal_*` addon 函数），
+我先前的检索范围漏了整个 `src/native/` 下的 `napi_bindings.rs`（顶层还有一个
+同名的 `src/napi_bindings.rs`，两个文件都叫 `napi_bindings.rs`）。**已
+`git checkout` 恢复两个文件并重写 `mod.rs` 头部**，改为如实说明这是 addon 层、
+以及它与引擎侧 `GoalState` 的分工。教训：判定"死代码"前必须让**编译器**说话
+（删掉即 `E0432: unresolved imports`），文本检索不足以支撑删除。
+
+### 10.15 重整轮二验证
+
+`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -- -D warnings` ✅｜
+`cargo test --no-default-features --features cli` **2888 passed / 0 failed / 1 ignored**
+（与 10.13 持平：本轮为命名与文档重整，测试数不变）。
+
+**⑤ `src/native/napi_bindings.rs` → `src/native/native_tool_bindings.rs`**（`git mv`）。
+仓里有**两个都叫 `napi_bindings.rs`** 的文件：顶层 `src/napi_bindings.rs`（3656 行，
+宿主/会话面）与 `src/native/napi_bindings.rs`（1799 行，本目录工具的 `#[napi]` 面）。
+④ 里的误判正是它造成的——文本检索 `napi_bindings` 会静默漏掉其中一个。改名后
+`native/mod.rs` 加了说明指向两者的分工。验证了两种 feature 组合：
+`--features cli` 与 `--features cli,napi`（后者才是编译这个被改名模块的必要条件，
+只跑前者会漏掉断链）。
+
+### 10.16 第五轮：注入基线扫描的信任边界——两个真实缺陷
+
+**先说方法论。** 前四轮的汇报把「grep 跑过一遍」写成了带百分比的审查结论。核对规模后
+这个说法站不住：`src/` 共 **238 个 .rs / 210,874 行**，最大 18 个文件就占 **36.7%**
+（`server/mod.rs` 单文件 14,319 行）。粗扫只能证伪极粗的类别，产出是噪声——第五轮开
+始前的那一轮里，2 个实质性结论 2 个都是错的。真正逐行读的第一个文件（`server/auth.rs`
+242 行）没有缺陷，而这只有读了才知道：扫不出来 ≠ 没有。
+
+**① `scan_permission_mode_baseline` 信了用户消息正文。**
+
+Rust 引擎没有 v2 的 `IAgentStateService`，`permissionMode.lastMode` 是
+`defineState` 字段（v2 `permissionModeInjection.ts:13-14, 31-37`），任何消息正文都
+动不了它。移植时改成扫描历史重建基线——**这一步引入了 v2 不存在的失效模式**：
+用户消息里只要出现 `Auto permission mode is active.`，基线就恢复成 `Auto`
+（`permission_mode.rs:105-118` 原实现不校验角色），`with_last_mode` 据此把
+`injected` 置 true，之后真正进入 auto 时 enter reminder 被**静默抑制**。模型因此不知
+道 auto 模式会跳过审批、且 ExitPlanMode 会被自动批准。
+
+关键约束：注入消息的 role **就是 `user`**（`injection_message`，v2 同款），所以按
+角色过滤不可行；`is_system_reminder` 才是引擎既有的身份标记，`split_injections`
+（`mod.rs:72`）已经在用同一个判据。
+
+**② `scan_interruption_baseline` 同样的漏洞。**
+（`interruption_reminder.rs:30-35`）后果较轻——只会让引擎少发一次中断提醒——但同
+一个失效模式，且该文件自己的测试（L81-86）**已经**用 `wrap_system_reminder` 构造消息，
+说明作者知道正确构造方式，只是扫描处漏了守卫。
+
+**顺带判定为「不修」的两处**：`scan_date_baseline`（`mod.rs:288`）要求日期恰好 10
+位数字/连字符，且误判后果仅是日期提醒延后一次；`scan_agents_md_baseline`（L363）多收
+集导致重复披露，方向是保守的。**`storage/task_runner.rs:1244` 已有守卫**，说明这是
+仓内已知约定，①②是遗漏而非设计。
+
+**验证方式**：两条新回归测试都做了**反向验证**——先移除守卫确认测试 FAILED，再恢复
+确认 PASS。不是「写完就绿」的自证。
+
+### 10.17 第五轮验证
+
+`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -- -D warnings` ✅｜
+`cargo test --no-default-features --features cli` **2890 passed / 0 failed / 1 ignored**
+（2888 基线 + 2 条新回归测试）｜`bun scripts/scan-parity.mjs` ✅｜
+`bun run check:upstream-v2-delta` ✅（2 deltas all triaged）。
+
+**未覆盖**：`server/ws.rs`、`server/transcript/project.rs`、`server/engine.rs`、
+`tools/` 非 Tower 部分、`turn_loop/run_turn.rs`（7049 行）。全仓仍有约 99% 未逐行审。
+
+### 10.18 第六轮：`run_turn` 主循环实读 700 行，零缺陷——但发现了真实的测试缺口
+
+实读 `turn_loop/run_turn.rs` L684–1420（主循环 `run_turn`）。**未发现缺陷。** 这段
+代码注释密度异常高，多处把上游陷阱写清楚了（空摘要守卫必须在终止事件之前、
+`step.begin` 必须在恢复循环之外、`compactionRearmPending` 用 insert 而非
+re-append 以免破坏调用方的 fold 索引）。
+
+**推演后判定为「非缺陷」的三处**：
+- `compact_messages_with_summary_at_report` 内部重复调用 `should_compact`，`Ok(None)`
+  分支看似会让 `compaction.started` 成孤儿事件；但外层 `should_compact_auto` 传的是同一
+  个 `context_tokens.tokens()` 值且期间不变，两次判断必然一致——防御性冗余，不可达。
+- 溢出恢复发 `trigger: "auto"` 看似该是第三种语义；协议 `events.ts:975` 定义
+  `trigger: 'manual' | 'auto'` 只有两个合法值，`auto` 落在合法域内。
+- L860-866 的双重 `interruption_baseline` 判断冗余，但传空历史使内层必然为 false，
+  逻辑自洽。
+
+**真实发现：约 200 行高复杂度编排零直接测试覆盖。** 54 个测试中没有一个提到
+`consecutive_overflow`、`MEDIA_STRIPPED_CODE` 或 `compaction.cancelled`。
+`compaction/mod.rs` 的**纯函数**层测试密集（token 估算、阈值边界、分割安全规则），
+但 `run_turn.rs` 的**编排**（重试计数、事件配对、media 降级阶梯）两层都没有。
+
+补 `test_overflow_recovery_retries_within_its_budget_then_fails`，用「按 system
+preamble 区分摘要调用与步骤调用」的 LLM mock 驱动该路径，实测断言两条此前无人验证的
+不变量：
+
+```
+step attempts=3  compaction.started=3  completed=2  cancelled=1
+```
+
+即：重试**恰好**停在 `max_overflow_compaction_attempts`（3），且每个
+`compaction.started` 都有配对的终止事件（无孤儿）。这两条正对应 run_turn.rs
+L1141-1144 与 L1021-1027 两处注释所声明的不变量。
+
+**过程中的两次自我修正**（都记下来，因为都是「以为绿了其实没有」）：
+1. 摘要/步骤分流最初用 `params.tools.is_empty()`，但本测试的 `tools: &[]` 让步骤
+   调用也被误判为摘要，turn 假成功。改用摘要请求独有的 system preamble 判定。
+2. 单条消息历史让 `compute_compact_count` 返回 0 → 紧急压缩成 no-op → 空摘要守卫生效
+   → 轮次被取消，压根到不了要测的重试。补足 5 条交替历史。
+3. 预算断言先写成 `<= 3 + 1`，收紧为 `assert_eq(4)` 后全量套件 FAILED（实测 3）。
+   单独跑「通过」的那次跑的是**改动前**的版本——我把时间线读错了，那次绿不能证明新
+   断言。修正为 `assert_eq(3)` 并以实测为准写注释。
+
+### 10.19 第六轮验证
+
+`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -- -D warnings` ✅｜
+`cargo test --no-default-features --features cli` **2891 passed / 0 failed / 1 ignored**
+（2890 基线 + 1 条编排测试）。
+
+**累计覆盖**：本轮实读 `server/auth.rs` 242 行 + `static_files.rs` 鉴权段 +
+`run_turn.rs` 700 行。**全仓 210,874 行中仍约 99% 未逐行审。**
+
+### 10.20 第七轮：`server/ws.rs` 实读约 700 行，零缺陷；两个观察项
+
+实读握手层（`is_upgrade` / `accept_value` / `handshake_response`）、帧层
+（`read_frame` / `write_frame` / `FrameReader`）、`serve_ws` 主循环、`handle_inbound`
+的 `client_hello` 分支。**未发现缺陷。**
+
+正确性要点（均已核实，非推测）：
+- 握手四个必要条件齐全（`is_upgrade` L142-146），并拒绝带 `Content-Length` 的升级请求
+  ——否则会把首帧字节当 body 吃掉，这个理由写在注释里。
+- `read_frame` 落实了 RFC 6455 的每项硬要求：RSV 位拒绝（L1067）、强制客户端掩码
+  （L1072）、控制帧不可分片且 ≤125（L1099-1105）、长度双重上限（L1087 + L1095，
+  `MAX_MESSAGE_BYTES` = 1 MiB），`vec![0; length]` 分配前已完成上限检查。
+- 分片状态机正确：数据帧不得打断分片（L352）、continuation 必须有起始（L385）、
+  **累积长度有上限**（L390）——这正是 L241 注释点名的「无分片上限即免费等待」攻击。
+- L291-304 把帧解码放进独立 task，理由（`read_frame` 非 cancel-safe，丢失部分状态会
+  desync 套接字）是真实且常被忽略的并发正确性问题。
+- 认证链完整：`http.rs:156` DNS-rebinding 守卫 → `L162` `check_upgrade` → `L166`
+  拒绝则 401。`serve_ws` 收到的连接必然已认证，因此 `client_hello` 里
+  「token 为空则跳过」（L528）只是第二道，不是唯一一道。
+
+**观察项（记录，不改）**
+
+① **非最小长度编码未被拒绝**（L1077-1093）。RFC 6455 §5.2 要求 payload ≤125 不得用
+126、≤65535 不得用 127，这里直接接受。**无安全影响**——长度仍受 1 MiB 上限约束，
+且短格式上限 125 远低于 1 MiB，非最小编码唯一效果是浪费几个字节。上游 kap-server 用
+`ws` 库不手写帧，故这不是 v2 行为，擅自加严可能影响现有客户端。Autobahn 会测此项。
+
+② **`client_hello` 之前的 wildcard 窗口**（L283 + L444-447）。`subscriptions == None`
+时 `should_send = true`，已认证连接会收到**全部 session** 的事件。注释 L281 自己写明
+这是「for backwards compatibility with transport tests」——L1438-1444 的测试确实不发
+`client_hello` 就断言收到事件。连接已认证故无权限越界；`delivered_seq` 虽被推进，但
+只在事件**确实投递**时推进，故不构成漏投。收紧订阅语义属协议行为变更，需要用户许可。
+
+### 10.21 第八轮：v2 → Rust 反向对照，找「简化 / 桩实现」
+
+前七轮是「读 Rust 找 bug」，这次换成用户指定的方向：**从 v2 反查，找没有完全一致
+对应的模块**——重点不是缺失，而是**简化或桩实现**。
+
+**先刷新参考。** `.tmp/v2-ref-upstream` HEAD = `994287a`（比 §10.17 记录的
+`be7d5f5f` 更新）。v2 引擎规模：`agent/` 41 个子模块 / 35,014 行，全 `src/` 约
+12.5 万行。对照面 = fork 侧 238 文件 / 211,687 行。
+
+**方法论教训（比结论更重要）：名字搜索连续三次误报。**
+`goal_updated`、`plan.updated`、`planMode` 在 Rust 侧全部零命中，看起来像缺三块
+能力。逐一核实后：goal 事件叫 `goal.updated`（v1 camelCase，v3 已退役）；plan mode 完整
+存在于 `injection/goal_plan.rs`（含 v2 的 `PLAN_MODE_DEDUP_MIN_TURNS` /
+`PLAN_MODE_FULL_REFRESH_TURNS` 和 `ExitPlanMode` 工具）。**名字搜不到 ≠ 能力缺失。**
+所以改用能力探针：取每个 v2 子模块的 distinctive 标识符（常量名、导出函数名）去 Rust
+全文命中。
+
+**37 个 v2 `agent/` 子模块逐项对照，34 个有对应。3 个无对应，逐一核实后判定为
+「v2 自己也不用」：**
+
+| v2 模块 | Rust | 判定依据 |
+|---|---|---|
+| `userTool/`（275 行） | 无 | v2 内部**零调用者**：`register` / `unregister` / `inheritUserTools` 只被 `index.ts` 导出与 `subagentService.ts` 的类型导入引用。是给外部集成的预留扩展点。 |
+| `runtimeBinding/`（271 行） | 无 | `IAgentRuntimeBindingService` 在 v2 内部**零消费者**。同样是预留接口。 |
+| `state/`（1536 行） | 有 | probe 关键词不准（实为 `eventDispatcher` + `stateContribution`），`eventDispatcher` 在 `tools/stale_guard.rs` 命中。 |
+
+**唯一一处「简化」——而我第一遍核实也是错的，隔了一轮才查清。**
+`acp/events_map.rs` 声明 4 个 ACP 事件类型「have no source this host can read」。
+我最初只验了 `ToolInputDisplay` 在 Rust 侧不存在（全树零命中），就写下「注释说法准确」
+——**又一次把「没验」当成了「验过」**。用户追问「你为什么觉得声明就正确」后才重查。
+
+v2 侧四个构造函数（`acp-server/src/events-map.ts:398-537`）全是**纯函数**，只吃普通
+数据。逐个核实 Rust 侧的数据是否存在：
+
+| 事件 | 注释给的理由 | 实际 |
+|---|---|---|
+| `current_mode_update` | mod.rs 推送 | ✅ 属实（`mod.rs:484`） |
+| `config_option_update` | mod.rs 推送 | ✅ 属实（`mod.rs:530`） |
+| `usage_update` | 需 model catalog | ❌ **数据现成**：`TurnResult` 的 usage + `effective_window` |
+| `session_info_update` | 需 title-change feed | ❌ **数据现成**：`session::title`、session 表 `title` 列 |
+| `plan` | 需 todo display block | ⚠️ todo 经 state bridge **可读**（`callbacks.rs:1495`），缺的是 display 载体与触发点 |
+| `available_commands_update` | 需 command feed | ⚠️ v2 侧是**字面量常量数组** `ACP_BUILTIN_SLASH_COMMANDS`，本宿主根本没有 slash-command 面 |
+
+**没有一项是真正的「没有数据源」。** 注释把**缺 mapper 代码**写成了**数据不可得**——
+这正是本轮要找的那类「用声明掩盖简化」。已改写注释为逐项说明缺什么
+（`acp/events_map.rs:13-32`）。
+
+**教训（与本轮前半段的方法论失误并列）**：本轮我三次误信「名字搜不到 = 能力缺失」，
+又第四次误信「注释这么写 = 属实」。**注释和名字一样，不是证据。**
+
+**反向检查「声称是移植却是桩」：全树 654 处 port/mirror/v2 引用，逐条扫
+「not ported / placeholder / stub / simplified / omitted」类声明，命中全部是测试桩
+（`callbacks.rs:1593` 等）与正常措辞，零「未移植」声明。**
+
+**结论修正**：本轮**确实**找到一处被声明掩盖的简化——ACP 四个事件。数据都在，
+缺的是映射代码。模块层面的能力缺口仍只有 v2 自身也不使用的两个预留扩展点。§10.16 的两个缺陷（注入基线信任边界）仍不在此列——那不是移植缺失，是移植
+**方式**引入的新失效模式。
+
+### 10.22 第八轮验证
+
+本轮**未修改任何产品代码**（`git diff --stat` 对 `acp/`、`events/` 为空）。
+`cargo fmt --check` ✅｜`cargo test --no-default-features --features cli`
+2891 passed / 0 failed / 1 ignored。
