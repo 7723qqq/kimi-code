@@ -354,6 +354,20 @@ tokio::task_local! {
     pub static CURRENT_CONVERSATION_HISTORY: std::sync::Arc<std::sync::Mutex<Vec<crate::turn_loop::types::LLMMessage>>>;
 }
 
+/// The agent id owning the current turn, for stamping onto emitted events.
+///
+/// v2 reads `this.scopeContext.agentId` when it constructs every turn/tool
+/// event (`loopService.ts:1426-1455`); [`CALLER_AGENT_ID`] is this fork's
+/// equivalent carrier, and the subagent turn runners already scope it
+/// (`subagent/manager.rs` on every foreground / resume / persistent path).
+/// Unset outside a scoped turn — a direct `run_turn`, e.g. in a test — where
+/// the caller is the root agent.
+pub fn current_agent_id() -> String {
+    CALLER_AGENT_ID
+        .try_with(|id| id.clone())
+        .unwrap_or_else(|_| crate::callbacks::MAIN_AGENT_ID.to_string())
+}
+
 /// The set of directories a native tool call may touch.
 ///
 /// `primary` is the workspace root (canonicalized by [`NativeToolset::new`]).
@@ -1309,7 +1323,9 @@ impl NativeToolset {
             ),
             "fetchurl" | "fetch_url" => fetch_url::execute_fetch_url(args, tool_call_id).await,
             "websearch" | "web_search" => web_search::execute_web_search(args, tool_call_id).await,
-            "switchengine" | "switch_engine" => web_search::execute_switch_engine(args).await,
+            "switchengine" | "switch_engine" | "switchsearchengine" => {
+                web_search::execute_switch_engine(args).await
+            }
             "lsp" => lsp_tool::execute_lsp_tool(&self.root, &self.shell_bridge, args).await,
             "invokesubagent" | "invoke_subagent" => {
                 let mgr = self.subagent_manager.as_ref()?;
