@@ -8,9 +8,9 @@
 //! `[permission] dangerousCommandGuard` off-switch):
 //!   1. AutoModeAskUserQuestionDeny
 //!   2. UserConfiguredDeny
-//!   3. DangerousCommandAsk (asks in manual; auto and yolo pass dangerous
-//!      commands through, unanalyzable commands still ask; headless sessions
-//!      and `dangerousCommandGuard: false` skip the policy)
+//!   3. DangerousCommandAsk (skipped in auto; a *dangerous* command asks in
+//!      manual and yolo alike, an *unanalyzable* one asks except in yolo;
+//!      headless sessions and `dangerousCommandGuard: false` skip the policy)
 //!   4. AutoModeApprove
 //!   5. SessionApprovalHistory
 //!   6. UserConfiguredAsk
@@ -22,7 +22,7 @@
 //!  12. GitCwdWriteApprove
 //!  13. FallbackAsk
 
-use globset::Glob;
+use globset::{Glob, GlobBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::RwLock;
@@ -107,11 +107,12 @@ pub enum PermissionMode {
     Manual,
     Auto,
     Yolo,
-    /// Any mode the engine does not model (e.g. the host's `plan` mode).
-    /// Tolerant deserialization prevents an unknown mode from silently
-    /// dropping the whole policy snapshot (hooks + rules) at the napi
-    /// boundary: the permission chain still sees an explicit mode value,
-    /// just one it treats as the manual default.
+    /// Any mode the engine does not model (v2's `PermissionMode` is only
+    /// `manual | yolo | auto`; a host that invents a fourth one — it once sent
+    /// `plan` this way — lands here). Tolerant deserialization prevents an
+    /// unknown mode from silently dropping the whole policy snapshot (hooks +
+    /// rules) at the napi boundary: the permission chain still sees an explicit
+    /// mode value, just one it treats as the manual default.
     #[serde(other)]
     Unknown,
 }
@@ -239,20 +240,18 @@ pub struct ParsedRule {
     pub arg_pattern: Option<String>,
 }
 
+/// Whether an argument pattern is negated — v2 `matchRuleSubjects` strips a
+/// leading `!` and inverts the result (`Bash(!rm *)` matches every command
+/// except the ones the inner pattern matches).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Negation {
+    Positive,
+    Negated,
+}
+
 pub fn parse_permission_pattern(pattern: &str) -> Option<ParsedRule> {
     let trimmed = pattern.trim();
     if trimmed.is_empty() {
-        return None;
-    }
-
-    // v2 `matchRuleSubjects` treats a leading `!` on a rule as negation
-    // ("matches when the subject does NOT match the pattern"). Our engine
-    // uses separate `deny_rules` / `ask_rules` / `allow_rules` lists, so
-    // the negation semantics do not apply; instead, silently compiling
-    // `Bash(!rm *)` into a literal `!rm ` glob would deny almost every
-    // command. Refuse such patterns so the caller gets a clear error
-    // rather than a foot-gun.
-    if trimmed.starts_with('!') {
         return None;
     }
 
@@ -288,39 +287,91 @@ pub fn parse_permission_pattern(pattern: &str) -> Option<ParsedRule> {
 }
 
 /// Precompiled permission rule for zero-allocation fast-path evaluation.
+///
+/// Mirrors v2 `matchPermissionRule` (`permissionRules/matchesRule.ts`):
+/// the tool name is a glob, `*` matches every tool, and the argument pattern
+/// is matched by the tool-specific strategy — here approximated by a
+/// case-insensitive glob with `./` stripping (v2 `pathGlobMatch` with its
+/// default `caseInsensitivePaths: true`) plus `!` negation.
 #[derive(Debug, Clone)]
 pub struct CompiledRule {
     pub raw_rule: String,
-    pub tool_lower: String,
-    pub glob: Option<globset::GlobMatcher>,
+    tool_glob: Option<globset::GlobMatcher>,
+    arg_glob: Option<globset::GlobMatcher>,
+    negation: Negation,
 }
 
 impl CompiledRule {
     pub fn compile(raw_rule: &str) -> Option<Self> {
         let parsed = parse_permission_pattern(raw_rule)?;
-        let tool_lower = parsed.tool_name.to_ascii_lowercase();
-        let glob = match parsed.arg_pattern {
-            Some(ref pat) => Some(Glob::new(pat).ok()?.compile_matcher()),
-            None => None,
+        let tool_glob = if parsed.tool_name == "*" {
+            None
+        } else {
+            Some(compile_tool_glob(&parsed.tool_name)?)
+        };
+        let (arg_glob, negation) = match parsed.arg_pattern {
+            None => (None, Negation::Positive),
+            Some(ref pat) => {
+                let (pattern, negation) = match pat.strip_prefix('!') {
+                    Some(rest) => (rest, Negation::Negated),
+                    None => (pat.as_str(), Negation::Positive),
+                };
+                (Some(compile_subject_glob(pattern)?), negation)
+            }
         };
         Some(Self {
             raw_rule: raw_rule.to_string(),
-            tool_lower,
-            glob,
+            tool_glob,
+            arg_glob,
+            negation,
         })
     }
 
     #[inline]
     pub fn matches(&self, tool_name: &str, subject: Option<&str>) -> bool {
-        if self.tool_lower != "*" && !self.tool_lower.eq_ignore_ascii_case(tool_name) {
+        if let Some(matcher) = &self.tool_glob
+            && !matcher.is_match(tool_name.to_ascii_lowercase())
+        {
             return false;
         }
-        match (&self.glob, subject) {
+        let hit = match (&self.arg_glob, subject) {
             (None, _) => true,
-            (Some(matcher), Some(subj)) => matcher.is_match(subj),
+            (Some(matcher), Some(subj)) => {
+                matcher.is_match(subj) || matcher.is_match(strip_leading_dot_slash(subj))
+            }
             (Some(_), None) => false,
+        };
+        match self.negation {
+            Negation::Positive => hit,
+            Negation::Negated => !hit,
         }
     }
+}
+
+/// v2 `stripLeadingDotSlash` (`tool/rule-match.ts`): `./src/lib.rs` and
+/// `src/lib.rs` are the same target for rule matching.
+fn strip_leading_dot_slash(value: &str) -> &str {
+    value.strip_prefix("./").unwrap_or(value)
+}
+
+/// Compile a glob the way v2 compiles rule patterns: `pathGlobMatch` defaults
+/// `caseInsensitivePaths` to true, so a rule matches a differently-cased
+/// subject on any platform.
+fn compile_subject_glob(pattern: &str) -> Option<globset::GlobMatcher> {
+    // `*` stays cross-directory, like picomatch's default in v2, so `*.rs`
+    // matches `src/main.rs` in a rule and `rm -rf *` matches `rm -rf /`.
+    GlobBuilder::new(pattern)
+        .case_insensitive(true)
+        .build()
+        .ok()
+        .map(|glob| glob.compile_matcher())
+}
+
+/// Compile a tool-name glob (v2 `picomatch.isMatch(toolName, parsed.toolName)`).
+fn compile_tool_glob(tool_name: &str) -> Option<globset::GlobMatcher> {
+    Glob::new(&tool_name.to_ascii_lowercase())
+        .ok()
+        .map(|glob| glob.compile_matcher())
 }
 
 /// Local permission engine evaluating tool calls against a `PolicySnapshot`.
@@ -337,10 +388,29 @@ pub struct PermissionEngine {
     compiled_ask: Vec<CompiledRule>,
     compiled_allow: Vec<CompiledRule>,
     compiled_session: Vec<CompiledRule>,
+    /// The session workspace root (v2 `ISessionWorkspaceContext.workDir`) and
+    /// the host-authorized `additionalDirs` — `GitCwdWriteApprove`'s
+    /// containment gate. Empty for an engine built without them; that policy
+    /// then falls back to the snapshot's `git_cwd` alone.
+    workspace_root: Option<String>,
+    additional_dirs: Vec<String>,
 }
 
 impl PermissionEngine {
     pub fn new(snapshot: PolicySnapshot) -> Self {
+        Self::with_workspace(snapshot, None, Vec::new())
+    }
+
+    /// Build with the host's workspace roots: `workspace_root` is the session
+    /// workDir and `additional_dirs` the `/add-dir` list (`PipelineSpec`'s
+    /// `workspace_root` / `extra_roots`). `GitCwdWriteApprove` is the only
+    /// policy that reads them; without them it falls back to
+    /// [`PolicySnapshot::git_cwd`], which the host sets to the same workDir.
+    pub fn with_workspace(
+        snapshot: PolicySnapshot,
+        workspace_root: Option<String>,
+        additional_dirs: Vec<String>,
+    ) -> Self {
         let compiled_deny = snapshot
             .deny_rules
             .iter()
@@ -370,6 +440,8 @@ impl PermissionEngine {
             compiled_ask,
             compiled_allow,
             compiled_session,
+            workspace_root,
+            additional_dirs,
         }
     }
 
@@ -387,9 +459,23 @@ impl PermissionEngine {
         *self.mode.write().unwrap_or_else(|e| e.into_inner()) = mode;
     }
 
+    /// The workspace cwd `GitCwdWriteApprove` resolves against — v2's
+    /// `ISessionWorkspaceContext.workDir`, which both `git-cwd-write-approve.ts`
+    /// and its `findWorkTree(cwd)` gate read. The host-set `workspace_root`
+    /// wins; the stdio entry carries only the snapshot's `git_cwd`, which the
+    /// host sets to the same directory. An empty value is no cwd at all (v2's
+    /// `cwd.length === 0` early return).
+    fn workspace_dir(&self) -> Option<&str> {
+        self.workspace_root
+            .as_deref()
+            .or(self.snapshot.git_cwd.as_deref())
+            .filter(|dir| !dir.is_empty())
+    }
+
     pub fn evaluate(&self, tool_name: &str, args: &Value) -> LocalPermissionVerdict {
         let tool_lower = tool_name.to_ascii_lowercase();
         let target_subject = extract_rule_subject(&tool_lower, args);
+        let file_access = file_accesses(&tool_lower, args);
 
         // 1. AutoModeAskUserQuestionDeny
         if self.mode() == PermissionMode::Auto
@@ -441,24 +527,28 @@ impl PermissionEngine {
             };
         }
 
-        // 3. DangerousCommandAsk (v2 `dangerous-command-ask.ts`). Mode gating
-        //    mirrors v2 exactly: auto skips the policy entirely (AutoModeApprove
-        //    decides); a dangerous command asks in manual; yolo passes it but an
-        //    unanalyzable command still asks (v2 #3869). Skipped for headless
-        //    sessions (`non_interactive`, upstream `permissionPolicyService.ts`
-        //    drops this ask-policy when the host cannot answer a prompt), and
-        //    for `[permission] dangerousCommandGuard: false` (v2
+        // 3. DangerousCommandAsk (v2 `dangerous-command-ask.ts`, under
+        //    `agent/permissionPolicy/policies/`). Mode gating
+        //    mirrors v2 exactly, in v2's own order: the whole policy is skipped
+        //    in auto (`if (mode === 'auto') return undefined` comes *before* the
+        //    verdict), a **dangerous** command asks in every mode that reaches
+        //    this point — yolo included — and an **unanalyzable** one asks
+        //    except in yolo (v2 #3869's late `if (mode === 'yolo') return
+        //    undefined`). Skipped for headless sessions (`non_interactive`,
+        //    upstream `permissionPolicyService.ts` drops this ask-policy when
+        //    the host cannot answer a prompt), and for
+        //    `[permission] dangerousCommandGuard: false` (v2
         //    `isDangerousCommandGuardEnabled`).
         if !self.snapshot.non_interactive
             && self.snapshot.dangerous_command_guard
+            && self.mode() != PermissionMode::Auto
             && tool_lower == "bash"
             && let Some(command) = target_subject.as_deref()
         {
             match analyze_bash_command(command) {
-                // v2: `if (mode === 'auto') return undefined` happens before the
-                // verdict, and `if (mode === 'yolo') return undefined`
-                // after it — so only manual asks here.
-                DangerousVerdict::Dangerous(_) if self.mode() == PermissionMode::Manual => {
+                // yolo is not an exemption for a *known* dangerous command:
+                // v2 asks for it before the yolo early-return exists.
+                DangerousVerdict::Dangerous(_) => {
                     return LocalPermissionVerdict {
                         decision: VerdictDecision::Ask,
                         policy_name: "DangerousCommandAsk".into(),
@@ -554,8 +644,9 @@ impl PermissionEngine {
         }
 
         // 8. SensitiveFileAccessAsk
-        if let Some(path) = target_subject.as_deref()
-            && is_sensitive_path(path)
+        if let Some(path) = file_access
+            .iter()
+            .find(|path| crate::native::file_type::is_sensitive_file(path))
         {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Ask,
@@ -572,9 +663,7 @@ impl PermissionEngine {
         }
 
         // 9. GitControlPathAccessAsk
-        if let Some(path) = target_subject.as_deref()
-            && is_git_control_path(path)
-        {
+        if let Some(path) = file_access.iter().find(|path| is_git_control_path(path)) {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Ask,
                 policy_name: "GitControlPathAccessAsk".into(),
@@ -616,17 +705,31 @@ impl PermissionEngine {
             };
         }
 
-        // 12. GitCwdWriteApprove — deliberately broader than v2
-        //     (`git-cwd-write-approve.ts`): v2 gates on Write/Edit only, a
-        //     posix path class, and `findWorkTree`; the fork approves any
-        //     tool whose path subject lands inside `git_cwd` on any platform.
-        //     Intentional: the fork's natively-executed tools (Edit, the
-        //     tower git flows, …) expose path subjects v2's list does not.
-        if let Some(ref git_cwd) = self.snapshot.git_cwd
+        // 12. GitCwdWriteApprove (v2 `git-cwd-write-approve.ts`): a Write / Edit
+        //     whose target lands inside the workspace runs without a prompt.
+        //     v2's gates, all of them: the Write/Edit tool pair, `pathClass ===
+        //     'posix'`, the target inside `{workspaceDir, additionalDirs}`, and
+        //     the workspace cwd inside a git work tree. The engine has no
+        //     path-class handshake, so the *workspace root's* flavour stands in
+        //     for the runtime's class ([`is_posix_path`]): a win32 workspace — a
+        //     local Windows session — never approves here, which is exactly what
+        //     v2's `pathClass !== 'posix'` early return does, while a posix
+        //     workspace (Linux/macOS, or a remote posix runtime) proceeds. The
+        //     containment is component-wise ([`is_within_workspace`]), so
+        //     `/repo2/x` is not inside `/repo` as the fork's prefix test read
+        //     it, and the cwd must sit in a work tree ([`find_git_work_tree`],
+        //     v2's `findWorkTree(cwd)`). The fork's earlier "any tool, any
+        //     platform, any path under a prefix" breadth was a deviation and is
+        //     gone.
+        if matches!(tool_lower.as_str(), "write" | "edit")
             && let Some(path) = target_subject.as_deref()
-            && path.starts_with(git_cwd)
+            && let Some(dir) = self.workspace_dir()
+            && is_posix_path(dir)
+            && is_posix_path(path)
             && !is_git_control_path(path)
-            && !is_sensitive_path(path)
+            && !crate::native::file_type::is_sensitive_file(path)
+            && is_within_workspace(path, dir, &self.additional_dirs)
+            && find_git_work_tree(dir).is_some()
         {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Allow,
@@ -665,6 +768,59 @@ impl PermissionEngine {
     }
 }
 
+/// The file paths a call touches — v2's `fileAccesses(context)`, the input
+/// `SensitiveFileAccessAsk` (#8) and `GitControlPathAccessAsk` (#9) evaluate.
+///
+/// v2 derives them from each tool's *declared* accesses, so a tool that
+/// declares none never reaches those two policies: `bashTool.ts` exposes only
+/// `approvalRule` / `matchesRule` / `execute`, and WebSearch / FetchURL take a
+/// query and a URL. Feeding a Bash *command* or a search *query* to those
+/// policies instead made any command that merely mentioned `/x/.env` or
+/// `/repo/.git/config` prompt — in yolo too, where #8/#9 run before
+/// `YoloModeApprove`.
+///
+/// So only tools whose `path` argument names a file contribute here. The list
+/// is the path-shaped half of [`extract_rule_subject`]; `memory_read` accepts
+/// an array of paths, and v2 checks every declared access, so this returns all
+/// of them.
+fn file_accesses(tool_lower: &str, args: &Value) -> Vec<String> {
+    if !matches!(
+        tool_lower,
+        "read"
+            | "write"
+            | "edit"
+            | "grep"
+            | "glob"
+            | "listdirectory"
+            | "list_directory"
+            | "lsp"
+            | "memoryread"
+            | "memory_read"
+            | "memorywrite"
+            | "memory_write"
+            | "memorystrreplace"
+            | "memory_str_replace"
+            | "memoryappend"
+            | "memory_append"
+            | "memorydelete"
+            | "memory_delete"
+            | "readmediafile"
+            | "read_media_file"
+    ) {
+        return Vec::new();
+    }
+
+    match args.get("path") {
+        Some(Value::String(path)) => vec![path.clone()],
+        Some(Value::Array(paths)) => paths
+            .iter()
+            .filter_map(|path| path.as_str())
+            .map(str::to_string)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 fn extract_rule_subject(tool_lower: &str, args: &Value) -> Option<String> {
     match tool_lower {
         "read" | "write" | "edit" => args
@@ -691,103 +847,132 @@ fn extract_rule_subject(tool_lower: &str, args: &Value) -> Option<String> {
     }
 }
 
-/// File-name suffixes that turn a credential / SSH-key basename into a
-/// sensitive dot-variant (v2 `SENSITIVE_DOT_VARIANT_SUFFES`).
-const SENSITIVE_DOT_VARIANT_SUFFIXES: &[&str] = &[
-    "bak", "backup", "copy", "disabled", "key", "old", "orig", "pem", "save", "tmp",
-];
-
-/// Basenames that are sensitive on their own (v2 `SENSITIVE_BASENAMES`).
-const SENSITIVE_BASENAMES: &[&str] = &[".env", "id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
-
-/// Basename prefixes that match when followed by `-`, `_`, or a known
-/// dot-variant suffix (v2 `SENSITIVE_BASENAME_PREFIXES`).
-const SENSITIVE_BASENAME_PREFIXES: &[&str] = &["id_rsa", "id_ed25519", "id_ecdsa", "credentials"];
-
-/// Exempt basenames — these are NOT sensitive even if they look like they
-/// might be (v2 `ENV_EXEMPTIONS` and `PUBLIC_KEY_BASENAMES`).
-const ENV_EXEMPT_BASENAMES: &[&str] = &[".env.example", ".env.sample", ".env.template"];
-const PUBLIC_KEY_BASENAMES: &[&str] = &["id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub"];
-
-/// Path-suffix components that flag a file as sensitive when they appear as
-/// a path segment (v2 `SENSITIVE_PATH_SUFFIXES`). The first component
-/// carries the leading dot because on disk the directories are hidden
-/// (`.aws` / `.gcp`); the join produces `.aws/credentials` and the match
-/// is `comparable.contains("/.aws/credentials/")` which catches both the
-/// file itself and any sibling under the credentials directory.
-const SENSITIVE_PATH_SUFFIXES: &[&[&str]] = &[&[".aws", "credentials"], &[".gcp", "credentials"]];
-
-/// True when `path_str` matches a v2 sensitive-file pattern. Mirrors v2
-/// `path-access.ts:isSensitiveFile` (the napi fast path lives in
-/// `native/path_access.rs`; this is the std fallback the engine uses when
-/// the napi bindings are not available).
-pub fn is_sensitive_path(path_str: &str) -> bool {
-    let comparable = path_str.replace('\\', "/").to_ascii_lowercase();
-    let basename = comparable
-        .rsplit_once('/')
-        .map(|(_, name)| name)
-        .unwrap_or(comparable.as_str());
-
-    // Exemptions: `.env.example`/`.sample`/`.template` and the `.pub`
-    // counterparts of the SSH key basenames. v2 checks these BEFORE the
-    // other branches so the dot-variant and prefix rules do not false-match.
-    if ENV_EXEMPT_BASENAMES.contains(&basename) {
-        return false;
-    }
-    if PUBLIC_KEY_BASENAMES.contains(&basename) {
-        return false;
-    }
-
-    // Exact sensitive basenames.
-    if SENSITIVE_BASENAMES.contains(&basename) {
-        return true;
-    }
-
-    // `.env.<anything>` (`.env.local`, `.env.production`, …).
-    if basename.starts_with(".env.") {
-        return true;
-    }
-
-    // Prefix + separator (`id_rsa-prod`, `credentials_backup`) or
-    // prefix + dot-variant (`id_rsa.bak`, `credentials.old`).
-    for prefix in SENSITIVE_BASENAME_PREFIXES {
-        if basename.len() > prefix.len() && basename.starts_with(prefix) {
-            let suffix = &basename[prefix.len()..];
-            let next = suffix.chars().next().unwrap_or('\0');
-            if next == '-' || next == '_' {
-                return true;
-            }
-            if next == '.'
-                && suffix
-                    .strip_prefix('.')
-                    .map(|s| SENSITIVE_DOT_VARIANT_SUFFIXES.contains(&s))
-                    .unwrap_or(false)
-            {
-                return true;
-            }
-        }
-    }
-
-    // Path-component suffixes: `.aws/credentials`, `.gcp/credentials` (or
-    // their containing directory, e.g. `path/to/.aws/credentials/file`).
-    for suffix_parts in SENSITIVE_PATH_SUFFIXES {
-        let suffix = suffix_parts.join("/");
-        if comparable.ends_with(&format!("/{suffix}"))
-            || comparable.contains(&format!("/{suffix}/"))
-        {
-            return true;
-        }
-    }
-
-    false
-}
-
 pub fn is_git_control_path(path_str: &str) -> bool {
     let normalized = path_str.replace('\\', "/").to_ascii_lowercase();
     normalized == ".git"
         || normalized.contains("/.git/")
         || normalized.ends_with("/.git")
         || normalized.starts_with(".git/")
+}
+
+/// Whether a path is written in posix form — the engine's stand-in for v2's
+/// `pathClass === 'posix'` (`git-cwd-write-approve.ts`). v2 reads the class off
+/// the *execution runtime's* environment, not the host OS, so deriving it from
+/// the subject path keeps the policy honest in both directions: a Windows host
+/// driving a posix runtime still gets the allow, and a win32-flavoured target is
+/// never approved (v2's `pathClass !== 'posix'` early return).
+pub fn is_posix_path(path_str: &str) -> bool {
+    let normalized = path_str.replace('\\', "/");
+    // `//…` is a win32 UNC root; `C:…` a drive-absolute or drive-relative path.
+    if normalized.starts_with("//") {
+        return false;
+    }
+    let mut chars = normalized.chars();
+    !matches!(
+        (chars.next(), chars.next()),
+        (Some(letter), Some(':')) if letter.is_ascii_alphabetic()
+    )
+}
+
+/// v2 `isWithinWorkspace` (`tool/path-access.ts`): the target inside the
+/// workspace dir or any host-authorized additional dir (`/add-dir`). A relative
+/// target resolves against the workspace cwd first, which is what v2's
+/// `canonicalizePath(path, cwd)` does before the containment test.
+pub fn is_within_workspace(
+    candidate: &str,
+    workspace_dir: &str,
+    additional_dirs: &[String],
+) -> bool {
+    let absolute = if candidate.starts_with('/') {
+        candidate.to_string()
+    } else {
+        format!("{}/{}", workspace_dir.trim_end_matches('/'), candidate)
+    };
+    is_within_directory(&absolute, workspace_dir)
+        || additional_dirs
+            .iter()
+            .any(|dir| is_within_directory(&absolute, dir))
+}
+
+/// v2 `isWithinDirectory`: containment on normalized path components. `.` and
+/// `..` are resolved before the comparison and the base has to match on a
+/// component boundary, so `/repo2/x` is *not* inside `/repo` — the fork's
+/// `starts_with` prefix test approved it, and approved a `..` escape with it.
+pub fn is_within_directory(candidate: &str, base: &str) -> bool {
+    let candidate_parts = normalized_posix_parts(candidate);
+    let base_parts = normalized_posix_parts(base);
+    !base_parts.is_empty()
+        && candidate_parts.len() >= base_parts.len()
+        && candidate_parts[..base_parts.len()] == base_parts[..]
+}
+
+/// Split a posix-flavoured path into components, dropping `.` and resolving
+/// `..`. An absolute path keeps a leading `/` component of its own, so a
+/// relative path never compares equal to the absolute one it resolves to.
+fn normalized_posix_parts(path: &str) -> Vec<String> {
+    let unified = path.replace('\\', "/");
+    let mut parts: Vec<String> = Vec::new();
+    for segment in unified.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            other => parts.push(other.to_string()),
+        }
+    }
+    if unified.starts_with('/') {
+        parts.insert(0, "/".to_string());
+    }
+    parts
+}
+
+/// v2 `findGitWorkTree` (`app/git/workTree.ts`) — the `findWorkTree(cwd)` gate
+/// `GitCwdWriteApprove` runs last: walk up from `cwd` for `.git`, which is a
+/// directory in a normal checkout and a file carrying a `gitdir:` pointer in a
+/// linked worktree or a submodule. Returns the work-tree root; `None` when the
+/// walk reaches the filesystem root without finding one, which is v2's
+/// `findWorkTree(cwd) === null` and takes the policy out of the chain.
+pub fn find_git_work_tree(cwd: &str) -> Option<std::path::PathBuf> {
+    let start = std::path::Path::new(cwd);
+    if cwd.is_empty() || !start.is_absolute() {
+        return None;
+    }
+    let mut current = start;
+    loop {
+        let dot_git = current.join(".git");
+        if let Ok(metadata) = std::fs::metadata(&dot_git) {
+            if metadata.is_dir() {
+                return Some(current.to_path_buf());
+            }
+            if metadata.is_file()
+                && std::fs::read_to_string(&dot_git)
+                    .ok()
+                    .is_some_and(|content| has_git_dir_pointer(&content))
+            {
+                return Some(current.to_path_buf());
+            }
+        }
+        match current.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => current = parent,
+            _ => return None,
+        }
+    }
+}
+
+/// v2 `parseGitDirPointer` (`app/git/workTree.ts`): whether a `.git` file's
+/// first line carries a non-empty `gitdir:` target, BOM-tolerant. The target
+/// itself is not needed here — the policy gate only asks whether a work tree
+/// exists (`findWorkTree(cwd) !== null`) — so it is detected, not resolved.
+fn has_git_dir_pointer(content: &str) -> bool {
+    let stripped = content.strip_prefix('\u{feff}').unwrap_or(content);
+    stripped
+        .lines()
+        .next()
+        .map(str::trim)
+        .and_then(|line| line.strip_prefix("gitdir:"))
+        .map(str::trim)
+        .is_some_and(|target| !target.is_empty())
 }
 
 #[cfg(test)]
@@ -832,6 +1017,115 @@ mod tests {
         assert_eq!(verdict.policy_name, "YoloModeApprove");
         assert_eq!(verdict.reason, None);
         assert!(verdict.is_allow());
+    }
+
+    /// v2's Bash tool declares **no** file accesses (`bashTool.ts` exposes only
+    /// `approvalRule` / `matchesRule` / `execute`), so in v2 Bash never reaches
+    /// `SensitiveFileAccessAsk` or `GitControlPathAccessAsk` — both read
+    /// `fileAccesses(context)` and bail out on an empty list. A command that
+    /// merely *mentions* a sensitive or `.git` path must therefore keep the
+    /// normal mode verdict instead of asking.
+    #[test]
+    fn test_bash_command_text_is_not_a_file_access() {
+        let engine = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Yolo,
+            ..Default::default()
+        });
+
+        let verdict = engine.evaluate(
+            "Bash",
+            &json!({ "command": "cat /workspace/project/.git/config" }),
+        );
+        assert_eq!(verdict.decision, VerdictDecision::Allow);
+        assert_eq!(verdict.policy_name, "YoloModeApprove");
+
+        let verdict = engine.evaluate("Bash", &json!({ "command": "cat /home/u/project/.env" }));
+        assert_eq!(verdict.decision, VerdictDecision::Allow);
+        assert_eq!(verdict.policy_name, "YoloModeApprove");
+
+        let verdict = engine.evaluate(
+            "Bash",
+            &json!({ "command": "grep -n x /workspace/project/credentials" }),
+        );
+        assert_eq!(verdict.decision, VerdictDecision::Allow);
+        assert_eq!(verdict.policy_name, "YoloModeApprove");
+
+        let verdict = engine.evaluate(
+            "Bash",
+            &json!({ "command": "git commit -F .git/CMSG9.txt" }),
+        );
+        assert_eq!(verdict.decision, VerdictDecision::Allow);
+        assert_eq!(verdict.policy_name, "YoloModeApprove");
+
+        // A path tool on the same target still asks — only Bash changed.
+        let verdict = engine.evaluate("Read", &json!({ "path": "/workspace/project/.git/config" }));
+        assert_eq!(verdict.decision, VerdictDecision::Ask);
+        assert_eq!(verdict.policy_name, "GitControlPathAccessAsk");
+    }
+
+    /// v2's WebSearch and FetchURL declare no file access either, so a query or
+    /// URL that looks like a sensitive path must not reach #8/#9.
+    #[test]
+    fn test_query_and_url_subjects_are_not_file_accesses() {
+        let engine = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Yolo,
+            ..Default::default()
+        });
+
+        let verdict = engine.evaluate("WebSearch", &json!({ "query": "how to read .env" }));
+        assert_eq!(verdict.decision, VerdictDecision::Allow);
+        assert_eq!(verdict.policy_name, "YoloModeApprove");
+
+        let verdict = engine.evaluate("FetchURL", &json!({ "url": "https://example.com/.env" }));
+        assert_eq!(verdict.decision, VerdictDecision::Allow);
+        assert_eq!(verdict.policy_name, "YoloModeApprove");
+    }
+
+    /// Every path-shaped tool contributes a file access, `memory_read`'s array
+    /// form included (v2 checks every declared access, not just the first).
+    #[test]
+    fn test_path_shaped_tools_declare_file_accesses() {
+        let engine = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Yolo,
+            ..Default::default()
+        });
+
+        let sensitive = "/workspace/project/.env";
+        for tool in [
+            "Read",
+            "Write",
+            "Edit",
+            "Grep",
+            "Glob",
+            "ListDirectory",
+            "Lsp",
+            "memory_write",
+            "memory_str_replace",
+            "memory_append",
+            "memory_delete",
+            "ReadMediaFile",
+        ] {
+            let verdict = engine.evaluate(tool, &json!({ "path": sensitive }));
+            assert_eq!(
+                verdict.decision,
+                VerdictDecision::Ask,
+                "{tool} should declare a file access"
+            );
+            assert_eq!(verdict.policy_name, "SensitiveFileAccessAsk");
+        }
+
+        let verdict = engine.evaluate(
+            "memory_read",
+            &json!({ "path": ["notes.md", "/workspace/project/.env"] }),
+        );
+        assert_eq!(verdict.decision, VerdictDecision::Ask);
+        assert_eq!(verdict.policy_name, "SensitiveFileAccessAsk");
+        assert_eq!(
+            verdict.reason,
+            Some(format!(
+                "Access to sensitive file requires approval: {sensitive}"
+            ))
+        );
     }
 
     #[test]
@@ -1385,24 +1679,37 @@ mod tests {
         assert_eq!(verdict_workflow.policy_name, "DefaultToolApprove");
     }
 
+    /// v2 `git-cwd-write-approve.ts` end to end, against a **real** work tree:
+    /// the policy needs a posix workspace root that exists on disk carrying a
+    /// `.git`, so this matrix runs where temp dirs are posix paths. The gates
+    /// that need no work tree are covered by
+    /// `test_git_cwd_write_approve_requires_a_posix_work_tree`.
+    #[cfg(unix)]
     #[test]
     fn test_git_cwd_write_approve() {
-        let engine = PermissionEngine::new(PolicySnapshot {
-            mode: PermissionMode::Manual,
-            git_cwd: Some("/workspace/project".into()),
-            ..Default::default()
-        });
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+        let engine = PermissionEngine::with_workspace(
+            PolicySnapshot {
+                mode: PermissionMode::Manual,
+                git_cwd: Some(root.clone()),
+                ..Default::default()
+            },
+            Some(root.clone()),
+            Vec::new(),
+        );
 
-        // 1. Write inside git_cwd is approved by GitCwdWriteApprove
-        let verdict = engine.evaluate("Write", &json!({ "path": "/workspace/project/src/lib.rs" }));
+        // 1. Write inside the work tree is approved by GitCwdWriteApprove
+        let verdict = engine.evaluate("Write", &json!({ "path": format!("{root}/src/lib.rs") }));
         assert_eq!(verdict.decision, VerdictDecision::Allow);
         assert_eq!(verdict.policy_name, "GitCwdWriteApprove");
         assert_eq!(verdict.reason, None);
         assert!(verdict.is_allow());
 
-        // 2. Edit inside git_cwd is approved by GitCwdWriteApprove
+        // 2. Edit inside the work tree is approved by GitCwdWriteApprove
         let verdict_edit =
-            engine.evaluate("Edit", &json!({ "path": "/workspace/project/Cargo.toml" }));
+            engine.evaluate("Edit", &json!({ "path": format!("{root}/Cargo.toml") }));
         assert_eq!(verdict_edit.decision, VerdictDecision::Allow);
         assert_eq!(verdict_edit.policy_name, "GitCwdWriteApprove");
         assert_eq!(verdict_edit.reason, None);
@@ -1417,30 +1724,324 @@ mod tests {
             Some("Tool execution requires approval: Write".into())
         );
 
-        // 4. Write inside git_cwd but targeting sensitive file hits SensitiveFileAccessAsk
-        let verdict_sensitive =
-            engine.evaluate("Write", &json!({ "path": "/workspace/project/.env" }));
+        // 4. A sensitive target inside the work tree hits SensitiveFileAccessAsk
+        let env_path = format!("{root}/.env");
+        let verdict_sensitive = engine.evaluate("Write", &json!({ "path": env_path }));
         assert_eq!(verdict_sensitive.decision, VerdictDecision::Ask);
         assert_eq!(verdict_sensitive.policy_name, "SensitiveFileAccessAsk");
         assert_eq!(
             verdict_sensitive.reason,
-            Some("Access to sensitive file requires approval: /workspace/project/.env".into())
+            Some(format!(
+                "Access to sensitive file requires approval: {env_path}"
+            ))
         );
 
-        // 5. Write inside git_cwd but targeting git control path hits GitControlPathAccessAsk
-        let verdict_git = engine.evaluate(
-            "Write",
-            &json!({ "path": "/workspace/project/.git/config" }),
-        );
+        // 5. A git control path inside the work tree hits GitControlPathAccessAsk
+        let git_config = format!("{root}/.git/config");
+        let verdict_git = engine.evaluate("Write", &json!({ "path": git_config }));
         assert_eq!(verdict_git.decision, VerdictDecision::Ask);
         assert_eq!(verdict_git.policy_name, "GitControlPathAccessAsk");
         assert_eq!(
             verdict_git.reason,
-            Some(
-                "Access to git control path requires approval: /workspace/project/.git/config"
-                    .into()
-            )
+            Some(format!(
+                "Access to git control path requires approval: {git_config}"
+            ))
         );
+
+        // 6. v2's containment gate is component-wise, so a sibling directory
+        // that merely shares the prefix is *not* inside the workspace — the
+        // fork's `starts_with` approved it — and neither is a `..` escape that
+        // lands outside after normalization. A relative target, by contrast,
+        // resolves against the workspace cwd (v2 `canonicalizePath`) and is.
+        let sibling = engine.evaluate("Write", &json!({ "path": format!("{root}2/src/lib.rs") }));
+        assert_eq!(sibling.decision, VerdictDecision::Ask, "prefix sibling");
+        assert_eq!(sibling.policy_name, "FallbackAsk");
+        let escape = engine.evaluate(
+            "Write",
+            &json!({ "path": format!("{root}/../elsewhere/a.rs") }),
+        );
+        assert_eq!(escape.decision, VerdictDecision::Ask, "`..` escape");
+        assert_eq!(escape.policy_name, "FallbackAsk");
+        let relative = engine.evaluate("Write", &json!({ "path": "src/relative.rs" }));
+        assert_eq!(relative.decision, VerdictDecision::Allow, "relative target");
+        assert_eq!(relative.policy_name, "GitCwdWriteApprove");
+
+        // 7. An `/add-dir` root is part of the boundary (v2
+        //    `{workspaceDir, additionalDirs}`): without it the target is
+        //    outside and asks, with it the same target is approved.
+        let elsewhere = tempfile::tempdir().unwrap();
+        let other = elsewhere.path().to_string_lossy().to_string();
+        let other_file = format!("{other}/notes.md");
+        let narrow = engine.evaluate("Write", &json!({ "path": other_file }));
+        assert_eq!(narrow.decision, VerdictDecision::Ask);
+        assert_eq!(narrow.policy_name, "FallbackAsk");
+        let widened = PermissionEngine::with_workspace(
+            PolicySnapshot {
+                mode: PermissionMode::Manual,
+                git_cwd: Some(root.clone()),
+                ..Default::default()
+            },
+            Some(root.clone()),
+            vec![other.clone()],
+        );
+        let granted = widened.evaluate("Write", &json!({ "path": other_file }));
+        assert_eq!(granted.decision, VerdictDecision::Allow);
+        assert_eq!(granted.policy_name, "GitCwdWriteApprove");
+
+        // 8. v2's tool gate: only the Write/Edit pair is eligible. Another tool
+        // whose subject happens to sit inside the workspace is *not* approved
+        // here — Bash carries its command as the subject, so a command that
+        // looks like a path inside the workspace must not ride this policy.
+        let verdict_bash = engine.evaluate(
+            "Bash",
+            &json!({ "command": format!("{root}/scripts/build.sh") }),
+        );
+        assert_eq!(verdict_bash.decision, VerdictDecision::Ask);
+        assert_eq!(verdict_bash.policy_name, "FallbackAsk");
+
+        assert!(is_posix_path("/workspace/project/src/lib.rs"));
+        assert!(!is_posix_path(r"D:\repo\src\main.rs"));
+        assert!(!is_posix_path("D:/repo/src/main.rs"));
+        assert!(!is_posix_path(r"\\server\share\repo\a.rs"));
+        assert!(!is_posix_path("C:relative.rs"));
+    }
+
+    /// The two #12 gates that need no existing posix work tree: the
+    /// path-class stand-in (a win32 workspace root never approves, which is
+    /// v2's `pathClass !== 'posix'` early return for a local Windows runtime)
+    /// and the `findWorkTree(cwd)` requirement (a posix workspace without a
+    /// `.git` anywhere up the tree is not approved either).
+    #[test]
+    fn test_git_cwd_write_approve_requires_a_posix_work_tree() {
+        let win_engine = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Manual,
+            git_cwd: Some("D:/repo".into()),
+            ..Default::default()
+        });
+        for path in [
+            r"D:\repo\src\main.rs",
+            "D:/repo/src/main.rs",
+            r"\\server\share\repo\a.rs",
+        ] {
+            let verdict = win_engine.evaluate("Write", &json!({ "path": path }));
+            assert_eq!(verdict.decision, VerdictDecision::Ask, "path: {path}");
+            assert_eq!(verdict.policy_name, "FallbackAsk", "path: {path}");
+        }
+        // A posix-flavoured target does not rescue a win32 workspace: the
+        // runtime's class is what v2 reads, not the target's flavour.
+        let outside = win_engine.evaluate("Write", &json!({ "path": "/workspace/project/a.rs" }));
+        assert_eq!(outside.decision, VerdictDecision::Ask);
+        assert_eq!(outside.policy_name, "FallbackAsk");
+
+        // A posix workspace root with no `.git` up the tree fails
+        // `findWorkTree(cwd)` and takes the policy out of the chain.
+        let no_tree = tempfile::tempdir().unwrap();
+        let root = no_tree.path().to_string_lossy().to_string();
+        let engine = PermissionEngine::with_workspace(
+            PolicySnapshot {
+                mode: PermissionMode::Manual,
+                git_cwd: Some(root.clone()),
+                ..Default::default()
+            },
+            Some(root.clone()),
+            Vec::new(),
+        );
+        let verdict = engine.evaluate("Write", &json!({ "path": format!("{root}/a.rs") }));
+        assert_eq!(verdict.decision, VerdictDecision::Ask, "no work tree");
+        assert_eq!(verdict.policy_name, "FallbackAsk");
+
+        // No workspace cwd at all (v2's `cwd.length === 0`) is no approval
+        // either, whatever the target looks like.
+        let bare = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Manual,
+            ..Default::default()
+        });
+        let verdict = bare.evaluate("Write", &json!({ "path": "/workspace/project/a.rs" }));
+        assert_eq!(verdict.decision, VerdictDecision::Ask);
+        assert_eq!(verdict.policy_name, "FallbackAsk");
+    }
+
+    /// v2 `findGitWorkTree` (`app/git/workTree.ts`): the walk finds a `.git`
+    /// directory or a `.git` *file* carrying a `gitdir:` pointer (a linked
+    /// worktree / submodule), and reports nothing for a plain file or a tree
+    /// without one.
+    #[test]
+    fn test_find_git_work_tree() {
+        let plain = tempfile::tempdir().unwrap();
+        assert_eq!(
+            find_git_work_tree(&plain.path().to_string_lossy()),
+            None,
+            "a stray temp dir is not a work tree"
+        );
+
+        let checkout = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(checkout.path().join(".git")).unwrap();
+        let nested = checkout.path().join("src/deep");
+        std::fs::create_dir_all(&nested).unwrap();
+        assert_eq!(
+            find_git_work_tree(&nested.to_string_lossy()),
+            Some(checkout.path().to_path_buf()),
+            "the walk starts at the cwd and finds the checkout root above it"
+        );
+
+        let linked = tempfile::tempdir().unwrap();
+        std::fs::write(
+            linked.path().join(".git"),
+            "gitdir: /elsewhere/.git/worktrees/linked\n",
+        )
+        .unwrap();
+        assert_eq!(
+            find_git_work_tree(&linked.path().to_string_lossy()),
+            Some(linked.path().to_path_buf()),
+            "a `gitdir:` pointer file is a work tree too"
+        );
+
+        let broken = tempfile::tempdir().unwrap();
+        std::fs::write(broken.path().join(".git"), "not a pointer\n").unwrap();
+        assert_eq!(find_git_work_tree(&broken.path().to_string_lossy()), None);
+
+        assert_eq!(find_git_work_tree(""), None, "no cwd, no work tree");
+        assert_eq!(
+            find_git_work_tree("relative/dir"),
+            None,
+            "a cwd that is not absolute has nowhere to walk up from"
+        );
+    }
+
+    /// v2 `isWithinDirectory` / `isWithinWorkspace`: component-wise containment
+    /// with `.` / `..` resolved, plus the `additionalDirs` union.
+    #[test]
+    fn test_workspace_containment_is_component_wise() {
+        assert!(is_within_directory("/repo/src/lib.rs", "/repo"));
+        assert!(is_within_directory("/repo", "/repo"));
+        assert!(!is_within_directory("/repo2/src/lib.rs", "/repo"));
+        assert!(!is_within_directory("/other/repo/x", "/repo"));
+        assert!(is_within_directory("/repo/a/../b/x.rs", "/repo/b"));
+        assert!(!is_within_directory("/repo/../elsewhere/x.rs", "/repo"));
+        assert!(
+            !is_within_directory("/repo/x", "repo"),
+            "the leading `/` is its own component, so an absolute path is never \
+             inside the relative base of the same name"
+        );
+        assert!(
+            !is_within_directory("repo/src/lib.rs", "/repo"),
+            "a relative candidate is not the absolute path it resolves to"
+        );
+        assert!(
+            !is_within_directory("/repo/x", ""),
+            "an empty base has no components, so nothing is inside it"
+        );
+
+        let extras = vec!["/granted".to_string()];
+        assert!(is_within_workspace("/repo/x.rs", "/repo", &extras));
+        assert!(
+            is_within_workspace("/granted/x.rs", "/repo", &extras),
+            "an /add-dir root is inside the boundary"
+        );
+        assert!(is_within_workspace("/granted/sub/x.rs", "/repo", &extras));
+        assert!(!is_within_workspace("/granted2/x.rs", "/repo", &extras));
+        assert!(
+            is_within_workspace("src/lib.rs", "/repo", &extras),
+            "a relative target resolves against the workspace cwd"
+        );
+        assert!(!is_within_workspace("/elsewhere/x.rs", "/repo", &extras));
+    }
+
+    /// Vectors the component-wise comparison must refuse. `starts_with` accepted
+    /// every one of these, which is how a write escaped the workspace.
+    #[test]
+    fn test_workspace_containment_refuses_escape_shapes() {
+        // `~` is not expanded here, so it is a literal component — a home-
+        // relative path must never read as inside a workspace root.
+        assert!(!is_within_directory("~/.ssh/config", "/"));
+        assert!(!is_within_directory("/repo/~/x", "/repo/real"));
+        // A trailing separator is a separator, not a new component: `/repo/`
+        // and `/repo` are the same root, so a sibling that merely shares the
+        // prefix is still outside.
+        assert!(is_within_directory("/repo/x.rs", "/repo/"));
+        assert!(is_within_directory("/repo/", "/repo"));
+        assert!(!is_within_directory("/repo-evil/x.rs", "/repo/"));
+        // Repeated separators collapse rather than creating empty components
+        // that could line up with a base segment.
+        assert!(is_within_directory("/repo//src//x.rs", "/repo"));
+        // `..` that climbs past the root is clamped, not allowed to wrap.
+        assert!(!is_within_directory("/../etc/passwd", "/repo"));
+        // Backslashes are unified first, so a Windows-flavoured subject cannot
+        // smuggle a separator past the component split.
+        assert!(is_within_directory("\\repo\\src\\x.rs", "/repo"));
+        assert!(!is_within_directory("\\repo2\\x.rs", "/repo"));
+    }
+
+    /// v2 `matchPermissionRule` (`permissionRules/matchesRule.ts`): the tool
+    /// name is a **picomatch pattern**, not a literal — `Bash*` / `*` / `?`
+    /// match, and `*` short-circuits before the pattern is consulted.
+    #[test]
+    fn test_rule_tool_name_is_a_glob_pattern() {
+        let engine = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Manual,
+            allow_rules: vec!["Bash*".into(), "Read*le".into()],
+            ..Default::default()
+        });
+
+        let verdict = engine.evaluate("Bash", &json!({ "command": "cargo check" }));
+        assert_eq!(verdict.decision, VerdictDecision::Allow);
+        assert_eq!(verdict.policy_name, "UserConfiguredAllow");
+
+        let verdict = engine.evaluate("BashOutput", &json!({ "command": "cargo check" }));
+        assert_eq!(verdict.decision, VerdictDecision::Allow);
+        assert_eq!(verdict.policy_name, "UserConfiguredAllow");
+
+        let verdict = engine.evaluate("ReadFile", &json!({ "path": "src/lib.rs" }));
+        assert_eq!(verdict.decision, VerdictDecision::Allow);
+        assert_eq!(verdict.policy_name, "UserConfiguredAllow");
+
+        // `?` is a single character in picomatch, so `Read?le` does not match.
+        let engine_single = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Manual,
+            allow_rules: vec!["Read?le".into()],
+            ..Default::default()
+        });
+        let verdict = engine_single.evaluate("ReadFile", &json!({ "path": "src/lib.rs" }));
+        assert_ne!(verdict.policy_name, "UserConfiguredAllow");
+
+        // A tool outside both patterns still asks.
+        let verdict = engine.evaluate("Write", &json!({ "path": "src/lib.rs" }));
+        assert_ne!(verdict.policy_name, "UserConfiguredAllow");
+    }
+
+    /// v2 `pathGlobMatch` defaults `caseInsensitivePaths` to **true**, so a
+    /// path rule matches a differently-cased path on any platform.
+    #[test]
+    fn test_path_rules_match_case_insensitively() {
+        let engine = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Manual,
+            allow_rules: vec!["Write(src/**)".into()],
+            ..Default::default()
+        });
+
+        let verdict = engine.evaluate("Write", &json!({ "path": "SRC/Main.rs" }));
+        assert_eq!(verdict.decision, VerdictDecision::Allow);
+        assert_eq!(verdict.policy_name, "UserConfiguredAllow");
+    }
+
+    /// v2 `matchRuleSubjects`: a leading `!` negates the argument pattern, so
+    /// `Bash(!rm *)` denies every command except the ones starting with `rm`.
+    /// The engine used to refuse such patterns outright, which silently
+    /// dropped the rule.
+    #[test]
+    fn test_negated_argument_pattern() {
+        let engine = PermissionEngine::new(PolicySnapshot {
+            mode: PermissionMode::Manual,
+            deny_rules: vec!["Bash(!rm *)".into()],
+            ..Default::default()
+        });
+
+        let verdict = engine.evaluate("Bash", &json!({ "command": "cargo check" }));
+        assert_eq!(verdict.decision, VerdictDecision::Deny);
+        assert_eq!(verdict.policy_name, "UserConfiguredDeny");
+
+        let verdict = engine.evaluate("Bash", &json!({ "command": "rm -rf target" }));
+        assert_ne!(verdict.policy_name, "UserConfiguredDeny");
     }
 
     #[test]
@@ -1548,8 +2149,6 @@ mod tests {
     fn test_compiled_rule_semantics() {
         // Tool-only rule
         let rule = CompiledRule::compile("Write").unwrap();
-        assert_eq!(rule.tool_lower, "write");
-        assert!(rule.glob.is_none());
         assert!(rule.matches("write", Some("src/main.rs")));
         assert!(rule.matches("write", None));
         assert!(rule.matches("WRITE", Some("anything")));
@@ -1557,20 +2156,26 @@ mod tests {
 
         // Rule with glob pattern
         let rule = CompiledRule::compile("Write(src/*.rs)").unwrap();
-        assert_eq!(rule.tool_lower, "write");
-        assert!(rule.glob.is_some());
         assert!(rule.matches("write", Some("src/main.rs")));
         assert!(!rule.matches("write", Some("tests/test.rs")));
         assert!(!rule.matches("write", None));
         assert!(!rule.matches("read", Some("src/main.rs")));
 
+        // A `./`-prefixed target matches a rule written without it (v2
+        // `stripLeadingDotSlash`).
+        assert!(rule.matches("write", Some("./src/main.rs")));
+
         // Wildcard tool rule `*(*.rs)`
         let rule = CompiledRule::compile("*(*.rs)").unwrap();
-        assert_eq!(rule.tool_lower, "*");
         assert!(rule.matches("write", Some("src/main.rs")));
         assert!(rule.matches("read", Some("src/main.rs")));
         assert!(rule.matches("edit", Some("src/lib.rs")));
         assert!(!rule.matches("write", Some("src/main.py")));
+
+        // `**` crosses directory boundaries; both match inside `src`.
+        let rule = CompiledRule::compile("Write(src/**)").unwrap();
+        assert!(rule.matches("write", Some("src/deep/nested/main.rs")));
+        assert!(!rule.matches("write", Some("tests/test.rs")));
 
         // Invalid glob pattern should fail compilation fast (not silently match everything)
         assert!(CompiledRule::compile("Write([unclosed").is_none());
@@ -1580,69 +2185,114 @@ mod tests {
     }
 
     #[test]
-    fn test_is_sensitive_path() {
+    fn test_parse_permission_pattern_keeps_negation() {
+        let parsed = parse_permission_pattern("Bash(!rm *)").unwrap();
+        assert_eq!(parsed.tool_name, "Bash");
+        assert_eq!(parsed.arg_pattern.as_deref(), Some("!rm *"));
+    }
+
+    #[test]
+    fn test_sensitive_file_rules_match_v2() {
         // Positive cases: .env variants (v2 `ENV_PREFIX` + basenames)
-        assert!(is_sensitive_path(".env"));
-        assert!(is_sensitive_path(".env.local"));
-        assert!(is_sensitive_path(".env.production"));
-        assert!(is_sensitive_path(".env.development.local"));
-        assert!(is_sensitive_path(".ENV"));
-        assert!(is_sensitive_path(".Env.Test"));
-        assert!(is_sensitive_path("config/.env"));
-        assert!(is_sensitive_path("backend/.env.production"));
+        assert!(crate::native::file_type::is_sensitive_file(".env"));
+        assert!(crate::native::file_type::is_sensitive_file(".env.local"));
+        assert!(crate::native::file_type::is_sensitive_file(
+            ".env.production"
+        ));
+        assert!(crate::native::file_type::is_sensitive_file(
+            ".env.development.local"
+        ));
+        assert!(crate::native::file_type::is_sensitive_file(".ENV"));
+        assert!(crate::native::file_type::is_sensitive_file(".Env.Test"));
+        assert!(crate::native::file_type::is_sensitive_file("config/.env"));
+        assert!(crate::native::file_type::is_sensitive_file(
+            "backend/.env.production"
+        ));
 
         // Positive cases: SSH private keys (v2 `SENSITIVE_BASENAMES`)
-        assert!(is_sensitive_path("id_rsa"));
-        assert!(is_sensitive_path("id_ed25519"));
-        assert!(is_sensitive_path("id_ecdsa"));
-        assert!(is_sensitive_path("~/.ssh/id_rsa"));
-        assert!(is_sensitive_path("/root/.ssh/id_ed25519"));
-        assert!(is_sensitive_path("ID_RSA"));
+        assert!(crate::native::file_type::is_sensitive_file("id_rsa"));
+        assert!(crate::native::file_type::is_sensitive_file("id_ed25519"));
+        assert!(crate::native::file_type::is_sensitive_file("id_ecdsa"));
+        assert!(crate::native::file_type::is_sensitive_file("~/.ssh/id_rsa"));
+        assert!(crate::native::file_type::is_sensitive_file(
+            "/root/.ssh/id_ed25519"
+        ));
+        assert!(crate::native::file_type::is_sensitive_file("ID_RSA"));
         // v2 prefix+separator and prefix+dot-variant: id_rsa.bak, id_rsa-prod,
         // credentials_backup, credentials.old, etc.
-        assert!(is_sensitive_path("id_rsa.bak"));
-        assert!(is_sensitive_path("id_rsa-prod"));
-        assert!(is_sensitive_path("id_ed25519.old"));
-        assert!(is_sensitive_path("credentials.bak"));
-        assert!(is_sensitive_path("credentials_backup"));
+        assert!(crate::native::file_type::is_sensitive_file("id_rsa.bak"));
+        assert!(crate::native::file_type::is_sensitive_file("id_rsa-prod"));
+        assert!(crate::native::file_type::is_sensitive_file(
+            "id_ed25519.old"
+        ));
+        assert!(crate::native::file_type::is_sensitive_file(
+            "credentials.bak"
+        ));
+        assert!(crate::native::file_type::is_sensitive_file(
+            "credentials_backup"
+        ));
 
         // Positive cases: credentials basenames + path-suffix components
-        assert!(is_sensitive_path("credentials"));
-        assert!(is_sensitive_path("~/.aws/credentials"));
-        assert!(is_sensitive_path("/root/.gcp/credentials"));
-        assert!(is_sensitive_path("path/to/.aws/credentials"));
-        assert!(is_sensitive_path("path/to/.aws/credentials/extra"));
+        assert!(crate::native::file_type::is_sensitive_file("credentials"));
+        assert!(crate::native::file_type::is_sensitive_file(
+            "~/.aws/credentials"
+        ));
+        assert!(crate::native::file_type::is_sensitive_file(
+            "/root/.gcp/credentials"
+        ));
+        assert!(crate::native::file_type::is_sensitive_file(
+            "path/to/.aws/credentials"
+        ));
+        assert!(crate::native::file_type::is_sensitive_file(
+            "path/to/.aws/credentials/extra"
+        ));
 
         // Positive cases: Windows paths (backslashes normalised)
-        assert!(is_sensitive_path("C:\\Users\\admin\\.ssh\\id_rsa"));
-        assert!(is_sensitive_path("app\\config\\.env.local"));
-        assert!(is_sensitive_path("C:\\path\\.aws\\credentials"));
+        assert!(crate::native::file_type::is_sensitive_file(
+            "C:\\Users\\admin\\.ssh\\id_rsa"
+        ));
+        assert!(crate::native::file_type::is_sensitive_file(
+            "app\\config\\.env.local"
+        ));
+        assert!(crate::native::file_type::is_sensitive_file(
+            "C:\\path\\.aws\\credentials"
+        ));
 
         // Negative cases: exemptions (v2 `ENV_EXEMPTIONS` + `PUBLIC_KEY_BASENAMES`)
-        assert!(!is_sensitive_path(".env.example"));
-        assert!(!is_sensitive_path(".env.sample"));
-        assert!(!is_sensitive_path(".env.template"));
-        assert!(!is_sensitive_path("id_rsa.pub"));
-        assert!(is_sensitive_path("id_rsa"));
-        assert!(!is_sensitive_path("id_ed25519.pub"));
-        assert!(!is_sensitive_path("id_ecdsa.pub"));
-        assert!(!is_sensitive_path(".ENV.example"));
+        assert!(!crate::native::file_type::is_sensitive_file(".env.example"));
+        assert!(!crate::native::file_type::is_sensitive_file(".env.sample"));
+        assert!(!crate::native::file_type::is_sensitive_file(
+            ".env.template"
+        ));
+        assert!(!crate::native::file_type::is_sensitive_file("id_rsa.pub"));
+        assert!(crate::native::file_type::is_sensitive_file("id_rsa"));
+        assert!(!crate::native::file_type::is_sensitive_file(
+            "id_ed25519.pub"
+        ));
+        assert!(!crate::native::file_type::is_sensitive_file("id_ecdsa.pub"));
+        assert!(!crate::native::file_type::is_sensitive_file(".ENV.example"));
 
         // Negative cases: safe non-sensitive files. v2 does NOT flag
         // arbitrary `.pem` / `.key` / `.pfx` — only the dot-variants of
         // `id_rsa` / `id_ed25519` / `id_ecdsa` / `credentials`.
-        assert!(!is_sensitive_path("environment.ts"));
-        assert!(!is_sensitive_path("dotenv.js"));
-        assert!(!is_sensitive_path("environment.json"));
-        assert!(!is_sensitive_path("key.txt"));
-        assert!(!is_sensitive_path("keyboard.rs"));
-        assert!(!is_sensitive_path("README.md"));
-        assert!(!is_sensitive_path("src/main.rs"));
-        assert!(!is_sensitive_path("server.key"));
-        assert!(!is_sensitive_path("cert.pem"));
-        assert!(!is_sensitive_path("identity.pfx"));
-        assert!(!is_sensitive_path("certs/ca.pem"));
-        assert!(!is_sensitive_path("keys/secret.KEY"));
+        assert!(!crate::native::file_type::is_sensitive_file(
+            "environment.ts"
+        ));
+        assert!(!crate::native::file_type::is_sensitive_file("dotenv.js"));
+        assert!(!crate::native::file_type::is_sensitive_file(
+            "environment.json"
+        ));
+        assert!(!crate::native::file_type::is_sensitive_file("key.txt"));
+        assert!(!crate::native::file_type::is_sensitive_file("keyboard.rs"));
+        assert!(!crate::native::file_type::is_sensitive_file("README.md"));
+        assert!(!crate::native::file_type::is_sensitive_file("src/main.rs"));
+        assert!(!crate::native::file_type::is_sensitive_file("server.key"));
+        assert!(!crate::native::file_type::is_sensitive_file("cert.pem"));
+        assert!(!crate::native::file_type::is_sensitive_file("identity.pfx"));
+        assert!(!crate::native::file_type::is_sensitive_file("certs/ca.pem"));
+        assert!(!crate::native::file_type::is_sensitive_file(
+            "keys/secret.KEY"
+        ));
     }
 
     #[test]
@@ -1821,12 +2471,13 @@ mod tests {
         assert_eq!(snapshot.pre_tool_hooks[0].timeout, Some(15));
     }
 
-    /// v2 mode gating (dangerous-command-ask.ts): dangerous commands ask in
-    /// manual only — auto skips the policy (AutoModeApprove decides), yolo
-    /// passes them to YoloModeApprove. Benign commands are approved in auto
-    /// and yolo; manual falls through to FallbackAsk.
+    /// v2 mode gating (dangerous-command-ask.ts, under
+    /// `agent/permissionPolicy/policies/`): a dangerous command asks in
+    /// manual and yolo alike; auto skips the policy entirely, so AutoModeApprove
+    /// decides. Benign commands are approved in auto and yolo; manual falls
+    /// through to FallbackAsk.
     #[test]
-    fn test_dangerous_bash_command_asks_only_in_manual() {
+    fn test_dangerous_bash_command_asks_in_manual_and_yolo() {
         let manual = PermissionEngine::new(PolicySnapshot {
             mode: PermissionMode::Manual,
             ..Default::default()
@@ -1841,19 +2492,28 @@ mod tests {
         });
 
         for cmd in ["sudo reboot", "shutdown -h now", "rm -rf /", "format C: /q"] {
-            let verdict = manual.evaluate("bash", &json!({ "command": cmd }));
-            assert_eq!(verdict.decision, VerdictDecision::Ask, "cmd: {cmd}");
-            assert_eq!(verdict.policy_name, "DangerousCommandAsk");
-
-            for engine in [&auto, &yolo] {
+            // v2 asks for a *dangerous* command in manual and yolo alike: only
+            // `mode === 'auto'` returns before the verdict.
+            for engine in [&manual, &yolo] {
                 let verdict = engine.evaluate("bash", &json!({ "command": cmd }));
-                assert_eq!(verdict.decision, VerdictDecision::Allow, "cmd: {cmd}");
+                assert_eq!(verdict.decision, VerdictDecision::Ask, "cmd: {cmd}");
+                assert_eq!(verdict.policy_name, "DangerousCommandAsk");
+                assert_eq!(
+                    verdict.reason.as_deref(),
+                    Some("High-risk shell command requires approval")
+                );
             }
+            // Auto skipped the policy before the verdict, so AutoModeApprove
+            // owns the call (v2 `if (mode === 'auto') return undefined`).
+            let verdict = auto.evaluate("bash", &json!({ "command": cmd }));
+            assert_eq!(verdict.decision, VerdictDecision::Allow, "cmd: {cmd}");
+            assert_eq!(verdict.policy_name, "AutoModeApprove");
         }
 
-        // Auto/Yolo approve a benign command outright; manual falls through
-        // the rest of the chain to FallbackAsk (v2 behavior: a non-dangerous,
-        // non-allow-listed Bash call asks in manual).
+        // A benign command is untouched by the policy: Auto/Yolo approve it
+        // outright, manual falls through the rest of the chain to FallbackAsk
+        // (v2 behavior: a non-dangerous, non-allow-listed Bash call asks in
+        // manual).
         for engine in [&auto, &yolo] {
             let benign = engine.evaluate("bash", &json!({ "command": "git status" }));
             assert_eq!(benign.decision, VerdictDecision::Allow, "benign command");
@@ -1892,11 +2552,12 @@ mod tests {
         assert_eq!(verdict.policy_name, "DangerousCommandAsk");
     }
 
-    /// Upstream #3869: a command the analyzer cannot read is approved only
-    /// in Yolo; every other mode asks (v2's DangerousCommandAsk returns
-    /// undefined for yolo, asks with `unanalyzable_command` otherwise).
+    /// Upstream #3869: a command the analyzer cannot read is approved in auto and
+    /// yolo, and asks in manual — v2 returns undefined for auto *before* the
+    /// verdict and for yolo *after* it, asking with `unanalyzable_command`
+    /// otherwise.
     #[test]
-    fn test_unanalyzable_bash_command_asks_except_in_yolo() {
+    fn test_unanalyzable_bash_command_asks_except_in_auto_and_yolo() {
         let manual = PermissionEngine::new(PolicySnapshot {
             mode: PermissionMode::Manual,
             ..Default::default()
@@ -1910,23 +2571,24 @@ mod tests {
             ..Default::default()
         });
 
-        for engine in [&manual, &auto] {
-            for cmd in ["echo \"unterminated", "$CMD --force"] {
-                let verdict = engine.evaluate("bash", &json!({ "command": cmd }));
-                assert_eq!(verdict.decision, VerdictDecision::Ask, "cmd: {cmd}");
-                assert_eq!(verdict.policy_name, "DangerousCommandAsk");
-                assert!(
-                    verdict
-                        .reason
-                        .as_deref()
-                        .is_some_and(|r| r.contains("could not be statically analyzed")),
-                    "reason: {:?}",
-                    verdict.reason
-                );
-            }
+        for cmd in ["echo \"unterminated", "$CMD --force"] {
+            let verdict = manual.evaluate("bash", &json!({ "command": cmd }));
+            assert_eq!(verdict.decision, VerdictDecision::Ask, "cmd: {cmd}");
+            assert_eq!(verdict.policy_name, "DangerousCommandAsk");
+            assert!(
+                verdict
+                    .reason
+                    .as_deref()
+                    .is_some_and(|r| r.contains("could not be statically analyzed")),
+                "reason: {:?}",
+                verdict.reason
+            );
         }
 
-        // Yolo falls through to YoloModeApprove.
+        // Auto and yolo fall through to their own approve policies.
+        let verdict = auto.evaluate("bash", &json!({ "command": "echo \"unterminated" }));
+        assert_eq!(verdict.decision, VerdictDecision::Allow);
+        assert_eq!(verdict.policy_name, "AutoModeApprove");
         let verdict = yolo.evaluate("bash", &json!({ "command": "echo \"unterminated" }));
         assert_eq!(verdict.decision, VerdictDecision::Allow);
         assert_eq!(verdict.policy_name, "YoloModeApprove");
@@ -2011,9 +2673,13 @@ mod tests {
         let minimal = json!({ "mode": "yolo", "deny_rules": [], "ask_rules": [],
                               "allow_rules": [], "session_approvals": [],
                               "git_cwd": null, "pre_tool_hooks": [] });
-        // The host sends `meta.planMode ? 'plan' : meta.permissionMode`, and
-        // `plan` is not a mode this engine models: it must degrade to `Unknown`
-        // (the manual default) rather than failing the whole snapshot.
+        // A mode this engine does not model must degrade to `Unknown` rather
+        // than failing the whole snapshot, or a host that invents one would
+        // silently cost the user their rules and hooks. `plan` is the shape
+        // that used to arrive this way (the host folded plan mode into the
+        // permission mode); it is not one of v2's `manual | yolo | auto` and no
+        // longer sent, but the tolerance stays — an unknown mode gets the
+        // manual default, never yolo's auto-approval.
         let plan = json!({ "mode": "plan", "deny_rules": [], "ask_rules": [],
                            "allow_rules": [], "session_approvals": [],
                            "git_cwd": null, "pre_tool_hooks": [] });
@@ -2046,7 +2712,7 @@ mod tests {
         // An unmodelled mode must not inherit yolo's auto-approval.
         let engine = PermissionEngine::new(serde_json::from_value(plan).expect("plan snapshot"));
         let verdict = engine.evaluate("Bash", &json!({ "command": "ls -la" }));
-        assert_eq!(verdict.decision, VerdictDecision::Ask, "plan mode asks");
+        assert_eq!(verdict.decision, VerdictDecision::Ask, "unknown mode asks");
     }
 
     #[test]

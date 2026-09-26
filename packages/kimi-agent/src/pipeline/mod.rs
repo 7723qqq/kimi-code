@@ -285,9 +285,18 @@ pub async fn build_engine_pipeline(
         .map(std::path::Path::new)
         .map(|root| Arc::new(ToolResultTruncator::for_workspace(root)));
     let policy_snapshot = spec.policy_snapshot.clone();
-    let permission_engine = policy_snapshot
-        .clone()
-        .map(|s| Arc::new(crate::permission::PermissionEngine::new(s)));
+    let permission_engine = policy_snapshot.clone().map(|s| {
+        // The engine's `GitCwdWriteApprove` gate needs the session workspace
+        // (v2 `ISessionWorkspaceContext`): the root its containment resolves
+        // against and the `/add-dir` roots that widen the boundary. Both are
+        // already host-resolved here — the snapshot carries only the cwd, so
+        // reading them off the spec keeps `additionalDirs` out of the wire.
+        Arc::new(crate::permission::PermissionEngine::with_workspace(
+            s,
+            spec.workspace_root.clone(),
+            spec.extra_roots.clone(),
+        ))
+    });
     // Turn-lifecycle hooks (v2 `agentExternalHooksService`, G-6 #6):
     // user-configured commands observe the turn (`UserPromptSubmit` /
     // `PreCompact`) and can veto a clean text stop (`Stop`). Built once

@@ -34,6 +34,7 @@ pub mod storage;
 pub mod subagent;
 pub mod swarm;
 pub mod team;
+pub mod tool_input_display;
 pub mod tool_result_truncation;
 pub mod tools;
 pub mod turn_events;
@@ -41,7 +42,7 @@ pub mod turn_loop;
 pub mod workflow;
 
 use crate::native::event_store::{EventStore, RawWireEvent};
-use crate::native::permission_engine::PermissionEngine;
+use crate::permission::{PermissionEngine, VerdictDecision};
 use crate::turn_loop::types::LLMMessage;
 use std::sync::Arc;
 
@@ -134,44 +135,27 @@ impl crate::callbacks::HostCallbacks for NativeHostCallbacks {
     {
         let perm = self.permission.clone();
         Box::pin(async move {
-            let decision = if req.tool_name.eq_ignore_ascii_case("bash") {
-                let cmd = req
-                    .arguments
-                    .get("command")
-                    .and_then(|c| c.as_str())
-                    .unwrap_or("");
-                perm.evaluate_bash_command(cmd)
-            } else {
-                let path_arg = req
-                    .arguments
-                    .get("path")
-                    .and_then(|p| p.as_str())
-                    .map(std::path::Path::new);
-                perm.evaluate_tool_call(&req.tool_name, path_arg)
-            };
-
-            match decision {
-                crate::native::permission_engine::PermissionDecision::Allow => {
-                    Ok(crate::rpc::types::PermissionDecision::allow())
-                }
-                crate::native::permission_engine::PermissionDecision::Deny => {
-                    Ok(crate::rpc::types::PermissionDecision::deny(
-                        LocalizedText::plain(
-                            "engine.permission.operationDeniedByEngine",
-                            "Operation denied by local permission engine",
-                        )
-                        .render(),
-                    ))
-                }
-                crate::native::permission_engine::PermissionDecision::AskUser => {
-                    Ok(crate::rpc::types::PermissionDecision::deny(
-                        LocalizedText::plain(
-                            "engine.permission.operationRequiresConfirmation",
-                            "Operation requires user confirmation",
-                        )
-                        .render(),
-                    ))
-                }
+            // One permission implementation for the whole engine: the 13-policy
+            // chain in `crate::permission`. It reads the tool name *and* its
+            // arguments, so a Bash call still reaches `DangerousCommandAsk`
+            // through `args["command"]` without a special case here.
+            let verdict = perm.evaluate(&req.tool_name, &req.arguments);
+            match verdict.decision {
+                VerdictDecision::Allow => Ok(crate::rpc::types::PermissionDecision::allow()),
+                VerdictDecision::Deny => Ok(crate::rpc::types::PermissionDecision::deny(
+                    LocalizedText::plain(
+                        "engine.permission.operationDeniedByEngine",
+                        "Operation denied by local permission engine",
+                    )
+                    .render(),
+                )),
+                VerdictDecision::Ask => Ok(crate::rpc::types::PermissionDecision::deny(
+                    LocalizedText::plain(
+                        "engine.permission.operationRequiresConfirmation",
+                        "Operation requires user confirmation",
+                    )
+                    .render(),
+                )),
             }
         })
     }
@@ -268,6 +252,10 @@ pub struct KimiEngine {
     /// User-configured external hooks (`[hooks]`), run by the PreToolUse
     /// gate when present.
     hooks: Vec<crate::permission::HookDef>,
+    /// Workspace root this run is confined to. The permission chain resolves
+    /// containment from its own `PolicySnapshot`, so the root the toolset and
+    /// the stale gate need is carried here instead of read back off the engine.
+    workspace_root: std::path::PathBuf,
 }
 
 impl KimiEngine {
@@ -281,7 +269,17 @@ impl KimiEngine {
             mcp: None,
             subagents: Arc::new(crate::subagent::SubagentManager::new()),
             hooks: Vec::new(),
+            workspace_root: std::path::PathBuf::new(),
         }
+    }
+
+    /// Confine the run to `root`: the toolset workspace and the stale-write gate
+    /// both resolve against it, so it must match the root handed to
+    /// [`PermissionEngine::with_workspace`].
+    #[must_use]
+    pub fn with_workspace_root(mut self, root: impl Into<std::path::PathBuf>) -> Self {
+        self.workspace_root = root.into();
+        self
     }
 
     /// Attach the user's external hooks (PreToolUse gate).
@@ -337,7 +335,14 @@ impl KimiEngine {
         user_prompt: &str,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         // Native permission evaluation — the one real decision this path owns.
-        if !self.permission.prompt_user_if_needed("agent_turn", None) {
+        // The main chain answers an `ask` rather than prompting, so the gate is
+        // "not denied" (a terminal `run_once` has no human to answer a prompt).
+        if self
+            .permission
+            .evaluate("agent_turn", &serde_json::json!({}))
+            .decision
+            == VerdictDecision::Deny
+        {
             return Err(LocalizedText::plain(
                 "engine.permission.executionDeniedByEngine",
                 "Execution denied by local permission engine",
@@ -398,11 +403,7 @@ impl KimiEngine {
                 state: self.state.clone(),
             });
 
-        let workspace_str = self
-            .permission
-            .workspace_root()
-            .to_string_lossy()
-            .to_string();
+        let workspace_str = self.workspace_root.to_string_lossy().to_string();
         let callbacks =
             if let Some(toolset) = crate::tools::NativeToolset::new(&workspace_str, None) {
                 // The capabilities this path advertises must be the ones it
@@ -428,7 +429,7 @@ impl KimiEngine {
                     permission_engine: None,
                     plan_guard: None,
                     stale_guard: Some(Arc::new(crate::tools::stale_guard::StaleGate::new(
-                        Some(self.permission.workspace_root().to_path_buf()),
+                        Some(self.workspace_root.clone()),
                         shell_bridge,
                     ))),
                     goal_guard: Some(Arc::new(crate::tools::goal_guard::GoalGuard::new(
@@ -549,7 +550,11 @@ mod engine_tests {
         let dir = tempfile::tempdir().unwrap();
         let state = Arc::new(crate::storage::StateStore::for_workspace(dir.path()).unwrap());
         let root = PathBuf::from(dir.path());
-        let permission = Arc::new(PermissionEngine::new(&root, None).unwrap());
+        let permission = Arc::new(PermissionEngine::with_workspace(
+            crate::permission::PolicySnapshot::default(),
+            Some(root.to_string_lossy().to_string()),
+            Vec::new(),
+        ));
         let callbacks = NativeHostCallbacks {
             permission,
             state: Some(state.clone()),
@@ -591,7 +596,11 @@ mod engine_tests {
         // Without a store the seam reports the standard error rather than a
         // confusing "tool not available".
         let bare = NativeHostCallbacks {
-            permission: Arc::new(PermissionEngine::new(&root, None).unwrap()),
+            permission: Arc::new(PermissionEngine::with_workspace(
+                crate::permission::PolicySnapshot::default(),
+                Some(root.to_string_lossy().to_string()),
+                Vec::new(),
+            )),
             state: None,
         };
         let err = bare
@@ -610,7 +619,11 @@ mod engine_tests {
     async fn mcp_tools_join_the_pure_native_table() {
         let dir = tempfile::tempdir().unwrap();
         let root = PathBuf::from(dir.path());
-        let permission = Arc::new(PermissionEngine::new(&root, None).unwrap());
+        let permission = Arc::new(PermissionEngine::with_workspace(
+            crate::permission::PolicySnapshot::default(),
+            Some(root.to_string_lossy().to_string()),
+            Vec::new(),
+        ));
         let mcp = Arc::new(crate::mcp::McpManager::new());
         mcp.add_client(crate::mcp::McpClient::mock("acme")).await;
 
@@ -618,6 +631,7 @@ mod engine_tests {
             Arc::new(SqliteEventStore::new_in_memory().unwrap()),
             permission.clone(),
         )
+        .with_workspace_root(root.clone())
         .with_mcp_manager(mcp.clone());
 
         // The advertised table comes from the callbacks layer, which merges
@@ -668,9 +682,13 @@ mod engine_tests {
     async fn test_kimi_engine_run_once_flow() {
         let store = Arc::new(SqliteEventStore::new_in_memory().unwrap());
         let root = std::env::current_dir().unwrap();
-        let permission = Arc::new(PermissionEngine::new(&root, None).unwrap());
+        let permission = Arc::new(PermissionEngine::with_workspace(
+            crate::permission::PolicySnapshot::default(),
+            Some(root.to_string_lossy().to_string()),
+            Vec::new(),
+        ));
 
-        let engine = KimiEngine::new(store.clone(), permission);
+        let engine = KimiEngine::new(store.clone(), permission).with_workspace_root(root.clone());
         // `run_once` has no LLM, so it refuses rather than inventing a reply...
         let err = engine
             .run_once("session_test", "Hello Native Rust Engine")
@@ -724,9 +742,13 @@ mod engine_tests {
     async fn test_kimi_engine_real_run_turn_execution() {
         let store = Arc::new(SqliteEventStore::new_in_memory().unwrap());
         let root = std::env::current_dir().unwrap();
-        let permission = Arc::new(PermissionEngine::new(&root, None).unwrap());
+        let permission = Arc::new(PermissionEngine::with_workspace(
+            crate::permission::PolicySnapshot::default(),
+            Some(root.to_string_lossy().to_string()),
+            Vec::new(),
+        ));
 
-        let engine = KimiEngine::new(store.clone(), permission);
+        let engine = KimiEngine::new(store.clone(), permission).with_workspace_root(root.clone());
         let mock_llm = MockLLM;
 
         let result = engine
@@ -818,9 +840,13 @@ mod engine_tests {
     async fn test_kimi_engine_multistep_native_tool_execution() {
         let store = Arc::new(SqliteEventStore::new_in_memory().unwrap());
         let root = std::env::current_dir().unwrap();
-        let permission = Arc::new(PermissionEngine::new(&root, None).unwrap());
+        let permission = Arc::new(PermissionEngine::with_workspace(
+            crate::permission::PolicySnapshot::default(),
+            Some(root.to_string_lossy().to_string()),
+            Vec::new(),
+        ));
 
-        let engine = KimiEngine::new(store.clone(), permission);
+        let engine = KimiEngine::new(store.clone(), permission).with_workspace_root(root.clone());
         let mock_llm = MockToolCallingLLM {
             call_count: std::sync::atomic::AtomicUsize::new(0),
         };
@@ -861,13 +887,19 @@ mod engine_tests {
     async fn test_kimi_engine_with_custom_engine_config() {
         let store = Arc::new(SqliteEventStore::new_in_memory().unwrap());
         let root = std::env::current_dir().unwrap();
-        let permission = Arc::new(PermissionEngine::new(&root, None).unwrap());
+        let permission = Arc::new(PermissionEngine::with_workspace(
+            crate::permission::PolicySnapshot::default(),
+            Some(root.to_string_lossy().to_string()),
+            Vec::new(),
+        ));
 
         let custom_config = EngineConfig {
             max_tokens_limit: 50_000,
         };
 
-        let engine = KimiEngine::new(store.clone(), permission).with_engine_config(custom_config);
+        let engine = KimiEngine::new(store.clone(), permission)
+            .with_workspace_root(root.clone())
+            .with_engine_config(custom_config);
         let mock_llm = MockLLM;
 
         let result = engine

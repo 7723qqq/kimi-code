@@ -102,9 +102,25 @@ fn permission_mode_provider(
 /// the enter reminder means auto, the exit reminder means some other mode.
 /// `None` when the variant never injected — the enter reminder then fires on
 /// the next auto turn.
+///
+/// v2 reads `lastMode` from `IAgentStateService` (a `defineState` field), which
+/// no message body can influence. This engine has no state layer, so the mode is
+/// recovered by scanning the history — and that reconstruction has a failure
+/// mode v2 does not have: a user who quotes the reminder text (asking what it
+/// means, pasting docs) would otherwise seed `injected = true` and permanently
+/// suppress the real enter reminder, leaving the model unaware that auto mode
+/// skips approvals and auto-approves ExitPlanMode.
+///
+/// Injections are appended with role `user`, exactly as v2 does, so the role
+/// cannot separate them. `is_system_reminder` is the engine's identity marker
+/// for an injected message and is what `split_injections` already keys on, so
+/// the scan trusts that instead.
 pub fn scan_permission_mode_baseline(messages: &[LLMMessage]) -> Option<PermissionMode> {
     for message in messages.iter().rev() {
         let content = message.content.as_str();
+        if !crate::injection::is_system_reminder(content) {
+            continue;
+        }
         if content.contains(AUTO_ENTER_MARKER) {
             return Some(PermissionMode::Auto);
         }
@@ -142,6 +158,12 @@ pub fn register_permission_mode_injection(
 mod tests {
     use super::*;
     use crate::injection::{InjectionRegistry, is_system_reminder};
+
+    /// A message carrying a real injection, wrapped the way the engine marks
+    /// one. `role` is `user` because v2 appends injections that way too.
+    fn reminder(content: &str) -> LLMMessage {
+        crate::injection::injection_message(crate::injection::wrap_system_reminder(content))
+    }
 
     fn message(content: &str) -> LLMMessage {
         LLMMessage {
@@ -231,28 +253,58 @@ mod tests {
         assert_eq!(scan_permission_mode_baseline(&[]), None);
         assert_eq!(scan_permission_mode_baseline(&[message("unrelated")]), None);
         assert_eq!(
-            scan_permission_mode_baseline(&[message(AUTO_ENTER_REMINDER)]),
+            scan_permission_mode_baseline(&[reminder(AUTO_ENTER_REMINDER)]),
             Some(PermissionMode::Auto)
         );
         assert_eq!(
-            scan_permission_mode_baseline(&[message(AUTO_EXIT_REMINDER)]),
+            scan_permission_mode_baseline(&[reminder(AUTO_EXIT_REMINDER)]),
             Some(PermissionMode::Manual)
         );
         // The latest reminder wins, regardless of kind.
         assert_eq!(
             scan_permission_mode_baseline(&[
-                message(AUTO_ENTER_REMINDER),
+                reminder(AUTO_ENTER_REMINDER),
                 message("unrelated"),
-                message(AUTO_EXIT_REMINDER),
+                reminder(AUTO_EXIT_REMINDER),
             ]),
             Some(PermissionMode::Manual)
         );
         assert_eq!(
             scan_permission_mode_baseline(&[
-                message(AUTO_EXIT_REMINDER),
-                message(AUTO_ENTER_REMINDER),
+                reminder(AUTO_EXIT_REMINDER),
+                reminder(AUTO_ENTER_REMINDER),
             ]),
             Some(PermissionMode::Auto)
+        );
+    }
+
+    #[test]
+    fn test_scan_ignores_user_text_quoting_the_reminder() {
+        // A user asking what the reminder means, or pasting it from docs, must
+        // not seed the baseline: doing so marks the variant as already injected
+        // and silently suppresses the real enter reminder, so the model never
+        // learns that auto mode skips approvals.
+        assert_eq!(
+            scan_permission_mode_baseline(&[message(AUTO_ENTER_REMINDER)]),
+            None,
+            "an unwrapped user message is not an injection"
+        );
+        assert_eq!(
+            scan_permission_mode_baseline(&[
+                reminder(AUTO_ENTER_REMINDER),
+                message(&format!(
+                    "the docs say \"{AUTO_ENTER_MARKER}\" — what does that mean?"
+                )),
+            ]),
+            Some(PermissionMode::Auto),
+            "a real injection still counts even with a later user quote"
+        );
+        assert_eq!(
+            scan_permission_mode_baseline(&[message(&format!(
+                "{AUTO_EXIT_MARKER} (quoting docs)"
+            ))]),
+            None,
+            "a user-quoted exit marker does not move the baseline to Manual"
         );
     }
 

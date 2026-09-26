@@ -1,4 +1,6 @@
-//! 原生危险命令词法分析器（对齐 v2 `dangerous-command-ask.ts`）。
+//! 原生危险命令词法分析器（对齐 v2 `dangerous-command-ask.ts`，即
+//! `agent/permissionPolicy/policies/` 下的那一个——裸文件名在上游会搜到两份
+//! 历史路径，只有带目录的这条是现存的）。
 //!
 //! 负责分析 Bash 命令行，检测关机、重启、格式化、dd 物理设备覆盖、
 //! 以及透过 sudo / doas / nohup / bash -c 等包装的高危破坏性指令。

@@ -2015,10 +2015,20 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // throws here, so the session fails at startup naming the offending alias.
     const secondaryModel = resolveSecondaryModelPool(config, true, process.env, defaultHeaders);
     const policySnapshot = buildPolicySnapshot(config, workDir);
-    // The session's live permission / plan mode overrides the config-derived
-    // snapshot default: setPermission / setPlanMode mutate meta, and a rebuild
-    // (or the plan guard's stateRead) must reflect the current mode.
-    policySnapshot.mode = meta.planMode ? 'plan' : meta.permissionMode;
+    // The session's live permission mode overrides the config-derived snapshot
+    // default: setPermission mutates meta, and a rebuild must reflect the
+    // current mode. Plan mode is deliberately NOT folded in — it is not a
+    // permission mode. v2's `PermissionMode` is `manual | yolo | auto`
+    // (`agent/permissionPolicy/types.ts`) and `plan` is not even in the config
+    // schema (`DefaultPermissionModeSchema`), because plan mode is a tool guard
+    // of its own: `AgentPlanService.guardToolExecution` vetoes the writes that
+    // are not the plan file. The engine runs that guard too, against the live
+    // plan state (the plan-mode reminder says it outright: "Bash follows the
+    // normal permission mode and rules"). Sending `plan` as a permission mode
+    // made the engine degrade to its manual default, so a yolo session in plan
+    // mode asked for every Bash command — a plan-mode toggle or any handle
+    // rebuild (setThinking / setModel / additionalDirs) turned yolo off.
+    policySnapshot.mode = meta.permissionMode;
     // A headless session (upstream `nonInteractive`) drops the engine's
     // dangerous-command ask policy — there is no human to answer it.
     if (meta.nonInteractive) {
