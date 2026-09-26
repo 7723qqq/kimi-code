@@ -25,6 +25,8 @@ import {
   Text,
   truncateToWidth,
   type ImageTheme,
+  type TuiMouseDispatchResult,
+  type TuiMouseEvent,
   getCapabilities,
   type ImageProtocol,
 } from '@moonshot-ai/pi-tui';
@@ -60,6 +62,12 @@ export interface InlineImageOptions {
    * drop their own render caches, or the swap stays invisible.
    */
   readonly onInvalidate?: () => void;
+  /**
+   * Open the interactive preview. Omitted when the host has no TUI to mount an
+   * overlay on (tests, headless rendering); the thumbnail then behaves as a
+   * plain picture with no click target.
+   */
+  readonly onOpenPreview?: () => void;
 }
 
 const MIME_SHORT: Readonly<Record<string, string>> = {
@@ -202,5 +210,33 @@ export class InlineImage extends Container {
     this.options.onInvalidate?.();
     this.buildChildren(this.lastRenderWidth);
     super.invalidate();
+  }
+
+  /**
+   * A click anywhere on the picture opens the preview.
+   *
+   * The image occupies rows whose measured text width is ~0 — the pixels are
+   * drawn by the terminal, not written as cells — so this cannot hit-test the
+   * picture bounds. Any click inside the component's box counts, which is the
+   * same affordance as clicking a thumbnail. The fallback marker is clickable
+   * too: on a terminal without graphics that row is the only handle the user
+   * has on the image.
+   */
+  override handleMouse(event: TuiMouseEvent): TuiMouseDispatchResult | undefined {
+    const open = this.options.onOpenPreview;
+    if (open === undefined) return super.handleMouse(event);
+    if (event.type !== 'click') return super.handleMouse(event);
+    if (event.y < 0 || event.y >= event.height) return super.handleMouse(event);
+    open();
+    return {
+      handled: true,
+      target: {
+        component: this,
+        originX: 0,
+        originY: 0,
+        width: event.width,
+        height: event.height,
+      },
+    };
   }
 }

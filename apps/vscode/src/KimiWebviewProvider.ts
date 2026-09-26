@@ -107,6 +107,35 @@ export class KimiWebviewProvider implements vscode.WebviewViewProvider {
     return inserted;
   }
 
+  /**
+   * Mirror the current editor selection into every composer, replacing the
+   * mention the previous sync wrote.
+   *
+   * Separate from {@link insertEditorMention} because a selection drag is not a
+   * keystroke: the same mention is re-sent on every change, so the composer
+   * has to overwrite its previous value rather than append. The composer keeps
+   * the last synced mention so it can tell its own echo from user typing.
+   */
+  async syncEditorSelection(
+    documentUri: vscode.Uri,
+    selection: vscode.Selection,
+  ): Promise<boolean> {
+    let synced = false;
+    await Promise.all(
+      [...this.webviews.keys()].map(async (webviewId) => {
+        const mention = await this.bridgeHandler.getEditorMention(
+          webviewId,
+          documentUri,
+          selection,
+        );
+        if (mention === null) return;
+        synced = true;
+        this.broadcastInternal(Events.SyncEditorSelection, { mention }, webviewId);
+      }),
+    );
+    return synced;
+  }
+
   private setupWebview(webviewId: string, webview: vscode.Webview): void {
     webview.options = {
       enableScripts: true,

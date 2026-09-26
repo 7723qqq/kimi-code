@@ -6,10 +6,14 @@
 import { isAbsolute, relative, sep } from 'node:path';
 
 import { Container, Spacer, Text, truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
-import type { Component, TUI } from '@moonshot-ai/pi-tui';
+import type { Component, OverlayHandle, TUI } from '@moonshot-ai/pi-tui';
 import { t } from '#/i18n';
 import { Markdown } from '#/tui/components/markdown/markdown';
 import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
+import {
+  ImagePreviewOverlay,
+  type PreviewImage,
+} from '#/tui/components/media/image-preview';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
 import {
   BRAILLE_SPINNER_FRAMES,
@@ -2584,10 +2588,39 @@ export class ToolCallComponent extends Container {
     const renderer = pickResultRenderer(this.toolCall.name);
     const components = renderer(this.toolCall, result, {
       expanded: this.expanded,
+      openImagePreview: this.openImagePreview(),
     });
     for (const component of components) {
       this.addChild(component);
     }
+  }
+
+  /**
+   * Mount the interactive image preview, when this block was given a TUI to
+   * mount it on. Returns `undefined` otherwise, which the renderers read as
+   * "no preview available" — the inline picture still renders.
+   */
+  private openImagePreview(): ((images: readonly PreviewImage[], index: number) => void) | undefined {
+    const ui = this.ui;
+    if (ui === undefined) return undefined;
+    return (images, index) => {
+      if (images.length === 0) return;
+      // `hide` is the permanent removal; the handle is captured so the
+      // overlay can dismiss itself from inside its own key handling.
+      let handle: OverlayHandle | undefined;
+      const overlay = new ImagePreviewOverlay({
+        images,
+        initialIndex: index,
+        onClose: () => {
+          handle?.hide();
+          ui.invalidate();
+        },
+      });
+      handle = ui.showOverlay(overlay, {
+        anchor: 'center',
+        maxHeight: '90%',
+      });
+    };
   }
 
   private buildAgentSwarmResultSummary(result: ToolResultBlockData): void {

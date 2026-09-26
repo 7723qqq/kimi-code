@@ -95,6 +95,11 @@
             "Share when active file changes"
           ],
           "description": "Control when to share the active editor's file and cursor position with Kimi"
+        },
+        "kimi.editorSelectionSync": {
+          "type": "boolean",
+          "default": false,
+          "description": "Keep the selected code in the Kimi input as a @file:line reference while you select it in the editor"
         }
       }
     },

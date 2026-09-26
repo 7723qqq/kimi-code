@@ -39,7 +39,7 @@ import { useFilePicker } from './hooks/useFilePicker';
 import { useInputHistory } from './hooks/useInputHistory';
 import { useMediaUpload } from './hooks/useMediaUpload';
 import { useSlashMenu, findActiveToken } from './hooks/useSlashMenu';
-import { computeMentionInsert } from './utils';
+import { applySelectionSync, computeMentionInsert } from './utils';
 
 interface InputAreaProps {
   onAuthAction?: () => void;
@@ -57,6 +57,13 @@ function adjustHeight(textarea: HTMLTextAreaElement | null) {
 export function InputArea({ onAuthAction }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  /**
+   * The mention this composer last received from the editor selection, or
+   * `null` when it has never synced one. Lets a later sync tell "the user
+   * typed around my last synced mention" (drop it) from "the selection moved"
+   * (replace it).
+   */
+  const lastSyncedMention = useRef<string | null>(null);
   const [text, setText] = useState('');
   const [cursorPos, setCursorPos] = useState(0);
   const [previewMedia, setPreviewMedia] = useState<string | null>(null);
@@ -288,6 +295,24 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
         textareaRef.current?.focus();
         adjustHeight(textareaRef.current);
       }, 0);
+    });
+
+    return unsub;
+  }, []);
+
+  // The editor selection, mirrored in as the user drags it. Replacing rather
+  // than appending is the point: a drag re-sends the same mention on every
+  // change. `lastSyncedMention` is what this component last wrote, so a mention
+  // the user has since typed around is not clobbered by a stale echo — and the
+  // caret is not moved, because a selection made in the editor must not yank
+  // focus away from it.
+  useEffect(() => {
+    const unsub = bridge.on<{ mention: string }>(Events.SyncEditorSelection, ({ mention }) => {
+      setText((prev) => {
+        const result = applySelectionSync(prev, lastSyncedMention.current, mention);
+        lastSyncedMention.current = result.lastSynced;
+        return result.newText;
+      });
     });
 
     return unsub;

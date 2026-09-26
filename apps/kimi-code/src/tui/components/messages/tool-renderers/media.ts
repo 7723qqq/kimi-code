@@ -18,6 +18,7 @@ import { Text } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { InlineImage } from '#/tui/components/media/inline-image';
+import type { PreviewImage } from '#/tui/components/media/image-preview';
 import { currentTheme } from '#/tui/theme';
 import { formatBytes } from '#/tui/utils/format-bytes';
 
@@ -140,13 +141,25 @@ export const readMediaSummary: ResultRenderer = (toolCall, result, ctx) => {
 
   const dim = (text: string): string => currentTheme.dim(text);
   const out: Component[] = [];
-  if (summary.kind === 'image' && summary.base64 !== undefined) {
+  const imageBase64 = summary.base64;
+  if (summary.kind === 'image' && imageBase64 !== undefined) {
+    const mime = summary.mimeType ?? 'image/png';
+    const preview: PreviewImage = {
+      base64: imageBase64,
+      mime,
+      label: 'image',
+      byteLength: summary.bytes,
+    };
     out.push(
       new InlineImage({
-        base64: summary.base64,
-        mime: summary.mimeType ?? 'image/png',
+        base64: imageBase64,
+        mime,
         label: 'image',
         byteLength: summary.bytes,
+        onOpenPreview:
+          ctx.openImagePreview === undefined
+            ? undefined
+            : () => ctx.openImagePreview?.([preview], 0),
       }),
     );
   }

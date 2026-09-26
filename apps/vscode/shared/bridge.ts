@@ -92,6 +92,13 @@ export const Events = {
   StreamEvent: "streamEvent",
   FocusInput: "focusInput",
   InsertMention: "insertMention",
+  /**
+   * The editor selection changed and the mention it maps to was replaced in
+   * the composer. Distinct from {@link InsertMention} because that one is a
+   * user action that appends: a selection drag fires this continuously, and
+   * appending every frame would flood the draft.
+   */
+  SyncEditorSelection: "syncEditorSelection",
   NewConversation: "newConversation",
   FileChangesUpdated: "fileChangesUpdated",
   RollbackInput: "rollbackInput",

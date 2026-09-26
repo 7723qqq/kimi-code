@@ -66,6 +66,15 @@ export const VSCodeSettings = {
     );
   },
 
+  /**
+   * Whether the editor selection is mirrored into the composer as it changes.
+   * Off by default: it edits the draft without a keystroke, which is a
+   * surprise until the user has seen the badge.
+   */
+  get editorSelectionSync(): boolean {
+    return getConfig().get<boolean>('editorSelectionSync', false);
+  },
+
   /** Read once at activation; a change needs a window reload to take effect. */
   get useAgentCoreV1(): boolean {
     return resolveUseAgentCoreV1(getConfig().get<boolean>('useAgentCoreV1', false), process.env);

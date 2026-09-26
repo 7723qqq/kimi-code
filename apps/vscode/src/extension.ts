@@ -109,7 +109,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     context.subscriptions.push(vscode.commands.registerCommand(id, handler));
   }
 
+  if (VSCodeSettings.editorSelectionSync) {
+    context.subscriptions.push(watchEditorSelection(provider));
+  }
+
   log('Kimi Code activated');
+}
+
+/**
+ * How long the selection has to settle before it is mirrored into the
+ * composer. A drag across a long file fires this event on every line crossed;
+ * without a debounce each one would rewrite the draft.
+ */
+const SELECTION_SYNC_DEBOUNCE_MS = 250;
+
+/**
+ * Mirror the editor selection into the composer as it changes.
+ *
+ * Gated behind `kimi.editorSelectionSync`. The composer replaces its previous
+ * synced mention rather than appending, so a drag updates one token instead of
+ * filling the draft, and a stale echo (one the user has since typed around) is
+ * dropped rather than applied. An empty selection still maps to a whole-file
+ * mention, so clicking to place the caret does not clear anything.
+ */
+function watchEditorSelection(target: KimiWebviewProvider | undefined): vscode.Disposable {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const push = (editor: vscode.TextEditor) => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      void target?.syncEditorSelection(editor.document.uri, editor.selection);
+    }, SELECTION_SYNC_DEBOUNCE_MS);
+  };
+
+  return vscode.window.onDidChangeTextEditorSelection((event) => {
+    push(event.textEditor);
+  });
 }
 
 export async function deactivate(): Promise<void> {

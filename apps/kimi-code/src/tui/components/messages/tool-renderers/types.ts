@@ -2,9 +2,16 @@ import type { Component } from '@moonshot-ai/pi-tui';
 
 import { RESULT_PREVIEW_LINES } from '#/tui/constant/rendering';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
+import type { PreviewImage } from '#/tui/components/media/image-preview';
 
 export interface RendererContext {
   readonly expanded: boolean;
+  /**
+   * Open the interactive image preview. Supplied by the host because only it
+   * owns the TUI and can mount an overlay; a renderer that runs without one
+   * (tests, headless rendering) simply does not offer the preview.
+   */
+  readonly openImagePreview?: (images: readonly PreviewImage[], initialIndex: number) => void;
 }
 
 export type ResultRenderer = (
