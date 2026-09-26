@@ -8,6 +8,8 @@
 
 import { log } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
+
 import {
   readUpdateInstallLockVersion,
   tryAcquireUpdateInstallLock,
@@ -120,7 +122,11 @@ export async function runUpdateDownloadCommand(
       return 1;
     }
   }
-  const label = `Downloading Kimi Code ${version} (${process.platform}-${process.arch})…`;
+  const label = t('tui.downloadingBinary', {
+    version,
+    platform: process.platform,
+    arch: process.arch,
+  });
   const onProgress = createDownloadProgress(out, label);
   try {
     const result = await stageNativeUpdate({

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useChatStore } from "@/stores";
+import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 export function QuestionDialog() {
@@ -138,7 +139,7 @@ export function QuestionDialog() {
                   if (e.key === "Enter") void handleCustomSubmit();
                   if (e.key === "Escape") setShowCustom(false);
                 }}
-                placeholder="Enter your response…"
+                placeholder={t('questionDialog.responsePlaceholder')}
                 className="flex-1 px-2 py-1 rounded-md text-xs border border-border bg-background outline-none focus:border-blue-500"
               />
               <button

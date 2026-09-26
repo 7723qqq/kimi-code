@@ -8,6 +8,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { t } from '@/i18n';
 
 interface StreamingConfirmDialogProps {
   open: boolean;
@@ -26,7 +27,7 @@ export function StreamingConfirmDialog({
   open,
   onOpenChange,
   title,
-  description = 'The current conversation is still generating a response. This action will truncate the output. Are you sure you want to continue?',
+  description = t('streamingConfirm.generic'),
   confirmLabel = 'Continue',
   cancelLabel = 'Cancel',
   onConfirm,

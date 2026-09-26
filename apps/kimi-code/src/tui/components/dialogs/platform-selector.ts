@@ -5,19 +5,13 @@ import { KIMI_CODE_GLOBAL_PLATFORM_VALUE } from '#/utils/region';
 
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
-const KIMI_CODE_MAINLAND_CN_OPTION: ChoiceOption = {
-  value: 'kimi-code',
-  label: 'Kimi Code (kimi.com/code)',
-};
-const KIMI_CODE_GLOBAL_OPTION: ChoiceOption = {
-  value: KIMI_CODE_GLOBAL_PLATFORM_VALUE,
-  label: 'Kimi Code (kimi.ai/code)',
-};
-
+// Built per call, not at module scope: `t()` has to run under the active
+// locale, and a module-level constant would freeze whichever locale happened
+// to be installed when the module was first evaluated.
 function platformOptions(): readonly ChoiceOption[] {
   return [
-    KIMI_CODE_MAINLAND_CN_OPTION,
-    KIMI_CODE_GLOBAL_OPTION,
+    { value: 'kimi-code', label: t('tui.platformMainland') },
+    { value: KIMI_CODE_GLOBAL_PLATFORM_VALUE, label: t('tui.platformGlobal') },
     ...OPEN_PLATFORMS.map((platform) => ({ value: platform.id, label: platform.name })),
   ];
 }

@@ -213,7 +213,7 @@ export function SessionList({ onClose }: SessionListProps) {
           <div className="relative">
             <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
             <Input
-              placeholder="Search conversations…"
+              placeholder={t('sessionList.searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
@@ -254,7 +254,7 @@ export function SessionList({ onClose }: SessionListProps) {
         open={deleteTarget !== null}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
         title={t('sessionList.deleteConversation')}
-        description="This will permanently delete this conversation. This action cannot be undone."
+        description={t('sessionList.deleteWarning')}
         confirmLabel="Delete"
         onConfirm={() => {
           void handleDelete();
@@ -268,7 +268,7 @@ export function SessionList({ onClose }: SessionListProps) {
         open={pendingSession !== null}
         onOpenChange={(open) => !open && setPendingSession(null)}
         title={t('sessionList.switchConversation')}
-        description="The current conversation is still generating a response. Switching will truncate the output. Are you sure you want to continue?"
+        description={t('streamingConfirm.switch')}
         confirmLabel="Switch"
         onConfirm={() => {
           void handleConfirmSwitch();

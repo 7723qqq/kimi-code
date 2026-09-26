@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 
+import { t } from '@/i18n';
 import { bridge } from '@/services';
 
 export interface WelcomeHint {
@@ -22,78 +23,79 @@ function ShortcutGuide() {
   return (
     <div className="text-left text-xs mt-2 space-y-5 w-full max-w-96">
       <div>
-        <div className="font-medium text-foreground mb-1.5">⚡ Commands</div>
+        <div className="font-medium text-foreground mb-1.5">⚡ {t('welcomeHints.guideCommands')}</div>
         <div className="text-muted-foreground space-y-1">
-          <ShortcutRow kbd="/">View all commands</ShortcutRow>
-          <ShortcutRow kbd="/init">Scan project and generate AGENTS.md file</ShortcutRow>
-          <ShortcutRow kbd="/compact">Trim context so that I focus on the essentials</ShortcutRow>
+          <ShortcutRow kbd="/">{t('welcomeHints.guideViewCommands')}</ShortcutRow>
+          <ShortcutRow kbd="/init">{t('welcomeHints.guideScanProject')}</ShortcutRow>
+          <ShortcutRow kbd="/compact">{t('welcomeHints.guideTrimContext')}</ShortcutRow>
         </div>
       </div>
       <div>
-        <div className="font-medium text-foreground mb-1.5">💡 Tips</div>
+        <div className="font-medium text-foreground mb-1.5">💡 {t('welcomeHints.guideTips')}</div>
         <div className="text-muted-foreground space-y-1">
-          <ShortcutRow kbd="↑">Browse input history</ShortcutRow>
-          <ShortcutRow kbd="@">Add/Search files to reference</ShortcutRow>
-          <ShortcutRow kbd="Alt+K">Add selected code directly from editor</ShortcutRow>
+          <ShortcutRow kbd="↑">{t('welcomeHints.guideBrowseHistory')}</ShortcutRow>
+          <ShortcutRow kbd="@">{t('welcomeHints.guideAddFiles')}</ShortcutRow>
+          <ShortcutRow kbd="Alt+K">{t('welcomeHints.guideAddSelectedCode')}</ShortcutRow>
         </div>
       </div>
       <div>
-        <div className="font-medium text-foreground mb-1.5">🚀 Pro Tips</div>
+        <div className="font-medium text-foreground mb-1.5">🚀 {t('welcomeHints.guideProTips')}</div>
         <div className="text-muted-foreground space-y-1">
-          <div>• Use YOLO mode to auto-approve tool calls</div>
-          <div>• AGENTS.md helps me understand your codebase</div>
-          <div>• Enable Thinking for complex tasks</div>
+          <div>• {t('welcomeHints.guideProYolo')}</div>
+          <div>• {t('welcomeHints.guideProAgentsMd')}</div>
+          <div>• {t('welcomeHints.guideProThinking')}</div>
         </div>
       </div>
     </div>
   );
 }
 
-const HINT_FIRST_TIME: WelcomeHint = {
-  title: 'Quick Start Guide',
-  description: '',
-  component: <ShortcutGuide />,
-};
-
-const HINT_AGENT_MD: WelcomeHint = {
-  title: 'Let me map your codebase',
-  description: 'Run /init to scan the project and generate docs',
-  slashCommand: '/init',
-};
-
-const HINTS_POOL: WelcomeHint[] = [
-  HINT_FIRST_TIME,
-  HINT_AGENT_MD,
-  {
-    title: 'Reference specific code',
-    description: 'Type @ to select files, or press Alt+K with code highlighted',
-  },
-  {
-    title: 'See what I can do',
-    description: 'Type / for all commands—like /compact to trim context',
-  },
-  {
-    title: 'Need deeper analysis?',
-    description: 'Enable thinking mode for complex architecture or debugging',
-  },
-  {
-    title: 'More than code',
-    description: "Paste a screenshot or design and I'll help implement it",
-  },
-  {
-    title: 'Add more tools',
-    description: 'Connect external services via MCP servers in settings',
-  },
-  {
-    title: 'Prefer fewer interruptions?',
-    description: 'Enable YOLO mode to auto-approve',
-  },
-  {
-    title: 'Context getting long?',
-    description: 'Type /compact to keep only the essentials',
-    slashCommand: '/compact',
-  },
-];
+// Built per call, not at module scope: `t()` has to run under the active
+// locale, and a module-level constant would freeze whichever locale happened
+// to be installed when the bundle was first evaluated.
+function hintsPool(): WelcomeHint[] {
+  return [
+    {
+      title: t('welcomeHints.quickStartGuide'),
+      description: '',
+      component: <ShortcutGuide />,
+    },
+    {
+      title: t('welcomeHints.mapCodebase'),
+      description: t('welcomeHints.mapCodebaseDescription'),
+      slashCommand: '/init',
+    },
+    {
+      title: t('welcomeHints.referenceCode'),
+      description: t('welcomeHints.referenceCodeDescription'),
+    },
+    {
+      title: t('welcomeHints.seeCapabilities'),
+      description: t('welcomeHints.seeCapabilitiesDescription'),
+    },
+    {
+      title: t('welcomeHints.deeperAnalysis'),
+      description: t('welcomeHints.deeperAnalysisDescription'),
+    },
+    {
+      title: t('welcomeHints.moreThanCode'),
+      description: t('welcomeHints.moreThanCodeDescription'),
+    },
+    {
+      title: t('welcomeHints.addMoreTools'),
+      description: t('welcomeHints.addMoreToolsDescription'),
+    },
+    {
+      title: t('welcomeHints.fewerInterruptions'),
+      description: t('welcomeHints.fewerInterruptionsDescription'),
+    },
+    {
+      title: t('welcomeHints.longContext'),
+      description: t('welcomeHints.longContextDescription'),
+      slashCommand: '/compact',
+    },
+  ];
+}
 
 function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -119,14 +121,15 @@ export function useWelcomeHint(): WelcomeHint {
   }, []);
 
   return useMemo(() => {
+    const pool = hintsPool();
     // First time user: show shortcut guide
     if (hasHistory === false) {
-      return HINT_FIRST_TIME;
+      return pool[0]!;
     }
     // 30% chance to show AGENT.md hint if missing
     if (hasAgentMd === false && withProbability(0.3)) {
-      return HINT_AGENT_MD;
+      return pool[1]!;
     }
-    return pickRandom(HINTS_POOL);
+    return pickRandom(pool);
   }, [hasAgentMd, hasHistory]);
 }

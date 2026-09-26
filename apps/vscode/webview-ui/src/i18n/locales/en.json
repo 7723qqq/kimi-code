@@ -37,7 +37,9 @@
     "command": "Command",
     "arguments": "Arguments",
     "recommended": "Recommended",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "environmentVariables": "Environment Variables",
+    "allRecommendedInstalled": "All recommended servers installed"
   },
   "actionMenu": {
     "settings": "Settings",
@@ -46,7 +48,59 @@
   },
   "sessionList": {
     "deleteConversation": "Delete Conversation?",
-    "switchConversation": "Switch Conversation?"
+    "switchConversation": "Switch Conversation?",
+    "searchPlaceholder": "Search conversations…",
+    "deleteWarning": "This will permanently delete this conversation. This action cannot be undone."
+  },
+  "streamingConfirm": {
+    "startNew": "The current conversation is still generating a response. Starting a new one will truncate the output. Are you sure you want to continue?",
+    "switch": "The current conversation is still generating a response. Switching will truncate the output. Are you sure you want to continue?",
+    "generic": "The current conversation is still generating a response. This action will truncate the output. Are you sure you want to continue?",
+    "exitPlanMode": "The agent is still working. Exiting plan mode now will affect the current turn. Are you sure you want to exit plan mode immediately?"
+  },
+  "questionDialog": {
+    "responsePlaceholder": "Enter your response…"
+  },
+  "recommendedMcp": {
+    "playwrightDescription": "Browser automation and web scraping with headless Chrome",
+    "context7Description": "Up-to-date documentation for any library directly in your prompt",
+    "githubDescription": "Repository management, file operations, and GitHub API integration"
+  },
+  "welcomeHints": {
+    "quickStartGuide": "Quick Start Guide",
+    "mapCodebase": "Let me map your codebase",
+    "mapCodebaseDescription": "Run /init to scan the project and generate docs",
+    "referenceCode": "Reference specific code",
+    "referenceCodeDescription": "Type @ to select files, or press Alt+K with code highlighted",
+    "seeCapabilities": "See what I can do",
+    "seeCapabilitiesDescription": "Type / for all commands—like /compact to trim context",
+    "deeperAnalysis": "Need deeper analysis?",
+    "deeperAnalysisDescription": "Enable thinking mode for complex architecture or debugging",
+    "moreThanCode": "More than code",
+    "moreThanCodeDescription": "Paste a screenshot or design and I'll help implement it",
+    "addMoreTools": "Add more tools",
+    "addMoreToolsDescription": "Connect external services via MCP servers in settings",
+    "fewerInterruptions": "Prefer fewer interruptions?",
+    "fewerInterruptionsDescription": "Enable YOLO mode to auto-approve",
+    "longContext": "Context getting long?",
+    "longContextDescription": "Type /compact to keep only the essentials",
+    "guideCommands": "Commands",
+    "guideViewCommands": "View all commands",
+    "guideScanProject": "Scan project and generate AGENTS.md file",
+    "guideTrimContext": "Trim context so that I focus on the essentials",
+    "guideTips": "Tips",
+    "guideBrowseHistory": "Browse input history",
+    "guideAddFiles": "Add/Search files to reference",
+    "guideAddSelectedCode": "Add selected code directly from editor",
+    "guideProTips": "Pro Tips",
+    "guideProYolo": "Use YOLO mode to auto-approve tool calls",
+    "guideProAgentsMd": "AGENTS.md helps me understand your codebase",
+    "guideProThinking": "Enable Thinking for complex tasks"
+  },
+  "errors": {
+    "initFailed": "Failed to initialize",
+    "connectionTimeout": "Connection timed out.",
+    "sendMessageFailed": "Unable to send the message."
   },
   "queuedMessages": {
     "insertNow": "Insert now (steer)"

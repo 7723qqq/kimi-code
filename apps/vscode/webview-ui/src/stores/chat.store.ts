@@ -5,6 +5,7 @@ import { create } from 'zustand';
 
 import { toast } from '@/components/ui/sonner';
 import { Content } from '@/lib/content';
+import { t } from '@/i18n';
 import { bridge } from '@/services';
 
 import { useApprovalStore } from './approval.store';
@@ -154,7 +155,7 @@ function doSend(state: ChatState, content: string | ContentPart[], model: string
       s.processEvent({
         type: 'error',
         code: 'HANDSHAKE_TIMEOUT',
-        message: 'Connection timed out.',
+        message: t('errors.connectionTimeout'),
         phase: 'runtime',
       });
     }
@@ -167,7 +168,7 @@ function doSend(state: ChatState, content: string | ContentPart[], model: string
       useChatStore.getState().processEvent({
         type: 'error',
         code: 'internal',
-        message: 'Unable to send the message.',
+        message: t('errors.sendMessageFailed'),
         detail,
         phase: 'preflight',
       });

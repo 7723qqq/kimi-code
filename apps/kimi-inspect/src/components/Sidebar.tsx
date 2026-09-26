@@ -28,6 +28,7 @@ import type { SessionWorkFacts } from '../activity/store';
 import { useSessionActivities } from '../activity/useSessionActivity';
 import type { InspectClient } from '../channel';
 import { useConnection } from '../connection';
+import { t } from '../i18n';
 import {
   fetchV2SessionGroups,
   fetchV2SessionsPage,
@@ -276,7 +277,7 @@ export function Sidebar({
         <NewSessionMenu workspaces={workspaces.data ?? []} onCreate={createSession} />
         <button
           className="rounded border border-neutral-700 px-2 py-0.5 text-[11px] text-neutral-400 hover:bg-neutral-800"
-          title="Click to change sort"
+          title={t('panels.changeSort')}
           onClick={cycleSort}
         >
           {SORTS.find((s) => s.id === sort)?.label}

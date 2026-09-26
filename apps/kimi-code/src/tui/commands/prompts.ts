@@ -162,7 +162,7 @@ export function promptBaseUrl(
         resolve(result.kind === 'ok' ? result.value : undefined);
       },
       {
-        title: `Enter base URL for ${platformName}`,
+        title: t('tui.baseUrlPrompt', { platform: platformName }),
         mask: false,
         emptyHint: 'Base URL cannot be empty.',
       },

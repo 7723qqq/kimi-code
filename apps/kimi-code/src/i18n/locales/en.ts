@@ -2289,5 +2289,16 @@ export default {
       fieldLoraId: 'Fine-tuned model ID',
       fieldReasoningEffort: 'Reasoning effort (off/low/medium/high/max)',
     },
+    mermaidPreference: {
+      drawDiagram: 'Draw mermaid code blocks as diagrams in the terminal.',
+      keepSource: 'Keep mermaid code blocks as highlighted source.',
+    },
+    resumeOtherWorkDir:
+      'Current session is in a different working directory.\n  To resume, run: {{command}}',
+    deleteSessionFailed: 'Failed to delete session {{id}}: {{error}}',
+    baseUrlPrompt: 'Enter base URL for {{platform}}',
+    downloadingBinary: 'Downloading Kimi Code {{version}} ({{platform}}-{{arch}})…',
+    platformMainland: 'Kimi Code (kimi.com/code)',
+    platformGlobal: 'Kimi Code (kimi.ai/code)',
   },
 } as const;

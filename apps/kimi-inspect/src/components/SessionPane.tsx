@@ -88,7 +88,7 @@ export function SessionPane({ sessionId, ready }: { sessionId: string | null; re
               <StateCard
                 id={sessionId}
                 queryKey={['sessionState', sessionId]}
-                title="Session state"
+                title={t('panels.sessionState')}
                 label="sessionStateService"
                 fetchSnapshot={() => klient.session(sessionId).service(ISessionStateService).snapshot()}
               />

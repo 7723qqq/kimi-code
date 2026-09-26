@@ -131,6 +131,21 @@
     "serverName": "服务器名称",
     "enterManual": "进入（手动）",
     "cancelTurn": "取消当前轮次",
-    "steps": "步数"
+    "steps": "步数",
+    "setTitle": "设置标题",
+    "setModel": "设置模型",
+    "stopTask": "停止任务",
+    "agentState": "智能体状态",
+    "sessionState": "会话状态",
+    "filterServices": "筛选服务…",
+    "jsonOrString": "JSON 或纯字符串",
+    "changeSort": "点击切换排序"
+  },
+  "search": {
+    "thisSession": "搜索当前会话…（回车搜索，Esc 关闭）",
+    "allSessions": "搜索所有会话的消息…",
+    "documentRole": "文档角色",
+    "substringMatch": "子串匹配，忽略大小写（较慢，可匹配 C++ 等符号）",
+    "openInChat": "在对话中打开"
   }
 }

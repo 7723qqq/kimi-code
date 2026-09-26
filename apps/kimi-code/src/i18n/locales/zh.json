@@ -2060,6 +2060,16 @@
       "fieldShowRefLabel": "显示信源 (true/false)",
       "fieldLoraId": "微调模型ID",
       "fieldReasoningEffort": "思考强度 (off/low/medium/high/max)"
-    }
+    },
+    "mermaidPreference": {
+      "drawDiagram": "在终端中把 mermaid 代码块渲染为图表。",
+      "keepSource": "将 mermaid 代码块保留为高亮源码。"
+    },
+    "resumeOtherWorkDir": "当前会话位于其他工作目录。\n  如需恢复，请运行：{{command}}",
+    "deleteSessionFailed": "删除会话 {{id}} 失败：{{error}}",
+    "baseUrlPrompt": "输入 {{platform}} 的 Base URL",
+    "downloadingBinary": "正在下载 Kimi Code {{version}}（{{platform}}-{{arch}}）…",
+    "platformMainland": "Kimi Code（kimi.com/code）",
+    "platformGlobal": "Kimi Code（kimi.ai/code）"
   }
 }

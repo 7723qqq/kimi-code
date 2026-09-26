@@ -241,7 +241,7 @@ export function ScopePanelsScrollspy({
         <div className="px-2 pb-2">
           <input
             className="w-full rounded border border-neutral-700 bg-neutral-950 px-2 py-1 font-mono text-[11px] text-neutral-100 outline-none focus:border-sky-600"
-            placeholder="Filter services…"
+            placeholder={t('panels.filterServices')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -733,7 +733,7 @@ function MethodArgInputs({
                   <div key={key} className="flex items-center gap-1.5">
                     <ArgLabel label={key} />
                     <ArgInput
-                      placeholder="JSON or plain string"
+                      placeholder={t('panels.jsonOrString')}
                       value={values[fieldKey(i, key)] ?? ''}
                       onChange={(v) => onChange(fieldKey(i, key), v)}
                     />
@@ -751,7 +751,7 @@ function MethodArgInputs({
                 placeholder={
                   f.defaultValue !== undefined
                     ? `default: ${f.defaultValue}`
-                    : 'JSON or plain string'
+                    : t('panels.jsonOrString')
                 }
                 value={values[fieldKey(i)] ?? ''}
                 onChange={(v) => onChange(fieldKey(i), v)}

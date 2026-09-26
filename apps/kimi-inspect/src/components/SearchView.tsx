@@ -115,7 +115,7 @@ export function SearchView({ onOpenResult }: { onOpenResult: (hit: SearchHit) =>
       <div className="flex items-center gap-2 border-b border-neutral-800 px-4 py-2">
         <input
           className="w-96 rounded border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-[13px] text-neutral-100 outline-none focus:border-sky-600"
-          placeholder="Search messages across all sessions…"
+          placeholder={t('search.allSessions')}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -129,7 +129,7 @@ export function SearchView({ onOpenResult }: { onOpenResult: (hit: SearchHit) =>
           className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-[12px] text-neutral-300 outline-none"
           value={role}
           onChange={(e) => setRole(e.target.value as RoleFilter)}
-          title="Document role"
+          title={t('search.documentRole')}
         >
           <option value="all">all roles</option>
           <option value="user">user</option>
@@ -149,7 +149,7 @@ export function SearchView({ onOpenResult }: { onOpenResult: (hit: SearchHit) =>
         </select>
         <label
           className="flex cursor-pointer items-center gap-1.5 rounded border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-[12px] text-neutral-300 select-none"
-          title="Substring match, case-insensitive (slower, matches symbols like C++)"
+          title={t('search.substringMatch')}
         >
           <input
             type="checkbox"
@@ -231,7 +231,7 @@ function HitCard({ hit, onOpen }: { hit: SearchHit; onOpen: (hit: SearchHit) => 
       type="button"
       className="w-full rounded-lg border border-neutral-800 bg-neutral-900/40 px-3 py-2 text-left transition-colors hover:border-sky-800 hover:bg-neutral-900"
       onClick={() => onOpen(hit)}
-      title="Open in chat"
+      title={t('search.openInChat')}
     >
       <div className="mb-1 flex flex-wrap items-center gap-2">
         <span className="text-[12px] font-medium text-neutral-200">

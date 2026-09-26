@@ -2,18 +2,23 @@ import { t } from '#/i18n';
 
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
-const MERMAID_PREFERENCE_OPTIONS: readonly ChoiceOption[] = [
-  {
-    value: 'on',
-    label: 'On',
-    description: 'Draw mermaid code blocks as diagrams in the terminal.',
-  },
-  {
-    value: 'off',
-    label: 'Off',
-    description: 'Keep mermaid code blocks as highlighted source.',
-  },
-];
+// Built per call, not at module scope: `t()` has to run under the active
+// locale, and a module-level constant would freeze whichever locale happened
+// to be installed when the module was first evaluated.
+function mermaidPreferenceOptions(): readonly ChoiceOption[] {
+  return [
+    {
+      value: 'on',
+      label: 'On',
+      description: t('tui.mermaidPreference.drawDiagram'),
+    },
+    {
+      value: 'off',
+      label: 'Off',
+      description: t('tui.mermaidPreference.keepSource'),
+    },
+  ];
+}
 
 export interface MermaidPreferenceSelectorOptions {
   readonly currentValue: boolean;
@@ -25,7 +30,7 @@ export class MermaidPreferenceSelectorComponent extends ChoicePickerComponent {
   constructor(opts: MermaidPreferenceSelectorOptions) {
     super({
       title: t('tui.dialogs.settingsSelector.mermaid'),
-      options: [...MERMAID_PREFERENCE_OPTIONS],
+      options: [...mermaidPreferenceOptions()],
       currentValue: opts.currentValue ? 'on' : 'off',
       onSelect: (value) => {
         opts.onSelect(value === 'on');

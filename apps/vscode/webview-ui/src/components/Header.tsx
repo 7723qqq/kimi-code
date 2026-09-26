@@ -113,7 +113,7 @@ export function Header() {
         open={showConfirmNew}
         onOpenChange={(open) => !open && setShowConfirmNew(false)}
         title={t('header.startNewConversation')}
-        description="The current conversation is still generating a response. Starting a new one will truncate the output. Are you sure you want to continue?"
+        description={t('streamingConfirm.startNew')}
         confirmLabel="New Conversation"
         onConfirm={() => {
           void doStartNewSession();

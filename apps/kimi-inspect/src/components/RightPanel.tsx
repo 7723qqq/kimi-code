@@ -86,7 +86,7 @@ export function RightPanel({
             <StateCard
               id={`${sessionId}/${agentId}`}
               queryKey={['agentState', sessionId, agentId]}
-              title="Agent state"
+              title={t('panels.agentState')}
               label="agentStateService"
               badge={<Badge tone="sky">{agentId}</Badge>}
               fetchSnapshot={() =>

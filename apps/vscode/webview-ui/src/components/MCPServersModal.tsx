@@ -33,7 +33,7 @@ import { t } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { bridge } from '@/services';
 import {
-  RECOMMENDED_MCP_SERVERS,
+  recommendedMcpServers,
   recommendedToConfig,
   type RecommendedMCPServer,
 } from '@/services/recommended-mcp';
@@ -366,7 +366,7 @@ function ServerForm({
 
       {data.transport === 'stdio' && (
         <KeyValueFields
-          label="Environment Variables"
+          label={t('mcpServers.environmentVariables')}
           fields={data.envVars}
           onChange={(envVars) => {
             set('envVars', envVars);
@@ -763,19 +763,21 @@ export function MCPServersModal() {
               <h3 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                 {t('mcpServers.recommended')}
               </h3>
-              {RECOMMENDED_MCP_SERVERS.filter((s) => !installedNames.has(s.id)).map((server) => (
-                <RecommendedItem
-                  key={server.id}
-                  server={server}
-                  onInstall={() => {
-                    void handleInstallRecommended(server);
-                  }}
-                  isInstalling={installingRecommended === server.id}
-                />
-              ))}
-              {RECOMMENDED_MCP_SERVERS.every((s) => installedNames.has(s.id)) && (
+              {recommendedMcpServers()
+                .filter((s) => !installedNames.has(s.id))
+                .map((server) => (
+                  <RecommendedItem
+                    key={server.id}
+                    server={server}
+                    onInstall={() => {
+                      void handleInstallRecommended(server);
+                    }}
+                    isInstalling={installingRecommended === server.id}
+                  />
+                ))}
+              {recommendedMcpServers().every((s) => installedNames.has(s.id)) && (
                 <p className="text-[10px] text-muted-foreground text-center py-2">
-                  All recommended servers installed
+                  {t('mcpServers.allRecommendedInstalled')}
                 </p>
               )}
             </div>

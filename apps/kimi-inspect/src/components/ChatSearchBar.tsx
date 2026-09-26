@@ -85,7 +85,7 @@ export function ChatSearchBar({
     <div ref={rootRef} className="relative border-b border-neutral-800 px-4 py-2">
       <input
         className="w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-[13px] text-neutral-100 outline-none focus:border-sky-600"
-        placeholder="Search this session… (Enter to search, Esc to close)"
+        placeholder={t('search.thisSession')}
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={(e) => {
@@ -121,7 +121,7 @@ export function ChatSearchBar({
                     setOpen(false);
                     onOpenHit?.(hit);
                   }}
-                  title="Open in chat"
+                  title={t('search.openInChat')}
                 >
                   <div className="mb-1 flex flex-wrap items-center gap-2">
                     <Badge

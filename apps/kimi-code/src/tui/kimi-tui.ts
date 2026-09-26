@@ -1989,7 +1989,7 @@ export class KimiTUI {
   async showResumeOtherWorkDirHint(session: SessionRow): Promise<void> {
     this.hideSessionPicker();
     const command = `cd ${quoteShellArg(session.work_dir)} && kimi --resume ${quoteShellArg(session.id)}`;
-    const message = `Current session is in a different working directory.\n  To resume, run: ${command}`;
+    const message = t('tui.resumeOtherWorkDir', { command });
     try {
       await copyTextToClipboard(command);
       this.showStatus(`${message}\n  Command copied to clipboard`, 'warning');
@@ -2761,7 +2761,10 @@ export class KimiTUI {
       // The engine aborts a failed delete and keeps the session: reattach,
       // falling back to a fresh session if it is gone. showError runs after
       // the switch because switchToSession clears the transcript.
-      const message = `Failed to delete session ${session.id}: ${formatErrorMessage(error)}`;
+      const message = t('tui.deleteSessionFailed', {
+        id: session.id,
+        error: formatErrorMessage(error),
+      });
       try {
         const resumed = await this.harness.resumeSession({
           id: session.id,

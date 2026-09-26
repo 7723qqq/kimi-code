@@ -105,7 +105,7 @@ export const SESSION_PANELS: readonly ServicePanelDef[] = [
     scope: 'session',
     fetch: (svc) => call(svc, 'read'),
     actions: [
-      { label: 'Set title', input: 'New title', run: (svc, title) => call(svc, 'setTitle', title) },
+      { label: t('panels.setTitle'), input: 'New title', run: (svc, title) => call(svc, 'setTitle', title) },
       { label: 'Archive', danger: true, run: (svc) => call(svc, 'setArchived', true) },
       { label: 'Unarchive', run: (svc) => call(svc, 'setArchived', false) },
     ],
@@ -145,7 +145,7 @@ export const AGENT_PANELS: readonly ServicePanelDef[] = [
       data: await call(svc, 'data'),
     }),
     actions: [
-      { label: 'Set model', input: 'Model id', run: (svc, model) => call(svc, 'setModel', model) },
+      { label: t('panels.setModel'), input: 'Model id', run: (svc, model) => call(svc, 'setModel', model) },
     ],
   },
   {
@@ -182,7 +182,7 @@ export const AGENT_PANELS: readonly ServicePanelDef[] = [
     fetch: (svc) => call(svc, 'list'),
     actions: [
       {
-        label: 'Stop task',
+        label: t('panels.stopTask'),
         input: 'Task id',
         danger: true,
         run: (svc, id) => call(svc, 'stop', id),

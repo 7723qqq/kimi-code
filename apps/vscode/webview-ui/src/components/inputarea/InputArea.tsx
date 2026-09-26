@@ -545,7 +545,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
         open={showPlanModeConfirm}
         onOpenChange={setShowPlanModeConfirm}
         title={t('inputArea.exitPlanMode')}
-        description="The agent is still working. Exiting plan mode now will affect the current turn. Are you sure you want to exit plan mode immediately?"
+        description={t('streamingConfirm.exitPlanMode')}
         confirmLabel="Exit Now"
         onConfirm={handleConfirmExitPlanMode}
       />
