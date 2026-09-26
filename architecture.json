@@ -1,0 +1,49 @@
+{
+  "modules": [
+    {
+      "id": "kimi-agent",
+      "name": "Kimi Agent (Rust engine)",
+      "source": "packages/kimi-agent/src",
+      "layer": "engine",
+      "deps": ["kosong", "minidb", "protocol"]
+    },
+    {
+      "id": "node-sdk",
+      "name": "Node SDK",
+      "source": "packages/node-sdk/src",
+      "layer": "sdk",
+      "deps": ["kimi-agent", "protocol", "kaos", "kosong", "oauth", "i18n"]
+    },
+    {
+      "id": "kimi-code",
+      "name": "CLI / TUI app",
+      "source": "apps/kimi-code/src",
+      "layer": "app",
+      "deps": ["node-sdk", "i18n", "oauth", "telemetry", "minidb", "pi-tui", "vis-server"]
+    },
+    { "id": "kosong", "name": "Kosong (LLM abstraction)", "source": "packages/kosong/src", "layer": "engine", "deps": [] },
+    { "id": "minidb", "name": "MiniDB (embedded store)", "source": "packages/minidb/src", "layer": "engine", "deps": [] },
+    { "id": "protocol", "name": "Protocol schemas", "source": "packages/protocol/src", "layer": "engine", "deps": ["transcript"] },
+    { "id": "transcript", "name": "Transcript rendering", "source": "packages/transcript/src", "layer": "engine", "deps": [] },
+    { "id": "kaos", "name": "Kaos (execution env)", "source": "packages/kaos/src", "layer": "engine", "deps": [] },
+    { "id": "oauth", "name": "OAuth utilities", "source": "packages/oauth/src", "layer": "engine", "deps": ["kosong"] },
+    { "id": "i18n", "name": "i18n", "source": "packages/i18n/src", "layer": "shared", "deps": ["i18n-shared"] },
+    { "id": "i18n-shared", "name": "i18n shared", "source": "packages/i18n-shared/src", "layer": "shared", "deps": [] },
+    { "id": "telemetry", "name": "Telemetry", "source": "packages/telemetry/src", "layer": "shared", "deps": [] },
+    { "id": "pi-tui", "name": "pi-tui (TUI framework)", "source": "packages/pi-tui/src", "layer": "shared", "deps": [] },
+    { "id": "vis-server", "name": "Vis server", "source": "apps/vis/server/src", "layer": "app", "deps": ["kosong", "protocol"] },
+    { "id": "vscode", "name": "VS Code extension", "source": "apps/vscode/src", "layer": "app", "deps": ["node-sdk", "i18n", "oauth", "telemetry"] },
+    { "id": "kimi-inspect", "name": "Kimi inspector", "source": "apps/kimi-inspect/src", "layer": "app", "deps": ["transcript"] }
+  ],
+  "rules": {
+    "layerOrder": ["app", "sdk", "engine", "shared"],
+    "forbid": [
+      { "from": "engine", "to": "app", "reason": "engine 不依赖 app" },
+      { "from": "engine", "to": "sdk", "reason": "engine 不依赖 sdk" },
+      { "from": "shared", "to": "app", "reason": "shared 不依赖 app" },
+      { "from": "shared", "to": "sdk", "reason": "shared 不依赖 sdk" },
+      { "from": "shared", "to": "engine", "reason": "shared 不依赖 engine" }
+    ],
+    "acyclic": true
+  }
+}

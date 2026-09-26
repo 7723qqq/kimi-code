@@ -53,6 +53,8 @@
     "check:nix-workspace": "bun scripts/check-nix-workspace.mjs",
     "check:upstream-v2-delta": "bun scripts/check-upstream-v2-delta.mjs",
     "check:engine-i18n": "bun scripts/check-engine-i18n-parity.mjs",
+    "check:architecture": "bun scripts/check-architecture-drift.mjs",
+    "gen:brief": "bun scripts/gen-brief.mjs",
     "changeset": "changeset",
     "version": "changeset version",
     "version:release": "changeset version",
@@ -118,7 +120,7 @@
     "ws": ">=8.21.0"
   },
   "simple-git-hooks": {
-    "pre-commit": "bunx lint-staged"
+    "pre-commit": "bunx lint-staged && bun run check:architecture"
   },
   "lint-staged": {
     "concurrent": "false",
