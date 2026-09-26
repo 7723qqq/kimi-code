@@ -49,6 +49,14 @@ const SKIP_DIRS = new Set([
   'reports',
 ]);
 
+const SKIP_FILES = new Set([
+  // Golden generator: shims retired-package specs via `build.module(...)` to
+  // isolate v2's events-map.ts for golden recording. The specifiers are shim
+  // targets, not runtime dependencies, so they are not "live surface"
+  // references the gate exists to catch.
+  'packages/kimi-agent/scripts/gen-acp-golden.mjs',
+]);
+
 function* walk(dir) {
   for (const entry of readdir(dir)) {
     const full = join(dir, entry);
@@ -80,6 +88,7 @@ function scan(root, onFile) {
 }
 
 scan('.', (rel, file) => {
+  if (SKIP_FILES.has(rel)) return;
   const base = file.split(sep).pop() ?? '';
   const text = readFileSync(file, 'utf8');
 

@@ -11,8 +11,25 @@
 //! the event and dispatches on the wire `type` tag instead.
 //!
 //! `plan`, `usage_update`, `available_commands_update` and
-//! `session_info_update` have no source this host can read (they need a model
-//! catalog / todo display block / title-change feed) and stay unmapped;
+//! `session_info_update` are not mapped here. Their v2 builders
+//! (`acp-server/src/events-map.ts:398-537`) are pure functions over ordinary
+//! data, so the gap is missing mapping code rather than a missing data source —
+//! an earlier version of this comment claimed otherwise, which misdescribed
+//! unimplemented work as impossible. What each one is still missing:
+//!
+//! - `usage_update` — `used` / `size` are already on hand during a turn
+//!   (`TurnResult` usage and the effective context window); only the
+//!   notification builder is absent.
+//! - `session_info_update` — titles exist (`session::title`, the `title`
+//!   session column); what is missing is a title-change feed to trigger on.
+//! - `plan` — v2 projects it from a `ToolInputDisplay{kind:'todo_list'}` block
+//!   attached to the tool call. This engine has no display-block concept: tool
+//!   inputs carry no structured display, and the todo items are read through
+//!   the state bridge instead, so the projection needs a different trigger.
+//! - `available_commands_update` — v2 advertises `ACP_BUILTIN_SLASH_COMMANDS`,
+//!   a literal constant array. This host has no slash-command surface at all,
+//!   so there is nothing to advertise yet.
+//!
 //! `current_mode_update` and `config_option_update` are pushed by `mod.rs`.
 
 use serde_json::{Value, json};
@@ -132,6 +149,104 @@ fn part_think(event: &Value) -> Option<&str> {
         return None;
     }
     part.get("think").and_then(Value::as_str)
+}
+
+/// A `usage_update` session notification (v2 `usageUpdateNotification`,
+/// `acp-server/src/events-map.ts:507-520`).
+///
+/// `cost` stays absent: the engine has no cost data, exactly as in v2.
+pub fn usage_update(session_id: &str, used: u64, size: u64) -> Value {
+    json!({
+        "sessionId": session_id,
+        "update": {
+            "sessionUpdate": "usage_update",
+            "used": used,
+            "size": size,
+        },
+    })
+}
+
+/// A `session_info_update` for a title change (v2
+/// `sessionInfoUpdateNotification`, events-map.ts:526-537). `None` clears the
+/// title client-side, and an empty string is *not* the same as `None` — the
+/// golden cases pin both.
+pub fn session_info_update(session_id: &str, title: Option<&str>) -> Value {
+    json!({
+        "sessionId": session_id,
+        "update": {
+            "sessionUpdate": "session_info_update",
+            "title": title,
+        },
+    })
+}
+
+/// A one-shot `available_commands_update` (v2
+/// `availableCommandsUpdateNotification`, events-map.ts:450-461). The command
+/// list is copied onto the wire verbatim, `input` hint included.
+pub fn available_commands_update(session_id: &str, commands: &[Value]) -> Value {
+    json!({
+        "sessionId": session_id,
+        "update": {
+            "sessionUpdate": "available_commands_update",
+            "availableCommands": commands,
+        },
+    })
+}
+
+/// One `plan` entry.
+fn plan_entry(content: &str, status: &str) -> Value {
+    json!({ "content": content, "priority": "medium", "status": status })
+}
+
+/// `pending` / `in_progress` / `done` | `completed` pass through; every other
+/// status degrades to `pending` (v2 `mapTodoStatus`, events-map.ts:419-431).
+fn map_todo_status(status: &str) -> &'static str {
+    match status {
+        "pending" => "pending",
+        "in_progress" => "in_progress",
+        "done" | "completed" => "completed",
+        _ => "pending",
+    }
+}
+
+/// A `plan` session update from todo items (v2 `todoListToSessionUpdate`,
+/// events-map.ts:398-417).
+///
+/// `None` for an empty item list — the caller drops the update entirely rather
+/// than sending one with no entries. An item with an empty title still
+/// produces an entry: v2 does not filter on `title`, and the golden cases pin
+/// that (`plan_empty_title`).
+pub fn todo_list_to_session_update(
+    session_id: &str,
+    items: &[crate::tool_input_display::TodoListItem],
+) -> Option<Value> {
+    if items.is_empty() {
+        return None;
+    }
+    let entries: Vec<Value> = items
+        .iter()
+        .map(|item| plan_entry(&item.title, map_todo_status(&item.status)))
+        .collect();
+    Some(json!({
+        "sessionId": session_id,
+        "update": {
+            "sessionUpdate": "plan",
+            "entries": entries,
+        },
+    }))
+}
+
+/// A `plan` update projected from a tool's display block (v2
+/// `planFromDisplayBlock`, events-map.ts:438-445).
+///
+/// Only a `todo_list` block projects; every other display kind yields `None`
+/// — including `plan_review`, which is a different ACP concept and is
+/// rendered as tool-call content instead (v2 `convert.ts:280-303`).
+pub fn plan_from_display(
+    session_id: &str,
+    display: &crate::tool_input_display::ToolInputDisplay,
+) -> Option<Value> {
+    todo_list_to_session_update(session_id, display.todo_items()?)
 }
 
 fn agent_message_chunk(session_id: &str, text: &str) -> Value {

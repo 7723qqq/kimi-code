@@ -179,8 +179,10 @@ function rustRouteFor(endpoint, routes) {
 /** Rust `#[napi] pub (async) fn` names, by module. */
 function collectRustNapiFns() {
   const names = new Set();
-  for (const file of ['src/napi_bindings.rs', 'src/native/napi_bindings.rs']) {
-    const lines = read(join(AGENT, file)).split('\n');
+  for (const file of ['src/napi_bindings.rs', 'src/native/native_tool_bindings.rs']) {
+    const path = join(AGENT, file);
+    if (!existsSync(path)) continue;
+    const lines = read(path).split('\n');
     for (let i = 0; i < lines.length; i += 1) {
       if (!/^\s*#\[napi\]\s*$/.test(lines[i])) continue;
       for (let j = i + 1; j < Math.min(i + 14, lines.length); j += 1) {
@@ -373,6 +375,10 @@ function main() {
 
   // ── Tools ───────────────────────────────────────────────────────────────
   const rustTools = readTree(join(AGENT, 'src/tools'), '.rs');
+  // `v2Github` is a misnomer kept for the contract's key name: the GitHub tool
+  // family is fork-original (commit 5868b181cf, from the retired v1
+  // `agent-core`), never a v2 port. The group still means "advertised as a
+  // native tool", which is what this gate checks.
   const nativeGroups = ['v2Native', 'replOnlyNative', 'v2Github'];
   for (const group of nativeGroups) {
     for (const name of ToolNameContract[group] ?? []) {

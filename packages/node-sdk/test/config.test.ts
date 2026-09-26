@@ -18,6 +18,7 @@ import {
   resolveMultiLlmProviders,
   resolvePrintBackground,
   resolveSecondaryModelPool,
+  resolveThinkingKeep,
 } from '#/native/native-llm-resolver';
 
 import { TEST_IDENTITY } from './test-identity';
@@ -1081,6 +1082,48 @@ max_context_size = 200000
 
       expect(resolveNativeLlmForAlias(config, 'gateway/short')?.model).toBe('wire-model');
       expect(resolveNativeLlmForAlias(config, 'gateway/missing')).toBeUndefined();
+    });
+  });
+
+  describe('resolveThinkingKeep', () => {
+    const ENV = 'KIMI_MODEL_THINKING_KEEP';
+
+    afterEach(() => {
+      delete process.env[ENV];
+    });
+
+    it('keeps the configured value and lets the env outrank the file', () => {
+      expect(resolveThinkingKeep({ thinking: { keep: 'all' } })).toBe('all');
+      process.env[ENV] = 'none';
+      expect(resolveThinkingKeep({ thinking: { keep: 'all' } })).toBeUndefined();
+    });
+
+    it('resolves unset to undefined, so the native wire stays untouched', () => {
+      expect(resolveThinkingKeep({})).toBeUndefined();
+      expect(resolveThinkingKeep({ thinking: {} })).toBeUndefined();
+      expect(resolveThinkingKeep({ thinking: { keep: '' } })).toBeUndefined();
+      expect(resolveThinkingKeep({ thinking: { keep: '   ' } })).toBeUndefined();
+    });
+
+    // These six spellings are the TS half of a cross-language contract: the
+    // engine's `KimiConfig::resolve_thinking_keep` (config/mod.rs) filters the
+    // same set, and both hosts must agree on what a user can switch off.
+    it.each(['false', '0', 'no', 'off', 'none', 'null'])(
+      'treats %s as an off value, case- and whitespace-insensitively',
+      (off) => {
+        expect(resolveThinkingKeep({ thinking: { keep: off } })).toBeUndefined();
+        expect(resolveThinkingKeep({ thinking: { keep: off.toUpperCase() } })).toBeUndefined();
+        expect(resolveThinkingKeep({ thinking: { keep: `  ${off}  ` } })).toBeUndefined();
+        process.env[ENV] = off;
+        expect(resolveThinkingKeep({ thinking: { keep: 'all' } })).toBeUndefined();
+      },
+    );
+
+    it('forwards a value that merely contains an off word', () => {
+      expect(resolveThinkingKeep({ thinking: { keep: 'none-of-the-above' } })).toBe(
+        'none-of-the-above',
+      );
+      expect(resolveThinkingKeep({ thinking: { keep: 'offset' } })).toBe('offset');
     });
   });
 

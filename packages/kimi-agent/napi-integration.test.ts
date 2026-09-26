@@ -2605,7 +2605,13 @@ describe.skipIf(!nativeEntry)('napi EngineSessionHandle — manual compaction', 
 
       const history = await session.getHistory();
       expect(history).toHaveLength(report.messageCount);
-      expect(history[0]?.content).toBe('SUMMARY: the user asked one question.');
+      // v2 `buildContextCompactionShape`: the compacted range's real user
+      // input survives verbatim first, then the prefixed summary, then the
+      // continuation note - and nothing after it.
+      expect(history).toHaveLength(3);
+      expect(history[0]?.content).toBe('first question');
+      expect(history[1]?.content).toContain('SUMMARY: the user asked one question.');
+      expect(history[1]?.content).toContain('The conversation so far has been compacted');
     } finally {
       await session.dispose();
       rmSync(workspaceRoot, { recursive: true, force: true });

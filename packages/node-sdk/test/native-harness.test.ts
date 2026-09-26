@@ -509,6 +509,116 @@ max_context_size = 100000
       }
     }, 20_000);
 
+    it('keeps a live permission mode when plan mode is on and the handle rebuilds', async () => {
+      // `plan` is not a permission mode: v2's `PermissionMode` is
+      // `manual | yolo | auto` and plan mode is a tool guard of its own
+      // (`AgentPlanService.guardToolExecution`). Folding `meta.planMode` into
+      // the policy snapshot's mode made the engine degrade to its manual
+      // default, so a yolo session in plan mode asked for every Bash command —
+      // and every rebuild (setThinking / setModel / additionalDirs) re-baked it.
+      const { createServer } = await import('node:http');
+      let calls = 0;
+      const server = createServer((req, res) => {
+        req.on('data', () => {});
+        req.on('end', () => {
+          if (req.url?.includes('/chat/completions') !== true) {
+            res.writeHead(404).end();
+            return;
+          }
+          calls += 1;
+          const first = calls === 1;
+          res.writeHead(200, {
+            'content-type': 'text/event-stream',
+            'cache-control': 'no-cache',
+            connection: 'keep-alive',
+          });
+          const chunk = (delta: Record<string, unknown>, finish: string | null = null): string =>
+            `data: ${JSON.stringify({
+              id: 'c',
+              object: 'chat.completion.chunk',
+              created: 0,
+              model: 'mock',
+              choices: [{ index: 0, delta, finish_reason: finish }],
+            })}\n\n`;
+          res.write(chunk({ role: 'assistant', content: '' }));
+          if (first) {
+            res.write(
+              chunk({
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: 'call_plan_mode',
+                    type: 'function',
+                    function: {
+                      name: 'Bash',
+                      arguments: JSON.stringify({
+                        command: 'echo plan_guard_marker',
+                        description: 'probe',
+                      }),
+                    },
+                  },
+                ],
+              }),
+            );
+            res.write(chunk({}, 'tool_calls'));
+          } else {
+            res.write(chunk({ content: 'done' }));
+            res.write(chunk({}, 'stop'));
+          }
+          res.write('data: [DONE]\n\n');
+          res.end();
+        });
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const port = (server.address() as { port: number }).port;
+      try {
+        writeFileSync(
+          join(homeDir, 'config.toml'),
+          `
+[providers.local]
+type = "openai"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "sk-test"
+
+[models."mock"]
+provider = "local"
+model = "mock"
+max_context_size = 100000
+`,
+        );
+
+        const session = await harness.createSession({ workDir: homeDir, model: 'mock' });
+        const approvals: string[] = [];
+        session.setApprovalHandler(async (request) => {
+          approvals.push(request.toolName);
+          return { decision: 'approved' };
+        });
+        const outputs: string[] = [];
+        session.onEvent((event) => {
+          const rec = event as { type: string; output?: unknown };
+          if (rec.type === 'tool.result' && rec.output !== undefined) {
+            outputs.push(JSON.stringify(rec.output));
+          }
+        });
+
+        await session.setPermission('yolo');
+        await session.setPlanMode(true);
+        // setThinking always rebuilds the handle, which re-bakes the snapshot.
+        await session.setThinking('low');
+
+        const ended = waitForTurnEnded(session);
+        await session.prompt('run the probe command');
+        await ended;
+        // The command must actually have run, or an empty approval list would
+        // pass for the wrong reason.
+        expect(outputs.join('\n')).toContain('plan_guard_marker');
+        expect(approvals).toEqual([]);
+        await session.close();
+      } finally {
+        server.close();
+      }
+    }, 20_000);
+
     it('emits goal.updated when a goal is created', async () => {
       // The goal panel is driven by `goal.updated`; nothing emitted it, so a
       // goal created through the SDK never reached the UI.

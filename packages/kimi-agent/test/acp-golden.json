@@ -1,0 +1,233 @@
+{
+  "usage_basic": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "usage_update",
+      "used": 1234,
+      "size": 262144
+    }
+  },
+  "usage_zero_used": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "usage_update",
+      "used": 0,
+      "size": 128000
+    }
+  },
+  "usage_zero_both": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "usage_update",
+      "used": 0,
+      "size": 0
+    }
+  },
+  "session_info_title": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "session_info_update",
+      "title": "My title"
+    }
+  },
+  "session_info_empty": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "session_info_update",
+      "title": ""
+    }
+  },
+  "session_info_null": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "session_info_update",
+      "title": null
+    }
+  },
+  "available_empty": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "available_commands_update",
+      "availableCommands": []
+    }
+  },
+  "available_one": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "available_commands_update",
+      "availableCommands": [
+        {
+          "name": "help",
+          "description": "Show available ACP commands"
+        }
+      ]
+    }
+  },
+  "available_with_input": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "available_commands_update",
+      "availableCommands": [
+        {
+          "name": "compact",
+          "description": "Compact the conversation context",
+          "input": {
+            "hint": "<optional>"
+          }
+        }
+      ]
+    }
+  },
+  "plan_empty": null,
+  "plan_one": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "plan",
+      "entries": [
+        {
+          "content": "first",
+          "priority": "medium",
+          "status": "pending"
+        }
+      ]
+    }
+  },
+  "plan_status_done": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "plan",
+      "entries": [
+        {
+          "content": "a",
+          "priority": "medium",
+          "status": "completed"
+        }
+      ]
+    }
+  },
+  "plan_status_completed": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "plan",
+      "entries": [
+        {
+          "content": "b",
+          "priority": "medium",
+          "status": "completed"
+        }
+      ]
+    }
+  },
+  "plan_status_in_progress": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "plan",
+      "entries": [
+        {
+          "content": "c",
+          "priority": "medium",
+          "status": "in_progress"
+        }
+      ]
+    }
+  },
+  "plan_status_pending": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "plan",
+      "entries": [
+        {
+          "content": "d",
+          "priority": "medium",
+          "status": "pending"
+        }
+      ]
+    }
+  },
+  "plan_status_unknown": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "plan",
+      "entries": [
+        {
+          "content": "e",
+          "priority": "medium",
+          "status": "pending"
+        }
+      ]
+    }
+  },
+  "plan_status_empty": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "plan",
+      "entries": [
+        {
+          "content": "f",
+          "priority": "medium",
+          "status": "pending"
+        }
+      ]
+    }
+  },
+  "plan_multi": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "plan",
+      "entries": [
+        {
+          "content": "one",
+          "priority": "medium",
+          "status": "completed"
+        },
+        {
+          "content": "two",
+          "priority": "medium",
+          "status": "in_progress"
+        },
+        {
+          "content": "three",
+          "priority": "medium",
+          "status": "pending"
+        }
+      ]
+    }
+  },
+  "plan_empty_title": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "plan",
+      "entries": [
+        {
+          "content": "",
+          "priority": "medium",
+          "status": "pending"
+        }
+      ]
+    }
+  },
+  "plan_from_block_todo": {
+    "sessionId": "s1",
+    "update": {
+      "sessionUpdate": "plan",
+      "entries": [
+        {
+          "content": "x",
+          "priority": "medium",
+          "status": "completed"
+        }
+      ]
+    }
+  },
+  "plan_from_block_diff": null,
+  "plan_from_block_generic": null,
+  "toolkind_read": "read",
+  "toolkind_bash": "execute",
+  "toolkind_unknown": "other",
+  "toolcall_id": "7:call-1",
+  "toolcall_id_zero": "0:call-1",
+  "stopreason_completed": "end_turn",
+  "stopreason_cancelled": "cancelled",
+  "stopreason_failed": "end_turn",
+  "stopreason_blocked": "refusal"
+}

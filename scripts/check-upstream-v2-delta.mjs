@@ -190,9 +190,9 @@ console.log(
 );
 console.log(`  upstream ref: ${UPSTREAM_REF} @ ${refTip}`);
 if (commits.length === 0) {
-  console.log(
-    '  NOTE: zero deltas is also exactly what a stale local ref looks like. Refresh it before\n' +
-      '        trusting this line:\n' +
-      '        git fetch upstream main:refs/remotes/upstream/main --force',
+  console.warn(
+    '  WARNING: zero deltas is also exactly what a stale local ref looks like. Refresh it\n' +
+      '           before trusting this line:\n' +
+      '           git fetch upstream main:refs/remotes/upstream/main --force',
   );
 }
