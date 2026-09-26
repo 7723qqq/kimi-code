@@ -56,12 +56,52 @@ pub struct WebSearchResult {
 
 // ── Public entry point ───────────────────────────────────────────────────────
 
+/// Chinese Q&A / encyclopedia domains Bing falls back to when it cannot match
+/// a query to its web index. For an English technical query, results from these
+/// domains are the "hot feed" fallback — irrelevant content that looks like
+/// real results. Detecting it lets the tool report failure instead of feeding
+/// garbage to the model.
+pub fn is_hot_feed_fallback(query: &str, urls: &[String]) -> bool {
+    if urls.is_empty() {
+        return false;
+    }
+    // The query must be predominantly English (technical terms).
+    let letters = query.chars().filter(|c| c.is_ascii_alphabetic()).count();
+    if letters < 5 {
+        return false;
+    }
+    const HOT_FEED_DOMAINS: &[&str] = &[
+        "baidu.com",
+        "zhihu.com",
+        "sogou.com",
+        "so.com",
+        "csdn.net",
+        "juejin.cn",
+        "cnblogs.com",
+    ];
+    let hot_feed = urls
+        .iter()
+        .filter(|u| HOT_FEED_DOMAINS.iter().any(|d| u.contains(d)))
+        .count();
+    hot_feed > urls.len() / 2
+}
+
 pub fn web_search(config: &WebSearchConfig) -> WebSearchResult {
     match web_search_inner(config) {
-        Ok(results) => WebSearchResult {
-            results,
-            error: None,
-        },
+        Ok(results) => {
+            let urls: Vec<String> = results.iter().map(|r| r.url.clone()).collect();
+            if is_hot_feed_fallback(&config.query, &urls) {
+                WebSearchResult {
+                    results: Vec::new(),
+                    error: Some("hot-feed fallback detected".to_string()),
+                }
+            } else {
+                WebSearchResult {
+                    results,
+                    error: None,
+                }
+            }
+        }
         Err(err) => WebSearchResult {
             results: Vec::new(),
             error: Some(err),
@@ -553,5 +593,29 @@ mod tests {
         assert!(!is_bing_date_prefix("yesterday"));
         assert!(!is_bing_date_prefix("Apr 2026"));
         assert!(!is_bing_date_prefix(""));
+    }
+
+    #[test]
+    fn test_is_hot_feed_fallback() {
+        // English technical query + Chinese Q&A domains → fallback.
+        let urls = vec![
+            "https://zhidao.baidu.com/question/1".to_string(),
+            "https://zhuanlan.zhihu.com/p/1".to_string(),
+            "https://baike.baidu.com/item/x".to_string(),
+        ];
+        assert!(is_hot_feed_fallback("noUncheckedIndexedAccess", &urls));
+
+        // English query + relevant domains → not a fallback.
+        let good = vec![
+            "https://realpython.com/async-io-python".to_string(),
+            "https://docs.python.org/3/library/asyncio".to_string(),
+        ];
+        assert!(!is_hot_feed_fallback("python async best practices", &good));
+
+        // Chinese query → never a fallback (legitimate Chinese results).
+        assert!(!is_hot_feed_fallback("rust 编程语言", &urls));
+
+        // Empty results → not a fallback.
+        assert!(!is_hot_feed_fallback("noUncheckedIndexedAccess", &[]));
     }
 }

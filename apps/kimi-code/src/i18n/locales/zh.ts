@@ -244,6 +244,7 @@ export default {
         bingHttpFailed: '搜索失败：Bing 搜索返回 HTTP {{status}}',
         bingApiHttpFailed: 'Bing API 请求失败：HTTP {{status}}{{qualifier}}。{{body}}',
         ddgHttpFailed: '搜索失败：DuckDuckGo 搜索返回 HTTP {{status}}',
+        hotFeedFallback: '搜索未返回相关结果（Bing 回退到了热搜 feed）。请尝试更宽泛或不同的查询。',
       },
       switchEngine: {
         unknown: '未知搜索引擎：{{name}}。可用：bing、ddg。',

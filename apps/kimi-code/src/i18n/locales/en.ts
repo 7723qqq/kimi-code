@@ -250,6 +250,7 @@ export default {
         bingHttpFailed: 'Search failed: Bing search returned HTTP {{status}}',
         bingApiHttpFailed: 'Bing API request failed: HTTP {{status}}{{qualifier}}. {{body}}',
         ddgHttpFailed: 'Search failed: DuckDuckGo search returned HTTP {{status}}',
+        hotFeedFallback: 'Search returned no relevant results (Bing fell back to a hot-feed). Try a broader or different query.',
       },
       switchEngine: {
         unknown: 'Unknown search engine: {{name}}. Available: bing, ddg.',

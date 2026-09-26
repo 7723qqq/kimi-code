@@ -694,6 +694,27 @@ async fn search_via_bing_html(query: &str) -> Option<ExecutableToolResult> {
         }
     };
 
+    // Detect Bing's "hot feed" fallback: for an English technical query that
+    // Bing cannot match, it returns Chinese Q&A/encyclopedia content that
+    // looks like real results. Report failure instead of feeding it to the model.
+    if crate::native::web_search::is_hot_feed_fallback(
+        query,
+        &results.iter().map(|r| r.url.clone()).collect::<Vec<_>>(),
+    ) {
+        return Some(ExecutableToolResult {
+            delivery: None,
+            stop_turn: false,
+            content: LocalizedText::plain(
+                "engine.tools.webSearch.hotFeedFallback",
+                "Search returned no relevant results (Bing fell back to a hot-feed). Try a broader or different query.",
+            )
+            .render(),
+            is_error: true,
+            note: None,
+            display: None,
+        });
+    }
+
     if results.is_empty() {
         return Some(ExecutableToolResult {
             delivery: None,
