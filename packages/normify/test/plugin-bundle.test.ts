@@ -91,4 +91,17 @@ describe('插件 bundle 与 src 不漂移（B5）', () => {
         // script）；渲染出来的 HTML 不受影响，这里只是记录这是构建器的转义、不是源码里的。
         expect(bundleText).toContain('<\\/script>');
     });
+
+    it('bundle 不含裸的第三方 import（B6：插件必须在无 node_modules 的机器上启动）', async () => {
+        // 回归：tsdown 默认把 package.json dependencies 外置，`yaml` 恰好是
+        // normify 的依赖，于是产物带着 `import ... from "yaml"` 出厂——在开发
+        // 机上永远复现不了（node_modules 就在手边），一到用户的
+        // builtin-plugins 目录就 ERR_MODULE_NOT_FOUND。deps.alwaysBundle
+        // 修复后，bundle 内不允许再出现任何裸包导入。
+        const bundleText = await readFile(BUNDLE, 'utf8');
+        const bareImports = [...bundleText.matchAll(/^import\s+(?:[\s\S]*?from\s+)?['"]([^'"]+)['"]/gm)]
+            .map(m => m[1])
+            .filter(spec => !spec.startsWith('node:') && !spec.startsWith('.') && !spec.startsWith('/'));
+        expect(bareImports, 'bundle 残留裸包导入: ' + JSON.stringify(bareImports)).toEqual([]);
+    });
 });
