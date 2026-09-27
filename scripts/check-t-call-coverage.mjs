@@ -25,7 +25,15 @@ const ROOT = resolve(__dirname, '..');
 // (`packages/i18n-catalog`). That used to be two independent catalogs, each
 // target checking its own tree against its own file — which is precisely the
 // mechanism that let both coexist without the gate ever objecting. One catalog
-// means one key set, and every tree that calls `t()` has to be in this list.
+// means one key set, and every tree that calls `t()` *on the native/CLI path*
+// belongs in this list.
+//
+// Scope: this is the Node/Rust path only. The browser-side apps — `apps/kimi-web`,
+// `apps/vis/web`, `apps/vscode/webview-ui`, `apps/kimi-inspect` — are out of
+// scope on purpose: they run in a browser, cannot load the Rust engine, and
+// carry their own private catalogs, so their `t()` keys have no counterpart in
+// this one. Adding them here would fail on every key. Their coverage is a
+// separate concern (their catalogs are checked by whatever gate owns them).
 const LOCALE_TARGETS = [
   {
     name: 'i18n-runtime',

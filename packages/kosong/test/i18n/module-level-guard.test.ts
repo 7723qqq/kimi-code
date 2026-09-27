@@ -24,13 +24,23 @@ import { describe, expect, it } from 'vitest';
  *
  * Detection strategy (intentionally conservative): we only inspect
  * module-top-level `const`/`let`/`var` declarations (brace/bracket/paren depth
- * 0). A declaration is flagged when its initializer calls `t(...)` directly AND
- * contains no function boundary (`=>` or `function`) — i.e. the translation runs
- * immediately at import, not inside a deferred callback. Declarations whose
- * initializer is (or contains) a function are left alone, since there the `t()`
- * runs when that function is called.
- * `function`/method/getter declarations and class fields are never top-level
- * `const` declarations, so lazy getters and in-method `t()` calls pass.
+ * 0). A declaration is flagged when at least one of its `t(...)` calls runs
+ * immediately at import rather than inside a deferred callback — the
+ * translation is not wrapped in `=>`, a `function`, or a `get name(` accessor
+ * that encloses it. The check is per call, not per declaration, so a deferred
+ * call elsewhere in the same literal does not excuse an eager one.
+ *
+ * Known blind spots, all inherited from the detector this was adapted from and
+ * none of them safe to "fix" casually:
+ *
+ * - A declaration is only examined once it terminates, and termination means a
+ *   `;` seen at depth 0. Semicolon-free code is therefore never examined at
+ *   all, which makes the guard's coverage depend on the formatter's semicolon
+ *   rule (`oxfmt`). Write semicolons.
+ * - Method shorthand inside a top-level literal — `const P = { m() { return
+ *   t('j'); } }` — is flagged even though the call is lazy, because only `=>`,
+ *   `function` and getters count as deferring. Use an arrow property
+ *   (`m: () => t('j')`) or a getter.
  *
  * Note: string and template-literal contents are stripped before scanning, so
  * a top-level template literal embedding `${t(...)}` is not detected. Don't do
@@ -44,22 +54,20 @@ import { describe, expect, it } from 'vitest';
 const SRC_ROOT = join(__dirname, '..', '..', 'src');
 const EXCLUDED_DIRS = new Set<string>();
 
+// No try/catch here on purpose: a wrong `SRC_ROOT` must throw, not degrade into
+// an empty scan that reports "clean".
 function walk(dir: string, files: string[] = []): string[] {
-  try {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        if (EXCLUDED_DIRS.has(entry.name)) continue;
-        walk(join(dir, entry.name), files);
-      } else if (
-        entry.name.endsWith('.ts') &&
-        !entry.name.endsWith('.test.ts') &&
-        !entry.name.endsWith('.spec.ts')
-      ) {
-        files.push(join(dir, entry.name));
-      }
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (EXCLUDED_DIRS.has(entry.name)) continue;
+      walk(join(dir, entry.name), files);
+    } else if (
+      entry.name.endsWith('.ts') &&
+      !entry.name.endsWith('.test.ts') &&
+      !entry.name.endsWith('.spec.ts')
+    ) {
+      files.push(join(dir, entry.name));
     }
-  } catch {
-    /* skip */
   }
   return files;
 }
@@ -195,19 +203,41 @@ const TOP_DECL = /^\s*(?:export\s+)?(?:const|let|var)\s/;
 const FUNCTION_BOUNDARY = /=>/;
 const FUNCTION_KEYWORD = /\bfunction\b/;
 const GETTER_DECL = /\bget\s+[$A-Z_a-z][$\w]*\s*\(/;
+const GETTER_DECL_GLOBAL = new RegExp(GETTER_DECL, 'g');
+
+/** Brace nesting depth of `text` immediately before index `at`. */
+function braceDepth(text: string, at: number): number {
+  let depth = 0;
+  for (let i = 0; i < at; i++) {
+    const ch = text[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') depth--;
+  }
+  return depth;
+}
 
 /**
  * A `t()` call at `at` is deferred when a function boundary appears earlier in
- * the same declaration. Scoping the check to the text *before* the call (rather
- * than to the whole declaration) keeps the mixed case honest: in
- * `{ a: t('x'), get b() { return t('y') } }` the getter only excuses `t('y')`;
- * `t('x')` still has no boundary ahead of it and is reported.
+ * the same declaration. Scoping that check to the text *before* the call (rather
+ * than to the whole declaration) is what keeps a mixed literal honest: in
+ * `{ a: t('x'), b: () => t('y') }` the arrow excuses only `t('y')`, and `t('x')`
+ * is still reported.
+ *
+ * A getter is a boundary only for the calls it *encloses*. `get a() { … }` sits
+ * at a shallower brace depth than the `t()` inside its own body, but a sibling
+ * that follows it — `{ get a() { return 1; }, b: t('k') }` — is back at the
+ * literal's own depth, and its `t('k')` is eager. Without the depth test any
+ * earlier `get name(` token would blanket-exempt the rest of the declaration,
+ * which is the single worst failure mode this guard could have.
  */
 function isDeferredCall(declText: string, at: number): boolean {
   const before = declText.slice(0, at);
-  return (
-    FUNCTION_BOUNDARY.test(before) || FUNCTION_KEYWORD.test(before) || GETTER_DECL.test(before)
-  );
+  if (FUNCTION_BOUNDARY.test(before) || FUNCTION_KEYWORD.test(before)) return true;
+  const callDepth = braceDepth(declText, at);
+  for (const m of before.matchAll(GETTER_DECL_GLOBAL)) {
+    if (braceDepth(declText, m.index) < callDepth) return true;
+  }
+  return false;
 }
 
 function findOffenders(file: string): { line: number; snippet: string }[] {
@@ -263,6 +293,19 @@ function findOffenders(file: string): { line: number; snippet: string }[] {
 }
 
 describe('kosong i18n module-level translation guard', () => {
+  // Walked inside each test rather than at module scope so a bad `SRC_ROOT`
+  // fails a named test with its own message instead of erroring during
+  // collection and reporting "no tests".
+  it('scans a non-empty source tree', () => {
+    const files = walk(SRC_ROOT);
+    expect(
+      files.length,
+      `No TypeScript sources found under ${SRC_ROOT}. A guard that finds nothing ` +
+        `to inspect passes vacuously, so this is a broken guard rather than a ` +
+        `clean run — check SRC_ROOT and EXCLUDED_DIRS before trusting a pass.`,
+    ).toBeGreaterThan(0);
+  });
+
   it('forbids evaluating t() in module-top-level declarations', () => {
     const offenders: { file: string; line: number; snippet: string }[] = [];
     for (const file of walk(SRC_ROOT)) {
