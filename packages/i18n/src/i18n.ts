@@ -99,16 +99,18 @@ export function setLocale(locale: Locale): void {
 }
 
 /**
- * Name the current locale to the Rust engine so its own user-facing text —
- * permission reasons, tool-result notes, error prefixes — renders in the same
- * language as the host UI. See `packages/kimi-agent/src/i18n.rs`.
+ * Name the current locale for the engine's embedded catalog — the path the
+ * napi `translate` binding reads, i.e. what `t()` resolves against on the
+ * native path. See `packages/kimi-agent/src/i18n.rs`.
  *
- * The catalog is embedded in the engine binary, so this is a one-shot install
- * of a name rather than a per-message round-trip.
+ * It does not reach the engine's own messages: those still render their
+ * carried English, because `LocalizedText` resolves through a tree-injecting
+ * seam no napi binding exposes.
  *
- * Best-effort: an older native build without the binding, or no native module
- * at all (the `KIMI_I18N_FORCE_JS` path), leaves the engine on its English
- * fallbacks.
+ * Best-effort: an older build without the binding leaves the native path
+ * rendering English for every key while `getLocale()` still reports the
+ * requested locale. No native module at all is not a degradation for `t()` —
+ * it takes the pure-JS path, which reads `currentLocale` directly.
  */
 function syncEngineLocale(): void {
   getNative()?.setEngineLocale?.(currentLocale);

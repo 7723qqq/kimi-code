@@ -15,9 +15,8 @@
  * `translateBatch` still hands trees over (`nativeTranslateBatch*`), which is
  * the pre-migration contract; it goes away with this file's remaining surface.
  *
- * Provides both a module-level singleton (backward-compatible `t`, `setLocale`,
- * `getLocale`) and a `createI18n()` factory for multi-instance use, plus batch
- * translation via `translateBatch`.
+ * Provides a module-level singleton (backward-compatible `t`, `setLocale`,
+ * `getLocale`), plus batch translation via `translateBatch`.
  */
 
 import { createRequire } from 'node:module';
@@ -140,22 +139,24 @@ function toNativeParams(
 }
 
 /**
- * Name the current locale to the Rust engine so its own user-facing text —
- * permission reasons, tool-result notes, error prefixes — renders in the same
- * language as the host UI. See `packages/kimi-agent/src/i18n.rs`.
+ * Name the current locale for the engine's embedded catalog — the path the
+ * napi `translate` binding reads, i.e. what `t()` resolves against. See
+ * `packages/kimi-agent/src/i18n.rs`.
  *
- * The catalog is compiled into the engine binary, so this installs a name in a
- * single hop rather than shipping the message trees across the boundary.
+ * It does not reach the engine's own messages: those still render their
+ * carried English, because `LocalizedText` resolves through a tree-injecting
+ * seam no napi binding exposes.
  *
- * Best-effort by design: a native build without the binding, or no native
- * module at all, leaves the engine on its English fallbacks — the pre-existing
- * behaviour — rather than failing the host.
+ * Best-effort by design: an older build without the binding leaves `t()`
+ * rendering English for every key while `getLocale()` still reports the
+ * requested locale, rather than failing the host. A missing native module is
+ * not best-effort — `t()` throws on its own.
  */
 function syncEngineLocale(locale: string): void {
   try {
     ensureNative().setEngineLocale?.(locale);
   } catch {
-    /* the engine keeps its English fallbacks */
+    /* nothing to name: a missing native module makes `t()` throw on its own */
   }
 }
 

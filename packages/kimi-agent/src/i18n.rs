@@ -46,10 +46,10 @@
 //! rendering its carried English, and injecting trees with
 //! [`set_engine_locale`] leaves the embedded catalog on its default. The split
 //! is transitional: the embedded catalog is meant to serve both, at which point
-//! the tree-injecting pair and the `locale_json` / `fallback_json` /
-//! `translator` fields go away. Both paths mirror how the TypeScript side
-//! models locale as module-level state, and the tree-injecting one reuses the
-//! same process-wide `CachedTranslator` as `native::napi_bindings`.
+//! [`set_engine_locale`] / [`clear_engine_locale`] and the `locale_json` /
+//! `fallback_json` / `translator` fields go away. Both paths mirror how the
+//! TypeScript side models locale as module-level state, and the tree-injecting
+//! one reuses the same process-wide `CachedTranslator` as `native::napi_bindings`.
 //!
 //! Tests and embedders that hold their own [`EngineI18n`] use
 //! [`LocalizedText::render_with`] instead, so they never touch the global.

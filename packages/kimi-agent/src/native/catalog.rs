@@ -2,9 +2,8 @@
 //!
 //! `generate-locale-json.cjs` writes `locales/{en,zh}.json` from the single
 //! `packages/i18n-catalog` source; `include_str!` bakes those artifacts into the
-//! binary, so every consumer of the engine — the CLI, the ACP client, an
-//! embedder — renders the host's language without pushing JSON across the napi
-//! boundary. The host names a locale once and looks keys up from there.
+//! binary, so the host names a locale once and looks keys up instead of pushing
+//! JSON across the napi boundary on every call.
 //!
 //! It is not yet the only copy on disk: `packages/i18n` and `apps/kimi-code`
 //! still import `en` / `zh` for their pure-JS fallback and `getMessages()`, so
