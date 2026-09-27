@@ -11,6 +11,7 @@
   },
   "include": [
     "src/**/*.ts",
+    "../i18n-catalog/src/**/*.ts",
     "../i18n-runtime/src/**/*.ts",
     "../i18n-shared/src/**/*.ts",
     "../kaos/src/**/*.ts",
