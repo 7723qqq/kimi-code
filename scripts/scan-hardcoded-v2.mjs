@@ -278,7 +278,7 @@ function scanFile(filePath, content, moduleInfo, valueToKeys, valueRegexes) {
         if (regexes.tCall.test(trimmed)) continue; // already using t()
 
         // Lifecycle sentinels the TS layer matches against, never renders.
-        if (ENGINE_WIRE_TOKENS.has(normalizedValue)) continue;
+        if (moduleInfo.name === 'kimi-code' && ENGINE_WIRE_TOKENS.has(normalizedValue)) continue;
 
         // Check if this line IS the locale definition itself
         if (relPath.includes(moduleInfo.name === 'kimi-web' ? '/locales/' : '/i18n')) continue;
@@ -443,13 +443,15 @@ const ALLOWED_FILES = [
 ];
 
 /**
- * Engine-emitted reason and error strings that the TypeScript layer matches
- * with `===`, `Set` membership, or a `case` label to recognize a lifecycle
- * event (`shell.pausedAfterInterruption`, `v2Goal.pausedAfterResume`,
+ * Engine-emitted reason and error strings that the `kimi-code` TypeScript layer
+ * matches with `===`, `Set` membership, or a `case` label to recognize a
+ * lifecycle event (`shell.pausedAfterInterruption`, `v2Goal.pausedAfterResume`,
  * `toolsV2.abort.abortedByUser`). They are wire tokens, not display text:
  * localizing the comparison operand would break the match, and the text shown
  * to the user at those sites is already produced by `t()`. Matched on exact
- * value so a genuinely *displayed* use of the same string is still reported.
+ * value so a genuinely *displayed* use of the same string is still reported,
+ * and consulted only for the `kimi-code` module so no other source tree can
+ * inherit the exemption.
  */
 const ENGINE_WIRE_TOKENS = new Set([
   'Aborted by the user',

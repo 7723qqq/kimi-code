@@ -6,9 +6,18 @@
   "license": "MIT",
   "type": "module",
   "exports": {
-    ".": { "types": "./src/index.ts", "default": "./src/index.ts" },
-    "./locales/en": { "types": "./src/locales/en.ts", "default": "./src/locales/en.ts" },
-    "./locales/zh": { "types": "./src/locales/zh.ts", "default": "./src/locales/zh.ts" }
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./locales/en": {
+      "types": "./src/locales/en.ts",
+      "default": "./src/locales/en.ts"
+    },
+    "./locales/zh": {
+      "types": "./src/locales/zh.ts",
+      "default": "./src/locales/zh.ts"
+    }
   },
   "scripts": {
     "typecheck": "tsgo -p tsconfig.json --noEmit"

@@ -1,4 +1,7 @@
+import { en, zh } from '@moonshot-ai/i18n-catalog';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+
+import { t, setLocale, getLocale, getEngine } from '#/i18n';
 
 // Force the pure-JS fallback path via environment variable.
 // This is checked by loadNativeImpl() before attempting to load the native module.
@@ -9,10 +12,6 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env['KIMI_I18N_FORCE_JS'];
 });
-
-import { en, zh } from '@moonshot-ai/i18n-catalog';
-
-import { t, setLocale, getLocale, getEngine } from '#/i18n';
 
 describe('i18n fallback (KIMI_I18N_FORCE_JS=1)', () => {
   beforeEach(() => {

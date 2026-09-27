@@ -11,8 +11,9 @@ import { describe, expect, it } from 'vitest';
  * Why: the Rust translation engine falls back to the English message whenever
  * a key is missing in the active locale. A missing `zh` key therefore renders
  * silently in English — the exact "part of the UI reverted to English" symptom
- * users report. TypeScript does not catch this today because `zh` is a free
- * object literal, not typed against `typeof en`. This test closes that gap.
+ * users report. `zh` is now `as const satisfies LocaleMessages`, so a missing
+ * key is a compile error; this test remains as a runtime guard that names every
+ * drifted key, which a compiler diagnostic lists only one at a time.
  *
  * If this fails, add the listed keys to the offending locale file (translating
  * the value). Do NOT delete keys from `en` to make it pass.

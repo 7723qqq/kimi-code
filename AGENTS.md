@@ -64,8 +64,9 @@ LocalizedText::fmt(
 .render()
 ```
 
-Locale keys live under `engine.*` in `apps/kimi-code/src/i18n/locales/{en,zh}.ts`
-(the host installs them via `setEngineLocale`; see `packages/i18n` and
+Locale keys live under `engine.*` in `packages/i18n-catalog/src/locales/{en,zh}.ts`
+— the single owner of the whole locale catalog, 2419 leaves across 24 top-level
+namespaces (the host installs them via `setEngineLocale`; see `packages/i18n` and
 `apps/kimi-code/src/i18n`). Run `bun run check:engine-i18n` after any change — CI
 gates on it.
 
@@ -240,6 +241,7 @@ Debug visualization tool for kimi-code sessions. Composed of `vis/server` (backe
 ```
 packages/
   i18n/                — Shared i18n infrastructure (t() with en/zh support)
+  i18n-catalog/        — The single locale catalog (en/zh, 2419 keys); its JSON is generated into packages/kimi-agent/src/locales/
   i18n-shared/         — Shared i18n core (types, locale detection, web-safe)
   kaos/                — Execution environment abstraction (local / ssh / login-shell)
   kimi-agent/          — Rust agent engine + native Node addon (napi-rs)
@@ -448,7 +450,7 @@ Pushes to `main` run `release.yml`: the changesets action opens/updates a **"ci:
 
 - All user-facing strings must use `t()` calls from the i18n framework.
 - Supported locales: `en` (English), `zh` (Chinese).
-- Locale JSON must be regenerated after translation changes: `bun scripts/generate-locale-json.cjs`.
+- Locale JSON must be regenerated after translation changes: `bun scripts/generate-locale-json.cjs`. It reads `packages/i18n-catalog/src/locales/{en,zh}.ts` and writes `packages/kimi-agent/src/locales/{en,zh}.json`, which CI diffs for drift.
 - Run `bun scripts/scan-hardcoded-v2.mjs` to find hardcoded strings that should be localized.
 - Run `bun scripts/check-locale-placeholders.cjs` to validate placeholder consistency.
 
@@ -548,7 +550,7 @@ Standing rules for every `upstream` tag merge (decided 2026-09-03). Upstream is 
 ## Version Management (Changesets)
 
 - **This fork follows upstream versions.** Package `version` fields in `package.json` must stay identical to `upstream/main` — never run `bun run version` or `bun run publish` here, and never bump versions independently. When merging upstream releases, take their `package.json` version changes as-is.
-- Fork-only packages that do not exist upstream (`@moonshot-ai/i18n`, `@moonshot-ai/i18n-shared`) keep their own versions; do not bump them either unless a fork-specific release is explicitly requested.
+- Fork-only packages that do not exist upstream (`@moonshot-ai/i18n`, `@moonshot-ai/i18n-catalog`, `@moonshot-ai/i18n-shared`) keep their own versions; do not bump them either unless a fork-specific release is explicitly requested.
 - Changesets are maintained **as a changelog source only**: keep writing them for user-facing changes so release notes stay available, but they are not consumed by a local release flow. Before merging upstream, prune accumulated non-user-facing entries (see the `gen-changesets` skill).
 - Every PR affecting release artifacts should include a changeset; docs-only, test-only, or CI-only PRs may skip changesets. Generate one with `bun run changeset`.
 - **Never** decide on a `major` bump on your own. When a change meets major criteria (breaking changes, incompatible user configuration, renamed/removed commands/arguments, changed behavior semantics), stop and ask the user for confirmation. Default to `minor` (fall back to `patch` if unclear).

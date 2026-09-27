@@ -58,6 +58,7 @@
       "layer": "app",
       "deps": [
         "node-sdk",
+        "i18n-catalog",
         "i18n",
         "oauth",
         "telemetry",
@@ -77,7 +78,7 @@
           "description": "Terminal UI"
         }
       ],
-      "fingerprint": "0888dc437fa591a4"
+      "fingerprint": "9435f92d37e61153"
     },
     {
       "id": "kosong",
@@ -132,14 +133,22 @@
       "fingerprint": "373e1a08705790b3"
     },
     {
+      "id": "i18n-catalog",
+      "name": "Locale catalog",
+      "source": "packages/i18n-catalog/src",
+      "layer": "shared",
+      "deps": []
+    },
+    {
       "id": "i18n",
       "name": "i18n",
       "source": "packages/i18n/src",
       "layer": "shared",
       "deps": [
+        "i18n-catalog",
         "i18n-shared"
       ],
-      "fingerprint": "d1d2d81d518ea906"
+      "fingerprint": "2637018767ca3a8a"
     },
     {
       "id": "i18n-shared",
