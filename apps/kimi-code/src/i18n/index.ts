@@ -2,8 +2,15 @@
  * kimi-code i18n — backed by the compiled Rust translation engine.
  *
  * `t()` sends a key across napi; the engine resolves it against the locale
- * catalog it has compiled in, so the host ships no message trees of its own.
- * The process-wide locale is named once via `setEngineLocale`.
+ * catalog it has compiled in, so `t()` itself ships no message trees. The
+ * process-wide locale is named once via `setEngineLocale`.
+ *
+ * `createI18n()` is a second handle onto the same process-wide engine locale,
+ * not an isolated instance. Each keeps its own `currentLocale`, but `t()`
+ * resolves against whatever locale was last handed to `setEngineLocale`, so two
+ * instances on different locales cross-talk and render the wrong language
+ * without error. Use the module-level singleton below; only that one is safe
+ * today.
  *
  * `translateBatch` still hands trees over (`nativeTranslateBatch*`), which is
  * the pre-migration contract; it goes away with this file's remaining surface.
@@ -85,13 +92,12 @@ interface NativeModule {
     params: Record<string, string> | null | undefined,
   ) => { key: string; message: string }[];
   /**
-   * Name the engine's active locale so the Rust engine's own user-facing text
-   * (permission reasons, tool-result notes, error prefixes) renders in the
-   * host's language instead of its English fallback. The catalog is compiled
-   * into the binary, so this carries a locale name, not the message trees the
-   * host used to push.
+   * Name the engine's active locale. The catalog is compiled into the binary,
+   * so this carries a locale name, not the message trees the host used to push.
    *
-   * Absent on older native builds; those keep the English fallbacks.
+   * Optional because an older native build lacks the binding — but there is no
+   * JavaScript fallback behind `t()`, so a missing one leaves every string
+   * English while `getLocale()` still reports the requested locale.
    */
   setEngineLocale?: (locale: string) => void;
 }
@@ -164,6 +170,10 @@ export interface CreateI18nOptions {
 
 /**
  * Create an i18n instance backed by the Rust translation engine.
+ *
+ * Not isolated from any other instance: `t()` resolves against the process-wide
+ * engine locale, so a second instance on a different locale silently overrides
+ * the first. See the module header.
  *
  * @example
  * const { t, setLocale } = createI18n();

@@ -46,11 +46,13 @@ interface NativeModule {
    */
   translate: (key: string, params: Record<string, string> | null | undefined) => string;
   /**
-   * Name the engine's active locale so its own user-facing text (permission
-   * reasons, tool-result notes, error prefixes) renders in the host's language
-   * instead of its English fallback. The catalog is compiled into the binary,
-   * so this carries a locale name, not the message trees the host used to
-   * push. Absent on older native builds, which keep the English fallbacks.
+   * Name the engine's active locale. The catalog is compiled into the binary,
+   * so this carries a locale name, not the message trees the host used to push.
+   *
+   * Optional because an older native build lacks the binding — but `t()`
+   * resolves through the engine, so a missing one does not degrade to a
+   * JavaScript fallback: every string comes back English while `getLocale()`
+   * still reports the requested locale.
    */
   setEngineLocale?: (locale: string) => void;
 }

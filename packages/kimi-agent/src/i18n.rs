@@ -33,11 +33,26 @@
 //!
 //! # Process-wide instance
 //!
-//! [`set_locale`] and [`set_engine_locale`] install the locale for the whole
-//! process, mirroring how the TypeScript side models locale as module-level
-//! state and how `native::napi_bindings` already keeps a process-wide
-//! `CachedTranslator`. Tests and embedders that hold their own [`EngineI18n`]
-//! use [`LocalizedText::render_with`] instead, so they never touch the global.
+//! Two install paths coexist, and they do not reach the same renderers:
+//!
+//! - [`set_engine_locale`] takes the host's message trees and is what
+//!   [`LocalizedText::render`] reads, so it is the only one of the two that
+//!   localizes the engine's own messages.
+//! - [`set_locale`] names a locale for [`crate::native::catalog`] and is what
+//!   [`EngineI18n::translate_embedded`] reads, i.e. the napi `translate` the host
+//!   resolves its own strings through.
+//!
+//! Naming a locale with [`set_locale`] therefore leaves a [`LocalizedText`]
+//! rendering its carried English, and injecting trees with
+//! [`set_engine_locale`] leaves the embedded catalog on its default. The split
+//! is transitional: the embedded catalog is meant to serve both, at which point
+//! the tree-injecting pair and the `locale_json` / `fallback_json` /
+//! `translator` fields go away. Both paths mirror how the TypeScript side
+//! models locale as module-level state, and the tree-injecting one reuses the
+//! same process-wide `CachedTranslator` as `native::napi_bindings`.
+//!
+//! Tests and embedders that hold their own [`EngineI18n`] use
+//! [`LocalizedText::render_with`] instead, so they never touch the global.
 
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock, RwLockReadGuard};
@@ -145,8 +160,12 @@ impl EngineI18n {
         !self.locale_json.is_empty()
     }
 
-    /// Replace the active locale, evicting the parsed-JSON cache so no stale
-    /// tree survives the switch.
+    /// Replace the injected message trees, evicting the parsed-JSON cache so no
+    /// stale tree survives the switch.
+    ///
+    /// The per-instance form the free [`set_engine_locale`] forwards to, and
+    /// the only one that reaches [`Self::render`]. Distinct from the free
+    /// [`set_locale`], which names a locale for the embedded catalog instead.
     pub fn set_locale(&mut self, locale_json: String, fallback_json: String) {
         self.locale_json = locale_json;
         self.fallback_json = fallback_json;
@@ -260,10 +279,13 @@ pub(crate) fn engine_i18n() -> RwLockReadGuard<'static, EngineI18n> {
     read_guard(engine_i18n_slot())
 }
 
-/// Install the host's active locale for the whole process.
+/// Install the host's message trees as the process-wide locale, the path
+/// [`LocalizedText::render`] reads.
 ///
-/// `fallback_json` is the language a key missing from `locale_json` resolves
-/// against — English in this project.
+/// This is the only installer that localizes the engine's own messages:
+/// [`set_locale`] names a locale for the embedded catalog and does not reach
+/// that renderer. `fallback_json` is the language a key missing from
+/// `locale_json` resolves against — English in this project.
 pub fn set_engine_locale(locale_json: String, fallback_json: String) {
     let mut guard = engine_i18n_slot()
         .write()
@@ -279,10 +301,18 @@ pub fn clear_engine_locale() {
     guard.clear();
 }
 
-/// Install the host's active locale for the whole process.
+/// Name the process-wide locale for the embedded catalog, the path
+/// [`EngineI18n::translate_embedded`] reads.
 ///
 /// Replaces the old two-JSON-string form on the embedded-catalog path: the
-/// catalog is embedded, so a locale is now a single name.
+/// catalog is embedded, so a locale is now a single name. This is what the napi
+/// `setEngineLocale` binding calls, and therefore what the host's `t()` depends
+/// on.
+///
+/// It does not reach [`LocalizedText`]: `render` still resolves through the
+/// trees [`set_engine_locale`] injects, so naming `Locale::Zh` here leaves the
+/// engine's own messages on their carried English. Use `set_engine_locale` for
+/// those until the two paths merge.
 pub fn set_locale(locale: Locale) {
     let mut guard = engine_i18n_slot()
         .write()

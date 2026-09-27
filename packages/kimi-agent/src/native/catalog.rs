@@ -3,8 +3,12 @@
 //! `generate-locale-json.cjs` writes `locales/{en,zh}.json` from the single
 //! `packages/i18n-catalog` source; `include_str!` bakes those artifacts into the
 //! binary, so every consumer of the engine — the CLI, the ACP client, an
-//! embedder — renders the host's language without shipping a second copy or
-//! pushing JSON across the napi boundary.
+//! embedder — renders the host's language without pushing JSON across the napi
+//! boundary. The host names a locale once and looks keys up from there.
+//!
+//! It is not yet the only copy on disk: `packages/i18n` and `apps/kimi-code`
+//! still import `en` / `zh` for their pure-JS fallback and `getMessages()`, so
+//! the binary and the TypeScript runtime each hold a copy until those go.
 //!
 //! The JSON is parsed once per locale into a flat dot-path table. A miss is a
 //! `None`, never a panic: CI regenerates the artifacts and fails on any diff
