@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "id": "2026-09-27-map-the-kimi-code-repository",
+  "title": {
+    "en": "Map the kimi-code repository",
+    "zh": "为 kimi-code 仓库建立全量架构树"
+  },
+  "status": "verified",
+  "intent": {
+    "en": "Map the whole repository into the fractal module tree: apps / engine / sdk / libs / tooling, with real source evidence, verified fingerprints and actual dependency edges.",
+    "zh": "把整个仓库映射为分形模块树：apps / engine / sdk / libs / tooling 五域，源码证据真实、指纹与仓库一致、依赖边反映真实调用关系。"
+  },
+  "modules": {
+    "create": [
+      "kimi-code.apps",
+      "kimi-code.apps.cli",
+      "kimi-code.apps.vscode",
+      "kimi-code.apps.inspect",
+      "kimi-code.apps.vis",
+      "kimi-code.apps.docs",
+      "kimi-code.engine",
+      "kimi-code.engine.core",
+      "kimi-code.engine.tools",
+      "kimi-code.engine.llm",
+      "kimi-code.engine.mcp",
+      "kimi-code.engine.server",
+      "kimi-code.engine.plugins",
+      "kimi-code.engine.napi",
+      "kimi-code.sdk",
+      "kimi-code.sdk.node",
+      "kimi-code.sdk.protocol",
+      "kimi-code.sdk.kosong",
+      "kimi-code.libs",
+      "kimi-code.libs.tui",
+      "kimi-code.libs.i18n",
+      "kimi-code.libs.normify",
+      "kimi-code.libs.oauth",
+      "kimi-code.libs.telemetry",
+      "kimi-code.libs.transcript",
+      "kimi-code.libs.minidb",
+      "kimi-code.libs.kaos",
+      "kimi-code.libs.bash-parser",
+      "kimi-code.tooling",
+      "kimi-code.tooling.gates",
+      "kimi-code.tooling.build"
+    ]
+  },
+  "acceptance": [
+    "normify_validate 0 error（repoRoot 证据校验通过）",
+    "normify_build 产出 tree.json + receipt.json",
+    "normify_render 产出单文件 normify.html",
+    "全部模块经 refresh(activate) 转 active 且指纹与仓库一致"
+  ],
+  "note": "32 模块 / 12 API / 12 依赖边全部落图；validate 0 error，指纹与仓库 HEAD 一致；normify.html 已渲染。",
+  "revision": {
+    "before": null,
+    "after": null
+  },
+  "created_at": "2026-09-27T10:21:44.944Z",
+  "updated_at": "2026-09-27T10:23:51.672Z",
+  "closed_at": "2026-09-27T10:23:51.672Z"
+}

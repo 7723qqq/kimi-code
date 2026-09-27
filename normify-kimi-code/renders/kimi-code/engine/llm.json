@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "kimi-code.engine.llm",
+  "updated_at": "2026-09-27T10:48:12.344Z",
+  "reading": {
+    "zh": "每个协议族一个适配器，共享 HTTP 管线作公共底座。",
+    "en": "One adapter per protocol family, with the shared HTTP plumbing as the common base."
+  },
+  "order": [
+    "kimi-code.engine.llm.anthropic",
+    "kimi-code.engine.llm.openai",
+    "kimi-code.engine.llm.google",
+    "kimi-code.engine.llm.http"
+  ]
+}

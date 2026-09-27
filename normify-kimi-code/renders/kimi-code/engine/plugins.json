@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "kimi-code.engine.plugins",
+  "updated_at": "2026-09-27T10:48:12.424Z",
+  "reading": {
+    "zh": "状态在前（SQLite 注册表），获取在后（远程归档）。",
+    "en": "State first (the SQLite registry), acquisition second (remote archives)."
+  },
+  "order": [
+    "kimi-code.engine.plugins.registry",
+    "kimi-code.engine.plugins.archive"
+  ]
+}

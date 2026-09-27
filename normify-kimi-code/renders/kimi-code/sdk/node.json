@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "kimi-code.sdk.node",
+  "updated_at": "2026-09-27T10:29:10.125Z",
+  "reading": {
+    "zh": "门面在前：调用者只见 harness；底下的原生客户端走 napi。",
+    "en": "Facade first: callers see the harness; the native client underneath talks napi."
+  },
+  "order": [
+    "kimi-code.sdk.node.facade",
+    "kimi-code.sdk.node.native-client"
+  ]
+}

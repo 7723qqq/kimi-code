@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "id": "kimi-code",
+  "updated_at": "2026-09-27T10:21:53.952Z",
+  "mode": "groups",
+  "max_columns": 5,
+  "reading": {
+    "zh": "顶层按数据流阅读：用户对话的应用 → 它驱动的 SDK 边界 → 背后的 Rust 引擎 → 双方复用的共享库 → 守护仓库质量的工具链。",
+    "en": "Top level, data-flow order: the app the user talks to, the SDK seam it drives, the Rust engine behind it, the shared libraries both sides reuse, and the tooling that keeps the repo honest."
+  },
+  "order": [
+    "kimi-code.apps",
+    "kimi-code.sdk",
+    "kimi-code.engine",
+    "kimi-code.libs",
+    "kimi-code.tooling"
+  ]
+}

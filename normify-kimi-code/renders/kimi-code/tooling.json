@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "kimi-code.tooling",
+  "updated_at": "2026-09-27T10:22:13.487Z",
+  "reading": {
+    "zh": "先门禁后构建：质量检查在前，打包机制在后。",
+    "en": "Gates before build: quality checks first, then the packaging machinery."
+  },
+  "order": [
+    "kimi-code.tooling.gates",
+    "kimi-code.tooling.build"
+  ]
+}

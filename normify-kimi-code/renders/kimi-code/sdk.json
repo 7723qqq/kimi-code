@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "kimi-code.sdk",
+  "updated_at": "2026-09-27T10:22:13.406Z",
+  "reading": {
+    "zh": "边界层：宿主直接调用的 SDK、共享线上协议 schema，以及底层的 LLM 抽象。",
+    "en": "The seam: the concrete SDK the host calls, the shared wire schemas, and the LLM abstraction underneath."
+  },
+  "order": [
+    "kimi-code.sdk.node",
+    "kimi-code.sdk.protocol",
+    "kimi-code.sdk.kosong"
+  ]
+}

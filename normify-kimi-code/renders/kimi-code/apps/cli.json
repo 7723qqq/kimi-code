@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "kimi-code.apps.cli",
+  "updated_at": "2026-09-27T10:29:10.083Z",
+  "reading": {
+    "zh": "外壳与管线：交互 TUI 在上，命令解析在下。",
+    "en": "Shell and plumbing: the interactive TUI on top, the command parser underneath."
+  },
+  "order": [
+    "kimi-code.apps.cli.tui",
+    "kimi-code.apps.cli.commands"
+  ]
+}

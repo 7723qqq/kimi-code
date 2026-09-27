@@ -230,6 +230,25 @@ jobs:
       # (agent-core-v2 / kimi-native-tools / klient / acp-server) may be
       # referenced from manifests, imports, tsconfigs, flake.nix, or CI.
       - run: bun scripts/check-no-legacy-engine.mjs
+      # Architecture gate (architecture.json): module sources exist, every
+      # declared dep resolves, no module imports a workspace package it did not
+      # declare, layer order and acyclicity hold, and every fingerprinted module
+      # still matches its source. Fail-closed, and it was pre-commit-only until
+      # now — a gate nothing runs in CI is a gate nobody notices failing.
+      #
+      # A source change under a fingerprinted module makes this fail until the
+      # same commit refreshes the stored hash:
+      #   bun run check:architecture:update
+      # CI cannot do that itself: writing the model here would hide the very
+      # drift the step exists to report.
+      - run: bun scripts/check-architecture-drift.mjs
+      # Ledger gate (packages/kimi-agent/ROADMAP.md): every file and test the
+      # divergence ledger cites must still exist. The ledger is the fork's only
+      # record of what the Rust port did and did not take from the deleted
+      # TypeScript engine, so a citation to a deleted file or a renamed test
+      # makes it a source of wrong conclusions — see ROADMAP §6.17.2. Line
+      # numbers are intentionally not checked; see the script header.
+      - run: bun scripts/check-roadmap-refs.mjs
       # Fetch upstream once: the parity cross-check and the retired-package delta
       # ratchet both read it. Best-effort so an unreachable upstream cannot break
       # the build, but each gate surfaces the skip instead of passing quietly.

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "kimi-code.libs.normify",
+  "updated_at": "2026-09-27T10:29:10.159Z",
+  "reading": {
+    "zh": "适配层在上（工具、MCP、CLI），确定性内核在下。",
+    "en": "Adapters on top (tools, MCP, CLI), the deterministic kernel underneath."
+  },
+  "order": [
+    "kimi-code.libs.normify.adapters",
+    "kimi-code.libs.normify.engine"
+  ]
+}

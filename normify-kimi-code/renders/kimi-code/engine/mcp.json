@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "kimi-code.engine.mcp",
+  "updated_at": "2026-09-27T10:48:12.383Z",
+  "reading": {
+    "zh": "管理器管注册表与生命周期；客户端管传输。",
+    "en": "The manager owns the registry and lifecycle; clients own the transports."
+  },
+  "order": [
+    "kimi-code.engine.mcp.manager",
+    "kimi-code.engine.mcp.client"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "kimi-code.apps.inspect",
+  "updated_at": "2026-09-27T10:48:12.500Z",
+  "reading": {
+    "zh": "外壳包裹面板。",
+    "en": "Shell wraps the panels."
+  },
+  "order": [
+    "kimi-code.apps.inspect.shell",
+    "kimi-code.apps.inspect.panels"
+  ]
+}

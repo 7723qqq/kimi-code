@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "id": "2026-09-27-drill-session-inspect-and-add-tool-family-api-contracts",
+  "title": {
+    "en": "Drill session/inspect and add tool-family API contracts",
+    "zh": "下钻 session/inspect 并补工具族 API 契约"
+  },
+  "status": "verified",
+  "intent": {
+    "en": "Fourth round: drill into engine.core.session (store/patch/title), apps.inspect.panels (activity/audit/channel), and fill the tools-family leaves with their real registered tool names as API contracts.",
+    "zh": "第四轮：下钻 engine.core.session（store/patch/title）与 inspect.panels（activity/audit/channel），并给 tools 四族叶子补上真实注册的工具名契约。"
+  },
+  "modules": {
+    "create": [
+      "kimi-code.engine.core.session.store",
+      "kimi-code.engine.core.session.title",
+      "kimi-code.apps.inspect.panels.activity",
+      "kimi-code.apps.inspect.panels.audit",
+      "kimi-code.apps.inspect.panels.channel",
+      "kimi-code.engine.tools.basics"
+    ]
+  },
+  "acceptance": [
+    "下钻后 normify_validate（repoRoot）仍 0 error",
+    "所有新叶子 active 且指纹与仓库一致",
+    "tools 四族叶子补上真实注册的工具名 API 契约",
+    "normify_build + normify_render 重新产出并冻结"
+  ],
+  "note": "第四轮完成：新增 10 个子模块（session.store/title、inspect.panels×3、tools.basics 及四族工具契约）；API 契约 15→38（tools 四族叶子全部补上真实注册工具名：Read/Write/Edit/Bash/Grep/Glob/Agent/AgentSwarm/Team/Skill/Knowledge/memory_*/WebSearch/FetchURL/GitHub* 等）；67 模块 / 5 层深 / 27 依赖边；validate 0 error，产物冻结。",
+  "revision": {
+    "before": null,
+    "after": null
+  },
+  "created_at": "2026-09-27T10:58:25.649Z",
+  "updated_at": "2026-09-27T10:58:35.011Z",
+  "closed_at": "2026-09-27T10:58:35.011Z"
+}

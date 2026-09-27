@@ -27,7 +27,7 @@
           "description": "ACP stdio protocol server"
         }
       ],
-      "fingerprint": "127b20d07296282a"
+      "fingerprint": "45252457188b3492"
     },
     {
       "id": "node-sdk",
@@ -49,7 +49,7 @@
           "description": "Public SDK package"
         }
       ],
-      "fingerprint": "356370da8188ab3a"
+      "fingerprint": "06173f41fcc44fc3"
     },
     {
       "id": "kimi-code",
@@ -60,11 +60,13 @@
         "node-sdk",
         "i18n-catalog",
         "i18n",
+        "i18n-shared",
         "oauth",
         "telemetry",
         "minidb",
         "pi-tui",
-        "vis-server"
+        "vis-server",
+        "kimi-agent"
       ],
       "apis": [
         {
@@ -78,14 +80,16 @@
           "description": "Terminal UI"
         }
       ],
-      "fingerprint": "9435f92d37e61153"
+      "fingerprint": "1bb337c93c6ffce4"
     },
     {
       "id": "kosong",
       "name": "Kosong (LLM abstraction)",
       "source": "packages/kosong/src",
       "layer": "engine",
-      "deps": [],
+      "deps": [
+        "i18n"
+      ],
       "fingerprint": "b7440b8c9ae82282"
     },
     {
@@ -137,7 +141,8 @@
       "name": "Locale catalog",
       "source": "packages/i18n-catalog/src",
       "layer": "shared",
-      "deps": []
+      "deps": [],
+      "fingerprint": "9446e39771433712"
     },
     {
       "id": "i18n",
@@ -148,7 +153,7 @@
         "i18n-catalog",
         "i18n-shared"
       ],
-      "fingerprint": "2637018767ca3a8a"
+      "fingerprint": "b50734b2cdaadf75"
     },
     {
       "id": "i18n-shared",
@@ -204,7 +209,8 @@
       "source": "apps/kimi-inspect/src",
       "layer": "app",
       "deps": [
-        "transcript"
+        "transcript",
+        "i18n-shared"
       ],
       "fingerprint": "f862484ee1dce28e"
     }
@@ -244,5 +250,12 @@
       }
     ],
     "acyclic": true
-  }
+  },
+  "exemptions": [
+    {
+      "from": "i18n",
+      "to": "kimi-agent",
+      "reason": "i18n 只在 try/catch 内 require napi 原生模块（packages/i18n/src/i18n.ts:77）拿更快的翻译路径，并有纯 JS 兜底；浏览器与单文件打包下原生模块不存在，因此这是运行期可选的软依赖，不应记为构建期硬依赖。"
+    }
+  ]
 }

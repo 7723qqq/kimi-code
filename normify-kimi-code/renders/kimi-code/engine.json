@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "id": "kimi-code.engine",
+  "updated_at": "2026-09-27T10:22:13.371Z",
+  "reading": {
+    "zh": "引擎分层：回合循环居中，工具与模型传输环绕，MCP 侧翼，随后是宿主面（服务器、插件注册表）与 JS 边界。",
+    "en": "Engine layers: the turn loop at the center, its tools and model transports around it, MCP on the side, then the hosting surface (server, plugin registry) and the JS boundary last."
+  },
+  "order": [
+    "kimi-code.engine.core",
+    "kimi-code.engine.tools",
+    "kimi-code.engine.llm",
+    "kimi-code.engine.mcp",
+    "kimi-code.engine.server",
+    "kimi-code.engine.plugins",
+    "kimi-code.engine.napi"
+  ]
+}

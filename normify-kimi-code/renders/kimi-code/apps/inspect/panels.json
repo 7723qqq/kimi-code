@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "kimi-code.apps.inspect.panels",
+  "updated_at": "2026-09-27T10:54:49.224Z",
+  "reading": {
+    "zh": "按下钻顺序排列：发生了什么 → 批准了什么 → 线上传输了什么。",
+    "en": "Human-readable views in drill order: what happened, what was approved, what was said on the wire."
+  },
+  "order": [
+    "kimi-code.apps.inspect.panels.activity",
+    "kimi-code.apps.inspect.panels.audit",
+    "kimi-code.apps.inspect.panels.channel"
+  ]
+}

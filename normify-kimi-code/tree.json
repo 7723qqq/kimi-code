@@ -1,0 +1,3577 @@
+{
+  "schema_version": 1,
+  "project": {
+    "name": "normify-kimi-code",
+    "trees": [
+      {
+        "tree_id": "kimi-code",
+        "root_uid": "4beab6db",
+        "repository": "https://github.com/7723qqq/kimi-code"
+      }
+    ],
+    "compiled_at": "2026-09-27T11:06:47.797Z",
+    "stats": {
+      "tree_count": 1,
+      "module_count": 67,
+      "leaf_count": 48,
+      "api_count": 38,
+      "dep_count": 27,
+      "cross_tree_dep_count": 0,
+      "max_depth": 5,
+      "layout_count": 19,
+      "planned_count": 0,
+      "deprecated_count": 0,
+      "policy_rule_count": 2,
+      "change_count": 4,
+      "open_change_count": 0
+    }
+  },
+  "modules": {
+    "kimi-code": {
+      "uid": "4beab6db",
+      "id": "kimi-code",
+      "parent": null,
+      "tree": "kimi-code",
+      "depth": 1,
+      "name": {
+        "zh": "Kimi Code",
+        "en": "Kimi Code"
+      },
+      "description": {
+        "zh": "Kimi Code CLI：终端 AI 编程 agent——TUI 应用、Rust 引擎、SDK 边界与共享库，绘成一棵分形模块树。\n",
+        "en": "Kimi Code CLI: a terminal AI coding agent - TUI app, Rust engine, SDK boundary and shared libraries, as one fractal module tree.\n"
+      },
+      "source": [],
+      "revision": "0000000000000000000000000000000000000000",
+      "updated_at": "2026-09-27T10:22:23.428Z",
+      "fingerprint": "pending",
+      "repository": "https://github.com/7723qqq/kimi-code",
+      "aggregate": {
+        "descendant_count": 66,
+        "own_api_count": 0,
+        "inherited_api_count": 38,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.apps": {
+      "uid": "aa000001",
+      "id": "kimi-code.apps",
+      "parent": "kimi-code",
+      "tree": "kimi-code",
+      "depth": 2,
+      "name": {
+        "zh": "应用层",
+        "en": "Applications"
+      },
+      "description": {
+        "zh": "Kimi Code 的可交付应用面：CLI/TUI 主程序、编辑器集成、可视化服务与文档站。\n",
+        "en": "Shippable surfaces of Kimi Code: the CLI/TUI app, editor integrations, visualization and the docs site.\n"
+      },
+      "source": [
+        {
+          "path": "apps/kimi-code/src/main.ts"
+        }
+      ],
+      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
+      "updated_at": "2026-09-27T10:22:23.423Z",
+      "fingerprint": "14764da2b2dfe9da338d51be9485e4dc82735a72ec027e70a8ce89641c71898e",
+      "aggregate": {
+        "descendant_count": 12,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.apps.cli": {
+      "uid": "a0e00001",
+      "id": "kimi-code.apps.cli",
+      "parent": "kimi-code.apps",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "CLI/TUI 主程序",
+        "en": "CLI & TUI app"
+      },
+      "description": {
+        "zh": "终端主应用：命令解析、TUI 交互、会话编排、斜杠命令与插件面板，经 node-sdk 驱动引擎。\n",
+        "en": "The terminal app: command parsing, TUI, session orchestration, slash commands and the plugin panel, driving the engine via the node SDK.\n"
+      },
+      "source": [
+        {
+          "path": "apps/kimi-code/src/main.ts"
+        },
+        {
+          "path": "apps/kimi-code/src/cli/commands.ts"
+        },
+        {
+          "path": "apps/kimi-code/src/tui/kimi-tui.ts"
+        }
+      ],
+      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
+      "updated_at": "2026-09-27T10:30:28.790Z",
+      "fingerprint": "4c99775a64eff055c081bdacb4d8f82c2e9c5cb6d490d802ae50e1970cd88215",
+      "deps": [
+        {
+          "kind": "call",
+          "to": "kimi-code.sdk.node",
+          "label": {
+            "zh": "经 SDK 驱动引擎",
+            "en": "drives engine via SDK"
+          },
+          "cross_tree": false
+        },
+        {
+          "kind": "call",
+          "to": "kimi-code.libs.tui",
+          "label": {
+            "zh": "TUI 框架",
+            "en": "TUI framework"
+          },
+          "cross_tree": false
+        },
+        {
+          "kind": "call",
+          "to": "kimi-code.libs.i18n",
+          "label": {
+            "zh": "文案与 locale",
+            "en": "localized strings"
+          },
+          "cross_tree": false
+        },
+        {
+          "kind": "call",
+          "to": "kimi-code.engine.napi",
+          "label": {
+            "zh": "直连原生模块",
+            "en": "direct native imports"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 2,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 4,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.apps.cli.commands": {
+      "uid": "a1e00002",
+      "id": "kimi-code.apps.cli.commands",
+      "parent": "kimi-code.apps.cli",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "CLI 管线",
+        "en": "CLI plumbing"
+      },
+      "description": {
+        "zh": "CLI 管线：commander 程序、子命令、配置与启动错误处理。\n",
+        "en": "CLI plumbing: the commander program, subcommands, config and startup error handling.\n"
+      },
+      "source": [
+        {
+          "path": "apps/kimi-code/src/cli/commands.ts"
+        },
+        {
+          "path": "apps/kimi-code/src/main.ts"
+        }
+      ],
+      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
+      "updated_at": "2026-09-27T10:29:21.422Z",
+      "fingerprint": "11307ca4b20870cb630e3cd29f6e561c8e90cac74d4d9fdfb3b7fc3b97dc1b03",
+      "deps": [
+        {
+          "kind": "call",
+          "to": "kimi-code.sdk.node",
+          "label": {
+            "zh": "调用 SDK",
+            "en": "SDK calls"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 1,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.apps.cli.tui": {
+      "uid": "a1e00001",
+      "id": "kimi-code.apps.cli.tui",
+      "parent": "kimi-code.apps.cli",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "TUI 外壳",
+        "en": "TUI shell"
+      },
+      "description": {
+        "zh": "TUI 外壳：kimi-tui、controllers、dialogs、消息组件与会话事件处理器。\n",
+        "en": "The TUI shell: kimi-tui, controllers, dialogs, message components and the session event handler.\n"
+      },
+      "source": [
+        {
+          "path": "apps/kimi-code/src/tui/kimi-tui.ts"
+        }
+      ],
+      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
+      "updated_at": "2026-09-27T10:29:21.421Z",
+      "fingerprint": "cb79756067dbbda40946cd699f577c7c754e06ad0a0a4d7b387919746f467321",
+      "deps": [
+        {
+          "kind": "call",
+          "to": "kimi-code.sdk.node",
+          "label": {
+            "zh": "调用 SDK",
+            "en": "SDK calls"
+          },
+          "cross_tree": false
+        },
+        {
+          "kind": "call",
+          "to": "kimi-code.libs.tui",
+          "label": {
+            "zh": "TUI 框架",
+            "en": "TUI framework"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 2,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.apps.docs": {
+      "uid": "a0e00005",
+      "id": "kimi-code.apps.docs",
+      "parent": "kimi-code.apps",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "文档站",
+        "en": "Docs site"
+      },
+      "description": {
+        "zh": "VitePress 文档站：双语用户文档与 Normify 规范页。\n",
+        "en": "VitePress docs site: bilingual user documentation and the Normify specification page.\n"
+      },
+      "source": [
+        {
+          "path": "docs/.vitepress/config.ts"
+        }
+      ],
+      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
+      "updated_at": "2026-09-27T10:22:23.423Z",
+      "fingerprint": "cb996f2e23fee271179a965c312a112beeb224718220b0e83b476f113577b617",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.apps.inspect": {
+      "uid": "a0e00003",
+      "id": "kimi-code.apps.inspect",
+      "parent": "kimi-code.apps",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "会话检查器",
+        "en": "Session inspector"
+      },
+      "description": {
+        "zh": "会话检查器 Web 应用（React）：activity / audit / channel 面板读取引擎转录。\n",
+        "en": "Session inspector web app (React): activity, audit and channel panels over the engine transcript.\n"
+      },
+      "source": [
+        {
+          "path": "apps/kimi-inspect/src/main.tsx"
+        },
+        {
+          "path": "apps/kimi-inspect/src/panels.ts"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:48:22.268Z",
+      "fingerprint": "6212f11d5605b291e9a86ba99155063bb3af8a88e54c00783e95204103a11dc2",
+      "aggregate": {
+        "descendant_count": 5,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.apps.inspect.panels": {
+      "uid": "a2e00002",
+      "id": "kimi-code.apps.inspect.panels",
+      "parent": "kimi-code.apps.inspect",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "检查器面板",
+        "en": "Inspector panels"
+      },
+      "description": {
+        "zh": "检查器面板：activity / audit / channel 视图读取会话转录。\n",
+        "en": "Inspector panels: activity, audit and channel views over the session transcript.\n"
+      },
+      "source": [
+        {
+          "path": "apps/kimi-inspect/src/panels.ts"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:55:36.277Z",
+      "fingerprint": "82ca8ebe5a9f477063075d1d47b94327ce232b5be7cf9caf6b9abd4a823bff14",
+      "aggregate": {
+        "descendant_count": 3,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.apps.inspect.panels.activity": {
+      "uid": "a3e00001",
+      "id": "kimi-code.apps.inspect.panels.activity",
+      "parent": "kimi-code.apps.inspect.panels",
+      "tree": "kimi-code",
+      "depth": 5,
+      "name": {
+        "zh": "活动面板",
+        "en": "Activity panel"
+      },
+      "description": {
+        "zh": "活动视图：会话时间线上的工具调用与回合事件。\n",
+        "en": "Activity view: tool calls and turn events on the session timeline.\n"
+      },
+      "source": [
+        {
+          "path": "apps/kimi-inspect/src/activity/store.ts"
+        },
+        {
+          "path": "apps/kimi-inspect/src/activity/useSessionActivity.ts"
+        },
+        {
+          "path": "apps/kimi-inspect/src/activity/ws.ts"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:55:36.272Z",
+      "fingerprint": "7d69faf0d94d250d97f9802d78fbc5ab55f782b879395c2d7d2b52a845ea14c3",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.apps.inspect.panels.audit": {
+      "uid": "a3e00002",
+      "id": "kimi-code.apps.inspect.panels.audit",
+      "parent": "kimi-code.apps.inspect.panels",
+      "tree": "kimi-code",
+      "depth": 5,
+      "name": {
+        "zh": "审计面板",
+        "en": "Audit panel"
+      },
+      "description": {
+        "zh": "审计视图：权限决策与审批记录，含 diff/truncate/serialize 辅助。\n",
+        "en": "Audit view: permission decisions and approvals, with diff/truncate/serialize helpers.\n"
+      },
+      "source": [
+        {
+          "path": "apps/kimi-inspect/src/audit/trail.ts"
+        },
+        {
+          "path": "apps/kimi-inspect/src/audit/diff.ts"
+        },
+        {
+          "path": "apps/kimi-inspect/src/audit/serialize.ts"
+        },
+        {
+          "path": "apps/kimi-inspect/src/audit/truncate.ts"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:55:36.273Z",
+      "fingerprint": "b3ccc14804109024cc3d6cfd835af0b691ca2de28eaecbef8b3c5a550270a25c",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.apps.inspect.panels.channel": {
+      "uid": "a3e00003",
+      "id": "kimi-code.apps.inspect.panels.channel",
+      "parent": "kimi-code.apps.inspect.panels",
+      "tree": "kimi-code",
+      "depth": 5,
+      "name": {
+        "zh": "信道面板",
+        "en": "Channel panel"
+      },
+      "description": {
+        "zh": "信道视图：宿主与引擎之间的原始事件信道（ws 客户端、代理、错误）。\n",
+        "en": "Channel view: the raw event channels between host and engine (ws client, proxy, errors).\n"
+      },
+      "source": [
+        {
+          "path": "apps/kimi-inspect/src/channel/channel.ts"
+        },
+        {
+          "path": "apps/kimi-inspect/src/channel/channels.ts"
+        },
+        {
+          "path": "apps/kimi-inspect/src/channel/client.ts"
+        },
+        {
+          "path": "apps/kimi-inspect/src/channel/proxy.ts"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:55:36.273Z",
+      "fingerprint": "20840266f86aac6328d3b438479b7129d82fe142267fe5f386fbf2903c468e67",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.apps.inspect.shell": {
+      "uid": "a2e00001",
+      "id": "kimi-code.apps.inspect.shell",
+      "parent": "kimi-code.apps.inspect",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "检查器外壳",
+        "en": "Inspector shell"
+      },
+      "description": {
+        "zh": "检查器外壳：React 入口、应用根组件与引擎连接上下文。\n",
+        "en": "Inspector shell: React entry, app root and the engine connection context.\n"
+      },
+      "source": [
+        {
+          "path": "apps/kimi-inspect/src/main.tsx"
+        },
+        {
+          "path": "apps/kimi-inspect/src/App.tsx"
+        },
+        {
+          "path": "apps/kimi-inspect/src/connection.tsx"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:48:22.265Z",
+      "fingerprint": "b007beddacc1224f4b65dac20b0047df8650a1e3823ea8a8f65dc78d83885bc8",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.apps.vis": {
+      "uid": "a0e00004",
+      "id": "kimi-code.apps.vis",
+      "parent": "kimi-code.apps",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "可视化服务",
+        "en": "Visualization"
+      },
+      "description": {
+        "zh": "可视化服务：本地 Web 端渲染会话与结构（server + web 前端）。\n",
+        "en": "Visualization service: local web rendering of sessions and structures (server + web frontend).\n"
+      },
+      "source": [
+        {
+          "path": "apps/vis/server/src/index.ts"
+        }
+      ],
+      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
+      "updated_at": "2026-09-27T10:22:23.424Z",
+      "fingerprint": "e92ad9f9e97ecd55451604a8ce680f4d1818a39a2ce69dc8bec28000a8fd6e1a",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.apps.vscode": {
+      "uid": "a0e00002",
+      "id": "kimi-code.apps.vscode",
+      "parent": "kimi-code.apps",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "VS Code 扩展",
+        "en": "VS Code extension"
+      },
+      "description": {
+        "zh": "编辑器集成：把会话嵌入 VS Code。\n",
+        "en": "Editor integration: embeds sessions into VS Code.\n"
+      },
+      "source": [
+        {
+          "path": "apps/vscode/src/extension.ts"
+        }
+      ],
+      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
+      "updated_at": "2026-09-27T10:22:23.424Z",
+      "fingerprint": "c44fae92508c0c8031a0b5489f5bd2088b97b7e9c58914a5685d1b8a31cd2685",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine": {
+      "uid": "aa000002",
+      "id": "kimi-code.engine",
+      "parent": "kimi-code",
+      "tree": "kimi-code",
+      "depth": 2,
+      "name": {
+        "zh": "Rust 引擎",
+        "en": "Engine (Rust)"
+      },
+      "description": {
+        "zh": "kimi-agent crate：回合循环、会话、工具、MCP、LLM 传输、服务器与插件注册表，编译为 napi 原生模块。\n",
+        "en": "The kimi-agent crate: turn loop, sessions, tools, MCP, LLM transports, server and the plugin registry, compiled as a napi addon.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/lib.rs"
+        }
+      ],
+      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
+      "updated_at": "2026-09-27T10:22:23.425Z",
+      "fingerprint": "ab5280702736647bce2462bf09749e97b1fb5c72329c21df4ebb7a8d1ac2e60a",
+      "aggregate": {
+        "descendant_count": 31,
+        "own_api_count": 0,
+        "inherited_api_count": 32,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.core": {
+      "uid": "e0e00001",
+      "id": "kimi-code.engine.core",
+      "parent": "kimi-code.engine",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "回合循环与会话",
+        "en": "Turn loop & sessions"
+      },
+      "description": {
+        "zh": "引擎核心：run_turn 状态机、会话生命周期、压缩、子代理编排与事件总线。\n",
+        "en": "Engine core: the run_turn state machine, session lifecycle, compaction, subagent orchestration and the event bus.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/turn_loop/run_turn.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/session/mod.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/pipeline/mod.rs"
+        }
+      ],
+      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
+      "updated_at": "2026-09-27T10:30:48.401Z",
+      "fingerprint": "d7c56a60242366bf9d367dd05e06881f90766e71215cdc705bbf40c002a348e6",
+      "deps": [
+        {
+          "kind": "call",
+          "to": "kimi-code.engine.llm",
+          "label": {
+            "zh": "模型补全",
+            "en": "model completions"
+          },
+          "cross_tree": false
+        },
+        {
+          "kind": "call",
+          "to": "kimi-code.engine.tools",
+          "label": {
+            "zh": "工具执行",
+            "en": "tool execution"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 6,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 2,
+        "dep_in": 2
+      }
+    },
+    "kimi-code.engine.core.compaction": {
+      "uid": "e1e00004",
+      "id": "kimi-code.engine.core.compaction",
+      "parent": "kimi-code.engine.core",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "上下文压缩",
+        "en": "Compaction"
+      },
+      "description": {
+        "zh": "上下文压缩：窗口核算、micro 压缩与压缩指令提示词。\n",
+        "en": "Context compaction: window accounting, micro-compaction and the compaction instruction prompt.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/compaction/mod.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/compaction/micro.rs"
+        }
+      ],
+      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
+      "updated_at": "2026-09-27T10:29:21.416Z",
+      "fingerprint": "8bd0dbcd0a7787f1e118c903ee839b2b82be7fdfff28966a876a1986b173d1fd",
+      "deps": [
+        {
+          "kind": "call",
+          "to": "kimi-code.engine.llm",
+          "label": {
+            "zh": "模型调用",
+            "en": "model calls"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 1,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.core.session": {
+      "uid": "e1e00002",
+      "id": "kimi-code.engine.core.session",
+      "parent": "kimi-code.engine.core",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "会话与存储",
+        "en": "Sessions & store"
+      },
+      "description": {
+        "zh": "会话生命周期与补丁：创建/恢复/分叉、session patch、SQLite 存储与标题生成。\n",
+        "en": "Session lifecycle and patching: create/resume/fork, session patch, SQLite store, title generation.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/session/mod.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/session/sqlite_store.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/session/patch.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:55:36.277Z",
+      "fingerprint": "7ec7abc11ab70cb9f89337169ad8a5847d13966655119b0dfc5669fa4f8795c7",
+      "deps": [
+        {
+          "kind": "dataflow",
+          "to": "kimi-code.engine.server.transcript",
+          "label": {
+            "zh": "会话落盘",
+            "en": "persist sessions"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 2,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 1,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.core.session.store": {
+      "uid": "e6e00001",
+      "id": "kimi-code.engine.core.session.store",
+      "parent": "kimi-code.engine.core.session",
+      "tree": "kimi-code",
+      "depth": 5,
+      "name": {
+        "zh": "会话存储",
+        "en": "Session store"
+      },
+      "description": {
+        "zh": "会话持久化：SQLite 存储、JSON patch 应用与存储路径。\n",
+        "en": "Session persistence: the SQLite store, JSON patch application and storage paths.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/session/sqlite_store.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/session/patch.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:55:36.272Z",
+      "fingerprint": "29ae1b0805877c8e0a70dd0cb60979d94aa8adc1564c6076cec178d0623046cc",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.core.session.title": {
+      "uid": "e6e00002",
+      "id": "kimi-code.engine.core.session.title",
+      "parent": "kimi-code.engine.core.session",
+      "tree": "kimi-code",
+      "depth": 5,
+      "name": {
+        "zh": "会话标题",
+        "en": "Session titles"
+      },
+      "description": {
+        "zh": "AI 会话标题：生成与持久化。\n",
+        "en": "AI session titles: generation and persistence.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/session/title.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:55:36.272Z",
+      "fingerprint": "71a02f6254de04ebaef4e1294b41bdde46cbe394d99c1a3c8902ecdd80aa0695",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.core.subagent": {
+      "uid": "e1e00003",
+      "id": "kimi-code.engine.core.subagent",
+      "parent": "kimi-code.engine.core",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "子代理",
+        "en": "Subagents"
+      },
+      "description": {
+        "zh": "子代理编排：manager、fork、persistent/secondary 代理与 btw 侧信道。\n",
+        "en": "Subagent orchestration: manager, fork, persistent and secondary agents, the btw side-channel.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/subagent/manager.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/subagent/fork.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/subagent/btw.rs"
+        }
+      ],
+      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
+      "updated_at": "2026-09-27T10:29:21.416Z",
+      "fingerprint": "0934b5f6ecaa8e84e66ea20ab221e994a9c213cd0df85369e899947346a332ee",
+      "deps": [
+        {
+          "kind": "call",
+          "to": "kimi-code.engine.core.turn-loop",
+          "label": {
+            "zh": "驱动子回合",
+            "en": "runs sub turns"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 1,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.core.turn-loop": {
+      "uid": "e1e00001",
+      "id": "kimi-code.engine.core.turn-loop",
+      "parent": "kimi-code.engine.core",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "回合循环",
+        "en": "Turn loop"
+      },
+      "description": {
+        "zh": "回合状态机：run_turn、step 调度、重试、tool-call id 账本与墙钟预算。\n",
+        "en": "The turn state machine: run_turn, step scheduler, retry, tool-call id ledger and wall-time budget.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/turn_loop/run_turn.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/turn_loop/turn_step.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/turn_loop/retry.rs"
+        }
+      ],
+      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
+      "updated_at": "2026-09-27T10:29:21.414Z",
+      "fingerprint": "b5f75fed8d05f05b6376612efcb487f8dc318a53bb5aec40e5034b6057276bba",
+      "deps": [
+        {
+          "kind": "call",
+          "to": "kimi-code.engine.llm",
+          "label": {
+            "zh": "模型调用",
+            "en": "model calls"
+          },
+          "cross_tree": false
+        },
+        {
+          "kind": "call",
+          "to": "kimi-code.engine.tools",
+          "label": {
+            "zh": "工具执行",
+            "en": "tool exec"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 2,
+        "dep_in": 1
+      }
+    },
+    "kimi-code.engine.llm": {
+      "uid": "e0e00003",
+      "id": "kimi-code.engine.llm",
+      "parent": "kimi-code.engine",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "LLM 传输",
+        "en": "LLM transports"
+      },
+      "description": {
+        "zh": "模型协议适配：Anthropic、OpenAI Responses、Google GenAI 与共享 HTTP 层。\n",
+        "en": "Model protocol adapters: Anthropic, OpenAI Responses, Google GenAI and the shared HTTP layer.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/llm/anthropic.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/llm/openai_responses.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/llm/google_genai.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:48:22.266Z",
+      "fingerprint": "14b778b22344ecfce9a59ecec48153fdc9621a1b49aa9d99b7c558087505f0a9",
+      "aggregate": {
+        "descendant_count": 4,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 3
+      }
+    },
+    "kimi-code.engine.llm.anthropic": {
+      "uid": "e2e00001",
+      "id": "kimi-code.engine.llm.anthropic",
+      "parent": "kimi-code.engine.llm",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "Anthropic 适配",
+        "en": "Anthropic adapter"
+      },
+      "description": {
+        "zh": "Anthropic Messages 协议适配：请求整形、thinking 透传与流式映射。\n",
+        "en": "Anthropic Messages protocol adapter: request shaping, thinking passthrough and stream mapping.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/llm/anthropic.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:48:22.253Z",
+      "fingerprint": "8605b73147144b3985c500365f6564dfb58c0e21da9f5cd93ea21dfe3a16ea2a",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.llm.google": {
+      "uid": "e2e00003",
+      "id": "kimi-code.engine.llm.google",
+      "parent": "kimi-code.engine.llm",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "Google GenAI 适配",
+        "en": "Google GenAI adapter"
+      },
+      "description": {
+        "zh": "Google GenAI 适配：Gemini 模型的请求与流式映射。\n",
+        "en": "Google GenAI adapter: request/stream mapping for Gemini models.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/llm/google_genai.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:48:22.253Z",
+      "fingerprint": "a7fa8a5dbe973aa4277cf880bd55e888c2383daff725c01878f0ee54f31df8fd",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.llm.http": {
+      "uid": "e2e00004",
+      "id": "kimi-code.engine.llm.http",
+      "parent": "kimi-code.engine.llm",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "HTTP 管线",
+        "en": "HTTP plumbing"
+      },
+      "description": {
+        "zh": "共享 HTTP 管线：传输、代理、wire 类型、计时、媒体预算/解析与 thinking 守卫。\n",
+        "en": "Shared HTTP plumbing: transport, proxy, wire types, timing, media budget/resolver and thinking guard.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/llm/http.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/llm/proxy.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/llm/wire.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/llm/timing.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/llm/media_budget.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:48:22.254Z",
+      "fingerprint": "01f8e81993680d6f978e29c7ac37011c06982dcf2996356d4df244764a578798",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.llm.openai": {
+      "uid": "e2e00002",
+      "id": "kimi-code.engine.llm.openai",
+      "parent": "kimi-code.engine.llm",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "OpenAI 适配",
+        "en": "OpenAI adapters"
+      },
+      "description": {
+        "zh": "OpenAI 系适配：Chat Completions 与 Responses API。\n",
+        "en": "OpenAI-family adapters: Chat Completions and the Responses API.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/llm/openai_responses.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/llm/openai.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:48:22.253Z",
+      "fingerprint": "9a7b4b4aa6e71824583039daa24b9355646a7d96efed5b07b7662c7b05bccca3",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.mcp": {
+      "uid": "e0e00004",
+      "id": "kimi-code.engine.mcp",
+      "parent": "kimi-code.engine",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "MCP 管理器",
+        "en": "MCP manager"
+      },
+      "description": {
+        "zh": "MCP 客户端与管理器：stdio/SSE/HTTP 传输、进程级连接复用、工具表聚合。\n",
+        "en": "MCP client and manager: stdio/SSE/HTTP transports, process-wide connection reuse, aggregated tool table.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/mcp/manager.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/mcp/client.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:48:22.267Z",
+      "fingerprint": "4850d93a07f26c8d7b8e2d6f18eb2fb1457815588c6ed50786465f7dda3ca9dd",
+      "aggregate": {
+        "descendant_count": 2,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 1
+      }
+    },
+    "kimi-code.engine.mcp.client": {
+      "uid": "e3e00002",
+      "id": "kimi-code.engine.mcp.client",
+      "parent": "kimi-code.engine.mcp",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "MCP 客户端",
+        "en": "MCP clients"
+      },
+      "description": {
+        "zh": "MCP 客户端与传输：stdio 拉起、SSE/HTTP、共享客户端状态、输出规范化与错误。\n",
+        "en": "MCP clients and transports: stdio spawn, SSE/HTTP, shared client state, output normalization and errors.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/mcp/client.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/mcp/client_shared.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/mcp/sse.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/mcp/http.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/mcp/errors.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/mcp/output.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:48:22.256Z",
+      "fingerprint": "999675431888da12b6cdab7608d7f5b2d261087e48baa1407caf518e4b2ce78c",
+      "deps": [
+        {
+          "kind": "call",
+          "to": "kimi-code.engine.mcp.manager",
+          "label": {
+            "zh": "由管理器拉起",
+            "en": "spawned by manager"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 1,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.mcp.manager": {
+      "uid": "e3e00001",
+      "id": "kimi-code.engine.mcp.manager",
+      "parent": "kimi-code.engine.mcp",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "MCP 管理器",
+        "en": "MCP manager"
+      },
+      "description": {
+        "zh": "MCP 管理器：按解析后服务集复用的进程级注册表、延迟连接与工具表聚合。\n",
+        "en": "MCP manager: process-wide server registry keyed by the resolved server set, deferred connects, tool table aggregation.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/mcp/manager.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:48:22.255Z",
+      "fingerprint": "9a2b84e106fb030704381a527b89ac0938d1c0c6c20c6476b66be99b670b4090",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 1
+      }
+    },
+    "kimi-code.engine.napi": {
+      "uid": "e0e00007",
+      "id": "kimi-code.engine.napi",
+      "parent": "kimi-code.engine",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "NAPI 绑定",
+        "en": "NAPI bindings"
+      },
+      "description": {
+        "zh": "引擎的 JS 边界：napi 导出（会话创建、插件注册表、工具回调）与 JS 侧类型契约。\n",
+        "en": "The engine's JS boundary: napi exports (session creation, plugin registry, tool callbacks) and the JS-side type contract.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/napi_bindings.rs"
+        },
+        {
+          "path": "packages/kimi-agent/index.native.d.ts"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:48:22.267Z",
+      "fingerprint": "c03f02437677f2564c39260b5a759376e197c2f5e7237a07e48db8eb7e3e930a",
+      "deps": [
+        {
+          "kind": "call",
+          "to": "kimi-code.engine.core",
+          "label": {
+            "zh": "同 crate 引擎核心",
+            "en": "same-crate engine core"
+          },
+          "cross_tree": false
+        },
+        {
+          "kind": "call",
+          "to": "kimi-code.engine.mcp",
+          "label": {
+            "zh": "插件 MCP 配置",
+            "en": "plugin MCP configs"
+          },
+          "cross_tree": false
+        },
+        {
+          "kind": "call",
+          "to": "kimi-code.engine.plugins",
+          "label": {
+            "zh": "注册表插件 API",
+            "en": "registry plugin APIs"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 2,
+        "own_api_count": 0,
+        "inherited_api_count": 3,
+        "dep_out": 3,
+        "dep_in": 3
+      }
+    },
+    "kimi-code.engine.napi.bindings": {
+      "uid": "e5e00001",
+      "id": "kimi-code.engine.napi.bindings",
+      "parent": "kimi-code.engine.napi",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "NAPI 导出",
+        "en": "NAPI exports"
+      },
+      "description": {
+        "zh": "napi 导出面：会话创建、插件注册表导出、工具回调与遥测接线。\n",
+        "en": "The napi export surface: session creation, plugin registry exports, tool callbacks and telemetry wiring.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/napi_bindings.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:49:47.965Z",
+      "fingerprint": "1f07b30d98bd9ce033fda1a502aa31f291cac9af6180d791ffb68687dbb3ea33",
+      "apis": [
+        {
+          "protocol": "rpc",
+          "path": "initPluginStore",
+          "description": {
+            "zh": "在数据目录上打开插件注册表\n",
+            "en": "Open the plugin registry against a data dir\n"
+          },
+          "key": "rpc:initPluginStore"
+        },
+        {
+          "protocol": "rpc",
+          "path": "pluginInstall",
+          "description": {
+            "zh": "从 id、source 或本地路径安装插件\n",
+            "en": "Install a plugin from id, source or local path\n"
+          },
+          "key": "rpc:pluginInstall"
+        },
+        {
+          "protocol": "rpc",
+          "path": "pluginList",
+          "description": {
+            "zh": "列出已安装插件\n",
+            "en": "List installed plugins\n"
+          },
+          "key": "rpc:pluginList"
+        }
+      ],
+      "deps": [
+        {
+          "kind": "call",
+          "to": "kimi-code.engine.plugins.registry",
+          "from_api": "rpc:pluginInstall",
+          "to_api": "rpc:install_plugin_from",
+          "label": {
+            "zh": "由注册表支撑",
+            "en": "registry-backed"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 3,
+        "inherited_api_count": 0,
+        "dep_out": 1,
+        "dep_in": 2
+      }
+    },
+    "kimi-code.engine.napi.contract": {
+      "uid": "e5e00002",
+      "id": "kimi-code.engine.napi.contract",
+      "parent": "kimi-code.engine.napi",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "JS 类型契约",
+        "en": "JS type contract"
+      },
+      "description": {
+        "zh": "JS 侧类型契约：index.native.d.ts 与 napi-contract.d.ts 镜像 napi 导出。\n",
+        "en": "The JS-side type contract: index.native.d.ts and napi-contract.d.ts mirroring the napi exports.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/index.native.d.ts"
+        },
+        {
+          "path": "packages/kimi-agent/napi-contract.d.ts"
+        },
+        {
+          "path": "packages/kimi-agent/index.native.cjs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:48:22.265Z",
+      "fingerprint": "8aa95e62a14fa82033929782f5915f7167cc6d3a3ae6a410e0cb70b01d197101",
+      "deps": [
+        {
+          "kind": "reference",
+          "to": "kimi-code.engine.napi.bindings",
+          "label": {
+            "zh": "类型镜像导出",
+            "en": "types mirror the exports"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 1,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.plugins": {
+      "uid": "e0e00006",
+      "id": "kimi-code.engine.plugins",
+      "parent": "kimi-code.engine",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "插件注册表",
+        "en": "Plugin registry"
+      },
+      "description": {
+        "zh": "插件安装态与内容贡献：SQLite 注册表、技能目录、MCP 配置与内置插件种子接口。\n",
+        "en": "Plugin install state and contributed content: the SQLite registry, skill dirs, MCP configs and the built-in plugin seeding seam.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/server/plugins.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/server/plugin_archive.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:48:22.267Z",
+      "fingerprint": "264cbf08bde080bcd24a69f705df085bf6629ed336583b641201e0c9e7270847",
+      "aggregate": {
+        "descendant_count": 2,
+        "own_api_count": 0,
+        "inherited_api_count": 2,
+        "dep_out": 0,
+        "dep_in": 1
+      }
+    },
+    "kimi-code.engine.plugins.archive": {
+      "uid": "e4e00002",
+      "id": "kimi-code.engine.plugins.archive",
+      "parent": "kimi-code.engine.plugins",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "插件归档",
+        "en": "Plugin archives"
+      },
+      "description": {
+        "zh": "插件归档：下载、解压、识别插件根并暂存进托管目录。\n",
+        "en": "Plugin archives: download, unzip, detect the plugin root and stage into the managed directory.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/server/plugin_archive.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:48:22.256Z",
+      "fingerprint": "9fe6c202be297d45d9e2fb776340b94df753e773321d37c778340f6dd9658d70",
+      "deps": [
+        {
+          "kind": "call",
+          "to": "kimi-code.engine.plugins.registry",
+          "label": {
+            "zh": "落地进注册表",
+            "en": "lands in the registry"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 1,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.plugins.registry": {
+      "uid": "e4e00001",
+      "id": "kimi-code.engine.plugins.registry",
+      "parent": "kimi-code.engine.plugins",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "插件注册表",
+        "en": "Plugin registry"
+      },
+      "description": {
+        "zh": "插件注册表：SQLite 安装态、技能目录、MCP 配置、命令与 node 运行时重写。\n",
+        "en": "The plugin registry: SQLite-backed install state, skill dirs, MCP configs, commands and the node-runner rewrite.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/server/plugins.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:48:22.256Z",
+      "fingerprint": "9263e13b479f1bab2c555b8dcdf294ea538dcc9a8ad8e3c0a526767ccfd8c9c4",
+      "apis": [
+        {
+          "protocol": "rpc",
+          "path": "install_plugin_from",
+          "description": {
+            "zh": "从目录 id、source 或本地路径安装插件\n",
+            "en": "Install a plugin from catalog id, source or local path\n"
+          },
+          "key": "rpc:install_plugin_from"
+        },
+        {
+          "protocol": "rpc",
+          "path": "set_plugin_enabled",
+          "description": {
+            "zh": "启用或禁用已安装插件\n",
+            "en": "Enable / disable an installed plugin\n"
+          },
+          "key": "rpc:set_plugin_enabled"
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 2,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 2
+      }
+    },
+    "kimi-code.engine.server": {
+      "uid": "e0e00005",
+      "id": "kimi-code.engine.server",
+      "parent": "kimi-code.engine",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "服务器与 WS 网关",
+        "en": "Server & WS gateway"
+      },
+      "description": {
+        "zh": "独立服务器：REST API、WebSocket 事件流、transcript 投影与会话托管。\n",
+        "en": "Standalone server: REST API, WebSocket event stream, transcript projection and session hosting.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/server/mod.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/server/hub.rs"
+        }
+      ],
+      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
+      "updated_at": "2026-09-27T10:29:21.426Z",
+      "fingerprint": "9cfff0ff28607029bcd18ddcafc2ce3c0e3498160674623edf41e6b9bfbd78e1",
+      "deps": [
+        {
+          "kind": "dataflow",
+          "to": "kimi-code.engine.core",
+          "label": {
+            "zh": "会话与事件状态",
+            "en": "session/event state"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 3,
+        "own_api_count": 0,
+        "inherited_api_count": 4,
+        "dep_out": 1,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.server.http": {
+      "uid": "e1e00009",
+      "id": "kimi-code.engine.server.http",
+      "parent": "kimi-code.engine.server",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "REST API",
+        "en": "REST API"
+      },
+      "description": {
+        "zh": "REST 面：插件/工作区/会话/配置路由、fs 路由、鉴权与宿主守卫。\n",
+        "en": "REST surface: plugin/workspace/session/config routes, fs routes, auth and host guard.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/server/mod.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/server/auth.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/server/fs_routes.rs"
+        }
+      ],
+      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
+      "updated_at": "2026-09-27T10:29:21.420Z",
+      "fingerprint": "3fe47ef94b35c6f63ee3979c3ad2db201b9af8802d56de6db2db623d52a51b42",
+      "apis": [
+        {
+          "protocol": "http",
+          "method": "GET",
+          "path": "/api/v1/plugins",
+          "description": {
+            "zh": "列出已安装插件\n",
+            "en": "List installed plugins\n"
+          },
+          "key": "GET /api/v1/plugins"
+        },
+        {
+          "protocol": "http",
+          "method": "POST",
+          "path": "/api/v1/plugins",
+          "description": {
+            "zh": "安装、启用、禁用或移除插件\n",
+            "en": "Install / enable / disable / remove a plugin\n"
+          },
+          "key": "POST /api/v1/plugins"
+        },
+        {
+          "protocol": "http",
+          "method": "GET",
+          "path": "/api/v1/files",
+          "description": {
+            "zh": "静态文件与文件系统路由\n",
+            "en": "Serve static files and fs routes\n"
+          },
+          "key": "GET /api/v1/files"
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 3,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.server.transcript": {
+      "uid": "e1e0000b",
+      "id": "kimi-code.engine.server.transcript",
+      "parent": "kimi-code.engine.server",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "转录投影",
+        "en": "Transcript projection"
+      },
+      "description": {
+        "zh": "转录投影：journal 折叠、按项目的转录视图与活动流。\n",
+        "en": "Transcript projection: the journal fold, per-project transcript views and the activity feed.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/server/transcript.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/server/transcript/project.rs"
+        }
+      ],
+      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
+      "updated_at": "2026-09-27T10:29:21.421Z",
+      "fingerprint": "fcf73414a13481a5e45ae21cd8ce777507224aba85ee1152ed12e56b69738db0",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 1
+      }
+    },
+    "kimi-code.engine.server.ws": {
+      "uid": "e1e0000a",
+      "id": "kimi-code.engine.server.ws",
+      "parent": "kimi-code.engine.server",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "WS 网关",
+        "en": "WS gateway"
+      },
+      "description": {
+        "zh": "WS 网关：/api/v1/ws、hub 扇出、协议信封与交互回路。\n",
+        "en": "WS gateway: /api/v1/ws, hub fan-out, protocol envelopes and interaction round-trips.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/server/ws.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/server/ws_protocol.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/server/hub.rs"
+        }
+      ],
+      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
+      "updated_at": "2026-09-27T10:29:21.420Z",
+      "fingerprint": "08f5a8a4fccddddbd40eb26d68c162eba62d01b313a2fafcf879c5b08fe12cd4",
+      "apis": [
+        {
+          "protocol": "ws",
+          "path": "/api/v1/ws",
+          "description": {
+            "zh": "WebSocket 事件流\n",
+            "en": "WebSocket event stream\n"
+          },
+          "key": "ws:/api/v1/ws"
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 1,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.tools": {
+      "uid": "e0e00002",
+      "id": "kimi-code.engine.tools",
+      "parent": "kimi-code.engine",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "原生工具集",
+        "en": "Native tools"
+      },
+      "description": {
+        "zh": "Rust 原生工具集：读写、bash、grep/glob、技能、团队协作与外部钩子。\n",
+        "en": "Rust native toolset: read/write, bash, grep/glob, skills, team collaboration and external hooks.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/tools/mod.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/tools/skill.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:55:36.276Z",
+      "fingerprint": "8e2d42b25bf2ce16201d6335ed3e48105ec2c550b97231118cf694a994c01972",
+      "aggregate": {
+        "descendant_count": 5,
+        "own_api_count": 0,
+        "inherited_api_count": 23,
+        "dep_out": 0,
+        "dep_in": 2
+      }
+    },
+    "kimi-code.engine.tools.agent": {
+      "uid": "e1e00005",
+      "id": "kimi-code.engine.tools.agent",
+      "parent": "kimi-code.engine.tools",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "Agent 工具族",
+        "en": "Agent tools"
+      },
+      "description": {
+        "zh": "注册工具名：Agent、AgentSwarm、define_subagent、invoke_subagent、manage_subagents。\n",
+        "en": "Registered tool names: Agent, AgentSwarm, define_subagent, invoke_subagent, manage_subagents.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/tools/agent_tool.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/tools/subagent_tools.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/tools/select_tools.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:55:36.274Z",
+      "fingerprint": "2dfa618227859559ac82746bab17358262265b47a790bec2c08bb8b68e0c5fdf",
+      "apis": [
+        {
+          "protocol": "rpc",
+          "path": "Agent",
+          "description": {
+            "zh": "派生或寻址子代理\n",
+            "en": "Spawn or address a subagent\n"
+          },
+          "key": "rpc:Agent"
+        },
+        {
+          "protocol": "rpc",
+          "path": "AgentSwarm",
+          "description": {
+            "zh": "并行 agent 集群\n",
+            "en": "Parallel agent swarm\n"
+          },
+          "key": "rpc:AgentSwarm"
+        },
+        {
+          "protocol": "rpc",
+          "path": "define_subagent",
+          "description": {
+            "zh": "注册子代理画像\n",
+            "en": "Register subagent profiles\n"
+          },
+          "key": "rpc:define_subagent"
+        },
+        {
+          "protocol": "rpc",
+          "path": "invoke_subagent",
+          "description": {
+            "zh": "调用已注册子代理\n",
+            "en": "Invoke a registered subagent\n"
+          },
+          "key": "rpc:invoke_subagent"
+        },
+        {
+          "protocol": "rpc",
+          "path": "manage_subagents",
+          "description": {
+            "zh": "管理已注册子代理\n",
+            "en": "Manage registered subagents\n"
+          },
+          "key": "rpc:manage_subagents"
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 5,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.tools.basics": {
+      "uid": "e1e0b431",
+      "id": "kimi-code.engine.tools.basics",
+      "parent": "kimi-code.engine.tools",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "核心文件与 shell 工具",
+        "en": "Core file & shell tools"
+      },
+      "description": {
+        "zh": "注册核心工具名：Read、Write、Edit、Bash、Grep、Glob、ListDirectory 与 goal/cron/task/ask 族。\n",
+        "en": "Registered core tool names: Read, Write, Edit, Bash, Grep, Glob, ListDirectory and the goal/cron/task/ask families.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/tools/core_tool_defs.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/tools/sandbox.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/tools/goal_tools.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/tools/cron_tools.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:55:36.276Z",
+      "fingerprint": "4983edbbe563221282ca0d3720a3f89bfd34a9c9447633f1bcf674a35324c92c",
+      "apis": [
+        {
+          "protocol": "rpc",
+          "path": "Bash",
+          "description": {
+            "zh": "运行 shell 命令\n",
+            "en": "Run a shell command\n"
+          },
+          "key": "rpc:Bash"
+        },
+        {
+          "protocol": "rpc",
+          "path": "Read",
+          "description": {
+            "zh": "读取文件\n",
+            "en": "Read a file\n"
+          },
+          "key": "rpc:Read"
+        },
+        {
+          "protocol": "rpc",
+          "path": "Edit",
+          "description": {
+            "zh": "编辑文件\n",
+            "en": "Edit a file\n"
+          },
+          "key": "rpc:Edit"
+        },
+        {
+          "protocol": "rpc",
+          "path": "Write",
+          "description": {
+            "zh": "写入文件\n",
+            "en": "Write a file\n"
+          },
+          "key": "rpc:Write"
+        },
+        {
+          "protocol": "rpc",
+          "path": "Grep",
+          "description": {
+            "zh": "搜索文件内容\n",
+            "en": "Search file contents\n"
+          },
+          "key": "rpc:Grep"
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 5,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.tools.knowledge": {
+      "uid": "e1e00007",
+      "id": "kimi-code.engine.tools.knowledge",
+      "parent": "kimi-code.engine.tools",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "知识与记忆",
+        "en": "Knowledge & memory"
+      },
+      "description": {
+        "zh": "注册工具名：Skill、Knowledge、memory_read/write/append/delete/list/str_replace、Lsp。\n",
+        "en": "Registered tool names: Skill, Knowledge, memory_read/write/append/delete/list/str_replace, Lsp.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/tools/skill.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/tools/memory_tool.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/tools/memory_store.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/tools/lsp_tool.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:55:36.275Z",
+      "fingerprint": "8f22e8c8e35ae06299fc07ff9cd462aa07f4111283683985b02ddf9854212469",
+      "apis": [
+        {
+          "protocol": "rpc",
+          "path": "Skill",
+          "description": {
+            "zh": "按名称加载技能\n",
+            "en": "Load a skill by name\n"
+          },
+          "key": "rpc:Skill"
+        },
+        {
+          "protocol": "rpc",
+          "path": "Knowledge",
+          "description": {
+            "zh": "查询知识库\n",
+            "en": "Query the knowledge base\n"
+          },
+          "key": "rpc:Knowledge"
+        },
+        {
+          "protocol": "rpc",
+          "path": "memory_read",
+          "description": {
+            "zh": "读取 agent 记忆\n",
+            "en": "Read agent memory\n"
+          },
+          "key": "rpc:memory_read"
+        },
+        {
+          "protocol": "rpc",
+          "path": "memory_write",
+          "description": {
+            "zh": "写入 agent 记忆\n",
+            "en": "Write agent memory\n"
+          },
+          "key": "rpc:memory_write"
+        },
+        {
+          "protocol": "rpc",
+          "path": "Lsp",
+          "description": {
+            "zh": "语言服务查询\n",
+            "en": "Language-server queries\n"
+          },
+          "key": "rpc:Lsp"
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 5,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.tools.team": {
+      "uid": "e1e00006",
+      "id": "kimi-code.engine.tools.team",
+      "parent": "kimi-code.engine.tools",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "团队与规划",
+        "en": "Team & planning"
+      },
+      "description": {
+        "zh": "注册工具名：Team、EnterPlanMode、ExitPlanMode、TodoList。\n",
+        "en": "Registered tool names: Team, EnterPlanMode, ExitPlanMode, TodoList.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/tools/team_tool.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/tools/swarm_tool.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/tools/plan_mode.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/tools/todo_list.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:55:36.274Z",
+      "fingerprint": "8230a3fdb6d455b3dc803ef086a3baee8b0a88a635a8303b769cde00482b9b91",
+      "apis": [
+        {
+          "protocol": "rpc",
+          "path": "Team",
+          "description": {
+            "zh": "多 agent 辩论与共识\n",
+            "en": "Multi-agent debate and consensus\n"
+          },
+          "key": "rpc:Team"
+        },
+        {
+          "protocol": "rpc",
+          "path": "EnterPlanMode",
+          "description": {
+            "zh": "进入计划模式\n",
+            "en": "Enter planning mode\n"
+          },
+          "key": "rpc:EnterPlanMode"
+        },
+        {
+          "protocol": "rpc",
+          "path": "ExitPlanMode",
+          "description": {
+            "zh": "携带计划退出计划模式\n",
+            "en": "Exit planning mode with the plan\n"
+          },
+          "key": "rpc:ExitPlanMode"
+        },
+        {
+          "protocol": "rpc",
+          "path": "TodoList",
+          "description": {
+            "zh": "持久化待办清单\n",
+            "en": "Persisted todo list\n"
+          },
+          "key": "rpc:TodoList"
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 4,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.tools.web": {
+      "uid": "e1e00008",
+      "id": "kimi-code.engine.tools.web",
+      "parent": "kimi-code.engine.tools",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "网络与抓取",
+        "en": "Web & fetch"
+      },
+      "description": {
+        "zh": "注册工具名：WebSearch、FetchURL、SwitchSearchEngine、NotifyUser 与 GitHub* 族。\n",
+        "en": "Registered tool names: WebSearch, FetchURL, SwitchSearchEngine, NotifyUser and the GitHub* family.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/tools/web_search.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/tools/fetch_url.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/tools/github.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/tools/read_media.rs"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:55:36.275Z",
+      "fingerprint": "1be686a27ccd361c376f14604c61852dc0ed253f2693423b047c451793ed96e1",
+      "apis": [
+        {
+          "protocol": "rpc",
+          "path": "WebSearch",
+          "description": {
+            "zh": "搜索网页\n",
+            "en": "Search the web\n"
+          },
+          "key": "rpc:WebSearch"
+        },
+        {
+          "protocol": "rpc",
+          "path": "FetchURL",
+          "description": {
+            "zh": "抓取 URL 为 markdown\n",
+            "en": "Fetch a URL as markdown\n"
+          },
+          "key": "rpc:FetchURL"
+        },
+        {
+          "protocol": "rpc",
+          "path": "SwitchSearchEngine",
+          "description": {
+            "zh": "切换搜索引擎\n",
+            "en": "Switch the search engine\n"
+          },
+          "key": "rpc:SwitchSearchEngine"
+        },
+        {
+          "protocol": "rpc",
+          "path": "GitHubGetPR",
+          "description": {
+            "zh": "GitHub API 操作\n",
+            "en": "GitHub API operations\n"
+          },
+          "key": "rpc:GitHubGetPR"
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 4,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.libs": {
+      "uid": "aa000004",
+      "id": "kimi-code.libs",
+      "parent": "kimi-code",
+      "tree": "kimi-code",
+      "depth": 2,
+      "name": {
+        "zh": "共享库",
+        "en": "Shared Libraries"
+      },
+      "description": {
+        "zh": "可独立复用的支撑库：TUI 框架、国际化、认证、遥测、会话存储与解析器。\n",
+        "en": "Reusable support libraries: TUI framework, i18n, auth, telemetry, session storage and parsers.\n"
+      },
+      "source": [
+        {
+          "path": "packages/i18n/src/i18n.ts"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T11:06:28.857Z",
+      "fingerprint": "f21a19109a8291a1533338539ce97461dd19a6d8676ddc699fd0e831264dc75a",
+      "aggregate": {
+        "descendant_count": 11,
+        "own_api_count": 0,
+        "inherited_api_count": 3,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.libs.bash-parser": {
+      "uid": "1e000009",
+      "id": "kimi-code.libs.bash-parser",
+      "parent": "kimi-code.libs",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "Bash 解析器",
+        "en": "Bash parser"
+      },
+      "description": {
+        "zh": "tree-sitter-bash 绑定：面向权限分析的 bash 命令解析。\n",
+        "en": "tree-sitter-bash bindings: bash command parsing for permission analysis.\n"
+      },
+      "source": [
+        {
+          "path": "packages/tree-sitter-bash/src/index.ts"
+        }
+      ],
+      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
+      "updated_at": "2026-09-27T10:22:23.428Z",
+      "fingerprint": "cd85557cb6a81f3acb56ecc8343a322f3ec56eb7782afc82afc07609daf84f88",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.libs.i18n": {
+      "uid": "1e000002",
+      "id": "kimi-code.libs.i18n",
+      "parent": "kimi-code.libs",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "国际化",
+        "en": "i18n"
+      },
+      "description": {
+        "zh": "双语运行时：t() 运行时、locale 装载与引擎侧 LocalizedText 注入（可选原生快速路径）。\n",
+        "en": "Bilingual runtime: t() runtime, locale loading and engine-side LocalizedText injection (optional native fast path).\n"
+      },
+      "source": [
+        {
+          "path": "packages/i18n/src/i18n.ts"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T11:06:28.857Z",
+      "fingerprint": "f21a19109a8291a1533338539ce97461dd19a6d8676ddc699fd0e831264dc75a",
+      "deps": [
+        {
+          "kind": "call",
+          "to": "kimi-code.engine.napi",
+          "label": {
+            "zh": "可选原生路径（软依赖）",
+            "en": "native fast path (soft)"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 1,
+        "dep_in": 1
+      }
+    },
+    "kimi-code.libs.kaos": {
+      "uid": "1e000008",
+      "id": "kimi-code.libs.kaos",
+      "parent": "kimi-code.libs",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "Kaos（执行环境抽象）",
+        "en": "Kaos (runtime abstraction)"
+      },
+      "description": {
+        "zh": "面向 AI agent 应用的执行环境抽象。\n",
+        "en": "Execution environment abstraction for AI agent applications.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kaos/src/index.ts"
+        }
+      ],
+      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
+      "updated_at": "2026-09-27T10:22:23.428Z",
+      "fingerprint": "c6800b31e7ed6275747bf8e2f34031a7137eb8fcd5d2871caf092e0977a6607e",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.libs.minidb": {
+      "uid": "1e000007",
+      "id": "kimi-code.libs.minidb",
+      "parent": "kimi-code.libs",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "MiniDb 检索",
+        "en": "MiniDb"
+      },
+      "description": {
+        "zh": "嵌入式检索存储：SQLite + 文本索引（worker 加速）。\n",
+        "en": "Embedded retrieval store: SQLite with a text index (worker-accelerated).\n"
+      },
+      "source": [
+        {
+          "path": "packages/minidb/src/index.ts"
+        }
+      ],
+      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
+      "updated_at": "2026-09-27T10:22:23.429Z",
+      "fingerprint": "84afb46fe5d98a081edb58c26148bd6ccb78b341c03c13cc90a0356d67c8e859",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.libs.normify": {
+      "uid": "1e000003",
+      "id": "kimi-code.libs.normify",
+      "parent": "kimi-code.libs",
+      "tree": "kimi-code",
+      "depth": 3,
+      "tags": [
+        "architecture",
+        "mcp",
+        "plugin"
+      ],
+      "name": {
+        "zh": "Normify 引擎",
+        "en": "Normify engine"
+      },
+      "description": {
+        "zh": "合并自 dsh-normify 的架构图系统：31 个 normify_* 工具、零容忍校验、确定性编译与单文件 HTML 渲染，以内置默认插件交付。\n",
+        "en": "The architecture-diagram system merged from dsh-normify: 31 normify_* tools, zero-tolerance validation, deterministic compilation and single-file HTML rendering, delivered as the built-in default plugin.\n"
+      },
+      "source": [
+        {
+          "path": "packages/normify/src/tools.ts"
+        },
+        {
+          "path": "packages/normify/src/cli.ts"
+        },
+        {
+          "path": "packages/normify/src/mcp.ts"
+        }
+      ],
+      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
+      "updated_at": "2026-09-27T10:29:21.428Z",
+      "fingerprint": "ac33f8deb3179b652c28eaf28a7831d8c4a89aa76b21b5ea31aebecd3d31bf8d",
+      "aggregate": {
+        "descendant_count": 2,
+        "own_api_count": 0,
+        "inherited_api_count": 3,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.libs.normify.adapters": {
+      "uid": "1e100002",
+      "id": "kimi-code.libs.normify.adapters",
+      "parent": "kimi-code.libs.normify",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "Normify 适配层",
+        "en": "Normify adapters"
+      },
+      "description": {
+        "zh": "宿主适配层：31 工具注册表、MCP 服务器与独立 CLI。\n",
+        "en": "Host adapters: the 31-tool registry, the MCP server and the standalone CLI.\n"
+      },
+      "source": [
+        {
+          "path": "packages/normify/src/tools.ts"
+        },
+        {
+          "path": "packages/normify/src/mcp.ts"
+        },
+        {
+          "path": "packages/normify/src/cli.ts"
+        }
+      ],
+      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
+      "updated_at": "2026-09-27T10:29:21.424Z",
+      "fingerprint": "ac33f8deb3179b652c28eaf28a7831d8c4a89aa76b21b5ea31aebecd3d31bf8d",
+      "apis": [
+        {
+          "protocol": "rpc",
+          "path": "normify_validate",
+          "description": {
+            "zh": "全项目零容忍校验\n",
+            "en": "Zero-tolerance validation\n"
+          },
+          "key": "rpc:normify_validate"
+        },
+        {
+          "protocol": "rpc",
+          "path": "normify_build",
+          "description": {
+            "zh": "确定性编译与冻结回执\n",
+            "en": "Deterministic compile + frozen receipt\n"
+          },
+          "key": "rpc:normify_build"
+        },
+        {
+          "protocol": "rpc",
+          "path": "normify_render",
+          "description": {
+            "zh": "渲染交互式 HTML\n",
+            "en": "Render the interactive HTML\n"
+          },
+          "key": "rpc:normify_render"
+        }
+      ],
+      "deps": [
+        {
+          "kind": "call",
+          "to": "kimi-code.libs.normify.engine",
+          "label": {
+            "zh": "调用内核",
+            "en": "kernel calls"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 3,
+        "inherited_api_count": 0,
+        "dep_out": 1,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.libs.normify.engine": {
+      "uid": "1e100001",
+      "id": "kimi-code.libs.normify.engine",
+      "parent": "kimi-code.libs.normify",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "Normify 内核",
+        "en": "Normify kernel"
+      },
+      "description": {
+        "zh": "确定性内核：frontmatter 解析、L1/L2 校验器、编译器、存储与渲染数据。\n",
+        "en": "The deterministic core: frontmatter parser, L1/L2 validators, compiler, store and layout.\n"
+      },
+      "source": [
+        {
+          "path": "packages/normify/src/engine/validate.ts"
+        },
+        {
+          "path": "packages/normify/src/engine/compile.ts"
+        },
+        {
+          "path": "packages/normify/src/engine/frontmatter.ts"
+        },
+        {
+          "path": "packages/normify/src/engine/store.ts"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T10:49:20.164Z",
+      "fingerprint": "83b14e2a71183e7197f0b6020bbf463f4eb3310000f2901b0115304556ddeacb",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 1
+      }
+    },
+    "kimi-code.libs.oauth": {
+      "uid": "1e000004",
+      "id": "kimi-code.libs.oauth",
+      "parent": "kimi-code.libs",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "认证（OAuth）",
+        "en": "Auth (OAuth)"
+      },
+      "description": {
+        "zh": "OAuth 与 API 密钥认证：令牌刷新与凭据存储。\n",
+        "en": "OAuth and API-key auth: token refresh and credential storage.\n"
+      },
+      "source": [
+        {
+          "path": "packages/oauth/src/index.ts"
+        }
+      ],
+      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
+      "updated_at": "2026-09-27T10:22:23.429Z",
+      "fingerprint": "89e800b1882c56fdc1c29fe8f5c73a86ae6bba381738337763bc2d1b0d26a73d",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.libs.telemetry": {
+      "uid": "1e000005",
+      "id": "kimi-code.libs.telemetry",
+      "parent": "kimi-code.libs",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "遥测",
+        "en": "Telemetry"
+      },
+      "description": {
+        "zh": "遥测客户端：事件采集与上下文管理。\n",
+        "en": "Telemetry client: event collection and context management.\n"
+      },
+      "source": [
+        {
+          "path": "packages/telemetry/src/index.ts"
+        }
+      ],
+      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
+      "updated_at": "2026-09-27T10:22:23.429Z",
+      "fingerprint": "7f422e4163eac4d96e2f80274ee158dbc8e73e11710be1a14e068ca55395c7c2",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.libs.transcript": {
+      "uid": "1e000006",
+      "id": "kimi-code.libs.transcript",
+      "parent": "kimi-code.libs",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "会话转录",
+        "en": "Transcript"
+      },
+      "description": {
+        "zh": "会话转录的持久化与投影。\n",
+        "en": "Session transcript persistence and projection.\n"
+      },
+      "source": [
+        {
+          "path": "packages/transcript/src/index.ts"
+        }
+      ],
+      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
+      "updated_at": "2026-09-27T10:22:23.429Z",
+      "fingerprint": "29781c29a8f47abc80927532980be6b67f5eeacc60cd5b7b1a9d9b336635d896",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.libs.tui": {
+      "uid": "1e000001",
+      "id": "kimi-code.libs.tui",
+      "parent": "kimi-code.libs",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "pi-tui 框架",
+        "en": "pi-tui framework"
+      },
+      "description": {
+        "zh": "vendored 的 pi-tui 终端 UI 框架：编辑器组件、渲染循环与键盘处理。\n",
+        "en": "The vendored pi-tui terminal UI framework: editor components, render loop and keyboard handling.\n"
+      },
+      "source": [
+        {
+          "path": "packages/pi-tui/src/index.ts"
+        }
+      ],
+      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
+      "updated_at": "2026-09-27T10:22:23.429Z",
+      "fingerprint": "f3ce21f3459a0fc5a95a9f3e97506eb541f66f3e3df8e832c04679f49921c382",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 2
+      }
+    },
+    "kimi-code.sdk": {
+      "uid": "aa000003",
+      "id": "kimi-code.sdk",
+      "parent": "kimi-code",
+      "tree": "kimi-code",
+      "depth": 2,
+      "name": {
+        "zh": "SDK 与协议",
+        "en": "SDK & Protocol"
+      },
+      "description": {
+        "zh": "宿主与引擎之间的边界：类型化 RPC 客户端、协议定义与传输抽象。\n",
+        "en": "The boundary between host and engine: typed RPC client, protocol definitions and transport abstractions.\n"
+      },
+      "source": [
+        {
+          "path": "packages/node-sdk/src/index.ts"
+        }
+      ],
+      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
+      "updated_at": "2026-09-27T10:22:23.430Z",
+      "fingerprint": "1b9d9ef5c4456e94181f4d65dc377a7109db34fc9731a3a28c6e307f3de571fa",
+      "aggregate": {
+        "descendant_count": 5,
+        "own_api_count": 0,
+        "inherited_api_count": 3,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.sdk.kosong": {
+      "uid": "50e00003",
+      "id": "kimi-code.sdk.kosong",
+      "parent": "kimi-code.sdk",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "Kosong（LLM 抽象）",
+        "en": "Kosong (LLM abstraction)"
+      },
+      "description": {
+        "zh": "面向现代 AI agent 应用的 LLM 抽象层。\n",
+        "en": "The LLM abstraction layer for modern AI agent applications.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kosong/src/index.ts"
+        }
+      ],
+      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
+      "updated_at": "2026-09-27T10:22:23.430Z",
+      "fingerprint": "b6d6f9d0f57605798392ba65e50dd324997417cbceb0ccb1ef8ac64e9a8ef5b1",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.sdk.node": {
+      "uid": "50e00001",
+      "id": "kimi-code.sdk.node",
+      "parent": "kimi-code.sdk",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "Node SDK",
+        "en": "Node SDK"
+      },
+      "description": {
+        "zh": "宿主侧 SDK：原生 RPC 客户端、会话门面、插件/技能/MCP 门面与配置解析。\n",
+        "en": "The host-side SDK: native RPC client, session facade, plugin/skill/MCP facades and config resolution.\n"
+      },
+      "source": [
+        {
+          "path": "packages/node-sdk/src/native/sdk-rpc-client-native.ts"
+        },
+        {
+          "path": "packages/node-sdk/src/kimi-harness.ts"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T11:06:28.858Z",
+      "fingerprint": "c05a70c5b79e08869025937c8513e504a7f42c296ce5a214c9bf53317cb21872",
+      "deps": [
+        {
+          "kind": "call",
+          "to": "kimi-code.engine.napi",
+          "label": {
+            "zh": "进程内 napi 调用",
+            "en": "in-process napi calls"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 2,
+        "own_api_count": 0,
+        "inherited_api_count": 3,
+        "dep_out": 1,
+        "dep_in": 3
+      }
+    },
+    "kimi-code.sdk.node.facade": {
+      "uid": "51e00002",
+      "id": "kimi-code.sdk.node.facade",
+      "parent": "kimi-code.sdk.node",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "Harness 门面",
+        "en": "Harness facade"
+      },
+      "description": {
+        "zh": "公开门面：KimiHarness、会话包装、agent-file 发现与 marketplace/config 辅助。\n",
+        "en": "The public facade: KimiHarness, session wrapper, agent-file discovery and marketplace/config helpers.\n"
+      },
+      "source": [
+        {
+          "path": "packages/node-sdk/src/kimi-harness.ts"
+        },
+        {
+          "path": "packages/node-sdk/src/agent-file.ts"
+        },
+        {
+          "path": "packages/node-sdk/src/marketplace.ts"
+        }
+      ],
+      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
+      "updated_at": "2026-09-27T10:29:21.423Z",
+      "fingerprint": "144eede413240e1f2efc76c6f08081045a62d2dae65eaa153732a729949aee5a",
+      "deps": [
+        {
+          "kind": "call",
+          "to": "kimi-code.sdk.node.native-client",
+          "label": {
+            "zh": "委托原生客户端",
+            "en": "delegates to native"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 1,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.sdk.node.native-client": {
+      "uid": "51e00001",
+      "id": "kimi-code.sdk.node.native-client",
+      "parent": "kimi-code.sdk.node",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "原生 RPC 客户端",
+        "en": "Native RPC client"
+      },
+      "description": {
+        "zh": "原生传输：SDKRpcClientNative、ensurePluginStore 种子逻辑与插件 API 面。\n",
+        "en": "The native transport: SDKRpcClientNative, ensurePluginStore seeding and the plugin API surface.\n"
+      },
+      "source": [
+        {
+          "path": "packages/node-sdk/src/native/sdk-rpc-client-native.ts"
+        }
+      ],
+      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
+      "updated_at": "2026-09-27T11:06:28.858Z",
+      "fingerprint": "1421b5bf82c165e9f8f593a4752cf7081f906f1da1f7d78a110ae61768806704",
+      "apis": [
+        {
+          "protocol": "rpc",
+          "path": "createSession",
+          "description": {
+            "zh": "创建 agent 会话\n",
+            "en": "Create an agent session\n"
+          },
+          "key": "rpc:createSession"
+        },
+        {
+          "protocol": "rpc",
+          "path": "prompt",
+          "description": {
+            "zh": "运行一轮 prompt\n",
+            "en": "Run a prompt turn\n"
+          },
+          "key": "rpc:prompt"
+        },
+        {
+          "protocol": "rpc",
+          "path": "listPlugins",
+          "description": {
+            "zh": "列出已安装插件\n",
+            "en": "List installed plugins\n"
+          },
+          "key": "rpc:listPlugins"
+        }
+      ],
+      "deps": [
+        {
+          "kind": "call",
+          "to": "kimi-code.engine.napi.bindings",
+          "from_api": "rpc:listPlugins",
+          "to_api": "rpc:pluginList",
+          "label": {
+            "zh": "napi 调用",
+            "en": "napi calls"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 3,
+        "inherited_api_count": 0,
+        "dep_out": 1,
+        "dep_in": 1
+      }
+    },
+    "kimi-code.sdk.protocol": {
+      "uid": "50e00002",
+      "id": "kimi-code.sdk.protocol",
+      "parent": "kimi-code.sdk",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "协议 Schema",
+        "en": "Protocol schemas"
+      },
+      "description": {
+        "zh": "守护进程的共享 REST + WS 协议 schema（信封、错误码、分页、ws-control）。\n",
+        "en": "Shared REST + WS protocol schemas (envelope, error codes, pagination, ws-control) for the daemon.\n"
+      },
+      "source": [
+        {
+          "path": "packages/protocol/src/index.ts"
+        }
+      ],
+      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
+      "updated_at": "2026-09-27T10:22:23.430Z",
+      "fingerprint": "e18131a9359e789be96c6ee7dfdff001ef7d9c6af16bad85cb0030e4f52618bc",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.tooling": {
+      "uid": "aa000005",
+      "id": "kimi-code.tooling",
+      "parent": "kimi-code",
+      "tree": "kimi-code",
+      "depth": 2,
+      "name": {
+        "zh": "工程工具链",
+        "en": "Tooling"
+      },
+      "description": {
+        "zh": "守护仓库质量的脚本与构建设施：架构漂移门禁、i18n 检查、parity 校验与打包配置。\n",
+        "en": "Scripts and build infrastructure guarding repo quality: the architecture drift gate, i18n checks, parity checks and packaging.\n"
+      },
+      "source": [
+        {
+          "path": "scripts/check-architecture-drift.mjs"
+        }
+      ],
+      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
+      "updated_at": "2026-09-27T10:22:23.431Z",
+      "fingerprint": "da3f8a770887d3dc84c31f7fe163238b807d43488d5666ca3ea9c8fba919a918",
+      "aggregate": {
+        "descendant_count": 2,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.tooling.build": {
+      "uid": "70e00002",
+      "id": "kimi-code.tooling.build",
+      "parent": "kimi-code.tooling",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "构建设施",
+        "en": "Build infra"
+      },
+      "description": {
+        "zh": "打包与构建：tsdown 配置、?raw 资产加载器、Bun 单文件编译与 CI 矩阵。\n",
+        "en": "Packaging and build: tsdown configs, the ?raw asset loader, Bun single-file compilation and the CI matrix.\n"
+      },
+      "source": [
+        {
+          "path": "build/raw-text-plugin.mjs"
+        },
+        {
+          "path": ".github/workflows/ci.yml"
+        },
+        {
+          "path": "package.json"
+        }
+      ],
+      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
+      "updated_at": "2026-09-27T10:22:23.431Z",
+      "fingerprint": "10f73d3e68b95b6d14d44f262075f9b5a88dc24a99bd34795e929c425bb333fa",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.tooling.gates": {
+      "uid": "70e00001",
+      "id": "kimi-code.tooling.gates",
+      "parent": "kimi-code.tooling",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "质量门禁",
+        "en": "Quality gates"
+      },
+      "description": {
+        "zh": "CI 与 pre-commit 门禁：架构漂移指纹、locale 键一致、Rust-TS parity、上游 delta 分诊。\n",
+        "en": "CI and pre-commit gates: architecture drift fingerprints, locale-key consistency, Rust-TS parity, upstream delta triage.\n"
+      },
+      "source": [
+        {
+          "path": "scripts/check-architecture-drift.mjs"
+        },
+        {
+          "path": "scripts/scan-parity.mjs"
+        }
+      ],
+      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
+      "updated_at": "2026-09-27T10:22:23.431Z",
+      "fingerprint": "6fbc2125792a602533ada5e0aa73e1080a4f96599f8a6aa5e1d6914068ba60f7",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    }
+  },
+  "api_index": {
+    "GET /api/v1/files": "kimi-code.engine.server.http",
+    "GET /api/v1/plugins": "kimi-code.engine.server.http",
+    "POST /api/v1/plugins": "kimi-code.engine.server.http",
+    "rpc:Agent": "kimi-code.engine.tools.agent",
+    "rpc:AgentSwarm": "kimi-code.engine.tools.agent",
+    "rpc:Bash": "kimi-code.engine.tools.basics",
+    "rpc:createSession": "kimi-code.sdk.node.native-client",
+    "rpc:define_subagent": "kimi-code.engine.tools.agent",
+    "rpc:Edit": "kimi-code.engine.tools.basics",
+    "rpc:EnterPlanMode": "kimi-code.engine.tools.team",
+    "rpc:ExitPlanMode": "kimi-code.engine.tools.team",
+    "rpc:FetchURL": "kimi-code.engine.tools.web",
+    "rpc:GitHubGetPR": "kimi-code.engine.tools.web",
+    "rpc:Grep": "kimi-code.engine.tools.basics",
+    "rpc:initPluginStore": "kimi-code.engine.napi.bindings",
+    "rpc:install_plugin_from": "kimi-code.engine.plugins.registry",
+    "rpc:invoke_subagent": "kimi-code.engine.tools.agent",
+    "rpc:Knowledge": "kimi-code.engine.tools.knowledge",
+    "rpc:listPlugins": "kimi-code.sdk.node.native-client",
+    "rpc:Lsp": "kimi-code.engine.tools.knowledge",
+    "rpc:manage_subagents": "kimi-code.engine.tools.agent",
+    "rpc:memory_read": "kimi-code.engine.tools.knowledge",
+    "rpc:memory_write": "kimi-code.engine.tools.knowledge",
+    "rpc:normify_build": "kimi-code.libs.normify.adapters",
+    "rpc:normify_render": "kimi-code.libs.normify.adapters",
+    "rpc:normify_validate": "kimi-code.libs.normify.adapters",
+    "rpc:pluginInstall": "kimi-code.engine.napi.bindings",
+    "rpc:pluginList": "kimi-code.engine.napi.bindings",
+    "rpc:prompt": "kimi-code.sdk.node.native-client",
+    "rpc:Read": "kimi-code.engine.tools.basics",
+    "rpc:set_plugin_enabled": "kimi-code.engine.plugins.registry",
+    "rpc:Skill": "kimi-code.engine.tools.knowledge",
+    "rpc:SwitchSearchEngine": "kimi-code.engine.tools.web",
+    "rpc:Team": "kimi-code.engine.tools.team",
+    "rpc:TodoList": "kimi-code.engine.tools.team",
+    "rpc:WebSearch": "kimi-code.engine.tools.web",
+    "rpc:Write": "kimi-code.engine.tools.basics",
+    "ws:/api/v1/ws": "kimi-code.engine.server.ws"
+  },
+  "edges": [
+    {
+      "from": "kimi-code.apps.cli",
+      "to": "kimi-code.engine.napi",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "直连原生模块",
+        "en": "direct native imports"
+      }
+    },
+    {
+      "from": "kimi-code.apps.cli",
+      "to": "kimi-code.libs.i18n",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "文案与 locale",
+        "en": "localized strings"
+      }
+    },
+    {
+      "from": "kimi-code.apps.cli",
+      "to": "kimi-code.libs.tui",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "TUI 框架",
+        "en": "TUI framework"
+      }
+    },
+    {
+      "from": "kimi-code.apps.cli",
+      "to": "kimi-code.sdk.node",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "经 SDK 驱动引擎",
+        "en": "drives engine via SDK"
+      }
+    },
+    {
+      "from": "kimi-code.apps.cli.commands",
+      "to": "kimi-code.sdk.node",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "调用 SDK",
+        "en": "SDK calls"
+      }
+    },
+    {
+      "from": "kimi-code.apps.cli.tui",
+      "to": "kimi-code.libs.tui",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "TUI 框架",
+        "en": "TUI framework"
+      }
+    },
+    {
+      "from": "kimi-code.apps.cli.tui",
+      "to": "kimi-code.sdk.node",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "调用 SDK",
+        "en": "SDK calls"
+      }
+    },
+    {
+      "from": "kimi-code.engine.core",
+      "to": "kimi-code.engine.llm",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "模型补全",
+        "en": "model completions"
+      }
+    },
+    {
+      "from": "kimi-code.engine.core",
+      "to": "kimi-code.engine.tools",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "工具执行",
+        "en": "tool execution"
+      }
+    },
+    {
+      "from": "kimi-code.engine.core.compaction",
+      "to": "kimi-code.engine.llm",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "模型调用",
+        "en": "model calls"
+      }
+    },
+    {
+      "from": "kimi-code.engine.core.session",
+      "to": "kimi-code.engine.server.transcript",
+      "kind": "dataflow",
+      "cross_tree": false,
+      "label": {
+        "zh": "会话落盘",
+        "en": "persist sessions"
+      }
+    },
+    {
+      "from": "kimi-code.engine.core.subagent",
+      "to": "kimi-code.engine.core.turn-loop",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "驱动子回合",
+        "en": "runs sub turns"
+      }
+    },
+    {
+      "from": "kimi-code.engine.core.turn-loop",
+      "to": "kimi-code.engine.llm",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "模型调用",
+        "en": "model calls"
+      }
+    },
+    {
+      "from": "kimi-code.engine.core.turn-loop",
+      "to": "kimi-code.engine.tools",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "工具执行",
+        "en": "tool exec"
+      }
+    },
+    {
+      "from": "kimi-code.engine.mcp.client",
+      "to": "kimi-code.engine.mcp.manager",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "由管理器拉起",
+        "en": "spawned by manager"
+      }
+    },
+    {
+      "from": "kimi-code.engine.napi",
+      "to": "kimi-code.engine.core",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "同 crate 引擎核心",
+        "en": "same-crate engine core"
+      }
+    },
+    {
+      "from": "kimi-code.engine.napi",
+      "to": "kimi-code.engine.mcp",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "插件 MCP 配置",
+        "en": "plugin MCP configs"
+      }
+    },
+    {
+      "from": "kimi-code.engine.napi",
+      "to": "kimi-code.engine.plugins",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "注册表插件 API",
+        "en": "registry plugin APIs"
+      }
+    },
+    {
+      "from": "kimi-code.engine.napi.bindings",
+      "from_api": "rpc:pluginInstall",
+      "to": "kimi-code.engine.plugins.registry",
+      "to_api": "rpc:install_plugin_from",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "由注册表支撑",
+        "en": "registry-backed"
+      }
+    },
+    {
+      "from": "kimi-code.engine.napi.contract",
+      "to": "kimi-code.engine.napi.bindings",
+      "kind": "reference",
+      "cross_tree": false,
+      "label": {
+        "zh": "类型镜像导出",
+        "en": "types mirror the exports"
+      }
+    },
+    {
+      "from": "kimi-code.engine.plugins.archive",
+      "to": "kimi-code.engine.plugins.registry",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "落地进注册表",
+        "en": "lands in the registry"
+      }
+    },
+    {
+      "from": "kimi-code.engine.server",
+      "to": "kimi-code.engine.core",
+      "kind": "dataflow",
+      "cross_tree": false,
+      "label": {
+        "zh": "会话与事件状态",
+        "en": "session/event state"
+      }
+    },
+    {
+      "from": "kimi-code.libs.i18n",
+      "to": "kimi-code.engine.napi",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "可选原生路径（软依赖）",
+        "en": "native fast path (soft)"
+      }
+    },
+    {
+      "from": "kimi-code.libs.normify.adapters",
+      "to": "kimi-code.libs.normify.engine",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "调用内核",
+        "en": "kernel calls"
+      }
+    },
+    {
+      "from": "kimi-code.sdk.node",
+      "to": "kimi-code.engine.napi",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "进程内 napi 调用",
+        "en": "in-process napi calls"
+      }
+    },
+    {
+      "from": "kimi-code.sdk.node.facade",
+      "to": "kimi-code.sdk.node.native-client",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "委托原生客户端",
+        "en": "delegates to native"
+      }
+    },
+    {
+      "from": "kimi-code.sdk.node.native-client",
+      "from_api": "rpc:listPlugins",
+      "to": "kimi-code.engine.napi.bindings",
+      "to_api": "rpc:pluginList",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "napi 调用",
+        "en": "napi calls"
+      }
+    }
+  ],
+  "layouts": {
+    "kimi-code": {
+      "schema_version": 1,
+      "id": "kimi-code",
+      "updated_at": "2026-09-27T10:21:53.952Z",
+      "mode": "groups",
+      "max_columns": 5,
+      "reading": {
+        "zh": "顶层按数据流阅读：用户对话的应用 → 它驱动的 SDK 边界 → 背后的 Rust 引擎 → 双方复用的共享库 → 守护仓库质量的工具链。",
+        "en": "Top level, data-flow order: the app the user talks to, the SDK seam it drives, the Rust engine behind it, the shared libraries both sides reuse, and the tooling that keeps the repo honest."
+      },
+      "order": [
+        "kimi-code.apps",
+        "kimi-code.sdk",
+        "kimi-code.engine",
+        "kimi-code.libs",
+        "kimi-code.tooling"
+      ]
+    },
+    "kimi-code.apps": {
+      "schema_version": 1,
+      "id": "kimi-code.apps",
+      "updated_at": "2026-09-27T10:22:13.328Z",
+      "reading": {
+        "zh": "CLI 是主产品，放最前；随后是可视化两件套、编辑器集成与文档站。",
+        "en": "CLI first: it is the product everything else serves. Then the visualization surfaces, editor integration and the docs site."
+      },
+      "order": [
+        "kimi-code.apps.cli",
+        "kimi-code.apps.vis",
+        "kimi-code.apps.vscode",
+        "kimi-code.apps.inspect",
+        "kimi-code.apps.docs"
+      ]
+    },
+    "kimi-code.apps.cli": {
+      "schema_version": 1,
+      "id": "kimi-code.apps.cli",
+      "updated_at": "2026-09-27T10:29:10.083Z",
+      "reading": {
+        "zh": "外壳与管线：交互 TUI 在上，命令解析在下。",
+        "en": "Shell and plumbing: the interactive TUI on top, the command parser underneath."
+      },
+      "order": [
+        "kimi-code.apps.cli.tui",
+        "kimi-code.apps.cli.commands"
+      ]
+    },
+    "kimi-code.apps.inspect": {
+      "schema_version": 1,
+      "id": "kimi-code.apps.inspect",
+      "updated_at": "2026-09-27T10:48:12.500Z",
+      "reading": {
+        "zh": "外壳包裹面板。",
+        "en": "Shell wraps the panels."
+      },
+      "order": [
+        "kimi-code.apps.inspect.shell",
+        "kimi-code.apps.inspect.panels"
+      ]
+    },
+    "kimi-code.apps.inspect.panels": {
+      "schema_version": 1,
+      "id": "kimi-code.apps.inspect.panels",
+      "updated_at": "2026-09-27T10:54:49.224Z",
+      "reading": {
+        "zh": "按下钻顺序排列：发生了什么 → 批准了什么 → 线上传输了什么。",
+        "en": "Human-readable views in drill order: what happened, what was approved, what was said on the wire."
+      },
+      "order": [
+        "kimi-code.apps.inspect.panels.activity",
+        "kimi-code.apps.inspect.panels.audit",
+        "kimi-code.apps.inspect.panels.channel"
+      ]
+    },
+    "kimi-code.engine": {
+      "schema_version": 1,
+      "id": "kimi-code.engine",
+      "updated_at": "2026-09-27T10:22:13.371Z",
+      "reading": {
+        "zh": "引擎分层：回合循环居中，工具与模型传输环绕，MCP 侧翼，随后是宿主面（服务器、插件注册表）与 JS 边界。",
+        "en": "Engine layers: the turn loop at the center, its tools and model transports around it, MCP on the side, then the hosting surface (server, plugin registry) and the JS boundary last."
+      },
+      "order": [
+        "kimi-code.engine.core",
+        "kimi-code.engine.tools",
+        "kimi-code.engine.llm",
+        "kimi-code.engine.mcp",
+        "kimi-code.engine.server",
+        "kimi-code.engine.plugins",
+        "kimi-code.engine.napi"
+      ]
+    },
+    "kimi-code.engine.core": {
+      "schema_version": 1,
+      "id": "kimi-code.engine.core",
+      "updated_at": "2026-09-27T10:29:09.976Z",
+      "reading": {
+        "zh": "运行时回路：回合居中，会话环绕，子代理在下，压缩是内存压力阀。",
+        "en": "The runtime loop: turns at the center, sessions around them, subagents below, compaction as the memory pressure valve."
+      },
+      "order": [
+        "kimi-code.engine.core.turn-loop",
+        "kimi-code.engine.core.session",
+        "kimi-code.engine.core.subagent",
+        "kimi-code.engine.core.compaction"
+      ]
+    },
+    "kimi-code.engine.core.session": {
+      "schema_version": 1,
+      "id": "kimi-code.engine.core.session",
+      "updated_at": "2026-09-27T10:54:49.124Z",
+      "reading": {
+        "zh": "存储在底，标题在上。",
+        "en": "Storage underneath, titles on top."
+      },
+      "order": [
+        "kimi-code.engine.core.session.store",
+        "kimi-code.engine.core.session.title"
+      ]
+    },
+    "kimi-code.engine.llm": {
+      "schema_version": 1,
+      "id": "kimi-code.engine.llm",
+      "updated_at": "2026-09-27T10:48:12.344Z",
+      "reading": {
+        "zh": "每个协议族一个适配器，共享 HTTP 管线作公共底座。",
+        "en": "One adapter per protocol family, with the shared HTTP plumbing as the common base."
+      },
+      "order": [
+        "kimi-code.engine.llm.anthropic",
+        "kimi-code.engine.llm.openai",
+        "kimi-code.engine.llm.google",
+        "kimi-code.engine.llm.http"
+      ]
+    },
+    "kimi-code.engine.mcp": {
+      "schema_version": 1,
+      "id": "kimi-code.engine.mcp",
+      "updated_at": "2026-09-27T10:48:12.383Z",
+      "reading": {
+        "zh": "管理器管注册表与生命周期；客户端管传输。",
+        "en": "The manager owns the registry and lifecycle; clients own the transports."
+      },
+      "order": [
+        "kimi-code.engine.mcp.manager",
+        "kimi-code.engine.mcp.client"
+      ]
+    },
+    "kimi-code.engine.napi": {
+      "schema_version": 1,
+      "id": "kimi-code.engine.napi",
+      "updated_at": "2026-09-27T10:48:12.463Z",
+      "reading": {
+        "zh": "导出与其类型镜像并排。",
+        "en": "Exports and their type mirror, kept side by side."
+      },
+      "order": [
+        "kimi-code.engine.napi.bindings",
+        "kimi-code.engine.napi.contract"
+      ]
+    },
+    "kimi-code.engine.plugins": {
+      "schema_version": 1,
+      "id": "kimi-code.engine.plugins",
+      "updated_at": "2026-09-27T10:48:12.424Z",
+      "reading": {
+        "zh": "状态在前（SQLite 注册表），获取在后（远程归档）。",
+        "en": "State first (the SQLite registry), acquisition second (remote archives)."
+      },
+      "order": [
+        "kimi-code.engine.plugins.registry",
+        "kimi-code.engine.plugins.archive"
+      ]
+    },
+    "kimi-code.engine.server": {
+      "schema_version": 1,
+      "id": "kimi-code.engine.server",
+      "updated_at": "2026-09-27T10:29:10.047Z",
+      "reading": {
+        "zh": "两扇门一本账：REST 进、WS 出，底下是转录投影。",
+        "en": "Two doors and a ledger: REST in, WS out, the transcript projection underneath."
+      },
+      "order": [
+        "kimi-code.engine.server.http",
+        "kimi-code.engine.server.ws",
+        "kimi-code.engine.server.transcript"
+      ]
+    },
+    "kimi-code.engine.tools": {
+      "schema_version": 1,
+      "id": "kimi-code.engine.tools",
+      "updated_at": "2026-09-27T10:54:49.163Z",
+      "reading": {
+        "zh": "基础工具（文件与 shell）在前，随后是 agent 编排、协作、知识与网络。",
+        "en": "Basics first (file & shell), then agent orchestration, collaboration, knowledge, and the web."
+      },
+      "order": [
+        "kimi-code.engine.tools.basics",
+        "kimi-code.engine.tools.agent",
+        "kimi-code.engine.tools.team",
+        "kimi-code.engine.tools.knowledge",
+        "kimi-code.engine.tools.web"
+      ]
+    },
+    "kimi-code.libs": {
+      "schema_version": 1,
+      "id": "kimi-code.libs",
+      "updated_at": "2026-09-27T10:22:13.448Z",
+      "reading": {
+        "zh": "按职责分组：界面（TUI、i18n）、能力（normify、认证）、数据（遥测、转录、MiniDb）与语言基础（kaos、bash 解析）。",
+        "en": "Libraries by concern: interface (TUI, i18n), capability (normify, auth), data (telemetry, transcript, minidb) and language foundations (kaos, bash parser)."
+      },
+      "order": [
+        "kimi-code.libs.tui",
+        "kimi-code.libs.i18n",
+        "kimi-code.libs.normify",
+        "kimi-code.libs.oauth",
+        "kimi-code.libs.telemetry",
+        "kimi-code.libs.transcript",
+        "kimi-code.libs.minidb",
+        "kimi-code.libs.kaos",
+        "kimi-code.libs.bash-parser"
+      ]
+    },
+    "kimi-code.libs.normify": {
+      "schema_version": 1,
+      "id": "kimi-code.libs.normify",
+      "updated_at": "2026-09-27T10:29:10.159Z",
+      "reading": {
+        "zh": "适配层在上（工具、MCP、CLI），确定性内核在下。",
+        "en": "Adapters on top (tools, MCP, CLI), the deterministic kernel underneath."
+      },
+      "order": [
+        "kimi-code.libs.normify.adapters",
+        "kimi-code.libs.normify.engine"
+      ]
+    },
+    "kimi-code.sdk": {
+      "schema_version": 1,
+      "id": "kimi-code.sdk",
+      "updated_at": "2026-09-27T10:22:13.406Z",
+      "reading": {
+        "zh": "边界层：宿主直接调用的 SDK、共享线上协议 schema，以及底层的 LLM 抽象。",
+        "en": "The seam: the concrete SDK the host calls, the shared wire schemas, and the LLM abstraction underneath."
+      },
+      "order": [
+        "kimi-code.sdk.node",
+        "kimi-code.sdk.protocol",
+        "kimi-code.sdk.kosong"
+      ]
+    },
+    "kimi-code.sdk.node": {
+      "schema_version": 1,
+      "id": "kimi-code.sdk.node",
+      "updated_at": "2026-09-27T10:29:10.125Z",
+      "reading": {
+        "zh": "门面在前：调用者只见 harness；底下的原生客户端走 napi。",
+        "en": "Facade first: callers see the harness; the native client underneath talks napi."
+      },
+      "order": [
+        "kimi-code.sdk.node.facade",
+        "kimi-code.sdk.node.native-client"
+      ]
+    },
+    "kimi-code.tooling": {
+      "schema_version": 1,
+      "id": "kimi-code.tooling",
+      "updated_at": "2026-09-27T10:22:13.487Z",
+      "reading": {
+        "zh": "先门禁后构建：质量检查在前，打包机制在后。",
+        "en": "Gates before build: quality checks first, then the packaging machinery."
+      },
+      "order": [
+        "kimi-code.tooling.gates",
+        "kimi-code.tooling.build"
+      ]
+    }
+  },
+  "policy": {
+    "schema_version": 1,
+    "updated_at": "2026-09-27T10:18:11.546Z",
+    "rules": [
+      {
+        "id": "core-acyclic",
+        "type": "acyclic",
+        "severity": "error",
+        "includeCrossTree": true
+      },
+      {
+        "id": "core-no-deprecated-target",
+        "type": "forbid-dependency",
+        "from": [
+          "**"
+        ],
+        "to": [
+          "**"
+        ],
+        "toState": "deprecated",
+        "severity": "warning"
+      }
+    ]
+  },
+  "changes": [
+    {
+      "id": "2026-09-27-deepen-llm-mcp-plugins-napi-inspect-domains",
+      "status": "verified",
+      "title": {
+        "en": "Deepen llm/mcp/plugins/napi/inspect domains",
+        "zh": "下钻 llm/mcp/plugins/napi/inspect 四域"
+      },
+      "updated_at": "2026-09-27T10:51:05.444Z"
+    },
+    {
+      "id": "2026-09-27-deepen-the-map-drill-down-coarse-leaves-anchor-apis",
+      "status": "verified",
+      "title": {
+        "en": "Deepen the map: drill down coarse leaves, anchor APIs",
+        "zh": "架构树下钻与 API 锚定"
+      },
+      "updated_at": "2026-09-27T10:34:10.431Z"
+    },
+    {
+      "id": "2026-09-27-drill-session-inspect-and-add-tool-family-api-contracts",
+      "status": "verified",
+      "title": {
+        "en": "Drill session/inspect and add tool-family API contracts",
+        "zh": "下钻 session/inspect 并补工具族 API 契约"
+      },
+      "updated_at": "2026-09-27T10:58:35.011Z"
+    },
+    {
+      "id": "2026-09-27-map-the-kimi-code-repository",
+      "status": "verified",
+      "title": {
+        "en": "Map the kimi-code repository",
+        "zh": "为 kimi-code 仓库建立全量架构树"
+      },
+      "updated_at": "2026-09-27T10:23:51.672Z"
+    }
+  ]
+}

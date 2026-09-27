@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "kimi-code.engine.tools",
+  "updated_at": "2026-09-27T10:54:49.163Z",
+  "reading": {
+    "zh": "基础工具（文件与 shell）在前，随后是 agent 编排、协作、知识与网络。",
+    "en": "Basics first (file & shell), then agent orchestration, collaboration, knowledge, and the web."
+  },
+  "order": [
+    "kimi-code.engine.tools.basics",
+    "kimi-code.engine.tools.agent",
+    "kimi-code.engine.tools.team",
+    "kimi-code.engine.tools.knowledge",
+    "kimi-code.engine.tools.web"
+  ]
+}

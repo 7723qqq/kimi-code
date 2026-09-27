@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "id": "2026-09-27-deepen-the-map-drill-down-coarse-leaves-anchor-apis",
+  "title": {
+    "en": "Deepen the map: drill down coarse leaves, anchor APIs",
+    "zh": "架构树下钻与 API 锚定"
+  },
+  "status": "verified",
+  "intent": {
+    "en": "Second-round deepening done in the same work session: 17 new children, 3 promotions, API anchoring. Close it as its own change record.",
+    "zh": "同一工作时段内完成的第二轮下钻：17 个新子模块、3 次晋升、API 锚定。作为独立变更单归档收尾。"
+  },
+  "modules": {
+    "create": [
+      "kimi-code.engine.core.turn-loop",
+      "kimi-code.engine.core.session",
+      "kimi-code.engine.core.subagent",
+      "kimi-code.engine.core.compaction",
+      "kimi-code.engine.tools.agent",
+      "kimi-code.engine.tools.team",
+      "kimi-code.engine.tools.knowledge",
+      "kimi-code.engine.tools.web",
+      "kimi-code.engine.server.http",
+      "kimi-code.engine.server.ws",
+      "kimi-code.engine.server.transcript",
+      "kimi-code.apps.cli.tui",
+      "kimi-code.apps.cli.commands",
+      "kimi-code.sdk.node.native-client",
+      "kimi-code.sdk.node.facade",
+      "kimi-code.libs.normify.engine",
+      "kimi-code.libs.normify.adapters"
+    ]
+  },
+  "acceptance": [
+    "下钻后 normify_validate（repoRoot）仍 0 error",
+    "refresh 后所有新叶子 active 且指纹与仓库一致",
+    "sdk.node → engine.napi 箭头完成 API 锚定（消除 dep/unanchored）",
+    "normify_build + normify_render 重新产出并冻结"
+  ],
+  "note": "第二轮下钻完成：新增 17 个子模块（engine.core×4、engine.tools×4、engine.server×3、apps.cli×2、sdk.node×2、normify×2），49 模块 / 24 依赖边 / 13 API / 4 层深；sdk.node→engine.napi 箭头已用 rpc:listPlugins→rpc:pluginList 锚定；validate 0 error，产物已重建冻结。",
+  "revision": {
+    "before": null,
+    "after": null
+  },
+  "created_at": "2026-09-27T10:34:02.001Z",
+  "updated_at": "2026-09-27T10:34:10.431Z",
+  "closed_at": "2026-09-27T10:34:10.431Z"
+}

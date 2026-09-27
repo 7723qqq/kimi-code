@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "kimi-code.apps",
+  "updated_at": "2026-09-27T10:22:13.328Z",
+  "reading": {
+    "zh": "CLI 是主产品，放最前；随后是可视化两件套、编辑器集成与文档站。",
+    "en": "CLI first: it is the product everything else serves. Then the visualization surfaces, editor integration and the docs site."
+  },
+  "order": [
+    "kimi-code.apps.cli",
+    "kimi-code.apps.vis",
+    "kimi-code.apps.vscode",
+    "kimi-code.apps.inspect",
+    "kimi-code.apps.docs"
+  ]
+}

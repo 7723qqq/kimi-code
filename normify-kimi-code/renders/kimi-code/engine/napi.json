@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "kimi-code.engine.napi",
+  "updated_at": "2026-09-27T10:48:12.463Z",
+  "reading": {
+    "zh": "导出与其类型镜像并排。",
+    "en": "Exports and their type mirror, kept side by side."
+  },
+  "order": [
+    "kimi-code.engine.napi.bindings",
+    "kimi-code.engine.napi.contract"
+  ]
+}

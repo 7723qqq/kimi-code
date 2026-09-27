@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "kimi-code.engine.server",
+  "updated_at": "2026-09-27T10:29:10.047Z",
+  "reading": {
+    "zh": "两扇门一本账：REST 进、WS 出，底下是转录投影。",
+    "en": "Two doors and a ledger: REST in, WS out, the transcript projection underneath."
+  },
+  "order": [
+    "kimi-code.engine.server.http",
+    "kimi-code.engine.server.ws",
+    "kimi-code.engine.server.transcript"
+  ]
+}

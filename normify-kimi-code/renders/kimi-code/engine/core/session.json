@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "kimi-code.engine.core.session",
+  "updated_at": "2026-09-27T10:54:49.124Z",
+  "reading": {
+    "zh": "存储在底，标题在上。",
+    "en": "Storage underneath, titles on top."
+  },
+  "order": [
+    "kimi-code.engine.core.session.store",
+    "kimi-code.engine.core.session.title"
+  ]
+}

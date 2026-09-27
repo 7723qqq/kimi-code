@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "id": "2026-09-27-deepen-llm-mcp-plugins-napi-inspect-domains",
+  "title": {
+    "en": "Deepen llm/mcp/plugins/napi/inspect domains",
+    "zh": "下钻 llm/mcp/plugins/napi/inspect 四域"
+  },
+  "status": "verified",
+  "intent": {
+    "en": "Third-round deepening per the remaining leaf-too-coarse warnings: split llm/mcp/plugins/napi/inspect into their real file-level children, re-home the napi API contracts onto the bindings leaf, and anchor the two cross-layer arrows to concrete APIs.",
+    "zh": "按剩余 leaf-too-coarse 警告做第三轮下钻：llm/mcp/plugins/napi/inspect 按真实文件拆分子模块，napi 的 API 契约下放到 bindings 叶子，两条跨层箭头锚定到具体 API。"
+  },
+  "modules": {
+    "create": [
+      "kimi-code.engine.llm.anthropic",
+      "kimi-code.engine.llm.openai",
+      "kimi-code.engine.llm.google",
+      "kimi-code.engine.llm.http",
+      "kimi-code.engine.mcp.manager",
+      "kimi-code.engine.mcp.client",
+      "kimi-code.engine.plugins.registry",
+      "kimi-code.engine.plugins.archive",
+      "kimi-code.engine.napi.bindings",
+      "kimi-code.engine.napi.contract",
+      "kimi-code.apps.inspect.shell",
+      "kimi-code.apps.inspect.panels"
+    ]
+  },
+  "acceptance": [
+    "下钻后 normify_validate（repoRoot）仍 0 error",
+    "refresh 后所有新叶子 active 且指纹与仓库一致",
+    "engine.napi 的 3 个 API 契约下放到 napi.bindings 叶子",
+    "两条跨层箭头完成 API 锚定（native-client→bindings、bindings→registry）",
+    "normify_build + normify_render 重新产出并冻结"
+  ],
+  "note": "第三轮下钻完成：新增 12 个子模块（llm×4、mcp×2、plugins×2、napi×2、inspect×2），61 模块 / 28 依赖边 / 15 API；napi API 契约下放到 bindings 叶子；两条箭头完成 API 锚定（native-client→bindings、bindings→registry）；validate 0 error，产物冻结。",
+  "revision": {
+    "before": null,
+    "after": null
+  },
+  "created_at": "2026-09-27T10:50:56.065Z",
+  "updated_at": "2026-09-27T10:51:05.444Z",
+  "closed_at": "2026-09-27T10:51:05.444Z"
+}
