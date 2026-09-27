@@ -922,6 +922,13 @@ pub fn run_turn<'a>(
         input
             .llm
             .set_tool_call_ids(std::sync::Arc::clone(&tool_call_ids));
+        // Attribute every streamed fragment of this turn to the agent running
+        // it (v2 stamps `agentId` from `scopeContext` at event construction —
+        // one loopService per agent). The transport is shared across the main
+        // agent and all subagents, so the turn re-installs the owner per turn;
+        // without it the host's attribution fallback files a subagent's whole
+        // stream under the main transcript.
+        input.llm.set_stream_agent_id(&input.agent_id);
 
         for step_num in 0..max_steps {
             steps = step_num + 1;

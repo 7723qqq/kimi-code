@@ -131,6 +131,11 @@ pub struct NativeHttpLlm {
     /// attempt on it.
     tool_call_ids:
         std::sync::Mutex<Option<Arc<crate::turn_loop::tool_call_id::ToolCallIdNormalizer>>>,
+    /// The agent owning the turn in flight (v2 `scopeContext.agentId`),
+    /// installed by the turn through [`LLM::set_stream_agent_id`]. Streamed
+    /// deltas carry it so the host attributes a subagent's stream to the
+    /// subagent instead of the main transcript. `None` between turns.
+    stream_agent_id: std::sync::Mutex<Option<String>>,
 }
 
 impl NativeHttpLlm {
@@ -158,6 +163,7 @@ impl NativeHttpLlm {
             cached_token: std::sync::Mutex::new(None),
             fetch_gate: tokio::sync::Mutex::new(()),
             tool_call_ids: std::sync::Mutex::new(None),
+            stream_agent_id: std::sync::Mutex::new(None),
         }
     }
 
@@ -260,10 +266,24 @@ impl NativeHttpLlm {
             (delta, _) => delta,
         };
         if let Some(ref sink) = self.sink {
-            sink(serde_json::json!({
+            let mut event = serde_json::json!({
                 "type": "llm.delta",
                 "part": delta.to_part(),
-            }));
+            });
+            // Attribute the fragment to the agent whose turn is in flight (v2
+            // stamps `agentId` at event construction inside each agent's own
+            // loop service). Without it the host's attribution fallback
+            // resolves every delta — a subagent's body text and thinking
+            // included — to the main agent's transcript.
+            if let Some(agent_id) = self
+                .stream_agent_id
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_deref()
+            {
+                event["agent_id"] = serde_json::Value::String(agent_id.to_string());
+            }
+            sink(event);
         }
     }
 
@@ -1034,6 +1054,13 @@ impl LLM for NativeHttpLlm {
         *self.tool_call_ids.lock().unwrap_or_else(|e| e.into_inner()) = Some(ledger);
     }
 
+    fn set_stream_agent_id(&self, agent_id: &str) {
+        *self
+            .stream_agent_id
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(agent_id.to_string());
+    }
+
     fn model_name(&self) -> &str {
         &self.config.model
     }
@@ -1431,6 +1458,35 @@ mod tests {
             ledger.begin_response().remap_streamed_id("call_1", None),
             "call_1__2"
         );
+    }
+
+    /// B7 回归：流式 delta 必须携带归属 agent 的 `agent_id`（v2 在每个代理
+    /// 自己的 loopService 里结构性打标；这里由 run_turn 经
+    /// `set_stream_agent_id` 按回合安装）。没有它，SDK 的归属回退会把
+    /// 子代理的正文/思考流整体归到主代理的 transcript。
+    #[test]
+    fn streamed_deltas_carry_the_installed_agent_id() {
+        let llm = NativeHttpLlm::new(config("anthropic", "http://127.0.0.1:9"), String::new());
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink_seen = seen.clone();
+        let llm = llm.with_sink(Arc::new(move |event| {
+            sink_seen.lock().unwrap().push(event);
+        }));
+
+        // 未安装（回合尚未开始）：不带 agent_id，宿主按缺省归 main。
+        llm.emit_delta(StreamDelta::Text("leak".into()), None);
+        assert!(seen.lock().unwrap()[0].get("agent_id").is_none());
+
+        // 回合安装了 agent_id：每个 delta 都带上。
+        llm.set_stream_agent_id("subagent-1");
+        llm.emit_delta(StreamDelta::Text("body".into()), None);
+        llm.emit_delta(StreamDelta::Think("reasoning".into()), None);
+
+        let events = seen.lock().unwrap();
+        assert_eq!(events[1]["agent_id"], "subagent-1");
+        assert_eq!(events[1]["part"]["type"], "text");
+        assert_eq!(events[2]["agent_id"], "subagent-1");
+        assert_eq!(events[2]["part"]["type"], "think");
     }
 
     fn config(protocol: &str, base_url: &str) -> NativeLlmConfig {

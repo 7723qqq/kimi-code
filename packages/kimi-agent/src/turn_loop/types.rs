@@ -122,6 +122,15 @@ pub trait LLM: Send + Sync {
         _ledger: Arc<crate::turn_loop::tool_call_id::ToolCallIdNormalizer>,
     ) {
     }
+    /// Install the agent that owns the turn now starting on this transport.
+    /// The transport is shared between the main agent and every subagent, and
+    /// its stream sink emits bare `llm.delta` payloads with no attribution —
+    /// v2 gets the agent id structurally, one `loopService` per agent scope.
+    /// Here the turn installs it per turn (mirroring
+    /// [`LLM::set_tool_call_ids`]) so each streamed delta carries the
+    /// emitting agent's id and the host can keep a subagent's stream out of
+    /// the main transcript. The default is a no-op for stubs.
+    fn set_stream_agent_id(&self, _agent_id: &str) {}
     /// Send a chat request and get a response.
     fn chat(
         &self,
