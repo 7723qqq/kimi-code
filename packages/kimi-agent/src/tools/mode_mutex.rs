@@ -1,22 +1,26 @@
 //! Mode mutex (v2 `agent/modeMutex` port): plan, swarm and tower modes are
 //! mutually exclusive — entering one auto-exits the others.
 //!
-//! v2 enforced this with a per-agent mode flag (`PlanModeEnter` and
-//! `SwarmModeEnter` exit tower, `TowerModeEnter` exits plan and swarm). The
-//! native engine has no tower/swarm mode flags — tower state is file-based
-//! (`.tower/`) and swarm is a one-shot batch tool — so the mutex is expressed
-//! in those terms. Plan enter with open tower missions pauses them (`Paused`,
-//! never deleted or torn down; resume via TowerMission), while a swarm dispatch
-//! is *refused* while any mission is open (v2 #3976: the modes are exclusive,
-//! and the tower fleet already runs through TowerSpawn). Tower init with plan
-//! active deactivates plan through the host state bridge
-//! (`{active:false}`, undoable, like ExitPlanMode).
+//! v2 enforced this with per-agent mode flags on three edges: `PlanModeEnter`
+//! and `SwarmModeEnter` exit tower, `TowerModeEnter` exits plan *and* swarm.
+//! The native engine has no tower mode flag — tower state is file-based
+//! (`.tower/`) — so "tower active" is derived from open missions, and the two
+//! directions that need a tower *write* go through this module.
 //!
-//! Swarm has no persistent mode to exit on the tower side (each AgentSwarm
-//! call runs its batch and returns), so that half of v2's tower-enter rule
-//! is a documented no-op. Like v2, the mutex never blocks entry on an I/O
-//! error — except the swarm gate, which denies when a tower's state exists but
-//! cannot be read (a tower it cannot clear is not a tower it may ignore).
+//! One direction is a deliberate fork divergence: a swarm is **refused** while
+//! a tower holds open missions ([`refuse_swarm_with_active_tower`], v2 #3976)
+//! rather than auto-exiting the tower. The tower fleet runs through
+//! `TowerSpawn`, one mission per worker in its own worktree, so refusing the
+//! batch is the safe reading. The opposite direction has no fork counterpart
+//! and is a straight port: [`exit_swarm_for_tower_enter`], so a tower entered
+//! while swarm mode is open closes the mode. Plan exit
+//! ([`exit_plan_for_tower_enter`]) is likewise unchanged. Plan enter with open
+//! tower missions pauses them (`Paused`, never deleted or torn down; resume via
+//! TowerMission).
+//!
+//! Like v2, the mutex never blocks entry on an I/O error — except the swarm
+//! gate, which denies when a tower's state exists but cannot be read (a tower
+//! it cannot clear is not a tower it may ignore).
 
 use std::path::{Path, PathBuf};
 
@@ -101,6 +105,19 @@ pub async fn exit_plan_for_tower_enter(callbacks: &dyn HostCallbacks) -> bool {
     callbacks.state_write(write).await.is_ok()
 }
 
+/// v2 `TowerModeEnter` → `swarm.exit()` (`modeMutexService.ts:39-41`): the
+/// other half of the plan exit above, and the one that had no counterpart here
+/// at all. Entering a tower while swarm mode is open would leave the mode on
+/// with no exit — the agent keeps announcing a workflow the tower fleet has
+/// replaced, and nothing in the tower's lifetime clears it.
+///
+/// Returns whether swarm mode was actually exited. Routed through
+/// [`crate::swarm::mode::set_swarm_mode`] so the mode's own event pair is
+/// emitted and the host's indicator follows, same as every other exit.
+pub fn exit_swarm_for_tower_enter(callbacks: &dyn HostCallbacks, agent_id: &str) -> bool {
+    crate::swarm::mode::set_swarm_mode(callbacks, agent_id, None)
+}
+
 /// v2 #3976: swarm and tower modes are mutually exclusive, and with tower
 /// active the fleet runs through TowerSpawn — one mission per worker in its own
 /// worktree. Returns the denial message when a tower has open missions, or
@@ -168,6 +185,11 @@ pub fn tower_paused_note(ids: &[String]) -> String {
 pub fn plan_exited_note() -> String {
     "Mode mutex: plan mode was active, so it was exited before tower init (plan file preserved)."
         .to_string()
+}
+
+/// Model-facing note prepended when tower init auto-exited swarm mode.
+pub fn swarm_exited_note() -> String {
+    "Mode mutex: swarm mode was active, so it was exited before tower init.".to_string()
 }
 
 #[cfg(test)]

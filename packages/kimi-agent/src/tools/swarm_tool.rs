@@ -1,8 +1,12 @@
 //! Native execution of the `AgentSwarm` orchestration tool.
 //!
-//! Direct native port of `agent-core-v2`'s `AgentSwarmTool` (swarm feature):
-//! drives batch subagent execution through the [`AgentRunBatch`] scheduler with
-//! concurrency limits, rate-limit backoff, timeout handling, and cancellation.
+//! Direct native port of `agent-core-v2`'s `AgentSwarmTool` (swarm feature).
+//!
+//! This module is deliberately thin: it parses and validates the tool's
+//! arguments, builds the task list, and renders the result XML. Everything
+//! that *owns* the run — member spawn/resume/retry, cancellation, lifecycle
+//! events — lives in the swarm layer ([`crate::swarm::service`]), mirroring
+//! v2 where `AgentSwarmTool` delegates to `ISessionSwarmService`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -11,17 +15,14 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::rpc::types::BoxFuture;
+use crate::i18n::{LocalizedText, i18n_params};
 use crate::subagent::SubagentManager;
-use crate::subagent::manager::ForegroundTurnOutcome;
 use crate::subagent::types::ParentCancel;
 use crate::swarm::agent_run_batch::{
-    AbortReason, AbortSignal, AgentRunAttemptHandle, AgentRunAttemptOptions, AgentRunBatch,
-    AgentRunBatchLauncher, AgentRunBatchOptions, AgentRunBatchTiming, AgentRunCompletion,
-    AgentRunError, AgentRunResult, AgentRunState, AgentRunStatus, AgentRunSuspendedEvent,
-    AgentRunTask, AgentRunTaskKind, AgentSpawnAttemptOptions, SubagentSpawnPlan,
-    resolve_swarm_max_concurrency,
+    AbortReason, AbortSignal, AgentRunResult, AgentRunState, AgentRunStatus, AgentRunTask,
+    AgentRunTaskKind, SubagentSpawnPlan,
 };
+use crate::swarm::service::SwarmLauncher;
 use crate::turn_loop::types::{ExecutableToolResult, LoopTurnStopReason, ToolInfo};
 
 /// The v2 default profile name (`DEFAULT_PROFILE_NAME`).
@@ -57,292 +58,6 @@ pub struct SwarmTaskSpec {
     pub is_resume: bool,
 }
 
-fn is_rate_limit_error(err: &str) -> bool {
-    let lower = err.to_ascii_lowercase();
-    lower.contains("429")
-        || lower.contains("rate limit")
-        || lower.contains("rate_limit")
-        || lower.contains("too many requests")
-        || lower.contains("resource exhausted")
-}
-
-struct SubagentSwarmLauncher {
-    manager: Arc<SubagentManager>,
-    parent_cancel: Option<ParentCancel>,
-    inherited_history: Option<Vec<crate::turn_loop::types::LLMMessage>>,
-    /// `[secondary_model]` binding for item-spawned subagents; `None` inherits
-    /// the session model.
-    llm: Option<Arc<dyn crate::turn_loop::types::LLM>>,
-    /// The parent session's callback chain, used to emit the same
-    /// `subagent.*` lifecycle events the `Agent` tool emits.
-    ///
-    /// Without it the host never learns a swarm worker exists: the TUI routes
-    /// every child event through `subagentInfo`, which is populated *only* by
-    /// `subagent.spawned`, and drops the rest when the id is unknown
-    /// (`subagent-event-handler.ts:92`). The swarm progress component would
-    /// therefore never render and the user would see nothing until the batch
-    /// returned one XML blob.
-    callbacks: Arc<dyn crate::callbacks::HostCallbacks>,
-}
-
-/// Everything the lifecycle events need that does not change between
-/// attempts of one task. Cloned into each attempt future.
-#[derive(Clone)]
-struct Emitter {
-    callbacks: Arc<dyn crate::callbacks::HostCallbacks>,
-    profile_name: String,
-    parent_tool_call_id: String,
-    description: String,
-    swarm_index: Option<usize>,
-}
-
-impl Emitter {
-    fn emit(&self, agent_id: &str) {
-        super::agent_tool::emit_spawned_started(
-            self.callbacks.as_ref(),
-            agent_id,
-            &self.profile_name,
-            Some(&self.parent_tool_call_id),
-            Some(&self.description),
-            false,
-            self.swarm_index,
-        );
-    }
-
-    /// A rate-limited attempt requeued with backoff. The host shows the member
-    /// as suspended until the retry lands, rather than as failed or still
-    /// running — otherwise a throttled swarm looks like it lost the worker.
-    fn emit_suspended(&self, agent_id: &str, reason: &str) {
-        self.callbacks.emit_event(serde_json::json!({
-            "type": "subagent.suspended",
-            "subagent_id": agent_id,
-            "parent_tool_call_id": self.parent_tool_call_id,
-            "reason": reason,
-        }));
-    }
-}
-
-impl AgentRunBatchLauncher<SwarmTaskSpec> for SubagentSwarmLauncher {
-    fn spawn(
-        &self,
-        options: AgentSpawnAttemptOptions,
-    ) -> BoxFuture<'static, Result<AgentRunAttemptHandle, String>> {
-        let manager = self.manager.clone();
-        let parent_cancel = self.parent_cancel.clone();
-        let item_llm = self.llm.clone();
-        let emit = Emitter {
-            callbacks: self.callbacks.clone(),
-            profile_name: options.profile_name.clone(),
-            parent_tool_call_id: options.run.parent_tool_call_id.clone(),
-            description: options.run.description.clone(),
-            swarm_index: options.run.swarm_index,
-        };
-        let fork_history = if options.plan.fork {
-            self.inherited_history.clone()
-        } else {
-            None
-        };
-        Box::pin(async move {
-            let role = format!("Swarm worker for {}", options.run.description);
-            let agent_id = manager.spawn(&options.profile_name, &role).await?;
-            if let Some(llm) = item_llm.clone() {
-                manager.set_instance_llm(&agent_id, llm).await;
-            }
-            emit.emit(&agent_id);
-            let prompt = options.run.prompt;
-            let signal = options.run.signal;
-            let handle_id = agent_id.clone();
-            let target_id = agent_id.clone();
-
-            let completion: BoxFuture<'static, Result<AgentRunCompletion, AgentRunError>> =
-                Box::pin(async move {
-                    let run_fut = manager.run_foreground_turn_with_history(
-                        &target_id,
-                        &prompt,
-                        fork_history,
-                        parent_cancel.as_ref(),
-                    );
-                    tokio::select! {
-                        res = run_fut => {
-                            match res {
-                                Ok(ForegroundTurnOutcome::Completed(turn)) => {
-                                    if matches!(turn.stop_reason, LoopTurnStopReason::Aborted) {
-                                        Err(AgentRunError {
-                                            message: "The subagent was stopped before it finished.".into(),
-                                            is_rate_limit: false,
-                                        })
-                                    } else {
-                                        let summary = crate::subagent::manager::final_assistant_summary(&turn.messages);
-                                        // Anything but `EndTurn` means the model
-                                        // did not choose to stop: the step
-                                        // budget, goal budget, repeat breaker or
-                                        // a pause cut the turn short, so the
-                                        // summary is partial. Recording it lets
-                                        // the aggregator say so instead of
-                                        // reporting the worker as finished.
-                                        let stop_reason = (!matches!(
-                                            turn.stop_reason,
-                                            LoopTurnStopReason::EndTurn
-                                        ))
-                                        .then_some(turn.stop_reason);
-                                        Ok(AgentRunCompletion {
-                                            result: summary,
-                                            usage: Some(turn.usage),
-                                            stop_reason,
-                                        })
-                                    }
-                                }
-                                Ok(ForegroundTurnOutcome::ParentCancelled) => {
-                                    Err(AgentRunError {
-                                        message: "The subagent was stopped before it finished by user.".into(),
-                                        is_rate_limit: false,
-                                    })
-                                }
-                                Err(err) => {
-                                    let is_rate_limit = is_rate_limit_error(&err);
-                                    Err(AgentRunError {
-                                        message: err,
-                                        is_rate_limit,
-                                    })
-                                }
-                            }
-                        }
-                        _ = signal.wait() => {
-                            let _ = manager.kill(&target_id).await;
-                            Err(AgentRunError {
-                                message: "The subagent was stopped before it finished.".into(),
-                                is_rate_limit: false,
-                            })
-                        }
-                    }
-                });
-
-            Ok(AgentRunAttemptHandle {
-                agent_id: handle_id,
-                completion,
-            })
-        })
-    }
-
-    fn resume(
-        &self,
-        agent_id: String,
-        options: AgentRunAttemptOptions,
-    ) -> BoxFuture<'static, Result<AgentRunAttemptHandle, String>> {
-        let manager = self.manager.clone();
-        let parent_cancel = self.parent_cancel.clone();
-        // A resumed member was already announced with `subagent.spawned` when
-        // it first launched; only the lifecycle moves back to running. Emitting
-        // the pair again would re-register it in the host's `subagentInfo` and
-        // reset the progress row's counters mid-batch.
-        let callbacks = self.callbacks.clone();
-        Box::pin(async move {
-            let prompt = options.prompt;
-            let signal = options.signal;
-            let handle_id = agent_id.clone();
-            let target_id = agent_id.clone();
-
-            callbacks.emit_event(serde_json::json!({
-                "type": "subagent.started",
-                "subagent_id": target_id,
-            }));
-
-            let completion: BoxFuture<'static, Result<AgentRunCompletion, AgentRunError>> =
-                Box::pin(async move {
-                    let run_fut = async {
-                        if let Some(res) = manager
-                            .resume_foreground_turn(&target_id, &prompt, parent_cancel.as_ref())
-                            .await
-                        {
-                            res
-                        } else {
-                            manager
-                                .run_foreground_turn(&target_id, &prompt, parent_cancel.as_ref())
-                                .await
-                        }
-                    };
-                    tokio::select! {
-                        res = run_fut => {
-                            match res {
-                                Ok(ForegroundTurnOutcome::Completed(turn)) => {
-                                    if matches!(turn.stop_reason, LoopTurnStopReason::Aborted) {
-                                        Err(AgentRunError {
-                                            message: "The subagent was stopped before it finished.".into(),
-                                            is_rate_limit: false,
-                                        })
-                                    } else {
-                                        let summary = crate::subagent::manager::final_assistant_summary(&turn.messages);
-                                        // Anything but `EndTurn` means the model
-                                        // did not choose to stop: the step
-                                        // budget, goal budget, repeat breaker or
-                                        // a pause cut the turn short, so the
-                                        // summary is partial. Recording it lets
-                                        // the aggregator say so instead of
-                                        // reporting the worker as finished.
-                                        let stop_reason = (!matches!(
-                                            turn.stop_reason,
-                                            LoopTurnStopReason::EndTurn
-                                        ))
-                                        .then_some(turn.stop_reason);
-                                        Ok(AgentRunCompletion {
-                                            result: summary,
-                                            usage: Some(turn.usage),
-                                            stop_reason,
-                                        })
-                                    }
-                                }
-                                Ok(ForegroundTurnOutcome::ParentCancelled) => {
-                                    Err(AgentRunError {
-                                        message: "The subagent was stopped before it finished by user.".into(),
-                                        is_rate_limit: false,
-                                    })
-                                }
-                                Err(err) => {
-                                    let is_rate_limit = is_rate_limit_error(&err);
-                                    Err(AgentRunError {
-                                        message: err,
-                                        is_rate_limit,
-                                    })
-                                }
-                            }
-                        }
-                        _ = signal.wait() => {
-                            let _ = manager.kill(&target_id).await;
-                            Err(AgentRunError {
-                                message: "The subagent was stopped before it finished.".into(),
-                                is_rate_limit: false,
-                            })
-                        }
-                    }
-                });
-
-            Ok(AgentRunAttemptHandle {
-                agent_id: handle_id,
-                completion,
-            })
-        })
-    }
-
-    fn retry(
-        &self,
-        agent_id: String,
-        options: AgentRunAttemptOptions,
-    ) -> BoxFuture<'static, Result<AgentRunAttemptHandle, String>> {
-        self.resume(agent_id, options)
-    }
-
-    fn suspended(&self, event: AgentRunSuspendedEvent<SwarmTaskSpec>) {
-        Emitter {
-            callbacks: self.callbacks.clone(),
-            profile_name: event.task.profile_name.clone(),
-            parent_tool_call_id: event.task.parent_tool_call_id.clone(),
-            description: event.task.description.clone(),
-            swarm_index: event.task.swarm_index,
-        }
-        .emit_suspended(&event.agent_id, &event.reason);
-    }
-}
-
 fn err_result(msg: impl Into<String>) -> ExecutableToolResult {
     ExecutableToolResult {
         delivery: None,
@@ -352,6 +67,61 @@ fn err_result(msg: impl Into<String>) -> ExecutableToolResult {
         note: None,
         display: None,
     }
+}
+
+/// The launch-shape rejections, as engine-owned text (v2 raises the same five
+/// `VALIDATION_FAILED` errors, verbatim in English, at
+/// `agentSwarmTool.ts:225-275`).
+///
+/// Localized because they are the tool's result and land in the transcript
+/// where a user reads them. The *tool description* and the model-facing
+/// exclusivity refusal stay English: both are model input rather than a
+/// failure surface.
+fn invalid_args(reason: &str) -> String {
+    LocalizedText::with_params(
+        "engine.tools.agentSwarm.invalidArgs",
+        i18n_params!["reason" => reason],
+    )
+    .render()
+}
+
+fn description_required() -> String {
+    LocalizedText::new("engine.tools.agentSwarm.descriptionRequired").render()
+}
+
+fn min_inputs() -> String {
+    LocalizedText::new("engine.tools.agentSwarm.minInputs").render()
+}
+
+fn max_subagents(max: usize) -> String {
+    LocalizedText::with_params(
+        "engine.tools.agentSwarm.maxSubagents",
+        i18n_params!["max" => max.to_string()],
+    )
+    .render()
+}
+
+fn prompt_template_required() -> String {
+    LocalizedText::new("engine.tools.agentSwarm.promptTemplateRequired").render()
+}
+
+fn placeholder_required(placeholder: &str) -> String {
+    LocalizedText::with_params(
+        "engine.tools.agentSwarm.placeholderRequired",
+        i18n_params!["placeholder" => placeholder],
+    )
+    .render()
+}
+
+fn duplicate_prompts(previous: usize, current: usize) -> String {
+    LocalizedText::with_params(
+        "engine.tools.agentSwarm.duplicatePrompts",
+        i18n_params![
+            "previous" => previous.to_string(),
+            "current" => current.to_string()
+        ],
+    )
+    .render()
 }
 
 fn ok_result(msg: impl Into<String>) -> ExecutableToolResult {
@@ -532,16 +302,12 @@ pub async fn execute_agent_swarm(
 
     let input: AgentSwarmToolInput = match serde_json::from_value(args.clone()) {
         Ok(parsed) => parsed,
-        Err(e) => return Some(err_result(format!("Invalid AgentSwarm arguments: {e}"))),
+        Err(e) => return Some(err_result(invalid_args(&e.to_string()))),
     };
 
     let description = match input.description {
         Some(d) if !d.trim().is_empty() => d.trim().to_string(),
-        _ => {
-            return Some(err_result(
-                "Invalid AgentSwarm arguments: 'description' is required.",
-            ));
-        }
+        _ => return Some(err_result(description_required())),
     };
 
     let resume_entries: Vec<(String, String)> = input
@@ -578,15 +344,11 @@ pub async fn execute_agent_swarm(
     let total_count = resume_count + item_count;
 
     if resume_count == 0 && item_count < 2 {
-        return Some(err_result(
-            "AgentSwarm requires at least 2 items unless resume_agent_ids is provided.",
-        ));
+        return Some(err_result(min_inputs()));
     }
 
     if total_count > MAX_AGENT_SWARM_SUBAGENTS {
-        return Some(err_result(format!(
-            "AgentSwarm supports at most {MAX_AGENT_SWARM_SUBAGENTS} subagents."
-        )));
+        return Some(err_result(max_subagents(MAX_AGENT_SWARM_SUBAGENTS)));
     }
 
     let prompt_template = input
@@ -596,22 +358,30 @@ pub async fn execute_agent_swarm(
         .filter(|s| !s.is_empty());
 
     if item_count > 0 && prompt_template.is_none() {
-        return Some(err_result(
-            "prompt_template is required when items are provided.",
-        ));
+        return Some(err_result(prompt_template_required()));
     }
 
     if let Some(template) = &prompt_template
         && !template.contains(PROMPT_TEMPLATE_PLACEHOLDER)
     {
-        return Some(err_result(format!(
-            "prompt_template must include the {PROMPT_TEMPLATE_PLACEHOLDER} placeholder."
+        return Some(err_result(placeholder_required(
+            PROMPT_TEMPLATE_PLACEHOLDER,
         )));
     }
 
     let mut seen_prompts: HashMap<String, usize> = HashMap::new();
     let mut tasks: Vec<AgentRunTask<SwarmTaskSpec>> = Vec::new();
     let parent_tool_call_id = tool_call_id.unwrap_or("swarm").to_string();
+
+    // v2 `AgentSwarmTool.execution` opens swarm mode with the `tool` trigger
+    // before running the batch (`agentSwarmTool.ts:128`). The mode is what
+    // makes the swarm a feature the agent is *in*, rather than one more tool
+    // it called; the turn-end hook in `run_turn` closes it again. Entering
+    // emits the mode event pair, so the host's indicator tracks it.
+    let caller_agent_id = crate::tools::CALLER_AGENT_ID
+        .try_with(|id| id.clone())
+        .unwrap_or_else(|_| crate::callbacks::MAIN_AGENT_ID.to_string());
+    crate::swarm::mode::enter_tool_swarm(runtime.callbacks.as_ref(), &caller_agent_id);
     // Host-resolved swarm timeout (v2 `resolveSwarmTimeoutMs`): a dedicated
     // knob — unlike `Agent` turns, swarms never inherit the subagent
     // timeout. `0` = "no timeout armed" (v2 `taskService`), so it maps to
@@ -677,9 +447,7 @@ pub async fn execute_agent_swarm(
             let prompt = template.replace(PROMPT_TEMPLATE_PLACEHOLDER, &item);
             let item_num = idx_offset + 1;
             if let Some(prev) = seen_prompts.get(&prompt) {
-                return Some(err_result(format!(
-                    "Duplicate subagent prompts from items {prev} and {item_num}. AgentSwarm requires distinct subagents."
-                )));
+                return Some(err_result(duplicate_prompts(*prev, item_num)));
             }
             seen_prompts.insert(prompt.clone(), item_num);
 
@@ -711,26 +479,28 @@ pub async fn execute_agent_swarm(
         }
     }
 
-    let launcher = Arc::new(SubagentSwarmLauncher {
+    // The swarm layer owns the run: the tool hands it a launcher and the
+    // task list, and gets per-member results back (v2: `AgentSwarmTool`
+    // delegates to `ISessionSwarmService.run`).
+    let launcher = Arc::new(SwarmLauncher {
         manager: manager.clone(),
         parent_cancel: parent_cancel.cloned(),
         inherited_history,
         llm: item_llm,
         callbacks: runtime.callbacks.clone(),
+        // One sink for the whole batch, so the terminalizer it holds is
+        // per-run: a member that is rate-limited and retried reports one
+        // terminal event, not one per attempt.
+        sink: Arc::new(crate::swarm::service::CallbackSink::new(
+            runtime.callbacks.clone(),
+        )),
     });
 
-    let env_map: HashMap<String, String> = std::env::vars().collect();
-    let max_concurrency = resolve_swarm_max_concurrency(&env_map).unwrap_or(None);
-    let batch = AgentRunBatch::new(
-        launcher,
-        tasks,
-        AgentRunBatchOptions {
-            max_concurrency,
-            timing: AgentRunBatchTiming::default(),
-        },
-    );
+    let results = crate::swarm::service::SwarmRun::new(launcher, tasks, batch_signal, None)
+        .run()
+        .await;
 
-    let results = match batch.run().await {
+    let results = match results {
         Ok(r) => r,
         Err(e) => return Some(err_result(e)),
     };
@@ -741,7 +511,20 @@ pub async fn execute_agent_swarm(
 pub fn agent_swarm_tool_def(
     pool: Option<&crate::subagent::secondary::SecondaryModelRuntime>,
 ) -> ToolInfo {
-    let mut description = "Launch multiple subagents from one prompt template, existing agent resumes, or both. Use AgentSwarm when many subagents should run the same kind of task over different inputs. The placeholder is exactly `{{item}}`.".to_string();
+    // v2 `tools/agent-swarm/agent-swarm.md`, verbatim: the description the
+    // model reads.
+    let mut description = r#"Launch multiple subagents from one prompt template, existing agent resumes, or both.
+
+Use AgentSwarm when many subagents should run the same kind of task over different inputs. The placeholder is exactly `{{item}}`. For example, with `prompt_template` set to `Review {{item}} for likely regressions.` and `items` set to `["src/a.ts", "src/b.ts"]`, AgentSwarm launches two new subagents with those two concrete prompts. For a few differently-shaped tasks, make separate `Agent` calls in one message instead.
+
+Use `resume_agent_ids` to continue subagents that already exist from earlier work, such as ones that failed or timed out: map each agent id to the prompt for that resumed subagent (usually `continue` if no extra information is needed). You may combine `resume_agent_ids` with `items` in the same call to resume existing subagents and launch new ones. Do not duplicate resumed work in `items`.
+
+Each of these is enforced — a violation is rejected before any subagent starts: provide at least 2 `items` unless you pass `resume_agent_ids`; whenever `items` are present, `prompt_template` is required and must contain `{{item}}`; and the filled-in prompts must be distinct (two items that expand to the same prompt are rejected).
+
+Use enough subagents to keep the work focused and parallel. AgentSwarm supports up to 128 subagents, and launches are queued automatically, so it is safe to split large tasks into many clear, independent items.
+
+If `AgentSwarm` is called, that call must be the only tool call in the response."#
+        .to_string();
     // v2 `buildSubagentModelDescriptions`: a forced pool exposes no choice,
     // so it appends neither the listing nor (below) the `model` parameter.
     if let Some(pool) = pool
@@ -806,6 +589,12 @@ pub fn agent_swarm_tool_def(
 #[cfg(test)]
 mod tests {
     use super::*;
+    // The tests drive the launcher and the batch types directly, so they need
+    // the scheduler surface the tool body no longer imports.
+    use crate::rpc::types::BoxFuture;
+    use crate::swarm::agent_run_batch::{
+        AgentRunAttemptOptions, AgentRunBatchLauncher, AgentSpawnAttemptOptions,
+    };
 
     #[test]
     fn test_swarm_tool_def_shape() {
@@ -1237,19 +1026,22 @@ mod tests {
         )
         .await;
 
-        let launcher = SubagentSwarmLauncher {
+        let recorder = Arc::new(Recorder {
+            events: events.clone(),
+            spawned: spawned.clone(),
+        });
+        let launcher = SwarmLauncher {
             manager: mgr.clone(),
             parent_cancel: None,
             inherited_history: None,
             llm: None,
-            callbacks: Arc::new(Recorder {
-                events: events.clone(),
-                spawned: spawned.clone(),
-            }),
+            callbacks: recorder.clone(),
+            sink: Arc::new(crate::swarm::service::CallbackSink::new(recorder)),
         };
 
-        let handle = launcher
-            .spawn(AgentSpawnAttemptOptions {
+        let handle = AgentRunBatchLauncher::<SwarmTaskSpec>::spawn(
+            &launcher,
+            AgentSpawnAttemptOptions {
                 profile_name: "coder".into(),
                 swarm_item: None,
                 plan: SubagentSpawnPlan {
@@ -1269,9 +1061,10 @@ mod tests {
                     on_ready: None,
                     suppress_rate_limit_failure_event: false,
                 },
-            })
-            .await
-            .expect("worker spawns");
+            },
+        )
+        .await
+        .expect("worker spawns");
         handle.completion.await.expect("worker completes");
 
         assert_eq!(
@@ -1303,6 +1096,32 @@ mod tests {
                  transcript, cutting the main agent's reasoning. Event: {event:?}"
             );
         }
+
+        // The member reaches a terminal state (v2 `mirrorAgentRun`'s
+        // `emitTerminal`). Without it the TUI's swarm progress row keeps the
+        // worker "running" — it has no other way to leave that state — and the
+        // user sees nothing until the whole batch returns one XML blob.
+        let terminals: Vec<_> = recorded
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.get("type").and_then(|t| t.as_str()),
+                    Some("subagent.completed")
+                        | Some("subagent.failed")
+                        | Some("subagent.cancelled")
+                )
+            })
+            .collect();
+        assert_eq!(
+            terminals.len(),
+            1,
+            "exactly one terminal event per member: {recorded:?}"
+        );
+        assert_eq!(
+            terminals[0]["type"], "subagent.completed",
+            "a member that ran to the end completes: {recorded:?}"
+        );
+        assert_eq!(terminals[0]["subagent_id"], worker_id.as_str());
     }
 
     #[tokio::test]

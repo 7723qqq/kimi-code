@@ -34,6 +34,9 @@ pub mod permission_mode;
 /// head-of-turn reminder after a user-cancelled turn.
 pub mod interruption_reminder;
 
+/// Swarm-mode reminders (v2 `SwarmInjection`, the `swarm_mode` variant).
+pub mod swarm_mode;
+
 /// Wrap an injection text in the `<system-reminder>` envelope. The content
 /// is trimmed and placed between the prefix and suffix, exactly like v2's
 /// `wrapSystemReminder`.

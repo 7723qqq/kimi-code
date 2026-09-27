@@ -1239,7 +1239,10 @@ mod tests {
         let (_tmp, store) = store();
 
         // Absent: no file yet (and an unknown domain name).
-        assert!(matches!(store.read_domain_state("todo"), DomainRead::Absent));
+        assert!(matches!(
+            store.read_domain_state("todo"),
+            DomainRead::Absent
+        ));
         assert!(matches!(
             store.read_domain_state("not-a-domain"),
             DomainRead::Absent
@@ -1296,7 +1299,10 @@ mod tests {
         );
 
         // An absent domain is not corrupt: checkpointing still works.
-        assert!(matches!(store.read_domain_state("todo"), DomainRead::Absent));
+        assert!(matches!(
+            store.read_domain_state("todo"),
+            DomainRead::Absent
+        ));
         store.clear_domain("plan").unwrap();
         store.checkpoint().unwrap();
         assert_eq!(store.checkpoint_depth(), 2);
@@ -1341,7 +1347,10 @@ mod tests {
             .write_domain("plan", &json!({ "active": true, "id": "plan-1" }))
             .unwrap();
         assert!(store.rollback().unwrap());
-        assert!(matches!(store.read_domain_state("plan"), DomainRead::Absent));
+        assert!(matches!(
+            store.read_domain_state("plan"),
+            DomainRead::Absent
+        ));
         assert!(!fresh_dir.join("plan.json").exists());
     }
 
@@ -1378,7 +1387,9 @@ mod tests {
         });
         // Whatever won the last rename, the file is one complete value.
         let read = store.read_domain_state("todo");
-        let value = read.value().expect("the file parses after concurrent writes");
+        let value = read
+            .value()
+            .expect("the file parses after concurrent writes");
         let id = value[0]["id"].as_str().expect("a complete todo entry");
         assert!(id == "T1" || id == "T2", "torn write: {value}");
         let leftovers: Vec<_> = fs::read_dir(store.state_dir())

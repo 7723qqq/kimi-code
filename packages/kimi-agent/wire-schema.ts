@@ -274,6 +274,8 @@ export const runTurnParamsSchema = z.object({
     .optional(),
   subagent_timeout_ms: z.number().optional(),
   swarm_timeout_ms: z.number().optional(),
+  swarm_mode: z.boolean().optional(),
+  swarm_mode_trigger: z.enum(['manual', 'task', 'tool']).optional(),
   max_attempts: z.number().optional(),
   web_search: webServiceConfig.optional(),
   web_fetch: webServiceConfig.optional(),

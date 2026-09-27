@@ -41,6 +41,7 @@ import type {
   SuggestFilesInput,
   SuggestFilesItem,
   SuggestFilesResult,
+  SwarmModeTrigger,
   ToolCall,
 } from '#/types';
 import {
@@ -349,6 +350,7 @@ function initialRuntimeState(config: KimiConfig, model: string | undefined) {
         : 'manual') as PermissionMode,
     planMode: (config.defaultPermissionMode as string | undefined) === 'plan',
     swarmMode: false,
+    swarmModeTrigger: 'manual' as const,
     towerMode: false,
     maxContextTokens: resolveModelContextWindow(config, config.defaultModel),
     contextTokens: 0,
@@ -973,6 +975,13 @@ interface NativeSessionMeta {
   permissionMode: PermissionMode;
   planMode: boolean;
   swarmMode: boolean;
+  /**
+   * Why the host opened swarm mode. `task` and `tool` swarms close themselves
+   * at turn end, so the engine needs the distinction to decide whether the
+   * turn's end is a mode change; `manual` survives it. Defaults to `manual`,
+   * the only trigger v2's profile route uses.
+   */
+  swarmModeTrigger: SwarmModeTrigger;
   towerMode: boolean;
   maxContextTokens: number;
   contextTokens: number;
@@ -1122,6 +1131,19 @@ function manifestAgentPaths(info: PluginInfo): readonly string[] {
     (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0,
   );
   return paths.length > 0 ? paths : ['agents'];
+}
+
+/**
+ * Narrow an SDK trigger to the three the engine's swarm mode knows.
+ *
+ * The engine distinguishes `task` and `tool` (both close themselves at turn
+ * end) from `manual` (which does not), so the distinction has to survive the
+ * crossing. The SDK's type is wider than the engine's; `auto` and `system`
+ * have no engine counterpart and mean the same thing to it as `manual` — the
+ * mode stays open until the user leaves it.
+ */
+function engineSwarmTrigger(trigger: SwarmModeTrigger): 'manual' | 'task' | 'tool' {
+  return trigger === 'task' || trigger === 'tool' ? trigger : 'manual';
 }
 
 function resolveMcpServersForEngine(servers: Record<string, StoredMcpServerConfig>): Array<{
@@ -1619,6 +1641,10 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
             this.persistMeta(meta);
             // Forward the spawn itself too: the TUI creates the subagent card
             // from it, and the meta write above is host bookkeeping only.
+            // `swarm_index` is what distinguishes a swarm member from a plain
+            // child (v2 `coreEventMap.ts:1110-1117` reads it to pick the
+            // `member` role), and the engine emits it — dropping it here is
+            // what made every swarm member render as an ordinary subagent.
             this.receiveEvent({
               sessionId,
               agentId: eventAgentId,
@@ -1627,6 +1653,9 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
               subagentName: String(parsed.subagent_name ?? ''),
               parentToolCallId: String(parsed.parent_tool_call_id ?? ''),
               runInBackground: parsed.run_in_background === true,
+              ...(typeof parsed.swarm_index === 'number'
+                ? { swarmIndex: parsed.swarm_index }
+                : {}),
               ...(typeof parsed.description === 'string'
                 ? { description: parsed.description }
                 : {}),
@@ -1641,6 +1670,50 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
               subagentId: parsed.subagent_id,
             });
           }
+        } else if (parsed.type === 'subagent.suspended') {
+          // A swarm member the engine requeued after a provider rate limit. It
+          // is neither running nor failed, so without this arm the TUI's
+          // swarm progress row keeps showing it as running until the retry
+          // lands (or never).
+          if (typeof parsed.subagent_id === 'string') {
+            this.receiveEvent({
+              sessionId,
+              agentId: eventAgentId,
+              type: 'subagent.suspended',
+              subagentId: parsed.subagent_id,
+              reason: String(parsed.reason ?? ''),
+              ...(typeof parsed.parent_tool_call_id === 'string'
+                ? { parentToolCallId: parsed.parent_tool_call_id }
+                : {}),
+            });
+          }
+        } else if (parsed.type === 'swarm_mode.enter' || parsed.type === 'swarm_mode.exit') {
+          // The engine owns the mode and announces both edges. Fold it into
+          // `meta` so the next handle rebuild re-sends the mode the engine
+          // actually has: an auto-exited `task` swarm must not be resurrected by
+          // a stale `swarmMode: true`.
+          const active = parsed.type === 'swarm_mode.enter';
+          if (meta.swarmMode !== active) {
+            meta.swarmMode = active;
+            this.persistMeta(meta);
+          }
+        } else if (parsed.type === 'agent.status.updated') {
+          // The engine's edge-triggered mode notifications (`swarmMode`
+          // without the other status fields). Fold the mode and forward the
+          // event so the TUI can clear its indicator and render the "ended"
+          // marker for a `task` swarm; a mode the host only tracks itself
+          // never reports its own end.
+          if (typeof parsed.swarmMode === 'boolean' && meta.swarmMode !== parsed.swarmMode) {
+            meta.swarmMode = parsed.swarmMode;
+            if (!parsed.swarmMode) meta.swarmModeTrigger = 'manual';
+            this.persistMeta(meta);
+          }
+          this.receiveEvent({
+            sessionId,
+            agentId: eventAgentId,
+            type: 'agent.status.updated',
+            ...(typeof parsed.swarmMode === 'boolean' ? { swarmMode: parsed.swarmMode } : {}),
+          });
         } else if (parsed.type === 'subagent.completed') {
           if (typeof parsed.subagent_id === 'string') {
             const usage = toTokenUsage(parsed.usage);
@@ -2192,6 +2265,12 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       // `?? undefined` (never null): napi Option fields reject null.
       subagentTimeoutMs: subagentTimeoutMs ?? undefined,
       swarmTimeoutMs: swarmTimeoutMs ?? undefined,
+      // The swarm mode the engine should be in for this handle's turns. The
+      // engine owns the mode (its `swarm_mode` reminder and the turn-end
+      // auto-exit read it), so this is the only way a `/swarm` toggle reaches
+      // it over napi. `undefined` leaves it alone; `false` exits it.
+      swarmMode: meta.swarmMode,
+      swarmModeTrigger: meta.swarmMode ? engineSwarmTrigger(meta.swarmModeTrigger) : undefined,
       maxAttempts: maxAttempts ?? undefined,
       compactionMaxAttempts: compactionMaxAttempts ?? undefined,
       // The window `should_compact` compares history against, resolved for
@@ -2306,6 +2385,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         permissionMode: persisted?.permissionMode ?? defaults.permissionMode,
         planMode: persisted?.planMode ?? false,
         swarmMode: false,
+        swarmModeTrigger: 'manual',
         towerMode: false,
         maxContextTokens: resolveModelContextWindow(config, config.defaultModel),
         contextTokens: persisted?.contextTokens ?? 0,
@@ -3303,7 +3383,23 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   override async setSwarmMode(input: SetSessionSwarmModeRpcInput): Promise<void> {
     const meta = this.requireSession(input.sessionId);
-    await this.applyRebuiltSetting(meta, 'swarmMode', input.enabled);
+    // The engine closes a `task` / `tool` swarm itself at turn end and says so
+    // with an `agent.status.updated` carrying `swarmMode: false`. Recording the
+    // trigger is what makes the mode survive the next handle rebuild for a
+    // manual swarm and, just as importantly, stop resurrecting an auto-exited
+    // one — a stale `swarmMode: true` here would re-enter it on every rebuild.
+    const previousTrigger = meta.swarmModeTrigger;
+    meta.swarmMode = input.enabled;
+    if (input.enabled) {
+      meta.swarmModeTrigger = input.trigger;
+    }
+    try {
+      await this.rebuildHandle(meta);
+    } catch (error) {
+      meta.swarmMode = !input.enabled;
+      meta.swarmModeTrigger = previousTrigger;
+      throw error;
+    }
     this.emitStatusUpdated(meta);
   }
 
@@ -5332,8 +5428,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
    * state) shows the new one — a permission mode switched mid-conversation
    * came back as the previous mode and prompted for tools the user had already
    * allowed.
-   */
-  private async applyRebuiltSetting<K extends keyof NativeSessionMeta>(
+   */  private async applyRebuiltSetting<K extends keyof NativeSessionMeta>(
     meta: NativeSessionMeta,
     key: K,
     value: NativeSessionMeta[K],

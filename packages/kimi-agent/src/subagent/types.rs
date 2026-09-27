@@ -73,18 +73,23 @@ impl ParentCancel {
 
     pub fn trigger(&self) {
         self.flag.store(true, Ordering::SeqCst);
-        // A permit survives until a waiter consumes it, so triggering
-        // before `wait` is observed is still immediate.
-        self.notify.notify_one();
+        // Wake every parked waiter, not just one. A swarm parks one waiter
+        // per member *plus* the batch's bridge, and `notify_one` would
+        // release exactly one of them — the rest stay parked forever and
+        // never observe the cancellation, leaving orphaned workers running
+        // after the batch has already reported them aborted. Waiters that
+        // arrive later are covered by `wait`'s flag pre-check below, so no
+        // stored permit is needed.
+        self.notify.notify_waiters();
     }
 
     pub fn triggered(&self) -> bool {
-        self.flag.load(Ordering::Relaxed)
+        self.flag.load(Ordering::SeqCst)
     }
 
     /// Resolves once triggered. Safe against the trigger-before-wait race:
-    /// the pre-check covers an already-stored flag and `notify_one` stores
-    /// a permit when no waiter is parked yet.
+    /// the pre-check covers an already-stored flag, and `trigger` wakes
+    /// every waiter parked at that moment.
     pub async fn wait(&self) {
         if self.triggered() {
             return;
@@ -134,4 +139,63 @@ pub struct SubagentSummary {
     pub role: String,
     pub state: SubagentState,
     pub created_at_ms: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    /// A swarm parks one waiter per member *plus* the batch's bridge on the
+    /// same `ParentCancel`. Triggering must release every one of them.
+    ///
+    /// With `notify_one` only a single waiter woke: the rest stayed parked
+    /// forever, never observed the cancellation, and kept running after the
+    /// batch had already reported them aborted (orphaned workers).
+    #[tokio::test]
+    async fn trigger_wakes_every_parked_waiter() {
+        const WAITERS: usize = 4; // 1 batch bridge + 3 swarm members
+
+        let cancel = ParentCancel::new();
+        let woken = Arc::new(AtomicUsize::new(0));
+
+        let barrier = Arc::new(tokio::sync::Barrier::new(WAITERS + 1));
+        let mut handles = Vec::new();
+        for _ in 0..WAITERS {
+            let cancel = cancel.clone();
+            let woken = woken.clone();
+            let barrier = barrier.clone();
+            handles.push(tokio::spawn(async move {
+                let wait = cancel.wait();
+                // Park first: `wait` must be in flight before the trigger so
+                // this exercises the wake path, not the flag pre-check.
+                barrier.wait().await;
+                wait.await;
+                woken.fetch_add(1, Ordering::SeqCst);
+            }));
+        }
+
+        // Every waiter has entered `wait()` (they are parked on the notify).
+        barrier.wait().await;
+        tokio::task::yield_now().await;
+        cancel.trigger();
+
+        for handle in handles {
+            handle.await.expect("waiter resolves once triggered");
+        }
+        assert_eq!(
+            woken.load(Ordering::SeqCst),
+            WAITERS,
+            "every parked waiter must observe the cancellation"
+        );
+    }
+
+    /// A waiter that arrives after the trigger must not block: the flag is
+    /// checked before parking, so no stored permit is required.
+    #[tokio::test]
+    async fn wait_after_trigger_returns_immediately() {
+        let cancel = ParentCancel::new();
+        cancel.trigger();
+        cancel.wait().await;
+    }
 }

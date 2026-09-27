@@ -1061,6 +1061,22 @@ export const en = {
         timedOut: 'Timed out: {{command}}',
         killedByTimeout: 'Command killed by timeout ({{timeout_s}}s)',
       },
+      // The `AgentSwarm` launch-shape rejections (v2 `createAgentSwarmSpecs`).
+      // Result text the user and the model both read, so it is localized. The
+      // tool *description* stays English on purpose — it is model input, and
+      // `engine.tools` deliberately holds the failure surface only.
+      agentSwarm: {
+        invalidArgs: 'Invalid AgentSwarm arguments: {{reason}}',
+        descriptionRequired: "Invalid AgentSwarm arguments: 'description' is required.",
+        minInputs:
+          'AgentSwarm requires at least 2 items unless resume_agent_ids is provided.',
+        maxSubagents: 'AgentSwarm supports at most {{max}} subagents.',
+        promptTemplateRequired: 'prompt_template is required when items are provided.',
+        placeholderRequired:
+          'prompt_template must include the {{placeholder}} placeholder.',
+        duplicatePrompts:
+          'Duplicate subagent prompts from items {{previous}} and {{current}}. AgentSwarm requires distinct subagents.',
+      },
       fetchUrl: {
         invalidUrl: 'Failed to fetch URL: Invalid URL: {{e}}',
         fetchFailed: 'Failed to fetch URL: {{err}}',

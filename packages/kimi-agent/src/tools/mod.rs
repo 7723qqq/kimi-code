@@ -1638,21 +1638,25 @@ impl NativeToolset {
                 let session = self.session_id.as_deref().unwrap_or("session-main");
                 let mut result =
                     tower::execute_tower_init(&self.root, caller, session, &args.to_string()).await;
-                // Mode mutex (v2 `TowerModeEnter` → plan exit): a tower
-                // starting under plan mode would split the brain — main turns
-                // stay plan-guarded while workers run free — so exit plan
-                // once the tower actually entered. Ordered after init because
-                // v2 exits plan on the entry event: a refused or failed init
-                // never entered tower mode, so it must not drop plan mode.
-                // (Swarm needs no exit: AgentSwarm is call-scoped.) Main
-                // agent only, matching v2's Agent-scoped mutex.
+                // Mode mutex (v2 `TowerModeEnter`): a tower starting while plan
+                // mode or swarm mode is open would split the brain — main turns
+                // stay guarded by the old mode while workers run free — so exit
+                // them once the tower actually entered. Ordered after init
+                // because v2 exits on the entry event: a refused or failed init
+                // never entered tower mode, so it must not drop either mode.
+                // Main agent only, matching v2's Agent-scoped mutex.
                 if caller == "main"
                     && !result.is_error
                     && let Some(callbacks) = self.callbacks.as_deref()
-                    && mode_mutex::exit_plan_for_tower_enter(callbacks).await
                 {
-                    result.content =
-                        format!("{}\n\n{}", mode_mutex::plan_exited_note(), result.content);
+                    if mode_mutex::exit_plan_for_tower_enter(callbacks).await {
+                        result.content =
+                            format!("{}\n\n{}", mode_mutex::plan_exited_note(), result.content);
+                    }
+                    if mode_mutex::exit_swarm_for_tower_enter(callbacks, caller) {
+                        result.content =
+                            format!("{}\n\n{}", mode_mutex::swarm_exited_note(), result.content);
+                    }
                 }
                 Some(result)
             }

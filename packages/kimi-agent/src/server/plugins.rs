@@ -1686,12 +1686,7 @@ mod tests {
         );
         assert_eq!(
             data.args,
-            vec![
-                "__plugin_run_node",
-                "./bin/server.mjs",
-                "--port",
-                "7"
-            ]
+            vec!["__plugin_run_node", "./bin/server.mjs", "--port", "7"]
         );
         assert_eq!(
             data.env.get("KIMI_PLUGIN_ROOT").map(String::as_str),

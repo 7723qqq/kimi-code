@@ -720,13 +720,25 @@ export abstract class SDKRpcClientBase {
   }
 
   async setSwarmMode(input: SetSessionSwarmModeRpcInput): Promise<void> {
-    if (input.enabled) return this.enterSwarmMode(input);
-    return this.exitSwarmMode(input);
+    void input;
+    // The native engine owns the mode (its `swarm_mode` reminder and the
+    // turn-end auto-exit read it), so toggling it is engine work, not a host
+    // flag. The previous implementation here called `rpc.enterSwarm` /
+    // `rpc.exitSwarm`, neither of which exists on any client in this repo —
+    // `getRpc()` is typed `any`, so nothing caught it, and the native override
+    // is what actually runs.
+    throw new KimiError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      'setSwarmMode is only available on the native engine client.',
+    );
   }
 
   async swarm(input: SessionPromptRpcInput): Promise<void> {
-    await this.enterSwarmMode({ sessionId: input.sessionId, trigger: 'task' });
-    return this.prompt(input);
+    void input;
+    throw new KimiError(
+      ErrorCodes.NOT_IMPLEMENTED,
+      'swarm is only available on the native engine client.',
+    );
   }
 
   async setTowerMode(input: SetSessionTowerModeRpcInput): Promise<void> {
@@ -735,25 +747,6 @@ export abstract class SDKRpcClientBase {
       ErrorCodes.NOT_IMPLEMENTED,
       'setTowerMode is only available on the native engine client.',
     );
-  }
-
-  private async enterSwarmMode(
-    input: SessionIdRpcInput & { readonly trigger: SwarmModeTrigger },
-  ): Promise<void> {
-    const rpc = await this.getRpc();
-    return rpc.enterSwarm({
-      sessionId: input.sessionId,
-      agentId: this.interactiveAgentId,
-      trigger: input.trigger,
-    });
-  }
-
-  private async exitSwarmMode(input: SessionIdRpcInput): Promise<void> {
-    const rpc = await this.getRpc();
-    return rpc.exitSwarm({
-      sessionId: input.sessionId,
-      agentId: this.interactiveAgentId,
-    });
   }
 
   async getPlan(input: SessionIdRpcInput): Promise<SessionPlan> {
@@ -841,10 +834,6 @@ export abstract class SDKRpcClientBase {
       sessionId: input.sessionId,
       agentId,
     });
-    const swarmMode = await rpc.getSwarmMode({
-      sessionId: input.sessionId,
-      agentId,
-    });
     const usage = await rpc.getUsage({
       sessionId: input.sessionId,
       agentId,
@@ -862,7 +851,6 @@ export abstract class SDKRpcClientBase {
       thinkingEffort: config.thinkingEffort,
       permission: permission.mode,
       planMode: plan !== null,
-      swarmMode,
       contextTokens,
       maxContextTokens,
       contextUsage,

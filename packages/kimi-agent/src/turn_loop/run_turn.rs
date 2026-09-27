@@ -499,7 +499,7 @@ pub fn run_turn_continued<'a>(
         media,
         media_dropped,
         toolset,
-        previous_turn_aborted: _,
+        previous_turn_aborted,
     } = input;
     Box::pin(async move {
         let mut messages = messages;
@@ -513,6 +513,11 @@ pub fn run_turn_continued<'a>(
         let mut steps = 0u32;
         let mut usage = crate::rpc::types::TokenUsage::default();
         let mut llm_retries = 0u32;
+        // The interruption reminder is a fresh-turn-head concern, and the
+        // first iteration of this loop *is* that head: it carries the caller's
+        // flag. A Stop-hook continuation is the same turn, so later iterations
+        // clear it instead of re-announcing the reminder.
+        let mut carry_previous_turn_aborted = previous_turn_aborted;
         loop {
             let iter_input = RunTurnInput {
                 agent_id: agent_id.clone(),
@@ -534,9 +539,10 @@ pub fn run_turn_continued<'a>(
                 toolset: toolset.clone(),
                 // The continuation is the same turn, not a new one: the
                 // interruption reminder only fires at a fresh turn's head.
-                previous_turn_aborted: false,
+                previous_turn_aborted: carry_previous_turn_aborted,
             };
             let mut result = run_turn(iter_input, callbacks).await?;
+            carry_previous_turn_aborted = false;
             steps += result.steps;
             usage.accumulate(&result.usage);
             llm_retries += result.llm_retries;
@@ -559,6 +565,13 @@ pub fn run_turn_continued<'a>(
                     result.usage = usage;
                     result.llm_retries = llm_retries;
                     result.stop_hook_continuation = None;
+                    // v2 `AgentSwarmService`'s `TurnEnded` subscription: a
+                    // swarm the tool (or a task) opened closes itself here. A
+                    // manually opened swarm stays until the user leaves it.
+                    // Closing it emits `swarm_mode.exit` plus the status update
+                    // the host folds, so the indicator clears and a `task`
+                    // swarm renders its "ended" marker.
+                    crate::swarm::mode::exit_tool_swarm_at_turn_end(callbacks.as_ref(), &agent_id);
                     return Ok(result);
                 }
             }
@@ -864,6 +877,14 @@ pub fn run_turn<'a>(
                 goal_plan_state.clone(),
             );
         }
+        // Swarm mode is a mode like plan mode, so it announces itself the same
+        // way (v2 `SwarmInjection`): the `swarm_mode` variant injects an
+        // enter/exit reminder when the mode changes.
+        crate::injection::swarm_mode::register_swarm_mode_injection(
+            &mut injection_registry,
+            input.agent_id.clone(),
+            crate::injection::swarm_mode::scan_swarm_mode_baseline(&messages),
+        );
         // Progressive tool disclosure (v2 `toolSelectAnnouncementsService`):
         // every new turn re-announces the deferred tool set — added names the
         // model has not seen yet, removed names whose servers went away. The
@@ -1462,6 +1483,41 @@ pub fn run_turn<'a>(
                         prompt_id: None,
                         origin: None,
                     });
+
+                    // Swarm gate (v2 `AgentSwarmService.onBeforeExecuteTool`):
+                    // a model response may issue `AgentSwarm` only on its own.
+                    // Two swarms, or a swarm mixed with other tools, are
+                    // refused before anything runs — otherwise the batch and
+                    // the sibling calls race inside one turn.
+                    if let Some(veto) = crate::swarm::mode::veto_swarm_batch(
+                        &tool_calls
+                            .iter()
+                            .map(|tc| tc.name.as_str())
+                            .collect::<Vec<_>>(),
+                    ) {
+                        let refusal = crate::swarm::mode::veto_message(veto);
+                        for tc in &tool_calls {
+                            messages.push(LLMMessage {
+                                role: "tool".into(),
+                                content: refusal.clone(),
+                                blocks: Vec::new(),
+                                tool_calls: Vec::new(),
+                                tool_call_id: Some(tc.id.clone()),
+                                prompt_id: None,
+                                origin: None,
+                            });
+                        }
+                        // v2 `AgentSwarmService.onBeforeExecuteTool` vetoes the
+                        // call and the loop carries on: the refusal lands as the
+                        // tool result, so the model reads what it did wrong and
+                        // can reissue the batch on its own. Ending the turn
+                        // instead (what this used to do) handed the user a dead
+                        // end on a recoverable mistake, and the step budget
+                        // above is the same bound v2 relies on — a model that
+                        // keeps repeating the batch runs out of steps and the
+                        // turn ends `max_steps`, which is the honest outcome.
+                        continue;
+                    }
 
                     // Tool-call dedup plan (v2 `toolDedupeService`, G-6 #2):
                     // identical calls inside this step never execute twice —
@@ -2090,6 +2146,63 @@ mod tests {
         }
     }
 
+    /// A model that answers with a scripted sequence of responses, one per
+    /// step, and repeats the last entry once the script runs out.
+    ///
+    /// `PredictTestLlm` returns the same tool calls on every step, which cannot
+    /// express "the model reads the refusal and complies next time" — the shape
+    /// a veto needs to be tested in.
+    struct SequencedLlm {
+        system_prompt: String,
+        model_name: String,
+        steps: Vec<(Vec<ToolCall>, &'static str)>,
+    }
+
+    impl LLM for SequencedLlm {
+        fn system_prompt(&self) -> &str {
+            &self.system_prompt
+        }
+        fn model_name(&self) -> &str {
+            &self.model_name
+        }
+        fn is_retryable_error(&self, _: &str) -> bool {
+            false
+        }
+
+        fn chat(
+            &self,
+            params: LLMChatParams,
+        ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+        {
+            // Every completed step leaves exactly one assistant message behind,
+            // so that count is how far the script has advanced. Counting the
+            // tool results instead would skip a step whose batch was vetoed (no
+            // tool ran, but the refusal is still a tool message).
+            let completed = params
+                .messages
+                .iter()
+                .filter(|m| m.role == "assistant")
+                .count();
+            let index = completed.min(self.steps.len().saturating_sub(1));
+            let (tool_calls, finish_reason) = self.steps[index].clone();
+            Box::pin(async move {
+                Ok(LLMChatResponse {
+                    content: String::new(),
+                    thinking: vec![],
+                    tool_calls,
+                    finish_reason: Some(finish_reason.into()),
+                    usage: TokenUsage {
+                        input_tokens: 10,
+                        output_tokens: 5,
+                        total_tokens: 15,
+                        ..Default::default()
+                    },
+                    timing: None,
+                })
+            })
+        }
+    }
+
     #[tokio::test]
     async fn test_run_turn_no_tool_calls() {
         let llm = PredictTestLlm {
@@ -2131,6 +2244,229 @@ mod tests {
         assert!(result.is_ok());
         let turn = result.unwrap();
         assert_eq!(turn.steps, 1);
+    }
+
+    /// The swarm gate must refuse a model response that mixes `AgentSwarm`
+    /// with another tool *before* either call executes, and the refusal has
+    /// to reach the model as the tool result so it can retry with a legal
+    /// batch (v2 `AgentSwarmService.onBeforeExecuteTool`).
+    #[tokio::test]
+    async fn a_vetoed_swarm_batch_is_refused_and_the_model_can_retry() {
+        let llm = SequencedLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            steps: vec![
+                // Step 1: the illegal batch — a swarm plus a sibling tool.
+                (
+                    vec![
+                        ToolCall {
+                            id: "swarm-1".into(),
+                            name: "AgentSwarm".into(),
+                            arguments: serde_json::json!({}),
+                            extras: None,
+                        },
+                        ToolCall {
+                            id: "bash-1".into(),
+                            name: "Bash".into(),
+                            arguments: serde_json::json!({ "command": "echo hi" }),
+                            extras: None,
+                        },
+                    ],
+                    "tool_calls",
+                ),
+                // Step 2: after reading the refusal, answered in text. A
+                // *compliant* AgentSwarm is deliberately not scripted here:
+                // clearing the gate would make this test drive the whole
+                // subagent stack (and the stdio round-trip that stalls it),
+                // which `swarm_tool.rs` already covers on its own.
+                (vec![], "stop"),
+            ],
+        };
+
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server.clone());
+
+        let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
+            previous_turn_aborted: false,
+            turn_id: "test-turn-swarm-veto".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "Swarm and also run a command.".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+            toolset: None,
+        };
+
+        let result = run_turn(input, &callbacks).await;
+        let turn = result.expect("the refusal resolves as a normal turn");
+
+        // Every call in the vetoed batch carries the refusal — neither one ran.
+        let refusals: Vec<_> = turn
+            .messages
+            .iter()
+            .filter(|m| m.role == "tool")
+            .filter(|m| m.content.contains("AgentSwarm must be the only tool call"))
+            .collect();
+        assert_eq!(
+            refusals.len(),
+            2,
+            "both calls in the vetoed batch must carry the refusal: {:?}",
+            turn.messages
+        );
+        assert_eq!(
+            refusals[0].tool_call_id.as_deref(),
+            Some("swarm-1"),
+            "the refusal is linked to the call it refuses"
+        );
+
+        // The turn did not die on the veto: the model got another step and
+        // answered from it. Ending the turn on the refusal (what this used to
+        // do) would have left the user a dead end on a recoverable mistake.
+        assert_eq!(
+            turn.steps, 2,
+            "veto then answer — the veto must not end the turn"
+        );
+        assert_eq!(turn.stop_reason, LoopTurnStopReason::EndTurn);
+    }
+
+    /// A model that never complies must not spin: the step budget is the same
+    /// bound v2 relies on, and running out of it fails the turn as
+    /// `max_steps` rather than answering as if the work had been done.
+    #[tokio::test]
+    async fn a_model_that_never_complies_runs_out_of_steps() {
+        let llm = SequencedLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            steps: vec![(
+                vec![
+                    ToolCall {
+                        id: "swarm-1".into(),
+                        name: "AgentSwarm".into(),
+                        arguments: serde_json::json!({}),
+                        extras: None,
+                    },
+                    ToolCall {
+                        id: "bash-1".into(),
+                        name: "Bash".into(),
+                        arguments: serde_json::json!({ "command": "echo hi" }),
+                        extras: None,
+                    },
+                ],
+                "tool_calls",
+            )],
+        };
+
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server.clone());
+
+        let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
+            previous_turn_aborted: false,
+            turn_id: "test-turn-swarm-veto-loop".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "Swarm and also run a command.".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 3,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+            toolset: None,
+        };
+
+        let turn = run_turn(input, &callbacks)
+            .await
+            .expect("the refusal resolves as a normal turn");
+        assert_eq!(turn.steps, 3, "the step budget bounds the retry loop");
+        assert_eq!(
+            turn.stop_reason,
+            LoopTurnStopReason::MaxSteps,
+            "a model that never complies fails the turn, it does not fake success"
+        );
+    }
+
+    /// The interruption reminder must survive the `run_turn_continued`
+    /// wrapper: its first iteration *is* a fresh turn's head, so the caller's
+    /// `previous_turn_aborted` has to reach the injection registry there.
+    /// The wrapper used to rebuild every iteration with `false`, which made
+    /// the reminder unreachable from every production entry point (they all
+    /// route through it) while the reminder module's own unit tests stayed
+    /// green.
+    #[tokio::test]
+    async fn test_previous_turn_aborted_reaches_the_interruption_reminder() {
+        let llm = PredictTestLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            return_tool_calls: false,
+            tool_responses: vec![],
+        };
+
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server.clone());
+
+        let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
+            previous_turn_aborted: true,
+            turn_id: "test-turn-interruption-reminder".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "Hello!".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+            toolset: None,
+        };
+
+        let turn = run_turn_continued(input, &callbacks)
+            .await
+            .expect("turn runs");
+        assert!(
+            turn.messages.iter().any(|message| message
+                .content
+                .as_str()
+                .contains("The previous turn was interrupted by the user")),
+            "the interruption reminder must reach the turn's messages: {:?}",
+            turn.messages
+                .iter()
+                .map(|message| message.content.as_str())
+                .collect::<Vec<_>>()
+        );
     }
 
     /// Turn-lifecycle hooks (`UserPromptSubmit` / `PreCompact`) ride

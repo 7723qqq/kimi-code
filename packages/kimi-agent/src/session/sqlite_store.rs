@@ -1621,8 +1621,8 @@ impl SqliteSessionStore {
         let (status, additions, deletions) = compute_line_diff(content_before, content_after);
         let before_bytes = content_before.map_or(0, str::len);
         let after_bytes = content_after.map_or(0, str::len);
-        let oversize =
-            before_bytes > FILE_HISTORY_MAX_CONTENT_BYTES || after_bytes > FILE_HISTORY_MAX_CONTENT_BYTES;
+        let oversize = before_bytes > FILE_HISTORY_MAX_CONTENT_BYTES
+            || after_bytes > FILE_HISTORY_MAX_CONTENT_BYTES;
         if oversize {
             tracing::warn!(
                 %session_id,
@@ -2189,9 +2189,11 @@ mod tests {
         // decision for the caller, not something a read may do.
         let conn = store.conn.lock().unwrap();
         let payload: String = conn
-            .query_row("SELECT payload FROM wire_events WHERE id = 'evt_2'", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT payload FROM wire_events WHERE id = 'evt_2'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(payload, truncated);
     }

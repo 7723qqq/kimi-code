@@ -926,6 +926,14 @@ impl ServerEngine {
         if let Some(plan_mode) = agent_config.get("plan_mode").and_then(|v| v.as_bool()) {
             object.insert("planMode".into(), serde_json::json!(plan_mode));
         }
+        // Swarm mode is reported from the registry the turn loop and the
+        // `swarm_mode` injection actually read, not from the persisted flag:
+        // the two can disagree across a restart, and reporting the flag alone
+        // would claim a mode the next turn never sees. v2 carries the same
+        // field on `AgentStatusUpdated` (`swarmOps.ts:41,45`).
+        if crate::swarm::mode::swarm_mode_registry().is_active(crate::callbacks::MAIN_AGENT_ID) {
+            object.insert("swarmMode".into(), serde_json::json!(true));
+        }
         payload
     }
 

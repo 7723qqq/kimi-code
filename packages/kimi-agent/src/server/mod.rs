@@ -1200,7 +1200,35 @@ fn apply_prompt_submission_options(
             .write_domain("plan", &json!({ "active": plan_mode }))
             .map_err(|e| format!("failed to persist plan mode: {e}"))?;
     }
+
+    // Swarm mode is agent state the `swarm_mode` injection reads; mirror the
+    // submitted flag into the registry the way plan mode is mirrored into the
+    // workspace `plan` domain. Without this the `/swarm` command only flips a
+    // status flag and the mode never reaches the turn loop, so the reminder
+    // and the auto-exit never fire for a `manual` / `task` swarm.
+    if let Some(swarm_mode) = body.get("swarm_mode").and_then(|v| v.as_bool()) {
+        let agent_id = crate::callbacks::MAIN_AGENT_ID;
+        if swarm_mode {
+            let trigger =
+                swarm_trigger_from(body.get("swarm_mode_trigger").and_then(|v| v.as_str()));
+            crate::swarm::mode::swarm_mode_registry().enter(agent_id, trigger);
+        } else {
+            crate::swarm::mode::swarm_mode_registry().exit(agent_id);
+        }
+    }
     Ok(())
+}
+
+/// The wire spelling of a swarm trigger. v2 has exactly one writer besides
+/// the tool — kap-server's `swarm.enter('manual')` on the profile route — so
+/// `manual` is the default an unlabelled write means.
+fn swarm_trigger_from(raw: Option<&str>) -> crate::swarm::mode::SwarmModeTrigger {
+    use crate::swarm::mode::SwarmModeTrigger;
+    match raw {
+        Some("task") => SwarmModeTrigger::Task,
+        Some("tool") => SwarmModeTrigger::Tool,
+        _ => SwarmModeTrigger::Manual,
+    }
 }
 
 /// Explains why `/api/v1/remote-control` cannot enable anything.
@@ -5942,6 +5970,33 @@ impl HttpServer {
                         }
                     } else {
                         current = cfg.clone();
+                    }
+                    // v2 `applySessionAgentConfig` (kap-server
+                    // `routes/sessionAgentConfig.ts:50-56`): `swarm_mode` is
+                    // not a stored fact, it is a call into the agent's swarm
+                    // service. Merging it into `agent_config` alone leaves the
+                    // mode off — the `swarm_mode` reminder and the turn-end
+                    // auto-exit both read the registry, so a profile write that
+                    // never reached it flipped a status flag and nothing else.
+                    if let Some(swarm_mode) = cfg.get("swarm_mode").and_then(Value::as_bool) {
+                        let registry = crate::swarm::mode::swarm_mode_registry();
+                        let changed = if swarm_mode {
+                            registry.enter(
+                                crate::callbacks::MAIN_AGENT_ID,
+                                swarm_trigger_from(
+                                    cfg.get("swarm_mode_trigger").and_then(Value::as_str),
+                                ),
+                            )
+                        } else {
+                            registry.exit(crate::callbacks::MAIN_AGENT_ID).is_some()
+                        };
+                        if changed {
+                            self.emit_session_telemetry_named(if swarm_mode {
+                                "swarm_mode_entered"
+                            } else {
+                                "swarm_mode_exited"
+                            });
+                        }
                     }
                     if let Err(e) = self.store.put_session_state(
                         "agent_config",

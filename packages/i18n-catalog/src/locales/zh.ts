@@ -967,6 +967,19 @@ export const zh = {
         timedOut: '超时：{{command}}',
         killedByTimeout: '命令因超时被终止（{{timeout_s}} 秒）',
       },
+      // `AgentSwarm` 的启动形态校验失败文案（v2 `createAgentSwarmSpecs`）。
+      // 用户和模型都会读到的结果文本，因此本地化；工具描述刻意保持英文——
+      // 它是模型输入，`engine.tools` 只收失败面。
+      agentSwarm: {
+        invalidArgs: 'AgentSwarm 参数无效：{{reason}}',
+        descriptionRequired: "AgentSwarm 参数无效：'description' 为必填项。",
+        minInputs: 'AgentSwarm 至少需要 2 个 items，除非提供 resume_agent_ids。',
+        maxSubagents: 'AgentSwarm 最多支持 {{max}} 个 subagent。',
+        promptTemplateRequired: '提供了 items 时必须提供 prompt_template。',
+        placeholderRequired: 'prompt_template 必须包含 {{placeholder}} 占位符。',
+        duplicatePrompts:
+          'items {{previous}} 与 {{current}} 展开后的 prompt 重复。AgentSwarm 要求各个 subagent 互不相同。',
+      },
       fetchUrl: {
         invalidUrl: '获取 URL 失败：无效的 URL：{{e}}',
         fetchFailed: '获取 URL 失败：{{err}}',

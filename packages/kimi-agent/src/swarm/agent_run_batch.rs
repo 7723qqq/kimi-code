@@ -93,6 +93,12 @@ impl AbortSignal {
         self.inner.aborted.load(Ordering::SeqCst)
     }
 
+    /// Whether two signals are the same signal (v2 compares controllers by
+    /// identity: `this.inFlight.get(callerAgentId) === controller`).
+    pub fn same_signal(&self, other: &AbortSignal) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
     pub fn reason(&self) -> Option<AbortReason> {
         self.inner.reason.lock().unwrap().clone()
     }
@@ -214,6 +220,15 @@ pub struct AgentRunCompletion {
 pub struct AgentRunError {
     pub message: String,
     pub is_rate_limit: bool,
+    /// The run stopped because it was cancelled — the batch was aborted, the
+    /// turn was interrupted, or the swarm as a whole was cancelled — rather
+    /// than because the worker failed.
+    ///
+    /// v2 makes the same split in `classifyRunTermination`
+    /// (`mirrorAgentRun.ts:235-240`) and the two produce *different* events
+    /// (`subagent.cancelled` vs `subagent.failed`), so the launcher cannot
+    /// recover it by matching on the message text.
+    pub cancelled: bool,
 }
 
 /// Handle returned by the launcher for one attempt (v2 `AgentRunAttemptHandle`).
@@ -261,6 +276,25 @@ pub struct AgentRunSuspendedEvent<T> {
     pub reason: String,
 }
 
+/// How a member the batch gave up on ended (v2 `AgentRunAbandonedEvent`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AgentRunAbandonOutcome {
+    /// The member was cancelled before it could finish.
+    Cancelled,
+    /// The member kept hitting the provider's rate limit and nothing else was
+    /// left running.
+    Failed,
+}
+
+/// A member the batch abandoned (v2 `AgentRunAbandonedEvent`).
+#[derive(Clone, Debug)]
+pub struct AgentRunAbandonedEvent<T> {
+    pub task: AgentRunTask<T>,
+    pub agent_id: String,
+    pub outcome: AgentRunAbandonOutcome,
+    pub error: Option<String>,
+}
+
 /// Host contract for running one agent attempt (v2 `AgentRunBatchLauncher`).
 ///
 /// `spawn`/`resume`/`retry` start an attempt and return a handle whose
@@ -284,6 +318,12 @@ pub trait AgentRunBatchLauncher<T>: Send + Sync {
         options: AgentRunAttemptOptions,
     ) -> BoxFuture<'static, Result<AgentRunAttemptHandle, String>>;
     fn suspended(&self, _event: AgentRunSuspendedEvent<T>) {}
+    /// A member the batch gave up on: one that was still suspended when the
+    /// batch was cancelled, or a rate-limited member that was the last one
+    /// unfinished. v2 hands both to the launcher so the member reaches a
+    /// terminal state exactly once (`AgentRunBatchLauncher.abandoned`,
+    /// `agentRunBatch.ts:72-73`).
+    fn abandoned(&self, _event: AgentRunAbandonedEvent<T>) {}
 }
 
 /// Timing knobs for the batch scheduler. Defaults mirror the v2 constants;
@@ -727,6 +767,17 @@ impl<T: Clone + Send + Sync + 'static> AgentRunBatch<T> {
             }
             AttemptOutcome::RateLimited { agent_id, error } => {
                 if self.is_only_unfinished_task(state_index) {
+                    // v2 `handleAttemptOutcome` (`:374-387`): the last
+                    // unfinished member that keeps getting throttled is
+                    // abandoned as `failed` rather than requeued, because
+                    // there is nothing left to run alongside it and the retry
+                    // would only stall the batch.
+                    self.launcher.abandoned(AgentRunAbandonedEvent {
+                        task: self.states[state_index].task.clone(),
+                        agent_id: agent_id.clone(),
+                        outcome: AgentRunAbandonOutcome::Failed,
+                        error: Some(error.clone()),
+                    });
                     self.results[state_index] = Some(AgentRunResult {
                         task: self.states[state_index].task.clone(),
                         agent_id: Some(agent_id),
@@ -851,6 +902,7 @@ impl<T: Clone + Send + Sync + 'static> AgentRunBatch<T> {
 
     fn finish_with_user_cancellation(&mut self) -> Vec<AgentRunResult<T>> {
         self.finished = true;
+        self.abandon_suspended();
         self.states
             .iter()
             .map(|state| {
@@ -888,6 +940,35 @@ impl<T: Clone + Send + Sync + 'static> AgentRunBatch<T> {
                 }
             })
             .collect()
+    }
+
+    /// v2 `abandonSuspended` (`agentRunBatch.ts:585-596`): report the members
+    /// that never got to run — a still-suspended requeue, or an attempt that
+    /// had not reported ready yet — so the launcher can terminalize them
+    /// instead of leaving them running forever in the host's view.
+    ///
+    /// Deliberately skips members that already settled and attempts that are
+    /// genuinely running: those reach their terminal state on their own, and a
+    /// second event would double-count a worker the host is still watching.
+    fn abandon_suspended(&mut self) {
+        for index in 0..self.states.len() {
+            if self.results[index].is_some() {
+                continue;
+            }
+            let Some(agent_id) = self.states[index].agent_id.clone() else {
+                continue;
+            };
+            if self.active.get(&index).is_some_and(|attempt| attempt.ready) {
+                continue;
+            }
+            self.active.remove(&index);
+            self.launcher.abandoned(AgentRunAbandonedEvent {
+                task: self.states[index].task.clone(),
+                agent_id,
+                outcome: AgentRunAbandonOutcome::Cancelled,
+                error: None,
+            });
+        }
     }
 }
 
@@ -1298,6 +1379,7 @@ mod tests {
                         return Err(AgentRunError {
                             message: "Aborted".into(),
                             is_rate_limit: false,
+                            cancelled: true,
                         });
                     }
                     let n = completion_count.fetch_add(1, Ordering::SeqCst);
@@ -1305,6 +1387,7 @@ mod tests {
                         return Err(AgentRunError {
                             message: "429 rate limited".into(),
                             is_rate_limit: true,
+                            cancelled: false,
                         });
                     }
                     Ok(AgentRunCompletion {

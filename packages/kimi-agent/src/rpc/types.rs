@@ -819,6 +819,15 @@ pub struct RunTurnParams {
     /// `subagent_timeout_ms`.
     #[serde(default)]
     pub swarm_timeout_ms: Option<u64>,
+    /// The swarm mode the host wants for this turn (v2
+    /// `IAgentSwarmService.enter` / `.exit`). `None` leaves the engine's mode
+    /// alone; `Some(false)` exits it. Read only at the turn head.
+    #[serde(default)]
+    pub swarm_mode: Option<bool>,
+    /// Why the host opened the mode: `manual` | `task` | `tool`. Absent means
+    /// `manual`, matching v2's profile route.
+    #[serde(default)]
+    pub swarm_mode_trigger: Option<String>,
     /// Host-resolved `[services.moonshot_search]` / `KIMI_WEB_SEARCH_*`
     /// backend (v2 `configSection.ts`). When set, the native WebSearch tool
     /// calls this endpoint instead of scraping DuckDuckGo.
@@ -849,8 +858,9 @@ pub struct RunTurnParams {
     pub model_capabilities: Option<Vec<String>>,
     /// P52 native-path vetoes: non-empty reason = the engine rejects the
     /// affected native executions with this text as the tool result.
-    /// `agent_tool_veto` denies the native `Agent` tool only (swarm mode);
+    /// `agent_tool_veto` narrows that to the native `Agent` tool;
     /// `tools_veto` denies every native tool (btw side-channel contexts).
+    /// Both are the host's seam and unset by every production caller.
     #[serde(default)]
     pub agent_tool_veto: Option<String>,
     #[serde(default)]

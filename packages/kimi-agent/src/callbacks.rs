@@ -557,8 +557,12 @@ pub struct NativeToolCallbacks {
     /// the affected native calls are rejected with the verbatim reason as
     /// the (error) tool result — no execution, no host fallback. This gate
     /// runs before permission, matching the veto chain's precedence.
-    /// `agent_tool_veto` denies the native `Agent` tool only (swarm mode);
+    /// `agent_tool_veto` narrows that to the native `Agent` tool;
     /// `tools_veto` denies every native tool (btw side-channel contexts).
+    /// No production caller sets either today — they are the host's seam, and
+    /// a `None` means "the host has no opinion". (Swarm mode does *not* use
+    /// this: v2's mode mutex exits the other mode, and the fork's refuses the
+    /// batch outright, so neither denies `Agent` here.)
     /// Non-native calls still fall back to the host, whose own veto chain
     /// denies them there.
     pub agent_tool_veto: Option<String>,

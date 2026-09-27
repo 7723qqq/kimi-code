@@ -2759,6 +2759,129 @@ Moonshot 后端的用户失去搜索），并登记为 fork delta。
 **验证**：`cargo check --lib` ✅｜`cargo test --lib web_search` 14 passed /
 0 failed ✅（native 9 + tools 5）。
 
+### 6.20 swarm 模式在 napi 路径整体失联、成员不发终态事件（2026-09-28，端到端对拍发现并修复）
+
+**症状（实测）**：探针 `.tmp/swarm-e2e.mts` 驱动真实 SDK 接缝（napi addon → Rust 引擎 →
+turn loop → 注入 → 宿主事件），配 mock provider 跑 4 个场景（control / task / manual /
+显式关闭）。修复前 **9 项失败、6 项通过**：
+
+- `S1b enter=0` —— turn 请求里**根本没有** `## Swarm Mode` 提醒，`/swarm` 对模型不可见；
+- `S1c` 宿主从未收到模式关闭；`S1d swarmMode=true` —— task swarm 结束后**永久残留**为开；
+- `S2a/S2b enter=0` —— manual 触发同样不宣告；
+- `S3a/S3b` 显式关闭后既无 enter 也无 exit 提醒。
+
+**最贵的一课**：`S1a` 在修复前**也是 PASS** —— 宿主自己的 `emitStatusUpdated` 会把
+`meta.swarmMode` 报上去，TUI 指示器正常亮起。**只有去读 provider 实际收到的请求体，才看得出
+引擎从未进入模式。** 状态面全绿、行为面全空。
+
+**根因（6 处，全是「定义了但没有接线」）**：
+
+1. `swarm/mode.rs` 的 `swarm_mode_enter_event` / `swarm_mode_exit_event` **全 crate 零调用点**，
+   而 v2（`swarmOps.ts:16-32`）两个事件都是 `durable = true`。`foldFacts.ts:498-505`、
+   vis `v2-wire.ts:843-844` 全在等一个永不到来的生产者。且 exit 记录多带一个 v2 schema
+   (`swarmModeExitSchema`) 没有的 `trigger` 字段。
+2. napi 面**没有任何 swarm 模式字段**（`napi-contract.d.ts` 只有 `swarmTimeoutMs`）。SDK 的
+   `setSwarmMode` 被 override 成 `applyRebuiltSetting(meta,'swarmMode',…)`，纯宿主内存标志。
+   引擎自己拥有模式（`swarm_mode` 注入 + turn 末自动退出都读注册表），宿主怎么翻转都到不了
+   引擎。`rpc.ts` 里 `enterSwarm` / `exitSwarm` / `getSwarmMode` **三个方法全仓不存在**，
+   只因 `getRpc(): Promise<any>` 才没炸。
+3. `/profile` 路由只把 `agent_config.swarm_mode` merge 进 store，从不碰注册表；而 v2 的写入
+   路径在 kap-server `routes/sessionAgentConfig.ts:50-56`，是**调用 agent 的 swarm service**，
+   不是存一个字段。Web / vscode 走的正是这条。
+4. 桥在 TS 侧也断三处：`subagent.spawned` 翻译时**丢弃 `swarm_index`**（TUI 因此无法区分 swarm
+   member 与普通 child）；**没有 `subagent.suspended` 分支**（限流重排的成员永远显示运行中）；
+   **没有引擎 `agent.status.updated` 分支**（`if/else` 链无 fallthrough，引擎发什么都被丢）。
+5. `SwarmEventSink` trait **零 impl**，`Terminalizer` / `SwarmRegistry` 从未构造 —— swarm 成员
+   永远不发终态事件，§6.14 记的「swarm 成员不发终态事件」就是这条。
+6. `AgentRunBatchLauncher` **缺 `abandoned` 钩子**（v2 `agentRunBatch.ts:72-73` 有），被放弃的
+   成员无人 terminalize。
+
+**修复**：
+
+- `swarm/mode.rs`：新增唯一写入口 `set_swarm_mode(callbacks, agent_id, desired)`，两条边都发射
+  v2 的事件对（durable record + `agent.status.updated`），边沿触发（`enter` 已开 / `exit` 未开
+  都是 no-op，与 v2 一致）；exit 记录去掉多余的 `trigger`。
+- `napi_bindings.rs` / `rpc/types.rs` / `napi-contract.d.ts` / `wire-schema.ts`：新增
+  `swarm_mode` + `swarm_mode_trigger`（`manual|task|tool`，缺省 `manual`，与 v2 profile 路由一致）。
+- `server/mod.rs`：`/profile` 按 `sessionAgentConfig.ts:50-56` 把 `swarm_mode` 接进注册表
+  （含 `isActive !== value` 转换守卫），抽出 `swarm_trigger_from` 供两条路径共用。
+- `server/engine.rs`：`agent.status.updated` 的 `swarmMode` 改从**注册表**读而非持久化标志 ——
+  两者跨重启会不一致，报持久化标志等于声称一个下一轮看不到的模式。
+- SDK：turn 参数带上 `swarmMode`/`swarmModeTrigger`；补 `subagent.suspended`、`swarm_mode.*`、
+  引擎 `agent.status.updated` 三个分支；`swarmIndex` 不再丢弃；`setSwarmMode` 记 trigger 并在
+  引擎 auto-exit 后**回写 `meta.swarmMode=false`**（否则每次 handle 重建都会复活一个已退出的模式）。
+  `rpc.ts` 三个不存在的方法调用改为与 `setTowerMode` 一致的显式 `NOT_IMPLEMENTED`。
+- 成员终态：`AgentRunBatchLauncher` 补 `abandoned` 钩子与 `abandon_suspended()`（v2
+  `abandonSuspended`）；`AgentRunError` 补 `cancelled` 标志（v2 `classifyRunTermination` 的分裂，
+  不靠匹配消息文本）；新增 `CallbackSink` 实现 `SwarmEventSink`（按 run 共享 `Terminalizer`，
+  保证每成员恰好一个终态事件，限流重排的那个**不发**终态，v2 `suppressesRateLimitFailure`）。
+- 独占门改回 v2 语义：拒绝结果作为 tool 结果推入后**继续下一步**而非结束 turn，由既有的
+  `max_steps` 预算兜底；文案改回 v2 措辞（`not forbidden, but issue them sequentially`）。
+- `TowerModeEnter → swarm.exit()` 那一臂此前完全没有对应物（v2 `modeMutexService.ts:39-41`），
+  补上 `exit_swarm_for_tower_enter`；修三处「swarm 没有模式」的过时注释。**保留** tower 活跃时
+  拒绝 swarm 的 fork 差异（用户裁定），不改为 v2 的自动退出。
+- `agent_tool_veto` / `tools_veto` 注释原写「swarm 模式会拒 Agent」——两侧都不存在该行为，
+  且全仓无 `Some(..)` 生产调用点；改为如实描述为宿主 seam。
+- swarm 的 5 条启动形态校验错误 + 2 条参数错误改用 `LocalizedText`，新增
+  `engine.tools.agentSwarm.*`（en/zh）。工具描述与面向模型的否决文案按 AGENTS.md
+  「What not to translate」保持英文。
+
+**验证（2026-09-28）**：端到端探针 `.tmp/swarm-e2e.mts`，4 场景 15 项 —— control（swarm 从未开启
+必须 0 标记，**先证明探测器本身有效**）+ task（宣告 1 次 / turn 末自动退出 / 后续轮不复活 /
+带 exit 提醒）+ manual（宣告 1 次不重复 / 不自行关闭）+ 显式关闭（无二次 enter / exit 提醒 1 次 /
+status 关闭）。**修复后 15/15；修复前同一探针 9 项失败**（对照重新编译的 `.node` 复跑）。
+
+回归测：Rust `swarm::` 23 + `swarm_tool` 14 + `turn_loop::run_turn`（含新增
+`a_vetoed_swarm_batch_is_refused_and_the_model_can_retry`、
+`a_model_that_never_complies_runs_out_of_steps`）全绿；`cargo test --lib` 2948 passed，
+失败 8 项与干净树**完全相同**（`test_find_git_work_tree` 等 —— 本沙箱只有 workspace 内可写，
+`TEMP` 落在仓内导致 `tempdir()` 继承 git work tree，属环境限制）。`check:engine-i18n` 165 键 OK、
+`check-locale-keys` / `check-locale-placeholders` 全绿、`tsgo` node-sdk 通过。
+
+**方法论注记**：本条最初是**用自己写的单测验证自己写的函数** —— 「我让 `set_swarm_mode` 发射
+`swarm_mode.enter`，单测通过」只证明代码符合我对 v2 的理解，不证明真实场景通了。仓库
+Verification Standard 明令禁止（"Neither is a unit test whose inputs you constructed to
+match the implementation"）。转折点是端到端探针：它先给出 9 项失败，「修好了」才有依据。
+探针本身也错了两轮 —— 第一次把 `'## Swarm Mode'` 当子串匹配，`## Swarm Mode Ended` 一起中招；
+第二次拿「本轮新增请求」当增量，但请求体带整段历史，标记数无法区分「新注入」与「历史里本来
+就有」。**修法是每个场景独立 session + 一个 control 场景先证明探测器有效**，否则数字无意义。
+
+### 6.19 中断提醒在全部生产入口不可达（2026-09-28，端到端对拍发现并修复）
+
+**症状（实测）**：napi 会话路径上，用户取消一次流中 turn 后，下一轮的请求消息里没有 v2
+的中断提醒。探针 `.tmp/cancel-probe/probe.ts`（mock SSE 吐半句后挂住 →
+`sessionCancelTurn` → `getHistory` → 再跑一轮看回放），证据 `.tmp/cancel-probe/out.json`。
+取消本身正常：9 ms 落地、`stopReason: Aborted`、`turn.cancel {target:"active",
+reason:"user_cancelled"}` 与 v2 逐字一致。
+
+**根因**：`turn_loop/run_turn.rs` 的 `run_turn_continued` 解构 `RunTurnInput` 时把
+`previous_turn_aborted` 丢弃，重建每轮输入时写死 `false`。所有生产入口都必经它
+（`session/mod.rs:1758`/`:1765`、stdio、`run_turn_rust`、`server/engine.rs:1513`），所以
+`injection/interruption_reminder.rs` 只在「直接调 `run_turn` 且传 `true`」时才会注入，而
+全仓没有任何非测试调用点传 `true`。09-25 修的 `session/mod.rs` 双 `swap` 是真缺陷但只修了
+一半：标志送达 wrapper 后在这里被丢掉——§6 那条「会话路径永不注入」当时并未真正闭环；
+`.changeset/interruption-reminder-reads-the-abort-flag-once.md` 的措辞也因此提前。
+
+**修复**：`run_turn_continued` 首轮透传调用方标志，续跑轮仍置 `false`（同一 turn 的
+Stop-hook 续跑不该重复播报）。回归测试
+`turn_loop::run_turn::tests::test_previous_turn_aborted_reaches_the_interruption_reminder`
+**走 wrapper 本身**——原有测试全部直调 `run_turn`，这正是缺口能长期静默的原因。
+
+**验证（2026-09-28）**：新回归测试 ✅｜`cargo test --release --lib -- turn_loop`
+198 passed / 0 failed ✅｜`-- injection` 59 passed / 0 failed ✅｜探针复跑：第二轮请求
+出现提醒（修复前完全为空）✅｜`.node` 与 `cargo build --release --features cli` 均已重建 ✅。
+
+**本机环境注记（先于代码怀疑）**：默认 `TEMP`（`C:\Users\ADMINI~1\...` 短路径）在本机
+不可写会制造假失败——`tempfile::tempdir()` panic（turn_loop 子集 6 项、injection 4 项）、
+napi 链接 `LNK1104`（`lnk*.tmp` 打不开）、vitest `EPERM: mkdir ...\ssr`。把 `TEMP`/`TMP`
+指到可写目录（如 `.tmp/linktmp`）后上述全部转绿。**跑 Rust/TS 测试与 `bun run build` 前先
+设 TEMP**，否则会把环境问题误读成行为回归。
+
+**对拍同时暴露、未处理（属设计决策）**：① 被取消步骤的半截 assistant 消息不进引擎历史，
+v2 以 `partial: true` 保留并让下一轮模型看到；② 提醒的位置不同——v2 落在取消事件点
+（下一条 user 消息之前），Rust 在下一轮 turn 头注入（落在新 prompt 之后）。两条都要先定
+「引擎历史 vs 宿主转录」的边界归属。
+
 ---
 
 ## 7. v1 / v3 协议面自创实现审计（2026-09-20，按铁律）

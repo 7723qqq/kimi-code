@@ -699,9 +699,11 @@ mod tests {
         // entry point to deal with, deliberately.
         let conn = store.conn.lock();
         let payload: String = conn
-            .query_row("SELECT payload FROM wire_events WHERE id = 'evt_2'", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT payload FROM wire_events WHERE id = 'evt_2'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(payload, truncated);
     }

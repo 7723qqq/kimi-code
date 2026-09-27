@@ -463,6 +463,23 @@ export interface JsRunTurnParams {
    */
   swarmTimeoutMs?: number
   /**
+   * The swarm mode the host wants for this turn (v2
+   * `IAgentSwarmService.enter` / `.exit`). `None` leaves the engine's mode
+   * alone; `Some(false)` exits it.
+   *
+   * The napi surface has no other way to express this: the engine owns the
+   * mode (the `swarm_mode` reminder and the turn-end auto-exit read it), so
+   * without this field a host-side `/swarm` toggle was a status flag the
+   * turn never saw.
+   */
+  swarmMode?: boolean
+  /**
+   * Why the host opened the mode: `manual` | `task` | `tool`. Absent means
+   * `manual`, matching v2's profile route. Only read when `swarm_mode` is
+   * `Some(true)`.
+   */
+  swarmModeTrigger?: string
+  /**
    * P52 native-path vetoes (host-formatted deny reasons; see
    * `RunTurnParams`).
    */

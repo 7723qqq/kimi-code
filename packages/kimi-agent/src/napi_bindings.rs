@@ -905,6 +905,19 @@ pub struct JsRunTurnParams {
     /// `subagent_timeout_ms`. `i64` because napi cannot read JS numbers as
     /// `u64`.
     pub swarm_timeout_ms: Option<i64>,
+    /// The swarm mode the host wants for this turn (v2
+    /// `IAgentSwarmService.enter` / `.exit`). `None` leaves the engine's mode
+    /// alone; `Some(false)` exits it.
+    ///
+    /// The napi surface has no other way to express this: the engine owns the
+    /// mode (the `swarm_mode` reminder and the turn-end auto-exit read it), so
+    /// without this field a host-side `/swarm` toggle was a status flag the
+    /// turn never saw.
+    pub swarm_mode: Option<bool>,
+    /// Why the host opened the mode: `manual` | `task` | `tool`. Absent means
+    /// `manual`, matching v2's profile route. Only read when `swarm_mode` is
+    /// `Some(true)`.
+    pub swarm_mode_trigger: Option<String>,
     /// P52 native-path vetoes (host-formatted deny reasons; see
     /// `RunTurnParams`).
     pub agent_tool_veto: Option<String>,
@@ -2150,6 +2163,25 @@ async fn build_engine_pipeline(
         auth_token_fn: tsfns.auth_token.map(Arc::new),
         cancellation: tsfns.cancellation,
     });
+
+    // Swarm mode the host asked for (v2 `IAgentSwarmService.enter` / `.exit`).
+    // Applied here, before the pipeline runs, so the `swarm_mode` injection
+    // sees it at the turn head — and announced through the same event pair the
+    // tool path emits, so the host's indicator tracks the engine's real mode
+    // rather than its own flag. Without this the napi surface had no way to
+    // express the mode at all and a `/swarm` toggle was status-only.
+    if let Some(desired) = params.swarm_mode {
+        let trigger = match params.swarm_mode_trigger.as_deref() {
+            Some("task") => crate::swarm::mode::SwarmModeTrigger::Task,
+            Some("tool") => crate::swarm::mode::SwarmModeTrigger::Tool,
+            _ => crate::swarm::mode::SwarmModeTrigger::Manual,
+        };
+        crate::swarm::mode::set_swarm_mode(
+            host_callbacks.as_ref(),
+            crate::callbacks::MAIN_AGENT_ID,
+            desired.then_some(trigger),
+        );
+    }
     let pipeline = pipeline::build_engine_pipeline(
         &spec,
         host_callbacks.clone(),
@@ -3415,7 +3447,11 @@ pub fn init_plugin_store(
         let manager = crate::server::plugins::PluginManager::new(Arc::new(store))
             .with_marketplace_dir(marketplace_dir.map(std::path::PathBuf::from))
             .with_home_dir(Some(std::path::PathBuf::from(&data_dir)))
-            .with_node_runner(node_runner.filter(|runner| !runner.trim().is_empty()).map(std::path::PathBuf::from));
+            .with_node_runner(
+                node_runner
+                    .filter(|runner| !runner.trim().is_empty())
+                    .map(std::path::PathBuf::from),
+            );
         *PLUGIN_MANAGER.lock().unwrap_or_else(|p| p.into_inner()) = Some(Arc::new(manager));
         Ok(())
     })

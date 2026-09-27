@@ -270,6 +270,14 @@ pub fn emit_spawned_started(
     run_in_background: bool,
     swarm_index: Option<usize>,
 ) {
+    // v2 `emitAgentRunSpawned` carries `parentAgentId` / `callerAgentId` on
+    // every `subagent.spawned` (mirrorAgentRun.ts:141-142): the child is
+    // announced as belonging to whoever spawned it. Without them a swarm
+    // member is indistinguishable from an `Agent` subagent on the wire, which
+    // is what made a swarm look like "N Agent calls".
+    let caller = crate::tools::CALLER_AGENT_ID
+        .try_with(|id| id.clone())
+        .unwrap_or_else(|_| crate::callbacks::MAIN_AGENT_ID.to_string());
     emit_subagent_event(
         callbacks,
         serde_json::json!({
@@ -280,6 +288,8 @@ pub fn emit_spawned_started(
             "description": description,
             "run_in_background": run_in_background,
             "swarm_index": swarm_index,
+            "parent_agent_id": caller,
+            "caller_agent_id": caller,
         }),
     );
     emit_subagent_event(
