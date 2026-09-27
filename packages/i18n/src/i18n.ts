@@ -103,9 +103,9 @@ export function setLocale(locale: Locale): void {
  * napi `translate` binding reads, i.e. what `t()` resolves against on the
  * native path. See `packages/kimi-agent/src/i18n.rs`.
  *
- * It does not reach the engine's own messages: those still render their
- * carried English, because `LocalizedText` resolves through a tree-injecting
- * seam no napi binding exposes.
+ * It also names the locale the engine's own user-facing text resolves against
+ * — permission reasons, tool-result notes, ACP approval labels — so those
+ * follow the language the host selected rather than staying English.
  *
  * Best-effort: an older build without the binding leaves the native path
  * rendering English for every key while `getLocale()` still reports the

@@ -6,11 +6,11 @@
  * process-wide locale is named once via `setEngineLocale`.
  *
  * `createI18n()` is a second handle onto the same process-wide engine locale,
- * not an isolated instance. Each keeps its own `currentLocale`, but `t()`
- * resolves against whatever locale was last handed to `setEngineLocale`, so two
- * instances on different locales cross-talk and render the wrong language
- * without error. Use the module-level singleton below; only that one is safe
- * today.
+ * not an isolated instance. Each keeps its own `currentLocale`, but both `t()`
+ * and the engine's own user-facing text resolve against whatever locale was
+ * last handed to `setEngineLocale`, so two instances on different locales
+ * cross-talk and render the wrong language without error. Use the module-level
+ * singleton below; only that one is safe today.
  *
  * `translateBatch` still hands trees over (`nativeTranslateBatch*`), which is
  * the pre-migration contract; it goes away with this file's remaining surface.
@@ -143,9 +143,9 @@ function toNativeParams(
  * napi `translate` binding reads, i.e. what `t()` resolves against. See
  * `packages/kimi-agent/src/i18n.rs`.
  *
- * It does not reach the engine's own messages: those still render their
- * carried English, because `LocalizedText` resolves through a tree-injecting
- * seam no napi binding exposes.
+ * It also names the locale the engine's own user-facing text resolves against
+ * — permission reasons, tool-result notes, ACP approval labels — so those
+ * follow the language the host selected rather than staying English.
  *
  * Best-effort by design: an older build without the binding leaves `t()`
  * rendering English for every key while `getLocale()` still reports the

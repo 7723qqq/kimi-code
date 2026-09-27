@@ -63,9 +63,8 @@ pub fn project_id_for(workspace_root: &Path) -> String {
 pub fn read(base: &Path, rel_path: &str) -> Result<(String, String), String> {
     let (rel, path) = resolve_path(base, rel_path)?;
     let content = fs::read_to_string(&path).map_err(|e| {
-        LocalizedText::fmt(
+        LocalizedText::with_params(
             "engine.tools.memory.cannotRead",
-            format!("Cannot read {rel}: {e}"),
             i18n_params!["rel" => rel, "e" => e],
         )
         .render()
@@ -104,21 +103,15 @@ pub fn str_replace(
     let content = require_current(&rel, &path, if_version)?;
     let matches = content.matches(old_str).count();
     if matches == 0 {
-        return Err(LocalizedText::fmt(
+        return Err(LocalizedText::with_params(
             "engine.tools.memory.oldStrNotFound",
-            format!(
-                "`old_str` was not found in {rel}. Match the file's text exactly.\n\nCurrent content:\n{content}"
-            ),
             i18n_params!["rel" => rel, "content" => content],
         )
         .render());
     }
     if matches > 1 {
-        return Err(LocalizedText::fmt(
+        return Err(LocalizedText::with_params(
             "engine.tools.memory.oldStrMatchedMultiple",
-            format!(
-                "`old_str` matches {matches} times in {rel}; it must match exactly once. Add surrounding context to make it unique.\n\nCurrent content:\n{content}"
-            ),
             i18n_params!["matches" => matches, "rel" => rel, "content" => content],
         )
         .render());
@@ -148,9 +141,8 @@ pub fn delete(base: &Path, rel_path: &str, if_version: &str) -> Result<(), Strin
     let (rel, path) = resolve_path(base, rel_path)?;
     require_current(&rel, &path, if_version)?;
     fs::remove_file(&path).map_err(|e| {
-        LocalizedText::fmt(
+        LocalizedText::with_params(
             "engine.tools.memory.cannotDelete",
-            format!("Cannot delete {rel}: {e}"),
             i18n_params!["rel" => rel, "e" => e],
         )
         .render()
@@ -281,12 +273,8 @@ fn resolve_path(base: &Path, rel_path: &str) -> Result<(String, PathBuf), String
     let rel = build_rel_path(parsed.scope, &parsed.scope_id, &parts.join("/"));
     let path = base.join(&rel);
     if !path.starts_with(base) {
-        return Err(LocalizedText::fmt(
+        return Err(LocalizedText::with_params(
             "engine.tools.memory.outsideStore",
-            format!(
-                "Error: `{path}` resolves outside the memory store.",
-                path = trimmed
-            ),
             i18n_params!["path" => trimmed],
         )
         .render());
@@ -295,11 +283,8 @@ fn resolve_path(base: &Path, rel_path: &str) -> Result<(String, PathBuf), String
 }
 
 fn not_a_memory_path(rel_path: &str) -> String {
-    LocalizedText::fmt(
+    LocalizedText::with_params(
         "engine.tools.memory.notMemoryPath",
-        format!(
-            "Error: `{rel_path}` is not a memory path. Use a relative path under `global/`, `projects/<id>/`, or `sessions/<id>/`."
-        ),
         i18n_params!["rel_path" => rel_path],
     )
     .render()
@@ -365,9 +350,8 @@ fn check_version(rel: &str, path: &Path, if_version: &str) -> Result<Option<Stri
             content,
             "the path is already in use and `if_version: \"new\"` requires an unused path",
         )),
-        (_, None) => Err(LocalizedText::fmt(
+        (_, None) => Err(LocalizedText::with_params(
             "engine.tools.memory.notExistHint",
-            format!("{rel} does not exist. Pass `if_version: \"new\"` to create it."),
             i18n_params!["rel" => rel],
         )
         .render()),
@@ -379,9 +363,8 @@ fn check_version(rel: &str, path: &Path, if_version: &str) -> Result<Option<Stri
                 Err(conflict(
                     rel,
                     content,
-                    &LocalizedText::fmt(
+                    &LocalizedText::with_params(
                         "engine.tools.memory.versionMismatch",
-                        format!("expected version {expected}, current version is {version}"),
                         i18n_params!["expected" => expected, "version" => version],
                     )
                     .render(),
@@ -394,22 +377,14 @@ fn check_version(rel: &str, path: &Path, if_version: &str) -> Result<Option<Stri
 /// [`check_version`] for the operations that cannot create a file.
 fn require_current(rel: &str, path: &Path, if_version: &str) -> Result<String, String> {
     check_version(rel, path, if_version)?.ok_or_else(|| {
-        LocalizedText::fmt(
-            "engine.tools.memory.notExist",
-            format!("{rel} does not exist."),
-            i18n_params!["rel" => rel],
-        )
-        .render()
+        LocalizedText::with_params("engine.tools.memory.notExist", i18n_params!["rel" => rel])
+            .render()
     })
 }
 
 fn conflict(rel: &str, content: &str, reason: &str) -> String {
-    LocalizedText::fmt(
+    LocalizedText::with_params(
         "engine.tools.memory.versionConflict",
-        format!(
-            "Version conflict on {rel} (current version {current}): {reason}.\n\nCurrent content:\n{content}",
-            current = content_version(content)
-        ),
         i18n_params![
             "rel" => rel,
             "current" => content_version(content),
@@ -424,9 +399,8 @@ fn current_content(rel: &str, path: &Path) -> Result<Option<String>, String> {
     match fs::read_to_string(path) {
         Ok(content) => Ok(Some(content)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(LocalizedText::fmt(
+        Err(e) => Err(LocalizedText::with_params(
             "engine.tools.memory.cannotRead",
-            format!("Cannot read {rel}: {e}"),
             i18n_params!["rel" => rel, "e" => e],
         )
         .render()),
@@ -438,9 +412,8 @@ fn current_content(rel: &str, path: &Path) -> Result<Option<String>, String> {
 fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| {
-            LocalizedText::fmt(
+            LocalizedText::with_params(
                 "engine.tools.memory.cannotCreate",
-                format!("Cannot create {path}: {e}", path = parent.display()),
                 i18n_params!["path" => parent.display(), "e" => e],
             )
             .render()
@@ -448,9 +421,8 @@ fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
     }
     let tmp = path.with_extension("md.tmp");
     let mut file = fs::File::create(&tmp).map_err(|e| {
-        LocalizedText::fmt(
+        LocalizedText::with_params(
             "engine.tools.memory.cannotWrite",
-            format!("Cannot write {path}: {e}", path = tmp.display()),
             i18n_params!["path" => tmp.display(), "e" => e],
         )
         .render()
@@ -458,17 +430,15 @@ fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
     file.write_all(content.as_bytes())
         .and_then(|_| file.sync_all())
         .map_err(|e| {
-            LocalizedText::fmt(
+            LocalizedText::with_params(
                 "engine.tools.memory.cannotWrite",
-                format!("Cannot write {path}: {e}", path = tmp.display()),
                 i18n_params!["path" => tmp.display(), "e" => e],
             )
             .render()
         })?;
     fs::rename(&tmp, path).map_err(|e| {
-        LocalizedText::fmt(
+        LocalizedText::with_params(
             "engine.tools.memory.cannotReplace",
-            format!("Cannot replace {path}: {e}", path = path.display()),
             i18n_params!["path" => path.display(), "e" => e],
         )
         .render()

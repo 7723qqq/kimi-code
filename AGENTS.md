@@ -31,7 +31,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 
 ### Fork-specific additions vs upstream
 
-- **i18n / Multi-language support** — Complete Chinese-English bilingual support across TUI, CLI, and Web UI. All hardcoded English strings replaced with `t()` calls. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
+- **i18n / Multi-language support** — Complete Chinese-English bilingual support across TUI, CLI, and Web UI, and across the Rust engine's own user-facing text (permission reasons, tool-result errors, ACP approval labels). The locale catalog lives in the engine binary and is resolved by key; `apps/kimi-code` and `packages/i18n` no longer hold a JSON copy. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
 - **Team** — Multi-agent discussion and collaboration tool; agents can debate, cross-review, and reach consensus before output.
 - **Rust Native Tools** — Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as a native Node addon, significantly faster than JS.
 - **Windows launchers** — `start-native.bat` builds the native Rust tools if needed and launches the CLI in dev mode (supports `--web` to launch the Web UI powered by native Rust server); `start-web-native.bat` provides one-click launch for the native Web UI; `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
@@ -54,12 +54,11 @@ in-process against the locale the host installs.
 use crate::i18n::{LocalizedText, i18n_params};
 
 // No interpolation.
-LocalizedText::plain("engine.permission.reject", "Reject").render()
+LocalizedText::new("engine.permission.reject").render()
 
 // With `{{param}}` interpolation.
-LocalizedText::fmt(
+LocalizedText::with_params(
     "engine.tools.read.notExist",
-    format!("\"{path}\" does not exist."),
     i18n_params!["path" => path],
 )
 .render()
@@ -73,18 +72,16 @@ gates on it.
 
 ### Hard rules
 
-- **`plain` never interpolates.** A `{name}` in a `plain` English text reaches the
-  user as literal braces. Use `fmt` + `i18n_params!`. The parity gate rejects this.
-- **The `format!` placeholder names must match the locale placeholder names,
-  character for character.** `format!("… {v} …")` needs `{{v}}` in the locale, not
-  `{{value}}`. The gate compares the normalized templates and fails on drift.
-- **`format!` placeholders must resolve to an in-scope variable.** `Path`/`PathBuf`
-  do not implement `Display`, and fields/constants are not variables — use named
-  arguments: `format!("… {path} …", path = path.display())`,
-  `format!("… {max} …", max = MAX_BYTES)`.
-- **Keep the English fallback accurate.** It is what an unwired host renders (the
-  standalone REPL, unit tests, an embedder that never called `setEngineLocale`),
-  and it is what the parity gate compares against.
+- **The embedded `en` catalog is the only English source.** `LocalizedText::new`
+  names a key; the text lives in `packages/kimi-agent/src/locales/en.json`,
+  compiled into the binary. There is no Rust-side English copy to keep in sync.
+  A key that resolves nowhere renders as the bare key — `bun run
+  check:engine-i18n` fails on both a missing key and an unused one.
+- **`i18n_params!` names must match the template's `{{placeholders}}`, character
+  for character.** The engine no longer compares two copies, so a mismatch is no
+  longer caught by a byte comparison — it silently leaves `{{name}}` in the
+  user's text. `bun run check:engine-i18n` checks key existence, not placeholder
+  parity; check placeholders by eye.
 
 ### What not to translate
 
@@ -112,6 +109,25 @@ gates on it.
   see. Surfacing it needs a protocol change, tracked separately.
 - **Informational footers are still English** — "Total lines in file: N.",
   "Showing matches X–Y of Z.", "Continue with the same search arguments…".
+
+### Known rough edges
+
+- **No plural machinery.** 14 key pairs ship as `_one` / `_other` (28 lines),
+  and the call site picks between them by hand — see
+  `tui/components/chrome/footer.ts`. Both the Rust engine and the TypeScript
+  runtime only do `{{name}}` substitution; there is no ICU support. These keys
+  look like vue-i18n data running on a non-vue-i18n engine, which is what they
+  are.
+- **Placeholder parity is unchecked.** `check:engine-i18n` verifies that every
+  key exists and that none is orphaned, but it cannot compare two copies of a
+  template because there is only one. A `i18n_params!` name that disagrees with
+  the catalog's `{{placeholder}}` leaves `{{name}}` in the user's text
+  silently. Check by eye when editing a parameterized message.
+- **A missing native module is fatal, not degraded.** The catalog lives in the
+  Rust binary, so there is no JavaScript copy to fall back to. `t()` throws if
+  `@moonshot-ai/kimi-agent/native` cannot be resolved — including in a
+  single-file Bun binary, which is why the runtime resolves it through
+  `globalThis.__kimi_getNativePackageRoot` as well.
 
 ---
 
@@ -288,7 +304,7 @@ scripts/
   check-t-call-coverage.mjs     — Check t() call coverage
   scan-hardcoded[-v2].mjs       — Scan for hardcoded strings (i18n compliance)
   scan-parity.mjs               — Rust ↔ TS interface parity (REST / WS events / WS control / tool names / napi / config keys)
-  check-engine-i18n-parity.mjs  — Rust `LocalizedText` English fallbacks vs locale entries (drift + orphan-key detection)
+  check-engine-i18n-parity.mjs  — Engine key-set consistency: every `LocalizedText` key exists in the embedded `en` catalog, and no `engine.*` catalog key is orphaned
   check-no-legacy-engine.mjs    — Fail if a retired engine package is still referenced
   prompt-optimizer/             — Prompt benchmark and optimization tools
 ```

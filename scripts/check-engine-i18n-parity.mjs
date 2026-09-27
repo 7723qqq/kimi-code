@@ -1,22 +1,32 @@
 #!/usr/bin/env bun
 /**
- * check-engine-i18n-parity.mjs — keeps the Rust engine's English fallbacks and
- * the locale files from drifting apart.
+ * check-engine-i18n-parity.mjs — keeps the Rust engine's locale keys and the
+ * embedded catalog agreeing on which keys exist.
  *
- * Every `LocalizedText` in `packages/kimi-agent` carries a locale key plus an
- * English rendering used when no locale is installed. That English string is a
- * second copy of the sentence that already lives in the locale files, and the
- * two have already drifted once (`run_turn.rs`'s compaction-overflow message vs
- * `packages/i18n`'s `compactionOverflowFailed`). This script makes the drift a
- * build failure instead of a silent divergence.
+ * The catalog is compiled into the binary, so there is no longer a second copy
+ * of the English text in Rust source to drift from. What is left to check is
+ * that the two sides agree on the *keys*, and on how the keys are filled in:
  *
- * Three checks, all fatal:
- *   1. Every key used in Rust exists in BOTH the en and zh locale trees.
- *   2. The Rust English fallback is byte-identical to the en locale value,
- *      once Rust's `{name}` placeholders are normalized to i18n's `{{name}}`.
- *   3. Every `engine.*` key in the locale trees is used by some `LocalizedText`
- *      — an orphan means a Rust call site typo'd its key, which would render
- *      English forever with nothing else noticing.
+ *   1. every key a `LocalizedText` names exists in the embedded en catalog;
+ *   2. every `engine.*` key in the catalog is used by some `LocalizedText`;
+ *   3. a `with_params` site binds exactly the `{{placeholders}}` its template
+ *      declares — no more, no fewer.
+ *
+ * Rule 1 catches a typo, which would otherwise render as a bare key. Rule 2
+ * catches a key left behind by a rename.
+ *
+ * Rule 3 is not the two-copy template comparison the old gate did. It compares
+ * the `i18n_params!` *names* in Rust against the placeholders in the one
+ * surviving copy of the template, which is a check the old gate structurally
+ * could not do: while every `LocalizedText` still carried its own English, a
+ * key named `count` bound to a template expecting `{{filtered_sensitive}}` was
+ * invisible, because the unused `format!` string was what rendered. Now that
+ * the catalog is authoritative, the same mismatch puts `{{filtered_sensitive}}`
+ * in front of the user. Thirteen such sites existed when the catalog was
+ * promoted; this rule is why there are none now.
+ *
+ * `zh` coverage of every `en` key is covered by `catalog.rs`'s
+ * `zh_covers_every_key_en_covers` test instead.
  *
  * Usage:
  *   bun scripts/check-engine-i18n-parity.mjs
@@ -29,10 +39,9 @@ import { join, relative, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dir, '..');
 const AGENT_SRC = join(ROOT, 'packages', 'kimi-agent', 'src');
-const LOCALE_EN = join(ROOT, 'apps', 'kimi-code', 'src', 'i18n', 'locales', 'en.json');
-const LOCALE_ZH = join(ROOT, 'apps', 'kimi-code', 'src', 'i18n', 'locales', 'zh.json');
+const LOCALE_EN = join(ROOT, 'packages', 'kimi-agent', 'src', 'locales', 'en.json');
 
-/** The namespace every engine key must live under, in both locale trees. */
+/** The namespace every engine key must live under. */
 const ENGINE_NAMESPACE = 'engine';
 
 // ---------------------------------------------------------------------------
@@ -82,117 +91,22 @@ function readStringLiteral(src, open) {
 }
 
 /**
- * Collect the top-level arguments of the call whose `(` sits at `open`,
- * returning each argument's source text. Splits on commas that are outside
- * nested parens/brackets and outside string literals, so `format!(..)` and
- * `i18n_params![..]` survive as single arguments.
- */
-function readCallArgs(src, open) {
-  const args = [];
-  let depth = 0;
-  let start = open + 1;
-  let i = open + 1;
-  while (i < src.length) {
-    const ch = src[i];
-    if (ch === '"') {
-      const literal = readStringLiteral(src, i);
-      if (!literal) return null;
-      i = literal.end;
-      continue;
-    }
-    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
-    else if (ch === ')' || ch === ']' || ch === '}') {
-      if (depth === 0) {
-        const tail = src.slice(start, i).trim();
-        if (tail) args.push(tail);
-        return args;
-      }
-      depth -= 1;
-    } else if (ch === ',' && depth === 0) {
-      args.push(src.slice(start, i).trim());
-      start = i + 1;
-    }
-    i += 1;
-  }
-  return null;
-}
-
-/**
- * Normalize a Rust `format!` template into i18n's placeholder syntax.
- *
- * `format!("Denied by user rule: {rule}: {why}")` becomes
- * `Denied by user rule: {{rule}}: {{why}}`. Escaped braces (`{{` / `}}`, which
- * Rust renders as literal braces) are left alone.
- */
-function normalizeTemplate(template) {
-  let out = '';
-  let i = 0;
-  while (i < template.length) {
-    const ch = template[i];
-    if (ch === '{' && template[i + 1] === '{') {
-      out += '{{';
-      i += 2;
-      continue;
-    }
-    if (ch === '}' && template[i + 1] === '}') {
-      out += '}}';
-      i += 2;
-      continue;
-    }
-    if (ch === '{') {
-      const close = template.indexOf('}', i);
-      if (close === -1) {
-        out += ch;
-        i += 1;
-        continue;
-      }
-      const name = template.slice(i + 1, close);
-      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
-        out += `{{${name}}}`;
-        i = close + 1;
-        continue;
-      }
-      out += ch;
-      i += 1;
-      continue;
-    }
-    out += ch;
-    i += 1;
-  }
-  return out;
-}
-
-/**
- * The English template a `LocalizedText` carries, taken from its second
- * argument: a plain literal for `plain`, or the literal inside `format!(..)`
- * for `fmt`.
- */
-function extractEnglish(argSrc) {
-  const formatMatch = argSrc.startsWith('format!(');
-  const body = formatMatch ? argSrc.slice('format!('.length, argSrc.lastIndexOf(')')) : argSrc;
-  const quote = body.indexOf('"');
-  if (quote === -1) return null;
-  const literal = readStringLiteral(body, quote);
-  if (!literal) return null;
-  return normalizeTemplate(literal.value);
-}
-
-/**
  * Byte ranges covered by a `#[cfg(test)]` module.
  *
- * Test fixtures deliberately use keys that do not exist in any locale — that is
- * how the fallback path gets covered — so they are out of scope for parity.
- * Returns `[start, end)` pairs.
+ * Test fixtures deliberately use keys that do not exist in any locale, so they
+ * are out of scope. Returns `[start, end)` pairs.
  */
 function testModuleRanges(src) {
   const ranges = [];
-  // Anchored to line start so a `#[cfg(test)]` mentioned inside a doc comment
-  // (lib.rs quotes its own test module in prose) does not open a range that
-  // swallows the production code between it and the real module.
+  // Anchored to line start, and a `mod <name> {` must follow. Both conditions
+  // are load-bearing on this crate: `lib.rs` names `#[cfg(test)] mod
+  // engine_tests` inside a doc comment, `acp/mod.rs` declares a brace-less
+  // `#[cfg(test)] mod events_map_golden;`, and many files gate a single item.
+  // Matching the attribute alone would open a range from the wrong brace and
+  // swallow the production code after it.
   const re = /^[ \t]*#\[cfg\(test\)\]/gm;
   let match;
   while ((match = re.exec(src)) !== null) {
-    // Find the `mod <name> {` that follows the attribute.
     const modMatch = /\bmod\s+[A-Za-z_][A-Za-z0-9_]*\s*\{/.exec(src.slice(match.index));
     if (!modMatch) continue;
     const braceOpen = match.index + modMatch.index + modMatch[0].length - 1;
@@ -224,109 +138,80 @@ function inRanges(index, ranges) {
   return ranges.some(([start, end]) => index >= start && index < end);
 }
 
-/** Every `LocalizedText::plain` / `::fmt` in the crate, keyed by locale key. */
-function collectEngineStrings() {
-  const found = new Map();
-  /** `plain` sites whose English text carries a `{name}` placeholder. */
-  const misusedPlain = [];
-  for (const file of walkRs(AGENT_SRC)) {
-    const src = readFileSync(file, 'utf8');
-    const testRanges = testModuleRanges(src);
-    const re = /LocalizedText::(plain|fmt)\(/g;
-    let match;
-    while ((match = re.exec(src)) !== null) {
-      if (inRanges(match.index, testRanges)) continue;
-      const open = match.index + match[0].length - 1;
-      const args = readCallArgs(src, open);
-      if (!args || args.length < 2) continue;
-
-      const keyQuote = args[0].indexOf('"');
-      if (keyQuote === -1) continue;
-      const keyLiteral = readStringLiteral(args[0], keyQuote);
-      if (!keyLiteral) continue;
-
-      const english = extractEnglish(args[1]);
-      if (english === null) continue;
-
-      const line = src.slice(0, match.index).split('\n').length;
-
-      // `plain` never interpolates, so a `{name}` in its English text would
-      // reach the user as literal braces. `fmt` is the constructor that takes
-      // params. The template comparison below cannot catch this on its own:
-      // the locale entry may legitimately carry the same placeholder, so the
-      // two agree while the unwired fallback is still broken.
-      if (match[1] === 'plain' && /\{[A-Za-z_]/.test(english)) {
-        misusedPlain.push({ file: relative(ROOT, file), line, key: keyLiteral.value, english });
-      }
-
-      const prior = found.get(keyLiteral.value);
-      // First occurrence wins, so the reported location is the canonical one;
-      // duplicates are reported separately.
-      if (!prior) {
-        found.set(keyLiteral.value, {
-          file: relative(ROOT, file),
-          line,
-          english,
-          kind: match[1],
-        });
-      }
-    }
-  }
-  return { found, misusedPlain };
-}
-
 // ---------------------------------------------------------------------------
-// Locale trees
+// Locale tree
 // ---------------------------------------------------------------------------
 
-/**
- * A parsed locale tree. Typed loosely — only string leaves are ever read.
- *
- * @typedef {{ [key: string]: string | LocaleTree }} LocaleTree
- */
-
-/** @returns {LocaleTree} */
-function readLocale(path) {
-  return JSON.parse(readFileSync(path, 'utf8'));
-}
-
-function resolveKey(tree, key) {
-  let current = tree;
-  for (const part of key.split('.')) {
-    if (current === null || typeof current !== 'object') return;
-    current = current[part];
-  }
-  return typeof current === 'string' ? current : undefined;
-}
-
-/**
- * @param {LocaleTree} tree
- * @param {string} namespace
- * @param {string} [prefix]
- * @returns {string[]}
- */
-function collectNamespaceKeys(tree, namespace, prefix = '') {
-  /** @type {string[]} */
-  const out = [];
-  for (const [key, value] of Object.entries(tree)) {
+/** Every dot-path leaf in the catalog. */
+function leafKeys(node, prefix = '', out = []) {
+  for (const [key, value] of Object.entries(node)) {
     const full = prefix ? `${prefix}.${key}` : key;
-    if (typeof value === 'string') {
-      if (full.startsWith(`${namespace}.`)) out.push(full);
-    } else if (value && typeof value === 'object') {
-      out.push(...collectNamespaceKeys(value, namespace, full));
-    }
+    if (value && typeof value === 'object') leafKeys(value, full, out);
+    else out.push(full);
   }
   return out;
 }
 
+/** The `{{name}}` placeholders a template declares, deduplicated. */
+function placeholders(template) {
+  return [...new Set((template.match(/{{\w+}}/g) ?? []).map((t) => t.slice(2, -2)))];
+}
+
+/** Resolve a dot path in the catalog, or `undefined` when absent. */
+function resolveKey(tree, key) {
+  let node = tree;
+  for (const part of key.split('.')) {
+    if (node === null || typeof node !== 'object') return undefined;
+    node = node[part];
+  }
+  return typeof node === 'string' ? node : undefined;
+}
+
 /**
- * The `{{name}}` placeholders in `text`, as a sorted comma list, or `(none)`.
- * Returning the marker here — rather than `||`-ing at each call site — keeps
- * an empty list distinguishable from a missing one.
+ * The `i18n_params![...]` names a call binds.
+ *
+ * The value expressions are irrelevant here — only the names are, since they
+ * are what has to line up with the template. Reading the macro body as source
+ * text keeps this independent of how the value is spelled.
  */
-function placeholderList(text) {
-  const found = text.match(/{{\w+}}/g) ?? [];
-  return found.length > 0 ? found.toSorted().join(',') : '(none)';
+function boundParams(argsSrc) {
+  return [...new Set([...argsSrc.matchAll(/"([^"]+)"\s*=>/g)].map((m) => m[1]))];
+}
+
+/**
+ * Collect the top-level arguments of the call whose `(` sits at `open`.
+ *
+ * Splits on commas outside nested parens/brackets and outside string literals,
+ * so the `i18n_params![..]` second argument survives intact.
+ */
+function readCallArgs(src, open) {
+  const args = [];
+  let depth = 0;
+  let start = open + 1;
+  let i = open + 1;
+  while (i < src.length) {
+    const ch = src[i];
+    if (ch === '"') {
+      const literal = readStringLiteral(src, i);
+      if (!literal) return null;
+      i = literal.end;
+      continue;
+    }
+    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+    else if (ch === ')' || ch === ']' || ch === '}') {
+      if (depth === 0) {
+        const tail = src.slice(start, i).trim();
+        if (tail) args.push(tail);
+        return args;
+      }
+      depth -= 1;
+    } else if (ch === ',' && depth === 0) {
+      args.push(src.slice(start, i).trim());
+      start = i + 1;
+    }
+    i += 1;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -334,98 +219,83 @@ function placeholderList(text) {
 // ---------------------------------------------------------------------------
 
 const failures = [];
-const warnings = [];
 
-const { found: engineStrings, misusedPlain } = collectEngineStrings();
-const en = readLocale(LOCALE_EN);
-const zh = readLocale(LOCALE_ZH);
+const enTree = JSON.parse(readFileSync(LOCALE_EN, 'utf8'));
+const enKeys = new Set(leafKeys(enTree));
+const engineKeysInCatalog = [...enKeys].filter((k) => k.startsWith(`${ENGINE_NAMESPACE}.`));
 
-if (engineStrings.size === 0) {
+/** Every locale key a `LocalizedText` names, mapped to its first location. */
+const used = new Map();
+/** `[key, boundNames, where]` for every `with_params` site. */
+const parameterized = [];
+
+for (const file of walkRs(AGENT_SRC)) {
+  const src = readFileSync(file, 'utf8');
+  const skip = testModuleRanges(src);
+  for (const m of src.matchAll(/LocalizedText::(new|with_params)\(\s*"([^"]+)"/g)) {
+    if (inRanges(m.index, skip)) continue;
+    const [, ctor, key] = m;
+    const line = src.slice(0, m.index).split('\n').length;
+    const where = `${relative(ROOT, file)}:${line}`;
+    if (!used.has(key)) used.set(key, where);
+    if (ctor === 'with_params') {
+      const open = m.index + m[0].length - '('.length;
+      const args = readCallArgs(src, open);
+      if (args && args[1]) parameterized.push([key, boundParams(args[1]), where]);
+    }
+  }
+}
+
+if (used.size === 0) {
   console.error(
     'check-engine-i18n-parity: found no LocalizedText in packages/kimi-agent/src — the scanner is broken.',
   );
   process.exit(1);
 }
 
-for (const { file, line, key, english } of misusedPlain) {
-  failures.push(
-    `PLAIN ${key} (${file}:${line}) is built with LocalizedText::plain but its English text ` +
-      `carries a placeholder, which plain never interpolates — the user would see literal ` +
-      `braces.\n        english: ${JSON.stringify(english)}\n` +
-      `        fix: use LocalizedText::fmt with the matching i18n_params! entry`,
-  );
-}
-
-for (const [key, entry] of engineStrings) {
-  const where = `${entry.file}:${entry.line}`;
-
+for (const [key, where] of used) {
   if (!key.startsWith(`${ENGINE_NAMESPACE}.`)) {
-    failures.push(`KEY   ${key} at ${where} is outside the "${ENGINE_NAMESPACE}." namespace`);
-    continue;
-  }
-
-  const enValue = resolveKey(en, key);
-  const zhValue = resolveKey(zh, key);
-
-  if (enValue === undefined) {
-    failures.push(`EN    ${key} (${where}) has no entry in ${relative(ROOT, LOCALE_EN)}`);
-  } else if (enValue !== entry.english) {
-    failures.push(
-      `EN    ${key} (${where}) fallback drifted from the locale value\n` +
-        `        rust:   ${JSON.stringify(entry.english)}\n` +
-        `        locale: ${JSON.stringify(enValue)}`,
-    );
-  } else if (placeholderList(enValue) !== placeholderList(entry.english)) {
-    failures.push(
-      `EN    ${key} (${where}) placeholders differ from the locale value\n` +
-        `        rust:   ${placeholderList(entry.english)}\n` +
-        `        locale: ${placeholderList(enValue)}`,
-    );
-  }
-
-  if (zhValue === undefined) {
-    failures.push(`ZH    ${key} (${where}) has no entry in ${relative(ROOT, LOCALE_ZH)}`);
+    failures.push(`KEY     ${key} (${where}) is outside the "${ENGINE_NAMESPACE}." namespace`);
+  } else if (!enKeys.has(key)) {
+    failures.push(`MISSING ${key} is not in ${relative(ROOT, LOCALE_EN)} (${where})`);
   }
 }
 
-// An `engine.*` locale key nobody uses means a Rust call site typo'd its key:
-// that message renders English forever and nothing else would notice.
-const enKeys = new Set(collectNamespaceKeys(en, ENGINE_NAMESPACE));
-const zhKeys = new Set(collectNamespaceKeys(zh, ENGINE_NAMESPACE));
+// An `engine.*` catalog key nobody names means a call site was renamed or
+// deleted: the catalog carries a sentence the user can never see.
+for (const key of engineKeysInCatalog) {
+  if (!used.has(key)) {
+    failures.push(`ORPHAN  ${key} is in the catalog but no LocalizedText uses it`);
+  }
+}
 
-for (const key of enKeys) {
-  if (!engineStrings.has(key)) {
+// A bound name the template has no placeholder for is dead weight; a
+// placeholder nobody bound reaches the user as a literal `{{name}}`.
+for (const [key, bound, where] of parameterized) {
+  const template = resolveKey(enTree, key);
+  if (template === undefined) continue; // already reported as MISSING
+  const wants = placeholders(template);
+  const unbound = wants.filter((w) => !bound.includes(w));
+  const unused = bound.filter((b) => !wants.includes(b));
+  if (unbound.length || unused.length) {
     failures.push(
-      `ORPHAN ${key} exists in the locale trees but no LocalizedText uses it — ` +
-        `a Rust call site most likely typo'd its key and is falling back to English`,
+      `PARAMS  ${key} (${where}) does not line up with its template\n` +
+        `        bound:   ${JSON.stringify(bound)}\n` +
+        `        expects: ${JSON.stringify(wants)}\n` +
+        `        template: ${JSON.stringify(template)}\n` +
+        `        fix: rename the i18n_params! keys to match, character for character`,
     );
   }
-}
-for (const key of zhKeys) {
-  if (!enKeys.has(key)) {
-    warnings.push(`ZH-only locale key: ${key}`);
-  }
-}
-
-for (const warning of warnings) {
-  console.warn(`⚠️  ${warning}`);
 }
 
 if (failures.length > 0) {
-  console.error(
-    `\n❌ engine i18n parity failed (${failures.length} issue${failures.length === 1 ? '' : 's'}):\n`,
-  );
-  for (const failure of failures) {
-    console.error(`  ${failure}\n`);
-  }
-  console.error(
-    'Fix the Rust fallback or the locale entry so the two agree, then re-run ' +
-      '`bun scripts/generate-locale-json.cjs` if you edited a locale .ts file.',
-  );
+  console.error(`\n❌ engine i18n parity failed (${failures.length} issue${failures.length === 1 ? '' : 's'}):\n`);
+  for (const failure of failures) console.error(`  ${failure}\n`);
   process.exit(1);
 }
 
 console.log(
-  `✅ engine i18n parity OK: ${engineStrings.size} LocalizedText keys match the ` +
-    `${enKeys.size} "${ENGINE_NAMESPACE}.*" locale keys in en and zh.`,
+  `✅ engine i18n parity OK: ${used.size} LocalizedText keys (${parameterized.length} parameterized) ` +
+    `cover the ${engineKeysInCatalog.length} "${ENGINE_NAMESPACE}.*" keys in the embedded en catalog, ` +
+    `and every i18n_params! name matches its template.`,
 );

@@ -143,18 +143,10 @@ impl crate::callbacks::HostCallbacks for NativeHostCallbacks {
             match verdict.decision {
                 VerdictDecision::Allow => Ok(crate::rpc::types::PermissionDecision::allow()),
                 VerdictDecision::Deny => Ok(crate::rpc::types::PermissionDecision::deny(
-                    LocalizedText::plain(
-                        "engine.permission.operationDeniedByEngine",
-                        "Operation denied by local permission engine",
-                    )
-                    .render(),
+                    LocalizedText::new("engine.permission.operationDeniedByEngine").render(),
                 )),
                 VerdictDecision::Ask => Ok(crate::rpc::types::PermissionDecision::deny(
-                    LocalizedText::plain(
-                        "engine.permission.operationRequiresConfirmation",
-                        "Operation requires user confirmation",
-                    )
-                    .render(),
+                    LocalizedText::new("engine.permission.operationRequiresConfirmation").render(),
                 )),
             }
         })
@@ -343,12 +335,11 @@ impl KimiEngine {
             .decision
             == VerdictDecision::Deny
         {
-            return Err(LocalizedText::plain(
-                "engine.permission.executionDeniedByEngine",
-                "Execution denied by local permission engine",
-            )
-            .render()
-            .into());
+            return Err(
+                LocalizedText::new("engine.permission.executionDeniedByEngine")
+                    .render()
+                    .into(),
+            );
         }
 
         Err(format!(

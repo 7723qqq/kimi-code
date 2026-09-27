@@ -676,20 +676,12 @@ impl std::fmt::Display for CompactionError {
             Self::Cancelled => write!(
                 f,
                 "{}",
-                crate::i18n::LocalizedText::plain(
-                    "engine.compaction.cancelled",
-                    "compaction cancelled",
-                )
-                .render()
+                crate::i18n::LocalizedText::new("engine.compaction.cancelled").render()
             ),
             Self::EmptySummary => write!(
                 f,
                 "{}",
-                crate::i18n::LocalizedText::plain(
-                    "engine.compaction.emptySummary",
-                    "The compaction response did not contain a usable summary.",
-                )
-                .render()
+                crate::i18n::LocalizedText::new("engine.compaction.emptySummary").render()
             ),
             Self::Provider(error) => std::fmt::Display::fmt(error, f),
         }

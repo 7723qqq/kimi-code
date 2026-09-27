@@ -484,13 +484,7 @@ impl PermissionEngine {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Deny,
                 policy_name: "AutoModeAskUserQuestionDeny".into(),
-                reason: Some(
-                    LocalizedText::plain(
-                        "engine.permission.autoModeCannotAsk",
-                        "Auto mode cannot ask interactive questions",
-                    )
-                    .render(),
-                ),
+                reason: Some(LocalizedText::new("engine.permission.autoModeCannotAsk").render()),
             };
         }
 
@@ -510,15 +504,13 @@ impl PermissionEngine {
                         .map(String::as_str)
                         .filter(|r| !r.trim().is_empty())
                     {
-                        Some(why) => LocalizedText::fmt(
+                        Some(why) => LocalizedText::with_params(
                             "engine.permission.deniedByUserRule",
-                            format!("Denied by user rule: {rule}: {why}"),
                             i18n_params!["rule" => rule, "why" => why],
                         )
                         .render(),
-                        None => LocalizedText::fmt(
+                        None => LocalizedText::with_params(
                             "engine.permission.deniedByUserRuleNoWhy",
-                            format!("Denied by user rule: {rule}"),
                             i18n_params!["rule" => rule],
                         )
                         .render(),
@@ -553,11 +545,7 @@ impl PermissionEngine {
                         decision: VerdictDecision::Ask,
                         policy_name: "DangerousCommandAsk".into(),
                         reason: Some(
-                            LocalizedText::plain(
-                                "engine.permission.highRiskShellCommand",
-                                "High-risk shell command requires approval",
-                            )
-                            .render(),
+                            LocalizedText::new("engine.permission.highRiskShellCommand").render(),
                         ),
                     };
                 }
@@ -566,11 +554,8 @@ impl PermissionEngine {
                         decision: VerdictDecision::Ask,
                         policy_name: "DangerousCommandAsk".into(),
                         reason: Some(
-                            LocalizedText::plain(
-                                "engine.permission.shellCommandUnanalyzable",
-                                "Shell command could not be statically analyzed",
-                            )
-                            .render(),
+                            LocalizedText::new("engine.permission.shellCommandUnanalyzable")
+                                .render(),
                         ),
                     };
                 }
@@ -597,9 +582,8 @@ impl PermissionEngine {
                 decision: VerdictDecision::Allow,
                 policy_name: "SessionApprovalHistory".into(),
                 reason: Some(
-                    LocalizedText::fmt(
+                    LocalizedText::with_params(
                         "engine.permission.approvedBySessionHistory",
-                        format!("Approved by session history rule: {rule}"),
                         i18n_params!["rule" => rule],
                     )
                     .render(),
@@ -615,9 +599,8 @@ impl PermissionEngine {
                 decision: VerdictDecision::Ask,
                 policy_name: "UserConfiguredAsk".into(),
                 reason: Some(
-                    LocalizedText::fmt(
+                    LocalizedText::with_params(
                         "engine.permission.approvalRequiredByUserRule",
-                        format!("Approval required by user rule: {rule}"),
                         i18n_params!["rule" => rule],
                     )
                     .render(),
@@ -633,9 +616,8 @@ impl PermissionEngine {
                 decision: VerdictDecision::Allow,
                 policy_name: "UserConfiguredAllow".into(),
                 reason: Some(
-                    LocalizedText::fmt(
+                    LocalizedText::with_params(
                         "engine.permission.allowedByUserRule",
-                        format!("Allowed by user rule: {rule}"),
                         i18n_params!["rule" => rule],
                     )
                     .render(),
@@ -652,9 +634,8 @@ impl PermissionEngine {
                 decision: VerdictDecision::Ask,
                 policy_name: "SensitiveFileAccessAsk".into(),
                 reason: Some(
-                    LocalizedText::fmt(
+                    LocalizedText::with_params(
                         "engine.permission.sensitiveFileAccess",
-                        format!("Access to sensitive file requires approval: {path}"),
                         i18n_params!["path" => path],
                     )
                     .render(),
@@ -668,9 +649,8 @@ impl PermissionEngine {
                 decision: VerdictDecision::Ask,
                 policy_name: "GitControlPathAccessAsk".into(),
                 reason: Some(
-                    LocalizedText::fmt(
+                    LocalizedText::with_params(
                         "engine.permission.gitControlPathAccess",
-                        format!("Access to git control path requires approval: {path}"),
                         i18n_params!["path" => path],
                     )
                     .render(),
@@ -743,9 +723,8 @@ impl PermissionEngine {
             decision: VerdictDecision::Ask,
             policy_name: "FallbackAsk".into(),
             reason: Some(
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.permission.toolExecutionRequiresApproval",
-                    format!("Tool execution requires approval: {tool_name}"),
                     i18n_params!["tool_name" => tool_name],
                 )
                 .render(),

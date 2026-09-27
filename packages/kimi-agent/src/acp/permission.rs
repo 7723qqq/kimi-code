@@ -193,21 +193,18 @@ pub fn permission_options() -> Value {
     json!([
         {
             "optionId": APPROVE_ONCE_OPTION_ID,
-            "name": LocalizedText::plain("engine.permission.approveOnce", "Approve once").render(),
+            "name": LocalizedText::new("engine.permission.approveOnce").render(),
             "kind": "allow_once"
         },
         {
             "optionId": APPROVE_ALWAYS_OPTION_ID,
-            "name": LocalizedText::plain(
-                "engine.permission.approveForSession",
-                "Approve for this session"
-            )
+            "name": LocalizedText::new("engine.permission.approveForSession")
             .render(),
             "kind": "allow_always"
         },
         {
             "optionId": REJECT_OPTION_ID,
-            "name": LocalizedText::plain("engine.permission.reject", "Reject").render(),
+            "name": LocalizedText::new("engine.permission.reject").render(),
             "kind": "reject_once"
         },
     ])

@@ -790,11 +790,7 @@ impl HostCallbacks for NativeToolCallbacks {
                     crate::permission::VerdictDecision::Allow => PermissionDecision::allow(),
                     crate::permission::VerdictDecision::Deny => {
                         PermissionDecision::deny(verdict.reason.unwrap_or_else(|| {
-                            LocalizedText::plain(
-                                "engine.permission.deniedByLocalPolicy",
-                                "Denied by local permission policy",
-                            )
-                            .render()
+                            LocalizedText::new("engine.permission.deniedByLocalPolicy").render()
                         }))
                     }
                     crate::permission::VerdictDecision::Ask => {
@@ -828,11 +824,7 @@ impl HostCallbacks for NativeToolCallbacks {
             };
             if !decision.is_allow() {
                 let reason = decision.reason.unwrap_or_else(|| {
-                    LocalizedText::plain(
-                        "engine.permission.deniedByHostPermission",
-                        "denied by host permission",
-                    )
-                    .render()
+                    LocalizedText::new("engine.permission.deniedByHostPermission").render()
                 });
                 // v2 `formatDenyMessage` / `usesWorkerRejectionGuidance`: a
                 // non-main agent's rejection appends the retry guidance — a
@@ -4051,17 +4043,7 @@ mod tests {
         let _lock = reason_lock().await;
         // Same hand-off, with a locale installed: the host receives the
         // localized sentence, so it needs no translation table of its own.
-        crate::i18n::set_engine_locale(
-            serde_json::json!({
-                "engine": {
-                    "permission": {
-                        "sensitiveFileAccess": "访问敏感文件需要审批：{{path}}"
-                    }
-                }
-            })
-            .to_string(),
-            serde_json::json!({}).to_string(),
-        );
+        crate::i18n::set_locale(crate::i18n::Locale::Zh);
 
         let (_dir, callbacks, seen) = capturing_setup();
         let _ = callbacks
@@ -4069,7 +4051,7 @@ mod tests {
             .await
             .expect("the host answers the ask");
 
-        crate::i18n::clear_engine_locale();
+        crate::i18n::set_locale(crate::i18n::Locale::En);
 
         let requests = seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         assert_eq!(

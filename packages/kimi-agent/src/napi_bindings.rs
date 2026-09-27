@@ -3359,11 +3359,7 @@ async fn compact_session_with_summary(
     .map_err(|error| napi::Error::from_reason(error.to_string()))?;
     if flag.load(Ordering::Relaxed) {
         return Err(napi::Error::from_reason(
-            crate::i18n::LocalizedText::plain(
-                "engine.compaction.cancelled",
-                "compaction cancelled",
-            )
-            .render(),
+            crate::i18n::LocalizedText::new("engine.compaction.cancelled").render(),
         ));
     }
     let tokens_after = crate::compaction::estimate_messages_tokens(&compacted);
@@ -3419,7 +3415,11 @@ pub fn init_plugin_store(
         let manager = crate::server::plugins::PluginManager::new(Arc::new(store))
             .with_marketplace_dir(marketplace_dir.map(std::path::PathBuf::from))
             .with_home_dir(Some(std::path::PathBuf::from(&data_dir)))
-            .with_node_runner(node_runner.filter(|runner| !runner.trim().is_empty()).map(std::path::PathBuf::from));
+            .with_node_runner(
+                node_runner
+                    .filter(|runner| !runner.trim().is_empty())
+                    .map(std::path::PathBuf::from),
+            );
         *PLUGIN_MANAGER.lock().unwrap_or_else(|p| p.into_inner()) = Some(Arc::new(manager));
         Ok(())
     })

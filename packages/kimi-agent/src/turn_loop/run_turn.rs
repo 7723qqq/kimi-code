@@ -1279,11 +1279,8 @@ pub fn run_turn<'a>(
                     consecutive_overflow_compactions += 1;
                     let max_attempts = compaction_config.max_overflow_compaction_attempts;
                     if consecutive_overflow_compactions > max_attempts {
-                        let message = crate::i18n::LocalizedText::fmt(
+                        let message = crate::i18n::LocalizedText::with_params(
                             "engine.compaction.overflowFailed",
-                            format!(
-                                "Compaction failed to bring the context under the model window after {max_attempts} attempts."
-                            ),
                             crate::i18n::i18n_params!["max_attempts" => max_attempts],
                         )
                         .render();

@@ -5,9 +5,8 @@
 //! binary, so the host names a locale once and looks keys up instead of pushing
 //! JSON across the napi boundary on every call.
 //!
-//! It is not yet the only copy on disk: `packages/i18n` and `apps/kimi-code`
-//! still import `en` / `zh` for their pure-JS fallback and `getMessages()`, so
-//! the binary and the TypeScript runtime each hold a copy until those go.
+//! It is the only copy: the host resolves every string by key, so no
+//! JavaScript copy of the trees is left to drift.
 //!
 //! The JSON is parsed once per locale into a flat dot-path table. A miss is a
 //! `None`, never a panic: CI regenerates the artifacts and fails on any diff

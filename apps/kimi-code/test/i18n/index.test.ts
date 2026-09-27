@@ -81,9 +81,8 @@ describe('i18n', () => {
      * own `t()` — resolves against. Without that install every string comes
      * back English, so the wiring, not just the types, needs covering.
      *
-     * It does not reach the engine's own messages: those still render their
-     * carried English, because `LocalizedText` resolves through a
-     * tree-injecting seam no napi binding exposes.
+     * It is also the locale a `LocalizedText` resolves against, so the engine's
+     * own user-facing text follows the language named here.
      *
      * The catalog is embedded in the engine binary, so the payload is a locale
      * name and nothing else. What proves the two sides agree is that the engine

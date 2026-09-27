@@ -169,12 +169,8 @@ pub fn moonshot_search_request_parts(
 /// tool's result entries, mirroring v2's field mapping and defaults.
 pub fn parse_moonshot_search_response(body: &str) -> Result<Vec<WebSearchResultEntry>, String> {
     let json: Value = serde_json::from_str(body).map_err(|e| {
-        LocalizedText::fmt(
-            "engine.tools.webSearch.invalidJson",
-            format!("invalid JSON: {e}"),
-            i18n_params!["e" => e],
-        )
-        .render()
+        LocalizedText::with_params("engine.tools.webSearch.invalidJson", i18n_params!["e" => e])
+            .render()
     })?;
     let raw = match json.get("search_results").and_then(|v| v.as_array()) {
         Some(arr) => arr,
@@ -209,18 +205,16 @@ fn format_search_results(results: Vec<WebSearchResultEntry>) -> String {
         }
         first = false;
         output.push_str(
-            &LocalizedText::fmt(
+            &LocalizedText::with_params(
                 "engine.tools.webSearch.resultTitle",
-                format!("Title: {title}\n", title = result.title),
                 i18n_params!["title" => result.title],
             )
             .render(),
         );
         if let Some(ref site) = result.site_name {
             output.push_str(
-                &LocalizedText::fmt(
+                &LocalizedText::with_params(
                     "engine.tools.webSearch.resultSite",
-                    format!("Site: {site}\n"),
                     i18n_params!["site" => site],
                 )
                 .render(),
@@ -228,26 +222,23 @@ fn format_search_results(results: Vec<WebSearchResultEntry>) -> String {
         }
         if let Some(ref date) = result.date {
             output.push_str(
-                &LocalizedText::fmt(
+                &LocalizedText::with_params(
                     "engine.tools.webSearch.resultDate",
-                    format!("Date: {date}\n"),
                     i18n_params!["date" => date],
                 )
                 .render(),
             );
         }
         output.push_str(
-            &LocalizedText::fmt(
+            &LocalizedText::with_params(
                 "engine.tools.webSearch.resultUrl",
-                format!("URL: {url}\n", url = result.url),
                 i18n_params!["url" => result.url],
             )
             .render(),
         );
         output.push_str(
-            &LocalizedText::fmt(
+            &LocalizedText::with_params(
                 "engine.tools.webSearch.resultSnippet",
-                format!("Snippet: {snippet}\n\n", snippet = result.snippet),
                 i18n_params!["snippet" => result.snippet],
             )
             .render(),
@@ -268,11 +259,7 @@ async fn search_via_moonshot(
     // first with the direct fetch as fallback.
     let Some(api_key) = moonshot_service::non_blank_key(&config.api_key) else {
         return Some(err_result(
-            LocalizedText::plain(
-                "engine.tools.webSearch.missingApiKey",
-                "Moonshot search service is not configured: missing API key.",
-            )
-            .render(),
+            LocalizedText::new("engine.tools.webSearch.missingApiKey").render(),
         ));
     };
     let (url, body, headers) = moonshot_search_request_parts(config, query, &api_key, tool_call_id);
@@ -280,9 +267,8 @@ async fn search_via_moonshot(
         Ok(c) => c,
         Err(e) => {
             return Some(err_result(
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.tools.webSearch.clientInitFailed",
-                    format!("Search failed: Failed to initialize HTTP client: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render(),
@@ -295,16 +281,14 @@ async fn search_via_moonshot(
         Ok(resp) => resp,
         Err(e) => {
             let msg = if e.is_timeout() {
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.tools.webSearch.timedOut",
-                    format!("Search timed out: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render()
             } else {
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.tools.webSearch.networkFailed",
-                    format!("Search failed (network): {e}"),
                     i18n_params!["e" => e],
                 )
                 .render()
@@ -317,9 +301,8 @@ async fn search_via_moonshot(
         Ok(t) => t,
         Err(e) => {
             return Some(err_result(
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.tools.webSearch.readBodyFailed",
-                    format!("Search failed: failed to read response body: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render(),
@@ -336,12 +319,8 @@ async fn search_via_moonshot(
             ""
         };
         return Some(err_result(
-            LocalizedText::fmt(
+            LocalizedText::with_params(
                 "engine.tools.webSearch.moonshotHttpFailed",
-                format!(
-                    "Moonshot search request failed: HTTP {status}{qualifier}. {body}",
-                    body = text.trim()
-                ),
                 i18n_params!["status" => status, "qualifier" => qualifier, "body" => text.trim()],
             )
             .render(),
@@ -351,12 +330,8 @@ async fn search_via_moonshot(
         Ok(r) => r,
         Err(e) => {
             return Some(err_result(
-                LocalizedText::fmt(
-                    "engine.tools.webSearch.failed",
-                    format!("Search failed: {e}"),
-                    i18n_params!["e" => e],
-                )
-                .render(),
+                LocalizedText::with_params("engine.tools.webSearch.failed", i18n_params!["e" => e])
+                    .render(),
             ));
         }
     };
@@ -397,9 +372,8 @@ async fn search_via_bing_api(
         Ok(c) => c,
         Err(e) => {
             return Some(err_result(
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.tools.webSearch.clientInitFailed",
-                    format!("Search failed: Failed to initialize HTTP client: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render(),
@@ -417,16 +391,14 @@ async fn search_via_bing_api(
         Ok(resp) => resp,
         Err(e) => {
             let msg = if e.is_timeout() {
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.tools.webSearch.timedOut",
-                    format!("Search timed out: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render()
             } else {
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.tools.webSearch.networkFailed",
-                    format!("Search failed (network): {e}"),
                     i18n_params!["e" => e],
                 )
                 .render()
@@ -439,9 +411,8 @@ async fn search_via_bing_api(
         Ok(t) => t,
         Err(e) => {
             return Some(err_result(
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.tools.webSearch.readBodyFailed",
-                    format!("Search failed: failed to read response body: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render(),
@@ -455,12 +426,8 @@ async fn search_via_bing_api(
             ""
         };
         return Some(err_result(
-            LocalizedText::fmt(
+            LocalizedText::with_params(
                 "engine.tools.webSearch.bingApiHttpFailed",
-                format!(
-                    "Bing API request failed: HTTP {status}{qualifier}. {body}",
-                    body = text.trim()
-                ),
                 i18n_params!["status" => status, "qualifier" => qualifier, "body" => text.trim()],
             )
             .render(),
@@ -470,12 +437,8 @@ async fn search_via_bing_api(
         Ok(r) => r,
         Err(e) => {
             return Some(err_result(
-                LocalizedText::fmt(
-                    "engine.tools.webSearch.failed",
-                    format!("Search failed: {e}"),
-                    i18n_params!["e" => e],
-                )
-                .render(),
+                LocalizedText::with_params("engine.tools.webSearch.failed", i18n_params!["e" => e])
+                    .render(),
             ));
         }
     };
@@ -502,12 +465,8 @@ async fn search_via_bing_api(
 /// Parse a Bing Web Search API response (`{"webPages":{"value":[…]}}`).
 pub fn parse_bing_api_response(body: &str) -> Result<Vec<WebSearchResultEntry>, String> {
     let json: Value = serde_json::from_str(body).map_err(|e| {
-        LocalizedText::fmt(
-            "engine.tools.webSearch.invalidJson",
-            format!("invalid JSON: {e}"),
-            i18n_params!["e" => e],
-        )
-        .render()
+        LocalizedText::with_params("engine.tools.webSearch.invalidJson", i18n_params!["e" => e])
+            .render()
     })?;
     let raw = json
         .get("webPages")
@@ -545,11 +504,7 @@ pub async fn execute_web_search(
         return Some(ExecutableToolResult {
             delivery: None,
             stop_turn: false,
-            content: LocalizedText::plain(
-                "engine.tools.webSearch.emptyQuery",
-                "Query parameter cannot be empty",
-            )
-            .render(),
+            content: LocalizedText::new("engine.tools.webSearch.emptyQuery").render(),
             is_error: true,
             note: None,
             display: None,
@@ -592,9 +547,8 @@ async fn search_via_bing_html(query: &str) -> Option<ExecutableToolResult> {
             return Some(ExecutableToolResult {
                 delivery: None,
                 stop_turn: false,
-                content: LocalizedText::fmt(
+                content: LocalizedText::with_params(
                     "engine.tools.webSearch.clientInitFailed",
-                    format!("Search failed: Failed to initialize HTTP client: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render(),
@@ -617,16 +571,14 @@ async fn search_via_bing_html(query: &str) -> Option<ExecutableToolResult> {
         Ok(resp) => resp,
         Err(e) => {
             let msg = if e.is_timeout() {
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.tools.webSearch.timedOut",
-                    format!("Search timed out: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render()
             } else {
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.tools.webSearch.networkFailed",
-                    format!("Search failed (network): {e}"),
                     i18n_params!["e" => e],
                 )
                 .render()
@@ -647,9 +599,8 @@ async fn search_via_bing_html(query: &str) -> Option<ExecutableToolResult> {
         return Some(ExecutableToolResult {
             delivery: None,
             stop_turn: false,
-            content: LocalizedText::fmt(
+            content: LocalizedText::with_params(
                 "engine.tools.webSearch.bingHttpFailed",
-                format!("Search failed: Bing search returned HTTP {status}"),
                 i18n_params!["status" => status],
             )
             .render(),
@@ -665,9 +616,8 @@ async fn search_via_bing_html(query: &str) -> Option<ExecutableToolResult> {
             return Some(ExecutableToolResult {
                 delivery: None,
                 stop_turn: false,
-                content: LocalizedText::fmt(
+                content: LocalizedText::with_params(
                     "engine.tools.webSearch.readBodyFailed",
-                    format!("Search failed: failed to read response body: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render(),
@@ -688,9 +638,8 @@ async fn search_via_bing_html(query: &str) -> Option<ExecutableToolResult> {
             return Some(ExecutableToolResult {
                 delivery: None,
                 stop_turn: false,
-                content: LocalizedText::fmt(
+                content: LocalizedText::with_params(
                     "engine.tools.webSearch.failed",
-                    format!("Search failed: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render(),
@@ -711,11 +660,7 @@ async fn search_via_bing_html(query: &str) -> Option<ExecutableToolResult> {
         return Some(ExecutableToolResult {
             delivery: None,
             stop_turn: false,
-            content: LocalizedText::plain(
-                "engine.tools.webSearch.hotFeedFallback",
-                "Search returned no relevant results (Bing fell back to a hot-feed). Try a broader or different query.",
-            )
-            .render(),
+            content: LocalizedText::new("engine.tools.webSearch.hotFeedFallback").render(),
             is_error: true,
             note: None,
             display: None,
@@ -757,9 +702,8 @@ async fn search_via_ddg_html(query: &str) -> Option<ExecutableToolResult> {
             return Some(ExecutableToolResult {
                 delivery: None,
                 stop_turn: false,
-                content: LocalizedText::fmt(
+                content: LocalizedText::with_params(
                     "engine.tools.webSearch.clientInitFailed",
-                    format!("Search failed: Failed to initialize HTTP client: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render(),
@@ -782,16 +726,14 @@ async fn search_via_ddg_html(query: &str) -> Option<ExecutableToolResult> {
         Ok(resp) => resp,
         Err(e) => {
             let msg = if e.is_timeout() {
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.tools.webSearch.timedOut",
-                    format!("Search timed out: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render()
             } else {
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.tools.webSearch.networkFailed",
-                    format!("Search failed (network): {e}"),
                     i18n_params!["e" => e],
                 )
                 .render()
@@ -812,9 +754,8 @@ async fn search_via_ddg_html(query: &str) -> Option<ExecutableToolResult> {
         return Some(ExecutableToolResult {
             delivery: None,
             stop_turn: false,
-            content: LocalizedText::fmt(
+            content: LocalizedText::with_params(
                 "engine.tools.webSearch.ddgHttpFailed",
-                format!("Search failed: DuckDuckGo search returned HTTP {status}"),
                 i18n_params!["status" => status],
             )
             .render(),
@@ -830,9 +771,8 @@ async fn search_via_ddg_html(query: &str) -> Option<ExecutableToolResult> {
             return Some(ExecutableToolResult {
                 delivery: None,
                 stop_turn: false,
-                content: LocalizedText::fmt(
+                content: LocalizedText::with_params(
                     "engine.tools.webSearch.readBodyFailed",
-                    format!("Search failed: failed to read response body: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render(),
@@ -853,9 +793,8 @@ async fn search_via_ddg_html(query: &str) -> Option<ExecutableToolResult> {
             return Some(ExecutableToolResult {
                 delivery: None,
                 stop_turn: false,
-                content: LocalizedText::fmt(
+                content: LocalizedText::with_params(
                     "engine.tools.webSearch.failed",
-                    format!("Search failed: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render(),
@@ -901,9 +840,8 @@ async fn search_via_sogou_html(query: &str) -> Option<ExecutableToolResult> {
             return Some(ExecutableToolResult {
                 delivery: None,
                 stop_turn: false,
-                content: LocalizedText::fmt(
+                content: LocalizedText::with_params(
                     "engine.tools.webSearch.clientInitFailed",
-                    format!("Search failed: Failed to initialize HTTP client: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render(),
@@ -925,16 +863,14 @@ async fn search_via_sogou_html(query: &str) -> Option<ExecutableToolResult> {
         Ok(resp) => resp,
         Err(e) => {
             let msg = if e.is_timeout() {
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.tools.webSearch.timedOut",
-                    format!("Search timed out: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render()
             } else {
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.tools.webSearch.networkFailed",
-                    format!("Search failed (network): {e}"),
                     i18n_params!["e" => e],
                 )
                 .render()
@@ -955,9 +891,8 @@ async fn search_via_sogou_html(query: &str) -> Option<ExecutableToolResult> {
         return Some(ExecutableToolResult {
             delivery: None,
             stop_turn: false,
-            content: LocalizedText::fmt(
+            content: LocalizedText::with_params(
                 "engine.tools.webSearch.sogouHttpFailed",
-                format!("Search failed: Sogou search returned HTTP {status}"),
                 i18n_params!["status" => status],
             )
             .render(),
@@ -973,9 +908,8 @@ async fn search_via_sogou_html(query: &str) -> Option<ExecutableToolResult> {
             return Some(ExecutableToolResult {
                 delivery: None,
                 stop_turn: false,
-                content: LocalizedText::fmt(
+                content: LocalizedText::with_params(
                     "engine.tools.webSearch.readBodyFailed",
-                    format!("Search failed: failed to read response body: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render(),
@@ -996,9 +930,8 @@ async fn search_via_sogou_html(query: &str) -> Option<ExecutableToolResult> {
             return Some(ExecutableToolResult {
                 delivery: None,
                 stop_turn: false,
-                content: LocalizedText::fmt(
+                content: LocalizedText::with_params(
                     "engine.tools.webSearch.failed",
-                    format!("Search failed: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render(),
@@ -1037,9 +970,8 @@ pub async fn execute_switch_engine(args: &Value) -> Option<ExecutableToolResult>
     let name = args.get("engine")?.as_str()?;
     let Some(engine) = SearchEngine::from_name(name) else {
         return Some(err_result(
-            LocalizedText::fmt(
+            LocalizedText::with_params(
                 "engine.tools.switchEngine.unknown",
-                format!("Unknown search engine: {name}. Available: bing, ddg, sogou."),
                 i18n_params!["name" => name],
             )
             .render(),
@@ -1049,9 +981,8 @@ pub async fn execute_switch_engine(args: &Value) -> Option<ExecutableToolResult>
     Some(ExecutableToolResult {
         delivery: None,
         stop_turn: false,
-        content: LocalizedText::fmt(
+        content: LocalizedText::with_params(
             "engine.tools.switchEngine.switched",
-            format!("Search engine switched to {name}.", name = engine.name()),
             i18n_params!["name" => engine.name()],
         )
         .render(),

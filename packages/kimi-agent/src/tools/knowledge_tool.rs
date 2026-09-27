@@ -42,12 +42,12 @@ pub fn execute_knowledge(workspace_root: &Path, args: &Value) -> ExecutableToolR
         "remove" => execute_remove(args),
         "stats" => execute_stats(),
         "import" => execute_import(args),
-        other => err_result(LocalizedText::fmt(
-            "engine.tools.knowledge.unknownAction",
-            format!("Error: unknown knowledge action `{action}`. Valid actions: search, add, confirm, reject, remove, stats, import."),
-            i18n_params!["action" => other],
-        )
-        .render()
+        other => err_result(
+            LocalizedText::with_params(
+                "engine.tools.knowledge.unknownAction",
+                i18n_params!["action" => other],
+            )
+            .render(),
         ),
     }
 }
@@ -83,22 +83,15 @@ fn ensure_open(workspace_root: &Path) -> Result<(), String> {
         Ok(()) => Ok(()),
         Err(project_err) => {
             let user = user_db_path().ok_or_else(|| {
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.tools.knowledge.openDbFailed",
-                    format!(
-                        "Failed to open knowledge DB at {project}: {project_err} (no home dir for fallback)"
-                    ),
                     i18n_params!["project" => project, "project_err" => project_err],
                 )
                 .render()
             })?;
             match knowledge::open(user.clone()) {
                 Ok(()) => Ok(()),
-                Err(user_err) => Err(LocalizedText::fmt(
-                    "engine.tools.knowledge.openDbFallbackFailed",
-                    format!("Failed to open knowledge DB at {project} ({project_err}) and fallback {user} ({user_err})"),
-                    i18n_params!["project" => project, "project_err" => project_err, "user" => user, "user_err" => user_err],
-                )
+                Err(user_err) => Err(LocalizedText::with_params("engine.tools.knowledge.openDbFallbackFailed", i18n_params!["project" => project, "project_err" => project_err, "user" => user, "user_err" => user_err])
                 .render()
                 ),
             }
@@ -124,9 +117,8 @@ fn execute_search(args: &Value) -> ExecutableToolResult {
         Ok(json) => json,
         Err(e) => {
             return err_result(
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.tools.knowledge.searchFailed",
-                    format!("Knowledge search failed: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render(),
@@ -196,9 +188,8 @@ fn execute_add(args: &Value) -> ExecutableToolResult {
         Ok(json) => json,
         Err(e) => {
             return err_result(
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.tools.knowledge.addFailed",
-                    format!("Failed to add knowledge entry: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render(),
@@ -222,17 +213,15 @@ fn execute_confirm(args: &Value) -> ExecutableToolResult {
     match knowledge::confirm(id.to_string()) {
         Ok(true) => ok_result(format!("Confirmed entry {id} (confidence → 1.0)")),
         Ok(false) => err_result(
-            LocalizedText::fmt(
+            LocalizedText::with_params(
                 "engine.tools.knowledge.entryNotFound",
-                format!("Entry {id} not found."),
                 i18n_params!["id" => id],
             )
             .render(),
         ),
         Err(e) => err_result(
-            LocalizedText::fmt(
+            LocalizedText::with_params(
                 "engine.tools.knowledge.confirmFailed",
-                format!("Knowledge confirm failed: {e}"),
                 i18n_params!["e" => e],
             )
             .render(),
@@ -246,25 +235,22 @@ fn execute_reject(args: &Value) -> ExecutableToolResult {
     };
     match knowledge::remove(id.to_string()) {
         Ok(true) => ok_result(
-            LocalizedText::fmt(
+            LocalizedText::with_params(
                 "engine.tools.knowledge.rejectedAndRemoved",
-                format!("Rejected and removed entry {id}"),
                 i18n_params!["id" => id],
             )
             .render(),
         ),
         Ok(false) => err_result(
-            LocalizedText::fmt(
+            LocalizedText::with_params(
                 "engine.tools.knowledge.entryNotFound",
-                format!("Entry {id} not found."),
                 i18n_params!["id" => id],
             )
             .render(),
         ),
         Err(e) => err_result(
-            LocalizedText::fmt(
+            LocalizedText::with_params(
                 "engine.tools.knowledge.removeFailed",
-                format!("Knowledge remove failed: {e}"),
                 i18n_params!["e" => e],
             )
             .render(),
@@ -278,25 +264,19 @@ fn execute_remove(args: &Value) -> ExecutableToolResult {
     };
     match knowledge::remove(id.to_string()) {
         Ok(true) => ok_result(
-            LocalizedText::fmt(
-                "engine.tools.knowledge.removed",
-                format!("Removed entry {id}"),
-                i18n_params!["id" => id],
-            )
-            .render(),
+            LocalizedText::with_params("engine.tools.knowledge.removed", i18n_params!["id" => id])
+                .render(),
         ),
         Ok(false) => err_result(
-            LocalizedText::fmt(
+            LocalizedText::with_params(
                 "engine.tools.knowledge.entryNotFound",
-                format!("Entry {id} not found."),
                 i18n_params!["id" => id],
             )
             .render(),
         ),
         Err(e) => err_result(
-            LocalizedText::fmt(
+            LocalizedText::with_params(
                 "engine.tools.knowledge.removeFailed",
-                format!("Knowledge remove failed: {e}"),
                 i18n_params!["e" => e],
             )
             .render(),
@@ -309,9 +289,8 @@ fn execute_stats() -> ExecutableToolResult {
         Ok(json) => json,
         Err(e) => {
             return err_result(
-                LocalizedText::fmt(
+                LocalizedText::with_params(
                     "engine.tools.knowledge.statsFailed",
-                    format!("Knowledge stats failed: {e}"),
                     i18n_params!["e" => e],
                 )
                 .render(),
@@ -364,9 +343,8 @@ fn execute_import(args: &Value) -> ExecutableToolResult {
             ))
         }
         Err(e) => err_result(
-            LocalizedText::fmt(
+            LocalizedText::with_params(
                 "engine.tools.knowledge.importFailed",
-                format!("Knowledge import failed: {e}"),
                 i18n_params!["e" => e],
             )
             .render(),

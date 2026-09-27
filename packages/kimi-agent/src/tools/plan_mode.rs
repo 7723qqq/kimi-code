@@ -100,12 +100,8 @@ pub fn plan_denial(
 /// write, and "cannot tell" is not "safe to proceed". Localized because it is
 /// rendered straight into the transcript.
 pub fn plan_state_unavailable_message(tool_name: &str) -> String {
-    crate::i18n::LocalizedText::fmt(
+    crate::i18n::LocalizedText::with_params(
         "engine.permission.planStateUnavailable",
-        format!(
-            "{tool} was refused: the engine could not read the current plan-mode state, so it cannot confirm that writing is allowed. Retry once; if it keeps failing, leave plan mode with /plan off.",
-            tool = tool_name,
-        ),
         crate::i18n::i18n_params!["tool" => tool_name],
     )
     .render()

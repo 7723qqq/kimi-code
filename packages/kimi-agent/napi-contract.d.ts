@@ -1661,9 +1661,10 @@ export declare function sessionWarnings(sessionId: string): object
  * Name the engine's embedded-catalog locale, `locale` (`"en"` or `"zh"`).
  *
  * This is what the `translate` binding below resolves against, and therefore
- * what the host's own `t()` calls depend on. It does not reach
- * `LocalizedText`: the engine's own user-facing text resolves through a
- * tree-injecting seam no napi binding exposes, so it stays English.
+ * what the host's own `t()` calls depend on. It is also what a
+ * `LocalizedText` resolves against, so the engine's own user-facing text —
+ * permission reasons, tool-result notes, ACP approval labels — follows the
+ * same locale and can never disagree with the host's strings.
  *
  * The catalog is compiled into the binary, so this carries a locale name
  * rather than the message trees the host used to push. An unrecognised name
