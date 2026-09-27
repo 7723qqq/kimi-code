@@ -1,3 +1,5 @@
+import { t } from '@moonshot-ai/i18n-runtime';
+
 import { APIEmptyResponseError, createAbortError } from './errors';
 import {
   isContentPart,
@@ -214,7 +216,7 @@ export async function generate(
   }
   if (message.content.length === 0 && message.toolCalls.length === 0) {
     throw new APIEmptyResponseError(
-      'The API returned an empty response (no content, no tool calls).' +
+      t('v2Errors.providerEmptyResponse') +
         formatFinishReasonHint(stream) +
         ` Provider: ${provider.name}, model: ${provider.modelName}`,
       {
@@ -231,10 +233,7 @@ export async function generate(
 
   if (hasThink && !hasText && !hasToolCalls) {
     throw new APIEmptyResponseError(
-      'The API returned a response containing only thinking content ' +
-        'without any text or tool calls. This usually indicates the ' +
-        'stream was interrupted or the output token budget was exhausted ' +
-        'during reasoning.' +
+      t('v2Errors.providerThinkOnlyResponse') +
         formatFinishReasonHint(stream) +
         ` Provider: ${provider.name}, model: ${provider.modelName}`,
       {

@@ -460,10 +460,19 @@ const ALLOWED_FILES = [
  * lifecycle event (`shell.pausedAfterInterruption`, `v2Goal.pausedAfterResume`,
  * `toolsV2.abort.abortedByUser`). They are wire tokens, not display text:
  * localizing the comparison operand would break the match, and the text shown
- * to the user at those sites is already produced by `t()`. Matched on exact
- * value so a genuinely *displayed* use of the same string is still reported,
- * and consulted only for the `kimi-code` module so no other source tree can
- * inherit the exemption.
+ * to the user at those sites is already produced by `t()`.
+ *
+ * Consulted at exactly one place — Detection 1 — and only for the `kimi-code`
+ * module, so no other source tree can inherit the exemption. Matched on exact
+ * value rather than on shape, which is what keeps the exemption as narrow as
+ * it is.
+ *
+ * Known blind spot: a *displayed* use that is neither Detection 1's catalog-value
+ * match nor one of Detection 4's 19 display-slot names (`showToast('Aborted by
+ * the user')`, a bare `return '…'`, a ternary branch) is reported by no
+ * detection. The alternative — folding these into `ALLOWED_VALUES` — would widen
+ * the exemption to Detections 2 and 3 as well, which is a much larger hole than
+ * the one this leaves.
  */
 const ENGINE_WIRE_TOKENS = new Set([
   'Aborted by the user',

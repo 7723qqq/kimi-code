@@ -211,6 +211,8 @@
     "providerRateLimitAction": "请在提供商速率限制重置后重试。",
     "providerFiltered": "提供商过滤了响应",
     "providerFilteredAction": "请修改提示词或模型配置以避免提供商安全过滤。",
+    "providerEmptyResponse": "API 返回了空响应（没有内容，也没有工具调用）。",
+    "providerThinkOnlyResponse": "API 返回的响应只包含思考内容，没有任何文本或工具调用。这通常说明流被中断，或推理过程耗尽了输出 token 预算。",
     "providerAuthError": "提供商认证失败",
     "providerAuthErrorAction": "请检查提供商凭据和认证配置。",
     "providerOverloaded": "提供商过载",

@@ -260,6 +260,10 @@ export const en = {
     providerFiltered: 'Provider filtered response',
     providerFilteredAction:
       'Revise the prompt or model configuration to avoid provider safety filtering.',
+    providerEmptyResponse:
+      'The API returned an empty response (no content, no tool calls).',
+    providerThinkOnlyResponse:
+      'The API returned a response containing only thinking content without any text or tool calls. This usually indicates the stream was interrupted or the output token budget was exhausted during reasoning.',
     providerAuthError: 'Provider authentication failed',
     providerAuthErrorAction: 'Check provider credentials and authentication configuration.',
     providerOverloaded: 'Provider overloaded',
