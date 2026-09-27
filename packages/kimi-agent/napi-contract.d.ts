@@ -1654,7 +1654,12 @@ export declare function sessionTurnOutcome(sessionId: string, turnId: number): o
 export declare function sessionWarnings(sessionId: string): object
 
 /**
- * Switch the engine's own user-facing text to `locale` (`"en"` or `"zh"`).
+ * Name the engine's embedded-catalog locale, `locale` (`"en"` or `"zh"`).
+ *
+ * This is what the `translate` binding below resolves against, and therefore
+ * what the host's own `t()` calls depend on. It does not reach
+ * `LocalizedText`: the engine's own user-facing text resolves through a
+ * tree-injecting seam no napi binding exposes, so it stays English.
  *
  * The catalog is compiled into the binary, so this carries a locale name
  * rather than the message trees the host used to push. An unrecognised name

@@ -542,11 +542,14 @@ export function nativeTranslateBatchCached(
 ): NativeBatchTranslateResult[];
 
 /**
- * Switch the engine's own user-facing text to `locale` (`"en"` or `"zh"`).
+ * Name the engine's embedded-catalog locale, `locale` (`"en"` or `"zh"`).
  *
- * The `nativeTranslate*` family serves the host's own UI strings. This
- * serves the engine's own user-facing text, which is otherwise hardcoded
- * English.
+ * The `nativeTranslate*` family above serves the host's own UI strings. This
+ * one serves the embedded catalog the napi `translate` binding below resolves
+ * against, so it is what the host's own `t()` calls depend on. It does not
+ * reach the engine's own messages: those still render their carried English,
+ * because `LocalizedText` resolves through a tree-injecting seam no napi
+ * binding exposes.
  *
  * The locale catalog is compiled into the binary, so this carries a locale
  * name rather than the message trees the host used to push. An unrecognised

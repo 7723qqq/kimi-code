@@ -110,10 +110,13 @@ const nativeTranslateClearCache = binding.nativeTranslateClearCache;
 const nativeTranslateBatch = binding.nativeTranslateBatch;
 const nativeTranslateBatchCached = binding.nativeTranslateBatchCached;
 
-// Engine locale — localizes the engine's own user-facing text (permission
-// reasons, tool-result notes, error prefixes), as opposed to the host's UI
-// strings served by the `nativeTranslate*` family above. The catalog is
-// compiled into the binary, so this takes a locale name, not message trees.
+// Engine locale — names the locale for the embedded catalog, which is what the
+// `translate` binding below resolves against and therefore what the host's own
+// `t()` calls depend on, as opposed to the host's UI strings served by the
+// `nativeTranslate*` family above. It does not reach the engine's own messages:
+// those still render their carried English, because `LocalizedText` resolves
+// through a tree-injecting seam no napi binding exposes. The catalog is compiled
+// into the binary, so this takes a locale name, not message trees.
 const setEngineLocale = binding.setEngineLocale;
 const translate = binding.translate;
 

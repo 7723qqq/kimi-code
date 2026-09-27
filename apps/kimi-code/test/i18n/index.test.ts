@@ -76,10 +76,14 @@ describe('i18n', () => {
 
   describe('engine locale sync', () => {
     /**
-     * The Rust engine renders its own user-facing text (permission reasons,
-     * tool-result notes, error prefixes) from the locale the host names via
-     * `setEngineLocale`. Without that install those messages stay English, so
-     * the wiring — not just the types — needs covering.
+     * `setEngineLocale` names the locale for the engine's embedded catalog,
+     * which is what the napi `translate` binding — and therefore this file's
+     * own `t()` — resolves against. Without that install every string comes
+     * back English, so the wiring, not just the types, needs covering.
+     *
+     * It does not reach the engine's own messages: those still render their
+     * carried English, because `LocalizedText` resolves through a
+     * tree-injecting seam no napi binding exposes.
      *
      * The catalog is embedded in the engine binary, so the payload is a locale
      * name and nothing else. What proves the two sides agree is that the engine
