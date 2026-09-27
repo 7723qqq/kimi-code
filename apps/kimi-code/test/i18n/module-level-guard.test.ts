@@ -176,8 +176,90 @@ function stripStringsAndComments(src: string): string {
   return out;
 }
 
-const T_CALL = /(?<![.\w])t\s*\(/;
+const T_CALL = /(?<![.\w])t\s*\(/g;
 const TOP_DECL = /^\s*(?:export\s+)?(?:const|let|var)\s/;
+
+/**
+ * Tokens that open a deferred callback body. A `t()` that follows one of these
+ * runs when the callback is called, not when the declaration is evaluated.
+ *
+ * The getter form matters for a declaration that *contains* the getter — e.g.
+ * `export const CoreErrors = { info: { internal: { get title() { … } } } }`.
+ * The getter is the top-level boundary of the `t()` inside it, so without
+ * recognizing it the guard would demand a getter be wrapped in yet another
+ * getter, which is impossible.
+ */
+const FUNCTION_BOUNDARY = /=>/;
+const FUNCTION_KEYWORD = /\bfunction\b/;
+const FUNCTION_BOUNDARY_GLOBAL = new RegExp(FUNCTION_BOUNDARY, 'g');
+const FUNCTION_KEYWORD_GLOBAL = new RegExp(FUNCTION_KEYWORD, 'g');
+const GETTER_DECL = /\bget\s+[$A-Z_a-z][$\w]*\s*\(/;
+const GETTER_DECL_GLOBAL = new RegExp(GETTER_DECL, 'g');
+
+/** Brace nesting depth of `text` immediately before index `at`. */
+function braceDepth(text: string, at: number): number {
+  let depth = 0;
+  for (let i = 0; i < at; i++) {
+    const ch = text[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') depth--;
+  }
+  return depth;
+}
+
+/**
+ * Whether a comma sits at exactly `depth` between `from` and `to`.
+ *
+ * This is what separates a boundary that *encloses* the call from one that is a
+ * sibling of it. In `{ b: () => t('j'), x: t('k') }` the arrow and `t('k')` sit
+ * at the same brace depth, and the comma between them proves the call is a
+ * sibling rather than the arrow's body — so the arrow must not excuse it.
+ */
+function hasCommaAtDepth(text: string, from: number, to: number, depth: number): boolean {
+  let d = braceDepth(text, from);
+  for (let i = from; i < to; i++) {
+    const ch = text[i];
+    if (ch === '{') d++;
+    else if (ch === '}') d--;
+    else if (ch === ',' && d === depth) return true;
+  }
+  return false;
+}
+
+/** Does a boundary token of `pattern` occurring before `at` enclose the call? */
+function boundaryEncloses(declText: string, pattern: RegExp, at: number, callDepth: number): boolean {
+  let last: RegExpExecArray | null = null;
+  for (const m of declText.slice(0, at).matchAll(pattern)) last = m;
+  if (!last) return false;
+  const boundaryDepth = braceDepth(declText, last.index);
+  if (boundaryDepth < callDepth) return true;
+  if (boundaryDepth > callDepth) return false;
+  return !hasCommaAtDepth(declText, last.index + last[0].length, at, callDepth);
+}
+
+/**
+ * A `t()` call at `at` is deferred when a function boundary or getter that
+ * *encloses* it appears earlier in the same declaration.
+ *
+ * Scoping the check to the text before the call, and requiring the boundary to
+ * actually enclose rather than merely precede, is what keeps a mixed literal
+ * honest. In `{ a: t('x'), b: () => t('y') }` the arrow excuses only `t('y')`.
+ * In `{ b: () => t('y'), a: t('x') }` the arrow precedes `t('x')` at the same
+ * depth, but the comma between them marks `t('x')` as a sibling, so it stays
+ * eager and is reported.
+ *
+ * A getter follows the same rule: `get a() { return 1; }, b: t('k')` puts the
+ * getter and `t('k')` at the same depth with a comma between, so the getter
+ * must not exempt the call.
+ */
+function isDeferredCall(declText: string, at: number): boolean {
+  const callDepth = braceDepth(declText, at);
+  return (
+    boundaryEncloses(declText, FUNCTION_BOUNDARY_GLOBAL, at, callDepth) ||
+    boundaryEncloses(declText, FUNCTION_KEYWORD_GLOBAL, at, callDepth) ||
+    boundaryEncloses(declText, GETTER_DECL_GLOBAL, at, callDepth)
+  );
+}
 
 function findOffenders(file: string): { line: number; snippet: string }[] {
   const raw = readFileSync(file, 'utf8');
@@ -213,9 +295,16 @@ function findOffenders(file: string): { line: number; snippet: string }[] {
     }
 
     if (collecting && brace <= 0 && bracket <= 0 && paren <= 0 && line.includes(';')) {
-      const callsT = T_CALL.test(declText);
-      const hasFunctionBoundary = /=>/.test(declText) || /\bfunction\b/.test(declText);
-      if (callsT && !hasFunctionBoundary) {
+      T_CALL.lastIndex = 0;
+      let eagerCall = false;
+      let match: RegExpExecArray | null;
+      while ((match = T_CALL.exec(declText)) !== null) {
+        if (!isDeferredCall(declText, match.index)) {
+          eagerCall = true;
+          break;
+        }
+      }
+      if (eagerCall) {
         offenders.push({ line: declStart + 1, snippet: (rawLines[declStart] ?? '').trim() });
       }
       collecting = false;

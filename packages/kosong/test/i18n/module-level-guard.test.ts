@@ -202,6 +202,8 @@ const TOP_DECL = /^\s*(?:export\s+)?(?:const|let|var)\s/;
  */
 const FUNCTION_BOUNDARY = /=>/;
 const FUNCTION_KEYWORD = /\bfunction\b/;
+const FUNCTION_BOUNDARY_GLOBAL = new RegExp(FUNCTION_BOUNDARY, 'g');
+const FUNCTION_KEYWORD_GLOBAL = new RegExp(FUNCTION_KEYWORD, 'g');
 const GETTER_DECL = /\bget\s+[$A-Z_a-z][$\w]*\s*\(/;
 const GETTER_DECL_GLOBAL = new RegExp(GETTER_DECL, 'g');
 
@@ -217,27 +219,62 @@ function braceDepth(text: string, at: number): number {
 }
 
 /**
- * A `t()` call at `at` is deferred when a function boundary appears earlier in
- * the same declaration. Scoping that check to the text *before* the call (rather
- * than to the whole declaration) is what keeps a mixed literal honest: in
- * `{ a: t('x'), b: () => t('y') }` the arrow excuses only `t('y')`, and `t('x')`
- * is still reported.
+ * Whether a comma sits at exactly `depth` between `from` and `to`.
  *
- * A getter is a boundary only for the calls it *encloses*. `get a() { … }` sits
- * at a shallower brace depth than the `t()` inside its own body, but a sibling
- * that follows it — `{ get a() { return 1; }, b: t('k') }` — is back at the
- * literal's own depth, and its `t('k')` is eager. Without the depth test any
- * earlier `get name(` token would blanket-exempt the rest of the declaration,
- * which is the single worst failure mode this guard could have.
+ * This is what separates a boundary that *encloses* the call from one that is a
+ * sibling of it. In `{ b: () => t('j'), x: t('k') }` the arrow and `t('k')` sit
+ * at the same brace depth, and the comma between them proves the call is a
+ * sibling rather than the arrow's body — so the arrow must not excuse it.
  */
-function isDeferredCall(declText: string, at: number): boolean {
-  const before = declText.slice(0, at);
-  if (FUNCTION_BOUNDARY.test(before) || FUNCTION_KEYWORD.test(before)) return true;
-  const callDepth = braceDepth(declText, at);
-  for (const m of before.matchAll(GETTER_DECL_GLOBAL)) {
-    if (braceDepth(declText, m.index) < callDepth) return true;
+function hasCommaAtDepth(text: string, from: number, to: number, depth: number): boolean {
+  let d = braceDepth(text, from);
+  for (let i = from; i < to; i++) {
+    const ch = text[i];
+    if (ch === '{') d++;
+    else if (ch === '}') d--;
+    else if (ch === ',' && d === depth) return true;
   }
   return false;
+}
+
+/** Does a boundary token of `pattern` occurring before `at` enclose the call? */
+function boundaryEncloses(declText: string, pattern: RegExp, at: number, callDepth: number): boolean {
+  let last: RegExpExecArray | null = null;
+  for (const m of declText.slice(0, at).matchAll(pattern)) last = m;
+  if (!last) return false;
+  const boundaryDepth = braceDepth(declText, last.index);
+  if (boundaryDepth < callDepth) return true;
+  if (boundaryDepth > callDepth) return false;
+  return !hasCommaAtDepth(declText, last.index + last[0].length, at, callDepth);
+}
+
+/**
+ * A `t()` call at `at` is deferred when a function boundary or getter that
+ * *encloses* it appears earlier in the same declaration.
+ *
+ * Scoping the check to the text before the call, and requiring the boundary to
+ * actually enclose rather than merely precede, is what keeps a mixed literal
+ * honest. In `{ a: t('x'), b: () => t('y') }` the arrow excuses only `t('y')`.
+ * In `{ b: () => t('y'), a: t('x') }` the arrow precedes `t('x')` at the same
+ * depth, but the comma between them marks `t('x')` as a sibling, so it stays
+ * eager and is reported.
+ *
+ * A getter follows the same rule: `get a() { return 1; }, b: t('k')` puts the
+ * getter and `t('k')` at the same depth with a comma between, so the getter
+ * must not exempt the call.
+ *
+ * Keep this block identical to the one in
+ * `apps/kimi-code/test/i18n/module-level-guard.test.ts`; that copy guards ~1500
+ * call sites against this one's 6, so a divergence there is invisible until
+ * someone edits the wrong one.
+ */
+function isDeferredCall(declText: string, at: number): boolean {
+  const callDepth = braceDepth(declText, at);
+  return (
+    boundaryEncloses(declText, FUNCTION_BOUNDARY_GLOBAL, at, callDepth) ||
+    boundaryEncloses(declText, FUNCTION_KEYWORD_GLOBAL, at, callDepth) ||
+    boundaryEncloses(declText, GETTER_DECL_GLOBAL, at, callDepth)
+  );
 }
 
 function findOffenders(file: string): { line: number; snippet: string }[] {
