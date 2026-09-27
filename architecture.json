@@ -197,7 +197,6 @@
       "layer": "app",
       "deps": [
         "node-sdk",
-        "i18n-runtime",
         "oauth",
         "telemetry"
       ],
@@ -255,7 +254,7 @@
     {
       "from": "i18n-runtime",
       "to": "kimi-agent",
-      "reason": "i18n-runtime 只在 try/catch 内 require napi 原生模块（packages/i18n-runtime/src/i18n.ts:77）拿更快的翻译路径，并有纯 JS 兜底（translatePure 走 flatMessages 扁平表，可用 KIMI_I18N_FORCE_JS 强制）；浏览器与单文件打包下原生模块不存在，因此这是运行期可选的软依赖，不应记为构建期硬依赖。"
+      "reason": "i18n-runtime 只在 try/catch 内 require napi 原生模块（packages/i18n-runtime/src/i18n.ts:69）拿更快的翻译路径，并有纯 JS 兜底（translatePure 走 flatMessages 扁平表，可用 KIMI_I18N_FORCE_JS 强制）；浏览器与单文件打包下原生模块不存在，因此这是运行期可选的软依赖，不应记为构建期硬依赖。"
     }
   ]
 }

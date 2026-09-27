@@ -31,7 +31,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 
 ### Fork-specific additions vs upstream
 
-- **i18n / Multi-language support** — Complete Chinese-English bilingual support across TUI, CLI, and Web UI, and across the Rust engine's own user-facing text (permission reasons, tool-result errors, ACP approval labels). The locale catalog lives in the engine binary and is resolved by key; `apps/kimi-code` and `packages/i18n-runtime` no longer hold a JSON copy. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
+- **i18n / Multi-language support** — Complete Chinese-English bilingual support across TUI, CLI, and Web UI, and across the Rust engine's own user-facing text (permission reasons, tool-result errors, ACP approval labels). The locale catalog lives in the engine binary and is resolved by key; `apps/kimi-code` and `packages/i18n-runtime` no longer hold a JSON copy — though `i18n-runtime` still imports the `en` / `zh` trees as values and flattens them for its pure-JS fallback, so the catalog remains a runtime dependency of the SDK and kosong. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
 - **Team** — Multi-agent discussion and collaboration tool; agents can debate, cross-review, and reach consensus before output.
 - **Rust Native Tools** — Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as a native Node addon, significantly faster than JS.
 - **Windows launchers** — `start-native.bat` builds the native Rust tools if needed and launches the CLI in dev mode (supports `--web` to launch the Web UI powered by native Rust server); `start-web-native.bat` provides one-click launch for the native Web UI; `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
@@ -127,11 +127,20 @@ gates on it.
   `generate-locale-json.cjs` embeds. Run both. The residue neither covers: a
   catalog key no `LocalizedText` names has no `i18n_params!` to check, so its
   placeholders rest on the `en`/`zh` comparison alone.
-- **A missing native module is fatal, not degraded.** The catalog lives in the
-  Rust binary, so there is no JavaScript copy to fall back to. `t()` throws if
-  `@moonshot-ai/kimi-agent/native` cannot be resolved — including in a
-  single-file Bun binary, which is why the runtime resolves it through
-  `globalThis.__kimi_getNativePackageRoot` as well.
+- **A missing native module is fatal in the CLI, degraded in `i18n-runtime`.**
+  The two hosts differ on purpose. `apps/kimi-code`'s `ensureNative()`
+  (`apps/kimi-code/src/i18n/index.ts:55`) has no second path — `t()` throws,
+  including in a single-file Bun binary, which is why it also resolves through
+  `globalThis.__kimi_getNativePackageRoot`: the engine is supposed to be there,
+  so a miss is a broken install rather than a slow one.
+  `packages/i18n-runtime`'s `loadNativeImpl()`
+  (`packages/i18n-runtime/src/i18n.ts:63`) instead returns `null` when the
+  require fails or the loaded module has no `translate` binding, and `t()` falls
+  through to `translatePure()` reading `flatMessages` (`:157`) — a flat map built
+  at import time from the `en` / `zh` trees. kosong and the SDK have to answer in
+  builds where the addon is simply absent, so that fallback is load-bearing: it
+  is what the `i18n-runtime` → `kimi-agent` soft-dependency exemption in
+  `architecture.json` exists to describe.
 
 ---
 

@@ -4369,3 +4369,68 @@ camelCase 别名）与两个 resolver，越界值回落到引擎默认而非静�
 
 §10.18 那类「转述的实测输出」不在其射程内，只能靠一条人工规则兜：
 **凡在本台账写出具体数字的运行结果，必须同时写出产生它的测试名。**
+
+### 6.18 2026-09-27 目录内嵌引擎：i18n napi 契约收窄与 locale 全局量改造
+
+本分支把 locale 目录从 TypeScript 侧搬进 Rust 二进制（`native/catalog.rs` 的
+`include_str!`），并借这次内嵌把进程全局的 locale **载荷**改成一个 `Locale` **枚举**。
+三处都是 fork-original 的引擎侧 delta，按根 `AGENTS.md` 的 Upstream Merge Policy 登记。
+
+#### 6.18.1 破坏性：i18n napi 表面 7 → 2
+
+| 迁移前 | 迁移后 |
+|---|---|
+| `nativeTranslate(localeJson, fallbackJson, key, params?)` | — |
+| `nativeTranslateCached(localeJson, fallbackJson, key, params?)` | — |
+| `nativeTranslateClearCache()` | — |
+| `nativeTranslateBatch(localeJson, fallbackJson, keys, params?)` | — |
+| `nativeTranslateBatchCached(...)` | — |
+| `setEngineLocale(localeJson, fallbackJson)` | `setEngineLocale(locale)` |
+| `clearEngineLocale()` | — |
+| — | `translate(key, params?)` |
+
+删除落在 `bf63a11a92`（连带删掉 `native/translation.rs` 590 行的解析与缓存实现）与
+`79d9ae0e37`。任何直接调旧表面的下游都得改；`index.native.d.ts:488` 与
+`napi-contract.d.ts:1677` 是现在仅剩的两处声明。宿主侧 `t()` 过去调
+`nativeTranslateCached`（缺绑定时退 `nativeTranslate`），现在调 `translate`——对调用方
+语义不变（key 进、字符串出、两处 locale 都查不到时返回 key 本身），变的是绑定的名字和
+解析的来源：不再收 JSON，改为解析内嵌目录。
+
+#### 6.18.2 进程全局：载荷 → `Locale` 枚举
+
+旧 `set_engine_locale(locale_json, fallback_json)` 往一个 `OnceLock<RwLock<EngineI18n>>`
+里塞两棵消息树；现在 `EngineI18n` 只剩 `active: Locale`（`i18n.rs:79-82`），`Locale` 是
+`catalog.rs:19-24` 的两变体枚举（`En` 为 `#[default]`，`from_name` 解析）。
+
+这不是重构洁癖，是**修 bug**：进程里有两个互不知情的 JS locale 槽——CLI 侧
+`apps/kimi-code/src/i18n/index.ts` 的 `localeJsonEn` / `localeCurrentJson`，以及
+`i18n-runtime` 侧的 `localeJsonMap`——各自把 `(localeJson, fallbackJson)` 推给**同一个**
+Rust 全局槽。谁最后调谁说了算；从没调过的那一侧就沿用对方留下的语言，于是引擎自有的
+权限理由与工具报错不跟随界面语言。改成只传语言名之后，两次安装只可能一致。
+`set_locale` 从未被调用时引擎停在 `En`，所以「未接线的宿主保持英文」这条承诺依然成立。
+
+#### 6.18.3 158 条英文常量 → 目录 key
+
+`packages/kimi-agent/src/locales/en.json` 下现有 **158** 个 `engine.*` 叶子，由
+`packages/kimi-agent/src` 里 **196** 处 `LocalizedText::{new, with_params}` 调用点引用
+（两项均按 §6.17.3 的要求可复算：key 数与 `bun run check:engine-i18n` 的输出一致，
+调用点数按 `grep -o 'LocalizedText::\(new\|with_params\)' -r packages/kimi-agent/src | wc -l`）。
+英文句子的唯一来源因此是目录里那一份 en，与宿主 `t()` 解析的是同一份；解析不到 key 就
+渲染裸 key，由 `scripts/check-engine-i18n-parity.mjs` 拦下（key 必须存在、不得有孤儿
+key、`i18n_params!` 绑定名要与模板 `{{placeholder}}` 逐字一致）。
+
+一处渲染结果因此变化：`tools/fetch_url.rs:489` 的 `validate_url` 原先走
+`LocalizedText::fmt` 的内联英文兜底 `Invalid URL: {e}`，现在解析
+`engine.tools.fetchUrl.invalidUrl`，输出变成 `Failed to fetch URL: Invalid URL: <e>`。
+两条 locale 里一直就是这句长文本，重复的 "Invalid URL" 属既有目录文本，不是本次引入；
+它对用户可见是因为 `validate_url` 的调用方 `server/plugin_archive.rs:79` 把它直接抛出。
+
+#### 6.18.4 门禁：生成脚本的退出码
+
+`generate-locale-json.cjs` 生成的 JSON 经 `include_str!` 进二进制，CI 用
+「重新生成 + `git diff --exit-code -- '**/locales/*.json'`」保证新鲜度。本次把该脚本的
+源加载失败从「打印 + 继续、退出码 0」改为非零退出（`scripts/generate-locale-json.cjs:56-57`
+与 `:133-144`）：否则某个源加载失败时 JSON 不会被重写，diff 为空，CI 会带着**过期的
+内嵌目录**判绿——正好是 `native/catalog.rs` 头部注释承诺「malformed JSON 到不了构建」
+的反面。
+

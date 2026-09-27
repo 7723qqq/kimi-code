@@ -493,7 +493,7 @@ function scanDisplaySlots(line, relPath, prevLine = '') {
   const findings = [];
   // `label: '...'` / `title="..."` / `placeholder='...'`
   const slotRe =
-    /\b(label|title|message|placeholder|aria-label|description|tooltip|heading|emptyText|emptyMessage|confirmText|cancelText|errorText|helperText|buttonText|actionText|bodyText|subtitle)\s*[:=]\s*(['"`])([^'"`]*)\2/g;
+    /\b(label|title|message|placeholder|aria-label|description|tooltip|heading|emptyText|emptyMessage|confirmText|cancelText|errorText|helperText|buttonText|action|actionText|bodyText|subtitle)\s*[:=]\s*(['"`])([^'"`]*)\2/g;
   // A data property earlier on the same line means the line is a record
   // literal, not a display slot: `{ id: 'x', label: 'Y' }` assigns a key, not
   // copy. Matched on the leading `name: '…'` shape so `value: 'Bash'` cannot

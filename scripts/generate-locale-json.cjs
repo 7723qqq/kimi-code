@@ -54,6 +54,7 @@ const LOCALE_SOURCES = [
 ];
 
 let generated = 0;
+let failed = 0;
 
 for (const source of LOCALE_SOURCES) {
   // Determine paths based on whether this is a simple or complex entry
@@ -123,9 +124,21 @@ for (const source of LOCALE_SOURCES) {
     console.log(`✓ ${source.out}/zh.json (${(zhSize / 1024).toFixed(0)} KB)`);
     generated++;
   } catch (error) {
+    failed++;
     console.error(`✗ ${source.out}: ${error.message}`);
     if (error.stack) console.error(error.stack.split('\n').slice(0, 3).join('\n'));
   }
 }
 
-console.log(`\nDone. Generated ${generated * 2} JSON locale files.`);
+// A source that fails to load leaves its JSON un-rewritten, so the CI freshness
+// check — `generate && git diff --exit-code -- '**/locales/*.json'` — diffs
+// nothing and passes on a stale embedded catalog. A missing source is a build
+// failure, not a partial success, so it has to end in a non-zero exit.
+if (failed > 0) {
+  console.error(
+    `\nFailed. ${failed} of ${LOCALE_SOURCES.length} locale sources did not generate.`,
+  );
+  process.exitCode = 1;
+} else {
+  console.log(`\nDone. Generated ${generated * 2} JSON locale files.`);
+}
