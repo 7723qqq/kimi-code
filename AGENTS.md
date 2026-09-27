@@ -78,10 +78,10 @@ gates on it.
   A key that resolves nowhere renders as the bare key — `bun run
   check:engine-i18n` fails on both a missing key and an unused one.
 - **`i18n_params!` names must match the template's `{{placeholders}}`, character
-  for character.** The engine no longer compares two copies, so a mismatch is no
-  longer caught by a byte comparison — it silently leaves `{{name}}` in the
-  user's text. `bun run check:engine-i18n` checks key existence, not placeholder
-  parity; check placeholders by eye.
+  for character.** A mismatch silently leaves `{{name}}` in the user's text.
+  `bun run check:engine-i18n` catches it: its `PARAMS` rule compares every
+  `with_params` site's bound names against the placeholders its template
+  declares. Thirteen sites disagreed when the catalog was promoted.
 
 ### What not to translate
 
@@ -118,11 +118,15 @@ gates on it.
   runtime only do `{{name}}` substitution; there is no ICU support. These keys
   look like vue-i18n data running on a non-vue-i18n engine, which is what they
   are.
-- **Placeholder parity is unchecked.** `check:engine-i18n` verifies that every
-  key exists and that none is orphaned, but it cannot compare two copies of a
-  template because there is only one. A `i18n_params!` name that disagrees with
-  the catalog's `{{placeholder}}` leaves `{{name}}` in the user's text
-  silently. Check by eye when editing a parameterized message.
+- **Placeholder parity is enforced by two gates, not one.** A rendered
+  `{{name}}` needs two links to hold, and they are checked separately:
+  `check:engine-i18n`'s `PARAMS` rule compares each `with_params` site's bound
+  `i18n_params!` names against the `{{placeholders}}` in `locales/en.json`, and
+  `bun scripts/check-locale-placeholders.cjs` compares `en` against `zh` in
+  `packages/i18n-catalog/src/locales/{en,zh}.ts` — the sources
+  `generate-locale-json.cjs` embeds. Run both. The residue neither covers: a
+  catalog key no `LocalizedText` names has no `i18n_params!` to check, so its
+  placeholders rest on the `en`/`zh` comparison alone.
 - **A missing native module is fatal, not degraded.** The catalog lives in the
   Rust binary, so there is no JavaScript copy to fall back to. `t()` throws if
   `@moonshot-ai/kimi-agent/native` cannot be resolved — including in a
@@ -304,7 +308,7 @@ scripts/
   check-t-call-coverage.mjs     — Check t() call coverage
   scan-hardcoded[-v2].mjs       — Scan for hardcoded strings (i18n compliance)
   scan-parity.mjs               — Rust ↔ TS interface parity (REST / WS events / WS control / tool names / napi / config keys)
-  check-engine-i18n-parity.mjs  — Engine key-set consistency: every `LocalizedText` key exists in the embedded `en` catalog, and no `engine.*` catalog key is orphaned
+  check-engine-i18n-parity.mjs  — Engine key-set consistency (key exists, no `engine.*` orphan, `i18n_params!` names match the en template's `{{placeholders}}`)
   check-no-legacy-engine.mjs    — Fail if a retired engine package is still referenced
   prompt-optimizer/             — Prompt benchmark and optimization tools
 ```

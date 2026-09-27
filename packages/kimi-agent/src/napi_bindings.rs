@@ -3415,11 +3415,7 @@ pub fn init_plugin_store(
         let manager = crate::server::plugins::PluginManager::new(Arc::new(store))
             .with_marketplace_dir(marketplace_dir.map(std::path::PathBuf::from))
             .with_home_dir(Some(std::path::PathBuf::from(&data_dir)))
-            .with_node_runner(
-                node_runner
-                    .filter(|runner| !runner.trim().is_empty())
-                    .map(std::path::PathBuf::from),
-            );
+            .with_node_runner(node_runner.filter(|runner| !runner.trim().is_empty()).map(std::path::PathBuf::from));
         *PLUGIN_MANAGER.lock().unwrap_or_else(|p| p.into_inner()) = Some(Arc::new(manager));
         Ok(())
     })

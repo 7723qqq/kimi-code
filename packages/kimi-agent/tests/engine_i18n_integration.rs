@@ -16,7 +16,7 @@
 #![cfg(feature = "cli")]
 
 use kimi_agent::acp::permission::permission_options;
-use kimi_agent::i18n::{set_locale, Locale};
+use kimi_agent::i18n::{Locale, set_locale};
 use kimi_agent::permission::{PermissionEngine, PermissionMode, PolicySnapshot, VerdictDecision};
 use serde_json::json;
 
@@ -64,32 +64,17 @@ fn permission_reasons_render_in_the_active_locale() {
     let verdict = engine.evaluate("Read", &json!({ "path": ".env" }));
     assert_eq!(verdict.decision, VerdictDecision::Ask);
     assert_eq!(verdict.policy_name, "SensitiveFileAccessAsk");
-    let reason = verdict.reason.expect("an ask carries a reason");
-    assert!(!reason.is_empty(), "the reason must not be blank");
-    assert_ne!(
-        reason, "engine.permission.sensitiveFileAccess",
-        "a resolved key must not leak into the reason"
-    );
-    assert!(
-        !reason.contains("Access to sensitive file requires approval"),
-        "a Chinese session must not render the English template, got: {reason}"
-    );
-    assert!(
-        reason.contains(".env"),
-        "the interpolated path must reach the host, got: {reason}"
+    assert_eq!(
+        verdict.reason.as_deref(),
+        Some("访问敏感文件需要审批：.env")
     );
 
     // FallbackAsk — interpolates the tool name.
     let verdict = engine.evaluate("SomeUnknownTool", &json!({}));
     assert_eq!(verdict.policy_name, "FallbackAsk");
-    let reason = verdict.reason.expect("an ask carries a reason");
-    assert!(
-        reason.contains("SomeUnknownTool"),
-        "the interpolated tool name must reach the host, got: {reason}"
-    );
-    assert!(
-        !reason.contains("Tool execution requires approval"),
-        "a Chinese session must not render the English template, got: {reason}"
+    assert_eq!(
+        verdict.reason.as_deref(),
+        Some("工具执行需要审批：SomeUnknownTool")
     );
 }
 
@@ -111,19 +96,19 @@ fn the_english_catalog_answers_the_same_reasons() {
 }
 
 #[test]
-fn a_key_missing_from_the_active_locale_falls_back_to_english() {
+fn a_key_present_in_both_catalogs_renders_in_the_active_locale() {
     let _lock = locale_lock();
     let _guard = LocaleGuard::install_zh();
 
     let engine = PermissionEngine::new(PolicySnapshot::default());
 
-    // `engine.permission.highRiskShellCommand` is absent from the test locale,
-    // so the reason must come back resolved rather than leaking the key.
+    // `engine.permission.highRiskShellCommand` carries no `{{placeholder}}`, so
+    // the rendered reason is the catalog entry verbatim. Both embedded catalogs
+    // define it — `catalog.rs`'s `zh_covers_every_key_en_covers` guarantees
+    // that — so this asserts the Chinese one, not an English fallback.
     let verdict = engine.evaluate("Bash", &json!({ "command": "sudo reboot" }));
     assert_eq!(verdict.policy_name, "DangerousCommandAsk");
-    let reason = verdict.reason.expect("an ask carries a reason");
-    assert_ne!(reason, "engine.permission.highRiskShellCommand");
-    assert!(!reason.is_empty(), "the reason must not be blank");
+    assert_eq!(verdict.reason.as_deref(), Some("高风险 shell 命令需要审批"));
 }
 
 #[test]
@@ -139,18 +124,9 @@ fn acp_approval_labels_render_in_the_active_locale() {
         .filter_map(|o| o["name"].as_str())
         .collect();
 
-    let english = [
-        "Approve once",
-        "Approve for this session",
-        "Reject",
-    ];
-    assert_eq!(names.len(), english.len(), "one label per approval option");
-    for (name, en) in names.iter().zip(english) {
-        assert_ne!(
-            *name, en,
-            "a Chinese session must not render the English catalog entry"
-        );
-    }
+    // The labels are the `zh` catalog entries verbatim. The `kind` values below
+    // are protocol tokens, not messages, and stay English.
+    assert_eq!(names, vec!["批准一次", "本次会话内批准", "拒绝"]);
 
     // The `kind` discriminators are what `decision_from_response` matches on, so
     // translating the label must not disturb them.

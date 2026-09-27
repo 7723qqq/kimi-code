@@ -230,6 +230,39 @@ mod tests {
         assert_ne!(out, "engine.permission.deniedByUserRule");
     }
 
+    /// Covers the `or_else(|| lookup(Locale::En, key))` arm of
+    /// [`EngineI18n::translate_embedded`].
+    ///
+    /// The arm only fires for a key the *active* locale lacks, and `zh` is a
+    /// superset of `en`, so no catalog key can reach it — there is no honest
+    /// way to execute it through the public API. What can be tested is the
+    /// guard that keeps it dormant, from the rendering side: every key `en`
+    /// resolves must also resolve in `zh`. A future locale that ships a partial
+    /// catalog fails here, at the point the fallback would start shadowing it.
+    ///
+    /// The second half pins the other direction — the active locale still wins
+    /// for a key whose two translations differ, so the arm cannot be taken
+    /// silently by a catalog that happens to agree.
+    #[test]
+    fn the_english_fallback_arm_needs_a_key_the_active_locale_lacks() {
+        let zh = EngineI18n {
+            active: Locale::Zh,
+            ..EngineI18n::default()
+        };
+        for key in zh.embedded_keys() {
+            assert!(
+                lookup(Locale::Zh, key).is_some(),
+                "zh must define {key}, or the en arm starts shadowing zh"
+            );
+        }
+
+        let key = "engine.permission.deniedByUserRule";
+        let en = lookup(Locale::En, key).expect("en defines the key");
+        let zh_text = lookup(Locale::Zh, key).expect("zh defines the key");
+        assert_ne!(en, zh_text, "the two catalogs must differ for this to bite");
+        assert_eq!(zh.translate_embedded(key, None).as_deref(), Some(zh_text));
+    }
+
     #[test]
     fn an_unknown_key_renders_as_the_key() {
         let bogus = LocalizedText::new("engine.definitely.not.a.key");

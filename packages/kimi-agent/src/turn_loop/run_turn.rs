@@ -1271,11 +1271,11 @@ pub fn run_turn<'a>(
                             as Box<dyn std::error::Error + 'a>);
                     }
                     // v2 `recordOverflowRecovery`: count the round, then refuse
-                    // once the budget is spent. The English fallback mirrors
-                    // v2's `Compaction failed to bring the context under the
-                    // model window after N attempts.`; the sentence goes out
-                    // through the engine i18n layer, and no host matches on
-                    // the text itself (v2 hosts matched on error codes).
+                    // once the budget is spent. The sentence comes from
+                    // `engine.compaction.overflowFailed` in the embedded
+                    // catalog and goes out through the engine i18n layer; no
+                    // host matches on the text itself (v2 hosts matched on
+                    // error codes).
                     consecutive_overflow_compactions += 1;
                     let max_attempts = compaction_config.max_overflow_compaction_attempts;
                     if consecutive_overflow_compactions > max_attempts {

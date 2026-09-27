@@ -952,9 +952,12 @@ export const en = {
         'MSYS2 (full Linux command-line environment) not detected. Install it with: winget install MSYS2.MSYS2',
     },
   },
-  // Strings the Rust engine (packages/kimi-agent) produces itself. The engine
-  // carries an English fallback for every key so an unwired host still renders
-  // correctly; `scripts/check-engine-i18n-parity.mjs` keeps the two in sync.
+  // Strings the Rust engine (packages/kimi-agent) produces itself — permission
+  // reasons, tool-result notes, ACP approval labels. `generate-locale-json.cjs`
+  // embeds this file's `engine.*` subtree into the binary as
+  // `packages/kimi-agent/src/locales/{en,zh}.json`, and the engine resolves
+  // these keys against that embedded copy; there is no second English copy in
+  // Rust source to keep in sync.
   engine: {
     compaction: {
       cancelled: 'compaction cancelled',

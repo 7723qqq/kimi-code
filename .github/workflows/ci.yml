@@ -267,9 +267,11 @@ jobs:
       # Every t() call must resolve to a locale key.
       - run: bun scripts/check-t-call-coverage.mjs
       # Every engine.* locale key must be used by some LocalizedText (an orphan
-      # means the catalog carries a sentence no call site can reach), and every
-      # key a LocalizedText names must exist in the embedded en catalog (a miss
-      # would render as a bare key in the user's transcript).
+      # means the catalog carries a sentence no call site can reach), every key a
+      # LocalizedText names must exist in the embedded en catalog (a miss would
+      # render as a bare key in the user's transcript), and every with_params
+      # site must bind exactly the {{placeholders}} its en template declares (a
+      # mismatch would render a literal {{name}}).
       - run: bun scripts/check-engine-i18n-parity.mjs
       # Hardcoded user-facing strings that duplicate an existing locale value.
       - run: bun scripts/scan-hardcoded-v2.mjs

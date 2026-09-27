@@ -4006,8 +4006,8 @@ mod tests {
     /// Serializes the tests below.
     ///
     /// One of them installs a process-wide locale, and the others assert the
-    /// English fallback for a key that locale *does* translate — without this,
-    /// a parallel run would hand one test the other's language.
+    /// English catalog entry for a key that locale *does* translate — without
+    /// this, a parallel run would hand one test the other's language.
     ///
     /// A tokio `Mutex` rather than a `std` one: the guard is held across the
     /// `execute_tool` await, which `clippy::await_holding_lock` rejects on the
