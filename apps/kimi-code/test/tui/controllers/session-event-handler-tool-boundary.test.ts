@@ -257,3 +257,58 @@ describe('SessionEventHandler — subagent deltas stay out of the main transcrip
     expect(host.streamingUI.appendAssistantDelta).toHaveBeenCalledWith('main body');
   });
 });
+
+// The tool channel was the gap the two delta guards left open.
+//
+// A subagent's `tool.native` reaches the host as `tool.call.started`. When it
+// is attributed to `main` it lands here, and `handleToolCall` unconditionally
+// calls `finalizeLiveTextBuffers('tool')` (which ends the main agent's
+// reasoning block mid-sentence) followed by `registerToolCall`, whose
+// `onToolCallStart` opens a `●` card in the MAIN transcript. Both halves are
+// user-visible: the shredded `● The awk` fragments, and one card per subagent
+// tool call sitting beside the swarm's own summary panel.
+describe('SessionEventHandler — subagent tool calls stay out of the main transcript', () => {
+  const subagentToolCall = (toolCallId: string, name: string) =>
+    ({
+      type: 'tool.call.started',
+      sessionId: 's1',
+      agentId: 'subagent-1',
+      turnId: 1,
+      toolCallId,
+      name,
+      args: {},
+    }) as never;
+
+  it('does not settle the main agent thinking on a subagent tool call', () => {
+    const { host } = makeHost();
+    const handler = new SessionEventHandler(host);
+
+    handler.handleEvent(subagentToolCall('c1', 'Read'), vi.fn());
+
+    expect(host.streamingUI.finalizeLiveTextBuffers).not.toHaveBeenCalled();
+  });
+
+  it('does not register a subagent tool call in the main transcript', () => {
+    const { host } = makeHost();
+    const handler = new SessionEventHandler(host);
+
+    handler.handleEvent(subagentToolCall('c1', 'Read'), vi.fn());
+
+    expect(host.streamingUI.registerToolCall).not.toHaveBeenCalled();
+  });
+
+  it('leaves the main agent free to think straight through a subagent tool call', () => {
+    // The exact reported symptom: the main agent's reasoning was cut off
+    // mid-sentence every time a subagent called a tool.
+    const { host } = makeHost();
+    const handler = new SessionEventHandler(host);
+    const delta = (text: string) =>
+      ({ type: 'thinking.delta', sessionId: 's1', agentId: 'main', turnId: 1, delta: text }) as never;
+
+    handler.handleEvent(delta('The awk'), vi.fn());
+    handler.handleEvent(subagentToolCall('c1', 'Bash'), vi.fn());
+    handler.handleEvent(delta('cut fails on Windows'), vi.fn());
+
+    expect(host.streamingUI.finalizeLiveTextBuffers).not.toHaveBeenCalled();
+  });
+});

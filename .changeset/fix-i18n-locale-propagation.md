@@ -3,4 +3,4 @@
 "@moonshot-ai/kimi-code": patch
 ---
 
-Fix locale propagation so agent-core messages match the TUI language, and fix Enter key in the experiments selector on Kitty-protocol terminals.
+Fix locale propagation so the engine's messages match the TUI language, and fix the Enter key in the experiments selector on Kitty-protocol terminals.

@@ -154,9 +154,9 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_CODE_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS` | Max wall-clock time (ms) a single subagent scope eviction may take before the eviction queue skips it and moves on (default `15000`) | Positive integer; invalid values fail fast |
 | `KIMI_SUBAGENT_TIMEOUT_MS` | Max wall-clock time (ms) a single `Agent` subagent may run; higher priority than `[subagent] timeout_ms` | Positive integer; invalid values fall back to the config or default |
 | `KIMI_CODE_SWARM_TIMEOUT_MS` | Max wall-clock time (ms) an `AgentSwarm` subagent may run; higher priority than `[swarm] timeout_ms` | Positive integer; invalid values fall back to the config or default |
-| `KIMI_CODE_IDENTITY_NAME` | Name the agent calls itself in the system prompt; higher priority than `[identity] name`, never written back | Any non-empty string; blank values read as unset |
-| `KIMI_CODE_IDENTITY_SLUG` | `User-Agent` product token and MCP client name; higher priority than `[identity] slug`; derived from the name when unset | Any non-empty string; normalized to lowercase with non-alphanumeric runs folded to `-` |
-| `KIMI_CODE_BUILTIN_PRODUCT_SKILLS` | Offer the built-in skills documenting Kimi Code itself to the model; higher priority than `builtin_product_skills` | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
+| `KIMI_CODE_IDENTITY_NAME` | Name the agent calls itself in the system prompt; higher priority than `[identity] name`, never written back. Not implemented in this fork — the engine ignores it | Any non-empty string; blank values read as unset |
+| `KIMI_CODE_IDENTITY_SLUG` | `User-Agent` product token and MCP client name; higher priority than `[identity] slug`; derived from the name when unset. Not implemented in this fork — the engine ignores it | Any non-empty string; normalized to lowercase with non-alphanumeric runs folded to `-` |
+| `KIMI_CODE_BUILTIN_PRODUCT_SKILLS` | Offer the built-in skills documenting Kimi Code itself to the model; higher priority than `builtin_product_skills`. Not implemented in this fork — the engine ignores it | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `KIMI_CODE_REPEAT_BREAKER` | Whether repeating the same tool call many times in a row injects reminders and eventually force-stops the turn. Unset keeps this on | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off`; any other value is ignored |
 | `KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK` | Experimental `fork` parameter on `Agent`/`AgentSwarm`: start the subagent from a snapshot of the caller's history instead of an empty context; `KIMI_CODE_EXPERIMENTAL_FLAG=1` also enables it | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_TOOL_SELECT` | Experimental on-demand tool loading: tools of MCP servers marked `deferred: true` stay out of the top-level tool list and are loaded via `select_tools`; also requires the model to declare the `dynamically_loaded_tools` capability — see [MCP](../customization/mcp.md#loading-tools-on-demand) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
@@ -168,7 +168,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_LOOP_MAX_STEPS_PER_TURN` | Max Agent steps per turn; higher priority than `[loop_control] max_steps_per_turn` (`0` = unlimited) | Non-negative integer; invalid values are ignored |
 | `KIMI_LOOP_MAX_ATTEMPTS_PER_STEP` | Max total attempts for a failing step (including the first); higher priority than `[loop_control] max_attempts_per_step` | Non-negative integer; invalid values are ignored |
 | `KIMI_CODE_INFINITE_RETRY` | Retry failed LLM requests indefinitely; exponential backoff (32 s cap) honoring `Retry-After`; aborting still cancels immediately | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
-| `KIMI_TOKEN_COUNTING_STRATEGY` | Context token count reported externally; higher priority than `[token_counting] strategy` | `measured+estimated`, `measured`, `estimated` (case-insensitive); invalid values are ignored |
+| `KIMI_TOKEN_COUNTING_STRATEGY` | Context token count reported externally; higher priority than `[token_counting] strategy`. Not implemented in this fork — the engine ignores it | `measured+estimated`, `measured`, `estimated` (case-insensitive); invalid values are ignored |
 | `KIMI_WEB_SEARCH_BASE_URL` | Web search (`WebSearch`) service API URL; higher priority than the config file; credentials and custom headers not forwarded | Non-blank string; blank values are ignored |
 | `KIMI_WEB_SEARCH_API_KEY` | Web search (`WebSearch`) service API key; replaces both the configured key and the OAuth credential | Non-blank string; blank values are ignored |
 | `KIMI_WEB_FETCH_BASE_URL` | Web fetch (`FetchURL`) service API URL; higher priority than the config file; credentials not forwarded. Without an endpoint, signed-in users get the managed Kimi OAuth fetch service before direct local requests | Non-blank string; blank values are ignored |
@@ -183,7 +183,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_CODE_NO_AUTO_UPDATE` | Fully disable the update preflight: no check, background install, or prompt. Legacy alias `KIMI_CLI_NO_AUTO_UPDATE` also honored | Truthy: `1`/`true`/`yes`/`on` |
 | `KIMI_DISABLE_CRON` | Disable the scheduled-task tool (`CronCreate` rejects new schedules; existing tasks do not fire) | `1` to disable |
 
-The `KIMI_CODE_INFINITE_RETRY`, `KIMI_CODE_IDENTITY_*`, and `KIMI_CODE_BUILTIN_PRODUCT_SKILLS` variables are read by the `agent-core-v2` engine.
+The `KIMI_CODE_INFINITE_RETRY` variable is read by the Rust `kimi-agent` engine (`packages/kimi-agent`), which powers every Kimi Code surface in this fork. The `KIMI_CODE_IDENTITY_NAME`, `KIMI_CODE_IDENTITY_SLUG`, and `KIMI_CODE_BUILTIN_PRODUCT_SKILLS` variables are **not implemented in this fork** and are listed above for parity with upstream Kimi Code only — the engine ignores them, so setting them has no effect today.
 
 ## Diagnostic logs
 

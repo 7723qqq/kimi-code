@@ -65,7 +65,18 @@ describe.skipIf(!hasNativeAddon)(
     afterEach(async () => {
       vi.unstubAllEnvs();
       await harness.close();
-      rmSync(homeDir, { recursive: true, force: true });
+      // Windows keeps a lock on files a killed MCP child (or the engine's
+      // async runtime) still holds for a few ms after close(); retry the
+      // directory removal instead of failing the test on teardown timing.
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          rmSync(homeDir, { recursive: true, force: true });
+          break;
+        } catch (error) {
+          if (attempt >= 10) throw error;
+          await new Promise((resolveTime) => setTimeout(resolveTime, 200));
+        }
+      }
     });
 
     it('creates and lists sessions via native EngineSessionHandle', async () => {
@@ -311,6 +322,103 @@ max_context_size = 100000
         server.close();
       }
     }, 20_000);
+
+    it('addresses each turn of a session to its own id', async () => {
+      // The ids, not just the event names. Every event the SDK synthesizes
+      // inside a turn — the step boundaries from `llm.step.begin` / `end`, the
+      // deltas — is stamped from the turn in flight, so an id that collapses
+      // (every turn reading as 0) files the whole session under one turn while
+      // every event name stays exactly as it should. Two turns in one session
+      // is what makes that visible: the second must not reuse the first's id.
+      const { createServer } = await import('node:http');
+      const server = createServer((req, res) => {
+        req.on('data', () => {});
+        req.on('end', () => {
+          if (req.url?.includes('/chat/completions') !== true) {
+            res.writeHead(404).end();
+            return;
+          }
+          res.writeHead(200, {
+            'content-type': 'text/event-stream',
+            'cache-control': 'no-cache',
+            connection: 'close',
+          });
+          const chunk = (delta: Record<string, unknown>, finish: string | null = null): string =>
+            `data: ${JSON.stringify({
+              id: 'c',
+              object: 'chat.completion.chunk',
+              created: 0,
+              model: 'mock',
+              choices: [{ index: 0, delta, finish_reason: finish }],
+            })}\n\n`;
+          res.write(chunk({ role: 'assistant', content: 'hi' }));
+          res.write(chunk({}, 'stop'));
+          res.write('data: [DONE]\n\n');
+          res.end();
+        });
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const port = (server.address() as { port: number }).port;
+      try {
+        writeFileSync(
+          join(homeDir, 'config.toml'),
+          `
+[providers.local]
+type = "openai"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "sk-test"
+
+[models."mock"]
+provider = "local"
+model = "mock"
+max_context_size = 100000
+`,
+        );
+
+        const session = await harness.createSession({ workDir: homeDir, model: 'mock' });
+        const seen: Array<{ type: string; turnId: unknown }> = [];
+        session.onEvent((event) => {
+          seen.push({
+            type: event.type,
+            turnId: (event as { turnId?: unknown }).turnId,
+          });
+        });
+        const runTurn = async (prompt: string): Promise<void> => {
+          const ended = waitForTurnEnded(session);
+          await session.prompt(prompt);
+          await ended;
+        };
+        await runTurn('first');
+        const firstTurnEnd = seen.findIndex((event) => event.type === 'turn.ended');
+        await runTurn('second');
+        await session.close();
+
+        const firstTurn = seen.slice(0, firstTurnEnd + 1);
+        const secondTurn = seen.slice(firstTurnEnd + 1);
+        const firstId = firstTurn.find((event) => event.type === 'turn.started')?.turnId;
+        const secondId = secondTurn.find((event) => event.type === 'turn.started')?.turnId;
+        expect(typeof firstId).toBe('number');
+        expect(secondId).toBe((firstId as number) + 1);
+
+        const stepTypes = new Set([
+          'turn.step.started',
+          'turn.step.completed',
+          'assistant.delta',
+        ]);
+        for (const turn of [
+          { events: firstTurn, id: firstId },
+          { events: secondTurn, id: secondId },
+        ]) {
+          const steps = turn.events.filter((event) => stepTypes.has(event.type));
+          expect(steps.length).toBeGreaterThan(0);
+          for (const step of steps) {
+            expect(step.turnId).toBe(turn.id);
+          }
+        }
+      } finally {
+        server.close();
+      }
+    }, 30_000);
 
     it('emits the engine turn telemetry with the host-injected context', async () => {
       // v2 #3963: the engine emits turn_started / turn_ended through the
@@ -724,7 +832,11 @@ max_context_size = 100000
       );
       vi.stubEnv('KIMI_CODE_PLUGIN_MARKETPLACE_DIR', marketplaceDir);
 
-      expect(await harness.listPlugins()).toEqual([]);
+      // The built-in normify plugin seeds itself on the first plugin API call;
+      // the registry starts with exactly that one entry.
+      expect(await harness.listPlugins()).toEqual([
+        expect.objectContaining({ id: 'normify', enabled: true }),
+      ]);
 
       const installed = await harness.installPlugin('demo');
       expect(installed).toMatchObject({ id: 'demo', enabled: true });
@@ -769,7 +881,11 @@ max_context_size = 100000
       expect(await harness.listPluginCommands()).toEqual([]);
 
       await harness.removePlugin('demo');
-      expect(await harness.listPlugins()).toEqual([]);
+      // Removing the demo plugin leaves the built-in normify plugin — the
+      // seeder never re-adds a catalog plugin, and normify is not one.
+      expect(await harness.listPlugins()).toEqual([
+        expect.objectContaining({ id: 'normify', enabled: true }),
+      ]);
 
       // The registry landed in the app-scope engine store — the same
       // `<home>/agent/sessions.db` the hosted server opens, not a second store

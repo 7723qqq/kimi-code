@@ -286,6 +286,16 @@
         "jimp": "^1.6.1",
       },
     },
+    "packages/normify": {
+      "name": "@moonshot-ai/normify",
+      "version": "0.5.4",
+      "bin": {
+        "normify": "./dist/cli.mjs",
+      },
+      "dependencies": {
+        "yaml": "^2.8.3",
+      },
+    },
     "packages/oauth": {
       "name": "@moonshot-ai/kimi-code-oauth",
       "version": "0.4.0",
@@ -877,6 +887,8 @@
     "@moonshot-ai/kosong": ["@moonshot-ai/kosong@workspace:packages/kosong"],
 
     "@moonshot-ai/minidb": ["@moonshot-ai/minidb@workspace:packages/minidb"],
+
+    "@moonshot-ai/normify": ["@moonshot-ai/normify@workspace:packages/normify"],
 
     "@moonshot-ai/pi-tui": ["@moonshot-ai/pi-tui@workspace:packages/pi-tui"],
 

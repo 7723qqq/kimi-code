@@ -70,6 +70,18 @@ outputs/
 # relative to the repo instead of KIMI_CODE_HOME
 .kimi/
 
+# Per-workspace knowledge base: knowledge_tool writes knowledge.db plus its
+# -shm/-wal siblings into the workspace root. Machine-local runtime state that
+# is rebuilt on every run; committing a SQLite file is never the intent. (This
+# subsumes the `.kimi-code/local.toml` entry above.)
+.kimi-code/
+
+# Tower orchestration scratch: agent comms plus one git worktree per mission,
+# each holding a full checkout. Local by construction. `.git/info/exclude`
+# already hides it on this machine, but that file is untracked — the rule has
+# to live in the repo for every other clone and every fresh config.
+.tower/
+
 # Trae IDE scratch documents (working plans, not project docs)
 .trae/
 

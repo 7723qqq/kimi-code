@@ -26,7 +26,7 @@
   "type": "module",
   "scripts": {
     "postinstall": "bunx simple-git-hooks",
-    "build": "bun run --filter './packages/*' --filter './apps/kimi-code' --filter './apps/vscode' --filter './apps/kimi-inspect' --filter './apps/vis' --filter './apps/vis/server' --filter './apps/vis/web' --filter './docs' build",
+    "build": "bun run --filter '@moonshot-ai/normify' build:plugin && bun run --filter './packages/*' --filter './apps/kimi-code' --filter './apps/vscode' --filter './apps/kimi-inspect' --filter './apps/vis' --filter './apps/vis/server' --filter './apps/vis/web' --filter './docs' build",
     "build:packages": "bun run --filter './packages/*' build",
     "build:native:rust": "cd packages/kimi-agent && cargo build --release --features cli",
     "dev:native:rust": "cd packages/kimi-agent && cargo run --features cli -- --repl",
@@ -54,6 +54,8 @@
     "check:upstream-v2-delta": "bun scripts/check-upstream-v2-delta.mjs",
     "check:engine-i18n": "bun scripts/check-engine-i18n-parity.mjs",
     "check:architecture": "bun scripts/check-architecture-drift.mjs",
+    "check:architecture:update": "bun scripts/check-architecture-drift.mjs --update",
+    "check:roadmap-refs": "bun scripts/check-roadmap-refs.mjs",
     "gen:brief": "bun scripts/gen-brief.mjs",
     "changeset": "changeset",
     "version": "changeset version",

@@ -10,6 +10,10 @@ export default defineConfig({
       'apps/vis/server',
       'apps/vis/web',
       ...vscodeProjects,
+      // The fail-closed gate scripts under scripts/ carry their own vitest
+      // project; without it `bun run test` never collects their *.test.mjs and
+      // the gates' own tests are dead code.
+      'scripts',
     ],
     coverage: {
       provider: 'v8',

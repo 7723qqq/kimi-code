@@ -1,0 +1,12 @@
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo/
+*~
+
+# bin/normify-mcp.mjs 是**有意提交**的构建产物（与 plugins/official/kimi-datasource 同策略）：
+# marketplace 安装是拉整个目录的 zip，没有构建步骤，构建产物必须随仓库走。
+# 防漂移靠 packages/normify/test/plugin-bundle.test.ts：它把这份 bundle 当 MCP server 起起来，
+# 把 tools/list（名称 / 描述 / inputSchema）逐字段与 packages/normify/src 的注册表比对。
+# 改 src 之后必须跑 `cd packages/normify && bun run build:plugin` 重新生成，否则该测试会失败。

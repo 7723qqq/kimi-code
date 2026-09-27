@@ -20,6 +20,15 @@
       "source": "./official/kimi-webbridge"
     },
     {
+      "id": "normify",
+      "tier": "official",
+      "displayName": "Normify",
+      "version": "0.5.4",
+      "description": "Turn a codebase into a drill-down module-tree architecture diagram that stays in sync with the code.",
+      "keywords": ["architecture", "skill", "mcp", "structure-diagram", "module-tree"],
+      "source": "./official/normify"
+    },
+    {
       "id": "superpowers",
       "tier": "curated",
       "displayName": "Superpowers",

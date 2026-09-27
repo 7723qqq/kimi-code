@@ -2,4 +2,4 @@
 "@moonshot-ai/kimi-code": patch
 ---
 
-Make the staged self-updater engine-aware: a Bun packaged binary now downloads the release's Bun build from the manifest's optional `bun` section and refuses to silently swap itself to the Node SEA binary when that release ships none.
+Stop the self-updater from silently replacing a Bun install with a Node build: a packaged binary now only accepts an update built for its own runtime.

@@ -60,7 +60,7 @@ keep = "all"
 
 [loop_control]
 max_attempts_per_step = 10
-reserved_context_size = 50000
+compaction_max_attempts = 5
 
 [background]
 max_running_tasks = 4
@@ -101,7 +101,7 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | `merge_all_available_skills` | `boolean` | `true` | Whether to merge Agent Skills from all available directories |
 | `extra_skill_dirs` | `array<string>` | — | Extra skill search directories, layered on top of the default directories |
 | `extra_agent_dirs` | `array<string>` | — | Extra custom agent search directories, layered on top of the default directories |
-| `builtin_product_skills` | `boolean` | `true` | Whether the built-in skills that document Kimi Code itself are offered to the model |
+| `builtin_product_skills` | `boolean` | `true` | Whether the built-in skills that document Kimi Code itself are offered to the model. Not implemented in this fork — the engine has no product-skill switch, so setting it currently has no effect |
 | `telemetry` | `boolean` | `true` | Whether anonymous telemetry is enabled; disabled only when explicitly set to `false` |
 | `auto_session_title` | `boolean` | `true` | Whether clients may automatically generate session titles; disabled only when explicitly set to `false` |
 | [`providers`](#providers) | `table` | `{}` | API provider table |
@@ -320,13 +320,13 @@ Configuration errors fail loudly instead of falling back silently. Session creat
 
 ## `loop_control`
 
-`loop_control` governs the step count limit, the per-step attempt limit, and the thresholds and attempt limit for automatic context compaction in the Agent execution loop.
+`loop_control` governs the step count limit, the per-step attempt limit, and the attempt limit for automatic context compaction in the Agent execution loop. The compaction *thresholds* are not configurable here: `reserved_context_size` is accepted for config parity only, and the compaction trigger itself uses the engine's built-in values.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `max_steps_per_turn` | `integer` | — | Maximum steps per turn; unset or `0` means unlimited |
 | `max_attempts_per_step` | `integer` | `10` | Maximum total attempts for a failing step, including the initial attempt |
-| `reserved_context_size` | `integer` | — | Number of tokens reserved for model output; automatic compaction is triggered when the remaining context window falls below this value |
+| `reserved_context_size` | `integer` | — | Number of tokens reserved for model output. Accepted for config parity only — the engine does not read this key yet and keeps its built-in value, so setting it currently has no effect |
 | `compaction_max_attempts` | `integer` | `5` | Maximum total attempts for a failing compaction request, including the initial attempt |
 
 `max_steps_per_turn` can be overridden by the `KIMI_LOOP_MAX_STEPS_PER_TURN` environment variable, and `max_attempts_per_step` by `KIMI_LOOP_MAX_ATTEMPTS_PER_STEP`; both take higher priority than the config file. The former `KIMI_LOOP_MAX_RETRIES_PER_STEP` variable is deprecated but still honored (with a startup warning) when the new one is unset.
@@ -335,13 +335,17 @@ Retries only apply to transient failures: connection errors, timeouts, HTTP 429 
 
 ## `token_counting`
 
+::: warning Note
+Not implemented in this fork. The Rust engine in `packages/kimi-agent` has no token-counting strategy switch: it always combines provider-reported usage with its own estimate (`src/native/tokens.rs`). The section below is documented for parity with upstream Kimi Code — it is accepted and ignored, so setting it has no effect today.
+:::
+
 `token_counting` selects which context token count is reported externally, the value behind the context-size display. Internal logic (automatic compaction triggers, budgets, and overflow backoff) always uses both provider-reported usage and estimates, regardless of this setting.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `strategy` | `"measured+estimated" \| "measured" \| "estimated"` | `"measured+estimated"` | `measured+estimated` combines measured usage with an estimate of the unmeasured tail; `measured` reports provider usage alone, updated when a request completes; `estimated` is a pure estimate, for providers that do not report usage |
+| `strategy` | `"measured+estimated" \| "measured" \| "estimated"` | `"measured+estimated"` | `measured+estimated` combines measured usage with an estimate of the unmeasured tail; `measured` reports provider usage alone, updated when a request completes; `estimated` is a pure estimate, for providers that do not report usage. Accepted but not read — see the note above |
 
-`strategy` can be overridden by the `KIMI_TOKEN_COUNTING_STRATEGY` environment variable, which takes higher priority than `config.toml`.
+`strategy` can be overridden by the `KIMI_TOKEN_COUNTING_STRATEGY` environment variable, which takes higher priority than `config.toml`. Neither the key nor the variable is read by the engine today.
 
 ## `background`
 
@@ -393,12 +397,16 @@ In print mode (`kimi -p "<prompt>"`), Kimi Code stays alive after the main agent
 
 ## `identity`
 
+::: warning Note
+Not implemented in this fork. The Rust engine in `packages/kimi-agent` reads no `[identity]` table: the values are hardcoded (`clientInfo.name` is `kimi-agent-native`, the GitHub tool sends `User-Agent: kimi-code`, the plugin installer sends `kimi-code-plugin-installer`). The section below is documented for parity with upstream Kimi Code — it is accepted and ignored, so setting it has no effect today.
+:::
+
 Customizes how the agent identifies itself. Leave it unset and nothing changes.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `name` | `string` | — | Display name the agent calls itself in the system prompt (fills the `${product_name}` slot, including in your own `SYSTEM.md` and agent files) |
-| `slug` | `string` | derived from `name` | Machine identifier in protocol fields (`User-Agent` product token, MCP client name); derived from `name` when omitted: lowercased, non-alphanumeric runs folded to `-` |
+| `name` | `string` | — | Display name the agent calls itself in the system prompt (fills the `${product_name}` slot, including in your own `SYSTEM.md` and agent files). Accepted but not read — see the note above |
+| `slug` | `string` | derived from `name` | Machine identifier in protocol fields (`User-Agent` product token, MCP client name); derived from `name` when omitted: lowercased, non-alphanumeric runs folded to `-`. Accepted but not read — see the note above |
 
 ```toml
 [identity]
@@ -406,13 +414,13 @@ name = "Acme Dev Agent"
 slug = "acme-dev"        # optional
 ```
 
-Both fields can be set through the `KIMI_CODE_IDENTITY_NAME` and `KIMI_CODE_IDENTITY_SLUG` environment variables, which take higher priority than `config.toml` and are never written back to it, making them convenient for containers and CI, where writing a config file is awkward.
+Both fields can be set through the `KIMI_CODE_IDENTITY_NAME` and `KIMI_CODE_IDENTITY_SLUG` environment variables, which take higher priority than `config.toml` and are never written back to it, making them convenient for containers and CI, where writing a config file is awkward. Neither variable is read by the engine today, so in this fork all four inputs are inert.
 
 A name that contains no ASCII letters or digits (for example a purely Chinese name) leaves nothing to derive a slug from and falls back to `agent`; write `slug` explicitly if you need a specific protocol token.
 
 The identity is resolved once at startup and holds for the life of the process: it is announced to MCP servers and providers when connections are made, so it cannot change midway. Edits to this section take effect on the next start, for new sessions: a resumed session keeps the system prompt it was recorded with, since its past turns already speak under that identity. Likewise, an MCP OAuth authorization keeps the client registration it was granted under; reset that server's authentication to register under the new identity.
 
-This section is read by the `agent-core-v2` engine, which powers every Kimi Code surface.
+Every Kimi Code surface in this fork runs on the Rust `kimi-agent` engine, and that engine does not read this section today.
 
 ## `tools`
 

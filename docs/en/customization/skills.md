@@ -102,7 +102,7 @@ The Kimi-specific user Skill directory moves with `KIMI_CODE_HOME`, so isolated 
 extra_skill_dirs = ["~/team-skills", ".agents/team-skills"]
 ```
 
-**Built-in Skills** are distributed with the CLI and have the lowest priority. They provide out-of-the-box workflows for common tasks: configuring MCP servers, customizing the TUI theme, and editing config files. See [Built-in skill commands](../reference/slash-commands.md#built-in-skill-commands) for the full list. Those describing Kimi Code itself can be turned off with the top-level [`builtin_product_skills`](../configuration/config-files.md#top-level-fields) field.
+**Built-in Skills** are distributed with the CLI and have the lowest priority. They provide out-of-the-box workflows for common tasks: configuring MCP servers, customizing the TUI theme, and editing config files. See [Built-in skill commands](../reference/slash-commands.md#built-in-skill-commands) for the full list. Some of them document Kimi Code itself and are marked user-only, so the model never invokes them on its own; the top-level [`builtin_product_skills`](../configuration/config-files.md#top-level-fields) field that would turn them off is not implemented in this fork and currently has no effect.
 
 ## Invoking a Skill
 

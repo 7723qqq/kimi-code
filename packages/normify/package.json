@@ -1,0 +1,53 @@
+{
+  "name": "@moonshot-ai/normify",
+  "version": "0.5.4",
+  "private": true,
+  "description": "Normify (normalized structure-diagram builder): a fractal, human-and-machine readable module-tree system for a repository — zero-tolerance validation/compilation/rendering of module-tree source data, plus the AI structure-data generator toolset (30 tools + the normify-gen skill).",
+  "keywords": [
+    "architecture",
+    "kimi",
+    "module-tree",
+    "normify",
+    "plugin",
+    "structure-diagram"
+  ],
+  "homepage": "https://github.com/MoonshotAI/kimi-code/tree/main/packages/normify#readme",
+  "bugs": {
+    "url": "https://github.com/MoonshotAI/kimi-code/issues"
+  },
+  "license": "MIT",
+  "author": "Moonshot AI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MoonshotAI/kimi-code.git",
+    "directory": "packages/normify"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "imports": {
+    "#/*": "./src/*.ts"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "normify": "./dist/cli.mjs"
+  },
+  "scripts": {
+    "build": "tsdown && tsdown --config tsdown.plugin.config.ts",
+    "build:library": "tsdown",
+    "build:plugin": "tsdown --config tsdown.plugin.config.ts",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsgo -p tsconfig.json --noEmit",
+    "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\""
+  },
+  "dependencies": {
+    "yaml": "^2.8.3"
+  }
+}

@@ -102,7 +102,7 @@ Kimi 专属用户级 Skill 目录会随 `KIMI_CODE_HOME` 移动，隔离数据�
 extra_skill_dirs = ["~/team-skills", ".agents/team-skills"]
 ```
 
-**内置 Skills** 随 CLI 一起分发，优先级最低，为常见任务提供开箱即用的工作流，例如配置 MCP server、定制 TUI 主题和编辑配置文件。完整列表详见[内置 Skill 命令](../reference/slash-commands.md#内置-skill-命令)。其中介绍 Kimi Code 自身的部分可以通过顶层 [`builtin_product_skills`](../configuration/config-files.md#顶层字段) 字段关闭。
+**内置 Skills** 随 CLI 一起分发，优先级最低，为常见任务提供开箱即用的工作流，例如配置 MCP server、定制 TUI 主题和编辑配置文件。完整列表详见[内置 Skill 命令](../reference/slash-commands.md#内置-skill-命令)。其中介绍 Kimi Code 自身的部分被标记为仅限用户调用，模型不会自行触发；用于关闭它们的顶层 [`builtin_product_skills`](../configuration/config-files.md#顶层字段) 字段在本 Fork 未实现，当前设置后不生效。
 
 ## 调用 Skill
 

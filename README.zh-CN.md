@@ -18,6 +18,7 @@
 - **⚡ Rust 原生工具加速**：性能关键工具（grep、glob、edit、read、write、bash、token 统计、输出截断）用 Rust 重写为原生 Node addon，显著快于 JS 实现。
 - **🪟 Windows 启动脚本**：`start-native.bat` 一键启动原生 CLI（使用 `--web` 参数一键启动由原生 Rust 后端驱动的 Web UI）；`start-web-native.bat` 双击即开原生 Web UI；`start-desktop.bat` 用于构建并启动本地 vendored 桌面壳（仅当 `apps/kimi-desktop` 存在时可用）。
 - **🥖 Bun 唯一打包引擎**:发布二进制通过 `bun build --compile` 产出单文件构建,由 CI 六平台矩阵(linux/darwin/win32 × x64/arm64)生成。原默认的 Node.js SEA 流水线已退役:pi-tui helper 由打包资产缓存加载、URL-fetch SSRF 语义跨运行时一致(统一捆绑 undici)、`/status` 显示 Runtime 行。自更新只分发 Bun 原生二进制——不支持从旧 SEA 安装就地升级,如遇此情况请重新安装。
+- **🗺️ Normify 内置插件。** 合并自 [yan-mc/dsh-normify](https://github.com/yan-mc/dsh-normify) 的架构图系统,随 CLI 预装并默认启用:把代码库梳理成分形模块树(30 个 `normify_*` 工具 + `normify-gen` 技能),通过变更跟踪与架构规则保持图与代码同步,一键渲染单文件交互式下钻架构图——零安装,无需系统 Node.js。
 - 其他多项修复和体验优化。
 
 如需了解面向贡献者的更深入说明与集成细节，请参见根目录 `AGENTS.md` → "Fork-specific additions vs upstream"（中文语境参见对应章节）。

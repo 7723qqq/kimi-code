@@ -782,8 +782,12 @@ export class KimiTUI {
       this.updateTerminalTitle();
     }
     void this.refreshSkillCommands(this.session);
-    void this.refreshPluginCommands(this.session);
-    this.prewarmSessionInBackground();
+    // The plugin API opens the engine's plugin registry (ensurePluginStore);
+    // the session's MCP roster and skill scan read that registry when the
+    // session is created. Prewarming must wait for the registry to be open,
+    // or a fast prewarm wins the race and the first session silently misses
+    // every plugin's MCP servers and skills.
+    void this.refreshPluginCommands(this.session).then(() => this.prewarmSessionInBackground());
   }
 
   /**

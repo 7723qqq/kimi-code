@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    // `src/engine/**` is vendored verbatim from dsh-normify 0.5.4 to keep the
+    // port diffable against upstream. It reads loosely-typed parse results
+    // (`Record<string, unknown>`) by property access across ~300 sites; making
+    // every site bracket-access churns the import without changing runtime
+    // behavior. The stricter-of-the-two indexing guarantees we actually care
+    // about (`noUncheckedIndexedAccess`) stays ON.
+    "noPropertyAccessFromIndexSignature": false,
+    "paths": {
+      "#/*": [
+        "./src/*.ts"
+      ]
+    }
+  },
+  "include": [
+    "src",
+    "test"
+  ]
+}

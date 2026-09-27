@@ -2,4 +2,4 @@
 '@moonshot-ai/kimi-code': patch
 ---
 
-Fix subagent tool scoping: a profile's tool allowlist/denylist now matches MCP names as globs (`mcp__*`, `mcp__github__*`) and built-ins exactly (case-insensitively), the same rule the global `[tools]` switch uses — previously the built-in profiles' `mcp__*` grant matched nothing, so subagents lost every MCP tool. The `Agent` tool description now advertises each subagent type's tool scope (`Tools: all` / `Read, mcp__*` / `none`), mirroring v2 `resolveActiveToolNames`, so the model can pick a subagent by what it may actually do.
+Fix subagent tool scoping: a profile's tool allowlist/denylist now matches MCP names as globs (`mcp__*`, `mcp__github__*`) and built-ins exactly and case-insensitively, so subagents keep their MCP tools. The `Agent` tool description also advertises each subagent type's tool scope, so the model can pick one by what it may do.

@@ -108,6 +108,7 @@
         ./packages/kosong
         ./packages/minidb
         ./packages/node-sdk
+        ./packages/normify
         ./packages/oauth
         ./packages/pi-tui
         ./packages/protocol

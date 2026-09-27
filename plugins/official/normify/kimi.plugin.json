@@ -1,0 +1,23 @@
+{
+  "$schema": "https://kimi.com/schemas/kimi.plugin.schema.json",
+  "name": "normify",
+  "version": "0.5.4",
+  "description": "Build a human-and-machine readable, fractal module tree of a codebase: zero-tolerance validation, deterministic compilation and a single-file interactive architecture diagram, plus a design-first workflow that keeps the diagram in sync with the code.",
+  "keywords": ["architecture", "skill", "mcp", "structure-diagram", "module-tree"],
+  "author": "Moonshot AI",
+  "license": "MIT",
+  "skills": "./skills/",
+  "mcpServers": {
+    "normify": {
+      "command": "node",
+      "args": ["./bin/normify-mcp.mjs"],
+      "cwd": "./"
+    }
+  },
+  "interface": {
+    "displayName": "Normify",
+    "shortDescription": "Turn a codebase into a drill-down module-tree architecture diagram that stays in sync with the code.",
+    "longDescription": "Normify describes a project as one fractal module tree: the model analyzes and authors structure data (module tree source files), while a deterministic engine validates, compiles and renders it — drill into any module and you get a finer-grained sub-diagram.\n\nIt is a whole workflow, not a one-shot picture generator: change_* tracking, a design-first (plan-then-code) loop, incremental resync via git diff, architecture rules enforced by policy.yml, and a single-file interactive HTML renderer (drill-down, API-level arrows, bilingual switch, deep links).",
+    "developerName": "Moonshot AI"
+  }
+}

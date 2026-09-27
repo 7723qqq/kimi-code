@@ -160,6 +160,16 @@
     },
     {
       "files": [
+        "packages/normify/src/cli.ts"
+      ],
+      "rules": {
+        // The normify CLI is a stdout tool: printing tool results, the usage
+        // text, and diagnostics to console is its entire contract.
+        "eslint/no-console": "off"
+      }
+    },
+    {
+      "files": [
         "**/*.test.ts",
         "**/*.test.tsx",
         "**/*.spec.ts",
@@ -228,6 +238,14 @@
     "docs/smoke-archive/",
     "packages/pi-tui/",
     "*.generated.ts",
+    // The committed normify plugin bundle is bundler output, not source. The
+    // bundler escapes `</` inside the template literals it copies out of
+    // src/engine/template.ts, which `eslint(no-useless-escape)` then reports at
+    // the generated file. Hand-editing the bundle would be undone by the next
+    // build, and the source it comes from is already linted. Drift between the
+    // bundle and its source is covered by
+    // packages/normify/test/plugin-bundle.test.ts instead.
+    "plugins/official/normify/bin/",
     "参考目录/"
   ]
 }

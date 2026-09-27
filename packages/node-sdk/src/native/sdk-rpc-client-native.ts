@@ -15,6 +15,12 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 
 import {
+  BUILTIN_NORMIFY_PLUGIN_ID,
+  materializeBuiltinPlugins,
+  setBuiltinPluginOptOut,
+} from './builtin-normify';
+
+import {
   BUILTIN_AGENT_PROFILE_NAMES,
   discoverAgentFiles,
   type AgentFileDefinition,
@@ -159,8 +165,8 @@ import type {
   TelemetryProperties,
   UploadFileOptions,
   WorkspaceTrustInfo,
+  ExperimentalFlagSource,
 } from '#/types';
-import type { ExperimentalFlagSource } from '#/types';
 
 import {
   resolveNativeLlm,
@@ -203,6 +209,37 @@ function toTokenUsage(raw: unknown): TokenUsage | undefined {
     inputCacheRead: num('input_cache_read'),
     inputCacheCreation: num('input_cache_creation'),
   };
+}
+
+/**
+ * Normalize an engine turn id to the numeric id the protocol events carry.
+ *
+ * The engine mints turn ids in two string shapes — `turn-<n>` on the event lane
+ * (`EngineEvent::TurnStarted`) and `subturn-<rand>` on the subagent lane
+ * (`subagent/manager.rs`) — and as a plain number on the turn-lifecycle lane
+ * (`turn_events::TurnEvent`, `turn_id: u64`). `Number.parseInt` only reads a
+ * *leading* run of digits, so `turn-3` parsed to `NaN` and `NaN || 0` mapped
+ * every such turn onto 0 — the value `meta.currentTurnId` also starts at, so
+ * the collapse was invisible.
+ *
+ * Take the *trailing* digits instead, which is the normalization the transcript
+ * fold already applies to the same ids (`server/transcript/project.rs`:
+ * `turn_key` keeps the digits after the last non-digit and re-keys them as
+ * `t<number>`, so `turn-3`, `t3` and `subturn-3` are all one turn). Keeping only
+ * the number is what makes the prefix irrelevant here: `subturn-7` is turn 7,
+ * not a second namespace.
+ *
+ * An id with no trailing digits, or no id at all, degrades to the documented
+ * fallback `0` — the same "no turn known" value `meta.currentTurnId` starts at,
+ * and a defined one rather than `NaN`. Never returns `NaN`.
+ */
+export function normalizeEngineTurnId(raw: unknown): number {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : 0;
+  if (typeof raw !== 'string') return 0;
+  const digits = /(\d+)$/.exec(raw)?.[1];
+  if (digits === undefined) return 0;
+  const parsed = Number.parseInt(digits, 10);
+  return Number.isNaN(parsed) ? 0 : parsed;
 }
 
 /**
@@ -1045,6 +1082,20 @@ function resolvePluginMarketplaceDir(): string | undefined {
 }
 
 /**
+ * The host executable when it can host plugin node entries itself, i.e. only
+ * under the packaged single-file binary (`bun build --compile`, marked by the
+ * bundled `__KIMI_BUN_ASSETS__` asset map). Source (`bun src/main.ts`) and
+ * `node dist/main.mjs` runs answer `undefined`: there the declared
+ * `command: "node"` spawns as-is, and a Node runtime is available by
+ * construction (node-dist) or in every dev checkout (bun).
+ */
+function pluginNodeRunnerPath(): string | undefined {
+  const view = globalThis as { Bun?: unknown; __KIMI_BUN_ASSETS__?: unknown };
+  if (view.Bun === undefined || view.__KIMI_BUN_ASSETS__ === undefined) return undefined;
+  return process.execPath;
+}
+
+/**
  * The manifest `agents` field of an installed plugin: one `./` directory or a
  * list of them (`docs/en/customization/plugins.md:282`). The engine's
  * `kimi.plugin.json` reader does not carry that key, so the manifest is read
@@ -1212,6 +1263,15 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // A client-chosen id becomes the session directory name; reject anything
     // that is not a single path segment before it reaches join().
     if (input.id !== undefined) assertSessionIdSegment(input.id);
+    // NOTE: ensurePluginStore is deliberately NOT called here. Opening the
+    // registry takes a SQLite handle on `<engineDataDir>/sessions.db` that
+    // Windows keeps locked until closePluginStore — a headless `kimi -p` run
+    // that never touches the plugin surface must not leave the data dir
+    // locked for its whole lifetime (the recorded upstream decision). The
+    // race — a session created before any plugin API ran, missing plugin
+    // MCP servers — is closed at the interactive host layer instead
+    // (`kimi-tui.ts` sequences refreshPluginCommands before its session
+    // prewarm), where the registry is opened on every launch regardless.
     const sessionId = input.id ? input.id : `session_${randomUUID()}`;
     const sessionDir = posixPath(join(this.sessionBaseDir, sessionId));
     const now = Date.now();
@@ -1960,12 +2020,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         }
         const eventAgentId = meta.activeAgentId ?? 'main';
         const rawTurnId = parsed.turnId ?? parsed.turn_id;
-        const turnId =
-          typeof rawTurnId === 'number'
-            ? rawTurnId
-            : typeof rawTurnId === 'string'
-              ? Number.parseInt(rawTurnId, 10) || 0
-              : 0;
+        const turnId = normalizeEngineTurnId(rawTurnId);
         if (parsed.type === 'turn.started') {
           meta.currentTurnId = turnId;
           // New turn: restart the synthesized LLM step counter.
@@ -4861,12 +4916,45 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
    * engine uses (`<engineDataDir>/sessions.db`), so the CLI and the hosted
    * server read one install state. Idempotent; every plugin method below calls
    * it first.
+   *
+   * Before the store opens, the built-in `normify` plugin is materialized from
+   * the embedded copy and seeded into the registry when absent, so the CLI
+   * ships with it enabled by default (zero install). A user's disable is
+   * preserved (the seeder never re-enables) and an explicit removal is
+   * remembered via the opt-out marker.
    */
   private async ensurePluginStore(): Promise<void> {
     if (this.pluginStoreReady) return;
     const { initPluginStore } = await import('@moonshot-ai/kimi-agent/native');
-    initPluginStore(this.engineDataDir, resolvePluginMarketplaceDir());
+    const seededRoot = materializeBuiltinPlugins(this.engineDataDir);
+    initPluginStore(
+      this.engineDataDir,
+      resolvePluginMarketplaceDir(),
+      // Only the packaged single-file binary can re-execute itself as
+      // `__plugin_run_node`; source (bun) and node-dist runs keep spawning the
+      // `node` that a JS plugin server declares.
+      pluginNodeRunnerPath(),
+    );
+    if (seededRoot !== undefined) await this.seedBuiltinNormify(seededRoot);
     this.pluginStoreReady = true;
+  }
+
+  /**
+   * Install the built-in normify plugin from its materialized local copy when
+   * the registry has no record of it. The engine defaults a fresh install to
+   * enabled; an existing record (enabled or user-disabled) is left exactly as
+   * it is, so the seeder never overrides a `/plugins` toggle. Failures are
+   * swallowed: a broken seed must not take down the plugin API.
+   */
+  private async seedBuiltinNormify(seededRoot: string): Promise<void> {
+    try {
+      const { pluginInfo, pluginInstall } = await import('@moonshot-ai/kimi-agent/native');
+      const existing = pluginInfo(BUILTIN_NORMIFY_PLUGIN_ID);
+      if (existing !== null && existing !== undefined) return;
+      pluginInstall(seededRoot);
+    } catch (error) {
+      console.warn(`builtin plugin seed failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   override async listPlugins(): Promise<readonly PluginSummary[]> {
@@ -4910,6 +4998,11 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         `Plugin "${id}" is neither installed nor in the marketplace catalog.`,
       );
     }
+    // Re-enabling the built-in normify plugin clears the removal opt-out: the
+    // toggle is the newer user decision and it wins over the marker.
+    if (id === BUILTIN_NORMIFY_PLUGIN_ID && enabled) {
+      setBuiltinPluginOptOut(this.engineDataDir, false);
+    }
   }
 
   override async setPluginMcpServerEnabled(
@@ -4933,6 +5026,9 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     if (!pluginRemove(id)) {
       throw new KimiError(ErrorCodes.REQUEST_INVALID, `Plugin "${id}" is not installed.`);
     }
+    // Removing the built-in normify plugin is an explicit user decision: record
+    // it so the seeder does not reinstall it on the next launch.
+    if (id === BUILTIN_NORMIFY_PLUGIN_ID) setBuiltinPluginOptOut(this.engineDataDir, true);
   }
 
   override async reloadPlugins(): Promise<ReloadSummary> {

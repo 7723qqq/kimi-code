@@ -60,7 +60,7 @@ keep = "all"
 
 [loop_control]
 max_attempts_per_step = 10
-reserved_context_size = 50000
+compaction_max_attempts = 5
 
 [background]
 max_running_tasks = 4
@@ -101,7 +101,7 @@ timeout = 5
 | `merge_all_available_skills` | `boolean` | `true` | 是否合并所有目录中的 Agent Skills |
 | `extra_skill_dirs` | `array<string>` | — | 额外 Skill 搜索目录，叠加到默认目录之上 |
 | `extra_agent_dirs` | `array<string>` | — | 额外自定义 Agent 搜索目录，叠加到默认目录之上 |
-| `builtin_product_skills` | `boolean` | `true` | 是否向模型提供介绍 Kimi Code 自身的内置 Skills |
+| `builtin_product_skills` | `boolean` | `true` | 是否向模型提供介绍 Kimi Code 自身的内置 Skills。本 Fork 未实现——引擎没有 product skill 开关，当前设置后不生效 |
 | `telemetry` | `boolean` | `true` | 是否启用匿名遥测；显式设为 `false` 时关闭 |
 | `auto_session_title` | `boolean` | `true` | 是否允许客户端自动生成会话标题；显式设为 `false` 时关闭 |
 | [`providers`](#providers) | `table` | `{}` | API 供应商表 |
@@ -319,13 +319,13 @@ k3-max = "同一模型的 max Thinking 档位。适合最难的子任务。"
 
 ## `loop_control`
 
-`loop_control` 控制 Agent 执行循环的步数上限、单步尝试次数上限，以及上下文自动压缩的触发阈值和尝试次数上限。
+`loop_control` 控制 Agent 执行循环的步数上限、单步尝试次数上限，以及上下文自动压缩的尝试次数上限。压缩的「触发阈值」不在此处配置：`reserved_context_size` 仅为配置对齐而接受，压缩触发本身使用引擎内置值。
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `max_steps_per_turn` | `integer` | — | 单轮最大步数；不设或设为 `0` 则无上限 |
 | `max_attempts_per_step` | `integer` | `10` | 单步失败后的最大总尝试次数（含首次尝试） |
-| `reserved_context_size` | `integer` | — | 预留给模型输出的 token 数；上下文窗口剩余量低于此值时触发自动压缩 |
+| `reserved_context_size` | `integer` | — | 预留给模型输出的 token 数。仅为配置对齐而接受——引擎尚未读取该键，仍使用内置值，因此设置后当前不生效 |
 | `compaction_max_attempts` | `integer` | `5` | 压缩请求失败后的最大总尝试次数（含首次尝试） |
 
 `max_steps_per_turn` 可被环境变量 `KIMI_LOOP_MAX_STEPS_PER_TURN` 覆盖，`max_attempts_per_step` 可被 `KIMI_LOOP_MAX_ATTEMPTS_PER_STEP` 覆盖，优先级均高于配置文件。旧的 `KIMI_LOOP_MAX_RETRIES_PER_STEP` 已废弃，但在新变量未设置时仍生效（启动时会给出警告）。
@@ -334,13 +334,17 @@ k3-max = "同一模型的 max Thinking 档位。适合最难的子任务。"
 
 ## `token_counting`
 
+::: warning 注意
+本 Fork 未实现。`packages/kimi-agent` 中的 Rust 引擎没有 token 计数策略开关：它始终把供应商上报的用量与自身的估算值结合（`src/native/tokens.rs`）。本节为与上游 Kimi Code 保持配置对齐而保留——引擎会接受并忽略该配置，当前设置后不生效。
+:::
+
 `token_counting` 决定对外上报的上下文 token 计数，即上下文大小显示所基于的值。内部逻辑（自动压缩触发、预算、超限退避）始终同时使用供应商实测与估算，不受本配置影响。
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `strategy` | `"measured+estimated" \| "measured" \| "estimated"` | `"measured+estimated"` | 上下文 token 计数策略：`measured+estimated` 为实测加估算兜底，`measured` 仅实测（请求完成后更新），`estimated` 纯估算（供应商不上报用量时用） |
+| `strategy` | `"measured+estimated" \| "measured" \| "estimated"` | `"measured+estimated"` | 上下文 token 计数策略：`measured+estimated` 为实测加估算兜底，`measured` 仅实测（请求完成后更新），`estimated` 纯估算（供应商不上报用量时用）。仅被接受、不被读取，详见上方说明 |
 
-`strategy` 可被环境变量 `KIMI_TOKEN_COUNTING_STRATEGY` 覆盖，优先级高于 `config.toml`。
+`strategy` 可被环境变量 `KIMI_TOKEN_COUNTING_STRATEGY` 覆盖，优先级高于 `config.toml`。该键与环境变量当前都不会被引擎读取。
 
 ## `background`
 
@@ -392,12 +396,16 @@ k3-max = "同一模型的 max Thinking 档位。适合最难的子任务。"
 
 ## `identity`
 
+::: warning 注意
+本 Fork 未实现。`packages/kimi-agent` 中的 Rust 引擎不读取 `[identity]` 表：相关取值是硬编码的（`clientInfo.name` 为 `kimi-agent-native`，GitHub 工具发送 `User-Agent: kimi-code`，插件安装器发送 `kimi-code-plugin-installer`）。本节为与上游 Kimi Code 保持配置对齐而保留——引擎会接受并忽略该配置，当前设置后不生效。
+:::
+
 自定义 Agent 的身份标识。不设置时行为完全不变。
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `name` | `string` | — | Agent 在系统提示词中的自称（填充 `${product_name}` 变量，你自己的 `SYSTEM.md` 和 agent 文件同样适用） |
-| `slug` | `string` | 由 `name` 派生 | 协议字段中的机器标识：`User-Agent` 产品名与 MCP 客户端名；省略时由 `name` 派生（转小写，非字母数字折叠为 `-`） |
+| `name` | `string` | — | Agent 在系统提示词中的自称（填充 `${product_name}` 变量，你自己的 `SYSTEM.md` 和 agent 文件同样适用）。仅被接受、不被读取，详见上方说明 |
+| `slug` | `string` | 由 `name` 派生 | 协议字段中的机器标识：`User-Agent` 产品名与 MCP 客户端名；省略时由 `name` 派生（转小写，非字母数字折叠为 `-`）。仅被接受、不被读取，详见上方说明 |
 
 ```toml
 [identity]
@@ -405,13 +413,13 @@ name = "Acme Dev Agent"
 slug = "acme-dev"        # 可选
 ```
 
-两个字段都可以通过 `KIMI_CODE_IDENTITY_NAME` 和 `KIMI_CODE_IDENTITY_SLUG` 环境变量设置，优先级高于 `config.toml`，且不会被写回配置文件，适合不便写配置文件的容器和 CI 场景。
+两个字段都可以通过 `KIMI_CODE_IDENTITY_NAME` 和 `KIMI_CODE_IDENTITY_SLUG` 环境变量设置，优先级高于 `config.toml`，且不会被写回配置文件，适合不便写配置文件的容器和 CI 场景。当前引擎不会读取这两个环境变量，因此在本 Fork 中这四种写法都不生效。
 
 如果名称中不含任何 ASCII 字母或数字（例如纯中文名称），就无法派生出 slug，此时回退为 `agent`；需要特定协议标识请显式填写 `slug`。
 
 身份在启动时解析一次，进程生命周期内保持不变：建立连接时它已宣告给 MCP 服务器和 provider，中途无法更换。修改本节配置在下次启动时对新会话生效；resume 的会话保留录制时的系统提示词，因为其历史轮次本就以原身份自称。同理，已完成的 MCP OAuth 授权保留其授予时的客户端注册；重置该服务器的认证即可在新身份下重新注册。
 
-本节由 `agent-core-v2` 引擎读取，Kimi Code 的所有界面都运行在该引擎上。
+本 Fork 的 Kimi Code 所有界面都运行在 Rust `kimi-agent` 引擎上，而该引擎当前不读取本节。
 
 ## `tools`
 

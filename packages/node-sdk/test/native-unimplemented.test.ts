@@ -46,8 +46,13 @@ describe('SDKRpcClientNative unimplemented surfaces', () => {
     );
   });
 
-  it('lists no plugins before anything is installed', async () => {
-    await expect(client().listPlugins()).resolves.toEqual([]);
+  it('ships with exactly the built-in normify plugin preinstalled', async () => {
+    // The built-in default plugin seeds itself on the first `ensurePluginStore`
+    // call, so a fresh client is not empty — it lists exactly that one,
+    // enabled. (An opt-out marker or a broken seed degrades back to `[]`.)
+    await expect(client().listPlugins()).resolves.toEqual([
+      expect.objectContaining({ id: 'normify', enabled: true }),
+    ]);
   });
 
   it('refuses to describe a plugin that is not installed', async () => {

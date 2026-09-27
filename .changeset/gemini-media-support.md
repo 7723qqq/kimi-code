@@ -2,4 +2,4 @@
 "@moonshot-ai/kimi-code": patch
 ---
 
-Support URL-referenced images, audio and video in Gemini requests and restore the Gemini thought signature on echoed function calls.
+Support images, audio and video referenced by URL in Gemini requests.
