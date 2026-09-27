@@ -158,6 +158,14 @@ async function nativeWebSearch(query, options = {}) {
   return binding.nativeWebSearch(query, options.timeoutMs ?? null, options.maxResults ?? null);
 }
 
+/**
+ * Switch the active web search engine at runtime.
+ *
+ * @param {string} engine `"bing"` or `"ddg"`.
+ * @returns {string} the active engine name.
+ */
+const setSearchEngine = binding.setSearchEngine;
+
 // ============================================================================
 // LLM Stream — HTTP SSE streaming with provider-specific event decoding
 // ============================================================================
@@ -1083,6 +1091,7 @@ module.exports = {
 
   // WebSearch
   nativeWebSearch,
+  setSearchEngine,
 
   // LLM Stream
   nativeLlmStream,
