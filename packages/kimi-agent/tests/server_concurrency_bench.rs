@@ -183,7 +183,9 @@ async fn bench_concurrent_websocket_fanout_stress() {
     for step in 1..=events_to_broadcast {
         bus.publish(&EngineEvent::AssistantDelta {
             agent_id: "main".into(),
-            turn_id: 1,
+            // `turnId` is a string, not a counter: one synthetic id shared by
+            // the whole burst, which is what a real delta stream looks like.
+            turn_id: "bench-turn".into(),
             delta: format!("token_{step} "),
         });
     }

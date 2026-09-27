@@ -831,7 +831,7 @@ impl ServerEngine {
             .bus_for(session_id)
             .publish(&crate::events::EngineEvent::TurnEnded {
                 agent_id: "main".to_string(),
-                turn_id: u64::from(turn_number),
+                turn_id: format!("turn-{turn_number}"),
                 reason: reason.to_string(),
             });
     }
@@ -1481,6 +1481,7 @@ impl ServerEngine {
         // on the cancelled reason).
         let previous_turn_aborted = self.take_last_turn_aborted(session_id);
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             max_attempts: self.max_attempts,
             turn_id: turn_id.clone(),
             llm,
@@ -2147,6 +2148,7 @@ model = "gpt-x"
 
         let error = host
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c".into(),
                 tool_name: "WebSearch".into(),
@@ -2371,7 +2373,7 @@ model = "gpt-x"
         else {
             panic!("expected turn.ended, got {:?}", events[4].event);
         };
-        assert_eq!(*turn_id, 1);
+        assert_eq!(turn_id, "turn-1");
         assert_eq!(reason, "completed");
 
         let crate::events::EngineEvent::SessionWorkChanged {

@@ -6775,6 +6775,10 @@ impl HttpServer {
                         // pairs the steer to its turn and prompt ids; the
                         // payload keeps the envelope fields the Rust hub
                         // adds, which the interface does not declare.
+                        // `agentId` is the literal `main` because a steer
+                        // targets the session's main turn by definition — see
+                        // the note in `prompt_queue.rs` on why this is not the
+                        // subagent identity plumbing.
                         let steer_prompt_id =
                             item["prompt_id"].as_str().unwrap_or_default().to_string();
                         let mut steer = json!({
@@ -13838,6 +13842,7 @@ max_context_size = 1000
             .hub()
             .bus_for(sid)
             .publish(&crate::events::EngineEvent::LlmStepBegin {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "turn-1".into(),
                 step: 1,
             });

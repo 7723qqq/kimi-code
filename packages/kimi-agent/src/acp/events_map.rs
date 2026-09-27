@@ -493,7 +493,7 @@ mod tests {
     fn test_assistant_delta_maps_to_agent_message_chunk() {
         let event = EngineEvent::AssistantDelta {
             agent_id: "main".into(),
-            turn_id: 7,
+            turn_id: "turn-7".into(),
             delta: "hello".into(),
         };
         assert_eq!(
@@ -512,7 +512,7 @@ mod tests {
     fn test_thinking_delta_maps_to_agent_thought_chunk() {
         let event = EngineEvent::ThinkingDelta {
             agent_id: "main".into(),
-            turn_id: 7,
+            turn_id: "turn-7".into(),
             delta: "hmm".into(),
         };
         assert_eq!(
@@ -531,14 +531,17 @@ mod tests {
     fn test_tool_call_lifecycle_maps_with_turn_namespaced_id() {
         let started = EngineEvent::ToolCallStarted {
             agent_id: "main".into(),
-            turn_id: 7,
+            turn_id: "turn-7".into(),
             tool_call_id: "call_1".into(),
             name: "Read".into(),
             args: json!({ "path": "src/main.rs" }),
         };
         let update = engine_event_to_session_update("sess-1", &started).expect("started maps");
         assert_eq!(update["update"]["sessionUpdate"], "tool_call");
-        assert_eq!(update["update"]["toolCallId"], "7:call_1");
+        // The native turn id is an opaque `turn-<ulid>` string, and it
+        // namespaces the ACP id exactly as v2's counter does
+        // (`acp_tool_call_id`).
+        assert_eq!(update["update"]["toolCallId"], "turn-7:call_1");
         assert_eq!(update["update"]["title"], "Read");
         assert_eq!(update["update"]["kind"], "read");
         assert_eq!(update["update"]["status"], "in_progress");
@@ -551,19 +554,19 @@ mod tests {
 
         let completed = EngineEvent::ToolCallCompleted {
             agent_id: "main".into(),
-            turn_id: 7,
+            turn_id: "turn-7".into(),
             tool_call_id: "call_1".into(),
             result: json!({ "content": "ok" }),
         };
         let update = engine_event_to_session_update("sess-1", &completed).expect("completed maps");
         assert_eq!(update["update"]["sessionUpdate"], "tool_call_update");
-        assert_eq!(update["update"]["toolCallId"], "7:call_1");
+        assert_eq!(update["update"]["toolCallId"], "turn-7:call_1");
         assert_eq!(update["update"]["status"], "completed");
         assert_eq!(update["update"]["rawOutput"]["content"], "ok");
 
         let failed = EngineEvent::ToolCallFailed {
             agent_id: "main".into(),
-            turn_id: 7,
+            turn_id: "turn-7".into(),
             tool_call_id: "call_1".into(),
             error: "boom".into(),
         };
@@ -578,7 +581,7 @@ mod tests {
     fn test_unmapped_events_are_skipped() {
         let event = EngineEvent::TurnStarted {
             agent_id: "main".into(),
-            turn_id: 7,
+            turn_id: "turn-7".into(),
             prompt: Some("hi".into()),
         };
         assert!(engine_event_to_session_update("sess-1", &event).is_none());

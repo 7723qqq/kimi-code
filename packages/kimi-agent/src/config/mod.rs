@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::env::env_switch_default_off;
 use crate::permission::{HookDef, PermissionMode, PolicySnapshot};
 use crate::rpc::types::{
     NativeLlmConfig, ResolvedMultiLlmProvider, SecondaryModelEntry, SecondaryModelPool,
@@ -379,6 +380,24 @@ pub struct ImageConfig {
     #[serde(rename = "max_edge_px", alias = "maxEdgePx", default)]
     pub max_edge_px: Option<u32>,
 }
+/// v2 `CronConfig` (`features/cron/configSection.ts:5-20`). `debug` and
+/// `manualTick` are test-only upstream switches with no engine consumer
+/// here, so they are accepted and ignored rather than rejected as
+/// unknown keys.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CronConfig {
+    /// Kill switch: the daemon tick loop publishes nothing when set.
+    /// Env `KIMI_DISABLE_CRON` wins over the file value (v2
+    /// `cronEnvBindings.disabled`).
+    #[serde(default)]
+    pub disabled: Option<bool>,
+    /// Suppress the anti-herd jitter offset (v2 `noJitter`).
+    #[serde(rename = "no_jitter", alias = "noJitter", default)]
+    pub no_jitter: Option<bool>,
+    /// Suppress the 7-day stale-recurring prune (v2 `noStale`).
+    #[serde(rename = "no_stale", alias = "noStale", default)]
+    pub no_stale: Option<bool>,
+}
 
 /// The `[subagent]` section (v2 `session/subagent/configSection.ts`): the
 /// timeout one `Agent` subagent turn may run for, foreground and background.
@@ -440,6 +459,28 @@ pub struct LoopControlConfig {
         default
     )]
     pub compaction_max_attempts: Option<u32>,
+    /// Headroom to keep free below the context window (v2
+    /// `loopControl.reservedContextSize`, min 0). Compaction also triggers
+    /// when `used + reserved >= window` — but only once this key is wired to
+    /// [`crate::compaction::CompactionConfig`]; today the engine reads no
+    /// value from here (accepted for config parity, not yet consumed), and
+    /// `reserved_context_size` stays at the 50k engine default.
+    #[serde(
+        rename = "reserved_context_size",
+        alias = "reservedContextSize",
+        default
+    )]
+    pub reserved_context_size: Option<u32>,
+    /// Fraction of the window that triggers compaction (v2
+    /// `loopControl.compactionTriggerRatio`, 0.5..=0.99). Same gap as
+    /// [`LoopControlConfig::reserved_context_size`]: parsed and validated, but
+    /// not yet consumed, so `trigger_ratio` stays at the 0.85 engine default.
+    #[serde(
+        rename = "compaction_trigger_ratio",
+        alias = "compactionTriggerRatio",
+        default
+    )]
+    pub compaction_trigger_ratio: Option<f64>,
 }
 
 /// The `[thinking]` section (v2 `thinking`): the enable switch and the
@@ -553,6 +594,10 @@ pub struct KimiConfig {
     /// [`KimiConfig::resolve_image_read_byte_budget`].
     #[serde(default)]
     pub image: ImageConfig,
+    /// Cron scheduler switches (v2 `[cron]` section, `features/cron/configSection.ts`);
+    /// see [`KimiConfig::cron_disabled`] and [`KimiConfig::cron_no_jitter`].
+    #[serde(default)]
+    pub cron: CronConfig,
     /// Subagent model pool (v2 `[secondary_model]` section); see
     /// [`KimiConfig::extract_secondary_model_pool`].
     #[serde(rename = "secondary_model", default)]
@@ -1225,6 +1270,35 @@ impl KimiConfig {
             .filter(|value| *value > 0)
     }
 
+    /// Resolve the compaction trigger ratio (v2
+    /// `compactionTriggerRatio`). A value inside the schema range 0.5..=0.99 is
+    /// returned as written; a value outside it (or a non-finite one) is
+    /// **discarded, not clamped** — it resolves to `None` so the engine keeps
+    /// its default rather than silently compacting on a number the user never
+    /// wrote. Same convention as
+    /// [`KimiConfig::resolve_compaction_max_attempts`].
+    ///
+    /// Accepted for config parity: nothing in the engine reads it yet, because
+    /// `CompactionConfig` is host-injected through `RunTurnInput`, so setting
+    /// the key changes no behaviour today.
+    #[allow(dead_code)]
+    pub fn resolve_compaction_trigger_ratio(&self) -> Option<f64> {
+        self.loop_control
+            .compaction_trigger_ratio
+            .filter(|value| value.is_finite() && (0.5..=0.99).contains(value))
+    }
+
+    /// Resolve the reserved context headroom (v2 `reservedContextSize`).
+    /// `0` is meaningful — in v2 it disables the headroom trigger — so only
+    /// an absent value resolves to `None`.
+    ///
+    /// Accepted for config parity: nothing in the engine reads it yet, same
+    /// gap as [`KimiConfig::resolve_compaction_trigger_ratio`].
+    #[allow(dead_code)]
+    pub fn resolve_reserved_context_size(&self) -> Option<u32> {
+        self.loop_control.reserved_context_size
+    }
+
     /// Resolve the preserved-thinking passthrough (v2 `resolveThinkingKeep`):
     /// env `KIMI_MODEL_THINKING_KEEP` > `[thinking].keep`. Off values
     /// (`false`/`0`/`no`/`off`/`none`/`null`) and `[thinking].enabled = false`
@@ -1300,6 +1374,24 @@ impl KimiConfig {
         env_non_negative_u64("KIMI_CODE_SWARM_TIMEOUT_MS").or(self.swarm.timeout_ms)
     }
 
+    /// Whether the cron scheduler is switched off (v2 `CronConfig.disabled`):
+    /// env `KIMI_DISABLE_CRON` over `[cron].disabled`, defaulting to off.
+    pub fn cron_disabled(&self) -> bool {
+        env_switch_default_off("KIMI_DISABLE_CRON") || self.cron.disabled.unwrap_or(false)
+    }
+
+    /// Whether to drop the anti-herd jitter offset (v2 `CronConfig.noJitter`):
+    /// env `KIMI_CRON_NO_JITTER` over `[cron].no_jitter`.
+    pub fn cron_no_jitter(&self) -> bool {
+        env_switch_default_off("KIMI_CRON_NO_JITTER") || self.cron.no_jitter.unwrap_or(false)
+    }
+
+    /// Whether to keep stale recurring entries instead of pruning them after
+    /// the 7-day window (v2 `CronConfig.noStale`): env `KIMI_CRON_NO_STALE`
+    /// over `[cron].no_stale`.
+    pub fn cron_no_stale(&self) -> bool {
+        env_switch_default_off("KIMI_CRON_NO_STALE") || self.cron.no_stale.unwrap_or(false)
+    }
     /// Resolve the raw-byte budget for model-initiated image reads (v2
     /// `resolveReadImageByteBudget`): env `KIMI_IMAGE_READ_BYTE_BUDGET` (a
     /// positive integer) over `[image].read_byte_budget`. `None` keeps the
@@ -1682,6 +1774,14 @@ fn dotted_alias_suffix(alias: &str, entry: &toml::value::Table) -> Option<String
 /// does: an anthropic entry gets a thinking budget, an OpenAI-compatible one
 /// the `reasoning_effort` passthrough (off values never enable thinking).
 /// `thinking_keep` rides every entry, exactly as the host sets it.
+///
+/// `thinking_budget` stays anthropic-only on purpose. A Google model also
+/// needs a numeric budget, but it resolves it from the `reasoning_effort`
+/// every non-anthropic protocol already carries, inside the Google wire
+/// encoder (`llm/google_genai.rs::thinking_budget_for`, the v2
+/// `encodeGoogleGenAIThinking` switch). Encoding it here instead would give
+/// the two wires one field and two owners, and — worse — would need a
+/// `thinking_budget` on an OpenAI-compatible entry that has no use for one.
 fn native_llm_config(
     resolved: ResolvedNativeLlm,
     effort: Option<&str>,
@@ -3233,6 +3333,93 @@ effort = "high"
 
         let on = KimiConfig::from_str("[thinking]\nenabled = true\neffort = \"low\"\n").unwrap();
         assert_eq!(on.resolve_effort(Some("none")).as_deref(), Some("low"));
+    }
+
+    /// v2 `LoopControlSchema`: the two compaction knobs the engine accepts for
+    /// config parity but does not read yet. Out-of-range values are discarded
+    /// (not clamped), which resolves to the engine default instead of
+    /// triggering every step.
+    #[test]
+    fn loop_control_compaction_knobs_parse_and_ignore_out_of_range() {
+        let empty = KimiConfig::from_str("").unwrap();
+        assert_eq!(empty.resolve_compaction_trigger_ratio(), None);
+        assert_eq!(empty.resolve_reserved_context_size(), None);
+
+        let config = KimiConfig::from_str(
+            "[loop_control]
+compaction_trigger_ratio = 0.7
+reserved_context_size = 8000
+",
+        )
+        .unwrap();
+        assert_eq!(config.resolve_compaction_trigger_ratio(), Some(0.7));
+        assert_eq!(config.resolve_reserved_context_size(), Some(8000));
+
+        // Schema range is 0.5..=0.99; outside it is ignored, not clamped.
+        for raw in ["0.1", "1.5"] {
+            let bad = KimiConfig::from_str(&format!(
+                "[loop_control]
+compaction_trigger_ratio = {raw}
+"
+            ))
+            .unwrap();
+            assert_eq!(
+                bad.resolve_compaction_trigger_ratio(),
+                None,
+                "{raw} is outside the v2 schema range"
+            );
+        }
+
+        // camelCase aliases accepted, as elsewhere in this file.
+        let aliased = KimiConfig::from_str(
+            "[loop_control]
+compactionTriggerRatio = 0.9
+",
+        )
+        .unwrap();
+        assert_eq!(aliased.resolve_compaction_trigger_ratio(), Some(0.9));
+    }
+
+    #[test]
+    fn cron_section_switches_read_and_default_off() {
+        // v2 `DEFAULT_CRON_CONFIG`: every switch defaults to false.
+        let empty = KimiConfig::from_str("").unwrap();
+        assert!(!empty.cron_disabled());
+        assert!(!empty.cron_no_jitter());
+        assert!(!empty.cron_no_stale());
+
+        let config = KimiConfig::from_str(
+            "[cron]
+disabled = true
+no_jitter = true
+no_stale = true
+",
+        )
+        .unwrap();
+        assert!(config.cron_disabled());
+        assert!(config.cron_no_jitter());
+        assert!(config.cron_no_stale());
+    }
+
+    /// The camelCase spelling the v2 config section writes (`noJitter` /
+    /// `noStale`) has to deserialize too: `[cron]` is parsed without
+    /// `deny_unknown_fields`, so a missing alias drops the key silently —
+    /// the switch reads as `false` with no error anywhere.
+    #[test]
+    fn cron_section_accepts_camel_case_keys() {
+        let camel = KimiConfig::from_str(
+            "[cron]
+noJitter = true
+noStale = true
+",
+        )
+        .unwrap();
+        assert!(camel.cron_no_jitter());
+        assert!(camel.cron_no_stale());
+        // Asserted on the field too: the resolvers read env vars first, so
+        // only the parsed value proves the alias landed.
+        assert_eq!(camel.cron.no_jitter, Some(true));
+        assert_eq!(camel.cron.no_stale, Some(true));
     }
 
     #[test]

@@ -465,6 +465,7 @@ impl KimiEngine {
         };
 
         let input = crate::turn_loop::types::RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             max_attempts: None,
             turn_id: turn_id.clone(),
             llm,

@@ -681,6 +681,7 @@ mod tests {
             let host = host.clone();
             tokio::spawn(async move {
                 host.execute_tool(ToolExecuteRequest {
+                    agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                     turn_id: "t1".into(),
                     tool_call_id: "c1".into(),
                     tool_name: "Read".into(),
@@ -712,6 +713,7 @@ mod tests {
             let host = host.clone();
             tokio::spawn(async move {
                 host.execute_tool(ToolExecuteRequest {
+                    agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                     turn_id: "t1".into(),
                     tool_call_id: "c2".into(),
                     tool_name: "Write".into(),
@@ -773,6 +775,7 @@ mod tests {
             let host = host.clone();
             tokio::spawn(async move {
                 host.execute_tool(ToolExecuteRequest {
+                    agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                     turn_id: "t".into(),
                     tool_call_id: "c".into(),
                     tool_name: "Bash".into(),
@@ -869,6 +872,7 @@ mod tests {
             let host = host.clone();
             tokio::spawn(async move {
                 host.execute_tool(ToolExecuteRequest {
+                    agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                     turn_id: "t".into(),
                     tool_call_id: "c".into(),
                     tool_name: "Bash".into(),

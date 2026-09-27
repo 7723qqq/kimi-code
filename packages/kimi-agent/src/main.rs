@@ -1448,7 +1448,9 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
     // session-scoped route — the prompt is also run as a turn in that session,
     // wrapped in the documented `<cron-fire>` envelope. A global
     // `/api/v1/cron` entry has no session to run in, so it only publishes.
-    {
+    // v2 `[cron].disabled` / `KIMI_DISABLE_CRON`: a switched-off scheduler gets
+    // no tick loop at all, so no entry ever fires.
+    if !config.cron_disabled() {
         let cron_scheduler = server.cron_scheduler();
         let cron_hub = server.hub();
         let cron_engine = server.engine();

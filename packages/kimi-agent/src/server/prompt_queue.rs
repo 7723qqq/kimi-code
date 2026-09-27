@@ -363,6 +363,14 @@ pub async fn run_prompt_loop(
         // A prompt the abort route already settled has its terminal event
         // (`prompt.aborted`); publishing `prompt.completed` as well would
         // settle it twice — v2's `cancelWaiter` settles exactly once.
+        // `agentId` is deliberately the literal `main`, not a carried-over id:
+        // the prompt queue drives the session's main turn only — a queued
+        // prompt, a steer, and an abort all target that one turn. This is a
+        // different thing from the subagent identity plumbing, where an event's
+        // owner is threaded explicitly through
+        // `RunTurnInput.agent_id` → `ToolExecuteRequest.agent_id` and a
+        // task-local read would silently degrade to `main` across the
+        // scheduler's `tokio::spawn`. Do not "fix" this into a lookup.
         if !queue.active_is_cancelled(&session_id) {
             publish_prompt_event(
                 &hub,

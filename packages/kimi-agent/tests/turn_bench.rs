@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
-use kimi_agent::callbacks::{HostCallbacks, NativeToolCallbacks};
+use kimi_agent::callbacks::{HostCallbacks, MAIN_AGENT_ID, NativeToolCallbacks};
 use kimi_agent::rpc::types::{
     BoxFuture, LlmChatRequest, LlmChatResponse, TokenUsage, ToolExecuteRequest, ToolExecuteResponse,
 };
@@ -150,6 +150,9 @@ async fn run_turn_sync(
 ) -> TurnResult {
     let input = RunTurnInput {
         turn_id: "bench-turn".into(),
+        // The bench drives the root agent: no subagent scope is ever entered,
+        // so the turn's events carry the root id.
+        agent_id: MAIN_AGENT_ID.to_string(),
         llm,
         messages: vec![LLMMessage {
             role: "user".into(),

@@ -341,31 +341,27 @@ pub fn canonical_tool_name<'a>(name: &'a str, table: &'a [ToolInfo]) -> &'a str 
 tokio::task_local! {
     /// The id of the agent executing the current turn — "main" for the root
     /// agent, a spawned subagent's id for its own turns. Scoped by the
-    /// subagent turn runner ([`crate::subagent::SubagentManager`]); the native
-    /// tower tools read it to attribute a call to the right roster agent and to
-    /// enforce the main-agent-only gate on the orchestration tools. Each
+    /// subagent turn runner ([`crate::subagent::SubagentManager`]). Each
     /// subagent turn runs in its own task, so concurrent workers carry
     /// independent values with no shared-mutable race. When unset (a direct
     /// toolset call, e.g. in a test), [`NativeToolset::effective_caller_agent_id`]
     /// falls back to the construction-time `caller_agent_id`.
+    ///
+    /// Scope: this task-local is a *tool-execution-time* convenience for code
+    /// that runs on the turn runner's own task — the tower tools'
+    /// main-agent-only gate ([`NativeToolset::effective_caller_agent_id`]),
+    /// the caller's foreground history (`agent_tool.rs`,
+    /// `swarm_tool.rs`), and the non-main permission rejection text
+    /// (`callbacks.rs`). It deliberately does **not** carry turn or tool event
+    /// ownership: a turn's tool execution is `tokio::spawn`ed by the scheduler,
+    /// and a tokio task-local is not inherited by a spawned task, so reading it
+    /// there yields the root agent. Events take their owner from the explicit
+    /// `RunTurnInput.agent_id` → `ToolExecuteRequest.agent_id` chain instead
+    /// (`turn_loop/types.rs`).
     pub static CALLER_AGENT_ID: String;
     /// Live snapshot of the current conversation history for the running turn,
     /// used by `Agent(fork: true)` and `AgentSwarm(fork: true)` to inherit context.
     pub static CURRENT_CONVERSATION_HISTORY: std::sync::Arc<std::sync::Mutex<Vec<crate::turn_loop::types::LLMMessage>>>;
-}
-
-/// The agent id owning the current turn, for stamping onto emitted events.
-///
-/// v2 reads `this.scopeContext.agentId` when it constructs every turn/tool
-/// event (`loopService.ts:1426-1455`); [`CALLER_AGENT_ID`] is this fork's
-/// equivalent carrier, and the subagent turn runners already scope it
-/// (`subagent/manager.rs` on every foreground / resume / persistent path).
-/// Unset outside a scoped turn — a direct `run_turn`, e.g. in a test — where
-/// the caller is the root agent.
-pub fn current_agent_id() -> String {
-    CALLER_AGENT_ID
-        .try_with(|id| id.clone())
-        .unwrap_or_else(|_| crate::callbacks::MAIN_AGENT_ID.to_string())
 }
 
 /// The set of directories a native tool call may touch.
@@ -1239,7 +1235,9 @@ impl NativeToolset {
         // BTW side-channel veto (v2 `onBeforeExecuteTool` in `SessionBtwService`):
         // all tool calls from a side-channel agent are denied with TOOL_CALL_DISABLED_MESSAGE.
         let caller = self.effective_caller_agent_id();
-        if let Some(denial) = crate::subagent::check_btw_tool_denial(Some(caller.as_str())) {
+        if let Some(denial) =
+            crate::subagent::check_btw_tool_denial(Some(caller.as_str()), tool_name)
+        {
             return Some(denial);
         }
 
@@ -2963,7 +2961,7 @@ impl NativeToolset {
             None => sandbox.primary().to_path_buf(),
         };
 
-        let mut results: Vec<String> = Vec::new();
+        let mut results: Vec<(String, Option<std::time::SystemTime>)> = Vec::new();
         let mut filtered_sensitive: usize = 0;
 
         let mut builder = ignore::WalkBuilder::new(&search_root);
@@ -3001,13 +2999,36 @@ impl NativeToolset {
                     continue;
                 }
                 let display = path.strip_prefix(sandbox.primary()).unwrap_or(path);
-                results.push(display.display().to_string());
+                let mtime = entry.metadata().ok().and_then(|m| m.modified().ok());
+                results.push((display.display().to_string(), mtime));
             }
         }
-        results.sort();
+        // v2 runs rg with `--sortr=modified` (globTool.ts:360), so results are
+        // mtime DESC with the path breaking ties — the order the tool
+        // description promises on both sides. Sorting the display strings
+        // instead returned alphabetical order, so "the files I touched
+        // last" came back wrong. Same ordering contract as
+        // [`grep_sort_and_cap`](Self::grep_sort_and_cap), with two deliberate
+        // differences:
+        //
+        // * A `None` mtime (the platform reported none) sorts LAST: `Option`
+        //   orders `None` below every `Some` and the comparison is reversed,
+        //   so an unknown time is never presented as the most recent one.
+        // * The raw `SystemTime` is compared, NOT whole seconds. rg orders by
+        //   the mtime it stats and never truncates, so truncating here would
+        //   merge files rg keeps apart; the whole-second `mtime_secs` the
+        //   grep path uses exists to match the host's
+        //   `Math.trunc(mtimeMs / 1000)` (`sortFilesWithMatchesByMtime`),
+        //   which glob does not apply.
+        results.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
         let total = results.len();
-        let paged: Vec<String> = results.into_iter().skip(offset).take(head_limit).collect();
+        let paged: Vec<String> = results
+            .into_iter()
+            .skip(offset)
+            .take(head_limit)
+            .map(|(display, _)| display)
+            .collect();
         let count = paged.len();
         let truncated = offset + count < total;
 
@@ -7287,6 +7308,39 @@ m2
             "^ over \"ab\\ncd\\n\"",
         );
         assert_eq!(scan.total_matches, 2, "rg --count-matches reports 2");
+    }
+
+    /// The tool description promises "sorted by modification time (most
+    /// recent first)" on both sides (v2 `glob.md:1`), and v2 gets that by
+    /// running rg with `--sortr=modified` (globTool.ts:360). Sorting the
+    /// display strings returned alphabetical order instead.
+    #[test]
+    fn test_glob_orders_results_by_mtime_desc() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        // Written in this order, so alphabetical and mtime order differ.
+        for name in ["a-old.txt", "b-mid.txt", "c-new.txt"] {
+            std::fs::write(root.join(name), "x").unwrap();
+            // 1.1 s apart, so the three mtimes stay distinct even where the
+            // filesystem only keeps whole seconds.
+            std::thread::sleep(std::time::Duration::from_millis(1100));
+        }
+
+        let sandbox = Sandbox::new(std::fs::canonicalize(root).unwrap());
+        let res = NativeToolset::glob(&sandbox, &bridge(), &json!({ "pattern": "*.txt" })).unwrap();
+
+        let found: Vec<&str> = res
+            .content
+            .lines()
+            .map(str::trim)
+            .filter(|line| line.ends_with(".txt"))
+            .collect();
+        assert_eq!(found.len(), 3, "all three files should match: {found:?}");
+        assert_eq!(
+            found,
+            vec!["c-new.txt", "b-mid.txt", "a-old.txt"],
+            "newest first, not alphabetical: {found:?}"
+        );
     }
 
     #[test]

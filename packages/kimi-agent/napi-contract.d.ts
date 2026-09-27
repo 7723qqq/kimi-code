@@ -170,11 +170,15 @@ export interface ImageDimensions {
 /**
  * Open the plugin registry against `<data_dir>/sessions.db`. `marketplace_dir`
  * is the directory holding `marketplace.json` (the host resolves it), so a
- * relative catalog `source` resolves to a real plugin root. Idempotent: a
+ * relative catalog `source` resolves to a real plugin root. `node_runner` is
+ * the host executable, recorded so plugin stdio servers declared with
+ * `command: "node"` are re-executed inside the host runtime
+ * (`<runner> __plugin_run_node <entry>`) instead of requiring a system
+ * Node.js; pass `null` to keep spawning `node` as declared. Idempotent: a
  * second call replaces the manager, which is harmless because the state lives
  * in the file, not in the manager.
  */
-export declare function initPluginStore(dataDir: string, marketplaceDir?: string | undefined | null): void
+export declare function initPluginStore(dataDir: string, marketplaceDir?: string | undefined | null, nodeRunner?: string | undefined | null): void
 
 /**
  * Initialise tracing from `KIMI_AGENT_TRACE` / `KIMI_AGENT_TRACE_FORMAT`.

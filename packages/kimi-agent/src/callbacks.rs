@@ -23,6 +23,12 @@ use crate::turn_loop::types::{GoalContext, LLMMessage};
 /// [`StateStoreCallbacks`] from drifting apart.
 pub const CHECKPOINT_UNSUPPORTED: &str = "host does not support checkpoint";
 
+/// The root agent's id — the value every non-subagent event carries.
+///
+/// v2 spells the same constant `MAIN_AGENT_ID` in
+/// `session/agentLifecycle/agentLifecycle.ts:13`.
+pub const MAIN_AGENT_ID: &str = "main";
+
 /// Host-provided callbacks that the turn loop needs to call back to JS.
 pub trait HostCallbacks: Send + Sync {
     /// Send an LLM chat request to the JS host and return the response.
@@ -649,6 +655,7 @@ impl HostCallbacks for NativeToolCallbacks {
                 // (same contract as the permission denial below).
                 this.inner.emit_event(serde_json::json!({
                     "type": "tool.native",
+                    "agent_id": request.agent_id,
                     "turn_id": request.turn_id,
                     "tool_call_id": request.tool_call_id,
                     "tool_name": request.tool_name,
@@ -703,6 +710,7 @@ impl HostCallbacks for NativeToolCallbacks {
             if let Some(reason) = veto_reason {
                 this.inner.emit_event(serde_json::json!({
                     "type": "tool.native",
+                    "agent_id": request.agent_id,
                     "turn_id": request.turn_id,
                     "tool_call_id": request.tool_call_id,
                     "tool_name": request.tool_name,
@@ -759,6 +767,7 @@ impl HostCallbacks for NativeToolCallbacks {
             if let Some(reason) = sandbox_denial {
                 this.inner.emit_event(serde_json::json!({
                     "type": "tool.native",
+                    "agent_id": request.agent_id,
                     "turn_id": request.turn_id,
                     "tool_call_id": request.tool_call_id,
                     "tool_name": request.tool_name,
@@ -842,6 +851,7 @@ impl HostCallbacks for NativeToolCallbacks {
                 // the host transcript records the card's terminal state too.
                 this.inner.emit_event(serde_json::json!({
                     "type": "tool.native",
+                    "agent_id": request.agent_id,
                     "turn_id": request.turn_id,
                     "tool_call_id": request.tool_call_id,
                     "tool_name": request.tool_name,
@@ -867,6 +877,7 @@ impl HostCallbacks for NativeToolCallbacks {
             {
                 this.inner.emit_event(serde_json::json!({
                     "type": "tool.native",
+                    "agent_id": request.agent_id,
                     "turn_id": request.turn_id,
                     "tool_call_id": request.tool_call_id,
                     "tool_name": request.tool_name,
@@ -894,6 +905,7 @@ impl HostCallbacks for NativeToolCallbacks {
             {
                 this.inner.emit_event(serde_json::json!({
                     "type": "tool.native",
+                    "agent_id": request.agent_id,
                     "turn_id": request.turn_id,
                     "tool_call_id": request.tool_call_id,
                     "tool_name": request.tool_name,
@@ -921,6 +933,7 @@ impl HostCallbacks for NativeToolCallbacks {
             {
                 this.inner.emit_event(serde_json::json!({
                     "type": "tool.native",
+                    "agent_id": request.agent_id,
                     "turn_id": request.turn_id,
                     "tool_call_id": request.tool_call_id,
                     "tool_name": request.tool_name,
@@ -949,6 +962,7 @@ impl HostCallbacks for NativeToolCallbacks {
                 }
                 this.inner.emit_event(serde_json::json!({
                     "type": "tool.native",
+                    "agent_id": request.agent_id,
                     "turn_id": request.turn_id,
                     "tool_call_id": request.tool_call_id,
                     "tool_name": request.tool_name,
@@ -981,11 +995,13 @@ impl HostCallbacks for NativeToolCallbacks {
             // P57 tool.progress stream: bash output chunks flow to the host
             // as `tool.native.progress` events (fire-and-forget UI updates).
             let progress_inner = this.inner.clone();
+            let progress_agent_id = request.agent_id.clone();
             let progress_turn_id = request.turn_id.clone();
             let progress_call_id = request.tool_call_id.clone();
             let on_update = |kind: &str, text: &str| {
                 progress_inner.emit_event(serde_json::json!({
                     "type": "tool.native.progress",
+                    "agent_id": progress_agent_id,
                     "turn_id": progress_turn_id,
                     "tool_call_id": progress_call_id,
                     "kind": kind,
@@ -1089,8 +1105,15 @@ impl HostCallbacks for NativeToolCallbacks {
                         }
                         None => raw,
                     };
+                    // The request's own `agent_id`, never the
+                    // `CALLER_AGENT_ID` task-local: the owner is carried
+                    // across the scheduler's `tokio::spawn`, the task-local is
+                    // not (`turn_loop/types.rs:864-866`), and v2 threads the
+                    // same per-scope agent id into the tool executor
+                    // (`toolExecutorService.ts:578-588`).
                     this.inner.emit_event(serde_json::json!({
                         "type": "tool.native",
+                        "agent_id": request.agent_id,
                         "turn_id": request.turn_id,
                         "tool_call_id": request.tool_call_id,
                         "tool_name": request.tool_name,
@@ -1344,7 +1367,9 @@ impl HostCallbacks for CountingCallbacks {
         // Not counted: `event_count` reports content events (deltas, tool
         // results) as a per-turn overhead figure, and lifecycle records are a
         // fixed four per turn regardless of how much work the turn did.
-        if let (Some(bus), Ok(payload)) = (&self.bus, serde_json::to_value(&event)) {
+        if let Some(bus) = &self.bus
+            && let Ok(payload) = serde_json::to_value(&event)
+        {
             bus.publish_json(payload);
         }
         self.inner.turn_event(event);
@@ -1649,6 +1674,59 @@ mod tests {
         );
     }
 
+    /// A turn's events name their agent, and the typed variants can actually
+    /// read them back.
+    ///
+    /// Every event the turn loop produces stamps `agent_id` at construction
+    /// (v2 `loopService.ts:1426-1455`). Before that the events omitted the
+    /// field entirely, so `EngineEvent::from_json` fell through to its
+    /// `Custom` arm and every typed variant in this enum was dead code — a
+    /// subagent's tool call then reached the host with no owner at all, and
+    /// the host read it as `main`. Pin both halves: the stamp is present, and
+    /// the payload deserializes into the variant that declares the field.
+    #[test]
+    fn a_stamped_event_round_trips_into_its_typed_variant() {
+        use crate::events::EngineEvent;
+
+        let payload = serde_json::json!({
+            "type": "tool.native",
+            "agent_id": "subagent-42",
+            "turn_id": "subturn-7",
+            "tool_call_id": "call-1",
+            "tool_name": "Read",
+            "arguments": {},
+            "content": "body",
+            "is_error": false,
+            "note": null,
+        });
+
+        let event = EngineEvent::from_json(payload);
+        assert!(
+            matches!(event, EngineEvent::ToolNative { .. }),
+            "a stamped tool.native must deserialize into its typed variant, \
+             not degrade to Custom — that degradation is what left a \
+             subagent's tool call with no owner. Got: {event:?}"
+        );
+        assert_eq!(event.agent_id(), Some("subagent-42"));
+    }
+
+    /// `agent_id()` reads the `Custom` payload too, so an event that predates
+    /// the stamp is still attributable (and, like v2's
+    /// `matchesAgentFilter`, anything without one passes the filter through).
+    #[test]
+    fn a_custom_event_still_reports_an_owner_when_it_carries_one() {
+        use crate::events::EngineEvent;
+
+        let event = EngineEvent::from_json(serde_json::json!({
+            "type": "custom.thing",
+            "agent_id": "subagent-9",
+        }));
+        assert_eq!(event.agent_id(), Some("subagent-9"));
+
+        let anonymous = EngineEvent::from_json(serde_json::json!({ "type": "custom.thing" }));
+        assert_eq!(anonymous.agent_id(), None);
+    }
+
     /// Base callbacks whose permission verdicts are scripted, recording any
     /// tool executions that reach them.
     struct ScriptedPermissionCallbacks {
@@ -1841,6 +1919,7 @@ mod tests {
             veto_setup(None, Some("side chat: tools are off".into()));
         let response = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c1".into(),
                 tool_name: "Read".into(),
@@ -1871,6 +1950,7 @@ mod tests {
             veto_setup(Some("swarm mode denies Agent".into()), None);
         let denied = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c1".into(),
                 tool_name: "Agent".into(),
@@ -1883,6 +1963,7 @@ mod tests {
         // Any other tool passes the veto gate and reaches permission.
         let allowed = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c2".into(),
                 tool_name: "Glob".into(),
@@ -1912,6 +1993,7 @@ mod tests {
 
         let denied = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t1".into(),
                 tool_call_id: "c_todo".into(),
                 tool_name: "TodoList".into(),
@@ -1942,6 +2024,7 @@ mod tests {
         // 1. 写工作区外部路径 -> 拦截拒绝
         let escape_res = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t2".into(),
                 tool_call_id: "c_esc".into(),
                 tool_name: "Write".into(),
@@ -1963,6 +2046,7 @@ mod tests {
         // 2. 写工作区合法内部路径 -> 放行至权限/执行层
         let in_worktree_res = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t2".into(),
                 tool_call_id: "c_ok".into(),
                 tool_name: "Write".into(),
@@ -2026,6 +2110,7 @@ mod tests {
 
         let ro_res = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t_ro".into(),
                 tool_call_id: "c_ro".into(),
                 tool_name: "Write".into(),
@@ -2048,6 +2133,7 @@ mod tests {
 
         let out_res = native_ww
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t_out".into(),
                 tool_call_id: "c_out".into(),
                 tool_name: "Edit".into(),
@@ -2070,6 +2156,7 @@ mod tests {
         // 3. WorkspaceWrite 模式放行工作区内部写（进入权限层，不会被沙箱拒否）
         let in_res = native_ww
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t_in".into(),
                 tool_call_id: "c_in".into(),
                 tool_name: "Write".into(),
@@ -2090,6 +2177,7 @@ mod tests {
         // 4. 只读工具（如 Glob）在只读沙箱模式下不受写沙箱影响
         let glob_res = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t_glob".into(),
                 tool_call_id: "c_glob".into(),
                 tool_name: "Glob".into(),
@@ -2104,6 +2192,7 @@ mod tests {
         //    拒绝必须发生在真实 shell 派生之前（否则只读沙箱形同虚设）。
         let bash_ro_res = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t_bash_ro".into(),
                 tool_call_id: "c_bash_ro".into(),
                 tool_name: "Bash".into(),
@@ -2159,6 +2248,7 @@ mod tests {
         };
         let response = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "turn-7".into(),
                 tool_call_id: "c9".into(),
                 tool_name: "Write".into(),
@@ -2197,6 +2287,7 @@ mod tests {
             });
         let response = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c1".into(),
                 tool_name: "Write".into(),
@@ -2232,6 +2323,7 @@ mod tests {
             });
         let response = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c2".into(),
                 tool_name: "Write".into(),
@@ -2273,6 +2365,7 @@ mod tests {
         .unwrap();
         let response = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c3".into(),
                 tool_name: "Read".into(),
@@ -2299,6 +2392,7 @@ mod tests {
             });
         let response = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c4".into(),
                 tool_name: "SomeHostTool".into(),
@@ -2440,6 +2534,7 @@ mod tests {
         std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
         let response = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c1".into(),
                 tool_name: "Write".into(),
@@ -2490,6 +2585,7 @@ mod tests {
         std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
         let read = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c1".into(),
                 tool_name: "Read".into(),
@@ -2500,6 +2596,7 @@ mod tests {
         assert!(!read.is_error);
         let write = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c2".into(),
                 tool_name: "Write".into(),
@@ -2530,6 +2627,7 @@ mod tests {
         std::fs::write(dir.path().join("blob.bin"), b"plain prefix\x00\x01").unwrap();
         let read = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c1".into(),
                 tool_name: "Read".into(),
@@ -2543,6 +2641,7 @@ mod tests {
         );
         let write = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c2".into(),
                 tool_name: "Write".into(),
@@ -2571,6 +2670,7 @@ mod tests {
         std::fs::write(dir.path().join("a.txt"), "hello").unwrap();
         let response = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c1".into(),
                 tool_name: "Write".into(),
@@ -2737,6 +2837,7 @@ mod tests {
             );
         let response = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c1".into(),
                 tool_name: "CreateGoal".into(),
@@ -2771,6 +2872,7 @@ mod tests {
             goal_gate_setup(crate::permission::PermissionMode::Auto, true, None);
         let _response = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c1".into(),
                 tool_name: "CreateGoal".into(),
@@ -2802,6 +2904,7 @@ mod tests {
 
         let response = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c1".into(),
                 tool_name: "UpdateGoal".into(),
@@ -2840,6 +2943,7 @@ mod tests {
         // excludes it): it runs (natively or via the fallback) without a veto.
         let _response = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c1".into(),
                 tool_name: "GetGoal".into(),
@@ -2941,6 +3045,7 @@ mod tests {
             hook_gate_setup(vec![hook_exit_two_with_stderr()]);
         let response = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c1".into(),
                 tool_name: "Write".into(),
@@ -2983,6 +3088,7 @@ mod tests {
             }]);
         let response = native
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t".into(),
                 tool_call_id: "c1".into(),
                 tool_name: "Write".into(),
@@ -3897,6 +4003,7 @@ mod tests {
     /// and the local engine gets to decide.
     fn exec_request(tool_name: &str, arguments: serde_json::Value) -> ToolExecuteRequest {
         ToolExecuteRequest {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             turn_id: "turn-1".into(),
             tool_call_id: "call_1".into(),
             tool_name: tool_name.into(),

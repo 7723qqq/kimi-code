@@ -337,11 +337,13 @@ impl NativeHttpLlm {
                 || self.config.thinking_budget.is_some_and(|b| b > 0);
             let include_thoughts =
                 reasoning_on && google_genai::model_supports_thoughts(&self.config.model);
-            google_genai::build_request_full(
+            google_genai::build_request_for_model(
                 &wire,
                 &params.tools,
                 self.config.thinking_budget,
                 include_thoughts,
+                &self.config.model,
+                self.config.reasoning_effort.as_deref(),
             )
         } else {
             openai::build_request_full(

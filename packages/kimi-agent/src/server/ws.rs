@@ -1378,6 +1378,7 @@ mod tests {
 
     fn step_event(step: u32) -> EngineEvent {
         EngineEvent::LlmStepBegin {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             turn_id: "turn-1".into(),
             step,
         }
@@ -2094,7 +2095,7 @@ mod tests {
             .bus_for(sid)
             .publish(&EngineEvent::TurnStarted {
                 agent_id: "main".into(),
-                turn_id: 0,
+                turn_id: "turn-0".into(),
                 prompt: Some("hi".into()),
             });
 

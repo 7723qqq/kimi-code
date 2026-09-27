@@ -6,7 +6,9 @@
 //! `task.json` / `turn.json`). The key is a digest of the canonicalized
 //! workspace path, so the directory is not derivable from the workspace alone
 //! — see [`read_workspace_state`] for the read side a host can call. Writes
-//! are atomic (tmp file + rename).
+//! are atomic (tmp file + rename) and serialized per domain. A domain file
+//! that exists but fails to read or parse is **corrupt, not absent** — see
+//! [`DomainRead`] — so an undo can never delete a file it could not read.
 //!
 //! Wire shapes align with the v2 state bridge domains: todo = `TodoItem[]`
 //! (full replacement), plan = `{active, id?, path?}`, goal =
@@ -17,10 +19,11 @@
 //! here with the v2 domain semantics, so the ported native tools render
 //! their v2-aligned output against the local store.
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
 
@@ -44,10 +47,53 @@ pub struct StateWriteOutcome {
     pub response: Value,
 }
 
+/// What a domain file on disk actually holds. `Absent` and `Corrupt` must stay
+/// distinguishable: collapsing both into "no value" is what let a truncated
+/// `todo.json` read as "no todos", get frozen into a checkpoint as `None`, and
+/// then be deleted by the next undo. v2 refuses the ambiguity outright — its
+/// atomic document store raises `STORAGE_DECODE_FAILED` instead of returning
+/// `undefined` (v2 `persistence/backends/node-fs/atomicDocumentStore.ts`).
+#[derive(Debug)]
+pub enum DomainRead {
+    /// No file on disk (or an unknown domain): the domain was never set.
+    Absent,
+    /// The file exists but could not be read or parsed. The bytes on disk are
+    /// the only copy of the user's state — never clear them, and never freeze
+    /// this state into a checkpoint.
+    Corrupt { reason: String },
+    /// The file parsed; this is its value.
+    Value(Value),
+}
+
+impl DomainRead {
+    /// The stored value, or `None` for both an absent and a corrupt domain —
+    /// which is exactly why the two states need a separate accessor.
+    pub fn value(&self) -> Option<&Value> {
+        match self {
+            DomainRead::Value(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// Whether the file exists but is unreadable/unparseable.
+    pub fn is_corrupt(&self) -> bool {
+        matches!(self, DomainRead::Corrupt { .. })
+    }
+
+    /// Why the file could not be read, for the error/diagnostic text.
+    pub fn reason(&self) -> Option<&str> {
+        match self {
+            DomainRead::Corrupt { reason } => Some(reason),
+            _ => None,
+        }
+    }
+}
+
 /// Local per-domain JSON state store.
 /// A full snapshot of every state domain, taken at a turn checkpoint.
 /// `None` means the domain had no stored value at snapshot time (rollback
-/// clears it back to absent).
+/// clears it back to absent) — and, since [`StateStore::checkpoint`] refuses
+/// to freeze a corrupt domain, it can only mean the domain really was absent.
 type StateSnapshot = Vec<(String, Option<Value>)>;
 
 pub struct StateStore {
@@ -61,6 +107,10 @@ pub struct StateStore {
     /// Serializes concurrent `checkpoint` / `rollback` calls so the stack
     /// numbering and the per-file renames are race-free.
     checkpoint_lock: Mutex<()>,
+    /// One write lock per domain. The per-turn server pipeline and the task
+    /// runner are separate tasks in the same process writing the same domain
+    /// files; without this they interleave their writes and renames.
+    domain_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 
 impl StateStore {
@@ -74,6 +124,7 @@ impl StateStore {
             state_dir,
             checkpoints_dir,
             checkpoint_lock: Mutex::new(()),
+            domain_locks: Mutex::new(HashMap::new()),
         })
     }
 
@@ -86,7 +137,9 @@ impl StateStore {
     /// Snapshot every domain (v2 undo-anchor checkpoint). The snapshot is
     /// persisted to a numbered file under `checkpoints/`, so undo survives
     /// a restart. A file that exists but fails to read/parse is an error,
-    /// not an absent domain — rolling back must never silently wipe data.
+    /// not an absent domain — rolling back must never silently wipe data, so
+    /// a corrupt domain makes the whole checkpoint fail instead of freezing
+    /// `None` for a domain whose bytes still exist.
     pub fn checkpoint(&self) -> Result<(), String> {
         let _guard = self
             .checkpoint_lock
@@ -94,8 +147,21 @@ impl StateStore {
             .unwrap_or_else(|e| e.into_inner());
         let mut snapshot = Vec::with_capacity(STATE_DOMAINS.len());
         for domain in STATE_DOMAINS {
-            let value = self.read_domain(domain);
-            snapshot.push((domain.to_string(), value));
+            let entry = match self.read_domain_state(domain) {
+                DomainRead::Value(value) => Some(value),
+                DomainRead::Absent => None,
+                DomainRead::Corrupt { reason } => {
+                    return Err(format!(
+                        "state domain '{domain}' is unreadable ({reason}); \
+                         refusing to checkpoint it as absent — repair or move \
+                         {} first",
+                        self.domain_file(domain)
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_else(|| format!("{domain}.json"))
+                    ));
+                }
+            };
+            snapshot.push((domain.to_string(), entry));
         }
         let next = next_checkpoint_seq(&self.checkpoints_dir)?;
         write_checkpoint_file(&self.checkpoints_dir, next, &snapshot)?;
@@ -104,6 +170,11 @@ impl StateStore {
 
     /// Restore the most recent checkpoint (highest-numbered file under
     /// `checkpoints/`). Returns `Ok(false)` when there is nothing to undo.
+    ///
+    /// A snapshot entry of `None` means "the domain was absent when the
+    /// snapshot was taken", so restoring it clears the file. If the file is
+    /// there but unreadable now, it is the user's only copy and rollback
+    /// leaves it alone (and says so) rather than deleting it.
     pub fn rollback(&self) -> Result<bool, String> {
         let _guard = self
             .checkpoint_lock
@@ -120,7 +191,17 @@ impl StateStore {
         for (domain, value) in snapshot {
             match value {
                 Some(v) => self.write_domain(&domain, &v)?,
-                None => self.clear_domain(&domain)?,
+                None => {
+                    if let DomainRead::Corrupt { reason } = self.read_domain_state(&domain) {
+                        tracing::warn!(
+                            domain = %domain,
+                            %reason,
+                            "rollback left an unreadable state domain in place instead of deleting it"
+                        );
+                        continue;
+                    }
+                    self.clear_domain(&domain)?;
+                }
             }
         }
         fs::remove_file(&path).map_err(|e| format!("checkpoint remove seq {seq}: {e}"))?;
@@ -143,39 +224,84 @@ impl StateStore {
             .then(|| self.state_dir.join(format!("{domain}.json")))
     }
 
-    /// Read a domain's stored value; `None` when the domain is unknown or
-    /// has no stored state yet.
-    pub fn read_domain(&self, domain: &str) -> Option<Value> {
-        let path = self.domain_file(domain)?;
-        if !path.is_file() {
-            return None;
+    /// The write lock for one domain, created on first use. Held for the whole
+    /// write (temp file → fsync → rename), so two writers of the same domain
+    /// in one process cannot truncate or reorder each other's output.
+    fn domain_lock(&self, domain: &str) -> Arc<Mutex<()>> {
+        let mut locks = self.domain_locks.lock().unwrap_or_else(|e| e.into_inner());
+        Arc::clone(
+            locks
+                .entry(domain.to_string())
+                .or_insert_with(|| Arc::new(Mutex::new(()))),
+        )
+    }
+
+    /// Read a domain's stored value, distinguishing the three on-disk states.
+    /// `Absent` covers both "no file yet" and an unknown domain name, matching
+    /// the lenient [`StateStore::read_domain`].
+    pub fn read_domain_state(&self, domain: &str) -> DomainRead {
+        let Some(path) = self.domain_file(domain) else {
+            return DomainRead::Absent;
+        };
+        let content = match fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return DomainRead::Absent,
+            Err(e) => {
+                return DomainRead::Corrupt {
+                    reason: format!("read {}: {e}", path.display()),
+                };
+            }
+        };
+        match serde_json::from_str(&content) {
+            Ok(value) => DomainRead::Value(value),
+            Err(e) => DomainRead::Corrupt {
+                reason: format!("parse {}: {e}", path.display()),
+            },
         }
-        let content = fs::read_to_string(&path).ok()?;
-        serde_json::from_str(&content).ok()
+    }
+
+    /// Read a domain's stored value; `None` when the domain is unknown or
+    /// has no stored state yet. A domain whose file exists but fails to
+    /// read/parse also reads as `None` here, and logs it — the callers that
+    /// must not confuse it with an absent domain use
+    /// [`StateStore::read_domain_state`].
+    pub fn read_domain(&self, domain: &str) -> Option<Value> {
+        match self.read_domain_state(domain) {
+            DomainRead::Value(value) => Some(value),
+            DomainRead::Absent => None,
+            DomainRead::Corrupt { reason } => {
+                tracing::warn!(
+                    domain,
+                    %reason,
+                    "state domain file is unreadable; reporting it as unset"
+                );
+                None
+            }
+        }
     }
 
     /// Write a domain's value atomically (tmp file + rename, so a crash
-    /// mid-write never leaves a truncated domain file behind).
+    /// mid-write never leaves a truncated domain file behind). Serialized
+    /// against other writers of the same domain.
     pub fn write_domain(&self, domain: &str, value: &Value) -> Result<(), String> {
         let path = self
             .domain_file(domain)
             .ok_or_else(|| format!("unknown state domain: {domain}"))?;
         let json = serde_json::to_string_pretty(value)
             .map_err(|e| format!("serialize {domain} state: {e}"))?;
-        let tmp = path.with_extension("json.tmp");
-        let mut file = fs::File::create(&tmp).map_err(|e| format!("create tmp file: {e}"))?;
-        file.write_all(json.as_bytes())
-            .and_then(|_| file.sync_all())
-            .map_err(|e| format!("write tmp file: {e}"))?;
-        fs::rename(&tmp, &path).map_err(|e| format!("rename tmp file: {e}"))?;
-        Ok(())
+        let lock = self.domain_lock(domain);
+        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        atomic_replace(&path, json.as_bytes())
     }
 
-    /// Remove a domain's stored state.
+    /// Remove a domain's stored state. Serialized against writers of the
+    /// same domain so a write cannot resurrect the file after the unlink.
     pub fn clear_domain(&self, domain: &str) -> Result<(), String> {
         let path = self
             .domain_file(domain)
             .ok_or_else(|| format!("unknown state domain: {domain}"))?;
+        let lock = self.domain_lock(domain);
+        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
         if path.is_file() {
             fs::remove_file(&path).map_err(|e| format!("remove {domain} state: {e}"))?;
         }
@@ -945,13 +1071,56 @@ fn parse_seq(name: &str) -> Option<u64> {
 fn write_checkpoint_file(dir: &Path, seq: u64, snapshot: &StateSnapshot) -> Result<(), String> {
     let path = checkpoint_path(dir, seq);
     let json = serde_json::to_string(snapshot).map_err(|e| format!("serialize checkpoint: {e}"))?;
-    let tmp = path.with_extension("json.tmp");
-    let mut file = fs::File::create(&tmp).map_err(|e| format!("create tmp checkpoint: {e}"))?;
-    file.write_all(json.as_bytes())
+    atomic_replace(&path, json.as_bytes())
+}
+
+/// Replace `path` with `bytes` atomically: a temp file in the same directory
+/// under a name unique to this call, fsynced, renamed over the target, then
+/// the directory entry fsynced.
+fn atomic_replace(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let tmp = unique_tmp_path(path);
+    let mut file =
+        fs::File::create(&tmp).map_err(|e| format!("create tmp file {}: {e}", tmp.display()))?;
+    file.write_all(bytes)
         .and_then(|_| file.sync_all())
-        .map_err(|e| format!("write tmp checkpoint: {e}"))?;
-    fs::rename(&tmp, &path).map_err(|e| format!("rename tmp checkpoint: {e}"))?;
+        .map_err(|e| format!("write tmp file {}: {e}", tmp.display()))?;
+    fs::rename(&tmp, path).map_err(|e| format!("rename tmp file: {e}"))?;
+    fsync_dir(path.parent());
     Ok(())
+}
+
+/// A temp path no other writer can be holding: the fixed `<domain>.json.tmp`
+/// name let two in-process writers truncate each other's staging file. It
+/// must stay in the target's own directory — `rename` is only atomic within
+/// one filesystem.
+fn unique_tmp_path(path: &Path) -> PathBuf {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "state".to_string());
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    dir.join(format!(
+        "{name}.tmp.{}.{}",
+        std::process::id(),
+        fastrand::u32(..)
+    ))
+}
+
+/// fsync the directory holding the freshly renamed file. The file's own bytes
+/// are already fsynced, but on POSIX the rename is a separate directory
+/// update that a power loss can drop, leaving the old or no file behind.
+/// Best-effort: the data is written either way, and Windows journals the
+/// rename (a directory handle needs `FILE_FLAG_BACKUP_SEMANTICS`, which the
+/// std `File::open` does not offer), so there it is a no-op.
+fn fsync_dir(dir: Option<&Path>) {
+    #[cfg(unix)]
+    if let Some(dir) = dir
+        && let Err(e) = fs::File::open(dir).and_then(|handle| handle.sync_all())
+    {
+        tracing::warn!(dir = %dir.display(), %e, "could not fsync the state directory after a rename");
+    }
+    #[cfg(not(unix))]
+    let _ = dir;
 }
 #[cfg(test)]
 mod tests {
@@ -1038,7 +1207,8 @@ mod tests {
         let leftovers: Vec<_> = fs::read_dir(store.state_dir())
             .unwrap()
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("tmp"))
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.contains(".tmp"))
             .collect();
         assert!(leftovers.is_empty(), "tmp files left behind: {leftovers:?}");
     }
@@ -1059,6 +1229,165 @@ mod tests {
                 "domain: {domain}"
             );
         }
+    }
+
+    /// A domain file that exists but cannot be read or parsed is corrupt, not
+    /// absent: the three on-disk states must stay distinguishable, because
+    /// the other two tests below depend on it.
+    #[test]
+    fn test_read_domain_state_distinguishes_absent_corrupt_and_valid() {
+        let (_tmp, store) = store();
+
+        // Absent: no file yet (and an unknown domain name).
+        assert!(matches!(store.read_domain_state("todo"), DomainRead::Absent));
+        assert!(matches!(
+            store.read_domain_state("not-a-domain"),
+            DomainRead::Absent
+        ));
+        assert_eq!(store.read_domain("todo"), None);
+
+        // Corrupt: a truncated file (a crash or a shared volume cutting a
+        // write short) must not read as "no todos".
+        let todo_path = store.state_dir.join("todo.json");
+        fs::write(&todo_path, "[{\"id\":\"T1\"").unwrap();
+        let read = store.read_domain_state("todo");
+        assert!(read.is_corrupt(), "a truncated file must read as corrupt");
+        assert!(
+            read.reason().is_some_and(|r| r.contains("todo.json")),
+            "the reason names the file: {:?}",
+            read.reason()
+        );
+        // The lenient read still answers `None` for its existing callers, but
+        // the two states are now separable through the strict read.
+        assert_eq!(store.read_domain("todo"), None);
+
+        // Valid: the value round-trips and the file is no longer corrupt.
+        let todos = json!([{ "id": "T1", "title": "Read" }]);
+        store.write_domain("todo", &todos).unwrap();
+        match store.read_domain_state("todo") {
+            DomainRead::Value(value) => assert_eq!(value, todos),
+            other => panic!("a reparsed file must read as a value, got {other:?}"),
+        }
+        assert!(!store.read_domain_state("todo").is_corrupt());
+    }
+
+    /// A corrupt domain must never enter a snapshot as `None`, because
+    /// `rollback` reads `None` as "delete this domain's file".
+    #[test]
+    fn test_checkpoint_refuses_to_freeze_a_corrupt_domain() {
+        let (_tmp, store) = store();
+        store
+            .write_domain("plan", &json!({ "active": true, "id": "plan-1" }))
+            .unwrap();
+        store.checkpoint().unwrap();
+        assert_eq!(store.checkpoint_depth(), 1);
+
+        // The plan file is truncated by a crash.
+        fs::write(store.state_dir.join("plan.json"), "{\"active\": tr").unwrap();
+        let error = store.checkpoint().unwrap_err();
+        assert!(
+            error.contains("plan") && error.contains("refusing to checkpoint"),
+            "checkpoint must name the domain and refuse: {error}"
+        );
+        assert_eq!(
+            store.checkpoint_depth(),
+            1,
+            "the refused checkpoint must not push a stack entry"
+        );
+
+        // An absent domain is not corrupt: checkpointing still works.
+        assert!(matches!(store.read_domain_state("todo"), DomainRead::Absent));
+        store.clear_domain("plan").unwrap();
+        store.checkpoint().unwrap();
+        assert_eq!(store.checkpoint_depth(), 2);
+    }
+
+    /// Undo must never delete a domain file it could not read. The snapshot
+    /// says the domain was absent; the bytes on disk are the only copy.
+    #[test]
+    fn test_rollback_never_deletes_a_corrupt_domain() {
+        let tmp = TempDir::new().unwrap();
+        let state_dir = tmp.path().join("state");
+        {
+            let store = StateStore::for_dir(state_dir.clone()).unwrap();
+            store.checkpoint().unwrap();
+            assert_eq!(store.checkpoint_depth(), 1);
+        }
+        // The todo file is truncated after the snapshot was taken.
+        let todo_path = state_dir.join("todo.json");
+        fs::write(&todo_path, "[{\"id\":\"T1\",\"title\":").unwrap();
+
+        let store = StateStore::for_dir(state_dir).unwrap();
+        assert!(store.rollback().unwrap());
+        assert!(
+            todo_path.is_file(),
+            "rollback deleted a domain file it could not read"
+        );
+        assert_eq!(
+            fs::read_to_string(&todo_path).unwrap(),
+            "[{\"id\":\"T1\",\"title\":",
+            "the corrupt bytes must survive untouched"
+        );
+        assert!(store.read_domain_state("todo").is_corrupt());
+        assert_eq!(store.checkpoint_depth(), 0, "the snapshot is consumed");
+
+        // A genuinely absent domain is still cleared by a snapshot recorded
+        // the same way — the corrupt file is not what makes rollback skip.
+        let fresh = TempDir::new().unwrap();
+        let fresh_dir = fresh.path().join("state");
+        let store = StateStore::for_dir(fresh_dir.clone()).unwrap();
+        store.checkpoint().unwrap();
+        store
+            .write_domain("plan", &json!({ "active": true, "id": "plan-1" }))
+            .unwrap();
+        assert!(store.rollback().unwrap());
+        assert!(matches!(store.read_domain_state("plan"), DomainRead::Absent));
+        assert!(!fresh_dir.join("plan.json").exists());
+    }
+
+    /// Two in-process writers of one domain must not share a staging file:
+    /// the per-turn pipeline and the task runner both write here.
+    #[test]
+    fn test_concurrent_writers_of_one_domain_do_not_share_a_tmp_file() {
+        let (_tmp, store) = store();
+
+        // The staging name is unique per call, not a shared `<domain>.json.tmp`,
+        // and it stays in the target's directory so the rename is atomic.
+        let todo = store.state_dir.join("todo.json");
+        let first = unique_tmp_path(&todo);
+        let second = unique_tmp_path(&todo);
+        assert_ne!(first, second, "two writers must never stage in one file");
+        assert_eq!(
+            first.parent(),
+            todo.parent(),
+            "the staging file must sit next to its target"
+        );
+        assert!(
+            !first.starts_with("todo.json.tmp"),
+            "the old fixed temp name is exactly the collision: {}",
+            first.display()
+        );
+
+        let big_a = json!([{ "id": "T1", "title": "a".repeat(200_000) }]);
+        let big_b = json!([{ "id": "T2", "title": "b".repeat(200_000) }]);
+        std::thread::scope(|scope| {
+            for value in [&big_a, &big_b, &big_a, &big_b] {
+                let store = &store;
+                scope.spawn(move || store.write_domain("todo", value).unwrap());
+            }
+        });
+        // Whatever won the last rename, the file is one complete value.
+        let read = store.read_domain_state("todo");
+        let value = read.value().expect("the file parses after concurrent writes");
+        let id = value[0]["id"].as_str().expect("a complete todo entry");
+        assert!(id == "T1" || id == "T2", "torn write: {value}");
+        let leftovers: Vec<_> = fs::read_dir(store.state_dir())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.contains(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "tmp files left behind: {leftovers:?}");
     }
 
     #[test]

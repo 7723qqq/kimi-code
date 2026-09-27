@@ -35,6 +35,81 @@ pub fn model_supports_thoughts(model_id: &str) -> bool {
         || id.contains("thinking")
 }
 
+/// v2 `encodeGoogleGenAIThinking` (`google-genai/format.ts:148-182`): Gemini 3
+/// takes a named `thinkingLevel` instead of a numeric budget, so an effort
+/// that is only carried as `includeThoughts` loses the requested depth and
+/// the model falls back to its own default.
+///
+/// v2's `default:` arm returns `includeThoughts` alone, so an effort with no
+/// level — `"on"` (the boolean-model sentinel, `llm/effort.rs:9-12`), `None`,
+/// or a numeric budget token — resolves to no level at all. That is a
+/// deliberate degradation and is logged rather than dropped silently, because
+/// an unmapped effort is otherwise indistinguishable on the wire from one that
+/// was never configured.
+fn thinking_level_for(model_id: &str, effort: Option<&str>) -> Option<&'static str> {
+    if !model_id.to_ascii_lowercase().contains("gemini-3") {
+        return None;
+    }
+    let level = match effort {
+        Some("off" | "none") => "MINIMAL",
+        // `minimal` is a declared effort (`llm/effort.rs:48`) with no v2 arm of
+        // its own; it names the same rung as the off/disabled mapping.
+        Some("minimal") => "MINIMAL",
+        Some("low") => "LOW",
+        Some("medium") => "MEDIUM",
+        Some("high" | "xhigh" | "max") => "HIGH",
+        other => {
+            // v2's `default:` arm: thoughts are asked for without a level and
+            // Gemini picks one. `on` (the boolean-model sentinel) and an unset
+            // effort are the expected arrivals; any other token is a host value
+            // this mapping does not know, and must not reach the wire looking
+            // as if it had been configured.
+            let effort = other.unwrap_or("<unset>");
+            if other == Some("on") {
+                tracing::debug!(
+                    model = model_id,
+                    "gemini-3 effort 'on' carries no level; includeThoughts only (v2 default arm)"
+                );
+            } else {
+                tracing::warn!(
+                    model = model_id,
+                    effort,
+                    "gemini-3 effort has no thinkingLevel mapping; includeThoughts only (v2 default)"
+                );
+            }
+            return None;
+        }
+    };
+    Some(level)
+}
+
+/// v2 `encodeGoogleGenAIThinking` (`google-genai/format.ts:168-181`), the
+/// non-gemini-3 half: a family that takes no `thinkingLevel` is bounded by a
+/// numeric `thinkingBudget` instead, so an effort carried only as
+/// `includeThoughts` loses the requested depth and the model falls back to its
+/// own dynamic budget.
+///
+/// `Some(0)` is the arm that matters most — it is the only one that actually
+/// turns thinking off, and a 2.5 model left to its own budget keeps thinking and
+/// keeps billing thinking tokens after the user asked it not to. `None` is v2's
+/// `default:` arm (thoughts, depth chosen by the model) and also an unset
+/// effort, which v2 renders as no `thinkingConfig` at all
+/// (`google-genai/requester.ts:52-55` gates the whole config on a resolved
+/// thinking state).
+fn thinking_budget_for(model_id: &str, effort: Option<&str>) -> Option<u32> {
+    if model_id.to_ascii_lowercase().contains("gemini-3") {
+        // A level IS the depth there; Gemini 3 rejects a budget beside it.
+        return None;
+    }
+    match effort {
+        Some("off" | "none") => Some(0),
+        Some("low") => Some(1024),
+        Some("medium") => Some(4096),
+        Some("high" | "xhigh" | "max") => Some(32000),
+        _ => None,
+    }
+}
+
 /// Build a full Google GenAI request body with optional thinking configuration.
 ///
 /// `include_thoughts` must be set for the model to return its reasoning at all:
@@ -47,6 +122,23 @@ pub fn build_request_full(
     tools: &[ToolInfo],
     thinking_budget: Option<u32>,
     include_thoughts: bool,
+) -> Value {
+    build_request_for_model(messages, tools, thinking_budget, include_thoughts, "", None)
+}
+
+/// [`build_request_full`] plus the model id and resolved effort, which is what
+/// carries the requested depth: a `thinkingLevel` on Gemini 3, a
+/// `thinkingBudget` everywhere else.
+///
+/// A resolved depth emits `thinkingConfig` on its own; `include_thoughts` only
+/// decides whether the request also asks for the thoughts back.
+pub fn build_request_for_model(
+    messages: &[WireMessage],
+    tools: &[ToolInfo],
+    thinking_budget: Option<u32>,
+    include_thoughts: bool,
+    model_id: &str,
+    effort: Option<&str>,
 ) -> Value {
     let mut system = String::new();
     let mut contents: Vec<Value> = Vec::new();
@@ -192,27 +284,59 @@ pub fn build_request_full(
         req["tools"] = json!([{ "functionDeclarations": funcs }]);
     }
 
-    if include_thoughts {
+    // v2 `encodeGoogleGenAIThinking` is called for EVERY resolved effort and
+    // always returns a `thinkingConfig` — including the `off` arm, which is
+    // `{ includeThoughts: false, thinkingLevel: 'MINIMAL' }` on gemini-3 and
+    // `{ includeThoughts: false, thinkingBudget: 0 }` everywhere else
+    // (`google-genai/format.ts:148-182`). Gating the whole block on
+    // `include_thoughts` therefore dropped the depth for exactly the efforts
+    // that exclude it: `http.rs:332-339` computes `include_thoughts` as false
+    // for `off` / `none`, and 2.5 then got no `thinkingConfig` at all and chose
+    // its own dynamic budget, so "off" kept thinking and `low`/`medium`/`high`
+    // lost their rung.
+    //
+    // So a resolved level, a resolved budget, or `include_thoughts` each emit
+    // the config on their own. `includeThoughts` stays implicit when false: the
+    // field defaults to false, so writing `false` says what omitting it says.
+    let level = thinking_level_for(model_id, effort);
+    // The rung the effort names, and only where a `thinkingConfig` is safe to
+    // send: pre-2.5 generations reject the whole config, so a budget resolved
+    // for them would be a 400 rather than a depth. A budget the *host*
+    // configured is left alone — that request is unchanged by this mapping.
+    let effort_budget = model_supports_thoughts(model_id)
+        .then(|| thinking_budget_for(model_id, effort))
+        .flatten();
+    let budget = if level.is_some() {
+        // A level IS the depth on gemini-3, and the API rejects a budget beside
+        // it, so even a configured one is dropped.
+        None
+    } else if effort_budget == Some(0) {
+        // v2's `off` arm owns the depth: a budget the host configured cannot
+        // re-enable what the effort turned off.
+        Some(0)
+    } else {
+        // A budget the host configured wins over the rung the effort names — it
+        // is a token count, not a rung, and only a host that speaks the Google
+        // wire can set one. Zero is not a budget here: it is the `off` arm
+        // above, and v2's `default:` arm asks for thoughts with no bound.
+        thinking_budget
+            .filter(|budget| *budget > 0)
+            .or(effort_budget)
+    };
+    if include_thoughts || level.is_some() || budget.is_some() {
         // `includeThoughts` is what makes Gemini stream its reasoning back;
-        // the budget only bounds it, and Gemini picks a dynamic one when it is
-        // absent — which is the right default here, since the host never
-        // resolves an anthropic-style numeric budget for this protocol.
+        // the budget only bounds it.
         let mut thinking_config = serde_json::Map::new();
-        if let Some(budget) = thinking_budget
-            && budget > 0
-        {
+        if let Some(level) = level {
+            thinking_config.insert("thinkingLevel".to_string(), json!(level));
+        }
+        if let Some(budget) = budget {
             thinking_config.insert("thinkingBudget".to_string(), json!(budget));
         }
-        thinking_config.insert("includeThoughts".to_string(), json!(true));
+        if include_thoughts && budget != Some(0) {
+            thinking_config.insert("includeThoughts".to_string(), json!(true));
+        }
         req["generationConfig"] = json!({ "thinkingConfig": Value::Object(thinking_config) });
-    } else if let Some(budget) = thinking_budget
-        && budget > 0
-    {
-        req["generationConfig"] = json!({
-            "thinkingConfig": {
-                "thinkingBudget": budget,
-            }
-        });
     }
 
     req
@@ -519,6 +643,223 @@ fn fallback_tool_name_from_id(call_id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// v2 `encodeGoogleGenAIThinking`: Gemini 3 encodes the requested depth as
+    /// `thinkingLevel`, not a numeric budget. Sending only
+    /// `includeThoughts` makes the model fall back to its own default.
+    #[test]
+    fn gemini_3_carries_the_effort_as_a_thinking_level() {
+        let messages = vec![WireMessage::text("user", "hi")];
+        for (effort, level) in [
+            ("off", "MINIMAL"),
+            ("minimal", "MINIMAL"),
+            ("low", "LOW"),
+            ("medium", "MEDIUM"),
+            ("high", "HIGH"),
+            ("xhigh", "HIGH"),
+            ("max", "HIGH"),
+        ] {
+            let req = build_request_for_model(
+                &messages,
+                &[],
+                Some(2048),
+                true,
+                "gemini-3-pro",
+                Some(effort),
+            );
+            assert_eq!(
+                req["generationConfig"]["thinkingConfig"]["thinkingLevel"], level,
+                "effort {effort} must reach gemini-3 as thinkingLevel {level}"
+            );
+            assert_eq!(
+                req["generationConfig"]["thinkingConfig"]["includeThoughts"],
+                true
+            );
+            // A level IS the depth on gemini-3: a budget beside it is rejected
+            // by the API, so even a configured one is dropped.
+            assert!(
+                req["generationConfig"]["thinkingConfig"]
+                    .get("thinkingBudget")
+                    .is_none(),
+                "effort {effort} resolved a level, so no budget may ride along: {}",
+                req["generationConfig"]["thinkingConfig"]
+            );
+        }
+
+        // Pre-gemini-3 keeps the numeric budget path, and a budget the host
+        // configured wins over the rung the effort names.
+        let req = build_request_for_model(
+            &messages,
+            &[],
+            Some(2048),
+            true,
+            "gemini-2.5-pro",
+            Some("high"),
+        );
+        assert_eq!(
+            req["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            2048
+        );
+        assert!(
+            req["generationConfig"]["thinkingConfig"]
+                .get("thinkingLevel")
+                .is_none()
+        );
+
+        // v2's `default:` arm: an effort with no level of its own still asks
+        // for thoughts and lets the model pick the depth. `on` is the
+        // boolean-model sentinel that lands here in production, an unset
+        // effort and an unknown token degrade the same way (the last one is
+        // logged, per `thinking_level_for`).
+        for effort in [Some("on"), None, Some("4096")] {
+            let req = build_request_for_model(&messages, &[], None, true, "gemini-3-pro", effort);
+            let config = &req["generationConfig"]["thinkingConfig"];
+            assert_eq!(
+                config["includeThoughts"], true,
+                "effort {effort:?} still asks for thoughts"
+            );
+            assert!(
+                config.get("thinkingLevel").is_none(),
+                "effort {effort:?} has no level to send: {config}"
+            );
+        }
+    }
+
+    /// The shape production actually reaches for a disabled effort:
+    /// `http.rs:332-339` computes `include_thoughts` as false for `off` /
+    /// `none`, so gating `thinkingConfig` on `include_thoughts` dropped it for
+    /// exactly these efforts. v2 still sends one —
+    /// `{ includeThoughts: false, thinkingLevel: 'MINIMAL' }`
+    /// (`google-genai/format.ts:153-156`).
+    #[test]
+    fn gemini_3_off_effort_sends_the_level_without_asking_for_thoughts() {
+        let messages = vec![WireMessage::text("user", "hi")];
+        for effort in ["off", "none"] {
+            let req =
+                build_request_for_model(&messages, &[], None, false, "gemini-3-pro", Some(effort));
+            let config = &req["generationConfig"]["thinkingConfig"];
+            assert_eq!(
+                config["thinkingLevel"], "MINIMAL",
+                "effort {effort} must still reach gemini-3 as a level"
+            );
+            // Absent rather than `false`: the field defaults to false, so the
+            // two spellings say the same thing.
+            assert!(
+                config.get("includeThoughts").is_none(),
+                "a disabled effort must not ask for thoughts: {config}"
+            );
+            assert!(
+                config.get("thinkingBudget").is_none(),
+                "a level is the whole depth on gemini-3: {config}"
+            );
+        }
+    }
+
+    /// v2 `encodeGoogleGenAIThinking` (`google-genai/format.ts:168-181`): a
+    /// family that takes no `thinkingLevel` is bounded by a numeric
+    /// `thinkingBudget` instead. Carrying the effort only as `includeThoughts`
+    /// let 2.5 pick its own dynamic depth, so every rung below `high` was a
+    /// no-op and `off` did not turn thinking off at all.
+    #[test]
+    fn gemini_2_5_carries_the_effort_as_a_thinking_budget() {
+        let messages = vec![WireMessage::text("user", "hi")];
+
+        // The arm that decides the whole bug: no `includeThoughts` (the field
+        // defaults to false, so omitting it is the same wire message v2 sends)
+        // and a zero budget, which is the only thing that stops a 2.5 model's
+        // dynamic thinking.
+        for effort in ["off", "none"] {
+            let req = build_request_for_model(
+                &messages,
+                &[],
+                None,
+                false,
+                "gemini-2.5-pro",
+                Some(effort),
+            );
+            let config = &req["generationConfig"]["thinkingConfig"];
+            assert_eq!(
+                config["thinkingBudget"], 0,
+                "effort {effort} must send the budget that disables thinking: {req}"
+            );
+            assert!(
+                config.get("includeThoughts").is_none(),
+                "a disabled effort must not ask for thoughts: {config}"
+            );
+            assert!(
+                config.get("thinkingLevel").is_none(),
+                "a pre-gemini-3 model takes no level: {config}"
+            );
+        }
+
+        // The rungs. A budget bounds what the model spends thinking, so these
+        // are the values v2 encodes for each effort.
+        for (effort, budget) in [
+            ("low", 1024),
+            ("medium", 4096),
+            ("high", 32000),
+            ("xhigh", 32000),
+            ("max", 32000),
+        ] {
+            let req =
+                build_request_for_model(&messages, &[], None, true, "gemini-2.5-pro", Some(effort));
+            let config = &req["generationConfig"]["thinkingConfig"];
+            assert_eq!(
+                config["thinkingBudget"], budget,
+                "effort {effort} must bound thinking at {budget} tokens: {config}"
+            );
+            assert_eq!(
+                config["includeThoughts"], true,
+                "effort {effort} must still ask for the thoughts: {config}"
+            );
+            assert!(
+                config.get("thinkingLevel").is_none(),
+                "a pre-gemini-3 model takes no level: {config}"
+            );
+        }
+
+        // v2's `default:` arm: `on` (the boolean-model sentinel that lands here
+        // in production) and an unknown token ask for thoughts and leave the
+        // depth to the model.
+        for effort in [Some("on"), Some("4096")] {
+            let req = build_request_for_model(&messages, &[], None, true, "gemini-2.5-pro", effort);
+            let config = &req["generationConfig"]["thinkingConfig"];
+            assert_eq!(
+                config["includeThoughts"], true,
+                "effort {effort:?} still asks for thoughts: {config}"
+            );
+            assert!(
+                config.get("thinkingBudget").is_none(),
+                "effort {effort:?} has no rung, so the model picks the depth: {config}"
+            );
+        }
+
+        // An unset effort is not a disabled one: v2 sends no `thinkingConfig`
+        // at all when the host has no thinking state
+        // (`google-genai/requester.ts:52-55`).
+        let req = build_request_for_model(&messages, &[], None, false, "gemini-2.5-pro", None);
+        assert!(
+            req.get("generationConfig").is_none(),
+            "no effort is no thinking state: {req}"
+        );
+
+        // A family that rejects `thinkingConfig` outright still gets none, so
+        // the budget does not turn a 2.0 request into a 400.
+        for effort in ["off", "high"] {
+            let req = build_request_for_model(
+                &messages,
+                &[],
+                None,
+                false,
+                "gemini-2.0-flash",
+                Some(effort),
+            );
+            assert!(
+                req.get("generationConfig").is_none(),
+                "a model that cannot think gets no thinkingConfig: {req}"
+            );
+        }
+    }
 
     #[test]
     fn test_build_request_formats_system_contents_tools() {

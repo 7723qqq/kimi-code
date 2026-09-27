@@ -82,7 +82,7 @@ impl TranscriptProjector {
             EngineEvent::TurnStarted {
                 turn_id, prompt, ..
             } => {
-                let turn_idx = self.ensure_turn(&turn_key_u64(*turn_id));
+                let turn_idx = self.ensure_turn(&turn_key(turn_id));
                 self.turns[turn_idx].state = TurnState::Running;
                 self.turns[turn_idx].started_at = Some(now_iso());
                 if let Some(prompt) = prompt
@@ -99,7 +99,7 @@ impl TranscriptProjector {
                     turn: turn_header(&self.turns[turn_idx]),
                 }]
             }
-            EngineEvent::LlmStepBegin { turn_id, step } => {
+            EngineEvent::LlmStepBegin { turn_id, step, .. } => {
                 let turn_idx = self.ensure_turn(&turn_key(turn_id));
                 let step_idx = self.ensure_step(turn_idx, i64::from(*step));
                 self.cursor = Some(Cursor {
@@ -118,11 +118,11 @@ impl TranscriptProjector {
                 ops
             }
             EngineEvent::AssistantDelta { turn_id, delta, .. } => {
-                let turn_idx = self.ensure_turn(&turn_key_u64(*turn_id));
+                let turn_idx = self.ensure_turn(&turn_key(turn_id));
                 self.push_delta(turn_idx, delta, false)
             }
             EngineEvent::ThinkingDelta { turn_id, delta, .. } => {
-                let turn_idx = self.ensure_turn(&turn_key_u64(*turn_id));
+                let turn_idx = self.ensure_turn(&turn_key(turn_id));
                 self.push_delta(turn_idx, delta, true)
             }
             EngineEvent::ToolCallStarted {
@@ -132,7 +132,7 @@ impl TranscriptProjector {
                 args,
                 ..
             } => {
-                let turn_idx = self.ensure_turn(&turn_key_u64(*turn_id));
+                let turn_idx = self.ensure_turn(&turn_key(turn_id));
                 if let Some((step_idx, frame_idx)) = self.find_tool_frame(turn_idx, tool_call_id) {
                     if let TranscriptFrame::Tool(frame) =
                         &mut self.turns[turn_idx].steps[step_idx].frames[frame_idx]
@@ -182,7 +182,7 @@ impl TranscriptProjector {
                 result,
                 ..
             } => {
-                let Some(turn_idx) = self.resolve_turn(*turn_id) else {
+                let Some(turn_idx) = self.resolve_turn(turn_id) else {
                     return Vec::new();
                 };
                 let Some((step_idx, frame_idx)) = self.find_tool_frame(turn_idx, tool_call_id)
@@ -203,7 +203,7 @@ impl TranscriptProjector {
                 error,
                 ..
             } => {
-                let Some(turn_idx) = self.resolve_turn(*turn_id) else {
+                let Some(turn_idx) = self.resolve_turn(turn_id) else {
                     return Vec::new();
                 };
                 let Some((step_idx, frame_idx)) = self.find_tool_frame(turn_idx, tool_call_id)
@@ -224,7 +224,7 @@ impl TranscriptProjector {
                 update,
                 ..
             } => {
-                let Some(turn_idx) = self.resolve_turn(*turn_id) else {
+                let Some(turn_idx) = self.resolve_turn(turn_id) else {
                     return Vec::new();
                 };
                 let Some((step_idx, frame_idx)) = self.find_tool_frame(turn_idx, tool_call_id)
@@ -300,6 +300,7 @@ impl TranscriptProjector {
                 step,
                 usage,
                 timing,
+                ..
             } => {
                 let turn_idx = self.ensure_turn(&turn_key(turn_id));
                 let step_idx = self.ensure_step(turn_idx, i64::from(*step));
@@ -367,7 +368,7 @@ impl TranscriptProjector {
                 // `packages/transcript` — present only in the upstream
                 // checkout — is queued/running/completed/failed/cancelled), and
                 // the client validates that enum.
-                let turn_idx = self.ensure_turn(&turn_key_u64(*turn_id));
+                let turn_idx = self.ensure_turn(&turn_key(turn_id));
                 let state = match reason.as_str() {
                     "cancelled" => TurnState::Cancelled,
                     "failed" | "blocked" => TurnState::Failed,
@@ -1281,9 +1282,9 @@ impl TranscriptProjector {
         }
     }
 
-    fn resolve_turn(&self, turn_id: u64) -> Option<usize> {
+    fn resolve_turn(&self, turn_id: &str) -> Option<usize> {
         self.turn_indices
-            .get(&turn_key_u64(turn_id))
+            .get(&turn_key(turn_id))
             .copied()
             .or_else(|| self.cursor.map(|cursor| cursor.turn))
     }
@@ -1817,13 +1818,14 @@ mod tests {
 
         let ops = projector.apply_event(&EngineEvent::TurnStarted {
             agent_id: "main".into(),
-            turn_id: 0,
+            turn_id: "turn-0".into(),
             prompt: Some("hello".into()),
         });
         assert_eq!(ops.len(), 1);
         assert!(matches!(ops[0], TranscriptOperation::TurnUpsert { .. }));
 
         let ops = projector.apply_event(&EngineEvent::LlmStepBegin {
+            agent_id: "main".into(),
             turn_id: "0".into(),
             step: 1,
         });
@@ -1832,7 +1834,7 @@ mod tests {
 
         let ops = projector.apply_event(&EngineEvent::AssistantDelta {
             agent_id: "main".into(),
-            turn_id: 0,
+            turn_id: "turn-0".into(),
             delta: "Hello".into(),
         });
         assert_eq!(ops.len(), 2);
@@ -1847,7 +1849,7 @@ mod tests {
 
         let ops = projector.apply_event(&EngineEvent::AssistantDelta {
             agent_id: "main".into(),
-            turn_id: 0,
+            turn_id: "turn-0".into(),
             delta: " world".into(),
         });
         assert_eq!(ops.len(), 1);
@@ -1861,7 +1863,7 @@ mod tests {
 
         let ops = projector.apply_event(&EngineEvent::ToolCallStarted {
             agent_id: "main".into(),
-            turn_id: 0,
+            turn_id: "turn-0".into(),
             tool_call_id: "c1".into(),
             name: "Read".into(),
             args: json!({ "path": "a.txt" }),
@@ -1871,7 +1873,7 @@ mod tests {
 
         let ops = projector.apply_event(&EngineEvent::ToolCallCompleted {
             agent_id: "main".into(),
-            turn_id: 0,
+            turn_id: "turn-0".into(),
             tool_call_id: "c1".into(),
             result: json!("file contents"),
         });
@@ -1889,7 +1891,7 @@ mod tests {
 
         let ops = projector.apply_event(&EngineEvent::TurnEnded {
             agent_id: "main".into(),
-            turn_id: 0,
+            turn_id: "turn-0".into(),
             reason: "completed".into(),
         });
         // The turn closes and its still-running step settles with it: the
@@ -1923,16 +1925,17 @@ mod tests {
         let mut projector = TranscriptProjector::new();
         projector.apply_event(&EngineEvent::TurnStarted {
             agent_id: "main".into(),
-            turn_id: 0,
+            turn_id: "turn-0".into(),
             prompt: None,
         });
         projector.apply_event(&EngineEvent::LlmStepBegin {
+            agent_id: "main".into(),
             turn_id: "t0".into(),
             step: 1,
         });
         projector.apply_event(&EngineEvent::ToolCallStarted {
             agent_id: "main".into(),
-            turn_id: 0,
+            turn_id: "turn-0".into(),
             tool_call_id: "c1".into(),
             name: "Read".into(),
             args: json!({}),
@@ -1941,7 +1944,7 @@ mod tests {
         // A streamed tool-argument delta lands in the frame's inputText.
         let ops = projector.apply_event(&EngineEvent::ToolCallDelta {
             agent_id: "main".into(),
-            turn_id: 0,
+            turn_id: "turn-0".into(),
             tool_call_id: "c1".into(),
             name: None,
             arguments_part: Some("{\"path\"".into()),
@@ -1956,6 +1959,7 @@ mod tests {
 
         // The step end carries usage.
         let ops = projector.apply_event(&EngineEvent::LlmStepEnd {
+            agent_id: "main".into(),
             turn_id: "t0".into(),
             step: 1,
             usage: Some(TokenUsage {
@@ -2543,7 +2547,7 @@ mod tests {
         let mut projector = TranscriptProjector::new();
         projector.apply_event(&EngineEvent::TurnStarted {
             agent_id: "main".into(),
-            turn_id: 1,
+            turn_id: "turn-1".into(),
             prompt: None,
         });
         projector.apply_event(&EngineEvent::from_json(json!({
@@ -2552,12 +2556,12 @@ mod tests {
         })));
         projector.apply_event(&EngineEvent::TurnEnded {
             agent_id: "main".into(),
-            turn_id: 1,
+            turn_id: "turn-1".into(),
             reason: "completed".into(),
         });
         projector.apply_event(&EngineEvent::TurnStarted {
             agent_id: "main".into(),
-            turn_id: 2,
+            turn_id: "turn-2".into(),
             prompt: None,
         });
         projector.apply_event(&EngineEvent::from_json(json!({
@@ -2729,7 +2733,7 @@ mod tests {
 
         let ops = projector.apply_event(&EngineEvent::TurnEnded {
             agent_id: "main".into(),
-            turn_id: 4,
+            turn_id: "turn-4".into(),
             reason: "completed".into(),
         });
 
@@ -2834,7 +2838,7 @@ mod tests {
 
         projector.apply_event(&EngineEvent::TurnEnded {
             agent_id: "main".into(),
-            turn_id: 5,
+            turn_id: "turn-5".into(),
             reason: "completed".into(),
         });
 
@@ -2867,7 +2871,7 @@ mod tests {
 
         let ops = projector.apply_event(&EngineEvent::TurnEnded {
             agent_id: "main".into(),
-            turn_id: 7,
+            turn_id: "turn-7".into(),
             reason: "failed".into(),
         });
 
@@ -2895,7 +2899,7 @@ mod tests {
 
         let ops = projector.apply_event(&EngineEvent::TurnEnded {
             agent_id: "main".into(),
-            turn_id: 8,
+            turn_id: "turn-8".into(),
             reason: "blocked".into(),
         });
 
@@ -2915,7 +2919,7 @@ mod tests {
         let mut projector = TranscriptProjector::new();
         projector.apply_event(&EngineEvent::TurnStarted {
             agent_id: "main".into(),
-            turn_id: 4,
+            turn_id: "turn-4".into(),
             prompt: Some("first".into()),
         });
 
@@ -2955,7 +2959,7 @@ mod tests {
         // a fresh assistant frame instead of appending to it.
         projector.apply_event(&EngineEvent::AssistantDelta {
             agent_id: "main".into(),
-            turn_id: 4,
+            turn_id: "turn-4".into(),
             delta: "on it".into(),
         });
         let snapshot = projector.snapshot();
@@ -2987,7 +2991,7 @@ mod tests {
         let mut projector = TranscriptProjector::new();
         projector.apply_event(&EngineEvent::TurnStarted {
             agent_id: "main".into(),
-            turn_id: 4,
+            turn_id: "turn-4".into(),
             prompt: Some("first".into()),
         });
         projector.apply_event(&EngineEvent::Custom(json!({
@@ -2996,7 +3000,7 @@ mod tests {
         })));
         projector.apply_event(&EngineEvent::TurnEnded {
             agent_id: "main".into(),
-            turn_id: 4,
+            turn_id: "turn-4".into(),
             reason: "completed".into(),
         });
 
@@ -3021,10 +3025,11 @@ mod tests {
         // The next running turn picks the buffered steer up.
         projector.apply_event(&EngineEvent::TurnStarted {
             agent_id: "main".into(),
-            turn_id: 5,
+            turn_id: "turn-5".into(),
             prompt: Some("second".into()),
         });
         let ops = projector.apply_event(&EngineEvent::LlmStepBegin {
+            agent_id: "main".into(),
             turn_id: "5".into(),
             step: 1,
         });
@@ -3070,7 +3075,7 @@ mod tests {
         let mut projector = TranscriptProjector::new();
         projector.apply_event(&EngineEvent::TurnStarted {
             agent_id: "main".into(),
-            turn_id: 6,
+            turn_id: "turn-6".into(),
             prompt: Some("first".into()),
         });
         for payload in [
@@ -3091,6 +3096,7 @@ mod tests {
         }
 
         let ops = projector.apply_event(&EngineEvent::LlmStepBegin {
+            agent_id: "main".into(),
             turn_id: "6".into(),
             step: 1,
         });

@@ -4,6 +4,8 @@
 //! Supports real-time streaming output, slash commands, multi-turn history,
 //! in-process native tool execution, and durable JSONL session persistence.
 
+pub mod image_preview;
+pub mod terminal_image;
 pub mod ui;
 
 use std::collections::HashMap;
@@ -561,6 +563,11 @@ pub async fn start_repl(
         tower_enabled: true,
         sandbox_policy: None,
     });
+    // A picture a tool returns is painted into the scrollback the moment the
+    // result lands. The wrapper only reads the response, so the engine still
+    // sees the same `ToolExecuteResponse` it would have seen without it.
+    let tool_callbacks: Arc<dyn HostCallbacks> =
+        Arc::new(image_preview::ImagePreviewCallbacks::new(tool_callbacks));
     subagent_manager
         .set_runtime(llm.clone(), tool_callbacks.clone(), None)
         .await;
@@ -1191,6 +1198,7 @@ mod tests {
             crate::storage::state_store::StateStore::for_dir(tmp.path().join("state")).unwrap();
         let callbacks = ReplDummyHostCallbacks::new(std::sync::Arc::new(store));
         let request = crate::rpc::types::ToolExecuteRequest {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             tool_name: "GitHubGetRepo".into(),
             tool_call_id: "call-1".into(),
             arguments: serde_json::json!({ "owner": "a", "repo": "b" }),

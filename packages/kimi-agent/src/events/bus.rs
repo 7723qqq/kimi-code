@@ -136,10 +136,12 @@ mod tests {
         });
 
         bus.publish(&EngineEvent::LlmStepBegin {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             turn_id: "turn-1".into(),
             step: 1,
         });
         bus.publish(&EngineEvent::LlmStepBegin {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             turn_id: "turn-1".into(),
             step: 2,
         });
@@ -148,6 +150,7 @@ mod tests {
 
         assert!(bus.unsubscribe(sub));
         bus.publish(&EngineEvent::LlmStepBegin {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             turn_id: "turn-1".into(),
             step: 3,
         });
@@ -165,12 +168,14 @@ mod tests {
         });
 
         bus.publish(&EngineEvent::LlmStepBegin {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             turn_id: "turn-1".into(),
             step: 1,
         });
         assert_eq!(tool_events.load(Ordering::Relaxed), 0);
 
         bus.publish(&EngineEvent::ToolNative {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             turn_id: "turn-1".into(),
             tool_call_id: "tc-1".into(),
             tool_name: "Read".into(),
@@ -204,6 +209,7 @@ mod tests {
         });
 
         bus.publish(&EngineEvent::LlmStepBegin {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             turn_id: "turn-1".into(),
             step: 1,
         });

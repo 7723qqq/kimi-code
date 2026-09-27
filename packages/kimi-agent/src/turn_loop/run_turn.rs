@@ -142,9 +142,10 @@ fn turn_result(
 /// outside the overflow-recovery loop, so every `started` is paired with exactly
 /// one [`emit_step_end_event`] — a summarizer or retry request that shares this
 /// transport never announces a step of its own.
-fn emit_step_begin_event(callbacks: &dyn HostCallbacks, turn_id: &str, step: u32) {
+fn emit_step_begin_event(callbacks: &dyn HostCallbacks, agent_id: &str, turn_id: &str, step: u32) {
     callbacks.emit_event(serde_json::json!({
         "type": "llm.step.begin",
+        "agent_id": agent_id,
         "turn_id": turn_id,
         "step": step,
     }));
@@ -159,12 +160,14 @@ fn emit_step_begin_event(callbacks: &dyn HostCallbacks, turn_id: &str, step: u32
 /// is still readable from the only `llm.step.end` that names a step.
 fn emit_step_end_event(
     callbacks: &dyn HostCallbacks,
+    agent_id: &str,
     turn_id: &str,
     step: u32,
     result: &StepResult,
 ) {
     callbacks.emit_event(serde_json::json!({
         "type": "llm.step.end",
+        "agent_id": agent_id,
         "turn_id": turn_id,
         "step": step,
         "finish_reason": result.finish_reason.as_deref(),
@@ -479,6 +482,7 @@ pub fn run_turn_continued<'a>(
     callbacks: &'a Arc<dyn HostCallbacks>,
 ) -> BoxFuture<'a, Result<TurnResult, Box<dyn std::error::Error + 'a>>> {
     let RunTurnInput {
+        agent_id,
         turn_id,
         llm,
         messages,
@@ -511,6 +515,7 @@ pub fn run_turn_continued<'a>(
         let mut llm_retries = 0u32;
         loop {
             let iter_input = RunTurnInput {
+                agent_id: agent_id.clone(),
                 turn_id: turn_id.clone(),
                 llm,
                 messages,
@@ -1133,7 +1138,7 @@ pub fn run_turn<'a>(
             // guards above return with `step_num` ("this step didn't run") and
             // the compaction guard can fail the turn, and outside the recovery
             // loop so an overflow round does not announce the same step twice.
-            emit_step_begin_event(callbacks.as_ref(), &turn_id, steps);
+            emit_step_begin_event(callbacks.as_ref(), &input.agent_id, &turn_id, steps);
             let step_result = 'overflow_recovery: loop {
                 let request_messages = match budgeted_request(
                     &mut media_budget,
@@ -1376,7 +1381,13 @@ pub fn run_turn<'a>(
 
             // v2 `turn.step.completed` — the addressed copy of this step's
             // boundary, paired with the `emit_step_begin_event` above.
-            emit_step_end_event(callbacks.as_ref(), &turn_id, steps, &step_result);
+            emit_step_end_event(
+                callbacks.as_ref(),
+                &input.agent_id,
+                &turn_id,
+                steps,
+                &step_result,
+            );
 
             match step_result.stop_reason {
                 LoopStepStopReason::Complete => {
@@ -1477,6 +1488,7 @@ pub fn run_turn<'a>(
                     // serialized across batches.
                     let exec_fn = {
                         let turn_id = turn_id.clone();
+                        let agent_id = input.agent_id.clone();
                         let callbacks = callbacks.clone();
                         let dedupe_cells = dedupe_cells.clone();
                         let original_of = dedupe_plan.original_of.clone();
@@ -1489,6 +1501,7 @@ pub fn run_turn<'a>(
                                 .filter(|(i, o)| i != o)
                                 .map(|(_, o)| o);
                             let turn_id = turn_id.clone();
+                            let agent_id = agent_id.clone();
                             let callbacks = callbacks.clone();
                             let dedupe_cells = dedupe_cells.clone();
                             async move {
@@ -1517,6 +1530,7 @@ pub fn run_turn<'a>(
                                 }
                                 let req = ToolExecuteRequest {
                                     turn_id: turn_id.clone(),
+                                    agent_id: agent_id.clone(),
                                     tool_call_id: tc.id.clone(),
                                     tool_name: tc.name.clone(),
                                     arguments: tc.arguments.clone(),
@@ -1534,6 +1548,7 @@ pub fn run_turn<'a>(
                                     // — it shares the original's cell.
                                     callbacks.emit_event(serde_json::json!({
                                         "type": "tool.call.started",
+                                        "agent_id": agent_id,
                                         "turn_id": turn_id,
                                         "tool_call_id": tc.id,
                                         "tool_name": tc.name,
@@ -1547,6 +1562,7 @@ pub fn run_turn<'a>(
                                                 } else {
                                                     "tool.call.completed"
                                                 },
+                                                "agent_id": agent_id,
                                                 "turn_id": turn_id,
                                                 "tool_call_id": tc.id,
                                                 "tool_name": tc.name,
@@ -1564,6 +1580,7 @@ pub fn run_turn<'a>(
                                         Err(e) => {
                                             callbacks.emit_event(serde_json::json!({
                                                 "type": "tool.call.failed",
+                                                "agent_id": agent_id,
                                                 "turn_id": turn_id,
                                                 "tool_call_id": tc.id,
                                                 "tool_name": tc.name,
@@ -1651,6 +1668,7 @@ pub fn run_turn<'a>(
                         {
                             callbacks.emit_event(serde_json::json!({
                                 "type": "tool.native",
+                                "agent_id": input.agent_id,
                                 "turn_id": turn_id,
                                 "tool_call_id": tc.id,
                                 "tool_name": tc.name,
@@ -1741,7 +1759,7 @@ Deliver your final response as text now. Further tool calls are refused.",
                         // needs its own boundary pair — without it the final
                         // reply would stream into the card of the step that
                         // already completed.
-                        emit_step_begin_event(callbacks.as_ref(), &turn_id, steps);
+                        emit_step_begin_event(callbacks.as_ref(), &input.agent_id, &turn_id, steps);
                         let handoff_res = execute_loop_step_with_retry(
                             &turn_id,
                             steps,
@@ -1756,7 +1774,13 @@ Deliver your final response as text now. Further tool calls are refused.",
                         .await;
 
                         if let Ok(step_res) = &handoff_res {
-                            emit_step_end_event(callbacks.as_ref(), &turn_id, steps, step_res);
+                            emit_step_end_event(
+                                callbacks.as_ref(),
+                                &input.agent_id,
+                                &turn_id,
+                                steps,
+                                step_res,
+                            );
                         }
 
                         if let Ok(step_res) = handoff_res
@@ -2075,6 +2099,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-turn-1".into(),
             llm: &llm,
@@ -2134,6 +2159,7 @@ mod tests {
         ]));
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-turn-hooks".into(),
             llm: &llm,
@@ -2204,6 +2230,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-turn-stop-veto".into(),
             llm: &llm,
@@ -2257,6 +2284,7 @@ mod tests {
         ]));
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-turn-stop-allow".into(),
             llm: &llm,
@@ -2302,6 +2330,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-turn-continued".into(),
             llm: &llm,
@@ -2372,6 +2401,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-max-steps-exhaustion".into(),
             llm: &llm,
@@ -2434,6 +2464,7 @@ mod tests {
         let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-tool-call-lifecycle".into(),
             llm: &llm,
@@ -2526,6 +2557,7 @@ mod tests {
         let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-step-boundaries".into(),
             llm: &llm,
@@ -2627,6 +2659,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-filtered".into(),
             llm: &FilteredLlm,
@@ -2726,6 +2759,7 @@ mod tests {
             wall_clock_ms: 0,
         };
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "turn-goal".into(),
             llm: &llm,
@@ -2774,6 +2808,7 @@ mod tests {
             bound: bound.clone(),
         });
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "turn-goal-free".into(),
             llm: &llm,
@@ -2819,6 +2854,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-turn-3".into(),
             llm: &llm,
@@ -2954,6 +2990,7 @@ mod tests {
         let server = Arc::new(RpcServer::new());
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-finish-length".into(),
             llm: &llm,
@@ -2988,6 +3025,7 @@ mod tests {
         let server = Arc::new(RpcServer::new());
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-finish-max-tokens".into(),
             llm: &llm,
@@ -3022,6 +3060,7 @@ mod tests {
         let server = Arc::new(RpcServer::new());
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-finish-filtered".into(),
             llm: &llm,
@@ -3109,6 +3148,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-exhausted-truncated".into(),
             llm: &llm,
@@ -3215,6 +3255,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-cache-usage".into(),
             llm: &llm,
@@ -3321,6 +3362,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-history-accumulation".into(),
             llm: &llm,
@@ -3416,6 +3458,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-wall-time-header".into(),
             llm: &OneShotToolLlm,
@@ -3532,6 +3575,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-thinking-round-trip".into(),
             llm: &llm,
@@ -3657,6 +3701,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-same-step-dedup".into(),
             llm: &llm,
@@ -3779,6 +3824,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-host-tool-no-dedup".into(),
             llm: &llm,
@@ -3868,6 +3914,7 @@ mod tests {
         });
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-repeat-streak".into(),
             llm: &llm,
@@ -3988,6 +4035,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-retry-counter".into(),
             llm: &llm,
@@ -4057,6 +4105,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             max_attempts: Some(2),
             turn_id: "test-max-attempts".into(),
@@ -4117,6 +4166,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-paused".into(),
             llm: &llm,
@@ -4171,6 +4221,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-blocked".into(),
             llm: &llm,
@@ -4228,6 +4279,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-budget-tokens".into(),
             llm: &llm,
@@ -4294,6 +4346,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-budget-turns".into(),
             llm: &llm,
@@ -4351,6 +4404,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-active-goal".into(),
             llm: &llm,
@@ -4449,6 +4503,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-deadline-turn".into(),
             llm: &llm,
@@ -4502,6 +4557,7 @@ mod tests {
         let cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(true));
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-cancel-before".into(),
             llm: &llm,
@@ -4609,6 +4665,7 @@ mod tests {
         });
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-cancel-during-tools".into(),
             llm: &llm,
@@ -4675,6 +4732,7 @@ mod tests {
         let callbacks = rpc_callbacks(server.clone());
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-stop-turn".into(),
             llm: &llm,
@@ -4720,6 +4778,7 @@ mod tests {
         let cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-cancel-clear".into(),
             llm: &llm,
@@ -4821,6 +4880,7 @@ mod tests {
         };
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-steering".into(),
             llm: &llm,
@@ -4902,6 +4962,7 @@ mod tests {
 
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-max-steps".into(),
             llm: &llm,
@@ -5097,6 +5158,7 @@ mod tests {
         let server = Arc::new(RpcServer::new());
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-compaction".into(),
             llm: &llm,
@@ -5263,6 +5325,7 @@ mod tests {
             })
         });
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-compaction-todos".into(),
             llm: &llm,
@@ -5376,6 +5439,7 @@ mod tests {
         let server = Arc::new(RpcServer::new());
         let callbacks = rpc_callbacks(server.clone());
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-injection".into(),
             llm: &llm,
@@ -5431,6 +5495,7 @@ mod tests {
             mode: PermissionMode,
         ) -> RunTurnInput<'a> {
             RunTurnInput {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "test-permission-mode".into(),
                 llm,
                 messages,
@@ -5529,6 +5594,7 @@ mod tests {
         let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-telemetry-ok".into(),
             llm: &llm,
@@ -5596,6 +5662,7 @@ mod tests {
         let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-telemetry-no-plugins".into(),
             llm: &llm,
@@ -5658,6 +5725,7 @@ mod tests {
         let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-telemetry-stop-hook".into(),
             llm: &llm,
@@ -5721,6 +5789,7 @@ mod tests {
 
         let cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(true));
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-telemetry-cancel".into(),
             llm: &llm,
@@ -5874,6 +5943,7 @@ mod tests {
         });
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-list-tools-refresh".into(),
             llm: &llm,
@@ -5971,6 +6041,7 @@ mod tests {
         });
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-list-tools-fallback".into(),
             llm: &llm,
@@ -6066,6 +6137,7 @@ mod tests {
         });
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-list-tools-host-proxy".into(),
             llm: &llm,
@@ -6198,6 +6270,7 @@ mod tests {
         let callbacks = rpc_callbacks(server);
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-overflow-recovery".into(),
             llm: &llm,
@@ -6327,6 +6400,7 @@ mod tests {
         let callbacks = rpc_callbacks(server);
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-compaction-cap".into(),
             llm: &llm,
@@ -6477,6 +6551,7 @@ mod tests {
         }
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-overflow-retry".into(),
             llm: &llm,
@@ -6615,6 +6690,7 @@ mod tests {
         ];
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-overflow-no-split".into(),
             llm: &llm,
@@ -6759,6 +6835,7 @@ mod tests {
         }
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-too-large".into(),
             llm: llm.as_ref(),
@@ -6889,6 +6966,7 @@ mod tests {
         }
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-image-format".into(),
             llm: llm.as_ref(),
@@ -6987,6 +7065,7 @@ mod tests {
         let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
 
         let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
             turn_id: "test-media-budget".into(),
             llm: &llm,

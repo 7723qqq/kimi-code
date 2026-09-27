@@ -60,6 +60,60 @@ pub trait EventStore: Send + Sync {
     fn undo_to_last_checkpoint(&self, session_id: &str) -> Result<usize, EventStoreError>;
 }
 
+/// One `wire_events` row a cold projection folds: `(event_type, payload,
+/// is_compaction)` with the payload already parsed.
+pub type WireEventFoldRow = (String, serde_json::Value, bool);
+
+/// Read the rows a cold projection folds, skipping rows whose payload is not
+/// valid JSON. Returns the usable rows and how many were dropped.
+///
+/// A single malformed payload must not decide the whole session: propagating
+/// the `serde_json` error out of `fold_projection` means the session will not
+/// open at all, while the callers that swallow that error show the user an
+/// empty session. Nothing is rewritten here — the log stays as the user left
+/// it, the dropped rows are counted, and the count is reported through
+/// `tracing` so the gap is visible instead of silent.
+pub fn read_fold_rows(
+    conn: &Connection,
+    session_id: &str,
+) -> rusqlite::Result<(Vec<WireEventFoldRow>, usize)> {
+    let mut stmt = conn.prepare(
+        "SELECT seq, event_type, payload, is_compaction FROM wire_events WHERE session_id = ?1 \
+         AND seq >= (SELECT COALESCE(MAX(seq), 0) FROM wire_events WHERE session_id = ?1 AND is_compaction = 1) \
+         ORDER BY seq ASC",
+    )?;
+    let mut fold_rows = Vec::new();
+    let mut dropped = 0usize;
+    let mut rows = stmt.query(params![session_id])?;
+    while let Some(row) = rows.next()? {
+        let seq: i64 = row.get(0)?;
+        let event_type: String = row.get(1)?;
+        let payload_str: String = row.get(2)?;
+        let is_compaction: bool = row.get(3)?;
+        match serde_json::from_str(&payload_str) {
+            Ok(payload) => fold_rows.push((event_type, payload, is_compaction)),
+            Err(e) => {
+                dropped += 1;
+                tracing::warn!(
+                    %session_id,
+                    seq,
+                    %event_type,
+                    %e,
+                    "skipping a wire event whose payload is not valid JSON"
+                );
+            }
+        }
+    }
+    if dropped > 0 {
+        tracing::warn!(
+            %session_id,
+            dropped_count = dropped,
+            "session projection rebuilt from a partial wire log; the dropped rows are still in the table"
+        );
+    }
+    Ok((fold_rows, dropped))
+}
+
 pub struct SqliteEventStore {
     conn: Arc<Mutex<Connection>>,
 }
@@ -536,25 +590,10 @@ impl EventStore for SqliteEventStore {
     }
 
     fn fold_projection(&self, session_id: &str) -> Result<Vec<Message>, EventStoreError> {
-        let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT event_type, payload, is_compaction FROM wire_events WHERE session_id = ?1 \
-             AND seq >= (SELECT COALESCE(MAX(seq), 0) FROM wire_events WHERE session_id = ?1 AND is_compaction = 1) \
-             ORDER BY seq ASC"
-        )?;
-
-        let mut raw_rows = Vec::new();
-        let mut rows = stmt.query(params![session_id])?;
-        while let Some(row) = rows.next()? {
-            let event_type: String = row.get(0)?;
-            let payload_str: String = row.get(1)?;
-            let is_compaction: bool = row.get(2)?;
-            let payload: serde_json::Value = serde_json::from_str(&payload_str)?;
-            raw_rows.push((event_type, payload, is_compaction));
-        }
-        drop(rows);
-        drop(stmt);
-        drop(conn);
+        let raw_rows = {
+            let conn = self.conn.lock();
+            read_fold_rows(&conn, session_id)?.0
+        };
 
         fold_wire_events(raw_rows.iter().map(|(t, p, c)| (t.as_str(), p, *c)))
     }
@@ -613,6 +652,59 @@ impl EventStore for SqliteEventStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One unparseable `wire_events` payload must not make the session
+    /// unopenable: the fold skips that row, counts it, and still returns the
+    /// messages around it.
+    #[test]
+    fn test_fold_projection_skips_and_counts_a_corrupt_row() {
+        let store = SqliteEventStore::new_in_memory().unwrap();
+        let session = "test_session_corrupt";
+        for (id, event_type, content) in [
+            ("evt_1", "message.user", "first"),
+            ("evt_2", "message.assistant", "second"),
+            ("evt_3", "message.user", "third"),
+        ] {
+            store
+                .append_event(&RawWireEvent {
+                    id: id.into(),
+                    session_id: session.into(),
+                    event_type: event_type.into(),
+                    payload: serde_json::json!({ "content": content }),
+                    is_checkpoint: false,
+                    is_compaction: false,
+                    created_at: 1,
+                })
+                .unwrap();
+        }
+        assert_eq!(store.fold_projection(session).unwrap().len(), 3);
+
+        let truncated = "{\"content\": \"sec";
+        {
+            let conn = store.conn.lock();
+            conn.execute(
+                "UPDATE wire_events SET payload = ?1 WHERE id = 'evt_2'",
+                params![truncated],
+            )
+            .unwrap();
+        }
+
+        let projected = store
+            .fold_projection(session)
+            .expect("one corrupt row must not fail the whole fold");
+        let contents: Vec<&str> = projected.iter().map(|m| m.content.as_str()).collect();
+        assert_eq!(contents, vec!["first", "third"]);
+
+        // Nothing was rewritten: the bad row is still there for a repair
+        // entry point to deal with, deliberately.
+        let conn = store.conn.lock();
+        let payload: String = conn
+            .query_row("SELECT payload FROM wire_events WHERE id = 'evt_2'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(payload, truncated);
+    }
 
     #[test]
     fn test_event_store_projection_and_undo() {

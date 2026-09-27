@@ -146,6 +146,26 @@ struct Envelope<'a> {
     payload: Value,
 }
 
+/// The numeric `turnId` the streaming payloads carry.
+///
+/// A main turn numbers itself (`"2"`), but a subagent turn's id is
+/// `subturn-<n>` (`subagent/manager.rs`, every `run_one` / `spawn_and_run`
+/// entry), so the trailing number is what identifies it on the wire. An id
+/// with no numeric tail used to collapse into a silent `1`, which made every
+/// subagent delta claim turn 1; that is reported instead of guessed, and
+/// encoded as `0` (`u64::default`) so the failure is visible in the frame.
+fn numeric_turn_id(turn_id: &str) -> u64 {
+    let tail = turn_id.rsplit_once('-').map_or(turn_id, |(_, tail)| tail);
+    let parsed = tail.parse::<u64>();
+    if parsed.is_err() {
+        tracing::warn!(
+            "ws streaming turn id {turn_id:?} has no numeric tail; encoding turnId 0 \
+             (a subagent turn id is `subturn-<n>`)"
+        );
+    }
+    parsed.unwrap_or_default()
+}
+
 /// Encode one lane event into the kap-server envelope. Identifiers are passed
 /// explicitly so the hub can cache the bytes per event and hand the same
 /// buffer to every connection instead of re-serializing per subscriber.
@@ -185,12 +205,18 @@ pub fn encode_envelope(
     }
 
     // Map legacy coarse-grained LlmDelta into standard frontend typewriter streaming events
-    if let crate::events::EngineEvent::LlmDelta { turn_id, part, .. } = event {
+    if let crate::events::EngineEvent::LlmDelta {
+        agent_id,
+        turn_id,
+        part,
+        ..
+    } = event
+    {
         if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
             kind = "assistant.delta".into();
             payload = serde_json::json!({
-                "agentId": "main",
-                "turnId": turn_id.parse::<u64>().unwrap_or(1),
+                "agentId": agent_id,
+                "turnId": numeric_turn_id(turn_id),
                 "delta": text,
             });
         } else if let Some(thinking) = part
@@ -202,8 +228,8 @@ pub fn encode_envelope(
         {
             kind = "thinking.delta".into();
             payload = serde_json::json!({
-                "agentId": "main",
-                "turnId": turn_id.parse::<u64>().unwrap_or(1),
+                "agentId": agent_id,
+                "turnId": numeric_turn_id(turn_id),
                 "delta": thinking,
             });
         }
@@ -771,6 +797,7 @@ mod tests {
             std::sync::Arc::from("epoch-2"),
             7,
             EngineEvent::LlmStepBegin {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "turn-9".into(),
                 step: 3,
             },
@@ -800,7 +827,7 @@ mod tests {
             1,
             EngineEvent::AssistantDelta {
                 agent_id: "main".into(),
-                turn_id: 2,
+                turn_id: "turn-2".into(),
                 delta: "Hello world".into(),
             },
         );
@@ -816,6 +843,7 @@ mod tests {
             std::sync::Arc::from("epoch-1"),
             2,
             EngineEvent::LlmDelta {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "2".into(),
                 step: 1,
                 part: serde_json::json!({ "text": " Streaming chunk" }),
@@ -833,6 +861,7 @@ mod tests {
             std::sync::Arc::from("epoch-1"),
             3,
             EngineEvent::LlmDelta {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "2".into(),
                 step: 1,
                 part: serde_json::json!({ "thinking": "Let me consider..." }),
@@ -842,6 +871,41 @@ mod tests {
             serde_json::from_slice(&event_envelope(&event_thinking).unwrap()).unwrap();
         assert_eq!(frame3["type"], "thinking.delta");
         assert_eq!(frame3["payload"]["delta"], "Let me consider...");
+    }
+
+    /// A subagent's streaming events name *it*: the projection used to
+    /// hardcode `agentId: "main"` and to fold every `subturn-<n>` into turn
+    /// `1`, so a subagent's answer streamed into the main agent's card.
+    #[test]
+    fn a_subagents_streaming_event_keeps_its_agent_and_its_turn_number() {
+        use crate::events::EngineEvent;
+
+        let event = SequencedEvent::new(
+            std::sync::Arc::from("sess-delta"),
+            std::sync::Arc::from("epoch-1"),
+            4,
+            EngineEvent::LlmDelta {
+                agent_id: "subagent-42".into(),
+                turn_id: "subturn-7".into(),
+                step: 1,
+                part: serde_json::json!({ "text": " Subagent chunk" }),
+            },
+        );
+        let frame: Value = serde_json::from_slice(&event_envelope(&event).unwrap()).unwrap();
+        assert_eq!(frame["type"], "assistant.delta");
+        assert_eq!(frame["payload"]["agentId"], "subagent-42");
+        assert_eq!(frame["payload"]["turnId"], 7);
+        assert_eq!(frame["payload"]["delta"], " Subagent chunk");
+    }
+
+    /// An id with no numeric tail is reported, not guessed: the old silent
+    /// `unwrap_or(1)` made every malformed id indistinguishable from turn 1.
+    #[test]
+    fn a_turn_id_without_a_numeric_tail_encodes_as_zero() {
+        assert_eq!(numeric_turn_id("2"), 2);
+        assert_eq!(numeric_turn_id("subturn-7"), 7);
+        assert_eq!(numeric_turn_id("subturn-"), 0);
+        assert_eq!(numeric_turn_id("subturn"), 0);
     }
 
     /// The `subscribe_v2` / `unsubscribe_v2` acks carry upstream's

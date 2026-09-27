@@ -719,6 +719,7 @@ mod tests {
 
     fn step_event(step: u32) -> EngineEvent {
         EngineEvent::LlmStepBegin {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             turn_id: "t1".into(),
             step,
         }

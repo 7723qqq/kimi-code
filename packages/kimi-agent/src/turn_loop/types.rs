@@ -856,6 +856,17 @@ pub trait ExecutableTool: Send + Sync {
 /// Input to the `run_turn` function.
 pub struct RunTurnInput<'a> {
     pub turn_id: String,
+    /// The agent running this turn (v2 `IAgentScopeContext.agentId`).
+    ///
+    /// v2 injects it per agent scope and reads it when constructing every
+    /// turn and tool event (`loopService.ts:1426-1455`,
+    /// `toolExecutorService.ts:578-588`). This fork carries it explicitly for
+    /// the same reason: `CALLER_AGENT_ID` is a tokio task-local, and a turn's
+    /// tool execution runs outside the task the subagent turn runner scoped
+    /// it on, so reading the task-local there yields the root agent. An event
+    /// that names the wrong agent is announced in the main transcript, and its
+    /// card truncates the main agent's own reasoning mid-sentence.
+    pub agent_id: String,
     pub llm: &'a dyn LLM,
     pub messages: Vec<LLMMessage>,
     pub tools: &'a [&'a dyn ExecutableTool],

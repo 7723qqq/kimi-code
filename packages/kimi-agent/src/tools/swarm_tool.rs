@@ -1100,6 +1100,211 @@ mod tests {
         mgr
     }
 
+    /// A swarm worker's tool call must reach the host attributed to the
+    /// worker, not to the main agent.
+    ///
+    /// The host drops any event whose `agentId` is not `main` into the worker's
+    /// own card (`routeChildAgentEvent`); an event that arrives as `main` is
+    /// announced in the main transcript instead, where its card ends the main
+    /// agent's reasoning mid-sentence. `AgentSwarm` was the reported trigger,
+    /// so drive the real launcher rather than the manager directly.
+    #[tokio::test]
+    async fn a_swarm_workers_tool_event_names_the_worker() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        struct ToolCallingWorkerLlm {
+            /// The first step calls the tool; every later step stops, so the
+            /// turn ends instead of looping into compaction.
+            calls: Arc<AtomicU32>,
+        }
+        impl LLM for ToolCallingWorkerLlm {
+            fn system_prompt(&self) -> &str {
+                "worker"
+            }
+            fn model_name(&self) -> &str {
+                "worker-llm"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                _params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<TurnChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let first = self.calls.fetch_add(1, Ordering::Relaxed) == 0;
+                Box::pin(async move {
+                    Ok(TurnChatResponse {
+                        content: if first {
+                            String::new()
+                        } else {
+                            "worker done".into()
+                        },
+                        thinking: vec![],
+                        tool_calls: if first {
+                            vec![crate::turn_loop::types::ToolCall {
+                                id: "worker_call_1".into(),
+                                name: "probe_tool".into(),
+                                arguments: serde_json::json!({}),
+                                extras: None,
+                            }]
+                        } else {
+                            vec![]
+                        },
+                        finish_reason: Some(if first { "tool_calls" } else { "stop" }.into()),
+                        usage: TokenUsage::default(),
+                        timing: None,
+                    })
+                })
+            }
+        }
+
+        #[derive(Clone)]
+        struct Recorder {
+            events: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+            spawned: Arc<AtomicU32>,
+        }
+        impl HostCallbacks for Recorder {
+            fn llm_chat(
+                &self,
+                _: LlmChatRequest,
+            ) -> BoxFuture<'static, Result<LlmChatResponse, String>> {
+                Box::pin(async { Err("not used".into()) })
+            }
+            fn execute_tool(
+                &self,
+                req: ToolExecuteRequest,
+            ) -> BoxFuture<'static, Result<ToolExecuteResponse, String>> {
+                assert_eq!(req.tool_name, "probe_tool");
+                Box::pin(async {
+                    Ok(ToolExecuteResponse {
+                        content: "worker output".into(),
+                        is_error: false,
+                        note: None,
+                        stop_turn: false,
+                        delivery: None,
+                    })
+                })
+            }
+            fn check_permission(
+                &self,
+                _: PermissionCheckRequest,
+            ) -> BoxFuture<'static, Result<PermissionDecision, String>> {
+                Box::pin(async { Ok(PermissionDecision::allow()) })
+            }
+            fn list_tools(&self) -> BoxFuture<'static, Result<ListToolsResponse, String>> {
+                Box::pin(async {
+                    Ok(ListToolsResponse {
+                        tools: vec![crate::rpc::types::ToolInfo {
+                            name: "probe_tool".into(),
+                            description: "probe".into(),
+                            input_schema: serde_json::json!({ "type": "object" }),
+                        }],
+                    })
+                })
+            }
+            fn emit_event(&self, event: serde_json::Value) {
+                if event.get("type").and_then(|t| t.as_str()) == Some("subagent.spawned") {
+                    self.spawned.fetch_add(1, Ordering::Relaxed);
+                }
+                self.events.lock().unwrap().push(event);
+            }
+        }
+
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let spawned = Arc::new(AtomicU32::new(0));
+        let mgr = Arc::new(SubagentManager::new());
+        mgr.register_definition(crate::subagent::types::SubagentDefinition {
+            name: "coder".into(),
+            description: "coder".into(),
+            system_prompt: "You are coder.".into(),
+            tools: vec!["probe_tool".into()],
+            disallowed_tools: vec![],
+            prompt_prefix: None,
+            summary_policy: None,
+            model: None,
+        })
+        .await;
+        mgr.set_runtime(
+            Arc::new(ToolCallingWorkerLlm {
+                calls: Arc::new(AtomicU32::new(0)),
+            }),
+            Arc::new(Recorder {
+                events: events.clone(),
+                spawned: spawned.clone(),
+            }),
+            None,
+        )
+        .await;
+
+        let launcher = SubagentSwarmLauncher {
+            manager: mgr.clone(),
+            parent_cancel: None,
+            inherited_history: None,
+            llm: None,
+            callbacks: Arc::new(Recorder {
+                events: events.clone(),
+                spawned: spawned.clone(),
+            }),
+        };
+
+        let handle = launcher
+            .spawn(AgentSpawnAttemptOptions {
+                profile_name: "coder".into(),
+                swarm_item: None,
+                plan: SubagentSpawnPlan {
+                    profile_name: "coder".into(),
+                    model: "worker-llm".into(),
+                    thinking: None,
+                    fork: false,
+                },
+                run: AgentRunAttemptOptions {
+                    parent_tool_call_id: "swarm_tc_1".into(),
+                    parent_tool_call_uuid: None,
+                    prompt: "call probe_tool".into(),
+                    description: "probe".into(),
+                    swarm_index: Some(0),
+                    run_in_background: false,
+                    signal: AbortSignal::new(),
+                    on_ready: None,
+                    suppress_rate_limit_failure_event: false,
+                },
+            })
+            .await
+            .expect("worker spawns");
+        handle.completion.await.expect("worker completes");
+
+        assert_eq!(
+            spawned.load(Ordering::Relaxed),
+            1,
+            "the worker announced itself"
+        );
+
+        let recorded = events.lock().unwrap();
+        let tool_events: Vec<_> = recorded
+            .iter()
+            .filter(|e| {
+                e.get("type")
+                    .and_then(|t| t.as_str())
+                    .is_some_and(|t| t.starts_with("tool."))
+            })
+            .collect();
+        assert!(
+            !tool_events.is_empty(),
+            "the worker's tool call must surface a tool event, got: {recorded:?}"
+        );
+        let worker_id = handle.agent_id.clone();
+        for event in &tool_events {
+            assert_eq!(
+                event.get("agent_id").and_then(|v| v.as_str()),
+                Some(worker_id.as_str()),
+                "a swarm worker's tool event must name the worker — the host reads \
+                 an anonymous event as `main` and announces it in the main \
+                 transcript, cutting the main agent's reasoning. Event: {event:?}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn test_fallback_when_no_runtime() {
         let mgr = Arc::new(SubagentManager::new());

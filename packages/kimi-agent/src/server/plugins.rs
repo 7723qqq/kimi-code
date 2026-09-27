@@ -423,6 +423,11 @@ pub struct PluginManager {
     /// Kimi home. A remote plugin is installed under `<home>/plugins/<id>`,
     /// which then wins over the catalog `source` when resolving a root.
     home_dir: Option<PathBuf>,
+    /// The host's own executable, when the host wants plugin stdio servers
+    /// declared with `command: "node"` re-executed inside the host runtime
+    /// (`<exe> __plugin_run_node <entry>`) instead of requiring a system
+    /// Node.js. `None` leaves those servers spawning `node` as declared.
+    node_runner: Option<PathBuf>,
     /// Installed ids as of the last `reload()`, so the next one can report what
     /// changed. Seeded at construction.
     known_ids: Mutex<Vec<String>>,
@@ -434,6 +439,7 @@ impl PluginManager {
             store,
             marketplace_dir: default_marketplace_dir(),
             home_dir: None,
+            node_runner: None,
             known_ids: Mutex::new(Vec::new()),
         };
         let mut ids: Vec<String> = manager.load_installed_map().into_keys().collect();
@@ -453,6 +459,14 @@ impl PluginManager {
     /// be installed (`<home>/plugins/<id>`).
     pub fn with_home_dir(mut self, dir: Option<PathBuf>) -> Self {
         self.home_dir = dir;
+        self
+    }
+
+    /// Record the host executable so plugin stdio servers declared with
+    /// `command: "node"` are re-executed through the host runtime instead of a
+    /// system Node.js (see [`Self::plugin_mcp_configs`]).
+    pub fn with_node_runner(mut self, exe: Option<PathBuf>) -> Self {
+        self.node_runner = exe;
         self
     }
 
@@ -969,23 +983,48 @@ impl PluginManager {
                             "http".to_string()
                         }
                     });
+                let mut command = config
+                    .get("command")
+                    .and_then(|value| value.as_str())
+                    .map(|command| resolve_command_against(&root, command));
+                let mut args: Vec<String> = config
+                    .get("args")
+                    .and_then(|value| value.as_array())
+                    .map(|list| {
+                        list.iter()
+                            .filter_map(|value| value.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let mut env = string_map(config.get("env"));
+                // A JS stdio server declared with `command: "node"` does not
+                // require a system Node.js: when the host recorded its own
+                // executable, the entry is re-executed inside the host runtime
+                // via the hidden `__plugin_run_node` subcommand, which
+                // dynamic-imports the entry with `KIMI_PLUGIN_ROOT` pinned to
+                // the plugin root. Non-node commands are left as declared.
+                if let Some(runner) = self
+                    .node_runner
+                    .as_deref()
+                    .filter(|_| command.as_deref().is_some_and(is_node_command))
+                {
+                    if let Some(entry) = args.first().cloned() {
+                        command = Some(runner.to_string_lossy().to_string());
+                        env.insert(
+                            "KIMI_PLUGIN_ROOT".to_string(),
+                            root.to_string_lossy().to_string(),
+                        );
+                        let mut rewritten = vec!["__plugin_run_node".to_string(), entry];
+                        rewritten.extend(args.drain(1..));
+                        args = rewritten;
+                    }
+                }
                 out.push(PluginMcpConfig {
                     name: format!("{id}__{name}"),
                     transport,
-                    command: config
-                        .get("command")
-                        .and_then(|value| value.as_str())
-                        .map(|command| resolve_command_against(&root, command)),
-                    args: config
-                        .get("args")
-                        .and_then(|value| value.as_array())
-                        .map(|list| {
-                            list.iter()
-                                .filter_map(|value| value.as_str().map(str::to_string))
-                                .collect()
-                        })
-                        .unwrap_or_default(),
-                    env: string_map(config.get("env")),
+                    command,
+                    args,
+                    env,
                     // A manifest `cwd` is relative to the plugin root, not to
                     // whatever directory the host happens to run in.
                     cwd: config
@@ -1244,6 +1283,17 @@ fn resolve_command_against(root: &Path, value: &str) -> String {
         return resolve_dir_against(root, value);
     }
     value.to_string()
+}
+
+/// Whether a manifest `command` names the system Node.js runtime (`node`,
+/// `node.exe`, or a path resolving to either), which the host runtime can
+/// re-execute instead of spawning a separate Node process.
+fn is_node_command(command: &str) -> bool {
+    let name = std::path::Path::new(command)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(command);
+    name == "node" || name.eq_ignore_ascii_case("node.exe")
 }
 
 #[cfg(test)]
@@ -1590,6 +1640,76 @@ mod tests {
         pm.set_plugin_enabled("demo", false).unwrap();
         assert!(pm.plugin_skill_dirs().is_empty());
         assert!(pm.plugin_mcp_configs().is_empty());
+    }
+
+    #[test]
+    fn a_node_runner_rewrites_node_plugin_servers_onto_the_host_runtime() {
+        let temp = tempfile::tempdir().unwrap();
+        let marketplace = temp.path();
+        let root = marketplace.join("official/demo");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            marketplace.join("marketplace.json"),
+            r#"{"version":"1","plugins":[{"id":"demo","tier":"official","displayName":"Demo","description":"A demo","source":"./official/demo"}]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("kimi.plugin.json"),
+            r#"{
+              "name": "demo",
+              "mcpServers": {
+                "data": { "command": "node", "args": ["./bin/server.mjs", "--port", "7"], "env": { "TOKEN": "x" } },
+                "native": { "command": "./bin/daemon", "args": ["serve"] },
+                "remote": { "url": "https://example.test/mcp" }
+              }
+            }"#,
+        )
+        .unwrap();
+
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let pm = PluginManager::new(store)
+            .with_marketplace_dir(Some(marketplace.to_path_buf()))
+            .with_node_runner(Some(temp.path().join("kimi")));
+        pm.install_plugin("demo").unwrap().expect("catalogued");
+
+        let configs = pm.plugin_mcp_configs();
+        let data = configs
+            .iter()
+            .find(|config| config.name == "demo__data")
+            .expect("data");
+        // `node` + its entry arg are folded into the host's hidden sub-command;
+        // the rest of the argument vector and the env pass through unchanged,
+        // and the plugin root rides KIMI_PLUGIN_ROOT.
+        assert_eq!(
+            data.command.as_deref(),
+            Some(temp.path().join("kimi").to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            data.args,
+            vec![
+                "__plugin_run_node",
+                "./bin/server.mjs",
+                "--port",
+                "7"
+            ]
+        );
+        assert_eq!(
+            data.env.get("KIMI_PLUGIN_ROOT").map(String::as_str),
+            Some(root.to_string_lossy().as_ref())
+        );
+        assert_eq!(data.env.get("TOKEN").map(String::as_str), Some("x"));
+        // A non-node command is left un-rewritten (its `./` path still
+        // resolves against the plugin root, as always).
+        let native = configs
+            .iter()
+            .find(|config| config.name == "demo__native")
+            .expect("native");
+        assert_eq!(
+            native.command.as_deref(),
+            Some(resolve_dir_against(&root, "./bin/daemon").as_str())
+        );
+        assert_eq!(native.args, vec!["serve"]);
+        assert!(!native.env.contains_key("KIMI_PLUGIN_ROOT"));
     }
 
     #[test]

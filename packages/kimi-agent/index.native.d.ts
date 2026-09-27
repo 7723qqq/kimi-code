@@ -678,9 +678,15 @@ export function nativeWebSearch(
  * Open the plugin registry against `<dataDir>/sessions.db`, the same store the
  * standalone server uses. `marketplaceDir` is the directory holding
  * `marketplace.json`; pass null to let the engine fall back to its
- * cwd-relative lookup. Idempotent.
+ * cwd-relative lookup. `nodeRunner` is the host executable, recorded so plugin
+ * stdio servers declared with `command: "node"` are re-executed inside the
+ * host runtime; pass null to keep spawning `node` as declared. Idempotent.
  */
-export function initPluginStore(dataDir: string, marketplaceDir?: string | null): void;
+export function initPluginStore(
+  dataDir: string,
+  marketplaceDir?: string | null,
+  nodeRunner?: string | null,
+): void;
 
 /**
  * Drop the plugin registry and close its SQLite connection. Call on shutdown:

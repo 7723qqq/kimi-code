@@ -8,11 +8,57 @@ use crate::llm::wire::{StreamDelta, WireMessage};
 use crate::rpc::types::TokenUsage;
 use crate::turn_loop::types::{ContentBlock, LLMChatResponse, ToolCall, ToolInfo};
 
+/// v2 `OPENAI_RESPONSES_DEVELOPER_ROLE_MODELS`
+/// (`openai-responses/lower.ts:104-116`): the exact set, plus a prefix match so
+/// a dated alias (`o3-mini-2025-01-31`) keeps the role.
+///
+/// The set is v2's verbatim, and that includes its omission of the plain
+/// `gpt-5` / `gpt-5-mini` / `gpt-5.1` ids (only `gpt-5-codex` is listed). Do not
+/// "fix" that here: a member added on the Rust side alone has no v2
+/// counterpart, and the wrong role is what a vendor rejects. Whether v2's set
+/// should gain the gpt-5 family is an upstream decision.
+const DEVELOPER_ROLE_MODELS: &[&str] = &[
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "gpt-4.1-nano",
+    "gpt-5-codex",
+    "o1",
+    "o1-mini",
+    "o1-pro",
+    "o3",
+    "o3-mini",
+    "o3-pro",
+    "o4-mini",
+];
+
+/// The bare model id behind an OpenRouter-style `provider/model` alias.
+///
+/// The Responses body carries the model string verbatim, so a relay alias
+/// reaches the wire — but the *role* is a property of the model family, not of
+/// the relay that fronts it, so the prefix is stripped before matching (the
+/// same one-line normalization `crate::llm::http::google_model_id` applies on
+/// the Google URL path; it lives in the transport module, which the wire
+/// adapters must not depend on).
+fn bare_model_id(model: &str) -> &str {
+    model.rsplit('/').next().unwrap_or(model)
+}
+
 /// Whether the model requires the `developer` role in place of `system` in the
-/// Responses API (the o1/o3/o4 families)
+/// Responses API.
+///
+/// A substring test (`contains("o1")`) misfires on any unrelated model whose id
+/// happens to carry those characters, and a vendor rejects the resulting
+/// `developer` role. v2 matches an explicit set plus a `<name>-` prefix — after
+/// lowercasing, which is what keeps `openai/o3-mini` and `zenmux/o1-pro` on
+/// the developer role instead of regressing them to `system`.
 pub fn uses_developer_role(model: &str) -> bool {
-    let lower = model.to_ascii_lowercase();
-    lower.contains("o1") || lower.contains("o3") || lower.contains("o4")
+    let normalized = bare_model_id(model).to_ascii_lowercase();
+    if DEVELOPER_ROLE_MODELS.contains(&normalized.as_str()) {
+        return true;
+    }
+    DEVELOPER_ROLE_MODELS
+        .iter()
+        .any(|known| normalized.starts_with(&format!("{known}-")))
 }
 
 /// Build an OpenAI `/v1/responses` request payload.
@@ -23,6 +69,62 @@ pub fn build_request_full(
     stream: bool,
     reasoning_effort: Option<&str>,
 ) -> Value {
+    /// Rebuild v2 `reasoning` input items from the assistant message's think
+    /// blocks (`openai-responses/lower.ts:176-203`). Consecutive parts that share
+    /// an `encrypted` value coalesce into one item carrying several
+    /// `summary_text` entries, exactly as v2 accumulates them.
+    fn reasoning_items(blocks: &[ContentBlock]) -> Vec<Value> {
+        let mut items: Vec<Value> = Vec::new();
+        let mut current: Option<(Option<&str>, Vec<Value>)> = None;
+
+        for block in blocks {
+            let ContentBlock::Think {
+                think, encrypted, ..
+            } = block
+            else {
+                flush_reasoning(&mut items, &mut current);
+                continue;
+            };
+            // v2 sends `part.think` verbatim; an empty part contributes no
+            // summary entry, so an attestation-only part (the shape v2's
+            // `output_item.done` handler produces,
+            // `openai-responses/format.ts:557`) rides as an empty summary list
+            // rather than as an empty string on the wire.
+            let text = think.as_str();
+            let matches = current
+                .as_ref()
+                .is_some_and(|(open_encrypted, _)| open_encrypted == &encrypted.as_deref());
+            if !matches {
+                flush_reasoning(&mut items, &mut current);
+                current = Some((encrypted.as_deref(), Vec::new()));
+            }
+            if let Some((_, summaries)) = current.as_mut()
+                && !text.is_empty()
+            {
+                summaries.push(json!({ "type": "summary_text", "text": text }));
+            }
+        }
+        flush_reasoning(&mut items, &mut current);
+        items
+    }
+
+    fn flush_reasoning(items: &mut Vec<Value>, current: &mut Option<(Option<&str>, Vec<Value>)>) {
+        let Some((encrypted, summaries)) = current.take() else {
+            return;
+        };
+        // An item with neither a summary nor an encrypted payload is nothing
+        // the server can act on — but one carrying only `encrypted_content` is
+        // the whole point of the replay (v2 sends exactly that shape with an
+        // empty `summary`), so it must not be dropped here.
+        if summaries.is_empty() && encrypted.is_none() {
+            return;
+        }
+        let mut item = json!({ "type": "reasoning", "summary": summaries });
+        if let Some(value) = encrypted {
+            item["encrypted_content"] = json!(value);
+        }
+        items.push(item);
+    }
     let mut input: Vec<Value> = Vec::new();
     let dev_role = uses_developer_role(model);
 
@@ -37,6 +139,17 @@ pub fn build_request_full(
                 }));
             }
             "assistant" => {
+                // v2 `lowerMessage` (openai-responses/lower.ts:176-203):
+                // reasoning is its own input item, emitted BEFORE the
+                // text message, and consecutive think parts sharing an
+                // `encrypted` value coalesce into one item with several
+                // summaries. Dropping it loses the model's own prior
+                // reasoning on every replay — and without
+                // `encrypted_content` the Responses server cannot
+                // restore reasoning continuity across turns.
+                for item in reasoning_items(&m.blocks) {
+                    input.push(item);
+                }
                 if !m.content.is_empty() {
                     input.push(json!({
                         "type": "message",
@@ -100,6 +213,13 @@ pub fn build_request_full(
         "model": model,
         "input": input,
         "stream": stream,
+        // v2 sends `store: false` on this wire
+        // (`kosong/src/providers/openai-responses.ts:1138`). Without it the
+        // server keeps the response and expects continuity through
+        // `previous_response_id`; this engine never sends one — it replays the
+        // whole history itself — so the stored copy is both unused and a
+        // retention the user did not ask for.
+        "store": false,
     });
 
     if !tools.is_empty() {
@@ -122,6 +242,12 @@ pub fn build_request_full(
     // `none` / `minimal` / `xhigh` is a real effort the provider accepts.
     if let Some(effort) = crate::llm::effort::wire_reasoning_effort(reasoning_effort) {
         req["reasoning"] = json!({ "effort": effort });
+        // `reasoning.encrypted_content` is returned ONLY when it is asked for
+        // (v2 `normalizeOpenAIResponsesReasoning`,
+        // `openai-responses/format.ts:346-359`), and it rides the same gate as
+        // `reasoning` itself there. Without this the replayed item below would
+        // carry an `encrypted` value the engine can never have been given.
+        req["include"] = json!(["reasoning.encrypted_content"]);
     }
 
     req
@@ -267,6 +393,14 @@ pub struct StreamAccumulator {
     /// Tool-call argument fragments the last [`Self::feed`] carried, drained by
     /// the caller through [`Self::take_tool_call_deltas`].
     pending_tool_calls: Vec<StreamDelta>,
+    /// The `encrypted_content` of the reasoning item the stream closed with
+    /// (v2 `openai-responses/format.ts:553-559`).
+    ///
+    /// It arrives on `response.output_item.done`, not on the summary deltas, so
+    /// the accumulator dropped the item on that event and the Think block
+    /// [`Self::finish`] built always carried `encrypted: None` — a state the
+    /// request's `encrypted_content` replay could never be given.
+    reasoning_encrypted: Option<String>,
 }
 
 impl StreamAccumulator {
@@ -331,6 +465,20 @@ impl StreamAccumulator {
             }
             "response.output_item.done" => {
                 self.flush_current_tool_call();
+                // v2 `openai-responses/format.ts:553-559` reads the closed
+                // reasoning item's attestation here and nothing else; a
+                // function_call item contributes only its final arguments,
+                // which the flushed accumulator already holds. An empty string
+                // is treated as no attestation rather than replayed as one.
+                if let Some(item) = v.get("item")
+                    && item.get("type").and_then(|t| t.as_str()) == Some("reasoning")
+                    && let Some(encrypted) = item
+                        .get("encrypted_content")
+                        .and_then(|e| e.as_str())
+                        .filter(|s| !s.is_empty())
+                {
+                    self.reasoning_encrypted = Some(encrypted.to_string());
+                }
             }
             "response.completed" | "response.incomplete" | "response.done" => {
                 let resp = v.get("response").unwrap_or(v);
@@ -437,10 +585,14 @@ impl StreamAccumulator {
         }
 
         let mut thinking = Vec::new();
-        if !self.thinking.is_empty() {
+        // v2 emits a think part carrying only the attestation
+        // (`openai-responses/format.ts:557`, `think: ''`), so the block
+        // exists on the encrypted value alone — the same rule the Anthropic
+        // accumulator applies to its signature (`anthropic.rs:624`).
+        if !self.thinking.is_empty() || self.reasoning_encrypted.is_some() {
             thinking.push(ContentBlock::Think {
                 think: self.thinking,
-                encrypted: None,
+                encrypted: self.reasoning_encrypted,
                 details_index: None,
                 reasoning_key: None,
                 details_summary: None,
@@ -461,6 +613,176 @@ impl StreamAccumulator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// v2 `lowerMessage` rebuilds assistant reasoning as its own `reasoning`
+    /// input item (openai-responses/lower.ts:176-203). Without it the
+    /// model loses its prior reasoning on every replay, and without
+    /// `encrypted_content` the server cannot restore continuity.
+    /// v2 matches an explicit set plus a `<name>-` prefix. A substring test
+    /// claims any model whose id merely contains "o1"/"o3"/"o4".
+    #[test]
+    fn developer_role_matches_the_v2_model_set_exactly() {
+        for model in [
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4.1-nano",
+            "gpt-5-codex",
+            "o1",
+            "o1-mini",
+            "o1-pro",
+            "o3",
+            "o3-mini",
+            "o3-pro",
+            "o4-mini",
+            // Dated / regional aliases reach the prefix arm.
+            "o3-mini-2025-01-31",
+            "O1",
+            // OpenRouter-style `provider/model` aliases: the body carries the
+            // prefix verbatim, the role belongs to the model behind it.
+            "openai/o3-mini",
+            "zenmux/o1-pro",
+            "OpenAI/O4-Mini",
+        ] {
+            assert!(uses_developer_role(model), "{model} needs developer role");
+        }
+
+        // A relay model that merely carries those substrings does not.
+        for model in [
+            "gpt-4o",
+            "gpt-4o-mini",
+            "claude-3-opus",
+            "my-o1-clone",
+            "deepseek-r1",
+            "openrouter/openai/gpt-4o",
+            "relay/o1x",
+        ] {
+            assert!(
+                !uses_developer_role(model),
+                "{model} must not be forced onto the developer role"
+            );
+        }
+    }
+
+    /// The replay is only reachable if the engine can actually obtain an
+    /// `encrypted` value, so this drives the real stream path: the
+    /// `response.output_item.done` event a reasoning turn ends with, the
+    /// accumulator's Think block, and the request built from it. The
+    /// `encrypted_content` the request asks for is asserted here too, because
+    /// the field only comes back when it is included.
+    #[test]
+    fn assistant_thinking_is_replayed_as_a_reasoning_item() {
+        let mut acc = StreamAccumulator::new();
+        // Summary text streams as deltas ...
+        acc.feed(&json!({
+            "type": "response.reasoning_summary_text.delta",
+            "delta": "first step"
+        }));
+        acc.feed(&json!({
+            "type": "response.reasoning_summary_text.delta",
+            "delta": "second step"
+        }));
+        // ... and the attestation only arrives with the closed item.
+        acc.feed(&json!({
+            "type": "response.output_item.done",
+            "item": {
+                "type": "reasoning",
+                "id": "rs_1",
+                "summary": [
+                    { "type": "summary_text", "text": "first step" },
+                    { "type": "summary_text", "text": "second step" }
+                ],
+                "encrypted_content": "enc-1"
+            }
+        }));
+        acc.feed(&json!({
+            "type": "response.output_text.delta",
+            "delta": "the answer is 4"
+        }));
+        acc.feed(&json!({ "type": "response.completed", "response": { "status": "completed" } }));
+
+        let response = acc.finish();
+        assert_eq!(response.content, "the answer is 4");
+        let (think, encrypted) = match &response.thinking[0] {
+            ContentBlock::Think {
+                think, encrypted, ..
+            } => (think, encrypted),
+            other => panic!("a reasoning turn must carry a Think block: {other:?}"),
+        };
+        assert_eq!(think, "first stepsecond step");
+        assert_eq!(
+            encrypted.as_deref(),
+            Some("enc-1"),
+            "the stream's encrypted_content must survive into the Think block"
+        );
+
+        let messages = vec![WireMessage {
+            role: "assistant".into(),
+            content: response.content.clone(),
+            blocks: response.thinking,
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+        }];
+        let req = build_request_full("o3-mini", &messages, &[], true, Some("high"));
+        // The field is only returned when the request asks for it.
+        assert_eq!(req["include"], json!(["reasoning.encrypted_content"]));
+        assert_eq!(req["store"], false);
+        let input = req["input"].as_array().unwrap();
+
+        // Reasoning precedes the text message.
+        assert_eq!(input[0]["type"], "reasoning");
+        assert_eq!(input[0]["encrypted_content"], "enc-1");
+        let summary = input[0]["summary"].as_array().unwrap();
+        // The accumulator holds one reasoning text buffer, so the two
+        // `reasoning_summary_text.delta` events coalesce into a single
+        // summary item rather than one item per delta.
+        assert_eq!(summary.len(), 1, "the deltas coalesce into one item");
+        assert_eq!(summary[0]["type"], "summary_text");
+        assert_eq!(summary[0]["text"], "first stepsecond step");
+
+        assert_eq!(input[1]["type"], "message");
+        assert_eq!(input[1]["content"], "the answer is 4");
+    }
+
+    /// A turn whose reasoning carried no summary text at all — the shape v2
+    /// produces from `response.output_item.done` alone
+    /// (`openai-responses/format.ts:557`) — must still replay the attestation:
+    /// that value is the only thing restoring the model's reasoning continuity.
+    #[test]
+    fn an_attestation_only_turn_still_replays_its_reasoning_item() {
+        let mut acc = StreamAccumulator::new();
+        acc.feed(&json!({
+            "type": "response.output_item.done",
+            "item": { "type": "reasoning", "id": "rs_2", "encrypted_content": "enc-2" }
+        }));
+        acc.feed(&json!({ "type": "response.output_text.delta", "delta": "4" }));
+        let response = acc.finish();
+
+        let (think, encrypted) = match &response.thinking[0] {
+            ContentBlock::Think {
+                think, encrypted, ..
+            } => (think, encrypted),
+            other => panic!("an attestation alone is a Think block: {other:?}"),
+        };
+        assert!(think.is_empty());
+        assert_eq!(encrypted.as_deref(), Some("enc-2"));
+
+        let messages = vec![WireMessage {
+            role: "assistant".into(),
+            content: response.content.clone(),
+            blocks: response.thinking,
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+        }];
+        let req = build_request_full("o3-mini", &messages, &[], true, Some("high"));
+        let input = req["input"].as_array().unwrap();
+        assert_eq!(input[0]["type"], "reasoning");
+        assert_eq!(input[0]["encrypted_content"], "enc-2");
+        assert_eq!(
+            input[0]["summary"],
+            json!([]),
+            "no summary text was streamed, so none is invented"
+        );
+    }
 
     #[test]
     fn test_build_request_and_parse_response() {

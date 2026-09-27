@@ -1731,6 +1731,7 @@ async fn run_session_turn(
         // Use the value read above: `swap` is read-and-clear, so re-reading
         // `last_turn_aborted` here would consume the flag a second time and
         // always observe `false` — the interruption reminder would never fire.
+        agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
         previous_turn_aborted,
         max_attempts: ctx.max_attempts,
         turn_id: format!("turn-{turn_id}"),
@@ -3256,6 +3257,7 @@ mod tests {
                 // this engine does not emit.
                 serde_json::json!({
                     "type": "llm.step.begin",
+                    "agent_id": "main",
                     "turn_id": "turn-0",
                     "step": 1,
                 }),

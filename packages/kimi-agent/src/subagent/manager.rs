@@ -239,6 +239,11 @@ async fn subagent_tool_defs(
 /// [`crate::callbacks::HostCallbacks`] decorator that narrows the tool
 /// table a subagent's turn sees to its profile policy (`list_tools`
 /// filter); every other seam passes through untouched.
+///
+/// Agent identity needs no decorator: a subagent's turn runs inside a
+/// [`CALLER_AGENT_ID`] scope (`subagent/manager.rs`), and every event the turn
+/// produces reads it when it is constructed — the same shape v2 gets from
+/// `IAgentScopeContext` (`loopService.ts:1426-1455`).
 struct ToolFilterCallbacks {
     inner: Arc<dyn crate::callbacks::HostCallbacks>,
     filter: ToolPolicyFilter,
@@ -469,6 +474,7 @@ pub const SUBAGENT_MAX_TOKENS_ERROR: &str =
 /// accumulated across continuation turns.
 async fn distill_continuations(
     runtime: &SubagentRuntime,
+    agent_id: &str,
     callbacks: &Arc<dyn crate::callbacks::HostCallbacks>,
     tool_defs: Vec<crate::turn_loop::types::ToolInfo>,
     cancel_flag: &Arc<AtomicBool>,
@@ -490,6 +496,7 @@ async fn distill_continuations(
         });
         turn = run_one(
             runtime,
+            agent_id,
             callbacks,
             history,
             tool_defs.clone(),
@@ -511,6 +518,7 @@ async fn distill_continuations(
 /// checks observe it.
 async fn run_one(
     runtime: &SubagentRuntime,
+    agent_id: &str,
     callbacks: &Arc<dyn crate::callbacks::HostCallbacks>,
     messages: Vec<crate::turn_loop::types::LLMMessage>,
     tool_defs: Vec<crate::turn_loop::types::ToolInfo>,
@@ -518,6 +526,7 @@ async fn run_one(
     parent_cancel: Option<&crate::subagent::types::ParentCancel>,
 ) -> Result<crate::turn_loop::types::TurnResult, RunExit> {
     let run_input = crate::turn_loop::types::RunTurnInput {
+        agent_id: agent_id.to_string(),
         previous_turn_aborted: false,
         max_attempts: None,
         turn_id: format!("subturn-{}", fastrand::u64(..)),
@@ -969,6 +978,7 @@ worktree root the tower assigns you as your full authority scope.";
             }];
 
             let run_input = crate::turn_loop::types::RunTurnInput {
+                agent_id: subagent_id.clone(),
                 max_attempts: None,
                 turn_id,
                 llm: llm.as_ref(),
@@ -1159,6 +1169,7 @@ worktree root the tower assigns you as your full authority scope.";
                 .scope(id.to_string(), async {
                     let turn_res = run_one(
                         &runtime,
+                        id,
                         &callbacks,
                         messages.clone(),
                         tool_defs.clone(),
@@ -1178,6 +1189,7 @@ worktree root the tower assigns you as your full authority scope.";
                         Some(policy) => {
                             distill_continuations(
                                 &runtime,
+                                id,
                                 &callbacks,
                                 tool_defs.clone(),
                                 &cancel_flag,
@@ -1352,6 +1364,7 @@ worktree root the tower assigns you as your full authority scope.";
                 id.to_string(),
                 run_one(
                     &runtime,
+                    id,
                     &callbacks,
                     messages.clone(),
                     tool_defs.clone(),
@@ -1392,6 +1405,7 @@ worktree root the tower assigns you as your full authority scope.";
             Some(policy) => {
                 let distilled = distill_continuations(
                     &runtime,
+                    id,
                     &callbacks,
                     tool_defs,
                     &Arc::new(AtomicBool::new(false)),
@@ -1673,6 +1687,7 @@ worktree root the tower assigns you as your full authority scope.";
         let recording = RecordingLlm::new(llm);
         let turn_id = format!("subturn-{}", fastrand::u64(..));
         let run_input = crate::turn_loop::types::RunTurnInput {
+            agent_id: id.to_string(),
             max_attempts: None,
             turn_id,
             llm: &recording,
@@ -2309,6 +2324,253 @@ mod tests {
             Result<crate::rpc::types::PermissionDecision, String>,
         > {
             Box::pin(async { Ok(crate::rpc::types::PermissionDecision::allow()) })
+        }
+    }
+
+    /// The end-to-end shape: a subagent that actually calls a tool.
+    ///
+    /// Runs a real subagent turn — the LLM answers with a tool call, the turn
+    /// loop executes it — and asserts both the emitted event and the tool
+    /// request name the subagent. The identity is not a decorator's job and it
+    /// does not ride the `CALLER_AGENT_ID` task-local: that scope does not
+    /// cross the scheduler's `tokio::spawn`
+    /// (`turn_loop/types.rs:864-866`). The turn loop carries the owner
+    /// explicitly instead, filling `ToolExecuteRequest.agent_id` from
+    /// `RunTurnInput.agent_id` (v2's `IAgentScopeContext` shape,
+    /// `toolExecutorService.ts:578-588`), and every event reads the request
+    /// back. An unowned tool event is what the host reads as `main`, which put
+    /// the subagent's tool card in the main transcript and truncated the main
+    /// agent's reasoning there.
+    #[tokio::test]
+    async fn a_subagents_real_tool_event_is_attributed_to_it() {
+        /// One tool call, then a plain answer — the shape that used to leak.
+        struct ToolCallingLlm {
+            /// `chat` invocations so far. The answer is a tool call only the
+            /// first time: a subagent turn has no step cap of its own, so a
+            /// model that keeps asking for the same call can only be stopped by
+            /// the repeat breaker, and the run's terminal state would then
+            /// depend on that guard instead of on the turn.
+            calls: Arc<AtomicU32>,
+        }
+        impl ToolCallingLlm {
+            fn new() -> Self {
+                Self {
+                    calls: Arc::new(AtomicU32::new(0)),
+                }
+            }
+        }
+        impl crate::turn_loop::types::LLM for ToolCallingLlm {
+            fn system_prompt(&self) -> &str {
+                "mock system prompt"
+            }
+            fn model_name(&self) -> &str {
+                "mock-subagent-model"
+            }
+            fn is_retryable_error(&self, _error: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                _params: crate::turn_loop::types::LLMChatParams,
+            ) -> crate::rpc::types::BoxFuture<
+                '_,
+                Result<
+                    crate::turn_loop::types::LLMChatResponse,
+                    Box<dyn std::error::Error + Send + Sync>,
+                >,
+            > {
+                let usage = crate::rpc::types::TokenUsage {
+                    input_tokens: 10,
+                    output_tokens: 5,
+                    total_tokens: 15,
+                    input_cache_read: 0,
+                    input_cache_creation: 0,
+                };
+                let response = if self.calls.fetch_add(1, Ordering::Relaxed) == 0 {
+                    crate::turn_loop::types::LLMChatResponse {
+                        content: String::new(),
+                        thinking: Vec::new(),
+                        tool_calls: vec![crate::turn_loop::types::ToolCall {
+                            id: "sub_call_1".into(),
+                            name: "probe_tool".into(),
+                            arguments: serde_json::json!({}),
+                            extras: None,
+                        }],
+                        finish_reason: Some("tool_calls".into()),
+                        usage,
+                        timing: None,
+                    }
+                } else {
+                    crate::turn_loop::types::LLMChatResponse {
+                        content: "Probe done.".into(),
+                        thinking: Vec::new(),
+                        tool_calls: Vec::new(),
+                        finish_reason: Some("stop".into()),
+                        usage,
+                        timing: None,
+                    }
+                };
+                Box::pin(async move { Ok(response) })
+            }
+        }
+
+        #[derive(Clone)]
+        struct Recorder {
+            events: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+            /// The `agent_id` each tool-execute request carried, asserted
+            /// against the instance id once the run settles — the request is
+            /// the one carrier that survives the spawn boundary.
+            request_agents: Arc<Mutex<Vec<String>>>,
+        }
+        impl crate::callbacks::HostCallbacks for Recorder {
+            fn llm_chat(
+                &self,
+                _req: crate::rpc::types::LlmChatRequest,
+            ) -> futures_util::future::BoxFuture<
+                'static,
+                Result<crate::rpc::types::LlmChatResponse, String>,
+            > {
+                Box::pin(async { Err("not used".into()) })
+            }
+            fn execute_tool(
+                &self,
+                req: crate::rpc::types::ToolExecuteRequest,
+            ) -> futures_util::future::BoxFuture<
+                'static,
+                Result<crate::rpc::types::ToolExecuteResponse, String>,
+            > {
+                assert_eq!(req.tool_name, "probe_tool", "the subagent's own call");
+                // The request's `agent_id`, not the `CALLER_AGENT_ID`
+                // task-local: this runs on the scheduler's `tokio::spawn`ed
+                // task, which does not inherit the subagent turn's scope, so
+                // asserting on the task-local would fail on every run and would
+                // point a maintainer at it instead of at the request.
+                self.request_agents.lock().unwrap().push(req.agent_id);
+                Box::pin(async {
+                    Ok(crate::rpc::types::ToolExecuteResponse {
+                        content: "probe output".into(),
+                        is_error: false,
+                        note: None,
+                        stop_turn: false,
+                        delivery: None,
+                    })
+                })
+            }
+            fn check_permission(
+                &self,
+                _req: crate::rpc::types::PermissionCheckRequest,
+            ) -> futures_util::future::BoxFuture<
+                'static,
+                Result<crate::rpc::types::PermissionDecision, String>,
+            > {
+                Box::pin(async { Ok(crate::rpc::types::PermissionDecision::allow()) })
+            }
+            fn list_tools(
+                &self,
+            ) -> futures_util::future::BoxFuture<
+                'static,
+                Result<crate::rpc::types::ListToolsResponse, String>,
+            > {
+                Box::pin(async {
+                    Ok(crate::rpc::types::ListToolsResponse {
+                        tools: vec![crate::rpc::types::ToolInfo {
+                            name: "probe_tool".into(),
+                            description: "probe".into(),
+                            input_schema: serde_json::json!({ "type": "object" }),
+                        }],
+                    })
+                })
+            }
+            fn emit_event(&self, event: serde_json::Value) {
+                self.events.lock().unwrap().push(event);
+            }
+        }
+
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let request_agents = Arc::new(Mutex::new(Vec::new()));
+        let manager = Arc::new(SubagentManager::new());
+        manager
+            .set_runtime(
+                Arc::new(ToolCallingLlm::new()),
+                Arc::new(Recorder {
+                    events: events.clone(),
+                    request_agents: request_agents.clone(),
+                }),
+                None,
+            )
+            .await;
+
+        let id = manager
+            .spawn_and_run(
+                "research",
+                "Probe",
+                "Call probe_tool once.",
+                Arc::new(ToolCallingLlm::new()),
+                Arc::new(Recorder {
+                    events: events.clone(),
+                    request_agents: request_agents.clone(),
+                }),
+            )
+            .await
+            .unwrap();
+
+        for _ in 0..100 {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            if let Some(inst) = manager.get_instance(&id).await
+                && inst.state == SubagentState::Completed
+            {
+                break;
+            }
+        }
+        // The loop above only bounds the wait; without this the assertions
+        // below would read a run that never started.
+        let instance = manager
+            .get_instance(&id)
+            .await
+            .expect("the spawned subagent must still be listed");
+        assert_eq!(
+            instance.state,
+            SubagentState::Completed,
+            "the subagent turn must end on the plain-text answer, got {:?} ({:?})",
+            instance.state,
+            instance.last_result
+        );
+        let requested = request_agents.lock().unwrap();
+        assert!(
+            !requested.is_empty(),
+            "the subagent must actually reach its tool call"
+        );
+        for agent in requested.iter() {
+            assert_eq!(
+                agent, &id,
+                "the tool request must name the subagent — the host reads a \
+                 `main` request as the main agent's and files the card in the \
+                 main transcript"
+            );
+        }
+        drop(requested);
+
+        let recorded = events.lock().unwrap();
+        let tool_events: Vec<_> = recorded
+            .iter()
+            .filter(|e| {
+                e.get("type")
+                    .and_then(|t| t.as_str())
+                    .is_some_and(|t| t.starts_with("tool."))
+            })
+            .collect();
+        assert!(
+            !tool_events.is_empty(),
+            "a tool call must surface a tool event, got: {recorded:?}"
+        );
+        for event in &tool_events {
+            assert_eq!(
+                event.get("agent_id").and_then(|v| v.as_str()),
+                Some(id.as_str()),
+                "a subagent's tool event must name the subagent — an anonymous \
+                 one is read as `main` by the host and lands in the main \
+                 transcript, truncating the main agent's reasoning. Event: {event:?}"
+            );
         }
     }
 

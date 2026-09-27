@@ -6,19 +6,36 @@ use serde_json::Value;
 use crate::rpc::types::TokenUsage;
 
 /// Engine lifecycle and streaming events emitted during a turn.
+///
+/// Every event a turn produces carries the `agent_id` of the agent running it
+/// (v2: `turnEvents.ts` gives `agentId` to each `TurnStartedPayload` /
+/// `AssistantDeltaPayload` / `ToolCallStartedPayload`, and
+/// `loopService.ts:1426-1455` fills it from `this.scopeContext.agentId`).
+/// That field is what lets a host keep a subagent's events out of the main
+/// transcript — v2 additionally refuses a cross-agent dispatch outright
+/// (`eventDispatcherService.ts:502-510`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EngineEvent {
     #[serde(rename = "llm.step.begin")]
-    LlmStepBegin { turn_id: String, step: u32 },
+    LlmStepBegin {
+        #[serde(default = "crate::rpc::types::main_agent_id")]
+        agent_id: String,
+        turn_id: String,
+        step: u32,
+    },
     #[serde(rename = "llm.delta")]
     LlmDelta {
+        #[serde(default = "crate::rpc::types::main_agent_id")]
+        agent_id: String,
         turn_id: String,
         step: u32,
         part: Value,
     },
     #[serde(rename = "llm.step.end")]
     LlmStepEnd {
+        #[serde(default = "crate::rpc::types::main_agent_id")]
+        agent_id: String,
         turn_id: String,
         step: u32,
         usage: Option<TokenUsage>,
@@ -30,6 +47,8 @@ pub enum EngineEvent {
     },
     #[serde(rename = "tool.native")]
     ToolNative {
+        #[serde(default = "crate::rpc::types::main_agent_id")]
+        agent_id: String,
         turn_id: String,
         tool_call_id: String,
         tool_name: String,
@@ -48,20 +67,23 @@ pub enum EngineEvent {
     CronFired { entry_id: String, prompt: String },
     #[serde(rename = "assistant.delta")]
     AssistantDelta {
+        #[serde(default = "crate::rpc::types::main_agent_id")]
         agent_id: String,
-        turn_id: u64,
+        turn_id: String,
         delta: String,
     },
     #[serde(rename = "thinking.delta")]
     ThinkingDelta {
+        #[serde(default = "crate::rpc::types::main_agent_id")]
         agent_id: String,
-        turn_id: u64,
+        turn_id: String,
         delta: String,
     },
     #[serde(rename = "tool.call.delta")]
     ToolCallDelta {
+        #[serde(default = "crate::rpc::types::main_agent_id")]
         agent_id: String,
-        turn_id: u64,
+        turn_id: String,
         tool_call_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<String>,
@@ -70,30 +92,34 @@ pub enum EngineEvent {
     },
     #[serde(rename = "tool.call.started")]
     ToolCallStarted {
+        #[serde(default = "crate::rpc::types::main_agent_id")]
         agent_id: String,
-        turn_id: u64,
+        turn_id: String,
         tool_call_id: String,
         name: String,
         args: Value,
     },
     #[serde(rename = "tool.progress")]
     ToolProgress {
+        #[serde(default = "crate::rpc::types::main_agent_id")]
         agent_id: String,
-        turn_id: u64,
+        turn_id: String,
         tool_call_id: String,
         update: Value,
     },
     #[serde(rename = "turn.started")]
     TurnStarted {
+        #[serde(default = "crate::rpc::types::main_agent_id")]
         agent_id: String,
-        turn_id: u64,
+        turn_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         prompt: Option<String>,
     },
     #[serde(rename = "turn.ended")]
     TurnEnded {
+        #[serde(default = "crate::rpc::types::main_agent_id")]
         agent_id: String,
-        turn_id: u64,
+        turn_id: String,
         reason: String,
     },
     #[serde(rename = "event.session.status_changed")]
@@ -111,15 +137,17 @@ pub enum EngineEvent {
     },
     #[serde(rename = "tool.call.completed")]
     ToolCallCompleted {
+        #[serde(default = "crate::rpc::types::main_agent_id")]
         agent_id: String,
-        turn_id: u64,
+        turn_id: String,
         tool_call_id: String,
         result: Value,
     },
     #[serde(rename = "tool.call.failed")]
     ToolCallFailed {
+        #[serde(default = "crate::rpc::types::main_agent_id")]
         agent_id: String,
-        turn_id: u64,
+        turn_id: String,
         tool_call_id: String,
         error: String,
     },
@@ -202,6 +230,32 @@ impl EngineEvent {
             EngineEvent::SubagentFailed { .. } => "subagent.failed",
             EngineEvent::CronFired { .. } => "cron.fired",
             EngineEvent::Custom(v) => v.get("type").and_then(|t| t.as_str()).unwrap_or("custom"),
+        }
+    }
+
+    /// The agent that produced this event, when it names one.
+    ///
+    /// v2 reads the same field off the payload when filtering
+    /// (`sessionEventBroadcaster.ts:1211-1214` takes `payload.agentId` and
+    /// passes anything non-string through). A `Custom` event that predates
+    /// the stamp has no id, and is treated the same way there.
+    pub fn agent_id(&self) -> Option<&str> {
+        match self {
+            EngineEvent::LlmStepBegin { agent_id, .. }
+            | EngineEvent::LlmDelta { agent_id, .. }
+            | EngineEvent::LlmStepEnd { agent_id, .. }
+            | EngineEvent::ToolNative { agent_id, .. }
+            | EngineEvent::AssistantDelta { agent_id, .. }
+            | EngineEvent::ThinkingDelta { agent_id, .. }
+            | EngineEvent::ToolCallDelta { agent_id, .. }
+            | EngineEvent::ToolCallStarted { agent_id, .. }
+            | EngineEvent::ToolProgress { agent_id, .. }
+            | EngineEvent::TurnStarted { agent_id, .. }
+            | EngineEvent::TurnEnded { agent_id, .. }
+            | EngineEvent::ToolCallCompleted { agent_id, .. }
+            | EngineEvent::ToolCallFailed { agent_id, .. } => Some(agent_id.as_str()),
+            EngineEvent::Custom(value) => value.get("agent_id").and_then(|v| v.as_str()),
+            _ => None,
         }
     }
 }

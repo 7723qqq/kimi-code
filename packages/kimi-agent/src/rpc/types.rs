@@ -1169,10 +1169,28 @@ pub struct LlmToolCall {
 
 // ── Tool execution proxy types (Rust → JS host) ────────────────────────────
 
+/// Serde default for a request that carries no `agent_id`.
+///
+/// A payload from before the field existed came from the root agent, and v2
+/// treats a non-string `agentId` the same way when filtering
+/// (`sessionEventBroadcaster.ts:1211-1214` passes it through).
+pub(crate) fn main_agent_id() -> String {
+    crate::callbacks::MAIN_AGENT_ID.to_string()
+}
+
 /// Parameters for the host/execute_tool RPC call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolExecuteRequest {
     pub turn_id: String,
+    /// The agent that issued the call (v2 threads `IAgentScopeContext.agentId`
+    /// into the tool executor, `toolExecutorService.ts:578-588`). The host
+    /// routes the resulting events by it, so a subagent's tool call is filed
+    /// under the subagent rather than announced in the main transcript.
+    ///
+    /// `default` keeps a request that predates the field readable — an older
+    /// host's payload carries no agent, and it is the root agent's call.
+    #[serde(default = "main_agent_id")]
+    pub agent_id: String,
     pub tool_call_id: String,
     pub tool_name: String,
     pub arguments: serde_json::Value,
@@ -1469,6 +1487,7 @@ mod tests {
 
         // ToolExecuteRequest / Response.
         let exec = ToolExecuteRequest {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             turn_id: "t".into(),
             tool_call_id: "c1".into(),
             tool_name: "Read".into(),
@@ -1477,6 +1496,7 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&exec).unwrap(),
             serde_json::json!({
+                "agent_id": "main",
                 "turn_id": "t", "tool_call_id": "c1",
                 "tool_name": "Read", "arguments": {"path": "a"}
             })
@@ -1723,6 +1743,7 @@ mod tests {
     #[test]
     fn test_tool_execute_request_roundtrip() {
         let req = ToolExecuteRequest {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             turn_id: "turn-1".to_string(),
             tool_call_id: "call_1".to_string(),
             tool_name: "read".to_string(),

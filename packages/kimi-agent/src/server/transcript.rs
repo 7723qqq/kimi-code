@@ -298,7 +298,17 @@ fn cold_fold_payload(payload: Value) -> Value {
     }
     if let Some(object) = value.as_object_mut() {
         if let Some(turn_id) = object.remove("turnId") {
-            object.entry("turn_id").or_insert(turn_id);
+            // The journal's `turnId` is a number (v2 `turnId: z.number()`),
+            // while the typed turn events carry `turn_id: String` — the
+            // native `turn-<n>` / `subturn-<n>` form. Normalize rather than
+            // move it verbatim: a number that does not fit the field leaves
+            // the payload as `Custom`, the fold never sees a turn, and every
+            // subagent member then looks like it outlived its spawning turn.
+            let normalized = match turn_id {
+                Value::String(text) => Value::String(text),
+                other => Value::String(other.to_string()),
+            };
+            object.entry("turn_id").or_insert(normalized);
         }
         object
             .entry("agent_id")

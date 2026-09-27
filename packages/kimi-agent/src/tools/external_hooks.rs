@@ -627,6 +627,7 @@ mod tests {
 
     fn request(tool_name: &str) -> ToolExecuteRequest {
         ToolExecuteRequest {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             turn_id: "turn-1".into(),
             tool_call_id: "call-1".into(),
             tool_name: tool_name.into(),
@@ -1045,6 +1046,7 @@ mod tests {
     #[test]
     fn non_object_tool_input_falls_back_to_empty_object() {
         let req = ToolExecuteRequest {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             turn_id: "t".into(),
             tool_call_id: "c".into(),
             tool_name: "Bash".into(),

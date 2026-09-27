@@ -842,13 +842,17 @@ function nativeCronNextFire(entryJson, fromMs) {
  * Open the plugin registry against `<dataDir>/sessions.db`, the same store the
  * standalone server uses, so the CLI and `kimi web` read one install state.
  * `marketplaceDir` is the directory holding `marketplace.json`; pass null to
- * let the engine fall back to its cwd-relative lookup. Idempotent.
+ * let the engine fall back to its cwd-relative lookup. `nodeRunner` is the
+ * host executable, recorded so plugin stdio servers declared with
+ * `command: "node"` are re-executed inside the host runtime; pass null to keep
+ * spawning `node` as declared. Idempotent.
  * @param {string} dataDir - Kimi home / data directory.
  * @param {string | null} [marketplaceDir] - Directory holding marketplace.json.
+ * @param {string | null} [nodeRunner] - Host executable for plugin node entries.
  * @returns {void}
  */
-function initPluginStore(dataDir, marketplaceDir) {
-  return binding.initPluginStore(dataDir, marketplaceDir);
+function initPluginStore(dataDir, marketplaceDir, nodeRunner) {
+  return binding.initPluginStore(dataDir, marketplaceDir, nodeRunner);
 }
 
 /**

@@ -2297,6 +2297,7 @@ async fn run_turn_rust_impl(
     });
 
     let input = RunTurnInput {
+        agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
         max_attempts: params.max_attempts,
         turn_id: turn_id.clone(),
         llm: llm.as_ref(),
@@ -3395,11 +3396,19 @@ static PLUGIN_MANAGER: LazyLock<Mutex<Option<Arc<crate::server::plugins::PluginM
 
 /// Open the plugin registry against `<data_dir>/sessions.db`. `marketplace_dir`
 /// is the directory holding `marketplace.json` (the host resolves it), so a
-/// relative catalog `source` resolves to a real plugin root. Idempotent: a
+/// relative catalog `source` resolves to a real plugin root. `node_runner` is
+/// the host executable, recorded so plugin stdio servers declared with
+/// `command: "node"` are re-executed inside the host runtime
+/// (`<runner> __plugin_run_node <entry>`) instead of requiring a system
+/// Node.js; pass `null` to keep spawning `node` as declared. Idempotent: a
 /// second call replaces the manager, which is harmless because the state lives
 /// in the file, not in the manager.
 #[napi]
-pub fn init_plugin_store(data_dir: String, marketplace_dir: Option<String>) -> napi::Result<()> {
+pub fn init_plugin_store(
+    data_dir: String,
+    marketplace_dir: Option<String>,
+    node_runner: Option<String>,
+) -> napi::Result<()> {
     guard_sync_panic(|| {
         let db_path = std::path::Path::new(&data_dir).join("sessions.db");
         if let Some(parent) = db_path.parent() {
@@ -3409,7 +3418,8 @@ pub fn init_plugin_store(data_dir: String, marketplace_dir: Option<String>) -> n
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
         let manager = crate::server::plugins::PluginManager::new(Arc::new(store))
             .with_marketplace_dir(marketplace_dir.map(std::path::PathBuf::from))
-            .with_home_dir(Some(std::path::PathBuf::from(&data_dir)));
+            .with_home_dir(Some(std::path::PathBuf::from(&data_dir)))
+            .with_node_runner(node_runner.filter(|runner| !runner.trim().is_empty()).map(std::path::PathBuf::from));
         *PLUGIN_MANAGER.lock().unwrap_or_else(|p| p.into_inner()) = Some(Arc::new(manager));
         Ok(())
     })

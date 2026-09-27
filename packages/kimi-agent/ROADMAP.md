@@ -199,7 +199,10 @@
 
 **语义差异（已全部消除）**：
 
-1. ~~沙箱仅覆盖 write/edit 路径级 + 命令执行；TS 的 bash 拦截层是 permission 策略链（与沙箱无关），Rust 的 permission 链是否等价覆盖命令 glob 审批未在本批审计。~~ **已解决**：`permission/mod.rs` 的策略链新增 fork 专属 `DangerousCommandAsk`（#3），对 bash 调用 `kimi_native_tools::permission_engine::dangerous_command::analyze_bash_command`，高风险命令（shutdown/reboot/rm -rf/format/sudo …）在 Yolo/Auto 下也强制 Ask，对齐 native-tools `test_yolo_mode_refuses_dangerous_reboot` 语义。
+1. ~~沙箱仅覆盖 write/edit 路径级 + 命令执行；TS 的 bash 拦截层是 permission 策略链（与沙箱无关），Rust 的 permission 链是否等价覆盖命令 glob 审批未在本批审计。~~ **已解决**：`permission/mod.rs` 的策略链新增 fork 专属 `DangerousCommandAsk`（#3），对 bash 调用 `kimi_native_tools::permission_engine::dangerous_command::analyze_bash_command`，高风险命令（shutdown/reboot/rm -rf/format/sudo …）在 Yolo/Auto 下也强制 Ask，对齐 native-tools `test_yolo_mode_refuses_dangerous_reboot` 语义（该测试属**已退役**的
+`kimi-native-tools` 包，本 fork 已无此文件；语义改由 `permission/mod.rs` 的
+`test_dangerous_bash_command_asks_in_manual_and_yolo` 与
+`test_unanalyzable_bash_command_asks_except_in_auto_and_yolo` 覆盖）。
 2. ~~kimi-agent/src/native/event_store/ 的细粒度事件账本未完整接入 standalone server；session/patch.rs（RFC 6902）无全局生产调用点。~~ **已解决**：event_store 经 `hub.set_persister` 对每个事件落账（server/mod.rs:88-104），fold/checkpoint/undo 已接入；session/patch.rs 由 REST state-PATCH/undo-redo（server/mod.rs:3345-3467）、sqlite_store.rs:1130-1153 与 state_store.rs:187-205 生产调用。persister 错误现已结构化记入 warn 日志；standalone 的 TaskRunner 为进程内内存任务提供生命周期事件分发。
 3. ~~standalone 服务端面仍有大量 mock/缺失（2026-09-09 审计修正，此前"均已对齐"结论失实）~~ **已完成（2026-09-11）**：Wave 3 服务端契约与 Wave 4 新能力全部落地——transcript L1/L2（`/transcript`、`/ops`、`/user-messages`、`/plan`，从持久化历史重建 + turn 游标分页）、prompt 侧附件 intake（`POST /prompts` 解析 `content[]`、`f_`/`path` → 原生媒体块注入模型）、debug 三方法（association/runtime-binding/workspace-snapshot）按契约整形且未知方法 404、WS 词汇黄金契约 `ws-event-contract.json`（Rust / kimi-web / protocol 三方断言）与 `event.model_catalog.changed` 发射、ACP（`session/new` 的 `cwd`/`mcpServers`、`fs`/`terminal` 反向 RPC 与 Read/Write/Bash 执行改道、`elicitation/create` 表单桥 + `session/request_permission` 回退，客户端反向 RPC 9 个，其中 `terminal/kill` 无调用点）、Workflow 引擎（内嵌 QuickJS，JS 运行时经 `workflow-js` feature 可选，9 内置工作流 + `Workflow` 工具接线）。校验：`cargo test --lib` 2,349 项（2026-09-15 复核，原写 2,107） + `--tests --features cli` 全绿，clean 构建两种 feature 组合均通过。已知边界（非缺口）：kimi-web 标注为 no-op 的 4 个事件、`elicitation/complete`（规格可选）。**2026-09-24 更正**：本条原写的另两项边界已不成立——`terminal/kill` 有调用点（`acp/permission.rs:934`，超时后杀掉客户端终端里的进程），`session/set_model` 已服务（`acp/mod.rs:1152`，板块 8 表已记），与本行前半句「客户端反向 RPC 9 个」自相矛盾；一并作废。
 4. ~~**只读工具漏进 `FallbackAsk`（2026-09-20 复核新增）**~~ **已闭环（2026-09-21）**：`DEFAULT_APPROVE_TOOLS` 只镜像了 v2 名单 + `ListDirectory`，fork 自有的只读工具（`Lsp`、`memory_read`/`memory_list`、`TowerInbox`/`TowerStatus`）没进名单，于是在 Manual（"Always Ask"）下这些纯读调用也弹审批——与 v2「只读工具免审」的语义不一致。**已落地**：上述工具（含下划线/紧凑两种拼写）已补进 `permission/mod.rs:86-94` 的名单；测试 `test_default_tool_approve_for_all_readonly_tools` 的 21 条用例断言 `DefaultToolApprove`。**混合读写工具经 v2 参考裁定为「不适用」**：`Knowledge`（search/stats 只读，add/confirm/reject/remove/import 写）与 `TowerMission`（inspect 只读 / update 写）按 `action` 拆分的设想**不成立**——v2 的 `default-tool-approve.ts` 是扁平名字判定且**不含这两个工具**，全部 13 个 permissionPolicy 也无一提及它们；即 v2 对它们的所有 action 一律走 `fallback-ask`，fork 现状（不在名单、Manual 下弹审批）与 v2 逐字一致。按 `action` 拆分免审会是发明 v2 没有的行为，按铁律不做。
@@ -512,6 +515,17 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
    **第三轮（同日）**：`event.plugin.changed` 已有生产者——插件 install/enable/disable/remove
    路由成功后经 `publish_plugin_changed()` 全局发布，v3 折叠为 `plugin` bare-bump 实体
    （测试 `a_plugin_mutation_publishes_the_plugin_entity_to_v3_clients`）。
+
+> **订正（2026-09-27）**：本段三条测试名 —— `a_slow_consumer_gets_the_42903_error_frame_before_the_close`、
+> `v3_history_route_reports_the_live_streaming_position`、
+> `a_plugin_mutation_publishes_the_plugin_entity_to_v3_clients` —— **全仓零命中**，
+> 因为 `86f30ecc2c` 已随上游 2.0.2 撤销整个 v3 协议：`src/server/v3/**` 与
+> `src/server/ws_v3.rs` 均已删除（`git ls-files packages/kimi-agent/src/server` 现只返回
+> `ws.rs` 与 `ws_protocol.rs`）。本段「已实现/已补齐」的表述均为**撤销前的历史记录**。
+> 其中慢消费者 `42903` 回告**能力本身仍然存在**，但落点已不是 `ws_v3` 溢出臂——
+> 现在的实现见 `server/hub.rs`（每连接有界 `mpsc`，`SUBSCRIBER_QUEUE_DEPTH = 256`）
+> 与 `server/envelope.rs:46` 的错误码常量，详见本台账 §6.2 的慢消费者条目。
+> 同类失效引用（`server/v3/live.rs:376`、`ws_v3.rs:29`、`ws_v3.rs:373` 等）见 §6.17.1。
    仍缺：`workspace`/`capability` 事件无生产者——workspace 实体要等 fork 实现工作区生命周期变更，
    capability 在引擎侧是 ACP initialize 的**静态**清单、没有变更语义可广播（结构性留白，非缺口））→
    P4 客户端（kimi-inspect、kimi-web、`apps/kimi-code` 的
@@ -571,7 +585,10 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
    history/恢复页接入 todo/task（见第 4 条）——本清单相应条目随之作废；第二轮补齐
    `WS_SLOW_CONSUMER 42903`（溢出槽 watch + 控制通道错误帧）与 `in_flight` 历史路由接入
    （`ServerEngine.in_flight` 注册表 + `MessageCallbacks::with_step_tracker`，见 P3）。
-   仍缺的只剩 workspace/plugin/capability 事件生产者。
+   > **订正（2026-09-27）**：本句原为「仍缺的只剩 workspace/plugin/capability 事件生产者」，
+> 读起来像活 TODO。实际 `86f30ecc2c` 已随上游 2.0.2 撤销整个 v3 协议（见 §8.11），
+> `src/server/v3/` 与 `src/server/ws_v3.rs` **均已不存在**（`git ls-files packages/kimi-agent/src/server`
+> 现只返回 `ws.rs` 与 `ws_protocol.rs`）。本条以下全部「已完成」表述均为**撤销前的历史记录**。
    验证：`packages/protocol` 562 项、
    `apps/kimi-inspect` 115 项测试全绿（含 v3 store 与协议契约套件）。
 5. ~~**ACP 宿主的部分对齐项（板块 8，已就地标注）**~~ **已解决（2026-09-16 后续变更）**。原列七项：
@@ -1121,7 +1138,7 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
 |---|---|---|
 | #3714 `rm -rf` 仅 `/tmp`、`/temp` 免审 | `RM_SAFE_TEMP_ROOTS` + `is_safe_temp_rm_operand` + `rm` 操作数收集（`--` 之后全为操作数），并把上游 `literalText` 的 `UNSAFE_OPERAND` 字面量判据折叠进操作数检查 | `src/native/permission_engine/dangerous_command.rs`；新增 `test_rm_rf_temp_paths_are_exempt`（7 个免审用例）与 `test_rm_rf_outside_temp_paths_stay_dangerous`（9 个危险用例） |
 | #3657 移除 wall-clock 时间预算上限 | 删除 `MAX_REASONABLE_TIME_BUDGET_MS`，只校验 `>= 1s` 且有限；工具描述逐字对齐上游 `set-goal-budget.md:15-17` | `src/goal/mod.rs`、`src/tools/goal_tools.rs`；新增 `test_set_budget_accepts_durations_above_the_former_24h_ceiling`，`storage/state_store.rs` 改为断言亚秒预算被拒 |
-| #3734 重试时作废已流式的 attempt 状态 | 见 §6.1 第 2 条：补上 v2 的整套机制——turn 作用域 id 账本（`src/turn_loop/tool_call_id.rs`）、**流式 tool-call 增量生产者**（`src/llm/wire.rs` 的 `StreamDelta::ToolCall`；openai/anthropic/responses 三协议产出，google 无分片）、出口 id 归一化（`src/llm/http.rs:214`）、失败即回滚的 attempt 守卫（`src/llm/http.rs:909`，`Drop` 回滚、成功才 `commit`）、v3 宿主映射（`src/server/v3/live.rs:376`） | `streamed_tool_call_fragments_share_the_finalized_id`、`failed_request_releases_the_tool_call_ids_it_streamed`、`attempt_ledger_commits_or_releases`（`src/llm/http.rs`）；`src/turn_loop/tool_call_id.rs` 12 项 |
+| #3734 重试时作废已流式的 attempt 状态 | 见 §6.1 第 2 条：补上 v2 的整套机制——turn 作用域 id 账本（`src/turn_loop/tool_call_id.rs`）、**流式 tool-call 增量生产者**（`src/llm/wire.rs` 的 `StreamDelta::ToolCall`；openai/anthropic/responses 三协议产出，google 无分片）、出口 id 归一化（`src/llm/http.rs:214`）、失败即回滚的 attempt 守卫（`src/llm/http.rs:909`，`Drop` 回滚、成功才 `commit`）；~~v3 宿主映射（`src/server/v3/live.rs:376`）~~ **（订正 2026-09-27：该文件已随 86f30ecc2c 撤销 v3 协议而删除，见 §8.11；本 fork 无 v3 宿主映射，tool-call 增量由 §6.1 第 2 条的 host 侧 `turn.step` 合成承担）** | `streamed_tool_call_fragments_share_the_finalized_id`、`failed_request_releases_the_tool_call_ids_it_streamed`、`attempt_ledger_commits_or_releases`（`src/llm/http.rs`）；`src/turn_loop/tool_call_id.rs` 12 项 |
 | #3688 MCP 结果里的媒体被压成文本预览、原件不留存 | 新增 `src/mcp/output.rs`（`convertMCPContentBlock` + `mcpResultToExecutableOutput` 的移植）：文本/图片/音频/视频/resource/resource_link 逐类映射，内联媒体先落库再交付；`FileStore::save_with_id`（内容寻址 `f_mcp_<sha256>`，幂等去重）与 `blob_path`、`resolve_attachment_reference`（`src/server/files.rs:90,226,316`）；原件以 `kimi-file://<id>` 引用 + 本地路径写进通知（v2 原文），媒体本体以 `ContentBlock::MediaRef` 走 `ToolDelivery`，由请求解析器按模型能力内联；超过 10MB 的单块/无对应家族的 resource blob **不交付但仍留存**；通知超 4096 字符则把清单本身存成附件并换成指针；转换逐块响应取消探测。`tools/mod.rs:1527` 先尝试按附件引用解析路径，使 `Read`/`ReadMediaFile` 能打开通知里给的原件 | `src/mcp/output.rs` 8 项、`src/server/files.rs` 2 项、`src/mcp/manager.rs` 的 `test_mcp_media_is_preserved_and_delivered_as_a_reference`（新增 `image` mock 模式） |
 | #3697 steer 打断后台等待的**前置件**：`WaitFor` 在生产路径上根本不阻塞 | triage 先证伪了上游前提——引擎把 `WaitFor` 摊成**同步**的 `StateStore::task_wait`（`src/storage/state_store.rs:703`，其注释自承"REPL 尚无后台任务 runner"），而所有引擎路径都经 `StateStoreCallbacks`（`src/pipeline/mod.rs:273`、`src/server/engine.rs:939`）到达它：5 秒等待在 6ms 内返回 `timed_out`（迁移前用真实生产链探针实测）。**没有阻塞就无从打断**，故先补阻塞：`NativeToolset::execute_tool_streaming` 把自己持有的 `task_runner`（即 spawn 后台 Bash/Agent 的那个 runner）传进 `execute_task_wait`，`TaskRunner::wait_interruptible` 真挂起在任务的 `done` 上；状态桥保留为**本 runner 不认识的任务**的宿主兜底（服务端每轮重建 pipeline，上一轮的任务属另一个 runner）。顺带补上 fork 缺失的 **wait-any**：`task_id` 变可选（v2 `WaitForInputSchema`）、`TaskRunner::wait_any`、`no_tasks` 报告、以及 v2 的 `[still_running]` 尾段 | `src/storage/task_runner.rs`（`wait_interruptible`/`wait_any`/`TaskWaitResult::Interrupted`）、`src/tools/task_tools.rs`（`execute_task_wait` 的 runner 路由 + `render_wait_no_tasks`/`push_still_running`）；6 项 runner 单测 + 8 项 tool 单测；探针实测 1009ms/1000ms（迁移前 6ms）、完成唤醒 169ms |
 | #3697 steer 打断后台等待（v2 `steerController`） | 在阻塞等待之上落地：`ParentCancel` 槽与 P55 取消槽并列，穿过 `NativeToolset`/`PipelineHost`/`SessionConfig`；会话 pump 每轮发布新信号（服务端按 session 发布），**在 steer 真正并入轮次处触发**（`session::admit_locked` 的 ActiveOrNewTurn 分支、`ServerEngine::enqueue_steer`），并在轮次取走 steer 时刷新（`SteerQueueCallbacks::drain_steers`），对应 v2"不再有未丢弃 steer 时重建 `steerController`"；空 drain 不刷新。`WaitFor` 据此渲染 v2 的 `formatInterrupted`（`wait_status: interrupted` + `reason: steer`，非错误，任务继续运行）。TUI 渲染器识别 `interrupted` | `src/tools/mod.rs`（`effective_steer`/`with_steer_slot_if`）、`src/session/mod.rs`（`steer_slot`、`drain_steers` 刷新、`admit_locked` 触发）、`src/server/engine.rs`（`steer_slots` 映射）；`src/session/mod.rs` 2 项 + `src/tools/task_tools.rs` 的 `test_wait_with_a_runner_ends_on_the_steer_signal`；探针：30s 等待在 164ms 被信号结束且任务仍 `running` |
@@ -1170,7 +1187,7 @@ clippy**（5 个文件格式不合规、1 条 `to_string_in_format_args`），�
 | 无上游号（过滤 finish_reason 词汇表不全） | transport 透传 provider 停止原因，但停止原因表只认 OpenAI `content_filter`；补 v2 kosong 适配器的整个过滤族：Anthropic `refusal`、Google `safety`/`recitation`/`blocklist`/`prohibited_content`/`spii`/`image_safety`——此前安全拒答以普通完成结束回合，用户看不到过滤提示 | `src/turn_loop/run_turn.rs` `turn_stop_reason_from_finish`；`finish_reason_vocabulary_maps_to_stop_reasons` |
 | 无上游号（压缩内溢出无恢复） | v2 `fullCompactionService.ts:690-710` 的压缩内恢复：摘要请求自身溢出时按 `COMPACTION_OVERFLOW_SHRINK_RATIOS`（0.7/0.5/0.35，上限 `MAX_COMPACTION_OVERFLOW_SHRINK_ATTEMPTS = 3`，共享尝试上限与 `len <= 1` 守卫）收缩重试。fork 原有 #3911 预收缩与空摘要丢最旧路径，但溢出错误不在可重试集合 → 直接失败；预估偏乐观时 v2 能救回、fork 整包压缩失败。Err 分支最前面（与 v2 同序）加该路径，估算口径同 v2 `requestTokens`，收缩走既有 `take_recent_within_budget`，无退避直接重试；工作集改 `Cow` 承载 | `src/compaction/mod.rs`；`test_summarizer_shrinks_history_after_overflow_and_retries`、`test_summarizer_gives_up_after_max_overflow_shrinks`（恰好 1+3 次请求） |
 | #3875（门禁盲区：只改 apps/kimi-code，非删包）`kimi -p` 在 cron 触发时早退并取消在途回合 | **架构性不适用，无需移植**：v2 的 bug 形态是 print 后台策略（watcher）与回合循环竞态——一次性任务触发后即从日程消失，策略读到空日程判定静息；循环任务按住不放的触发时刻被防自旋守卫误判为 tick 卡死。fork 的 print run 是单顺序所有者：cron 触发由 run 自己负责（`pending_cron_followups` 在 ceiling 内睡到最早触发点、渲染 `<cron-fire>`、触发后删一次性任务），follow-up 回合**先入队**（`maybe_enqueue_print_followup`）后过 idle gate（`maybe_settle_locked`），不存在“队列空而在途回合被取消”的观测点 | `src/session/mod.rs:1016-1074`（follow-up 生产序：goal → cron → tasks，入队先于 idle gate）；`settle_print_background`（等 `running_ids` 空 + 全 run 单一 deadline） |
-| #3869（审计改判：原“不适用”实为行为偏差）yolo 外模式对不可解析 bash 命令不询问 | `DangerousVerdict` 增加第三态 `Unanalyzable`（引号未配平；包装器剥离后命令名非字面量——`$CMD --force` 要到执行时才知道跑什么），`analyze_bash_command` 按“危险优先、不可解析次之、安全兜底”聚合；策略链第 3 步按 v2 #3869 分流：不可解析且**非 Yolo** → Ask（独立 reason），Yolo 落穿到 `YoloModeApprove`。修前 fork 对所有模式放行不可解析命令，v2 在非 yolo 模式询问——Ask When Needed 下上游弹审批、fork 静默执行 | `src/native/permission_engine/dangerous_command.rs`（三态 + 名字字面量检查 + 配平标志）；`src/permission/mod.rs` 策略分流；测试：`test_unanalyzable_shapes`、`test_dangerous_wins_over_unanalyzable`、`test_variable_arguments_stay_analyzable`、`test_unanalyzable_bash_command_asks_except_in_yolo`。记录的残留差异：v2 把 `bash -c "echo $HOME"` 也判不可解析（其 tree-sitter 语法所限），fork 会读内层命令判安全——变量**参数**可解析，只有变量**命令名**不可解析 |
+| #3869（审计改判：原“不适用”实为行为偏差）yolo 外模式对不可解析 bash 命令不询问 | `DangerousVerdict` 增加第三态 `Unanalyzable`（引号未配平；包装器剥离后命令名非字面量——`$CMD --force` 要到执行时才知道跑什么），`analyze_bash_command` 按“危险优先、不可解析次之、安全兜底”聚合；策略链第 3 步按 v2 #3869 分流：不可解析且**非 Yolo** → Ask（独立 reason），Yolo 落穿到 `YoloModeApprove`。修前 fork 对所有模式放行不可解析命令，v2 在非 yolo 模式询问——Ask When Needed 下上游弹审批、fork 静默执行 | `src/native/permission_engine/dangerous_command.rs`（三态 + 名字字面量检查 + 配平标志）；`src/permission/mod.rs` 策略分流；测试：`test_unanalyzable_shapes`、`test_dangerous_wins_over_unanalyzable`、`test_variable_arguments_stay_analyzable`、`test_unanalyzable_bash_command_asks_except_in_auto_and_yolo`。记录的残留差异：v2 把 `bash -c "echo $HOME"` 也判不可解析（其 tree-sitter 语法所限），fork 会读内层命令判安全——变量**参数**可解析，只有变量**命令名**不可解析 |
 | #3938（审计改判：原 not-applicable 的 kap-server 半件 moot，但 agent 半件是模块缺失）冷折叠步骤带 step timing/usage | 新增 `src/llm/timing.rs`：`LlmTiming`（v2 `ModelRequestTiming` 六字段，camelCase serde）。`chat_impl` 打 4 个标记（started / sent / 首个 SSE 事件 / 流结束）按 v2 `buildModelRequestTiming` 公式计算（零钳制；`serverDecodeMs`/`clientConsumeMs` 留 None——fork SSE reader 不产 decode stats）；timing 经 `LLMChatResponse.timing` → `StepResult.timing` → turn 循环每步发射 `llm.step.end`（带 turn_id/step/usage——此前该事件无生产者，projector 的 `StepTiming` 从未被填充）→ projector 折叠进步骤。传输层 sink 的同名 emission（服务宿主消息折叠）不变，两条通道消费者分离，无双处理。host-proxy 报 None | `src/llm/timing.rs` 5 项（公式/钳制/serde）；`src/server/transcript/project.rs` 的 step-end 折叠（测试断言 timing 落步）；`src/tools/agent_tool.rs` 生命周期序列现含 step end；lib 2757 通过 |
 | #3847(b)（审计改判：原 not-applicable 实为模块缺失）tower 记录带调用方 token 用量 | `SubagentManager` 新增 `usage_by_instance` 按实例累计计数器，在三个回合完成路径（foreground / background `spawn_and_run` / persistent）折叠；`caller_tokens` 按 v2 `grandTotal`（四维求和，非 `total_tokens`）上报，逐出/销毁时清理防无界增长。tower 的 finding/review/send 三个写入方携带 tokens 入记录（finding `**Tokens**` 行、review/inbox frontmatter 字段），`read_inbox` 往返解析。记录的分歧：main 调用方报 `None`（v2 -1）——会话总量在宿主 SQLite、toolset 不可达；subagent 调用方完整覆盖 | `src/subagent/manager.rs`（计数器 + `caller_tokens` + 清理）；`src/tools/tower/{store,types,mod}.rs` 与 `src/tools/mod.rs` 分发；测试：`test_caller_tokens_accumulates_all_dimensions`、`file_finding_records_the_callers_tokens`、`send_records_tokens_and_read_inbox_round_trips_them`；lib 2760 通过 |
 | 深查发现（无上游号，v2 `observeContextOverflow`）有效窗口学习 | `compaction` 模块新增进程内观测缓存（按模型名键）：`observe_context_overflow` / `effective_max_tokens` 逐字对应 v2 `fullCompactionService.ts:258-267,320-331`（`floor(estimated × 0.85)`、只降不升守卫、无配置窗时观测值独立成立）。调用点按 v2 原样置于**压缩请求自身溢出**的恢复分支（`summarize_with_llm_budgeted` 的 Err 分支，与 v2 catch 中位置一致）；回合级 `should_recover` 门与预收缩预算（`force_compact_messages_with_summary_report` 的 window 参数）改用 `effective_max_tokens(model, configured)`。记录的差异：v2 经 `defineState` 持久化，fork 为进程内缓存（重启后重新学习） | `src/compaction/mod.rs`（缓存 + 两函数 + 3 项单测：降/不升/无配置窗）；`src/turn_loop/run_turn.rs`（effective_window 一处构造、三处消费）；lib 2763 通过 |
@@ -1383,7 +1400,7 @@ v2 用双冒号（`fs.ts:414,460`），bundle 用单冒号。fork 的 `::search`
     （括号/裸列表/单 token，未知 token 丢弃）、内置 `custom-theme` 标记 `["tui"]`。三条 REST
     出口（`GET /api/v1/skills`、workspace skills、session skills）均流经该描述符，scopes 随
     serde 自动上 wire；SDK `SkillSummary.scopes?` 与 TUI `isVisibleOnTui()` 过滤已就位。
-    测试：`test_parse_scopes_frontmatter`（4 形态）、`test_custom_theme_builtin_is_tui_scoped`。
+    测试：`test_parse_scopes_frontmatter`（4 形态）、`test_custom_theme_builtin_is_user_only_and_tui_scoped`。
     复核教训：此前以 `rg '"scopes"'` 判「引擎不产出」——Rust 结构体字段名不带引号，该 grep
     模式天然匹配不到，判定前应直接读类型定义。
 
@@ -2423,12 +2440,29 @@ TUI 定向 3 passed（6.12.5 两条 + 6.12.5 通道隔离一条）｜`cargo fmt 
   ①给用户看的思考文本；②`reasoning_details` 数组元素的 `summary`（回放时要原样还给 provider）。
   区分靠 `hidden` 标志 + `detailsIndex` 戳。
 - `openai.rs::reasoning_details_parts` 在**同一条流已经出现 `reasoning_content` 字符串方言**时
-  （即那段思考用户已经在实时面板看过了），仍把数组摘要写进 `think`，只额外打一个
-  `hidden: true`（旧 `a_hidden_summary_keeps_its_array_entry_but_not_its_string` 钉的就是这个形状）。
-- 而 `hidden` 的**唯一读取方是请求侧投影** `project_message`（`openai.rs:130-160`）—— 它靠它把
-  摘要排除出字符串字段，保证 provider 只收到一次思考。**客户端一律不认这个标志**
-  （TS 侧全仓检索：`hidden` 只命中无关的 `show_hidden`/commander/CSS），于是同一段思考在最终消息里
+  （即那段思考用户已经在实时面板看过了），仍把数组摘要写进 `think`。
+- 客户端一律不认 `hidden` 这个标志（TS 侧全仓检索：`hidden` 只命中无关的
+  `show_hidden`/commander/CSS），所以如果摘要被写进 `think`，同一段思考就会在最终消息里
   被渲染两次：实时思考面板一次，`think` 里的摘要一次 —— 表现为正文多一份。
+
+> **订正（2026-09-27）**：本节原文写「只额外打一个 `hidden: true`（旧
+> `a_hidden_summary_keeps_its_array_entry_but_not_its_string` 钉的就是这个形状）」，并称
+> 「`hidden` 的**唯一读取方是请求侧投影** `project_message`（`openai.rs:130-160`）」。两条都不成立：
+> 全 crate 检索 `\bhidden\b` 在 `src/llm/*.rs` 与 `src/turn_loop/*.rs` 中**零命中**，该测试名
+> 也不存在；`openai.rs:130-160` 实际是数组/字符串方言的分流代码，里面没有 `hidden`。
+> 现存且真正覆盖方言分离的是 `a_seen_summary_keeps_its_array_entry_without_repeating_its_text`
+> （`openai.rs:1114`）与 `an_array_only_summary_stays_visible_and_keeps_its_entry`（`openai.rs:1258`）。
+>
+> 更重要的是：**这不是改名，而是一处未记录的 v2→fork 行为缺口。** v2 侧 `hidden` 是一等字段
+> （`human/llm/message.ts:20` `hidden?: boolean`），并在三处决定可见性——
+> `bases/openai/lower.ts:77`（非 hidden 才进字符串方言）、`:142`
+> （`part.hidden === true ? current : current + part.think`，拼接时跳过 hidden）、`:147`，
+> 以及 `reasoning-key.ts:96,105`（`hiddenSummary` → `hidden: true`）。
+> fork 侧 `openai.rs:138` 是**无条件** `all_thinking.push_str(think)`，且全 crate 无 `hidden` 概念。
+> 后果：v2 刻意标为 hidden（为跨轮连续性携带、但**不展示**）的推理摘要，在 fork 会被拼进可见的
+> `think` 文本——用户会看到 v2 明确隐藏的内容。这与本节原本想解决的「正文多一份」是同一个
+> 症状的两面：fork 缺少 hidden 通道，就只能用「不写进 think」来避免重复，而那又会让
+> provider 收不到该摘要。**两者只能选一，当前实现没有选。**
 - 为什么只有 opencode 免费线路：两个条件叠在这条线路上 ——
   ① 只有它背后的模型说 `reasoning_details` **数组方言**且别名未声明 `reasoning_key`
   （才走 `openai.rs:626` 那个分支产生摘要块）；
@@ -2581,6 +2615,12 @@ Glob for reliable file listing and correct directory **structure**」—— 两�
   **不覆盖生产者已设的值**（`subagent.spawned` 这类父发子事件的 `agent_id` 语义是父的）。
 - `ToolFilterCallbacks`（`subagent/manager.rs`）新增 `agent_id` 字段，在 `emit_event`/`turn_event`
   转发前打上**子代理自己的 id** —— 这条链与主代理共用，此前完全没有身份。
+- **第三处构造点 `spawn_and_run`（`manager.rs`）也是漏的**：`spawn_and_run` 绕开
+  `run_foreground_turn_with_history`，把**调用方传入的原始 `callbacks`** 直接交给
+  `run_turn`（原 `:1012`），不经过 `ToolFilterCallbacks` ⇒ 同样无印记。
+  端到端测试（见下）实测抓到这条路径的事件 `agent_id` 为 `None`，已同样包一层。
+  **教训**：`ToolFilterCallbacks` 有三个生产构造点，只改两个会漏；
+  隔离必须由**每个 run_turn 调用点**保证，不能只改装饰器。
 - `CountingCallbacks::emit_event`/`turn_event`（`callbacks.rs`）对称打上 `"main"`。
 - 宿主 `sdk-rpc-client-native.ts:1389` 改为**优先读 `parsed.agent_id`**，回退到 `subturn-` 启发式
   （保留兼容，向后兼容面为零）。
@@ -2596,18 +2636,89 @@ Glob for reliable file listing and correct directory **structure**」—— 两�
 先于它们分流），不删除以免回退风险。6.12.11 的「未决：子代理思考完全不显示」仍然未决 ——
 那是产品取舍，本轮未动。
 
-**测试**：`callbacks::tests::the_main_agent_chain_stamps_main_onto_every_event`、
-`callbacks::tests::stamping_never_overwrites_an_existing_agent_id`、
-`subagent::manager::tests::a_subagents_events_carry_its_own_id`。
+**测试**：
 
-**验证（2026-09-26）**：`cargo test --lib --features cli,workflow-js` **2930 passed / 0 failed / 1 ignored** ✅｜
-`cargo fmt --check` ✅（本轮改动文件）｜`cargo clippy --lib --features cli -- -D warnings` ✅（余 2 项在
-`src/repl/terminal_image.rs`，属本议题之外的既有未提交改动）｜`bun scripts/scan-parity.mjs` ✅｜
-`tsgo --noEmit -p packages/node-sdk` ✅｜`oxlint --type-aware` 0 errors。
+> **订正（2026-09-27）**：下列前三条已随 §6.14 的「构造期随数据流动」方案删除，全仓检索
+> `stamp_agent_id` 与三个测试名均**零命中**；`callbacks.rs` 现在只保留 `MAIN_AGENT_ID`。
+> 取代它们的是 §6.14 记录的四条（typed 变体往返 / Custom 仍报 owner / 子代理端到端 /
+> swarm worker）。本节以下描述仅存历史价值，不代表现存代码。
 
-**未验证（如实记录）**：未跑真实 `AgentSwarm` 场景抓事件流确认端到端 —— node-sdk 的 vitest 套件
-在本机因 napi addon 未构建而无法启动（`git stash` 后同样失败，属环境问题而非本轮改动），
-故 TS 侧改动目前只有类型检查 + lint 背书，**行为验证仍待 addon 重建后补做**。
+- ~~`callbacks::tests::the_main_agent_chain_stamps_main_onto_every_event` — 主代理链给每个事件打 `main`~~（已删）
+- ~~`callbacks::tests::stamping_never_overwrites_an_existing_agent_id` — 不覆盖生产者已设的 id~~（已删）
+- ~~`subagent::manager::tests::a_subagents_events_carry_its_own_id` — 装饰器隔离验证~~（已删）
+- `subagent::manager::tests::a_subagents_real_tool_event_is_attributed_to_it` — **端到端**：
+  起真实子代理轮次（LLM 回答含一次工具调用 → turn loop 真正执行），断言由此产生的
+  `tool.call.started` 带**子代理自己的 id**。这条测试**实测抓到了 `spawn_and_run` 的漏网**，
+  修复前失败（`left: None`），是本轮最有价值的一条。**（现存，见 §6.14）**
+
+**验证（2026-09-26）**：`cargo test --lib --features cli,workflow-js` **2933 passed / 0 failed / 1 ignored** ✅｜
+`cargo fmt --check` ✅｜`cargo clippy --lib --features cli -- -D warnings` ✅｜
+`bun scripts/scan-parity.mjs` ✅｜`tsgo --noEmit -p packages/node-sdk` ✅｜`oxlint --type-aware` 0 errors｜
+napi addon `--release` 重建成功（`kimi_agent.win32-x64-msvc.node`，2026-09-27 01:21，晚于本轮源码改动）。
+
+**驱动真实引擎抓事件流的结果**（`.tmp/verify-subagent-agentid.mjs`，裸 `createEngineSession`）：
+主代理 turn 的全部内容事件（`llm.step.begin/end`、`tool.call.started/completed`）均带
+`agent_id: "main"` —— 修复前这些事件**完全无 `agent_id` 字段**。`turn.prompt` / `turn.started` /
+`turn.ended` 三者仍无 `agent_id`，这是 `turn_events.rs` 结构体的既定形状（turn 生命周期事件
+按会话而非按 agent 归属），**符合设计，不是缺陷**。
+
+**未验证（如实记录）**：该裸探针跑在 host-proxy 传输上，`nativeToolCalls: 0` —— `Agent` 工具被
+路由到宿主而非引擎原生执行（`PipelineHost` 的 `SubagentManager` 需由 SDK harness 注入，裸
+`createEngineSession` 不带），故**未能从 napi 边界观察到子代理的真实工具事件**。
+端到端断言改由上面的 Rust 集成测试承担（走真实 `run_turn` + 真实 `execute_tool`）。
+
+### 6.14 2026-09-26 按 v2 完整移植 per-agent 事件归属（**取代 6.13 的补丁式做法**）
+
+6.13 的做法是在事件产生**之后**补标签（`stamp_agent_id` 装饰器）。一次完整的迁移对齐
+审计（子代理事件链 + 接口面两份报告，共 60+ 项不对齐）证明那是**在错误的层次打补丁**：
+v2 的身份是**构造期**就定下来的（`loopService.ts:1426-1455` 从 `this.scopeContext.agentId`
+读，字段由 DI 注入），不是下游过滤能补的。审计还查出 6.13 完全没有触及的根因：
+
+- **四个主力流事件在 `events/types.rs` 里根本没有 `agent_id` 字段**
+  （`llm.step.begin` / `llm.delta` / `llm.step.end` / `tool.native`），
+  而 `run_turn.rs` 里 `agent_id` 出现 **0 次**
+- **9 个声明了 `agent_id` 的定型变体生产代码从不构造**，只有测试与 ACP adapter 手工填
+  `"main"`；因缺 `agent_id` + `turn_id` 类型不符（String vs u64），
+  每个 turn loop 事件都降级为 `EngineEvent::Custom(Value)`——**定型变体一直是死代码**
+- **`turn_id` 类型分裂**：9 个变体声明 `u64`，而实际数据是 `turn-<n>` / `subturn-<n>` 字符串
+- **`run_persistent_turn`（team 协调器）连 scope 都没有**
+
+**移植的形状**（对齐 v2，不新发明机制）：
+
+| v2 | fork 移植 |
+|---|---|
+| `IAgentScopeContext.agentId`，DI 构造注入（`scopeContext.ts:9`） | `RunTurnInput.agent_id` + `ToolExecuteRequest.agent_id`，**显式随数据流动** |
+| `loopService.ts:1426-1455` 构造时填 | `run_turn.rs` 构造事件时填 `input.agent_id` |
+| `toolExecutorService.ts:578-588` 工具执行带 agentId | `callbacks.rs` 9 处 `tool.native*` 从 `request.agent_id` 读 |
+
+**为什么不用 task-local**：`CALLER_AGENT_ID` 是 tokio task-local，**在工具执行时已失效**
+（工具执行由 scheduler 以 `tokio::spawn` 派发，task-local 不跨 spawn 继承，见
+`turn_loop/types.rs:864-866`；`a_subagents_real_tool_event_is_attributed_to_it` 现在断言
+请求上的 `agent_id` 跨 spawn 可达，而不是断言 task-local）。v2 用 DI 构造注入正是为了跨
+执行边界有效。task-local 保留给 tower 工具门控、调用方 history 解析与非 main 权限拒绝
+文案（其原本用途），事件归属不再依赖它。
+
+**连带修好的既有缺陷**：
+- `cold_fold_payload`（`server/transcript.rs:300`）把数字 `turnId` 直接搬进 `turn_id`，
+  类型不符 → 降级 `Custom` → fold 看不到 turn → **每个子代理成员被判 lost**。
+  现在归一化成字符串。
+- `resolve_turn` / `turn_key_u64` 按 `&str` 归一（`turn-N`、`tN`、`subturn-N` 同一处理）
+
+**测试**（4 条，全绿）：`a_stamped_event_round_trips_into_its_typed_variant`（钉住
+「不再降级为 Custom」）、`a_custom_event_still_reports_an_owner_when_it_carries_one`、
+`a_subagents_real_tool_event_is_attributed_to_it`（端到端，跑真实子代理轮次 + 真实工具执行）、
+`a_swarm_workers_tool_event_names_the_worker`（真实 `SubagentSwarmLauncher`）。
+
+**验证（2026-09-26）**：`cargo test --lib --features cli,workflow-js`
+**2941 passed / 0 failed / 1 ignored** ✅｜`cargo fmt` ✅｜`cargo clippy --all-targets` ✅｜
+`bun scripts/scan-parity.mjs` ✅（tools 89 / napi 104）。
+
+**仍待处理（审计发现，本轮未做）**：`subagent.spawned` 缺 `parentAgentId`/`callerAgentId`/
+`model`/`thinkingEffort`/`taskId` 六字段；`subagent.completed.usage` 字段形状与协议
+camelCase 契约不符；swarm 成员不发终态事件；`project.rs` 不按 `agent_id` 分流；
+`ws.rs:458` 每个 agent 的 projector 吃全量事件。这些是审计报告的 B/C 类，需各自单独裁定。
+node-sdk / kimi-code 的 vitest 套件在本机无法启动（napi addon 在 vitest 的 Node worker 里加载
+失败，`git stash` 后同样失败），故 TS 侧改动仍只有类型检查 + lint 背书。
 
 ---
 
@@ -3882,17 +3993,22 @@ re-append 以免破坏调用方的 fold 索引）。
 `compaction/mod.rs` 的**纯函数**层测试密集（token 估算、阈值边界、分割安全规则），
 但 `run_turn.rs` 的**编排**（重试计数、事件配对、media 降级阶梯）两层都没有。
 
-补 `test_overflow_recovery_retries_within_its_budget_then_fails`，用「按 system
-preamble 区分摘要调用与步骤调用」的 LLM mock 驱动该路径，实测断言两条此前无人验证的
-不变量：
+补编排层测试，用「按 system preamble 区分摘要调用与步骤调用」的 LLM mock 驱动该路径，
+覆盖两条此前无人验证的不变量，由两条**不同名**的测试分别承担：
 
-```
-step attempts=3  compaction.started=3  completed=2  cancelled=1
-```
+- `run_turn.rs:6472` `context_overflow_recovery_retries_the_step` — 重试**有界**：
+  `2 ≤ rounds ≤ 3` 且 `step_calls == rounds + 1`（`max_overflow_compaction_attempts` = 3）。
+  用 system preamble 区分摘要/步骤调用（`:6497-6500` 判 `content.contains("conversation summarizer")`）。
+- `run_turn.rs:6616` `overflow_without_a_split_point_reports_cancelled_not_completed` —
+  `compaction.started` 必有配对终态事件（无孤儿），事件序列恰为
+  `["compaction.started","compaction.cancelled"]`（`:6728-6733`）。
 
-即：重试**恰好**停在 `max_overflow_compaction_attempts`（3），且每个
-`compaction.started` 都有配对的终止事件（无孤儿）。这两条正对应 run_turn.rs
-L1141-1144 与 L1021-1027 两处注释所声明的不变量。
+> **订正（2026-09-27）**：本节原先记的是 `test_overflow_recovery_retries_within_its_budget_then_fails`
+> 与实测输出 `step attempts=3 compaction.started=3 completed=2 cancelled=1`。经核，该测试名在
+> 工作树与**全部 git 历史**中都不存在（`git log -S` 零提交），那行实测输出也从未由任何测试断言过
+> ——它是一段转述的运行结果，而非可 grep 的符号，因此从未随代码一起被 review。上面两条测试是
+> 真正承担这两条不变量的测试，`context_overflow_recovery_retries_the_step` 更早于本节引入
+> （`f8ee5280de`）。这类失效模式的制度性根因见 §6.17.2，建议的对策见 §6.17.3。
 
 **过程中的两次自我修正**（都记下来，因为都是「以为绿了其实没有」）：
 1. 摘要/步骤分流最初用 `params.tools.is_empty()`，但本测试的 `tools: &[]` 让步骤
@@ -4008,3 +4124,248 @@ v2 侧四个构造函数（`acp-server/src/events-map.ts:398-537`）全是**纯�
 本轮**未修改任何产品代码**（`git diff --stat` 对 `acp/`、`events/` 为空）。
 `cargo fmt --check` ✅｜`cargo test --no-default-features --features cli`
 2891 passed / 0 failed / 1 ignored。
+
+### 6.15 2026-09-27 移植/重写/近似审查后的更正与修复（**推翻本轮两条审查结论**）
+
+**背景**：对 Rust 引擎做了一次分区移植性审查（5 路并行，按文件分为
+PORTED / REWRITTEN / APPROXIMATE / FORK-ORIGINAL 四类）。审查全程只读源码、
+未执行代码，因此其结论按 AGENTS.md 的验证标准只算「读出来的」。本轮对最重的
+几条做了实测复核，**两条排名最前的结论不成立**，另有三条确认成立并已修复。
+
+#### 6.15.1 推翻：REST 信封并非 opt-in（原判为 P0 现网故障）
+
+审查称 `server/mod.rs:7088` 只在 `req.wants_envelope()` 时包
+`{code,msg,data,request_id}`，而 `dist-web` 从不发 `X-Envelope`，故 Web UI
+的 REST 链路全坏。**实测推翻**：`server/http.rs:203-205` 在
+`handle_request` **之后**无条件调用 `envelope_response`，且该函数幂等
+（已包信封的 body 直接放行）。`wants_envelope()` 这道门只存在于 `mod.rs`
+的内层分支与单测里，在真实 serving 路径上是冗余的。
+
+实测证据（`bun run dev:server` 起真实服务后 curl）：`/api/v1/healthz`、
+`/api/v1/meta`、`/api/v1/sessions`、404 路径，均在不带 `X-Envelope` 时返回
+带 `code` 的信封。**结论：信封行为正确，无需修复。** 教训是「只读到一个 gate
+就下结论」——判据必须跟到 serving 层。
+
+#### 6.15.2 推翻：`tool.call.completed` 未泄漏到 wire
+
+审查称 `events/types.rs:138,146` 的 `tool.call.completed/failed` 是 fork 发明名
+（两个 v2 检出 0 命中、bundle 0 命中），工具完成事件到不了 Web transcript。
+**复核修正**：该字符串只出现在 `EngineEvent` 的 serde tag 上，供 napi/内部
+识别；进 transcript 的 fold 走 `TranscriptProjector::apply_event`，对
+`ToolCallCompleted` 分支发出的是 `TranscriptOperation::FrameUpsert`
+（`server/transcript/project.rs:1438-1450`），**不含该字符串**。WS 侧
+`ws.rs:458` 喂的是 `EngineEvent` 枚举，客户端收到的是 `FrameUpsert`。
+Wire 词汇与 `packages/transcript` 的契约一致，**无需修复**。
+
+#### 6.15.3 确认并修复：BTW 侧信道工具策略反了
+
+v2 `features/btw/btw.ts:3` 的 `BTW_READONLY_TOOLS = {Read, Grep, Glob}`，
+侧信道**允许**这三个只读工具（`btwService.ts:38-43` 只否决集合外的调用）。
+Rust 原为「禁止一切工具」（`TOOL_CALL_DISABLED_MESSAGE` 文案亦不同）。
+后果：侧信道提问需要当前文件内容时拿不到，合法 `Read` 被拒。
+
+修复：`subagent/btw.rs` 新增 `BTW_READONLY_TOOLS`，`check_btw_tool_denial`
+增加 `tool_name` 参数并放行集合内工具，提示词与文案对齐 v2；调用点
+`tools/mod.rs:1253` 同步传参。验证：`cargo test --lib btw` 4 passed。
+
+#### 6.15.4 确认并修复：`[cron]` 配置段缺失
+
+v2 `features/cron/configSection.ts:11-52` 有 `debug/noJitter/noStale/disabled/
+manualTick/clock/pollIntervalMs` 与 7 个 env 绑定；`config/mod.rs` 此前
+**0 处**引用 cron，故 `KIMI_DISABLE_CRON=1` 与 `[cron] disabled = true`
+两个上游文档化的开关在此无效——而 ROADMAP 第 124 行把 `cron/` 标为
+「✅ 100% 原生」，与之矛盾。
+
+修复：新增 `CronConfig{disabled,no_jitter,no_stale}`，`KimiConfig` 增加 `cron` 段，三个
+resolver 按「env 覆盖文件」优先级实现，`main.rs` 的 tick 循环在
+`cron_disabled()` 时整体不启动。验证：`cargo test --lib config::` 61 passed。
+
+> **订正（2026-09-27）**：原文写「接受并忽略无消费者的 `debug`/`manualTick`，避免未知键报错」，
+> 这不准确——`config/mod.rs:388-400` 的 struct **只有 3 个字段**，`debug`/`manualTick`
+> 根本不在其中，是被 serde 直接丢弃（不 round-trip、不出现在序列化输出里），并非"接受"。
+> 同理 v2 的 `clock` / `pollIntervalMs` 也仍未移植。
+> 另需补记：`KimiConfig::cron_no_jitter()`（`config/mod.rs:1385`）与 `cron_no_stale()`（`:1392`）
+> **全仓只有测试调用，无任何生产消费者**——`cron/jitter.rs:61/90/116` 的 `no_jitter`/`no_stale`
+> 是形参，目前无人把配置值传进去。因此本节「三个 resolver 已实现」成立，但**只有
+> `disabled` 真正通电**。同时 `src/cron/jitter.rs:54` 的注释仍写着「the engine has no
+> `[cron]` config surface」，已被本节修复直接推翻，需一并修订。
+
+#### 6.15.5 确认并修复：ACP `session/set_mode` 的 `plan` 只落了一半
+
+v2 `acpModeToToggles`（`modes.ts:72-88`）把 mode 解析为 `{plan, permission}`
+两个开关并在 `session.ts:1103-1121` 分别 `enterPlan()`/`cancelPlan()` 与
+`setPermission()`。Rust 的 `apply_session_mode` 只写 `permission_mode`，
+plan 那一半从未生效——Zed/JetBrains 选 Plan 得到的是手动审批，只读约束不启用。
+
+修复：`acp/mod.rs` 新增 `acp_mode_plan()` 与 `apply_plan_toggle()`，经
+`StateStore::for_workspace` 写 `plan` 域（`tools/plan_mode.rs` 读的同一域），
+best-effort：域不可达时记 warn 而非让整个 mode 切换失败。验证：新增
+`test_acp_set_mode_plan_activates_plan_mode`，`cargo test --lib acp::tests` 30 passed。
+
+#### 6.15.6 维持「已登记的 fork delta」，不修
+
+`native/read.rs` 的 `MAX_LINES=1000` / `MAX_LINE_LENGTH=2000` / `MAX_BYTES=100KiB`
+与 `native/grep.rs` 的 `MAX_OUTPUT_BYTES=512KiB`（v2 为 10 MiB）确有差异，但：
+- `native/read.rs:28-39` 在文件头三段注明为 fork-original，且 ROADMAP:3721-3725 已登记；
+- `native/read.rs` 是**遗留读器**，模型实际调用的是 `tools/mod.rs`，后者按 v2
+  的 `max_chars`（100k/500k，纯字符）计量。
+故属已登记的 fork delta，不做对齐。
+
+> **订正（2026-09-27）**：本节原写「**两者均**在文件头注明…且 ROADMAP:3720 已登记」，
+> 该表述只对 `read.rs` 成立。`native/grep.rs:27-28` 的 `MAX_OUTPUT_BYTES` 只有一行
+> 「Maximum stdout bytes before truncation.」，**无 fork-original 标注**，且本台账也未登记
+> 这条 512KiB（v2 为 10 MiB）的差异。它应按「未登记的 fork delta」单独记一条，
+> 或在 `native/grep.rs:27` 补注释后再登记。
+
+#### 6.15.7 本轮审查的方法论结论
+
+分区审查给出的 28.3% APPROXIMATE 是**文件粒度**的下界，且按流量加权后有效
+近似率更高（近似集中在 `run_turn.rs`、`server/mod.rs`、`transcript/project.rs`、
+`config/mod.rs` 等必经路径）。但**未执行的静态审查会同时产生假阳性与漏报**：
+本轮两条最高优先级结论即被实测推翻。后续同类审查必须配上真实调用验证。
+
+### 6.16 2026-09-27 LLM 层三条 v2 偏差的修复（含一条「结论收窄」）
+
+继 6.15 之后继续打磨。本轮对审查报出的 LLM 层 finding 逐条实测复核，
+**三条确认成立并修复，一条收窄到远小于原判的范围**。
+
+#### 6.16.1 修复：Gemini 3 的思考深度丢失
+
+v2 `encodeGoogleGenAIThinking`（`google-genai/format.ts:147-167`）对 `gemini-3`
+把 effort 编码为 `thinkingLevel: MINIMAL/LOW/MEDIUM/HIGH`；Rust 只发
+`thinkingBudget` + `includeThoughts`，**effort 从未上线**，模型按自己的默认深度思考。
+
+修复：`llm/google_genai.rs` 新增 `thinking_level_for()`，并在
+`build_request_for_model()`（新增，保留原 `build_request_full` 签名）里写
+`thinkingLevel`；非 gemini-3 由新增的 `thinking_budget_for()` 从 `reasoning_effort`
+解析数值预算（`off|none`→0、`low`→1024、`medium`→4096、`high|xhigh|max`→32000，
+default 档只发 `includeThoughts`），与 v2 `encodeGoogleGenAIThinking`
+（`google-genai/format.ts:168-181`）逐档一致。level 与 budget **互斥**：gemini-3
+命中 level 时不再附带 budget（两者并存会被 API 拒）。`llm/http.rs:340` 同步传入
+model 与 `reasoning_effort`。验证：`cargo test --lib google_genai` 14 passed。
+
+> **订正（2026-09-27）**：原句写「非 gemini-3 **仍走数值预算**」，该表述不成立——
+> 修 gemini-3 时 `thinking_budget` 的唯一产出者被 `config/mod.rs::native_llm_config`
+> 的 `protocol == "anthropic"` 条件挡在门外，Google 线上恒为 `None`，`google_genai.rs`
+> 里两个 `thinking_budget` 分支是**死代码**。详见 6.16.2 之下新增的「非 gemini-3 的
+> effort 从未上线」一条。
+
+#### 6.16.1b 修复：非 gemini-3 的 effort 从未上线（`thinkingBudget` 死代码）
+
+v2 `encodeGoogleGenAIThinking`（`google-genai/format.ts:168-181`）对**每个** effort 都
+返回 `thinkingConfig`：`off`→`{includeThoughts:false, thinkingBudget:0}`，
+`low`/`medium`/`high`→1024/4096/32000，default 只发 `includeThoughts`。而 Rust 侧
+`thinking_budget` 只在 anthropic 分支产出，Google 线上恒为 `None`。
+
+后果：`effort="off"` 时 `http.rs` 算出 `include_thoughts=false`、`level=None`，整个
+`generationConfig` 被省略——gemini-2.5 按其动态默认预算**继续思考、继续计费**，用户
+以为已关；`low`/`medium`/`high` 同样只发出 `includeThoughts`，档位形同虚设。
+
+修复：`google_genai.rs` 新增 `thinking_budget_for()`，与 `thinking_level_for()` 同处
+一个 v2 开关；`off` 档输出 `{thinkingBudget:0}` 且不写 `includeThoughts`（缺省即
+false，与 v2 显式写 `false` 在线上等价）；effort 推导的预算受
+`model_supports_thoughts()` 约束（**pre-2.5 如 `gemini-2.0` 会拒收整个
+`thinkingConfig`**，不加此闸门修复会引入 400）；宿主显式配置的预算语义不变，仅
+gemini-3 命中 level 时被丢弃。`thinking_budget` 字段仍限 anthropic，`config/mod.rs`
+无行为改动，OpenAI 兼容协议不会拿到它。
+
+验证：`cargo test --lib google_genai` 14 passed，新增
+`gemini_2_5_carries_the_effort_as_a_thinking_budget`；两次「回退即失败」证明
+（置空 `effort_budget` → `off` 档断言失败且请求体无 `generationConfig`；只摘三档数字
+→ `low` 档断言失败）。`bun run check:parity` 仍 EXIT=0，`nllm 18/16` 未变。
+
+> 遗留待定：v2 的数值开关没有 `minimal` 档，故 gemini-2.5 上的 `minimal` 落进 default
+> 档（只发 `includeThoughts`）。本次严格对齐 v2，未自行发明数值；若认为 2.5 的
+> `minimal` 应等价于最小非零预算，需另开一次改动。
+
+#### 6.16.2 修复：OpenAI Responses 的思考块在重放时整体丢失
+
+v2 `lowerMessage`（`openai-responses/lower.ts:176-203`）把 assistant 的 think
+part 重建为独立的 `reasoning` 输入项（连续且 `encrypted` 相同的 part 合并为一个
+item、多个 `summary_text`），并携带 `encrypted_content`。Rust 的 assistant 分支
+只发文本 + `function_call`，**模型在每次重放时丢掉自己的前序推理**，且没有
+`encrypted_content` 时 Responses 服务端无法恢复跨轮推理连续性。
+
+修复：`llm/openai_responses.rs` 新增 `reasoning_items()`（含 `flush_reasoning`），
+在文本消息**之前**按 v2 顺序发出 reasoning 项。验证：
+`cargo test --lib openai_responses` 26 passed（新增
+`assistant_thinking_is_replayed_as_a_reasoning_item`）。
+
+#### 6.16.3 收窄：压缩「阻塞机制整体缺失」远没有原判那么严重
+
+审查称 Rust 缺 v2 的 `shouldBlock` / `blockRatio` / `checkAfterStep` /
+`lastCompactedTokenCount`，后果是「长回合跑过窗口、更多 400/413」。**复核收窄**：
+
+- v2 `RuntimeCompactionStrategy.config()` 里 `blockRatio = Math.max(triggerRatio, 0.85)`，
+  而 `checkAfterStep = triggerRatio !== blockRatio`。Rust 的 `trigger_ratio`
+  恒为 0.85 且从不可配，故 **`blockRatio` 与 `triggerRatio` 恒等** →
+  `shouldBlock` 与 `shouldCompact` 判据相同、`checkAfterStep` 为 **false**。
+  即：v2 在默认配置下也不会阻塞、也不会步后复检。**原判的「更多 400/413」不成立。**
+- v2 `block()` 的实现是 `if (active === null) return;` —— 它只等待**已在飞行中**
+  的压缩，并不自己发起一次。这进一步缩小了差异面。
+
+真正的、可达的缺口被收窄为：**v2 的 `[loop_control]` 暴露
+`compaction_trigger_ratio`（0.5..=0.99）与 `reserved_context_size`，Rust 从不读取**，
+且 `trigger_ratio` 在 Rust 侧恒为 0.85。只有当用户把 trigger 调到 0.85 以下时，
+v2 才会阻塞而 Rust 不会——这是一个真实但**窄**的行为差异。
+
+修复（就窄缺口部分）：`config/mod.rs` 的 `LoopControlConfig` 增加两个键（含
+camelCase 别名）与两个 resolver，越界值回落到引擎默认而非静默生效。验证：
+`cargo test --lib config::tests::loop_control_compaction_knobs_parse_and_ignore_out_of_range` 通过。
+**未做**：把这两个键接到 `CompactionConfig`——它经 napi 由 host 注入
+（`RunTurnInput.compaction_max_attempts` 同路径），属跨层改动，单独立项。
+
+#### 6.16.4 本轮方法论补记
+
+6.15.7 说「静态审查会同时产生假阳性与漏报」，本轮给出一个**反向**样本：一条
+被判为「压缩阻塞缺失、后果严重」的 finding，实测后不仅没有那么严重，而且在
+默认配置下几乎为零。原因是审查只读了 v2 的 `strategy.ts` 接口定义（确有
+`shouldBlock`），没有读 `RuntimeCompactionStrategy.config()` 的实际取值
+（`blockRatio = max(triggerRatio, 0.85)`）。**只读接口不看取值，会系统性高估差异。**
+
+### 6.17 2026-09-27 台账自身的抽验：失效条目与制度性盲区
+
+一次独立抽验（本轮 34 条：6 个维度并行审计，每个维度要求「先 grep 本台账再报」）的结论。
+先说好的：**可信度显著高于同类手写台账**，34 条里 30 条完全属实，多处行号**逐字精确**
+（`oauth/service.rs:34/67/134/148`、`client_shared.rs:26/34/82`、`server/files.rs:90/226/316`、
+`errors.rs:12/55`、`thinking.ts:123/145`），测试名与断言内容逐条对得上（「89 tools / 104 napi」
+这类聚合数也能独立复算一致），并且罕见地记录了**自我推翻**（6.12.4 推翻 6.12.1/6.12.2、
+6.13 推翻 6.12.11 的两处前提、6.15 推翻两条审查结论、6.16.3 收窄一条 finding）。
+引用的 15 条带过滤子句的 `cargo test` 命令**全部至少命中 1 个现存测试**——本台账已知的
+「过滤器匹配 0 个仍 exit 0」这个假绿模式，在这 4000+ 行里**没有复发**。
+
+#### 6.17.1 本轮已订正的失效条目
+
+| 位置 | 问题 | 处置 |
+|---|---|---|
+| §10.18 | 引用的 `test_overflow_recovery_retries_within_its_budget_then_fails` 在工作树与**全部 git 历史**中零命中；那行「实测输出」也从未由任何测试断言过 | 就地改写为真正承担该不变量的两条测试，并写明这是**转述的运行结果**而非可 grep 的符号 |
+| §6.13 | `stamp_agent_id()` 与三条测试已随 §6.14 删除，证据行仍是现在时 | 就地加订正块并划掉三条测试，保留仍存在的第四条 |
+| §6.15.6 | 「**两者均**在文件头注明 fork-original 且已登记」只对 `read.rs` 成立；`grep.rs` 的 512KiB 无标注也未登记 | 就地拆开陈述，并标为「未登记的 fork delta」 |
+| §6.15.5 | 「`acp::tests` 4 passed」实为 30 passed（过滤器有效，计数错，会让读者低估回归面） | 改为 30 |
+| §6.15.4 | 「接受并忽略 `debug`/`manualTick`」不准确——二者根本不在 struct 内，是被 serde 丢弃；且 `no_jitter`/`no_stale` 至今**无生产消费者**，只有 `disabled` 通电 | 就地订正，并记下 `cron/jitter.rs:54` 的过期注释 |
+| §6.1-4 尾部 | 「仍缺的只剩 workspace/plugin/capability 事件生产者」读起来像活 TODO | 就地加订正块，指向 §8.11 |
+
+#### 6.17.2 制度性盲区（本台账最该改的一件事）
+
+三种失效同源：**证据的「存在性」被反复验证，证据的「坐标」与「归属」从不复验。**
+
+1. **行号是快照，不是锚点。** 同一份台账里，`server/engine.rs:239/576/589`（实际
+   277/324/333）、`tools/mod.rs:1253`（实际 1239）、`tools/mod.rs:1527`（实际 1944）、
+   `sdk-rpc-client-native.ts:1389`（实际 1425）、`mcp/manager.rs:943`（实际 930）都漂了
+   14~260 行；而另一些引用（`oauth/service.rs:67`）却精确到行。**精度取决于哪一轮写的、
+   作者当天的细心程度，而不是台账制度。**
+2. **被取代的证据不回填。** §6.13 的三个符号/测试、§6.1-4 的整段 v3 证据都已随
+   §6.14 / §8.11 作废，但作废声明只写在别的小节标题里，原证据行仍是现在时。
+3. **「实测输出」类数字缺复核。** §10.18 那行是唯一一条被判定为 FALSE 的内容，
+   它的证据形态与其它条目不同：是一段**转述的运行结果**，不是可 grep 的符号或测试名，
+   因此从不随代码一起被 review 看见。
+
+#### 6.17.3 建议：台账引用检查器
+
+在 CI 门禁里加一条检查器——正则抽出本台账中所有 `src/…rs:<line>` 形式的引用，以及所有
+反引号包裹的 `fn 测试名`，逐条断言「该行仍包含所引用的符号」或「该测试名仍存在」，
+不一致就打 warn 并列出清单。成本极低，可一次性覆盖上表除 §10.18 外的**全部**行号漂移
+与死测试名。
+
+§10.18 那类「转述的实测输出」不在其射程内，只能靠一条人工规则兜：
+**凡在本台账写出具体数字的运行结果，必须同时写出产生它的测试名。**

@@ -914,6 +914,7 @@ mod tests {
         let result = pipeline
             .callbacks
             .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
                 turn_id: "t1".into(),
                 tool_call_id: "c1".into(),
                 tool_name: "Read".into(),

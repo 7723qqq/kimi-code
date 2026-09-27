@@ -1231,6 +1231,65 @@ mod tests {
         assert_eq!(default_max_tokens_for_model("some-unknown-model"), 128_000);
     }
 
+    /// The ladder above matches on substrings while v2 parses
+    /// `family-major[-minor]` and walks `CEILING_BY_FAMILY_VERSION`
+    /// (`profile.ts:110-147`). Pinned here against every real Claude id so a
+    /// future edit to the ladder cannot silently change a ceiling — the two
+    /// agree on all of them.
+    ///
+    /// The divergence, pinned below rather than merely described: v2 rejects
+    /// an id with no `claude` marker up front and returns its 128k fallback
+    /// (`parseAnthropicModelVersion(model, /* requireClaudeMarker */ true)`,
+    /// `profile.ts:78`), while this ladder's `contains` tests fire on the family
+    /// fragment wherever it sits. A relay id like `my-opus-4-5-clone` therefore
+    /// takes the 64k rung here while v2 would hand it 128k — so a relay's
+    /// ceiling is not evidence about v2 either way.
+    #[test]
+    fn default_max_tokens_agrees_with_v2_on_every_real_claude_id() {
+        let cases = [
+            ("claude-3-opus-20240229", 4_096),
+            ("claude-3-sonnet-20240229", 4_096),
+            ("claude-3-haiku-20240307", 4_096),
+            ("claude-3-5-sonnet-20241022", 8_192),
+            ("claude-3-5-haiku-20241022", 8_192),
+            ("claude-3-7-sonnet-20250219", 8_192),
+            ("claude-opus-4-20250514", 32_000),
+            ("claude-opus-4-1-20250805", 32_000),
+            ("claude-sonnet-4-20250514", 64_000),
+            ("claude-sonnet-4-5-20250929", 64_000),
+            ("claude-haiku-4-5-20251001", 64_000),
+            ("claude-sonnet-4-6", 128_000),
+            ("claude-opus-4-6", 128_000),
+            ("claude-opus-4-7", 128_000),
+            ("claude-opus-4-8", 128_000),
+            ("claude-sonnet-5", 128_000),
+            ("claude-fable-5", 128_000),
+            ("claude-mythos-5", 128_000),
+        ];
+        for (model, expected) in cases {
+            assert_eq!(
+                default_max_tokens_for_model(model),
+                expected,
+                "{model} ceiling must match v2 CEILING_BY_FAMILY_VERSION"
+            );
+        }
+
+        // Relay ids, pinned: this ladder answers the rung its `contains` finds,
+        // where v2 answers its 128k fallback for every marker-less id. The two
+        // can coincide (the 128k rungs) or diverge downward (64k / 32k).
+        for (model, expected) in [
+            ("my-opus-4-5-clone", 64_000),
+            ("my-sonnet-4-6-clone", 128_000),
+            ("relay-opus-4-1", 32_000),
+        ] {
+            assert_eq!(
+                default_max_tokens_for_model(model),
+                expected,
+                "{model} hits the contains() rung; v2 answers 128000 for a marker-less id"
+            );
+        }
+    }
+
     #[test]
     fn test_anthropic_prompt_caching_stable_history_and_tail() {
         let msgs = vec![

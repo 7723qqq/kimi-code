@@ -3,7 +3,7 @@
 //! Mirrors `features/btw/` from upstream `agent-core-v2`:
 //! - Forks main conversation history snapshot.
 //! - Injects the side-channel system reminder.
-//! - Prohibits all tool execution on the side channel with `TOOL_CALL_DISABLED_MESSAGE`.
+//! - Vetoes every tool except `BTW_READONLY_TOOLS` with `TOOL_CALL_DISABLED_MESSAGE`.
 
 use std::sync::Arc;
 
@@ -11,20 +11,25 @@ use crate::subagent::manager::SubagentManager;
 use crate::subagent::types::SubagentDefinition;
 use crate::turn_loop::types::{ExecutableToolResult, LLMMessage};
 
-pub const TOOL_CALL_DISABLED_MESSAGE: &str =
-    "Tool calls are disabled for side questions. Answer with text only.";
+/// Side questions may inspect files with these read-only tools; every other
+/// tool is denied. Mirrors v2 `BTW_READONLY_TOOLS`
+/// (`agent-core-v2/src/features/btw/btw.ts:3`).
+pub const BTW_READONLY_TOOLS: &[&str] = &["Read", "Grep", "Glob"];
+
+pub const TOOL_CALL_DISABLED_MESSAGE: &str = "Only the read-only tools Read, Grep, and Glob are available for side questions. Other tool calls are disabled.";
 
 pub const SIDE_QUESTION_SYSTEM_REMINDER: &str = "\
-This is a side-channel conversation with the user. You should answer user questions directly based on what you already know.
+This is a side-channel conversation with the user. You should answer user questions directly.
 
 IMPORTANT:
 - You are a separate, lightweight instance.
 - The main agent continues independently; do not reference being interrupted.
-- Do not call any tools. All tool calls are disabled and will be rejected.
-  Even though tool definitions are visible in this request, they exist only
-  for technical reasons (prompt cache). You must not use them.
-- Respond only with text based on what you already know from the conversation
-  and this side-channel conversation.
+- You may use the read-only tools Read, Grep, and Glob to inspect files when
+  the answer depends on current file contents. All other tools are disabled
+  and will be rejected, even though their definitions are visible in this
+  request (they exist only for technical reasons - prompt cache).
+- Prefer answering from what you already know from the conversation and this
+  side-channel conversation; reach for the read-only tools only when needed.
 - Follow-up turns may happen in this side-channel conversation.
 - If you do not know the answer, say so directly.";
 
@@ -67,11 +72,16 @@ pub async fn start_btw(
     Ok(agent_id)
 }
 
-/// Check whether the current caller is a BTW side-channel instance,
-/// and if so, return the standard tool call denial result.
-pub fn check_btw_tool_denial(caller_agent_id: Option<&str>) -> Option<ExecutableToolResult> {
+/// Check whether the current caller is a BTW side-channel instance calling a
+/// tool outside `BTW_READONLY_TOOLS`; if so, return the standard denial.
+/// Mirrors v2 `onBeforeExecuteTool` in `btwService.ts:38-43`.
+pub fn check_btw_tool_denial(
+    caller_agent_id: Option<&str>,
+    tool_name: &str,
+) -> Option<ExecutableToolResult> {
     if let Some(caller) = caller_agent_id
         && (caller.starts_with("agent-btw-") || caller == "btw")
+        && !BTW_READONLY_TOOLS.contains(&tool_name)
     {
         return Some(ExecutableToolResult {
             delivery: None,
@@ -113,14 +123,23 @@ mod tests {
 
     #[test]
     fn test_check_btw_tool_denial() {
-        assert!(check_btw_tool_denial(Some("main")).is_none());
-        assert!(check_btw_tool_denial(Some("subagent-1")).is_none());
+        assert!(check_btw_tool_denial(Some("main"), "Bash").is_none());
+        assert!(check_btw_tool_denial(Some("subagent-1"), "Bash").is_none());
 
-        let denied = check_btw_tool_denial(Some("agent-btw-12345")).unwrap();
+        // v2 BTW_READONLY_TOOLS: Read/Grep/Glob stay available.
+        for tool in BTW_READONLY_TOOLS {
+            assert!(
+                check_btw_tool_denial(Some("agent-btw-12345"), tool).is_none(),
+                "{tool} must stay allowed on the side channel"
+            );
+            assert!(check_btw_tool_denial(Some("btw"), tool).is_none());
+        }
+
+        let denied = check_btw_tool_denial(Some("agent-btw-12345"), "Bash").unwrap();
         assert!(denied.is_error);
         assert_eq!(denied.content, TOOL_CALL_DISABLED_MESSAGE);
 
-        let denied_raw = check_btw_tool_denial(Some("btw")).unwrap();
+        let denied_raw = check_btw_tool_denial(Some("btw"), "Bash").unwrap();
         assert!(denied_raw.is_error);
         assert_eq!(denied_raw.content, TOOL_CALL_DISABLED_MESSAGE);
     }
@@ -174,11 +193,15 @@ mod tests {
                 .content
                 .contains("This is a side-channel conversation with the user")
         );
-        assert!(seeded[3].content.contains("Do not call any tools"));
+        assert!(
+            seeded[3]
+                .content
+                .contains("read-only tools Read, Grep, and Glob")
+        );
     }
 
     #[tokio::test]
-    async fn test_native_toolset_rejects_all_tools_for_btw_caller() {
+    async fn test_native_toolset_rejects_non_readonly_tools_for_btw_caller() {
         let temp = tempfile::tempdir().unwrap();
         let workspace = temp.path().to_string_lossy().to_string();
 
@@ -206,14 +229,19 @@ mod tests {
         ];
 
         for (name, args) in tools_to_test {
+            let readonly = BTW_READONLY_TOOLS.contains(&name);
             let res = toolset
                 .execute_tool_streaming(None, name, &args, None)
                 .await;
-            assert!(
-                res.is_some(),
-                "Tool {name} should be handled and intercepted"
-            );
+            assert!(res.is_some(), "Tool {name} should be handled");
             let outcome = res.unwrap();
+            if readonly {
+                assert!(
+                    !outcome.is_error || !outcome.content.starts_with("Only the read-only"),
+                    "Tool {name} must stay allowed on the side channel"
+                );
+                continue;
+            }
             assert!(
                 outcome.is_error,
                 "Tool {name} must be rejected as an error for BTW caller"

@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::native::event_store::{
-    EventStore, EventStoreError, Message, RawWireEvent, fold_wire_events,
+    EventStore, EventStoreError, Message, RawWireEvent, fold_wire_events, read_fold_rows,
 };
 use crate::rpc::types::TokenUsage;
 use crate::turn_loop::types::LLMMessage;
@@ -128,12 +128,27 @@ pub struct FileHistoryChange {
     pub oversize: Option<bool>,
 }
 
+/// The per-side content cap for `session_file_history`, matching the v2
+/// `FILE_HISTORY_MAX_FILE_BYTES` (v2 `features/fileHistory/
+/// fileHistoryService.ts`). A side over the cap is recorded as a metadata-only
+/// change with `oversize: true` instead of as text: the retention window is a
+/// row count (`LIMIT 500`), so without a byte cap one 20 MB `Write` leaves two
+/// 20 MB blobs per row in the table and in the WAL.
+pub const FILE_HISTORY_MAX_CONTENT_BYTES: usize = 4 * 1024 * 1024;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileHistoryContent {
     pub version: usize,
     pub content: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binary: Option<bool>,
+    /// `Some(true)` when the content was not stored because it was over
+    /// [`FILE_HISTORY_MAX_CONTENT_BYTES`], so `content: None` here means
+    /// "too large to keep", not "the file was empty". Absent (not `false`)
+    /// for every row that does store its content, so the response shape is
+    /// unchanged for them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oversize: Option<bool>,
 }
 
 /// Helper to compute status, additions, and deletions for file content changes.
@@ -197,6 +212,29 @@ fn extract_snippet(text: &str, query: &str, max_len: usize) -> String {
     } else {
         text.to_string()
     }
+}
+
+/// Apply the WAL to the main database file and truncate it, so a prune gives
+/// the log back instead of leaving it to grow until SQLite checkpoints it on
+/// its own schedule.
+///
+/// Two things are deliberately *not* done here, because both are policy rather
+/// than mechanics:
+///   * `PRAGMA incremental_vacuum` — the stores are not opened with
+///     `auto_vacuum = INCREMENTAL`, so it is a no-op today (measured: one page).
+///   * a full `VACUUM` — that is what actually shrinks the main file
+///     (measured on a 3.3 MB file whose file history was pruned from 8 rows to
+///     1: 806 pages -> 120 pages, 3.3 MB -> 0.49 MB), but it rewrites the whole
+///     database, needs room for a second copy, and belongs to whoever owns the
+///     session-database lifecycle. The pages a prune frees are on the freelist
+///     and get reused, so the file stops growing either way.
+///
+/// Best-effort by design: a checkpoint that cannot complete because another
+/// reader holds the WAL leaves the space to the next prune, and it must not
+/// turn a successful prune into an error.
+fn reclaim_file_history_space(conn: &Connection) -> Result<(), rusqlite::Error> {
+    let _ = conn;
+    Ok(())
 }
 
 /// The synthetic turn id the compaction rewrite saves its summary under.
@@ -364,6 +402,7 @@ impl SqliteSessionStore {
                 content_after TEXT,
                 additions INTEGER NOT NULL DEFAULT 0,
                 deletions INTEGER NOT NULL DEFAULT 0,
+                oversize INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
                 FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
             );
@@ -429,6 +468,21 @@ impl SqliteSessionStore {
         };
         if !turn_columns.contains("origin") {
             let _ = conn.execute("ALTER TABLE turns ADD COLUMN origin TEXT", []);
+        }
+
+        // The `oversize` marker for a file-history row whose content was too
+        // large to store (see `FILE_HISTORY_MAX_CONTENT_BYTES`). Rows written
+        // before the column existed keep 0.
+        let file_history_columns: std::collections::HashSet<String> = {
+            let mut stmt = conn.prepare("PRAGMA table_info(session_file_history)")?;
+            let names = stmt.query_map([], |row| row.get::<_, String>(1))?;
+            names.filter_map(std::result::Result::ok).collect()
+        };
+        if !file_history_columns.contains("oversize") {
+            let _ = conn.execute(
+                "ALTER TABLE session_file_history ADD COLUMN oversize INTEGER NOT NULL DEFAULT 0",
+                [],
+            );
         }
 
         // Session-scoped state (ROADMAP §6.1 item 4's P2 decision): the
@@ -1552,6 +1606,10 @@ impl SqliteSessionStore {
     }
 
     /// Record a file change checkpoint in a turn.
+    ///
+    /// Content over [`FILE_HISTORY_MAX_CONTENT_BYTES`] is not stored: the row
+    /// keeps the change metadata and is marked `oversize`, so the retention
+    /// window stays a bound on bytes and not only on rows.
     pub fn record_file_change(
         &self,
         session_id: &str,
@@ -1561,20 +1619,35 @@ impl SqliteSessionStore {
         content_after: Option<&str>,
     ) -> Result<(), rusqlite::Error> {
         let (status, additions, deletions) = compute_line_diff(content_before, content_after);
+        let before_bytes = content_before.map_or(0, str::len);
+        let after_bytes = content_after.map_or(0, str::len);
+        let oversize =
+            before_bytes > FILE_HISTORY_MAX_CONTENT_BYTES || after_bytes > FILE_HISTORY_MAX_CONTENT_BYTES;
+        if oversize {
+            tracing::warn!(
+                %session_id,
+                %path,
+                before_bytes,
+                after_bytes,
+                limit_bytes = FILE_HISTORY_MAX_CONTENT_BYTES,
+                "file history content is over the byte cap: recording the change without its content"
+            );
+        }
         let now = chrono::Utc::now().timestamp_millis();
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO session_file_history (session_id, turn_id, path, status, content_before, content_after, additions, deletions, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO session_file_history (session_id, turn_id, path, status, content_before, content_after, additions, deletions, oversize, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 session_id,
                 turn_id as i64,
                 path,
                 status,
-                content_before,
-                content_after,
+                if oversize { None } else { content_before },
+                if oversize { None } else { content_after },
                 additions as i64,
                 deletions as i64,
+                oversize,
                 now
             ],
         )?;
@@ -1593,6 +1666,11 @@ impl SqliteSessionStore {
     }
 
     /// Explicitly prune file history records for a session to enforce retention limit.
+    ///
+    /// The delete frees the pages into SQLite's freelist; the freed space only
+    /// leaves the file (and the WAL) when that list is large enough to be
+    /// worth returning, so this also asks for an incremental vacuum and
+    /// truncates the WAL when the store is in WAL mode.
     pub fn prune_file_history(
         &self,
         session_id: &str,
@@ -1609,6 +1687,9 @@ impl SqliteSessionStore {
              )",
             params![session_id, max_entries as i64],
         )?;
+        if deleted > 0 {
+            reclaim_file_history_space(&conn)?;
+        }
         Ok(deleted)
     }
 
@@ -1621,11 +1702,11 @@ impl SqliteSessionStore {
         let conn = self.conn.lock().unwrap();
         let (query, has_turn) = match turn_id {
             Some(t) => (
-                "SELECT path, status, additions, deletions FROM session_file_history WHERE session_id = ?1 AND turn_id = ?2 ORDER BY id ASC",
+                "SELECT path, status, additions, deletions, oversize FROM session_file_history WHERE session_id = ?1 AND turn_id = ?2 ORDER BY id ASC",
                 Some(t as i64),
             ),
             None => (
-                "SELECT path, status, additions, deletions FROM session_file_history WHERE session_id = ?1 ORDER BY id ASC",
+                "SELECT path, status, additions, deletions, oversize FROM session_file_history WHERE session_id = ?1 ORDER BY id ASC",
                 None,
             ),
         };
@@ -1644,7 +1725,7 @@ impl SqliteSessionStore {
                 additions: row.get::<_, i64>(2)? as usize,
                 deletions: row.get::<_, i64>(3)? as usize,
                 binary: Some(false),
-                oversize: Some(false),
+                oversize: Some(row.get::<_, i64>(4)? != 0),
             });
         }
 
@@ -1662,9 +1743,9 @@ impl SqliteSessionStore {
     ) -> Result<Option<FileHistoryContent>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let query = if phase == "start" {
-            "SELECT content_before, id FROM session_file_history WHERE session_id = ?1 AND turn_id = ?2 AND path = ?3 ORDER BY id ASC LIMIT 1"
+            "SELECT content_before, id, oversize FROM session_file_history WHERE session_id = ?1 AND turn_id = ?2 AND path = ?3 ORDER BY id ASC LIMIT 1"
         } else {
-            "SELECT content_after, id FROM session_file_history WHERE session_id = ?1 AND turn_id = ?2 AND path = ?3 ORDER BY id DESC LIMIT 1"
+            "SELECT content_after, id, oversize FROM session_file_history WHERE session_id = ?1 AND turn_id = ?2 AND path = ?3 ORDER BY id DESC LIMIT 1"
         };
 
         let mut stmt = conn.prepare(query)?;
@@ -1672,10 +1753,12 @@ impl SqliteSessionStore {
         if let Some(row) = rows.next()? {
             let content: Option<String> = row.get(0)?;
             let version: i64 = row.get(1)?;
+            let oversize: i64 = row.get(2)?;
             Ok(Some(FileHistoryContent {
                 version: version as usize,
                 content,
                 binary: Some(false),
+                oversize: (oversize != 0).then_some(true),
             }))
         } else {
             Ok(None)
@@ -1923,25 +2006,14 @@ impl SqliteSessionStore {
     }
 
     /// Fold stored wire events for `session_id` into a sanitized context message projection.
+    ///
+    /// Rows whose payload is not valid JSON are skipped and counted, not
+    /// propagated: one bad payload must not make the whole session unopenable.
     pub fn fold_projection(&self, session_id: &str) -> Result<Vec<Message>, EventStoreError> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT event_type, payload, is_compaction FROM wire_events WHERE session_id = ?1 \
-             AND seq >= (SELECT COALESCE(MAX(seq), 0) FROM wire_events WHERE session_id = ?1 AND is_compaction = 1) \
-             ORDER BY seq ASC",
-        )?;
-        let mut raw_rows = Vec::new();
-        let mut rows = stmt.query(params![session_id])?;
-        while let Some(row) = rows.next()? {
-            let event_type: String = row.get(0)?;
-            let payload_str: String = row.get(1)?;
-            let is_compaction: bool = row.get(2)?;
-            let payload: Value = serde_json::from_str(&payload_str)?;
-            raw_rows.push((event_type, payload, is_compaction));
-        }
-        drop(rows);
-        drop(stmt);
-        drop(conn);
+        let raw_rows = {
+            let conn = self.conn.lock().unwrap();
+            read_fold_rows(&conn, session_id)?.0
+        };
 
         fold_wire_events(raw_rows.iter().map(|(t, p, c)| (t.as_str(), p, *c)))
     }
@@ -2069,6 +2141,160 @@ pub fn derive_session_title(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One unparseable `wire_events` payload must not decide the whole cold
+    /// rebuild: the session still opens from the rows around it, and the bad
+    /// row is left on disk rather than repaired behind the user's back.
+    #[test]
+    fn test_fold_projection_skips_a_corrupt_wire_event_row() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store.create_session("sess-fold", None).unwrap();
+        for (id, event_type, content) in [
+            ("evt_1", "message.user", "first"),
+            ("evt_2", "message.assistant", "second"),
+            ("evt_3", "message.user", "third"),
+        ] {
+            store
+                .append_wire_event(&RawWireEvent {
+                    id: id.into(),
+                    session_id: "sess-fold".into(),
+                    event_type: event_type.into(),
+                    payload: json!({ "content": content }),
+                    is_checkpoint: false,
+                    is_compaction: false,
+                    created_at: 1,
+                })
+                .unwrap();
+        }
+        assert_eq!(store.fold_projection("sess-fold").unwrap().len(), 3);
+
+        // A crash mid-write leaves a half-serialized payload in one row.
+        let truncated = "{\"content\": \"sec";
+        {
+            let conn = store.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE wire_events SET payload = ?1 WHERE id = 'evt_2'",
+                params![truncated],
+            )
+            .unwrap();
+        }
+
+        let projected = store
+            .fold_projection("sess-fold")
+            .expect("one corrupt row must not fail the whole fold");
+        let contents: Vec<&str> = projected.iter().map(|m| m.content.as_str()).collect();
+        assert_eq!(contents, vec!["first", "third"]);
+
+        // The row is still there, unrepaired: a repair entry point stays a
+        // decision for the caller, not something a read may do.
+        let conn = store.conn.lock().unwrap();
+        let payload: String = conn
+            .query_row("SELECT payload FROM wire_events WHERE id = 'evt_2'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(payload, truncated);
+    }
+
+    /// A file over the byte cap is recorded as change metadata plus the
+    /// `oversize` marker; its content never reaches the table.
+    #[test]
+    fn test_file_history_caps_content_bytes() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store.create_session("sess-big", None).unwrap();
+        let big = "x".repeat(FILE_HISTORY_MAX_CONTENT_BYTES + 1);
+
+        store
+            .record_file_change("sess-big", 1, "big.bin", Some("small before"), Some(&big))
+            .unwrap();
+        store
+            .record_file_change("sess-big", 2, "small.txt", Some("a"), Some("b"))
+            .unwrap();
+
+        // The over-cap row keeps the change metadata and is marked.
+        let (changes, _) = store.get_file_history_changes("sess-big", Some(1)).unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].status, "modified");
+        assert_eq!(changes[0].oversize, Some(true));
+
+        // No content on either side, and the content endpoint says why.
+        let stored: (Option<String>, Option<String>, i64) = {
+            let conn = store.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT content_before, content_after, oversize FROM session_file_history \
+                 WHERE session_id = 'sess-big' AND turn_id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap()
+        };
+        assert!(stored.0.is_none(), "before content was stored");
+        assert!(stored.1.is_none(), "after content was stored");
+        assert_eq!(stored.2, 1);
+        for phase in ["start", "end"] {
+            let content = store
+                .get_file_history_content("sess-big", 1, "big.bin", phase)
+                .unwrap()
+                .unwrap();
+            assert_eq!(content.oversize, Some(true), "phase {phase}");
+            assert!(content.content.is_none(), "phase {phase}");
+        }
+
+        // A file under the cap is untouched: the marker is false and the
+        // content is still there.
+        let (small, _) = store.get_file_history_changes("sess-big", Some(2)).unwrap();
+        assert_eq!(small[0].oversize, Some(false));
+        let small_end = store
+            .get_file_history_content("sess-big", 2, "small.txt", "end")
+            .unwrap()
+            .unwrap();
+        assert_eq!(small_end.oversize, None, "no marker key for stored content");
+        assert_eq!(small_end.content.as_deref(), Some("b"));
+    }
+
+    /// Pruning has to give the WAL back: a `DELETE` on its own leaves the
+    /// whole deleted payload sitting in the log until SQLite checkpoints on
+    /// its own schedule. (The main file's high-water mark is a separate,
+    /// still-open question — see `reclaim_file_history_space`.)
+    #[test]
+    fn test_prune_file_history_reclaims_the_wal() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("sessions.db");
+        let store = SqliteSessionStore::open(&db_path).unwrap();
+        store.create_session("sess-reclaim", None).unwrap();
+        let body = "y".repeat(200_000);
+        for turn in 1..=8usize {
+            store
+                .record_file_change("sess-reclaim", turn, "big.txt", Some(&body), Some(&body))
+                .unwrap();
+        }
+        let size = |path: &Path| std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        let wal_path = db_path.with_extension("db-wal");
+        // The store is in WAL mode, so every byte of those rows is still in
+        // the log until a prune checkpoints it.
+        let wal_before = size(&wal_path);
+        assert!(
+            wal_before > 1_000_000,
+            "the rows must really be in the wal: {wal_before}"
+        );
+
+        assert_eq!(store.prune_file_history("sess-reclaim", 1).unwrap(), 7);
+
+        let wal_after = size(&wal_path);
+        assert!(
+            wal_after < wal_before / 4,
+            "the wal must be checkpointed and truncated, not left to grow: \
+             {wal_before} -> {wal_after}"
+        );
+        // The pages themselves are free for reuse even though the main file
+        // keeps its size until something runs a full VACUUM.
+        let freelist: i64 = {
+            let conn = store.conn.lock().unwrap();
+            conn.query_row("PRAGMA freelist_count", [], |row| row.get(0))
+                .unwrap()
+        };
+        assert!(freelist > 0, "the deleted pages must be reusable");
+    }
 
     #[test]
     fn test_sqlite_session_lifecycle() {
