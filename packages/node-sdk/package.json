@@ -71,10 +71,10 @@
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@moonshot-ai/i18n-runtime": "workspace:^",
     "@moonshot-ai/kaos": "workspace:^",
     "@moonshot-ai/kimi-agent": "workspace:*",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
-    "@moonshot-ai/kimi-i18n": "workspace:^",
     "@moonshot-ai/kosong": "workspace:^",
     "@moonshot-ai/protocol": "workspace:^",
     "@types/yazl": "^2.4.6",

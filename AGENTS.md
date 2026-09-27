@@ -31,7 +31,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 
 ### Fork-specific additions vs upstream
 
-- **i18n / Multi-language support** — Complete Chinese-English bilingual support across TUI, CLI, and Web UI, and across the Rust engine's own user-facing text (permission reasons, tool-result errors, ACP approval labels). The locale catalog lives in the engine binary and is resolved by key; `apps/kimi-code` and `packages/i18n` no longer hold a JSON copy. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
+- **i18n / Multi-language support** — Complete Chinese-English bilingual support across TUI, CLI, and Web UI, and across the Rust engine's own user-facing text (permission reasons, tool-result errors, ACP approval labels). The locale catalog lives in the engine binary and is resolved by key; `apps/kimi-code` and `packages/i18n-runtime` no longer hold a JSON copy. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
 - **Team** — Multi-agent discussion and collaboration tool; agents can debate, cross-review, and reach consensus before output.
 - **Rust Native Tools** — Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as a native Node addon, significantly faster than JS.
 - **Windows launchers** — `start-native.bat` builds the native Rust tools if needed and launches the CLI in dev mode (supports `--web` to launch the Web UI powered by native Rust server); `start-web-native.bat` provides one-click launch for the native Web UI; `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
@@ -66,7 +66,7 @@ LocalizedText::with_params(
 
 Locale keys live under `engine.*` in `packages/i18n-catalog/src/locales/{en,zh}.ts`
 — the single owner of the whole locale catalog, 2419 leaves across 24 top-level
-namespaces (the host installs them via `setEngineLocale`; see `packages/i18n` and
+namespaces (the host installs them via `setEngineLocale`; see `packages/i18n-runtime` and
 `apps/kimi-code/src/i18n`). Run `bun run check:engine-i18n` after any change — CI
 gates on it.
 
@@ -261,8 +261,8 @@ Debug visualization tool for kimi-code sessions. Composed of `vis/server` (backe
 
 ```
 packages/
-  i18n/                — Shared i18n infrastructure (t() with en/zh support)
   i18n-catalog/        — The single locale catalog (en/zh, 2419 keys); its JSON is generated into packages/kimi-agent/src/locales/
+  i18n-runtime/        — Shared i18n infrastructure (t() with en/zh support)
   i18n-shared/         — Shared i18n core (types, locale detection, web-safe)
   kaos/                — Execution environment abstraction (local / ssh / login-shell)
   kimi-agent/          — Rust agent engine + native Node addon (napi-rs)

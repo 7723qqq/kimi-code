@@ -40,7 +40,7 @@
         "kaos",
         "kosong",
         "oauth",
-        "i18n"
+        "i18n-runtime"
       ],
       "apis": [
         {
@@ -49,7 +49,7 @@
           "description": "Public SDK package"
         }
       ],
-      "fingerprint": "06173f41fcc44fc3"
+      "fingerprint": "959524d56fe6c955"
     },
     {
       "id": "kimi-code",
@@ -59,7 +59,7 @@
       "deps": [
         "node-sdk",
         "i18n-catalog",
-        "i18n",
+        "i18n-runtime",
         "i18n-shared",
         "oauth",
         "telemetry",
@@ -88,9 +88,9 @@
       "source": "packages/kosong/src",
       "layer": "engine",
       "deps": [
-        "i18n"
+        "i18n-runtime"
       ],
-      "fingerprint": "b7440b8c9ae82282"
+      "fingerprint": "cc5d7a3844fd8bf1"
     },
     {
       "id": "minidb",
@@ -145,9 +145,9 @@
       "fingerprint": "8af69217f03119e7"
     },
     {
-      "id": "i18n",
-      "name": "i18n",
-      "source": "packages/i18n/src",
+      "id": "i18n-runtime",
+      "name": "i18n runtime",
+      "source": "packages/i18n-runtime/src",
       "layer": "shared",
       "deps": [
         "i18n-catalog",
@@ -197,7 +197,7 @@
       "layer": "app",
       "deps": [
         "node-sdk",
-        "i18n",
+        "i18n-runtime",
         "oauth",
         "telemetry"
       ],
@@ -253,9 +253,9 @@
   },
   "exemptions": [
     {
-      "from": "i18n",
+      "from": "i18n-runtime",
       "to": "kimi-agent",
-      "reason": "i18n 只在 try/catch 内 require napi 原生模块（packages/i18n/src/i18n.ts:77）拿更快的翻译路径，并有纯 JS 兜底；浏览器与单文件打包下原生模块不存在，因此这是运行期可选的软依赖，不应记为构建期硬依赖。"
+      "reason": "i18n-runtime 只在 try/catch 内 require napi 原生模块（packages/i18n-runtime/src/i18n.ts:77）拿更快的翻译路径，并有纯 JS 兜底（translatePure 走 flatMessages 扁平表，可用 KIMI_I18N_FORCE_JS 强制）；浏览器与单文件打包下原生模块不存在，因此这是运行期可选的软依赖，不应记为构建期硬依赖。"
     }
   ]
 }

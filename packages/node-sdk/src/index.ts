@@ -45,9 +45,9 @@ export type {
   FetchCatalogOptions,
 } from '#/catalog';
 
-// Locale — forwarded from kimi-i18n so hosts never import the i18n package directly.
-export { setLocale, getLocale } from '@moonshot-ai/kimi-i18n';
-export type { Locale } from '@moonshot-ai/kimi-i18n';
+// Locale — forwarded from i18n-runtime so hosts never import the i18n package directly.
+export { setLocale, getLocale } from '@moonshot-ai/i18n-runtime';
+export type { Locale } from '@moonshot-ai/i18n-runtime';
 
 // Error primitives.
 export {

@@ -7,7 +7,7 @@
  * base without a dependency cycle. The engine re-exports it unchanged.
  */
 
-import { t } from '@moonshot-ai/kimi-i18n';
+import { t } from '@moonshot-ai/i18n-runtime';
 
 import { CoreErrors } from './codes';
 

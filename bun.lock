@@ -211,18 +211,18 @@
         "vitepress": "^1.5.0",
       },
     },
-    "packages/i18n": {
-      "name": "@moonshot-ai/kimi-i18n",
+    "packages/i18n-catalog": {
+      "name": "@moonshot-ai/i18n-catalog",
+      "version": "0.1.0",
+    },
+    "packages/i18n-runtime": {
+      "name": "@moonshot-ai/i18n-runtime",
       "version": "0.1.0",
       "dependencies": {
         "@moonshot-ai/i18n-catalog": "workspace:^",
         "@moonshot-ai/i18n-shared": "workspace:^",
         "@moonshot-ai/kimi-agent": "workspace:^",
       },
-    },
-    "packages/i18n-catalog": {
-      "name": "@moonshot-ai/i18n-catalog",
-      "version": "0.1.0",
     },
     "packages/i18n-shared": {
       "name": "@moonshot-ai/i18n-shared",
@@ -251,8 +251,8 @@
       "name": "@moonshot-ai/kosong",
       "version": "0.5.6",
       "dependencies": {
+        "@moonshot-ai/i18n-runtime": "workspace:^",
         "@moonshot-ai/kimi-agent": "workspace:^",
-        "@moonshot-ai/kimi-i18n": "workspace:^",
         "zod": "^4.3.6",
       },
       "devDependencies": {
@@ -276,10 +276,10 @@
       },
       "devDependencies": {
         "@modelcontextprotocol/sdk": "^1.29.0",
+        "@moonshot-ai/i18n-runtime": "workspace:^",
         "@moonshot-ai/kaos": "workspace:^",
         "@moonshot-ai/kimi-agent": "workspace:*",
         "@moonshot-ai/kimi-code-oauth": "workspace:^",
-        "@moonshot-ai/kimi-i18n": "workspace:^",
         "@moonshot-ai/kosong": "workspace:^",
         "@moonshot-ai/protocol": "workspace:^",
         "@types/yazl": "^2.4.6",
@@ -866,6 +866,8 @@
 
     "@moonshot-ai/i18n-catalog": ["@moonshot-ai/i18n-catalog@workspace:packages/i18n-catalog"],
 
+    "@moonshot-ai/i18n-runtime": ["@moonshot-ai/i18n-runtime@workspace:packages/i18n-runtime"],
+
     "@moonshot-ai/i18n-shared": ["@moonshot-ai/i18n-shared@workspace:packages/i18n-shared"],
 
     "@moonshot-ai/kaos": ["@moonshot-ai/kaos@workspace:packages/kaos"],
@@ -877,8 +879,6 @@
     "@moonshot-ai/kimi-code-oauth": ["@moonshot-ai/kimi-code-oauth@workspace:packages/oauth"],
 
     "@moonshot-ai/kimi-code-sdk": ["@moonshot-ai/kimi-code-sdk@workspace:packages/node-sdk"],
-
-    "@moonshot-ai/kimi-i18n": ["@moonshot-ai/kimi-i18n@workspace:packages/i18n"],
 
     "@moonshot-ai/kimi-inspect": ["@moonshot-ai/kimi-inspect@workspace:apps/kimi-inspect"],
 

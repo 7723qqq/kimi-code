@@ -37,7 +37,7 @@ const ROOT = resolve(__dirname, '..');
 const LOCALE_TARGETS = [
   {
     name: 'i18n-runtime',
-    sourceDirs: ['packages/i18n/src'],
+    sourceDirs: ['packages/i18n-runtime/src'],
     localeFile: 'packages/i18n-catalog/src/locales/en.ts',
   },
   {

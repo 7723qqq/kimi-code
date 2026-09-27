@@ -6,7 +6,7 @@
  * only needs the syntax check.
  */
 
-import { t } from '@moonshot-ai/kimi-i18n';
+import { t } from '@moonshot-ai/i18n-runtime';
 
 export interface ParsedPattern {
   readonly toolName: string;

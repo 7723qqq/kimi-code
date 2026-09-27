@@ -91,8 +91,8 @@
     "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\""
   },
   "dependencies": {
+    "@moonshot-ai/i18n-runtime": "workspace:^",
     "@moonshot-ai/kimi-agent": "workspace:^",
-    "@moonshot-ai/kimi-i18n": "workspace:^",
     "zod": "^4.3.6"
   },
   "devDependencies": {

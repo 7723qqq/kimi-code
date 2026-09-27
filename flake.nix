@@ -100,8 +100,8 @@
       # the Nix build's src fileset. `scripts/check-nix-workspace.mjs`
       # validates this list against package.json.
       workspacePaths = [
-        ./packages/i18n
         ./packages/i18n-catalog
+        ./packages/i18n-runtime
         ./packages/i18n-shared
         ./packages/kaos
         ./packages/kimi-agent

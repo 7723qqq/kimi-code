@@ -10,7 +10,7 @@
  * engine re-exports it unchanged and keeps registering its domain codes here.
  */
 
-import { t } from '@moonshot-ai/kimi-i18n';
+import { t } from '@moonshot-ai/i18n-runtime';
 
 export interface ErrorInfo {
   readonly title: string;
