@@ -27,7 +27,7 @@
           "description": "ACP stdio protocol server"
         }
       ],
-      "fingerprint": "45252457188b3492"
+      "fingerprint": "652ca57425a11620"
     },
     {
       "id": "node-sdk",
@@ -80,7 +80,7 @@
           "description": "Terminal UI"
         }
       ],
-      "fingerprint": "1bb337c93c6ffce4"
+      "fingerprint": "0433a12890f1e03c"
     },
     {
       "id": "kosong",
@@ -142,7 +142,7 @@
       "source": "packages/i18n-catalog/src",
       "layer": "shared",
       "deps": [],
-      "fingerprint": "9446e39771433712"
+      "fingerprint": "8af69217f03119e7"
     },
     {
       "id": "i18n",
@@ -153,7 +153,7 @@
         "i18n-catalog",
         "i18n-shared"
       ],
-      "fingerprint": "b50734b2cdaadf75"
+      "fingerprint": "f3624b846424fa5d"
     },
     {
       "id": "i18n-shared",

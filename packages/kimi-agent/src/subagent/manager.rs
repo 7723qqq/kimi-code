@@ -247,6 +247,12 @@ async fn subagent_tool_defs(
 struct ToolFilterCallbacks {
     inner: Arc<dyn crate::callbacks::HostCallbacks>,
     filter: ToolPolicyFilter,
+    /// The subagent instance this turn belongs to. The native LLM's stream
+    /// sink emits bare `llm.delta` payloads with no agent attribution, so the
+    /// wrapper stamps every event that crosses it — without this the SDK's
+    /// attribution fallback resolves the deltas to `"main"` and a subagent's
+    /// body text streams into the main transcript.
+    agent_id: String,
 }
 
 impl crate::callbacks::HostCallbacks for ToolFilterCallbacks {
@@ -334,7 +340,21 @@ impl crate::callbacks::HostCallbacks for ToolFilterCallbacks {
     }
 
     fn emit_event(&self, event: serde_json::Value) {
-        self.inner.emit_event(event);
+        // The native LLM's stream sink emits bare `{"type":"llm.delta",
+        // "part":…}` payloads with no agent attribution, and the SDK's
+        // attribution fallback resolves an unattributed event to `"main"` —
+        // which streamed this subagent's body text into the main transcript.
+        // Stamp the instance id onto every event crossing this wrapper; the
+        // SDK prefers an explicit `agent_id` over its fallback.
+        let stamped = match &event {
+            serde_json::Value::Object(map) if !map.contains_key("agent_id") => {
+                let mut stamped = map.clone();
+                stamped.insert("agent_id".into(), self.agent_id.clone().into());
+                serde_json::Value::Object(stamped)
+            }
+            _ => event,
+        };
+        self.inner.emit_event(stamped);
     }
 
     fn turn_event(&self, event: crate::turn_events::TurnEvent) {
@@ -1120,6 +1140,7 @@ worktree root the tower assigns you as your full authority scope.";
         let callbacks: Arc<dyn crate::callbacks::HostCallbacks> = Arc::new(ToolFilterCallbacks {
             inner: runtime.callbacks.clone(),
             filter,
+            agent_id: id.to_string(),
         });
 
         // v2 `applyProfilePromptPrefix`: the prefix rides ahead of the
@@ -1331,6 +1352,7 @@ worktree root the tower assigns you as your full authority scope.";
         let callbacks: Arc<dyn crate::callbacks::HostCallbacks> = Arc::new(ToolFilterCallbacks {
             inner: runtime.callbacks.clone(),
             filter,
+            agent_id: id.to_string(),
         });
 
         let messages = {
@@ -3401,5 +3423,75 @@ mod tests {
         }
 
         assert!(manager.get_instance(&persistent).await.is_some());
+    }
+
+    /// B6 回归：ToolFilterCallbacks 必须给跨 wrapper 的事件打上子代理的
+    /// agent_id。native LLM 的 stream sink 发出的 `llm.delta` 不携带任何
+    /// 归属字段，SDK 的归属回退会把无 `agent_id` 的事件解析成 `"main"`，
+    /// 子代理的正文/思考流便整体泄进主对话。
+    #[test]
+    fn tool_filter_callbacks_stamp_the_subagent_agent_id_on_events() {
+        struct RecordingInner {
+            events: std::sync::Mutex<Vec<serde_json::Value>>,
+        }
+        impl crate::callbacks::HostCallbacks for RecordingInner {
+            fn llm_chat(
+                &self,
+                _req: crate::rpc::types::LlmChatRequest,
+            ) -> futures_util::future::BoxFuture<
+                'static,
+                Result<crate::rpc::types::LlmChatResponse, String>,
+            > {
+                Box::pin(async { Err("Not needed in mock".into()) })
+            }
+            fn execute_tool(
+                &self,
+                _req: crate::rpc::types::ToolExecuteRequest,
+            ) -> futures_util::future::BoxFuture<
+                'static,
+                Result<crate::rpc::types::ToolExecuteResponse, String>,
+            > {
+                Box::pin(async { Err("Not needed in mock".into()) })
+            }
+            fn check_permission(
+                &self,
+                _req: crate::rpc::types::PermissionCheckRequest,
+            ) -> futures_util::future::BoxFuture<
+                'static,
+                Result<crate::rpc::types::PermissionDecision, String>,
+            > {
+                Box::pin(async { Err("Not needed in mock".into()) })
+            }
+            fn emit_event(&self, event: serde_json::Value) {
+                self.events.lock().unwrap().push(event);
+            }
+        }
+
+        use crate::callbacks::HostCallbacks;
+        let inner = Arc::new(RecordingInner {
+            events: std::sync::Mutex::new(Vec::new()),
+        });
+        let wrapper = ToolFilterCallbacks {
+            inner: inner.clone(),
+            filter: ToolPolicyFilter::from_allowlist(&["Read".to_string()]),
+            agent_id: "subagent-1".to_string(),
+        };
+
+        // 1. 无 agent_id 的 llm.delta（native LLM sink 的原始形状）被打标。
+        wrapper.emit_event(serde_json::json!({
+            "type": "llm.delta",
+            "part": { "type": "text", "text": "hi" },
+        }));
+        // 2. 已带 agent_id 的事件不被覆盖。
+        wrapper.emit_event(serde_json::json!({
+            "type": "tool.call.started",
+            "agent_id": "other",
+        }));
+
+        let recorded = inner.events.lock().unwrap();
+        assert_eq!(recorded.len(), 2);
+        assert_eq!(recorded[0]["agent_id"], "subagent-1");
+        assert_eq!(recorded[0]["type"], "llm.delta");
+        assert_eq!(recorded[1]["agent_id"], "other", "已有归属不被覆盖");
     }
 }
