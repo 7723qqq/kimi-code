@@ -13,6 +13,7 @@ const tscBinPath = packageBinPath('typescript', 'bin/tsc');
 const apiExtractorBinPath = packageBinPath('@microsoft/api-extractor', 'bin/api-extractor');
 
 const packageDirs = new Set([
+  'i18n-catalog',
   'i18n-runtime',
   'i18n-shared',
   'kaos',
@@ -23,6 +24,7 @@ const packageDirs = new Set([
 ]);
 const workspacePackages = new Map([
   ['@moonshot-ai/kimi-code-oauth', 'oauth'],
+  ['@moonshot-ai/i18n-catalog', 'i18n-catalog'],
   ['@moonshot-ai/i18n-runtime', 'i18n-runtime'],
   ['@moonshot-ai/i18n-shared', 'i18n-shared'],
   ['@moonshot-ai/kaos', 'kaos'],
@@ -115,7 +117,7 @@ async function rewriteWorkspaceSpecifiers() {
           `import { GoogleGenAI as GenAIClient } from '${providerClientSpecifier}';`,
         );
       const updated = providerClientText.replaceAll(
-        /(["'])(#\/[^"']+|@moonshot-ai\/(?:agent-core-v2|kimi-code-oauth|i18n-runtime|i18n-shared|kaos|klient|kosong|protocol)(?:\/[^"']+)?)\1/g,
+        /(["'])(#\/[^"']+|@moonshot-ai\/(?:agent-core-v2|kimi-code-oauth|i18n-catalog|i18n-runtime|i18n-shared|kaos|klient|kosong|protocol)(?:\/[^"']+)?)\1/g,
         (_match, quote, specifier) => {
           const resolved = resolveSpecifier({
             currentFile: file,
