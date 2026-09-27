@@ -20,12 +20,32 @@ const ROOT = resolve(__dirname, '..');
 // against. A tree with no entry here is completely unchecked — `apps/kimi-code`
 // used to be in exactly that blind spot, which is how a `t()` call naming a key
 // that exists in neither locale reached the settings list as raw text.
+//
+// Every entry now resolves against the single catalog
+// (`packages/i18n-catalog`). That used to be two independent catalogs, each
+// target checking its own tree against its own file — which is precisely the
+// mechanism that let both coexist without the gate ever objecting. One catalog
+// means one key set, and every tree that calls `t()` has to be in this list.
 const LOCALE_TARGETS = [
   {
-    name: 'i18n-catalog',
-    sourceDirs: ['packages/i18n/src', 'apps/kimi-code/src'],
+    name: 'i18n-runtime',
+    sourceDirs: ['packages/i18n/src'],
     localeFile: 'packages/i18n-catalog/src/locales/en.ts',
-    slug: 'packages/i18n-catalog/src/locales/{en,zh}.ts',
+  },
+  {
+    name: 'kimi-code',
+    sourceDirs: ['apps/kimi-code/src'],
+    localeFile: 'packages/i18n-catalog/src/locales/en.ts',
+  },
+  {
+    name: 'kosong',
+    sourceDirs: ['packages/kosong/src'],
+    localeFile: 'packages/i18n-catalog/src/locales/en.ts',
+  },
+  {
+    name: 'node-sdk',
+    sourceDirs: ['packages/node-sdk/src'],
+    localeFile: 'packages/i18n-catalog/src/locales/en.ts',
   },
 ];
 

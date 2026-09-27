@@ -67,16 +67,24 @@ export const CoreErrors = {
   },
   info: {
     internal: {
-      title: t('v2Errors.internal'),
+      get title() {
+        return t('v2Errors.internal');
+      },
       retryable: false,
       public: true,
-      action: t('v2Errors.internal'),
+      get action() {
+        return t('v2Errors.internal');
+      },
     },
     not_implemented: {
-      title: t('v2Errors.notImplemented'),
+      get title() {
+        return t('v2Errors.notImplemented');
+      },
       retryable: false,
       public: true,
-      action: t('v2Errors.notImplemented'),
+      get action() {
+        return t('v2Errors.notImplemented');
+      },
     },
   },
 } as const satisfies ErrorDomain;
