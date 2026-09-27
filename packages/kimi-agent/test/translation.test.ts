@@ -1,12 +1,18 @@
 import { createRequire } from 'node:module';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
 const native = require('../index.native.cjs') as {
   translate: (key: string, params?: Record<string, string> | null) => string;
   setEngineLocale: (locale: string) => void;
 };
+
+// The engine locale is process-wide, so a test that switches it and then fails
+// would otherwise leave every later test resolving against the wrong catalog.
+afterEach(() => {
+  native.setEngineLocale('en');
+});
 
 describe('translate (embedded catalog)', () => {
   it('resolves a known key in English', () => {
@@ -16,7 +22,6 @@ describe('translate (embedded catalog)', () => {
   it('resolves the same key in Chinese', () => {
     native.setEngineLocale('zh');
     expect(native.translate('common.ok')).toBe('确定');
-    native.setEngineLocale('en');
   });
 
   it('returns the key when it is in neither locale', () => {
