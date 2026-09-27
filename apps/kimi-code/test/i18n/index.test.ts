@@ -77,63 +77,55 @@ describe('i18n', () => {
   describe('engine locale sync', () => {
     /**
      * The Rust engine renders its own user-facing text (permission reasons,
-     * tool-result notes, error prefixes) from the locale the host installs via
+     * tool-result notes, error prefixes) from the locale the host names via
      * `setEngineLocale`. Without that install those messages stay English, so
      * the wiring — not just the types — needs covering.
+     *
+     * The catalog is embedded in the engine binary, so the payload is a locale
+     * name and nothing else. What proves the two sides agree is that the engine
+     * resolves a key the host also resolves, in the language just named.
      */
-    interface EngineLocaleCall {
-      localeJson: string;
-      fallbackJson: string;
+    interface NativeModule {
+      setEngineLocale?: (locale: string) => void;
+      translate?: (key: string) => string;
     }
 
-    function spyOnEngineLocale(): { calls: EngineLocaleCall[]; restore: () => void } {
-      const native = createRequire(import.meta.url)('@moonshot-ai/kimi-agent/native') as {
-        setEngineLocale?: (localeJson: string, fallbackJson: string) => void;
-      };
+    function spyOnEngineLocale(): {
+      calls: string[];
+      native: NativeModule;
+      restore: () => void;
+    } {
+      const native = createRequire(import.meta.url)(
+        '@moonshot-ai/kimi-agent/native',
+      ) as NativeModule;
       const original = native.setEngineLocale;
-      const calls: EngineLocaleCall[] = [];
-      native.setEngineLocale = (localeJson, fallbackJson) => {
-        calls.push({ localeJson, fallbackJson });
-        original?.(localeJson, fallbackJson);
+      const calls: string[] = [];
+      native.setEngineLocale = (locale) => {
+        calls.push(locale);
+        original?.(locale);
       };
-      return { calls, restore: () => (native.setEngineLocale = original) };
-    }
-
-    /** The most recent install, asserting one happened. */
-    function lastCall(calls: EngineLocaleCall[]): EngineLocaleCall {
-      const last = calls.at(-1);
-      expect(last, 'setEngineLocale was never called').toBeDefined();
-      if (!last) throw new Error('unreachable');
-      return last;
+      return { calls, native, restore: () => (native.setEngineLocale = original) };
     }
 
     it('re-installs the engine locale when the host locale switches', () => {
       const { calls, restore } = spyOnEngineLocale();
       try {
         setLocale('zh');
-        const { localeJson, fallbackJson } = lastCall(calls);
-
-        // The engine resolves keys against exactly the trees the host serves,
-        // so the payload must be the real locale data, not a stub.
-        const locale = JSON.parse(localeJson) as Record<string, unknown>;
-        const fallback = JSON.parse(fallbackJson) as Record<string, unknown>;
-        expect(Object.keys(locale).length).toBeGreaterThan(0);
-        expect(Object.keys(fallback).length).toBeGreaterThan(0);
-        // English is the fallback language the engine resolves against.
-        expect(fallback).toHaveProperty('common.ok');
+        expect(calls.at(-1), 'setEngineLocale was never called').toBe('zh');
+        setLocale('en');
+        expect(calls.at(-1)).toBe('en');
       } finally {
         restore();
       }
     });
 
-    it('hands the engine the same tree the host translates with', () => {
-      const { calls, restore } = spyOnEngineLocale();
+    it('hands the engine a locale it resolves the same key from', () => {
+      const { native, restore } = spyOnEngineLocale();
       try {
         setLocale('zh');
-        const { localeJson } = lastCall(calls);
-        // A key the host can translate must be resolvable by the engine too,
-        // otherwise the two would drift apart on the same locale.
-        expect(JSON.parse(localeJson)).toHaveProperty('common.ok');
+        // A key the host can translate must come back in the language the host
+        // just named, otherwise the two would drift apart on the same locale.
+        expect(native.translate?.('common.ok')).toBe(zh.common.ok);
       } finally {
         restore();
       }

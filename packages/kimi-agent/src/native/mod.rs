@@ -5,6 +5,7 @@
 
 mod bash;
 mod bash_spawn;
+pub mod catalog;
 mod compaction;
 mod edit;
 mod encoding;

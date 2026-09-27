@@ -112,9 +112,10 @@ const nativeTranslateBatchCached = binding.nativeTranslateBatchCached;
 
 // Engine locale — localizes the engine's own user-facing text (permission
 // reasons, tool-result notes, error prefixes), as opposed to the host's UI
-// strings served by the `nativeTranslate*` family above.
+// strings served by the `nativeTranslate*` family above. The catalog is
+// compiled into the binary, so this takes a locale name, not message trees.
 const setEngineLocale = binding.setEngineLocale;
-const clearEngineLocale = binding.clearEngineLocale;
+const translate = binding.translate;
 
 // ============================================================================
 // FetchUrl — HTTP fetch with SSRF protection and HTML extraction
@@ -1081,7 +1082,7 @@ module.exports = {
 
   // Engine locale
   setEngineLocale,
-  clearEngineLocale,
+  translate,
 
   // GitHub
 

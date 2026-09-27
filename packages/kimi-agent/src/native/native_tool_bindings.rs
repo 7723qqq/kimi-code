@@ -121,26 +121,26 @@ pub fn native_translate_batch_cached(
 // Engine locale
 // ============================================================================
 
-/// Install the engine-side locale.
+/// Switch the engine's own user-facing text to `locale` (`"en"` or `"zh"`).
 ///
-/// The `native_translate*` family above serves the host's own UI strings. This
-/// one serves the engine's own user-facing text — permission reasons,
-/// tool-result notes, error prefixes — which is otherwise hardcoded English.
-///
-/// `fallback_json` is the language a key missing from `locale_json` resolves
-/// against (English here). Passing an empty `locale_json` drops the locale and
-/// restores the English fallbacks, so an embedder that never localizes does not
-/// have to call [`clear_engine_locale`] explicitly.
+/// The catalog is compiled into the binary, so this carries a locale name
+/// rather than the message trees the host used to push. An unrecognised name
+/// leaves the current locale in place.
 #[napi]
-pub fn set_engine_locale(locale_json: String, fallback_json: String) {
-    crate::i18n::set_engine_locale(locale_json, fallback_json);
+pub fn set_engine_locale(locale: String) {
+    if let Some(locale) = crate::i18n::Locale::from_name(&locale) {
+        crate::i18n::set_locale(locale);
+    }
 }
 
-/// Drop the engine-side locale; the engine's own messages render their English
-/// fallback again.
+/// Translate `key` against the engine's embedded catalog, interpolating `params`.
+///
+/// Returns `key` itself when the key is in neither embedded locale.
 #[napi]
-pub fn clear_engine_locale() {
-    crate::i18n::clear_engine_locale();
+pub fn translate(key: String, params: Option<HashMap<String, String>>) -> String {
+    let i18n = crate::i18n::engine_i18n();
+    i18n.translate_embedded(&key, params.as_ref())
+        .unwrap_or(key)
 }
 
 // ============================================================================

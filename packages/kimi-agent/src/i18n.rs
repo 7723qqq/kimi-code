@@ -1,9 +1,10 @@
 //! Engine-side i18n — locale-aware rendering of the engine's own user-facing text.
 //!
-//! The translation engine itself lives in [`crate::native::translation`]. This
-//! module is the seam that lets the engine's own messages (permission reasons,
-//! tool-result notes, error prefixes, ACP approval labels) participate in the
-//! host's locale instead of being hardcoded English.
+//! The translation engine itself lives in [`crate::native::translation`], and
+//! the message trees in [`crate::native::catalog`]. This module is the seam that
+//! lets the engine's own messages (permission reasons, tool-result notes, error
+//! prefixes, ACP approval labels) participate in the host's locale instead of
+//! being hardcoded English.
 //!
 //! # Why a synchronous, in-process lookup
 //!
@@ -15,9 +16,11 @@
 //! produces the majority of permission reasons, and `LlmError`'s `Display`
 //! implementation, which can never await.
 //!
-//! So the host hands its locale JSON over once and the engine resolves keys
-//! locally against a cached parse. Rendering is a pure in-memory lookup, which
-//! makes it callable from any context, sync or async.
+//! So the host names a locale once and the engine resolves keys locally —
+//! against [`crate::native::catalog`] for a key, or against a cached parse of
+//! the host's JSON for a [`LocalizedText`] that still carries its own English.
+//! Rendering is a pure in-memory lookup, which makes it callable from any
+//! context, sync or async.
 //!
 //! # The English fallback
 //!
@@ -30,16 +33,19 @@
 //!
 //! # Process-wide instance
 //!
-//! [`set_engine_locale`] installs the locale for the whole process, mirroring
-//! how the TypeScript side models locale as module-level state and how
-//! `native::napi_bindings` already keeps a process-wide `CachedTranslator`.
-//! Tests and embedders that hold their own [`EngineI18n`] use
-//! [`LocalizedText::render_with`] instead, so they never touch the global.
+//! [`set_locale`] and [`set_engine_locale`] install the locale for the whole
+//! process, mirroring how the TypeScript side models locale as module-level
+//! state and how `native::napi_bindings` already keeps a process-wide
+//! `CachedTranslator`. Tests and embedders that hold their own [`EngineI18n`]
+//! use [`LocalizedText::render_with`] instead, so they never touch the global.
 
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock, RwLockReadGuard};
 
 use crate::native::translation::CachedTranslator;
+
+pub use crate::native::catalog::Locale;
+use crate::native::catalog::{lookup, table};
 
 /// Build a `HashMap<String, String>` of interpolation parameters for
 /// [`LocalizedText::fmt`].
@@ -71,8 +77,16 @@ pub use i18n_params;
 /// `locale_json` is the active language; `fallback_json` is what a key missing
 /// from the active language falls back to (English). The engine never invents
 /// locale data — an unset instance simply renders English fallbacks.
+///
+/// `active` is the embedded catalog's counterpart of the same choice, and is
+/// what [`EngineI18n::translate_embedded`] resolves against. The two paths
+/// coexist while [`LocalizedText`] still carries its own English text: the
+/// injected trees serve the engine's messages, the embedded catalog serves
+/// everything the host asks for by key.
 #[derive(Default)]
 pub struct EngineI18n {
+    /// The embedded catalog's active language.
+    pub(crate) active: Locale,
     locale_json: String,
     fallback_json: String,
     translator: CachedTranslator,
@@ -98,10 +112,32 @@ impl EngineI18n {
     /// A wired instance serving `locale_json` with `fallback_json` behind it.
     pub fn new(locale_json: String, fallback_json: String) -> Self {
         Self {
+            active: Locale::default(),
             locale_json,
             fallback_json,
             translator: CachedTranslator::new(),
         }
+    }
+
+    /// Resolve `key` against the embedded catalog, then English.
+    ///
+    /// `None` means the key is in neither embedded tree; the caller renders the
+    /// key itself, which is how a typo surfaces instead of hiding.
+    pub fn translate_embedded(
+        &self,
+        key: &str,
+        params: Option<&HashMap<String, String>>,
+    ) -> Option<String> {
+        let template = lookup(self.active, key).or_else(|| lookup(Locale::En, key))?;
+        Some(crate::native::translation::interpolate(
+            template,
+            params.unwrap_or(&HashMap::new()),
+        ))
+    }
+
+    /// Every key the embedded `en` catalog resolves.
+    pub fn embedded_keys(&self) -> impl Iterator<Item = &'static str> {
+        table(Locale::En).keys().map(String::as_str)
     }
 
     /// Whether a locale has been installed.
@@ -220,7 +256,7 @@ fn read_guard(lock: &'static RwLock<EngineI18n>) -> RwLockReadGuard<'static, Eng
     lock.read().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn engine_i18n() -> RwLockReadGuard<'static, EngineI18n> {
+pub(crate) fn engine_i18n() -> RwLockReadGuard<'static, EngineI18n> {
     read_guard(engine_i18n_slot())
 }
 
@@ -241,6 +277,17 @@ pub fn clear_engine_locale() {
         .write()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     guard.clear();
+}
+
+/// Install the host's active locale for the whole process.
+///
+/// Replaces the old two-JSON-string form on the embedded-catalog path: the
+/// catalog is embedded, so a locale is now a single name.
+pub fn set_locale(locale: Locale) {
+    let mut guard = engine_i18n_slot()
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.active = locale;
 }
 
 // ---------------------------------------------------------------------------
@@ -423,6 +470,71 @@ mod tests {
     fn key_accessor_exposes_the_locale_key() {
         let text = LocalizedText::plain("engine.uninterpolated", "Plain engine message");
         assert_eq!(text.key(), "engine.uninterpolated");
+    }
+
+    // ── embedded catalog ─────────────────────────────────────────────────
+
+    #[test]
+    fn the_embedded_catalog_resolves_in_the_active_locale() {
+        let key = "engine.permission.reject";
+        let mut i18n = EngineI18n::unset();
+        assert_eq!(
+            i18n.translate_embedded(key, None).as_deref(),
+            lookup(Locale::En, key)
+        );
+
+        i18n.active = Locale::Zh;
+        assert_eq!(
+            i18n.translate_embedded(key, None).as_deref(),
+            lookup(Locale::Zh, key)
+        );
+    }
+
+    #[test]
+    fn the_embedded_catalog_interpolates_params() {
+        let out = EngineI18n::unset()
+            .translate_embedded(
+                "engine.tools.read.notExist",
+                Some(&i18n_params!["path" => "/etc/hosts"]),
+            )
+            .expect("the key is in the embedded catalog");
+        assert_eq!(out, "\"/etc/hosts\" does not exist.");
+    }
+
+    #[test]
+    fn a_key_in_neither_embedded_locale_resolves_to_none() {
+        assert!(
+            EngineI18n::unset()
+                .translate_embedded("engine.definitely.not.a.key", None)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn embedded_keys_are_the_english_catalog() {
+        let keys: Vec<&str> = EngineI18n::unset().embedded_keys().collect();
+        assert!(keys.contains(&"engine.permission.reject"));
+        assert_eq!(keys.len(), table(Locale::En).len());
+    }
+
+    #[test]
+    fn the_process_wide_locale_follows_set_locale() {
+        // The only test in this module that touches the process-wide `active`,
+        // so it is free to move it and put it back without racing anything.
+        let key = "engine.permission.reject";
+        assert_eq!(
+            engine_i18n().translate_embedded(key, None).as_deref(),
+            lookup(Locale::En, key),
+            "English until a locale is named"
+        );
+
+        set_locale(Locale::Zh);
+        assert_eq!(
+            engine_i18n().translate_embedded(key, None).as_deref(),
+            lookup(Locale::Zh, key)
+        );
+
+        set_locale(Locale::En);
     }
 
     // ── process-wide locale ─────────────────────────────────────────────

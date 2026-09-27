@@ -1,9 +1,12 @@
 /**
  * kimi-code i18n — backed by the compiled Rust translation engine.
  *
- * Uses `nativeTranslateCached` (process-wide `CachedTranslator` singleton) so
- * that repeated calls with the same locale JSON skip re-parsing entirely.
- * The cache is invalidated on locale switch via `nativeTranslateClearCache`.
+ * `t()` sends a key across napi; the engine resolves it against the locale
+ * catalog it has compiled in, so the host ships no message trees of its own.
+ * The process-wide locale is named once via `setEngineLocale`.
+ *
+ * `translateBatch` still hands trees over (`nativeTranslateBatch*`), which is
+ * the pre-migration contract; it goes away with this file's remaining surface.
  *
  * Provides both a module-level singleton (backward-compatible `t`, `setLocale`,
  * `getLocale`) and a `createI18n()` factory for multi-instance use, plus batch
@@ -63,18 +66,11 @@ export interface I18nInstance extends SharedI18nInstance<typeof messages> {
 // engine is the only canonical implementation.
 
 interface NativeModule {
-  nativeTranslateCached?: (
-    localeJson: string,
-    fallbackJson: string,
-    key: string,
-    params: Record<string, string> | null | undefined,
-  ) => string;
-  nativeTranslate: (
-    localeJson: string,
-    fallbackJson: string,
-    key: string,
-    params: Record<string, string> | null | undefined,
-  ) => string;
+  /**
+   * Resolve `key` against the engine's embedded catalog, interpolating
+   * `params`. Returns the key itself when it is in neither locale.
+   */
+  translate: (key: string, params: Record<string, string> | null | undefined) => string;
   nativeTranslateClearCache?: () => void;
   nativeTranslateBatch?: (
     localeJson: string,
@@ -89,14 +85,15 @@ interface NativeModule {
     params: Record<string, string> | null | undefined,
   ) => { key: string; message: string }[];
   /**
-   * Install the engine-side locale so the Rust engine's own user-facing text
+   * Name the engine's active locale so the Rust engine's own user-facing text
    * (permission reasons, tool-result notes, error prefixes) renders in the
-   * host's language instead of its English fallback.
+   * host's language instead of its English fallback. The catalog is compiled
+   * into the binary, so this carries a locale name, not the message trees the
+   * host used to push.
    *
    * Absent on older native builds; those keep the English fallbacks.
    */
-  setEngineLocale?: (localeJson: string, fallbackJson: string) => void;
-  clearEngineLocale?: () => void;
+  setEngineLocale?: (locale: string) => void;
 }
 
 let nativeModule: NativeModule | undefined;
@@ -137,25 +134,20 @@ function toNativeParams(
 }
 
 /**
- * Push the current locale to the Rust engine so its own user-facing text —
+ * Name the current locale to the Rust engine so its own user-facing text —
  * permission reasons, tool-result notes, error prefixes — renders in the same
  * language as the host UI. See `packages/kimi-agent/src/i18n.rs`.
  *
- * The engine resolves keys locally against the JSON handed over here, so this
- * is a one-shot install rather than a per-message round-trip.
+ * The catalog is compiled into the engine binary, so this installs a name in a
+ * single hop rather than shipping the message trees across the boundary.
  *
  * Best-effort by design: a native build without the binding, or no native
  * module at all, leaves the engine on its English fallbacks — the pre-existing
  * behaviour — rather than failing the host.
  */
-function syncEngineLocale(localeJson: string): void {
+function syncEngineLocale(locale: string): void {
   try {
-    const native = ensureNative();
-    // `ensureNative()` populates `localeJsonEn` as a side effect; the guard
-    // keeps that invariant visible to the type checker without an assertion.
-    if (localeJsonEn !== undefined) {
-      native.setEngineLocale?.(localeJson, localeJsonEn);
-    }
+    ensureNative().setEngineLocale?.(locale);
   } catch {
     /* the engine keeps its English fallbacks */
   }
@@ -183,6 +175,7 @@ export function createI18n(options: CreateI18nOptions = {}): I18nInstance {
   let currentLocale: Locale =
     options.initialLocale ?? (options.noDetect ? 'en' : detectLocaleNode());
 
+  // `translateBatch` still hands the engine the raw trees; `t()` does not.
   let localeCurrentJson = JSON.stringify(messages[currentLocale]);
   // The engine only needs its locale once, but `createI18n()` runs at module
   // load — before we know a native module is even present — so the first
@@ -198,13 +191,10 @@ export function createI18n(options: CreateI18nOptions = {}): I18nInstance {
 
       if (!engineLocaleInstalled) {
         engineLocaleInstalled = true;
-        syncEngineLocale(localeCurrentJson);
+        syncEngineLocale(currentLocale);
       }
 
-      if (native.nativeTranslateCached) {
-        return native.nativeTranslateCached(localeCurrentJson, localeJsonEn!, key, stringParams);
-      }
-      return native.nativeTranslate(localeCurrentJson, localeJsonEn!, key, stringParams);
+      return native.translate(key, stringParams);
     },
 
     setLocale(locale: Locale): void {
@@ -217,9 +207,7 @@ export function createI18n(options: CreateI18nOptions = {}): I18nInstance {
           // Re-point the engine at the new locale in the same breath, so a
           // message the engine produces mid-turn cannot come out in the
           // language the user just switched away from.
-          if (localeJsonEn !== undefined) {
-            native.setEngineLocale?.(localeCurrentJson, localeJsonEn);
-          }
+          native.setEngineLocale?.(currentLocale);
         } catch {
           /* native module may not be loaded yet */
         }

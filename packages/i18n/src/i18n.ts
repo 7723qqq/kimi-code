@@ -40,27 +40,19 @@ const flatMessages: Record<Locale, Map<string, string>> = {
 // binary), we fall back to the pure-JS implementation transparently.
 
 interface NativeModule {
-  nativeTranslateCached?: (
-    localeJson: string,
-    fallbackJson: string,
-    key: string,
-    params: Record<string, string> | null | undefined,
-  ) => string;
-  nativeTranslate: (
-    localeJson: string,
-    fallbackJson: string,
-    key: string,
-    params: Record<string, string> | null | undefined,
-  ) => string;
-  nativeTranslateClearCache?: () => void;
   /**
-   * Install the engine-side locale so the Rust engine's own user-facing text
-   * (permission reasons, tool-result notes, error prefixes) renders in the
-   * host's language instead of its English fallback. Absent on older native
-   * builds, which keep the English fallbacks.
+   * Resolve `key` against the engine's embedded catalog. Returns the key
+   * itself when it is in neither locale.
    */
-  setEngineLocale?: (localeJson: string, fallbackJson: string) => void;
-  clearEngineLocale?: () => void;
+  translate: (key: string, params: Record<string, string> | null | undefined) => string;
+  /**
+   * Name the engine's active locale so its own user-facing text (permission
+   * reasons, tool-result notes, error prefixes) renders in the host's language
+   * instead of its English fallback. The catalog is compiled into the binary,
+   * so this carries a locale name, not the message trees the host used to
+   * push. Absent on older native builds, which keep the English fallbacks.
+   */
+  setEngineLocale?: (locale: string) => void;
 }
 
 // Load native module lazily on first use (not at module init) to respect
@@ -73,10 +65,7 @@ function loadNativeImpl(): NativeModule | null {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require('@moonshot-ai/kimi-agent/native') as NativeModule;
-    if (
-      typeof mod.nativeTranslateCached !== 'function' &&
-      typeof mod.nativeTranslate !== 'function'
-    ) {
+    if (typeof mod.translate !== 'function') {
       return null;
     }
     return mod;
@@ -93,15 +82,6 @@ function getNative(): NativeModule | null {
   return _native;
 }
 
-// ── Eager JSON pre-serialization ────────────────────────────────────────────
-// Only 2 locales exist, so pre-serialize both at module init to avoid lazy
-// serialization cost on first t() call after locale switch.
-
-const localeJsonMap: Record<Locale, string> = {
-  en: JSON.stringify(en),
-  zh: JSON.stringify(zh),
-};
-
 // ── Locale detection ────────────────────────────────────────────────────────
 
 let currentLocale: Locale = detectLocaleNode();
@@ -109,8 +89,6 @@ let currentLocale: Locale = detectLocaleNode();
 export function setLocale(locale: Locale): void {
   if (locale === 'en' || locale === 'zh') {
     currentLocale = locale;
-    // Invalidate the Rust-side cache so stale parsed JSON is evicted.
-    getNative()?.nativeTranslateClearCache?.();
     // Re-point the engine at the new locale in the same breath, so a message
     // the engine produces mid-turn cannot come out in the language the user
     // just switched away from.
@@ -119,19 +97,19 @@ export function setLocale(locale: Locale): void {
 }
 
 /**
- * Push the current locale to the Rust engine so its own user-facing text —
+ * Name the current locale to the Rust engine so its own user-facing text —
  * permission reasons, tool-result notes, error prefixes — renders in the same
  * language as the host UI. See `packages/kimi-agent/src/i18n.rs`.
  *
- * The engine resolves keys locally against the JSON handed over here, so this
- * is a one-shot install rather than a per-message round-trip.
+ * The catalog is embedded in the engine binary, so this is a one-shot install
+ * of a name rather than a per-message round-trip.
  *
  * Best-effort: an older native build without the binding, or no native module
  * at all (the `KIMI_I18N_FORCE_JS` path), leaves the engine on its English
  * fallbacks.
  */
 function syncEngineLocale(): void {
-  getNative()?.setEngineLocale?.(localeJsonMap[currentLocale], localeJsonMap.en);
+  getNative()?.setEngineLocale?.(currentLocale);
 }
 
 // Whether the engine has been handed a locale yet. Flipped on the first `t()`
@@ -196,23 +174,8 @@ export function t(
       syncEngineLocale();
     }
 
-    // Use the Rust native engine with pre-serialized JSON.
     const stringParams = params ? toStringParams(params) : undefined;
-
-    if (native.nativeTranslateCached) {
-      return native.nativeTranslateCached(
-        localeJsonMap[currentLocale],
-        localeJsonMap.en,
-        key,
-        stringParams,
-      );
-    }
-    return native.nativeTranslate(
-      localeJsonMap[currentLocale],
-      localeJsonMap.en,
-      key,
-      stringParams,
-    );
+    return native.translate(key, stringParams);
   }
 
   // Fall back to pure-JS implementation (O(1) flat map lookup).

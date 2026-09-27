@@ -38,12 +38,6 @@ export const BASH_MAX_TIMEOUT: number
 export declare function cancelTurn(turnId: string): void
 
 /**
- * Drop the engine-side locale; the engine's own messages render their English
- * fallback again.
- */
-export declare function clearEngineLocale(): void
-
-/**
  * Drop the plugin registry and close its SQLite connection. The host calls
  * this on shutdown: Windows keeps a lock on an open database, which blocks
  * removing the data directory.
@@ -1660,18 +1654,13 @@ export declare function sessionTurnOutcome(sessionId: string, turnId: number): o
 export declare function sessionWarnings(sessionId: string): object
 
 /**
- * Install the engine-side locale.
+ * Switch the engine's own user-facing text to `locale` (`"en"` or `"zh"`).
  *
- * The `native_translate*` family above serves the host's own UI strings. This
- * one serves the engine's own user-facing text — permission reasons,
- * tool-result notes, error prefixes — which is otherwise hardcoded English.
- *
- * `fallback_json` is the language a key missing from `locale_json` resolves
- * against (English here). Passing an empty `locale_json` drops the locale and
- * restores the English fallbacks, so an embedder that never localizes does not
- * have to call [`clear_engine_locale`] explicitly.
+ * The catalog is compiled into the binary, so this carries a locale name
+ * rather than the message trees the host used to push. An unrecognised name
+ * leaves the current locale in place.
  */
-export declare function setEngineLocale(localeJson: string, fallbackJson: string): void
+export declare function setEngineLocale(locale: string): void
 
 /**
  * Switch the active web search engine at runtime (manual hot-switch from the
@@ -1693,6 +1682,13 @@ export interface ToolAccessMeta {
   path?: string
   recursive?: boolean
 }
+
+/**
+ * Translate `key` against the engine's embedded catalog, interpolating `params`.
+ *
+ * Returns `key` itself when the key is in neither embedded locale.
+ */
+export declare function translate(key: string, params?: Record<string, string> | undefined | null): string
 
 /** Result of a write operation. */
 export interface WriteResult {

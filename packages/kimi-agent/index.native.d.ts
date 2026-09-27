@@ -542,30 +542,25 @@ export function nativeTranslateBatchCached(
 ): NativeBatchTranslateResult[];
 
 /**
- * Install the engine-side locale.
+ * Switch the engine's own user-facing text to `locale` (`"en"` or `"zh"`).
  *
- * The `nativeTranslate*` family serves the host's own UI strings. This serves
- * the engine's own user-facing text — permission reasons, tool-result notes,
- * error prefixes — which is otherwise hardcoded English.
+ * The `nativeTranslate*` family serves the host's own UI strings. This
+ * serves the engine's own user-facing text, which is otherwise hardcoded
+ * English.
  *
- * Resolution is a synchronous in-process lookup against a cached parse of
- * `localeJson`, which is what makes it usable from synchronous engine code
- * such as `permission.evaluate` and `LlmError`'s `Display` implementation.
- *
- * @param localeJson - Active language, as a JSON message tree.
- * @param fallbackJson - Language a key missing from `localeJson` resolves
- *   against (English here).
- *
- * Passing an empty `localeJson` drops the locale and restores the English
- * fallbacks.
+ * The locale catalog is compiled into the binary, so this carries a locale
+ * name rather than the message trees the host used to push. An unrecognised
+ * name leaves the current locale in place.
  */
-export function setEngineLocale(localeJson: string, fallbackJson: string): void;
+export function setEngineLocale(locale: string): void;
 
 /**
- * Drop the engine-side locale; the engine's own messages render their English
- * fallback again.
+ * Translate `key` against the engine's embedded catalog, interpolating
+ * `params`.
+ *
+ * Returns `key` itself when the key is in neither embedded locale.
  */
-export function clearEngineLocale(): void;
+export function translate(key: string, params?: Record<string, string> | null): string;
 
 // ============================================================================
 // LLM Stream (incremental)
