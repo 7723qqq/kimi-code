@@ -316,6 +316,7 @@ async fn main() -> anyhow::Result<()> {
             let previous_turn_aborted = false;
 
             let run_input = RunTurnInput {
+                agent_id: kimi_agent::callbacks::MAIN_AGENT_ID.to_string(),
                 max_attempts: input.max_attempts,
                 turn_id: turn_id.clone(),
                 llm: llm.as_ref(),
@@ -1647,6 +1648,7 @@ async fn run_self_test() -> anyhow::Result<()> {
     }];
 
     let input = RunTurnInput {
+        agent_id: kimi_agent::callbacks::MAIN_AGENT_ID.to_string(),
         max_attempts: None,
         turn_id: "test-turn-1".into(),
         llm: &mock_llm,
