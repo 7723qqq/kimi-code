@@ -50,6 +50,18 @@ const MODULES = [
     tImportName: 't',
   },
   {
+    name: 'kosong',
+    srcDir: 'packages/kosong/src',
+    localeDir: 'packages/i18n-catalog/src/locales',
+    localeEn: 'packages/i18n-catalog/src/locales/en.ts',
+    localeZh: 'packages/i18n-catalog/src/locales/zh.ts',
+    tPattern: /\bt\(['"]/,
+    importPattern: /from\s+['"].*i18n-runtime['"]/,
+    skipDirs: [],
+    fileTypes: ['.ts'],
+    tImportName: 't',
+  },
+  {
     name: 'kimi-web',
     srcDir: 'apps/kimi-web/src',
     localeDir: 'apps/kimi-web/src/i18n/locales',
