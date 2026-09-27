@@ -103,20 +103,12 @@ const BASH_DEFAULT_TIMEOUT = binding.BASH_DEFAULT_TIMEOUT;
 const BASH_MAX_TIMEOUT = binding.BASH_MAX_TIMEOUT;
 const nativeIsSensitiveFileBytes = binding.nativeIsSensitiveFileBytes;
 
-// Translation (i18n) — direct pass-throughs to the Rust engine.
-const nativeTranslate = binding.nativeTranslate;
-const nativeTranslateCached = binding.nativeTranslateCached;
-const nativeTranslateClearCache = binding.nativeTranslateClearCache;
-const nativeTranslateBatch = binding.nativeTranslateBatch;
-const nativeTranslateBatchCached = binding.nativeTranslateBatchCached;
-
 // Engine locale — names the locale for the embedded catalog, which is what the
 // `translate` binding below resolves against and therefore what the host's own
-// `t()` calls depend on, as opposed to the host's UI strings served by the
-// `nativeTranslate*` family above. It is also what a `LocalizedText` resolves
-// against, so the engine's own messages follow the same locale and can never
-// disagree with the host's strings. The catalog is compiled into the binary, so
-// this takes a locale name, not message trees.
+// `t()` calls depend on. It is also what a `LocalizedText` resolves against, so
+// the engine's own messages follow the same locale and can never disagree with
+// the host's strings. The catalog is compiled into the binary, so this takes a
+// locale name, not message trees.
 const setEngineLocale = binding.setEngineLocale;
 const translate = binding.translate;
 
@@ -1079,13 +1071,6 @@ module.exports = {
   // Engine state store
   nativeReadEngineState,
   nativeCronNextFire,
-
-  // Translation (i18n)
-  nativeTranslate,
-  nativeTranslateCached,
-  nativeTranslateClearCache,
-  nativeTranslateBatch,
-  nativeTranslateBatchCached,
 
   // Engine locale
   setEngineLocale,

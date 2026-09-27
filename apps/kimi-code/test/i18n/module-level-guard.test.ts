@@ -4,8 +4,7 @@ import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Guard: forbid evaluating a translation (`t(...)` / `translateBatch(...)`) at
- * MODULE LOAD TIME.
+ * Guard: forbid evaluating a translation (`t(...)`) at MODULE LOAD TIME.
  *
  * Why: the i18n singleton picks its locale from env detection when the module
  * is first imported, and the real locale (from `tui.toml`) is only applied
@@ -23,11 +22,11 @@ import { describe, expect, it } from 'vitest';
  *
  * Detection strategy (intentionally conservative): we only inspect
  * module-top-level `const`/`let`/`var` declarations (brace/bracket/paren depth
- * 0). A declaration is flagged when its initializer calls `t(...)` /
- * `translateBatch(...)` directly AND contains no function boundary (`=>` or
- * `function`) — i.e. the translation runs immediately at import, not inside a
- * deferred callback. Declarations whose initializer is (or contains) a function
- * are left alone, since there the `t()` runs when that function is called.
+ * 0). A declaration is flagged when its initializer calls `t(...)` directly AND
+ * contains no function boundary (`=>` or `function`) — i.e. the translation runs
+ * immediately at import, not inside a deferred callback. Declarations whose
+ * initializer is (or contains) a function are left alone, since there the `t()`
+ * runs when that function is called.
  * `function`/method/getter declarations and class fields are never top-level
  * `const` declarations, so lazy getters and in-method `t()` calls pass.
  *
@@ -177,7 +176,7 @@ function stripStringsAndComments(src: string): string {
   return out;
 }
 
-const T_CALL = /(?<![.\w])(?:t|translateBatch)\s*\(/;
+const T_CALL = /(?<![.\w])t\s*\(/;
 const TOP_DECL = /^\s*(?:export\s+)?(?:const|let|var)\s/;
 
 function findOffenders(file: string): { line: number; snippet: string }[] {
@@ -226,7 +225,7 @@ function findOffenders(file: string): { line: number; snippet: string }[] {
 }
 
 describe('i18n module-level translation guard', () => {
-  it('forbids evaluating t()/translateBatch() in module-top-level declarations', () => {
+  it('forbids evaluating t() in module-top-level declarations', () => {
     const offenders: { file: string; line: number; snippet: string }[] = [];
     for (const file of walk(SRC_ROOT)) {
       for (const hit of findOffenders(file)) {

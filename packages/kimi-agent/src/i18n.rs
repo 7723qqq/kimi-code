@@ -100,7 +100,7 @@ impl EngineI18n {
         params: Option<&HashMap<String, String>>,
     ) -> Option<String> {
         let template = lookup(self.active, key).or_else(|| lookup(Locale::En, key))?;
-        Some(crate::native::translation::interpolate(
+        Some(crate::native::catalog::interpolate(
             template,
             params.unwrap_or(&HashMap::new()),
         ))

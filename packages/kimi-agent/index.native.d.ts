@@ -469,83 +469,13 @@ export function nativeGoalRenderObjectiveUpdated(
 ): string;
 
 // ============================================================================
-// i18n Translation engine
+// i18n — the engine's embedded catalog
 // ============================================================================
-
-/**
- * Resolve a dot-separated translation key against locale JSON, with
- * `{{param}}` interpolation.
- *
- * Resolution order:
- * 1. Try `localeJson` (current language).
- * 2. Try `fallbackJson` (defaults to English).
- * 3. Return the `key` itself as last resort.
- */
-export function nativeTranslate(
-  localeJson: string,
-  fallbackJson: string,
-  key: string,
-  params?: Record<string, string> | null,
-): string;
-
-/** Result of a single translation in a batch call. */
-export interface NativeBatchTranslateResult {
-  /** The translation key that was resolved. */
-  key: string;
-  /** The resolved and interpolated message. */
-  message: string;
-}
-
-/**
- * Batch translation — resolves multiple keys against the same locale data
- * in a single call, parsing the JSON only once.
- */
-export function nativeTranslateBatch(
-  localeJson: string,
-  fallbackJson: string,
-  keys: string[],
-  params?: Record<string, string> | null,
-): NativeBatchTranslateResult[];
-
-/**
- * Cached translation — uses a process-wide cached translator that caches
- * parsed JSON across calls. After the first call with a given locale pair,
- * subsequent calls skip JSON parsing entirely.
- *
- * Identical semantics to `nativeTranslate` but much faster for repeated calls
- * with the same locale data. Use in long-running processes (TUI, servers).
- */
-export function nativeTranslateCached(
-  localeJson: string,
-  fallbackJson: string,
-  key: string,
-  params?: Record<string, string> | null,
-): string;
-
-/**
- * Clear the parsed-JSON cache of the global cached translator.
- *
- * Call this when locale data has been reloaded so stale parsed JSON is evicted.
- */
-export function nativeTranslateClearCache(): void;
-
-/**
- * Cached batch translation — resolves multiple keys using the process-wide
- * cached translator. After the first call with a given locale pair, subsequent
- * batch calls skip JSON parsing entirely.
- */
-export function nativeTranslateBatchCached(
-  localeJson: string,
-  fallbackJson: string,
-  keys: string[],
-  params?: Record<string, string> | null,
-): NativeBatchTranslateResult[];
 
 /**
  * Name the engine's embedded-catalog locale, `locale` (`"en"` or `"zh"`).
  *
- * The `nativeTranslate*` family above serves the host's own UI strings. This
- * one serves the embedded catalog the napi `translate` binding below resolves
+ * This one names the locale the napi `translate` binding below resolves
  * against, so it is what the host's own `t()` calls depend on. It is also what
  * a `LocalizedText` resolves against, so the engine's own user-facing text —
  * permission reasons, tool-result notes, ACP approval labels — follows the

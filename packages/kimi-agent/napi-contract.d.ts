@@ -1245,30 +1245,6 @@ export declare function nativeSniffImageDimensions(data: Uint8Array): ImageDimen
 export declare function nativeToolAccessesConflict(left: Array<ToolAccessMeta>, right: Array<ToolAccessMeta>): boolean
 
 /**
- * Resolve a dot-separated `key` against `locale_json`, falling back to
- * `fallback_json`, then to the key itself; interpolate `{{param}}` tokens.
- */
-export declare function nativeTranslate(localeJson: string, fallbackJson: string, key: string, params?: Record<string, string> | undefined | null): string
-
-/** Translate multiple keys in a single pass, parsing the JSON only once. */
-export declare function nativeTranslateBatch(localeJson: string, fallbackJson: string, keys: Array<string>, params?: Record<string, string> | undefined | null): Array<NativeTranslateBatchResult>
-
-/** Same as `native_translate_batch`, but uses the process-wide cached translator. */
-export declare function nativeTranslateBatchCached(localeJson: string, fallbackJson: string, keys: Array<string>, params?: Record<string, string> | undefined | null): Array<NativeTranslateBatchResult>
-
-/** One resolved entry in a batch translation. */
-export interface NativeTranslateBatchResult {
-  key: string
-  message: string
-}
-
-/** Same as `native_translate`, but uses the process-wide cached translator. */
-export declare function nativeTranslateCached(localeJson: string, fallbackJson: string, key: string, params?: Record<string, string> | undefined | null): string
-
-/** Clear the process-wide translator cache (call on locale reload). */
-export declare function nativeTranslateClearCache(): void
-
-/**
  * Truncate text to fit within a token budget, keeping the END.
  *
  * Walks bytes backward, skipping UTF-8 continuation bytes to consume

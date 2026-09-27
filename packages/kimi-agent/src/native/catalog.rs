@@ -81,9 +81,106 @@ pub fn lookup(locale: Locale, key: &str) -> Option<&'static str> {
     table(locale).get(key).map(String::as_str)
 }
 
+/// Replace `{{name}}` placeholders in `template` with values from `params`.
+///
+/// An unknown name — and a `{{` with no closing `}}` — is left as literal
+/// text. A template that ships a placeholder its locale never fills renders
+/// visibly broken rather than silently truncated, which is the one behaviour
+/// worth keeping while the catalogs are still hand-edited.
+pub(crate) fn interpolate(template: &str, params: &HashMap<String, String>) -> String {
+    let mut result = String::with_capacity(template.len());
+    let mut rest = template;
+
+    while let Some(start) = rest.find("{{") {
+        result.push_str(&rest[..start]);
+        rest = &rest[start + 2..];
+
+        let Some(end) = rest.find("}}") else {
+            result.push_str("{{");
+            break;
+        };
+        let name = &rest[..end];
+        rest = &rest[end + 2..];
+        match params.get(name) {
+            Some(value) => result.push_str(value),
+            None => {
+                result.push_str("{{");
+                result.push_str(name);
+                result.push_str("}}");
+            }
+        }
+    }
+
+    result.push_str(rest);
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── interpolate ──────────────────────────────────────────────────────
+
+    fn params(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn interpolate_fills_every_placeholder() {
+        let out = interpolate(
+            "Found {{count}} {{item}}s in {{location}}",
+            &params(&[("count", "5"), ("item", "record"), ("location", "database")]),
+        );
+        assert_eq!(out, "Found 5 records in database");
+    }
+
+    #[test]
+    fn interpolate_handles_consecutive_placeholders() {
+        assert_eq!(
+            interpolate("{{a}}{{b}}", &params(&[("a", "x"), ("b", "y")])),
+            "xy"
+        );
+    }
+
+    #[test]
+    fn interpolate_keeps_an_unknown_name_literal() {
+        assert_eq!(
+            interpolate("Hello, {{name}}!", &params(&[])),
+            "Hello, {{name}}!"
+        );
+    }
+
+    #[test]
+    fn interpolate_keeps_an_unclosed_brace_literal() {
+        assert_eq!(
+            interpolate("Hello {{name", &params(&[("name", "x")])),
+            "Hello {{name"
+        );
+    }
+
+    #[test]
+    fn interpolate_keeps_an_empty_placeholder_literal() {
+        assert_eq!(interpolate("{{}}", &params(&[])), "{{}}");
+    }
+
+    #[test]
+    fn interpolate_passes_a_template_without_placeholders_through() {
+        assert_eq!(interpolate("Plain text", &params(&[])), "Plain text");
+        assert_eq!(interpolate("", &params(&[])), "");
+    }
+
+    #[test]
+    fn interpolate_does_not_escape_the_substituted_value() {
+        assert_eq!(
+            interpolate("{{text}}", &params(&[("text", "a<b>c&d\"e'")])),
+            "a<b>c&d\"e'"
+        );
+    }
+
+    // ── embedded catalog ─────────────────────────────────────────────────
 
     #[test]
     fn every_locale_resolves_a_known_engine_key() {
