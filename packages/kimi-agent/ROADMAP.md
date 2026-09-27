@@ -4423,7 +4423,13 @@ key、`i18n_params!` 绑定名要与模板 `{{placeholder}}` 逐字一致）。
 `LocalizedText::fmt` 的内联英文兜底 `Invalid URL: {e}`，现在解析
 `engine.tools.fetchUrl.invalidUrl`，输出变成 `Failed to fetch URL: Invalid URL: <e>`。
 两条 locale 里一直就是这句长文本，重复的 "Invalid URL" 属既有目录文本，不是本次引入；
-它对用户可见是因为 `validate_url` 的调用方 `server/plugin_archive.rs:79` 把它直接抛出。
+它对用户不可见：该 `validate_url` 只被同文件内的 `#[cfg(test)]` 单元测试调用
+（`:640-658`、`:700-707`），没有任何生产调用方——`server/plugin_archive.rs:79`
+经 `:15` 的 import 走的是 `native/fetch_url.rs:203` 的三参数 pinned 变体，它仍用内联
+`format!("Invalid URL: {e}")`（`:208`），不碰本 key。因此这次改动的实际收益是：同一句
+英文不再有目录与 Rust 字面量两份来源，去掉了一处会漂移的副本，并由
+`bun run check:engine-i18n` 守住。生产路径 `tools/fetch_url.rs:159` 早已是
+`Failed to fetch URL: Invalid URL: {e}`，与目录逐字一致，输出未变。
 
 #### 6.18.4 门禁：生成脚本的退出码
 
