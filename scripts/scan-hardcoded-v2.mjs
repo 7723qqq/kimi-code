@@ -40,9 +40,9 @@ const MODULES = [
   {
     name: 'kimi-code',
     srcDir: 'apps/kimi-code/src',
-    localeDir: 'apps/kimi-code/src/i18n/locales',
-    localeEn: 'apps/kimi-code/src/i18n/locales/en.ts',
-    localeZh: 'apps/kimi-code/src/i18n/locales/zh.ts',
+    localeDir: 'packages/i18n-catalog/src/locales',
+    localeEn: 'packages/i18n-catalog/src/locales/en.ts',
+    localeZh: 'packages/i18n-catalog/src/locales/zh.ts',
     tPattern: /\bt\(['"]/,
     importPattern: /from\s+['"]#\/i18n['"]/,
     skipDirs: ['i18n'],
@@ -162,7 +162,9 @@ async function loadLocaleDir(modInfo, lang) {
   // Sections share common keys (title, close, output, ...), so merge order
   // decides which value survives; readdir order differs between node and bun,
   // so sort the entries to keep the merged map runtime-independent.
-  const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1));
+  const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+    a.name < b.name ? -1 : 1,
+  );
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith('.ts')) continue;
     const mod = await loadTSModule(join(dir, entry.name));
@@ -243,9 +245,7 @@ function scanFile(filePath, content, moduleInfo, valueToKeys, valueRegexes) {
     // value — `/** Card title, e.g. `Session state`. */ title: string;` — is
     // not mistaken for a hardcoded string. A `//` inside a string literal
     // (a URL) must survive, so only cut at a `//` not preceded by `:`.
-    const line = rawLine
-      .replace(/\/\*\*?[\s\S]*?\*\//g, ' ')
-      .replace(/(^|[^:])\/\/.*$/, '$1');
+    const line = rawLine.replace(/\/\*\*?[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/, '$1');
     const trimmed = line.trim();
 
     // ── Detection 1: Locale value appears hardcoded (not in t() call) ──
@@ -276,6 +276,9 @@ function scanFile(filePath, content, moduleInfo, valueToKeys, valueRegexes) {
       if (regexes.value.test(trimmed)) {
         // Check if this string is already wrapped in t() or $t()
         if (regexes.tCall.test(trimmed)) continue; // already using t()
+
+        // Lifecycle sentinels the TS layer matches against, never renders.
+        if (ENGINE_WIRE_TOKENS.has(normalizedValue)) continue;
 
         // Check if this line IS the locale definition itself
         if (relPath.includes(moduleInfo.name === 'kimi-web' ? '/locales/' : '/i18n')) continue;
@@ -439,6 +442,21 @@ const ALLOWED_FILES = [
   /\.(?:test|spec)\.[jt]sx?$/,
 ];
 
+/**
+ * Engine-emitted reason and error strings that the TypeScript layer matches
+ * with `===`, `Set` membership, or a `case` label to recognize a lifecycle
+ * event (`shell.pausedAfterInterruption`, `v2Goal.pausedAfterResume`,
+ * `toolsV2.abort.abortedByUser`). They are wire tokens, not display text:
+ * localizing the comparison operand would break the match, and the text shown
+ * to the user at those sites is already produced by `t()`. Matched on exact
+ * value so a genuinely *displayed* use of the same string is still reported.
+ */
+const ENGINE_WIRE_TOKENS = new Set([
+  'Aborted by the user',
+  'Paused after agent resume',
+  'Paused after interruption',
+]);
+
 function isAllowlistedLiteral(str) {
   const trimmed = str.trim();
   if (trimmed === '' || ALLOWED_VALUES.has(trimmed)) return true;
@@ -460,12 +478,14 @@ function scanDisplaySlots(line, relPath, prevLine = '') {
 
   const findings = [];
   // `label: '...'` / `title="..."` / `placeholder='...'`
-  const slotRe = /\b(label|title|message|placeholder|aria-label|description|tooltip|heading|emptyText|emptyMessage|confirmText|cancelText|errorText|helperText|buttonText|actionText|bodyText|subtitle)\s*[:=]\s*(['"`])([^'"`]*)\2/g;
+  const slotRe =
+    /\b(label|title|message|placeholder|aria-label|description|tooltip|heading|emptyText|emptyMessage|confirmText|cancelText|errorText|helperText|buttonText|actionText|bodyText|subtitle)\s*[:=]\s*(['"`])([^'"`]*)\2/g;
   // A data property earlier on the same line means the line is a record
   // literal, not a display slot: `{ id: 'x', label: 'Y' }` assigns a key, not
   // copy. Matched on the leading `name: '…'` shape so `value: 'Bash'` cannot
   // mask a real `label: 'Bash tool'` on the same line.
-  const recordLiteral = /^\s*\{[^}]*\b(?:id|key|value|variant|kind|type|icon|severity|status|transport|role)\s*:\s*['"`]/;
+  const recordLiteral =
+    /^\s*\{[^}]*\b(?:id|key|value|variant|kind|type|icon|severity|status|transport|role)\s*:\s*['"`]/;
 
   for (const m of line.matchAll(slotRe)) {
     const [, slot, , value] = m;

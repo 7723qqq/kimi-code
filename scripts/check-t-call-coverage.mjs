@@ -22,16 +22,10 @@ const ROOT = resolve(__dirname, '..');
 // that exists in neither locale reached the settings list as raw text.
 const LOCALE_TARGETS = [
   {
-    name: 'i18n (main)',
-    sourceDirs: ['packages/i18n/src'],
-    localeFile: 'packages/i18n/src/locales/en.ts',
-    slug: 'packages/i18n/src/locales/{en,zh}.ts',
-  },
-  {
-    name: 'kimi-code',
-    sourceDirs: ['apps/kimi-code/src'],
-    localeFile: 'apps/kimi-code/src/i18n/locales/en.ts',
-    slug: 'apps/kimi-code/src/i18n/locales/{en,zh}.ts',
+    name: 'i18n-catalog',
+    sourceDirs: ['packages/i18n/src', 'apps/kimi-code/src'],
+    localeFile: 'packages/i18n-catalog/src/locales/en.ts',
+    slug: 'packages/i18n-catalog/src/locales/{en,zh}.ts',
   },
 ];
 

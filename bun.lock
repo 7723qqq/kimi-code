@@ -39,6 +39,7 @@
         "ws": "^8.18.0",
       },
       "devDependencies": {
+        "@moonshot-ai/i18n-catalog": "workspace:^",
         "@moonshot-ai/i18n-shared": "workspace:^",
         "@moonshot-ai/kimi-code-oauth": "workspace:^",
         "@moonshot-ai/kimi-code-sdk": "workspace:^",
@@ -214,9 +215,14 @@
       "name": "@moonshot-ai/kimi-i18n",
       "version": "0.1.0",
       "dependencies": {
+        "@moonshot-ai/i18n-catalog": "workspace:^",
         "@moonshot-ai/i18n-shared": "workspace:^",
         "@moonshot-ai/kimi-agent": "workspace:^",
       },
+    },
+    "packages/i18n-catalog": {
+      "name": "@moonshot-ai/i18n-catalog",
+      "version": "0.1.0",
     },
     "packages/i18n-shared": {
       "name": "@moonshot-ai/i18n-shared",
@@ -847,6 +853,8 @@
     "@microsoft/tsdoc-config": ["@microsoft/tsdoc-config@0.18.1", "https://registry.npmmirror.com/@microsoft/tsdoc-config/-/tsdoc-config-0.18.1.tgz", { "dependencies": { "@microsoft/tsdoc": "0.16.0", "ajv": "8.18.0", "jju": "1.4.0", "resolve": "1.22.12" } }, "sha512-9brPoVdfN9k9g0dcWkFeA7IH9bbcttzDJlXvkf8b2OBzd5MueR1V2wkKBL0abn0otvmkHJC6aapBOTJDDeMCZg=="],
 
     "@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.29.0", "https://registry.npmmirror.com/@modelcontextprotocol/sdk/-/sdk-1.29.0.tgz", { "dependencies": { "@hono/node-server": "2.1.0", "ajv": "8.18.0", "ajv-formats": "3.0.1", "content-type": "1.0.5", "cors": "2.8.6", "cross-spawn": "7.0.6", "eventsource": "3.0.7", "eventsource-parser": "3.0.6", "express": "5.2.1", "express-rate-limit": "8.3.2", "hono": "4.13.1", "jose": "6.2.2", "json-schema-typed": "8.0.2", "pkce-challenge": "5.0.1", "raw-body": "3.0.2", "zod-to-json-schema": "3.25.2" }, "peerDependencies": { "@cfworker/json-schema": "^4.1.1", "zod": "^3.25 || ^4.0" }, "optionalPeers": ["@cfworker/json-schema"] }, "sha512-zo37mZA9hJWpULgkRpowewez1y6ML5GsXJPY8FI0tBBCd77HEvza4jDqRKOXgHNn867PVGCyTdzqpz0izu5ZjQ=="],
+
+    "@moonshot-ai/i18n-catalog": ["@moonshot-ai/i18n-catalog@workspace:packages/i18n-catalog"],
 
     "@moonshot-ai/i18n-shared": ["@moonshot-ai/i18n-shared@workspace:packages/i18n-shared"],
 

@@ -139,8 +139,10 @@ function checkPlaceholderParity(enPath, zhPath) {
 // ── Main ────────────────────────────────────────────────────────────────────
 
 const LOCALE_PAIRS = [
-  { en: 'packages/i18n/src/locales/en.ts', zh: 'packages/i18n/src/locales/zh.ts' },
-  { en: 'apps/kimi-code/src/i18n/locales/en.ts', zh: 'apps/kimi-code/src/i18n/locales/zh.ts' },
+  {
+    en: 'packages/i18n-catalog/src/locales/en.ts',
+    zh: 'packages/i18n-catalog/src/locales/zh.ts',
+  },
 
   {
     en: 'apps/kimi-inspect/src/i18n/locales/en.ts',

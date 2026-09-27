@@ -1,12 +1,10 @@
+import { en, zh } from '@moonshot-ai/i18n-catalog';
 import { interpolate } from '@moonshot-ai/i18n-shared/core';
 import { detectLocaleNode } from '@moonshot-ai/i18n-shared/detect';
 import type {
   Locale,
   TranslationKey as SharedTranslationKey,
 } from '@moonshot-ai/i18n-shared/types';
-
-import { en } from './locales/en';
-import { zh } from './locales/zh';
 
 export type { Locale } from '@moonshot-ai/i18n-shared/types';
 

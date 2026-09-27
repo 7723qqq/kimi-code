@@ -10,17 +10,15 @@
  * translation via `translateBatch`.
  */
 
+import { createRequire } from 'node:module';
+
+import { en, zh } from '@moonshot-ai/i18n-catalog';
 import type {
   Locale,
   TranslationKey as SharedTranslationKey,
   I18nInstance as SharedI18nInstance,
 } from '@moonshot-ai/i18n-shared';
 import { detectLocaleNode } from '@moonshot-ai/i18n-shared';
-
-import { createRequire } from 'node:module';
-
-import en from './locales/en';
-import zh from './locales/zh';
 
 const require = createRequire(import.meta.url);
 

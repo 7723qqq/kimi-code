@@ -1,10 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+import { en, zh } from '@moonshot-ai/i18n-catalog';
 import { describe, expect, it } from 'vitest';
-
-import en from '#/i18n/locales/en';
-import zh from '#/i18n/locales/zh';
 
 /**
  * Guard: every translation key defined in the English base (`en`) must also
@@ -48,7 +46,7 @@ describe('locale key parity', () => {
       expect(
         missing,
         `Locale "${name}" is missing ${String(missing.length)} key(s) that exist in en; ` +
-          `these render in English at runtime. Add them to locales/${name}.ts:\n` +
+          `these render in English at runtime. Add them to packages/i18n-catalog/src/locales/${name}.ts:\n` +
           missing.map((k) => `  ${k}`).join('\n'),
       ).toEqual([]);
     });
@@ -59,7 +57,7 @@ describe('locale key parity', () => {
       expect(
         stale,
         `Locale "${name}" has ${String(stale.length)} stale key(s) not present in en; ` +
-          `remove them from locales/${name}.ts:\n` +
+          `remove them from packages/i18n-catalog/src/locales/${name}.ts:\n` +
           stale.map((k) => `  ${k}`).join('\n'),
       ).toEqual([]);
     });
@@ -99,7 +97,7 @@ describe('t() call coverage', () => {
     expect(
       [...new Set(unresolved)].toSorted(),
       `These t() calls name keys that no locale defines; they render their raw ` +
-        `key at the user. Add them to locales/en.ts and locales/zh.ts:\n` +
+        `key at the user. Add them to packages/i18n-catalog/src/locales/en.ts and zh.ts:\n` +
         unresolved.map((k) => `  ${k}`).join('\n'),
     ).toEqual([]);
   });

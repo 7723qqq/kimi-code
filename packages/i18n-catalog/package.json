@@ -1,0 +1,16 @@
+{
+  "name": "@moonshot-ai/i18n-catalog",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Single source of truth for the Kimi Code locale catalog (en/zh)",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": { "types": "./src/index.ts", "default": "./src/index.ts" },
+    "./locales/en": { "types": "./src/locales/en.ts", "default": "./src/locales/en.ts" },
+    "./locales/zh": { "types": "./src/locales/zh.ts", "default": "./src/locales/zh.ts" }
+  },
+  "scripts": {
+    "typecheck": "tsgo -p tsconfig.json --noEmit"
+  }
+}

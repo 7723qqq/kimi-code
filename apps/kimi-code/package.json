@@ -82,6 +82,7 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@moonshot-ai/i18n-catalog": "workspace:^",
     "@moonshot-ai/i18n-shared": "workspace:^",
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
     "@moonshot-ai/kimi-code-sdk": "workspace:^",

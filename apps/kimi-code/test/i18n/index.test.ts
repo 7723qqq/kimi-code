@@ -1,10 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-
 import { createRequire } from 'node:module';
 
+import { en, zh } from '@moonshot-ai/i18n-catalog';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+
 import { t, setLocale, getLocale } from '#/i18n';
-import en from '#/i18n/locales/en';
-import zh from '#/i18n/locales/zh';
 
 describe('i18n', () => {
   const savedEnv = { ...process.env };

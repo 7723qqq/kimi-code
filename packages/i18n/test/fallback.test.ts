@@ -10,9 +10,9 @@ afterEach(() => {
   delete process.env['KIMI_I18N_FORCE_JS'];
 });
 
+import { en, zh } from '@moonshot-ai/i18n-catalog';
+
 import { t, setLocale, getLocale, getEngine } from '#/i18n';
-import en from '#/locales/en';
-import zh from '#/locales/zh';
 
 describe('i18n fallback (KIMI_I18N_FORCE_JS=1)', () => {
   beforeEach(() => {

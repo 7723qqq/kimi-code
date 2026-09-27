@@ -17,17 +17,13 @@ const ROOT = path.resolve(__dirname, '..');
 // extract is a function that extracts the locale data from the loaded module.
 
 const LOCALE_SOURCES = [
-  // The main i18n package — the single source of truth consumed by all packages at runtime
+  // The merged catalog — compiled into the Rust engine via `include_str!`.
+  // It lives under the crate's `src/` so `check-architecture-drift.mjs`
+  // covers it with the kimi-agent fingerprint.
   {
-    en: 'packages/i18n/src/locales/en.ts',
-    zh: 'packages/i18n/src/locales/zh.ts',
-    out: 'packages/i18n/src/locales',
-  },
-  // Per-package subsets used for package-level JSON generation
-  {
-    en: 'apps/kimi-code/src/i18n/locales/en.ts',
-    zh: 'apps/kimi-code/src/i18n/locales/zh.ts',
-    out: 'apps/kimi-code/src/i18n/locales',
+    en: 'packages/i18n-catalog/src/locales/en.ts',
+    zh: 'packages/i18n-catalog/src/locales/zh.ts',
+    out: 'packages/kimi-agent/src/locales',
   },
 
   {
@@ -90,7 +86,10 @@ for (const source of LOCALE_SOURCES) {
         const out = {};
         // readdirSync order is filesystem-dependent — sort so generated JSON
         // (and the CI freshness diff) is deterministic across machines.
-        for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.ts')).sort()) {
+        for (const file of fs
+          .readdirSync(dir)
+          .filter((f) => f.endsWith('.ts'))
+          .sort()) {
           const name = file.slice(0, -'.ts'.length);
           const mod = require(path.join(dir, file));
           out[name] = mod.default ?? mod;
