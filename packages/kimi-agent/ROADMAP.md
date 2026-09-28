@@ -2817,6 +2817,7 @@ turn loop → 注入 → 宿主事件），配 mock provider 跑 4 个场景（c
   保证每成员恰好一个终态事件，限流重排的那个**不发**终态，v2 `suppressesRateLimitFailure`）。
 - 独占门改回 v2 语义：拒绝结果作为 tool 结果推入后**继续下一步**而非结束 turn，由既有的
   `max_steps` 预算兜底；文案改回 v2 措辞（`not forbidden, but issue them sequentially`）。
+  注意这道门在 `HEAD~1` 上**并不存在**（属本节所落的移植），`HEAD~1` 上混合批次直接执行。
 - `TowerModeEnter → swarm.exit()` 那一臂此前完全没有对应物（v2 `modeMutexService.ts:39-41`），
   补上 `exit_swarm_for_tower_enter`；修三处「swarm 没有模式」的过时注释。**保留** tower 活跃时
   拒绝 swarm 的 fork 差异（用户裁定），不改为 v2 的自动退出。
@@ -2826,10 +2827,26 @@ turn loop → 注入 → 宿主事件），配 mock provider 跑 4 个场景（c
   `engine.tools.agentSwarm.*`（en/zh）。工具描述与面向模型的否决文案按 AGENTS.md
   「What not to translate」保持英文。
 
-**验证（2026-09-28）**：端到端探针 `.tmp/swarm-e2e.mts`，4 场景 15 项 —— control（swarm 从未开启
-必须 0 标记，**先证明探测器本身有效**）+ task（宣告 1 次 / turn 末自动退出 / 后续轮不复活 /
-带 exit 提醒）+ manual（宣告 1 次不重复 / 不自行关闭）+ 显式关闭（无二次 enter / exit 提醒 1 次 /
-status 关闭）。**修复后 15/15；修复前同一探针 9 项失败**（对照重新编译的 `.node` 复跑）。
+**验证（2026-09-28）**：两个端到端探针，都驱动真实接缝。
+
+**探针一 · 模式路径**（`.tmp/swarm-e2e.mts`，4 场景 15 项）：control（swarm 从未开启必须 0 标记，
+**先证明探测器本身有效**）+ task（宣告 1 次 / turn 末自动退出 / 后续轮不复活 / 带 exit 提醒）+
+manual（宣告 1 次不重复 / 不自行关闭）+ 显式关闭（无二次 enter / exit 提醒 1 次 / status 关闭）。
+**修复后 15/15；修复前 9 项失败**。
+
+**探针二 · 工具路径**（`.tmp/swarm-tool-e2e.mts`，2 场景 12 项）：让 mock provider 真的吐出
+`AgentSwarm` 工具调用，跑一个**真的 swarm**。**修复后 12/12；`HEAD~1` 上 5 项失败**：
+
+- `F6a swarmIndex=[null,null]` —— 桥把 `swarm_index` 丢了，TUI 因此无法区分 swarm member 与
+  普通 child subagent（正是 F6 的预言）；
+- `F5c/F5d completed=0 failed=0 cancelled=0` —— **两个成员一个终态事件都没有**，全部 12 项里
+  唯一能证明 F5 的两项；
+- `F3a` 拒绝文案从未回到 provider；`F3d spawned=2` —— 被拒的混合批次**成员照跑**。
+
+**一处需要更正本节早先的说法**：独占门并非「已存在但结束 turn」，而是 **`HEAD~1` 里根本不存在**
+——它属于未提交的移植。`HEAD~1` 上那批 `[AgentSwarm, Bash]` 直接执行、两个成员照常 spawn。
+所以 F3 的准确表述是：移植新增了一道门但语义错了（结束 turn），本次改为 v2 的「拒绝并让模型
+重试」；而「门本身」在 `HEAD~1` 上是缺失的。
 
 回归测：Rust `swarm::` 23 + `swarm_tool` 14 + `turn_loop::run_turn`（含新增
 `a_vetoed_swarm_batch_is_refused_and_the_model_can_retry`、
@@ -2837,6 +2854,19 @@ status 关闭）。**修复后 15/15；修复前同一探针 9 项失败**（对
 失败 8 项与干净树**完全相同**（`test_find_git_work_tree` 等 —— 本沙箱只有 workspace 内可写，
 `TEMP` 落在仓内导致 `tempdir()` 继承 git work tree，属环境限制）。`check:engine-i18n` 165 键 OK、
 `check-locale-keys` / `check-locale-placeholders` 全绿、`tsgo` node-sdk 通过。
+node-sdk vitest 15 失败、apps/kimi-code vitest 12 失败，改动前后**逐条相同**。
+
+**探针本身踩过的坑（都写在这里，因为下一次还会踩）**：
+
+1. 请求体的 user content 是 **ContentPart 数组**，不是字符串。`String(m.content)` 得到
+   `[object Object]`，标记永远匹配不上，mock 对什么都回纯文本 —— 表现和「模型从不调用工具」
+   一模一样。
+2. 工具调用必须按 OpenAI 兼容的**分片**形状发：每片带 `index`，name 与 arguments 分开。单片
+   `tool_calls` 不带 `index` 会被引擎的解析器丢掉。
+3. mock 必须**按主对话的 prompt 选脚本**，否则 subagent worker 自己的请求也会命中脚本，
+   于是 swarm 里再长 swarm，无限递归。给 mock 加一个「最多发 N 次工具调用」的硬上限兜底。
+4. 诊断脚本不要 `await Promise.all([prompt, done])`：turn 卡死时这个 promise 永不落定，连超时
+   兜底都跑不到。应 `void prompt()`，只 await turn 结束或超时那个。
 
 **方法论注记**：本条最初是**用自己写的单测验证自己写的函数** —— 「我让 `set_swarm_mode` 发射
 `swarm_mode.enter`，单测通过」只证明代码符合我对 v2 的理解，不证明真实场景通了。仓库
