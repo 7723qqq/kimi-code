@@ -356,10 +356,11 @@ mod tests {
     }
 
     /// Scriptable state-bridge host: reads answer with `plan_active`, writes
-    /// are recorded for assertion.
+    /// and emitted events are recorded for assertion.
     struct MutexProbeCallbacks {
         plan_active: bool,
         writes: Arc<StdMutex<Vec<Value>>>,
+        events: Arc<StdMutex<Vec<Value>>>,
     }
 
     impl HostCallbacks for MutexProbeCallbacks {
@@ -389,7 +390,9 @@ mod tests {
             })
         }
 
-        fn emit_event(&self, _: Value) {}
+        fn emit_event(&self, event: Value) {
+            self.events.lock().unwrap().push(event);
+        }
 
         fn state_read(
             &self,
@@ -419,6 +422,7 @@ mod tests {
             MutexProbeCallbacks {
                 plan_active: active,
                 writes: writes.clone(),
+                events: Arc::new(StdMutex::new(Vec::new())),
             },
             writes,
         )
@@ -438,5 +442,65 @@ mod tests {
         let (callbacks, writes) = probe(false);
         assert!(!exit_plan_for_tower_enter(&callbacks).await);
         assert!(writes.lock().unwrap().is_empty());
+    }
+
+    /// v2 `modeMutexService.ts:39-41` — `TowerModeEnter` exits swarm. The
+    /// half that had no counterpart here at all, so the one with no test.
+    #[test]
+    fn entering_a_tower_closes_swarm_mode() {
+        let agent = "mode-mutex-tower-agent";
+        crate::swarm::mode::swarm_mode_registry().exit(agent);
+        let (callbacks, _writes) = probe(false);
+        assert!(crate::swarm::mode::set_swarm_mode(
+            &callbacks,
+            agent,
+            Some(crate::swarm::mode::SwarmModeTrigger::Manual)
+        ));
+        callbacks.events.lock().unwrap().clear();
+
+        assert!(
+            exit_swarm_for_tower_enter(&callbacks, agent),
+            "a tower entered over an open swarm closes it"
+        );
+        assert!(
+            !crate::swarm::mode::swarm_mode_registry().is_active(agent),
+            "the mode is off afterwards: a swarm left open with no exit would keep \
+             announcing a workflow the tower fleet has replaced"
+        );
+
+        // The exit is announced the same way as every other one, so the host's
+        // indicator follows the mode rather than keeping a stale "on".
+        let events = callbacks.events.lock().unwrap().clone();
+        assert_eq!(
+            events,
+            vec![
+                serde_json::json!({ "type": "swarm_mode.exit", "agentId": agent }),
+                serde_json::json!({
+                    "type": "agent.status.updated",
+                    "agentId": agent,
+                    "swarmMode": false,
+                }),
+            ],
+            "got: {events:?}"
+        );
+    }
+
+    /// Idempotent, like every other swarm mode transition: a tower entered with
+    /// no swarm open is not a transition, so nothing is announced.
+    #[test]
+    fn entering_a_tower_without_swarm_is_silent() {
+        let agent = "mode-mutex-tower-idle-agent";
+        crate::swarm::mode::swarm_mode_registry().exit(agent);
+        let (callbacks, _writes) = probe(false);
+        assert!(!exit_swarm_for_tower_enter(&callbacks, agent));
+        assert!(callbacks.events.lock().unwrap().is_empty());
+    }
+
+    /// The note the model is told, so the mode change is not silent to it either.
+    #[test]
+    fn the_swarm_exit_note_says_why() {
+        let note = swarm_exited_note();
+        assert!(note.contains("swarm mode"), "{note}");
+        assert!(note.contains("tower init"), "{note}");
     }
 }
