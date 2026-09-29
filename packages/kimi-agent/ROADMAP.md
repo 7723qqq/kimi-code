@@ -4771,3 +4771,50 @@ fork 不存在。
 文档侧同步修正一处不实描述：`docs/{en,zh}/customization/hooks.md` 的 `UserPromptSubmit` 行原写
 "返回文本会附加到上下文、阻断则本轮不调用模型"，而 `tools/external_hooks.rs:270-272` 的注释白纸黑字
 写着引擎只走观察路径、返回值被丢弃。2026-09-29 按实现改正。
+
+### 6.23 2026-09-29 退役包 delta 复核（续）：2 条上游提交（1 补丁 / 1 不适用）
+
+上游在 §6.22 落账后当天又推了两条触及 `agent-core-v2` 的提交，ratchet 照常报红。逐条裁决如下。
+
+| 条目 | 提交 | 裁决 | 落点 |
+| --- | --- | --- | --- |
+| §6.23.1 | `f409caa21e` #4083 | **not-applicable** | fork 的 cron 是服务器级状态，不存在"fork 继承任务"这一机制 |
+| §6.23.2 | `20a2cea72f` #4061 | **tracked** | 90s 上限已移植；重复等待警告 / 子代理指引 / TUI Enter steer 未移植 |
+
+#### 6.23.1 不适用：`f409caa21e` 清空 fork 继承的 cron 任务
+
+v2 把 cron 任务作为 `cron.add` 记录写进会话 journal，而 fork 复制 journal，于是 fork 继承了源会话的
+任务、两个会话同时触发。**这个机制在本 fork 不存在**，三条证据：
+
+- **cron 条目是服务器级状态，不是 journal 记录。** `server/mod.rs:255` 构造
+  `CronScheduler::new(Self::read_persisted_cron_entries(&store), ...)`，`:595` 的注释写明
+  "Server-scoped cron persistence: entries live under state key `("cron", "entries")`"。
+- **`fork_session` 只复制会话历史。** `session/sqlite_store.rs:834` 走
+  `load_session_history` → `save_turn(new_session_id, "turn-fork", 1, &history, None, None)`，
+  全程不碰 cron。
+- **`CronEntry.session_id` 是残留字段。** `cron/scheduler.rs:31` 声明了它，但两处构造点（`:289`、
+  `:764`）都写 `None`，没有任何代码给它赋过会话 id——所以根本不存在"按会话归属的 cron 表"可供继承。
+
+结论：fork 与源会话共享同一份服务器级排程，这与该服务器上任何其他会话的关系完全一样，是设计而非
+缺陷。上游那条 `cron_fork_cleared` 提醒在这里没有对应物——fork 确实持有服务器排程，告诉模型"本 fork
+没有定时任务"会是假话。同一提交把 `Forked` 事件类从 `features/goal` 挪到 `session/agentLifecycle`，
+是 v2 的模块布局调整，Rust 侧无对应面。
+
+#### 6.23.2 部分移植：`20a2cea72f` 把 WaitFor 上限收到 90s
+
+**已移植（2026-09-29）**：`WAIT_FOR_MAX_TIMEOUT_S` 600 → 90（`tools/task_tools.rs:28`），连同所有
+陈述旧上限的位置——`parse_timeout` 的文档注释、`TASK_WAIT_DESCRIPTION` 的 guideline 行、JSON schema
+的 `maximum` 及其 description、schema 测试，以及 `docs/{en,zh}/reference/tools.md`。上游在同一提交里
+把这个常量从 `DEFAULT_BACKGROUND_TIMEOUT_S` 解耦成字面量 90；fork 的 Bash 后台超时仍是 600，上游也
+没动它。
+
+**未移植（功能类，需许可）**：按轮统计的重复等待计数与 `[wait_warning]` 块（`taskWaitTool.ts` 的
+`countCall` / `withRepeatWarning` / `repeatWaitAdvice`，三种建议分别对应子代理、goal 活跃、普通情形）、
+子代理专用描述（`task-wait-subagent.md`，当 `scopeContext.agentId !== MAIN_AGENT_ID` 时追加）、
+超时文案的子代理/主代理分叉，以及 TUI 那半（等待期间按 Enter 即 steer，外加 `staging-leases.ts` 的
+队列处理）。
+
+一处容易误判的地方：**steering 机制 fork 早就有**（`tools/task_tools.rs` 的 `render_wait_interrupted`
+与 `wait_status: interrupted`），缺的是触发面——只有 `Ctrl-S` 会 steer
+（`tui/controllers/editor-keyboard.ts:324` 的 `onCtrlS`），Enter 不会。所以文档保留 fork 自己的
+"`Ctrl-S` 提前结束等待"表述，没有照抄上游那句 Enter 文案：照抄会写出本 fork 没有的行为。

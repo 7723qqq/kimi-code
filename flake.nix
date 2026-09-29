@@ -156,6 +156,10 @@
                 ./tsconfig.json
                 ./vitest.config.ts
                 ./LICENSE
+                # The built-in normify plugin is inlined into the SDK bundle
+                # through `?raw` imports from packages/node-sdk, so the
+                # sandbox needs the plugin sources as well as the workspace.
+                ./plugins
               ]
               ++ workspacePaths
             );

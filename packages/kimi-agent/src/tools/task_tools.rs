@@ -22,9 +22,10 @@ use crate::tools::task_format;
 use crate::turn_loop::types::ExecutableToolResult;
 use crate::turn_loop::wall_time;
 
-/// v2 `WAIT_FOR_MAX_TIMEOUT_S` (`DEFAULT_BACKGROUND_TIMEOUT_S`): the
-/// TaskWait `timeout` argument is capped at 600 seconds.
-const WAIT_FOR_MAX_TIMEOUT_S: u64 = 600;
+/// v2 `WAIT_FOR_MAX_TIMEOUT_S`: the TaskWait `timeout` argument is capped at
+/// 90 seconds. v2 used to derive this from `DEFAULT_BACKGROUND_TIMEOUT_S`
+/// (600) and decoupled it in `20a2cea72f`; the cap is now its own constant.
+const WAIT_FOR_MAX_TIMEOUT_S: u64 = 90;
 
 /// Failure message when the connected host does not implement the state
 /// bridge. The model must not retry the tool — the host cannot manage
@@ -634,7 +635,7 @@ fn parse_task_id(args: &Value, tool: &str) -> Result<String, String> {
     }
 }
 
-/// Parse the required `timeout` argument (v2 bounds: integer 1..=600).
+/// Parse the required `timeout` argument (v2 bounds: integer 1..=90).
 fn parse_timeout(args: &Value) -> Result<u64, String> {
     match args.get("timeout") {
         Some(value) => match value.as_u64() {
@@ -825,7 +826,7 @@ Use this when your next step depends on the result of a running background task 
 Guidelines:
 
 - Do not call TaskWait right after dispatching work whose result you do not need yet — finished background tasks notify you automatically. TaskWait is for the moment you genuinely cannot proceed without a result.
-- `timeout` is required, in seconds, capped at 600. To wait longer, call TaskWait again; waking up periodically also lets you re-evaluate the situation.
+- `timeout` is required, in seconds, capped at 90. Pick it from how long you expect the task to take, not the maximum.
 - A timeout is not an error: the tool reports the timeout and you decide whether to wait again or do other work meanwhile; completion also arrives via automatic notification.
 - With `task_id`, the wait ends when that task finishes. An unknown `task_id` is an error; a task that has already finished returns immediately.
 - Without `task_id`, the wait ends as soon as any background task that was running at call time finishes; with nothing running it returns immediately.
@@ -847,8 +848,8 @@ fn task_wait_def(name: &str) -> crate::turn_loop::types::ToolInfo {
                 "timeout": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 600,
-                    "description": "Maximum time to wait, in seconds (1-600). A timeout is not an error: call the tool again to keep waiting, or continue with other work; completion also arrives via automatic notification."
+                    "maximum": 90,
+                    "description": "Maximum time to wait, in seconds (1-90). Pick it from how long you expect the task to take, not the maximum. A timeout is not an error: the tool returns the tasks that are still running."
                 },
                 "task_id": {
                     "type": "string",
@@ -1882,7 +1883,7 @@ mod tests {
         assert_eq!(def.input_schema["required"][0], "timeout");
         assert_eq!(def.input_schema["required"].as_array().unwrap().len(), 1);
         assert!(def.input_schema["properties"]["task_id"].is_object());
-        assert_eq!(def.input_schema["properties"]["timeout"]["maximum"], 600);
+        assert_eq!(def.input_schema["properties"]["timeout"]["maximum"], 90);
         assert!(def.description.contains("Wait for background tasks"));
     }
 }

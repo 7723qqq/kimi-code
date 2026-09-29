@@ -7,7 +7,7 @@
  */
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve, join, relative } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const FLAKE_NIX = join(ROOT, 'flake.nix');
@@ -128,6 +128,75 @@ function parseFlakeNix() {
   return items;
 }
 
+/**
+ * Parse every path the Nix src fileset is built from: the literal entries in
+ * the `lib.fileset.unions ([ ... ] ++ workspacePaths)` block plus
+ * workspacePaths itself. Anything outside this set is absent from the sandbox.
+ */
+function parseFlakeFileset() {
+  const content = readFileSync(FLAKE_NIX, 'utf8');
+  const block = content.match(/lib\.fileset\.unions\s*\(\s*\[(.*?)\]\s*\+\+\s*workspacePaths/s);
+  if (!block) {
+    throw new Error('Could not find the lib.fileset.unions block in flake.nix');
+  }
+  const entries = new Set(parseFlakeNix());
+  const itemRegex = /\.\/[^\s\]]+/g;
+  let m;
+  while ((m = itemRegex.exec(block[1])) !== null) {
+    entries.add(m[0]);
+  }
+  return entries;
+}
+
+const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.mjs'];
+const SKIPPED_DIRS = new Set(['node_modules', 'dist', 'dist-web', 'dist-native', 'coverage']);
+
+/** Collect every source file under `dir`, skipping build output and dependencies. */
+function collectSourceFiles(dir) {
+  const found = [];
+  const walk = (current) => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (!SKIPPED_DIRS.has(entry.name)) walk(join(current, entry.name));
+      } else if (SOURCE_EXTENSIONS.some((ext) => entry.name.endsWith(ext))) {
+        found.push(join(current, entry.name));
+      }
+    }
+  };
+  walk(dir);
+  return found;
+}
+
+/**
+ * A `?raw` import inlines a file into the bundle at build time, so its target
+ * has to be inside the Nix src fileset even when it lives outside every
+ * workspace package. Only relative specifiers name a real path; bare ones
+ * (`~icons/...`) are virtual modules resolved by a bundler plugin.
+ */
+function findRawImportsOutsideFileset(workspaceDirs, filesetEntries) {
+  const escapes = [];
+  const rawImport = /(?:from\s*|import\s*\(\s*)['"](\.[^'"]+)\?raw['"]/g;
+
+  for (const dir of workspaceDirs) {
+    const absDir = join(ROOT, dir);
+    if (!existsSync(absDir)) continue;
+    for (const file of collectSourceFiles(absDir)) {
+      const content = readFileSync(file, 'utf8');
+      for (const match of content.matchAll(rawImport)) {
+        const target = resolve(file, '..', match[1]);
+        const rel = `./${relative(ROOT, target).replaceAll('\\', '/')}`;
+        const covered = [...filesetEntries].some(
+          (entry) => rel === entry || rel.startsWith(`${entry}/`),
+        );
+        if (!covered) {
+          escapes.push({ file: relative(ROOT, file).replaceAll('\\', '/'), target: rel });
+        }
+      }
+    }
+  }
+  return escapes;
+}
+
 function main() {
   const globs = getWorkspaceGlobs();
   const dirs = expandGlobsSafe(globs);
@@ -177,6 +246,18 @@ function main() {
       console.error(`  ${p}`);
     }
 
+    process.exit(1);
+  }
+
+  const escapes = findRawImportsOutsideFileset(dirs, parseFlakeFileset());
+  if (escapes.length > 0) {
+    console.error(
+      '❌ A `?raw` import points outside the Nix src fileset.\n\nThe bundler inlines these files at build time, so the sandbox needs them:',
+    );
+    for (const { file, target } of escapes) {
+      console.error(`  - ${target}  (imported by ${file})`);
+    }
+    console.error('\nAdd the containing directory to the lib.fileset.unions block in flake.nix.');
     process.exit(1);
   }
 
