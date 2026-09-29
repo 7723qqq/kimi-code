@@ -4529,14 +4529,7 @@ mod tests {
         let total = std::sync::atomic::AtomicU64::new(0);
         let tripped = std::sync::atomic::AtomicBool::new(false);
         let mut data: &[u8] = b"hello world";
-        let kept = read_bounded_stream(
-            &mut data,
-            "stdout",
-            &noop_emit,
-            &total,
-            &tripped,
-        )
-        .await;
+        let kept = read_bounded_stream(&mut data, "stdout", &noop_emit, &total, &tripped).await;
         assert_eq!(kept, b"hello world");
         assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 11);
         assert!(!tripped.load(std::sync::atomic::Ordering::Relaxed));
@@ -4554,14 +4547,7 @@ mod tests {
         let total = std::sync::atomic::AtomicU64::new(0);
         let tripped = std::sync::atomic::AtomicBool::new(false);
         let mut data: &[u8] = &payload;
-        let kept = read_bounded_stream(
-            &mut data,
-            "stdout",
-            &noop_emit,
-            &total,
-            &tripped,
-        )
-        .await;
+        let kept = read_bounded_stream(&mut data, "stdout", &noop_emit, &total, &tripped).await;
 
         assert!(
             kept.len() <= MAX_RETAINED_OUTPUT_BYTES + 8192,
@@ -4599,14 +4585,7 @@ mod tests {
         let tripped = std::sync::atomic::AtomicBool::new(false);
         // The counter starts *at* the cap, so this one read crosses it.
         let mut data: &[u8] = &vec![b'x'; 8192][..];
-        let kept = read_bounded_stream(
-            &mut data,
-            "stdout",
-            &noop_emit,
-            &total,
-            &tripped,
-        )
-        .await;
+        let kept = read_bounded_stream(&mut data, "stdout", &noop_emit, &total, &tripped).await;
 
         assert!(
             tripped.load(std::sync::atomic::Ordering::Relaxed),
@@ -4626,14 +4605,7 @@ mod tests {
         let total = std::sync::atomic::AtomicU64::new(0);
         let tripped = std::sync::atomic::AtomicBool::new(true);
         let mut data: &[u8] = b"never read";
-        let kept = read_bounded_stream(
-            &mut data,
-            "stderr",
-            &noop_emit,
-            &total,
-            &tripped,
-        )
-        .await;
+        let kept = read_bounded_stream(&mut data, "stderr", &noop_emit, &total, &tripped).await;
         assert!(kept.is_empty());
         assert_eq!(
             total.load(std::sync::atomic::Ordering::Relaxed),

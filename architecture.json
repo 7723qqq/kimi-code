@@ -24,7 +24,7 @@
           "description": "ACP stdio protocol server"
         }
       ],
-      "fingerprint": "8f9da766e8dea24a"
+      "fingerprint": "6267dcb8bf74b67e"
     },
     {
       "id": "node-sdk",
@@ -46,7 +46,7 @@
           "description": "Public SDK package"
         }
       ],
-      "fingerprint": "dc00759e61484a3e"
+      "fingerprint": "6c0c0ecd3cb2db1e"
     },
     {
       "id": "kimi-code",
@@ -77,7 +77,7 @@
           "description": "Terminal UI"
         }
       ],
-      "fingerprint": "f925e2bc4c89d940"
+      "fingerprint": "9ab6c566d3df42b2"
     },
     {
       "id": "kosong",
@@ -88,7 +88,7 @@
         "i18n-runtime",
         "kimi-agent"
       ],
-      "fingerprint": "f53f28734e5e7dce"
+      "fingerprint": "e63139d6edb8b15f"
     },
     {
       "id": "minidb",
@@ -96,7 +96,7 @@
       "source": "packages/minidb/src",
       "layer": "engine",
       "deps": [],
-      "fingerprint": "8aa46daed50c21c8"
+      "fingerprint": "b47949f1af0cda9e"
     },
     {
       "id": "protocol",
@@ -106,7 +106,7 @@
       "deps": [
         "transcript"
       ],
-      "fingerprint": "2e26c68d1c6cb684"
+      "fingerprint": "4c64beb8340f8c66"
     },
     {
       "id": "transcript",
@@ -114,7 +114,7 @@
       "source": "packages/transcript/src",
       "layer": "engine",
       "deps": [],
-      "fingerprint": "ac5741f015ad0b20"
+      "fingerprint": "409cdc68189eeb2c"
     },
     {
       "id": "kaos",
@@ -140,7 +140,7 @@
       "source": "packages/i18n-catalog/src",
       "layer": "shared",
       "deps": [],
-      "fingerprint": "3f74dbfd88e5c102"
+      "fingerprint": "b568a5e8d484862e"
     },
     {
       "id": "i18n-runtime",
@@ -175,7 +175,7 @@
       "source": "packages/pi-tui/src",
       "layer": "shared",
       "deps": [],
-      "fingerprint": "540b93ab4d94d528"
+      "fingerprint": "7cf5d72dfa631f32"
     },
     {
       "id": "vis-server",
@@ -186,7 +186,7 @@
         "kosong",
         "protocol"
       ],
-      "fingerprint": "ec4e8a6be297f4e5"
+      "fingerprint": "198438615ef736bb"
     },
     {
       "id": "vscode",
@@ -199,7 +199,7 @@
         "telemetry",
         "i18n-shared"
       ],
-      "fingerprint": "0f38dcde56972dcd"
+      "fingerprint": "899ee03092f3d4b6"
     },
     {
       "id": "kimi-inspect",
@@ -210,7 +210,7 @@
         "transcript",
         "i18n-shared"
       ],
-      "fingerprint": "f862484ee1dce28e"
+      "fingerprint": "7f4e0dde28562359"
     }
   ],
   "rules": {

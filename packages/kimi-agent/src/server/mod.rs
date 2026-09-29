@@ -8123,7 +8123,8 @@ mod tests {
                     },
                     "task-live".into(),
                     "job".into(),
-                    async { crate::storage::TaskOutcome::Completed("done".to_string()) },                )
+                    async { crate::storage::TaskOutcome::Completed("done".to_string()) },
+                )
                 .unwrap();
             assert!(matches!(
                 runner.wait("task-live", 2000).await,
@@ -8151,7 +8152,8 @@ mod tests {
                 },
                 "task-gone".into(),
                 "job".into(),
-                async { crate::storage::TaskOutcome::Completed("done".to_string()) },            )
+                async { crate::storage::TaskOutcome::Completed("done".to_string()) },
+            )
             .unwrap();
         assert!(matches!(
             runner.wait("task-gone", 2000).await,

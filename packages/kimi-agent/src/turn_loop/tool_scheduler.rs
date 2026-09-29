@@ -1400,13 +1400,9 @@ mod tests {
             Ok(ok_result("the real answer"))
         };
 
-        let outcome = execute_scheduled(
-            Some(&cancel),
-            one_call("bash", vec![]),
-            executor,
-        )
-        .await
-        .expect("the grace resolves the batch");
+        let outcome = execute_scheduled(Some(&cancel), one_call("bash", vec![]), executor)
+            .await
+            .expect("the grace resolves the batch");
 
         assert!(outcome.cancelled, "the turn is still reported as cancelled");
         assert_eq!(
@@ -1436,13 +1432,9 @@ mod tests {
         };
 
         let started = std::time::Instant::now();
-        let outcome = execute_scheduled(
-            Some(&cancel),
-            one_call("bash", vec![]),
-            executor,
-        )
-        .await
-        .expect("the grace resolves the batch");
+        let outcome = execute_scheduled(Some(&cancel), one_call("bash", vec![]), executor)
+            .await
+            .expect("the grace resolves the batch");
         let elapsed = started.elapsed();
 
         assert!(outcome.cancelled);
@@ -1524,7 +1516,8 @@ mod tests {
     /// A single failing call must not abort the batch: its error surfaces as an
     /// error-marked result while sibling results are preserved.
     #[tokio::test]
-    async fn test_execute_scheduled_single_failure_keeps_siblings() {        let scheduled = vec![
+    async fn test_execute_scheduled_single_failure_keeps_siblings() {
+        let scheduled = vec![
             ScheduledToolCall {
                 tool_call: ToolCall {
                     id: "1".into(),

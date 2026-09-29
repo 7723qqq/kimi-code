@@ -262,12 +262,21 @@ function resolveImportAlias(spec, imports) {
 
 /** SHA-256 (16 hex chars) of a module's sorted path+content fingerprint. */
 function fingerprintOf(sourceDir) {
+  // Sort by code unit rather than by locale: `localeCompare` orders
+  // punctuation and case using the platform's collation tables, so two
+  // machines can walk the same tree in a different order and hash a
+  // different sequence of files.
   const files = walkFiles(sourceDir, FINGERPRINT_EXTENSIONS, FINGERPRINT_SKIP_DIRS).sort((a, b) =>
-    a.localeCompare(b),
+    a < b ? -1 : a > b ? 1 : 0,
   );
   const hash = createHash('sha256');
   for (const file of files) {
-    hash.update(relative(sourceDir, file));
+    // `relative` is platform-dependent — `sub\file.rs` on Windows, `sub/file.rs`
+    // everywhere else — so hashing it raw would give every module a different
+    // fingerprint per platform, and a value recorded on one could never match a
+    // checkout on the other. Normalize to the forward slash the repo uses
+    // everywhere, including `.gitattributes`.
+    hash.update(relative(sourceDir, file).split(sep).join('/'));
     hash.update(readFileSync(file));
   }
   return hash.digest('hex').slice(0, 16);

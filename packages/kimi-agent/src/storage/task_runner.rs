@@ -506,7 +506,8 @@ impl TaskRunner {
                     (TaskStatus::Killed, None, None)
                 }
             };
-            runner.settle_task(&task_id, status, output, stop_reason);            let _ = done_tx.send(());
+            runner.settle_task(&task_id, status, output, stop_reason);
+            let _ = done_tx.send(());
         });
         tasks.get_mut(&id).unwrap().handle = Some(handle);
         drop(tasks);
@@ -2650,7 +2651,9 @@ mod tests {
         // The infallible entry point still means success — that is its whole
         // contract, and it is why its callers were left untouched.
         runner
-            .spawn_task("t-ok".into(), "fine".into(), async { "all good".to_string() })
+            .spawn_task("t-ok".into(), "fine".into(), async {
+                "all good".to_string()
+            })
             .unwrap();
         // The fallible one carries its verdict.
         runner
@@ -2667,14 +2670,10 @@ mod tests {
             )
             .unwrap();
         runner
-            .spawn_task(
-                "t-held".into(),
-                "long".into(),
-                async {
-                    let _ = std::future::pending::<()>().await;
-                    unreachable!("the cancel arm wins before this resolves")
-                },
-            )
+            .spawn_task("t-held".into(), "long".into(), async {
+                let _ = std::future::pending::<()>().await;
+                unreachable!("the cancel arm wins before this resolves")
+            })
             .unwrap();
 
         // Let the two immediate tasks settle, then cut the third short the way

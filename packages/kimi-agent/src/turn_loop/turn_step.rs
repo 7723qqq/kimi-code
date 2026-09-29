@@ -95,7 +95,8 @@ struct EmptyResponse {
     think_only: bool,
 }
 
-const EMPTY_RESPONSE_DETAIL: &str = "The API returned an empty response (no content, no tool calls).";
+const EMPTY_RESPONSE_DETAIL: &str =
+    "The API returned an empty response (no content, no tool calls).";
 const THINK_ONLY_RESPONSE_DETAIL: &str = "The API returned a response containing only thinking content without any text or tool calls. This usually indicates the stream was interrupted or the output token budget was exhausted during reasoning.";
 
 /// Whether the provider's finish reason is a content filter.
@@ -186,10 +187,7 @@ fn empty_response_message(
 ///   *unless* the provider filtered it (requester/retry.ts:50-51). A filtered
 ///   turn is a real final answer; re-requesting it would spend the budget
 ///   re-eliciting the same refusal.
-fn empty_response_retryable(
-    response: &LLMChatResponse,
-    llm: &dyn LLM,
-) -> Option<EmptyResponse> {
+fn empty_response_retryable(response: &LLMChatResponse, llm: &dyn LLM) -> Option<EmptyResponse> {
     if llm.transport() != "native-http" {
         return None;
     }
@@ -1227,11 +1225,7 @@ mod tests {
             execute_loop_step_with_retry("t1", 1, &llm, &[], &[], &[], &config, None, None)
                 .await
                 .expect("the proxy leg owns its own transcript");
-        assert_eq!(
-            llm.calls.load(Ordering::SeqCst),
-            1,
-            "no retry on the proxy"
-        );
+        assert_eq!(llm.calls.load(Ordering::SeqCst), 1, "no retry on the proxy");
         assert!(result.content.is_empty());
     }
 
