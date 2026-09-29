@@ -10,8 +10,8 @@ description:
   en: >
       MCP manager: process-wide server registry keyed by the resolved server set, deferred connects, tool table aggregation.
       
-revision: 60e70d6896fce2a853b5a66abeba2b577029053e
-updated_at: "2026-09-27T10:48:22.255Z"
+revision: 779fa7ba58daaeed4dd885c941bf1c29d2fe902e
+updated_at: "2026-09-29T11:43:38.995Z"
 fingerprint: 9a2b84e106fb030704381a527b89ac0938d1c0c6c20c6476b66be99b670b4090
 source:
   - path: "packages/kimi-agent/src/mcp/manager.rs"

@@ -10,8 +10,8 @@ description:
   en: >
       Execution environment abstraction for AI agent applications.
       
-revision: f1ee8a68c7bc77758816cc12fccaeaad994ba298
-updated_at: "2026-09-27T10:22:23.428Z"
+revision: 779fa7ba58daaeed4dd885c941bf1c29d2fe902e
+updated_at: "2026-09-29T11:43:39.004Z"
 fingerprint: c6800b31e7ed6275747bf8e2f34031a7137eb8fcd5d2871caf092e0977a6607e
 source:
   - path: "packages/kaos/src/index.ts"

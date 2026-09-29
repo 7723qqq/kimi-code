@@ -10,9 +10,9 @@ description:
   en: >
       Subagent orchestration: manager, fork, persistent and secondary agents, the btw side-channel.
       
-revision: 64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139
-updated_at: "2026-09-27T10:29:21.416Z"
-fingerprint: 0934b5f6ecaa8e84e66ea20ab221e994a9c213cd0df85369e899947346a332ee
+revision: 779fa7ba58daaeed4dd885c941bf1c29d2fe902e
+updated_at: "2026-09-29T11:43:38.991Z"
+fingerprint: df707f873b26f87b6ccefd309af33cd507cef46a6a7f46199e96a841eaa65f66
 source:
   - path: "packages/kimi-agent/src/subagent/manager.rs"
   - path: "packages/kimi-agent/src/subagent/fork.rs"

@@ -10,9 +10,9 @@ description:
   en: >
       The terminal app: command parsing, TUI, session orchestration, slash commands and the plugin panel, driving the engine via the node SDK.
       
-revision: 64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139
-updated_at: "2026-09-27T10:30:28.790Z"
-fingerprint: 4c99775a64eff055c081bdacb4d8f82c2e9c5cb6d490d802ae50e1970cd88215
+revision: 779fa7ba58daaeed4dd885c941bf1c29d2fe902e
+updated_at: "2026-09-29T11:43:38.985Z"
+fingerprint: a9c95ca649784914f77d1efd8484564bbf88862d2f9e6bab0db98a6361747bfe
 source:
   - path: "apps/kimi-code/src/main.ts"
   - path: "apps/kimi-code/src/cli/commands.ts"
@@ -25,8 +25,11 @@ deps:
     to: kimi-code.libs.tui
     label: {zh: "TUI 框架", en: "TUI framework"}
   - kind: call
-    to: kimi-code.libs.i18n
-    label: {zh: "文案与 locale", en: "localized strings"}
+    to: kimi-code.libs.i18n-shared
+    label: {zh: "locale 探测与共享类型", en: "locale detection + types"}
+  - kind: reference
+    to: kimi-code.libs.i18n-catalog
+    label: {zh: "词条键的类型来源", en: "key types only"}
   - kind: call
     to: kimi-code.engine.napi
     label: {zh: "直连原生模块", en: "direct native imports"}

@@ -164,16 +164,16 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
         "repository": "https://github.com/7723qqq/kimi-code"
       }
     ],
-    "compiled_at": "2026-09-27T11:06:47.797Z",
+    "compiled_at": "2026-09-29T11:46:37.939Z",
     "stats": {
       "tree_count": 1,
-      "module_count": 67,
-      "leaf_count": 48,
+      "module_count": 74,
+      "leaf_count": 54,
       "api_count": 38,
-      "dep_count": 27,
+      "dep_count": 29,
       "cross_tree_dep_count": 0,
       "max_depth": 5,
-      "layout_count": 19,
+      "layout_count": 20,
       "planned_count": 0,
       "deprecated_count": 0,
       "policy_rule_count": 2,
@@ -202,7 +202,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
       "fingerprint": "pending",
       "repository": "https://github.com/7723qqq/kimi-code",
       "aggregate": {
-        "descendant_count": 66,
+        "descendant_count": 73,
         "own_api_count": 0,
         "inherited_api_count": 38,
         "dep_out": 0,
@@ -228,8 +228,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "apps/kimi-code/src/main.ts"
         }
       ],
-      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
-      "updated_at": "2026-09-27T10:22:23.423Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.986Z",
       "fingerprint": "14764da2b2dfe9da338d51be9485e4dc82735a72ec027e70a8ce89641c71898e",
       "aggregate": {
         "descendant_count": 12,
@@ -264,9 +264,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "apps/kimi-code/src/tui/kimi-tui.ts"
         }
       ],
-      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
-      "updated_at": "2026-09-27T10:30:28.790Z",
-      "fingerprint": "4c99775a64eff055c081bdacb4d8f82c2e9c5cb6d490d802ae50e1970cd88215",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.985Z",
+      "fingerprint": "a9c95ca649784914f77d1efd8484564bbf88862d2f9e6bab0db98a6361747bfe",
       "deps": [
         {
           "kind": "call",
@@ -288,10 +288,19 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
         },
         {
           "kind": "call",
-          "to": "kimi-code.libs.i18n",
+          "to": "kimi-code.libs.i18n-shared",
           "label": {
-            "zh": "文案与 locale",
-            "en": "localized strings"
+            "zh": "locale 探测与共享类型",
+            "en": "locale detection + types"
+          },
+          "cross_tree": false
+        },
+        {
+          "kind": "reference",
+          "to": "kimi-code.libs.i18n-catalog",
+          "label": {
+            "zh": "词条键的类型来源",
+            "en": "key types only"
           },
           "cross_tree": false
         },
@@ -309,7 +318,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
         "descendant_count": 2,
         "own_api_count": 0,
         "inherited_api_count": 0,
-        "dep_out": 4,
+        "dep_out": 5,
         "dep_in": 0
       }
     },
@@ -335,8 +344,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "apps/kimi-code/src/main.ts"
         }
       ],
-      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
-      "updated_at": "2026-09-27T10:29:21.422Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.985Z",
       "fingerprint": "11307ca4b20870cb630e3cd29f6e561c8e90cac74d4d9fdfb3b7fc3b97dc1b03",
       "deps": [
         {
@@ -376,9 +385,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "apps/kimi-code/src/tui/kimi-tui.ts"
         }
       ],
-      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
-      "updated_at": "2026-09-27T10:29:21.421Z",
-      "fingerprint": "cb79756067dbbda40946cd699f577c7c754e06ad0a0a4d7b387919746f467321",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.986Z",
+      "fingerprint": "cd4e702e3baf098e5eda080d6267429c1ad26e4981311313cc3efb243bb669ad",
       "deps": [
         {
           "kind": "call",
@@ -426,8 +435,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "docs/.vitepress/config.ts"
         }
       ],
-      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
-      "updated_at": "2026-09-27T10:22:23.423Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.986Z",
       "fingerprint": "cb996f2e23fee271179a965c312a112beeb224718220b0e83b476f113577b617",
       "aggregate": {
         "descendant_count": 0,
@@ -459,8 +468,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "apps/kimi-inspect/src/panels.ts"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:48:22.268Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.986Z",
       "fingerprint": "6212f11d5605b291e9a86ba99155063bb3af8a88e54c00783e95204103a11dc2",
       "aggregate": {
         "descendant_count": 5,
@@ -489,8 +498,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "apps/kimi-inspect/src/panels.ts"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:55:36.277Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.987Z",
       "fingerprint": "82ca8ebe5a9f477063075d1d47b94327ce232b5be7cf9caf6b9abd4a823bff14",
       "aggregate": {
         "descendant_count": 3,
@@ -525,8 +534,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "apps/kimi-inspect/src/activity/ws.ts"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:55:36.272Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.986Z",
       "fingerprint": "7d69faf0d94d250d97f9802d78fbc5ab55f782b879395c2d7d2b52a845ea14c3",
       "aggregate": {
         "descendant_count": 0,
@@ -564,8 +573,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "apps/kimi-inspect/src/audit/truncate.ts"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:55:36.273Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.987Z",
       "fingerprint": "b3ccc14804109024cc3d6cfd835af0b691ca2de28eaecbef8b3c5a550270a25c",
       "aggregate": {
         "descendant_count": 0,
@@ -603,8 +612,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "apps/kimi-inspect/src/channel/proxy.ts"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:55:36.273Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.987Z",
       "fingerprint": "20840266f86aac6328d3b438479b7129d82fe142267fe5f386fbf2903c468e67",
       "aggregate": {
         "descendant_count": 0,
@@ -639,8 +648,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "apps/kimi-inspect/src/connection.tsx"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:48:22.265Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.988Z",
       "fingerprint": "b007beddacc1224f4b65dac20b0047df8650a1e3823ea8a8f65dc78d83885bc8",
       "aggregate": {
         "descendant_count": 0,
@@ -669,8 +678,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "apps/vis/server/src/index.ts"
         }
       ],
-      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
-      "updated_at": "2026-09-27T10:22:23.424Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.988Z",
       "fingerprint": "e92ad9f9e97ecd55451604a8ce680f4d1818a39a2ce69dc8bec28000a8fd6e1a",
       "aggregate": {
         "descendant_count": 0,
@@ -699,8 +708,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "apps/vscode/src/extension.ts"
         }
       ],
-      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
-      "updated_at": "2026-09-27T10:22:23.424Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.988Z",
       "fingerprint": "c44fae92508c0c8031a0b5489f5bd2088b97b7e9c58914a5685d1b8a31cd2685",
       "aggregate": {
         "descendant_count": 0,
@@ -729,11 +738,11 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/lib.rs"
         }
       ],
-      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
-      "updated_at": "2026-09-27T10:22:23.425Z",
-      "fingerprint": "ab5280702736647bce2462bf09749e97b1fb5c72329c21df4ebb7a8d1ac2e60a",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.992Z",
+      "fingerprint": "c5b0bb223e539a3163581a288d39f7939da7c7e58ddde60abcdd1142d3de35b8",
       "aggregate": {
-        "descendant_count": 31,
+        "descendant_count": 36,
         "own_api_count": 0,
         "inherited_api_count": 32,
         "dep_out": 0,
@@ -765,9 +774,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/pipeline/mod.rs"
         }
       ],
-      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
-      "updated_at": "2026-09-27T10:30:48.401Z",
-      "fingerprint": "d7c56a60242366bf9d367dd05e06881f90766e71215cdc705bbf40c002a348e6",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.989Z",
+      "fingerprint": "c244470cc3ed2075882b421bcfbc37f2f09ce81dcb10e8ad84a1fd8c4b1b4911",
       "deps": [
         {
           "kind": "call",
@@ -789,7 +798,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
         }
       ],
       "aggregate": {
-        "descendant_count": 6,
+        "descendant_count": 11,
         "own_api_count": 0,
         "inherited_api_count": 0,
         "dep_out": 2,
@@ -818,9 +827,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/compaction/micro.rs"
         }
       ],
-      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
-      "updated_at": "2026-09-27T10:29:21.416Z",
-      "fingerprint": "8bd0dbcd0a7787f1e118c903ee839b2b82be7fdfff28966a876a1986b173d1fd",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.988Z",
+      "fingerprint": "798b027bf81179a9f634e967284e895fac65f995cc8d690ea47f6be31158f7cd",
       "deps": [
         {
           "kind": "call",
@@ -837,6 +846,159 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
         "own_api_count": 0,
         "inherited_api_count": 0,
         "dep_out": 1,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.core.injection": {
+      "uid": "e0e00010",
+      "id": "kimi-code.engine.core.injection",
+      "parent": "kimi-code.engine.core",
+      "tree": "kimi-code",
+      "depth": 4,
+      "name": {
+        "zh": "回合注入层",
+        "en": "Turn injections"
+      },
+      "description": {
+        "zh": "把状态、模式与技能折成 \u003csystem-reminder> 注入到步首。注册表是唯一入口，DomainValueSource 是它读领域值的唯一契约。\n",
+        "en": "Folds state, modes and skills into \u003csystem-reminder> at each step head. The registry is the single entry point, and DomainValueSource the one contract it reads domain values through.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/injection/mod.rs"
+        },
+        {
+          "path": "packages/kimi-agent/src/injection/state.rs"
+        }
+      ],
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.989Z",
+      "fingerprint": "e4621bf42b6ea40cbe9c05f2bd76ec6703c73f5cd203e9e156ad6298dd41d70f",
+      "aggregate": {
+        "descendant_count": 4,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.core.injection.goal-plan": {
+      "uid": "e0e00011",
+      "id": "kimi-code.engine.core.injection.goal-plan",
+      "parent": "kimi-code.engine.core.injection",
+      "tree": "kimi-code",
+      "depth": 5,
+      "name": {
+        "zh": "目标与计划模式",
+        "en": "Goal & plan mode"
+      },
+      "description": {
+        "zh": "goal 在新回合注入一次；plan_mode 按 full/sparse/exit 节奏注入，节奏由注入器自己的 turns_since 驱动。\n",
+        "en": "Goal injects once per new turn; plan_mode injects on a full/sparse/exit cadence driven by the provider's own turns_since.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/injection/goal_plan.rs"
+        }
+      ],
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.989Z",
+      "fingerprint": "27b3f4c5d412408a3258c2adac925b0a893e699779101537215f607880dad5a6",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.core.injection.interruption-reminder": {
+      "uid": "e0e00013",
+      "id": "kimi-code.engine.core.injection.interruption-reminder",
+      "parent": "kimi-code.engine.core.injection",
+      "tree": "kimi-code",
+      "depth": 5,
+      "name": {
+        "zh": "中断提醒",
+        "en": "Interruption reminder"
+      },
+      "description": {
+        "zh": "上一回合被用户中断时，在下一回合步首注入一次性提醒；历史里已有就不再重复。\n",
+        "en": "A one-shot reminder at the next turn's head when the previous turn was interrupted by the user; suppressed when history already carries one.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/injection/interruption_reminder.rs"
+        }
+      ],
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.990Z",
+      "fingerprint": "fdee6b3e7e8a70860988a206eb7415953a14895f46e4007389b57a41147e06e5",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.core.injection.permission-mode": {
+      "uid": "e0e00012",
+      "id": "kimi-code.engine.core.injection.permission-mode",
+      "parent": "kimi-code.engine.core.injection",
+      "tree": "kimi-code",
+      "depth": 5,
+      "name": {
+        "zh": "权限模式标记",
+        "en": "Permission-mode marker"
+      },
+      "description": {
+        "zh": "权限模式相对基线变化时注入一次，让模型知道当前处于哪种模式。\n",
+        "en": "Injected once when the permission mode drifts from the baseline, so the model knows which mode it is in.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/injection/permission_mode.rs"
+        }
+      ],
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.990Z",
+      "fingerprint": "85d729a331e9662900f8280ebf84c6331efc17869cdd7167b759dbc3bd0c8bba",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 0
+      }
+    },
+    "kimi-code.engine.core.injection.swarm-mode": {
+      "uid": "e0e00014",
+      "id": "kimi-code.engine.core.injection.swarm-mode",
+      "parent": "kimi-code.engine.core.injection",
+      "tree": "kimi-code",
+      "depth": 5,
+      "name": {
+        "zh": "Swarm 模式提醒",
+        "en": "Swarm mode reminder"
+      },
+      "description": {
+        "zh": "进入与退出 swarm 模式时各注入一次。\n",
+        "en": "Injected once on entering swarm mode and once on leaving it.\n"
+      },
+      "source": [
+        {
+          "path": "packages/kimi-agent/src/injection/swarm_mode.rs"
+        }
+      ],
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.990Z",
+      "fingerprint": "b85fa3fcf5bec654eb5f89773bba565540d700f5a4ee7919faaf1d02a64bc009",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
         "dep_in": 0
       }
     },
@@ -865,9 +1027,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/session/patch.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:55:36.277Z",
-      "fingerprint": "7ec7abc11ab70cb9f89337169ad8a5847d13966655119b0dfc5669fa4f8795c7",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.990Z",
+      "fingerprint": "bb66f0e38f013f5f2b7d70be78c980bf3d95a34d0b3bcb70135d58f3f40f9a36",
       "deps": [
         {
           "kind": "dataflow",
@@ -909,9 +1071,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/session/patch.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:55:36.272Z",
-      "fingerprint": "29ae1b0805877c8e0a70dd0cb60979d94aa8adc1564c6076cec178d0623046cc",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.991Z",
+      "fingerprint": "a4e668dd84337865af5fc73fa6e41eebd4e289aa08b3408e03f1765d8709eb45",
       "aggregate": {
         "descendant_count": 0,
         "own_api_count": 0,
@@ -939,8 +1101,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/session/title.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:55:36.272Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.991Z",
       "fingerprint": "71a02f6254de04ebaef4e1294b41bdde46cbe394d99c1a3c8902ecdd80aa0695",
       "aggregate": {
         "descendant_count": 0,
@@ -975,9 +1137,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/subagent/btw.rs"
         }
       ],
-      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
-      "updated_at": "2026-09-27T10:29:21.416Z",
-      "fingerprint": "0934b5f6ecaa8e84e66ea20ab221e994a9c213cd0df85369e899947346a332ee",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.991Z",
+      "fingerprint": "df707f873b26f87b6ccefd309af33cd507cef46a6a7f46199e96a841eaa65f66",
       "deps": [
         {
           "kind": "call",
@@ -1022,9 +1184,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/turn_loop/retry.rs"
         }
       ],
-      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
-      "updated_at": "2026-09-27T10:29:21.414Z",
-      "fingerprint": "b5f75fed8d05f05b6376612efcb487f8dc318a53bb5aec40e5034b6057276bba",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.992Z",
+      "fingerprint": "1d1080c6e93ed621104a29b18659c488efe2cf75211a6bfcbe2a56dbf1651da4",
       "deps": [
         {
           "kind": "call",
@@ -1078,8 +1240,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/llm/google_genai.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:48:22.266Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.993Z",
       "fingerprint": "14b778b22344ecfce9a59ecec48153fdc9621a1b49aa9d99b7c558087505f0a9",
       "aggregate": {
         "descendant_count": 4,
@@ -1108,8 +1270,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/llm/anthropic.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:48:22.253Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.992Z",
       "fingerprint": "8605b73147144b3985c500365f6564dfb58c0e21da9f5cd93ea21dfe3a16ea2a",
       "aggregate": {
         "descendant_count": 0,
@@ -1138,8 +1300,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/llm/google_genai.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:48:22.253Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.992Z",
       "fingerprint": "a7fa8a5dbe973aa4277cf880bd55e888c2383daff725c01878f0ee54f31df8fd",
       "aggregate": {
         "descendant_count": 0,
@@ -1180,9 +1342,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/llm/media_budget.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:48:22.254Z",
-      "fingerprint": "01f8e81993680d6f978e29c7ac37011c06982dcf2996356d4df244764a578798",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.993Z",
+      "fingerprint": "aaa2350cb64bd809f0384e2cc82a1a1b214007abb7dc01d360fc7192f9d62787",
       "aggregate": {
         "descendant_count": 0,
         "own_api_count": 0,
@@ -1213,8 +1375,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/llm/openai.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:48:22.253Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.994Z",
       "fingerprint": "9a7b4b4aa6e71824583039daa24b9355646a7d96efed5b07b7662c7b05bccca3",
       "aggregate": {
         "descendant_count": 0,
@@ -1246,8 +1408,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/mcp/client.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:48:22.267Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.995Z",
       "fingerprint": "4850d93a07f26c8d7b8e2d6f18eb2fb1457815588c6ed50786465f7dda3ca9dd",
       "aggregate": {
         "descendant_count": 2,
@@ -1291,8 +1453,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/mcp/output.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:48:22.256Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.994Z",
       "fingerprint": "999675431888da12b6cdab7608d7f5b2d261087e48baa1407caf518e4b2ce78c",
       "deps": [
         {
@@ -1332,8 +1494,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/mcp/manager.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:48:22.255Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.995Z",
       "fingerprint": "9a2b84e106fb030704381a527b89ac0938d1c0c6c20c6476b66be99b670b4090",
       "aggregate": {
         "descendant_count": 0,
@@ -1365,9 +1527,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/index.native.d.ts"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:48:22.267Z",
-      "fingerprint": "c03f02437677f2564c39260b5a759376e197c2f5e7237a07e48db8eb7e3e930a",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.996Z",
+      "fingerprint": "ba622d91db93bb8ad030ba90d27b422560cce03a6bbe51c6f5267e9a4b719e2a",
       "deps": [
         {
           "kind": "call",
@@ -1424,9 +1586,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/napi_bindings.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:49:47.965Z",
-      "fingerprint": "1f07b30d98bd9ce033fda1a502aa31f291cac9af6180d791ffb68687dbb3ea33",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.995Z",
+      "fingerprint": "9fbfca52472504ec31db5eafd311f4a57512307901d1e649496eb309b07250d4",
       "apis": [
         {
           "protocol": "rpc",
@@ -1502,9 +1664,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/index.native.cjs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:48:22.265Z",
-      "fingerprint": "8aa95e62a14fa82033929782f5915f7167cc6d3a3ae6a410e0cb70b01d197101",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.996Z",
+      "fingerprint": "68cc55e450b1af35d219bc95949a6b5298755ccb7c88e3e1d7d4b817f1d23617",
       "deps": [
         {
           "kind": "reference",
@@ -1546,9 +1708,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/server/plugin_archive.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:48:22.267Z",
-      "fingerprint": "264cbf08bde080bcd24a69f705df085bf6629ed336583b641201e0c9e7270847",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.996Z",
+      "fingerprint": "01a395eae27bfff617cc7e580891c0e4403ed9d4dd0390e9e97ec486d717c6cd",
       "aggregate": {
         "descendant_count": 2,
         "own_api_count": 0,
@@ -1576,8 +1738,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/server/plugin_archive.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:48:22.256Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.996Z",
       "fingerprint": "9fe6c202be297d45d9e2fb776340b94df753e773321d37c778340f6dd9658d70",
       "deps": [
         {
@@ -1617,9 +1779,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/server/plugins.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:48:22.256Z",
-      "fingerprint": "9263e13b479f1bab2c555b8dcdf294ea538dcc9a8ad8e3c0a526767ccfd8c9c4",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.996Z",
+      "fingerprint": "604ad12b8341f69731b74675b1bd42500f0b05640c333dea98aea5c21c3ee476",
       "apis": [
         {
           "protocol": "rpc",
@@ -1670,9 +1832,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/server/hub.rs"
         }
       ],
-      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
-      "updated_at": "2026-09-27T10:29:21.426Z",
-      "fingerprint": "9cfff0ff28607029bcd18ddcafc2ce3c0e3498160674623edf41e6b9bfbd78e1",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.999Z",
+      "fingerprint": "bc19c3770363e6ec1cd4bf42034a1ccbd1bc20a57317d76482507f08423c9efc",
       "deps": [
         {
           "kind": "dataflow",
@@ -1717,9 +1879,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/server/fs_routes.rs"
         }
       ],
-      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
-      "updated_at": "2026-09-27T10:29:21.420Z",
-      "fingerprint": "3fe47ef94b35c6f63ee3979c3ad2db201b9af8802d56de6db2db623d52a51b42",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.998Z",
+      "fingerprint": "19c0499a451c7a9ab5be51ec21bc55e9aa9cc86db934ab3f43fe86d465f6e85b",
       "apis": [
         {
           "protocol": "http",
@@ -1782,8 +1944,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/server/transcript/project.rs"
         }
       ],
-      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
-      "updated_at": "2026-09-27T10:29:21.421Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.999Z",
       "fingerprint": "fcf73414a13481a5e45ae21cd8ce777507224aba85ee1152ed12e56b69738db0",
       "aggregate": {
         "descendant_count": 0,
@@ -1818,9 +1980,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/server/hub.rs"
         }
       ],
-      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
-      "updated_at": "2026-09-27T10:29:21.420Z",
-      "fingerprint": "08f5a8a4fccddddbd40eb26d68c162eba62d01b313a2fafcf879c5b08fe12cd4",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:38.999Z",
+      "fingerprint": "a4023a2248b187da0aaa152254bb8da5d0a0cfb8a5849b541f9559655bb322af",
       "apis": [
         {
           "protocol": "ws",
@@ -1862,9 +2024,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/tools/skill.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:55:36.276Z",
-      "fingerprint": "8e2d42b25bf2ce16201d6335ed3e48105ec2c550b97231118cf694a994c01972",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.001Z",
+      "fingerprint": "a8f39500637353690f50276625467e26f9b23b69d3fd10b52879b9979c31acae",
       "aggregate": {
         "descendant_count": 5,
         "own_api_count": 0,
@@ -1898,9 +2060,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/tools/select_tools.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:55:36.274Z",
-      "fingerprint": "2dfa618227859559ac82746bab17358262265b47a790bec2c08bb8b68e0c5fdf",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.000Z",
+      "fingerprint": "25abb92989d67c33f27bc2d138975b860ed2c33fd300d14cb04291f98ba86aff",
       "apis": [
         {
           "protocol": "rpc",
@@ -1984,8 +2146,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/tools/cron_tools.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:55:36.276Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.000Z",
       "fingerprint": "4983edbbe563221282ca0d3720a3f89bfd34a9c9447633f1bcf674a35324c92c",
       "apis": [
         {
@@ -2070,9 +2232,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/tools/lsp_tool.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:55:36.275Z",
-      "fingerprint": "8f22e8c8e35ae06299fc07ff9cd462aa07f4111283683985b02ddf9854212469",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.001Z",
+      "fingerprint": "19feff9334cda557e032316ac73d98f7f06944c09f58d600990e66df0e06b239",
       "apis": [
         {
           "protocol": "rpc",
@@ -2156,9 +2318,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/tools/todo_list.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:55:36.274Z",
-      "fingerprint": "8230a3fdb6d455b3dc803ef086a3baee8b0a88a635a8303b769cde00482b9b91",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.002Z",
+      "fingerprint": "11d469e0ad7984a2adb0920717f175346c0a3930b4eccabbe8b77a1a294c6737",
       "apis": [
         {
           "protocol": "rpc",
@@ -2233,9 +2395,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kimi-agent/src/tools/read_media.rs"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:55:36.275Z",
-      "fingerprint": "1be686a27ccd361c376f14604c61852dc0ed253f2693423b047c451793ed96e1",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.002Z",
+      "fingerprint": "245b2e86b4d360766bc8c236ed9e710abbc840d6b34d6d94b85fa36898ed94cc",
       "apis": [
         {
           "protocol": "rpc",
@@ -2298,14 +2460,29 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
       },
       "source": [
         {
-          "path": "packages/i18n/src/i18n.ts"
+          "path": "packages/pi-tui/src/index.ts"
+        },
+        {
+          "path": "packages/i18n-runtime/src/i18n.ts"
+        },
+        {
+          "path": "packages/oauth/src/index.ts"
+        },
+        {
+          "path": "packages/telemetry/src/index.ts"
+        },
+        {
+          "path": "packages/minidb/src/mini-db.ts"
+        },
+        {
+          "path": "packages/tree-sitter-bash/src/index.ts"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T11:06:28.857Z",
-      "fingerprint": "f21a19109a8291a1533338539ce97461dd19a6d8676ddc699fd0e831264dc75a",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.004Z",
+      "fingerprint": "7c67e5bbc52e6495bd1e243889c53d5e9222e4f1eb7e7ad423b07e856daa0841",
       "aggregate": {
-        "descendant_count": 11,
+        "descendant_count": 13,
         "own_api_count": 0,
         "inherited_api_count": 3,
         "dep_out": 0,
@@ -2331,8 +2508,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/tree-sitter-bash/src/index.ts"
         }
       ],
-      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
-      "updated_at": "2026-09-27T10:22:23.428Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.002Z",
       "fingerprint": "cd85557cb6a81f3acb56ecc8343a322f3ec56eb7782afc82afc07609daf84f88",
       "aggregate": {
         "descendant_count": 0,
@@ -2342,28 +2519,69 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
         "dep_in": 0
       }
     },
-    "kimi-code.libs.i18n": {
-      "uid": "1e000002",
-      "id": "kimi-code.libs.i18n",
+    "kimi-code.libs.i18n-catalog": {
+      "uid": "1e000101",
+      "id": "kimi-code.libs.i18n-catalog",
       "parent": "kimi-code.libs",
       "tree": "kimi-code",
       "depth": 3,
       "name": {
-        "zh": "国际化",
-        "en": "i18n"
+        "zh": "i18n 词条目录",
+        "en": "i18n catalog"
       },
       "description": {
-        "zh": "双语运行时：t() 运行时、locale 装载与引擎侧 LocalizedText 注入（可选原生快速路径）。\n",
-        "en": "Bilingual runtime: t() runtime, locale loading and engine-side LocalizedText injection (optional native fast path).\n"
+        "zh": "双语词条的唯一来源：en.ts / zh.ts 树，由 generate-locale-json.cjs 编译成引擎内嵌的 locales/*.json。\n",
+        "en": "The single source of every bilingual string: the en.ts / zh.ts trees, compiled by generate-locale-json.cjs into the engine's embedded locales/*.json.\n"
       },
       "source": [
         {
-          "path": "packages/i18n/src/i18n.ts"
+          "path": "packages/i18n-catalog/src/index.ts"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T11:06:28.857Z",
-      "fingerprint": "f21a19109a8291a1533338539ce97461dd19a6d8676ddc699fd0e831264dc75a",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.003Z",
+      "fingerprint": "78252d1586237153cf097a025497f17d348d1fa77e29d2d7cb43c0d1fcdd9a4d",
+      "deps": [
+        {
+          "kind": "dataflow",
+          "to": "kimi-code.libs.i18n-runtime",
+          "label": {
+            "zh": "运行时按 key 取词条",
+            "en": "runtime reads strings by key"
+          },
+          "cross_tree": false
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 1,
+        "dep_in": 1
+      }
+    },
+    "kimi-code.libs.i18n-runtime": {
+      "uid": "1e000102",
+      "id": "kimi-code.libs.i18n-runtime",
+      "parent": "kimi-code.libs",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "i18n 运行时",
+        "en": "i18n runtime"
+      },
+      "description": {
+        "zh": "t() 的两种后端：优先走引擎的 translate（可选原生快速路径），模块缺失时回落纯 JS 扁平表。\n",
+        "en": "The two backends behind t(): the engine's translate when the native module loads, falling back to the pure-JS flat map when it does not.\n"
+      },
+      "source": [
+        {
+          "path": "packages/i18n-runtime/src/i18n.ts"
+        }
+      ],
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.003Z",
+      "fingerprint": "5d71281ba78fc35769e7fe948f61ba070146f368cc699702506b4a47a7d9d3b2",
       "deps": [
         {
           "kind": "call",
@@ -2380,6 +2598,36 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
         "own_api_count": 0,
         "inherited_api_count": 0,
         "dep_out": 1,
+        "dep_in": 1
+      }
+    },
+    "kimi-code.libs.i18n-shared": {
+      "uid": "1e000103",
+      "id": "kimi-code.libs.i18n-shared",
+      "parent": "kimi-code.libs",
+      "tree": "kimi-code",
+      "depth": 3,
+      "name": {
+        "zh": "i18n 浏览器侧原语",
+        "en": "i18n browser primitives"
+      },
+      "description": {
+        "zh": "零依赖的解析/插值/探测原语，行为与引擎的 translation.rs 逐字对齐，供 Web 与扩展直接使用。\n",
+        "en": "Dependency-free resolve/interpolate/detect primitives, character-for-character aligned with the engine's translation.rs and used directly by the web UI and the extension.\n"
+      },
+      "source": [
+        {
+          "path": "packages/i18n-shared/src/index.ts"
+        }
+      ],
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.003Z",
+      "fingerprint": "34e33b3dfea434db214caed775080994e7f3c7cf4bdc1b97145fbad196151df8",
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 0,
+        "inherited_api_count": 0,
+        "dep_out": 0,
         "dep_in": 1
       }
     },
@@ -2402,8 +2650,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kaos/src/index.ts"
         }
       ],
-      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
-      "updated_at": "2026-09-27T10:22:23.428Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.004Z",
       "fingerprint": "c6800b31e7ed6275747bf8e2f34031a7137eb8fcd5d2871caf092e0977a6607e",
       "aggregate": {
         "descendant_count": 0,
@@ -2432,8 +2680,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/minidb/src/index.ts"
         }
       ],
-      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
-      "updated_at": "2026-09-27T10:22:23.429Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.004Z",
       "fingerprint": "84afb46fe5d98a081edb58c26148bd6ccb78b341c03c13cc90a0356d67c8e859",
       "aggregate": {
         "descendant_count": 0,
@@ -2473,9 +2721,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/normify/src/mcp.ts"
         }
       ],
-      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
-      "updated_at": "2026-09-27T10:29:21.428Z",
-      "fingerprint": "ac33f8deb3179b652c28eaf28a7831d8c4a89aa76b21b5ea31aebecd3d31bf8d",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.005Z",
+      "fingerprint": "0a26361ca5747e56c03275e946592b8f90ab5cb16029a0597eb32b3e1cae9b9b",
       "aggregate": {
         "descendant_count": 2,
         "own_api_count": 0,
@@ -2509,9 +2757,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/normify/src/cli.ts"
         }
       ],
-      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
-      "updated_at": "2026-09-27T10:29:21.424Z",
-      "fingerprint": "ac33f8deb3179b652c28eaf28a7831d8c4a89aa76b21b5ea31aebecd3d31bf8d",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.004Z",
+      "fingerprint": "0a26361ca5747e56c03275e946592b8f90ab5cb16029a0597eb32b3e1cae9b9b",
       "apis": [
         {
           "protocol": "rpc",
@@ -2588,9 +2836,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/normify/src/engine/store.ts"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T10:49:20.164Z",
-      "fingerprint": "83b14e2a71183e7197f0b6020bbf463f4eb3310000f2901b0115304556ddeacb",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.004Z",
+      "fingerprint": "83deaf2afc80d726a6f8621b402a9e419fd29dd33dda0bf53100504d4388908e",
       "aggregate": {
         "descendant_count": 0,
         "own_api_count": 0,
@@ -2618,8 +2866,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/oauth/src/index.ts"
         }
       ],
-      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
-      "updated_at": "2026-09-27T10:22:23.429Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.005Z",
       "fingerprint": "89e800b1882c56fdc1c29fe8f5c73a86ae6bba381738337763bc2d1b0d26a73d",
       "aggregate": {
         "descendant_count": 0,
@@ -2648,8 +2896,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/telemetry/src/index.ts"
         }
       ],
-      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
-      "updated_at": "2026-09-27T10:22:23.429Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.005Z",
       "fingerprint": "7f422e4163eac4d96e2f80274ee158dbc8e73e11710be1a14e068ca55395c7c2",
       "aggregate": {
         "descendant_count": 0,
@@ -2678,8 +2926,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/transcript/src/index.ts"
         }
       ],
-      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
-      "updated_at": "2026-09-27T10:22:23.429Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.005Z",
       "fingerprint": "29781c29a8f47abc80927532980be6b67f5eeacc60cd5b7b1a9d9b336635d896",
       "aggregate": {
         "descendant_count": 0,
@@ -2708,8 +2956,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/pi-tui/src/index.ts"
         }
       ],
-      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
-      "updated_at": "2026-09-27T10:22:23.429Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.005Z",
       "fingerprint": "f3ce21f3459a0fc5a95a9f3e97506eb541f66f3e3df8e832c04679f49921c382",
       "aggregate": {
         "descendant_count": 0,
@@ -2738,9 +2986,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/node-sdk/src/index.ts"
         }
       ],
-      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
-      "updated_at": "2026-09-27T10:22:23.430Z",
-      "fingerprint": "1b9d9ef5c4456e94181f4d65dc377a7109db34fc9731a3a28c6e307f3de571fa",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.005Z",
+      "fingerprint": "1559777ca63746a5cb4b58ef373fa157a5ca567bf521c281a5187608dddd702b",
       "aggregate": {
         "descendant_count": 5,
         "own_api_count": 0,
@@ -2768,8 +3016,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/kosong/src/index.ts"
         }
       ],
-      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
-      "updated_at": "2026-09-27T10:22:23.430Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.005Z",
       "fingerprint": "b6d6f9d0f57605798392ba65e50dd324997417cbceb0ccb1ef8ac64e9a8ef5b1",
       "aggregate": {
         "descendant_count": 0,
@@ -2801,9 +3049,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/node-sdk/src/kimi-harness.ts"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T11:06:28.858Z",
-      "fingerprint": "c05a70c5b79e08869025937c8513e504a7f42c296ce5a214c9bf53317cb21872",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.006Z",
+      "fingerprint": "3edf409f4eba6ab1f215d749311abc8ec866b10f3169252b7a361503bd9e1923",
       "deps": [
         {
           "kind": "call",
@@ -2848,8 +3096,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/node-sdk/src/marketplace.ts"
         }
       ],
-      "revision": "64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139",
-      "updated_at": "2026-09-27T10:29:21.423Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.006Z",
       "fingerprint": "144eede413240e1f2efc76c6f08081045a62d2dae65eaa153732a729949aee5a",
       "deps": [
         {
@@ -2889,9 +3137,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/node-sdk/src/native/sdk-rpc-client-native.ts"
         }
       ],
-      "revision": "60e70d6896fce2a853b5a66abeba2b577029053e",
-      "updated_at": "2026-09-27T11:06:28.858Z",
-      "fingerprint": "1421b5bf82c165e9f8f593a4752cf7081f906f1da1f7d78a110ae61768806704",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.006Z",
+      "fingerprint": "e46ce42aa09cd782f1892345b6f88039bea8b5b029171e008f9ccb665325d6b7",
       "apis": [
         {
           "protocol": "rpc",
@@ -2961,8 +3209,8 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "packages/protocol/src/index.ts"
         }
       ],
-      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
-      "updated_at": "2026-09-27T10:22:23.430Z",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.006Z",
       "fingerprint": "e18131a9359e789be96c6ee7dfdff001ef7d9c6af16bad85cb0030e4f52618bc",
       "aggregate": {
         "descendant_count": 0,
@@ -2991,9 +3239,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "scripts/check-architecture-drift.mjs"
         }
       ],
-      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
-      "updated_at": "2026-09-27T10:22:23.431Z",
-      "fingerprint": "da3f8a770887d3dc84c31f7fe163238b807d43488d5666ca3ea9c8fba919a918",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.007Z",
+      "fingerprint": "54e3a5c05ff045b92ebf281904fb7ae22ca2a420a1e6e5dc8de1eca4ecacbbd6",
       "aggregate": {
         "descendant_count": 2,
         "own_api_count": 0,
@@ -3027,9 +3275,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "package.json"
         }
       ],
-      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
-      "updated_at": "2026-09-27T10:22:23.431Z",
-      "fingerprint": "10f73d3e68b95b6d14d44f262075f9b5a88dc24a99bd34795e929c425bb333fa",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.007Z",
+      "fingerprint": "341c8bbc9711757e944992ac045f25c390b53147356b9d4c10ab35d308fd5324",
       "aggregate": {
         "descendant_count": 0,
         "own_api_count": 0,
@@ -3060,9 +3308,9 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
           "path": "scripts/scan-parity.mjs"
         }
       ],
-      "revision": "f1ee8a68c7bc77758816cc12fccaeaad994ba298",
-      "updated_at": "2026-09-27T10:22:23.431Z",
-      "fingerprint": "6fbc2125792a602533ada5e0aa73e1080a4f96599f8a6aa5e1d6914068ba60f7",
+      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
+      "updated_at": "2026-09-29T11:43:39.007Z",
+      "fingerprint": "3e78c8fd91a6be30114d1c01f28168ab6875c608dfa8d710020c26257cf77631",
       "aggregate": {
         "descendant_count": 0,
         "own_api_count": 0,
@@ -3125,12 +3373,22 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
     },
     {
       "from": "kimi-code.apps.cli",
-      "to": "kimi-code.libs.i18n",
+      "to": "kimi-code.libs.i18n-catalog",
+      "kind": "reference",
+      "cross_tree": false,
+      "label": {
+        "zh": "词条键的类型来源",
+        "en": "key types only"
+      }
+    },
+    {
+      "from": "kimi-code.apps.cli",
+      "to": "kimi-code.libs.i18n-shared",
       "kind": "call",
       "cross_tree": false,
       "label": {
-        "zh": "文案与 locale",
-        "en": "localized strings"
+        "zh": "locale 探测与共享类型",
+        "en": "locale detection + types"
       }
     },
     {
@@ -3336,7 +3594,17 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
       }
     },
     {
-      "from": "kimi-code.libs.i18n",
+      "from": "kimi-code.libs.i18n-catalog",
+      "to": "kimi-code.libs.i18n-runtime",
+      "kind": "dataflow",
+      "cross_tree": false,
+      "label": {
+        "zh": "运行时按 key 取词条",
+        "en": "runtime reads strings by key"
+      }
+    },
+    {
+      "from": "kimi-code.libs.i18n-runtime",
       "to": "kimi-code.engine.napi",
       "kind": "call",
       "cross_tree": false,
@@ -3484,16 +3752,32 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
     "kimi-code.engine.core": {
       "schema_version": 1,
       "id": "kimi-code.engine.core",
-      "updated_at": "2026-09-27T10:29:09.976Z",
+      "updated_at": "2026-09-29T11:44:30.312Z",
       "reading": {
-        "zh": "运行时回路：回合居中，会话环绕，子代理在下，压缩是内存压力阀。",
-        "en": "The runtime loop: turns at the center, sessions around them, subagents below, compaction as the memory pressure valve."
+        "zh": "运行时回路：回合居中，注入在步首改写上下文，会话环绕，子代理在下，压缩是内存压力阀。",
+        "en": "The runtime loop: turns at the center, injections rewrite the context at each step head, sessions around them, subagents below, compaction as the memory pressure valve."
       },
       "order": [
         "kimi-code.engine.core.turn-loop",
+        "kimi-code.engine.core.injection",
         "kimi-code.engine.core.session",
         "kimi-code.engine.core.subagent",
         "kimi-code.engine.core.compaction"
+      ]
+    },
+    "kimi-code.engine.core.injection": {
+      "schema_version": 1,
+      "id": "kimi-code.engine.core.injection",
+      "updated_at": "2026-09-29T11:44:30.456Z",
+      "reading": {
+        "zh": "四个注入器按触发时机分三档：目标与计划是节奏驱动的常驻提醒，权限模式与 Swarm 只在状态跃迁时打一次标记，中断提醒是上一回合留下的回声。",
+        "en": "Four injectors in three cadence classes: goal and plan are rhythm-driven standing reminders, permission-mode and swarm fire a one-shot marker only on a state transition, and the interruption reminder is the echo left by the previous turn."
+      },
+      "order": [
+        "kimi-code.engine.core.injection.goal-plan",
+        "kimi-code.engine.core.injection.permission-mode",
+        "kimi-code.engine.core.injection.swarm-mode",
+        "kimi-code.engine.core.injection.interruption-reminder"
       ]
     },
     "kimi-code.engine.core.session": {
@@ -3596,14 +3880,17 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
     "kimi-code.libs": {
       "schema_version": 1,
       "id": "kimi-code.libs",
-      "updated_at": "2026-09-27T10:22:13.448Z",
+      "updated_at": "2026-09-29T11:46:09.440Z",
+      "max_columns": 3,
       "reading": {
-        "zh": "按职责分组：界面（TUI、i18n）、能力（normify、认证）、数据（遥测、转录、MiniDb）与语言基础（kaos、bash 解析）。",
-        "en": "Libraries by concern: interface (TUI, i18n), capability (normify, auth), data (telemetry, transcript, minidb) and language foundations (kaos, bash parser)."
+        "zh": "按职责分组：界面（TUI、i18n 三件套）、能力（normify、认证）、数据（遥测、转录、MiniDb）与语言基础（kaos、bash 解析）。从左上起按这个顺序读。",
+        "en": "Four groups by concern: interface (TUI, the i18n trio), capability (normify, auth), data (telemetry, transcript, minidb) and language foundations (kaos, bash parser)."
       },
       "order": [
         "kimi-code.libs.tui",
-        "kimi-code.libs.i18n",
+        "kimi-code.libs.i18n-catalog",
+        "kimi-code.libs.i18n-runtime",
+        "kimi-code.libs.i18n-shared",
         "kimi-code.libs.normify",
         "kimi-code.libs.oauth",
         "kimi-code.libs.telemetry",
@@ -4849,7 +5136,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
       path.setAttribute('data-from', e.from)
       path.setAttribute('data-to', e.to)
       var tip = pts[pts.length - 1], prev = pts[pts.length - 2] || pa
-      var entry = { path: path, arrow: mk, label: null, from: e.from, to: e.to }
+      var entry = { path: path, arrow: null, label: null, from: e.from, to: e.to }
       var title = document.createElementNS('http://www.w3.org/2000/svg', 'title')
       title.textContent = e.agg
         ? '聚合 ' + e.count + ' 条依赖：\n' + e.samples.join('\n')
@@ -4860,6 +5147,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
       mk.setAttribute('points', arrowPoints(tip, prev))
       mk.setAttribute('class', 'arrow kind-' + (e.kind || 'reference') + (e.cross_tree ? ' cross' : '') + (e.agg ? ' agg' : ''))
       svg.appendChild(mk)
+      entry.arrow = mk
       var text = e.agg ? ('×' + e.count) : (e.label ? L(e.label) : e.kind)
       var budget = labelBudget[text] || 0
       var lp = budget < 2 ? labelPos(pts, text, e.from, e.to) : null

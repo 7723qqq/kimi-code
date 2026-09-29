@@ -32,7 +32,6 @@
       "kimi-code.sdk.kosong",
       "kimi-code.libs",
       "kimi-code.libs.tui",
-      "kimi-code.libs.i18n",
       "kimi-code.libs.normify",
       "kimi-code.libs.oauth",
       "kimi-code.libs.telemetry",
@@ -51,7 +50,7 @@
     "normify_render 产出单文件 normify.html",
     "全部模块经 refresh(activate) 转 active 且指纹与仓库一致"
   ],
-  "note": "32 模块 / 12 API / 12 依赖边全部落图；validate 0 error，指纹与仓库 HEAD 一致；normify.html 已渲染。",
+  "note": "32 模块 / 12 API / 12 依赖边全部落图；validate 0 error，指纹与仓库 HEAD 一致；normify.html 已渲染。2026-09-29 更正：create 清单里的 kimi-code.libs.i18n 已随 i18n 包重组（catalog / runtime / shared）删除，替代模块记在变更 2026-09-29-refresh-tree-for-injection-and-i18n-split。",
   "revision": {
     "before": null,
     "after": null

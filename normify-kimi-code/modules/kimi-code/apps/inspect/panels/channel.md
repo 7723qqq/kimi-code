@@ -10,8 +10,8 @@ description:
   en: >
       Channel view: the raw event channels between host and engine (ws client, proxy, errors).
       
-revision: 60e70d6896fce2a853b5a66abeba2b577029053e
-updated_at: "2026-09-27T10:55:36.273Z"
+revision: 779fa7ba58daaeed4dd885c941bf1c29d2fe902e
+updated_at: "2026-09-29T11:43:38.987Z"
 fingerprint: 20840266f86aac6328d3b438479b7129d82fe142267fe5f386fbf2903c468e67
 source:
   - path: "apps/kimi-inspect/src/channel/channel.ts"

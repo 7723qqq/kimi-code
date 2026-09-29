@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "kimi-code.engine.core.injection",
+  "updated_at": "2026-09-29T11:44:30.456Z",
+  "reading": {
+    "zh": "四个注入器按触发时机分三档：目标与计划是节奏驱动的常驻提醒，权限模式与 Swarm 只在状态跃迁时打一次标记，中断提醒是上一回合留下的回声。",
+    "en": "Four injectors in three cadence classes: goal and plan are rhythm-driven standing reminders, permission-mode and swarm fire a one-shot marker only on a state transition, and the interruption reminder is the echo left by the previous turn."
+  },
+  "order": [
+    "kimi-code.engine.core.injection.goal-plan",
+    "kimi-code.engine.core.injection.permission-mode",
+    "kimi-code.engine.core.injection.swarm-mode",
+    "kimi-code.engine.core.injection.interruption-reminder"
+  ]
+}

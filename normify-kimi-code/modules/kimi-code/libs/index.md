@@ -10,9 +10,14 @@ description:
   en: >
       Reusable support libraries: TUI framework, i18n, auth, telemetry, session storage and parsers.
       
-revision: 60e70d6896fce2a853b5a66abeba2b577029053e
-updated_at: "2026-09-27T11:06:28.857Z"
-fingerprint: f21a19109a8291a1533338539ce97461dd19a6d8676ddc699fd0e831264dc75a
+revision: 779fa7ba58daaeed4dd885c941bf1c29d2fe902e
+updated_at: "2026-09-29T11:43:39.004Z"
+fingerprint: 7c67e5bbc52e6495bd1e243889c53d5e9222e4f1eb7e7ad423b07e856daa0841
 source:
-  - path: "packages/i18n/src/i18n.ts"
+  - path: "packages/pi-tui/src/index.ts"
+  - path: "packages/i18n-runtime/src/i18n.ts"
+  - path: "packages/oauth/src/index.ts"
+  - path: "packages/telemetry/src/index.ts"
+  - path: "packages/minidb/src/mini-db.ts"
+  - path: "packages/tree-sitter-bash/src/index.ts"
 ---

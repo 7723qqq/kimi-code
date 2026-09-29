@@ -1,13 +1,14 @@
 {
   "schema_version": 1,
   "id": "kimi-code.engine.core",
-  "updated_at": "2026-09-27T10:29:09.976Z",
+  "updated_at": "2026-09-29T11:44:30.312Z",
   "reading": {
-    "zh": "运行时回路：回合居中，会话环绕，子代理在下，压缩是内存压力阀。",
-    "en": "The runtime loop: turns at the center, sessions around them, subagents below, compaction as the memory pressure valve."
+    "zh": "运行时回路：回合居中，注入在步首改写上下文，会话环绕，子代理在下，压缩是内存压力阀。",
+    "en": "The runtime loop: turns at the center, injections rewrite the context at each step head, sessions around them, subagents below, compaction as the memory pressure valve."
   },
   "order": [
     "kimi-code.engine.core.turn-loop",
+    "kimi-code.engine.core.injection",
     "kimi-code.engine.core.session",
     "kimi-code.engine.core.subagent",
     "kimi-code.engine.core.compaction"

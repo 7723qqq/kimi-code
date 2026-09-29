@@ -1,14 +1,16 @@
 {
   "schema_version": 1,
   "id": "kimi-code.libs",
-  "updated_at": "2026-09-27T10:22:13.448Z",
+  "updated_at": "2026-09-29T11:46:09.440Z",
   "reading": {
-    "zh": "按职责分组：界面（TUI、i18n）、能力（normify、认证）、数据（遥测、转录、MiniDb）与语言基础（kaos、bash 解析）。",
-    "en": "Libraries by concern: interface (TUI, i18n), capability (normify, auth), data (telemetry, transcript, minidb) and language foundations (kaos, bash parser)."
+    "zh": "按职责分组：界面（TUI、i18n 三件套）、能力（normify、认证）、数据（遥测、转录、MiniDb）与语言基础（kaos、bash 解析）。从左上起按这个顺序读。",
+    "en": "Four groups by concern: interface (TUI, the i18n trio), capability (normify, auth), data (telemetry, transcript, minidb) and language foundations (kaos, bash parser)."
   },
   "order": [
     "kimi-code.libs.tui",
-    "kimi-code.libs.i18n",
+    "kimi-code.libs.i18n-catalog",
+    "kimi-code.libs.i18n-runtime",
+    "kimi-code.libs.i18n-shared",
     "kimi-code.libs.normify",
     "kimi-code.libs.oauth",
     "kimi-code.libs.telemetry",
@@ -16,5 +18,6 @@
     "kimi-code.libs.minidb",
     "kimi-code.libs.kaos",
     "kimi-code.libs.bash-parser"
-  ]
+  ],
+  "max_columns": 3
 }

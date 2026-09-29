@@ -10,9 +10,9 @@ description:
   en: >
       The TUI shell: kimi-tui, controllers, dialogs, message components and the session event handler.
       
-revision: 64fbdf60ddb2b5432773ef2fbc5b6fc95bf8a139
-updated_at: "2026-09-27T10:29:21.421Z"
-fingerprint: cb79756067dbbda40946cd699f577c7c754e06ad0a0a4d7b387919746f467321
+revision: 779fa7ba58daaeed4dd885c941bf1c29d2fe902e
+updated_at: "2026-09-29T11:43:38.986Z"
+fingerprint: cd4e702e3baf098e5eda080d6267429c1ad26e4981311313cc3efb243bb669ad
 source:
   - path: "apps/kimi-code/src/tui/kimi-tui.ts"
 apis: []
