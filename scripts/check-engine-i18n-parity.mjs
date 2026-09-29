@@ -227,6 +227,7 @@ const engineKeysInCatalog = [...enKeys].filter((k) => k.startsWith(`${ENGINE_NAM
 /** Every locale key a `LocalizedText` names, mapped to its first location. */
 const used = new Map();
 /** `[key, boundNames, where]` for every `with_params` site. */
+/** @type {Array<[string, string[], string]>} */
 const parameterized = [];
 
 for (const file of walkRs(AGENT_SRC)) {

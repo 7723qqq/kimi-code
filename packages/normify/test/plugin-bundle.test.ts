@@ -101,6 +101,7 @@ describe('插件 bundle 与 src 不漂移（B5）', () => {
         const bundleText = await readFile(BUNDLE, 'utf8');
         const bareImports = [...bundleText.matchAll(/^import\s+(?:[\s\S]*?from\s+)?['"]([^'"]+)['"]/gm)]
             .map(m => m[1])
+            .filter((spec): spec is string => spec !== undefined)
             .filter(spec => !spec.startsWith('node:') && !spec.startsWith('.') && !spec.startsWith('/'));
         expect(bareImports, 'bundle 残留裸包导入: ' + JSON.stringify(bareImports)).toEqual([]);
     });
