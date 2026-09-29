@@ -4776,45 +4776,72 @@ fork 不存在。
 
 上游在 §6.22 落账后当天又推了两条触及 `agent-core-v2` 的提交，ratchet 照常报红。逐条裁决如下。
 
+**本节是复核后的版本。** 第一遍只读 `git show --stat` 加单个文件就下了结论，用户追问后重做：先把
+`.tmp/v2-ref-upstream` 刷到当天的上游 tip（`f409caa21e`），再逐条读实现。复核推翻了两个东西——§6.23.1
+的**证据链**（结论不变，但第一遍漏了 fork 的第二个 cron 面）和 §6.23.2 的**移植完整性**（上限对齐了，
+描述散文没有）。同时证伪了 `AGENTS.md` 里"两个参考检出的 `agent-core-v2` 逐字节相同"这句话：实测
+38 个文件内容不同、1 个文件只在 upstream 侧存在，因为退役参考冻结在删除点而 upstream 一直在动。
+
 | 条目 | 提交 | 裁决 | 落点 |
 | --- | --- | --- | --- |
-| §6.23.1 | `f409caa21e` #4083 | **not-applicable** | fork 的 cron 是服务器级状态，不存在"fork 继承任务"这一机制 |
-| §6.23.2 | `20a2cea72f` #4061 | **tracked** | 90s 上限已移植；重复等待警告 / 子代理指引 / TUI Enter steer 未移植 |
+| §6.23.1 | `f409caa21e` #4083 | **not-applicable** | fork 的两个 cron 面都不是会话级，且 `fork_session` 不复制任何状态行 |
+| §6.23.2 | `20a2cea72f` #4061 | **tracked** | 上限与 schema 已移植；描述散文 / 重复等待警告 / 子代理指引 / TUI Enter steer 未移植 |
 
 #### 6.23.1 不适用：`f409caa21e` 清空 fork 继承的 cron 任务
 
 v2 把 cron 任务作为 `cron.add` 记录写进会话 journal，而 fork 复制 journal，于是 fork 继承了源会话的
-任务、两个会话同时触发。**这个机制在本 fork 不存在**，三条证据：
+任务、两个会话同时触发。**这个机制在本 fork 不存在**，四条证据：
 
-- **cron 条目是服务器级状态，不是 journal 记录。** `server/mod.rs:255` 构造
-  `CronScheduler::new(Self::read_persisted_cron_entries(&store), ...)`，`:595` 的注释写明
-  "Server-scoped cron persistence: entries live under state key `("cron", "entries")`"。
-- **`fork_session` 只复制会话历史。** `session/sqlite_store.rs:834` 走
-  `load_session_history` → `save_turn(new_session_id, "turn-fork", 1, &history, None, None)`，
-  全程不碰 cron。
-- **`CronEntry.session_id` 是残留字段。** `cron/scheduler.rs:31` 声明了它，但两处构造点（`:289`、
-  `:764`）都写 `None`，没有任何代码给它赋过会话 id——所以根本不存在"按会话归属的 cron 表"可供继承。
+- **`fork_session` 不复制任何状态。** `session/sqlite_store.rs:834-861` 只做
+  `load_session_history` → `create_session_with_workspace` → `UPDATE sessions SET parent_session_id`
+  → `save_turn(new_session_id, "turn-fork", 1, &history, None, None)`，对 `state_entries` 和
+  `wire_events` 的引用数都是 0。两个 fork 入口都走它（`acp/mod.rs:1015`、`server/mod.rs:5130`）；
+  `btw` 侧信道根本不 fork 会话——`napi_bindings.rs:3167-3170` 用
+  `session.snapshot_history()` 喂一个内存态子代理。
+- **服务器级那个面不是会话级。** `server/mod.rs:595-599` 写明条目存在 state key `("cron", "entries")`；
+  `put_state`（`session/sqlite_store.rs:1336`）写入时不带 `session_id`，所以该行 `session_id` 恒为
+  NULL、全局共享。
+- **模型侧那个面根本不在会话存储里。** 它是按工作区键控的文件存储：
+  `<home>/.kimi-code/engine-state/<workspace-key>/state/cron.json`（`storage/paths.rs:3-7`、
+  `storage/state_store.rs:3-7`），key 是规范化工作区路径的摘要。**第一遍漏的就是这一条**——只看了
+  `server/mod.rs` 的注释，没顺着"模型侧 Cron\* 工具用另一个面"这句往下查。
+- **会话级状态存在，但从不装 cron。** `state_entries` 确实有 `session_id` 列
+  （`session/sqlite_store.rs:516-530`），`put_session_state`（`:1356`）会写它，但所有调用点只用于
+  `metadata` 与 `agent_config`（`acp/mod.rs:475,526,684`；`server/mod.rs:1155,1183,5263,6001,7252,7259,7345,7352`），
+  没有一处是 cron。
 
-结论：fork 与源会话共享同一份服务器级排程，这与该服务器上任何其他会话的关系完全一样，是设计而非
-缺陷。上游那条 `cron_fork_cleared` 提醒在这里没有对应物——fork 确实持有服务器排程，告诉模型"本 fork
-没有定时任务"会是假话。同一提交把 `Forked` 事件类从 `features/goal` 挪到 `session/agentLifecycle`，
-是 v2 的模块布局调整，Rust 侧无对应面。
+结论：fork 与源会话共享同一份工作区排程，这与该工作区里任何其他会话的关系完全一样，是设计而非缺陷。
+上游那条 `cron_fork_cleared` 提醒在这里没有对应物——告诉模型"本 fork 没有定时任务"会是假话。同一提交
+把 `Forked` 事件类从 `features/goal` 挪到 `session/agentLifecycle`、把 `CronModelState` 从裸 `Map`
+拓宽成 `{ tasks, forkNotice }`，都是 v2 的模块布局，Rust 侧无对应面。
 
 #### 6.23.2 部分移植：`20a2cea72f` 把 WaitFor 上限收到 90s
 
 **已移植（2026-09-29）**：`WAIT_FOR_MAX_TIMEOUT_S` 600 → 90（`tools/task_tools.rs:28`），连同所有
-陈述旧上限的位置——`parse_timeout` 的文档注释、`TASK_WAIT_DESCRIPTION` 的 guideline 行、JSON schema
-的 `maximum` 及其 description、schema 测试，以及 `docs/{en,zh}/reference/tools.md`。上游在同一提交里
-把这个常量从 `DEFAULT_BACKGROUND_TIMEOUT_S` 解耦成字面量 90；fork 的 Bash 后台超时仍是 600，上游也
-没动它。
+陈述旧上限的位置——`parse_timeout` 的文档注释、`TASK_WAIT_DESCRIPTION` 的 timeout guideline、JSON
+schema 的 `maximum` 及其 description、schema 测试，以及 `docs/{en,zh}/reference/tools.md`。上游在同一
+提交里把这个常量从 `DEFAULT_BACKGROUND_TIMEOUT_S` 解耦成字面量 90；fork 的 Bash 后台超时仍是 600，
+上游也没动它。**输入 schema 现在与上游 `WaitForInputSchema` 逐字相同**——`timeout` 与 `task_id` 两条
+描述都对得上。
 
-**未移植（功能类，需许可）**：按轮统计的重复等待计数与 `[wait_warning]` 块（`taskWaitTool.ts` 的
-`countCall` / `withRepeatWarning` / `repeatWaitAdvice`，三种建议分别对应子代理、goal 活跃、普通情形）、
-子代理专用描述（`task-wait-subagent.md`，当 `scopeContext.agentId !== MAIN_AGENT_ID` 时追加）、
-超时文案的子代理/主代理分叉，以及 TUI 那半（等待期间按 Enter 即 steer，外加 `staging-leases.ts` 的
-队列处理）。
+**未移植，而且这是更大的一半**：
 
-一处容易误判的地方：**steering 机制 fork 早就有**（`tools/task_tools.rs` 的 `render_wait_interrupted`
-与 `wait_status: interrupted`），缺的是触发面——只有 `Ctrl-S` 会 steer
-（`tui/controllers/editor-keyboard.ts:324` 的 `onCtrlS`），Enter 不会。所以文档保留 fork 自己的
-"`Ctrl-S` 提前结束等待"表述，没有照抄上游那句 Enter 文案：照抄会写出本 fork 没有的行为。
+- **描述散文。** 把 fork 的 `TASK_WAIT_DESCRIPTION` 与上游 `task-wait.md` 逐行 diff，除数字外还有
+  **7 处实质差异**：上游开头是限制性的（"Only call this tool when you really have no other work to
+  do"）而 fork 是许可性的；上游多出"the user is kept waiting too"和独立一段"they notify you
+  automatically"；多出"think about what else you can do meanwhile"与"the result also lists other
+  tasks that finished during the wait window"两条 guideline；把 timeout 那条收紧成"Prefer moving on
+  to other work over calling WaitFor again"；并删掉 fork 那条 steering guideline（上游把 steering 并进
+  了开头段）。**第一遍汇报时我只说"改了陈述旧上限的位置"，没说散文整体没动**——这是披露缺口。
+- **按轮统计的重复等待计数**与 `[wait_warning]` 块（`taskWaitTool.ts` 的 `countCall` /
+  `withRepeatWarning` / `repeatWaitAdvice`，三种建议分别对应子代理、goal 活跃、普通情形）。
+- **子代理专用描述**（`task-wait-subagent.md`，当 `scopeContext.agentId !== MAIN_AGENT_ID` 时追加）
+  与超时文案的子代理/主代理分叉。
+- **TUI 那半。**
+
+**文档刻意保留 fork 自己的 `Ctrl-S` 表述**，没有照抄上游那句"pressing `Enter` … steers the message
+into the turn"。复核后有了确切依据：fork 的 steer 被 tower 模式门控
+（`tui/controllers/message-dispatch.ts:652-666`，`steerIntoCoordinator` 要求 `appState.towerMode`），
+所以等待期间按普通 Enter 是**排队**（`tui/commands/dispatch.ts:144-145` 的注释写明"submissions
+through sendNormalUserInput queue while busy"），只有 `Ctrl-S` 会 steer
+（`tui/controllers/editor-keyboard.ts:324` 的 `onCtrlS`）。照抄会写出本 fork 没有的行为。
