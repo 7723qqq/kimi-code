@@ -30,6 +30,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { dirname, resolve, relative, extname, isAbsolute, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -260,15 +261,52 @@ function resolveImportAlias(spec, imports) {
   return best.targets.map((target) => target.replaceAll('*', wildcard));
 }
 
+/**
+ * The files a module's fingerprint covers: the ones git tracks under its
+ * source directory.
+ *
+ * Walking the filesystem instead would fold in build output that happens to sit
+ * inside a source tree — `apps/kimi-code/src/generated/vis-web-asset.ts` is
+ * written by a build and gitignored, so it is present on a machine that has
+ * built and absent from a clean checkout. A fingerprint that includes it
+ * describes the working tree rather than the commit, and the stored value can
+ * then never match CI no matter how often it is refreshed. Note that the
+ * sibling `vis-web-asset.d.ts` *is* tracked, so skipping the `generated`
+ * directory wholesale would drop real source.
+ *
+ * Falls back to the filesystem walk when git cannot answer, so the gate still
+ * runs in an exported tree.
+ */
+function fingerprintFiles(sourceDir) {
+  const extensions = new Set(FINGERPRINT_EXTENSIONS);
+  try {
+    // git takes the pathspec relative to the repository root, not as an
+    // absolute path — an absolute spec is not matched reliably and comes back
+    // empty, which would silently fall through to the filesystem walk.
+    const spec = relative(root, sourceDir).split(sep).join('/');
+    const out = execFileSync('git', ['ls-files', '-z', '--', spec], {
+      cwd: root,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    const files = out
+      .split('\0')
+      .filter((p) => p.length > 0 && extensions.has(extname(p)))
+      .map((p) => resolve(root, p));
+    if (files.length > 0) return files;
+  } catch {
+    // Not a git checkout, or git is unavailable — fall through.
+  }
+  return walkFiles(sourceDir, FINGERPRINT_EXTENSIONS, FINGERPRINT_SKIP_DIRS);
+}
+
 /** SHA-256 (16 hex chars) of a module's sorted path+content fingerprint. */
 function fingerprintOf(sourceDir) {
   // Sort by code unit rather than by locale: `localeCompare` orders
   // punctuation and case using the platform's collation tables, so two
   // machines can walk the same tree in a different order and hash a
   // different sequence of files.
-  const files = walkFiles(sourceDir, FINGERPRINT_EXTENSIONS, FINGERPRINT_SKIP_DIRS).sort((a, b) =>
-    a < b ? -1 : a > b ? 1 : 0,
-  );
+  const files = fingerprintFiles(sourceDir).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   const hash = createHash('sha256');
   for (const file of files) {
     // `relative` is platform-dependent — `sub\file.rs` on Windows, `sub/file.rs`

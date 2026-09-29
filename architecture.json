@@ -24,7 +24,7 @@
           "description": "ACP stdio protocol server"
         }
       ],
-      "fingerprint": "6267dcb8bf74b67e"
+      "fingerprint": "8000309c2793d4d4"
     },
     {
       "id": "node-sdk",
@@ -77,7 +77,7 @@
           "description": "Terminal UI"
         }
       ],
-      "fingerprint": "9ab6c566d3df42b2"
+      "fingerprint": "11c272051403ab9c"
     },
     {
       "id": "kosong",

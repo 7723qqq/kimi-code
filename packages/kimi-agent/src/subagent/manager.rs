@@ -492,6 +492,12 @@ pub const SUBAGENT_MAX_TOKENS_ERROR: &str =
 /// the newer non-empty assistant text (`final_assistant_summary` keeps the
 /// previous one when the continuation answers empty, same as v2). Usage is
 /// accumulated across continuation turns.
+// Eight parameters, and that is deliberate: the continuation needs the whole
+// subagent context (identity, callbacks, tool table, both cancellation flags,
+// the turn being continued, and the policy) and there is no natural group
+// among them that would not have to be threaded back through both call sites
+// just to be taken apart again.
+#[allow(clippy::too_many_arguments)]
 async fn distill_continuations(
     runtime: &SubagentRuntime,
     agent_id: &str,
