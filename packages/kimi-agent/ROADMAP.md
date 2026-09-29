@@ -363,6 +363,25 @@ packages/acp-server            14 处        耦合：ACP 宿主服务启动器�
    验证：`mode_mutex.rs` 6 项单测 + `tools/mod.rs` `mode_mutex_dispatch` 模块 7 项
    dispatch 集成测试（真实 git 仓库 + 真实 `execute_tool` 分支）全绿。
 
+6. **文件历史裁剪后的 WAL 回收（fork-original，v2 无对应物）——已落地（2026-09-29）**
+   v2 侧**全仓没有** `wal_checkpoint` / `walCheckpoint` / `VACUUM` / `incremental_vacuum`
+   （在 `.tmp/v2-ref-upstream/packages/agent-core-v2/src` 下零命中）：`fileHistoryRetention.ts`
+   只删行，页进 freelist 复用，从不主动回收日志。因此这一项**不是 v2 缺口，是 fork 自己的意图**。
+   `sqlite_store.rs` 的 `reclaim_file_history_space` 连同 `test_prune_file_history_reclaims_the_wal`
+   在 `0baaf33b51` 里**同时**进来：文档注释写明了该做什么（把 WAL 应用到主库并截断），
+   函数体却是 `let _ = conn; Ok(())`。于是裁剪只删行、不回收日志，WAL 反而增长
+   （实测 3,534,992 → 3,559,712，+24,720 字节即删除标记与空闲页记录），
+   测试从进仓库起就一直失败——也是 CI 连续 8 次红的原因之一。
+   **已落地**：`reclaim_file_history_space` 执行 `PRAGMA wal_checkpoint(TRUNCATE)`。
+   busy 结果不算错误（别的读者持有日志是常态，空间留给下次裁剪），硬失败也只吞掉不外传，
+   以免把已成功的裁剪变成错误——这是函数原注释就写明的 best-effort 契约。
+   刻意**不做**的两件事仍按原注释保留：`incremental_vacuum`（store 未以
+   `auto_vacuum = INCREMENTAL` 打开，实测只回收一页）与全量 `VACUUM`
+   （实测 806 页 → 120 页、3.3 MB → 0.49 MB，但它要重写整库并需要第二份空间，
+   属于拥有会话库生命周期的那个角色；裁剪释放的页在 freelist 上可复用，文件不会再涨）。
+   验证：`test_prune_file_history_reclaims_the_wal` 转绿，`sqlite_store` 28 项全绿，
+   `cargo clippy --all-targets --features cli -- -D warnings` 0 error。
+
 ---
 
 ## 6. v2 对齐复核（2026-09-15）与未闭环工单

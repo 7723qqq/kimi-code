@@ -233,7 +233,18 @@ fn extract_snippet(text: &str, query: &str, max_len: usize) -> String {
 /// reader holds the WAL leaves the space to the next prune, and it must not
 /// turn a successful prune into an error.
 fn reclaim_file_history_space(conn: &Connection) -> Result<(), rusqlite::Error> {
-    let _ = conn;
+    // `wal_checkpoint` returns `(busy, log_frames, checkpointed_frames)`.
+    // TRUNCATE resets the log to zero bytes, which is the point: after a
+    // multi-megabyte prune the deleted pages are otherwise still occupying
+    // the log, and the file keeps growing on every subsequent write until
+    // SQLite happens to checkpoint on its own schedule.
+    //
+    // A busy result is not an error — another reader holding the log is normal
+    // and the space is reclaimed by the next prune. Only a hard failure
+    // (a closed or corrupt database) is worth surfacing, and even that must
+    // not undo a prune that already succeeded, so it is tolerated here rather
+    // than propagated.
+    let _ = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
     Ok(())
 }
 
