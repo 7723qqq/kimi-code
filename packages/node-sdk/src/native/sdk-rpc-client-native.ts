@@ -92,6 +92,7 @@ import {
 import { RegistryImportError } from '#/catalog';
 import { ensureConfigFile as ensureConfigFileScaffold } from '#/config-helpers';
 import { resolveConfigPath, resolveKimiHome } from '#/config-local/path';
+import { parseBooleanEnv } from '#/config-local/resolve';
 import type { QuestionItem, ToolInputDisplay } from '#/events';
 import { ImageLimits } from '#/image-limits';
 import { KimiHarness } from '#/kimi-harness';
@@ -5203,9 +5204,18 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // and skills were loaded and run without any prompt. gatedMcpServers stays
     // empty until the MCP catalog is wired; the trust decision itself is persisted
     // so the prompt is shown once, not on every launch.
-    const trusted = this.readTrustedWorkspaces().some(
-      (entry) => workspaceTrustKey(entry) === workspaceTrustKey(workDir),
-    );
+    //
+    // `KIMI_CODE_TRUST_WORKSPACE` (upstream #4059) ORs over the persisted
+    // decision, so a non-interactive host can opt every workspace in without a
+    // persisted record. It wins over the record, which means untrusting has no
+    // observable effect while it is set — the same trade upstream made. Only the
+    // truthy spellings count; `parseBooleanEnv` returns undefined for anything it
+    // does not recognise, so a typo leaves the normal prompt in place instead of
+    // silently trusting everything.
+    const envTrusted = parseBooleanEnv(process.env['KIMI_CODE_TRUST_WORKSPACE']) === true;
+    const trusted =
+      envTrusted ||
+      this.readTrustedWorkspaces().some((entry) => workspaceTrustKey(entry) === workspaceTrustKey(workDir));
     return { trusted, gatedMcpServers: [] };
   }
 

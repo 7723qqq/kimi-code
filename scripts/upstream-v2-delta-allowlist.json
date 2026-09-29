@@ -2,7 +2,7 @@
   "note": "Verdicts for upstream commits touching packages this fork deleted. Regenerate with `bun scripts/check-upstream-v2-delta.mjs --update`; see scripts/check-upstream-v2-delta.mjs for the gate itself. `tracked` = accepted debt recorded in packages/kimi-agent/ROADMAP.md §6; `not-applicable` = internal refactor with no observable engine behavior to port.",
   "upstreamRef": "upstream/main",
   "recordedMergeBase": "52437299ff78de3d0aff7f38f054e5eb20c512e5",
-  "recordedAt": "2026-09-24",
+  "recordedAt": "2026-09-29",
   "entries": [
     {
       "sha": "c7dd84124a00d2dc1a68fbbc3e54b1095ee9ac23",
@@ -19,6 +19,62 @@
       "verdict": "ported",
       "note": "**Followed (2026-09-24).** Reverts #3964, which this fork had ported (see §6.7). Upstream's stated reason is a product principle, not a defect: once a user trusts a repository, content inside it is the user's own responsibility, so the engine stops defending against it (PR #4013, `Root Cause: N/A`). Kept upstream and kept here: the fail-closed trust prompt and the lazy footer git detection — only the pre-trust window stays guarded. Removed in this fork, mirroring `929403b6db` line for line: (a) the static `-c` flags — `src/git.rs` deleted, its `CONFIG_ARGS`/`DIFF_ARGS` wiring removed from `tools/tower/git.rs` and `server/fs_routes.rs`; (b) the symlink re-resolution write gates — `native/path_access.rs::is_project_local_config_path`, `tools/mod.rs::symlink_lands_on_project_local_config` + both Write/Edit call sites, `permission/mod.rs` policy 12's opt-out; (c) the `local.toml` trust gate — `server/engine.rs::project_local_roots` no longer consults `is_workspace_trusted`; (d) the home / filesystem-root rejection in `project_local_config.rs` and `packages/node-sdk/src/project-local-config.ts`; (e) the TS side — `utils/git/git-args.ts` deleted, `utils/git/git-status.ts` + `feedback/codebase/scanner.ts` + `codebase-upload.test.ts` + `docs/{en,zh}/configuration/config-files.md` taken from `929403b6db` byte for byte. **Deliberately kept, because #4013 kept them too:** the whole `local.toml` read+write feature (post-revert v2 still calls `readAdditionalDirs` unconditionally and still renders `${additional_dirs_section}`) and `tools/mod.rs::resolve_for_write`'s canonicalization, which is `762f405811` (2026-08-30) baseline, not hardening. **Residual divergence:** `resolve_for_write` resolves write targets to their real path where post-revert v2 resolves lexically; observable only under the non-default `sandbox_write_guard`. Recorded in ROADMAP §6.8.1, not fixed this round.",
       "roadmap": "§6.8.1"
+    },
+    {
+      "sha": "1f6f0b1fa2117cc9374c1be62c534b4a4d60e412",
+      "date": "2026-09-28",
+      "subject": "feat: trust workspace via KIMI_CODE_TRUST_WORKSPACE env var (#4059)",
+      "verdict": "ported",
+      "note": "**Followed (2026-09-29).** `WorkspaceTrustService` gains an `envTrusted` flag read through `parseBooleanEnv` (`1/true/yes/on`), and `isTrusted()` returns `envTrusted || trusted` so the env outranks the persisted record. Implemented in the one place the fork keeps this state: `packages/node-sdk/src/native/sdk-rpc-client-native.ts::getWorkspaceTrustInfo` now short-circuits on the env before reading `trusted-workspaces.json`. `resolveSessionAdditionalDirs` needed no edit because it already routes through that accessor, which is what makes this a patch and not a feature. Tests: `packages/node-sdk/test/workspace-trust.test.ts` (5 cases: fail-closed, recorded trust, env outranks record, every truthy spelling, falsy or unrecognised spelling left alone). Documented in `docs/{en,zh}/configuration/env-vars.md`. Deliberately not ported: the `mcpRegistryService`/`workspaceMcpConfigService` hunks, because `gatedMcpServers` is hard-coded `[]` at `sdk-rpc-client-native.ts:5209` so there is no project-level MCP surface for trust to unlock; and the print-mode warning, whose string does not exist in this fork.",
+      "roadmap": "§6.22.1"
+    },
+    {
+      "sha": "4fbe065442179435c43d3c3dc8d11bb408b3fd30",
+      "date": "2026-09-28",
+      "subject": "fix(agent-core-v2): stop NotifyUser nudges in hosts without the update panel (#4054)",
+      "verdict": "tracked",
+      "note": "v2 replaces the bare `NOTIFY_USER_FLAG_ID` check with `notifyUserAvailable(flagService, bootstrapService)` — a two-input gate: the flag AND a host that actually has an update panel. The fork has one input. `tools/mod.rs:1547` (the `notifyuser` / `notify_user` dispatch arm) validates only that the message is non-empty, then reports \"Update shown to the user.\" unconditionally. The missing half is a host capability, not a case: the Rust engine has no notion of an update panel and `IBootstrapService` has no counterpart here. Porting means deciding where a host-side capability flag lives and who sets it, which is an interface decision rather than a patch.",
+      "roadmap": "§6.22.2"
+    },
+    {
+      "sha": "a940f2ff049ed57abce68c59526de7a6628a4112",
+      "date": "2026-09-28",
+      "subject": "fix(agent-core-v2): publish permission mode changes on agent.status.updated (#4057)",
+      "verdict": "tracked",
+      "note": "`permissionModeService` dispatches an `AgentStatusUpdated` carrying the new mode, and the event type gains an optional `permission` field. The fork has neither half: `src/events/types.rs` declares no `AgentStatus` / `agent_status` variant and no `permission` field on any event, so a permission-mode change has no wire representation at all. `injection/permission_mode.rs` is a turn-head reminder and is unrelated. This is a new event, not a missing case on an existing one, and it also needs a REST/WS contract decision: the fork owns those surfaces in `server/mod.rs` rather than in the TS layer v2 edits.",
+      "roadmap": "§6.22.3"
+    },
+    {
+      "sha": "09af3b483faac51a767aee50adb1bc1a8de4cc53",
+      "date": "2026-09-28",
+      "subject": "feat(tower): interrupt tower wake turns on user input and harden tower operations (#3998)",
+      "verdict": "tracked",
+      "note": "Two separable halves, six independent clusters, plus one `n/a`. (a) Tower wake turns are interrupted on user input: v2 tracks the seeded turn through a `TurnStarted` subscription filtered on `origin.variant === tower_inbox` and cancels exactly that turn on `PromptSubmitted`, then re-arms the wake. The fork has no tower service, no injection-origin wake turn to identify, and no prompt-cancels-a-turn path at all — a prompt submitted during a turn is always steered in (`server/engine.rs:575` `enqueue_steer`). Nothing to extend. (b1) `TowerTeardown` gains live-agent protection, `exclude` and `dry_run`; the fork takes a bare `force` bool (`tools/tower/store.rs:1523`, schema at `mod.rs:1291`). (b2) death writes become session-guarded and activity-logged: `mark_agent_dead` (`store.rs:403`) takes one argument, writes no log line, and there is no revive path to guard. (b3) dead-by-intent versus died needs the death reason from (b2); `types.rs:31-39` carries `death_status` / `death_reason` for round-trip but nothing writes them. (b4) an inbox-before-completion gate needs `last_inbox_read_at`; the fork has `assert_completable` only (`store.rs:698`). (b5) a cross-process lockfile: the fork serialises `state.json` with a process-global mutex (`store.rs:28-43`), which cannot satisfy the two-OS-processes guarantee v2 added. **Not applicable:** v2 also renames the `state.json` tmp suffix to include pid+uuid, and the fork already writes per-writer tmp + atomic rename (`store.rs:295-307`) — same mechanism, different suffix, no observable change. Largest delta of the seven; every cluster is new surface.",
+      "roadmap": "§6.22.4"
+    },
+    {
+      "sha": "e3bf50c0831d91ceb3656acf1b7a3f480eaada56",
+      "date": "2026-09-29",
+      "subject": "fix(agent-core-v2): remove interruption reminder on undo of its turn (#4076)",
+      "verdict": "tracked",
+      "note": "Five lines in v2: `history.findLast(isUndoAnchor)?.id` becomes the reminder's `ownerPromptId`, so undoing the owning prompt takes the reminder with it. `isUndoAnchor` is `role === 'user'` plus an origin test — `inTurn !== true` and (no origin, or `kind === 'user'`, or (`skill_activation` / `plugin_command` with `trigger === 'user-slash'`)). The data the test needs is already carried: `LLMMessage` has both `origin: Option<Value>` (v2 `PromptOrigin`, set on the opening user message, `turn_loop/types.rs:189-196`) and `prompt_id: Option<String>` (`:188`). The gap is the consumer: the fork's undo is turn-based — `plan_undo_turns(session_id, count)` / `undo_turns` in `session/sqlite_store.rs:980,988` — and `grep prompt_id src/session/mod.rs` returns nothing, so nothing can ask which prompt a turn belongs to. Porting means adding prompt ownership to the undo path, which is a new concept rather than a missing case. `injection/interruption_reminder.rs` is unaware of undo today.",
+      "roadmap": "§6.22.5"
+    },
+    {
+      "sha": "395d537237d737de0239159b60d1cc160bdf04e6",
+      "date": "2026-09-29",
+      "subject": "feat(kimi-code): summarize workspace trust with configuration sources (#4056)",
+      "verdict": "tracked",
+      "note": "The untrusted-workspace prompt stops printing raw MCP commands and renders an activation summary instead: MCP servers that would start, folders outside the project, and instruction sources (AGENTS.md, skills, profiles), each with the config file it came from; paged with arrows and collapsed to a one-line prompt when the terminal is short. The fork has the prompt (`apps/kimi-code/src/tui/components/dialogs/trust-prompt.ts:46`) in its pre-commit shape and the trust bit, but nothing that composes \"what trusting activates\": `gatedMcpServers` is hard-coded `[]` (`sdk-rpc-client-native.ts:5209`, comment: \"stays empty until the MCP catalog is wired\"), `WorkspaceTrustInfo` has no `origin` / `gatedAdditionalDirs` / `additionalDirSources` / `warnings` / `instructionSources` (`node-sdk/src/types.ts:681-694`), and no project-origin MCP loader exists in the engine at all. The ingredients are all present separately (`project_local_config.rs:41-60` yields `config_path`, `prompt/agents_md.rs:71`, `skills/mod.rs:517`, `prompt/profiles.rs`) but unconnected. A disclosure service is a new module, so this is a feature.",
+      "roadmap": "§6.22.6"
+    },
+    {
+      "sha": "06ebfc821e304bd4ca3f828ae739954166463d65",
+      "date": "2026-09-29",
+      "subject": "fix(agent-core-v2): fold UserPromptSubmit hook output into the prompt message (#4081)",
+      "verdict": "tracked",
+      "note": "v2 stops making a hook's stdout a standalone `hook_result` user message and folds it into the prompt message as content parts at position 0, tagged `meta: { contentType, source: 'user prompt submit hook' }`, so one prompt always yields exactly one user message. The fork has neither producer nor marker: `tools/external_hooks.rs:273-288` `notify_user_prompt_submit` returns `()`, matches hooks and `spawn_hooks` (`:374-391`) discards every outcome — the comment at `:270-272` states the gap verbatim (\"the engine currently only fires the observe path\"). `ContentBlock` (`rpc/types.rs:487`) has no `meta` field, so there is nowhere to put the tag. `docs/{en,zh}/customization/hooks.md` claimed the blocking/append behaviour until 2026-09-29, when it was corrected to match. **Residual half-port found during triage:** the host layers still implement the pre-commit `hook_result` folding that no producer feeds — `packages/transcript/src/history/groupTurns.ts:482`, `foldFacts.ts:130`, `apps/kimi-code/src/tui/utils/message-replay.ts:332`, `session-replay.ts:215,274,338,365,651`, `node-sdk/src/types.ts:434`. The commit's companion skill-marking refactor (annotate-then-filter instead of `content.slice(bundled.length)`) is **not** a free refactor here: it needs `meta` on transcript content parts, which is the same contract change, so it travels with this entry rather than as a separate patch.",
+      "roadmap": "§6.22.7"
     }
   ]
 }

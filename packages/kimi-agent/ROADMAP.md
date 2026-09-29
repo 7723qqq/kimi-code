@@ -4722,3 +4722,52 @@ provider 的 `FakeRegistry`，而它们测的本来就是 provider 而非 regist
 起点。
 
 
+
+### 6.22 2026-09-29 退役包 delta 复核：7 条上游提交（2 补丁 / 5 功能 / 1 不适用）
+
+`scripts/upstream-v2-delta-allowlist.json` 的 7 条新条目在此逐条落账，证据与
+"要实现它需要什么"写在各条的 `note` 里，这里只留索引与结论。判定口径：**补丁** = fork
+已有该机制、只是漏了这一种情形；**功能** = fork 从未构建过该能力；**不适用** = 无可观测
+行为差异。功能类按规矩需用户许可，未获许可前只记账不实现。
+
+| 条目 | 提交 | 裁决 | 落点 |
+| --- | --- | --- | --- |
+| §6.22.1 | `1f6f0b1fa2` #4059 | **ported** | `KIMI_CODE_TRUST_WORKSPACE` env 短路，落在 `node-sdk`（2026-09-29 已实现） |
+| §6.22.2 | `4fbe065442` #4054 | tracked | NotifyUser 需要"宿主有更新面板"的能力位，Rust 无此概念 |
+| §6.22.3 | `a940f2ff04` #4057 | tracked | 权限模式要发 `agent.status.updated`，引擎无该事件、无 `permission` 字段 |
+| §6.22.4 | `09af3b483f` #3998 | tracked | tower 六簇加固 + wake 打断，全部是新面；仅 tmp+rename 判不适用 |
+| §6.22.5 | `e3bf50c083` #4076 | tracked | undo 需按 prompt 归属撤销；fork 的 undo 只按轮数 |
+| §6.22.6 | `395d537237` #4056 | tracked | workspace trust 披露服务缺失，`gatedMcpServers` 恒空 |
+| §6.22.7 | `06ebfc821e` #4081 | tracked | hook 输出不入 prompt，且内容块缺 `meta` 契约 |
+
+#### 6.22.1 已完成：`KIMI_CODE_TRUST_WORKSPACE`
+
+`getWorkspaceTrustInfo` 在读 `trusted-workspaces.json` 之前先用 `parseBooleanEnv` 短路
+（仅 `1/true/yes/on` 为真，拼错则照常询问）。`resolveSessionAdditionalDirs` 无需改动——
+它本就经由该访问器，这正是它算补丁而非功能的原因。测试见
+`packages/node-sdk/test/workspace-trust.test.ts`（5 例：fail-closed、已记录信任、env 压过记录、
+全部真值拼写、假值/无法识别拼写不生效）。文档同步 `docs/{en,zh}/configuration/env-vars.md`。
+**未移植**：`mcpRegistryService` / `workspaceMcpConfigService` 两处——`gatedMcpServers` 在
+`sdk-rpc-client-native.ts:5209` 硬编码为空，没有可解锁的项目级 MCP 面；print 模式告警字符串在本
+fork 不存在。
+
+#### 6.22.2–6.22.7 五条功能类
+
+共同结论：**它们不是"漏了一种情形"，而是 fork 从未构建过对应能力**。逐条要什么见 allowlist 的
+`note`。三处最容易被误判的：
+
+- **§6.22.7** 的数据其实已经就位——`LLMMessage` 同时带 `origin`（v2 `PromptOrigin`，开轮 user
+  消息上就设了，`turn_loop/types.rs:189-196`）和 `prompt_id`（`:188`）。缺的是**消费方**：fork 的
+  undo 是按轮数的（`session/sqlite_store.rs:980,988`），`grep prompt_id src/session/mod.rs` 无命中，
+  所以没有任何代码能回答"这一轮属于哪个 prompt"。
+- **§6.22.7 的残留半移植**：宿主层仍在完整实现 commit 之前的 `hook_result` 折叠，而引擎从不发这种
+  消息——`packages/transcript/src/history/groupTurns.ts:482`、`foldFacts.ts:130`、
+  `apps/kimi-code/src/tui/utils/message-replay.ts:332`、`session-replay.ts:215,274,338,365,651`、
+  `node-sdk/src/types.ts:434`。同一提交里的技能块 meta 标记重构**在本 fork 不是免费的**：`meta` 字段
+  本身是契约变更，所以它随本条记账，不单列为补丁。
+- **§6.22.4** 里唯一判 `n/a` 的是 v2 把 `state.json` 临时文件后缀加上 pid+uuid；fork 已经在写
+  per-writer tmp + 原子 rename（`tools/tower/store.rs:295-307`），机制相同、后缀不同，无可观测差异。
+
+文档侧同步修正一处不实描述：`docs/{en,zh}/customization/hooks.md` 的 `UserPromptSubmit` 行原写
+"返回文本会附加到上下文、阻断则本轮不调用模型"，而 `tools/external_hooks.rs:270-272` 的注释白纸黑字
+写着引擎只走观察路径、返回值被丢弃。2026-09-29 按实现改正。
