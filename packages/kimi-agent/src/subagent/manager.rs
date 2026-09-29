@@ -1041,13 +1041,16 @@ worktree root the tower assigns you as your full authority scope.";
                         Some(result_text.clone()),
                     )
                     .await;
-                    result_text
+                    crate::storage::TaskOutcome::Completed(result_text)
                 }
                 Err(err_msg) => {
                     let err_text = format!("Error: {err_msg}");
                     mgr.update_state(&subagent_id, SubagentState::Failed, Some(err_text.clone()))
                         .await;
-                    err_text
+                    // The task registry has to be told too: settling this as a
+                    // success is what made a failed subagent read as completed
+                    // to the parent session and to whoever listed the tasks.
+                    crate::storage::TaskOutcome::Failed(err_text)
                 }
             }
         };

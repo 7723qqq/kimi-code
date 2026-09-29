@@ -3,10 +3,20 @@
  * for token estimation only.
  *
  * Mirrors the pattern in agent-core-v2's `_base/native-tools.ts` but scoped to
- * the two functions `tokens.ts` needs, so the shared contract layer can use
- * the native fast path without depending on the engine. Best-effort: when the
- * addon is unavailable or the call throws, wrappers return `undefined` and the
- * TypeScript fallback runs.
+ * the two functions `tokens.ts` needs, so the shared contract layer gets the
+ * native fast path without *blocking* on the engine: the addon is optional at
+ * runtime and the pure-TypeScript estimator is the fallback. Best-effort: when
+ * the addon is unavailable or the call throws, wrappers return `undefined` and
+ * the TypeScript fallback runs.
+ *
+ * **This is a real build-time dependency, not a soft one.** The package declares
+ * `@moonshot-ai/kimi-agent` in `dependencies`, and `architecture.json` lists
+ * `kimi-agent` among kosong's deps for the same reason. This comment used to
+ * claim the opposite — that the shared contract layer could reach the native
+ * path "without depending on the engine" — while the line below required it.
+ * The *runtime* dependency is soft; the *build* dependency is not, and
+ * conflating them is part of why the edge stayed invisible to
+ * `check:architecture` (which never read a `workspace:^` manifest entry).
  */
 import { createRequire } from 'node:module';
 

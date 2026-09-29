@@ -5,11 +5,8 @@
       "name": "Kimi Agent (Rust engine)",
       "source": "packages/kimi-agent/src",
       "layer": "engine",
-      "deps": [
-        "kosong",
-        "minidb",
-        "protocol"
-      ],
+      "deps": [],
+      "_depsNote": "Empty on purpose. This module used to declare kosong, minidb and protocol, but all three are TypeScript packages the Rust crate cannot import — Cargo.toml and src/**/*.rs reference none of them. The fiction also produced a phantom kimi-agent <-> kosong cycle once kosong's real (manifest-declared) edge on the engine was recorded. The engine's workspace relationships are all inbound: node-sdk, kimi-code and kosong depend on it.",
       "apis": [
         {
           "protocol": "rpc",
@@ -27,7 +24,7 @@
           "description": "ACP stdio protocol server"
         }
       ],
-      "fingerprint": "e0a52f5524428cb4"
+      "fingerprint": "8f9da766e8dea24a"
     },
     {
       "id": "node-sdk",
@@ -88,9 +85,10 @@
       "source": "packages/kosong/src",
       "layer": "engine",
       "deps": [
-        "i18n-runtime"
+        "i18n-runtime",
+        "kimi-agent"
       ],
-      "fingerprint": "69326c7acaa11e06"
+      "fingerprint": "f53f28734e5e7dce"
     },
     {
       "id": "minidb",
@@ -142,7 +140,7 @@
       "source": "packages/i18n-catalog/src",
       "layer": "shared",
       "deps": [],
-      "fingerprint": "746d99010ba3716a"
+      "fingerprint": "3f74dbfd88e5c102"
     },
     {
       "id": "i18n-runtime",
@@ -198,7 +196,8 @@
       "deps": [
         "node-sdk",
         "oauth",
-        "telemetry"
+        "telemetry",
+        "i18n-shared"
       ],
       "fingerprint": "0f38dcde56972dcd"
     },

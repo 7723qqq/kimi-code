@@ -1,5 +1,13 @@
 # @moonshot-ai/tree-sitter-bash
 
+> **Status: not wired up.** No workspace package declares a dependency on
+> this one, and nothing in `apps/` or `packages/` imports it. The permission
+> analysis it was built for does not exist yet on either side: the engine's
+> command analysis lives in Rust (`packages/kimi-agent/src/native/permission_engine/dangerous_command.rs`),
+> and kimi-inspect's bash view drives `IBashParserService` over
+> `/api/v1/debug` to the engine rather than to this package. The package is
+> intact and its own tests pass — it is simply waiting for a consumer.
+
 A pure-TypeScript bash parser that produces a syntax tree whose named node
 types match [tree-sitter-bash](https://github.com/tree-sitter/tree-sitter-bash)
 0.25.0 one-to-one, built for agent-side command permission analysis.

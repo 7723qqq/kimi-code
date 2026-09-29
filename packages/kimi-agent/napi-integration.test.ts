@@ -392,6 +392,53 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — error handling', () => {
   });
 });
 
+describe.skipIf(!nativeEntry)('napi runTurnRust — filtered finish reasons', () => {
+  // v2 carries exactly one filtered value: kosong folds the provider-specific
+  // spellings into `filtered` (human/llm/empty-response.ts, retry.ts:50-51 both
+  // compare against that literal), so a host that normalizes through kosong
+  // hands the engine `filtered` — not `content_filter`. The turn-level mapper
+  // once accepted only the wider provider set, so this spelling completed the
+  // turn as a success where v2 fails it (loopService.ts:877-882).
+
+  async function stopReasonFor(finishReason: string, content: string): Promise<string> {
+    const mod = loadNativeModule();
+    const result = await mod.runTurnRust(
+      { ...validParams, maxSteps: 2, tools: [] },
+      makeCallback(mod, () =>
+        JSON.stringify({
+          content,
+          tool_calls: [],
+          finish_reason: finishReason,
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        }),
+      ),
+      makeCallback(mod, () => JSON.stringify({ content: '', is_error: false })),
+    );
+    return result.stopReason;
+  }
+
+  it('fails the turn on the canonical `filtered` spelling', async () => {
+    expect(await stopReasonFor('filtered', '')).toBe('Filtered');
+  });
+
+  it('fails the turn on `filtered` even when the response carried content', async () => {
+    // v2 latches turn.filtered from the finish reason alone
+    // (loopService.ts:1859, :1884-1894) — emptiness is irrelevant.
+    expect(await stopReasonFor('filtered', 'a partial answer')).toBe('Filtered');
+  });
+
+  it('still fails on the raw provider spellings', async () => {
+    expect(await stopReasonFor('content_filter', '')).toBe('Filtered');
+    expect(await stopReasonFor('refusal', '')).toBe('Filtered');
+    expect(await stopReasonFor('safety', '')).toBe('Filtered');
+  });
+
+  it('leaves an ordinary finish reason alone', async () => {
+    expect(await stopReasonFor('stop', 'hello')).toBe('EndTurn');
+    expect(await stopReasonFor('length', 'hello')).toBe('MaxTokens');
+  });
+});
+
 describe.skipIf(!nativeEntry)('napi runTurnRust — max steps enforcement', () => {
   it('respects maxSteps and stops', async () => {
     const mod = loadNativeModule();

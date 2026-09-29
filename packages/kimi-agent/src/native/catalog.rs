@@ -204,7 +204,7 @@ mod tests {
         // A key present in en but absent in zh would silently render English
         // in a Chinese session; the locale-key gates cover the .ts sources, this
         // covers the artifact the binary actually embeds.
-        for (key, _) in table(Locale::En) {
+        for key in table(Locale::En).keys() {
             assert!(lookup(Locale::Zh, key).is_some(), "zh is missing {key}");
         }
     }

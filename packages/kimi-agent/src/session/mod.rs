@@ -2197,8 +2197,7 @@ mod tests {
                 },
                 "t1".into(),
                 "quick job".into(),
-                async { "done output".to_string() },
-            )
+                async { crate::storage::TaskOutcome::Completed("done output".to_string()) },            )
             .unwrap();
         wait_until(|| runner.pending_notification_count(Some("sess-steer")) == 1).await;
 
@@ -2282,8 +2281,7 @@ mod tests {
                     },
                     id.into(),
                     description.into(),
-                    async { "done output".to_string() },
-                )
+                    async { crate::storage::TaskOutcome::Completed("done output".to_string()) },                )
                 .unwrap();
         }
         wait_until(|| runner.pending_notification_count(Some("sess-mine")) == 1).await;

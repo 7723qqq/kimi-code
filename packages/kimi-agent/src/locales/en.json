@@ -794,6 +794,9 @@
     }
   },
   "engine": {
+    "background": {
+      "outputLimitExceeded": "Output limit exceeded: the command produced more than {{mib}} MiB and was terminated. Redirect large output to a file (e.g. `command > out.txt`) and inspect it in slices instead."
+    },
     "compaction": {
       "cancelled": "compaction cancelled",
       "emptySummary": "The compaction response did not contain a usable summary.",

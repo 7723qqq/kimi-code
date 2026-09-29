@@ -3,18 +3,17 @@
 //! and `agent-core-v2/src/features/plan/injection/planModeInjection.ts`).
 //!
 //! These are pure rendering functions: given the durable domain value from
-//! the state store (`read_domain("goal")` / `read_domain("plan")`), they
-//! produce the model-facing reminder text, or an empty string when nothing
-//! should be injected. The injection registry decides *when* to call them
+//! the state source (`read_domain("goal")` / `read_domain("plan")`), they
+//! produce the model-facing reminder text, or nothing at all when there is
+//! nothing to inject. The injection registry decides *when* to call them
 //! (goal reminders fire on new turns; plan-mode reminders follow the
 //! full/sparse/exit cadence); these functions decide *what* to render.
 //!
-//! Wiring: [`register_goal_plan_injections`] attaches both variants to any
-//! registry implementing [`InjectionRegistry`], backed by any store
-//! implementing [`StateStore`]. The registry and the state store live in
-//! sibling workstreams (`crate::injection` / `crate::storage::state_store`);
-//! implement the two traits for those types — or call the pure functions
-//! directly — to activate the injections.
+//! Wiring: [`register_goal_plan_injections`] attaches both variants to an
+//! [`InjectionRegistry`](crate::injection::InjectionRegistry), reading their
+//! values from any [`DomainValueSource`] — the local store on the REPL and
+//! stdio entries, the host-backed snapshot on the napi path, a fixture in a
+//! test. The pure functions can also be called directly.
 
 use std::sync::Arc;
 
@@ -24,6 +23,7 @@ use crate::goal::{
     GoalSnapshot, GoalState, GoalStatus, completion_criterion_block, escape_untrusted_text,
     format_budgets, format_elapsed, is_nearing_budget, reason_suffix, to_snapshot,
 };
+use crate::injection::state::DomainValueSource;
 
 /// WaitFor guidance appended to the active-goal reminder when the runtime
 /// supports waiting inside a turn (v2 `GOAL_WAIT_FOR_GUIDANCE`).
@@ -383,29 +383,6 @@ pub fn plan_mode_variant(
     None
 }
 
-/// Minimal injection-registry contract. The registry implementation lives
-/// in `crate::injection` (parallel workstream); implement this trait for it
-/// so [`register_goal_plan_injections`] can attach the two variants.
-pub trait InjectionRegistry {
-    /// Register a provider under a variant name. The registry invokes the
-    /// provider at every step head with the `is_new_turn` gate (v2
-    /// `isNewTurn`); an empty provider result means "nothing to inject".
-    fn register(&mut self, variant: &str, provider: InjectionProvider);
-}
-
-/// A provider renders the injection text for one variant. Receives the
-/// `is_new_turn` gate so turn-scoped variants (goal) can inject only at the
-/// turn's first step (v2 `goalInjection.ts` `isNewTurn`).
-pub type InjectionProvider = Box<dyn Fn(bool) -> String + Send + Sync>;
-
-/// Minimal state-store contract, matching the `read_domain` interface of
-/// `crate::storage::state_store` (parallel workstream).
-pub trait StateStore {
-    /// Read the durable value of a domain (`"goal"` / `"plan"`), or `None`
-    /// when the domain has no state.
-    fn read_domain(&self, domain: &str) -> Option<Value>;
-}
-
 /// Register the goal and plan-mode injections on `registry`, backed by
 /// `state_store` (pass a shared handle, e.g. `Arc::new(store)` or an
 /// `Arc::clone` of an existing handle; the store must be `Sync + 'static`
@@ -415,24 +392,25 @@ pub trait StateStore {
 /// renders the activation reminder from `read_domain("plan")` at every step
 /// head, driving its own cadence with [`plan_mode_variant`] /
 /// [`plan_mode_sparse_text`] / [`plan_mode_exit_text`] plus its own
-/// `plan.wasActive` tracking. Both return an empty string when there is
-/// nothing to inject.
-pub fn register_goal_plan_injections<R, S>(registry: &mut R, state_store: Arc<S>)
-where
-    R: InjectionRegistry,
-    S: StateStore + Send + Sync + 'static,
+/// `plan.wasActive` tracking. Both contribute nothing when they render
+/// blank, which is what the registry treats as "no injection".
+pub fn register_goal_plan_injections<S>(
+    registry: &mut crate::injection::InjectionRegistry,
+    state_store: Arc<S>,
+) where
+    S: DomainValueSource + Send + Sync + 'static,
 {
     let goal_store = Arc::clone(&state_store);
     registry.register(
         "goal",
-        Box::new(move |is_new_turn: bool| {
-            if !is_new_turn {
-                return String::new();
+        Box::new(move |ctx: &crate::injection::InjectionContext| {
+            if !ctx.is_new_turn {
+                return None;
             }
             goal_store
                 .read_domain("goal")
                 .map(|value| goal_injection_text(&value))
-                .unwrap_or_default()
+                .filter(|text| !text.trim().is_empty())
         }),
     );
 
@@ -449,42 +427,41 @@ where
     let plan_store = Arc::clone(&state_store);
     registry.register(
         "plan_mode",
-        Box::new(move |_is_new_turn: bool| {
+        Box::new(move |_ctx: &crate::injection::InjectionContext| {
             let mut state = tracker.lock().unwrap();
             let plan_val = plan_store.read_domain("plan");
             let is_active = plan_val.as_ref().map(plan_is_active).unwrap_or(false);
 
-            if !is_active {
+            let text = if !is_active {
                 if state.was_active {
                     state.was_active = false;
                     state.injected_at = None;
                     state.turns_since = 0;
-                    return plan_mode_exit_text();
+                    plan_mode_exit_text()
+                } else {
+                    String::new()
                 }
-                return String::new();
-            }
-
-            let val = match plan_val {
-                Some(v) => v,
-                None => return String::new(),
-            };
-
-            if !state.was_active {
-                state.was_active = true;
-                state.injected_at = Some(0);
-                state.turns_since = 0;
-                return plan_mode_injection_text(&val);
-            }
-
-            state.turns_since += 1;
-            match plan_mode_variant(state.injected_at, state.turns_since, false) {
-                Some(PlanModeVariant::Full) => {
+            } else if let Some(val) = plan_val {
+                if !state.was_active {
+                    state.was_active = true;
+                    state.injected_at = Some(0);
                     state.turns_since = 0;
                     plan_mode_injection_text(&val)
+                } else {
+                    state.turns_since += 1;
+                    match plan_mode_variant(state.injected_at, state.turns_since, false) {
+                        Some(PlanModeVariant::Full) => {
+                            state.turns_since = 0;
+                            plan_mode_injection_text(&val)
+                        }
+                        Some(PlanModeVariant::Sparse) => plan_mode_sparse_text(&val),
+                        None => String::new(),
+                    }
                 }
-                Some(PlanModeVariant::Sparse) => plan_mode_sparse_text(&val),
-                None => String::new(),
-            }
+            } else {
+                String::new()
+            };
+            (!text.trim().is_empty()).then_some(text)
         }),
     );
 }
@@ -801,22 +778,12 @@ Plan file: PLAN.md"#
         );
     }
 
-    struct FakeRegistry {
-        providers: Vec<(String, InjectionProvider)>,
-    }
-
-    impl InjectionRegistry for FakeRegistry {
-        fn register(&mut self, variant: &str, provider: InjectionProvider) {
-            self.providers.push((variant.to_string(), provider));
-        }
-    }
-
     struct FakeStore {
         goal: Option<Value>,
         plan: Option<Value>,
     }
 
-    impl StateStore for FakeStore {
+    impl DomainValueSource for FakeStore {
         fn read_domain(&self, domain: &str) -> Option<Value> {
             match domain {
                 "goal" => self.goal.clone(),
@@ -828,40 +795,37 @@ Plan file: PLAN.md"#
 
     #[test]
     fn test_register_goal_plan_injections() {
-        let mut registry = FakeRegistry {
-            providers: Vec::new(),
-        };
+        let goal_val = goal_value(&sample_state());
+        let plan_val = json!({ "active": true, "path": "PLAN.md" });
+        let mut registry = crate::injection::InjectionRegistry::new();
         let store = FakeStore {
-            goal: Some(goal_value(&sample_state())),
-            plan: Some(json!({ "active": true, "path": "PLAN.md" })),
+            goal: Some(goal_val.clone()),
+            plan: Some(plan_val.clone()),
         };
         register_goal_plan_injections(&mut registry, Arc::new(store));
+        assert_eq!(registry.names(), vec!["goal", "plan_mode"]);
 
-        assert_eq!(registry.providers.len(), 2);
-        assert_eq!(registry.providers[0].0, "goal");
-        assert_eq!(registry.providers[1].0, "plan_mode");
-
-        let goal_text = registry.providers[0].1(true);
-        assert!(goal_text.starts_with("You are working under an active goal (goal mode)."));
-        assert!(goal_text.contains("Status: active"));
-
-        let plan_text = registry.providers[1].1(true);
-        assert!(plan_text.starts_with("Plan mode is active."));
-        assert!(plan_text.ends_with("\n\n\nPlan file: PLAN.md"));
+        let texts = registry.build_injections(true);
+        assert_eq!(
+            texts,
+            vec![
+                crate::injection::wrap_system_reminder(&goal_injection_text(&goal_val)),
+                crate::injection::wrap_system_reminder(&plan_mode_injection_text(&plan_val)),
+            ]
+        );
     }
 
     #[test]
     fn test_register_providers_empty_without_state() {
-        let mut registry = FakeRegistry {
-            providers: Vec::new(),
-        };
+        let mut registry = crate::injection::InjectionRegistry::new();
         let store = FakeStore {
             goal: None,
             plan: None,
         };
         register_goal_plan_injections(&mut registry, Arc::new(store));
-        assert_eq!(registry.providers[0].1(true), "");
-        assert_eq!(registry.providers[1].1(true), "");
+        // A provider that renders nothing contributes no injection at all —
+        // the blank-to-`None` mapping the registry adapter used to own.
+        assert!(registry.build_injections(true).is_empty());
     }
 
     #[test]
@@ -869,7 +833,7 @@ Plan file: PLAN.md"#
         struct DynamicStore {
             plan: std::sync::Mutex<Option<Value>>,
         }
-        impl StateStore for DynamicStore {
+        impl DomainValueSource for DynamicStore {
             fn read_domain(&self, domain: &str) -> Option<Value> {
                 if domain == "plan" {
                     self.plan.lock().unwrap().clone()
@@ -882,30 +846,35 @@ Plan file: PLAN.md"#
         let store = Arc::new(DynamicStore {
             plan: std::sync::Mutex::new(Some(json!({ "active": true, "path": "PLAN.md" }))),
         });
-        let mut registry = FakeRegistry {
-            providers: Vec::new(),
-        };
+        let mut registry = crate::injection::InjectionRegistry::new();
         register_goal_plan_injections(&mut registry, Arc::clone(&store));
 
         // Turn 0: First activation -> Full reminder
-        let t0 = registry.providers[1].1(true);
-        assert!(t0.starts_with("Plan mode is active."));
+        let t0 = registry.build_injections(true);
+        assert_eq!(t0.len(), 1);
+        assert!(t0[0].contains("Plan mode is active."));
 
-        // Turn 1: Dedup window -> Empty
-        let t1 = registry.providers[1].1(true);
-        assert_eq!(t1, "");
+        // Turn 1: Dedup window -> nothing injected
+        let t1 = registry.build_injections(true);
+        assert!(t1.is_empty());
 
         // Turn 2: Dedup window passed (>= 2) -> Sparse reminder
-        let t2 = registry.providers[1].1(true);
-        assert!(t2.starts_with("Plan mode still active"));
+        let t2 = registry.build_injections(true);
+        assert_eq!(t2.len(), 1);
+        assert!(t2[0].contains("Plan mode still active"));
 
         // Exit plan mode
         *store.plan.lock().unwrap() = Some(json!({ "active": false }));
-        let t_exit = registry.providers[1].1(true);
-        assert_eq!(t_exit, plan_mode_exit_text());
+        let t_exit = registry.build_injections(true);
+        assert_eq!(
+            t_exit,
+            vec![crate::injection::wrap_system_reminder(
+                &plan_mode_exit_text()
+            )]
+        );
 
-        // Subsequent turns after exit -> Empty
-        let t_after = registry.providers[1].1(true);
-        assert_eq!(t_after, "");
+        // Subsequent turns after exit -> nothing injected
+        let t_after = registry.build_injections(true);
+        assert!(t_after.is_empty());
     }
 }

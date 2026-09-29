@@ -968,8 +968,6 @@ pub enum LoopStepStopReason {
     Complete,
     /// The LLM made tool calls that need to be executed.
     ToolCalls(Vec<ToolCall>),
-    /// The step was aborted.
-    Aborted,
 }
 
 #[cfg(test)]

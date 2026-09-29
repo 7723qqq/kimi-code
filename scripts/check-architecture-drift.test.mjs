@@ -161,6 +161,114 @@ test('detects an undeclared workspace import', async () => {
   expect(hits[0].evidence).toContain('main.ts:1');
 });
 
+/**
+ * `createRequire` hands back a function under whatever name the binding was
+ * given, so `require('x')` never matches and the edge is invisible. The live
+ * case is `packages/kosong/src/native-tools.ts`, whose
+ * `requireNative('@moonshot-ai/kimi-agent/native')` made an engine-to-engine
+ * edge pass the gate indefinitely.
+ */
+test('detects an undeclared import through a createRequire handle', async () => {
+  const dir = makeWorkspace({
+    packages: { 'apps/app': '@x/app', 'packages/engine': '@x/engine' },
+    files: {
+      'apps/app/src/native.ts': [
+        "import { createRequire } from 'node:module';",
+        'const requireNative = createRequire(import.meta.url);',
+        "export const native = requireNative('@x/engine/native');",
+        '',
+      ].join('\n'),
+    },
+  });
+  const diags = await checkArchitecture(twoPackageModel('apps/app/src', []), dir);
+  const hits = withCode(diags, 'deps/undeclared-import');
+  expect(hits).toHaveLength(1);
+  expect(hits[0].subject).toBe('app');
+  expect(hits[0].evidence).toContain('@x/engine/native');
+  expect(hits[0].evidence).toContain('native.ts:3');
+});
+
+/** A `createRequire` handle declared *and* used must not be a false positive. */
+test('accepts a createRequire handle whose target is declared', async () => {
+  const dir = makeWorkspace({
+    packages: { 'apps/app': '@x/app', 'packages/engine': '@x/engine' },
+    files: {
+      'apps/app/src/native.ts': [
+        "import { createRequire } from 'node:module';",
+        'const req = createRequire(import.meta.url);',
+        "export const native = req('@x/engine/native');",
+        '',
+      ].join('\n'),
+    },
+  });
+  const diags = await checkArchitecture(twoPackageModel('apps/app/src', ['engine']), dir);
+  expect(withCode(diags, 'deps/undeclared-import')).toHaveLength(0);
+});
+
+/**
+ * A `workspace:^` entry in `dependencies` is a build edge whether or not any
+ * file imports it. The manifest half used to be unread, so a package could take
+ * a hard dependency on a workspace sibling with the model never noticing.
+ */
+test('detects an undeclared workspace dependency in the manifest', async () => {
+  const dir = makeWorkspace({
+    packages: { 'apps/app': '@x/app', 'packages/engine': '@x/engine' },
+  });
+  writeFileSync(
+    join(dir, 'apps/app/package.json'),
+    `${JSON.stringify(
+      { name: '@x/app', version: '0.0.0', dependencies: { '@x/engine': 'workspace:^' } },
+      null,
+      2,
+    )}\n`,
+  );
+  const diags = await checkArchitecture(twoPackageModel('apps/app/src', []), dir);
+  const hits = withCode(diags, 'deps/undeclared-manifest');
+  expect(hits).toHaveLength(1);
+  expect(hits[0].subject).toBe('app');
+  expect(hits[0].evidence).toContain('@x/engine');
+  expect(hits[0].evidence).toContain('package.json');
+});
+
+/**
+ * The negative case matters as much as the positive one: an earlier draft of
+ * this check omitted the `declared` test and reported *every* workspace
+ * dependency, turning the gate into noise. A declared edge must stay silent.
+ */
+test('accepts a workspace dependency the model already declares', async () => {
+  const dir = makeWorkspace({
+    packages: { 'apps/app': '@x/app', 'packages/engine': '@x/engine' },
+  });
+  writeFileSync(
+    join(dir, 'apps/app/package.json'),
+    `${JSON.stringify(
+      { name: '@x/app', version: '0.0.0', dependencies: { '@x/engine': 'workspace:^' } },
+      null,
+      2,
+    )}\n`,
+  );
+  const diags = await checkArchitecture(twoPackageModel('apps/app/src', ['engine']), dir);
+  expect(withCode(diags, 'deps/undeclared-manifest')).toHaveLength(0);
+});
+
+/** A non-workspace (registry) dependency is not a model edge. */
+test('ignores a registry dependency in the manifest', async () => {
+  const dir = makeWorkspace({
+    packages: { 'apps/app': '@x/app', 'packages/engine': '@x/engine' },
+  });
+  writeFileSync(
+    join(dir, 'apps/app/package.json'),
+    `${JSON.stringify(
+      { name: '@x/app', version: '0.0.0', dependencies: { zod: '^4.3.6' } },
+      null,
+      2,
+    )}\n`,
+  );
+  const diags = await checkArchitecture(twoPackageModel('apps/app/src', []), dir);
+  expect(withCode(diags, 'deps/undeclared-manifest')).toHaveLength(0);
+  expect(withCode(diags, 'deps/unmodeled-manifest')).toHaveLength(0);
+});
+
 test('downgrades an exempted edge to a warning instead of dropping it', async () => {
   // A soft dependency — an optional native module behind a try/catch require —
   // must not be declared in `deps`, or the model lies whenever the fallback path

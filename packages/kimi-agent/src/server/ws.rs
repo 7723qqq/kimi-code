@@ -5,9 +5,11 @@
 //! **control** vocabulary —[`ws_protocol`] for the frame shapes, sent and read
 //! here: the `server_hello` greeting, the `ping` heartbeat, the `ack` that
 //! answers a `client_hello`, and the `40112` refusal of a bad credential in one.
-//! The subscription layer (`subscribe` / per-session `seq` / `resync_required`)
-//! is still absent, so an inbound frame asking for it is ignored; that needs a
-//! per-session event authority, which the server does not have yet.
+//! The subscription layer rides on top and lives here too: a
+//! `TranscriptSubscription` is one attached live stream, `subscribe_v2` opens
+//! it at a requested [`TranscriptGrade`], and `hub::SequencedEvent` events are
+//! projected into `transcript.ops` frames that `filter_ops_for_grade` gates
+//! before they reach the wire.
 //!
 //! Zero new crates. SHA-1 is implemented here rather than pulled in: the
 //! handshake digest is a non-secret anti-caching value fixed by RFC 6455 §1.3,

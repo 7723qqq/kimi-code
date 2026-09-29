@@ -39,6 +39,95 @@ const READ_MAX_OUTPUT_BYTES: usize = 100 * 1024;
 /// Maximum file size a native Read serves (addon TRANSCODE_MAX_BYTES; larger
 /// files fall back to the host, which streams them).
 const READ_MAX_BYTES: u64 = 10 * 1024 * 1024;
+
+/// v2 `MAX_TASK_OUTPUT_BYTES` (`agent/task/taskService.ts:151`): a background
+/// process that produces more than this is terminated instead of being allowed
+/// to run the session out of memory and disk. v2 applies it to `kind ===
+/// 'process'` only, and so does this — a subagent's output is bounded by its
+/// own turn.
+///
+/// The same v2 number caps the persisted log in
+/// [`crate::storage::state_store::MAX_PERSISTED_TASK_OUTPUT_BYTES`]. v2 has one
+/// constant serving both because it streams the log; this engine receives one
+/// finished `String`, so the two ceilings are enforced in different places.
+/// They must stay equal — if you change one, change both.
+const MAX_TASK_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+
+/// v2 `MAX_OUTPUT_BYTES` (`taskService.ts:147`): how much of a stream is kept.
+/// v2 drops whole chunks from the front (`appendRetainedOutput`,
+/// `taskService.ts:1001-1019`) — the tail is what answers "what happened".
+///
+/// Bounded **per stream** rather than per task: v2 appends stdout and stderr
+/// into one shared buffer, while this collects them separately and
+/// concatenates stdout-then-stderr. Merging them would make the recorded
+/// output's order depend on pipe scheduling, so the two buffers are capped
+/// individually instead. The total is still bounded, at 2× this.
+const MAX_RETAINED_OUTPUT_BYTES: usize = 1024 * 1024;
+
+/// v2 `outputLimitReason()` (`taskService.ts:153-160`).
+///
+/// It lives under the `engine.` namespace because `check-engine-i18n-parity`
+/// requires every `LocalizedText` name in this crate to be engine-owned; the
+/// catalog already carries the same sentence at the top-level `background.*`
+/// key for the TypeScript side, so the text is shared, not reworded.
+fn output_limit_reason() -> String {
+    LocalizedText::with_params(
+        "engine.background.outputLimitExceeded",
+        i18n_params!["mib" => MAX_TASK_OUTPUT_BYTES / (1024 * 1024)],
+    )
+    .render()
+}
+
+/// Drain one of a background process's streams, keeping at most
+/// [`MAX_RETAINED_OUTPUT_BYTES`] of its tail and counting every byte the task
+/// produced.
+///
+/// The counter is shared between the two streams because v2's
+/// `entry.outputSizeBytes` is a per-task total (`taskService.ts:959`), so
+/// output split across stdout and stderr counts once against the cap.
+///
+/// Once the cap trips the reader stops draining. That is deliberate: the
+/// caller kills the process next, and a pipe nobody reads fills and wedges the
+/// writer — so returning here is what makes the kill land instead of hanging.
+async fn read_bounded_stream<R: tokio::io::AsyncRead + Unpin>(
+    pipe: &mut R,
+    stream: &str,
+    emit: &(dyn Fn(&str, &[u8]) + Sync),
+    total: &std::sync::atomic::AtomicU64,
+    tripped: &std::sync::atomic::AtomicBool,
+) -> Vec<u8> {
+    use std::sync::atomic::Ordering;
+    use tokio::io::AsyncReadExt;
+
+    let mut kept: Vec<u8> = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        if tripped.load(Ordering::Relaxed) {
+            break;
+        }
+        match pipe.read(&mut chunk).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+                emit(stream, &chunk[..n]);
+                let seen = total.fetch_add(n as u64, Ordering::Relaxed) + n as u64;
+                if seen > MAX_TASK_OUTPUT_BYTES as u64 {
+                    tripped.store(true, Ordering::Relaxed);
+                    break;
+                }
+                kept.extend_from_slice(&chunk[..n]);
+                // Amortised: trimming on every chunk would memmove a megabyte
+                // per 8 KiB read, so let one chunk of overshoot accumulate
+                // first. The result is the same tail, just cheaper.
+                if kept.len() > MAX_RETAINED_OUTPUT_BYTES + chunk.len() {
+                    let excess = kept.len() - MAX_RETAINED_OUTPUT_BYTES;
+                    kept.drain(..excess);
+                }
+            }
+        }
+    }
+    kept
+}
+
 /// Grep caps: scanned files, and wall-clock budget (host/addon
 /// DEFAULT_TIMEOUT_MS = 20s).
 const GREP_MAX_FILES: usize = 5000;
@@ -3317,7 +3406,6 @@ impl NativeToolset {
                 let progress_task_id = task_id.clone();
 
                 let bg_fut = async move {
-                    use tokio::io::AsyncReadExt;
                     let mut cmd = tokio::process::Command::new(&shell_cmd);
                     for arg in &shell_args {
                         cmd.arg(arg);
@@ -3359,44 +3447,51 @@ impl NativeToolset {
                             );
                         }
                     };
+                    // Shared across both streams because v2 counts the whole
+                    // task's output once (`entry.outputSizeBytes`).
+                    let total_bytes = std::sync::atomic::AtomicU64::new(0);
+                    let limit_tripped = std::sync::atomic::AtomicBool::new(false);
                     let collect = async {
+                        // Both streams must be drained **concurrently**. Draining
+                        // stdout to EOF before touching stderr deadlocks: a
+                        // process that fills the stderr pipe blocks on writing
+                        // it, never closes stdout, and the stdout read waits
+                        // forever. `child.wait()` deliberately stays out of this
+                        // join so the caller can still kill it below.
                         tokio::join!(
                             async {
-                                let mut buf = Vec::new();
-                                if let Some(pipe) = stdout_pipe.as_mut() {
-                                    let mut chunk = [0u8; 8192];
-                                    loop {
-                                        match pipe.read(&mut chunk).await {
-                                            Ok(0) | Err(_) => break,
-                                            Ok(n) => {
-                                                emit("stdout", &chunk[..n]);
-                                                buf.extend_from_slice(&chunk[..n]);
-                                            }
-                                        }
+                                match stdout_pipe.as_mut() {
+                                    Some(pipe) => {
+                                        read_bounded_stream(
+                                            pipe,
+                                            "stdout",
+                                            &emit,
+                                            &total_bytes,
+                                            &limit_tripped,
+                                        )
+                                        .await
                                     }
+                                    None => Vec::new(),
                                 }
-                                buf
                             },
                             async {
-                                let mut buf = Vec::new();
-                                if let Some(pipe) = stderr_pipe.as_mut() {
-                                    let mut chunk = [0u8; 8192];
-                                    loop {
-                                        match pipe.read(&mut chunk).await {
-                                            Ok(0) | Err(_) => break,
-                                            Ok(n) => {
-                                                emit("stderr", &chunk[..n]);
-                                                buf.extend_from_slice(&chunk[..n]);
-                                            }
-                                        }
+                                match stderr_pipe.as_mut() {
+                                    Some(pipe) => {
+                                        read_bounded_stream(
+                                            pipe,
+                                            "stderr",
+                                            &emit,
+                                            &total_bytes,
+                                            &limit_tripped,
+                                        )
+                                        .await
                                     }
+                                    None => Vec::new(),
                                 }
-                                buf
                             },
-                            child.wait(),
                         )
                     };
-                    let (out, err, _status) = match bg_timeout {
+                    let (out, err) = match bg_timeout {
                         Some(limit) => match tokio::time::timeout(limit, collect).await {
                             Ok(result) => result,
                             Err(_) => {
@@ -3410,6 +3505,18 @@ impl NativeToolset {
                         },
                         None => collect.await,
                     };
+                    // v2 `appendOutput`'s limit arm (taskService.ts:962-969):
+                    // trip once, stop the task, and stop accepting output. Both
+                    // readers have returned by now — a pipe nobody drains fills
+                    // and would wedge the process instead of letting this land.
+                    let tripped = limit_tripped.load(std::sync::atomic::Ordering::Relaxed);
+                    if tripped {
+                        let _ = child.kill().await;
+                    }
+                    let _ = child.wait().await;
+                    if tripped {
+                        return output_limit_reason();
+                    }
                     let mut s = String::from_utf8_lossy(&out).into_owned();
                     let err_text = String::from_utf8_lossy(&err);
                     if !err_text.trim().is_empty() {
@@ -3420,6 +3527,10 @@ impl NativeToolset {
                     }
                     s
                 };
+                // A background command's exit status is part of its output, not
+                // a verdict on the task: the command ran. Only the runner's
+                // own `stop()` or a work error settles a task non-completed.
+                let bg_fut = async move { crate::storage::TaskOutcome::Completed(bg_fut.await) };
 
                 if runner
                     .spawn_task_with_meta(
@@ -3572,6 +3683,10 @@ impl NativeToolset {
                             }
                         }
                     };
+                    // Same reasoning as the other background-bash arm: the
+                    // command ran, and how it exited is its output.
+                    let bg_fut =
+                        async move { crate::storage::TaskOutcome::Completed(bg_fut.await) };
                     let _ = runner.spawn_task_with_meta(
                         crate::storage::TaskSpawnMeta {
                             session_id: self.session_id.as_deref(),
@@ -4402,6 +4517,190 @@ mod tests {
     /// on the host's real shell, so this is the same bridge the toolset builds.
     fn bridge() -> ShellPathBridge {
         ShellPathBridge::new(&crate::native::shell::resolve_shell(None).program)
+    }
+
+    // ── background output bounds (v2 agent/task/taskService.ts) ──────────
+
+    fn noop_emit(_stream: &str, _chunk: &[u8]) {}
+
+    /// Bytes under the cap come back whole, in order.
+    #[tokio::test]
+    async fn a_stream_under_the_cap_is_read_whole() {
+        let total = std::sync::atomic::AtomicU64::new(0);
+        let tripped = std::sync::atomic::AtomicBool::new(false);
+        let mut data: &[u8] = b"hello world";
+        let kept = read_bounded_stream(
+            &mut data,
+            "stdout",
+            &noop_emit,
+            &total,
+            &tripped,
+        )
+        .await;
+        assert_eq!(kept, b"hello world");
+        assert_eq!(total.load(std::sync::atomic::Ordering::Relaxed), 11);
+        assert!(!tripped.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    /// v2 `appendRetainedOutput` keeps the **tail** (it drops whole chunks from
+    /// the front). The head is what the command started from; the tail is what
+    /// answers what happened.
+    #[tokio::test]
+    async fn a_stream_over_the_retained_cap_keeps_its_tail() {
+        // 1 MiB of 'a' followed by a marker at the very end.
+        let mut payload = vec![b'a'; MAX_RETAINED_OUTPUT_BYTES + 4096];
+        payload.extend_from_slice(b"THE-END");
+
+        let total = std::sync::atomic::AtomicU64::new(0);
+        let tripped = std::sync::atomic::AtomicBool::new(false);
+        let mut data: &[u8] = &payload;
+        let kept = read_bounded_stream(
+            &mut data,
+            "stdout",
+            &noop_emit,
+            &total,
+            &tripped,
+        )
+        .await;
+
+        assert!(
+            kept.len() <= MAX_RETAINED_OUTPUT_BYTES + 8192,
+            "the retained buffer must be capped, not merely annotated: {} bytes",
+            kept.len()
+        );
+        assert!(
+            kept.len() >= MAX_RETAINED_OUTPUT_BYTES,
+            "the trim should land on the cap, not under it: {} bytes",
+            kept.len()
+        );
+        assert!(
+            kept.ends_with(b"THE-END"),
+            "the tail survives the trim: {:?}",
+            String::from_utf8_lossy(&kept[kept.len().saturating_sub(16)..])
+        );
+        // The bytes were all *counted* even though they were not all kept —
+        // that is what makes the hard cap fire.
+        assert_eq!(
+            total.load(std::sync::atomic::Ordering::Relaxed) as usize,
+            payload.len(),
+            "the counter sees every byte, the buffer keeps only the tail"
+        );
+        assert!(
+            !tripped.load(std::sync::atomic::Ordering::Relaxed),
+            "1 MiB is under the 16 MiB hard cap"
+        );
+    }
+    /// The hard cap trips once, and a reader that trips it stops — which is
+    /// what lets the caller kill the process instead of deadlocking on a pipe
+    /// nobody drains.
+    #[tokio::test]
+    async fn crossing_the_hard_cap_trips_and_stops_the_reader() {
+        let total = std::sync::atomic::AtomicU64::new(MAX_TASK_OUTPUT_BYTES as u64);
+        let tripped = std::sync::atomic::AtomicBool::new(false);
+        // The counter starts *at* the cap, so this one read crosses it.
+        let mut data: &[u8] = &vec![b'x'; 8192][..];
+        let kept = read_bounded_stream(
+            &mut data,
+            "stdout",
+            &noop_emit,
+            &total,
+            &tripped,
+        )
+        .await;
+
+        assert!(
+            tripped.load(std::sync::atomic::Ordering::Relaxed),
+            "crossing {} MiB must trip the cap",
+            MAX_TASK_OUTPUT_BYTES / (1024 * 1024)
+        );
+        assert!(
+            kept.is_empty(),
+            "the crossing chunk is not kept: v2 returns before appending"
+        );
+    }
+
+    /// A reader that trips the cap makes the *next* one return without reading
+    /// — the cooperative half of "stop accepting output".
+    #[tokio::test]
+    async fn a_tripped_cap_short_circuits_the_other_stream() {
+        let total = std::sync::atomic::AtomicU64::new(0);
+        let tripped = std::sync::atomic::AtomicBool::new(true);
+        let mut data: &[u8] = b"never read";
+        let kept = read_bounded_stream(
+            &mut data,
+            "stderr",
+            &noop_emit,
+            &total,
+            &tripped,
+        )
+        .await;
+        assert!(kept.is_empty());
+        assert_eq!(
+            total.load(std::sync::atomic::Ordering::Relaxed),
+            0,
+            "a short-circuited reader must not even count"
+        );
+    }
+
+    /// The counter is shared, so a task that splits its output across stdout
+    /// and stderr is capped as **one** task (v2's per-task
+    /// `outputSizeBytes`), not one cap per stream.
+    #[tokio::test]
+    async fn both_streams_count_against_one_cap() {
+        let total = std::sync::atomic::AtomicU64::new(0);
+        let tripped = std::sync::atomic::AtomicBool::new(false);
+        let half = MAX_TASK_OUTPUT_BYTES / 2 + 1024;
+        let payload = vec![b'y'; half];
+
+        let mut out: &[u8] = &payload;
+        let mut err: &[u8] = &payload;
+        let (a, b) = tokio::join!(
+            read_bounded_stream(&mut out, "stdout", &noop_emit, &total, &tripped),
+            read_bounded_stream(&mut err, "stderr", &noop_emit, &total, &tripped),
+        );
+
+        // Neither stream alone crosses the cap; together they do.
+        assert!(
+            tripped.load(std::sync::atomic::Ordering::Relaxed),
+            "two half-capped streams must trip the single cap"
+        );
+        // The counter stops at the moment the cap trips: the surviving reader
+        // short-circuits, so the total is *between* one cap and the full two.
+        // v2 behaves the same way — `appendOutput` returns once
+        // `outputLimitTripped` is set (`taskService.ts:971`).
+        let total = total.load(std::sync::atomic::Ordering::Relaxed) as usize;
+        assert!(
+            total > MAX_TASK_OUTPUT_BYTES && total <= 2 * half,
+            "the counter must have crossed the shared cap without running past both streams: {total}"
+        );
+        for kept in [&a, &b] {
+            assert!(
+                kept.len() <= MAX_RETAINED_OUTPUT_BYTES + 8192,
+                "each stream is still retained-output capped: {}",
+                kept.len()
+            );
+        }
+    }
+
+    /// v2's reason is a catalog string, not a literal: `outputLimitReason()`
+    /// (`taskService.ts:153-160`) is the engine's own text, and the fork
+    /// localises it. Resolving it also proves the `{{mib}}` placeholder is
+    /// filled — an unfilled placeholder ships to the user verbatim.
+    #[test]
+    fn the_output_limit_reason_names_the_cap_and_its_relief() {
+        let reason = output_limit_reason();
+        assert!(
+            reason.contains(&(MAX_TASK_OUTPUT_BYTES / (1024 * 1024)).to_string()),
+            "the reason must name the real cap: {reason}"
+        );
+        assert!(
+            !reason.contains("{{"),
+            "an unfilled placeholder would reach the user: {reason}"
+        );
+        assert!(
+            reason.len() > 40,
+            "a missing key renders as the bare dotted key, which is not a message: {reason}"
+        );
     }
 
     #[test]

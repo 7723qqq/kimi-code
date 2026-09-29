@@ -17,6 +17,7 @@
 
 use std::sync::Arc;
 
+use crate::storage::TaskOutcome;
 use crate::subagent::SubagentManager;
 use crate::subagent::manager::ForegroundTurnOutcome;
 use crate::subagent::types::ParentCancel;
@@ -623,7 +624,7 @@ async fn run_resume_in_background(
                         "subagent_id": agent,
                         "error": SUBAGENT_STOPPED_MESSAGE,
                     }));
-                    SUBAGENT_STOPPED_MESSAGE.to_string()
+                    TaskOutcome::Failed(SUBAGENT_STOPPED_MESSAGE.to_string())
                 } else {
                     let summary = crate::subagent::manager::final_assistant_summary(&turn.messages);
                     cb.emit_event(serde_json::json!({
@@ -632,7 +633,7 @@ async fn run_resume_in_background(
                         "result_summary": summary,
                         "usage": usage_json(&turn.usage),
                     }));
-                    summary
+                    TaskOutcome::Completed(summary)
                 }
             }
             Some(Ok(ForegroundTurnOutcome::ParentCancelled)) => {
@@ -640,7 +641,10 @@ async fn run_resume_in_background(
                     "type": "subagent.cancelled",
                     "subagent_id": agent,
                 }));
-                USER_INTERRUPTED_SUBAGENT_MESSAGE.to_string()
+                // Not `Killed`: that status means the runner's own `stop()` cut
+                // the task short, and this arm means the subagent was
+                // cancelled upstream while the task ran to its end.
+                TaskOutcome::Failed(USER_INTERRUPTED_SUBAGENT_MESSAGE.to_string())
             }
             Some(Err(message)) => {
                 cb.emit_event(serde_json::json!({
@@ -648,7 +652,7 @@ async fn run_resume_in_background(
                     "subagent_id": agent,
                     "error": message.clone(),
                 }));
-                format!("Error: {message}")
+                TaskOutcome::Failed(format!("Error: {message}"))
             }
             None => {
                 let message = "resume state was lost".to_string();
@@ -657,7 +661,7 @@ async fn run_resume_in_background(
                     "subagent_id": agent,
                     "error": message,
                 }));
-                message
+                TaskOutcome::Failed(message)
             }
         }
     };
@@ -922,7 +926,7 @@ pub async fn execute_agent(
                             "subagent_id": agent,
                             "error": SUBAGENT_STOPPED_MESSAGE,
                         }));
-                        SUBAGENT_STOPPED_MESSAGE.to_string()
+                        TaskOutcome::Failed(SUBAGENT_STOPPED_MESSAGE.to_string())
                     } else {
                         let summary =
                             crate::subagent::manager::final_assistant_summary(&turn.messages);
@@ -932,7 +936,7 @@ pub async fn execute_agent(
                             "result_summary": summary,
                             "usage": usage_json(&turn.usage),
                         }));
-                        summary
+                        TaskOutcome::Completed(summary)
                     }
                 }
                 Ok(ForegroundTurnOutcome::ParentCancelled) => {
@@ -942,7 +946,7 @@ pub async fn execute_agent(
                         "type": "subagent.cancelled",
                         "subagent_id": agent,
                     }));
-                    USER_INTERRUPTED_SUBAGENT_MESSAGE.to_string()
+                    TaskOutcome::Failed(USER_INTERRUPTED_SUBAGENT_MESSAGE.to_string())
                 }
                 Err(err_msg) => {
                     cb.emit_event(serde_json::json!({
@@ -950,7 +954,7 @@ pub async fn execute_agent(
                         "subagent_id": agent,
                         "error": err_msg.clone(),
                     }));
-                    format!("Error: {err_msg}")
+                    TaskOutcome::Failed(format!("Error: {err_msg}"))
                 }
             }
         };

@@ -199,6 +199,7 @@ where
         }
 
         let mut failure: Option<String> = None;
+        let mut grace_deadline: Option<std::time::Instant> = None;
         let mut pending = handles.into_iter();
         'collect: for mut handle in pending.by_ref() {
             // Await with cancellation ticks instead of awaiting blindly: one
@@ -207,23 +208,30 @@ where
             // future (a spawned OS child outlives it — only the Rust side is
             // reclaimed). Fast tools resolve on the first poll; the tick only
             // bounds the worst case.
-            let joined = loop {
-                if is_cancelled(cancellation) {
-                    handle.abort();
-                    failure = Some("turn cancelled".to_string());
-                    break 'collect;
-                }
-                let tick = tokio::time::sleep(std::time::Duration::from_millis(20));
-                tokio::pin!(tick);
-                tokio::select! {
-                    biased;
-                    () = &mut tick => {}
-                    done = &mut handle => break done,
-                }
-            };
+            let (joined, won_race) =
+                match join_with_abort_grace(&mut handle, cancellation, &mut grace_deadline).await {
+                    GraceJoin::Abandoned => {
+                        failure = Some("turn cancelled".to_string());
+                        break 'collect;
+                    }
+                    GraceJoin::Settled(joined) => (joined, false),
+                    GraceJoin::WonRace(joined) => (joined, true),
+                };
+            // A result that landed inside the grace window is the one v2's
+            // race picked, so the cancellation that opened the window must not
+            // discard it.
+            let cancelled_now = !won_race && is_cancelled(cancellation);
+            if won_race {
+                // The turn is still cancelled, though. The user's Ctrl-C stops
+                // the turn; letting one call's result win the race does not
+                // un-cancel it, and reporting `cancelled: false` here would let
+                // the loop start another round. Set the flag without breaking,
+                // so the rest of the batch still races the same deadline.
+                failure = Some("turn cancelled".to_string());
+            }
             match joined {
                 Ok(Ok((result, duration_ms))) => {
-                    if is_cancelled(cancellation) {
+                    if cancelled_now {
                         failure = Some("turn cancelled".to_string());
                         break;
                     }
@@ -238,7 +246,7 @@ where
                     // abort the batch: completed siblings are kept and the
                     // failing call surfaces as an error result the model can
                     // react to. Only a cancellation aborts the round.
-                    if is_cancelled(cancellation) {
+                    if cancelled_now {
                         failure = Some("turn cancelled".to_string());
                         break;
                     }
@@ -253,7 +261,7 @@ where
                     all_durations.push(None);
                 }
                 Err(e) => {
-                    if is_cancelled(cancellation) {
+                    if cancelled_now {
                         failure = Some("turn cancelled".to_string());
                         break;
                     }
@@ -272,16 +280,72 @@ where
         // Dropping a JoinHandle does not cancel its task, so whatever the loop
         // left behind would keep running — writing files and executing shell
         // commands for a turn that has already failed.
-        for handle in pending {
-            handle.abort();
+        //
+        // v2 arms `raceWithAbortGrace` on **every** in-flight call when the
+        // signal fires, and they all share that one instant — so the rest of
+        // the batch races the deadline already opened above rather than each
+        // getting 2 s in turn.
+        match grace_deadline {
+            Some(deadline) => {
+                for mut handle in pending {
+                    let name = call_names
+                        .get(all_results.len())
+                        .cloned()
+                        .unwrap_or_default();
+                    match join_until(&mut handle, deadline).await {
+                        GraceJoin::WonRace(Ok(Ok((result, duration_ms)))) => {
+                            all_results.push(result);
+                            all_durations.push(Some(duration_ms));
+                        }
+                        GraceJoin::WonRace(Ok(Err(e))) => {
+                            all_results.push(ExecutableToolResult {
+                                delivery: None,
+                                stop_turn: false,
+                                content: e,
+                                is_error: true,
+                                note: None,
+                                display: None,
+                            });
+                            all_durations.push(None);
+                        }
+                        GraceJoin::WonRace(Err(e)) => {
+                            all_results.push(ExecutableToolResult {
+                                delivery: None,
+                                stop_turn: false,
+                                content: format!("Tool task join error: {e}"),
+                                is_error: true,
+                                note: None,
+                                display: None,
+                            });
+                            all_durations.push(None);
+                        }
+                        // No grace left, or the call never finished inside it.
+                        GraceJoin::Settled(_) | GraceJoin::Abandoned => {
+                            all_results.push(ExecutableToolResult {
+                                delivery: None,
+                                stop_turn: false,
+                                content: aborted_tool_output(&name),
+                                is_error: true,
+                                note: None,
+                                display: None,
+                            });
+                            all_durations.push(None);
+                        }
+                    }
+                }
+            }
+            None => {
+                for handle in pending {
+                    handle.abort();
+                }
+            }
         }
 
         // A cancellation mid-collect leaves calls without results. v2
         // (`raceWithAbortGrace` + `abortedToolOutput`) settles every in-flight
-        // call with an error result after a 2 s grace; the Rust scheduler
-        // aborts the tasks instead (their futures are dropped), but the
-        // history pairing requirement is the same — fill the gaps so the
-        // model reads one deliberate user action per interrupted call.
+        // call with an error result after a 2 s grace; the pairing requirement
+        // is the same — fill the gaps so the model reads one deliberate user
+        // action per interrupted call, not a silent hole.
         if failure.is_some() {
             while all_results.len() < total_calls {
                 let index = all_results.len();
@@ -318,6 +382,89 @@ fn aborted_tool_output(tool_name: &str) -> String {
     format!(
         "The user manually interrupted \"{tool_name}\" (and anything else running at the same time). This was a deliberate user action, not a system error, timeout, or capacity limit. Do not retry automatically or guess at the cause — wait for the user's next instruction."
     )
+}
+
+/// v2 `ABORT_GRACE_MS` (`toolExecutorService.ts:57`).
+///
+/// This is a **race**, not a delay: v2 wraps every in-flight call in
+/// `raceWithAbortGrace` (`:946-980`), which arms a timer at the moment the
+/// abort signal fires and resolves to a synthetic `abortedToolOutput` only if
+/// the call has not finished by then. A result landing inside the window wins,
+/// so a tool that was 100 ms from done is not reported to the model as
+/// something the user interrupted.
+const ABORT_GRACE_MS: u64 = 2_000;
+
+/// The window as a [`Duration`]. Mirrors `retry.rs`, which keeps its delays as
+/// `*_MS` constants and converts at the use site, so a test can read the real
+/// number instead of a copy of it.
+fn abort_grace() -> std::time::Duration {
+    std::time::Duration::from_millis(ABORT_GRACE_MS)
+}
+
+/// What awaiting one in-flight call produced, once the abort grace is in play.
+enum GraceJoin<T> {
+    /// It finished before any cancellation was noticed — the ordinary path.
+    Settled(Result<T, tokio::task::JoinError>),
+    /// It finished *inside* the grace window. v2's `Promise.race` has already
+    /// decided that this result wins over the synthetic aborted output, so the
+    /// caller must not discard it for the very cancellation that opened the
+    /// window.
+    WonRace(Result<T, tokio::task::JoinError>),
+    /// The window closed with the call still running. It has been aborted, and
+    /// [`aborted_tool_output`] is what the model sees.
+    Abandoned,
+}
+
+/// Await one in-flight call, applying v2's abort grace on cancellation.
+///
+/// `deadline` is created the first time a cancellation is seen and then reused
+/// for every call in the batch, because v2 arms one timer per call *at the
+/// signal* — they share that instant. Granting 2 s to each call in turn would
+/// let a large batch run for 2 s × batch_size after the user pressed Ctrl-C.
+async fn join_with_abort_grace<T>(
+    handle: &mut tokio::task::JoinHandle<T>,
+    cancellation: Option<&Arc<AtomicBool>>,
+    deadline: &mut Option<std::time::Instant>,
+) -> GraceJoin<T> {
+    loop {
+        let tick = tokio::time::sleep(std::time::Duration::from_millis(20));
+        tokio::pin!(tick);
+        tokio::select! {
+            biased;
+            () = &mut tick => {
+                if !is_cancelled(cancellation) {
+                    continue;
+                }
+                let dl = *deadline.get_or_insert_with(|| {
+                    std::time::Instant::now() + abort_grace()
+                });
+                return join_until(handle, dl).await;
+            }
+            done = &mut *handle => return GraceJoin::Settled(done),
+        }
+    }
+}
+
+/// Race one call against the batch's shared grace deadline.
+async fn join_until<T>(
+    handle: &mut tokio::task::JoinHandle<T>,
+    deadline: std::time::Instant,
+) -> GraceJoin<T> {
+    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+    if remaining.is_zero() {
+        handle.abort();
+        return GraceJoin::Abandoned;
+    }
+    let grace = tokio::time::sleep(remaining);
+    tokio::pin!(grace);
+    tokio::select! {
+        biased;
+        () = &mut grace => {
+            handle.abort();
+            GraceJoin::Abandoned
+        }
+        done = &mut *handle => GraceJoin::WonRace(done),
+    }
 }
 
 fn is_cancelled(cancellation: Option<&Arc<AtomicBool>>) -> bool {
@@ -1210,11 +1357,174 @@ mod tests {
         );
     }
 
+    // ── abort grace (v2 raceWithAbortGrace) ──────────────────────────────
+
+    fn ok_result(content: &str) -> ExecutableToolResult {
+        ExecutableToolResult {
+            delivery: None,
+            stop_turn: false,
+            content: content.into(),
+            is_error: false,
+            note: None,
+            display: None,
+        }
+    }
+
+    fn one_call(name: &str, accesses: Vec<ToolResourceAccess>) -> Vec<ScheduledToolCall> {
+        vec![ScheduledToolCall {
+            tool_call: ToolCall {
+                id: "1".into(),
+                name: name.into(),
+                arguments: serde_json::json!({}),
+                extras: None,
+            },
+            accesses,
+        }]
+    }
+
+    /// The defect this closes: a tool that was milliseconds from finishing when
+    /// the user pressed Ctrl-C used to be reported to the model as something the
+    /// user interrupted, and its result was thrown away. v2's race lets a
+    /// result landing inside the window win.
+    #[tokio::test]
+    async fn a_tool_finishing_inside_the_grace_keeps_its_real_result() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let canceller = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+            canceller.store(true, Ordering::Relaxed);
+        });
+        // Lands ~200 ms after the cancel, comfortably inside the 2 s window.
+        let executor = move |_tc: ToolCall| async move {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            Ok(ok_result("the real answer"))
+        };
+
+        let outcome = execute_scheduled(
+            Some(&cancel),
+            one_call("bash", vec![]),
+            executor,
+        )
+        .await
+        .expect("the grace resolves the batch");
+
+        assert!(outcome.cancelled, "the turn is still reported as cancelled");
+        assert_eq!(
+            outcome.results[0].content, "the real answer",
+            "a result inside the grace window wins over the synthetic abort"
+        );
+        assert!(
+            !outcome.results[0].is_error,
+            "the tool did not fail; the user just stopped waiting"
+        );
+    }
+
+    /// Past the window, the abort stands — that is the other half of the race.
+    /// The wait is the real 2 s, because a shorter one would not test the
+    /// constant v2 actually specifies.
+    #[tokio::test]
+    async fn a_tool_overrunning_the_grace_is_replaced_by_the_abort_output() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let canceller = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            canceller.store(true, Ordering::Relaxed);
+        });
+        let executor = move |_tc: ToolCall| async move {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            Ok(ok_result("far too late"))
+        };
+
+        let started = std::time::Instant::now();
+        let outcome = execute_scheduled(
+            Some(&cancel),
+            one_call("bash", vec![]),
+            executor,
+        )
+        .await
+        .expect("the grace resolves the batch");
+        let elapsed = started.elapsed();
+
+        assert!(outcome.cancelled);
+        assert!(
+            outcome.results[0]
+                .content
+                .contains("The user manually interrupted"),
+            "past the window the abort stands: {:?}",
+            outcome.results[0].content
+        );
+        assert!(
+            elapsed >= std::time::Duration::from_millis(ABORT_GRACE_MS - 100),
+            "the grace must actually be waited out, took {elapsed:?}"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(10),
+            "the grace must not be open-ended, took {elapsed:?}"
+        );
+    }
+
+    /// v2 arms one timer per call **at the signal**, so every in-flight call
+    /// shares that instant. Granting 2 s to each in turn would let a large
+    /// batch keep running long after the user gave up on it.
+    #[tokio::test]
+    async fn the_grace_deadline_is_shared_across_the_batch() {
+        // Two different files: concurrent, so they share one batch.
+        let scheduled = vec![
+            ScheduledToolCall {
+                tool_call: ToolCall {
+                    id: "1".into(),
+                    name: "write".into(),
+                    arguments: serde_json::json!({}),
+                    extras: None,
+                },
+                accesses: vec![write_file_access("/a.txt")],
+            },
+            ScheduledToolCall {
+                tool_call: ToolCall {
+                    id: "2".into(),
+                    name: "write".into(),
+                    arguments: serde_json::json!({}),
+                    extras: None,
+                },
+                accesses: vec![write_file_access("/b.txt")],
+            },
+        ];
+        let cancel = Arc::new(AtomicBool::new(false));
+        let canceller = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            canceller.store(true, Ordering::Relaxed);
+        });
+        let executor = move |_tc: ToolCall| async move {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            Ok(ok_result("far too late"))
+        };
+
+        let started = std::time::Instant::now();
+        let outcome = execute_scheduled(Some(&cancel), scheduled, executor)
+            .await
+            .expect("the grace resolves the batch");
+        let elapsed = started.elapsed();
+
+        assert!(outcome.cancelled);
+        assert_eq!(outcome.results.len(), 2, "both calls are still paired");
+        for r in &outcome.results {
+            assert!(
+                r.content.contains("The user manually interrupted"),
+                "both calls are past the shared window: {:?}",
+                r.content
+            );
+        }
+        assert!(
+            elapsed < std::time::Duration::from_millis(ABORT_GRACE_MS * 2),
+            "two calls must share one 2 s window, not get 2 s each: {elapsed:?}"
+        );
+    }
+
     /// A single failing call must not abort the batch: its error surfaces as an
     /// error-marked result while sibling results are preserved.
     #[tokio::test]
-    async fn test_execute_scheduled_single_failure_keeps_siblings() {
-        let scheduled = vec![
+    async fn test_execute_scheduled_single_failure_keeps_siblings() {        let scheduled = vec![
             ScheduledToolCall {
                 tool_call: ToolCall {
                     id: "1".into(),

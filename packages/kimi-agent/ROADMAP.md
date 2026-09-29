@@ -4609,3 +4609,97 @@ key、`i18n_params!` 绑定名要与模板 `{{placeholder}}` 逐字一致）。
 内嵌目录**判绿——正好是 `native/catalog.rs` 头部注释承诺「malformed JSON 到不了构建」
 的反面。
 
+### 6.21 2026-09-29 v2 步数记账：双计数器语义，与重试计费差异（**记录，不改**）
+
+本条是「v2 → Rust 行为对照」的一轮结果。结论先写：**不改代码**。两次中途结论被自查
+推翻，最终结论附算式，可复算。
+
+#### 6.21.1 v2 有两个独立计数器
+
+turn 上下文字段（`packages/agent-core-v2/src/human/agent/turn.ts:229-230`）：
+
+| 字段 | 初值 | 写入点 | 单调性 |
+|---|---|---|---|
+| `step` | 0（`:442`） | 每次进入 `thinking` 时 `+1`（`:485`） | turn 内单调，从不重置 |
+| `steps` | 1（`:441`） | `turn.notify` 带消息时压回 1（`:856`）；另被 gate 每步回写 | 被 gate 单调化 |
+
+`currentStep()` 只有两处写入：`turn.started` 归零、`step.started` 取当时的 `context.step`
+（`packages/agent-core-v2/src/agent/loop/machine/engine.ts:365`、`:372`）——turn 内不重置。
+
+#### 6.21.2 权威上限在 gate，且它把可重置计数器重新单调化
+
+`packages/agent-core-v2/src/agent/loop/loopService.ts:983`：
+
+```ts
+const stepOrdinal = Math.max(this.engine?.currentStep() ?? 0, turn.steps + 1);
+if (stepOrdinal > maxSteps && !consumed.bypass) { /* fail */ }
+```
+
+紧接着 `:994` 是 `turn.steps = stepOrdinal`——**每次 gate 都把那个可重置的计数器按
+单调值回写**。gate 无条件挂在 requester 上（`:218`），且每次 `generate` 前都调
+（`packages/agent-core-v2/src/agent/loop/machine/requester.ts:61-62`）。
+
+所以「通知重置可以放宽步数上限」不成立：`stepOrdinal ≥ currentStep()` 恒成立，重置值在
+下一次 gate 就被覆盖。
+
+#### 6.21.3 算出来的实际差异
+
+设第 k 次 LLM 调用，`steps` 始终跟随 ordinal：
+
+- 无重置：`ordinal_k = max(k, k+1) = k+1`，失败线 `k+1 > maxSteps` → 允许 **maxSteps-1** 次调用
+- 有重置（`steps` 被压回 1）：`ordinal_k = max(k, 2) = k`（k ≥ 2）→ 允许 **maxSteps** 次
+
+本移植 `src/turn_loop/run_turn.rs:963` 是 `for` 循环的 `steps = step_num + 1`，
+**允许 maxSteps 次**。即：**当前实现已经等于 v2 的上沿**；把重置忠实移植进来反而会收紧
+1 次调用。重置的真实收益是**每次通知 +1 次调用**，而唯一会 turn 内反复触发的 provider 是
+`plan_mode`（`PLAN_MODE_DEDUP_MIN_TURNS = 2` / `PLAN_MODE_FULL_REFRESH_TURNS = 5`，
+`packages/agent-core-v2/src/features/plan/injection/planModeInjection.ts:17-18`；其
+`assistantTurnsSince` 是遍历历史数 assistant 消息，即步级）；`goal` 是 turn-gated
+（`packages/agent-core-v2/src/features/goal/injection/goalInjection.ts:24` 的
+`isNewTurn ? this.reminder() : undefined`），turn 内不触发。
+
+#### 6.21.4 真正的差异：v2 把重试计入步数，Rust 不计
+
+`retrying` 状态是 `after: { retryDelay: 'thinking' }`
+（`packages/agent-core-v2/src/human/agent/turn.ts:717-720`）——**重试会重新进入
+`thinking`**，而其 entry 含 `step: context.step + 1`（`:485`）。因此 v2 里每一次 LLM
+重试都消耗一单位步数预算。
+
+本移植的 `steps` 只在 for 迭代入口赋值一次（`src/turn_loop/run_turn.rs:963`）；重试循环
+在 `execute_loop_step_with_retry` 内部，只读 `step` 参数，不回写预算。
+
+量级：`max_attempts_per_step` 默认 10（`src/turn_loop/turn_step.rs:319`）。v2 里一个步骤
+若重试 5 次即烧掉 6 单位预算——在 `ServerEngine` 默认 `max_steps = 32`
+（`src/server/engine.rs:300`）上，一个 provider 抖动的 turn 可能在 3 步内被截断；本移植不会。
+
+#### 6.21.5 记录不改的理由
+
+- 通知重置的收益是每次 +1 次调用，且本移植已在 v2 上沿，**忠实移植是净收紧**。
+- 重试计费的差异方向是「本移植更宽松」。是否要收紧取决于真实 turn 的重试分布与长度
+  分布，**仓库没有这项遥测**，据猜测收紧可能让长 turn 提前失败。
+- 这两条都需要真实使用数据才能判断，因此记录在案、等数据。
+
+#### 6.21.6 同批完成：注入层收敛为单一抽象
+
+同一轮里发现 `crate::injection` 存在三处由「parallel workstream」临时接线留下的重复
+抽象，注释自称 *"the injection-layer work item"*，已全部收敛：
+
+| 概念 | 收敛前 | 收敛后 |
+|---|---|---|
+| `InjectionRegistry` | `injection/mod.rs` 的 struct **+** `injection/goal_plan.rs` 的 trait | 仅 struct（`src/injection/mod.rs:114`） |
+| `InjectionProvider` | 两个同名不同签名 | 仅一个（`src/injection/mod.rs:105`） |
+| 状态契约 | `goal_plan::StateStore`（与 `storage::StateStore` 同名不同义） | `src/injection/state.rs` 的 `DomainValueSource` |
+| 桥接适配器 | `injection/mod.rs` 的一层 `impl` | 删除 |
+
+`register_goal_plan_injections` 去掉泛型 `R`，直接收 `&mut InjectionRegistry`；两个
+provider 改用 `&InjectionContext` 并返回 `Option<String>`，原先由适配器负责的
+「空白渲染 → 不注入」映射搬进闭包本身。三个测试改用真 registry（原先用只捕获
+provider 的 `FakeRegistry`，而它们测的本来就是 provider 而非 registry），因此现在真正
+走一遍注册表的包裹与过滤。行为影响为零：调用顺序、blank 过滤、包裹文本均不变。
+
+新增的 `a_provider_that_renders_blank_injects_nothing` 替代了被删的适配器测试，保住
+其意图。`DomainValueSource` 改名而非保留 `StateStore`，是因为两者同名、同有
+`read_domain`、语义不同（trait 契约 vs 带生命周期与迁移的具体类型），是这轮全部麻烦的
+起点。
+
+

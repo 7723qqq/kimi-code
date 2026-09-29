@@ -4,8 +4,8 @@
 //! messages, checkpoints, and arbitrary state domains using embedded SQLite (WAL mode).
 
 use std::path::Path;
-use std::sync::Mutex;
 
+use parking_lot::Mutex;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -244,6 +244,23 @@ fn reclaim_file_history_space(conn: &Connection) -> Result<(), rusqlite::Error> 
 pub const COMPACT_TURN_ID: &str = "turn-compact";
 
 pub struct SqliteSessionStore {
+    /// One connection, guarded for the whole store — so this lock is the
+    /// highest-blast-radius mutex in the engine.
+    ///
+    /// `parking_lot` rather than `std::sync` because a std mutex **poisons**:
+    /// a panic anywhere inside a guard scope makes every later
+    /// `lock().unwrap()` panic too, and that cascade is permanent for the
+    /// process. Here that would mean the entire session store — every
+    /// session read and write — dead after one bad panic, with no recovery and
+    /// nothing in the log. `parking_lot` has no poisoning, so the failure stays
+    /// confined to the call that caused it.
+    ///
+    /// **This is insurance, not a fix for a live defect.** Measured 2026-09-28:
+    /// 32 methods take this guard and none of their guard scopes contains a
+    /// reachable panic source (the bodies are rusqlite calls returning
+    /// `Result`; the only textual hits were constant array indices in format
+    /// macros). The value is that the next refactor cannot introduce a cascade
+    /// by accident.
     conn: Mutex<Connection>,
 }
 
@@ -523,7 +540,7 @@ impl SqliteSessionStore {
         title: Option<&str>,
         workspace_id: Option<&str>,
     ) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let now = chrono::Utc::now().timestamp_millis();
         conn.execute(
             "INSERT INTO sessions (session_id, title, created_at, updated_at, workspace_id)
@@ -539,7 +556,7 @@ impl SqliteSessionStore {
 
     /// List all persisted sessions ordered by last updated time.
     pub fn list_sessions(&self) -> Result<Vec<SessionSummary>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT session_id, title, created_at, updated_at, workspace_id, archived, parent_session_id FROM sessions ORDER BY updated_at DESC",
         )?;
@@ -564,7 +581,7 @@ impl SqliteSessionStore {
 
     /// Get summary for a specific session by ID.
     pub fn get_session(&self, session_id: &str) -> Result<Option<SessionSummary>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT session_id, title, created_at, updated_at, workspace_id, archived, parent_session_id FROM sessions WHERE session_id = ?1",
         )?;
@@ -595,7 +612,7 @@ impl SqliteSessionStore {
         };
         let messages = self.load_session_history(session_id)?;
         let turns_count: usize = {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.conn.lock();
             conn.query_row(
                 "SELECT COUNT(*) FROM turns WHERE session_id = ?1",
                 params![session_id],
@@ -627,7 +644,7 @@ impl SqliteSessionStore {
             .to_string();
         let ws_name = name.unwrap_or(&base);
         let now = chrono::Utc::now().timestamp_millis();
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.execute(
             "INSERT INTO workspaces (workspace_id, root, name, created_at, last_opened_at, trusted)
              VALUES (?1, ?2, ?3, ?4, ?4, 1)
@@ -663,7 +680,7 @@ impl SqliteSessionStore {
 
     /// List all registered workspaces ordered by last opened time.
     pub fn list_workspaces(&self) -> Result<Vec<WorkspaceSummary>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT w.workspace_id, w.root, w.name, w.created_at, w.last_opened_at,
                     (SELECT COUNT(*) FROM sessions s WHERE s.workspace_id = w.workspace_id)
@@ -698,7 +715,7 @@ impl SqliteSessionStore {
         &self,
         workspace_id: &str,
     ) -> Result<Option<WorkspaceSummary>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT w.workspace_id, w.root, w.name, w.created_at, w.last_opened_at,
                     (SELECT COUNT(*) FROM sessions s WHERE s.workspace_id = w.workspace_id)
@@ -731,7 +748,7 @@ impl SqliteSessionStore {
         workspace_id: &str,
         name: &str,
     ) -> Result<Option<WorkspaceSummary>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let affected = conn.execute(
             "UPDATE workspaces SET name = ?1, last_opened_at = ?2 WHERE workspace_id = ?3",
             params![name, chrono::Utc::now().timestamp_millis(), workspace_id],
@@ -746,7 +763,7 @@ impl SqliteSessionStore {
 
     /// Delete a workspace entry.
     pub fn delete_workspace(&self, workspace_id: &str) -> Result<bool, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let affected = conn.execute(
             "DELETE FROM workspaces WHERE workspace_id = ?1",
             params![workspace_id],
@@ -756,7 +773,7 @@ impl SqliteSessionStore {
 
     /// Query whether a workspace is trusted. Default to true if unconfigured.
     pub fn is_workspace_trusted(&self, workspace_id: &str) -> Result<bool, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let trusted: Option<i64> = conn
             .query_row(
                 "SELECT trusted FROM workspaces WHERE workspace_id = ?1",
@@ -773,7 +790,7 @@ impl SqliteSessionStore {
         workspace_id: &str,
         trusted: bool,
     ) -> Result<bool, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let affected = conn.execute(
             "UPDATE workspaces SET trusted = ?2 WHERE workspace_id = ?1",
             params![workspace_id, if trusted { 1 } else { 0 }],
@@ -783,7 +800,7 @@ impl SqliteSessionStore {
 
     /// Delete a session and all its cascading turns, messages, and checkpoints.
     pub fn delete_session(&self, session_id: &str) -> Result<bool, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         // The state entries the session owns: the column-named ones, plus the
         // legacy key-encoded domains whose key *is* the session id
         // (`agent_config` / `metadata`, written before the column existed).
@@ -822,7 +839,7 @@ impl SqliteSessionStore {
         )?;
         // Children are queryable via /sessions/{id}/children.
         {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.conn.lock();
             conn.execute(
                 "UPDATE sessions SET parent_session_id = ?1 WHERE session_id = ?2",
                 params![source_session_id, new_session_id],
@@ -837,7 +854,7 @@ impl SqliteSessionStore {
     /// Archive a session (v2 `archive` action): hidden from the default
     /// session list until restored.
     pub fn archive_session(&self, session_id: &str) -> Result<bool, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let changed = conn.execute(
             "UPDATE sessions SET archived = 1, updated_at = ?2 WHERE session_id = ?1",
             params![session_id, chrono::Utc::now().timestamp_millis()],
@@ -847,7 +864,7 @@ impl SqliteSessionStore {
 
     /// Restore a previously archived session (v2 `restore` action).
     pub fn restore_session(&self, session_id: &str) -> Result<bool, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let changed = conn.execute(
             "UPDATE sessions SET archived = 0, updated_at = ?2 WHERE session_id = ?1",
             params![session_id, chrono::Utc::now().timestamp_millis()],
@@ -857,7 +874,7 @@ impl SqliteSessionStore {
 
     /// Sessions forked from the given session (v2 `/sessions/{id}/children`).
     pub fn list_children(&self, session_id: &str) -> Result<Vec<SessionSummary>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT session_id, title, created_at, updated_at, workspace_id, archived, parent_session_id FROM sessions WHERE parent_session_id = ?1 ORDER BY updated_at DESC",
         )?;
@@ -885,7 +902,7 @@ impl SqliteSessionStore {
         session_id: &str,
         parent_session_id: &str,
     ) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.execute(
             "UPDATE sessions SET parent_session_id = ?1 WHERE session_id = ?2",
             params![parent_session_id, session_id],
@@ -950,7 +967,7 @@ impl SqliteSessionStore {
     /// when the selection would cross the compaction boundary, so callers can
     /// refuse *before* touching workspace files.
     pub fn plan_undo_turns(&self, session_id: &str, count: usize) -> Result<Vec<i64>, String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         Ok(Self::select_undo_turns(&conn, session_id, count)?
             .into_iter()
             .map(|(_, turn_number)| turn_number)
@@ -958,7 +975,7 @@ impl SqliteSessionStore {
     }
 
     pub fn undo_turns(&self, session_id: &str, count: usize) -> Result<usize, String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let selected = Self::select_undo_turns(&conn, session_id, count)?;
 
         for (turn_id, turn_number) in &selected {
@@ -997,7 +1014,7 @@ impl SqliteSessionStore {
         turn_id: usize,
         workspace_root: &Path,
     ) -> Result<Vec<String>, String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn
             .prepare(
                 "SELECT path, content_before, status FROM session_file_history
@@ -1113,7 +1130,7 @@ impl SqliteSessionStore {
             }),
         )
         .map_err(|e| e.to_string())?;
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.execute(
             "DELETE FROM messages WHERE session_id = ?1",
             params![session_id],
@@ -1131,7 +1148,7 @@ impl SqliteSessionStore {
         session_id: &str,
         title: Option<&str>,
     ) -> Result<bool, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let now = chrono::Utc::now().timestamp_millis();
         let affected = conn.execute(
             "UPDATE sessions SET title = ?2, updated_at = ?3 WHERE session_id = ?1",
@@ -1144,7 +1161,7 @@ impl SqliteSessionStore {
     /// the `turns` table so a caller that owns the store does not have to keep
     /// its own counter — one would reset on restart and collide on insert.
     pub fn next_turn_number(&self, session_id: &str) -> Result<u32, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let highest: i64 = conn.query_row(
             "SELECT COALESCE(MAX(turn_number), 0) FROM turns WHERE session_id = ?1",
             params![session_id],
@@ -1158,7 +1175,7 @@ impl SqliteSessionStore {
         &self,
         session_id: &str,
     ) -> Result<Vec<StoredMessage>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT role, content, tool_calls, tool_call_id, blocks, prompt_id, created_at, turn_id FROM messages WHERE session_id = ?1 ORDER BY id ASC",
         )?;
@@ -1193,7 +1210,7 @@ impl SqliteSessionStore {
 
     /// Every turn of a session, oldest first, with its execution metadata.
     pub fn list_turns(&self, session_id: &str) -> Result<Vec<TurnRecord>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT turn_id, turn_number, status, started_at, completed_at, usage, origin
              FROM turns WHERE session_id = ?1 ORDER BY turn_number ASC",
@@ -1230,7 +1247,7 @@ impl SqliteSessionStore {
         usage: Option<&TokenUsage>,
         origin: Option<&Value>,
     ) -> Result<(), rusqlite::Error> {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock();
         let now = chrono::Utc::now().timestamp_millis();
         let tx = conn.transaction()?;
 
@@ -1306,7 +1323,7 @@ impl SqliteSessionStore {
 
     /// Put a key-value pair in a state domain (state bridge storage).
     pub fn put_state(&self, domain: &str, key: &str, value: &Value) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let now = chrono::Utc::now().timestamp_millis();
         let val_str = serde_json::to_string(value).unwrap_or_default();
         conn.execute(
@@ -1332,7 +1349,7 @@ impl SqliteSessionStore {
         key: &str,
         value: &Value,
     ) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let now = chrono::Utc::now().timestamp_millis();
         let val_str = serde_json::to_string(value).unwrap_or_default();
         conn.execute(
@@ -1354,7 +1371,7 @@ impl SqliteSessionStore {
         &self,
         session_id: &str,
     ) -> Result<Vec<(String, String, Value)>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT domain, key, value FROM state_entries WHERE session_id = ?1
              ORDER BY domain, key",
@@ -1374,7 +1391,7 @@ impl SqliteSessionStore {
 
     /// Get a value from a state domain.
     pub fn get_state(&self, domain: &str, key: &str) -> Result<Option<Value>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt =
             conn.prepare("SELECT value FROM state_entries WHERE domain = ?1 AND key = ?2")?;
         let mut rows = stmt.query(params![domain, key])?;
@@ -1426,7 +1443,7 @@ impl SqliteSessionStore {
         session_id: &str,
         name: &str,
     ) -> Result<Option<Value>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             // `created_at` is millisecond-precision; two checkpoints saved in
             // the same millisecond tie on it, so break the tie with rowid
@@ -1451,7 +1468,7 @@ impl SqliteSessionStore {
         name: &str,
         data: &Value,
     ) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let now = chrono::Utc::now().timestamp_millis();
         let data_str = serde_json::to_string(data).unwrap_or_default();
         conn.execute(
@@ -1468,7 +1485,7 @@ impl SqliteSessionStore {
 
     /// Read a string value from the GUI store domain.
     pub fn gui_get_item(&self, key: &str) -> Result<Option<String>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn
             .prepare("SELECT value FROM state_entries WHERE domain = 'gui_store' AND key = ?1")?;
         let mut rows = stmt.query(params![key])?;
@@ -1482,7 +1499,7 @@ impl SqliteSessionStore {
 
     /// Set a string value in the GUI store domain.
     pub fn gui_set_item(&self, key: &str, value: &str) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let now = chrono::Utc::now().timestamp_millis();
         conn.execute(
             "INSERT INTO state_entries (domain, key, value, updated_at)
@@ -1497,7 +1514,7 @@ impl SqliteSessionStore {
 
     /// Remove an item from the GUI store domain.
     pub fn gui_remove_item(&self, key: &str) -> Result<bool, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let affected = conn.execute(
             "DELETE FROM state_entries WHERE domain = 'gui_store' AND key = ?1",
             params![key],
@@ -1507,14 +1524,14 @@ impl SqliteSessionStore {
 
     /// Clear all items in the GUI store domain.
     pub fn gui_clear(&self) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.execute("DELETE FROM state_entries WHERE domain = 'gui_store'", [])?;
         Ok(())
     }
 
     /// Get count of items in the GUI store domain.
     pub fn gui_length(&self) -> Result<usize, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let count: usize = conn.query_row(
             "SELECT COUNT(*) FROM state_entries WHERE domain = 'gui_store'",
             [],
@@ -1532,7 +1549,7 @@ impl SqliteSessionStore {
         limit: usize,
         offset: usize,
     ) -> Result<Vec<SearchHit>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let query_trim = query.trim();
         if query_trim.is_empty() {
             return Ok(vec![]);
@@ -1600,7 +1617,7 @@ impl SqliteSessionStore {
 
     /// Count total messages in store.
     pub fn count_messages(&self) -> Result<usize, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let count: usize = conn.query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))?;
         Ok(count)
     }
@@ -1634,7 +1651,7 @@ impl SqliteSessionStore {
             );
         }
         let now = chrono::Utc::now().timestamp_millis();
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.execute(
             "INSERT INTO session_file_history (session_id, turn_id, path, status, content_before, content_after, additions, deletions, oversize, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
@@ -1676,7 +1693,7 @@ impl SqliteSessionStore {
         session_id: &str,
         max_entries: usize,
     ) -> Result<usize, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let deleted = conn.execute(
             "DELETE FROM session_file_history
              WHERE session_id = ?1 AND id NOT IN (
@@ -1699,7 +1716,7 @@ impl SqliteSessionStore {
         session_id: &str,
         turn_id: Option<usize>,
     ) -> Result<(Vec<FileHistoryChange>, bool), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let (query, has_turn) = match turn_id {
             Some(t) => (
                 "SELECT path, status, additions, deletions, oversize FROM session_file_history WHERE session_id = ?1 AND turn_id = ?2 ORDER BY id ASC",
@@ -1741,7 +1758,7 @@ impl SqliteSessionStore {
         path: &str,
         phase: &str,
     ) -> Result<Option<FileHistoryContent>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let query = if phase == "start" {
             "SELECT content_before, id, oversize FROM session_file_history WHERE session_id = ?1 AND turn_id = ?2 AND path = ?3 ORDER BY id ASC LIMIT 1"
         } else {
@@ -1793,7 +1810,7 @@ impl SqliteSessionStore {
         is_compaction: bool,
         created_at: i64,
     ) -> Result<u64, EventStoreError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.execute(
             "INSERT INTO wire_events (id, session_id, event_type, payload, is_checkpoint, is_compaction, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -1817,7 +1834,7 @@ impl SqliteSessionStore {
         since_seq: u64,
         limit: usize,
     ) -> Result<Vec<WireEventRecord>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT seq, id, session_id, event_type, payload, is_checkpoint, is_compaction, created_at
              FROM wire_events
@@ -1866,7 +1883,7 @@ impl SqliteSessionStore {
              WHERE session_id = ?1 AND event_type IN ({placeholders})
              ORDER BY seq ASC"
         );
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(
             params![
@@ -1913,7 +1930,7 @@ impl SqliteSessionStore {
              WHERE session_id = ?1 AND event_type IN ({placeholders})
              ORDER BY seq ASC"
         );
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(
             params![session_id, TYPES[0], TYPES[1], TYPES[2], TYPES[3]],
@@ -1961,7 +1978,7 @@ impl SqliteSessionStore {
              WHERE session_id = ?1 AND event_type IN ({placeholders})
              ORDER BY seq ASC"
         );
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(&sql)?;
         let mut params: Vec<&dyn rusqlite::types::ToSql> = vec![&session_id];
         params.extend(TYPES.iter().map(|t| t as &dyn rusqlite::types::ToSql));
@@ -1984,7 +2001,7 @@ impl SqliteSessionStore {
 
     /// Count total wire events recorded for a session.
     pub fn count_wire_events(&self, session_id: &str) -> Result<usize, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.query_row(
             "SELECT COUNT(*) FROM wire_events WHERE session_id = ?1",
             params![session_id],
@@ -1994,7 +2011,7 @@ impl SqliteSessionStore {
 
     /// Query the maximum sequence number recorded for a session, or 0 if none exist.
     pub fn latest_wire_event_seq(&self, session_id: &str) -> Result<u64, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let max_seq: Option<u64> = conn
             .query_row(
                 "SELECT MAX(seq) FROM wire_events WHERE session_id = ?1",
@@ -2011,7 +2028,7 @@ impl SqliteSessionStore {
     /// propagated: one bad payload must not make the whole session unopenable.
     pub fn fold_projection(&self, session_id: &str) -> Result<Vec<Message>, EventStoreError> {
         let raw_rows = {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.conn.lock();
             read_fold_rows(&conn, session_id)?.0
         };
 
@@ -2043,7 +2060,7 @@ impl SqliteSessionStore {
 
     /// Undo events backward to the most recent checkpoint. Refuses across compaction boundaries.
     pub fn undo_to_last_checkpoint(&self, session_id: &str) -> Result<usize, EventStoreError> {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
 
         let last_checkpoint: Option<(i64, bool)> = tx
@@ -2142,6 +2159,42 @@ pub fn derive_session_title(
 mod tests {
     use super::*;
 
+    /// A panic while the connection guard is held must stay confined to the
+    /// call that caused it.
+    ///
+    /// This is the property `parking_lot` buys and `std::sync` does not. With a
+    /// poisoning std mutex, the panic below would mark the connection guard
+    /// poisoned, and then **every** later `lock()` on this single connection
+    /// would panic too — the whole session store dead for the process
+    /// lifetime, with no recovery and nothing in the log. The test pins the
+    /// non-poisoning behaviour itself, so swapping the lock type back cannot
+    /// pass silently.
+    #[test]
+    fn a_panic_under_the_connection_guard_does_not_poison_the_store() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store.create_session("sess-alive", None).unwrap();
+
+        // Silence the panic message so a passing run stays quiet; restore the
+        // default hook afterwards because the process is shared.
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = store.conn.lock();
+            panic!("a panic inside the connection guard");
+        }));
+        std::panic::set_hook(previous);
+
+        assert!(caught.is_err(), "the panic must actually have happened");
+        // The point of the whole change: the store still answers.
+        let sessions = store
+            .list_sessions()
+            .expect("a read after a guarded panic must still work");
+        assert!(
+            sessions.iter().any(|s| s.session_id == "sess-alive"),
+            "the session written before the panic is still readable: {sessions:?}"
+        );
+    }
+
     /// One unparseable `wire_events` payload must not decide the whole cold
     /// rebuild: the session still opens from the rows around it, and the bad
     /// row is left on disk rather than repaired behind the user's back.
@@ -2171,7 +2224,7 @@ mod tests {
         // A crash mid-write leaves a half-serialized payload in one row.
         let truncated = "{\"content\": \"sec";
         {
-            let conn = store.conn.lock().unwrap();
+            let conn = store.conn.lock();
             conn.execute(
                 "UPDATE wire_events SET payload = ?1 WHERE id = 'evt_2'",
                 params![truncated],
@@ -2187,7 +2240,7 @@ mod tests {
 
         // The row is still there, unrepaired: a repair entry point stays a
         // decision for the caller, not something a read may do.
-        let conn = store.conn.lock().unwrap();
+        let conn = store.conn.lock();
         let payload: String = conn
             .query_row(
                 "SELECT payload FROM wire_events WHERE id = 'evt_2'",
@@ -2221,7 +2274,7 @@ mod tests {
 
         // No content on either side, and the content endpoint says why.
         let stored: (Option<String>, Option<String>, i64) = {
-            let conn = store.conn.lock().unwrap();
+            let conn = store.conn.lock();
             conn.query_row(
                 "SELECT content_before, content_after, oversize FROM session_file_history \
                  WHERE session_id = 'sess-big' AND turn_id = 1",
@@ -2291,7 +2344,7 @@ mod tests {
         // The pages themselves are free for reuse even though the main file
         // keeps its size until something runs a full VACUUM.
         let freelist: i64 = {
-            let conn = store.conn.lock().unwrap();
+            let conn = store.conn.lock();
             conn.query_row("PRAGMA freelist_count", [], |row| row.get(0))
                 .unwrap()
         };
@@ -2343,7 +2396,7 @@ mod tests {
 
         // Verify turn record and persisted token usage
         {
-            let conn = store.conn.lock().unwrap();
+            let conn = store.conn.lock();
             let (status, usage_json): (String, Option<String>) = conn
                 .query_row(
                     "SELECT status, usage FROM turns WHERE turn_id = 'turn-1'",
@@ -2416,7 +2469,7 @@ mod tests {
 
         // Verify checkpoint in sqlite table
         {
-            let conn = store.conn.lock().unwrap();
+            let conn = store.conn.lock();
             let (sess_id, name, data_str, created_at): (String, String, String, i64) = conn
                 .query_row(
                     "SELECT session_id, name, data, created_at FROM checkpoints WHERE id = 'chk-1'",
@@ -2436,7 +2489,7 @@ mod tests {
             .save_checkpoint("sess-1", "chk-1", "Step 2 Done", &chk_data2)
             .unwrap();
         {
-            let conn = store.conn.lock().unwrap();
+            let conn = store.conn.lock();
             let (name, data_str): (String, String) = conn
                 .query_row(
                     "SELECT name, data FROM checkpoints WHERE id = 'chk-1'",
@@ -3492,7 +3545,7 @@ mod tests {
 
         // Cascading deletion verified directly in tables
         {
-            let conn = store.conn.lock().unwrap();
+            let conn = store.conn.lock();
             let turn_count: usize = conn
                 .query_row(
                     "SELECT COUNT(*) FROM turns WHERE session_id = 'sess-del'",

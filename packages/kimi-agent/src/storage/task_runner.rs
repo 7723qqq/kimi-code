@@ -45,6 +45,9 @@ const STOP_GRACE: Duration = Duration::from_secs(5);
 pub enum TaskStatus {
     Running,
     Completed,
+    /// The task's work reported a failure. Distinct from `Killed`, which means
+    /// a `stop()` landed before completion (v2 `AgentTaskStatus.failed`).
+    Failed,
     Killed,
     /// A task the previous process left mid-flight: the entry was persisted
     /// as running when the app exited, so this process has no handle to it
@@ -53,14 +56,58 @@ pub enum TaskStatus {
 }
 
 impl TaskStatus {
-    /// The v2 task-domain wire string
-    /// (`running` / `completed` / `killed` / `lost`).
+    /// The task-domain wire string. The counterpart on the TypeScript side is
+    /// `TaskLifecycleStatus` (`packages/node-sdk/src/types.ts`), which spans
+    /// six values: `running` / `completed` / `failed` / `timed_out` /
+    /// `killed` / `lost`.
+    ///
+    /// `timed_out` has no arm here on purpose. v2 reaches it through
+    /// `coerceTimeoutSettlement` (`agent/task/taskService.ts:178-186`), which
+    /// rewrites a `killed` settlement when the task had a timeout — and the
+    /// per-task timeout mechanism that sets that flag is not ported yet (it
+    /// rides the same gap as the `keepAliveOnExit` flag). Adding the variant
+    /// before its producer would put a status on the wire that nothing can
+    /// ever emit.
     pub fn as_str(&self) -> &'static str {
         match self {
             TaskStatus::Running => "running",
             TaskStatus::Completed => "completed",
+            TaskStatus::Failed => "failed",
             TaskStatus::Killed => "killed",
             TaskStatus::Lost => "lost",
+        }
+    }
+}
+
+/// What a task's future produced — v2 `AgentTaskSettlement`.
+///
+/// The output used to be a bare `String`, which made failure **inexpressible**:
+/// a subagent that errored returned its message like any other output, so the
+/// runner booked it `completed` and the parent session was told a failed agent
+/// had succeeded. Every production caller already knew which arm it was in —
+/// they emitted `subagent.failed` from it — so the verdict had to travel with
+/// the text rather than be inferred from it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TaskOutcome {
+    /// The work finished; the string is its output.
+    Completed(String),
+    /// The work failed; the string is the error text, kept as the task output
+    /// so the reader sees why.
+    Failed(String),
+}
+
+impl From<String> for TaskOutcome {
+    fn from(output: String) -> Self {
+        TaskOutcome::Completed(output)
+    }
+}
+
+impl TaskOutcome {
+    /// The status this outcome settles as, and the output to record.
+    fn settle(self) -> (TaskStatus, Option<String>) {
+        match self {
+            TaskOutcome::Completed(output) => (TaskStatus::Completed, Some(output)),
+            TaskOutcome::Failed(output) => (TaskStatus::Failed, Some(output)),
         }
     }
 }
@@ -345,6 +392,10 @@ impl TaskRunner {
     /// `stop()` that lands before completion settles the task as
     /// `killed` with no output. The runner must be shared (`Arc`) so the
     /// spawned wrapper can settle the entry.
+    ///
+    /// Takes a plain `String` because this shape has no failure notion: the
+    /// future's *output* is the result, whatever it says. Callers that can fail
+    /// want [`Self::spawn_task_with_meta`] and a [`TaskOutcome`].
     pub fn spawn_task<F>(
         self: &Arc<Self>,
         id: String,
@@ -363,12 +414,13 @@ impl TaskRunner {
             },
             id,
             description,
-            future,
+            async move { TaskOutcome::from(future.await) },
         )
     }
 
     /// [`Self::spawn_task`] with spawn context: the task's session (event
-    /// lane routing) and work kind (the Web task vocabulary's shapes).
+    /// lane routing) and work kind (the Web task vocabulary's shapes), and a
+    /// future that can report whether it succeeded — see [`TaskOutcome`].
     pub fn spawn_task_with_meta<F>(
         self: &Arc<Self>,
         meta: TaskSpawnMeta<'_>,
@@ -377,7 +429,7 @@ impl TaskRunner {
         future: F,
     ) -> Result<(), String>
     where
-        F: Future<Output = String> + Send + 'static,
+        F: Future<Output = TaskOutcome> + Send + 'static,
     {
         let mut tasks = self.tasks.lock().unwrap();
         if tasks.contains_key(&id) {
@@ -437,16 +489,24 @@ impl TaskRunner {
                 output = future => Some(output),
                 _ = cancelled(cancel, cancel_notify) => None,
             };
-            let (status, stop_reason) = if output.is_some() {
-                (TaskStatus::Completed, None)
-            } else {
-                // Killed via the cancel flag, which only `stop()` sets — and
-                // `stop()` records the reason on the entry up front — so the
-                // wrapper settles with `None` and never overwrites it.
-                (TaskStatus::Killed, None)
+            let (status, stop_reason, output) = match output {
+                // The work finished and said whether it succeeded. This is the
+                // arm that used to collapse both verdicts into `completed`.
+                Some(outcome) => {
+                    let (status, output) = outcome.settle();
+                    (status, None, output)
+                }
+                None => {
+                    // Killed via the cancel flag, which only `stop()` sets —
+                    // and `stop()` records the reason on the entry up front —
+                    // so the wrapper settles with `None` and never overwrites
+                    // it. Nothing else produces a kill, which is why a
+                    // subagent that was cancelled upstream settles `Failed`
+                    // rather than reaching this arm.
+                    (TaskStatus::Killed, None, None)
+                }
             };
-            runner.settle_task(&task_id, status, output, stop_reason);
-            let _ = done_tx.send(());
+            runner.settle_task(&task_id, status, output, stop_reason);            let _ = done_tx.send(());
         });
         tasks.get_mut(&id).unwrap().handle = Some(handle);
         drop(tasks);
@@ -1384,7 +1444,7 @@ mod tests {
                 },
                 "task-live".into(),
                 "long build".into(),
-                std::future::pending::<String>(),
+                std::future::pending::<TaskOutcome>(),
             )
             .unwrap();
 
@@ -1632,7 +1692,7 @@ mod tests {
                 },
                 "task-live".into(),
                 "long build".into(),
-                std::future::pending::<String>(),
+                std::future::pending::<TaskOutcome>(),
             )
             .unwrap();
 
@@ -1732,7 +1792,7 @@ mod tests {
                 },
                 "task-ev".into(),
                 "Subagent research: investigate".into(),
-                async { "done".to_string() },
+                async { TaskOutcome::Completed("done".to_string()) },
             )
             .unwrap();
 
@@ -1797,7 +1857,7 @@ mod tests {
                 "background job".into(),
                 async {
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                    "done".to_string()
+                    TaskOutcome::Completed("done".to_string())
                 },
             )
             .unwrap();
@@ -2278,7 +2338,7 @@ mod tests {
                     },
                     id.into(),
                     format!("job {id}"),
-                    async { "done".to_string() },
+                    async { TaskOutcome::Completed("done".to_string()) },
                 )
                 .unwrap();
         }
@@ -2368,7 +2428,7 @@ mod tests {
                 },
                 "task-gone".into(),
                 "job".into(),
-                async { "done".to_string() },
+                async { TaskOutcome::Completed("done".to_string()) },
             )
             .unwrap();
         assert!(matches!(
@@ -2422,7 +2482,7 @@ mod tests {
                     },
                     id.into(),
                     format!("job {id}"),
-                    async { "done".to_string() },
+                    async { TaskOutcome::Completed("done".to_string()) },
                 )
                 .unwrap();
         }
@@ -2470,7 +2530,7 @@ mod tests {
                 },
                 "task-legacy".into(),
                 "job".into(),
-                async { "done".to_string() },
+                async { TaskOutcome::Completed("done".to_string()) },
             )
             .unwrap();
         assert!(matches!(
@@ -2518,5 +2578,116 @@ mod tests {
         // Exiting tower mode drops the queued wake.
         runner.cancel_wake("sess-main", "tower-inbox-wake");
         assert_eq!(runner.pending_notification_count(Some("sess-main")), 0);
+    }
+
+    // ── task settlement verdicts (v2 agent/task/types.ts) ─────────────────
+
+    /// The wire vocabulary, and the one place a status can still be spelled
+    /// wrong: the TypeScript counterpart is `TaskLifecycleStatus`
+    /// (`packages/node-sdk/src/types.ts:69-78`), so these strings are a
+    /// contract with the host, not a display detail.
+    #[test]
+    fn task_status_as_str_matches_the_host_contract() {
+        assert_eq!(TaskStatus::Running.as_str(), "running");
+        assert_eq!(TaskStatus::Completed.as_str(), "completed");
+        assert_eq!(TaskStatus::Failed.as_str(), "failed");
+        assert_eq!(TaskStatus::Killed.as_str(), "killed");
+        assert_eq!(TaskStatus::Lost.as_str(), "lost");
+    }
+
+    /// `From<String>` is what keeps `spawn_task`'s infallible callers working;
+    /// it must land on `Completed`, never on a guess.
+    #[test]
+    fn a_bare_string_outcome_settles_as_completed() {
+        let (status, output) = TaskOutcome::from("output".to_string()).settle();
+        assert_eq!(status, TaskStatus::Completed);
+        assert_eq!(output.as_deref(), Some("output"));
+    }
+
+    /// The bug this whole change exists for: a task whose work failed used to
+    /// settle `completed`, so the parent session and anyone listing the tasks
+    /// were told a failed subagent had succeeded.
+    #[tokio::test]
+    async fn a_failed_outcome_settles_as_failed_and_keeps_its_reason() {
+        let (_tmp, runner) = runner();
+        runner
+            .spawn_task_with_meta(
+                TaskSpawnMeta {
+                    session_id: Some("sess-x"),
+                    kind: "subagent",
+                    subagent_type: Some("research"),
+                    agent_id: None,
+                },
+                "t-failed".into(),
+                "Subagent research: investigate".into(),
+                async { TaskOutcome::Failed("Error: provider refused the request".into()) },
+            )
+            .unwrap();
+
+        assert!(
+            matches!(
+                runner.wait("t-failed", 2000).await,
+                TaskWaitResult::Completed(_)
+            ),
+            "a failed task still settles, so wait() returns rather than hanging"
+        );
+
+        let entry = runner.entry("t-failed").expect("the entry survives");
+        assert_eq!(
+            entry["status"], "failed",
+            "a failed task must not read as completed: {entry}"
+        );
+        // The reason is the task's output, so a reader sees *why* it failed.
+        assert_eq!(entry["output"], "Error: provider refused the request");
+    }
+
+    /// The three settlement arms stay distinguishable end to end: a success, a
+    /// failure, and a `stop()` are three different stories, and collapsing any
+    /// two of them is the defect.
+    #[tokio::test]
+    async fn success_failure_and_kill_settle_three_different_statuses() {
+        let (_tmp, runner) = runner();
+        // The infallible entry point still means success — that is its whole
+        // contract, and it is why its callers were left untouched.
+        runner
+            .spawn_task("t-ok".into(), "fine".into(), async { "all good".to_string() })
+            .unwrap();
+        // The fallible one carries its verdict.
+        runner
+            .spawn_task_with_meta(
+                TaskSpawnMeta {
+                    session_id: None,
+                    kind: "subagent",
+                    subagent_type: Some("research"),
+                    agent_id: None,
+                },
+                "t-bad".into(),
+                "broken".into(),
+                async { TaskOutcome::Failed("Error: boom".to_string()) },
+            )
+            .unwrap();
+        runner
+            .spawn_task(
+                "t-held".into(),
+                "long".into(),
+                async {
+                    let _ = std::future::pending::<()>().await;
+                    unreachable!("the cancel arm wins before this resolves")
+                },
+            )
+            .unwrap();
+
+        // Let the two immediate tasks settle, then cut the third short the way
+        // `stop()` does — the only producer of a kill.
+        let _ = runner.wait("t-ok", 2000).await;
+        let _ = runner.wait("t-bad", 2000).await;
+        runner
+            .stop("t-held", Some("the test cut it short"))
+            .await
+            .expect("the held task is running");
+
+        assert_eq!(runner.entry("t-ok").unwrap()["status"], "completed");
+        assert_eq!(runner.entry("t-bad").unwrap()["status"], "failed");
+        assert_eq!(runner.entry("t-held").unwrap()["status"], "killed");
     }
 }

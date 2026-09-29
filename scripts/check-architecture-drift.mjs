@@ -61,6 +61,34 @@ const IMPORT_PATTERNS = [
 ];
 
 /**
+ * A `require` handle built by `createRequire`, which the patterns above cannot
+ * see: the callee is whatever name the binding was given, so `require('x')`
+ * never matches.
+ *
+ * `packages/kosong/src/native-tools.ts` is the live case — it does
+ * `const requireNative = createRequire(import.meta.url)` and then
+ * `requireNative('@moonshot-ai/kimi-agent/native')`, which made an
+ * engine-to-engine edge invisible to this gate. Binding the name first and
+ * deriving a pattern from it is what closes that hole without a parser.
+ */
+const CREATE_REQUIRE_BINDING =
+  /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*createRequire\s*\(/g;
+
+/** Call patterns for every `createRequire` handle bound in `text`. */
+function createRequirePatterns(text) {
+  const patterns = [];
+  CREATE_REQUIRE_BINDING.lastIndex = 0;
+  let match;
+  while ((match = CREATE_REQUIRE_BINDING.exec(text)) !== null) {
+    const name = match[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    patterns.push(
+      new RegExp(`\\b${name}\\s*\\.?(?:resolve)?\\s*\\(\\s*(['"])([^'"]+)\\1\\s*\\)`, 'g'),
+    );
+  }
+  return patterns;
+}
+
+/**
  * Collect files under `dir` whose extension is in `extensions`.
  */
 function walkFiles(dir, extensions, skipDirs, out = []) {
@@ -113,7 +141,7 @@ function stripComments(source) {
 function extractImports(source) {
   const text = stripComments(source);
   const found = [];
-  for (const pattern of IMPORT_PATTERNS) {
+  for (const pattern of [...IMPORT_PATTERNS, ...createRequirePatterns(text)]) {
     pattern.lastIndex = 0;
     let match;
     while ((match = pattern.exec(text)) !== null) {
@@ -289,21 +317,96 @@ export async function checkArchitecture(model, rootDir) {
   // fallback path is the one that runs. `exemptions` records such an edge with
   // its reason; the gate still reports it, but as a warning, so it stays visible
   // instead of being either an unexplained error or silently dropped.
+  /**
+   * Key an `exemptions` entry by its two module ids. The separator is a NUL
+   * because a module id may contain a space and this key is built by
+   * concatenation — writing the separator in one place is what keeps the
+   * lookup from silently missing after a refactor.
+   */
+  const EXEMPTION_SEP = '\u0000';
+  const exemptionKey = (from, to) => `${from}${EXEMPTION_SEP}${to}`;
+
   const exemptions = new Map();
   for (const ex of model.exemptions ?? []) {
     if (typeof ex?.from === 'string' && typeof ex?.to === 'string') {
-      exemptions.set(`${ex.from} ${ex.to}`, str(ex.reason));
+      exemptions.set(exemptionKey(ex.from, ex.to), str(ex.reason));
+    }
+  }
+
+  /**
+   * Emit the collected `deps/*` violations for one module.
+   *
+   * A declared soft edge — an optional native module behind a try/catch
+   * require, with a pure-JS fallback — must not be declared in `deps`, or the
+   * model lies whenever the fallback path is the one that runs. `exemptions`
+   * records it; the gate keeps it visible as a warning rather than dropping it
+   * or making it an unexplained error.
+   */
+  function reportDepViolations(violations) {
+    for (const violation of violations.values()) {
+      const more =
+        violation.sites > 0 ? ` (+${violation.sites} more site${violation.sites === 1 ? '' : 's'})` : '';
+      const exemption = exemptions.get(exemptionKey(violation.subject, violation.target));
+      if (exemption !== undefined) {
+        diag(
+          'warning',
+          violation.code,
+          `${violation.message} — exempted in architecture.json as a soft dependency`,
+          violation.subject,
+          `${violation.evidence}${more}; ${exemption}`,
+        );
+        continue;
+      }
+      diag('error', violation.code, violation.message, violation.subject, `${violation.evidence}${more}`);
     }
   }
 
   for (const mod of model.modules) {
     const dir = resolve(rootDir, mod.source);
-    if (!existsSync(dir)) continue; // already reported in Check A
     const declared = new Set(mod.deps ?? []);
     const owner = owningPackage(dir, rootDir);
     const imports = owner?.manifest?.imports;
     /** @type {Map<string, {code: string, message: string, evidence: string, subject: string, sites: number}>} */
     const violations = new Map();
+
+    // Check B (manifest half), deliberately **before** the source-dir guard and
+    // independent of it: a `workspace:^` entry in `dependencies` is a build edge
+    // whether or not the module's source directory is on disk, and a module
+    // whose sources moved must not stop being checked.
+    //
+    // The source walk below only sees an edge the code spells out. Kept separate
+    // from that walk on purpose: a soft runtime `require` is a *code* property
+    // and can be exempted, whereas a `workspace:^` entry is a build property and
+    // is not soft. Reporting it here keeps that distinction visible.
+    if (owner?.manifest) {
+      const manifestDeps = {
+        ...owner.manifest.dependencies,
+        ...owner.manifest.optionalDependencies,
+      };
+      for (const [name, range] of Object.entries(manifestDeps)) {
+        if (typeof range !== 'string' || !range.startsWith('workspace:')) continue;
+        if (name === owner.name) continue;
+        const targetId = moduleIdByPackage.get(name);
+        if (targetId && declared.has(targetId)) continue; // declared, fine
+        const key = targetId ? `module:${targetId}` : `package:${name}`;
+        if (violations.has(key)) continue; // the code half already named it
+        violations.set(key, {
+          code: targetId ? 'deps/undeclared-manifest' : 'deps/unmodeled-manifest',
+          target: targetId ?? name,
+          message: targetId
+            ? `Module "${mod.id}" declares a workspace dependency on "${name}" (module "${targetId}") without declaring it in deps`
+            : `Module "${mod.id}" declares a workspace dependency on "${name}" (${workspace.get(name)}) which has no module entry in the model`,
+          subject: mod.id,
+          evidence: `${repoPath(rootDir, resolve(owner.dir, 'package.json'))} "${name}": "${range}"`,
+          sites: 0,
+        });
+      }
+    }
+
+    if (!existsSync(dir)) {
+      reportDepViolations(violations);
+      continue; // already reported in Check A
+    }
 
     for (const file of walkFiles(dir, IMPORT_EXTENSIONS, IMPORT_SKIP_DIRS)) {
       const source = readFileSync(file, 'utf8');
@@ -375,21 +478,19 @@ export async function checkArchitecture(model, rootDir) {
       }
     }
 
-    for (const violation of violations.values()) {
-      const more = violation.sites > 0 ? ` (+${violation.sites} more site${violation.sites === 1 ? '' : 's'})` : '';
-      const exemption = exemptions.get(`${violation.subject} ${violation.target}`);
-      if (exemption !== undefined) {
-        diag(
-          'warning',
-          violation.code,
-          `${violation.message} — exempted in architecture.json as a soft dependency`,
-          violation.subject,
-          `${violation.evidence}${more}; ${exemption}`,
-        );
-        continue;
-      }
-      diag('error', violation.code, violation.message, violation.subject, `${violation.evidence}${more}`);
-    }
+    // Check B (manifest half). The walk above reads source, so it can only see
+    // an edge the code spells out. A `workspace:^` entry in the manifest is a
+    // *build* edge whether or not any file imports it — and the script never
+    // opened `dependencies` at all, so a package could take a hard dependency
+    // on a workspace sibling without the model noticing. That is how
+    // `packages/kosong` ended up depending on `@moonshot-ai/kimi-agent` in its
+    // manifest while `architecture.json` declared no such edge.
+    //
+    // The code half and this half are kept separate on purpose: a soft runtime
+    // `require` is a *code* property and can be exempted, whereas a
+    // `workspace:^` entry in `dependencies` is a build property and is not
+    // soft. Reporting it here keeps that distinction visible.
+    reportDepViolations(violations);
   }
 
   // Check C: dependency direction follows layerOrder

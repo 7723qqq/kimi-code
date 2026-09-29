@@ -221,10 +221,7 @@ mod tests {
 
     #[test]
     fn the_zh_catalog_renders_chinese() {
-        let zh = EngineI18n {
-            active: Locale::Zh,
-            ..EngineI18n::default()
-        };
+        let zh = EngineI18n { active: Locale::Zh };
         let out = text().render_with(&zh);
         assert!(out.contains("my-rule") && out.contains("too risky"));
         assert_ne!(out, "engine.permission.deniedByUserRule");
@@ -245,10 +242,7 @@ mod tests {
     /// silently by a catalog that happens to agree.
     #[test]
     fn the_english_fallback_arm_needs_a_key_the_active_locale_lacks() {
-        let zh = EngineI18n {
-            active: Locale::Zh,
-            ..EngineI18n::default()
-        };
+        let zh = EngineI18n { active: Locale::Zh };
         for key in zh.embedded_keys() {
             assert!(
                 lookup(Locale::Zh, key).is_some(),

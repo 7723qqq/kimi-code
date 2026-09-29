@@ -794,6 +794,9 @@
     }
   },
   "engine": {
+    "background": {
+      "outputLimitExceeded": "超出输出限制: 命令产生了超过 {{mib}} MiB 的输出并被终止。请将大量输出重定向到文件（例如 `command > out.txt`）并分片查看。"
+    },
     "compaction": {
       "cancelled": "压缩已取消",
       "emptySummary": "压缩响应中没有可用的摘要。",

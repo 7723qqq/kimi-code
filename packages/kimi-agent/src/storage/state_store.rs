@@ -36,6 +36,38 @@ pub const STATE_DOMAINS: [&str; 6] = ["todo", "plan", "goal", "cron", "task", "t
 /// The task output preview cap, matching the v2 `TASK_OUTPUT_PREVIEW_BYTES`.
 pub const TASK_OUTPUT_PREVIEW_BYTES: usize = 32 * 1024;
 
+/// The ceiling on a persisted task log, matching v2 `MAX_TASK_OUTPUT_BYTES`
+/// (`agent/task/taskService.ts:151`) — the point at which v2 stops a
+/// background process producing output rather than letting the log grow.
+///
+/// Same v2 number as `tools::MAX_TASK_OUTPUT_BYTES`, which is where the
+/// producer stops. v2 has one constant for both because it streams the log;
+/// this engine receives one finished `String`, so the two ceilings are
+/// enforced in different places. **They must stay equal.**
+pub const MAX_PERSISTED_TASK_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+
+/// The last [`MAX_PERSISTED_TASK_OUTPUT_BYTES`] of an output, cut on a
+/// character boundary.
+///
+/// v2 keeps the **tail** everywhere it bounds output —
+/// `appendRetainedOutput` drops whole chunks from the front
+/// (`taskService.ts:1001-1019`) and `readTaskOutputSnapshot` slices
+/// `output.data.byteLength - previewBytes` (`:137-138`). The end of a
+/// command's output is the part that answers what happened; the beginning is
+/// what it started from.
+fn cap_output_tail(output: &str) -> &str {
+    if output.len() <= MAX_PERSISTED_TASK_OUTPUT_BYTES {
+        return output;
+    }
+    let mut start = output.len() - MAX_PERSISTED_TASK_OUTPUT_BYTES;
+    // `floor_char_boundary` is unstable; stepping to the next boundary is the
+    // same cut and needs no unsafe.
+    while start < output.len() && !output.is_char_boundary(start) {
+        start += 1;
+    }
+    &output[start..]
+}
+
 /// The result of applying a domain write: the value to persist and the
 /// value to return to the caller (the v2 host response value). They differ
 /// for the action-shaped domains — cron create returns the created entry
@@ -870,8 +902,17 @@ impl StateStore {
     }
 
     /// Persist a task's output log (v2 `writeTaskOutputData` semantics:
-    /// the full output is written to disk so `TaskOutput` survives a
-    /// restart). Best-effort: a failed write only logs.
+    /// the output is written to disk so `TaskOutput` survives a restart).
+    /// Best-effort: a failed write only logs.
+    ///
+    /// The write is capped at [`MAX_PERSISTED_TASK_OUTPUT_BYTES`]. v2 never
+    /// lets a task's log grow without bound either — its in-process producer
+    /// stops at 16 MiB (`MAX_TASK_OUTPUT_BYTES`,
+    /// `agent/task/taskService.ts:151`) — but v2 arrives there by *streaming*,
+    /// while this store is handed one finished `String`. Without a cap here a
+    /// single task could write an arbitrary amount to disk, which is the
+    /// unbounded-growth half of the same defect. The tail is kept, because
+    /// that is what answers "what happened" and what v2's own preview keeps.
     pub fn write_task_output(&self, task_id: &str, output: &str) {
         let path = self.task_output_path(task_id);
         if let Some(parent) = path.parent()
@@ -880,7 +921,8 @@ impl StateStore {
             eprintln!("[Task output write error]: {e}");
             return;
         }
-        if let Err(e) = fs::write(&path, output) {
+        let capped = cap_output_tail(output);
+        if let Err(e) = fs::write(&path, capped) {
             eprintln!("[Task output write error]: {e}");
         }
     }
@@ -1005,7 +1047,7 @@ fn ulid() -> String {
     out
 }
 
-impl crate::injection::goal_plan::StateStore for StateStore {
+impl crate::injection::DomainValueSource for StateStore {
     fn read_domain(&self, domain: &str) -> Option<serde_json::Value> {
         StateStore::read_domain(self, domain)
     }
@@ -1825,10 +1867,70 @@ mod tests {
         assert!(list.as_array().unwrap()[0].get("preview").is_none());
     }
 
+    // ── persisted task output ceiling (v2 MAX_TASK_OUTPUT_BYTES) ────────
+
+    /// The cap exists because this store is handed one finished `String`: a
+    /// task that produced far too much output used to write all of it.
+    #[test]
+    fn write_task_output_caps_at_the_persisted_ceiling() {
+        let (_tmp, store) = store();
+        let payload = "z".repeat(MAX_PERSISTED_TASK_OUTPUT_BYTES + 8192);
+        store.write_task_output("task-big", &payload);
+
+        let written = std::fs::read_to_string(store.task_output_path("task-big")).unwrap();
+        assert!(
+            written.len() <= MAX_PERSISTED_TASK_OUTPUT_BYTES + 4,
+            "the log must be capped, not merely annotated: {} bytes",
+            written.len()
+        );
+        assert!(
+            written.chars().all(|c| c == 'z'),
+            "a capped log is still valid UTF-8 — the cut is on a char boundary"
+        );
+    }
+
+    /// v2 keeps the tail (`appendRetainedOutput`,
+    /// `agent/task/taskService.ts:1001-1019`), because the end of a command's
+    /// output is what answers what happened.
+    #[test]
+    fn the_persisted_cap_keeps_the_tail() {
+        let mut payload = "a".repeat(MAX_PERSISTED_TASK_OUTPUT_BYTES + 4096);
+        payload.push_str("THE-END");
+        let capped = cap_output_tail(&payload);
+        assert!(
+            capped.ends_with("THE-END"),
+            "the marker must survive: {:?}",
+            &capped[capped.len().saturating_sub(16)..]
+        );
+        assert!(capped.len() <= MAX_PERSISTED_TASK_OUTPUT_BYTES + 4);
+    }
+
+    /// Output under the cap is written whole — the cap must not truncate normal
+    /// work, or every long build would lose its ending.
+    #[test]
+    fn output_under_the_cap_is_written_whole() {
+        let short = "a perfectly ordinary build log".repeat(1000);
+        assert_eq!(cap_output_tail(&short), short.as_str());
+        assert_eq!(cap_output_tail(""), "");
+    }
+
+    /// A multi-byte character straddling the cut must not be sliced in half —
+    /// that would put invalid UTF-8 in a file the reader parses.
+    #[test]
+    fn the_cap_cuts_on_a_character_boundary() {
+        // 'é' is two bytes; land the cut in the middle of one.
+        let payload: String = "é".repeat(MAX_PERSISTED_TASK_OUTPUT_BYTES / 2 + 64);
+        let capped = cap_output_tail(&payload);
+        assert!(
+            std::str::from_utf8(capped.as_bytes()).is_ok(),
+            "the capped slice must stay valid UTF-8"
+        );
+        assert!(capped.len() <= MAX_PERSISTED_TASK_OUTPUT_BYTES);
+    }
+
     #[test]
     fn test_fold_turn_event_advances_clock_once_per_prompt() {
         use crate::turn_events::TurnEndReason;
-
         let (_tmp, store) = store();
         assert_eq!(store.read_state("turn", "").unwrap()["nextTurnId"], 0);
         for turn_id in 0..3u64 {

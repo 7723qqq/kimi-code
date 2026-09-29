@@ -23,6 +23,6 @@ pub use paths::engine_state_dir;
 pub use session_store::{SessionRecord, SessionStore, SessionSummary};
 pub use state_store::{StateStore, StateWriteOutcome};
 pub use task_runner::{
-    BackgroundLimits, TaskEventSink, TaskNotification, TaskRunner, TaskSpawnMeta, TaskStatus,
-    TaskWaitResult, scan_previous_session_reminders,
+    BackgroundLimits, TaskEventSink, TaskNotification, TaskOutcome, TaskRunner, TaskSpawnMeta,
+    TaskStatus, TaskWaitResult, scan_previous_session_reminders,
 };

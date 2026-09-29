@@ -871,6 +871,10 @@ export const zh = {
   // Rust 引擎（packages/kimi-agent）自身产生的文案。引擎为每个 key 都带有英文
   // 兜底，未接线时仍能正确渲染；scripts/check-engine-i18n-parity.mjs 负责保持同步。
   engine: {
+    background: {
+      outputLimitExceeded:
+        '超出输出限制: 命令产生了超过 {{mib}} MiB 的输出并被终止。请将大量输出重定向到文件（例如 `command > out.txt`）并分片查看。',
+    },
     compaction: {
       cancelled: '压缩已取消',
       emptySummary: '压缩响应中没有可用的摘要。',

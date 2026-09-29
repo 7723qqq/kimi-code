@@ -1007,17 +1007,16 @@ impl PluginManager {
                     .node_runner
                     .as_deref()
                     .filter(|_| command.as_deref().is_some_and(is_node_command))
+                    && let Some(entry) = args.first().cloned()
                 {
-                    if let Some(entry) = args.first().cloned() {
-                        command = Some(runner.to_string_lossy().to_string());
-                        env.insert(
-                            "KIMI_PLUGIN_ROOT".to_string(),
-                            root.to_string_lossy().to_string(),
-                        );
-                        let mut rewritten = vec!["__plugin_run_node".to_string(), entry];
-                        rewritten.extend(args.drain(1..));
-                        args = rewritten;
-                    }
+                    command = Some(runner.to_string_lossy().to_string());
+                    env.insert(
+                        "KIMI_PLUGIN_ROOT".to_string(),
+                        root.to_string_lossy().to_string(),
+                    );
+                    let mut rewritten = vec!["__plugin_run_node".to_string(), entry];
+                    rewritten.extend(args.drain(1..));
+                    args = rewritten;
                 }
                 out.push(PluginMcpConfig {
                     name: format!("{id}__{name}"),

@@ -963,6 +963,10 @@ export const en = {
   // these keys against that embedded copy; there is no second English copy in
   // Rust source to keep in sync.
   engine: {
+    background: {
+      outputLimitExceeded:
+        'Output limit exceeded: the command produced more than {{mib}} MiB and was terminated. Redirect large output to a file (e.g. `command > out.txt`) and inspect it in slices instead.',
+    },
     compaction: {
       cancelled: 'compaction cancelled',
       emptySummary: 'The compaction response did not contain a usable summary.',

@@ -59,7 +59,7 @@ impl CallbackStateSnapshot {
     }
 }
 
-impl crate::injection::goal_plan::StateStore for CallbackStateSnapshot {
+impl crate::injection::DomainValueSource for CallbackStateSnapshot {
     fn read_domain(&self, domain: &str) -> Option<serde_json::Value> {
         let slot = match domain {
             "goal" => &self.goal,
@@ -185,17 +185,25 @@ fn emit_step_end_event(
 /// Map a provider finish reason onto a turn-level stop reason.
 ///
 /// `length` (OpenAI) / `max_tokens` (Anthropic) mean the response was cut off
-/// by the token limit → `MaxTokens`; the filtered family → `Filtered`:
-/// `content_filter` (OpenAI), `refusal` (Anthropic — kosong maps it to
-/// `filtered`), and Google's safety vocabulary lowercased by the transport
-/// (`safety` / `recitation` / `blocklist` / `prohibited_content` / `spii` /
-/// `image_safety` — kosong maps all six to `filtered`). Everything else ends
-/// the turn normally.
+/// by the token limit → `MaxTokens`. The filtered family → `Filtered`, and the
+/// list starts with `filtered` itself: that is the one value v2 carries
+/// (`human/llm/empty-response.ts` and `retry.ts:50-51` both compare against the
+/// literal `'filtered'`, because kosong folds the provider-specific spellings
+/// into it), and the host-proxy transport delivers whatever the host produced
+/// verbatim. The wider set stays accepted so the native transports' raw
+/// provider vocabulary also lands on `Filtered`: `content_filter` (OpenAI),
+/// `refusal` (Anthropic), and Google's safety words.
+///
+/// Must stay the same list as [`turn_step::is_content_filtered`], or a filtered
+/// turn is silently re-requested as an empty one and then completes as a
+/// success.
+///
+/// Everything else ends the turn normally.
 fn turn_stop_reason_from_finish(finish_reason: Option<&str>) -> LoopTurnStopReason {
     match finish_reason {
         Some("length") | Some("max_tokens") => LoopTurnStopReason::MaxTokens,
         Some(
-            "content_filter" | "refusal" | "safety" | "recitation" | "blocklist"
+            "filtered" | "content_filter" | "refusal" | "safety" | "recitation" | "blocklist"
             | "prohibited_content" | "spii" | "image_safety",
         ) => LoopTurnStopReason::Filtered,
         _ => LoopTurnStopReason::EndTurn,
@@ -1868,16 +1876,6 @@ Deliver your final response as text now. Further tool calls are refused.",
                         ));
                     }
                 }
-                LoopStepStopReason::Aborted => {
-                    return Ok(turn_result(
-                        LoopTurnStopReason::Aborted,
-                        steps,
-                        total_usage,
-                        0,
-                        llm_retries,
-                        messages.clone(),
-                    ));
-                }
             }
         }
 
@@ -3027,6 +3025,210 @@ mod tests {
         assert!(matches!(turn.stop_reason, LoopTurnStopReason::Filtered));
     }
 
+    /// Every filtered spelling must land on `Filtered`, and the canonical
+    /// `filtered` value v2 carries must be among them — a filtered turn that
+    /// falls through to `EndTurn` reports success where v2 fails the turn
+    /// (`loopService.ts:877-882`).
+    #[test]
+    fn every_filtered_spelling_maps_to_filtered() {
+        for spelling in [
+            "filtered",
+            "content_filter",
+            "refusal",
+            "safety",
+            "recitation",
+            "blocklist",
+            "prohibited_content",
+            "spii",
+            "image_safety",
+        ] {
+            assert!(
+                matches!(
+                    turn_stop_reason_from_finish(Some(spelling)),
+                    LoopTurnStopReason::Filtered
+                ),
+                "{spelling} must map to Filtered"
+            );
+        }
+        assert!(matches!(
+            turn_stop_reason_from_finish(Some("length")),
+            LoopTurnStopReason::MaxTokens
+        ));
+        assert!(matches!(
+            turn_stop_reason_from_finish(Some("max_tokens")),
+            LoopTurnStopReason::MaxTokens
+        ));
+        for ordinary in [Some("stop"), Some("tool_use"), Some("end_turn"), None] {
+            assert!(
+                matches!(
+                    turn_stop_reason_from_finish(ordinary),
+                    LoopTurnStopReason::EndTurn
+                ),
+                "{ordinary:?} must end the turn normally"
+            );
+        }
+    }
+
+    /// The retry guard and the turn-level mapper are two copies of one
+    /// vocabulary, and the copies drifted once: `filtered` — the value v2
+    /// actually carries and the one the host delivers — reached the retry guard
+    /// but not the mapper, so a filtered turn was re-requested as an empty one
+    /// and then reported success. This is the gate that keeps them in step.
+    #[test]
+    fn the_retry_guard_and_the_turn_mapper_agree_on_every_finish_reason() {
+        let vocabulary = [
+            "filtered",
+            "content_filter",
+            "refusal",
+            "safety",
+            "recitation",
+            "blocklist",
+            "prohibited_content",
+            "spii",
+            "image_safety",
+            "length",
+            "max_tokens",
+            "stop",
+            "tool_use",
+            "end_turn",
+        ];
+        for reason in vocabulary {
+            let retry_guard_says_filtered =
+                crate::turn_loop::turn_step::is_content_filtered(Some(reason));
+            let turn_says_filtered = matches!(
+                turn_stop_reason_from_finish(Some(reason)),
+                LoopTurnStopReason::Filtered
+            );
+            assert_eq!(
+                retry_guard_says_filtered, turn_says_filtered,
+                "{reason}: the retry guard and the turn mapper disagree"
+            );
+        }
+    }
+
+    /// An LLM that answers every request with one fixed response, so a test can
+    /// choose the finish reason and whether the answer carries content.
+    struct FixedResponseLlm {
+        finish_reason: String,
+        content: String,
+    }
+
+    impl LLM for FixedResponseLlm {
+        fn system_prompt(&self) -> &str {
+            "test"
+        }
+
+        fn model_name(&self) -> &str {
+            "test-model"
+        }
+
+        fn is_retryable_error(&self, _: &str) -> bool {
+            false
+        }
+
+        fn chat(
+            &self,
+            _: LLMChatParams,
+        ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+        {
+            let finish_reason = self.finish_reason.clone();
+            let content = self.content.clone();
+            Box::pin(async move {
+                Ok(LLMChatResponse {
+                    content,
+                    thinking: vec![],
+                    tool_calls: vec![],
+                    finish_reason: Some(finish_reason),
+                    usage: TokenUsage::default(),
+                    timing: None,
+                })
+            })
+        }
+    }
+
+    /// Drive a whole turn whose only LLM response carries `finish_reason` and
+    /// `content`, and hand back the stop reason the turn ended on.
+    async fn stop_reason_of_a_single_response(
+        turn_id: &str,
+        finish_reason: &str,
+        content: &str,
+    ) -> LoopTurnStopReason {
+        let llm = FixedResponseLlm {
+            finish_reason: finish_reason.to_string(),
+            content: content.to_string(),
+        };
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server);
+        let turn = run_turn(
+            RunTurnInput {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
+                previous_turn_aborted: false,
+                turn_id: turn_id.to_string(),
+                llm: &llm,
+                messages: vec![LLMMessage {
+                    role: "user".into(),
+                    content: "Hello!".into(),
+                    ..Default::default()
+                }],
+                tools: &[],
+                tool_defs: vec![],
+                max_steps: 5,
+                max_attempts: None,
+                max_context_tokens: None,
+                compaction_max_attempts: None,
+                permission_mode: None,
+                goal: None,
+                cancellation: None,
+                hook_guard: None,
+                media: None,
+                media_dropped: None,
+                toolset: None,
+            },
+            &callbacks,
+        )
+        .await
+        .unwrap();
+        turn.stop_reason
+    }
+
+    /// The canonical `filtered` spelling — the one v2 actually carries, and the
+    /// one a host normalizing through kosong hands the engine — must fail the
+    /// turn, not complete it. The turn-level test above only exercised
+    /// `content_filter`, which is why the missing spelling shipped.
+    #[tokio::test]
+    async fn the_canonical_filtered_spelling_fails_the_turn() {
+        let stop =
+            stop_reason_of_a_single_response("test-canonical-filtered", "filtered", "").await;
+        assert!(
+            matches!(stop, LoopTurnStopReason::Filtered),
+            "filtered must fail the turn, got {stop:?}"
+        );
+    }
+
+    /// v2 latches `turn.filtered` from the finish reason alone
+    /// (`loopService.ts:1859`, `:1884-1894`) — it does not care whether the
+    /// response carried content, so neither does the mapper.
+    #[tokio::test]
+    async fn a_filtered_response_with_content_still_fails_the_turn() {
+        let stop =
+            stop_reason_of_a_single_response("test-filtered-content", "filtered", "partial").await;
+        assert!(
+            matches!(stop, LoopTurnStopReason::Filtered),
+            "filtered with content must still fail the turn, got {stop:?}"
+        );
+    }
+
+    /// Guard against the opposite drift: an ordinary finish reason still ends
+    /// the turn normally through the whole loop, not just the mapper.
+    #[tokio::test]
+    async fn an_ordinary_finish_reason_completes_the_turn() {
+        let stop = stop_reason_of_a_single_response("test-ordinary-stop", "stop", "hello").await;
+        assert!(
+            matches!(stop, LoopTurnStopReason::EndTurn),
+            "stop must end the turn normally, got {stop:?}"
+        );
+    }
+
     /// Callbacks wrapper recording `set_turn_goal` bindings.
     struct GoalBindingCallbacks {
         inner: Arc<dyn HostCallbacks>,
@@ -3178,6 +3380,185 @@ mod tests {
             bound.lock().unwrap().as_slice(),
             &[("turn-goal-free".to_string(), None)],
             "a goal-less turn binds None so the stale gate skips it"
+        );
+    }
+
+    // ── empty provider responses, end to end (v2 empty_response) ───────────
+
+    /// A native-transport LLM that answers the first `empty_answers` calls
+    /// with a 200 carrying no content, then a real answer.
+    ///
+    /// `transport()` is `native-http` on purpose. The empty-response guard arms
+    /// only for the transport that actually assembles the assistant message
+    /// (see `turn_step::empty_response_retryable`) — the host-proxy leg owns its
+    /// own transcript, where an empty body is a legitimate answer — so a stub
+    /// left on the default `"custom"` would bypass the very thing under test and
+    /// make this test pass for the wrong reason.
+    struct EmptyThenAnswerLlm {
+        empty_answers: u32,
+        calls: AtomicU32,
+        answer: String,
+    }
+
+    impl LLM for EmptyThenAnswerLlm {
+        fn system_prompt(&self) -> &str {
+            "You are helpful."
+        }
+        fn model_name(&self) -> &str {
+            "empty-then"
+        }
+        fn is_retryable_error(&self, _: &str) -> bool {
+            false
+        }
+        fn transport(&self) -> &'static str {
+            "native-http"
+        }
+        fn chat(
+            &self,
+            _params: LLMChatParams,
+        ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+        {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
+            let empty_answers = self.empty_answers;
+            let answer = self.answer.clone();
+            Box::pin(async move {
+                let content = if call < empty_answers {
+                    String::new()
+                } else {
+                    answer
+                };
+                Ok(LLMChatResponse {
+                    content,
+                    thinking: vec![],
+                    tool_calls: vec![],
+                    finish_reason: Some("stop".into()),
+                    usage: TokenUsage {
+                        input_tokens: 10,
+                        output_tokens: 5,
+                        total_tokens: 15,
+                        ..Default::default()
+                    },
+                    timing: None,
+                })
+            })
+        }
+    }
+
+    /// The whole point of the P0-1 fix, exercised through the **real turn loop**
+    /// rather than the retry helper in isolation: a provider that answers 200
+    /// with nothing used to end the turn as a success, so the model stopped
+    /// early and nothing — transcript, telemetry, UI — could tell it from a
+    /// real reply.
+    #[tokio::test]
+    async fn a_turn_retries_through_empty_provider_responses_and_answers() {
+        let llm = EmptyThenAnswerLlm {
+            empty_answers: 2,
+            calls: AtomicU32::new(0),
+            answer: "the real answer".into(),
+        };
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server);
+
+        let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
+            previous_turn_aborted: false,
+            turn_id: "turn-empty".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "Hello!".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+            toolset: None,
+        };
+
+        let result = run_turn(input, &callbacks)
+            .await
+            .expect("the turn recovers from the empty responses");
+
+        assert_eq!(
+            llm.calls.load(Ordering::SeqCst),
+            3,
+            "two empty answers were retried, the third carried content"
+        );
+        assert_eq!(
+            result.llm_retries, 2,
+            "the turn must record the retries, not silently absorb them"
+        );
+        assert_eq!(result.steps, 1, "recovery costs attempts, not steps");
+        let final_assistant = result
+            .messages
+            .iter()
+            .rev()
+            .find(|m| m.role == "assistant")
+            .expect("the turn ends on an assistant message");
+        assert_eq!(
+            final_assistant.content, "the real answer",
+            "the recovered answer is what the model reads"
+        );
+    }
+
+    /// The other half: a provider that never answers must **fail** rather than
+    /// book an empty turn as a success. Without this, the retry could mask a
+    /// hard failure as a very slow success.
+    #[tokio::test]
+    async fn a_turn_fails_when_every_response_is_empty() {
+        let llm = EmptyThenAnswerLlm {
+            empty_answers: u32::MAX,
+            calls: AtomicU32::new(0),
+            answer: "never used".into(),
+        };
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server);
+
+        let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
+            previous_turn_aborted: false,
+            turn_id: "turn-empty-forever".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "Hello!".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: Some(2),
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+            toolset: None,
+        };
+
+        let err = run_turn(input, &callbacks)
+            .await
+            .expect_err("a provider that never answers must not read as success");
+        assert_eq!(
+            llm.calls.load(Ordering::SeqCst),
+            2,
+            "the attempt budget is spent, and no more"
+        );
+        assert!(
+            err.to_string().contains("empty response"),
+            "the failure must name the cause: {err}"
         );
     }
 
@@ -5034,6 +5415,106 @@ mod tests {
             .expect("a cancel must not fail the turn");
         assert!(matches!(result.stop_reason, LoopTurnStopReason::Aborted));
         assert_eq!(result.steps, 1);
+    }
+
+    /// The grace's whole point, exercised through the **real turn loop**: the
+    /// tool above answers instantly, so it now wins the abort race and keeps its
+    /// result. That test's assertions did not change, so it cannot tell the two
+    /// behaviours apart — this one can, by giving the tool a delay that lands
+    /// inside the 2 s window and then checking what the model actually reads.
+    ///
+    /// Before the grace, a cancel discarded the future the instant the flag was
+    /// seen, so this result was replaced by `abortedToolOutput` and the model
+    /// was told the user had interrupted a tool that had in fact succeeded.
+    #[tokio::test]
+    async fn a_tool_finishing_inside_the_abort_grace_keeps_its_result() {
+        let llm = PredictTestLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            return_tool_calls: true,
+            tool_responses: vec![ToolCall {
+                id: "tc-grace".into(),
+                name: "read".into(),
+                arguments: serde_json::json!({ "path": "/a.txt" }),
+                extras: None,
+            }],
+        };
+
+        let server = Arc::new(RpcServer::new());
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
+            Box::pin(async move {
+                // Lands comfortably inside the 2 s grace window.
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                let resp = ToolExecuteResponse {
+                    delivery: None,
+                    stop_turn: false,
+                    content: "the file contents".into(),
+                    is_error: false,
+                    note: None,
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+
+        let cancellation = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(CancelDuringToolCallbacks {
+            inner: rpc_callbacks(server.clone()),
+            cancellation: cancellation.clone(),
+        });
+
+        let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
+            previous_turn_aborted: false,
+            turn_id: "test-grace-keeps-result".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "Hello!".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: Some(cancellation),
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+            toolset: None,
+        };
+
+        let started = std::time::Instant::now();
+        let result = run_turn(input, &callbacks)
+            .await
+            .expect("a cancel inside the grace must not fail the turn");
+
+        // The turn is still cancelled — the user did press Ctrl-C — but the
+        // call that finished inside the window keeps its answer.
+        assert!(matches!(result.stop_reason, LoopTurnStopReason::Aborted));
+        let tool_text = result
+            .messages
+            .iter()
+            .filter(|m| m.role == "tool")
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            tool_text.contains("the file contents"),
+            "the real result must reach the model: {tool_text:?}"
+        );
+        assert!(
+            !tool_text.contains("The user manually interrupted"),
+            "a tool that succeeded must not be reported as interrupted: {tool_text:?}"
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "the turn must not wait out the full grace for a call that finished: {:?}",
+            started.elapsed()
+        );
     }
 
     /// A tool result carrying `stop_turn: true` ends the turn as `EndTurn`

@@ -10,9 +10,10 @@
 //!
 //! Built-in injections live here: the date-change reminder (v2 `dateChange`
 //! variant) and the workspace-root AGENTS.md reminder (v2 `agents_md`
-//! variant). Goal/plan-mode providers are contributed by
-//! [`goal_plan`] (implemented separately), the permission-mode reminders by
-//! [`permission_mode`].
+//! variant). The rest are contributed by their own modules — goal/plan mode
+//! by [`goal_plan`], the permission-mode reminders by [`permission_mode`],
+//! the post-interruption reminder by [`interruption_reminder`], and swarm
+//! mode by [`swarm_mode`].
 
 use std::path::{Path, PathBuf};
 
@@ -23,8 +24,7 @@ pub const SYSTEM_REMINDER_PREFIX: &str = "<system-reminder>\n";
 /// Wrapper suffix for injection texts, matching v2's `SYSTEM_REMINDER_SUFFIX`.
 pub const SYSTEM_REMINDER_SUFFIX: &str = "\n</system-reminder>";
 
-/// Goal/plan-mode injection providers (implemented separately from this
-/// module; see the injection-layer work item).
+/// Goal/plan-mode injection providers.
 pub mod goal_plan;
 
 /// Permission-mode injection providers (v2 `PermissionModeInjection`).
@@ -36,6 +36,11 @@ pub mod interruption_reminder;
 
 /// Swarm-mode reminders (v2 `SwarmInjection`, the `swarm_mode` variant).
 pub mod swarm_mode;
+
+/// What the injection providers read their domain values from.
+pub mod state;
+
+pub use state::DomainValueSource;
 
 /// Wrap an injection text in the `<system-reminder>` envelope. The content
 /// is trimmed and placed between the prefix and suffix, exactly like v2's
@@ -185,28 +190,6 @@ impl InjectionRegistry {
 impl Default for InjectionRegistry {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Adapter for the goal/plan-mode providers in [`goal_plan`]: their
-/// providers render to a plain string (empty = nothing to inject) and receive
-/// the `is_new_turn` gate, while this registry's providers take the full
-/// context and return `Option<String>`. The adapter bridges the two so
-/// `goal_plan::register_goal_plan_injections` can attach both variants to
-/// this registry.
-impl goal_plan::InjectionRegistry for InjectionRegistry {
-    fn register(&mut self, variant: &str, provider: goal_plan::InjectionProvider) {
-        self.register(
-            variant,
-            Box::new(move |ctx: &InjectionContext| {
-                let text = provider(ctx.is_new_turn);
-                if text.trim().is_empty() {
-                    None
-                } else {
-                    Some(text)
-                }
-            }),
-        );
     }
 }
 
@@ -816,24 +799,12 @@ mod tests {
     }
 
     #[test]
-    fn test_injection_registry_adapter_for_goal_plan() {
-        use crate::injection::goal_plan::InjectionRegistry as GoalPlanRegistry;
-
+    fn a_provider_that_renders_blank_injects_nothing() {
         let mut registry = InjectionRegistry::new();
-        GoalPlanRegistry::register(
-            &mut registry,
-            "gp_active",
-            Box::new(|_| "goal content".into()),
-        );
-        GoalPlanRegistry::register(&mut registry, "gp_empty", Box::new(|_| "".into()));
-        GoalPlanRegistry::register(
-            &mut registry,
-            "gp_whitespace",
-            Box::new(|_| "   \n\t ".into()),
-        );
+        registry.register("blank", Box::new(|_| Some("   \n\t ".into())));
+        registry.register("text", Box::new(|_| Some("content".into())));
 
         let texts = registry.build_injections(true);
-        assert_eq!(texts.len(), 1);
-        assert_eq!(texts[0], wrap_system_reminder("goal content"));
+        assert_eq!(texts, vec![wrap_system_reminder("content")]);
     }
 }
