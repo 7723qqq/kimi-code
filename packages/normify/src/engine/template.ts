@@ -1282,7 +1282,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
       path.setAttribute('data-from', e.from)
       path.setAttribute('data-to', e.to)
       var tip = pts[pts.length - 1], prev = pts[pts.length - 2] || pa
-      var entry = { path: path, arrow: mk, label: null, from: e.from, to: e.to }
+      var entry = { path: path, arrow: null, label: null, from: e.from, to: e.to }
       var title = document.createElementNS('http://www.w3.org/2000/svg', 'title')
       title.textContent = e.agg
         ? '聚合 ' + e.count + ' 条依赖：\\n' + e.samples.join('\\n')
@@ -1293,6 +1293,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px
       mk.setAttribute('points', arrowPoints(tip, prev))
       mk.setAttribute('class', 'arrow kind-' + (e.kind || 'reference') + (e.cross_tree ? ' cross' : '') + (e.agg ? ' agg' : ''))
       svg.appendChild(mk)
+      entry.arrow = mk
       var text = e.agg ? ('×' + e.count) : (e.label ? L(e.label) : e.kind)
       var budget = labelBudget[text] || 0
       var lp = budget < 2 ? labelPos(pts, text, e.from, e.to) : null
