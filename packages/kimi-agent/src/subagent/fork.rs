@@ -13,17 +13,22 @@ pub const INHERITED_IN_FLIGHT_TOOL_OUTPUT: &str = "This tool call was still exec
 from the source agent, so its result is not part of this context. The outcome is \
 unknown — do not assume it succeeded or failed, and do not wait for it.";
 
-pub const FORK_WITH_RESUME_UNAVAILABLE: &str = "A non-empty resume cannot be combined with fork.";
-pub const FORK_WITH_TYPE_UNAVAILABLE: &str =
-    "subagent_type must match the caller's profile when fork is enabled.";
-pub const FORK_WITH_MODEL_UNAVAILABLE: &str =
-    "model must match the caller's model or 'primary' when fork is enabled.";
+// The four refusals, verbatim from v2 `session/subagent/spawn.ts`. These are
+// model-facing, so the exact wording is the contract: v2's phrasing tells the
+// model *why* the combination is meaningless rather than only that it is
+// rejected.
+pub const FORK_WITH_RESUME_UNAVAILABLE: &str = "Cannot set resume when forking the current context. Fork creates a new agent; resume \
+     continues an existing one.";
+pub const FORK_WITH_TYPE_UNAVAILABLE: &str = "Cannot set a different subagent_type when forking the current context. A fork inherits \
+     this agent's own agent type.";
+pub const FORK_WITH_MODEL_UNAVAILABLE: &str = "Cannot override the model when forking the current context. A fork inherits this agent's \
+     model.";
 pub const PRIMARY_SUBAGENT_MODEL_CHOICE: &str = "primary";
 
 /// v2's refusal when the `fork` parameter arrives with the flag off
 /// (`agentSwarmTool.ts` / `agentTool.ts` `FORK_EXPERIMENTAL_UNAVAILABLE`).
-pub const FORK_EXPERIMENTAL_UNAVAILABLE: &str = "Fork is disabled for this session. Remove the `fork` parameter, or enable the \
-     subagent_fork experimental flag to use it.";
+pub const FORK_EXPERIMENTAL_UNAVAILABLE: &str =
+    "fork is disabled: the subagent_fork experimental flag is off.";
 
 /// Env name of the `subagent_fork` flag (v2 `SUBAGENT_FORK_FLAG_ENV`).
 pub const SUBAGENT_FORK_FLAG_ENV: &str = "KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK";

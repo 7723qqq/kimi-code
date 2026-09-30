@@ -1498,7 +1498,7 @@ mod tests {
         assert!(res.is_error, "fork must not take a different profile");
         assert!(
             res.content
-                .contains("subagent_type must match the caller's profile"),
+                .contains("Cannot set a different subagent_type when forking"),
             "{}",
             res.content
         );
@@ -1541,7 +1541,8 @@ mod tests {
             .unwrap();
         assert!(res.is_error, "fork must not switch model: {}", res.content);
         assert!(
-            res.content.contains("model must match the caller's model"),
+            res.content
+                .contains("Cannot override the model when forking"),
             "{}",
             res.content
         );
@@ -1575,7 +1576,7 @@ mod tests {
         assert!(res.is_error, "fork cannot be combined with a resume");
         assert!(
             res.content
-                .contains("A non-empty resume cannot be combined with fork."),
+                .contains("Cannot set resume when forking the current context."),
             "{}",
             res.content
         );
