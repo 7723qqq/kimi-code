@@ -404,10 +404,20 @@ pub async fn execute_agent_swarm(
 
     for (agent_id, prompt) in resume_entries {
         let idx = tasks.len() + 1;
+        // v2 `getSwarmItem`: recover the `{{item}}` this member was spawned
+        // for, so a resumed row is labelled with the work it continues.
+        // Best-effort, exactly as v2: an id that is not one of this caller's
+        // subagents simply has no item here — the ownership refusal happens in
+        // the swarm service when the batch resumes it.
+        let item = manager
+            .parent_of(&agent_id)
+            .await
+            .filter(|parent| parent.agent_id == caller_agent_id)
+            .and_then(|parent| parent.swarm_item);
         tasks.push(AgentRunTask {
             data: SwarmTaskSpec {
                 index: idx,
-                item: None,
+                item: item.clone(),
                 is_resume: true,
             },
             kind: AgentRunTaskKind::Resume {
@@ -419,7 +429,7 @@ pub async fn execute_agent_swarm(
             prompt,
             description: format!("{description} #{idx} (resume)"),
             swarm_index: Some(idx),
-            swarm_item: None,
+            swarm_item: item,
             run_in_background: false,
             timeout,
             signal: Some(batch_signal.clone()),
@@ -428,6 +438,37 @@ pub async fn execute_agent_swarm(
     }
 
     let is_fork = input.fork.unwrap_or(false);
+    if is_fork {
+        // v2 refuses `fork` outright when the flag is off
+        // (`FORK_EXPERIMENTAL_UNAVAILABLE`); the flag defaults ON here (see
+        // `subagent::fork::subagent_fork_enabled`), so this is the opt-out
+        // path rather than the default.
+        if !crate::subagent::fork::subagent_fork_enabled() {
+            return Some(err_result(
+                crate::subagent::fork::FORK_EXPERIMENTAL_UNAVAILABLE,
+            ));
+        }
+        // v2 `AgentSwarmTool.runSwarm` runs the same `forkIncompatibility` gate
+        // the `Agent` tool runs: a fork inherits the caller's profile and model
+        // so the prompt prefix cache is reused, so asking for a different
+        // `subagent_type`/`model` is a contradiction, not a preference. Resumed
+        // subagents are never forked, so a non-empty resume is refused outright
+        // (v2 `FORK_WITH_RESUME_UNAVAILABLE`).
+        if resume_count > 0 {
+            return Some(err_result(
+                crate::subagent::fork::FORK_WITH_RESUME_UNAVAILABLE,
+            ));
+        }
+        if let Some(err) = crate::subagent::fork_incompatibility(
+            None,
+            input.subagent_type.as_deref(),
+            requested,
+            DEFAULT_SUBAGENT_TYPE,
+            None,
+        ) {
+            return Some(err_result(err));
+        }
+    }
     let inherited_history = if is_fork {
         crate::tools::CURRENT_CONVERSATION_HISTORY
             .try_with(|slot| slot.lock().unwrap().clone())
@@ -488,6 +529,7 @@ pub async fn execute_agent_swarm(
         inherited_history,
         llm: item_llm,
         callbacks: runtime.callbacks.clone(),
+        caller_agent_id: caller_agent_id.clone(),
         // One sink for the whole batch, so the terminalizer it holds is
         // per-run: a member that is rate-limited and retried reports one
         // terminal event, not one per attempt.
@@ -578,6 +620,16 @@ If `AgentSwarm` is called, that call must be the only tool call in the response.
                 "description": "Which model to run the item-spawned subagents on: one of the aliases listed under \"Available models\" in this tool description, or \"primary\" for the main model you are running on. When omitted, the configured default model is used."
             }),
         );
+    }
+    // v2 `stripSubagentForkParameter`: the parameter is hidden from the model
+    // while the flag is off, so it is never offered. On by default here, so
+    // this only bites an explicit opt-out.
+    if !crate::subagent::fork::subagent_fork_enabled()
+        && let Some(properties) = input_schema
+            .get_mut("properties")
+            .and_then(|properties| properties.as_object_mut())
+    {
+        properties.remove("fork");
     }
     ToolInfo {
         name: "AgentSwarm".into(),
@@ -889,6 +941,24 @@ mod tests {
         mgr
     }
 
+    /// Two profiles, so a test can ask for one that differs from the caller's
+    /// default (`coder`) and reach the fork compatibility gate.
+    async fn manager_with_runtime_with_profiles() -> Arc<SubagentManager> {
+        let mgr = manager_with_runtime().await;
+        mgr.register_definition(crate::subagent::types::SubagentDefinition {
+            name: "reviewer".into(),
+            description: "Reviewer subagent".into(),
+            system_prompt: "You review.".into(),
+            tools: vec![],
+            disallowed_tools: vec![],
+            prompt_prefix: None,
+            summary_policy: None,
+            model: None,
+        })
+        .await;
+        mgr
+    }
+
     /// A swarm worker's tool call must reach the host attributed to the
     /// worker, not to the main agent.
     ///
@@ -1036,6 +1106,7 @@ mod tests {
             inherited_history: None,
             llm: None,
             callbacks: recorder.clone(),
+            caller_agent_id: "test-caller".into(),
             sink: Arc::new(crate::swarm::service::CallbackSink::new(recorder)),
         };
 
@@ -1231,7 +1302,15 @@ mod tests {
     #[tokio::test]
     async fn test_execute_agent_swarm_allows_single_resume() {
         let mgr = manager_with_runtime().await;
-        let agent_id = mgr.spawn("coder", "Initial worker").await.unwrap();
+        // A member is always spawned by an agent, which is what makes it
+        // resumable by that agent and nobody else.
+        let agent_id = crate::tools::CALLER_AGENT_ID
+            .scope(
+                crate::callbacks::MAIN_AGENT_ID.to_string(),
+                mgr.spawn("coder", "Initial worker"),
+            )
+            .await
+            .unwrap();
         let _ = mgr
             .run_foreground_turn(&agent_id, "initial prompt", None)
             .await
@@ -1255,5 +1334,268 @@ mod tests {
         assert!(res.content.contains("<summary>completed: 1</summary>"));
         assert!(res.content.contains(r#"mode="resume""#));
         assert!(res.content.contains(&format!(r#"agent_id="{agent_id}""#)));
+    }
+
+    /// v2 `requireOwnedSubagent`: a swarm may only resume its own members. A
+    /// subagent belonging to another parent is refused before its conversation
+    /// is touched, and the refusal comes back as the member's result.
+    #[tokio::test]
+    async fn a_swarm_cannot_resume_another_parents_subagent() {
+        let mgr = manager_with_runtime().await;
+        let foreign = crate::tools::CALLER_AGENT_ID
+            .scope(
+                "other-agent".to_string(),
+                mgr.spawn("coder", "Someone else's worker"),
+            )
+            .await
+            .unwrap();
+        let _ = mgr
+            .run_foreground_turn(&foreign, "their prompt", None)
+            .await
+            .unwrap();
+
+        let args = serde_json::json!({
+            "description": "reaching for another agent's worker",
+            "resume_agent_ids": { foreign.clone(): "continue" }
+        });
+        let res = execute_agent_swarm(&mgr, &args, None, None, Some("call-x"), None)
+            .await
+            .unwrap();
+        // v2 shape: the gate throws inside the launcher's resume, which the
+        // batch catches into a *failed member*, so the tool call itself still
+        // succeeds and the refusal arrives as that member's result.
+        assert!(!res.is_error, "{}", res.content);
+        assert!(
+            res.content.contains("does not belong to this parent agent"),
+            "{}",
+            res.content
+        );
+        assert!(
+            res.content.contains(r#"outcome="failed""#),
+            "the member is reported failed: {}",
+            res.content
+        );
+    }
+
+    /// v2 `AGENT_NOT_A_SUBAGENT`: the main agent is not a subagent, so naming it
+    /// in `resume_agent_ids` is refused as the other error, not as "not yours".
+    #[tokio::test]
+    async fn a_swarm_cannot_resume_the_main_agent() {
+        let mgr = manager_with_runtime().await;
+        let args = serde_json::json!({
+            "description": "reaching for the main agent",
+            "resume_agent_ids": { crate::callbacks::MAIN_AGENT_ID: "continue" }
+        });
+        let res = execute_agent_swarm(&mgr, &args, None, None, Some("call-y"), None)
+            .await
+            .unwrap();
+        assert!(!res.is_error, "{}", res.content);
+        assert!(
+            res.content.contains("is not a subagent"),
+            "the main agent is not a subagent, which is a different refusal: {}",
+            res.content
+        );
+    }
+
+    /// v2 `requireIdleSubagent`, through the whole tool: a member that is
+    /// still running its own turn must come back as a failed member, not be
+    /// driven into a second concurrent turn. This is the wiring assertion —
+    /// the unit tests on `require_idle_subagent` only prove its logic.
+    #[tokio::test]
+    async fn a_swarm_cannot_resume_a_member_that_is_already_running() {
+        let mgr = manager_with_runtime().await;
+        let agent_id = crate::tools::CALLER_AGENT_ID
+            .scope(
+                crate::callbacks::MAIN_AGENT_ID.to_string(),
+                mgr.spawn("coder", "Busy worker"),
+            )
+            .await
+            .unwrap();
+        // Left in Running: no foreground turn ever completes it.
+        mgr.update_state(
+            &agent_id,
+            crate::subagent::types::SubagentState::Running,
+            None,
+        )
+        .await;
+
+        let args = serde_json::json!({
+            "description": "resuming a busy member",
+            "resume_agent_ids": { agent_id.clone(): "continue" }
+        });
+        let res = execute_agent_swarm(&mgr, &args, None, None, Some("call-busy"), None)
+            .await
+            .unwrap();
+        assert!(
+            !res.is_error,
+            "the call itself still succeeds: {}",
+            res.content
+        );
+        assert!(
+            res.content
+                .contains("already running and cannot run concurrently"),
+            "the busy member is refused: {}",
+            res.content
+        );
+        assert!(
+            res.content.contains(r#"outcome="failed""#),
+            "…reported as a failed member: {}",
+            res.content
+        );
+    }
+
+    /// v2 `getSwarmItem`: a resumed member is labelled with the `{{item}}` it
+    /// was spawned for, so the row says which work it continues.
+    #[tokio::test]
+    async fn a_resumed_member_keeps_its_swarm_item() {
+        let mgr = manager_with_runtime().await;
+        let agent_id = crate::tools::CALLER_AGENT_ID
+            .scope(
+                crate::callbacks::MAIN_AGENT_ID.to_string(),
+                mgr.spawn("coder", "Initial worker"),
+            )
+            .await
+            .unwrap();
+        mgr.set_swarm_item(&agent_id, Some("src/main.rs".into()))
+            .await;
+        let _ = mgr
+            .run_foreground_turn(&agent_id, "initial prompt", None)
+            .await
+            .unwrap();
+
+        let args = serde_json::json!({
+            "description": "resuming work",
+            "resume_agent_ids": { agent_id: "continue" }
+        });
+        let res = execute_agent_swarm(&mgr, &args, None, None, Some("call-z"), None)
+            .await
+            .unwrap();
+        assert!(!res.is_error, "{}", res.content);
+        assert!(
+            res.content.contains(r#"item="src/main.rs""#),
+            "the resumed row keeps its item: {}",
+            res.content
+        );
+    }
+
+    /// v2 `AgentSwarmTool.runSwarm`: `fork` shares the caller's profile and
+    /// model so the prompt prefix cache is reused, so naming a different
+    /// `subagent_type` is a contradiction the tool refuses. The single-agent
+    /// `Agent` tool already runs this gate; the swarm has to run it too.
+    #[tokio::test]
+    async fn fork_rejects_a_different_subagent_type() {
+        let mgr = manager_with_runtime_with_profiles().await;
+        let args = serde_json::json!({
+            "description": "forked review",
+            "items": ["src/a.rs", "src/b.rs"],
+            "prompt_template": "review {{item}}",
+            "fork": true,
+            "subagent_type": "reviewer"
+        });
+        let res = execute_agent_swarm(&mgr, &args, None, None, Some("call-f1"), None)
+            .await
+            .unwrap();
+        assert!(res.is_error, "fork must not take a different profile");
+        assert!(
+            res.content
+                .contains("subagent_type must match the caller's profile"),
+            "{}",
+            res.content
+        );
+    }
+
+    /// The same gate for the model: a fork runs on the caller's model, so
+    /// asking for a different one (other than `primary`) is refused. The model
+    /// has to be a real pool alias, because the engine resolves `model` before
+    /// the fork gate runs.
+    #[tokio::test]
+    async fn fork_rejects_a_different_model() {
+        let mgr = manager_with_runtime().await;
+        let pool = crate::subagent::secondary::SecondaryModelRuntime::new(
+            crate::rpc::types::SecondaryModelPool {
+                force: false,
+                default_model: "fast".into(),
+                caller_model_alias: None,
+                models: vec![crate::rpc::types::SecondaryModelEntry {
+                    alias: "fast".into(),
+                    hint: String::new(),
+                    llm: Default::default(),
+                }],
+            },
+            // The pool binds an alias only when a live LLM is registered for
+            // it, so the model has to resolve before the fork gate is reached.
+            std::collections::HashMap::from([(
+                "fast".to_string(),
+                Arc::new(TestSummaryLlm) as Arc<dyn crate::turn_loop::types::LLM>,
+            )]),
+        );
+        let args = serde_json::json!({
+            "description": "forked review",
+            "items": ["src/a.rs", "src/b.rs"],
+            "prompt_template": "review {{item}}",
+            "fork": true,
+            "model": "fast"
+        });
+        let res = execute_agent_swarm(&mgr, &args, None, None, Some("call-f2"), Some(&pool))
+            .await
+            .unwrap();
+        assert!(res.is_error, "fork must not switch model: {}", res.content);
+        assert!(
+            res.content.contains("model must match the caller's model"),
+            "{}",
+            res.content
+        );
+    }
+
+    /// v2 `FORK_WITH_RESUME_UNAVAILABLE`: resumed subagents are never forked, so
+    /// combining the two is refused as a whole call.
+    #[tokio::test]
+    async fn fork_rejects_a_non_empty_resume() {
+        let mgr = manager_with_runtime().await;
+        let agent_id = crate::tools::CALLER_AGENT_ID
+            .scope(
+                crate::callbacks::MAIN_AGENT_ID.to_string(),
+                mgr.spawn("coder", "Initial worker"),
+            )
+            .await
+            .unwrap();
+        let _ = mgr
+            .run_foreground_turn(&agent_id, "initial prompt", None)
+            .await
+            .unwrap();
+
+        let args = serde_json::json!({
+            "description": "fork and resume",
+            "resume_agent_ids": { agent_id: "continue" },
+            "fork": true
+        });
+        let res = execute_agent_swarm(&mgr, &args, None, None, Some("call-f3"), None)
+            .await
+            .unwrap();
+        assert!(res.is_error, "fork cannot be combined with a resume");
+        assert!(
+            res.content
+                .contains("A non-empty resume cannot be combined with fork."),
+            "{}",
+            res.content
+        );
+    }
+
+    /// A plain fork with no type/model override is still allowed, so the gate
+    /// is not simply refusing every `fork`.
+    #[tokio::test]
+    async fn a_plain_fork_is_allowed() {
+        let mgr = manager_with_runtime().await;
+        let args = serde_json::json!({
+            "description": "forked review",
+            "items": ["src/a.rs", "src/b.rs"],
+            "prompt_template": "review {{item}}",
+            "fork": true
+        });
+        let res = execute_agent_swarm(&mgr, &args, None, None, Some("call-f4"), None)
+            .await
+            .unwrap();
+        assert!(!res.is_error, "a plain fork must run: {}", res.content);
+        assert!(res.content.contains("<summary>completed: 2</summary>"));
     }
 }

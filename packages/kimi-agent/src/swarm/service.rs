@@ -328,10 +328,64 @@ pub struct SwarmLauncher {
     /// therefore never render and the user would see nothing until the batch
     /// returned one XML blob.
     pub callbacks: Arc<dyn crate::callbacks::HostCallbacks>,
+    /// The agent that dispatched this swarm. Every member it spawns records it
+    /// as its parent, and a `resume` is refused for any agent this caller does
+    /// not own (v2 `SessionSwarmService.resumeAttempt` →
+    /// `requireOwnedSubagent`).
+    pub caller_agent_id: String,
     /// The member lifecycle sink. Shared by every attempt of every task, so a
     /// rate-limited requeue that later completes still reports exactly one
     /// terminal event (v2's `terminalized` set is per-run, not per-attempt).
     pub sink: Arc<dyn SwarmEventSink>,
+}
+
+/// Refuse to resume an agent the caller does not own (v2
+/// `SessionSwarmService.requireOwnedSubagent`).
+///
+/// Two distinct refusals, matching v2's two error codes: an id the engine never
+/// spawned as a subagent (the main agent, or an unknown id) is "not a subagent",
+/// and a real subagent belonging to someone else is "does not belong to this
+/// parent agent". A retry of a member this run spawned passes: the batch
+/// records the caller as its parent.
+pub async fn require_owned_subagent(
+    manager: &Arc<crate::subagent::SubagentManager>,
+    caller_agent_id: &str,
+    agent_id: &str,
+) -> Result<crate::subagent::manager::SubagentParent, String> {
+    let Some(parent) = manager.parent_of(agent_id).await else {
+        return Err(format!("Agent instance \"{agent_id}\" is not a subagent"));
+    };
+    if parent.agent_id != caller_agent_id {
+        return Err(format!(
+            "Agent instance \"{agent_id}\" does not belong to this parent agent"
+        ));
+    }
+    Ok(parent)
+}
+
+/// Refuse to resume an agent whose own turn is still in flight (v2
+/// `requireIdleSubagent`).
+///
+/// Ownership says *whose* member this is; this says *when* it may be driven.
+/// Without it two callers that both own the same member — the user resuming it
+/// from an `AgentSwarm` while a batch retry is also requeueing it, or two
+/// concurrent swarms naming the same id — would each run a turn inside one
+/// conversation. `AGENT_ALREADY_RUNNING` in v2; the resident instance is the
+/// only place the state lives, and an evicted scope has none running.
+pub async fn require_idle_subagent(
+    manager: &Arc<crate::subagent::SubagentManager>,
+    agent_id: &str,
+) -> Result<(), String> {
+    let running = manager
+        .get_instance(agent_id)
+        .await
+        .is_some_and(|instance| instance.state == crate::subagent::types::SubagentState::Running);
+    if running {
+        return Err(format!(
+            "Agent instance \"{agent_id}\" is already running and cannot run concurrently"
+        ));
+    }
+    Ok(())
 }
 
 /// Map a finished foreground turn into the batch's completion shape.
@@ -492,6 +546,16 @@ impl<T: Clone + Send + Sync + 'static> AgentRunBatchLauncher<T> for SwarmLaunche
             description: options.run.description.clone(),
             swarm_index: options.run.swarm_index,
         };
+        // The batch resolves members on the scheduler's own tasks, which do not
+        // inherit the caller's `CALLER_AGENT_ID` scope, so the parent is named
+        // here rather than read at spawn time. The index and the spawning tool
+        // call ride along: they are what tells a client, after a resume, that
+        // this subagent is a swarm member rather than an ordinary child (v2
+        // `role: 'member'` in `coreEventMap.ts`).
+        let caller_agent_id = self.caller_agent_id.clone();
+        let swarm_item = options.swarm_item.clone();
+        let parent_tool_call_id = Some(options.run.parent_tool_call_id.clone());
+        let swarm_index = options.run.swarm_index.map(|index| index as u32);
         let fork_history = if options.plan.fork {
             self.inherited_history.clone()
         } else {
@@ -500,6 +564,18 @@ impl<T: Clone + Send + Sync + 'static> AgentRunBatchLauncher<T> for SwarmLaunche
         Box::pin(async move {
             let role = format!("Swarm worker for {}", options.run.description);
             let agent_id = manager.spawn(&options.profile_name, &role).await?;
+            // v2 `subagentLabels(callerAgentId, { swarmItem })`: remember which
+            // `{{item}}` this member is, so a later `resume_agent_ids` call can
+            // label it again (`getSwarmItem`).
+            manager
+                .set_parent(
+                    &agent_id,
+                    caller_agent_id,
+                    parent_tool_call_id,
+                    swarm_item,
+                    swarm_index,
+                )
+                .await;
             if let Some(llm) = item_llm.clone() {
                 manager.set_instance_llm(&agent_id, llm).await;
             }
@@ -544,7 +620,19 @@ impl<T: Clone + Send + Sync + 'static> AgentRunBatchLauncher<T> for SwarmLaunche
         // the pair again would re-register it in the host's `subagentInfo` and
         // reset the progress row's counters mid-batch.
         let callbacks = self.callbacks.clone();
+        let caller_agent_id = self.caller_agent_id.clone();
         Box::pin(async move {
+            // v2 `SessionSwarmService.resumeAttempt` runs two gates before
+            // anything else: `requireOwnedSubagent` (is this mine?) and
+            // `requireIdleSubagent` (is it free to run?). Without the first a
+            // swarm could name any agent id in `resume_agent_ids` — another
+            // parent's subagent, or the main agent — and drive a turn inside
+            // its conversation, reading the result back out of the batch.
+            // Without the second two owners of the same member would each run
+            // a turn in one conversation.
+            require_owned_subagent(&manager, &caller_agent_id, &agent_id).await?;
+            require_idle_subagent(&manager, &agent_id).await?;
+
             let prompt = options.prompt;
             let signal = options.signal;
             let handle_id = agent_id.clone();
@@ -639,3 +727,154 @@ pub use crate::subagent::manager::ForegroundTurnOutcome as SwarmTurnOutcome;
 
 /// A suspended member (v2 `SubagentSuspended`).
 pub type SwarmSuspended = AgentRunSuspendedEvent<()>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::subagent::SubagentManager;
+
+    fn manager() -> Arc<SubagentManager> {
+        Arc::new(SubagentManager::new())
+    }
+
+    /// v2 `requireOwnedSubagent` has two distinct refusals, and the gate has to
+    /// keep them apart: an id the engine never spawned is "not a subagent",
+    /// while a real subagent of another parent is "does not belong".
+    #[tokio::test]
+    async fn the_resume_gate_refuses_an_agent_the_caller_does_not_own() {
+        let mgr = manager();
+        mgr.set_parent(
+            "owned",
+            "main".into(),
+            Some("call-1".into()),
+            Some("item-a".into()),
+            Some(1),
+        )
+        .await;
+        mgr.set_parent(
+            "foreign",
+            "other-agent".into(),
+            Some("call-2".into()),
+            Some("item-b".into()),
+            Some(2),
+        )
+        .await;
+
+        // The owner may resume, and learns the member's item on the way.
+        let parent = require_owned_subagent(&mgr, "main", "owned")
+            .await
+            .expect("the spawning parent owns the member");
+        assert_eq!(parent.agent_id, "main");
+        assert_eq!(parent.swarm_item.as_deref(), Some("item-a"));
+
+        // Someone else's subagent is refused, naming the id.
+        let error = require_owned_subagent(&mgr, "main", "foreign")
+            .await
+            .expect_err("another parent's subagent must not be resumable");
+        assert!(
+            error.contains("does not belong to this parent agent"),
+            "{error}"
+        );
+        assert!(error.contains("foreign"), "{error}");
+
+        // The reverse direction is refused too.
+        assert!(
+            require_owned_subagent(&mgr, "other-agent", "owned")
+                .await
+                .is_err()
+        );
+    }
+
+    /// The main agent and unknown ids are not subagents at all — a different
+    /// refusal from "not yours", because there is no parent to compare against.
+    #[tokio::test]
+    async fn the_resume_gate_refuses_ids_that_are_not_subagents() {
+        let mgr = manager();
+        for id in [crate::callbacks::MAIN_AGENT_ID, "subagent-does-not-exist"] {
+            let error = require_owned_subagent(&mgr, "main", id)
+                .await
+                .expect_err("only a spawned subagent can be resumed");
+            assert!(error.contains("is not a subagent"), "{error}");
+        }
+    }
+
+    /// A member the batch spawned itself is owned by the caller by
+    /// construction, so its rate-limit retries are not blocked by the gate.
+    #[tokio::test]
+    async fn a_retry_of_this_runs_own_member_passes_the_gate() {
+        let mgr = manager();
+        mgr.set_parent(
+            "member",
+            "main".into(),
+            Some("call-3".into()),
+            None,
+            Some(1),
+        )
+        .await;
+        assert!(require_owned_subagent(&mgr, "main", "member").await.is_ok());
+    }
+
+    /// The batch records the member's position and spawning tool call. Without
+    /// them the session snapshot cannot mark it as a swarm member (v2
+    /// `role: 'member'`), and a resumed swarm renders as a stack of ordinary
+    /// subagent cards.
+    #[tokio::test]
+    async fn a_members_batch_position_is_recorded() {
+        let mgr = manager();
+        mgr.set_parent(
+            "m1",
+            "main".into(),
+            Some("call_swarm".into()),
+            Some("src/a.rs".into()),
+            Some(1),
+        )
+        .await;
+        let parent = mgr.parent_of("m1").await.expect("recorded");
+        assert_eq!(parent.swarm_index, Some(1));
+        assert_eq!(parent.parent_tool_call_id.as_deref(), Some("call_swarm"));
+        assert_eq!(parent.swarm_item.as_deref(), Some("src/a.rs"));
+    }
+
+    /// v2 `requireIdleSubagent`: ownership says *whose* member, this says
+    /// *when* it may be driven. A member still running its own turn must not be
+    /// resumed into a second concurrent turn.
+    #[tokio::test]
+    async fn a_running_member_cannot_be_resumed() {
+        let mgr = manager();
+        mgr.set_parent("busy", "main".into(), Some("c".into()), None, Some(1))
+            .await;
+        mgr.spawn_with_id("busy", "research", "Researcher")
+            .await
+            .unwrap();
+        mgr.update_state("busy", crate::subagent::types::SubagentState::Running, None)
+            .await;
+
+        let error = require_idle_subagent(&mgr, "busy")
+            .await
+            .expect_err("a running member is not resumable");
+        assert!(
+            error.contains("already running and cannot run concurrently"),
+            "{error}"
+        );
+        assert!(error.contains("busy"), "{error}");
+
+        // Once it settles, the gate lets it through — the swarm's own
+        // rate-limit retry depends on that.
+        mgr.update_state(
+            "busy",
+            crate::subagent::types::SubagentState::Completed,
+            None,
+        )
+        .await;
+        assert!(require_idle_subagent(&mgr, "busy").await.is_ok());
+    }
+
+    /// An unknown id has no instance, so nothing is running and the gate is
+    /// silent — the ownership gate is what refuses it, with a different
+    /// message.
+    #[tokio::test]
+    async fn an_unknown_id_is_not_blocked_by_the_idle_gate() {
+        let mgr = manager();
+        assert!(require_idle_subagent(&mgr, "never-existed").await.is_ok());
+    }
+}

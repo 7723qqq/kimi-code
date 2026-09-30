@@ -434,6 +434,14 @@ pub struct SubagentManager {
     /// bookkeeping: an evicted scope's entry goes with it (the persisted
     /// resume record carries the conversation, not the counters).
     usage_by_instance: Arc<Mutex<HashMap<String, crate::rpc::types::TokenUsage>>>,
+    /// Who spawned each subagent (v2 `subagentLabels`).
+    ///
+    /// Recorded at spawn time from the spawning agent's scope, and the gate
+    /// `AgentSwarm`'s `resume_agent_ids` runs before touching a member's
+    /// conversation. Session-lifetime bookkeeping, like `usage_by_instance`:
+    /// an evicted scope's entry goes with it, and the persisted resume record
+    /// carries the parent across a restart.
+    parents: Arc<RwLock<HashMap<String, SubagentParent>>>,
 }
 
 /// A foreground subagent's resume record (P55).
@@ -452,6 +460,55 @@ pub struct SubagentPersistedState {
     pub role: String,
     pub messages: Vec<crate::turn_loop::types::LLMMessage>,
     pub updated_at: i64,
+    /// The agent that spawned this subagent (v2 `subagentParentAgentId`).
+    ///
+    /// `#[serde(default)]` because records written before this field existed
+    /// carry no parent: they read back as "unowned", which the resume gate
+    /// rejects rather than silently trusting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_agent_id: Option<String>,
+    /// The tool call that spawned it, so a cold resume can re-attach the
+    /// member to its `AgentSwarm` call (v2 `parentToolCallId`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_tool_call_id: Option<String>,
+    /// The `{{item}}` value this subagent was spawned for, when it was a
+    /// swarm member (v2 `subagentSwarmItem`). Lets a later `resume_agent_ids`
+    /// call label the member with the item it is continuing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swarm_item: Option<String>,
+    /// The member's 1-based position in its batch (v2 `subagentIndex` /
+    /// `SubagentSpawnedPayload.swarmIndex`).
+    ///
+    /// This is the discriminator between a swarm member and an ordinary child:
+    /// v2 stamps `role: 'member'` on the tool frame's agent ref exactly when
+    /// the index is present (`coreEventMap.ts`), and the session snapshot's
+    /// `swarm_index` carries it across a resume. Losing it here is what makes a
+    /// restored swarm render as a pile of plain subagent cards.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swarm_index: Option<u32>,
+}
+
+/// Who spawned a subagent, and as what (v2 `subagentLabels` /
+/// `subagentParentAgentId` / `subagentSwarmItem`).
+///
+/// v2 keeps this in the session metadata as agent labels, and reads it back in
+/// three places: `SessionSwarmService.requireOwnedSubagent` refuses to resume an
+/// agent the caller does not own, `getSwarmItem` recovers a resumed member's
+/// original item, and the snapshot reports the index that separates a member
+/// from a child. All three are reproduced here — the native engine has no
+/// session metadata, so the record rides the manager.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubagentParent {
+    /// The spawning agent's id. The main agent when a tool spawned the child.
+    pub agent_id: String,
+    /// The tool call that spawned it, when the spawner knew (v2
+    /// `parentToolCallId`). The snapshot pairs it with the index so a client
+    /// can re-attach a member to its `AgentSwarm` call after a resume.
+    pub parent_tool_call_id: Option<String>,
+    /// The swarm `{{item}}` this subagent was spawned for, if any.
+    pub swarm_item: Option<String>,
+    /// The member's 1-based position in its batch; `None` for a plain child.
+    pub swarm_index: Option<u32>,
 }
 
 impl Default for SubagentManager {
@@ -728,6 +785,7 @@ worktree root the tower assigns you as your full authority scope.";
             swarm_timeout_ms: Mutex::new(None),
             scope_cache: Mutex::new(ScopeCache::from_env()),
             usage_by_instance: Arc::new(Mutex::new(HashMap::new())),
+            parents: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -937,8 +995,101 @@ worktree root the tower assigns you as your full authority scope.";
         instances.insert(id.to_string(), (instance, cancellation));
         drop(instances);
         self.revive_scope(id);
+        self.record_parent(id);
 
         Ok(id.to_string())
+    }
+
+    /// Record who spawned `id` (v2 `subagents.spawn({ callerAgentId })`).
+    ///
+    /// The spawning agent is read from the `CALLER_AGENT_ID` scope the caller
+    /// already runs in, so every spawn site is covered by construction rather
+    /// than by remembering to pass the parent at each one. A spawn outside any
+    /// agent scope (a test, a bootstrap) records nothing, and the resume gate
+    /// then treats the child as unowned.
+    fn record_parent(&self, id: &str) {
+        let Ok(agent_id) = crate::tools::CALLER_AGENT_ID.try_with(|id| id.clone()) else {
+            return;
+        };
+        if let Ok(mut parents) = self.parents.try_write() {
+            parents.insert(
+                id.to_string(),
+                SubagentParent {
+                    agent_id,
+                    parent_tool_call_id: None,
+                    swarm_item: None,
+                    swarm_index: None,
+                },
+            );
+        }
+    }
+
+    /// Who spawned `agent_id`, if the engine knows (v2 `isSubagentMeta` +
+    /// `subagentParentAgentId`).
+    ///
+    /// `None` means "not a subagent this engine spawned" — the main agent and
+    /// unknown ids both land here, and both are refused by a resume.
+    pub async fn parent_of(&self, agent_id: &str) -> Option<SubagentParent> {
+        if let Some(parent) = self.parents.read().await.get(agent_id) {
+            return Some(parent.clone());
+        }
+        // Cold recovery: the resident record went with the scope, but the
+        // persisted one still names the parent (#3478).
+        let store = self.session_store.read().await.as_ref()?.clone();
+        let stored = store.get_state("subagent_resume", agent_id).ok()??;
+        let state: SubagentPersistedState = serde_json::from_value(stored).ok()?;
+        let parent = SubagentParent {
+            agent_id: state.parent_agent_id?,
+            parent_tool_call_id: state.parent_tool_call_id,
+            swarm_item: state.swarm_item,
+            swarm_index: state.swarm_index,
+        };
+        self.parents
+            .write()
+            .await
+            .insert(agent_id.to_string(), parent.clone());
+        Some(parent)
+    }
+
+    /// Attach the swarm `{{item}}` a member was spawned for (v2
+    /// `subagentLabels(callerAgentId, { swarmItem })`), so a later
+    /// `resume_agent_ids` call can label it again.
+    pub async fn set_swarm_item(&self, agent_id: &str, item: Option<String>) {
+        let mut parents = self.parents.write().await;
+        if let Some(parent) = parents.get_mut(agent_id) {
+            parent.swarm_item = item;
+        }
+    }
+
+    /// Record a subagent's parent explicitly (v2
+    /// `subagents.spawn({ callerAgentId })`).
+    ///
+    /// [`Self::spawn_with_id`] already records the `CALLER_AGENT_ID` scope, but
+    /// that scope does not cross the scheduler's `tokio::spawn` — a caller that
+    /// resolves its member asynchronously has to name the parent itself. Overwrites
+    /// whatever the scope recorded.
+    ///
+    /// `swarm_index` is what separates a swarm member from a plain child
+    /// everywhere downstream: the journal records it, the session snapshot
+    /// reports it, and the client keys the member's card off it. `None` means
+    /// an ordinary subagent.
+    pub async fn set_parent(
+        &self,
+        agent_id: &str,
+        parent_agent_id: String,
+        parent_tool_call_id: Option<String>,
+        swarm_item: Option<String>,
+        swarm_index: Option<u32>,
+    ) {
+        self.parents.write().await.insert(
+            agent_id.to_string(),
+            SubagentParent {
+                agent_id: parent_agent_id,
+                parent_tool_call_id,
+                swarm_item,
+                swarm_index,
+            },
+        );
     }
 
     /// Spawn a new subagent and launch an autonomous background execution loop.
@@ -1253,18 +1404,7 @@ worktree root the tower assigns you as your full authority scope.";
                 // cumulative counter (the tower tools read it as `tokens`).
                 self.record_instance_usage(id, &turn_res.usage);
                 // Persist to sqlite store if available (#3478)
-                if let Some(store) = self.session_store.read().await.as_ref() {
-                    let state = SubagentPersistedState {
-                        id: id.to_string(),
-                        profile_name: type_name.clone(),
-                        role: role.clone(),
-                        messages: turn_res.messages.clone(),
-                        updated_at: chrono::Utc::now().timestamp_millis(),
-                    };
-                    if let Ok(val) = serde_json::to_value(&state) {
-                        let _ = store.put_state("subagent_resume", id, &val);
-                    }
-                }
+                self.persist_resume_state(id, &type_name, &role, turn_res.messages.clone());
                 // Completed last: the scope may be evicted right here, and
                 // only a durable resume record makes that safe.
                 self.update_state(id, SubagentState::Completed, Some(summary))
@@ -1477,18 +1617,12 @@ worktree root the tower assigns you as your full authority scope.";
                     messages: turn_res.messages.clone(),
                 },
             );
-        if let Some(store) = self.session_store.read().await.as_ref() {
-            let state = SubagentPersistedState {
-                id: id.to_string(),
-                profile_name: record.profile_name.clone(),
-                role: record.role.clone(),
-                messages: turn_res.messages.clone(),
-                updated_at: chrono::Utc::now().timestamp_millis(),
-            };
-            if let Ok(val) = serde_json::to_value(&state) {
-                let _ = store.put_state("subagent_resume", id, &val);
-            }
-        }
+        self.persist_resume_state(
+            id,
+            &record.profile_name,
+            &record.role,
+            turn_res.messages.clone(),
+        );
         {
             let mut persistent = self.persistent.write().await;
             if let Some(p) = persistent.get_mut(id) {
@@ -1586,19 +1720,47 @@ worktree root the tower assigns you as your full authority scope.";
                 },
             );
         // Persist to store if available (#3478)
-        if let Ok(guard) = self.session_store.try_read()
-            && let Some(store) = guard.as_ref()
-        {
-            let state = SubagentPersistedState {
-                id: id.to_string(),
-                profile_name: profile_name.to_string(),
-                role: role.to_string(),
-                messages,
-                updated_at: chrono::Utc::now().timestamp_millis(),
-            };
-            if let Ok(val) = serde_json::to_value(&state) {
-                let _ = store.put_state("subagent_resume", id, &val);
-            }
+        self.persist_resume_state(id, profile_name, role, messages);
+    }
+
+    /// Write a subagent's resume record, stamped with its parent (v2
+    /// `subagentLabels`).
+    ///
+    /// The single place a `subagent_resume` record is written, so the parent
+    /// cannot be forgotten at one of the call sites. Sync + `try_read` because
+    /// [`Self::set_foreground_history`] is sync; a contended lock skips the
+    /// write rather than blocking the turn.
+    fn persist_resume_state(
+        &self,
+        id: &str,
+        profile_name: &str,
+        role: &str,
+        messages: Vec<crate::turn_loop::types::LLMMessage>,
+    ) {
+        let Ok(guard) = self.session_store.try_read() else {
+            return;
+        };
+        let Some(store) = guard.as_ref() else {
+            return;
+        };
+        let parent = self
+            .parents
+            .try_read()
+            .ok()
+            .and_then(|parents| parents.get(id).cloned());
+        let state = SubagentPersistedState {
+            id: id.to_string(),
+            profile_name: profile_name.to_string(),
+            role: role.to_string(),
+            messages,
+            updated_at: chrono::Utc::now().timestamp_millis(),
+            parent_agent_id: parent.as_ref().map(|p| p.agent_id.clone()),
+            parent_tool_call_id: parent.as_ref().and_then(|p| p.parent_tool_call_id.clone()),
+            swarm_item: parent.as_ref().and_then(|p| p.swarm_item.clone()),
+            swarm_index: parent.and_then(|p| p.swarm_index),
+        };
+        if let Ok(val) = serde_json::to_value(&state) {
+            let _ = store.put_state("subagent_resume", id, &val);
         }
     }
 
@@ -1658,6 +1820,11 @@ worktree root the tower assigns you as your full authority scope.";
             );
         }
         self.revive_scope(&id);
+        // A persistent instance is owned by whoever created it, exactly like a
+        // transient one: the `Agent` tool's resume path checks that ownership
+        // (v2 `agentTool.ts` `AGENT_NOT_OWNED`), so an unrecorded persistent
+        // subagent would read as "not a subagent" and become unresumable.
+        self.record_parent(&id);
 
         Ok(id)
     }
@@ -2070,6 +2237,9 @@ worktree root the tower assigns you as your full authority scope.";
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(id);
+            // Session-lifetime bookkeeping goes with the scope; the persisted
+            // record still names the parent, so a cold resume recovers it.
+            self.parents.write().await.remove(id);
         };
         match tokio::time::timeout(timeout, removal).await {
             Ok(()) => EvictOutcome::Removed,
@@ -3502,5 +3672,109 @@ mod tests {
         assert_eq!(recorded[0]["agent_id"], "subagent-1");
         assert_eq!(recorded[0]["type"], "llm.delta");
         assert_eq!(recorded[1]["agent_id"], "other", "已有归属不被覆盖");
+    }
+
+    /// v2 `subagents.spawn({ callerAgentId })` records the parent as a label, and
+    /// `requireOwnedSubagent` reads it back to refuse a cross-parent resume.
+    /// The native engine has no labels, so `spawn_with_id` records the
+    /// `CALLER_AGENT_ID` scope the caller already runs in.
+    #[tokio::test]
+    async fn spawning_records_the_calling_agent_as_the_parent() {
+        let manager = SubagentManager::new();
+        manager
+            .register_definition(SubagentDefinition {
+                name: "coder".into(),
+                description: String::new(),
+                system_prompt: String::new(),
+                tools: vec![],
+                disallowed_tools: vec![],
+                prompt_prefix: None,
+                summary_policy: None,
+                model: None,
+            })
+            .await;
+
+        let id = crate::tools::CALLER_AGENT_ID
+            .scope("caller-a".to_string(), manager.spawn("coder", "worker"))
+            .await
+            .unwrap();
+
+        let parent = manager
+            .parent_of(&id)
+            .await
+            .expect("a spawned subagent has a parent");
+        assert_eq!(parent.agent_id, "caller-a");
+        assert_eq!(parent.swarm_item, None);
+
+        // A different caller does not inherit that ownership.
+        let other = manager.parent_of("subagent-never-spawned").await;
+        assert_eq!(other, None, "an unknown id has no parent");
+    }
+
+    /// An explicit `set_parent` wins over the ambient scope: the batch resolves
+    /// members on the scheduler's tasks, which do not inherit `CALLER_AGENT_ID`.
+    #[tokio::test]
+    async fn an_explicit_parent_overrides_the_ambient_scope() {
+        let manager = SubagentManager::new();
+        crate::tools::CALLER_AGENT_ID
+            .scope("wrong-caller".to_string(), async {
+                manager
+                    .set_parent(
+                        "member-1",
+                        "right-caller".to_string(),
+                        Some("call-9".into()),
+                        Some("item".into()),
+                        Some(3),
+                    )
+                    .await;
+            })
+            .await;
+        let parent = manager.parent_of("member-1").await.unwrap();
+        assert_eq!(parent.agent_id, "right-caller");
+        assert_eq!(parent.swarm_item.as_deref(), Some("item"));
+    }
+
+    /// The parent has to survive a restart, or a cold resume of a swarm member
+    /// would read as unowned and be refused (#3478 cold recovery).
+    #[tokio::test]
+    async fn the_parent_survives_a_cold_restart() {
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let manager = SubagentManager::with_store(store.clone());
+        manager
+            .set_parent(
+                "cold-1",
+                "main".into(),
+                Some("call-8".into()),
+                Some("src/a.rs".into()),
+                Some(2),
+            )
+            .await;
+        manager.persist_resume_state("cold-1", "coder", "worker", Vec::new());
+
+        // A fresh manager over the same store: the resident map is empty, so
+        // this can only come from the persisted record.
+        let restarted = SubagentManager::with_store(store);
+        let parent = restarted
+            .parent_of("cold-1")
+            .await
+            .expect("the persisted record names the parent");
+        assert_eq!(parent.agent_id, "main");
+        assert_eq!(parent.swarm_item.as_deref(), Some("src/a.rs"));
+    }
+
+    /// A record written before the parent existed reads back as unowned, and an
+    /// unowned id is refused rather than trusted.
+    #[tokio::test]
+    async fn a_pre_parent_record_reads_back_as_unowned() {
+        let state: SubagentPersistedState = serde_json::from_value(serde_json::json!({
+            "id": "legacy-1",
+            "profile_name": "coder",
+            "role": "worker",
+            "messages": [],
+            "updated_at": 0,
+        }))
+        .expect("an old record without the parent still deserializes");
+        assert_eq!(state.parent_agent_id, None);
+        assert_eq!(state.swarm_item, None);
     }
 }

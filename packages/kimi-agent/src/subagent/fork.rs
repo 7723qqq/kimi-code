@@ -20,6 +20,28 @@ pub const FORK_WITH_MODEL_UNAVAILABLE: &str =
     "model must match the caller's model or 'primary' when fork is enabled.";
 pub const PRIMARY_SUBAGENT_MODEL_CHOICE: &str = "primary";
 
+/// v2's refusal when the `fork` parameter arrives with the flag off
+/// (`agentSwarmTool.ts` / `agentTool.ts` `FORK_EXPERIMENTAL_UNAVAILABLE`).
+pub const FORK_EXPERIMENTAL_UNAVAILABLE: &str = "Fork is disabled for this session. Remove the `fork` parameter, or enable the \
+     subagent_fork experimental flag to use it.";
+
+/// Env name of the `subagent_fork` flag (v2 `SUBAGENT_FORK_FLAG_ENV`).
+pub const SUBAGENT_FORK_FLAG_ENV: &str = "KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK";
+
+/// Whether the `fork` parameter may be used.
+///
+/// **Deliberate divergence from v2**: v2 declares this flag with
+/// `default: false`, so upstream ships fork switched off and strips the
+/// parameter from the tool schema. Here fork has been the unconditional
+/// behaviour since the port, and reverting to v2's default would remove a
+/// working feature for every existing user. The flag is therefore honoured in
+/// the opposite direction — it is on unless explicitly disabled — which keeps
+/// the current behaviour as the default while turning the previously dead
+/// declaration into a real kill switch. Registered in ROADMAP.
+pub fn subagent_fork_enabled() -> bool {
+    crate::env::env_switch_default_on(SUBAGENT_FORK_FLAG_ENV)
+}
+
 /// Injected as a `<system-reminder>` message ahead of the task prompt in a
 /// forked subagent's inherited history (upstream `spawn.ts` `FORK_CONTEXT_NOTICE`).
 pub const FORK_CONTEXT_NOTICE: &str = "The conversation above is not your own history: it is a one-time snapshot inherited from the agent that forked you. Treat it as reference material only — you are an independent subagent, not a continuation of that agent. Do the task below directly yourself, then report the result.";
@@ -293,5 +315,36 @@ mod tests {
             fork_incompatibility(None, None, Some("my-model"), "coder", Some("my-model")),
             None
         );
+    }
+}
+
+/// The flag is on by default (a deliberate divergence from v2's `default:
+/// false`) so existing users keep fork; an explicit falsy value is the
+/// opt-out. The env is process-wide, so these run in one test to avoid
+/// cross-test interference.
+#[test]
+fn the_fork_flag_defaults_on_and_honours_an_explicit_opt_out() {
+    // Safety: single-threaded within this test; the switch is read at spawn
+    // time, and no other test in this module touches the env var.
+    unsafe {
+        std::env::remove_var(SUBAGENT_FORK_FLAG_ENV);
+        assert!(
+            crate::subagent::fork::subagent_fork_enabled(),
+            "on unless disabled"
+        );
+
+        std::env::set_var(SUBAGENT_FORK_FLAG_ENV, "0");
+        assert!(
+            !crate::subagent::fork::subagent_fork_enabled(),
+            "an explicit off disables it"
+        );
+
+        std::env::set_var(SUBAGENT_FORK_FLAG_ENV, "false");
+        assert!(!crate::subagent::fork::subagent_fork_enabled());
+
+        std::env::set_var(SUBAGENT_FORK_FLAG_ENV, "1");
+        assert!(crate::subagent::fork::subagent_fork_enabled());
+
+        std::env::remove_var(SUBAGENT_FORK_FLAG_ENV);
     }
 }

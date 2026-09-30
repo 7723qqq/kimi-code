@@ -549,7 +549,17 @@ pub fn run_turn_continued<'a>(
                 // interruption reminder only fires at a fresh turn's head.
                 previous_turn_aborted: carry_previous_turn_aborted,
             };
-            let mut result = run_turn(iter_input, callbacks).await?;
+            let mut result = match run_turn(iter_input, callbacks).await {
+                Ok(result) => result,
+                Err(error) => {
+                    // v2 closes the mode from a `TurnEnded` subscription, so it
+                    // fires however the turn ended. The normal end below is the
+                    // only other exit, and this is the one that would otherwise
+                    // leave a tool-opened swarm latched.
+                    crate::swarm::mode::exit_tool_swarm_at_turn_end(callbacks.as_ref(), &agent_id);
+                    return Err(error);
+                }
+            };
             carry_previous_turn_aborted = false;
             steps += result.steps;
             usage.accumulate(&result.usage);
@@ -1476,7 +1486,7 @@ pub fn run_turn<'a>(
                     result.stop_hook_continuation = stop_hook_continuation;
                     return Ok(result);
                 }
-                LoopStepStopReason::ToolCalls(tool_calls) => {
+                LoopStepStopReason::ToolCalls(mut tool_calls) => {
                     // Append ONE assistant message carrying all tool calls. Wire
                     // formats group an assistant turn's calls into a single
                     // message; keeping them structural (not flattened into
@@ -1491,6 +1501,40 @@ pub fn run_turn<'a>(
                         prompt_id: None,
                         origin: None,
                     });
+
+                    // v2 `AgentSwarmService`'s first gate: in swarm mode the
+                    // single-subagent `Agent` tool is refused, so the model uses
+                    // `AgentSwarm` for parallel dispatch instead. v2's hook reads
+                    // a single `event.toolCall`, so the refusal is per call: the
+                    // denial lands as that call's tool result and the rest of the
+                    // batch still runs.
+                    let mut denied_in_swarm_mode = Vec::new();
+                    tool_calls.retain(|tc| {
+                        let Some(veto) = crate::swarm::mode::veto_agent_in_swarm_mode(
+                            &input.agent_id,
+                            tc.name.as_str(),
+                        ) else {
+                            return true;
+                        };
+                        denied_in_swarm_mode.push((tc.id.clone(), veto));
+                        false
+                    });
+                    for (tool_call_id, veto) in &denied_in_swarm_mode {
+                        messages.push(LLMMessage {
+                            role: "tool".into(),
+                            content: crate::swarm::mode::veto_message(*veto),
+                            blocks: Vec::new(),
+                            tool_calls: Vec::new(),
+                            tool_call_id: Some(tool_call_id.clone()),
+                            prompt_id: None,
+                            origin: None,
+                        });
+                    }
+                    if tool_calls.is_empty() {
+                        // Nothing left to run this step: the denial is the whole
+                        // result, so hand the turn back to the model.
+                        continue;
+                    }
 
                     // Swarm gate (v2 `AgentSwarmService.onBeforeExecuteTool`):
                     // a model response may issue `AgentSwarm` only on its own.
@@ -1614,14 +1658,36 @@ pub fn run_turn<'a>(
                                     // started (or how long it ran). A
                                     // deduplicated repeat never reaches here
                                     // — it shares the original's cell.
-                                    callbacks.emit_event(serde_json::json!({
+                                    let mut started = serde_json::json!({
                                         "type": "tool.call.started",
                                         "agent_id": agent_id,
                                         "turn_id": turn_id,
                                         "tool_call_id": tc.id,
                                         "tool_name": tc.name,
                                         "args": tc.arguments,
-                                    }));
+                                    });
+                                    // v2's `RunnableToolExecution.display`: a
+                                    // host renders this instead of the raw
+                                    // argument string — the approval prompt
+                                    // reads "spawn agent swarm (3 subagents)"
+                                    // rather than dumping the JSON. Declared
+                                    // before execution so it rides this event.
+                                    // v2's `RunnableToolExecution.display`: a
+                                    // host renders this instead of the raw
+                                    // argument string — the approval prompt
+                                    // reads "spawn agent swarm (3 subagents)"
+                                    // rather than dumping the JSON. Declared
+                                    // before execution so it rides this event.
+                                    if let Some(display) =
+                                        crate::tools::agent_tool::agent_call_display(
+                                            &tc.name,
+                                            &tc.arguments,
+                                        )
+                                        && let Some(map) = started.as_object_mut()
+                                    {
+                                        map.insert("display".into(), display);
+                                    }
+                                    callbacks.emit_event(started);
                                     match callbacks.execute_tool(req).await {
                                         Ok(response) => {
                                             callbacks.emit_event(serde_json::json!({
@@ -2766,6 +2832,166 @@ mod tests {
         let turn = run_turn(input, &callbacks).await.unwrap();
         assert!(matches!(turn.stop_reason, LoopTurnStopReason::MaxSteps));
         assert_eq!(turn.steps, 2);
+    }
+
+    /// v2's `RunnableToolExecution.display` has to ride `tool.call.started` —
+    /// that is the only channel a host sees before the call runs, and the one
+    /// the approval prompt reads. The unit tests on `agent_call_display` prove
+    /// its shape; this proves it is actually emitted, which is the part that
+    /// would otherwise rest on code review alone.
+    #[tokio::test]
+    async fn a_swarm_tool_call_rides_its_display_on_the_started_event() {
+        let llm = PredictTestLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            return_tool_calls: true,
+            tool_responses: vec![ToolCall {
+                id: "tc-swarm".into(),
+                name: "AgentSwarm".into(),
+                arguments: serde_json::json!({
+                    "description": "three-way review",
+                    "prompt_template": "review {{item}}",
+                    "items": ["a", "b", "c"],
+                }),
+                extras: None,
+            }],
+        };
+
+        let server = Arc::new(RpcServer::new());
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    content: "<agent_swarm_result></agent_swarm_result>".into(),
+                    is_error: false,
+                    note: None,
+                    stop_turn: false,
+                    delivery: None,
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        let (capturing, events) = EventCapturingCallbacks::new(rpc_callbacks(server.clone()));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
+
+        let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
+            previous_turn_aborted: false,
+            turn_id: "test-swarm-display".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "go".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 1,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+            toolset: None,
+        };
+
+        let _ = run_turn(input, &callbacks).await;
+
+        let started = events
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|event| {
+                event.get("type").and_then(|t| t.as_str()) == Some("tool.call.started")
+                    && event.get("tool_name").and_then(|t| t.as_str()) == Some("AgentSwarm")
+            })
+            .cloned()
+            .expect("the swarm call announced itself");
+
+        assert_eq!(
+            started["display"]["kind"], "agent_call",
+            "the host gets a card, not the raw arguments: {started}"
+        );
+        assert_eq!(started["display"]["agent_name"], "swarm (3 subagents)");
+        assert_eq!(started["display"]["prompt"], "three-way review");
+    }
+
+    /// A tool that declares no display must not grow one — an empty
+    /// `display` would make hosts render a card for a plain tool.
+    #[tokio::test]
+    async fn a_tool_without_a_display_ships_none() {
+        let llm = PredictTestLlm {
+            system_prompt: "You are helpful.".into(),
+            model_name: "test-model".into(),
+            return_tool_calls: true,
+            tool_responses: vec![ToolCall {
+                id: "tc-plain".into(),
+                name: "WebSearch".into(),
+                arguments: serde_json::json!({ "query": "x" }),
+                extras: None,
+            }],
+        };
+
+        let server = Arc::new(RpcServer::new());
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    content: "stub".into(),
+                    is_error: false,
+                    note: None,
+                    stop_turn: false,
+                    delivery: None,
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        let (capturing, events) = EventCapturingCallbacks::new(rpc_callbacks(server.clone()));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
+
+        let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
+            previous_turn_aborted: false,
+            turn_id: "test-no-display".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "go".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 1,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+            toolset: None,
+        };
+
+        let _ = run_turn(input, &callbacks).await;
+
+        let started = events
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|event| {
+                event.get("type").and_then(|t| t.as_str()) == Some("tool.call.started")
+                    && event.get("tool_name").and_then(|t| t.as_str()) == Some("WebSearch")
+            })
+            .cloned()
+            .expect("the call announced itself");
+        assert!(
+            started.get("display").is_none(),
+            "no display key at all, not a null: {started}"
+        );
     }
 
     /// `tool.native` only reports the outcome, so a consumer could never

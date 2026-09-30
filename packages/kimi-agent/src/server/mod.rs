@@ -4901,7 +4901,23 @@ impl HttpServer {
 
                 let wire_session = format_wire_session(&session, &self.store, self.engine.as_ref());
 
-                let subagent_list = self.subagent_manager().list().await;
+                let subagent_manager = self.subagent_manager();
+                let subagent_list = subagent_manager.list().await;
+                // The swarm identity a reconnecting client needs to rebuild the
+                // members under their `AgentSwarm` call instead of drawing each
+                // one as an ordinary subagent (v2 `role: 'member'`;
+                // `snapshotSubagentSchema`). `swarm_index` is absent for a plain
+                // `Agent` child, which is exactly the discriminator, so both
+                // keys are omitted rather than nulled when there is no swarm.
+                let mut identities: std::collections::HashMap<
+                    String,
+                    crate::subagent::manager::SubagentParent,
+                > = std::collections::HashMap::new();
+                for sub in &subagent_list {
+                    if let Some(parent) = subagent_manager.parent_of(&sub.id).await {
+                        identities.insert(sub.id.clone(), parent);
+                    }
+                }
                 let subagents_val: Vec<Value> = subagent_list
                     .into_iter()
                     .map(|sub| {
@@ -4919,7 +4935,8 @@ impl HttpServer {
                             crate::subagent::types::SubagentState::Failed
                             | crate::subagent::types::SubagentState::Terminated => "failed",
                         };
-                        json!({
+                        let identity = identities.get(&sub.id);
+                        let mut entry = json!({
                             "id": sub.id,
                             "session_id": session_id,
                             "kind": "subagent",
@@ -4930,7 +4947,18 @@ impl HttpServer {
                             "created_at": chrono::DateTime::from_timestamp_millis(sub.created_at_ms as i64)
                                 .map(|dt| dt.to_rfc3339())
                                 .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
-                        })
+                        });
+                        if let Some(obj) = entry.as_object_mut() {
+                            if let Some(call_id) =
+                                identity.and_then(|p| p.parent_tool_call_id.clone())
+                            {
+                                obj.insert("parent_tool_call_id".into(), json!(call_id));
+                            }
+                            if let Some(index) = identity.and_then(|p| p.swarm_index) {
+                                obj.insert("swarm_index".into(), json!(index));
+                            }
+                        }
+                        entry
                     })
                     .collect();
 
@@ -13136,6 +13164,19 @@ max_context_size = 1000
         assert_eq!(snap_subs[0]["status"], "running");
         assert_eq!(snap_subs[0]["subagent_phase"], "working");
         assert_eq!(snap_subs[0]["subagent_type"], "research");
+        // A plain `Agent` subagent has no swarm identity, and the keys must be
+        // absent rather than null so the client's `typeof === 'number'` /
+        // `typeof === 'string'` discriminators read "not a member".
+        assert!(
+            snap_subs[0].get("swarm_index").is_none(),
+            "an ordinary subagent carries no index: {}",
+            snap_subs[0]
+        );
+        assert!(
+            snap_subs[0].get("parent_tool_call_id").is_none(),
+            "an ordinary subagent has no swarm call: {}",
+            snap_subs[0]
+        );
 
         // 7. Kill subagent via POST /api/v1/subagents/:id:kill
         let kill_res = server
@@ -13167,6 +13208,49 @@ max_context_size = 1000
         assert_eq!(snap_subs2.len(), 1);
         assert_eq!(snap_subs2[0]["status"], "failed");
         assert_eq!(snap_subs2[0]["subagent_phase"], "failed");
+
+        // 8b. A swarm member keeps its identity across the snapshot. This is
+        // the assertion the missing `swarm_index` failed: a client that
+        // resumes gets `swarm_index: undefined` for every member, cannot tell
+        // them from plain children, and re-renders the whole batch as ordinary
+        // subagent cards in the main conversation (v2 `role: 'member'`).
+        let member_id = server
+            .subagent_manager()
+            .spawn("research", "Swarm worker")
+            .await
+            .unwrap();
+        server
+            .subagent_manager()
+            .set_parent(
+                &member_id,
+                "main".into(),
+                Some("call_swarm".into()),
+                Some("src/a.rs".into()),
+                Some(2),
+            )
+            .await;
+        let snap_res3 = server
+            .handle_request(&HttpRequest {
+                method: "GET".into(),
+                path: format!("/api/v1/sessions/{sid}/snapshot"),
+                query: None,
+                headers: HashMap::new(),
+                body: Vec::new(),
+            })
+            .await;
+        assert_eq!(snap_res3.status, 200);
+        let snap_val3: Value = serde_json::from_slice(&snap_res3.body).unwrap();
+        let member = snap_val3["subagents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["id"] == member_id)
+            .expect("the member is in the snapshot roster");
+        assert_eq!(
+            member["swarm_index"], 2,
+            "the member's batch position survives: {member}"
+        );
+        assert_eq!(member["parent_tool_call_id"], "call_swarm");
 
         // 9. Capabilities check
         let meta_res = server

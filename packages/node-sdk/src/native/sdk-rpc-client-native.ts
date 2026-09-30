@@ -1147,6 +1147,62 @@ function engineSwarmTrigger(trigger: SwarmModeTrigger): 'manual' | 'task' | 'too
   return trigger === 'task' || trigger === 'tool' ? trigger : 'manual';
 }
 
+/** One subagent recovered from a tool result during a resume. */
+export interface DiscoveredSubagent {
+  readonly agentId: string;
+  readonly summary: string;
+}
+
+/**
+ * Recover the subagents a finished `Agent` / `AgentSwarm` call left behind, by
+ * reading the tool result the transcript kept.
+ *
+ * Two result shapes, and they do not overlap:
+ *
+ * - `Agent` → `formatForegroundAgentSuccess`, a plain-text envelope
+ *   (`agent_id: …` / `[summary]`). Exactly one subagent.
+ * - `AgentSwarm` → `renderSwarmResults`, an `<agent_swarm_result>` XML block
+ *   whose members are `<subagent agent_id="…" …>body</subagent>`. **N**
+ *   subagents, and the ids are `agent_id="…"` with an equals sign — the
+ *   single-agent `agent_id:` pattern never matches, which is why a resumed
+ *   swarm used to come back with no members at all and got redrawn as plain
+ *   subagent cards.
+ *
+ * The `outcome` attribute is read but not filtered on: a failed or aborted
+ * member is still a member the user was shown, and dropping it would leave a
+ * hole in the restored conversation. The body is the member's own result text,
+ * which is the same text the live swarm card showed.
+ */
+export function discoverSubagentsFromToolResult(content: string): DiscoveredSubagent[] {
+  if (content.includes('<agent_swarm_result>')) {
+    return parseSwarmResultMembers(content);
+  }
+  const agentIdMatch = /(?:^|\n)agent_id:\s*([^\s]+)\s*(?=\n|$)/.exec(content);
+  if (!agentIdMatch) return [];
+  const summaryMatch = /(?:^|\n)\[summary\]\n([\s\S]*)$/.exec(content);
+  return [{ agentId: agentIdMatch[1]!, summary: summaryMatch ? summaryMatch[1]! : '' }];
+}
+
+function parseSwarmResultMembers(content: string): DiscoveredSubagent[] {
+  const members: DiscoveredSubagent[] = [];
+  const tag = /<subagent\b([^>]*)>/g;
+  let match: RegExpExecArray | null;
+  while ((match = tag.exec(content)) !== null) {
+    const closeIndex = content.indexOf('</subagent>', tag.lastIndex);
+    if (closeIndex < 0) break;
+    const attrs = match[1] ?? '';
+    const idMatch = /\bagent_id="([^"]*)"/.exec(attrs);
+    if (idMatch && idMatch[1]) {
+      members.push({
+        agentId: idMatch[1],
+        summary: content.slice(tag.lastIndex, closeIndex),
+      });
+    }
+    tag.lastIndex = closeIndex + '</subagent>'.length;
+  }
+  return members;
+}
+
 function resolveMcpServersForEngine(servers: Record<string, StoredMcpServerConfig>): Array<{
   name: string;
   transport: string;
@@ -2602,21 +2658,16 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       if (toolCallId && calls.has(toolCallId)) {
         const callInfo = calls.get(toolCallId)!;
         const content = typeof msg.content === 'string' ? msg.content : '';
-        const agentIdMatch = /(?:^|\n)agent_id:\s*([^\s]+)\s*(?=\n|$)/.exec(content);
-        if (agentIdMatch) {
-          const childAgentId = agentIdMatch[1]!;
-          const summaryMatch = /(?:^|\n)\[summary\]\n([\s\S]*)$/.exec(content);
-          const summary = summaryMatch ? summaryMatch[1]! : '';
-
-          sessionAgentsRoster[childAgentId] = {
+        for (const found of discoverSubagentsFromToolResult(content)) {
+          sessionAgentsRoster[found.agentId] = {
             homedir: meta.workDir,
             type: 'sub',
             parentAgentId: 'main',
           };
-          discoveredSubagents.set(childAgentId, {
+          discoveredSubagents.set(found.agentId, {
             type: 'sub',
             prompt: callInfo.prompt,
-            summary,
+            summary: found.summary,
             startedAt: callInfo.startedAt,
           });
         }

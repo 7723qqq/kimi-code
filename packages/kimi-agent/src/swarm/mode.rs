@@ -192,6 +192,27 @@ pub enum SwarmVeto {
     },
     /// Exactly one `AgentSwarm`, but mixed with other tool calls.
     MixedWithOtherTools,
+    /// The `Agent` tool was called while swarm mode is active.
+    AgentDeniedInSwarmMode,
+}
+
+/// Normalize a tool name the way the dispatcher does (lowercase, strip `_`),
+/// so a gate matches the canonical spelling and the snake_case one alike.
+fn normalize_tool_name(name: &str) -> String {
+    name.to_ascii_lowercase().replace('_', "")
+}
+
+/// v2 `AgentSwarmService`'s first `onBeforeExecuteTool` gate
+/// (`swarmService.ts:41-51`): in swarm mode the single-subagent `Agent` tool is
+/// refused, and the model is pointed at `AgentSwarm` instead.
+///
+/// v2 matches the canonical `Agent` name; the dispatcher here also accepts the
+/// snake_case spelling, so both are recognised.
+pub fn veto_agent_in_swarm_mode(agent_id: &str, tool_name: &str) -> Option<SwarmVeto> {
+    if !swarm_mode_registry().is_active(agent_id) {
+        return None;
+    }
+    (normalize_tool_name(tool_name) == "agent").then_some(SwarmVeto::AgentDeniedInSwarmMode)
 }
 
 /// The gate itself: pure over the batch's tool names, so it is testable
@@ -203,10 +224,7 @@ pub enum SwarmVeto {
 pub fn veto_swarm_batch(tool_names: &[&str]) -> Option<SwarmVeto> {
     // Accept both the canonical and the snake_case spelling the tool
     // dispatcher matches on (`tools/mod.rs` lowercases and strips `_`).
-    let is_swarm = |name: &str| {
-        let normalized = name.to_ascii_lowercase().replace('_', "");
-        normalized == "agentswarm"
-    };
+    let is_swarm = |name: &str| normalize_tool_name(name) == "agentswarm";
     let swarm_count = tool_names.iter().filter(|n| is_swarm(n)).count();
     if swarm_count == 0 {
         return None;
@@ -223,7 +241,7 @@ pub fn veto_swarm_batch(tool_names: &[&str]) -> Option<SwarmVeto> {
     None
 }
 
-/// The refusal text the model sees, mirroring v2's two messages.
+/// The refusal text the model sees, mirroring v2's messages.
 pub fn veto_message(veto: SwarmVeto) -> String {
     match veto {
         SwarmVeto::MultipleSwarms { with_other_tools } => {
@@ -242,6 +260,15 @@ pub fn veto_message(veto: SwarmVeto) -> String {
         SwarmVeto::MixedWithOtherTools => {
             "AgentSwarm must be the only tool call in a model response. Retry with a single \
              AgentSwarm call by itself, then call any other tools after it returns."
+                .to_string()
+        }
+        // v2 `agentDeniedInSwarmMode` (`swarmService.ts:102`, English source in
+        // `locales/en.json` under `toolsV2.swarm`). Kept English for the same
+        // reason as the two above: it is model input, not a user-facing failure.
+        SwarmVeto::AgentDeniedInSwarmMode => {
+            "The Agent tool is not available in swarm mode. Use AgentSwarm to dispatch \
+             subagents in parallel instead. If you need a single subagent, use AgentSwarm \
+             with one item or one resume_agent_ids entry."
                 .to_string()
         }
     }
@@ -477,6 +504,56 @@ mod tests {
 
         assert!(!set_swarm_mode(&probe, agent, None));
         assert!(probe.events().is_empty(), "re-exiting emits nothing");
+    }
+
+    /// v2's first gate (`swarmService.ts:41-51`): the single-subagent `Agent`
+    /// tool is unavailable while the mode is on, and the model is pointed at
+    /// `AgentSwarm` instead.
+    #[test]
+    fn the_agent_tool_is_denied_while_swarm_mode_is_active() {
+        let agent = "swarm-deny-agent";
+        swarm_mode_registry().exit(agent);
+        assert_eq!(
+            veto_agent_in_swarm_mode(agent, "Agent"),
+            None,
+            "outside swarm mode the Agent tool is untouched"
+        );
+
+        swarm_mode_registry().enter(agent, SwarmModeTrigger::Manual);
+        assert_eq!(
+            veto_agent_in_swarm_mode(agent, "Agent"),
+            Some(SwarmVeto::AgentDeniedInSwarmMode)
+        );
+        assert_eq!(
+            veto_agent_in_swarm_mode(agent, "agent"),
+            Some(SwarmVeto::AgentDeniedInSwarmMode),
+            "the dispatcher's snake_case spelling is the same tool"
+        );
+        assert_eq!(
+            veto_agent_in_swarm_mode(agent, "AgentSwarm"),
+            None,
+            "AgentSwarm is the tool the mode wants"
+        );
+        assert_eq!(veto_agent_in_swarm_mode(agent, "Bash"), None);
+
+        let message = veto_message(SwarmVeto::AgentDeniedInSwarmMode);
+        assert!(message.contains("not available in swarm mode"), "{message}");
+        assert!(message.contains("AgentSwarm"), "{message}");
+
+        swarm_mode_registry().exit(agent);
+    }
+
+    /// A swarm another agent opened must not deny this agent's `Agent` call —
+    /// the mode is per agent.
+    #[test]
+    fn the_agent_denial_is_scoped_to_the_agent_that_entered_the_mode() {
+        let owner = "swarm-deny-owner";
+        let other = "swarm-deny-other";
+        swarm_mode_registry().exit(owner);
+        swarm_mode_registry().exit(other);
+        swarm_mode_registry().enter(owner, SwarmModeTrigger::Manual);
+        assert_eq!(veto_agent_in_swarm_mode(other, "Agent"), None);
+        swarm_mode_registry().exit(owner);
     }
 
     /// v2's exit record is `z.object({ agentId })` — carrying the trigger on it

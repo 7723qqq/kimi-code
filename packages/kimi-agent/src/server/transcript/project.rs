@@ -2335,6 +2335,7 @@ mod tests {
             parent_tool_call_id: Some("call-1".into()),
             description: None,
             run_in_background: false,
+            swarm_index: None,
         });
         match &ops[0] {
             TranscriptOperation::TaskUpsert { task } => {

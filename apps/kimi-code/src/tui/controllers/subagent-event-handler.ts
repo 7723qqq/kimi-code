@@ -507,6 +507,32 @@ export class SubAgentEventHandler {
       return;
     }
 
+    // A swarm member may announce itself before the `AgentSwarm` tool call
+    // that owns it reaches us — the core emits `tool.call.started` just before
+    // executing the tool, but the panel is only registered when that event
+    // lands, and a long batch means the members' own events (their tool calls,
+    // their deltas) arrive in the gap. Without the panel every one of those
+    // fell through to the single-subagent path below, so all of the members'
+    // tool calls and text were appended to one card next to the main
+    // transcript — the "swarm collapsed into ordinary agents" report.
+    //
+    // `swarmIndex` is the discriminator: present only on a swarm member, and
+    // it carries the batch position, so the component can size itself without
+    // the tool arguments. Creating the panel here makes the routing
+    // independent of event order.
+    if (event.swarmIndex !== undefined) {
+      const progress = this.ensureAgentSwarmProgress(
+        event.parentToolCallId,
+        this.swarmArgsFromLifecycle(event),
+      );
+      progress.registerSubagent({
+        agentId: event.subagentId,
+        swarmIndex: event.swarmIndex,
+      });
+      if (modelDisplay !== undefined) progress.setModelDisplay(modelDisplay);
+      if (effortDisplay !== undefined) progress.setEffortDisplay(effortDisplay);
+      return;
+    }
     let tc = this.getOrActivateToolComponent(event.parentToolCallId);
     tc ??= this.createStandaloneSubagentToolCall(event);
     if (tc === undefined) return;
@@ -666,6 +692,25 @@ export class SubAgentEventHandler {
     update(progress);
     this.requestRender();
     return true;
+  }
+
+  /**
+   * The best swarm arguments available from a `subagent.spawned` event alone,
+   * for the case where the panel has to be created before the owning tool call
+   * arrives. The member description already carries the swarm's own
+   * description and position (`<description> #<n> (<profile>)`), so the title
+   * and the batch position survive; the item list is not recoverable from here
+   * and the component grows from the `swarmIndex` of each member instead.
+   */
+  private swarmArgsFromLifecycle(
+    event: SubagentLifecycleEventOf<'subagent.spawned'>,
+  ): Record<string, unknown> {
+    const description = event.description ?? '';
+    const args: Record<string, unknown> = {};
+    const stripped = /\s*#\d+\s*\(.*\)$/.exec(description);
+    if (stripped) args['description'] = description.slice(0, stripped.index);
+    else if (description !== '') args['description'] = description;
+    return args;
   }
 
   private ensureAgentSwarmProgress(

@@ -9581,4 +9581,129 @@ describe('transcript fold block clicks', () => {
     expect(closed).toContain('wide-head');
     expect(driver.state.toolOutputExpanded).toBe(true);
   });
+
+  // A swarm member that CALLS A TOOL must stay inside the cluster.
+  //
+  // Captured from a real run: the core emits `tool.call.started` for
+  // `AgentSwarm` immediately before executing it, but the members' own events
+  // (their tool calls, their deltas) land in the window before the host has
+  // registered the swarm panel. In that window every member fell through to
+  // the single-subagent path and all of their tool calls and text were
+  // appended to ONE card in the main transcript, while the correct cluster
+  // panel rendered below it — the "swarm collapsed into ordinary agents"
+  // report. The panel must therefore come up from the first `subagent.spawned`
+  // that carries a `swarmIndex`, not only from the owning tool call.
+  describe('swarm members that call tools', () => {
+    const member = (
+      id: string,
+      index: number,
+      callId: string,
+    ): Array<Record<string, unknown>> => [
+      {
+        type: 'subagent.spawned',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        parentToolCallId: 'call_swarm',
+        subagentId: id,
+        subagentName: 'explore',
+        description: `three-way smoke test #${String(index)} (explore)`,
+        swarmIndex: index,
+        runInBackground: false,
+      },
+      { type: 'subagent.started', agentId: 'main', sessionId: 'ses-1', subagentId: id },
+      {
+        type: 'tool.call.started',
+        agentId: id,
+        sessionId: 'ses-1',
+        turnId: 2,
+        toolCallId: callId,
+        name: 'Bash',
+        args: { command: `echo ${String(index)}-ok` },
+      },
+      {
+        type: 'tool.result',
+        agentId: id,
+        sessionId: 'ses-1',
+        toolCallId: callId,
+        output: `${String(index)}-ok`,
+        isError: false,
+      },
+    ];
+
+    const swarmArgs = {
+      description: 'three-way smoke test',
+      prompt_template: 'run {{item}}',
+      items: ['A', 'B', 'C'],
+    };
+
+    it('routes member tool calls to the cluster when the tool call has not arrived yet', async () => {
+      const { driver } = await makeDriver();
+      const sendQueued = vi.fn();
+      // No `tool.call.started` for AgentSwarm — the out-of-order case.
+      for (const [index, id] of ['subagent-1', 'subagent-2', 'subagent-3'].entries()) {
+        for (const e of member(id as string, index + 1, `call_bash_${String(index)}`)) {
+          driver.sessionEventHandler.handleEvent(e as Event, sendQueued);
+        }
+      }
+
+      const transcript = stripSgr(renderTranscript(driver));
+      // The members' commands must not be painted into the main transcript.
+      expect(transcript).not.toContain('echo 1-ok');
+      expect(transcript).not.toContain('echo 2-ok');
+      expect(transcript).not.toContain('echo 3-ok');
+      // …and the cluster is showing all three.
+      expect(transcript).toContain('001');
+      expect(transcript).toContain('002');
+      expect(transcript).toContain('003');
+    });
+
+    it('still clusters when the tool call arrives first (the ordered case)', async () => {
+      const { driver } = await makeDriver();
+      const sendQueued = vi.fn();
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'tool.call.started',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          turnId: 1,
+          toolCallId: 'call_swarm',
+          name: 'AgentSwarm',
+          args: swarmArgs,
+        } as Event,
+        sendQueued,
+      );
+      for (const [index, id] of ['subagent-1', 'subagent-2', 'subagent-3'].entries()) {
+        for (const e of member(id as string, index + 1, `call_bash_${String(index)}`)) {
+          driver.sessionEventHandler.handleEvent(e as Event, sendQueued);
+        }
+      }
+      const transcript = stripSgr(renderTranscript(driver));
+      expect(transcript).not.toContain('echo 1-ok');
+      expect(transcript).toContain('001');
+    });
+
+    it('leaves a plain Agent subagent on the single-subagent path', async () => {
+      const { driver } = await makeDriver();
+      const sendQueued = vi.fn();
+      // No swarmIndex: an ordinary subagent, which must not grow a cluster.
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'subagent.spawned',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          parentToolCallId: 'call_agent',
+          subagentId: 'subagent-solo',
+          subagentName: 'explore',
+          runInBackground: false,
+        } as Event,
+        sendQueued,
+      );
+      driver.sessionEventHandler.handleEvent(
+        { type: 'subagent.started', agentId: 'main', sessionId: 'ses-1', subagentId: 'subagent-solo' } as Event,
+        sendQueued,
+      );
+      const transcript = stripSgr(renderTranscript(driver));
+      expect(transcript).not.toContain('Agent Swarm');
+    });
+  });
 });

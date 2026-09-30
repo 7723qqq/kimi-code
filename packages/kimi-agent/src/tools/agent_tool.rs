@@ -206,6 +206,15 @@ pub fn agent_tool_def(
         // and real callers omit it, so the schema must not claim otherwise.
         "required": ["prompt"]
     });
+    // v2 `stripSubagentForkParameter`: hide the parameter while the flag is
+    // off. On by default here, so only an explicit opt-out hits this.
+    if !crate::subagent::fork::subagent_fork_enabled()
+        && let Some(properties) = input_schema
+            .get_mut("properties")
+            .and_then(|properties| properties.as_object_mut())
+    {
+        properties.remove("fork");
+    }
     if let Some(pool) = pool
         && pool.exposes_choice()
         && let Some(properties) = input_schema
@@ -251,6 +260,56 @@ fn format_failure(agent_id: &str, profile: &str, message: &str, timed_out: bool)
 /// `mirrorAgentRun` event surface: `SubagentSpawned` / `SubagentStarted` /
 /// `SubagentCompleted` / `SubagentFailed`; the adapter maps them onto the
 /// host's event dispatcher).
+/// The `agent_call` display a host renders instead of the raw argument string
+/// (v2 `AgentTool.resolveExecution` / `AgentSwarmTool.resolveExecution`
+/// `display`).
+///
+/// The two tools that declare one upstream are `Agent` and `AgentSwarm`; v2
+/// labels a swarm by its size, which is what tells the reader the call fans out
+/// rather than spawning a single child. Other tools declare a display upstream
+/// too, but this port never constructed one for any of them — populating those
+/// is a separate, wider piece of work and is recorded as such in ROADMAP.
+///
+/// `None` means "no display", which every host already handles.
+pub fn agent_call_display(name: &str, args: &serde_json::Value) -> Option<serde_json::Value> {
+    let normalized = name.to_ascii_lowercase().replace('_', "");
+    let args = args.as_object()?;
+    let description = args
+        .get("description")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    match normalized.as_str() {
+        "agentswarm" => {
+            // v2 counts the RAW argument lengths, not the filtered ones.
+            let items = args
+                .get("items")
+                .and_then(|value| value.as_array())
+                .map_or(0, |v| v.len());
+            let resumes = args
+                .get("resume_agent_ids")
+                .and_then(|value| value.as_object())
+                .map_or(0, |map| map.len());
+            let count = items + resumes;
+            Some(serde_json::json!({
+                "kind": "agent_call",
+                "agent_name": format!("swarm ({count} subagents)"),
+                "prompt": description,
+            }))
+        }
+        "agent" => Some(serde_json::json!({
+            "kind": "agent_call",
+            "agent_name": args
+                .get("subagent_type")
+                .and_then(|value| value.as_str())
+                .unwrap_or(crate::tools::agent_tool::DEFAULT_PROFILE_NAME),
+            "prompt": args
+                .get("prompt")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default(),
+        })),
+        _ => None,
+    }
+}
 fn emit_subagent_event(callbacks: &dyn crate::callbacks::HostCallbacks, event: serde_json::Value) {
     callbacks.emit_event(event);
 }
@@ -413,6 +472,37 @@ async fn execute_resume(
     tool_call_id: Option<&str>,
 ) -> Option<ExecutableToolResult> {
     let profile_name = manager.resume_profile(resume_id).await?;
+    // v2 `agentTool.ts` guards the resume path before it does anything:
+    // `AGENT_NOT_A_SUBAGENT`, `AGENT_NOT_OWNED` and `AGENT_ALREADY_RUNNING`.
+    // Without them any agent could name any other agent's id in `resume` and
+    // drive a turn inside its conversation — the single-agent twin of the hole
+    // `AgentSwarm` had. The two guards are the same functions the swarm resume
+    // runs, so the two paths cannot drift apart.
+    let caller_agent_id = crate::tools::CALLER_AGENT_ID
+        .try_with(|id| id.clone())
+        .unwrap_or_else(|_| crate::callbacks::MAIN_AGENT_ID.to_string());
+    if let Err(error) =
+        crate::swarm::service::require_owned_subagent(manager, &caller_agent_id, resume_id).await
+    {
+        return Some(ExecutableToolResult {
+            delivery: None,
+            stop_turn: false,
+            content: error,
+            is_error: true,
+            note: None,
+            display: None,
+        });
+    }
+    if let Err(error) = crate::swarm::service::require_idle_subagent(manager, resume_id).await {
+        return Some(ExecutableToolResult {
+            delivery: None,
+            stop_turn: false,
+            content: error,
+            is_error: true,
+            note: None,
+            display: None,
+        });
+    }
     let runtime = manager.runtime().await?;
     let prompt = match required_string_arg(args, "prompt") {
         Ok(prompt) => prompt,
@@ -837,6 +927,19 @@ pub async fn execute_agent(
         string_arg(args, "subagent_type").unwrap_or_else(|| DEFAULT_PROFILE_NAME.into());
 
     if is_fork {
+        // v2 refuses `fork` outright when the flag is off. The flag defaults
+        // ON here (see `subagent::fork::subagent_fork_enabled`), so this is
+        // the opt-out path.
+        if !crate::subagent::fork::subagent_fork_enabled() {
+            return Some(ExecutableToolResult {
+                delivery: None,
+                stop_turn: false,
+                content: crate::subagent::fork::FORK_EXPERIMENTAL_UNAVAILABLE.to_string(),
+                is_error: true,
+                note: None,
+                display: None,
+            });
+        }
         let resume = string_arg(args, "resume");
         let subagent_type = string_arg(args, "subagent_type");
         let model = string_arg(args, "model");
@@ -1309,14 +1412,25 @@ mod tests {
             .await;
     }
 
+    /// Runs a block as the main agent, so any subagent it spawns records main
+    /// as its parent.
+    ///
+    /// v2 refuses to resume an agent with no owner (`AGENT_NOT_A_SUBAGENT` /
+    /// `AGENT_NOT_OWNED`), so a resume test has to own what it resumes — in
+    /// production the spawner always runs inside some agent's turn.
+    async fn as_main_agent<F: std::future::Future>(fut: F) -> F::Output {
+        crate::tools::CALLER_AGENT_ID
+            .scope(crate::callbacks::MAIN_AGENT_ID.to_string(), fut)
+            .await
+    }
+
+    /// v2 `agentTool.ts` refuses to resume an agent the caller does not own.
+    /// Without it any agent could name any other agent's id in `resume` and
+    /// drive a turn inside its conversation.
     #[tokio::test]
-    async fn resume_continues_a_completed_foreground_conversation() {
-        let recorder = Arc::new(EventRecorder::new());
-        let llm = Arc::new(RecordingPromptLlm::new(vec![
-            "first pass findings".into(),
-            "follow-up answer".into(),
-        ]));
-        let manager = manager_with_callbacks(llm.clone(), recorder.clone()).await;
+    async fn a_resume_of_another_agents_subagent_is_refused() {
+        let llm = Arc::new(RecordingPromptLlm::new(vec!["theirs".into()]));
+        let manager = manager_with(llm).await;
         manager
             .register_definition(crate::subagent::types::SubagentDefinition {
                 name: "research".into(),
@@ -1329,40 +1443,145 @@ mod tests {
                 model: None,
             })
             .await;
-        let first = execute_agent(
-            &manager,
-            None,
-            &serde_json::json!({ "subagent_type": "research", "prompt": "go" }),
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        .expect("first turn runs natively");
-        assert!(!first.is_error);
-        let agent_id = recorder.events.lock().unwrap()[0]["subagent_id"]
-            .as_str()
-            .unwrap()
-            .to_string();
+        // A subagent belonging to somebody else.
+        let foreign = crate::tools::CALLER_AGENT_ID
+            .scope(
+                "other-agent".to_string(),
+                manager.spawn("research", "Theirs"),
+            )
+            .await
+            .unwrap();
+        let _ = manager
+            .run_foreground_turn(&foreign, "their work", None)
+            .await;
 
-        let second = execute_agent(
+        // This agent tries to resume it.
+        let result = as_main_agent(execute_resume(
             &manager,
             None,
-            &serde_json::json!({ "resume": agent_id, "prompt": "continue" }),
+            &serde_json::json!({ "prompt": "continue" }),
+            &foreign,
             None,
             None,
             None,
-            None,
-        )
+        ))
         .await
-        .expect("native resume for a held conversation");
-        assert!(!second.is_error);
-        assert!(second.content.contains("follow-up answer"));
-        assert_eq!(llm.call_count(), 2);
-        // The resume turn saw the full prior conversation.
-        let second_messages = llm.prompts.lock().unwrap().len();
-        assert_eq!(second_messages, 2);
+        .expect("the tool handled the call");
+
+        assert!(result.is_error, "a cross-parent resume is refused");
+        assert!(
+            result
+                .content
+                .contains("does not belong to this parent agent"),
+            "{}",
+            result.content
+        );
+    }
+
+    /// v2 `agentTool.ts`: an agent already running its own turn is not
+    /// resumable into a second concurrent turn.
+    #[tokio::test]
+    async fn a_resume_of_a_running_agent_is_refused() {
+        let llm = Arc::new(RecordingPromptLlm::new(vec!["busy".into()]));
+        let manager = manager_with(llm).await;
+        manager
+            .register_definition(crate::subagent::types::SubagentDefinition {
+                name: "research".into(),
+                description: "d".into(),
+                system_prompt: "You research.".into(),
+                tools: vec![],
+                disallowed_tools: vec![],
+                prompt_prefix: None,
+                summary_policy: None,
+                model: None,
+            })
+            .await;
+        let id = as_main_agent(manager.spawn("research", "Busy"))
+            .await
+            .unwrap();
+        manager
+            .update_state(&id, crate::subagent::types::SubagentState::Running, None)
+            .await;
+
+        let result = as_main_agent(execute_resume(
+            &manager,
+            None,
+            &serde_json::json!({ "prompt": "continue" }),
+            &id,
+            None,
+            None,
+            None,
+        ))
+        .await
+        .expect("the tool handled the call");
+
+        assert!(result.is_error);
+        assert!(
+            result
+                .content
+                .contains("already running and cannot run concurrently"),
+            "{}",
+            result.content
+        );
+    }
+
+    #[tokio::test]
+    async fn resume_continues_a_completed_foreground_conversation() {
+        let _owned = as_main_agent(async {
+            let recorder = Arc::new(EventRecorder::new());
+            let llm = Arc::new(RecordingPromptLlm::new(vec![
+                "first pass findings".into(),
+                "follow-up answer".into(),
+            ]));
+            let manager = manager_with_callbacks(llm.clone(), recorder.clone()).await;
+            manager
+                .register_definition(crate::subagent::types::SubagentDefinition {
+                    name: "research".into(),
+                    description: "d".into(),
+                    system_prompt: "You research.".into(),
+                    tools: vec![],
+                    disallowed_tools: vec![],
+                    prompt_prefix: None,
+                    summary_policy: None,
+                    model: None,
+                })
+                .await;
+            let first = execute_agent(
+                &manager,
+                None,
+                &serde_json::json!({ "subagent_type": "research", "prompt": "go" }),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("first turn runs natively");
+            assert!(!first.is_error);
+            let agent_id = recorder.events.lock().unwrap()[0]["subagent_id"]
+                .as_str()
+                .unwrap()
+                .to_string();
+
+            let second = execute_agent(
+                &manager,
+                None,
+                &serde_json::json!({ "resume": agent_id, "prompt": "continue" }),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("native resume for a held conversation");
+            assert!(!second.is_error);
+            assert!(second.content.contains("follow-up answer"));
+            assert_eq!(llm.call_count(), 2);
+            // The resume turn saw the full prior conversation.
+            let second_messages = llm.prompts.lock().unwrap().len();
+            assert_eq!(second_messages, 2);
+        })
+        .await;
     }
 
     #[tokio::test]
@@ -1677,6 +1896,7 @@ mod tests {
     /// detached, reporting one `subagent.completed`.
     #[tokio::test]
     async fn background_resume_runs_detached_and_reports_once() {
+        let _owned = as_main_agent(async {
         let recorder = Arc::new(EventRecorder::new());
         let llm = Arc::new(RecordingPromptLlm::new(vec![
             "first pass findings".into(),
@@ -1772,6 +1992,7 @@ mod tests {
             "exactly one completed event: {events:?}"
         );
         assert_eq!(completed[0]["result_summary"], "follow-up answer");
+        }).await;
     }
 
     /// The regression for the round-1 review P1-1: background resume tasks
@@ -1781,6 +2002,7 @@ mod tests {
     /// silently swallowed no-op. Both resumes here must actually run.
     #[tokio::test]
     async fn second_background_resume_of_the_same_agent_still_runs() {
+        let _owned = as_main_agent(async {
         let recorder = Arc::new(EventRecorder::new());
         let llm = Arc::new(RecordingPromptLlm::new(vec![
             "first pass findings".into(),
@@ -1916,6 +2138,7 @@ mod tests {
         );
         assert_eq!(completed[0]["result_summary"], "second pass answer");
         assert_eq!(completed[1]["result_summary"], "third pass answer");
+        }).await;
     }
 
     /// A finish_reason of `length` maps to a MaxTokens stop — v2 fails the
@@ -1987,67 +2210,70 @@ mod tests {
 
     #[tokio::test]
     async fn resume_turns_distill_under_the_same_policy() {
-        let recorder = Arc::new(EventRecorder::new());
-        let llm = Arc::new(RecordingPromptLlm::new(vec![
-            "first pass summary that is long enough".into(),
-            "short".into(),
-            "follow-up answer with plenty of detail".into(),
-        ]));
-        let manager = manager_with_callbacks(llm.clone(), recorder.clone()).await;
-        manager
-            .register_definition(crate::subagent::types::SubagentDefinition {
-                name: "research".into(),
-                description: "d".into(),
-                system_prompt: "You research.".into(),
-                tools: vec![],
-                disallowed_tools: vec![],
-                prompt_prefix: None,
-                summary_policy: Some(SummaryPolicy {
-                    min_chars: 20,
-                    continuation_prompt: "Summarize fully.".into(),
-                    retries: 1,
-                }),
-                model: None,
-            })
-            .await;
-        let first = execute_agent(
-            &manager,
-            None,
-            &serde_json::json!({ "subagent_type": "research", "prompt": "go" }),
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        .expect("first turn runs natively");
-        assert!(!first.is_error);
-        let agent_id = recorder.events.lock().unwrap()[0]["subagent_id"]
-            .as_str()
-            .unwrap()
-            .to_string();
+        let _owned = as_main_agent(async {
+            let recorder = Arc::new(EventRecorder::new());
+            let llm = Arc::new(RecordingPromptLlm::new(vec![
+                "first pass summary that is long enough".into(),
+                "short".into(),
+                "follow-up answer with plenty of detail".into(),
+            ]));
+            let manager = manager_with_callbacks(llm.clone(), recorder.clone()).await;
+            manager
+                .register_definition(crate::subagent::types::SubagentDefinition {
+                    name: "research".into(),
+                    description: "d".into(),
+                    system_prompt: "You research.".into(),
+                    tools: vec![],
+                    disallowed_tools: vec![],
+                    prompt_prefix: None,
+                    summary_policy: Some(SummaryPolicy {
+                        min_chars: 20,
+                        continuation_prompt: "Summarize fully.".into(),
+                        retries: 1,
+                    }),
+                    model: None,
+                })
+                .await;
+            let first = execute_agent(
+                &manager,
+                None,
+                &serde_json::json!({ "subagent_type": "research", "prompt": "go" }),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("first turn runs natively");
+            assert!(!first.is_error);
+            let agent_id = recorder.events.lock().unwrap()[0]["subagent_id"]
+                .as_str()
+                .unwrap()
+                .to_string();
 
-        let second = execute_agent(
-            &manager,
-            None,
-            &serde_json::json!({ "resume": agent_id, "prompt": "more" }),
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        .expect("resume runs natively");
-        assert!(!second.is_error);
-        // three LLM calls: initial, resume turn, distillation continuation
-        assert_eq!(llm.call_count(), 3);
-        assert!(
-            second
-                .content
-                .contains("follow-up answer with plenty of detail"),
-            "the distilled continuation becomes the resume summary: {}",
-            second.content
-        );
+            let second = execute_agent(
+                &manager,
+                None,
+                &serde_json::json!({ "resume": agent_id, "prompt": "more" }),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("resume runs natively");
+            assert!(!second.is_error);
+            // three LLM calls: initial, resume turn, distillation continuation
+            assert_eq!(llm.call_count(), 3);
+            assert!(
+                second
+                    .content
+                    .contains("follow-up answer with plenty of detail"),
+                "the distilled continuation becomes the resume summary: {}",
+                second.content
+            );
+        })
+        .await;
     }
 
     #[test]
@@ -3176,5 +3402,75 @@ mod tests {
                 .and_then(|properties| properties.get("model"))
                 .is_none()
         );
+    }
+}
+
+#[cfg(test)]
+mod display_tests {
+    use super::agent_call_display;
+    use serde_json::json;
+
+    /// v2 labels a swarm by its size, which is what tells a reader the call
+    /// fans out rather than spawning one child.
+    #[test]
+    fn a_swarm_display_names_its_size() {
+        let display = agent_call_display(
+            "AgentSwarm",
+            &json!({
+                "description": "three-way review",
+                "prompt_template": "review {{item}}",
+                "items": ["a", "b", "c"],
+            }),
+        )
+        .expect("AgentSwarm declares a display");
+        assert_eq!(display["kind"], "agent_call");
+        assert_eq!(display["agent_name"], "swarm (3 subagents)");
+        assert_eq!(display["prompt"], "three-way review");
+    }
+
+    /// Items and resumes add up — a mixed call is still one swarm.
+    #[test]
+    fn a_swarm_display_counts_items_and_resumes() {
+        let display = agent_call_display(
+            "agent_swarm",
+            &json!({
+                "description": "mixed",
+                "items": ["a", "b"],
+                "resume_agent_ids": { "sub-1": "continue" },
+            }),
+        )
+        .expect("the snake_case spelling is the same tool");
+        assert_eq!(display["agent_name"], "swarm (3 subagents)");
+    }
+
+    #[test]
+    fn a_single_agent_display_uses_the_profile_and_prompt() {
+        let display = agent_call_display(
+            "Agent",
+            &json!({ "prompt": "investigate this", "subagent_type": "research" }),
+        )
+        .expect("Agent declares a display");
+        assert_eq!(display["agent_name"], "research");
+        assert_eq!(display["prompt"], "investigate this");
+    }
+
+    /// v2 counts the RAW argument lengths, so a malformed call still reports
+    /// the size the model asked for.
+    #[test]
+    fn the_count_is_the_raw_argument_length() {
+        let display = agent_call_display(
+            "AgentSwarm",
+            &json!({ "description": "d", "items": ["a", "", "b"] }),
+        )
+        .expect("display");
+        assert_eq!(display["agent_name"], "swarm (3 subagents)");
+    }
+
+    /// Tools that declare no display must not grow one.
+    #[test]
+    fn other_tools_get_no_display() {
+        assert!(agent_call_display("Bash", &json!({ "command": "ls" })).is_none());
+        assert!(agent_call_display("Read", &json!({ "path": "a" })).is_none());
+        assert!(agent_call_display("AgentSwarm", &json!("not an object")).is_none());
     }
 }

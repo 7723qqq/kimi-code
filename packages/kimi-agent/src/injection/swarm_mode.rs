@@ -87,8 +87,19 @@ pub fn register_swarm_mode_injection(
 /// The last swarm-mode state disclosed in the conversation history (v2
 /// `renderedState`): the enter/exit reminders must fire on a change only,
 /// not on every step.
+///
+/// v2 walks history for a message whose `origin.kind === 'injection'` and reads
+/// the variant off it. The native engine does not model origin variants
+/// (`injection/mod.rs`), so the structural equivalent is
+/// [`crate::injection::is_system_reminder`] — the same test
+/// `systemReminderContent` does. Matching on content alone would let a user
+/// message or a tool result containing `## Swarm Mode` suppress a real
+/// announcement.
 pub fn scan_swarm_mode_baseline(messages: &[LLMMessage]) -> Option<bool> {
     for message in messages.iter().rev() {
+        if !crate::injection::is_system_reminder(&message.content) {
+            continue;
+        }
         let content = message.content.as_str();
         if content.contains(ENTER_MARKER) {
             return Some(true);
@@ -200,9 +211,11 @@ mod tests {
 
     #[test]
     fn scan_baseline_reads_the_last_disclosure() {
+        // Injected reminders reach history already wrapped, so the scan sees the
+        // `<system-reminder>` envelope the injection layer writes.
         let msg = |content: &str| LLMMessage {
             role: "user".into(),
-            content: content.to_string(),
+            content: wrap_system_reminder(content),
             ..Default::default()
         };
         assert_eq!(scan_swarm_mode_baseline(&[]), None);
@@ -221,6 +234,35 @@ mod tests {
                 msg(SWARM_MODE_EXIT_REMINDER)
             ]),
             Some(false)
+        );
+    }
+
+    /// A user message (or a tool result) that merely quotes the reminder's
+    /// heading must not be mistaken for a disclosure: doing so would suppress
+    /// the real enter announcement. v2 gates on `origin.kind === 'injection'`;
+    /// here that is the `<system-reminder>` envelope.
+    #[test]
+    fn scan_baseline_ignores_content_outside_an_injection() {
+        let quoted = LLMMessage {
+            role: "user".into(),
+            content: format!("why does the prompt say \"{ENTER_MARKER}\"?"),
+            ..Default::default()
+        };
+        assert_eq!(
+            scan_swarm_mode_baseline(std::slice::from_ref(&quoted)),
+            None
+        );
+
+        // …and a real disclosure behind it still wins.
+        let injected = LLMMessage {
+            role: "user".into(),
+            content: wrap_system_reminder(SWARM_MODE_ENTER_REMINDER),
+            ..Default::default()
+        };
+        assert_eq!(
+            scan_swarm_mode_baseline(&[quoted, injected]),
+            Some(true),
+            "the injection is the disclosure; the quoted text is not"
         );
     }
 }

@@ -179,6 +179,16 @@ pub enum EngineEvent {
         description: Option<String>,
         #[serde(default)]
         run_in_background: bool,
+        /// The member's 1-based position in its batch (v2
+        /// `SubagentSpawnedPayload.swarmIndex`).
+        ///
+        /// Serde drops unknown fields, so leaving this out of the record loses
+        /// the swarm identity for everything rebuilt from the journal: the
+        /// transcript projector cannot tell a member from a plain child, and a
+        /// resumed swarm renders as a stack of ordinary subagent cards. `None`
+        /// is an ordinary `Agent` subagent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        swarm_index: Option<u32>,
     },
     #[serde(rename = "subagent.completed")]
     SubagentCompleted {
@@ -257,5 +267,66 @@ impl EngineEvent {
             EngineEvent::Custom(value) => value.get("agent_id").and_then(|v| v.as_str()),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The swarm discriminator has to survive the journal round-trip. Serde
+    /// drops unknown fields, so a record that omits `swarm_index` silently
+    /// degrades every swarm member into an ordinary child — which is exactly
+    /// how a restored swarm ended up rendered as a pile of plain subagent cards.
+    #[test]
+    fn a_swarm_members_index_survives_the_journal() {
+        let raw = serde_json::json!({
+            "type": "subagent.spawned",
+            "subagent_id": "subagent-1",
+            "subagent_name": "coder",
+            "parent_tool_call_id": "call_swarm",
+            "description": "work on a",
+            "run_in_background": false,
+            "swarm_index": 1,
+        });
+        let event = EngineEvent::from_json(raw.clone());
+        assert!(
+            matches!(
+                event,
+                EngineEvent::SubagentSpawned {
+                    swarm_index: Some(1),
+                    ..
+                }
+            ),
+            "the index is parsed, not dropped: {event:?}"
+        );
+        // …and it is still there when the record is written back out.
+        let round_tripped = event.to_json();
+        assert_eq!(round_tripped["swarm_index"], 1, "{round_tripped}");
+    }
+
+    /// An ordinary `Agent` subagent has no index, and the field must stay
+    /// absent rather than become `null` — the client's discriminator is
+    /// `typeof swarm_index === 'number'`.
+    #[test]
+    fn a_plain_subagent_records_no_index() {
+        let raw = serde_json::json!({
+            "type": "subagent.spawned",
+            "subagent_id": "subagent-9",
+            "run_in_background": false,
+        });
+        let event = EngineEvent::from_json(raw);
+        assert!(matches!(
+            event,
+            EngineEvent::SubagentSpawned {
+                swarm_index: None,
+                ..
+            }
+        ));
+        let written = event.to_json();
+        assert!(
+            written.get("swarm_index").is_none(),
+            "omitted, not null: {written}"
+        );
     }
 }
