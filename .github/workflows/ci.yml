@@ -311,6 +311,13 @@ jobs:
       # Locale consistency: en/zh key parity, placeholder validity, and JSON
       # freshness (regenerate, then fail if tracked JSON drifted from the TS sources).
       - run: bun scripts/check-locale-keys.mjs
+      # Orphan locale keys, catalog-wide. `check-engine-i18n-parity.mjs` refuses an
+      # unused `engine.*` key, but the engine only ever names `engine.*` — the rest
+      # of the embedded catalog is reached by the *host* through the napi
+      # `translate` binding, so an engine-only rule is blind to most of it. This
+      # scans both consumers and ratchets: a newly unreachable key fails, and so
+      # does a recorded one that has become reachable again.
+      - run: bun scripts/check-locale-orphans.mjs
       - run: bun scripts/check-locale-placeholders.cjs
       - run: bun scripts/generate-locale-json.cjs && git diff --exit-code -- '**/locales/*.json'
 

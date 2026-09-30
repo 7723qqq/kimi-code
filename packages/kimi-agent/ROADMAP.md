@@ -4632,6 +4632,44 @@ key、`i18n_params!` 绑定名要与模板 `{{placeholder}}` 逐字一致）。
 内嵌目录**判绿——正好是 `native/catalog.rs` 头部注释承诺「malformed JSON 到不了构建」
 的反面。
 
+#### 6.18.5 目录级孤儿键：826 / 2429 不可达，且此前无门禁（2026-10-01 审计新增）
+
+§6.18 记录的是 `engine.*` 那一层：158 个叶子、196 处 `LocalizedText`、`check-engine-i18n-parity.mjs`
+三条规则（键存在 / `engine.*` 无孤儿 / `i18n_params!` 与模板逐字一致）。**但那三条只覆盖 `engine.*`**，
+而 `packages/kimi-agent/src/locales/en.json` 实际有 **23 个顶层命名空间**。
+
+关键在于**非 `engine` 的部分不是死重，而是活的宿主接口**：§6.18.1 把 i18n napi 表面收窄到
+`translate(key, params)`，而 `apps/kimi-code/src/i18n/index.ts:131` 与
+`packages/i18n-runtime/src/i18n.ts:182` 的 `t()` 在原生引擎在场时正是调它；
+`packages/kimi-agent/test/translation.test.ts` 用 `common.ok` / `tui.statusMessages.*` 证明了这条路径。
+所以孤儿判定必须**同时看两个消费方**，只扫 Rust 的 `LocalizedText` 对大部分目录是**结构性失明**——
+这正是无人引用的条目能在那里安静积累的原因。
+
+**测量结果（`scripts/check-locale-orphans.mjs`，扫描 246 个 Rust 文件 + 1912 个 TS 文件）：
+2429 个叶子中 826 个两侧都不可达**，按命名空间：`tui.*` 228、`toolsV2.*` 179、`v2Errors.*` 139、
+`errors.*` 60、`svc.*` 41、`shell.*` 34、`v2Goal.*` 29、`plugin.*` 25、`v2Mcp.*` 18、
+`background.*` 14、`tools.*` 13、`v2Fs.*` 9、`cli.*` 9、`flags.*` 6、`v2Storage.*` 5、
+`v2Wire.*` 4、`serverErrors.*` 3、其余 6 个命名空间各 1–2 个。此前记录的「19 个死 locale 键」只是
+`v2Goal` / `background` / `flags` 三族的抽样，实际规模大一个数量级。
+
+**处置：不删除，改为双向棘轮。** 判可达的模型是**过度近似**（任何 Rust 字符串字面量、任何
+`t('…')` 实参都算可达），所以它可能**漏报**孤儿、但不会**误报**孤儿——门禁报出来的必然是真孤儿。
+但过度近似看不见运行时拼出来的 key，也看不见未来插件宿主面会引用的 key，**自动删除 826 条本地化文案
+是不安全的**（不可逆、且可能删掉仍在用的译文）。因此把债记进
+`scripts/locale-orphan-allowlist.json`，门禁双向收紧：
+
+- 现在不可达、但不在名单里 → **失败**（债不能增长）；
+- 名单里、但现在已可达 → **失败**（有东西被接线了，名单必须收缩）。
+
+两者都用 `bun scripts/check-locale-orphans.mjs --update` 重录。该门禁已进 CI lint job。
+门禁本身做过变异测试：注入一个从未被引用的假键被抓到（826 → 827）；把一个已记录的孤儿变得可达
+（加一处 `t()` 调用）也被抓到（报 `resolved` 并要求重录）。
+
+**待办**：826 条需要逐族判断「接线还是删除」。`v2*` / `toolsV2.*` / `v2Errors.*` 三族（347 条）
+对应的是 v2 的错误域与工具文案，Rust 侧目前对 goal / 工具错误多用**硬编码英文**（如
+`goal_tools.rs` 的 `Invalid UpdateGoal arguments: …`），这与「单一英文来源在目录里」的 §6.18
+结论相抵——**这是一条独立的、值得单独立项的工作**，不在本轮范围内。
+
 ### 6.21 2026-09-29 v2 步数记账：双计数器语义，与重试计费差异（**记录，不改**）
 
 本条是「v2 → Rust 行为对照」的一轮结果。结论先写：**不改代码**。两次中途结论被自查

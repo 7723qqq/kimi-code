@@ -47,6 +47,7 @@
     "clean": "bun run --workspaces clean",
     "generate:locale-json": "bun scripts/generate-locale-json.cjs",
     "check:locale-keys": "bun scripts/check-locale-keys.mjs",
+    "check:locale-orphans": "bun scripts/check-locale-orphans.mjs",
     "scan:hardcoded": "bun scripts/scan-hardcoded-v2.mjs",
     "check:no-legacy-engine": "bun scripts/check-no-legacy-engine.mjs",
     "check:parity": "bun scripts/scan-parity.mjs",
