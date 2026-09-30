@@ -243,14 +243,21 @@ try {
 const recordedSet = new Set(recorded);
 
 const added = orphans.filter((key) => !recordedSet.has(key));
-const resolved = recorded.filter((key) => !orphanSet.has(key));
+const recordedNoLongerOrphans = recorded.filter((key) => !orphanSet.has(key));
+// A recorded key can stop being an orphan two ways: something got wired up to it
+// (still in the catalog, now reachable — good news), or it was deleted from the
+// catalog (good news too, but worth naming, since deletion is the intended way
+// to work the debt down).
+const catalogSet = new Set(allKeys);
+const resolved = recordedNoLongerOrphans.filter((key) => catalogSet.has(key));
+const deleted = recordedNoLongerOrphans.filter((key) => !catalogSet.has(key));
 
 console.log(
   `check-locale-orphans: ${allKeys.length} catalog keys, ${orphans.length} unreachable, ` +
     `${recorded.length} recorded (scanned ${rustFiles} Rust files, ${tsFiles} TypeScript files)`,
 );
 
-if (added.length > 0 || resolved.length > 0) {
+if (added.length > 0 || resolved.length > 0 || deleted.length > 0) {
   if (added.length > 0) {
     console.error(`\n✗ ${added.length} NEW unreachable key(s) — the debt grew:`);
     for (const key of added) console.error(`  + ${key}`);
@@ -261,10 +268,18 @@ if (added.length > 0 || resolved.length > 0) {
   }
   if (resolved.length > 0) {
     console.error(`\n✗ ${resolved.length} recorded key(s) are reachable again:`);
-    for (const key of resolved) console.error(`  - ${key}`);
+    for (const key of resolved) console.error(`  ~ ${key}`);
     console.error(
-      '\n  Good news — something got wired up. Re-record with\n' +
+      '\n  Something got wired up. Re-record with\n' +
         '  `bun scripts/check-locale-orphans.mjs --update` so the ratchet tightens.',
+    );
+  }
+  if (deleted.length > 0) {
+    console.error(`\n✗ ${deleted.length} recorded key(s) are gone from the catalog:`);
+    for (const key of deleted) console.error(`  - ${key}`);
+    console.error(
+      '\n  The debt was worked down. Re-record with\n' +
+        '  `bun scripts/check-locale-orphans.mjs --update`.',
     );
   }
   console.error(`\n  Current debt by namespace: ${namespaceSummary}`);

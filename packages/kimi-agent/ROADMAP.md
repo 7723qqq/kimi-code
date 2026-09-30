@@ -4682,11 +4682,9 @@ key、`i18n_params!` 绑定名要与模板 `{{placeholder}}` 逐字一致）。
 测试：注入一个从未被引用的假键被抓到；把一个已记录的孤儿变得可达（加一处 `t()` 调用）也被抓到
 （报 `resolved`）；6 个已知在用的键正确判为非孤儿。
 
-**待办**：758 条需逐族定论。其中 71 键（8 个零引用命名空间）证据最硬，可先删；另外**不要**把
-`goal_tools.rs` / `create_goal.rs` / `get_goal.rs` 里的硬编码英文当作债——那些是**模型可见**的工具
-结果文案，v2 侧同样硬编码英文（`features/goal/errors.ts` 的 `GoalErrors.info[].action`），而 §6.18 的
-「单一英文来源」约束的是**用户可见**的引擎文案（`engine.*`，如 `engine.permission.deniedByUserRule`）。
-把模型可见文案也搬进目录反而会**偏离 v2**。
+**待办**：758 → **687**。已删掉证据最硬的一批：8 个在 v2 基线上**任何形式都零引用**、今天同样只出现在目录定义与本门禁产物里的命名空间（`v2Goal` `v2Mcp` `v2Auth` `v2Loop` `v2Fs` `v2Storage` `v2Wire` `v2Model`，共 71 键，en + zh）。删除前确认过两件事：`@moonshot-ai/i18n-catalog` 是 **`private: true` 未发布**包，删键不构成对外破坏性变更；文案本身仍可从本仓 git 历史（`ecad4136d9^`）取回。删后目录从 2429 降到 2358，`generate-locale-json.cjs` 重新生成后 10 个产物里只有引擎那两个 JSON 变化，其余 app 的 locale 源不同源、未受影响；`check:locale-keys` / `check:locale-placeholders` / `check:engine-i18n` 全绿。棘轮为此区分了两种收敛：**键被接线**（仍在目录、变可达）与**键被删除**（已不在目录），两者都要求重录。剩余 687 条需逐族定论；证据次强的一类是那 27 条"随退役的 TS 引擎一起死"的键（`v2Errors.*` 等），删除同样安全但需按基线引用文件逐条确认。
+
+**另不要**把 `goal_tools.rs` / `create_goal.rs` / `get_goal.rs` 里的硬编码英文当作债——那些是**模型可见**的工具结果文案，v2 侧同样硬编码英文（`features/goal/errors.ts` 的 `GoalErrors.info[].action`），而 §6.18 的「单一英文来源」约束的是**用户可见**的引擎文案（`engine.*`，如 `engine.permission.deniedByUserRule`）。把模型可见文案也搬进目录反而会**偏离 v2**。
 
 ### 6.21 2026-09-29 v2 步数记账：双计数器语义，与重试计费差异（**记录，不改**）
 
