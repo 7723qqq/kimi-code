@@ -212,6 +212,30 @@ impl ToolPolicyFilter {
         }
         !self.disallowed.iter().any(|pattern| matches(pattern))
     }
+
+    /// Whether a tool *call* from this profile must be refused.
+    ///
+    /// Mirrors the global switch's
+    /// [`crate::tools::tool_policy::ToolsFilter::blocks_call`] and its one
+    /// deliberate divergence: enforcement is case-insensitive for built-ins,
+    /// because the engine dispatches on the lowercase wire name while a
+    /// profile table spells them `Read`. So a profile that excludes `Bash`
+    /// refuses it even when the subagent's model calls it by the wire name
+    /// from memory — the advertised table is a hint to the model, not a
+    /// boundary around it.
+    pub fn blocks_call(&self, tool_name: &str) -> bool {
+        let matches = |pattern: &str| {
+            if pattern.starts_with("mcp__") {
+                crate::tools::tool_policy::matches_tool_pattern(pattern, tool_name)
+            } else {
+                pattern.eq_ignore_ascii_case(tool_name)
+            }
+        };
+        if !self.allowlist.is_empty() {
+            return !self.allowlist.iter().any(|pattern| matches(pattern));
+        }
+        self.disallowed.iter().any(|pattern| matches(pattern))
+    }
 }
 
 /// The host's tool table narrowed by a subagent profile's policy.
@@ -269,6 +293,26 @@ impl crate::callbacks::HostCallbacks for ToolFilterCallbacks {
         request: crate::rpc::types::ToolExecuteRequest,
     ) -> crate::rpc::types::BoxFuture<'static, Result<crate::rpc::types::ToolExecuteResponse, String>>
     {
+        // The profile's advertised table is not a boundary. A subagent's model
+        // can name a tool the profile excludes — from its prompt, from a
+        // remembered name, from a guess — and the shared `NativeToolset` only
+        // re-checks the *global* `[tools]` switch before a native call runs
+        // (`tools/mod.rs:1333-1341`). Without this second check a read-only
+        // profile that excludes `Bash` is only as safe as the model's
+        // cooperation, which is the one thing a profile exists not to depend
+        // on.
+        let blocked_name = request.tool_name.clone();
+        if self.filter.blocks_call(&blocked_name) {
+            return Box::pin(async move {
+                Ok(crate::rpc::types::ToolExecuteResponse {
+                    content: format!("Tool \"{blocked_name}\" is not available to this agent."),
+                    is_error: true,
+                    note: None,
+                    stop_turn: false,
+                    delivery: None,
+                })
+            });
+        }
         self.inner.execute_tool(request)
     }
 
@@ -3672,6 +3716,105 @@ mod tests {
         assert_eq!(recorded[0]["agent_id"], "subagent-1");
         assert_eq!(recorded[0]["type"], "llm.delta");
         assert_eq!(recorded[1]["agent_id"], "other", "已有归属不被覆盖");
+    }
+
+    /// The profile's tool table is a hint to the model, not a boundary: a
+    /// subagent can name a tool it was never offered. The wrapper therefore
+    /// re-checks the profile on the call path, the same way the global
+    /// `[tools]` switch is re-checked in the toolset before a native call.
+    ///
+    /// The inner mock answers `Err("Not used")`, so an `Err` here proves the
+    /// call reached it and an `Ok` proves the wrapper refused first.
+    #[tokio::test]
+    async fn a_profile_refuses_a_tool_call_it_never_advertised() {
+        use crate::callbacks::HostCallbacks;
+
+        struct Inner;
+        impl crate::callbacks::HostCallbacks for Inner {
+            fn llm_chat(
+                &self,
+                _req: crate::rpc::types::LlmChatRequest,
+            ) -> futures_util::future::BoxFuture<
+                'static,
+                Result<crate::rpc::types::LlmChatResponse, String>,
+            > {
+                Box::pin(async { Err("Not used in mock".into()) })
+            }
+            fn execute_tool(
+                &self,
+                req: crate::rpc::types::ToolExecuteRequest,
+            ) -> futures_util::future::BoxFuture<
+                'static,
+                Result<crate::rpc::types::ToolExecuteResponse, String>,
+            > {
+                Box::pin(async move { Err(format!("reached inner: {}", req.tool_name)) })
+            }
+            fn check_permission(
+                &self,
+                _req: crate::rpc::types::PermissionCheckRequest,
+            ) -> futures_util::future::BoxFuture<
+                'static,
+                Result<crate::rpc::types::PermissionDecision, String>,
+            > {
+                Box::pin(async { Ok(crate::rpc::types::PermissionDecision::allow()) })
+            }
+        }
+
+        let call = |name: &str| crate::rpc::types::ToolExecuteRequest {
+            turn_id: "t1".into(),
+            agent_id: "subagent-1".into(),
+            tool_call_id: "c1".into(),
+            tool_name: name.to_string(),
+            arguments: serde_json::json!({}),
+        };
+
+        let read_only = ToolFilterCallbacks {
+            inner: Arc::new(Inner),
+            filter: ToolPolicyFilter::from_allowlist(&["Read".to_string()]),
+            agent_id: "subagent-1".to_string(),
+        };
+
+        // Outside the profile: refused by the wrapper, never executed.
+        let refused = read_only
+            .execute_tool(call("Bash"))
+            .await
+            .expect("wrapper answers");
+        assert!(refused.is_error);
+        assert!(
+            refused.content.contains("not available to this agent"),
+            "content: {}",
+            refused.content
+        );
+
+        // Enforcement is case-insensitive for built-ins, so the lowercase wire
+        // name a model actually emits is refused for an *excluded* tool too.
+        let wire = read_only
+            .execute_tool(call("bash"))
+            .await
+            .expect("wrapper answers");
+        assert!(wire.is_error, "the wire spelling must not slip past");
+
+        // Inside the profile: the call is forwarded, and the inner mock's own
+        // error is what comes back.
+        let forwarded = read_only.execute_tool(call("Read")).await;
+        let reached_host = forwarded
+            .as_ref()
+            .is_err_and(|e| e.as_str() == "reached inner: Read");
+        assert!(
+            reached_host,
+            "an admitted tool must reach the host: {forwarded:?}"
+        );
+
+        // ...and the same case-insensitivity must not over-block it: `read` is
+        // the wire spelling of an admitted tool, not a different one.
+        let admitted_wire = read_only.execute_tool(call("read")).await;
+        let reached_by_wire = admitted_wire
+            .as_ref()
+            .is_err_and(|e| e.as_str() == "reached inner: read");
+        assert!(
+            reached_by_wire,
+            "the admitted tool's wire spelling must still run: {admitted_wire:?}"
+        );
     }
 
     /// v2 `subagents.spawn({ callerAgentId })` records the parent as a label, and
