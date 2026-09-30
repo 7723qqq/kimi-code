@@ -12,11 +12,11 @@
  * and an `engine.*`-only rule is structurally blind to most of the catalog.
  *
  * Reachability, as this gate models it:
- *   - Rust: a string literal in `packages/kimi-agent/src/**\/*.rs` (the engine
+ *   - Rust: any string literal in `packages/kimi-agent/src/**\/*.rs` (the engine
  *     resolves through `LocalizedText`, and `translate_embedded` accepts any
  *     key, so every literal is a candidate);
- *   - TypeScript: a `t('key')` / `t("key")` argument anywhere under `apps/` and
- *     `packages/`, which is how the host names a key.
+ *   - TypeScript: any quoted token shaped like a key — `t('…')` and the
+ *     comparison operands of wire tokens alike. See [`tsKeyLiterals`].
  *
  * Both sides over-approximate on purpose: a key mentioned anywhere counts as
  * reachable. That can only hide an orphan, never invent one, so an orphan this
@@ -29,7 +29,6 @@
  * and a plugin or future host surface may name one. So the debt is recorded
  * instead, in `scripts/locale-orphan-allowlist.json`, and the gate is a
  * two-way ratchet over it:
- *
  *   - a key that is unreachable now but absent from the allowlist FAILS, so the
  *     debt cannot grow;
  *   - an allowlisted key that has become reachable also FAILS, so wiring a key
@@ -133,17 +132,29 @@ function rustLiterals(src) {
 }
 
 /**
- * Every first argument to a `t(...)` call — the shape the host uses
- * (`t('key')`, `t('key', {…})`). A computed argument is not a literal claim and
- * is ignored, which can only hide an orphan.
+ * Every quoted token shaped like a locale key, anywhere in a TypeScript source.
+ *
+ * Two things this must catch, and one thing it must survive:
+ *
+ *  - `t('tui.statusMessages.bunRuntimeRequired')` — the host naming a key for
+ *    display;
+ *  - `=== 'shell.pausedAfterInterruption'` — a *wire token*: the engine emits a
+ *    reason string and the host recognises it by comparison, with no `t()` call
+ *    anywhere. `scan-hardcoded-v2.mjs` documents that class explicitly, and a
+ *    `t()`-only scan reports those keys as orphans, which is a false positive.
+ *
+ * So the match is on the *shape* (`ns.segment…`) rather than on the call site.
+ * That also sidesteps quote pairing: an earlier version tried to pair quotes and
+ * an apostrophe in a comment ("don't") swallowed a whole region of literals, so
+ * the scan silently found fewer keys than the `t()`-only version it replaced.
+ * A token that is not dotted simply does not match, which can only hide an
+ * orphan — the safe direction.
  */
-function tsTKeys(src) {
+function tsKeyLiterals(src) {
   const out = [];
-  const re = /\bt\(\s*(['"])((?:\\.|(?!\1)[^\\])*)\1/g;
+  const re = /['"`]([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+)['"`]/g;
   let match;
-  while ((match = re.exec(src)) !== null) {
-    out.push(match[2].replaceAll(/\\(['"\\])/g, '$1'));
-  }
+  while ((match = re.exec(src)) !== null) out.push(match[1]);
   return out;
 }
 
@@ -174,7 +185,7 @@ let tsFiles = 0;
 for (const root of TS_ROOTS) {
   for (const file of walkFiles(root, ['.ts', '.tsx', '.mts', '.mjs'])) {
     tsFiles += 1;
-    for (const key of tsTKeys(readFileSync(file, 'utf8'))) reachable.add(key);
+    for (const key of tsKeyLiterals(readFileSync(file, 'utf8'))) reachable.add(key);
   }
 }
 
