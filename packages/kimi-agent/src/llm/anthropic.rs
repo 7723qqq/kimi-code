@@ -12,6 +12,31 @@ use crate::llm::wire::{StreamDelta, WireMessage};
 use crate::rpc::types::TokenUsage;
 use crate::turn_loop::types::{ContentBlock, LLMChatResponse, ToolCall, ToolInfo};
 
+/// Content block types that accept a `cache_control` breakpoint: the Rust side
+/// of v2's `CACHEABLE_TYPES`
+/// (`packages/kosong/src/providers/anthropic-cache-breakpoints.ts:25-34`), the
+/// single source of truth both v2 provider layers import so the breakpoint
+/// strategy cannot drift between them. `thinking` / `redacted_thinking` are
+/// deliberately absent — a reasoning block is not a cacheable unit.
+const CACHEABLE_TYPES: [&str; 8] = [
+    "text",
+    "image",
+    "document",
+    "search_result",
+    "tool_use",
+    "tool_result",
+    "server_tool_use",
+    "web_search_tool_result",
+];
+
+/// Whether a projected content block takes a `cache_control` breakpoint.
+fn is_cacheable_block(block: &Value) -> bool {
+    block
+        .get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|ty| CACHEABLE_TYPES.contains(&ty))
+}
+
 /// Build an Anthropic Messages request body. `max_tokens` is required by the
 /// API and must be supplied by the caller.
 pub fn build_request(
@@ -121,28 +146,37 @@ pub fn build_request_full(
         }
     }
 
-    // Tail breakpoint: the last block of the absolute last message (messages.at(-1)).
-    // The v2 provider (`kosong/src/providers/anthropic.ts`) injects three
-    // breakpoints — system, last content block, last tool — via
-    // `injectCacheControlOnLastBlock`; the stable-history breakpoint below is
-    // a fork addition, using all 4 Anthropic cache_control slots.
+    // Tail breakpoint: the last block of the absolute last message
+    // (messages.at(-1)). v2 injects both of the message breakpoints here, from
+    // `injectCacheControlOnLastBlock`
+    // (`packages/kosong/src/providers/anthropic-cache-breakpoints.ts:36-73`),
+    // which agent-core-v2's vendored provider imports rather than
+    // re-declaring (its `anthropic.ts:22-25`, called at `:861`). Together with
+    // the system and tools breakpoints below that is all 4 Anthropic
+    // cache_control slots. Only a cacheable block type takes one.
     // Supports both user text/media and assistant tool_use blocks.
     if let Some(last_msg) = msgs.last_mut()
         && let Some(content_arr) = last_msg.get_mut("content").and_then(|c| c.as_array_mut())
         && let Some(last_block) = content_arr.last_mut()
+        && is_cacheable_block(last_block)
     {
         last_block["cache_control"] = json!({ "type": "ephemeral" });
     }
 
-    // Stable history breakpoint (fork addition, no v2 counterpart): the last
-    // block of a message that is not one of the last 2 messages. This creates
-    // a prefix cache covering the stable conversation history, utilizing all
-    // 4 Anthropic cache_control slots (system + tools + history + tail).
+    // Stable history breakpoint: the last block of a message that is not one of
+    // the last 2 messages (v2 `injectCacheControlOnLastBlock`'s second half,
+    // `anthropic-cache-breakpoints.ts:51-73` — the same function, not a fork
+    // addition). This creates a prefix cache covering the stable conversation
+    // history, so appended messages still hit the prefix and only the new tail
+    // is processed fresh. With system + tools that fills all 4 Anthropic
+    // cache_control slots. A cacheable type the tail does not already own is
+    // required, exactly as in v2.
     if msgs.len() >= 4 {
         let stable_idx = msgs.len() - 3;
         if let Some(stable_msg) = msgs.get_mut(stable_idx)
             && let Some(content_arr) = stable_msg.get_mut("content").and_then(|c| c.as_array_mut())
             && let Some(stable_block) = content_arr.last_mut()
+            && is_cacheable_block(stable_block)
             && stable_block.get("cache_control").is_none()
         {
             stable_block["cache_control"] = json!({ "type": "ephemeral" });
@@ -281,6 +315,29 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
                 thinking.push(ContentBlock::Think {
                     think: think.to_string(),
                     encrypted: signature,
+                    details_index: None,
+                    reasoning_key: None,
+                    details_summary: None,
+                });
+            }
+            // A block Anthropic could not return in the clear (safety filter or
+            // encryption): the attestation is in `data` and there is no
+            // readable text. v2 carries it as the *same* think part with an
+            // empty `think` and `encrypted` set to `data`
+            // (`kosong/provider/bases/anthropic/anthropic.ts:634-640`), which
+            // `project_block` already replays verbatim as
+            // `thinking` + `signature` (`anthropic.ts:419-428`). Falling
+            // through to `_` dropped an attested block the next request has to
+            // echo back — Anthropic rejects a follow-up whose thinking does not
+            // round-trip.
+            Some("redacted_thinking") => {
+                let data = block
+                    .get("data")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string());
+                thinking.push(ContentBlock::Think {
+                    think: String::new(),
+                    encrypted: data,
                     details_index: None,
                     reasoning_key: None,
                     details_summary: None,
@@ -511,6 +568,20 @@ impl StreamAccumulator {
                             signature,
                         }
                     }
+                    // The streaming twin of the non-streaming branch: v2 opens
+                    // a redacted block as a think part carrying `data` as its
+                    // attestation (`anthropic.ts:686-692`). It used to fall into
+                    // the text arm, so the block was gone by `finish()`. No
+                    // delta is returned — `StreamDelta::Think` carries
+                    // displayable text only, and a redacted block has none; the
+                    // block reaches the caller through `finish()`.
+                    Some("redacted_thinking") => PartialBlock::Thinking {
+                        thinking: String::new(),
+                        signature: block
+                            .get("data")
+                            .and_then(|x| x.as_str())
+                            .map(|s| s.to_string()),
+                    },
                     Some("tool_use") => PartialBlock::ToolUse {
                         id: block
                             .get("id")
@@ -1076,6 +1147,95 @@ mod tests {
     }
 
     #[test]
+    fn parse_response_keeps_redacted_thinking_as_an_encrypted_think_block() {
+        // v2 `anthropic.ts:634-640`: a `redacted_thinking` block is the same
+        // think part with empty text and `encrypted` set to `data`. Before
+        // this it matched no arm and was dropped, so a multi-turn thinking
+        // response silently lost an attested block.
+        let v = json!({
+            "content": [
+                { "type": "redacted_thinking", "data": "encrypted_blob" },
+                { "type": "thinking", "thinking": "visible", "signature": "sig_1" },
+                { "type": "text", "text": "done" }
+            ],
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 20
+            }
+        });
+        let parsed = parse_response(&v).unwrap();
+        assert_eq!(parsed.content, "done");
+        assert_eq!(
+            parsed.thinking,
+            vec![
+                ContentBlock::Think {
+                    think: String::new(),
+                    encrypted: Some("encrypted_blob".into()),
+                    details_index: None,
+                    reasoning_key: None,
+                    details_summary: None,
+                },
+                ContentBlock::Think {
+                    think: "visible".into(),
+                    encrypted: Some("sig_1".into()),
+                    details_index: None,
+                    reasoning_key: None,
+                    details_summary: None,
+                },
+            ],
+            "the redacted block must survive, in wire order, beside the signed one"
+        );
+    }
+
+    #[test]
+    fn redacted_thinking_round_trips_back_into_the_next_request() {
+        // Keeping the block only pays off if the next request replays it: v2
+        // `anthropic.ts:419-428` projects any think part carrying `encrypted`
+        // as `thinking` + `signature`, which is what `project_block` does.
+        let parsed = parse_response(&json!({
+            "content": [{ "type": "redacted_thinking", "data": "encrypted_blob" }],
+            "usage": { "input_tokens": 4, "output_tokens": 2 }
+        }))
+        .unwrap();
+        let req = build_request(
+            "claude-sonnet-4-5",
+            1024,
+            &[WireMessage::with_blocks("assistant", parsed.thinking)],
+            &[],
+        );
+        let blocks = req["messages"][0]["content"].as_array().unwrap();
+        assert_eq!(
+            blocks[0],
+            json!({ "type": "thinking", "thinking": "", "signature": "encrypted_blob" }),
+            "the attestation must go back out as the thinking signature"
+        );
+    }
+
+    #[test]
+    fn stream_accumulator_keeps_a_redacted_thinking_block() {
+        // v2 `anthropic.ts:686-692` opens a redacted streamed block the same
+        // way; it used to fall into the text arm and vanish at `finish()`.
+        let mut acc = StreamAccumulator::new();
+        let delta = acc.feed(&json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": { "type": "redacted_thinking", "data": "encrypted_blob" }
+        }));
+        assert_eq!(delta, None, "a redacted block has no text to stream");
+        assert_eq!(
+            acc.finish().thinking,
+            vec![ContentBlock::Think {
+                think: String::new(),
+                encrypted: Some("encrypted_blob".into()),
+                details_index: None,
+                reasoning_key: None,
+                details_summary: None,
+            }]
+        );
+    }
+
+    #[test]
     fn stream_accumulator_ignores_implausible_block_index() {
         // The index comes from the provider; honouring an arbitrary one grew
         // the accumulator without bound until the process died.
@@ -1355,6 +1515,181 @@ mod tests {
         assert_eq!(asst_content.len(), 2);
         assert_eq!(asst_content[1]["type"], "tool_use");
         assert_eq!(asst_content[1]["cache_control"]["type"], "ephemeral");
+    }
+
+    /// v2 gates both breakpoints on `CACHEABLE_TYPES`
+    /// (`anthropic-cache-breakpoints.ts:45`, `:66`): the reasoning types are
+    /// not in it, so a `thinking` / `redacted_thinking` block never takes a
+    /// `cache_control`. Pinned item by item against v2's set — this is the
+    /// list the injection mirrors, not a local preference.
+    #[test]
+    fn cacheable_block_types_match_the_v2_vocabulary() {
+        for cacheable in CACHEABLE_TYPES {
+            assert!(
+                is_cacheable_block(&json!({ "type": cacheable })),
+                "{cacheable} is cacheable in v2"
+            );
+        }
+        for not_cacheable in ["thinking", "redacted_thinking", "some_future_block"] {
+            assert!(
+                !is_cacheable_block(&json!({ "type": not_cacheable })),
+                "{not_cacheable} is not in v2's CACHEABLE_TYPES"
+            );
+        }
+        // v2 reads `lastBlock.type`; a block without one is not cacheable.
+        assert!(!is_cacheable_block(&json!({ "text": "typeless" })));
+    }
+
+    /// A tail whose last block is a `thinking` block takes no breakpoint. The
+    /// shape needs a thinking-only assistant message (text or a tool_use is
+    /// always pushed *after* the reasoning blocks, and would then be the
+    /// cacheable tail) — what a signature-preserving prefill looks like.
+    #[test]
+    fn tail_breakpoint_skips_a_thinking_block() {
+        let msgs = vec![
+            WireMessage::text("user", "turn 1"),
+            WireMessage::with_blocks(
+                "assistant",
+                vec![ContentBlock::Think {
+                    think: "still reasoning".into(),
+                    encrypted: Some("sig-abc".into()),
+                    details_index: None,
+                    reasoning_key: None,
+                    details_summary: None,
+                }],
+            ),
+        ];
+        let req = build_request("claude-3-7-sonnet", 4096, &msgs, &[]);
+        let req_msgs = req["messages"].as_array().unwrap();
+        let tail = req_msgs[1]["content"].as_array().unwrap();
+        assert_eq!(tail[0]["type"], "thinking");
+        assert!(
+            tail[0].get("cache_control").is_none(),
+            "a thinking tail must not take a breakpoint: {tail:?}"
+        );
+    }
+
+    /// The tail still takes the breakpoint on every cacheable shape: plain
+    /// text, a tool_use call, and a media block.
+    #[test]
+    fn tail_breakpoint_lands_on_the_cacheable_tail_shapes() {
+        for (label, msgs) in [
+            ("text", vec![WireMessage::text("user", "hi")]),
+            (
+                "tool_use",
+                vec![WireMessage::assistant_tool_calls(
+                    "",
+                    vec![ToolCall {
+                        id: "call_1".into(),
+                        name: "glob".into(),
+                        arguments: json!({ "pattern": "*.rs" }),
+                        extras: None,
+                    }],
+                )],
+            ),
+            (
+                "image",
+                vec![WireMessage::with_blocks(
+                    "user",
+                    vec![
+                        ContentBlock::Text {
+                            text: "look".into(),
+                        },
+                        ContentBlock::Image {
+                            media_type: "image/jpeg".into(),
+                            data: "BBBB".into(),
+                            name: None,
+                        },
+                    ],
+                )],
+            ),
+        ] {
+            let req = build_request("claude-3-7-sonnet", 4096, &msgs, &[]);
+            let tail = req["messages"].as_array().unwrap()[0]["content"]
+                .as_array()
+                .unwrap();
+            assert_eq!(
+                tail[tail.len() - 1]["cache_control"]["type"],
+                "ephemeral",
+                "{label} tail must take the breakpoint: {tail:?}"
+            );
+        }
+    }
+
+    /// The stable slot is gated the same way: a `thinking` tail there leaves
+    /// that message breakpoint-free, while the tail message still takes its
+    /// own. Four messages, so `len - 3` is the assistant at index 1.
+    #[test]
+    fn stable_breakpoint_skips_a_thinking_block() {
+        let think_only = |why: &str| {
+            WireMessage::with_blocks(
+                "assistant",
+                vec![ContentBlock::Think {
+                    think: why.into(),
+                    encrypted: Some("sig-abc".into()),
+                    details_index: None,
+                    reasoning_key: None,
+                    details_summary: None,
+                }],
+            )
+        };
+        let msgs = vec![
+            WireMessage::text("user", "turn 1"),
+            think_only("first pass"),
+            think_only("second pass"),
+            WireMessage::text("user", "turn 2"),
+        ];
+        let req = build_request("claude-3-7-sonnet", 4096, &msgs, &[]);
+        let req_msgs = req["messages"].as_array().unwrap();
+        assert_eq!(req_msgs.len(), 4);
+
+        let stable = req_msgs[1]["content"].as_array().unwrap();
+        assert_eq!(stable[0]["type"], "thinking");
+        assert!(
+            stable[0].get("cache_control").is_none(),
+            "a thinking stable block must not take a breakpoint: {stable:?}"
+        );
+
+        let tail = req_msgs[3]["content"].as_array().unwrap();
+        assert_eq!(tail[0]["cache_control"]["type"], "ephemeral");
+    }
+
+    /// The stable slot takes a breakpoint for any cacheable type, media
+    /// included — a user turn carrying an image, not only text. The breakpoint
+    /// still lands on the *last* block, so the text ahead of the image stays
+    /// free.
+    #[test]
+    fn stable_breakpoint_lands_on_a_cacheable_image_block() {
+        let msgs = vec![
+            WireMessage::text("user", "turn 1"),
+            WireMessage::text("assistant", "answer 1"),
+            WireMessage::with_blocks(
+                "user",
+                vec![
+                    ContentBlock::Text {
+                        text: "look at this".into(),
+                    },
+                    ContentBlock::Image {
+                        media_type: "image/png".into(),
+                        data: "AAAA".into(),
+                        name: None,
+                    },
+                ],
+            ),
+            WireMessage::text("assistant", "answer 2"),
+            WireMessage::text("user", "turn 3"),
+        ];
+        let req = build_request("claude-3-7-sonnet", 4096, &msgs, &[]);
+        let req_msgs = req["messages"].as_array().unwrap();
+        assert_eq!(req_msgs.len(), 5);
+
+        let stable = req_msgs[2]["content"].as_array().unwrap();
+        assert_eq!(stable[1]["type"], "image");
+        assert_eq!(stable[1]["cache_control"]["type"], "ephemeral");
+        assert!(stable[0].get("cache_control").is_none());
+
+        let tail = req_msgs[4]["content"].as_array().unwrap();
+        assert_eq!(tail[0]["cache_control"]["type"], "ephemeral");
     }
 
     #[test]

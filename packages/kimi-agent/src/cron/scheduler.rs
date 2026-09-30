@@ -232,6 +232,36 @@ impl CronScheduler {
         fired.into_iter().map(|(_, entry)| entry).collect()
     }
 
+    /// [`Self::tick`] behind v2's "never fire into a running loop" gate
+    /// (`cronService.ts` `tickCron`: `if (runtime.get(IAgentLoopService)
+    /// .status().state === 'running') return;`).
+    ///
+    /// The gate is evaluated *before* the round, exactly where v2 puts it, so a
+    /// skipped round fires nothing **and consumes no one-shot entry** — the
+    /// entries stay armed. The caller must then leave its scan base
+    /// (`from_ms`) alone so the next round re-covers the same window; that is
+    /// how the deferred fire is "made up" on the next tick, the same way v2
+    /// gets it by returning before `processDue` and leaving the cursors
+    /// untouched. Advancing the base on a skipped round would drop the fire.
+    ///
+    /// `busy` answers "would firing this entry land on a busy loop?". The
+    /// scheduler cannot know that — only the host owns the loop state — so it
+    /// asks, once per entry, before touching any of them. One denied entry
+    /// defers the whole round, matching v2's single-loop check: the caller
+    /// supplies the granularity by choosing what `busy` inspects.
+    ///
+    /// `None` is a skipped round (keep `from_ms`); `Some(fired)` is a normal
+    /// tick the caller may advance past.
+    pub fn tick_if_idle<F>(&mut self, from_ms: i64, now_ms: i64, busy: F) -> Option<Vec<FiredCron>>
+    where
+        F: Fn(&CronEntry) -> bool,
+    {
+        if self.entries.iter().any(|s| busy(&s.entry)) {
+            return None;
+        }
+        Some(self.tick(from_ms, now_ms))
+    }
+
     /// Spawn the background loop: sleep until the earliest next fire, fire
     /// every entry due by wake-up through `on_fire`, then repeat. The task
     /// ends when no entry has a future fire (all one-shots fired, or nothing
@@ -572,6 +602,107 @@ mod tests {
         assert_eq!(fired_ids(&fired), vec!["e2", "e1"]);
         // e2 was one-shot so it was removed; e1 was recurring so it was kept.
         assert_eq!(sched.list_entries(), vec![entry1]);
+    }
+
+    #[test]
+    fn tick_if_idle_defers_a_running_loop_and_fires_next_round() {
+        // v2 `tickCron` returns before `processDue` while the agent loop is
+        // running: the round is skipped whole and nothing is consumed.
+        let one_shot = entry("one", "5 * * * *", "once", false);
+        let mut sched = CronScheduler::new(vec![one_shot.clone()], 0);
+
+        // Round 1, loop busy: no fire at all.
+        let busy = |_: &CronEntry| true;
+        assert_eq!(
+            sched.tick_if_idle(T0, at(5), busy),
+            None,
+            "a busy loop must skip the round outright"
+        );
+        // The one-shot is still armed — this is what makes the fire owed
+        // rather than lost.
+        assert_eq!(
+            sched.list_entries(),
+            vec![one_shot.clone()],
+            "a skipped round must not consume the one-shot"
+        );
+
+        // Round 2: the caller kept its base at T0 and the loop is idle, so the
+        // very same window is re-covered and the deferred fire lands.
+        let idle = |_: &CronEntry| false;
+        let fired = sched
+            .tick_if_idle(T0, at(5), idle)
+            .expect("an idle loop runs the round");
+        assert_eq!(fired_ids(&fired), vec!["one"]);
+        assert_eq!(fired[0].coalesced_count, 1);
+        assert!(!fired[0].stale);
+        assert!(
+            sched.list_entries().is_empty(),
+            "the one-shot leaves only once it actually fires"
+        );
+    }
+
+    #[test]
+    fn tick_if_idle_defers_the_whole_round_not_just_the_busy_entry() {
+        // v2 has a single agent loop, so its running-check is round-wide. The
+        // port keeps that shape: the caller picks the granularity by choosing
+        // what `busy` inspects, and one denied entry defers every entry.
+        let mut busy_entry = entry("busy", "5 * * * *", "running session", true);
+        busy_entry.session_id = Some("sess-a".into());
+        let mut idle_entry = entry("idle", "5 * * * *", "idle session", true);
+        idle_entry.session_id = Some("sess-b".into());
+        let mut sched = CronScheduler::new(vec![busy_entry, idle_entry], 0);
+        // Hourly recurring jitter shifts forward by up to 6 min, so the window
+        // must reach past the latest jittered fire.
+        let now = at(30);
+
+        let only_a_busy = |e: &CronEntry| e.session_id.as_deref() == Some("sess-a");
+        assert_eq!(
+            sched.tick_if_idle(T0, now, only_a_busy),
+            None,
+            "one busy session defers the round"
+        );
+        assert_eq!(
+            sched.list_entries().len(),
+            2,
+            "no entry may be consumed by a skipped round"
+        );
+
+        // Once A settles, the same base re-covers the window and both fire.
+        let none_busy = |_: &CronEntry| false;
+        let fired = sched
+            .tick_if_idle(T0, now, none_busy)
+            .expect("idle round runs");
+        let mut ids = fired_ids(&fired);
+        ids.sort();
+        assert_eq!(ids, vec!["busy", "idle"]);
+    }
+
+    #[test]
+    fn a_rebuilt_scheduler_does_not_replay_the_pre_restart_window() {
+        // Pins the *current* restart semantics, which is the evidence behind
+        // the missing `lastFiredAt` cursor: both daemon tick loops seed their
+        // scan base at process start, so downtime is dropped, never replayed.
+        // `tick` scans strictly after the caller's `from_ms` and never reads
+        // `created_at`, so a restart cannot re-fire a window it never saw.
+        let task = entry("r", "*/5 * * * *", "tick", true);
+
+        // First process scans T0..at(10): the :05 fire lands, the :10 ideal's
+        // jittered instant is still ahead.
+        let mut first = CronScheduler::new(vec![task.clone()], 0);
+        let fired = first.tick(T0, at(10));
+        assert_eq!(fired_ids(&fired), vec!["r"]);
+
+        // Restart: the base is the new process start, so the pre-restart
+        // window is not replayed.
+        let mut second = CronScheduler::new(vec![task], 0);
+        assert_eq!(
+            fired_ids(&second.tick(at(10), at(10))),
+            Vec::<&str>::new(),
+            "restart must not replay the pre-restart window"
+        );
+        // The recurring entry stays armed, so the drop is a skipped catch-up
+        // fire, not a descheduled job.
+        assert_eq!(second.list_entries().len(), 1);
     }
 
     #[test]

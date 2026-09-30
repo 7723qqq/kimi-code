@@ -11,6 +11,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::goal_tools::main_agent_only_refusal;
 use super::{err_result, ok_result};
 use crate::callbacks::HostCallbacks;
 use crate::rpc::types::StateReadRequest;
@@ -73,7 +74,14 @@ struct GoalBudgetReportWire {
 
 /// Execute the GetGoal tool natively: `state_read` the goal domain and
 /// render the v2-aligned JSON output.
-pub async fn execute_get_goal(callbacks: &dyn HostCallbacks, args: &Value) -> ExecutableToolResult {
+pub async fn execute_get_goal(
+    callbacks: &dyn HostCallbacks,
+    caller_agent_id: &str,
+    args: &Value,
+) -> ExecutableToolResult {
+    if let Some(refusal) = main_agent_only_refusal(caller_agent_id) {
+        return refusal;
+    }
     let request = StateReadRequest {
         domain: "goal".into(),
         key: "goal".into(),
@@ -233,7 +241,7 @@ mod tests {
             read_ok(serde_json::json!({ "goal": null })),
             write_ok(Value::Null),
         );
-        let result = execute_get_goal(&callbacks, &serde_json::json!({})).await;
+        let result = execute_get_goal(&callbacks, "main", &serde_json::json!({})).await;
         assert!(!result.is_error);
         assert_eq!(result.content, "{\n  \"goal\": null\n}");
         let request = read_received.lock().unwrap().clone().unwrap();
@@ -276,7 +284,7 @@ mod tests {
             })),
             write_ok(Value::Null),
         );
-        let result = execute_get_goal(&callbacks, &serde_json::json!({})).await;
+        let result = execute_get_goal(&callbacks, "main", &serde_json::json!({})).await;
         assert!(!result.is_error);
         assert_eq!(
             result.content,
@@ -345,7 +353,7 @@ mod tests {
             })),
             write_ok(Value::Null),
         );
-        let result = execute_get_goal(&callbacks, &serde_json::json!({})).await;
+        let result = execute_get_goal(&callbacks, "main", &serde_json::json!({})).await;
         assert!(!result.is_error);
         assert_eq!(
             result.content,
@@ -387,7 +395,7 @@ mod tests {
             read_ok(serde_json::json!({ "goal": "nope" })),
             write_ok(Value::Null),
         );
-        let result = execute_get_goal(&callbacks, &serde_json::json!({})).await;
+        let result = execute_get_goal(&callbacks, "main", &serde_json::json!({})).await;
         assert!(result.is_error);
         assert!(result.content.contains("Invalid goal state from host"));
     }
@@ -398,7 +406,7 @@ mod tests {
             Err("host does not support state bridge".into()),
             write_ok(Value::Null),
         );
-        let result = execute_get_goal(&callbacks, &serde_json::json!({})).await;
+        let result = execute_get_goal(&callbacks, "main", &serde_json::json!({})).await;
         assert!(result.is_error);
         assert_eq!(result.content, STATE_BRIDGE_UNSUPPORTED_FAILURE_MESSAGE);
     }
@@ -409,7 +417,7 @@ mod tests {
             Err("State read error: [-32001] unknown domain: cron".into()),
             write_ok(Value::Null),
         );
-        let result = execute_get_goal(&callbacks, &serde_json::json!({})).await;
+        let result = execute_get_goal(&callbacks, "main", &serde_json::json!({})).await;
         assert!(result.is_error);
         assert!(result.content.contains("-32001"));
         assert!(result.content.contains("unknown domain"));
@@ -423,6 +431,7 @@ mod tests {
         );
         let result = execute_get_goal(
             &callbacks,
+            "main",
             &serde_json::json!({ "turn_id": "turn-42", "tool_call_id": "call_abc" }),
         )
         .await;

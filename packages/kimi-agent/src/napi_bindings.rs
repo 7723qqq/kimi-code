@@ -1761,7 +1761,16 @@ fn spawn_cron_dispatcher(workspace: &str) {
                 entries,
                 crate::session::local_utc_offset_minutes(),
             );
-            let fired = scheduler.tick(last_tick, now);
+            // v2 `tickCron`: a round that would fire into a running agent loop
+            // is skipped whole, and `last_tick` stays put so the next round
+            // re-covers the same window — defer, never drop. The registry is
+            // re-read every round, so "next round" also re-reads it.
+            let fired = scheduler.tick_if_idle(last_tick, now, |_| {
+                live.session.status().active_turn_id.is_some()
+            });
+            let Some(fired) = fired else {
+                continue;
+            };
             last_tick = now;
             for fired_entry in fired {
                 let entry = &fired_entry.entry;
@@ -2105,7 +2114,21 @@ async fn build_engine_pipeline(
         // default); falling back to `false` keeps a direct napi caller on the
         // pre-disclosure behaviour: every tool advertised inline.
         tool_select: params.tool_select.unwrap_or(false),
-        sandbox_mode: params.sandbox_mode.clone(),
+        // Same in-file convention as `policy_snapshot` above: report the bad
+        // value and fail closed rather than swallow it. `sandboxMode` is a
+        // documented optional *string* in `napi-contract.d.ts`, so it cannot be
+        // rejected by deserialization the way `RunTurnParams.sandbox_mode` now
+        // is; `parse` is the fail-closed shim, so an unknown spelling lands on
+        // `ReadOnly` instead of silently lifting every boundary.
+        sandbox_mode: params.sandbox_mode.as_deref().map(|mode_str| {
+            match crate::tools::sandbox::SandboxMode::validate(mode_str) {
+                Ok(mode) => mode,
+                Err(error) => {
+                    tracing::warn!("{error}; falling back to the most restrictive mode");
+                    crate::tools::sandbox::SandboxMode::parse(mode_str)
+                }
+            }
+        }),
         sandbox_policy: params.sandbox_mode.as_deref().map(|mode_str| {
             let mode = crate::tools::sandbox::SandboxMode::parse(mode_str);
             let root = params.workspace_root.clone().unwrap_or_default();

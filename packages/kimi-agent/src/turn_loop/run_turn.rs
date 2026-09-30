@@ -185,8 +185,8 @@ fn emit_step_end_event(
 /// Map a provider finish reason onto a turn-level stop reason.
 ///
 /// `length` (OpenAI) / `max_tokens` (Anthropic) mean the response was cut off
-/// by the token limit → `MaxTokens`. The filtered family → `Filtered`, and the
-/// list starts with `filtered` itself: that is the one value v2 carries
+/// by the token limit → `MaxTokens`. The filtered family → `Filtered`, and
+/// `filtered` is one of its values: that is the one value v2 carries
 /// (`human/llm/empty-response.ts` and `retry.ts:50-51` both compare against the
 /// literal `'filtered'`, because kosong folds the provider-specific spellings
 /// into it), and the host-proxy transport delivers whatever the host produced
@@ -194,18 +194,19 @@ fn emit_step_end_event(
 /// provider vocabulary also lands on `Filtered`: `content_filter` (OpenAI),
 /// `refusal` (Anthropic), and Google's safety words.
 ///
-/// Must stay the same list as [`turn_step::is_content_filtered`], or a filtered
-/// turn is silently re-requested as an empty one and then completes as a
-/// success.
+/// The filter vocabulary is [`turn_step::is_content_filtered`]'s, and this
+/// function delegates to it rather than repeating the list: a second copy is
+/// how a filtered turn ends up silently re-requested as an empty one and then
+/// completes as a success. The Stop-hook guard below reads the same predicate,
+/// so the finish-reason vocabulary is written down exactly once.
 ///
 /// Everything else ends the turn normally.
 fn turn_stop_reason_from_finish(finish_reason: Option<&str>) -> LoopTurnStopReason {
     match finish_reason {
         Some("length") | Some("max_tokens") => LoopTurnStopReason::MaxTokens,
-        Some(
-            "filtered" | "content_filter" | "refusal" | "safety" | "recitation" | "blocklist"
-            | "prohibited_content" | "spii" | "image_safety",
-        ) => LoopTurnStopReason::Filtered,
+        _ if crate::turn_loop::turn_step::is_content_filtered(finish_reason) => {
+            LoopTurnStopReason::Filtered
+        }
         _ => LoopTurnStopReason::EndTurn,
     }
 }
@@ -391,10 +392,6 @@ pub fn run_turn_with_telemetry<'a>(
         result
     })
 }
-
-/// Provider finish reason that skips Stop-hook dispatch (v2's
-/// `finishReason === 'filtered'` guard).
-const CONTENT_FILTER_FINISH_REASON: &str = "content_filter";
 
 /// The turn's submitted prompt for `UserPromptSubmit` hooks (v2
 /// `agentExternalHooksService.notifyUserPromptSubmit`): the latest
@@ -1455,16 +1452,25 @@ pub fn run_turn<'a>(
                     }
                     // Stop hooks (v2 `runStopHooks`, onDidFinishStep without
                     // tool calls): a text-finished step vetoes the stop when
-                    // a matching hook blocks. Filtered finishes skip the
-                    // dispatch, mirroring v2's `finishReason === 'filtered'`
-                    // guard. At a clean stop there is no tool to match
+                    // a matching hook blocks. A filtered finish skips the
+                    // dispatch entirely, so a veto cannot turn a Filtered
+                    // turn into a continuation: v2 only compares
+                    // `finishReason === 'filtered'`, and latches
+                    // `ProviderFilteredError` after `runAfterStep` while
+                    // ignoring `hookStopTurn` (`loopService.ts:877-882`).
+                    // The same predicate the turn mapper uses decides it, so
+                    // the native transports' raw spellings skip the dispatch
+                    // too — a single-value guard here only ever caught
+                    // OpenAI's `content_filter` and let the canonical
+                    // `filtered` through to a continuation.
+                    // At a clean stop there is no tool to match
                     // against, so the matcher runs against "" (v2 passes no
                     // matcher value) and only empty-matcher hooks fire.
                     // The engine never self-continues: the veto text rides
                     // `TurnResult.stop_hook_continuation` for the host.
-                    let stop_hook_continuation = if step_result.finish_reason.as_deref()
-                        == Some(CONTENT_FILTER_FINISH_REASON)
-                    {
+                    let stop_hook_continuation = if crate::turn_loop::turn_step::is_content_filtered(
+                        step_result.finish_reason.as_deref(),
+                    ) {
                         None
                     } else if let Some(ref guard) = hook_guard {
                         // Clean text stop: no tool to match against, so
@@ -2715,6 +2721,112 @@ mod tests {
         let turn = run_turn(input, &callbacks).await.unwrap();
         assert!(matches!(turn.stop_reason, LoopTurnStopReason::EndTurn));
         assert_eq!(turn.stop_hook_continuation, None);
+    }
+
+    /// Drive a text-finished turn whose only response carries
+    /// `finish_reason`, with the vetoing [`stop_hook_guard`] installed, and
+    /// hand back the stop reason plus whatever the Stop hook contributed.
+    /// A veto text on `stop_hook_continuation` is the dispatch marker: the
+    /// engine never self-continues, so the text only lands there when the
+    /// hook actually ran.
+    async fn stop_hook_outcome(
+        turn_id: &str,
+        finish_reason: &str,
+    ) -> (LoopTurnStopReason, Option<String>) {
+        let llm = FixedResponseLlm {
+            finish_reason: finish_reason.to_string(),
+            content: "hello".into(),
+        };
+        let callbacks = rpc_callbacks(Arc::new(RpcServer::new()));
+        let turn = run_turn(
+            RunTurnInput {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
+                previous_turn_aborted: false,
+                turn_id: turn_id.to_string(),
+                llm: &llm,
+                messages: vec![LLMMessage {
+                    role: "user".into(),
+                    content: "Hello!".into(),
+                    ..Default::default()
+                }],
+                tools: &[],
+                tool_defs: vec![],
+                max_steps: 5,
+                max_attempts: None,
+                max_context_tokens: None,
+                compaction_max_attempts: None,
+                permission_mode: None,
+                goal: None,
+                cancellation: None,
+                hook_guard: Some(stop_hook_guard()),
+                media: None,
+                media_dropped: None,
+                toolset: None,
+            },
+            &callbacks,
+        )
+        .await
+        .unwrap();
+        (turn.stop_reason, turn.stop_hook_continuation.clone())
+    }
+
+    /// A filtered finish skips the Stop-hook dispatch, and the guard has to
+    /// recognise the *whole* filter vocabulary for that to hold: v2 latches
+    /// `ProviderFilteredError` after `runAfterStep` and ignores
+    /// `hookStopTurn` (`loopService.ts:877-882`), so a veto must not turn a
+    /// Filtered turn into a continuation. The canonical `filtered` is the one
+    /// v2 carries; a single-value guard naming only OpenAI's `content_filter`
+    /// let it fall through to a continuation.
+    #[tokio::test]
+    async fn every_filter_spelling_skips_the_stop_hook_dispatch() {
+        for filtered in [
+            "filtered",
+            "content_filter",
+            "refusal",
+            "safety",
+            "recitation",
+            "blocklist",
+            "prohibited_content",
+            "spii",
+            "image_safety",
+        ] {
+            let (stop, continuation) =
+                stop_hook_outcome(&format!("test-stop-hook-filter-{filtered}"), filtered).await;
+            assert_eq!(
+                continuation, None,
+                "{filtered} must skip the Stop hook: a veto would continue the turn instead of ending it Filtered"
+            );
+            assert!(
+                matches!(stop, LoopTurnStopReason::Filtered),
+                "{filtered} must end the turn Filtered, got {stop:?}"
+            );
+        }
+    }
+
+    /// The opposite drift: the ordinary finishes still dispatch the Stop hook,
+    /// so the filter guard cannot be widened into "always skip".
+    #[tokio::test]
+    async fn an_ordinary_finish_still_dispatches_the_stop_hook() {
+        for (finish_reason, expected) in [
+            ("stop", LoopTurnStopReason::EndTurn),
+            ("end_turn", LoopTurnStopReason::EndTurn),
+            ("length", LoopTurnStopReason::MaxTokens),
+        ] {
+            let (stop, continuation) = stop_hook_outcome(
+                &format!("test-stop-hook-ordinary-{finish_reason}"),
+                finish_reason,
+            )
+            .await;
+            assert_eq!(
+                continuation.as_deref(),
+                Some("keep going"),
+                "{finish_reason} must still dispatch the Stop hook"
+            );
+            assert_eq!(
+                stop, expected,
+                "{finish_reason} mapped to the wrong stop reason"
+            );
+        }
     }
 
     /// `run_turn_continued` consumes a Stop veto inside the turn: the veto

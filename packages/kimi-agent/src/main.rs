@@ -1096,7 +1096,7 @@ async fn build_engine_pipeline(
                 None,
             )
         }),
-        sandbox_mode: params.sandbox_mode.clone(),
+        sandbox_mode: params.sandbox_mode,
         sandbox_policy: None,
         caller_agent_id: params.caller_agent_id.clone(),
         session_id: params.session_id.clone(),
@@ -1461,9 +1461,22 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(15)).await;
                 let now = chrono::Utc::now().timestamp_millis();
+                // v2 `tickCron`: a round that would fire into a running agent
+                // loop is skipped whole, and `last_tick` stays put so the next
+                // round re-covers the same window — defer, never drop.
                 let fired = {
                     let mut scheduler = cron_scheduler.lock().await;
-                    scheduler.tick(last_tick, now)
+                    scheduler.tick_if_idle(last_tick, now, |entry| {
+                        cron_engine.as_ref().is_some_and(|engine| {
+                            entry
+                                .session_id
+                                .as_deref()
+                                .is_some_and(|session_id| engine.is_busy(session_id))
+                        })
+                    })
+                };
+                let Some(fired) = fired else {
+                    continue;
                 };
                 last_tick = now;
                 for fired in fired {

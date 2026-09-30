@@ -1446,7 +1446,8 @@ impl NativeToolset {
             }
             "getgoal" | "get_goal" => {
                 let callbacks = self.callbacks.as_deref()?;
-                Some(get_goal::execute_get_goal(callbacks, args).await)
+                let caller = self.effective_caller_agent_id();
+                Some(get_goal::execute_get_goal(callbacks, caller.as_str(), args).await)
             }
             "todolist" | "todo_list" => {
                 let callbacks = self.callbacks.as_deref()?;
@@ -1485,11 +1486,13 @@ impl NativeToolset {
             }
             "updategoal" | "update_goal" => {
                 let callbacks = self.callbacks.as_deref()?;
-                Some(goal_tools::execute_update_goal(callbacks, args).await)
+                let caller = self.effective_caller_agent_id();
+                Some(goal_tools::execute_update_goal(callbacks, caller.as_str(), args).await)
             }
             "setgoalbudget" | "set_goal_budget" => {
                 let callbacks = self.callbacks.as_deref()?;
-                Some(goal_tools::execute_set_goal_budget(callbacks, args).await)
+                let caller = self.effective_caller_agent_id();
+                Some(goal_tools::execute_set_goal_budget(callbacks, caller.as_str(), args).await)
             }
             "tasklist" | "task_list" => {
                 let callbacks = self.callbacks.as_deref()?;
@@ -1526,7 +1529,8 @@ impl NativeToolset {
             }
             "creategoal" | "create_goal" => {
                 let callbacks = self.callbacks.as_deref()?;
-                Some(create_goal::execute_create_goal(callbacks, args).await)
+                let caller = self.effective_caller_agent_id();
+                Some(create_goal::execute_create_goal(callbacks, caller.as_str(), args).await)
             }
             "skill" => {
                 let callbacks = self.callbacks.as_deref()?;
@@ -2105,6 +2109,41 @@ impl NativeToolset {
         }
     }
 
+    /// v2 `resolvePathAccessPath` (`tool/path-access.ts:304-355`) for the OS
+    /// file tools: lexical resolution plus the workspace-access policy, applied
+    /// **before** any filesystem access so a refused path is never stat'ed.
+    ///
+    /// Returns the model-facing refusal text when the gate rejects the path,
+    /// `None` when the tool may proceed. v2 surfaces `PathSecurityError.message`
+    /// verbatim as the tool result (`toolExecutorService.ts:392-396`) and
+    /// swallows the code, so only the message crosses back.
+    ///
+    /// `home_dir` is `None` because Rust's `candidate_path` does not expand
+    /// `~` either; passing one here would gate a spelling the tool never reads.
+    fn file_access_refusal(
+        sandbox: &Sandbox,
+        bridge: &crate::native::shell_path_bridge::ShellPathBridge,
+        path: &str,
+        operation: crate::native::path_access::PathAccessOperation,
+        policy: &crate::native::path_access::WorkspaceAccessPolicy,
+    ) -> Option<String> {
+        use crate::native::path_access::{PathClass, resolve_path_access};
+        let class = if cfg!(windows) {
+            PathClass::Win32
+        } else {
+            PathClass::Posix
+        };
+        let bridged = bridge.to_native_path(path);
+        let roots: Vec<String> = sandbox
+            .roots()
+            .map(|root| root.to_string_lossy().into_owned())
+            .collect();
+        let cwd = sandbox.primary().to_string_lossy().into_owned();
+        resolve_path_access(&bridged, &cwd, &roots, None, class, operation, policy)
+            .err()
+            .map(|error| error.message)
+    }
+
     // ── Read ───────────────────────────────────────────────────────────
 
     fn read(
@@ -2117,6 +2156,19 @@ impl NativeToolset {
                 LocalizedText::new("engine.tools.read.pathRequired").render(),
             ));
         };
+        // v2 `readTool.ts:236-240` runs the workspace-access policy *before* the
+        // file is touched. The engine previously resolved and read the path with
+        // no such gate, so `Read(".env")` returned the file's contents while
+        // `core_tool_defs.rs:24` told the model sensitive files "are refused".
+        if let Some(refusal) = Self::file_access_refusal(
+            sandbox,
+            bridge,
+            path,
+            crate::native::path_access::PathAccessOperation::Read,
+            &crate::native::path_access::WorkspaceAccessPolicy::default(),
+        ) {
+            return Some(err_result(refusal));
+        }
         // The dispatcher's media path owns `region` / `full_resolution` and
         // is consulted before every call that reaches this text read; decline
         // them here anyway so a direct caller cannot half-handle an image.
@@ -2757,6 +2809,21 @@ impl NativeToolset {
                 // it cannot serve: returning `None` forwarded it to a host with
                 // no file-tool runtime, and the model saw `tool "Grep" is
                 // host-owned and not yet wired on the native harness`.
+                //
+                // v2 `grepTool.ts:94-98` runs the same gate first, with
+                // `operation: 'search'` and an explicit
+                // `checkSensitive: false` — Grep filters sensitive hits out of
+                // its *results* (`filtered_sensitive` below) rather than
+                // refusing the call, so only the out-of-workspace arm applies.
+                if let Some(refusal) = Self::file_access_refusal(
+                    sandbox,
+                    bridge,
+                    path,
+                    crate::native::path_access::PathAccessOperation::Search,
+                    &crate::native::path_access::WorkspaceAccessPolicy::SEARCH,
+                ) {
+                    return Some(err_result(refusal));
+                }
                 let Some(resolved) = Self::resolve(sandbox, bridge, path) else {
                     return Some(err_result(
                         LocalizedText::with_params(
@@ -2982,6 +3049,18 @@ impl NativeToolset {
                 // A path the engine cannot resolve is a tool error, not a call
                 // it cannot serve — `None` forwarded it to a host with no
                 // file-tool runtime.
+                //
+                // v2 `globTool.ts:94-98`: same gate, same
+                // `operation: 'search'` + `checkSensitive: false` pair as Grep.
+                if let Some(refusal) = Self::file_access_refusal(
+                    sandbox,
+                    bridge,
+                    p,
+                    crate::native::path_access::PathAccessOperation::Search,
+                    &crate::native::path_access::WorkspaceAccessPolicy::SEARCH,
+                ) {
+                    return Some(err_result(refusal));
+                }
                 let Some(resolved) = Self::resolve(sandbox, bridge, p) else {
                     return Some(err_result(
                         LocalizedText::with_params(
@@ -3168,6 +3247,18 @@ impl NativeToolset {
                 LocalizedText::new("engine.tools.write.pathRequired").render(),
             ));
         };
+        // v2 `writeTool.ts:51-55`: `operation: 'write'` under the default
+        // policy, so a sensitive target is refused here and not at the
+        // permission layer (which only reaches an `Ask`).
+        if let Some(refusal) = Self::file_access_refusal(
+            sandbox,
+            bridge,
+            path,
+            crate::native::path_access::PathAccessOperation::Write,
+            &crate::native::path_access::WorkspaceAccessPolicy::default(),
+        ) {
+            return Some(err_result(refusal));
+        }
         let Some(content) = args.get("content").and_then(Value::as_str) else {
             return Some(err_result(
                 LocalizedText::new("engine.tools.write.contentRequired").render(),
@@ -3268,6 +3359,18 @@ impl NativeToolset {
                 LocalizedText::new("engine.tools.edit.pathRequired").render(),
             ));
         };
+        // v2 `editTool.ts:52-56`: `operation: 'write'` — Edit shares Write's
+        // policy, and the out-of-workspace message says "write or edit" for
+        // both.
+        if let Some(refusal) = Self::file_access_refusal(
+            sandbox,
+            bridge,
+            path,
+            crate::native::path_access::PathAccessOperation::Write,
+            &crate::native::path_access::WorkspaceAccessPolicy::default(),
+        ) {
+            return Some(err_result(refusal));
+        }
         let Some(old) = args.get("old_string").and_then(Value::as_str) else {
             return Some(err_result(
                 LocalizedText::new("engine.tools.edit.oldStringRequired").render(),
@@ -5355,6 +5458,89 @@ mod tests {
         assert!(
             result.content.contains("nope"),
             "content: {}",
+            result.content
+        );
+    }
+
+    /// v2 `grepTool.ts:94-98` / `globTool.ts:94-98` run the path gate with
+    /// `operation: 'search'` and an explicit `checkSensitive: false`: a
+    /// *relative* spelling that escapes the workspace is refused, while the
+    /// same target spelled absolutely is still searched. The search policy
+    /// drops the sensitive-file refusal (Grep/Glob filter hits in
+    /// `filtered_sensitive` instead), not the workspace one.
+    #[test]
+    fn grep_search_policy_refuses_a_relative_escape_but_allows_an_absolute_one() {
+        let (_dir, ts) = setup();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("far.txt"), "needle outside\n").unwrap();
+
+        let refused = ts
+            .execute(
+                "Grep",
+                &json!({ "pattern": "needle", "path": "../../../../../../etc" }),
+            )
+            .expect("a refused path is still a served call, not a declined one");
+        assert!(refused.is_error, "content: {}", refused.content);
+        assert!(
+            refused.content.contains("is not an absolute path"),
+            "content: {}",
+            refused.content
+        );
+
+        let allowed = ts
+            .execute(
+                "Grep",
+                &json!({ "pattern": "needle", "path": outside.path() }),
+            )
+            .expect("an absolute path outside the workspace stays searchable");
+        assert!(!allowed.is_error, "content: {}", allowed.content);
+        assert!(
+            allowed.content.contains("far.txt"),
+            "content: {}",
+            allowed.content
+        );
+    }
+
+    /// The same gate and policy as Grep, so a relative escape is refused here
+    /// too — Glob is a search operation in v2, not a write one.
+    #[test]
+    fn glob_search_policy_refuses_a_relative_escape() {
+        let (_dir, ts) = setup();
+        let refused = ts
+            .execute(
+                "Glob",
+                &json!({ "pattern": "**/*.txt", "path": "../../../../../../etc" }),
+            )
+            .expect("a refused path is still a served call, not a declined one");
+        assert!(refused.is_error, "content: {}", refused.content);
+        assert!(
+            refused.content.contains("is not an absolute path"),
+            "content: {}",
+            refused.content
+        );
+    }
+
+    /// The sensitive-file refusal is the *read/write* policy, not the search
+    /// one: Grep keeps searching a `.env` and drops the hit from its results.
+    #[test]
+    fn grep_search_policy_does_not_refuse_a_sensitive_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(".env"), "SECRET_TOKEN=needle\n").unwrap();
+        std::fs::write(dir.path().join("plain.txt"), "needle plain\n").unwrap();
+        let ts = NativeToolset::new(dir.path().to_str().unwrap(), None).unwrap();
+
+        let result = ts
+            .execute("Grep", &json!({ "pattern": "needle", "path": dir.path() }))
+            .expect("a sensitive path is searched, not refused");
+        assert!(!result.is_error, "content: {}", result.content);
+        assert!(
+            result.content.contains("plain.txt"),
+            "content: {}",
+            result.content
+        );
+        assert!(
+            !result.content.contains("SECRET_TOKEN"),
+            "the hit itself must be filtered, not just the call: {}",
             result.content
         );
     }

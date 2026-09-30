@@ -1,10 +1,23 @@
-//! Stale-write guard (G-6 #3) — a fork-original feature with no v2
-//! counterpart. Upstream's `features/staleGuard/` was deleted in
-//! a020946916 (#3517) before this engine existed, and the described v2
-//! behaviour (mtime tracking + write veto) never existed upstream either;
-//! the only upstream "stale" remnants are two dead wire strings in
-//! `state/eventDispatcherService.ts`. v2's only mtime check is a read-side
-//! TOCTOU guard on tail reads (`readTool.ts`), a different mechanism.
+//! Stale-write guard (G-6 #3) — a **port** of v2's `features/staleGuard/`,
+//! not a fork-original feature.
+//!
+//! (2026-10-01 correction) The file header previously claimed upstream deleted
+//! `features/staleGuard/` in a020946916 (#3517) and that the described v2
+//! behaviour "never existed upstream". That conclusion was reached from a
+//! commit that is **not an ancestor of the v2 export point**
+//! (`git merge-base --is-ancestor a020946916 ecad4136d9` → false), so the
+//! deletion postdates the baseline the comparison is made against. At the
+//! baseline (`G:\kimi\_v2-ref`, extracted from `ecad4136d9^`) the feature is a
+//! complete implementation: `features/staleGuard/staleGuardService.ts` is 146
+//! executable lines, `guardWrite` matches `Edit`/`Write` exactly, and its two
+//! veto strings are byte-identical to the ones in this module
+//! (`staleGuardService.ts:46-138`). `staleGuardFeature.ts:19` registers it for
+//! real. The behaviour is aligned; only the attribution was wrong — and the
+//! wrong attribution is what told a later audit to skip comparing the two.
+//! The deletion itself is still real, it just is not evidence about v2.
+//!
+//! v2's other mtime check — a read-side TOCTOU guard on tail reads
+//! (`readTool.ts`) — remains a separate mechanism.
 //!
 //! This module records the mtime of every file a successful Read/Edit/Write
 //! touched and vetoes native Write/Edit calls when the target was never read

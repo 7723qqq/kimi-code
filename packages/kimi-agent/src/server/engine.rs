@@ -1743,7 +1743,7 @@ fn clone_spec(spec: &PipelineSpec) -> PipelineSpec {
         tower_worktree_root: spec.tower_worktree_root.clone(),
         tower_enabled: spec.tower_enabled,
         tool_select: spec.tool_select,
-        sandbox_mode: spec.sandbox_mode.clone(),
+        sandbox_mode: spec.sandbox_mode,
         sandbox_policy: spec.sandbox_policy.clone(),
         secondary_model: spec.secondary_model.clone(),
         caller_agent_id: spec.caller_agent_id.clone(),

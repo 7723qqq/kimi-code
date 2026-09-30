@@ -873,8 +873,14 @@ pub struct RunTurnParams {
     /// `[experimental].tower`). `None` leaves the decision to the engine.
     #[serde(default)]
     pub tower_enabled: Option<bool>,
+    /// Host-resolved `[sandbox] mode`. Typed rather than a bare `String` so an
+    /// unknown spelling fails **deserialization** here — the wire boundary,
+    /// which is where v2 rejects the same values (`z.enum` in
+    /// `workspace/sandbox/sandbox.ts:20`). A `String` field would have to defer
+    /// the decision to the turn pipeline, where a bad value could no longer be
+    /// reported as a bad value.
     #[serde(default)]
-    pub sandbox_mode: Option<String>,
+    pub sandbox_mode: Option<crate::tools::sandbox::SandboxMode>,
     #[serde(default)]
     pub caller_agent_id: Option<String>,
     #[serde(default)]

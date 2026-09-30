@@ -152,7 +152,11 @@ pub struct PipelineSpec {
     /// `dynamically_loaded_tools` capability it gates the `select_tools`
     /// advertisement and the per-server `deferred` MCP disclosure.
     pub tool_select: bool,
-    pub sandbox_mode: Option<String>,
+    /// Host-resolved `[sandbox] mode`, already validated at whichever boundary
+    /// produced it (`RunTurnParams` rejects an unknown spelling during
+    /// deserialization). Carrying the enum rather than a `String` means the
+    /// pipeline cannot be handed a mode it would have to guess at.
+    pub sandbox_mode: Option<crate::tools::sandbox::SandboxMode>,
     pub sandbox_policy: Option<crate::tools::sandbox::SandboxExecutionPolicy>,
     pub caller_agent_id: Option<String>,
     pub session_id: Option<String>,
@@ -464,8 +468,7 @@ pub async fn build_engine_pipeline(
                     let toolset = toolset;
                     let sandbox_policy = if let Some(ref policy) = spec.sandbox_policy {
                         Some(policy.clone())
-                    } else if let Some(ref mode_str) = spec.sandbox_mode {
-                        let mode = crate::tools::sandbox::SandboxMode::parse(mode_str);
+                    } else if let Some(mode) = spec.sandbox_mode {
                         let root = spec.workspace_root.clone().unwrap_or_default();
                         // Host-authorized `additionalDirs` are part of the
                         // boundary: without them the guard rejects writes into

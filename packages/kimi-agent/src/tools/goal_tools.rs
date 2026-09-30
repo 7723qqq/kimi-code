@@ -21,6 +21,21 @@ use crate::turn_loop::types::ExecutableToolResult;
 /// state for this session.
 const STATE_BRIDGE_UNSUPPORTED_FAILURE_MESSAGE: &str = "The connected client does not support the state bridge. Do NOT call this tool again — the host cannot update goal state.";
 
+/// v2 `GOAL_MAIN_AGENT_ONLY` (`agent/tools/mainAgentOnly.ts:7`), verbatim.
+pub const GOAL_MAIN_AGENT_ONLY: &str = "Goal tools are only supported by the main agent.";
+
+/// v2 `mainAgentOnlyExecution` (`mainAgentOnly.ts:9-15`): every goal tool
+/// refuses a non-main caller before it does anything else. The goal is
+/// session-scoped state, so a subagent driving it would mutate the parent's
+/// goal — the same shape as `TOWER_MAIN_AGENT_ONLY`, and checked the same way
+/// (literal `"main"`, like the tower tools).
+pub fn main_agent_only_refusal(caller_agent_id: &str) -> Option<ExecutableToolResult> {
+    if caller_agent_id == "main" {
+        return None;
+    }
+    Some(err_result(GOAL_MAIN_AGENT_ONLY.to_string()))
+}
+
 /// Wire shape of the goal domain (`GoalToolResult`): the host returns the
 /// full `GoalSnapshot` (including `goalId`) or `null` when no goal exists.
 #[derive(Debug, Deserialize)]
@@ -53,8 +68,12 @@ struct GoalBudgetReportWire {
 /// post-write goal snapshot.
 pub async fn execute_update_goal(
     callbacks: &dyn HostCallbacks,
+    caller_agent_id: &str,
     args: &Value,
 ) -> ExecutableToolResult {
+    if let Some(refusal) = main_agent_only_refusal(caller_agent_id) {
+        return refusal;
+    }
     let Some(status) = args.get("status").and_then(|s| s.as_str()) else {
         return err_result("Invalid UpdateGoal arguments: `status` must be a string.".into());
     };
@@ -128,8 +147,12 @@ fn render_update_goal(value: &Value, status: &str) -> ExecutableToolResult {
 /// post-write goal snapshot.
 pub async fn execute_set_goal_budget(
     callbacks: &dyn HostCallbacks,
+    caller_agent_id: &str,
     args: &Value,
 ) -> ExecutableToolResult {
+    if let Some(refusal) = main_agent_only_refusal(caller_agent_id) {
+        return refusal;
+    }
     let Some(value) = args.get("value").and_then(|v| v.as_f64()) else {
         return err_result("Invalid SetGoalBudget arguments: `value` must be a number.".into());
     };
@@ -469,8 +492,12 @@ mod tests {
     async fn test_update_active_resumes() {
         let (callbacks, read_received, write_received) =
             scripted(Err("not used".into()), write_ok(goal_wire("active", false)));
-        let result =
-            execute_update_goal(&callbacks, &serde_json::json!({ "status": "active" })).await;
+        let result = execute_update_goal(
+            &callbacks,
+            "main",
+            &serde_json::json!({ "status": "active" }),
+        )
+        .await;
         assert!(!result.is_error);
         assert!(!result.stop_turn);
         assert_eq!(result.content, "Goal resumed.");
@@ -517,8 +544,12 @@ mod tests {
                 }
             })),
         );
-        let result =
-            execute_update_goal(&callbacks, &serde_json::json!({ "status": "complete" })).await;
+        let result = execute_update_goal(
+            &callbacks,
+            "main",
+            &serde_json::json!({ "status": "complete" }),
+        )
+        .await;
         assert!(!result.is_error);
         assert!(result.stop_turn);
         assert_eq!(
@@ -533,8 +564,12 @@ mod tests {
             Err("not used".into()),
             write_ok(goal_wire("complete", false)),
         );
-        let result =
-            execute_update_goal(&callbacks, &serde_json::json!({ "status": "complete" })).await;
+        let result = execute_update_goal(
+            &callbacks,
+            "main",
+            &serde_json::json!({ "status": "complete" }),
+        )
+        .await;
         assert!(!result.is_error);
         assert!(result.stop_turn);
         assert!(result.content.starts_with("Goal completed successfully.\n"));
@@ -546,8 +581,12 @@ mod tests {
             Err("not used".into()),
             write_ok(goal_wire("blocked", false)),
         );
-        let result =
-            execute_update_goal(&callbacks, &serde_json::json!({ "status": "blocked" })).await;
+        let result = execute_update_goal(
+            &callbacks,
+            "main",
+            &serde_json::json!({ "status": "blocked" }),
+        )
+        .await;
         assert!(!result.is_error);
         assert!(result.stop_turn);
         assert_eq!(
@@ -568,7 +607,8 @@ mod tests {
                 write_ok(serde_json::json!({ "goal": null })),
             );
             let result =
-                execute_update_goal(&callbacks, &serde_json::json!({ "status": status })).await;
+                execute_update_goal(&callbacks, "main", &serde_json::json!({ "status": status }))
+                    .await;
             assert!(!result.is_error, "status: {status}");
             assert_eq!(result.content, expected, "status: {status}");
         }
@@ -583,7 +623,7 @@ mod tests {
             serde_json::json!({ "status": "paused" }),
             serde_json::json!({ "status": 42 }),
         ] {
-            let result = execute_update_goal(&callbacks, &bad).await;
+            let result = execute_update_goal(&callbacks, "main", &bad).await;
             assert!(result.is_error, "args: {bad}");
             assert!(
                 result.content.contains("Invalid goal status")
@@ -599,8 +639,12 @@ mod tests {
             Err("not used".into()),
             Err("State write error: [-32603] host does not support state bridge".into()),
         );
-        let result =
-            execute_update_goal(&callbacks, &serde_json::json!({ "status": "active" })).await;
+        let result = execute_update_goal(
+            &callbacks,
+            "main",
+            &serde_json::json!({ "status": "active" }),
+        )
+        .await;
         assert!(result.is_error);
         assert_eq!(result.content, STATE_BRIDGE_UNSUPPORTED_FAILURE_MESSAGE);
     }
@@ -611,8 +655,12 @@ mod tests {
             Err("not used".into()),
             Err("State write error: [-32004] Goal not completed: the current goal changed.".into()),
         );
-        let result =
-            execute_update_goal(&callbacks, &serde_json::json!({ "status": "complete" })).await;
+        let result = execute_update_goal(
+            &callbacks,
+            "main",
+            &serde_json::json!({ "status": "complete" }),
+        )
+        .await;
         assert!(result.is_error);
         assert!(result.content.contains("-32004"));
         assert!(result.content.contains("the current goal changed"));
@@ -624,8 +672,12 @@ mod tests {
             Err("not used".into()),
             write_ok(serde_json::json!({ "goal": "nope" })),
         );
-        let result =
-            execute_update_goal(&callbacks, &serde_json::json!({ "status": "active" })).await;
+        let result = execute_update_goal(
+            &callbacks,
+            "main",
+            &serde_json::json!({ "status": "active" }),
+        )
+        .await;
         assert!(result.is_error);
         assert!(result.content.contains("Invalid goal state from host"));
     }
@@ -636,6 +688,7 @@ mod tests {
             scripted(Err("not used".into()), write_ok(goal_wire("active", false)));
         let result = execute_set_goal_budget(
             &callbacks,
+            "main",
             &serde_json::json!({ "value": 20, "unit": "turns" }),
         )
         .await;
@@ -657,6 +710,7 @@ mod tests {
             scripted(Err("not used".into()), write_ok(goal_wire("active", false)));
         let result = execute_set_goal_budget(
             &callbacks,
+            "main",
             &serde_json::json!({ "value": 2.6, "unit": "turns" }),
         )
         .await;
@@ -669,6 +723,7 @@ mod tests {
             scripted(Err("not used".into()), write_ok(goal_wire("active", false)));
         let result = execute_set_goal_budget(
             &callbacks,
+            "main",
             &serde_json::json!({ "value": 0.4, "unit": "tokens" }),
         )
         .await;
@@ -684,6 +739,7 @@ mod tests {
             scripted(Err("not used".into()), write_ok(goal_wire("active", false)));
         let result = execute_set_goal_budget(
             &callbacks,
+            "main",
             &serde_json::json!({ "value": 30, "unit": "seconds" }),
         )
         .await;
@@ -704,6 +760,7 @@ mod tests {
                 scripted(Err("not used".into()), write_ok(goal_wire("active", false)));
             let result = execute_set_goal_budget(
                 &callbacks,
+                "main",
                 &serde_json::json!({ "value": value, "unit": unit }),
             )
             .await;
@@ -719,6 +776,7 @@ mod tests {
             scripted(Err("not used".into()), write_ok(goal_wire("blocked", true)));
         let result = execute_set_goal_budget(
             &callbacks,
+            "main",
             &serde_json::json!({ "value": 1, "unit": "turns" }),
         )
         .await;
@@ -738,6 +796,7 @@ mod tests {
         );
         let result = execute_set_goal_budget(
             &callbacks,
+            "main",
             &serde_json::json!({ "value": 20, "unit": "turns" }),
         )
         .await;
@@ -756,6 +815,7 @@ mod tests {
         )] {
             let result = execute_set_goal_budget(
                 &callbacks,
+                "main",
                 &serde_json::json!({ "value": value, "unit": unit }),
             )
             .await;
@@ -778,7 +838,7 @@ mod tests {
             serde_json::json!({ "value": "10", "unit": "turns" }),
             serde_json::json!({ "value": 10, "unit": "parsecs" }),
         ] {
-            let result = execute_set_goal_budget(&callbacks, &bad).await;
+            let result = execute_set_goal_budget(&callbacks, "main", &bad).await;
             assert!(result.is_error, "args: {bad}");
             assert!(result.content.contains("Invalid SetGoalBudget arguments"));
         }
@@ -793,6 +853,7 @@ mod tests {
         );
         let result = execute_set_goal_budget(
             &callbacks,
+            "main",
             &serde_json::json!({ "value": 20, "unit": "turns" }),
         )
         .await;
@@ -846,5 +907,87 @@ mod tests {
                 .description
                 .contains("There is no upper duration limit")
         );
+    }
+
+    // ── main-agent-only gate (v2 `agent/tools/mainAgentOnly.ts`) ──────────
+
+    #[test]
+    fn test_main_agent_only_refusal_matches_v2() {
+        // v2 `mainAgentOnlyExecution` returns `undefined` for the main agent
+        // and an `isError` execution carrying `GOAL_MAIN_AGENT_ONLY` otherwise.
+        assert!(main_agent_only_refusal("main").is_none());
+        for caller in ["subagent-1", "agent-7", "main2", "", "MAIN"] {
+            let refusal =
+                main_agent_only_refusal(caller).unwrap_or_else(|| panic!("{caller} refused"));
+            assert!(refusal.is_error, "{caller}");
+            assert_eq!(refusal.content, GOAL_MAIN_AGENT_ONLY, "{caller}");
+        }
+        assert_eq!(
+            GOAL_MAIN_AGENT_ONLY,
+            "Goal tools are only supported by the main agent."
+        );
+    }
+
+    #[tokio::test]
+    async fn test_every_goal_tool_refuses_a_subagent_before_touching_the_host() {
+        // v2 puts the check first in each tool's `resolveExecution`, so a
+        // subagent never reaches the goal service. These callbacks answer
+        // `Err`; if the gate let anything through, the assertions would see a
+        // state-bridge error instead of the gate's message.
+        let (callbacks, _, _) = scripted(Err("not used".into()), Err("not used".into()));
+        for caller in ["subagent-1", "agent-7"] {
+            let create = crate::tools::create_goal::execute_create_goal(
+                &callbacks,
+                caller,
+                &serde_json::json!({ "objective": "x" }),
+            )
+            .await;
+            assert!(create.is_error, "{caller}");
+            assert_eq!(create.content, GOAL_MAIN_AGENT_ONLY, "{caller}");
+
+            let get = crate::tools::get_goal::execute_get_goal(
+                &callbacks,
+                caller,
+                &serde_json::json!({}),
+            )
+            .await;
+            assert!(get.is_error, "{caller}");
+            assert_eq!(get.content, GOAL_MAIN_AGENT_ONLY, "{caller}");
+
+            let update = execute_update_goal(
+                &callbacks,
+                caller,
+                &serde_json::json!({ "status": "active" }),
+            )
+            .await;
+            assert!(update.is_error, "{caller}");
+            assert_eq!(update.content, GOAL_MAIN_AGENT_ONLY, "{caller}");
+
+            let budget = execute_set_goal_budget(
+                &callbacks,
+                caller,
+                &serde_json::json!({ "value": 20, "unit": "turns" }),
+            )
+            .await;
+            assert!(budget.is_error, "{caller}");
+            assert_eq!(budget.content, GOAL_MAIN_AGENT_ONLY, "{caller}");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_the_main_agent_still_reaches_the_goal_tools() {
+        // Control for the test above: the gate is the only thing refusing, so
+        // "main" must get past it and reach the host. A gate that refused
+        // everyone would otherwise pass.
+        let (callbacks, _, _) =
+            scripted(Err("not used".into()), write_ok(goal_wire("active", false)));
+        let update = execute_update_goal(
+            &callbacks,
+            "main",
+            &serde_json::json!({ "status": "active" }),
+        )
+        .await;
+        assert!(!update.is_error);
+        assert_ne!(update.content, GOAL_MAIN_AGENT_ONLY);
     }
 }

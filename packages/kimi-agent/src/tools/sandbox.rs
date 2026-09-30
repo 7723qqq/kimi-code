@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 
 /// File-effect modes for confined executions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum SandboxMode {
     #[default]
@@ -24,13 +24,64 @@ pub enum SandboxMode {
     WorkspaceWrite,
 }
 
+impl<'de> Deserialize<'de> for SandboxMode {
+    /// Deserialization routes through [`SandboxMode::validate`] so a value
+    /// arriving as JSON — a hand-edited config, a wire payload — is held to the
+    /// same spelling set as one arriving as a `&str`, and a bad one fails to
+    /// deserialize instead of resolving to a mode. The derived impl would also
+    /// have rejected unknown variants, but it would have rejected the
+    /// `readonly` / `workspacewrite` aliases and any case or padding variant
+    /// that the string path has always accepted, so the two entry points would
+    /// disagree about what a legal mode is.
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        SandboxMode::validate(&raw).map_err(serde::de::Error::custom)
+    }
+}
+
 impl SandboxMode {
-    /// Parses a string into `SandboxMode`. Returns `SandboxMode::Off` for unknown values.
-    pub fn parse(s: &str) -> Self {
+    /// The spellings [`SandboxMode::validate`] accepts, quoted for the error
+    /// message. Mirrors v2 `z.enum(['off', 'read-only', 'workspace-write'])`
+    /// (`workspace/sandbox/sandbox.ts:20`) plus the two no-hyphen aliases and
+    /// the case/whitespace tolerance the wire path has always had.
+    const ACCEPTED_SPELLINGS: &str =
+        "\"off\", \"read-only\" (or \"readonly\"), \"workspace-write\" (or \"workspacewrite\")";
+
+    /// Strict parse: an unknown spelling is an `Err`, never a mode. Every
+    /// user-supplied value (config file, CLI, napi) must enter here, the way
+    /// v2 rejects the same values during config validation.
+    pub fn validate(s: &str) -> Result<Self, String> {
         match s.trim().to_ascii_lowercase().as_str() {
-            "read-only" | "readonly" => SandboxMode::ReadOnly,
-            "workspace-write" | "workspacewrite" => SandboxMode::WorkspaceWrite,
-            _ => SandboxMode::Off,
+            "off" => Ok(SandboxMode::Off),
+            "read-only" | "readonly" => Ok(SandboxMode::ReadOnly),
+            "workspace-write" | "workspacewrite" => Ok(SandboxMode::WorkspaceWrite),
+            _ => Err(format!(
+                "unknown sandbox mode {s:?} (accepted: {})",
+                Self::ACCEPTED_SPELLINGS
+            )),
+        }
+    }
+
+    /// Parse for call sites that cannot propagate an error yet.
+    ///
+    /// Fail-closed: an unknown spelling resolves to `ReadOnly`, the most
+    /// restrictive mode, never to `Off`. The previous `_ => SandboxMode::Off`
+    /// arm meant a one-letter typo in `[sandbox] mode` silently lifted every
+    /// boundary this module exists to enforce. A caller that *can* report the
+    /// problem should use [`SandboxMode::validate`] instead; the two production
+    /// call sites (`pipeline/mod.rs`, `napi_bindings.rs`) still route through
+    /// this lossy shim and need to move to `validate` for the error to reach
+    /// the user.
+    pub fn parse(s: &str) -> Self {
+        match Self::validate(s) {
+            Ok(mode) => mode,
+            Err(error) => {
+                tracing::warn!("{error}; using the most restrictive mode instead");
+                SandboxMode::ReadOnly
+            }
         }
     }
 
@@ -601,18 +652,91 @@ mod tests {
 
     #[test]
     fn test_sandbox_mode_parsing() {
-        assert_eq!(SandboxMode::parse("off"), SandboxMode::Off);
-        assert_eq!(SandboxMode::parse("read-only"), SandboxMode::ReadOnly);
-        assert_eq!(SandboxMode::parse("readonly"), SandboxMode::ReadOnly);
-        assert_eq!(
-            SandboxMode::parse("workspace-write"),
-            SandboxMode::WorkspaceWrite
-        );
-        assert_eq!(
-            SandboxMode::parse("workspacewrite"),
-            SandboxMode::WorkspaceWrite
-        );
-        assert_eq!(SandboxMode::parse("unknown"), SandboxMode::Off);
+        // The three legal modes, plus the aliases, case and padding tolerance
+        // the wire path has always had.
+        for (input, expected) in [
+            ("off", SandboxMode::Off),
+            ("OFF", SandboxMode::Off),
+            ("  off  ", SandboxMode::Off),
+            ("read-only", SandboxMode::ReadOnly),
+            ("Read-Only", SandboxMode::ReadOnly),
+            ("readonly", SandboxMode::ReadOnly),
+            ("workspace-write", SandboxMode::WorkspaceWrite),
+            ("WorkSpace-Write ", SandboxMode::WorkspaceWrite),
+            ("workspacewrite", SandboxMode::WorkspaceWrite),
+        ] {
+            assert_eq!(SandboxMode::validate(input).unwrap(), expected, "{input}");
+            assert_eq!(SandboxMode::parse(input), expected, "{input}");
+        }
+    }
+
+    /// The defect this guards: an unrecognized mode used to fall through to
+    /// `Off`, so a typo lifted every boundary. `validate` must name the value
+    /// and the accepted set, and `parse` must fail *closed*, not open.
+    #[test]
+    fn test_sandbox_mode_rejects_unknown_spellings() {
+        for input in [
+            "unknown",
+            // The typo from the defect report: one character, and the whole
+            // sandbox used to disappear.
+            "workspace_write",
+            "workspace write",
+            "read_only",
+            "workspace-writes",
+            "",
+            "   ",
+            "off; rm -rf /",
+        ] {
+            let error = SandboxMode::validate(input)
+                .expect_err("an unknown mode must not resolve to a mode");
+            assert!(error.contains("unknown sandbox mode"), "{error}");
+            assert!(error.contains("\"off\""), "{error}");
+            assert!(
+                SandboxMode::parse(input) != SandboxMode::Off,
+                "{input:?} must not fail open to Off, got {:?}",
+                SandboxMode::parse(input)
+            );
+        }
+    }
+
+    /// A mode that arrives as JSON (hand-edited config, wire payload) is held
+    /// to the same spelling set as one arriving as a `&str`, and an illegal one
+    /// fails to deserialize rather than picking a mode.
+    #[test]
+    fn test_sandbox_mode_deserialize_is_strict_and_shares_the_spellings() {
+        for (input, expected) in [
+            ("off", SandboxMode::Off),
+            ("read-only", SandboxMode::ReadOnly),
+            ("READONLY", SandboxMode::ReadOnly),
+            ("workspace-write", SandboxMode::WorkspaceWrite),
+            (" workspacewrite ", SandboxMode::WorkspaceWrite),
+        ] {
+            let json = serde_json::to_string(&input).unwrap();
+            assert_eq!(
+                serde_json::from_str::<SandboxMode>(&json).unwrap(),
+                expected
+            );
+        }
+
+        for input in ["unknown", "workspace_write", ""] {
+            let json = serde_json::to_string(&input).unwrap();
+            assert!(
+                serde_json::from_str::<SandboxMode>(&json).is_err(),
+                "{input:?} must not deserialize"
+            );
+        }
+    }
+
+    /// The policy struct deserializes `mode` through the same gate, so a whole
+    /// policy carrying a bad mode is rejected rather than silently unsandboxed.
+    #[test]
+    fn test_sandbox_policy_deserialize_rejects_a_bad_mode() {
+        let good = r#"{"mode":"workspace-write","workspace_root":"/root"}"#;
+        let policy: SandboxExecutionPolicy = serde_json::from_str(good).unwrap();
+        assert_eq!(policy.mode, SandboxMode::WorkspaceWrite);
+
+        let bad = r#"{"mode":"workspace_write","workspace_root":"/root"}"#;
+        assert!(serde_json::from_str::<SandboxExecutionPolicy>(bad).is_err());
     }
 
     #[test]

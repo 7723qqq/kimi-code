@@ -242,6 +242,22 @@ jobs:
       # CI cannot do that itself: writing the model here would hide the very
       # drift the step exists to report.
       - run: bun scripts/check-architecture-drift.mjs
+      # Normify structure-data gate (normify-kimi-code/): the second architecture
+      # registry, and the one the rendered diagram is generated from. It carries the
+      # same evidence rule as the gate above — every module's stored fingerprint must
+      # still match its declared source files — plus L2 structural checks (leaf /
+      # api / edge / layout / file-mapping) and the policy.yml rule set.
+      #
+      # It was CI-blind until now: 12 modules had drifted (11 from four engine
+      # commits, 1 a fingerprint that never matched any real content) while this
+      # job stayed green, because nothing ever ran it outside a manual invocation.
+      #
+      # A source change under a fingerprinted module makes this fail until the same
+      # commit refreshes the stored hash. `normify_module_refresh` recomputes it for
+      # one module (`ids: [...]`) or all of them; `normify_sync` is the read-only
+      # planner that lists which modules are stale. CI must not refresh on its own:
+      # writing the model here would hide the very drift the step exists to report.
+      - run: bun run check:normify
       # Ledger gate (packages/kimi-agent/ROADMAP.md): every file and test the
       # divergence ledger cites must still exist. The ledger is the fork's only
       # record of what the Rust port did and did not take from the deleted

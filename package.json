@@ -55,6 +55,7 @@
     "check:engine-i18n": "bun scripts/check-engine-i18n-parity.mjs",
     "check:architecture": "bun scripts/check-architecture-drift.mjs",
     "check:architecture:update": "bun scripts/check-architecture-drift.mjs --update",
+    "check:normify": "bun packages/normify/src/cli.ts normify_validate \"{\\\"project\\\":\\\"kimi-code\\\",\\\"repoRoot\\\":\\\".\\\"}\"",
     "check:roadmap-refs": "bun scripts/check-roadmap-refs.mjs",
     "gen:brief": "bun scripts/gen-brief.mjs",
     "changeset": "changeset",

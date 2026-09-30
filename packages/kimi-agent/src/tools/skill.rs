@@ -33,6 +33,21 @@ use crate::turn_loop::types::ExecutableToolResult;
 /// v2 not-found output tail (`SkillTool.execution`).
 const SKILL_NOT_FOUND_MESSAGE: &str = "not found in the current skill listing.";
 
+/// v2 `MAX_SKILL_QUERY_DEPTH` (`features/skill/tools/skill.ts:7`): how many
+/// skill invocations may nest before the tool refuses to recurse further.
+pub const MAX_SKILL_QUERY_DEPTH: u32 = 3;
+
+/// v2 `NestedSkillTooDeepError`'s message, verbatim: the optional `skillName`
+/// becomes a ` "name"` label, and an absent name leaves the label empty.
+pub fn nested_skill_too_deep_error(depth: u32, skill_name: Option<&str>) -> String {
+    let label = skill_name
+        .map(|name| format!(" \"{name}\""))
+        .unwrap_or_default();
+    format!(
+        "Nested skill invocation{label} exceeded the maximum depth of {depth} — refusing to recurse further."
+    )
+}
+
 /// Failure message when the connected host does not implement the state
 /// bridge. The model must not retry the tool — the host cannot load skills
 /// for this session.
@@ -381,12 +396,44 @@ fn scan_skill(name: &str, scan: &SkillScan<'_>) -> Option<ResolvedSkill> {
 /// Execute the Skill tool natively: resolve the skill from the engine's own
 /// scan, falling back to `host/state_read {domain: "skill"}`, and render the
 /// v2-aligned output + steer delivery.
+///
+/// The top-level entry point, at nesting depth 0 — v2's `SkillTool` default
+/// (`private queryDepth: number = 0`). A caller that is itself running inside
+/// an already-loaded skill uses [`execute_skill_with_depth`] instead.
 pub async fn execute_skill(
     callbacks: &dyn HostCallbacks,
     session_id: Option<&str>,
     args: &Value,
     scan: SkillScan<'_>,
 ) -> ExecutableToolResult {
+    execute_skill_with_depth(callbacks, session_id, args, scan, 0).await
+}
+
+/// The nesting-depth-carrying execution, mirroring v2 `executeModelSkill`.
+///
+/// `query_depth` is the depth of the *caller*: a top-level model-tool
+/// invocation passes 0, and each nested skill invocation passes its own depth
+/// plus one (v2 `withInitialQueryDepth`). The gate runs before any resolution
+/// or state-bridge work, so a refused recursion costs nothing and never
+/// activates a skill.
+pub async fn execute_skill_with_depth(
+    callbacks: &dyn HostCallbacks,
+    session_id: Option<&str>,
+    args: &Value,
+    scan: SkillScan<'_>,
+    query_depth: u32,
+) -> ExecutableToolResult {
+    let current_depth = query_depth;
+    if current_depth >= MAX_SKILL_QUERY_DEPTH {
+        // v2 throws `NestedSkillTooDeepError`; the tool contract here carries
+        // refusals as error results, so the same message is returned verbatim.
+        let skill_name = args.get("skill").and_then(Value::as_str);
+        return err_result(nested_skill_too_deep_error(
+            MAX_SKILL_QUERY_DEPTH,
+            skill_name,
+        ));
+    }
+
     let name = args
         .get("skill")
         .or_else(|| args.get("name"))
@@ -464,7 +511,14 @@ pub async fn execute_skill(
 
     // Activation provenance (v2 `SkillActivationOrigin` + `SkillActivated`).
     let activation_id = ulid::Ulid::new().to_string();
-    let trigger = "model-tool";
+    // A top-level model invocation is `model-tool`; anything reached from
+    // inside an already-loaded skill is `nested-skill` (v2 skillTool.ts:95).
+    // Unchanged for the depth-0 path every production caller uses.
+    let trigger = if current_depth > 0 {
+        "nested-skill"
+    } else {
+        "model-tool"
+    };
 
     let mut origin = json!({
         "kind": "skill_activation",
@@ -1420,5 +1474,159 @@ mod tests {
             panic!("expected a text block");
         };
         assert!(text.contains("name=\"q&quot;x\""), "{text}");
+    }
+
+    /// The depth message is v2's, character for character, including the
+    /// optional ` "name"` label and the em dash.
+    #[test]
+    fn test_nested_skill_too_deep_error_matches_v2() {
+        assert_eq!(MAX_SKILL_QUERY_DEPTH, 3);
+        assert_eq!(
+            nested_skill_too_deep_error(MAX_SKILL_QUERY_DEPTH, Some("commit")),
+            "Nested skill invocation \"commit\" exceeded the maximum depth of 3 — refusing to recurse further."
+        );
+        // An absent name leaves the label empty, so the sentence reads
+        // `invocation exceeded`, not `invocation "" exceeded`.
+        assert_eq!(
+            nested_skill_too_deep_error(MAX_SKILL_QUERY_DEPTH, None),
+            "Nested skill invocation exceeded the maximum depth of 3 — refusing to recurse further."
+        );
+    }
+
+    /// Levels 1, 2 and 3 (depth 0, 1, 2) load; level 4 (depth 3) is refused
+    /// with the v2 message. The refusal is a plain error result, and it happens
+    /// before the skill is resolved or the host is asked.
+    #[tokio::test]
+    async fn test_skill_query_depth_limit() {
+        let (callbacks, read_received, events) = scripted(read_ok(sample_skill()));
+
+        for depth in 0..MAX_SKILL_QUERY_DEPTH {
+            let result = execute_skill_with_depth(
+                &callbacks,
+                None,
+                &serde_json::json!({ "skill": "commit" }),
+                scan(None),
+                depth,
+            )
+            .await;
+            assert!(
+                !result.is_error,
+                "depth {depth} must load: {}",
+                result.content
+            );
+            assert_eq!(
+                result.content,
+                "Skill \"commit\" loaded inline. Follow its instructions."
+            );
+        }
+
+        let result = execute_skill_with_depth(
+            &callbacks,
+            None,
+            &serde_json::json!({ "skill": "commit" }),
+            scan(None),
+            MAX_SKILL_QUERY_DEPTH,
+        )
+        .await;
+        assert!(result.is_error);
+        assert_eq!(
+            result.content,
+            nested_skill_too_deep_error(MAX_SKILL_QUERY_DEPTH, Some("commit"))
+        );
+        assert_eq!(
+            result.content,
+            "Nested skill invocation \"commit\" exceeded the maximum depth of 3 — refusing to recurse further."
+        );
+        // Refused ahead of resolution, so the three allowed loads are the only
+        // state-reads and the only activation events this test records.
+        let activated = events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| e["type"] == "skill.activated")
+            .count();
+        assert_eq!(activated, MAX_SKILL_QUERY_DEPTH as usize);
+        assert!(read_received.lock().unwrap().is_some());
+    }
+
+    /// A refused recursion is refused on depth alone: an unknown skill name at
+    /// the limit reports the depth error, not the not-found message, and never
+    /// reaches the host.
+    #[tokio::test]
+    async fn test_depth_refusal_precedes_resolution() {
+        let (callbacks, read_received, events) = scripted(Err(
+            "State read error: [-32002] unknown skill: commit".into(),
+        ));
+        let result = execute_skill_with_depth(
+            &callbacks,
+            None,
+            &serde_json::json!({ "skill": "no-such-skill" }),
+            scan(None),
+            MAX_SKILL_QUERY_DEPTH,
+        )
+        .await;
+        assert!(result.is_error);
+        assert_eq!(
+            result.content,
+            "Nested skill invocation \"no-such-skill\" exceeded the maximum depth of 3 — refusing to recurse further."
+        );
+        assert!(read_received.lock().unwrap().is_none());
+        assert!(
+            events
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|e| e["type"] != "skill.activated")
+        );
+    }
+
+    /// A nested invocation is attributed to `nested-skill`, a top-level one to
+    /// `model-tool` (v2 `SkillPromptTrigger`).
+    #[tokio::test]
+    async fn test_nested_invocation_records_the_nested_skill_trigger() {
+        let (callbacks, _, events) = scripted(read_ok(sample_skill()));
+        let result = execute_skill_with_depth(
+            &callbacks,
+            None,
+            &serde_json::json!({ "skill": "commit" }),
+            scan(None),
+            1,
+        )
+        .await;
+        assert!(!result.is_error, "{}", result.content);
+        let ContentBlock::Text { text } = &result.delivery.as_ref().unwrap().blocks[0] else {
+            panic!("expected a text block");
+        };
+        assert!(text.contains("trigger=\"nested-skill\""), "{text}");
+        let events = events.lock().unwrap();
+        let activated = events
+            .iter()
+            .find(|e| e["type"] == "skill.activated")
+            .expect("skill.activated event");
+        assert_eq!(activated["trigger"], "nested-skill");
+    }
+
+    /// The top-level entry point stays at depth 0, so the pre-existing
+    /// `model-tool` attribution and the whole existing suite are unaffected.
+    #[tokio::test]
+    async fn test_execute_skill_is_the_depth_zero_entry_point() {
+        let (callbacks, _, _) = scripted(read_ok(sample_skill()));
+        let direct = execute_skill(
+            &callbacks,
+            None,
+            &serde_json::json!({ "skill": "commit" }),
+            scan(None),
+        )
+        .await;
+        let at_zero = execute_skill_with_depth(
+            &callbacks,
+            None,
+            &serde_json::json!({ "skill": "commit" }),
+            scan(None),
+            0,
+        )
+        .await;
+        assert!(!direct.is_error && !at_zero.is_error);
+        assert_eq!(direct.content, at_zero.content);
     }
 }

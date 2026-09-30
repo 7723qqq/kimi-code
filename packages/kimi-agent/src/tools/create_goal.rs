@@ -13,6 +13,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::goal_tools::main_agent_only_refusal;
 use super::{err_result, ok_result};
 use crate::callbacks::HostCallbacks;
 use crate::rpc::types::StateWriteRequest;
@@ -78,8 +79,12 @@ struct GoalBudgetReportWire {
 /// JSON output from the host's post-write goal snapshot.
 pub async fn execute_create_goal(
     callbacks: &dyn HostCallbacks,
+    caller_agent_id: &str,
     args: &Value,
 ) -> ExecutableToolResult {
+    if let Some(refusal) = main_agent_only_refusal(caller_agent_id) {
+        return refusal;
+    }
     let Some(objective) = args.get("objective").and_then(|o| o.as_str()) else {
         return err_result("Invalid CreateGoal arguments: `objective` must be a string.".into());
     };
@@ -307,6 +312,7 @@ mod tests {
         let (callbacks, write_received) = scripted(read_ok(Value::Null), write_ok(created_goal()));
         let result = execute_create_goal(
             &callbacks,
+            "main",
             &serde_json::json!({
                 "objective": "Do the thing",
                 "completionCriterion": "tests pass",
@@ -359,6 +365,7 @@ mod tests {
         let (callbacks, write_received) = scripted(read_ok(Value::Null), write_ok(created_goal()));
         let result = execute_create_goal(
             &callbacks,
+            "main",
             &serde_json::json!({ "objective": "Do the thing" }),
         )
         .await;
@@ -377,6 +384,7 @@ mod tests {
         );
         let result = execute_create_goal(
             &callbacks,
+            "main",
             &serde_json::json!({ "objective": "Do the thing" }),
         )
         .await;
@@ -394,7 +402,7 @@ mod tests {
             serde_json::json!({ "objective": "x", "replace": true }),
             serde_json::json!({ "objective": "x", "completionCriterion": 42 }),
         ] {
-            let result = execute_create_goal(&callbacks, &bad).await;
+            let result = execute_create_goal(&callbacks, "main", &bad).await;
             assert!(result.is_error, "args: {bad}");
             assert!(result.content.contains("Invalid CreateGoal arguments"));
         }
@@ -409,6 +417,7 @@ mod tests {
         );
         let result = execute_create_goal(
             &callbacks,
+            "main",
             &serde_json::json!({ "objective": "Do the thing" }),
         )
         .await;
@@ -427,6 +436,7 @@ mod tests {
         );
         let result = execute_create_goal(
             &callbacks,
+            "main",
             &serde_json::json!({ "objective": "Do the thing" }),
         )
         .await;
@@ -443,6 +453,7 @@ mod tests {
         );
         let result = execute_create_goal(
             &callbacks,
+            "main",
             &serde_json::json!({ "objective": "Do the thing" }),
         )
         .await;
@@ -455,6 +466,7 @@ mod tests {
         let (callbacks, write_received) = scripted(read_ok(Value::Null), write_ok(created_goal()));
         let result = execute_create_goal(
             &callbacks,
+            "main",
             &serde_json::json!({
                 "objective": "Do the thing",
                 "turn_id": "turn-42",
