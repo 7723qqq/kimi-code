@@ -9,7 +9,7 @@
         "repository": "https://github.com/7723qqq/kimi-code"
       }
     ],
-    "compiled_at": "2026-09-30T20:23:02.495Z",
+    "compiled_at": "2026-09-30T20:34:06.305Z",
     "stats": {
       "tree_count": 1,
       "module_count": 74,
@@ -619,9 +619,9 @@
           "path": "packages/kimi-agent/src/pipeline/mod.rs"
         }
       ],
-      "revision": "3fb50fc35994bafa62a0e4385b314425825bda71",
-      "updated_at": "2026-09-30T20:22:55.494Z",
-      "fingerprint": "a75d6263831a9132ac898019adc950c9d30feb04b9154c69b5f21a96633c951e",
+      "revision": "fc0aee5661e7c35635a3b8e21edce919532a4832",
+      "updated_at": "2026-09-30T20:33:58.103Z",
+      "fingerprint": "ca9ffeb4548cc24e0258c9e8d841a8bed97c6e4e4d3e6e2188a972de55b34e79",
       "deps": [
         {
           "kind": "call",
@@ -716,9 +716,9 @@
           "path": "packages/kimi-agent/src/injection/state.rs"
         }
       ],
-      "revision": "779fa7ba58daaeed4dd885c941bf1c29d2fe902e",
-      "updated_at": "2026-09-29T11:43:38.989Z",
-      "fingerprint": "e4621bf42b6ea40cbe9c05f2bd76ec6703c73f5cd203e9e156ad6298dd41d70f",
+      "revision": "fc0aee5661e7c35635a3b8e21edce919532a4832",
+      "updated_at": "2026-09-30T20:33:58.103Z",
+      "fingerprint": "48b406349dfa41cd9ef6a17f3877b02232ad5bf55f1c2ab7384b0eafe1955c80",
       "aggregate": {
         "descendant_count": 4,
         "own_api_count": 0,
@@ -1029,9 +1029,9 @@
           "path": "packages/kimi-agent/src/turn_loop/retry.rs"
         }
       ],
-      "revision": "435e51cd310eb9df90ddb522a8d245cae01e86cf",
-      "updated_at": "2026-09-30T19:35:42.950Z",
-      "fingerprint": "bdad82318b454f5431cd429a06a9d2a866031a9a809e7a3b9b997d704c1d16e0",
+      "revision": "fc0aee5661e7c35635a3b8e21edce919532a4832",
+      "updated_at": "2026-09-30T20:34:05.220Z",
+      "fingerprint": "f583342a883fc44717e0f00ab2d108f82cdd3e7f64ee291a1dc637c07f4a2f8b",
       "deps": [
         {
           "kind": "call",
@@ -1869,8 +1869,8 @@
           "path": "packages/kimi-agent/src/tools/skill.rs"
         }
       ],
-      "revision": "3fb50fc35994bafa62a0e4385b314425825bda71",
-      "updated_at": "2026-09-30T20:22:55.494Z",
+      "revision": "fc0aee5661e7c35635a3b8e21edce919532a4832",
+      "updated_at": "2026-09-30T20:33:58.103Z",
       "fingerprint": "eb5d634ccbcc7902498f2b0fd7474a36a49efa4df6374a7f9874b2f326a4b5ca",
       "aggregate": {
         "descendant_count": 5,

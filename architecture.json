@@ -24,7 +24,7 @@
           "description": "ACP stdio protocol server"
         }
       ],
-      "fingerprint": "c13187fa9397abbd"
+      "fingerprint": "cb7a4a36a7da1d74"
     },
     {
       "id": "node-sdk",

@@ -97,6 +97,15 @@ pub struct InjectionContext<'a> {
     pub is_new_turn: bool,
     /// Names of injections already appended this turn, in registration order.
     pub injected: &'a [String],
+    /// Directories the previous step's tool calls touched (v2 gets these from
+    /// `ToolDidExecuteContext.accesses` via `targetDirsFromAccesses`). Empty
+    /// for callers that do not track accesses, in which case per-access
+    /// providers see no new ground — the previous behaviour.
+    pub accessed_dirs: &'a [PathBuf],
+    /// Instruction files the previous step's tool calls read themselves (v2
+    /// `selfKnown`). The model already has their contents; suggesting them back
+    /// is noise.
+    pub self_read_paths: &'a [PathBuf],
 }
 
 /// A named injection provider: returns the raw reminder text for the current
@@ -170,11 +179,25 @@ impl InjectionRegistry {
     /// successful injections are recorded in the context handed to later
     /// providers.
     pub fn build_injections(&mut self, is_new_turn: bool) -> Vec<String> {
+        self.build_injections_with_accesses(is_new_turn, &[], &[])
+    }
+
+    /// Run every provider with the previous step's accessed directories, so
+    /// per-access providers (the AGENTS.md reminder) can discover instruction
+    /// files in the subtrees the tools just touched.
+    pub fn build_injections_with_accesses(
+        &mut self,
+        is_new_turn: bool,
+        accessed_dirs: &[PathBuf],
+        self_read_paths: &[PathBuf],
+    ) -> Vec<String> {
         let mut texts = Vec::new();
         for entry in &mut self.entries {
             let ctx = InjectionContext {
                 is_new_turn,
                 injected: &self.injected,
+                accessed_dirs,
+                self_read_paths,
             };
             if let Some(content) = (entry.provider)(&ctx)
                 && !content.trim().is_empty()
@@ -306,40 +329,174 @@ pub fn find_agents_md(root: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Provider for the workspace-root AGENTS.md reminder (v2 `agents_md`
-/// variant): injects once per turn when the workspace root contains an
-/// AGENTS.md instruction file that was not part of the injected instructions.
-/// `root` is `None` when the process working directory is unavailable.
-/// `disclosed` carries the paths an earlier reminder already named — v2 reads
-/// the same set off the last injection's `origin.disclosure`
-/// (`agentsMdReminderService.injectReminder`), and the reminder promises
-/// "Each file is suggested at most once per agent". The per-turn flag alone
-/// re-injected it on every turn.
+/// Provider for the AGENTS.md reminder (v2 `agents_md` variant), backed by
+/// [`AgentsMdReminder`].
+///
+/// `root` is the workspace root, the top of every probed chain; `None` when
+/// the process working directory is unavailable. `disclosed` carries the paths
+/// an earlier reminder already named, scanned out of history because the fork's
+/// messages carry no `origin.disclosure` (v2 keeps the set on the last
+/// injection) — the same substitution [`scan_agents_md_baseline`] makes for the
+/// other variants.
 fn agents_md_provider(
     root: Option<PathBuf>,
     disclosed: Vec<String>,
 ) -> impl FnMut(&InjectionContext) -> Option<String> {
-    // Resolve the file once and cache the miss too: otherwise a workspace with
-    // no AGENTS.md would stat() two candidate paths on every step.
-    let mut resolved: Option<Option<PathBuf>> = None;
-    let mut injected = false;
-    move |_ctx: &InjectionContext| {
-        if injected {
+    let mut reminder = AgentsMdReminder::new(root, disclosed);
+    move |ctx: &InjectionContext| {
+        reminder.observe(ctx.accessed_dirs, ctx.self_read_paths);
+        let fresh = reminder.take_pending();
+        if fresh.is_empty() {
             return None;
         }
-        let path = resolved.get_or_insert_with(|| root.as_deref().and_then(find_agents_md));
-        let path = path.as_ref()?;
-        injected = true;
-        let path = path.to_string_lossy();
-        if disclosed.iter().any(|seen| seen == path.as_ref()) {
-            return None;
-        }
-        Some(format!(
-            "The workspace root is covered by an AGENTS.md instruction file that was not \
-             part of the injected instructions:\n- {path}\nRead it before making changes in \
-             that directory. Each file is suggested at most once per agent."
-        ))
+        Some(agents_md_reminder_text(&fresh))
     }
+}
+
+/// The reminder body v2 renders for a non-empty set of discovered paths
+/// (`agentsMdReminderService.ts:353-359`), verbatim.
+fn agents_md_reminder_text(paths: &[String]) -> String {
+    let listed = paths
+        .iter()
+        .map(|path| format!("- {path}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "The following AGENTS.md file(s) apply to paths accessed by your recent tool call, \
+         but were not included in your system prompt:\n{listed}\n\
+         Read them before making changes in those directories."
+    )
+}
+
+/// The instruction-file basenames, as an [`AgentsMdReminder`] lookup set.
+fn is_agents_md_name(name: &str) -> bool {
+    name == "AGENTS.md" || name == "agents.md"
+}
+
+/// State machine for the AGENTS.md reminder (v2 `AgentsMdReminderService`).
+///
+/// v2 hooks `onDidExecuteTool`, walks from the project root down to every
+/// directory the call touched, and queues any AGENTS.md it has not already
+/// disclosed. The fork's provider runs at the same observation point — before
+/// each LLM call, which is after the previous step's tool calls — so the only
+/// input v2 gets for free and this does not is *which* directories were
+/// touched; that arrives as [`InjectionContext::accessed_dirs`].
+///
+/// v2 resolves the chain against `findProjectRoot`. This walks from the
+/// workspace root instead: that is the boundary the rest of the fork already
+/// enforces, and it avoids introducing a second notion of "project" that could
+/// disagree with the sandbox.
+pub struct AgentsMdReminder {
+    /// AGENTS.md paths already in the instructions or already suggested.
+    known: std::collections::HashSet<String>,
+    /// Discovered by a probe but not yet suggested.
+    queue: Vec<String>,
+    /// Paths the model itself just read, so naming them back is noise (v2
+    /// `selfKnown`, which suppresses the reminder for the rest of the step).
+    read_recently: std::collections::HashSet<String>,
+    /// Workspace root, the top of every probed chain.
+    root: Option<PathBuf>,
+}
+
+impl AgentsMdReminder {
+    /// Seed a reminder. `disclosed` are the paths history already named; they
+    /// start out known so a resumed session does not re-suggest them.
+    pub fn new(root: Option<PathBuf>, disclosed: Vec<String>) -> Self {
+        Self {
+            known: disclosed.into_iter().collect(),
+            queue: Vec::new(),
+            read_recently: std::collections::HashSet::new(),
+            root,
+        }
+    }
+
+    /// Record one tool call's effect: the directories it touched, and any
+    /// AGENTS.md it read itself (which must not then be suggested back).
+    ///
+    /// `touched` is the parent directory of a Read/Edit/Write target and the
+    /// tree root of a Grep/Glob, matching v2's `targetDirsFromAccesses`
+    /// (`:284-306`). `self_read` is the accessed path itself when the tool read
+    /// an AGENTS.md — v2 puts that in `selfKnown` and drops it from the queue
+    /// rather than reminding the model about the file it just read.
+    pub fn observe(&mut self, touched: &[PathBuf], self_read: &[PathBuf]) {
+        for path in self_read {
+            self.read_recently.insert(normalize_agents_md(path));
+        }
+        for dir in touched {
+            self.probe_chain(dir);
+        }
+    }
+
+    /// Walk from the workspace root down to `dir`, queueing every AGENTS.md
+    /// found on the way. A directory outside the root has no chain here, so it
+    /// contributes nothing — the same outcome v2 gets when `findProjectRoot`
+    /// does not contain the anchor.
+    fn probe_chain(&mut self, dir: &Path) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let Ok(relative) = dir.strip_prefix(&root) else {
+            return;
+        };
+        let mut current = root.clone();
+        self.queue_here(&current);
+        for component in relative.components() {
+            current = current.join(component);
+            self.queue_here(&current);
+        }
+    }
+
+    fn queue_here(&mut self, dir: &Path) {
+        let Some(found) = find_agents_md(dir) else {
+            return;
+        };
+        let key = normalize_agents_md(&found);
+        if !self.known.contains(&key) && !self.queue.contains(&key) {
+            self.queue.push(key);
+        }
+    }
+
+    /// Drain the queue into the paths worth suggesting now: anything not
+    /// already known and not one the model just read. The returned paths become
+    /// known, so each is suggested at most once.
+    pub fn take_pending(&mut self) -> Vec<String> {
+        let queued = std::mem::take(&mut self.queue);
+        let fresh: Vec<String> = queued
+            .into_iter()
+            .filter(|path| !self.known.contains(path) && !self.read_recently.contains(path))
+            .collect();
+        for path in &fresh {
+            self.known.insert(path.clone());
+        }
+        // v2 clears `readRecently` per injection pass (`:153-154`).
+        self.read_recently.clear();
+        fresh
+    }
+
+    /// Paths already in the instructions or already suggested. Exposed for
+    /// tests and for the ledger; not part of the injection contract.
+    pub fn known_paths(&self) -> Vec<String> {
+        let mut paths: Vec<String> = self.known.iter().cloned().collect();
+        paths.sort();
+        paths
+    }
+}
+
+/// A comparable form of an AGENTS.md path: forward slashes, no trailing
+/// separator. v2 normalizes the same way before putting a path in its `known`
+/// set (`normalize` in `agentsMdReminderService.ts`), so a path discovered by a
+/// probe and the same path named in history compare equal.
+fn normalize_agents_md(path: &Path) -> String {
+    let text = path.to_string_lossy().replace('\\', "/");
+    text.trim_end_matches('/').to_string()
+}
+
+/// Whether a tool that read `path` read an instruction file, i.e. whether it
+/// belongs in the reminder's `selfKnown` set.
+pub fn is_agents_md_path(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(is_agents_md_name)
 }
 
 /// The AGENTS.md paths an earlier reminder already disclosed. v2 keeps the set
@@ -347,7 +504,8 @@ fn agents_md_provider(
 /// no origin, so the reminder text is scanned instead — the same shape as
 /// [`scan_date_baseline`].
 pub fn scan_agents_md_baseline(messages: &[LLMMessage]) -> Vec<String> {
-    const MARKER: &str = "The workspace root is covered by an AGENTS.md instruction file";
+    const MARKER: &str =
+        "The following AGENTS.md file(s) apply to paths accessed by your recent tool call";
     let mut disclosed: Vec<String> = Vec::new();
     for message in messages {
         let content = message.content.as_str();
@@ -766,36 +924,146 @@ mod tests {
         assert_eq!(found_prec.file_name().unwrap(), "AGENTS.md");
     }
 
+    /// The reminder walks the chain from the workspace root down to each
+    /// directory the previous step touched, so a nested `sub/AGENTS.md` is found
+    /// when a tool reads `sub/deep/file.txt` — the reason v2 probes a chain
+    /// rather than a single directory. Each file is suggested at most once, and
+    /// one the model just read itself is not suggested back.
     #[test]
-    fn test_agents_md_provider_lifecycle() {
+    fn test_agents_md_provider_walks_the_chain_and_suggests_once() {
+        let root = tempfile::tempdir().unwrap();
+        let nested = root.path().join("sub").join("deep");
+        std::fs::create_dir_all(&nested).unwrap();
+        let nested_agents = nested.join("AGENTS.md");
+        std::fs::write(&nested_agents, "# Nested").unwrap();
+
+        let mut provider = agents_md_provider(Some(root.path().to_path_buf()), Vec::new());
+        // A tool read `sub/deep/file.txt`; the reminder sees its parent.
+        let ctx = InjectionContext {
+            is_new_turn: false,
+            injected: &[],
+            accessed_dirs: std::slice::from_ref(&nested),
+            self_read_paths: &[],
+        };
+
+        let text = provider(&ctx).expect("the nested file is discovered");
+        // v2 normalizes the paths it puts in the reminder, so the listed form is
+        // forward-slashed even where the platform path is not.
+        let expected = format!(
+            "The following AGENTS.md file(s) apply to paths accessed by your recent tool \
+             call, but were not included in your system prompt:\n- {}\n\
+             Read them before making changes in those directories.",
+            normalize_agents_md(&nested_agents)
+        );
+        assert_eq!(text, expected);
+        assert_eq!(provider(&ctx), None, "at most once per agent");
+    }
+
+    /// The workspace root's own AGENTS.md is the head of every chain, so a tool
+    /// touching any directory surfaces it — the case the previous
+    /// workspace-root-only provider covered.
+    #[test]
+    fn test_agents_md_provider_still_finds_the_workspace_root() {
         let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("pkg");
+        std::fs::create_dir_all(&sub).unwrap();
         let agents_path = dir.path().join("AGENTS.md");
         std::fs::write(&agents_path, "# Instructions").unwrap();
 
         let mut provider = agents_md_provider(Some(dir.path().to_path_buf()), Vec::new());
         let ctx = InjectionContext {
-            is_new_turn: true,
+            is_new_turn: false,
             injected: &[],
+            accessed_dirs: &[sub],
+            self_read_paths: &[],
         };
 
-        let text = provider(&ctx).expect("first pass injects");
-        let expected = format!(
-            "The workspace root is covered by an AGENTS.md instruction file that was not \
-             part of the injected instructions:\n- {}\nRead it before making changes in \
-             that directory. Each file is suggested at most once per agent.",
-            agents_path.display()
+        let text = provider(&ctx).expect("the root file heads every chain");
+        assert!(
+            text.contains(&normalize_agents_md(&agents_path)),
+            "content: {text}"
         );
-        assert_eq!(text, expected);
+    }
 
-        assert_eq!(provider(&ctx), None, "at most once per turn");
+    /// v2 `selfKnown`: a model that just read an AGENTS.md is not told to go
+    /// read it again.
+    #[test]
+    fn a_file_the_model_just_read_is_not_suggested_back() {
+        let root = tempfile::tempdir().unwrap();
+        let sub = root.path().join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        let agents_path = sub.join("AGENTS.md");
+        std::fs::write(&agents_path, "# Sub").unwrap();
 
-        let mut none_provider = agents_md_provider(None, Vec::new());
-        assert_eq!(none_provider(&ctx), None);
+        let mut provider = agents_md_provider(Some(root.path().to_path_buf()), Vec::new());
+        let ctx = InjectionContext {
+            is_new_turn: false,
+            injected: &[],
+            accessed_dirs: std::slice::from_ref(&sub),
+            self_read_paths: std::slice::from_ref(&agents_path),
+        };
+        assert_eq!(provider(&ctx), None, "it already has the contents");
 
-        let empty_dir = tempfile::tempdir().unwrap();
-        let mut missing_provider =
-            agents_md_provider(Some(empty_dir.path().to_path_buf()), Vec::new());
-        assert_eq!(missing_provider(&ctx), None);
+        // The suppression lasts one pass only (v2 clears `readRecently`).
+        let later = InjectionContext {
+            is_new_turn: false,
+            injected: &[],
+            accessed_dirs: &[sub],
+            self_read_paths: &[],
+        };
+        assert!(
+            provider(&later).is_some(),
+            "a later tool call in the same subtree does remind"
+        );
+    }
+
+    /// No workspace root, or a directory outside it, has no chain to walk.
+    #[test]
+    fn agents_md_provider_without_a_chain_injects_nothing() {
+        let empty = InjectionContext {
+            is_new_turn: true,
+            injected: &[],
+            accessed_dirs: &[],
+            self_read_paths: &[],
+        };
+        let mut no_root = agents_md_provider(None, Vec::new());
+        assert_eq!(no_root(&empty), None);
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("AGENTS.md"), "# Instructions").unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let mut provider = agents_md_provider(Some(dir.path().to_path_buf()), Vec::new());
+        let outside_ctx = InjectionContext {
+            is_new_turn: true,
+            injected: &[],
+            accessed_dirs: &[outside.path().to_path_buf()],
+            self_read_paths: &[],
+        };
+        assert_eq!(provider(&outside_ctx), None, "outside the workspace root");
+
+        let bare = tempfile::tempdir().unwrap();
+        let mut missing = agents_md_provider(Some(bare.path().to_path_buf()), Vec::new());
+        assert_eq!(missing(&empty), None, "no AGENTS.md anywhere on the chain");
+    }
+
+    /// A path history already named starts out known, so a resumed session does
+    /// not suggest it again — this is the fork's stand-in for v2's
+    /// `origin.disclosure` seed.
+    #[test]
+    fn a_disclosed_path_is_never_suggested_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let agents_path = dir.path().join("AGENTS.md");
+        std::fs::write(&agents_path, "# Instructions").unwrap();
+        let disclosed = vec![normalize_agents_md(&agents_path)];
+
+        let mut provider = agents_md_provider(Some(dir.path().to_path_buf()), disclosed);
+        let ctx = InjectionContext {
+            is_new_turn: true,
+            injected: &[],
+            accessed_dirs: &[dir.path().to_path_buf()],
+            self_read_paths: &[],
+        };
+        assert_eq!(provider(&ctx), None, "history already named it");
     }
 
     #[test]
