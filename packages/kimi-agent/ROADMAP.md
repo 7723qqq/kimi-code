@@ -123,13 +123,14 @@
 
 **（2026-10-01 部分补齐：per-access 探测链已落地）** §6.18.5 测绘出的六组件里，本次实现了 **(2) 目标目录推导**、**(4) 探测链**、**(5) known/queue/readRecently 状态机** 三项，**(1) 触发点**所需的输入也一并接上：
 
-- `InjectionContext` 新增 `accessed_dirs` 与 `self_read_paths`；`build_injections` 保留为薄封装（传空切片），新增 `build_injections_with_accesses`，**既有调用点与测试全部不受影响**。
-- `run_turn.rs` 在 step 循环外声明 `step_accessed_dirs` / `step_self_read_paths`，在已算好的 `scheduled[].accesses` 上按 v2 `targetDirsFromAccesses`（`:284-306`）推导：文件类工具取**父目录**、树搜索取路径本身、刚读过的 AGENTS.md 记入 `self_read_paths`。
+- `InjectionContext` 新增一个 `StepAccess`（`dirs` / `self_read` / `declared_cwds`）；`build_injections` 保留为薄封装（传 `StepAccess::default()`），新增 `build_injections_with_accesses`，**既有调用点与测试全部不受影响**。（先落地时是两个裸切片参数，四参签名难用，收成了一个结构体。）
+- `run_turn.rs` 在 step 循环外声明 `step_access`，在已算好的 `scheduled[].accesses` 上按 v2 `targetDirsFromAccesses`（`:284-306`）推导：文件类工具取**父目录**、树搜索取路径本身、刚读过的 AGENTS.md 记入 `self_read`。
+- **Bash 分支的一半也做了**：v2 对 Bash **无条件**贡献该调用自己的 `cwd` 参数（`:255-262, 274-276`，与操作数能否解析无关），而 `cwd` 是**工具参数**、不是命令串里的 flag，所以这一半**不需要语法树**。`Bash` 工具确有该参数（`core_tool_defs.rs:473-476`），相对路径按工作区根解析、绝对路径直接用，根外路径不产生链。
 - `agents_md_provider` 由「一次性会话根提醒」改写为 v2 的状态机 `AgentsMdReminder`：从**工作区根逐层走到被访问目录**的整条链上探测（这正是"访问 `sub/deep/f.txt` 能发现 `sub/AGENTS.md`"的原因）、`known` 去重、队列、`read_recently` 每轮清空。提醒文案换成 v2 原文（`agentsMdReminderService.ts:353-359`），`scan_agents_md_baseline` 的 MARKER 同步。
 - 链的锚点用**工作区根**而非 v2 的 `findProjectRoot`：前者是本 fork 既有的边界，避免引入第二套"项目"概念与沙箱打架。
-- 4 个新测试：链式探测 + 只建议一次、工作区根仍能被链头命中、`selfKnown` 抑制（且只抑制一轮）、无根/根外/链上无文件三种空转。
+- 5 个新测试：链式探测 + 只建议一次、工作区根仍能被链头命中、`selfKnown` 抑制（且只抑制一轮）、Bash 声明 cwd（相对/绝对/根外三例）、无根/链上无文件两种空转。
 
-**仍未做**：**(3) Bash 分支**（v2 解析命令抽目标目录）与 **(6) fs 变更通告**（依赖 `instructions.onDidChange`，本 fork 无监听地基）。这两项需要先确认各自的地基，不在本次范围。
+**仍未做**：**Bash 操作数目录**（`extractBashTargetDirs` 的那一半）。它需要**完整 bash 语法树**，而本引擎没有解析器——`Cargo.toml` 依赖表里无 tree-sitter / shell parser，`packages/bash-parser`（v2 侧 `bashTargets.ts` 依赖的解析器）已在本 fork 删除，现存的 `packages/tree-sitter-bash` 是 **TypeScript** 写的递归下降解析器（3700+ 行，带对着官方 wasm 的差分测试），Rust 侧够不着。`native/permission_engine/dangerous_command.rs:11-18` 已把"Rust 无 tree-sitter 语义、用朴素分词器保守退化"记为**既有且被接受**的状态，本项按同一先例处理：**宁可少报一个目录，也不猜错一个**。若要补齐只有两条路——把解析器与 walker 移植到 Rust（数千行，还要移植其对 tree-sitter-bash 0.25.0 的差分契约），或加一个宿主回调让 TS 侧算（`HostCallbacks` + napi 契约变更）。**(6) fs 变更通告**依赖 `instructions.onDidChange`，本 fork 无监听地基，同样未做。
 
 > **⚠ 子代理 profile 契约断链（2026-10-01 扫描发现，未修）**：v2 的 agent profile 有 `subagents` 字段（内置 `agent` profile 声明 `subagents: ['coder', 'explore', 'plan']`），`subagentService.planSpawn` 用 `subagentAllowlistFor` 强制它，越界即 `AGENT_TYPE_NOT_ALLOWED`，另有 `rootDelegationExtras` / `withoutDelegatingTargets` 保证「嵌套派生的可达范围不超过根 agent」。fork 侧该链路在第一跳就断：`packages/node-sdk/src/agent-file.ts:12,130` **解析了** `subagents`，但全仓无人消费（`grep '.subagents'` 零命中），于是它既没进 `SubagentProfileWire`（无该字段）也没进 `SubagentDefinition`（无该字段），`register_profile_snapshot` 逐字段拷贝自然也带不过来。**后果**：任何持有 `Agent` 工具的 agent 都能派生**任意**已注册 profile（含插件/自定义），没有 v2 的升级边界。**修法安全**：v2 自身判据是 `if (allowlist !== undefined && !allowlist.includes(...))`，即「未声明 = 不限制」，所以补齐三跳管道（agent-file → SDK profile → `SubagentProfileWire` → `SubagentDefinition`）并仅在声明时强制，对现有未声明的 profile 零行为变化。**未做**，等确认。
 

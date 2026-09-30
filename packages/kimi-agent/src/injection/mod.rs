@@ -91,21 +91,40 @@ pub fn split_injections(messages: &mut Vec<LLMMessage>) -> Vec<LLMMessage> {
 /// `ContextInjectionContext` (`isNewTurn` + the `injectedPositions` part):
 /// whether this is the first step of the turn, and the names of injections
 /// already appended this turn, in registration order.
+/// What the previous step's tool calls did, handed to per-access providers.
+///
+/// v2 assembles the same three things from a `ToolDidExecuteContext`: the file
+/// accesses become target directories (`:284-306`), an instruction file the
+/// call read becomes `selfKnown` (`:297-302`), and a Bash call's own `cwd`
+/// argument is contributed whether or not any operand resolves
+/// (`:255-262, 274-276`).
+#[derive(Debug, Clone, Default)]
+pub struct StepAccess {
+    /// Directories the calls touched: a file tool's parent, a tree search's
+    /// own root.
+    pub dirs: Vec<PathBuf>,
+    /// Instruction files the calls read themselves.
+    pub self_read: Vec<PathBuf>,
+    /// Working directories Bash calls declared through their `cwd` argument.
+    pub declared_cwds: Vec<String>,
+}
+
+impl StepAccess {
+    /// True when nothing was recorded, so a provider can skip its probe.
+    pub fn is_empty(&self) -> bool {
+        self.dirs.is_empty() && self.self_read.is_empty() && self.declared_cwds.is_empty()
+    }
+}
+
 pub struct InjectionContext<'a> {
     /// Whether this build pass runs at the first step of the turn (v2
     /// `isNewTurn`): turn-gated providers (goal) inject only on it.
     pub is_new_turn: bool,
     /// Names of injections already appended this turn, in registration order.
     pub injected: &'a [String],
-    /// Directories the previous step's tool calls touched (v2 gets these from
-    /// `ToolDidExecuteContext.accesses` via `targetDirsFromAccesses`). Empty
-    /// for callers that do not track accesses, in which case per-access
-    /// providers see no new ground — the previous behaviour.
-    pub accessed_dirs: &'a [PathBuf],
-    /// Instruction files the previous step's tool calls read themselves (v2
-    /// `selfKnown`). The model already has their contents; suggesting them back
-    /// is noise.
-    pub self_read_paths: &'a [PathBuf],
+    /// What the previous step's tool calls did. Empty when the caller does not
+    /// track accesses, in which case per-access providers see no new ground.
+    pub access: &'a StepAccess,
 }
 
 /// A named injection provider: returns the raw reminder text for the current
@@ -179,25 +198,23 @@ impl InjectionRegistry {
     /// successful injections are recorded in the context handed to later
     /// providers.
     pub fn build_injections(&mut self, is_new_turn: bool) -> Vec<String> {
-        self.build_injections_with_accesses(is_new_turn, &[], &[])
+        self.build_injections_with_accesses(is_new_turn, &StepAccess::default())
     }
 
-    /// Run every provider with the previous step's accessed directories, so
+    /// Run every provider with what the previous step's tool calls did, so
     /// per-access providers (the AGENTS.md reminder) can discover instruction
-    /// files in the subtrees the tools just touched.
+    /// files in the subtrees those calls touched.
     pub fn build_injections_with_accesses(
         &mut self,
         is_new_turn: bool,
-        accessed_dirs: &[PathBuf],
-        self_read_paths: &[PathBuf],
+        access: &StepAccess,
     ) -> Vec<String> {
         let mut texts = Vec::new();
         for entry in &mut self.entries {
             let ctx = InjectionContext {
                 is_new_turn,
                 injected: &self.injected,
-                accessed_dirs,
-                self_read_paths,
+                access,
             };
             if let Some(content) = (entry.provider)(&ctx)
                 && !content.trim().is_empty()
@@ -344,7 +361,7 @@ fn agents_md_provider(
 ) -> impl FnMut(&InjectionContext) -> Option<String> {
     let mut reminder = AgentsMdReminder::new(root, disclosed);
     move |ctx: &InjectionContext| {
-        reminder.observe(ctx.accessed_dirs, ctx.self_read_paths);
+        reminder.observe(ctx.access);
         let fresh = reminder.take_pending();
         if fresh.is_empty() {
             return None;
@@ -410,20 +427,42 @@ impl AgentsMdReminder {
         }
     }
 
-    /// Record one tool call's effect: the directories it touched, and any
-    /// AGENTS.md it read itself (which must not then be suggested back).
-    ///
-    /// `touched` is the parent directory of a Read/Edit/Write target and the
-    /// tree root of a Grep/Glob, matching v2's `targetDirsFromAccesses`
-    /// (`:284-306`). `self_read` is the accessed path itself when the tool read
-    /// an AGENTS.md — v2 puts that in `selfKnown` and drops it from the queue
-    /// rather than reminding the model about the file it just read.
-    pub fn observe(&mut self, touched: &[PathBuf], self_read: &[PathBuf]) {
-        for path in self_read {
+    /// Record one step's tool activity and probe what it reached.
+    pub fn observe(&mut self, access: &StepAccess) {
+        for path in &access.self_read {
             self.read_recently.insert(normalize_agents_md(path));
         }
-        for dir in touched {
+        for dir in &access.dirs {
             self.probe_chain(dir);
+        }
+        self.observe_declared_cwds(&access.declared_cwds);
+    }
+
+    /// A Bash call's own `cwd` argument, which v2 contributes whether or not
+    /// any operand resolves (`agentsMdReminderService.ts:255-262, 274-276`).
+    ///
+    /// v2's *other* half — the operand directories from `extractBashTargetDirs`
+    /// — needs a bash syntax tree, and this engine has no parser: see
+    /// `native/permission_engine/dangerous_command.rs`, which takes the same
+    /// absence as an accepted, conservative degradation. Missing a `cwd` here
+    /// costs the reminder one directory, which is the safe direction to be
+    /// wrong in; guessing a wrong one would point the model at a file it has no
+    /// reason to read.
+    fn observe_declared_cwds(&mut self, cwds: &[String]) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        for cwd in cwds {
+            if cwd.is_empty() {
+                continue;
+            }
+            let candidate = Path::new(cwd);
+            let resolved = if candidate.is_absolute() {
+                candidate.to_path_buf()
+            } else {
+                root.join(candidate)
+            };
+            self.probe_chain(&resolved);
         }
     }
 
@@ -924,6 +963,16 @@ mod tests {
         assert_eq!(found_prec.file_name().unwrap(), "AGENTS.md");
     }
 
+    /// A non-turn build pass carrying one step's tool activity — what
+    /// `run_turn.rs` hands the injection pass after the step's calls ran.
+    fn step(access: &StepAccess) -> InjectionContext<'_> {
+        InjectionContext {
+            is_new_turn: false,
+            injected: &[],
+            access,
+        }
+    }
+
     /// The reminder walks the chain from the workspace root down to each
     /// directory the previous step touched, so a nested `sub/AGENTS.md` is found
     /// when a tool reads `sub/deep/file.txt` — the reason v2 probes a chain
@@ -939,12 +988,11 @@ mod tests {
 
         let mut provider = agents_md_provider(Some(root.path().to_path_buf()), Vec::new());
         // A tool read `sub/deep/file.txt`; the reminder sees its parent.
-        let ctx = InjectionContext {
-            is_new_turn: false,
-            injected: &[],
-            accessed_dirs: std::slice::from_ref(&nested),
-            self_read_paths: &[],
+        let access = StepAccess {
+            dirs: vec![nested],
+            ..Default::default()
         };
+        let ctx = step(&access);
 
         let text = provider(&ctx).expect("the nested file is discovered");
         // v2 normalizes the paths it puts in the reminder, so the listed form is
@@ -971,12 +1019,11 @@ mod tests {
         std::fs::write(&agents_path, "# Instructions").unwrap();
 
         let mut provider = agents_md_provider(Some(dir.path().to_path_buf()), Vec::new());
-        let ctx = InjectionContext {
-            is_new_turn: false,
-            injected: &[],
-            accessed_dirs: &[sub],
-            self_read_paths: &[],
+        let access = StepAccess {
+            dirs: vec![sub],
+            ..Default::default()
         };
+        let ctx = step(&access);
 
         let text = provider(&ctx).expect("the root file heads every chain");
         assert!(
@@ -996,21 +1043,20 @@ mod tests {
         std::fs::write(&agents_path, "# Sub").unwrap();
 
         let mut provider = agents_md_provider(Some(root.path().to_path_buf()), Vec::new());
-        let ctx = InjectionContext {
-            is_new_turn: false,
-            injected: &[],
-            accessed_dirs: std::slice::from_ref(&sub),
-            self_read_paths: std::slice::from_ref(&agents_path),
+        let access = StepAccess {
+            dirs: vec![sub.clone()],
+            self_read: vec![agents_path],
+            ..Default::default()
         };
+        let ctx = step(&access);
         assert_eq!(provider(&ctx), None, "it already has the contents");
 
         // The suppression lasts one pass only (v2 clears `readRecently`).
-        let later = InjectionContext {
-            is_new_turn: false,
-            injected: &[],
-            accessed_dirs: &[sub],
-            self_read_paths: &[],
+        let later_access = StepAccess {
+            dirs: vec![sub],
+            ..Default::default()
         };
+        let later = step(&later_access);
         assert!(
             provider(&later).is_some(),
             "a later tool call in the same subtree does remind"
@@ -1020,12 +1066,8 @@ mod tests {
     /// No workspace root, or a directory outside it, has no chain to walk.
     #[test]
     fn agents_md_provider_without_a_chain_injects_nothing() {
-        let empty = InjectionContext {
-            is_new_turn: true,
-            injected: &[],
-            accessed_dirs: &[],
-            self_read_paths: &[],
-        };
+        let nothing = StepAccess::default();
+        let empty = step(&nothing);
         let mut no_root = agents_md_provider(None, Vec::new());
         assert_eq!(no_root(&empty), None);
 
@@ -1033,17 +1075,64 @@ mod tests {
         std::fs::write(dir.path().join("AGENTS.md"), "# Instructions").unwrap();
         let outside = tempfile::tempdir().unwrap();
         let mut provider = agents_md_provider(Some(dir.path().to_path_buf()), Vec::new());
-        let outside_ctx = InjectionContext {
-            is_new_turn: true,
-            injected: &[],
-            accessed_dirs: &[outside.path().to_path_buf()],
-            self_read_paths: &[],
+        let outside_access = StepAccess {
+            dirs: vec![outside.path().to_path_buf()],
+            ..Default::default()
         };
-        assert_eq!(provider(&outside_ctx), None, "outside the workspace root");
+        assert_eq!(
+            provider(&step(&outside_access)),
+            None,
+            "outside the workspace root"
+        );
 
         let bare = tempfile::tempdir().unwrap();
         let mut missing = agents_md_provider(Some(bare.path().to_path_buf()), Vec::new());
         assert_eq!(missing(&empty), None, "no AGENTS.md anywhere on the chain");
+    }
+
+    /// v2 `agentsMdReminderService.ts:255-262, 274-276`: a Bash call's own
+    /// `cwd` argument is contributed whether or not any operand resolves, and
+    /// it resolves against the agent's base directory when relative.
+    #[test]
+    fn a_bash_call_contributes_its_declared_cwd() {
+        let root = tempfile::tempdir().unwrap();
+        let sub = root.path().join("tools");
+        std::fs::create_dir_all(&sub).unwrap();
+        let agents_path = sub.join("AGENTS.md");
+        std::fs::write(&agents_path, "# Tools").unwrap();
+
+        let mut provider = agents_md_provider(Some(root.path().to_path_buf()), Vec::new());
+        let relative = StepAccess {
+            declared_cwds: vec!["tools".to_string()],
+            ..Default::default()
+        };
+        let text = provider(&step(&relative)).expect("the declared cwd heads a chain");
+        assert!(
+            text.contains(&normalize_agents_md(&agents_path)),
+            "content: {text}"
+        );
+
+        // The same cwd spelled absolutely resolves to the same place.
+        let mut absolute_provider = agents_md_provider(Some(root.path().to_path_buf()), Vec::new());
+        let absolute = StepAccess {
+            declared_cwds: vec![sub.to_string_lossy().into_owned()],
+            ..Default::default()
+        };
+        let text = absolute_provider(&step(&absolute)).expect("an absolute cwd resolves too");
+        assert!(
+            text.contains(&normalize_agents_md(&agents_path)),
+            "content: {text}"
+        );
+
+        // A cwd outside the workspace contributes no chain, as with any other
+        // out-of-root path.
+        let outside = tempfile::tempdir().unwrap();
+        let mut outside_provider = agents_md_provider(Some(root.path().to_path_buf()), Vec::new());
+        let escaping = StepAccess {
+            declared_cwds: vec![outside.path().to_string_lossy().into_owned()],
+            ..Default::default()
+        };
+        assert_eq!(outside_provider(&step(&escaping)), None);
     }
 
     /// A path history already named starts out known, so a resumed session does
@@ -1057,13 +1146,11 @@ mod tests {
         let disclosed = vec![normalize_agents_md(&agents_path)];
 
         let mut provider = agents_md_provider(Some(dir.path().to_path_buf()), disclosed);
-        let ctx = InjectionContext {
-            is_new_turn: true,
-            injected: &[],
-            accessed_dirs: &[dir.path().to_path_buf()],
-            self_read_paths: &[],
+        let access = StepAccess {
+            dirs: vec![dir.path().to_path_buf()],
+            ..Default::default()
         };
-        assert_eq!(provider(&ctx), None, "history already named it");
+        assert_eq!(provider(&step(&access)), None, "history already named it");
     }
 
     #[test]

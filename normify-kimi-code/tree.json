@@ -9,7 +9,7 @@
         "repository": "https://github.com/7723qqq/kimi-code"
       }
     ],
-    "compiled_at": "2026-09-30T20:34:06.305Z",
+    "compiled_at": "2026-09-30T20:53:18.956Z",
     "stats": {
       "tree_count": 1,
       "module_count": 74,
@@ -619,9 +619,9 @@
           "path": "packages/kimi-agent/src/pipeline/mod.rs"
         }
       ],
-      "revision": "fc0aee5661e7c35635a3b8e21edce919532a4832",
-      "updated_at": "2026-09-30T20:33:58.103Z",
-      "fingerprint": "ca9ffeb4548cc24e0258c9e8d841a8bed97c6e4e4d3e6e2188a972de55b34e79",
+      "revision": "73ef575d283131d72261a277b2f9d21ae0f9c4c8",
+      "updated_at": "2026-09-30T20:53:09.890Z",
+      "fingerprint": "f9ce2ecfbf7b8963d7906f805c41d2dda35306adcce5492700ec8ce351ef6965",
       "deps": [
         {
           "kind": "call",
@@ -716,9 +716,9 @@
           "path": "packages/kimi-agent/src/injection/state.rs"
         }
       ],
-      "revision": "fc0aee5661e7c35635a3b8e21edce919532a4832",
-      "updated_at": "2026-09-30T20:33:58.103Z",
-      "fingerprint": "48b406349dfa41cd9ef6a17f3877b02232ad5bf55f1c2ab7384b0eafe1955c80",
+      "revision": "73ef575d283131d72261a277b2f9d21ae0f9c4c8",
+      "updated_at": "2026-09-30T20:53:09.890Z",
+      "fingerprint": "33659a35600276f0bb60118b664288928a4d44aed8fe5f2db689ac6a0620fda0",
       "aggregate": {
         "descendant_count": 4,
         "own_api_count": 0,
@@ -1029,9 +1029,9 @@
           "path": "packages/kimi-agent/src/turn_loop/retry.rs"
         }
       ],
-      "revision": "fc0aee5661e7c35635a3b8e21edce919532a4832",
-      "updated_at": "2026-09-30T20:34:05.220Z",
-      "fingerprint": "f583342a883fc44717e0f00ab2d108f82cdd3e7f64ee291a1dc637c07f4a2f8b",
+      "revision": "73ef575d283131d72261a277b2f9d21ae0f9c4c8",
+      "updated_at": "2026-09-30T20:53:09.891Z",
+      "fingerprint": "142c88da0d281aec5a37301cc23e2b611901a4f655dcd36fc6bc6372400bd2ff",
       "deps": [
         {
           "kind": "call",

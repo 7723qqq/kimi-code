@@ -966,15 +966,14 @@ pub fn run_turn<'a>(
         // stream under the main transcript.
         input.llm.set_stream_agent_id(&input.agent_id);
 
-        // What the *previous* step's tool calls touched, carried across the step
+        // What the *previous* step's tool calls did, carried across the step
         // boundary for the injection pass below. v2's AGENTS.md reminder hooks
         // `onDidExecuteTool` and probes from the project root down to each of
-        // these directories; the injection pass runs at the same observation
-        // point (after those calls, before the next LLM call), so this is the
-        // only input it was missing. Empty on the first step, which is why the
-        // reminder's own root probe still has to run there.
-        let mut step_accessed_dirs: Vec<std::path::PathBuf> = Vec::new();
-        let mut step_self_read_paths: Vec<std::path::PathBuf> = Vec::new();
+        // these; the injection pass runs at the same observation point (after
+        // those calls, before the next LLM call), so this is the only input it
+        // was missing. Empty on the first step, which is why the reminder's own
+        // root probe still has to run there.
+        let mut step_access = crate::injection::StepAccess::default();
 
         for step_num in 0..max_steps {
             steps = step_num + 1;
@@ -1158,11 +1157,9 @@ pub fn run_turn<'a>(
                 // The AGENTS.md reminder additionally needs the directories the
                 // previous step's tool calls touched; without them it saw an
                 // empty world and only ever probed the workspace root.
-                for text in injection_registry.build_injections_with_accesses(
-                    step_num == 0,
-                    &step_accessed_dirs,
-                    &step_self_read_paths,
-                ) {
+                for text in
+                    injection_registry.build_injections_with_accesses(step_num == 0, &step_access)
+                {
                     messages.push(crate::injection::injection_message(text));
                 }
             }
@@ -1782,11 +1779,23 @@ pub fn run_turn<'a>(
                     // a file tool contributes its *parent directory*, a tree
                     // search contributes the root itself, and an AGENTS.md the
                     // call just read is recorded separately so the reminder does
-                    // not tell the model to go read a file it already has.
-                    step_accessed_dirs.clear();
-                    step_self_read_paths.clear();
+                    // not tell the model to go read a file it already has. A
+                    // Bash call contributes its own `cwd` argument, which v2 adds
+                    // whether or not any operand resolves (`:255-262, 274-276`).
+                    step_access = crate::injection::StepAccess::default();
                     for call in &scheduled {
                         let name = call.tool_call.name.to_ascii_lowercase();
+                        if name == "bash" {
+                            if let Some(cwd) = call
+                                .tool_call
+                                .arguments
+                                .get("cwd")
+                                .and_then(|value| value.as_str())
+                            {
+                                step_access.declared_cwds.push(cwd.to_string());
+                            }
+                            continue;
+                        }
                         let targets_file = matches!(name.as_str(), "read" | "edit" | "write");
                         for access in &call.accesses {
                             let crate::turn_loop::types::ToolResourceAccess::File(access) = access
@@ -1796,13 +1805,13 @@ pub fn run_turn<'a>(
                             let accessed = std::path::PathBuf::from(&access.path);
                             if targets_file {
                                 if let Some(parent) = accessed.parent() {
-                                    step_accessed_dirs.push(parent.to_path_buf());
+                                    step_access.dirs.push(parent.to_path_buf());
                                 }
                                 if crate::injection::is_agents_md_path(&accessed) {
-                                    step_self_read_paths.push(accessed);
+                                    step_access.self_read.push(accessed);
                                 }
                             } else {
-                                step_accessed_dirs.push(accessed);
+                                step_access.dirs.push(accessed);
                             }
                         }
                     }
