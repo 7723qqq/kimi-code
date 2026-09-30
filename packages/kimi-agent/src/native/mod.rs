@@ -32,6 +32,7 @@ mod output_truncate;
 pub(crate) mod path_access;
 mod permission;
 mod read;
+pub(crate) mod realpath_access;
 pub mod shell;
 pub(crate) mod shell_path_bridge;
 mod tokens;

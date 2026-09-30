@@ -2139,9 +2139,37 @@ impl NativeToolset {
             .map(|root| root.to_string_lossy().into_owned())
             .collect();
         let cwd = sandbox.primary().to_string_lossy().into_owned();
-        resolve_path_access(&bridged, &cwd, &roots, None, class, operation, policy)
-            .err()
-            .map(|error| error.message)
+        let access =
+            match resolve_path_access(&bridged, &cwd, &roots, None, class, operation, policy) {
+                Ok(access) => access,
+                Err(error) => return Some(error.message),
+            };
+
+        // Lexical gate passed. v2's second half (`tool/realpath-access.ts`,
+        // wired into all six file tools) then resolves symlinks and refuses what
+        // the name hid: an innocent-looking link onto a sensitive file, a link
+        // out of the workspace, or a dangling link. It is the only thing standing
+        // between `notes.txt -> .env` and the contents of the environment file.
+        //
+        // A path that is already lexically outside the workspace is handed back
+        // by that layer unchanged — only its sensitive pattern is checked — so
+        // ordinary absolute reads and writes outside the root keep working and
+        // stay the permission layer's decision, exactly as in v2.
+        let resolved = std::path::PathBuf::from(&access.path);
+        let realpath_outcome = match operation {
+            crate::native::path_access::PathAccessOperation::Write => {
+                crate::native::realpath_access::assert_real_path_write_target(
+                    &resolved, &roots, class,
+                )
+            }
+            _ => crate::native::realpath_access::assert_real_path_within_workspace(
+                &resolved,
+                &roots,
+                class,
+                policy.check_sensitive,
+            ),
+        };
+        realpath_outcome.err().map(|error| error.message)
     }
 
     // ── Read ───────────────────────────────────────────────────────────
@@ -5541,6 +5569,73 @@ mod tests {
         assert!(
             !result.content.contains("SECRET_TOKEN"),
             "the hit itself must be filtered, not just the call: {}",
+            result.content
+        );
+    }
+
+    /// End-to-end proof that the realpath half of the path gate is wired into
+    /// the tool path, not just unit-tested: an innocent-looking name inside the
+    /// workspace that resolves to a sensitive file is refused with the target
+    /// spelled out — and the secret never appears in the result.
+    #[test]
+    fn read_through_a_symlink_onto_a_sensitive_file_is_refused() {
+        let (dir, ts) = setup();
+        let secret = dir.path().join(".env");
+        std::fs::write(&secret, "SECRET_TOKEN=1\n").unwrap();
+        let link = dir.path().join("notes.txt");
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_file(&secret, &link).is_ok();
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&secret, &link).is_ok();
+        if !made {
+            eprintln!("skipping: this platform would not create the symlink");
+            return;
+        }
+
+        // Lexically this is an ordinary text file inside the workspace, so the
+        // first gate admits it — which is the whole reason the second exists.
+        let result = ts
+            .execute("Read", &json!({ "path": link.to_str().unwrap() }))
+            .expect("the call is served, with a refusal result");
+        assert!(result.is_error, "content: {}", result.content);
+        assert!(
+            result.content.contains(".env"),
+            "the refusal must name the target: {}",
+            result.content
+        );
+        assert!(
+            !result.content.contains("SECRET_TOKEN"),
+            "the secret must never reach the model: {}",
+            result.content
+        );
+    }
+
+    /// The escape check applies only to a link that *claims* to be inside. A
+    /// path that is already lexically outside is the caller's stated intent and
+    /// stays the permission layer's decision — v2 hands it back unchanged, and
+    /// refusing it here would break every absolute read outside the workspace.
+    #[test]
+    fn a_symlink_outside_the_workspace_is_still_served() {
+        let (_dir, ts) = setup();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("elsewhere.txt");
+        std::fs::write(&target, "reachable\n").unwrap();
+        let link = outside.path().join("alias.txt");
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_file(&target, &link).is_ok();
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&target, &link).is_ok();
+        if !made {
+            eprintln!("skipping: this platform would not create the symlink");
+            return;
+        }
+        let result = ts
+            .execute("Read", &json!({ "path": link.to_str().unwrap() }))
+            .expect("reads must not be declined for lying outside the workspace");
+        assert!(!result.is_error, "content: {}", result.content);
+        assert!(
+            result.content.contains("reachable"),
+            "content: {}",
             result.content
         );
     }

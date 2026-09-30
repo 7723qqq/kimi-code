@@ -1,20 +1,30 @@
-//! Path canonicalization, containment, and the workspace-access policy gate —
-//! pure lexical operations.
+//! Path canonicalization, containment, and the lexical half of the
+//! workspace-access policy gate — pure, no filesystem I/O.
 //!
-//! Ported from `packages/agent-core-v2/src/tool/path-access.ts`.
-//! Security-critical: the gate below runs on every Read/Write/Edit/Grep/Glob
-//! call, before the permission layer and before execution.
+//! Ported from `packages/agent-core-v2/src/tool/path-access.ts`. Security
+//! critical: the gate runs on every Read/Write/Edit/Grep/Glob call, before the
+//! permission layer and before execution, so a refused path is never stat'ed.
 //!
-//! ## Known gap: symlink containment
+//! ## This half is lexical on purpose, and that is now confirmed correct
 //!
-//! v2's `resolvePathAccess` runs the non-search containment check on a
-//! realpath-resolved path (`resolveForContainment`, `path-access.ts:273-289`,
-//! selected at `:317`), so a symlink named `notes.txt` that points at `.env` is
-//! caught. This module is deliberately lexical (`tools/mod.rs:2059-2071`
-//! records the #4013 decision), so such a link resolves to its *link* path and
-//! the sensitive-file matcher sees the harmless name. Fixing that means
-//! re-introducing filesystem I/O here, which contradicts the recorded
-//! #4013 decision; it is tracked as an open item, not silently changed.
+//! An earlier revision of this comment claimed the opposite — that v2 ran the
+//! containment check on a realpath and that being lexical here was a recorded
+//! open item. That was read off the fork's v2 baseline (`ecad4136d9^`,
+//! 2026-09-04), where `resolvePathAccess` did route non-search operations
+//! through `resolveForContainment` + `realpathSync`. Upstream has since deleted
+//! that: at the newer v2 (`52437299`, 2026-09-29) `resolveForContainment` is
+//! gone, the policy compares the lexical canonical path, and
+//! `realpathSync` is no longer imported at all. So the lexical decision here
+//! matches v2, and `tools/mod.rs`'s note saying the same is right, not stale.
+//!
+//! ## What lexical cannot see, and where it lives
+//!
+//! A symlink whose *name* is innocuous and whose *target* is not:
+//! `notes.txt -> .env` passes every test on this page. v2 covers that in a
+//! separate module, `tool/realpath-access.ts`, wired into all six file tools —
+//! and that module is what [`super::realpath_access`] ports. So the two halves
+//! of v2's gate map one-to-one onto two modules here, and the fork had neither
+//! before 2026-10-01.
 
 /// Path class: POSIX or Windows (Win32).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -324,8 +334,9 @@ impl PathAccessOperation {
 }
 
 /// Mirrors v2 `PathSecurityCode` (`PATH_OUTSIDE_WORKSPACE` /
-/// `PATH_SENSITIVE` / `PATH_INVALID`). The prefix is dropped to satisfy
-/// `clippy::enum_variant_names`; the v2 wire spelling stays in each doc line.
+/// `PATH_SENSITIVE` / `PATH_INVALID` / `PATH_SYMLINK_ESCAPE`). The prefix is
+/// dropped to satisfy `clippy::enum_variant_names`; the v2 wire spelling stays
+/// in each doc line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PathSecurityCode {
     /// v2 `PATH_OUTSIDE_WORKSPACE`.
@@ -334,6 +345,9 @@ pub enum PathSecurityCode {
     Sensitive,
     /// v2 `PATH_INVALID`.
     Invalid,
+    /// v2 `PATH_SYMLINK_ESCAPE`, raised only by
+    /// [`super::realpath_access`], never by the lexical gate.
+    SymlinkEscape,
 }
 
 /// Mirrors v2 `PathSecurityError`. v2 surfaces only `.message` to the model
@@ -345,6 +359,45 @@ pub struct PathSecurityError {
     pub raw_path: String,
     pub canonical_path: String,
     pub message: String,
+}
+
+impl PathSecurityError {
+    fn new(code: PathSecurityCode, raw_path: &str, canonical_path: &str, message: String) -> Self {
+        Self {
+            code,
+            raw_path: raw_path.to_string(),
+            canonical_path: canonical_path.to_string(),
+            message,
+        }
+    }
+
+    /// A refusal from the realpath layer. v2 words every one of these the same
+    /// way — `"<raw>" resolves …` — because the model has to be told that the
+    /// path it named is not the path it would have reached.
+    pub fn symlink_escape(raw_path: &str, canonical_path: &str, message: String) -> Self {
+        Self::new(
+            PathSecurityCode::SymlinkEscape,
+            raw_path,
+            canonical_path,
+            message,
+        )
+    }
+
+    /// A link that lands on a sensitive file. v2 keeps the `PATH_SENSITIVE`
+    /// code here rather than `PATH_SYMLINK_ESCAPE`: the thing being protected
+    /// is the secret, not the link.
+    pub fn symlink_sensitive(raw_path: &str, resolved_path: &str) -> Self {
+        Self::new(
+            PathSecurityCode::Sensitive,
+            raw_path,
+            resolved_path,
+            format!(
+                "\"{raw_path}\" resolves to \"{resolved_path}\" through a symbolic link, \
+                 which matches a sensitive-file pattern (env / credential / SSH key). \
+                 Access is blocked to protect secrets."
+            ),
+        )
+    }
 }
 
 /// Apply the workspace-access policy to an already-canonicalized path.
