@@ -115,15 +115,21 @@ function canonURL(url) {
 
 function extractText(html) {
   // Crude HTML-to-text: strip tags, decode entities, collapse whitespace.
+  //
+  // `&amp;` is decoded **last**, after the entities that produce characters the
+  // earlier decodes would otherwise re-read: decoding it first turns
+  // `&amp;lt;script&amp;gt;` into `&lt;script&gt;` on the next pass, and then into
+  // a live `<script>`. One pass, no re-reading — which is what a single decode of
+  // a document actually means.
   return html
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<[^>]+>/g, ' ')
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#(\d+);/g, (_, c) => String.fromCharCode(Number(c)))
+    .replace(/&amp;/g, '&')
     .replace(/\s+/g, ' ')
     .trim();
 }
