@@ -1705,6 +1705,11 @@ docs / release / changelog：`a1e4c13d41`、`f67e6398fb`、`be7d5f5fea`）。两
 
 **`tracked`（功能缺口，不是行为差异；规模已核实）**：v2 侧这次改动确实只有两行（`human/utils/watch.ts` 的 `watchEnabledFromConfig` `false→true`、`app/config/configService.ts` 的 `?? false→?? true`），但**被翻转的东西在 fork 里整个不存在** —— 无 `KIMI_CODE_WATCH`、无 `setWatchEnabled`、`packages/node-sdk/src/config-local/schema.ts` 无 `[watch]` 段、`packages/kimi-agent/src` 无 watcher 依赖（无 notify / inotify / ReadDirectoryChangesW）。**移植量实测：`watch.ts` 756 行**，导出整套 `WatchService` / `watch` / `watchCandidates` / `NativeFsWatcher` 运行时抽象，**12 个生产消费方**（`app/config/configService`、`app/workspace/fileWorkspacePersistence`、`app/watch/configSection`、`features/skill/{catalog/userFileSkillSource, workspace/rootFileSkillSource}`、`session/sessionInstructions/instructionsProvider`、`workspace/{workspaceDirs, workspaceAgentProfileLoader, workspaceInstructions, workspaceInstructionsService, workspaceMcpConfig}`），监听面覆盖 `config.toml`、工作区 catalog、用户/工作区 skill 目录、AGENTS.md 类 instructions、workspace MCP 配置等 8 类文件。**结论：这是一个子系统级移植（还牵涉「watcher 归 Rust 还是归 TS 宿主」的架构选择），不是补默认值** —— fork 现在只有显式 `/reload`、`/reload-tui`。保持 `tracked`，动手前需先定层。
 
+> 📌 **2026-10-01 补注：层的问题已有答案，见 §6.24。** v2 的 `src/runtime/` 本身就是那层——watch 只是
+> `RuntimeCapability` 的四档之一，与 `process` / `terminal` / `fs` 共用同一个 `Runtime` 接口和它的
+> 六态生命周期。所以「先立 capability 层、再挂 watch」是唯一能对齐上游的顺序；先单独移植 watch 会做出
+> 一个上游不存在的独立子系统。§6.24 已按上游基准把该层登记为 `tracked`，本条的前置条件由它承担。
+
 **已同步的文档半边（2026-09-24）**：本提交的代码半边裁 `tracked`，但**文档半边照上游镜像同步**
 了 —— `docs/{en,zh}/configuration/{config-files.md,env-vars.md}` 四个文件取自 `be7d5f5fea`，
 逐字节校验一致（`19a644393f9d` / `dd1a9ea93437` / `a4f26a0b9129` / `5e673452b9d9`）。理由是
@@ -4925,3 +4930,52 @@ into the turn"。复核后有了确切依据：fork 的 steer 被 tower 模式�
 所以等待期间按普通 Enter 是**排队**（`tui/commands/dispatch.ts:144-145` 的注释写明"submissions
 through sendNormalUserInput queue while busy"），只有 `Ctrl-S` 会 steer
 （`tui/controllers/editor-keyboard.ts:324` 的 `onCtrlS`）。照抄会写出本 fork 没有的行为。
+
+### 6.24 2026-10-01 v2 的 runtime capability 层在 fork 完全缺席（§6.8.2 的前置条件，非 commit 级 delta）
+
+**`tracked`（子系统级缺口；对齐上游基准，非产品选择）**：v2 有一层以 capability 为轴的执行环境抽象，
+fork 整个没有。这不是"少写了个模块"，而是**引擎的每一次进程调用都硬绑本地**。它同时是 §6.8.2
+（fs watcher）的前置条件——v2 里 watch 只是 `RuntimeCapability` 的一档，fork 没有这层可挂。
+
+**v2 侧的形态**（`.tmp/v2-ref/packages/agent-core-v2/src/runtime/`，9 个文件）：
+
+- `runtime/runtime.ts:9` — `RuntimeCapability = 'fs' | 'process' | 'watch' | 'terminal'`
+- `runtime/runtime.ts:8` — `RuntimeStatus = 'connecting' | 'ready' | 'degraded' | 'disconnected' | 'draining' | 'disposed'`（六态生命周期）
+- `runtime/runtime.ts:40` — `Runtime` 接口，配 `localRuntime` / `standaloneRuntime` /
+  `runtimeRegistry` / `runtimeProvider`，走 DI 容器注册多实现
+
+**它不是死代码 —— 9 个生产消费点，覆盖四类能力**：
+
+| 消费点 | 用的能力 |
+|---|---|
+| `features/fileHistory/fileHistoryService.ts:475` | `lease.runtime.fs` |
+| `features/staleGuard/staleGuardService.ts:130` | `lease.runtime.fs!.stat` |
+| `workspace/workspaceFs/fsService.ts:666` | `lease.runtime.process!.spawn`（rg 二进制） |
+| `workspace/workspaceFs/fsService.ts:1055` | `lease.runtime.process!`（exec） |
+| `app/git/gitService.ts:154` | `lease.runtime.process!` |
+| `session/terminal/terminalService.ts:86` | `lease.runtime.terminal!.spawn` |
+| `session/terminal/terminalService.ts:83` | `lease.runtime.environment.shellPath` |
+| `mcpCore/client-stdio.ts:192-193` | `lease.runtime.path.resolve` / `environment.homeDir` |
+
+**fork 侧的对应事实**（全部实测，非推断）：
+
+- `packages/kaos/src` 共 12 个文件，只有 local / ssh / login-shell 三种执行环境；
+  六个状态名（`connecting`/`ready`/`degraded`/`disconnected`/`draining`/`disposed`）与
+  `RuntimeCapability` 在该包**全部零命中**——唯一 grep 到 `draining` 的位置是
+  `kaos/src/internal.ts:251` 注释里的英文词 "without draining unboundedly"，与状态机无关。
+  即：没有生命周期状态机，没有 watch 能力
+- `packages/kimi-agent/src` 下 `Command::new` 共 **35 处**，分布在 17 个文件，全部直接调本地进程，
+  无任何抽象中转
+- 引擎无 ssh / remote 执行路径（`ssh` 命中均为 remote URL 或 `allow_remote_shutdown`，与此无关）
+
+**为什么它不属于 commit 级 allowlist**：`check-upstream-v2-delta` 棘轮按上游提交记录，而这一层在
+导出点就已存在、从未被任何单个提交改动，因此不会被该门禁发现。它属于 §6.17.2 说的那种
+"存在性之外的归属盲区"：**不是跟丢了上游的某次变更，而是从未决定移植**。
+
+**与 §6.8.2 的关系**：§6.8.2 已判定 watch 移植"动手前需先定层"。按 v2 的形态，层已经定了——
+watch/process/terminal 三个能力共用同一个 `Runtime` 接口与其状态机，先立 capability 层再挂 watch，
+是唯一能对齐上游的顺序；反过来先单独移植 watch 会做出一个上游没有的独立子系统。
+
+**登记为 `tracked`，不排期。** 移植它需要先回答一个分层问题：DI 注册表与状态机归 Rust 引擎
+（`packages/kimi-agent`）还是归 TS 宿主（`packages/node-sdk`）——v2 两边都有份，fork 必须二选一，
+这与 §6.8.2 的"watcher 归 Rust 还是归 TS"是同一个未决问题。**未经用户裁决不得开工**。

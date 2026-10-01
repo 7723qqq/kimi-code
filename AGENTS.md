@@ -114,11 +114,15 @@ it from `packages/i18n-catalog/src/locales/en.ts` when you touch the catalog.
   "Showing matches X–Y of Z.", "Continue with the same search arguments…".
   These live in the Rust engine (`tools/mod.rs` around the Read / Grep result
   builders, beside `engine.tools.grep.noFilesMatched`, which *is* localized), and
-  **no gate can catch them**: `scan:hardcoded`'s six `MODULES` are all TypeScript
+  **no gate can catch them**: `scan:hardcoded`'s modules are all TypeScript
   trees, so `packages/kimi-agent` has zero hardcoded-string coverage. Do not "fix"
   this by adding a Rust scan — that would also sweep in the model-input
-  scaffolding and wire tokens listed above. The judgement call (UI or protocol?)
-  is the user's; see the What not to translate section.
+  scaffolding and wire tokens listed above. Two separable questions, and only the
+  first is settled: whether they are **UI or protocol** is a fork decision
+  (see What not to translate), but the *unported-subsystem* framing is not a
+  question at all — v2's `src/runtime/` capability layer that §6.8.2 needs is
+  registered in `packages/kimi-agent/ROADMAP.md` §6.24, and the engine's
+  missing runtime layer is upstream's to match, not a fork preference.
 
 ### Known rough edges
 
