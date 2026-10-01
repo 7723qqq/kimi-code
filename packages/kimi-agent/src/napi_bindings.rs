@@ -2151,7 +2151,8 @@ async fn build_engine_pipeline(
         model_capabilities: params.model_capabilities.clone(),
         // Enabled plugins contribute skill roots; the host's own
         // `extra_skill_dirs` arrive through the config the host resolved.
-        skill_dirs: plugin_skill_dirs(),
+        skill_dirs: Vec::new(),
+        plugin_skill_dirs: plugin_skill_dirs(),
         merge_all_available_skills: crate::config::resolved_merge_all_available_skills(),
         background: crate::storage::BackgroundLimits::from_wire(
             params
@@ -3014,6 +3015,60 @@ pub fn session_skills(env: Env, session_id: String) -> napi::Result<JsObject> {
     )
 }
 
+/// Render the prompt a `/skill:` activation submits, resolved and expanded by
+/// the engine — the same renderer the `Skill` tool uses, so a host cannot
+/// drift from it. The object carries `status` (`"ok"` | `"not_found"` |
+/// `"type_unsupported"`), plus on `"ok"` the prompt `text`, the resolved
+/// `name`, and the `path` / `source` / `skillType` provenance the activation
+/// origin and the `skill.activated` event carry.
+///
+/// v2 keeps the renderer behind its catalog for the same reason
+/// (`features/skill/skillService.ts:207`): a host that rendered the prompt
+/// itself resolved only `<workDir>/.kimi-code/skills/<name>`, so the builtin
+/// skills and the configured `extra_skill_dirs` failed to activate, and it
+/// skipped the `$ARGUMENTS` / `${KIMI_SKILL_DIR}` expansion entirely.
+#[napi]
+pub fn session_render_skill_prompt(
+    env: Env,
+    session_id: String,
+    name: String,
+    args: String,
+) -> napi::Result<JsObject> {
+    use crate::tools::skill::{SkillPromptError, SkillScan, render_user_slash_skill_prompt};
+    let roots = session_entry(&session_id)?.skill_scan;
+    let scan = SkillScan {
+        root: roots.root.as_deref(),
+        extra_dirs: &roots.extra_dirs,
+        plugin_dirs: &roots.plugin_dirs,
+        merge_all_available_skills: roots.merge_all_available_skills,
+    };
+    let mut obj = env.create_object()?;
+    match render_user_slash_skill_prompt(&scan, &name, &args, &session_id) {
+        Ok(prompt) => {
+            obj.set_named_property("status", env.create_string("ok")?)?;
+            obj.set_named_property("text", env.create_string(&prompt.text)?)?;
+            obj.set_named_property("name", env.create_string(&prompt.name)?)?;
+            if let Some(path) = prompt.path.as_deref() {
+                obj.set_named_property("path", env.create_string(path)?)?;
+            }
+            if let Some(source) = prompt.source.as_deref() {
+                obj.set_named_property("source", env.create_string(source)?)?;
+            }
+            if let Some(skill_type) = prompt.skill_type.as_deref() {
+                obj.set_named_property("skillType", env.create_string(skill_type)?)?;
+            }
+        }
+        Err(SkillPromptError::NotFound) => {
+            obj.set_named_property("status", env.create_string("not_found")?)?;
+        }
+        Err(SkillPromptError::TypeUnsupported(skill_name)) => {
+            obj.set_named_property("status", env.create_string("type_unsupported")?)?;
+            obj.set_named_property("name", env.create_string(&skill_name)?)?;
+        }
+    }
+    Ok(obj)
+}
+
 /// The warnings this session should surface at startup, as a JSON array of
 /// `{ code, message, severity }`.
 ///
@@ -3495,13 +3550,22 @@ fn plugin_manager() -> napi::Result<Arc<crate::server::plugins::PluginManager>> 
 /// The enabled plugins' skill roots, read from the process-wide registry.
 /// Empty when the host never called [`init_plugin_store`], so a process without
 /// plugins scans exactly what it did before.
-fn plugin_skill_dirs() -> Vec<std::path::PathBuf> {
+fn plugin_skill_dirs() -> Vec<crate::skills::PluginSkillDir> {
     PLUGIN_MANAGER
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .as_ref()
         .map(|manager| manager.plugin_skill_dirs())
         .unwrap_or_default()
+}
+
+/// The same roots as bare paths, for the prompt builder: it scans the list but
+/// has no per-skill plugin identity to attach.
+fn plugin_skill_dir_paths() -> Vec<std::path::PathBuf> {
+    plugin_skill_dirs()
+        .into_iter()
+        .map(|entry| entry.dir)
+        .collect()
 }
 
 /// Resolve the system prompt for a napi-owned session.
@@ -3537,9 +3601,11 @@ fn build_session_system_prompt(params: &JsRunTurnParams) -> String {
         // fabricating an environment section for an unknown root.
         return params.system_prompt.clone();
     };
-    let skill_dirs = plugin_skill_dirs();
-    // The same value the pipeline spec carries (`with_skill_scan`), so the
-    // prompt's skills section and the `Skill` tool's scan cannot disagree.
+    let skill_dirs = plugin_skill_dir_paths();
+    // The same roots the pipeline spec carries (`with_skill_scan`), so the
+    // prompt's skills section and the `Skill` tool's scan cannot disagree. The
+    // prompt only needs the paths — which plugin contributed a skill is the
+    // renderer's business, not the section's.
     let merge_all_available_skills = crate::config::resolved_merge_all_available_skills();
     match params.agent_profile.as_deref().map(str::trim) {
         Some(profile) if !profile.is_empty() => {

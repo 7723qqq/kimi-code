@@ -917,6 +917,10 @@ export const en = {
       glob: {
         patternRequired: '"pattern" is required and must be a string.',
         pathNotExist: '"{{p}}" does not exist.',
+        // Fork-original paging report: v2's glob has no counterpart, and the
+        // two continuation lines around it stay English on purpose — they tell
+        // the model how to drive the tool, which is protocol, not UI.
+        showingMatches: 'Showing matches {{from}}–{{to}} of {{total}}.',
       },
       write: {
         pathRequired: '"path" is required and must be a string.',

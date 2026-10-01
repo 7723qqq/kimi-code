@@ -454,6 +454,35 @@ describe('Session.prompt events', () => {
     }
   });
 
+  it('rejects a negative turn-index fork with request.invalid (v2 pinned)', async () => {
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir });
+
+    try {
+      const source = await harness.createSession({ id: 'ses_neg_turn_fork_source', workDir });
+
+      // The other half of v1's rule, and the half the upper-bound case above
+      // cannot reach. `retainThroughTurn` never matches `seen === -1`, so
+      // without the lower bound a negative index fell through to
+      // `history.length` and silently forked the whole session instead of
+      // rejecting — the call looked successful and returned a full-history
+      // fork for a request that said "truncate at this turn".
+      await expect(
+        harness.forkSession({
+          id: source.id,
+          forkId: 'ses_neg_turn_fork_child',
+          turnIndex: -1,
+        }),
+      ).rejects.toMatchObject({
+        code: 'request.invalid',
+      });
+      await expect(harness.listSessions({ sessionId: 'ses_neg_turn_fork_child' })).resolves.toEqual([]);
+    } finally {
+      await harness.close();
+    }
+  });
+
   it('rejects empty prompt input', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
@@ -473,42 +502,6 @@ describe('Session.prompt events', () => {
     }
   });
 });
-
-async function runPrompt(
-  session: Parameters<typeof waitForEvent>[0] & { prompt(input: string): Promise<void> },
-  input: string,
-  response: string,
-): Promise<void> {
-  fakeProviderState.responseText = response;
-  const done = waitForEvent(session, (event) => event.type === 'turn.ended');
-  await session.prompt(input);
-  await done;
-}
-
-function visibleReplayText(
-  records: readonly {
-    readonly type: string;
-    readonly message?: {
-      readonly role: string;
-      readonly content: ReadonlyArray<{ readonly type: string; readonly text?: string }>;
-      readonly origin?: { readonly kind: string };
-    };
-  }[],
-): readonly string[] {
-  const entries: string[] = [];
-  for (const record of records) {
-    if (record.type !== 'message' || record.message === undefined) continue;
-    const { message } = record;
-    if (message.role === 'user' && message.origin?.kind !== 'user') continue;
-    if (message.role !== 'user' && message.role !== 'assistant') continue;
-    const text = message.content
-      .filter((part) => part.type === 'text')
-      .map((part) => part.text ?? '')
-      .join('');
-    entries.push(`${message.role}:${text}`);
-  }
-  return entries;
-}
 
 async function configureFakeProvider(harness: KimiHarness): Promise<void> {
   await harness.setConfig({

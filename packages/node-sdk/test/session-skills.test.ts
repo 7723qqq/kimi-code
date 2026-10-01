@@ -253,6 +253,371 @@ describe('Session skills', () => {
     }
   });
 
+  it('rejects the whole bundle when one of the named skills is unknown', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-bundle-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-bundle-work-');
+    await writeSkill(workDir, 'review', [
+      '---',
+      'name: review',
+      'description: Review code',
+      '---',
+      '',
+      'Review the requested file.',
+    ]);
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_sdk_skill_bundle', workDir });
+
+      // The bundle is validated as a unit: an unknown name rejects the whole
+      // submission, the same way `activateSkill` reports a missing skill.
+      // Silently dropping it would return a successful turn that activated
+      // less than the caller asked for, and the model would see a prompt
+      // missing the skill the user named.
+      await expect(
+        session.promptWithSkills('Review this change.', [{ name: 'review' }, { name: 'not-installed' }]),
+      ).rejects.toMatchObject({ code: 'skill.not_found' });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('publishes one skill.activated per bundled skill, ahead of the turn', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-bundle-events-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-bundle-events-work-');
+    await writeSkill(workDir, 'review', [
+      '---',
+      'name: review',
+      'description: Review code',
+      '---',
+      '',
+      'Review the requested file.',
+    ]);
+    await writeSkill(workDir, 'security', [
+      '---',
+      'name: security',
+      'description: Check security',
+      '---',
+      '',
+      'Check the requested file for security issues.',
+    ]);
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_sdk_skill_bundle_events', workDir });
+      const events: Event[] = [];
+      const unsubscribe = session.onEvent((event) => {
+        events.push(event);
+      });
+
+      await session.promptWithSkills(
+        'Review this change.',
+        [{ name: 'review' }, { name: 'security' }],
+      );
+      unsubscribe();
+
+      // The TUI renders an activation card per event and groups the cards
+      // with the prompt they were bundled into, which only works if the
+      // events land during this call. The single-slash path (`activateSkill`)
+      // already does this; the bundle path used to emit nothing at all.
+      const activated = events.filter(
+        (event): event is Extract<Event, { type: 'skill.activated' }> =>
+          event.type === 'skill.activated',
+      );
+      expect(activated.map((event) => event.skillName)).toEqual(['review', 'security']);
+      expect(new Set(activated.map((event) => event.activationId)).size).toBe(2);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('derives the title and lastPrompt from the caller text, not the skill body', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-bundle-meta-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-bundle-meta-work-');
+    await writeSkill(workDir, 'review', [
+      '---',
+      'name: review',
+      'description: Review code',
+      '---',
+      '',
+      'Review the requested file.',
+    ]);
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_sdk_skill_bundle_meta', workDir });
+      const metaUpdated = waitForSDKEvent(
+        session,
+        (event) => event.type === 'session.meta.updated',
+      );
+      const ended = waitForSDKEvent(session, (event) => event.type === 'turn.ended');
+
+      await session.promptWithSkills('Please fix the failing test', [{ name: 'review' }]);
+      const meta = (await metaUpdated) as { title?: string };
+      await ended;
+
+      // v2 `AgentSkillService.promptWithSkills` derives the metadata from the
+      // caller's own parts (`skillService.ts:139-146`), not from the message
+      // content, which is the rendered skill blocks plus those parts (`:155`).
+      // Deriving it from the content instead made a session's title open with
+      // `User activated the skill ...` and the `<skill-loaded>` wrapper instead
+      // of the user's sentence.
+      expect(meta.title).toBe('Please fix the failing test');
+      const state = JSON.parse(
+        await readFile(join(session.summary!.sessionDir, 'session-meta.json'), 'utf-8'),
+      ) as Record<string, unknown>;
+      expect(state['title']).toBe('Please fix the failing test');
+      expect(state['lastPrompt']).toBe('Please fix the failing test');
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('attributes a btw activation to the agent that ran it (v2 skillService.ts:248)', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-btw-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-btw-work-');
+    await writeSkill(workDir, 'review', [
+      '---',
+      'name: review',
+      'description: Review code',
+      '---',
+      '',
+      'Review the requested file.',
+    ]);
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_sdk_skill_btw', workDir });
+      const agentId = await session.startBtw();
+      const events: Event[] = [];
+      const unsubscribe = session.onEvent((event) => {
+        events.push(event);
+      });
+
+      // The same seam the btw panel submits through
+      // (`btw-panel.ts:186`): the submission runs inside the subagent's scope.
+      await harness.withInteractiveAgent(agentId, () =>
+        session.promptWithSkills('Review this change.', [{ name: 'review' }]),
+      );
+      unsubscribe();
+
+      const activated = events.filter(
+        (event): event is Extract<Event, { type: 'skill.activated' }> =>
+          event.type === 'skill.activated',
+      );
+      expect(activated).toHaveLength(1);
+      // v2 stamps `SkillActivated` with the scope's agent id. Hardcoding `main`
+      // filed a btw panel's activation under the main agent, which the panel's
+      // own transcript never shows.
+      expect(activated[0]?.agentId).toBe(agentId);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('rejects an empty prompt or an empty skill list before touching the catalog', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-empty-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-empty-work-');
+    await writeSkill(workDir, 'review', [
+      '---',
+      'name: review',
+      'description: Review code',
+      '---',
+      '',
+      'Review the requested file.',
+    ]);
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_sdk_skill_empty', workDir });
+
+      // v2 `skillService.ts:129-134`. Without the pre-check an empty skill list
+      // degraded into an ordinary prompt — a successful turn that activated
+      // nothing, which is exactly the failure mode the check exists to stop.
+      await expect(session.promptWithSkills('Do the thing.', [])).rejects.toMatchObject({
+        code: 'request.invalid',
+      });
+      // The sibling check on empty *input* (`skillService.ts:126-128`) lives at
+      // the RPC boundary and is unreachable through this API: the shared
+      // `normalizePromptInput` rejects an empty prompt first, with the code
+      // `prompt()` also uses. Pinned here so that stays true rather than
+      // drifting into a second error code for one input.
+      await expect(session.promptWithSkills('', [{ name: 'review' }])).rejects.toMatchObject({
+        code: 'request.prompt_input_empty',
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('carries the origin metadata as v2 entry list, plus attachments and trailing content', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-origin-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-origin-work-');
+    await writeSkill(workDir, 'review', [
+      '---',
+      'name: review',
+      'description: Review code',
+      '---',
+      '',
+      'Review the requested file.',
+    ]);
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_sdk_skill_origin', workDir });
+      const started = waitForSDKEvent(session, (event) => event.type === 'turn.started');
+
+      await session.activateSkill('review', 'src/app.ts', {
+        displayText: '/review src/app.ts',
+        content: 'Also check the tests.',
+        attachments: [
+          { name: 'notes.md', mediaType: 'text/markdown', size: 12, path: '/w/notes.md' },
+        ],
+      });
+      const turnStarted = (await started) as { origin?: Record<string, unknown> };
+      const origin = turnStarted.origin ?? {};
+
+      // v2 carries origin metadata as an ARRAY of per-submission entries. The
+      // fork sent one object, which `transcript`'s projection reads as "no
+      // metadata" — the displayText was silently dropped on every prompt.
+      expect(origin['clientMetadata']).toEqual([{ display_text: '/review src/app.ts' }]);
+      // v2 `SkillActivationOrigin.attachments`, which the transcript cold
+      // rebuild folds into attachment entities (`groupTurns.ts:524`).
+      expect(origin['attachments']).toEqual([
+        { name: 'notes.md', mediaType: 'text/markdown', size: 12, path: '/w/notes.md' },
+      ]);
+
+      // The bundle path carries the same two fields on its *user* origin
+      // (`skillService.ts:158-163`); it previously carried neither, so a
+      // bundled prompt's displayText and attachments were both lost.
+      const bundled = waitForSDKEvent(session, (event) => event.type === 'turn.started');
+      await session.promptWithSkills('Review this change.', [{ name: 'review' }], {
+        displayText: 'Review this change.',
+        attachments: [
+          { name: 'diff.patch', mediaType: 'text/x-patch', size: 40, path: '/w/diff.patch' },
+        ],
+      });
+      const bundleOrigin =
+        ((await bundled) as { origin?: Record<string, unknown> }).origin ?? {};
+      expect(bundleOrigin['clientMetadata']).toEqual([{ display_text: 'Review this change.' }]);
+      expect(bundleOrigin['attachments']).toEqual([
+        { name: 'diff.patch', mediaType: 'text/x-patch', size: 40, path: '/w/diff.patch' },
+      ]);
+      expect(Array.isArray(bundleOrigin['skillActivations'])).toBe(true);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('records a user-slash activation in telemetry (v2 skillService.ts:277-287)', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-telemetry-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-telemetry-work-');
+    await writeSkill(workDir, 'review', [
+      '---',
+      'name: review',
+      'description: Review code',
+      '---',
+      '',
+      'Review the requested file.',
+    ]);
+    const tracked: { event: string; properties?: Record<string, unknown> }[] = [];
+    const harness = createKimiHarness({
+      homeDir,
+      identity: TEST_IDENTITY,
+      telemetry: {
+        track: (event: string, properties?: Record<string, unknown>) => {
+          tracked.push({ event, properties });
+        },
+      },
+    });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_sdk_skill_telemetry', workDir });
+      const ended = waitForSDKEvent(session, (event) => event.type === 'turn.ended');
+
+      await session.activateSkill('review');
+      await ended;
+
+      // Only the model-tool path emitted this, so skill usage stats counted
+      // model-invoked skills only.
+      expect(tracked).toContainEqual({
+        event: 'skill_invoked',
+        properties: { skill_name: 'review', trigger: 'user-slash' },
+      });
+      // Not a `flow` skill, so no second event.
+      expect(tracked.filter((entry) => entry.event === 'flow_invoked')).toEqual([]);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('activates a builtin skill the host-side renderer could not resolve', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-builtin-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-builtin-work-');
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_sdk_skill_builtin', workDir });
+      const activated = waitForSDKEvent(session, (event) => event.type === 'skill.activated');
+      const ended = waitForSDKEvent(session, (event) => event.type === 'turn.ended');
+
+      // `update-config` is compiled into the engine (`skills/mod.rs:434`), so it
+      // has no `SKILL.md` under `<workDir>/.kimi-code/skills`. The host used to
+      // resolve a `/skill:` name by that path alone and answered
+      // `skill.not_found` for every builtin and every `extra_skill_dirs` entry.
+      await session.activateSkill('update-config');
+      const event = await activated;
+      await ended;
+
+      expect(event).toMatchObject({
+        type: 'skill.activated',
+        skillName: 'update-config',
+        trigger: 'user-slash',
+        // Provenance comes from the catalog now, not from a path guess — the
+        // host used to stamp `source="project"` on whatever it found.
+        skillSource: 'builtin',
+      });
+      expect(JSON.stringify(event)).not.toContain('.kimi-code/skills');
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it('refuses a skill whose type is not user-activatable (v2 skillService.ts:199)', async () => {
+    const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-type-gate-home-');
+    const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-type-gate-work-');
+    await mkdir(join(workDir, '.kimi-code', 'skills', 'docs-ref'), { recursive: true });
+    await writeFile(
+      join(workDir, '.kimi-code', 'skills', 'docs-ref', 'SKILL.md'),
+      [
+        '---',
+        'name: docs-ref',
+        'description: Reference only',
+        'type: reference',
+        '---',
+        '',
+        'Body.',
+      ].join('\n'),
+    );
+    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const session = await harness.createSession({ id: 'ses_sdk_skill_type_gate', workDir });
+
+      // v2 raises `SKILL_TYPE_UNSUPPORTED` for a `reference` skill; the host
+      // used to accept it, because it never read the type at all.
+      await expect(session.activateSkill('docs-ref')).rejects.toMatchObject({
+        code: 'skill.type_unsupported',
+      });
+      // The same gate covers a bundled submission, and rejects the whole bundle.
+      await expect(
+        session.promptWithSkills('Read it.', [{ name: 'docs-ref' }]),
+      ).rejects.toMatchObject({ code: 'skill.type_unsupported' });
+    } finally {
+      await harness.close();
+    }
+  });
+
   it('resolves user brand skills from KIMI_CODE_HOME, not the OS home', async () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-home-');
     const processHome = await makeTempDir(tempDirs, 'kimi-sdk-skills-process-home-');

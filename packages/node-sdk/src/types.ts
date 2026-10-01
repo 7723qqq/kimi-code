@@ -257,14 +257,28 @@ export interface PluginCommandDef {
   readonly body?: string;
   readonly path?: string;
 }
-export interface PluginGithubRef {
+/** A git reference on a GitHub-sourced plugin (v2 `PluginGithubRef`). */
+export interface PluginGithubRefValue {
+  readonly kind: 'branch' | 'tag' | 'sha';
+  readonly value: string;
+}
+
+/**
+ * A GitHub-sourced plugin's provenance (v2 `PluginGithubMetadata`). The engine
+ * derives it from the install source, so `owner`/`repo`/`ref` are present for
+ * every `source: 'github'` plugin. `ref` is always set: a repository URL that
+ * named no ref is recorded as `branch` / `HEAD`, which is how the shape spells
+ * "no explicit pin".
+ */
+export interface PluginGithubProvenance {
   readonly owner: string;
   readonly repo: string;
-  readonly ref?: any;
-  readonly path?: string;
+  readonly ref: PluginGithubRefValue;
   readonly installedSha?: string;
-  readonly [key: string]: any;
 }
+
+/** @deprecated Use {@link PluginGithubProvenance}; kept so existing imports resolve. */
+export type PluginGithubRef = PluginGithubProvenance;
 export interface PluginGithubMetadata {
   readonly stars?: number;
   readonly description?: string;
@@ -283,6 +297,43 @@ export interface PluginMcpServerInfo {
   readonly headerKeys?: readonly string[];
   readonly [key: string]: any;
 }
+/** Which of the two accepted manifest locations answered (v2 `PluginManifestKind`). */
+export type PluginManifestKind = 'kimi-plugin-root' | 'kimi-plugin-dir';
+
+/** One thing worth telling the user about a plugin (v2 `PluginDiagnostic`). */
+export interface PluginDiagnostic {
+  readonly severity: string;
+  readonly message: string;
+}
+
+/**
+ * A plugin's manifest as the engine reports it. `skills` and `agents` are
+ * **resolved**: absolute, and proven to sit inside the plugin root — a path that
+ * would escape is dropped by the engine and reported in `diagnostics` rather than
+ * followed. So `skills` is always a list, never a single string, and a consumer
+ * may iterate it directly.
+ */
+export interface PluginManifestInfo {
+  readonly name?: string;
+  readonly version?: string;
+  readonly description?: string;
+  readonly keywords?: readonly string[];
+  readonly author?: { readonly name?: string; readonly email?: string };
+  readonly homepage?: string;
+  readonly license?: string;
+  readonly skills?: readonly string[];
+  readonly agents?: readonly string[];
+  readonly sessionStart?: { readonly skill: string };
+  readonly skillInstructions?: string;
+  readonly interface?: {
+    readonly displayName?: string;
+    readonly shortDescription?: string;
+    readonly longDescription?: string;
+    readonly developerName?: string;
+    readonly websiteURL?: string;
+  };
+}
+
 export interface PluginInfo {
   readonly id: string;
   readonly name?: string;
@@ -295,7 +346,7 @@ export interface PluginInfo {
   readonly source: PluginSource;
   readonly commands?: readonly PluginCommandDef[];
   readonly mcpServers?: readonly PluginMcpServerInfo[];
-  readonly github?: PluginGithubRef;
+  readonly github?: PluginGithubProvenance;
   readonly enabledMcpServerCount?: number;
   readonly skillCount?: number;
   readonly mcpServerCount?: number;
@@ -307,10 +358,10 @@ export interface PluginInfo {
   readonly updatedAt?: number | string;
   readonly originalSource?: string;
   readonly manifestPath?: string;
-  readonly manifestKind?: string;
+  readonly manifestKind?: PluginManifestKind;
   readonly shadowedManifestPath?: string;
-  readonly manifest?: any;
-  readonly diagnostics?: readonly any[];
+  readonly manifest?: PluginManifestInfo;
+  readonly diagnostics?: readonly PluginDiagnostic[];
   readonly [key: string]: any;
 }
 export interface PluginSummary {
@@ -328,7 +379,7 @@ export interface PluginSummary {
   readonly hookCount?: number;
   readonly commandCount?: number;
   readonly hasErrors?: boolean;
-  readonly github?: PluginGithubRef;
+  readonly github?: PluginGithubProvenance;
 }
 
 export type TurnEngine = 'native' | 'v2' | 'rust';
@@ -355,10 +406,34 @@ export interface ClientPromptMetadata {
   readonly [key: string]: unknown;
 }
 
+/**
+ * One entry of a prompt origin's `clientMetadata` (v2
+ * `UserPromptOrigin.clientMetadata`): an **array**, one entry per prompt
+ * submission, each carrying that submission's `display_text`. Distinct from
+ * [`ClientPromptMetadata`], which is the single object the *submission* API
+ * takes — the origin carries the accumulated list.
+ */
+export type PromptOriginMetadataEntry = Readonly<Record<string, unknown>>;
+
 export interface UserPromptOrigin {
   readonly kind: 'user';
   readonly skillActivations?: readonly BundledSkillActivation[];
-  readonly clientMetadata?: ClientPromptMetadata;
+  readonly clientMetadata?: readonly PromptOriginMetadataEntry[];
+  /**
+   * Session-media references and file attachments the prompt carried (v2
+   * `PromptFileAttachment`, `contextMemory/types.ts:10-15`). `transcript`'s
+   * cold rebuild already folds these into attachment entities
+   * (`groupTurns.ts:524`); without a producer the fold had nothing to read.
+   */
+  readonly attachments?: readonly PromptFileAttachment[];
+}
+
+/** A file the prompt referenced by name (v2 `PromptFileAttachment`). */
+export interface PromptFileAttachment {
+  readonly name: string;
+  readonly mediaType: string;
+  readonly size: number;
+  readonly path: string;
 }
 
 export interface SkillActivationOrigin {
@@ -370,7 +445,10 @@ export interface SkillActivationOrigin {
   readonly skillType?: string;
   readonly skillPath?: string;
   readonly skillSource?: SkillSource;
-  readonly clientMetadata?: ClientPromptMetadata;
+  /** The origin's accumulated entries — see [`PromptOriginMetadataEntry`]. */
+  readonly clientMetadata?: readonly PromptOriginMetadataEntry[];
+  /** v2 `SkillActivationOrigin.attachments`; folded by `transcript` as above. */
+  readonly attachments?: readonly PromptFileAttachment[];
 }
 
 export interface PluginCommandOrigin {
@@ -869,8 +947,10 @@ export interface ForkSessionInput {
   readonly title?: string;
   readonly metadata?: JsonObject;
   /**
-   * Zero-based index of the user-visible turn to retain through. Omit it to
-   * preserve the existing full-session fork behavior.
+   * Zero-based index of the user-visible turn to retain through. Must name a
+   * recorded user turn — `0 <= turnIndex < recorded user turns`; anything
+   * outside that range rejects with `request.invalid`. Omit it to preserve the
+   * existing full-session fork behavior.
    */
   readonly turnIndex?: number;
 }

@@ -24,6 +24,7 @@ import type {
   PluginInfo,
   PluginSummary,
   PromptInput,
+  PromptFileAttachment,
   PromptSkillActivation,
   ReloadSessionOptions,
   ReloadSummary,
@@ -156,12 +157,22 @@ export class Session {
   async promptWithSkills(
     input: string | PromptInput,
     skills: readonly PromptSkillActivation[],
+    extra?: {
+      /** Files the prompt referenced; they ride the origin (v2 `attachments`). */
+      readonly attachments?: readonly PromptFileAttachment[];
+      /** `displayText` for the session title / last-prompt derivation. */
+      readonly displayText?: string;
+    },
   ): Promise<void> {
     this.ensureOpen();
     await this.rpc.promptWithSkills({
       sessionId: this.id,
       input: normalizePromptInput(input),
       skills,
+      ...(extra?.attachments !== undefined && extra.attachments.length > 0
+        ? { attachments: extra.attachments }
+        : {}),
+      ...(extra?.displayText !== undefined ? { clientMetadata: { displayText: extra.displayText } } : {}),
     });
   }
 
@@ -690,7 +701,18 @@ export class Session {
     return this.rpc.getPluginInfo(id);
   }
 
-  async activateSkill(name: string, args?: string | undefined): Promise<void> {
+  async activateSkill(
+    name: string,
+    args?: string | undefined,
+    extra?: {
+      /** Parts appended after the rendered skill block (v2 `content`). */
+      readonly content?: string | PromptInput;
+      /** Files the activation referenced; they ride the origin (v2 `attachments`). */
+      readonly attachments?: readonly PromptFileAttachment[];
+      /** `displayText` for the session title / last-prompt derivation. */
+      readonly displayText?: string;
+    },
+  ): Promise<void> {
     this.ensureOpen();
     const skillName = normalizeRequiredString(
       name,
@@ -698,10 +720,16 @@ export class Session {
       ErrorCodes.SKILL_NAME_EMPTY,
     );
     const skillArgs = normalizeOptionalString(args);
+    const content = extra?.content === undefined ? undefined : normalizePromptInput(extra.content);
     await this.rpc.activateSkill({
       sessionId: this.id,
       name: skillName,
       ...(skillArgs !== undefined ? { args: skillArgs } : {}),
+      ...(content !== undefined ? { content } : {}),
+      ...(extra?.attachments !== undefined && extra.attachments.length > 0
+        ? { attachments: extra.attachments }
+        : {}),
+      ...(extra?.displayText !== undefined ? { clientMetadata: { displayText: extra.displayText } } : {}),
     });
   }
 

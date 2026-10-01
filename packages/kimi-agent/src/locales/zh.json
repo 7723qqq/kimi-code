@@ -775,7 +775,8 @@
       },
       "glob": {
         "patternRequired": "\"pattern\" 为必填项，且必须是字符串。",
-        "pathNotExist": "\"{{p}}\" 不存在。"
+        "pathNotExist": "\"{{p}}\" 不存在。",
+        "showingMatches": "显示第 {{from}}–{{to}} 条匹配，共 {{total}} 条。"
       },
       "write": {
         "pathRequired": "\"path\" 为必填项，且必须是字符串。",

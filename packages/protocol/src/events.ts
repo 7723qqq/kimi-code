@@ -52,6 +52,21 @@ export interface UserPromptOrigin {
    * the single bundled message.
    */
   readonly skillActivations?: readonly BundledSkillActivation[];
+  /**
+   * Per-submission client metadata, one entry per prompt entry (v2
+   * `UserPromptOrigin.clientMetadata`, an array — `contextMemory/types.ts:20`).
+   */
+  readonly clientMetadata?: readonly Readonly<Record<string, unknown>>[];
+  /** Session-media references and file attachments carried by the prompt. */
+  readonly attachments?: readonly PromptFileAttachment[];
+}
+
+/** A file a prompt referenced by name (v2 `PromptFileAttachment`). */
+export interface PromptFileAttachment {
+  readonly name: string;
+  readonly mediaType: string;
+  readonly size: number;
+  readonly path: string;
 }
 
 export interface BundledSkillActivation {
@@ -1187,9 +1202,18 @@ export const bundledSkillActivationSchema = z.object({
   skillSource: skillSourceSchema.optional(),
 }) satisfies z.ZodType<BundledSkillActivation>;
 
+export const promptFileAttachmentSchema = z.object({
+  name: z.string(),
+  mediaType: z.string(),
+  size: z.number(),
+  path: z.string(),
+}) satisfies z.ZodType<PromptFileAttachment>;
+
 export const userPromptOriginSchema = z.object({
   kind: z.literal('user'),
   skillActivations: z.array(bundledSkillActivationSchema).optional(),
+  clientMetadata: z.array(z.record(z.string(), z.unknown())).optional(),
+  attachments: z.array(promptFileAttachmentSchema).optional(),
 }) satisfies z.ZodType<UserPromptOrigin>;
 
 export const skillActivationOriginSchema = z.object({
@@ -1201,6 +1225,8 @@ export const skillActivationOriginSchema = z.object({
   skillType: z.string().optional(),
   skillPath: z.string().optional(),
   skillSource: skillSourceSchema.optional(),
+  clientMetadata: z.array(z.record(z.string(), z.unknown())).optional(),
+  attachments: z.array(promptFileAttachmentSchema).optional(),
 }) satisfies z.ZodType<SkillActivationOrigin>;
 
 export const pluginCommandOriginSchema = z.object({

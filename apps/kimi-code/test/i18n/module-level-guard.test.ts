@@ -41,22 +41,21 @@ const SRC_ROOT = join(__dirname, '..', '..', 'src');
 // tables at load time; exclude it from the scan.
 const EXCLUDED_DIRS = new Set(['i18n']);
 
+// No try/catch here on purpose: a wrong `SRC_ROOT` must throw rather than
+// degrade into an empty scan that reports "clean". The
+// `scans a non-empty source tree` test below is the belt to that suspenders.
 function walk(dir: string, files: string[] = []): string[] {
-  try {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        if (EXCLUDED_DIRS.has(entry.name)) continue;
-        walk(join(dir, entry.name), files);
-      } else if (
-        entry.name.endsWith('.ts') &&
-        !entry.name.endsWith('.test.ts') &&
-        !entry.name.endsWith('.spec.ts')
-      ) {
-        files.push(join(dir, entry.name));
-      }
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (EXCLUDED_DIRS.has(entry.name)) continue;
+      walk(join(dir, entry.name), files);
+    } else if (
+      entry.name.endsWith('.ts') &&
+      !entry.name.endsWith('.test.ts') &&
+      !entry.name.endsWith('.spec.ts')
+    ) {
+      files.push(join(dir, entry.name));
     }
-  } catch {
-    /* skip */
   }
   return files;
 }
@@ -314,6 +313,17 @@ function findOffenders(file: string): { line: number; snippet: string }[] {
 }
 
 describe('i18n module-level translation guard', () => {
+  // Walked inside a test rather than at module scope so a bad `SRC_ROOT`
+  // fails a named test with its own message instead of erroring during
+  // collection and reporting "no tests".
+  it('scans a non-empty source tree', () => {
+    const files = walk(SRC_ROOT);
+    expect(
+      files.length,
+      `No TypeScript sources found under ${SRC_ROOT}. A guard that finds nothing to inspect passes vacuously, so this is a broken guard rather than a clean run — check SRC_ROOT and EXCLUDED_DIRS before trusting a pass.`,
+    ).toBeGreaterThan(0);
+  });
+
   it('forbids evaluating t() in module-top-level declarations', () => {
     const offenders: { file: string; line: number; snippet: string }[] = [];
     for (const file of walk(SRC_ROOT)) {

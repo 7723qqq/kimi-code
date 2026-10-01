@@ -255,6 +255,13 @@ pub struct ServerEngine {
     /// re-resolved to its provider (base URL / key) rather than only renaming
     /// the model on the engine's base transport.
     config_source: Mutex<Option<Arc<tokio::sync::Mutex<Option<crate::config::KimiConfig>>>>>,
+    /// The enabled plugins' skill roots, asked for fresh on every session spec
+    /// (`with_plugin_skill_roots`). The standalone server owns the plugin
+    /// manager and installs a reader, so an install / enable / disable / remove
+    /// is reflected in the next turn without this engine tracking the four
+    /// mutation paths itself; a process with no plugins leaves it unset and
+    /// scans exactly what it did before.
+    plugin_skill_roots: Mutex<Option<PluginSkillRoots>>,
     /// Optional per-session host factory; non-HTTP hosts (ACP) install one to
     /// answer permission checks through their own transport.
     host_factory: Mutex<Option<HostFactory>>,
@@ -288,10 +295,15 @@ pub struct ServerEngine {
 /// Builds the host callbacks for one session.
 pub type HostFactory = Arc<dyn Fn(&str) -> Arc<dyn crate::callbacks::HostCallbacks> + Send + Sync>;
 
+/// Reads the enabled plugins' skill roots on demand (see
+/// [`ServerEngine::with_plugin_skill_roots`]).
+pub type PluginSkillRoots = Arc<dyn Fn() -> Vec<crate::skills::PluginSkillDir> + Send + Sync>;
+
 impl ServerEngine {
     pub fn new(spec: PipelineSpec, hub: Arc<EventHub>, store: Arc<SqliteSessionStore>) -> Self {
         Self {
             spec,
+            plugin_skill_roots: Mutex::new(None),
             activity_registry: Arc::new(crate::server::activity::ActivityRegistry::new(
                 hub.clone(),
             )),
@@ -375,6 +387,27 @@ impl ServerEngine {
         source: Arc<tokio::sync::Mutex<Option<crate::config::KimiConfig>>>,
     ) {
         *self.config_source.lock().unwrap_or_else(|e| e.into_inner()) = Some(source);
+    }
+
+    /// Install the reader for the enabled plugins' skill roots. Called once by
+    /// the server that owns the plugin manager; the returned roots go into each
+    /// session's [`PipelineSpec`] so the system prompt's skills section and the
+    /// `Skill` tool scan the same plugin catalog.
+    pub fn with_plugin_skill_roots(&self, roots: PluginSkillRoots) {
+        *self
+            .plugin_skill_roots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(roots);
+    }
+
+    /// The plugins' skill roots for the turn about to be built.
+    fn plugin_skill_roots(&self) -> Vec<crate::skills::PluginSkillDir> {
+        self.plugin_skill_roots
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|roots| roots())
+            .unwrap_or_default()
     }
 
     fn config_source(&self) -> Option<Arc<tokio::sync::Mutex<Option<crate::config::KimiConfig>>>> {
@@ -991,6 +1024,7 @@ impl ServerEngine {
         }
         extra_roots.extend(self.project_local_roots(session_id));
 
+        let plugin_skill_dirs = self.plugin_skill_roots();
         let mut session_system_prompt = self.spec.system_prompt.clone();
         if (session_system_prompt.is_empty()
             || session_system_prompt == "sys"
@@ -998,8 +1032,13 @@ impl ServerEngine {
                 .starts_with("You are kimi-agent, running as a standalone service."))
             && let Some(ref ws) = self.spec.workspace_root
         {
+            // The prompt's skills section scans the declared extra roots and the
+            // plugin roots, in that order: v2 ranks `extra` (10) above `plugin`
+            // (5), so a plugin skill never shadows a declared one.
+            let mut prompt_skill_dirs = self.spec.skill_dirs.clone();
+            prompt_skill_dirs.extend(plugin_skill_dirs.iter().map(|entry| entry.dir.clone()));
             session_system_prompt = crate::prompt::SystemPromptBuilder::new(ws)
-                .with_skill_dirs(self.spec.skill_dirs.clone())
+                .with_skill_dirs(prompt_skill_dirs)
                 .with_merge_all_available_skills(self.spec.merge_all_available_skills)
                 .with_additional_dirs(extra_roots.iter().map(std::path::PathBuf::from).collect())
                 .with_memory(true)
@@ -1012,6 +1051,7 @@ impl ServerEngine {
             session_id: Some(session_id.to_string()),
             system_prompt: session_system_prompt,
             extra_roots,
+            plugin_skill_dirs,
             ..clone_spec(&self.spec)
         };
         // The session's persisted profile (`agent_config`) overrides the
@@ -1291,9 +1331,20 @@ impl ServerEngine {
         // results in the outgoing history so the rebuilt prefix stays small.
         // The transform is a deterministic projection — the store keeps the
         // originals — so the blanked prefix is stable across requests (one
-        // cache miss on first application, then stable). v2 additionally gates
-        // on a detected prompt-cache miss; that signal is not threaded into the
-        // engine yet, so the flag alone decides (see ROADMAP known gaps).
+        // cache miss on first application, then stable).
+        //
+        // v2 additionally gates on a *detected* prompt-cache miss, decided by
+        // `cacheMissedThresholdMs` + `minContextUsageRatio` in the caller's
+        // `detect()`. That gate is not wired here, so the flag alone decides.
+        // What is missing is the **cross-step decision**, not the measurement:
+        // every provider's usage parser already fills `input_cache_read` (and
+        // `input_cache_creation` for Anthropic), so the numbers are in the
+        // engine — nothing accumulates them per step and compares.
+        //
+        // It is not portable as it stands: micro compaction came from the
+        // fork's *own* v2 copy and upstream never had it, so the `detect()`
+        // reference was deleted with that package. Reinstating it is
+        // reconstruction, not a port — see ROADMAP §6.28.
         if let Some(config) = self.micro_compaction_config().await {
             let outcome = crate::compaction::micro::apply_micro_compaction(&history, &config);
             if outcome.changed {
@@ -1752,6 +1803,7 @@ fn clone_spec(spec: &PipelineSpec) -> PipelineSpec {
         image_max_edge_px: spec.image_max_edge_px,
         model_capabilities: spec.model_capabilities.clone(),
         skill_dirs: spec.skill_dirs.clone(),
+        plugin_skill_dirs: spec.plugin_skill_dirs.clone(),
         merge_all_available_skills: spec.merge_all_available_skills,
         background: spec.background,
     }
@@ -1793,6 +1845,7 @@ mod tests {
             image_max_edge_px: None,
             model_capabilities: None,
             skill_dirs: Vec::new(),
+            plugin_skill_dirs: Vec::new(),
             merge_all_available_skills: true,
             background: crate::storage::BackgroundLimits::default(),
         }

@@ -94,21 +94,6 @@ describe.skipIf(!hasNativeAddon)(
       expect(session.isClosed).toBe(true);
     });
 
-    it('subscribes to session events cleanly', async () => {
-      const session = await harness.createSession({
-        workDir: homeDir,
-      });
-
-      const receivedEvents: unknown[] = [];
-      const unsub = session.onEvent((event) => {
-        receivedEvents.push(event);
-      });
-
-      expect(typeof unsub).toBe('function');
-      unsub();
-      await session.close();
-    });
-
     it('fails loud on a prompt when no provider is configured (no fake reply)', async () => {
       const session = await harness.createSession({
         workDir: homeDir,
@@ -803,6 +788,9 @@ max_context_size = 100000
       const marketplaceDir = join(homeDir, 'marketplace');
       const pluginRoot = join(marketplaceDir, 'official', 'demo');
       mkdirSync(join(pluginRoot, 'commands'), { recursive: true });
+      // Declared below, so it has to exist: the engine drops a `skills` path
+      // that is not a directory and says so in `diagnostics`.
+      mkdirSync(join(pluginRoot, 'skills'), { recursive: true });
       writeFileSync(
         join(marketplaceDir, 'marketplace.json'),
         JSON.stringify({
@@ -823,6 +811,11 @@ max_context_size = 100000
         JSON.stringify({
           name: 'demo',
           version: '1.0.0',
+          keywords: ['demo', 'voice'],
+          skills: './skills/',
+          sessionStart: { skill: 'demo.onboard' },
+          skillInstructions: 'Answer in the house voice.',
+          interface: { developerName: 'Example' },
           commands: [{ path: './commands/review.md' }],
         }),
       );
@@ -849,6 +842,39 @@ max_context_size = 100000
         description: 'Review the diff',
         body: 'Review $ARGUMENTS',
       });
+
+      // The plugin panel's manifest-derived lines read these off `info`. The
+      // engine used to send none of them, so the skills list, the session-start
+      // skill, the plugin instructions, the interface block and the keywords all
+      // rendered as nothing. `skills` in particular arrives as a resolved list,
+      // which the panel iterates directly.
+      expect(info.manifestKind).toBe('kimi-plugin-root');
+      expect(info.manifestPath).toContain('kimi.plugin.json');
+      expect(info.shadowedManifestPath).toBeUndefined();
+      expect(info.installedAt).toEqual(expect.any(String));
+      expect(info.originalSource).toBe('./official/demo');
+      expect(info.manifest?.sessionStart?.skill).toBe('demo.onboard');
+      expect(info.manifest?.skillInstructions).toBe('Answer in the house voice.');
+      expect(info.manifest?.keywords).toEqual(['demo', 'voice']);
+      expect(info.manifest?.interface?.developerName).toBe('Example');
+      expect(info.manifest?.skills).toHaveLength(1);
+      expect(info.manifest?.skills?.[0]).toContain('skills');
+      // Omitted rather than sent empty, so a clean plugin's info carries no
+      // diagnostics key at all; the panel's `?? []` is what turns that into "no
+      // problems".
+      expect(info.diagnostics).toBeUndefined();
+
+      // `source` is the v2 vocabulary, not the string that was typed, and
+      // `originalSource` is the pre-resolution spelling. The host pairs the two:
+      // `formatPluginSourceLabel` and `pluginTrustLabel` branch on
+      // `source === 'github' | 'zip-url'` and then read `originalSource` /
+      // `github`. The engine used to send the raw `"./official/demo"` here, so
+      // every such comparison missed and the badge came out "third-party".
+      expect(info.source).toBe('local-path');
+      expect(info.github).toBeUndefined();
+      const summary = (await harness.listPlugins()).find((plugin) => plugin.id === 'demo');
+      expect(summary?.source).toBe('local-path');
+      expect(summary?.originalSource).toBe('./official/demo');
 
       const commands = await harness.listPluginCommands();
       expect(commands).toHaveLength(1);

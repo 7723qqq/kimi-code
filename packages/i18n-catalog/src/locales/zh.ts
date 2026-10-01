@@ -847,6 +847,9 @@ export const zh = {
       glob: {
         patternRequired: '"pattern" 为必填项，且必须是字符串。',
         pathNotExist: '"{{p}}" 不存在。',
+        // 与 en 同：分页结果报告是 fork 自有文案（v2 的 glob 无对应物），
+        // 而紧邻它的两行续页提示保持英文——那是告诉模型怎么驱动工具，属于协议而非界面。
+        showingMatches: '显示第 {{from}}–{{to}} 条匹配，共 {{total}} 条。',
       },
       write: {
         pathRequired: '"path" 为必填项，且必须是字符串。',

@@ -1583,6 +1583,22 @@ export declare function sessionMcpServers(sessionId: string): object
 export declare function sessionReleaseQuiescence(sessionId: string): void
 
 /**
+ * Render the prompt a `/skill:` activation submits, resolved and expanded by
+ * the engine — the same renderer the `Skill` tool uses, so a host cannot
+ * drift from it. The object carries `status` (`"ok"` | `"not_found"` |
+ * `"type_unsupported"`), plus on `"ok"` the prompt `text`, the resolved
+ * `name`, and the `path` / `source` / `skillType` provenance the activation
+ * origin and the `skill.activated` event carry.
+ *
+ * v2 keeps the renderer behind its catalog for the same reason
+ * (`features/skill/skillService.ts:207`): a host that rendered the prompt
+ * itself resolved only `<workDir>/.kimi-code/skills/<name>`, so the builtin
+ * skills and the configured `extra_skill_dirs` failed to activate, and it
+ * skipped the `$ARGUMENTS` / `${KIMI_SKILL_DIR}` expansion entirely.
+ */
+export declare function sessionRenderSkillPrompt(sessionId: string, name: string, args: string): object
+
+/**
  * Replace the session's cross-turn history (the next enqueued turn starts
  * from it, with the new prompt appended).
  */

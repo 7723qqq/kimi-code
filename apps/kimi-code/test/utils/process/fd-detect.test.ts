@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { detectFdPath, getFdAssetName } from '#/utils/process/fd-detect';
+import { detectFdPath, FD_ARCHIVE_SHA256, getFdAssetName } from '#/utils/process/fd-detect';
 import { getBinDir } from '#/utils/paths';
 
 const mocks = vi.hoisted(() => ({
@@ -35,25 +35,35 @@ afterEach(() => {
 });
 
 describe('getFdAssetName', () => {
-  it('returns the macOS arm64 asset name', () => {
-    expect(getFdAssetName('darwin', 'arm64')).toBe('fd-v10.4.2-aarch64-apple-darwin.tar.gz');
-  });
+  // The literal names are deliberately NOT asserted here. `downloadFd` looks the
+  // digest up by asset name and returns null on a miss, so the invariant worth
+  // locking is the coupling between the two tables — reciting the version
+  // strings here would only ever fail when someone already bumped the source.
+  it('returns a name with a pinned SHA-256 for every supported platform/arch', () => {
+    const supported: [NodeJS.Platform, string][] = [
+      ['darwin', 'arm64'],
+      ['darwin', 'x64'],
+      ['linux', 'arm64'],
+      ['linux', 'x64'],
+      ['win32', 'arm64'],
+      ['win32', 'x64'],
+    ];
 
-  it('returns the macOS x64 asset name pinned to the available upstream release', () => {
-    expect(getFdAssetName('darwin', 'x64')).toBe('fd-v10.3.0-x86_64-apple-darwin.tar.gz');
-  });
-
-  it('returns the Linux x64 musl asset name', () => {
-    expect(getFdAssetName('linux', 'x64')).toBe('fd-v10.4.2-x86_64-unknown-linux-musl.tar.gz');
-  });
-
-  it('returns the Windows x64 asset name', () => {
-    expect(getFdAssetName('win32', 'x64')).toBe('fd-v10.4.2-x86_64-pc-windows-msvc.zip');
+    for (const [plat, architecture] of supported) {
+      const name = getFdAssetName(plat, architecture);
+      expect(name, `${plat}/${architecture} must resolve an asset`).not.toBeNull();
+      expect(
+        FD_ARCHIVE_SHA256[name ?? ''],
+        `${plat}/${architecture} resolves to ${String(name)}, which has no pinned SHA-256; ` +
+          `downloadFd would return null and the managed fd would silently stop installing`,
+      ).toMatch(/^[0-9a-f]{64}$/);
+    }
   });
 
   it('returns null for unsupported platforms or architectures', () => {
     expect(getFdAssetName('freebsd', 'x64')).toBeNull();
     expect(getFdAssetName('darwin', 'arm')).toBeNull();
+    expect(getFdAssetName('linux', 'arm')).toBeNull();
   });
 });
 

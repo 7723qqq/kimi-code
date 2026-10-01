@@ -35,35 +35,51 @@ const CHALK_NAMED_PATTERN = new RegExp(`chalk\\.(${NAMED_COLORS.join('|')})(?!\\
 // headless CLI printers (src/cli) never theme-switch.
 const EXEMPT_DIRS = [join('tui', 'theme'), 'cli'];
 
+// No try/catch here on purpose: a wrong `SRC_ROOT` must throw rather than
+// degrade into an empty scan that reports "clean". The
+// `scans a non-empty source tree` test below is the belt to that suspenders.
 function walk(dir: string, files: string[] = []): string[] {
-  try {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const p = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(p, files);
-      } else if (
-        entry.name.endsWith('.ts') &&
-        !entry.name.endsWith('.test.ts') &&
-        !entry.name.endsWith('.spec.ts')
-      ) {
-        files.push(p);
-      }
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      walk(p, files);
+    } else if (
+      entry.name.endsWith('.ts') &&
+      !entry.name.endsWith('.test.ts') &&
+      !entry.name.endsWith('.spec.ts')
+    ) {
+      files.push(p);
     }
-  } catch {
-    /* skip */
   }
   return files;
 }
 
+/** The production files this guard actually inspects (exempt dirs removed). */
+function scannedFiles(): string[] {
+  return walk(SRC_ROOT).filter((file) => {
+    const dir = relative(SRC_ROOT, file);
+    return !EXEMPT_DIRS.some(
+      (exempt) => dir.startsWith(exempt + sep) || dir === exempt || dir.startsWith(exempt),
+    );
+  });
+}
+
 describe('chalk named color guard', () => {
+  // Walked inside a test rather than at module scope so a bad `SRC_ROOT`
+  // fails a named test with its own message instead of erroring during
+  // collection and reporting "no tests".
+  it('scans a non-empty source tree', () => {
+    expect(
+      scannedFiles().length,
+      `No TypeScript sources found under ${SRC_ROOT} outside the exempt dirs ` +
+        `(${EXEMPT_DIRS.join(', ')}). A guard that inspects nothing passes vacuously — ` +
+        `check SRC_ROOT and EXEMPT_DIRS before trusting a pass.`,
+    ).toBeGreaterThan(0);
+  });
+
   it('forbids chalk named colors in production source code', () => {
     const offenders: { file: string; line: number; snippet: string }[] = [];
-    const files = walk(SRC_ROOT).filter((file) => {
-      const dir = relative(SRC_ROOT, file);
-      return !EXEMPT_DIRS.some(
-        (exempt) => dir.startsWith(exempt + sep) || dir === exempt || dir.startsWith(exempt),
-      );
-    });
+    const files = scannedFiles();
     let inBlockComment = false;
     for (const file of files) {
       const content = readFileSync(file, 'utf8');

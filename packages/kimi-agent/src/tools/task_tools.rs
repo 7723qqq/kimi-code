@@ -819,15 +819,43 @@ Guidelines:
     }
 }
 
+/// The `WaitFor` description, merged line by line from v2's `task-wait.md` at
+/// `20a2cea72f` (#4061) and the fork's own steering behaviour. Every line is
+/// either v2's verbatim or describes something this engine actually does —
+/// the fork's rule is that a port may not invent behaviour, and a description
+/// line is behaviour the model is being told about.
+///
+/// Added from v2 in this pass: the "but the user is kept waiting too" clause,
+/// the standalone "they notify you automatically" paragraph, the "think about
+/// what else you can do meanwhile" guideline, and the "Prefer moving on to
+/// other work … repeated waits keep the user waiting" tail on the timeout
+/// guideline.
+///
+/// **Deliberately not taken from v2**, each with a reason:
+/// - Its restrictive opening ("Only call this tool when you really have no
+///   other work to do"). The fork's tool does more than v2's — it ends early
+///   on a steer — and a wholesale swap of the opening would under-sell that.
+/// - "When the wait ends because a task finished, the result also lists other
+///   tasks that finished during the wait window." **v2 implements this**
+///   (`collectExtras` → `[completed_during_wait]`); the fork has no extras
+///   mechanism at all, so copying the line would tell the model the result
+///   carries something it does not. Porting the line requires porting
+///   `collectExtras` and `markTasksDeliveredViaWait` first.
+/// - "(for example, a new user message)" where the fork says "(for example, a
+///   user interruption)": the fork distinguishes an interruption from a steer,
+///   and the steering guideline below is the one that describes the latter.
 const TASK_WAIT_DESCRIPTION: &str = r#"Wait for background tasks to finish without ending the current turn.
 
-Use this when your next step depends on the result of a running background task (a sub-agent, a background bash command, or a background AskUserQuestion). The call suspends inside the current turn until the task finishes, the timeout elapses, or a steering message arrives, then returns the outcome so you can keep working in the same turn. While waiting, no LLM requests are made.
+Use this when your next step depends on the result of a running background task (a sub-agent, a background bash command, or a background AskUserQuestion). The call suspends inside the current turn until the task finishes, the timeout elapses, or a steering message arrives, then returns the outcome so you can keep working in the same turn. While waiting, no LLM requests are made, but the user is kept waiting too.
+
+When background tasks finish, they notify you automatically, so you do not need to busily wait for them.
 
 Guidelines:
 
+- Before calling TaskWait, think about what else you can do meanwhile: another part of the task, verifying earlier work, or ending your turn with a progress update. If there is anything, do that instead.
 - Do not call TaskWait right after dispatching work whose result you do not need yet — finished background tasks notify you automatically. TaskWait is for the moment you genuinely cannot proceed without a result.
 - `timeout` is required, in seconds, capped at 90. Pick it from how long you expect the task to take, not the maximum.
-- A timeout is not an error: the tool reports the timeout and you decide whether to wait again or do other work meanwhile; completion also arrives via automatic notification.
+- A timeout is not an error: the tool reports the timeout and you decide whether to wait again or do other work meanwhile; completion also arrives via automatic notification. Prefer moving on to other work over calling TaskWait again; repeated waits keep the user waiting.
 - With `task_id`, the wait ends when that task finishes. An unknown `task_id` is an error; a task that has already finished returns immediately.
 - Without `task_id`, the wait ends as soon as any background task that was running at call time finishes; with nothing running it returns immediately.
 - Steering ends the wait early (a `wait_status: interrupted` report): read the new input, then decide whether to wait again. Background tasks keep running and still notify you on completion.
@@ -1885,5 +1913,47 @@ mod tests {
         assert!(def.input_schema["properties"]["task_id"].is_object());
         assert_eq!(def.input_schema["properties"]["timeout"]["maximum"], 90);
         assert!(def.description.contains("Wait for background tasks"));
+    }
+
+    /// Pins the `20a2cea72f` (#4061) description merge: the four v2 lines the
+    /// fork adopted, the one it must not adopt while `collectExtras` is absent,
+    /// and the two names staying byte-identical apart from their own name.
+    /// A line that describes behaviour this engine lacks is a description that
+    /// misleads the model, so the omission is asserted, not just documented.
+    #[test]
+    fn task_wait_description_carries_the_ported_lines_and_omits_the_unimplemented_one() {
+        let description = &wait_for_tool_def().description;
+
+        for (what, line) in [
+            ("kept waiting clause", "but the user is kept waiting too"),
+            (
+                "notify paragraph",
+                "you do not need to busily wait for them",
+            ),
+            (
+                "meanwhile guideline",
+                "think about what else you can do meanwhile",
+            ),
+            (
+                "timeout retightened",
+                "repeated waits keep the user waiting",
+            ),
+        ] {
+            assert!(description.contains(line), "missing {what}: {description}");
+        }
+
+        // v2 `task-wait.md` has this guideline; the fork's WaitFor has no
+        // `[completed_during_wait]` extras mechanism, so the line must stay out
+        // until `collectExtras` is ported.
+        assert!(
+            !description.contains("other tasks that finished during the wait window"),
+            "describes an unimplemented result section: {description}"
+        );
+
+        // The two advertised names differ only in the name itself.
+        assert_eq!(
+            description.replace("WaitFor", "TaskWait"),
+            task_wait_tool_def().description
+        );
     }
 }

@@ -49,14 +49,6 @@ describe('events / display re-exports', () => {
     expect(readPackageFiles()).not.toContain(sdkPackageName);
   });
 
-  it('Event re-export is non-never (compile-time check passed)', () => {
-    expect(_assertEvent).toBe(true);
-  });
-
-  it('ToolInputDisplay re-export is non-never (12-arm union preserved)', () => {
-    expect(_assertDisplay).toBe(true);
-  });
-
   it('validates concrete agent event payloads with Zod schemas', () => {
     expect(
       assistantDeltaEventSchema.parse({

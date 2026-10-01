@@ -23,7 +23,14 @@ import { resolveCommandPath } from '#/utils/process/resolve-command';
 const CANDIDATES = ['fd', 'fdfind'];
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 
-const FD_ARCHIVE_SHA256: Record<string, string> = {
+/**
+ * Pinned SHA-256 per archive name. Exported so the test suite can assert that
+ * every name `getFdAssetName()` can return is a key here: `downloadFd` looks
+ * the digest up by asset name and returns `null` on a miss, so a version bump
+ * in `getFdAssetName` without a matching entry here disables the managed
+ * download silently rather than loudly.
+ */
+export const FD_ARCHIVE_SHA256: Record<string, string> = {
   'fd-v10.4.2-aarch64-apple-darwin.tar.gz':
     '623dc0afc81b92e4d4606b380d7bc91916ba7b97814263e554d50923a39e480a',
   'fd-v10.3.0-x86_64-apple-darwin.tar.gz':

@@ -194,6 +194,11 @@ async fn main() -> anyhow::Result<()> {
                 image_max_edge_px: config.resolve_image_max_edge_px(),
                 model_capabilities,
                 skill_dirs: config.extra_skill_dirs_paths(),
+                // The standalone / ACP entry builds its own ServerEngine before
+                // any server exists, so it has no plugin manager to read roots
+                // from; the server installs the reader in Server::with_engine and
+                // supplies them from there for every session it turns.
+                plugin_skill_dirs: Vec::new(),
                 merge_all_available_skills: config.resolve_merge_all_available_skills(),
                 background: config.background_limits(),
             };
@@ -1105,6 +1110,7 @@ async fn build_engine_pipeline(
         image_max_edge_px: params.image_max_edge_px,
         model_capabilities: params.model_capabilities.clone(),
         skill_dirs: Vec::new(),
+        plugin_skill_dirs: Vec::new(),
         merge_all_available_skills: kimi_agent::config::resolved_merge_all_available_skills(),
         background: kimi_agent::storage::BackgroundLimits::from_wire(
             params.kill_grace_period_ms,
@@ -1354,6 +1360,7 @@ async fn run_serve(cli: &Cli) -> anyhow::Result<()> {
         image_max_edge_px: config.resolve_image_max_edge_px(),
         model_capabilities,
         skill_dirs: config.extra_skill_dirs_paths(),
+        plugin_skill_dirs: Vec::new(),
         merge_all_available_skills: config.resolve_merge_all_available_skills(),
         background: config.background_limits(),
     };

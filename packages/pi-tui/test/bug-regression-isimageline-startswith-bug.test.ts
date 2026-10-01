@@ -7,9 +7,10 @@
  *
  * Fix: Changed to use includes() to detect escape sequences anywhere in the line.
  *
- * This test demonstrates:
- * 1. The bug scenario with the old implementation
- * 2. That the fix works correctly
+ * This test demonstrates that the fix works correctly: isImageLine() must
+ * detect an image escape sequence anywhere in the line even when the terminal
+ * reports no image support, so the TUI never runs its width check over the
+ * base64 payload.
  */
 
 import assert from "node:assert";
@@ -17,44 +18,6 @@ import { describe, it } from "node:test";
 
 describe("Bug regression: isImageLine() crash with image escape sequences", () => {
 	describe("Bug scenario: Terminal without image support", () => {
-		it("old implementation would return false, causing crash", () => {
-			/**
-			 * OLD IMPLEMENTATION (buggy):
-			 * ```typescript
-			 * export function isImageLine(line: string): boolean {
-			 *   const prefix = getImageEscapePrefix();
-			 *   return prefix !== null && line.startsWith(prefix);
-			 * }
-			 * ```
-			 *
-			 * When terminal doesn't support images:
-			 * - getImageEscapePrefix() returns null
-			 * - isImageLine() returns false even for lines containing image sequences
-			 * - TUI performs width check on line containing 300KB+ of base64 data
-			 * - Crash: "Rendered line exceeds terminal width (304401 > 115)"
-			 */
-
-			// Simulate old implementation behavior
-			const oldIsImageLine = (line: string, imageEscapePrefix: string | null): boolean => {
-				return imageEscapePrefix !== null && line.startsWith(imageEscapePrefix);
-			};
-
-			// When terminal doesn't support images, prefix is null
-			const terminalWithoutImageSupport = null;
-
-			// Line containing image escape sequence with text before it (common bug scenario)
-			const lineWithImageSequence =
-				"Read image file [image/jpeg]\x1b]1337;File=size=800,600;inline=1:base64data...\x07";
-
-			// Old implementation would return false (BUG!)
-			const oldResult = oldIsImageLine(lineWithImageSequence, terminalWithoutImageSupport);
-			assert.strictEqual(
-				oldResult,
-				false,
-				"Bug: old implementation returns false for line containing image sequence when terminal has no image support",
-			);
-		});
-
 		it("new implementation returns true correctly", async () => {
 			const { isImageLine } = await import("../src/terminal-image.ts");
 

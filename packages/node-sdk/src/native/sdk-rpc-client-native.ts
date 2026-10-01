@@ -31,13 +31,16 @@ import type {
   AgentContextData,
   AgentMeta,
   AgentType,
+  BundledSkillActivation,
   ClientPromptMetadata,
   ImportCustomRegistryOptions,
   ImportCustomRegistryResult,
   JsonObject,
   PromptOrigin,
+  PromptOriginMetadataEntry,
   ResumedAgentState,
   SkillActivationOrigin,
+  SkillSource,
   SuggestFilesInput,
   SuggestFilesItem,
   SuggestFilesResult,
@@ -657,6 +660,48 @@ function isUntitledTitle(title: string): boolean {
  * when the caller supplied one, else the sanitized content-derived text
  * (`undefined` when that sanitizes to empty).
  */
+/**
+ * One `/skill:` activation as the engine resolved it: the rendered prompt plus
+ * the provenance v2's `SkillActivationOrigin` carries, which the host was
+ * previously inventing from a path guess (`source="project"` for every skill,
+ * whether it was a builtin or an `extra_skill_dirs` entry).
+ */
+interface ResolvedSkillPrompt {
+  readonly text: string;
+  /** The catalog's name for it — not necessarily the requested one. */
+  readonly name: string;
+  readonly path?: string;
+  readonly source?: SkillSource;
+  readonly skillType?: string;
+}
+
+/** The `SkillSource` vocabulary the engine's scan emits. */
+const SKILL_SOURCES: ReadonlySet<string> = new Set<SkillSource>([
+  'project',
+  'user',
+  'extra',
+  'builtin',
+]);
+
+/**
+ * The wire shape of a prompt origin's `clientMetadata`: v2 carries an **array**
+ * of per-submission entries, each with a `display_text`
+ * (`contextMemory/types.ts:20`, consumed by `promptMetadataTextFromContentParts`).
+ * The host's own `ClientPromptMetadata` is a single object with `displayText`,
+ * and every consumer of the folded value — `transcript`'s
+ * `projectTranscriptUserOrigin` and its `TranscriptUserOrigin` /
+ * `schema.ts` types — is already written against the array. Emitting the object
+ * therefore dropped every origin's metadata on the floor, silently.
+ */
+function originClientMetadata(
+  clientMetadata: ClientPromptMetadata | undefined,
+): PromptOriginMetadataEntry[] | undefined {
+  const displayText = clientMetadata?.displayText;
+  return typeof displayText === 'string' && displayText.length > 0
+    ? [{ display_text: displayText }]
+    : undefined;
+}
+
 interface NativePromptMetadataRecord {
   readonly text: string | undefined;
   readonly hasDisplayText: boolean;
@@ -3494,10 +3539,15 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // The read happens before the fork exists, so a throw leaves none behind.
     const history = source.handle ? await source.handle.getHistory() : [];
     if (input.turnIndex !== undefined) {
-      // v1's fork rules: an index beyond the recorded user turns rejects with
-      // request.invalid and leaves no fork behind.
+      // v1's fork rules, both bounds: the index must name a recorded user
+      // turn. Anything outside [0, availableTurns) rejects with
+      // request.invalid and leaves no fork behind. The lower bound is not
+      // cosmetic — `retainThroughTurn` never matches `seen === turnIndex` for
+      // a negative index and falls through to `history.length`, which would
+      // silently retain the whole session under a "truncate at this turn"
+      // call. v2 gets this from the engine, which owns the rule there.
       const availableTurns = history.filter((message) => message.role === 'user').length;
-      if (input.turnIndex >= availableTurns) {
+      if (input.turnIndex < 0 || input.turnIndex >= availableTurns) {
         throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Fork turn index is out of range', {
           details: { turnIndex: input.turnIndex, availableTurns },
         });
@@ -3989,6 +4039,12 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     if (historyLen === 0) {
       throw new KimiError(ErrorCodes.COMPACTION_UNABLE, 'No messages to compact');
     }
+    // Stricter than v2 on purpose: `agent-core-v2` guarded only the empty case
+    // (`fullCompactionService.ts` → "No messages to compact in current
+    // history.", pinned by its `rejects manual compaction ... when history is
+    // empty`), so a single-message session would summarize one message into
+    // one message and spend a model call to do it. One message is not a
+    // conversation, so refuse instead.
     if (historyLen <= 1) {
       throw new KimiError(ErrorCodes.COMPACTION_UNABLE, 'History too short to compact');
     }
@@ -4087,15 +4143,118 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
 
   override async promptWithSkills(input: SessionPromptWithSkillsRpcInput): Promise<void> {
     const meta = this.requireSession(input.sessionId);
-    const parts = [...input.input];
+    // v2's two pre-checks (`skillService.ts:126-134`), before the catalog is
+    // touched. The empty-input half is defence at this seam: the public
+    // `Session.promptWithSkills` rejects an empty prompt earlier, in the same
+    // normalize step `prompt()` uses, so this only fires for a direct RPC
+    // caller. The empty-skills half is the one that bites in practice — without
+    // it the submission degraded into an ordinary prompt that activated nothing.
+    if (input.input.length === 0) {
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        'promptWithSkills requires a non-empty prompt',
+      );
+    }
+    if (input.skills.length === 0) {
+      throw new KimiError(
+        ErrorCodes.REQUEST_INVALID,
+        'promptWithSkills requires at least one skill',
+      );
+    }
+    const wireMetadata = originClientMetadata(input.clientMetadata);
+    // The bundle is validated as a unit before any turn is queued, matching
+    // `activateSkill`'s failure mode. Dropping an unknown name instead would
+    // hand the caller a successful turn that activated less than it asked
+    // for, and the model would see a prompt missing the skill the user named.
+    const activations: BundledSkillActivation[] = [];
+    const renderedBlocks: { type: 'text'; text: string }[] = [];
     for (const skill of input.skills) {
-      const rendered = this.renderSkillPrompt(meta, skill.name, skill.args);
-      if (rendered === undefined) continue;
-      parts.push({ type: 'text', text: rendered });
+      // Trim before the lookup, the way `activateSkill` does: an untrimmed
+      // name would miss the skill and fail the whole bundle.
+      const name = skill.name.trim();
+      const args = skill.args?.trim();
+      // Throws `skill.not_found` / `skill.type_unsupported` exactly as
+      // `activateSkill` does, so one unknown or non-activatable name rejects
+      // the bundle (v2 `prepareBundled`, `skillService.ts:189-204`).
+      const resolved = await this.resolveSkillPrompt(meta, name, args);
+      activations.push({
+        activationId: `skill_${randomUUID()}`,
+        skillName: resolved.name,
+        ...(args !== undefined && args.length > 0 ? { skillArgs: args } : {}),
+        ...(resolved.skillType !== undefined ? { skillType: resolved.skillType } : {}),
+        ...(resolved.path !== undefined ? { skillPath: resolved.path } : {}),
+        ...(resolved.source !== undefined ? { skillSource: resolved.source } : {}),
+      });
+      renderedBlocks.push({ type: 'text', text: resolved.text });
+    }
+    // v2 `AgentSkillService.promptWithSkills` (`skillService.ts:139-146`) derives
+    // the prompt metadata from **the caller's own parts** — `input.input`, before
+    // the rendered skill blocks are prepended — and does it before recording the
+    // activations. `prompt()` cannot supply that here: it derives from whatever
+    // parts it is handed, and the content this turn needs is
+    // `[...renderedBlocks, ...input.input]` (v2 `:155`), so handing both to
+    // `prompt()` made the title/lastPrompt the skill's rendered body instead of
+    // the user's sentence. Applied here with the caller's parts, exactly as
+    // `activateSkill` applies `/name args` over its rendered prompt.
+    //
+    // v2 gates on the main agent (`agentContext.agentId === MAIN_AGENT_ID`): a
+    // btw side-channel turn leaves the session metadata untouched, which is what
+    // `prompt()`'s own non-main early return already did before this call.
+    if (this.interactiveAgentId === 'main') {
+      this.applyPromptMetadata(
+        meta,
+        promptMetadataTextFromPrompt(input.input),
+        input.clientMetadata?.displayText,
+      );
+    }
+    // Each activation is published before the turn, the same ordering
+    // `activateSkill` uses, so the live transcript shows the cards ahead of
+    // `turn.started` and `message-dispatch` can group them with the prompt
+    // they were bundled into.
+    //
+    // `agentId` is the interactive-agent scope, not a constant: v2 stamps
+    // `SkillActivated` with `scopeContext.agentContext.agentId`
+    // (`skillService.ts:248`), so a btw side-channel activation belongs to the
+    // subagent that ran it. Hardcoding `main` attributed every bundled
+    // activation to the main transcript — including the btw panel's, which has
+    // no skill-card surface of its own yet (the event is honest now; that
+    // rendering gap is a separate item).
+    for (const activation of activations) {
+      this.trackSkillInvocation(activation.skillName, 'user-slash', activation.skillType);
+      this.receiveEvent({
+        sessionId: meta.id,
+        agentId: this.interactiveAgentId,
+        type: 'skill.activated',
+        activationId: activation.activationId,
+        skillName: activation.skillName,
+        ...(activation.skillArgs !== undefined ? { skillArgs: activation.skillArgs } : {}),
+        trigger: 'user-slash',
+        ...(activation.skillPath !== undefined ? { skillPath: activation.skillPath } : {}),
+        ...(activation.skillSource !== undefined ? { skillSource: activation.skillSource } : {}),
+      });
     }
     return this.prompt({
       sessionId: meta.id,
-      input: parts,
+      // protocol `UserPromptOrigin.skillActivations` and v2 `skillService.ts:155`:
+      // the rendered blocks precede the caller's parts, and the same list rides
+      // the turn so resume / replay rebuilds the per-skill view from the one
+      // message. The metadata step above already ran, from the caller's parts.
+      input: [...renderedBlocks, ...input.input],
+      clientMetadata: {
+        ...input.clientMetadata,
+        // v2's bundle origin carries the metadata entries and the activation
+        // list (`skillService.ts:158-163`); the entries were dropped here, so a
+        // bundled prompt's displayText never reached the transcript fold.
+        origin: {
+          kind: 'user',
+          skillActivations: activations,
+          ...(wireMetadata !== undefined ? { clientMetadata: wireMetadata } : {}),
+          ...(input.attachments !== undefined && input.attachments.length > 0
+            ? { attachments: input.attachments }
+            : {}),
+        },
+      },
+      skipPromptMetadata: true,
     });
   }
 
@@ -4401,24 +4560,25 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       throw new KimiError(ErrorCodes.SKILL_NAME_EMPTY, 'Skill name cannot be empty');
     }
     const args = input.args?.trim();
-    const rendered = this.renderSkillPrompt(meta, name, args);
-    if (rendered === undefined) {
-      throw new KimiError(ErrorCodes.SKILL_NOT_FOUND, `Skill "${name}" was not found`);
-    }
-    const skillDir = posixPath(join(meta.workDir, '.kimi-code', 'skills', name));
-    const skillSource = existsSync(skillDir) ? 'project' : 'user';
+    const wireMetadata = originClientMetadata(input.clientMetadata);
+    const resolved = await this.resolveSkillPrompt(meta, name, args);
+    const rendered = resolved.text;
     const activationId = `skill_${randomUUID()}`;
+    this.trackSkillInvocation(resolved.name, 'user-slash', resolved.skillType);
     // v1/v2 published the activation event before the turn launched, so the
-    // event stream orders it ahead of turn.started.
+    // event stream orders it ahead of turn.started. v2 also stamps the scope's
+    // agent (`skillService.ts:248`) rather than a constant, and takes the
+    // provenance from the catalog instead of guessing it from a path.
     this.receiveEvent({
       sessionId: meta.id,
-      agentId: 'main',
+      agentId: this.interactiveAgentId,
       type: 'skill.activated',
       activationId,
-      skillName: name,
+      skillName: resolved.name,
       ...(args !== undefined && args.length > 0 ? { skillArgs: args } : {}),
       trigger: 'user-slash',
-      skillSource,
+      ...(resolved.path !== undefined ? { skillPath: resolved.path } : {}),
+      ...(resolved.source !== undefined ? { skillSource: resolved.source } : {}),
     });
     // v2 #3832: the same activation rides the turn request as a
     // `skill_activation` prompt origin, so the engine echoes it on the turn
@@ -4428,15 +4588,30 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     const origin: SkillActivationOrigin = {
       kind: 'skill_activation',
       activationId,
-      skillName: name,
+      skillName: resolved.name,
       ...(args !== undefined && args.length > 0 ? { skillArgs: args } : {}),
       trigger: 'user-slash',
-      skillSource,
+      ...(resolved.skillType !== undefined ? { skillType: resolved.skillType } : {}),
+      ...(resolved.path !== undefined ? { skillPath: resolved.path } : {}),
+      ...(resolved.source !== undefined ? { skillSource: resolved.source } : {}),
+      // v2's origin carries the metadata entries as an array
+      // (`skillService.ts:98`); `undefined` when the client sent none.
+      ...(wireMetadata !== undefined ? { clientMetadata: wireMetadata } : {}),
+      ...(input.attachments !== undefined && input.attachments.length > 0
+        ? { attachments: input.attachments }
+        : {}),
     };
     const clientMetadata: ClientPromptMetadata = {
       ...input.clientMetadata,
       origin,
     };
+    // v2 `activate` submits `[rendered, ...(input.content ?? [])]`
+    // (`skillService.ts:73-85`): the skill block leads, the caller's own parts
+    // follow in the same turn.
+    const parts: PromptPart[] = [
+      { type: 'text', text: rendered },
+      ...(input.content ?? []),
+    ];
     // The activation updates the prompt-derived metadata like a prompt whose
     // text is the slash command itself — with this entry's displayText
     // winning over the raw slash text when the client supplied one (v2
@@ -4456,53 +4631,128 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     if (meta.busy) {
       return this.steer({
         sessionId: meta.id,
-        input: [{ type: 'text', text: rendered }],
+        input: parts,
         clientMetadata,
         skipPromptMetadata: true,
       });
     }
     return this.prompt({
       sessionId: meta.id,
-      input: [{ type: 'text', text: rendered }],
+      input: parts,
       clientMetadata,
       skipPromptMetadata: true,
     });
   }
 
   /**
-   * Render the skill-activation prompt the engine served for a user-slash
-   * activation: the instruction line plus the byte-identical `<skill-loaded>`
-   * wrapper over the skill body, with the ARGUMENTS trailer when args exist.
-   */
-  private renderSkillPrompt(
-    meta: NativeSessionMeta,
-    name: string,
-    args: string | undefined,
-  ): string | undefined {
-    const skillDir = join(meta.workDir, '.kimi-code', 'skills', name);
-    const skillMd = join(skillDir, 'SKILL.md');
-    if (!existsSync(skillMd)) return undefined;
-    let body: string;
-    try {
-      const raw = readFileSync(skillMd, 'utf8');
-      // Strip the frontmatter: the model sees the body, the host the metadata.
-      const withoutFrontmatter = raw.replace(/^---\n[\s\S]*?\n---\n/, '');
-      body = withoutFrontmatter.trimEnd();
-    } catch {
-      return undefined;
+ * Resolve a `/skill:` activation through the engine and render its prompt —
+ * v2 `AgentSkillService` asks its own catalog for both
+ * (`skillService.ts:207` + `prepareBundled`), and so does this: the engine
+ * resolves the name against the whole scan (project, user, `extra_skill_dirs`,
+ * builtins), applies the user-activatable type gate, and expands
+ * `$ARGUMENTS` / `${KIMI_SKILL_DIR}`.
+ *
+ * Throws the two errors v2 raises, so a caller cannot tell the paths apart:
+ * `skill.not_found` for an unknown name, `skill.type_unsupported` for a skill
+ * whose `type` is not user-activatable (v2 `isUserActivatableSkillType`).
+ */
+private async resolveSkillPrompt(
+  meta: NativeSessionMeta,
+  name: string,
+  args: string | undefined,
+): Promise<ResolvedSkillPrompt> {
+  const rendered = await meta.handle?.renderSkillPrompt(name, args ?? '');
+  if (rendered !== undefined && rendered.status !== 'ok') {
+    if (rendered.status === 'type_unsupported') {
+      const resolved = rendered.name ?? name;
+      throw new KimiError(
+        ErrorCodes.SKILL_TYPE_UNSUPPORTED,
+        `Skill "${resolved}" cannot be activated by the user`,
+      );
     }
-    const trimmedArgs = args?.trim();
-    const lines = [
-      `User activated the skill "${name}". Follow the loaded skill instructions.`,
-      '',
-      `<skill-loaded name="${name}" trigger="user-slash" source="project" dir="${posixPath(skillDir)}"${trimmedArgs ? ` args="${trimmedArgs}"` : ''}>`,
-      body,
-      '',
-      ...(trimmedArgs ? ['ARGUMENTS: ' + trimmedArgs] : []),
-      '</skill-loaded>',
-    ];
-    return lines.join('\n');
+    throw new KimiError(ErrorCodes.SKILL_NOT_FOUND, `Skill "${name}" was not found`);
   }
+  if (rendered?.text !== undefined) {
+    return {
+      text: rendered.text,
+      name: rendered.name ?? name,
+      ...(rendered.path !== undefined ? { path: rendered.path } : {}),
+      // The wire type is a closed union; the engine's own vocabulary is
+      // `project` | `user` | `builtin`. A value outside it is dropped rather
+      // than widened, so an origin never carries a source no consumer knows.
+      ...(SKILL_SOURCES.has(rendered.source ?? '')
+        ? { source: rendered.source as SkillSource }
+        : {}),
+      ...(rendered.skillType !== undefined ? { skillType: rendered.skillType } : {}),
+    };
+  }
+  // An addon predating `sessionRenderSkillPrompt`. Project-scope only, no
+  // expansion, no type gate — the degraded path the fork had before, kept so
+  // an older binary still activates the skills it always did.
+  const fallback = this.renderProjectSkillPrompt(meta, name, args);
+  if (fallback === undefined) {
+    throw new KimiError(ErrorCodes.SKILL_NOT_FOUND, `Skill "${name}" was not found`);
+  }
+  return fallback;
+}
+
+/**
+ * One activation's telemetry (v2 `AgentSkillService.publishActivation`,
+ * `skillService.ts:277-287`): `skill_invoked` for every activation, plus
+ * `flow_invoked` when the skill declares `type: flow`.
+ *
+ * The model-tool path already emits these from the engine
+ * (`tools/skill.rs`); the user-slash path records its activation on the host
+ * side, so it emits them here — without this, only model-invoked skills were
+ * counted at all.
+ */
+private trackSkillInvocation(
+  skillName: string,
+  trigger: 'user-slash',
+  skillType: string | undefined,
+): void {
+  this.telemetry.track('skill_invoked', { skill_name: skillName, trigger });
+  if (skillType === 'flow') {
+    this.telemetry.track('flow_invoked', { flow_name: skillName });
+  }
+}
+
+/**
+ * The pre-engine renderer, kept only as the fallback above: the instruction
+ * line plus a `<skill-loaded>` wrapper over the body read from
+ * `<workDir>/.kimi-code/skills/<name>/SKILL.md`. It finds project skills and
+ * nothing else, and expands no arguments — which is why the engine owns this
+ * now.
+ */
+private renderProjectSkillPrompt(
+  meta: NativeSessionMeta,
+  name: string,
+  args: string | undefined,
+): ResolvedSkillPrompt | undefined {
+  const skillDir = join(meta.workDir, '.kimi-code', 'skills', name);
+  const skillMd = join(skillDir, 'SKILL.md');
+  if (!existsSync(skillMd)) return undefined;
+  let body: string;
+  try {
+    const raw = readFileSync(skillMd, 'utf8');
+    // Strip the frontmatter: the model sees the body, the host the metadata.
+    const withoutFrontmatter = raw.replace(/^---\n[\s\S]*?\n---\n/, '');
+    body = withoutFrontmatter.trimEnd();
+  } catch {
+    return undefined;
+  }
+  const trimmedArgs = args?.trim();
+  const lines = [
+    `User activated the skill "${name}". Follow the loaded skill instructions.`,
+    '',
+    `<skill-loaded name="${name}" trigger="user-slash" source="project" dir="${posixPath(skillDir)}"${trimmedArgs ? ` args="${trimmedArgs}"` : ''}>`,
+    body,
+    '',
+    ...(trimmedArgs ? ['ARGUMENTS: ' + trimmedArgs] : []),
+    '</skill-loaded>',
+  ];
+  return { text: lines.join('\n'), name, path: posixPath(skillMd), source: 'project' };
+}
 
   /** Tolerant read for the engine pipeline: a malformed file contributes no servers. */
   private loadGlobalMcpConfig(): Record<string, StoredMcpServerConfig> {

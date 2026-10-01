@@ -775,7 +775,8 @@
       },
       "glob": {
         "patternRequired": "\"pattern\" is required and must be a string.",
-        "pathNotExist": "\"{{p}}\" does not exist."
+        "pathNotExist": "\"{{p}}\" does not exist.",
+        "showingMatches": "Showing matches {{from}}–{{to}} of {{total}}."
       },
       "write": {
         "pathRequired": "\"path\" is required and must be a string.",

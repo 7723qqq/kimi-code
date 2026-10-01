@@ -1,12 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import { IsoDateTime, isoDateTimeSchema, nowIsoDateTime } from '../time';
+import { isoDateTimeSchema, nowIsoDateTime } from '../time';
 
 describe('time — IsoDateTime', () => {
-  it('alias and schema are the same object', () => {
-    expect(IsoDateTime).toBe(isoDateTimeSchema);
-  });
-
   it('normalizes +08:00 offset to UTC `Z`', () => {
     const parsed = isoDateTimeSchema.parse('2026-06-04T18:30:00+08:00');
     expect(parsed.endsWith('Z')).toBe(true);

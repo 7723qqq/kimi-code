@@ -176,6 +176,10 @@ pub struct PipelineSpec {
     /// Extra skill scan roots (`extra_skill_dirs`) for the system prompt's
     /// skills section.
     pub skill_dirs: Vec<std::path::PathBuf>,
+    /// Skill roots the enabled plugins declare, kept apart from `skill_dirs`
+    /// so they keep v2's own precedence rank and carry the contributing plugin
+    /// (its id and its `skillInstructions`).
+    pub plugin_skill_dirs: Vec<crate::skills::PluginSkillDir>,
     /// `merge_all_available_skills` resolved by the entry: whether each skill
     /// scope group scans every available directory or only its first existing
     /// one. The prompt is rendered with this switch, so the `Skill` tool must
@@ -325,8 +329,11 @@ pub async fn build_engine_pipeline(
                 // the same roots *and* the same scope-group policy the prompt
                 // was rendered with.
                 .map(|toolset| {
-                    toolset
-                        .with_skill_scan(spec.skill_dirs.clone(), spec.merge_all_available_skills)
+                    toolset.with_skill_scan(
+                        spec.skill_dirs.clone(),
+                        spec.plugin_skill_dirs.clone(),
+                        spec.merge_all_available_skills,
+                    )
                 }) {
                 Some(toolset) => {
                     let (base_callbacks, task_runner): (
@@ -592,6 +599,7 @@ pub async fn build_engine_pipeline(
         skill_scan: crate::skills::SkillScanRoots {
             root: spec.workspace_root.as_deref().map(std::path::PathBuf::from),
             extra_dirs: spec.skill_dirs.clone(),
+            plugin_dirs: spec.plugin_skill_dirs.clone(),
             merge_all_available_skills: spec.merge_all_available_skills,
         },
         mcp_manager,
@@ -837,6 +845,7 @@ mod tests {
             image_max_edge_px: None,
             model_capabilities: None,
             skill_dirs: Vec::new(),
+            plugin_skill_dirs: Vec::new(),
             merge_all_available_skills: true,
             background: crate::storage::BackgroundLimits::default(),
         }

@@ -62,6 +62,8 @@ import type {
   SessionTodoItem,
   SessionUsage,
   PromptInput,
+  PromptPart,
+  PromptFileAttachment,
   PromptSkillActivation,
   ClientPromptMetadata,
   RenameSessionInput,
@@ -101,6 +103,13 @@ export interface SessionPromptRpcInput {
 
 export interface SessionPromptWithSkillsRpcInput extends SessionPromptRpcInput {
   readonly skills: readonly PromptSkillActivation[];
+  /**
+   * Files the bundled prompt referenced (v2
+   * `PromptWithSkillsInput.attachments` → the user origin,
+   * `skillService.ts:162`). Same shape as the activation's, and folded the
+   * same way.
+   */
+  readonly attachments?: readonly PromptFileAttachment[];
 }
 
 export interface SessionIdRpcInput {
@@ -158,6 +167,18 @@ export interface ActivateSkillRpcInput extends SessionIdRpcInput {
    * #3764). `displayText` feeds the session title / last-prompt metadata.
    */
   readonly clientMetadata?: ClientPromptMetadata;
+  /**
+   * Extra parts appended after the rendered skill block (v2
+   * `SkillActivationInput.content`, `features/skill/skill.ts:8`) — the rendered
+   * block leads, so a host can put the user's own prompt behind it in one turn.
+   */
+  readonly content?: readonly PromptPart[];
+  /**
+   * Files the activation referenced (v2 `SkillActivationInput.attachments`,
+   * `skill.ts:9`). They ride the origin, which `transcript`'s cold rebuild
+   * folds into attachment entities.
+   */
+  readonly attachments?: readonly PromptFileAttachment[];
 }
 
 export interface ActivatePluginCommandRpcInput extends SessionIdRpcInput {

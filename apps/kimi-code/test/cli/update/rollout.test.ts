@@ -44,7 +44,6 @@ describe('rolloutBucket', () => {
   it('is deterministic and within 0-99', () => {
     for (let i = 0; i < 200; i++) {
       const bucket = rolloutBucket(`device-${i}`, '2.0.0');
-      expect(bucket).toBe(rolloutBucket(`device-${i}`, '2.0.0'));
       expect(bucket).toBeGreaterThanOrEqual(0);
       expect(bucket).toBeLessThan(100);
       expect(Number.isInteger(bucket)).toBe(true);

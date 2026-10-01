@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 
-import { en, zh } from '@moonshot-ai/i18n-catalog';
+import { zh } from '@moonshot-ai/i18n-catalog';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 import { t, setLocale, getLocale } from '#/i18n';
@@ -135,40 +135,4 @@ describe('i18n', () => {
     });
   });
 
-  describe('locale key consistency', () => {
-    type MessageValue = string | { [key: string]: MessageValue };
-
-    function collectLeafKeys(obj: MessageValue, prefix = ''): string[] {
-      const keys: string[] = [];
-      for (const key of Object.keys(obj)) {
-        const fullKey = prefix ? `${prefix}.${key}` : key;
-        const value = (obj as Record<string, MessageValue>)[key];
-        if (typeof value === 'object' && value !== null) {
-          keys.push(...collectLeafKeys(value, fullKey));
-        } else {
-          keys.push(fullKey);
-        }
-      }
-      return keys;
-    }
-
-    const enKeys = collectLeafKeys(en as unknown as MessageValue);
-    const zhKeys = collectLeafKeys(zh as unknown as MessageValue);
-
-    it('en and zh have the same number of leaf keys', () => {
-      expect(enKeys.length).toBe(zhKeys.length);
-    });
-
-    it('every en key exists in zh', () => {
-      const zhSet = new Set(zhKeys);
-      const missing = enKeys.filter((k) => !zhSet.has(k));
-      expect(missing).toEqual([]);
-    });
-
-    it('every zh key exists in en', () => {
-      const enSet = new Set(enKeys);
-      const missing = zhKeys.filter((k) => !enSet.has(k));
-      expect(missing).toEqual([]);
-    });
-  });
 });

@@ -10,9 +10,9 @@ description:
   en: >
       The engine's JS boundary: napi exports (session creation, plugin registry, tool callbacks) and the JS-side type contract.
       
-revision: 435e51cd310eb9df90ddb522a8d245cae01e86cf
-updated_at: "2026-09-30T19:46:35.376Z"
-fingerprint: ad6e3ae45fe196519e856ccb225c8cd2ae5106cf4e08f6f6d80d644d1c9708ef
+revision: 7f51dbe916b917d5243c352efa2daf0c94bcb921
+updated_at: "2026-10-01T15:12:03.015Z"
+fingerprint: db08c41166396156a2625fd2f94dd158ecb6256834ba8c6e2d65ea6c304f8feb
 source:
   - path: "packages/kimi-agent/src/napi_bindings.rs"
   - path: "packages/kimi-agent/index.native.d.ts"

@@ -298,6 +298,85 @@ fn strip_frontmatter(content: &str) -> &str {
     }
 }
 
+/// Whether a user may activate this skill type (v2 `isUserActivatableSkillType`,
+/// `features/skill/catalog/types.ts:85-87`): no declared type, `prompt`,
+/// `inline`, or `flow`. The model-tool gate is narrower on purpose — it also
+/// rejects `flow` — so the two gates stay separate functions.
+pub fn is_user_activatable_skill_type(skill_type: Option<&str>) -> bool {
+    matches!(
+        skill_type,
+        None | Some("prompt") | Some("inline") | Some("flow")
+    )
+}
+
+/// Why a user-slash activation could not be rendered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SkillPromptError {
+    /// The scan carries no skill with that name (v2 `SKILL_NOT_FOUND`).
+    NotFound,
+    /// The skill exists but its type is not user-activatable (v2
+    /// `SKILL_TYPE_UNSUPPORTED`, `skillService.ts:199-203`).
+    TypeUnsupported(String),
+}
+
+/// A rendered user-slash skill prompt plus the provenance the activation
+/// origin and the `skill.activated` event carry (v2 `SkillActivationOrigin`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserSlashSkillPrompt {
+    /// The full prompt text: instruction line, blank line, `<skill-loaded>`.
+    pub text: String,
+    pub name: String,
+    pub path: Option<String>,
+    pub source: Option<String>,
+    pub skill_type: Option<String>,
+}
+
+/// Render the prompt a `/skill:` activation submits, resolving the skill from
+/// the engine's own scan (v2 `AgentSkillService.prepareBundled` +
+/// `renderUserSlashSkillPrompt`, `features/skill/skillService.ts:189-235` and
+/// `features/skill/prompt.ts:29-33`).
+///
+/// Deliberately the same renderer the `Skill` tool path uses — one
+/// implementation, two triggers. A host that rendered its own would diverge on
+/// the `${KIMI_SKILL_DIR}` / `$ARGUMENTS` expansion, on plugin instructions,
+/// and on which skills resolve at all (the scan carries the user scope, the
+/// `extra_skill_dirs` roots and the builtins; a `<workDir>/.kimi-code/skills`
+/// path lookup finds only project skills).
+pub fn render_user_slash_skill_prompt(
+    scan: &SkillScan<'_>,
+    name: &str,
+    raw_args: &str,
+    session_id: &str,
+) -> Result<UserSlashSkillPrompt, SkillPromptError> {
+    let resolved = scan_skill(name, scan).ok_or(SkillPromptError::NotFound)?;
+    if !is_user_activatable_skill_type(resolved.skill_type.as_deref()) {
+        return Err(SkillPromptError::TypeUnsupported(resolved.name.clone()));
+    }
+
+    let skill_dir = resolved.dir.clone().unwrap_or_default();
+    let expanded = expand_skill_parameters(
+        &resolved.instructions,
+        raw_args,
+        &skill_dir,
+        session_id,
+        &resolved.argument_names,
+    );
+    let content = prefix_plugin_instructions(&resolved.plugin, expanded);
+    let attrs = render_skill_attributes(&resolved, raw_args, "user-slash");
+    let block = format!("<skill-loaded{attrs}>\n{content}\n</skill-loaded>");
+
+    Ok(UserSlashSkillPrompt {
+        text: format!(
+            "User activated the skill \"{}\". Follow the loaded skill instructions.\n\n{block}",
+            escape_xml(&resolved.name)
+        ),
+        name: resolved.name,
+        path: resolved.path,
+        source: resolved.source,
+        skill_type: resolved.skill_type,
+    })
+}
+
 /// A skill resolved from either the engine scan or the host state bridge,
 /// normalized into one shape for gating and rendering.
 struct ResolvedSkill {
@@ -339,6 +418,9 @@ impl ResolvedSkill {
 pub struct SkillScan<'a> {
     pub root: Option<&'a Path>,
     pub extra_dirs: &'a [PathBuf],
+    /// Plugin-contributed roots with their identity, so a skill loaded from one
+    /// gets the plugin's instruction prefix (v2 `SkillRoot.plugin`).
+    pub plugin_dirs: &'a [crate::skills::PluginSkillDir],
     pub merge_all_available_skills: bool,
 }
 
@@ -346,13 +428,30 @@ pub struct SkillScan<'a> {
 /// skills first, then the embedded builtin skills. `None` when the scan
 /// carries no skill with that name (the caller then asks the host).
 fn scan_skill(name: &str, scan: &SkillScan<'_>) -> Option<ResolvedSkill> {
+    // The plugin roots join the declared extra roots, after them: v2 ranks
+    // `extra` (10) above `plugin` (5), so a plugin skill never shadows one the
+    // user declared.
+    let extra_dirs = crate::skills::roots_in_precedence_order(scan.extra_dirs, scan.plugin_dirs);
     let found = crate::skills::scan_all_skills_with_extra_and_merge(
         scan.root,
-        scan.extra_dirs,
+        &extra_dirs,
         scan.merge_all_available_skills,
     )
     .into_iter()
     .find(|s| s.name == name)?;
+    // The plugin a resolved skill belongs to, keyed by the root it was scanned
+    // from: a plugin root is a *container* of skill directories, so the skill's
+    // own directory sits one level below it. v2 carries the plugin on the root
+    // (`SkillRoot.plugin`) and the renderer prefixes that plugin's instructions
+    // onto the skill body.
+    let plugin = Path::new(&found.path)
+        .parent()
+        .and_then(Path::parent)
+        .and_then(|root| scan.plugin_dirs.iter().find(|p| p.dir == root))
+        .map(|p| SkillPluginWire {
+            id: p.plugin_id.clone(),
+            instructions: p.instructions.clone(),
+        });
 
     if found.source == "builtin" {
         let skill_name = found.name.clone();
@@ -389,7 +488,7 @@ fn scan_skill(name: &str, scan: &SkillScan<'_>) -> Option<ResolvedSkill> {
         skill_type: meta.skill_type,
         disable_model_invocation: found.disable_model_invocation,
         argument_names: meta.argument_names,
-        plugin: None,
+        plugin,
     })
 }
 
@@ -764,6 +863,7 @@ mod tests {
         SkillScan {
             root,
             extra_dirs: &[],
+            plugin_dirs: &[],
             merge_all_available_skills: true,
         }
     }
@@ -773,6 +873,201 @@ mod tests {
             "name": "commit",
             "instructions": "1. Stage the files.\n2. Write the message."
         })
+    }
+
+    /// A project skill on disk, the way `scan_skill` resolves one: the
+    /// frontmatter is parsed for the metadata and dropped from the body.
+    fn write_project_skill(root: &Path, name: &str, frontmatter: &str, body: &str) {
+        let dir = root.join(".kimi-code").join("skills");
+        write_skill_in(&dir, name, frontmatter, body);
+    }
+
+    /// Write `<container>/<name>/SKILL.md` — the layout a *scan root* holds, as
+    /// opposed to [`write_project_skill`], which anchors on a workspace root.
+    fn write_skill_in(container: &Path, name: &str, frontmatter: &str, body: &str) {
+        let dir = container.join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: d\n{frontmatter}---\n\n{body}"),
+        )
+        .unwrap();
+    }
+
+    /// v2 `isUserActivatableSkillType`, pinned: a skill with no declared type
+    /// activates, and `flow` does too even though the model-tool path refuses
+    /// it — the two gates are deliberately different sets.
+    #[test]
+    fn user_activatable_gate_matches_v2() {
+        for ok in [None, Some("prompt"), Some("inline"), Some("flow")] {
+            assert!(is_user_activatable_skill_type(ok), "{ok:?} must activate");
+        }
+        for refused in [Some("reference"), Some("anything-else")] {
+            assert!(
+                !is_user_activatable_skill_type(refused),
+                "{refused:?} must not activate"
+            );
+        }
+    }
+
+    #[test]
+    fn user_slash_prompt_renders_the_engine_block_with_provenance() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write_project_skill(root, "commit", "", "1. Stage the files.");
+
+        let prompt = render_user_slash_skill_prompt(&scan(Some(root)), "commit", "", "ses_1")
+            .expect("project skill renders");
+
+        // v2 `renderUserSlashSkillPrompt`: instruction line, blank line, block.
+        assert!(
+            prompt.text.starts_with(
+                "User activated the skill \"commit\". Follow the loaded skill instructions.\n\n<skill-loaded "
+            ),
+            "{}",
+            prompt.text
+        );
+        assert!(
+            prompt
+                .text
+                .contains(" trigger=\"user-slash\" source=\"project\" dir=\""),
+            "{}",
+            prompt.text
+        );
+        assert!(
+            prompt
+                .text
+                .ends_with(">\n1. Stage the files.\n</skill-loaded>"),
+            "{}",
+            prompt.text
+        );
+        assert_eq!(prompt.name, "commit");
+        assert_eq!(prompt.source.as_deref(), Some("project"));
+        assert!(prompt.path.is_some());
+    }
+
+    /// The v2 type gate, applied to a real file-backed skill: `reference` is
+    /// reference-only and a user cannot activate it.
+    #[test]
+    fn user_slash_prompt_refuses_a_non_user_activatable_type() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write_project_skill(root, "docs-ref", "type: reference\n", "Reference only.");
+
+        assert_eq!(
+            render_user_slash_skill_prompt(&scan(Some(root)), "docs-ref", "", "ses_1"),
+            Err(SkillPromptError::TypeUnsupported("docs-ref".into()))
+        );
+    }
+
+    #[test]
+    fn user_slash_prompt_reports_an_unknown_name() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            render_user_slash_skill_prompt(&scan(Some(dir.path())), "nope", "", "ses_1"),
+            Err(SkillPromptError::NotFound)
+        );
+    }
+
+    /// `$ARGUMENTS` expansion is the engine's job, not the host's: a skill
+    /// whose body interpolates it must not reach the model with the literal.
+    #[test]
+    fn user_slash_prompt_expands_arguments() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write_project_skill(
+            root,
+            "greet",
+            "",
+            "Hello $ARGUMENTS, from ${KIMI_SKILL_DIR}",
+        );
+
+        let prompt =
+            render_user_slash_skill_prompt(&scan(Some(root)), "greet", "world", "ses_1").unwrap();
+        assert!(prompt.text.contains("Hello world,"), "{}", prompt.text);
+        assert!(!prompt.text.contains("$ARGUMENTS"), "{}", prompt.text);
+    }
+
+    /// A skill resolved from a plugin root carries that plugin's
+    /// `skillInstructions` (v2 `SkillRoot.plugin` →
+    /// `registry.renderSkillPrompt`, `catalog/registry.ts:71-79`). Without the
+    /// identity the scan would hand back a bare body and the plugin's
+    /// instructions would silently never reach the model.
+    #[test]
+    fn a_plugin_contributed_skill_is_prefixed_with_the_plugin_instructions() {
+        let dir = tempfile::tempdir().unwrap();
+        let plugin_dir = dir.path().join("plugin").join("skills");
+        write_skill_in(&plugin_dir, "brand", "", "Use the house voice.");
+        let plugin_dirs = [crate::skills::PluginSkillDir {
+            dir: plugin_dir,
+            plugin_id: "brandpack".into(),
+            instructions: Some("  The brand pack's rules.  ".into()),
+        }];
+        let scanned = SkillScan {
+            root: None,
+            extra_dirs: &[],
+            plugin_dirs: &plugin_dirs,
+            merge_all_available_skills: true,
+        };
+
+        let prompt = render_user_slash_skill_prompt(&scanned, "brand", "", "ses_1").unwrap();
+        // A plugin root reaches the wire as `source="extra"` (v2 tags plugin
+        // roots the same way, `manager.ts:314`); the plugin's identity is
+        // carried by the instruction prefix, not by a tag attribute — v2's
+        // `renderSkillAttributes` has exactly these five.
+        assert!(
+            prompt.text.contains(
+                "<skill-loaded name=\"brand\" trigger=\"user-slash\" source=\"extra\" dir=\""
+            ),
+            "{}",
+            prompt.text
+        );
+        assert!(
+            prompt.text.contains(
+                "<plugin-instructions plugin=\"brandpack\">\nThe brand pack's rules.\n</plugin-instructions>\n\nUse the house voice."
+            ),
+            "{}",
+            prompt.text
+        );
+    }
+
+    /// The same prefix on the model-tool path, and the identity is a scan
+    /// lookup rather than something the caller supplies: dropping the plugin
+    /// roots from the scan must be the only way to lose it.
+    #[tokio::test]
+    async fn the_model_tool_path_prefixes_plugin_instructions_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let plugin_dir = dir.path().join("plugin").join("skills");
+        write_skill_in(&plugin_dir, "brand", "", "Use the house voice.");
+        let plugin_dirs = [crate::skills::PluginSkillDir {
+            dir: plugin_dir,
+            plugin_id: "brandpack".into(),
+            instructions: Some("The brand pack's rules.".into()),
+        }];
+        // No host bridge: the answer has to come from the scan.
+        let (callbacks, read_received, _) = scripted(Err("no bridge".into()));
+
+        let result = execute_skill(
+            &callbacks,
+            None,
+            &serde_json::json!({ "skill": "brand" }),
+            SkillScan {
+                root: None,
+                extra_dirs: &[],
+                plugin_dirs: &plugin_dirs,
+                merge_all_available_skills: true,
+            },
+        )
+        .await;
+        assert!(!result.is_error, "{}", result.content);
+        assert!(read_received.lock().unwrap().is_none(), "the scan answered");
+        let ContentBlock::Text { text } = &result.delivery.as_ref().unwrap().blocks[0] else {
+            panic!("expected a text block");
+        };
+        assert!(
+            text.contains("<plugin-instructions plugin=\"brandpack\">\nThe brand pack's rules.\n</plugin-instructions>"),
+            "{text}"
+        );
     }
 
     #[tokio::test]
@@ -1336,6 +1631,7 @@ mod tests {
         let merged = SkillScan {
             root: Some(dir.path()),
             extra_dirs: &[],
+            plugin_dirs: &[],
             merge_all_available_skills: true,
         };
         let result = execute_skill(
@@ -1355,6 +1651,7 @@ mod tests {
         let selected = SkillScan {
             root: Some(dir.path()),
             extra_dirs: &[],
+            plugin_dirs: &[],
             merge_all_available_skills: false,
         };
         let result = execute_skill(

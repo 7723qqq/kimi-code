@@ -7,7 +7,6 @@ import {
   approvalResponseSchema,
 } from '../approval';
 import {
-  approvalResolveRequestSchema,
   approvalResolveResultSchema,
   approvalAlreadyResolvedDataSchema,
   listPendingApprovalsQuerySchema,
@@ -100,13 +99,6 @@ describe('approvalResponseSchema (SCHEMAS §6.1)', () => {
 
   it('rejects unknown decision value', () => {
     expect(() => approvalResponseSchema.parse({ decision: 'maybe' })).toThrow();
-  });
-});
-
-describe('approvalResolveRequestSchema (REST §3.6)', () => {
-  it('aliases approvalResponseSchema', () => {
-    const value = approvalResolveRequestSchema.parse({ decision: 'rejected', feedback: 'no' });
-    expect(value.decision).toBe('rejected');
   });
 });
 

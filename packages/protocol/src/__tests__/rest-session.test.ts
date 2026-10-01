@@ -4,22 +4,16 @@ import {
   compactSessionRequestSchema,
   compactSessionResponseSchema,
   createSessionChildRequestSchema,
-  createSessionChildResponseSchema,
   createSessionRequestSchema,
   archiveSessionResponseSchema,
-  deleteSessionResponseSchema,
   exportSessionParamsSchema,
   exportSessionRequestSchema,
   forkSessionRequestSchema,
-  forkSessionResponseSchema,
-  getSessionProfileResponseSchema,
   listSessionChildrenQuerySchema,
   listSessionChildrenResponseSchema,
   listSessionsQuerySchema,
-  restoreSessionResponseSchema,
   sessionStatusResponseSchema,
   updateSessionProfileRequestSchema,
-  updateSessionRequestSchema,
   undoSessionRequestSchema,
   undoSessionResponseSchema,
 } from '../rest/session';
@@ -175,35 +169,6 @@ describe('listSessionChildrenQuerySchema', () => {
   });
 });
 
-describe('getSessionProfileResponseSchema', () => {
-  it('accepts a Session payload', () => {
-    const parsed = getSessionProfileResponseSchema.parse({
-      id: 'sess_abc',
-      workspace_id: 'wd_kimi_0123456789ab',
-      title: 'Profile',
-      created_at: '2026-01-01T00:00:00.000Z',
-      updated_at: '2026-01-01T00:00:00.000Z',
-      busy: true,
-      metadata: { cwd: '/tmp/foo' },
-      agent_config: { model: '' },
-      usage: {
-        input_tokens: 0,
-        output_tokens: 0,
-        cache_read_tokens: 0,
-        cache_creation_tokens: 0,
-        total_cost_usd: 0,
-        context_tokens: 0,
-        context_limit: 0,
-        turn_count: 0,
-      },
-      permission_rules: [],
-      message_count: 0,
-      last_seq: 0,
-    });
-    expect(parsed.id).toBe('sess_abc');
-  });
-});
-
 describe('updateSessionProfileRequestSchema', () => {
   it('accepts a metadata patch (without cwd)', () => {
     expect(
@@ -238,14 +203,6 @@ describe('updateSessionProfileRequestSchema', () => {
   });
 });
 
-describe('updateSessionRequestSchema (legacy alias)', () => {
-  it('round-trips through the same schema as updateSessionProfileRequestSchema', () => {
-    expect(updateSessionRequestSchema.parse({ metadata: { custom_field: 'x' } })).toEqual(
-      updateSessionProfileRequestSchema.parse({ metadata: { custom_field: 'x' } }),
-    );
-  });
-});
-
 describe('forkSessionRequestSchema', () => {
   it('accepts an empty POST body', () => {
     expect(forkSessionRequestSchema.parse({})).toEqual({});
@@ -267,35 +224,6 @@ describe('forkSessionRequestSchema', () => {
   });
 });
 
-describe('forkSessionResponseSchema', () => {
-  it('accepts a Session payload', () => {
-    const parsed = forkSessionResponseSchema.parse({
-      id: 'sess_fork',
-      workspace_id: 'wd_kimi_0123456789ab',
-      title: 'Fork: source',
-      created_at: '2026-01-01T00:00:00.000Z',
-      updated_at: '2026-01-01T00:00:00.000Z',
-      busy: true,
-      metadata: { cwd: '/tmp/foo', origin: 'web' },
-      agent_config: { model: '' },
-      usage: {
-        input_tokens: 0,
-        output_tokens: 0,
-        cache_read_tokens: 0,
-        cache_creation_tokens: 0,
-        total_cost_usd: 0,
-        context_tokens: 0,
-        context_limit: 0,
-        turn_count: 0,
-      },
-      permission_rules: [],
-      message_count: 0,
-      last_seq: 0,
-    });
-    expect(parsed.id).toBe('sess_fork');
-  });
-});
-
 describe('createSessionChildRequestSchema', () => {
   it('accepts title and arbitrary metadata without requiring cwd', () => {
     const parsed = createSessionChildRequestSchema.parse({
@@ -310,35 +238,6 @@ describe('createSessionChildRequestSchema', () => {
 
   it('rejects non-object metadata', () => {
     expect(createSessionChildRequestSchema.safeParse({ metadata: 'x' }).success).toBe(false);
-  });
-});
-
-describe('createSessionChildResponseSchema', () => {
-  it('accepts a Session payload', () => {
-    const parsed = createSessionChildResponseSchema.parse({
-      id: 'sess_child',
-      workspace_id: 'wd_kimi_0123456789ab',
-      title: 'Child: source',
-      created_at: '2026-01-01T00:00:00.000Z',
-      updated_at: '2026-01-01T00:00:00.000Z',
-      busy: true,
-      metadata: { cwd: '/tmp/foo', parent_session_id: 'sess_parent' },
-      agent_config: { model: '' },
-      usage: {
-        input_tokens: 0,
-        output_tokens: 0,
-        cache_read_tokens: 0,
-        cache_creation_tokens: 0,
-        total_cost_usd: 0,
-        context_tokens: 0,
-        context_limit: 0,
-        turn_count: 0,
-      },
-      permission_rules: [],
-      message_count: 0,
-      last_seq: 0,
-    });
-    expect(parsed.metadata['parent_session_id']).toBe('sess_parent');
   });
 });
 
@@ -566,45 +465,5 @@ describe('archiveSessionResponseSchema', () => {
 
   it('rejects { archived: false }', () => {
     expect(archiveSessionResponseSchema.safeParse({ archived: false }).success).toBe(false);
-  });
-});
-
-describe('restoreSessionResponseSchema', () => {
-  it('accepts a restored Session payload', () => {
-    const parsed = restoreSessionResponseSchema.parse({
-      id: 'sess_abc',
-      workspace_id: 'wd_kimi_0123456789ab',
-      title: 'Restored',
-      created_at: '2026-01-01T00:00:00.000Z',
-      updated_at: '2026-01-01T00:00:00.000Z',
-      busy: true,
-      archived: false,
-      metadata: { cwd: '/tmp/foo' },
-      agent_config: { model: '' },
-      usage: {
-        input_tokens: 0,
-        output_tokens: 0,
-        cache_read_tokens: 0,
-        cache_creation_tokens: 0,
-        total_cost_usd: 0,
-        context_tokens: 0,
-        context_limit: 0,
-        turn_count: 0,
-      },
-      permission_rules: [],
-      message_count: 0,
-      last_seq: 0,
-    });
-    expect(parsed.archived).toBe(false);
-  });
-});
-
-describe('deleteSessionResponseSchema (deprecated alias)', () => {
-  it('accepts the canonical { archived: true } shape', () => {
-    expect(deleteSessionResponseSchema.parse({ archived: true })).toEqual({ archived: true });
-  });
-
-  it('rejects { archived: false }', () => {
-    expect(deleteSessionResponseSchema.safeParse({ archived: false }).success).toBe(false);
   });
 });

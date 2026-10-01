@@ -23,10 +23,6 @@ describe('kimi-inspect i18n locale key consistency', () => {
   const enKeys = collectLeafKeys(en as unknown as MessageValue);
   const zhKeys = collectLeafKeys(zh as unknown as MessageValue);
 
-  it('en and zh have the same number of leaf keys', () => {
-    expect(enKeys.length).toBe(zhKeys.length);
-  });
-
   it('every en key exists in zh', () => {
     const zhSet = new Set(zhKeys);
     const missing = enKeys.filter((k) => !zhSet.has(k));

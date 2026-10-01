@@ -32,6 +32,13 @@ pub struct SkillDescriptor {
     /// what the model sees.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_sub_skill: Option<bool>,
+    /// Frontmatter `type` (v2 `SkillMetadata.type`): `prompt` | `inline` |
+    /// `flow` | `reference`. `None` when the skill declares none, which
+    /// [`crate::tools::skill::is_user_activatable_skill_type`] treats as
+    /// activatable. Serialized so a host can apply the same gate instead of
+    /// declaring a `type` field it never receives.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_type: Option<String>,
 }
 
 /// Skill scope values (v2 `SkillScope`, #3843): `tui` | `web`. `None` keeps
@@ -312,6 +319,7 @@ fn push_descriptor(
         disable_model_invocation: meta.disable_model_invocation,
         scopes: meta.scopes.clone(),
         is_sub_skill: sub_skill_parent.map(|_| true),
+        skill_type: meta.skill_type.clone(),
     });
     Some(meta)
 }
@@ -334,19 +342,61 @@ fn qualify_sub_skill_name(parent: &str, child: &str) -> String {
 pub struct SkillScanRoots {
     pub root: Option<PathBuf>,
     pub extra_dirs: Vec<PathBuf>,
+    /// Skill roots contributed by enabled plugins, each with the plugin it came
+    /// from (v2 `manager.pluginSkillRoots`, `app/plugin/manager.ts:307-321`).
+    /// Scanned after `extra_dirs` and before the builtins, because v2 ranks
+    /// `plugin` (5) between `extra` (10) and `builtin` (0).
+    pub plugin_dirs: Vec<PluginSkillDir>,
     pub merge_all_available_skills: bool,
 }
 
+/// One plugin-contributed skill root plus the plugin's own instructions, which
+/// v2 prefixes onto every skill that root provides
+/// (`registry.renderSkillPrompt`, `catalog/registry.ts:71-79`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginSkillDir {
+    pub dir: PathBuf,
+    pub plugin_id: String,
+    pub instructions: Option<String>,
+}
+
 impl SkillScanRoots {
-    /// The catalog this session advertises: project scope, the extra roots,
-    /// the user scope, then the builtins.
+    /// The catalog this session advertises: project scope, the user scope, the
+    /// extra roots, the plugin roots, then the builtins.
     pub fn catalog(&self) -> Vec<SkillDescriptor> {
         scan_all_skills_with_extra_and_merge(
             self.root.as_deref(),
-            &self.extra_dirs,
+            &self.roots_in_precedence_order(),
             self.merge_all_available_skills,
         )
     }
+
+    /// The non-brand roots in the order the scan walks them. The declared extra
+    /// roots come before the plugin roots because v2 ranks `extra` (10) above
+    /// `plugin` (5) — `SKILL_SOURCE_PRIORITY`, where the higher number wins.
+    pub fn roots_in_precedence_order(&self) -> Vec<PathBuf> {
+        roots_in_precedence_order(&self.extra_dirs, &self.plugin_dirs)
+    }
+
+    /// The plugin a skill root came from, if any — the counterpart of v2's
+    /// `SkillRoot.plugin`, which the renderer needs for the instruction prefix.
+    pub fn plugin_for(&self, dir: &Path) -> Option<&PluginSkillDir> {
+        self.plugin_dirs.iter().find(|p| p.dir == dir)
+    }
+}
+
+/// [`SkillScanRoots::roots_in_precedence_order`] as a free function, so a
+/// `SkillScan` (the `Skill` tool's and the renderer) applies the same order
+/// rather than re-deriving it.
+pub fn roots_in_precedence_order(
+    extra_dirs: &[PathBuf],
+    plugin_dirs: &[PluginSkillDir],
+) -> Vec<PathBuf> {
+    extra_dirs
+        .iter()
+        .cloned()
+        .chain(plugin_dirs.iter().map(|entry| entry.dir.clone()))
+        .collect()
 }
 
 /// Register a `has-sub-skill: true` parent's directory children as
@@ -478,6 +528,7 @@ fn builtin_def(
                 parsed.scopes
             },
             is_sub_skill: None,
+            skill_type: parsed.skill_type,
         },
         body,
     }
@@ -499,6 +550,7 @@ fn sub_skill_def(name: &str, pseudo_path: &str, body: &'static str) -> BuiltinSk
             disable_model_invocation: true,
             scopes: parsed.scopes,
             is_sub_skill: (name != "sub-skill").then_some(true),
+            skill_type: parsed.skill_type,
         },
         body,
     }
@@ -574,11 +626,6 @@ pub fn scan_all_skills_with_extra_and_merge(
         &mut seen,
     );
 
-    // 1b. `extra_skill_dirs`: additional scan roots the user declared.
-    for dir in extra_dirs {
-        scan_directory(dir, "project", &mut out, &mut seen);
-    }
-
     // 2. User skills
     let home_path = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
@@ -597,7 +644,16 @@ pub fn scan_all_skills_with_extra_and_merge(
         &mut seen,
     );
 
-    // 3. Builtin skills
+    // 3. `extra_skill_dirs`: additional scan roots the user declared. Scanned
+    // after the user scope because v2 ranks `user` (20) above `extra` (10) —
+    // see `SKILL_SOURCE_PRIORITY` / `workspaceSkillCatalogService.ts:140`,
+    // where the higher number wins. The fork used to scan them second, so an
+    // extra dir shadowed a same-named user skill.
+    for dir in extra_dirs {
+        scan_directory(dir, "extra", &mut out, &mut seen);
+    }
+
+    // 4. Builtin skills — v2's lowest rank (0), so anything above shadows them.
     for builtin in builtin_skills() {
         let key = builtin.name.to_lowercase();
         if seen.insert(key) {
@@ -685,6 +741,129 @@ This is the first paragraph describing the skill.
 
         // Builtins should also be included
         assert!(list.iter().any(|s| s.name == "check-kimi-code-docs"));
+    }
+
+    /// v2's ranking (`SKILL_SOURCE_PRIORITY`, `features/skill/catalog/skillSource.ts:11-17`,
+    /// applied by `workspaceSkillCatalogService.ts:140` where the **higher**
+    /// number wins): builtin 0 < plugin 5 < extra 10 < user 20 < workspace 30.
+    ///
+    /// `user` over `extra` is the half that used to be wrong: the fork scanned
+    /// `extra_skill_dirs` second and labelled them `"project"`. The plugin rank
+    /// is pinned by [`plugin_roots_rank_below_extra_dirs`].
+    #[test]
+    fn test_extra_dirs_rank_below_user_and_report_their_own_source() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let proj_root = temp_dir.path();
+        let extra_root = temp_dir.path().join("extra-root");
+
+        // Same skill name in both an extra dir and the user scope.
+        let extra_skill = extra_root.join("shared-skill");
+        std::fs::create_dir_all(&extra_skill).unwrap();
+        std::fs::write(
+            extra_skill.join("SKILL.md"),
+            "---\nname: shared-skill\ndescription: From an extra dir\n---\n",
+        )
+        .unwrap();
+
+        // The user scope is read from the OS home, so point HOME at a temp dir
+        // holding the same skill. On Windows `USERPROFILE` wins, so set both.
+        let home = temp_dir.path().join("home");
+        let user_skill = home.join(".kimi-code").join("skills").join("shared-skill");
+        std::fs::create_dir_all(&user_skill).unwrap();
+        std::fs::write(
+            user_skill.join("SKILL.md"),
+            "---\nname: shared-skill\ndescription: From the user scope\n---\n",
+        )
+        .unwrap();
+
+        let restore = |k: &str, v: Option<String>| match v {
+            Some(value) => unsafe { std::env::set_var(k, value) },
+            None => unsafe { std::env::remove_var(k) },
+        };
+        let prev_home = std::env::var("HOME").ok();
+        let prev_profile = std::env::var("USERPROFILE").ok();
+        restore("HOME", Some(home.to_string_lossy().into_owned()));
+        restore("USERPROFILE", Some(home.to_string_lossy().into_owned()));
+
+        let list = scan_all_skills_with_extra(Some(proj_root), &[extra_root]);
+
+        restore("HOME", prev_home);
+        restore("USERPROFILE", prev_profile);
+
+        let shared = list.iter().find(|s| s.name == "shared-skill").unwrap();
+        assert_eq!(
+            shared.description, "From the user scope",
+            "user (20) outranks extra (10) in v2"
+        );
+        assert_eq!(shared.source, "user");
+
+        // An extra-dir-only skill keeps its own label instead of claiming to be
+        // a workspace skill — the label reaches the model's `<skill-loaded
+        // source=...>` now that the engine renders the prompt.
+        let extra_only = temp_dir.path().join("extra-only-root");
+        std::fs::create_dir_all(extra_only.join("extra-only")).unwrap();
+        std::fs::write(
+            extra_only.join("extra-only").join("SKILL.md"),
+            "---\nname: extra-only\ndescription: Extra\n---\n",
+        )
+        .unwrap();
+        let list = scan_all_skills_with_extra(Some(proj_root), &[extra_only]);
+        let found = list.iter().find(|s| s.name == "extra-only").unwrap();
+        assert_eq!(found.source, "extra");
+    }
+
+    /// The plugin rank: `extra` (10) outranks `plugin` (5), and a plugin root
+    /// is scanned even though it is not a declared `extra_skill_dirs` entry.
+    /// Before the plugin roots had their own list they were appended to the
+    /// extra roots, which happened to order correctly but left the contributing
+    /// plugin unattributed — the renderer could not prefix its instructions.
+    #[test]
+    fn plugin_roots_rank_below_extra_dirs() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let extra_root = temp_dir.path().join("extra-root");
+        let plugin_root = temp_dir.path().join("plugin").join("skills");
+
+        for (root, description) in [
+            (&extra_root, "From an extra dir"),
+            (&plugin_root, "From a plugin"),
+        ] {
+            std::fs::create_dir_all(root.join("clash")).unwrap();
+            std::fs::write(
+                root.join("clash").join("SKILL.md"),
+                format!("---\nname: clash\ndescription: {description}\n---\n"),
+            )
+            .unwrap();
+        }
+        // A plugin-only skill, to show the root is scanned at all.
+        std::fs::create_dir_all(plugin_root.join("plugin-only")).unwrap();
+        std::fs::write(
+            plugin_root.join("plugin-only").join("SKILL.md"),
+            "---\nname: plugin-only\ndescription: Only the plugin has it\n---\n",
+        )
+        .unwrap();
+
+        let roots = SkillScanRoots {
+            root: None,
+            extra_dirs: vec![extra_root],
+            plugin_dirs: vec![PluginSkillDir {
+                dir: plugin_root,
+                plugin_id: "demo".into(),
+                instructions: None,
+            }],
+            merge_all_available_skills: true,
+        };
+        let list = roots.catalog();
+
+        let clash = list.iter().find(|s| s.name == "clash").unwrap();
+        assert_eq!(
+            clash.description, "From an extra dir",
+            "extra (10) outranks plugin (5) in v2"
+        );
+        assert!(list.iter().any(|s| s.name == "plugin-only"));
+        // A plugin root reaches the wire as `extra` — v2 tags plugin roots the
+        // same way (`manager.pluginSkillRoots`, `manager.ts:314`), and the
+        // plugin's identity rides the prompt, not the descriptor.
+        assert_eq!(clash.source, "extra");
     }
 
     #[test]

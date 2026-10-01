@@ -290,9 +290,13 @@ export class MessageDispatchController {
     // so membership is decided by id, not by index into a captured array).
     // Appending the user entry afterwards keeps the live transcript in the
     // same order as a resumed replay (skill cards first, prompt last).
-    // Marking only happens once the submission was accepted: a rejected
-    // bundle leaves no cards and must not leave a local undo anchor the
-    // engine never recorded.
+    //
+    // Marking only happens once the submission was accepted. A bundle the SDK
+    // rejects (an unknown or non-activatable skill) throws before any event,
+    // so it leaves no cards; a submission the *engine* refuses afterwards — a
+    // session whose model window is not positive — does leave unmarked cards,
+    // because v2 records the activation before submitting (`skillService.ts:148-166`)
+    // and this ordering is what puts the cards ahead of `turn.started`.
     for (const entry of this.host.state.transcriptEntries) {
       if (entry.kind === 'skill_activation' && !knownEntryIds.has(entry.id)) {
         entry.bundledWithPrompt = true;

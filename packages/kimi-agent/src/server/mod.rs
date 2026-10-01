@@ -571,6 +571,13 @@ impl HttpServer {
         // store the login/usage routes drive.
         engine.set_oauth_manager(self.oauth_manager.clone());
         engine.set_config_source(self.config_override.clone());
+        // The engine's `Skill` tool and the prompt's skills section must see the
+        // same plugin catalog the REST skill lists do, so the plugin roots are
+        // read from this server's manager on every session spec. Read lazily
+        // rather than cached: an install / enable / disable / remove is then
+        // reflected in the next turn with no refresh bookkeeping to miss.
+        let plugin_manager = self.plugin_manager.clone();
+        engine.with_plugin_skill_roots(Arc::new(move || plugin_manager.plugin_skill_dirs()));
         self.subagent_manager = engine.subagent_manager();
         self.subagent_manager
             .set_task_runner_sync(self.task_runner.clone());
@@ -3993,7 +4000,7 @@ impl HttpServer {
                 let config = self.config().await;
                 let merge = config.resolve_merge_all_available_skills();
                 let mut extra = config.extra_skill_dirs_paths();
-                extra.extend(self.plugin_manager.plugin_skill_dirs());
+                extra.extend(self.plugin_manager.plugin_skill_dir_paths());
                 let skills =
                     crate::skills::scan_all_skills_with_extra_and_merge(None, &extra, merge);
                 HttpResponse::ok(&json!({ "skills": skills }))
@@ -4274,7 +4281,7 @@ impl HttpServer {
                 let config = self.config().await;
                 let merge = config.resolve_merge_all_available_skills();
                 let mut extra = config.extra_skill_dirs_paths();
-                extra.extend(self.plugin_manager.plugin_skill_dirs());
+                extra.extend(self.plugin_manager.plugin_skill_dir_paths());
                 let skills = crate::skills::scan_all_skills_with_extra_and_merge(
                     Some(&root_path),
                     &extra,
@@ -5685,7 +5692,7 @@ impl HttpServer {
                 let config = self.config().await;
                 let merge = config.resolve_merge_all_available_skills();
                 let mut extra = config.extra_skill_dirs_paths();
-                extra.extend(self.plugin_manager.plugin_skill_dirs());
+                extra.extend(self.plugin_manager.plugin_skill_dir_paths());
                 let skills = crate::skills::scan_all_skills_with_extra_and_merge(
                     ws_root.as_deref(),
                     &extra,
@@ -5727,7 +5734,7 @@ impl HttpServer {
                 let config = self.config().await;
                 let merge = config.resolve_merge_all_available_skills();
                 let mut extra = config.extra_skill_dirs_paths();
-                extra.extend(self.plugin_manager.plugin_skill_dirs());
+                extra.extend(self.plugin_manager.plugin_skill_dir_paths());
                 let skills = crate::skills::scan_all_skills_with_extra_and_merge(
                     ws_root.as_deref(),
                     &extra,
@@ -7817,6 +7824,7 @@ mod tests {
                 image_max_edge_px: None,
                 model_capabilities: None,
                 skill_dirs: Vec::new(),
+                plugin_skill_dirs: Vec::new(),
                 merge_all_available_skills: true,
                 background: crate::storage::BackgroundLimits::default(),
             },
@@ -9310,6 +9318,7 @@ max_context_size = 128000
                 image_max_edge_px: None,
                 model_capabilities: None,
                 skill_dirs: Vec::new(),
+                plugin_skill_dirs: Vec::new(),
                 merge_all_available_skills: true,
                 background: crate::storage::BackgroundLimits::default(),
             },
@@ -13628,6 +13637,7 @@ max_context_size = 1000
                 image_max_edge_px: None,
                 model_capabilities: None,
                 skill_dirs: Vec::new(),
+                plugin_skill_dirs: Vec::new(),
                 merge_all_available_skills: true,
                 background: crate::storage::BackgroundLimits::default(),
             },

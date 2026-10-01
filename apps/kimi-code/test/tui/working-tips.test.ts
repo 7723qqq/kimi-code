@@ -22,23 +22,14 @@ describe('currentWorkingTip', () => {
   });
 
   it('returns a different tip for a different timestamp', () => {
+    // Asserted, not guarded: an `if` here would turn the case below into a
+    // silently empty test the day the rotation is ever trimmed to one entry.
+    expect(getWorkingTips().length).toBeGreaterThan(1);
     const tip1 = currentWorkingTip(0);
     const tip2 = currentWorkingTip(10_000);
     // The timestamp-based rotation should produce a deterministic
     // but different result when the input changes significantly.
-    if (getWorkingTips().length > 1) {
-      expect(tip1).not.toBe(tip2);
-    }
-  });
-
-  it('handles the epoch timestamp (0) without throwing', () => {
-    const tip = currentWorkingTip(0);
-    expect(tip).toBeDefined();
-  });
-
-  it('handles a very large future timestamp without throwing', () => {
-    const tip = currentWorkingTip(Number.MAX_SAFE_INTEGER);
-    expect(tip).toBeDefined();
+    expect(tip1).not.toBe(tip2);
   });
 });
 
@@ -50,6 +41,7 @@ describe('pickRandomWorkingTip', () => {
   });
 
   it('avoids the excluded text when possible', () => {
+    expect(getWorkingTips().length).toBeGreaterThan(1);
     const first = pickRandomWorkingTip()!;
     let different = false;
     for (let i = 0; i < 50; i++) {
@@ -59,26 +51,6 @@ describe('pickRandomWorkingTip', () => {
         break;
       }
     }
-    if (getWorkingTips().length > 1) {
-      expect(different).toBe(true);
-    }
-  });
-
-  it('falls back to the rotation when every tip would be excluded', () => {
-    // If all working tips share the same text, exclusion cannot be satisfied.
-    const workingTips = getWorkingTips();
-    const onlyTip = workingTips[0];
-    if (onlyTip !== undefined && workingTips.every((t) => t.text === onlyTip.text)) {
-      expect(pickRandomWorkingTip(onlyTip.text)).toBeDefined();
-    }
-  });
-
-  it('returns a tip with a single-element array', () => {
-    const tip = pickRandomWorkingTip();
-    expect(tip).toBeDefined();
-    if (tip !== undefined) {
-      expect(typeof tip.text).toBe('string');
-      expect(tip.text.length).toBeGreaterThan(0);
-    }
+    expect(different).toBe(true);
   });
 });

@@ -26,7 +26,25 @@
 //! chain entirely.
 //!
 //! State is a per-session in-process table (`Arc` shared by the pipeline
-//! builder): it survives across turns and is never cleared mid-session.
+//! builder): it survives across turns. v2 also clears it when the runtime
+//! changes status (`staleGuardService.ts:64-68` dispatches `StaleGuardCleared`,
+//! reduced at `staleGuardOps.ts:39-41`), and there is no such path here — the
+//! audit note that called this "fail-open, to be patched" had the reason
+//! backwards. Both of v2's mtime reads go through `lease.runtime.fs`
+//! (`staleGuardService.ts:128`), so the table goes stale when the *runtime* is
+//! swapped underneath it, not when time passes. This fork has no runtime to swap:
+//! `mtime_of` below stats the same local filesystem the writer resolves its
+//! target on, so a recorded entry can only disagree with the file if the file
+//! really changed — which is exactly what the guard is for.
+//!
+//! The clear this fork does have is the gate's own lifetime: one `StaleGate` per
+//! pipeline (`pipeline/mod.rs`), per REPL process (`repl/mod.rs`) and per native
+//! run (`lib.rs`), so a rebuilt session starts with an empty table and re-arms
+//! the "read it first" denial. That is stricter than v2's in-place clear, and it
+//! fails closed where v2's would. Porting the v2 clear path needs the runtime
+//! capability layer first — see `ROADMAP.md` §6.24 — so until that layering is
+//! decided, adding a trigger here would be a fork-original behaviour with
+//! nothing upstream to point at.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

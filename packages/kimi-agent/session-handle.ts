@@ -45,6 +45,24 @@ export type SessionAdmission =
  */
 export type SessionTitleSource = 'first_turn' | 'user_prompts' | 'digest';
 
+/**
+ * What `sessionRenderSkillPrompt` resolved for one `/skill:` activation.
+ *
+ * `status` discriminates the three outcomes v2 raises as distinct errors:
+ * `not_found` → `SKILL_NOT_FOUND`, `type_unsupported` →
+ * `SKILL_TYPE_UNSUPPORTED` (the name is the resolved one, for the message),
+ * `ok` → `text` plus the provenance the activation origin and the
+ * `skill.activated` event carry.
+ */
+export interface RenderedSkillPrompt {
+  status: 'ok' | 'not_found' | 'type_unsupported';
+  text?: string;
+  name?: string;
+  path?: string;
+  source?: string;
+  skillType?: string;
+}
+
 /** The engine's `/compact` report (v2 `CompactionResult`). */
 export interface SessionCompactionReport {
   /** False when no safe split exists — the history was left untouched. */
@@ -149,6 +167,14 @@ export interface SessionNativeModule {
    *  Optional: an addon that predates the export reports `undefined`, and the
    *  caller keeps its own scan. */
   sessionSkills?(sessionId: string): Promise<string>;
+  /** The engine-rendered `/skill:` prompt as a `RenderedSkillPrompt` object.
+   *  Optional: an addon that predates the export reports `undefined`, and the
+   *  caller falls back to rendering the prompt itself. */
+  sessionRenderSkillPrompt?(
+    sessionId: string,
+    name: string,
+    args: string,
+  ): Promise<RenderedSkillPrompt>;
   /** Startup warnings for this session, as a JSON array of
    *  `{ code, message, severity }`. `[]` when nothing is degraded. */
   sessionWarnings(sessionId: string): Promise<string>;
@@ -334,6 +360,15 @@ export class EngineSessionHandle {
     return this.transport.skills?.(this.id);
   }
 
+  /**
+   * The prompt a `/skill:` activation submits, rendered by the engine from its
+   * own catalog. `undefined` when the transport cannot serve it, so the caller
+   * falls back to rendering it itself.
+   */
+  async renderSkillPrompt(name: string, args: string): Promise<RenderedSkillPrompt | undefined> {
+    return this.transport.renderSkillPrompt?.(this.id, name, args);
+  }
+
   /** Startup warnings for this session; `[]` when the transport carries none. */
   async warnings(): Promise<unknown[]> {
     return (await this.transport.warnings?.(this.id)) ?? [];
@@ -495,6 +530,16 @@ export interface SessionTransport {
    * the caller keeps its own scan as the fallback.
    */
   skills?(sessionId: string): Promise<unknown[] | undefined>;
+  /**
+   * The engine-rendered `/skill:` prompt. `undefined` when the transport
+   * cannot serve it (an addon that predates the export, or stdio), so the
+   * caller keeps rendering it itself — degraded, and only for project skills.
+   */
+  renderSkillPrompt?(
+    sessionId: string,
+    name: string,
+    args: string,
+  ): Promise<RenderedSkillPrompt | undefined>;
   /** Startup warnings for this session. */
   warnings?(sessionId: string): Promise<unknown[]>;
   btwPrompt?(
@@ -621,6 +666,17 @@ class NapiSessionTransport implements SessionTransport {
     } catch {
       return [];
     }
+  }
+
+  /** The engine-rendered `/skill:` prompt; `undefined` when the running addon
+   *  predates `sessionRenderSkillPrompt`. */
+  async renderSkillPrompt(
+    sessionId: string,
+    name: string,
+    args: string,
+  ): Promise<RenderedSkillPrompt | undefined> {
+    if (this.mod.sessionRenderSkillPrompt === undefined) return undefined;
+    return (await this.mod.sessionRenderSkillPrompt(sessionId, name, args)) as RenderedSkillPrompt;
   }
 
   /** Startup warnings for this session. */

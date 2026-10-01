@@ -85,6 +85,7 @@ const UNWRAPPED_BINDINGS = new Set([
   'sessionCompact',
   'sessionCancelCompaction',
   'sessionSkills',
+  'sessionRenderSkillPrompt',
   'sessionSetPermissionMode',
 ]);
 

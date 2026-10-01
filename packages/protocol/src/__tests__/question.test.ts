@@ -9,7 +9,6 @@ import {
   questionResponseSchema,
 } from '../question';
 import {
-  questionResolveRequestSchema,
   questionResolveResultSchema,
   questionAlreadyResolvedDataSchema,
   questionDismissResultSchema,
@@ -186,15 +185,6 @@ describe('questionResponseSchema (SCHEMAS §6.2)', () => {
       },
     });
     expect(Object.keys(parsed.answers)).toHaveLength(4);
-  });
-});
-
-describe('questionResolveRequestSchema (REST §3.6)', () => {
-  it('aliases questionResponseSchema', () => {
-    const parsed = questionResolveRequestSchema.parse({
-      answers: { q_1: { kind: 'skipped' } },
-    });
-    expect(parsed.answers['q_1']).toEqual({ kind: 'skipped' });
   });
 });
 

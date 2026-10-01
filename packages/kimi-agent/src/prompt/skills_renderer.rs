@@ -115,6 +115,7 @@ mod tests {
                 disable_model_invocation: true,
                 scopes: None,
                 is_sub_skill: None,
+                skill_type: None,
             },
             SkillDescriptor {
                 name: "hidden-2".into(),
@@ -124,6 +125,7 @@ mod tests {
                 disable_model_invocation: true,
                 scopes: None,
                 is_sub_skill: None,
+                skill_type: None,
             },
         ];
         assert_eq!(render_skills_markdown(&hidden_skills), "");
@@ -141,6 +143,7 @@ mod tests {
                 disable_model_invocation: false,
                 scopes: None,
                 is_sub_skill: None,
+                skill_type: None,
             },
             // Disabled skill in project scope must be omitted
             SkillDescriptor {
@@ -151,6 +154,7 @@ mod tests {
                 disable_model_invocation: true,
                 scopes: None,
                 is_sub_skill: None,
+                skill_type: None,
             },
             // User scope
             SkillDescriptor {
@@ -161,6 +165,7 @@ mod tests {
                 disable_model_invocation: false,
                 scopes: None,
                 is_sub_skill: None,
+                skill_type: None,
             },
             // Built-in scope with empty description fallback
             SkillDescriptor {
@@ -171,6 +176,7 @@ mod tests {
                 disable_model_invocation: false,
                 scopes: None,
                 is_sub_skill: None,
+                skill_type: None,
             },
             // Extra scope (any unrecognized source string)
             SkillDescriptor {
@@ -181,6 +187,7 @@ mod tests {
                 disable_model_invocation: false,
                 scopes: None,
                 is_sub_skill: None,
+                skill_type: None,
             },
         ];
 
@@ -225,6 +232,7 @@ mod tests {
                 disable_model_invocation: false,
                 scopes: None,
                 is_sub_skill: None,
+                skill_type: None,
             },
             SkillDescriptor {
                 name: "bundle.child".into(),
@@ -236,6 +244,7 @@ mod tests {
                 disable_model_invocation: false,
                 scopes: None,
                 is_sub_skill: Some(true),
+                skill_type: None,
             },
         ];
 
@@ -256,6 +265,7 @@ mod tests {
             disable_model_invocation: false,
             scopes: None,
             is_sub_skill: None,
+            skill_type: None,
         }];
 
         let md = render_skills_markdown(&skills);

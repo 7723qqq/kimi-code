@@ -65,12 +65,14 @@ LocalizedText::with_params(
 ```
 
 Locale keys live under `engine.*` in `packages/i18n-catalog/src/locales/{en,zh}.ts`
-— the single owner of the whole locale catalog, 2358 leaves across 16 top-level
+— the single owner of the whole locale catalog, 2359 leaves across 16 top-level
 namespaces (the host installs them via `setEngineLocale`; see `packages/i18n-runtime` and
 `apps/kimi-code/src/i18n`). Run `bun run check:engine-i18n` after any change — CI
 gates on it. The count is a hand-synced snapshot, not a gated fact: no gate compares
-it, so a commit that adds or drops keys leaves it stale (it last drifted when
-`fc0aee5661` dropped the eight zero-reference `v2*` namespaces, 2429 → 2358). Re-derive
+it, so a commit that adds or drops keys leaves it stale (it last moved when
+`engine.tools.glob.showingMatches` was added to the Glob paging report; before that
+`fc0aee5661` dropped the eight zero-reference `v2*` namespaces, 2429 → 2358).
+Re-derive
 it from `packages/i18n-catalog/src/locales/en.ts` when you touch the catalog.
 
 ### Hard rules
@@ -123,6 +125,37 @@ it from `packages/i18n-catalog/src/locales/en.ts` when you touch the catalog.
   question at all — v2's `src/runtime/` capability layer that §6.8.2 needs is
   registered in `packages/kimi-agent/ROADMAP.md` §6.24, and the engine's
   missing runtime layer is upstream's to match, not a fork preference.
+- **The Grep / Glob notices were the reverse case, and it is fixed (2026-10-01).**
+  Seven of them — `noMatches`, `noNonSensitive`, `noNonSensitiveFiltered`,
+  `noMoreMatches`, `noFilesMatched`, `filteredSensitive`,
+  `filteredSensitiveWithList`, plus the `foundAcross` count summary — were
+  *already* localized in an earlier round, while
+  `tool-renderers/grep-output.ts` still recognized them by English prose. In a
+  Chinese session that made the TUI count a sentence as a result: `No files
+  matched pattern: *.ts` read as one file (in every locale, since the English
+  pattern for that one never existed), a localized empty-result sentence
+  rendered as a path, and the count-mode totals unreadable. The parser now builds
+  those patterns from the same catalog the engine resolved through, per locale,
+  keeping the English wording as a fallback for transcripts recorded before a
+  locale switch; `test/tui/.../grep-output-locale.test.ts` pins both directions.
+  What remains English splits three ways, and only the first is mechanical:
+  - **Done (2026-10-01)** — `Showing matches X–Y of Z.` is now
+    `engine.tools.glob.showingMatches`. It is fork-original prose (v2's glob has
+    no paging report at all), it reports a result rather than instructing, and
+    the parser reads it from the catalog.
+  - **Kept English on purpose** — `Continue with the same search arguments and
+    offset=N.` and `To remove the match-count limit, omit offset and use
+    head_limit=0.` are fork-original too, but they tell the model how to drive
+    the tool, which is the "tool-protocol instruction" case above. The parser
+    still matches them, in either language.
+  - **Needs a ruling** — `Results truncated to N lines (total: M). Use offset=K to
+    see more.`, `Grep timed out after Ns; …` and `[Output truncated at N bytes …]`
+    are **v2's exact wording** (`grepTool.ts:251-252`), and each mixes a result
+    report with an instruction in one composed string. Note that translations
+    already exist for the older host-path wording in the **dead** `toolsV2.*`
+    namespace (every one of them on the orphan allowlist) — but their wording
+    differs from what the native engine emits, so adopting them would change the
+    ported text rather than translate it.
 
 ### Known rough edges
 

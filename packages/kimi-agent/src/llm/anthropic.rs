@@ -420,13 +420,16 @@ pub fn parse_response(v: &Value) -> Result<LLMChatResponse, String> {
 
 /// Resolve the default `max_tokens` ceiling for Anthropic models.
 ///
-/// Mirrors the ceiling table in `kosong`'s Anthropic provider
+/// Mirrors the ceiling table in v2's Anthropic profile
 /// (`CEILING_BY_FAMILY_VERSION` + `FALLBACK_MAX_TOKENS`) so the native
 /// transport does not silently truncate a newer Claude model down to the
 /// Claude-3 budget. Branches are ordered most-specific first: a `4-6` release
-/// must be caught before the bare `4` family check. An unrecognized model
-/// falls back to the same generous 128k ceiling the TS provider uses rather
-/// than a low guess that would cut a long response off mid-`tool_use`.
+/// must be caught before the bare `4` family check.
+///
+/// The unknown-model fallback is v2's `FALLBACK_MAX_TOKENS`, which `21406fb4c8`
+/// (#4091) lowered from 128000 to 64000. A model id this ladder does not
+/// recognize is one v2 cannot parse either, so it takes the same rung; the
+/// earlier 128k value here was a stale copy of the pre-#4091 constant.
 pub fn default_max_tokens_for_model(model: &str) -> u32 {
     let lower = model.to_ascii_lowercase();
     // Claude 5 / 4.6+ generation documents a 128k output ceiling.
@@ -460,8 +463,9 @@ pub fn default_max_tokens_for_model(model: &str) -> u32 {
     if lower.contains("claude-3") {
         return 4096;
     }
-    // Unknown model: match the TS provider's fallback instead of a low guess.
-    128_000
+    // Unknown model: v2 cannot parse it either, so it lands on
+    // FALLBACK_MAX_TOKENS, 64000 as of #4091.
+    64_000
 }
 
 // ── Streaming (SSE) accumulation ───────────────────────────────────────
@@ -1373,7 +1377,7 @@ mod tests {
     }
 
     #[test]
-    fn default_max_tokens_matches_the_kosong_ceiling_table() {
+    fn default_max_tokens_matches_the_v2_ceiling_table() {
         // Newer generations must not be truncated down to the Claude-3 budget.
         assert_eq!(default_max_tokens_for_model("claude-sonnet-4-5"), 64_000);
         assert_eq!(default_max_tokens_for_model("claude-opus-4-1"), 32_000);
@@ -1387,8 +1391,9 @@ mod tests {
         );
         assert_eq!(default_max_tokens_for_model("claude-3-5-haiku"), 8192);
         assert_eq!(default_max_tokens_for_model("claude-3-opus"), 4096);
-        // Unknown model falls back to the generous TS ceiling, not a low guess.
-        assert_eq!(default_max_tokens_for_model("some-unknown-model"), 128_000);
+        // Unknown model: v2 cannot parse it either, so both sides land on
+        // FALLBACK_MAX_TOKENS — 64000 since #4091, down from 128000.
+        assert_eq!(default_max_tokens_for_model("some-unknown-model"), 64_000);
     }
 
     /// The ladder above matches on substrings while v2 parses
@@ -1398,12 +1403,15 @@ mod tests {
     /// agree on all of them.
     ///
     /// The divergence, pinned below rather than merely described: v2 rejects
-    /// an id with no `claude` marker up front and returns its 128k fallback
+    /// an id with no `claude` marker up front and returns its fallback
     /// (`parseAnthropicModelVersion(model, /* requireClaudeMarker */ true)`,
-    /// `profile.ts:78`), while this ladder's `contains` tests fire on the family
-    /// fragment wherever it sits. A relay id like `my-opus-4-5-clone` therefore
-    /// takes the 64k rung here while v2 would hand it 128k — so a relay's
-    /// ceiling is not evidence about v2 either way.
+    /// `profile.ts:78`) — 64000 since `21406fb4c8` (#4091) lowered
+    /// `FALLBACK_MAX_TOKENS` from 128000 — while this ladder's `contains` tests
+    /// fire on the family fragment wherever it sits. A relay id like
+    /// `relay-opus-4-1` therefore takes the 32k rung here while v2 hands it 64k,
+    /// and `my-sonnet-4-6-clone` takes 128k here against v2's 64k: **#4091 made
+    /// this divergence two-directional**, where before the fork was only ever
+    /// below v2. `my-opus-4-5-clone` is the one relay that now coincides.
     #[test]
     fn default_max_tokens_agrees_with_v2_on_every_real_claude_id() {
         let cases = [
@@ -1435,8 +1443,9 @@ mod tests {
         }
 
         // Relay ids, pinned: this ladder answers the rung its `contains` finds,
-        // where v2 answers its 128k fallback for every marker-less id. The two
-        // can coincide (the 128k rungs) or diverge downward (64k / 32k).
+        // where v2 answers its 64000 fallback for every marker-less id. After
+        // #4091 the two can coincide (64k / 128k against the 128k rungs), can
+        // diverge downward (32k), or diverge upward (the 128k rungs vs v2's 64k).
         for (model, expected) in [
             ("my-opus-4-5-clone", 64_000),
             ("my-sonnet-4-6-clone", 128_000),
@@ -1445,7 +1454,7 @@ mod tests {
             assert_eq!(
                 default_max_tokens_for_model(model),
                 expected,
-                "{model} hits the contains() rung; v2 answers 128000 for a marker-less id"
+                "{model} hits the contains() rung; v2 answers 64000 for a marker-less id"
             );
         }
     }

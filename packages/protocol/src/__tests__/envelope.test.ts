@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
-import { envelopeSchema, errEnvelope, okEnvelope, type Envelope } from '../envelope';
+import { envelopeSchema, errEnvelope, okEnvelope } from '../envelope';
 import { ErrorCode, ErrorCodeReason } from '../error-codes';
 
 describe('envelope', () => {
@@ -107,11 +107,5 @@ describe('error-codes', () => {
     expect(allValues).not.toContain(40103);
     expect(allValues).not.toContain(42901);
     expect(allValues).not.toContain(50002);
-  });
-
-  it('ErrorCode type narrows to the literal union', () => {
-    const code: ErrorCode = ErrorCode.SESSION_NOT_FOUND;
-    const env: Envelope<null> = errEnvelope(code, 'x', 'req_t');
-    expect(env.code).toBe(40401);
   });
 });

@@ -477,11 +477,12 @@ const ALLOWED_FILES = [
 
 /**
  * Engine-emitted reason and error strings that the `kimi-code` TypeScript layer
- * matches with `===`, `Set` membership, or a `case` label to recognize a
- * lifecycle event (`shell.pausedAfterInterruption`, `v2Goal.pausedAfterResume`,
- * `toolsV2.abort.abortedByUser`). They are wire tokens, not display text:
- * localizing the comparison operand would break the match, and the text shown
- * to the user at those sites is already produced by `t()`.
+ * matches — by `===`, `Set` membership, a `case` label, or a pattern built from
+ * the catalog — to recognize an event (`shell.pausedAfterInterruption`,
+ * `v2Goal.pausedAfterResume`, `toolsV2.abort.abortedByUser`, the Grep / Glob
+ * notices). They are wire tokens, not display text: localizing the comparison
+ * operand would break the match, and the text shown to the user at those sites
+ * is already produced by `t()` or by the engine's own catalog.
  *
  * Consulted at exactly one place — Detection 1 — and only for the `kimi-code`
  * module, so no other source tree can inherit the exemption. Matched on exact
@@ -499,6 +500,16 @@ const ENGINE_WIRE_TOKENS = new Set([
   'Aborted by the user',
   'Paused after agent resume',
   'Paused after interruption',
+  // Grep / Glob notices the TUI has to *recognize* rather than render. The
+  // engine renders them from the `engine.*` catalog, and
+  // `tool-renderers/grep-output.ts` rebuilds its match patterns from that same
+  // catalog per locale — but the English wording is also written out there, as
+  // the fallback for a transcript recorded before the user switched language
+  // (a transcript is never rewritten). `t()` cannot supply it: it takes no
+  // locale argument, and importing the message trees would put the whole
+  // catalog in the shipped bundle. The value collides with the live TS
+  // `tools.noNonSensitiveMatches`, which is the same sentence.
+  'No non-sensitive matches found',
 ]);
 
 function isAllowlistedLiteral(str) {

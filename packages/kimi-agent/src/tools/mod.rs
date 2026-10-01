@@ -548,6 +548,11 @@ pub struct NativeToolset {
     /// resolves from the engine's scan, so it must scan the same roots or it
     /// cannot load skills the prompt advertised.
     skill_dirs: Vec<PathBuf>,
+    /// Skill roots the enabled plugins declare, with the contributing plugin's
+    /// id and instructions. Kept out of `skill_dirs` so they keep v2's own
+    /// precedence rank and so a loaded skill can be told which plugin it came
+    /// from.
+    plugin_skill_dirs: Vec<crate::skills::PluginSkillDir>,
     /// `merge_all_available_skills` (`true` = the documented default): whether
     /// each scope group scans every available directory or only its first
     /// existing one. The prompt is rendered with this switch, so the tool must
@@ -705,6 +710,7 @@ impl NativeToolset {
             root,
             extra_roots: Vec::new(),
             skill_dirs: Vec::new(),
+            plugin_skill_dirs: Vec::new(),
             merge_all_available_skills: true,
             shell_bridge: std::sync::Arc::new(
                 crate::native::shell_path_bridge::ShellPathBridge::new(
@@ -749,9 +755,11 @@ impl NativeToolset {
     pub fn with_skill_scan(
         mut self,
         dirs: impl IntoIterator<Item = PathBuf>,
+        plugin_dirs: Vec<crate::skills::PluginSkillDir>,
         merge_all_available_skills: bool,
     ) -> Self {
         self.skill_dirs = dirs.into_iter().collect();
+        self.plugin_skill_dirs = plugin_dirs;
         self.merge_all_available_skills = merge_all_available_skills;
         self
     }
@@ -1542,6 +1550,7 @@ impl NativeToolset {
                         skill::SkillScan {
                             root: Some(self.root.as_path()),
                             extra_dirs: &self.skill_dirs,
+                            plugin_dirs: &self.plugin_skill_dirs,
                             merge_all_available_skills: self.merge_all_available_skills,
                         },
                     )
@@ -3205,11 +3214,13 @@ impl NativeToolset {
             }
         } else {
             if truncated || offset > 0 {
-                lines.push(format!(
-                    "Showing matches {}–{} of {total}.",
-                    offset + 1,
-                    offset + count
-                ));
+                lines.push(
+                    LocalizedText::with_params(
+                        "engine.tools.glob.showingMatches",
+                        i18n_params!["from" => offset + 1, "to" => offset + count, "total" => total],
+                    )
+                    .render(),
+                );
             }
             lines.extend(paged);
             if truncated {
@@ -7842,6 +7853,56 @@ m2
         let res = NativeToolset::glob(&sandbox, &bridge(), &json!({ "pattern": "**/*" })).unwrap();
         assert!(res.content.contains("hello.txt"));
         assert!(res.content.contains("Filtered 1 sensitive file(s)."));
+    }
+
+    /// The paging report is fork-original prose (v2's glob has no counterpart)
+    /// and it *reports* a window rather than instructing, so it goes through the
+    /// locale catalog. The two lines that follow it stay hardcoded English: they
+    /// tell the model how to drive the tool, which is protocol, not UI. The
+    /// assertion on them is a decision pin, not a wording preference — moving
+    /// either into the catalog needs a ruling, and this test is where it shows.
+    #[test]
+    fn test_glob_paging_report_is_localized_but_its_instructions_are_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            std::fs::write(root.join(name), "x").unwrap();
+        }
+
+        let sandbox = Sandbox::new(std::fs::canonicalize(root).unwrap());
+        let res = NativeToolset::glob(
+            &sandbox,
+            &bridge(),
+            &json!({ "pattern": "*.txt", "head_limit": 2 }),
+        )
+        .unwrap();
+
+        // Rendered from `engine.tools.glob.showingMatches`, so a wrong key would
+        // show up as the bare key here rather than as a sentence.
+        assert!(
+            res.content.contains("Showing matches 1\u{2013}2 of 3."),
+            "content: {}",
+            res.content
+        );
+        assert!(
+            res.content
+                .contains("Continue with the same search arguments and offset=2."),
+            "the continuation instruction is protocol and stays English: {}",
+            res.content
+        );
+        assert!(
+            res.content
+                .contains("To remove the match-count limit, omit offset and use head_limit=0."),
+            "content: {}",
+            res.content
+        );
+        // Two rows on the page, not three.
+        let rows = res
+            .content
+            .lines()
+            .filter(|line| line.trim().ends_with(".txt"))
+            .count();
+        assert_eq!(rows, 2, "content: {}", res.content);
     }
 
     // ── Multi-root sandbox (`/add-dir` → `additionalDirs`) ──────────────

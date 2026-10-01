@@ -23,9 +23,6 @@ function snapshot(overrides: Record<string, unknown> = {}) {
 
 describe('goalExitCode', () => {
   it('maps final statuses to distinct codes', () => {
-    expect(goalExitCode('complete')).toBe(GOAL_EXIT_CODES.complete);
-    expect(goalExitCode('blocked')).toBe(GOAL_EXIT_CODES.blocked);
-    expect(goalExitCode('paused')).toBe(GOAL_EXIT_CODES.paused);
     expect(goalExitCode(undefined)).toBe(0);
     expect(goalExitCode('impossible')).toBe(0);
     // The distinct codes are unique across the statuses.

@@ -1438,24 +1438,4 @@ mod tests {
         assert!(!s.enabled);
         assert_eq!(s.state, "off");
     }
-
-    // Network-dependent integration tests: require a live relay + local server.
-    // Ignored by default; run with `cargo test --lib remote_control -- --ignored`.
-
-    #[tokio::test]
-    #[ignore = "requires a live relay at REMOTE_CONTROL_RELAY_ORIGIN and a local kimi server"]
-    async fn integration_full_cycle_connects_and_forwards() {
-        let opts = RemoteControlOptions {
-            device_id: "test-device".to_string(),
-            refresh_token: std::env::var("KIMI_TEST_REFRESH_TOKEN").unwrap_or_default(),
-            local_server_token: "test-token".to_string(),
-            local_base_url: "http://127.0.0.1:3461".to_string(),
-            ..Default::default()
-        };
-        let handle = RemoteControlRuntime::start(opts);
-        // Give the runtime a moment to attempt registration.
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        let _ = handle.status();
-        handle.close().await;
-    }
 }

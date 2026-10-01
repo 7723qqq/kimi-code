@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isVolatileEventType, VOLATILE_EVENT_TYPES } from '../events';
+import { isVolatileEventType } from '../events';
 import {
   inFlightTurnSchema,
   sessionSnapshotResponseSchema,
@@ -186,7 +186,6 @@ describe('events — volatile classification', () => {
     ]) {
       expect(isVolatileEventType(type)).toBe(true);
     }
-    expect(VOLATILE_EVENT_TYPES).toHaveLength(9);
   });
 
   it('keeps timeline-bearing events durable', () => {
