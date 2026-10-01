@@ -8,7 +8,12 @@ export function decodeMcpToolName(
   if (!name.startsWith(PREFIX)) return null;
   const rest = name.slice(PREFIX.length);
   const sep = rest.indexOf('__');
-  if (sep <= 0 || sep === rest.length - 2) return null;
+  // `sep < 0` is the not-found case, `sep === 0` an empty server name, and
+  // `sep + 2 === rest.length` an empty tool name. The not-found check is spelled
+  // out rather than left to the `<= 0` fold because a bare `indexOf` result is
+  // compared against a length below, and `-1` silently satisfying that is the
+  // kind of thing a reader has to stop and re-derive.
+  if (sep < 0 || sep === 0 || sep + 2 === rest.length) return null;
   return {
     serverName: rest.slice(0, sep),
     toolName: rest.slice(sep + 2),
