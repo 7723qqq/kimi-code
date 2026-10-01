@@ -605,8 +605,40 @@ Standing rules for every `upstream` tag merge (decided 2026-09-03). Upstream is 
 
   A new event name, payload field, state-machine arm, policy step, route, or entity with no counterpart on its own axis requires the user's permission before implementation, and the granted delta is then recorded in `packages/kimi-agent/ROADMAP.md`. Fork-original modules already recorded there (sandbox guard, stale guard, team/memory/knowledge, mode mutex) stand as they are.
 - **What counts as evidence.** Where a name or shape is defined in the TypeScript references, cite the file. A name the committed `apps/kimi-code/dist-web` bundle consumes is evidence too, even when it is defined nowhere in `upstream`'s source tree — some web-facing vocabulary exists only in that synced bundle. A name only the fork's Rust emits is not evidence, and a consumer's tolerance never justifies extending a vocabulary with names the fork invented.
+- **The audit is symmetric — both directions are obligations, neither is automatic.**
+  The rule above governs the *fork-has / v2-lacks* direction. Its mirror governs
+  the other one, and it is the half most easily skipped:
+
+  | | Judgement | Required form |
+  |---|---|---|
+  | v2 has it, fork lacks it | A **gap** — port it, or record why not | `tracked` in the ROADMAP ledger, or `ported` / `not-applicable` in the v2-delta allowlist |
+  | fork has it, v2 lacks it | **Not automatically correct.** It is a defect until it carries provenance | A recorded provenance: the user's explicit ruling, or an entry in the ROADMAP ledger (fork-original modules) |
+
+  Two failure modes to avoid, both observed:
+  - Asking "should we add X?" for something v2 *has* — that downgrades a porting
+    debt into a product choice. The baseline is what upstream ships, not what
+    looks worthwhile here; a v2 subsystem the fork lacks is a `tracked` gap, and
+    the only question worth asking is the *layering* one (Rust engine vs TS host).
+  - Auditing only one direction and reporting "no gaps found". Finding nothing
+    in the v2→fork direction says nothing about unregistered self-invention in the
+    other. Compare the reference tree's subsystems against the fork's in **both**
+    directions before concluding a port is complete.
+
+  Beware the naming traps when comparing: v2's `runtime/` (a capability-axis
+  execution layer, `fs`/`process`/`watch`/`terminal` + a six-state lifecycle,
+  ROADMAP §6.24) shares its name with v2's `app/capability/` (a plugin install
+  service) while `agent/contextMemory/` is fork-covered under different names
+  (`native/event_store/loop_fold.rs` + `packages/transcript/src/history/`). Judge
+  by real external consumers on the v2 side and behavioural equivalence on the
+  fork side, never by directory name.
 - **Upstream engine behavior lands in Rust, not in TS.** Resolve the TS conflict by taking `theirs` so the TS build and tests stay faithful to upstream's shape, then register the behavior delta as a work item in `packages/kimi-agent/ROADMAP.md`. Do not re-implement new upstream engine behavior in TS — that builds the thing being retired.
 - **The retired-package delta ratchet is the mechanical half of this policy.** `bun run check:upstream-v2-delta` requires every upstream commit touching a deleted package since the merge base to carry a recorded verdict in `scripts/upstream-v2-delta-allowlist.json` (`ported` / `tracked` / `not-applicable`; `pending` or absent fails). It is wired into CI, but **fetch the ref first**: it reads `refs/remotes/upstream/main`, and a stale ref silently narrows the range and prints a green "all triaged" — `git fetch upstream main:refs/remotes/upstream/main --force`. Deleting those packages is exactly why the delta is invisible to `git log`; this gate exists because 21 behavior commits once piled up unnoticed (ROADMAP §6.0).
+  **Its structural blind spot:** the ratchet is keyed on *upstream commits*. A v2
+  subsystem that has existed since the export point and was never ported moves no
+  commit, so this gate can never report it — ROADMAP §6.24 (v2's `src/runtime/`
+  capability layer) is exactly that case, and it was found by comparing subsystem
+  trees, not by the ratchet. Treat a green run as "no *new commit* delta", never
+  as "the port is complete".
 - **Node-side toolchain content is never pulled back** — see Environment Requirements above. Audit the **auto-merged index**, not just conflicted files: git merges `package.json`, `flake.nix`, `vitest.config.ts`, and `.github/workflows` without asking, so a Node floor or a pnpm job can land silently.
 - **pi-tui is a second upstream** (`earendil-works/pi`, vendored). It is outside the MoonshotAI merge policy above — sync it per `packages/pi-tui/UPSTREAM.md` (intent-card contract), not via this section.
 - **Fork-only files upstream deletes stay deleted only when the fork's coupling is migrated.** A modify/delete conflict is not resolved by `git rm` alone — grep the removed module for importers first; fork-only importers (absent from both base and upstream) mean the fork built on top of it and needs a new home.
