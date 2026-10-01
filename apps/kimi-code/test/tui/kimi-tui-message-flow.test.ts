@@ -9642,7 +9642,7 @@ describe('transcript fold block clicks', () => {
       // No `tool.call.started` for AgentSwarm — the out-of-order case.
       for (const [index, id] of ['subagent-1', 'subagent-2', 'subagent-3'].entries()) {
         for (const e of member(id as string, index + 1, `call_bash_${String(index)}`)) {
-          driver.sessionEventHandler.handleEvent(e as Event, sendQueued);
+          driver.sessionEventHandler.handleEvent(e as unknown as Event, sendQueued);
         }
       }
 
@@ -9674,7 +9674,7 @@ describe('transcript fold block clicks', () => {
       );
       for (const [index, id] of ['subagent-1', 'subagent-2', 'subagent-3'].entries()) {
         for (const e of member(id as string, index + 1, `call_bash_${String(index)}`)) {
-          driver.sessionEventHandler.handleEvent(e as Event, sendQueued);
+          driver.sessionEventHandler.handleEvent(e as unknown as Event, sendQueued);
         }
       }
       const transcript = stripSgr(renderTranscript(driver));
