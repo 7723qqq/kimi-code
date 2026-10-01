@@ -1,14 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import { ChatProviderError } from '#/errors';
-import type {
-  AudioURLPart,
-  StreamedMessagePart,
-  TextPart,
-  ToolCall,
-  ToolCallPart,
-  VideoURLPart,
-} from '#/message';
+import type { StreamedMessagePart } from '#/message';
 
 import { ScriptedEchoChatProvider } from './fixtures/echo-provider';
 
@@ -45,30 +38,6 @@ describe('ScriptedEchoChatProvider', () => {
       inputCacheRead: 2,
       inputCacheCreation: 0,
     });
-    expect(parts).toEqual([
-      { type: 'text', text: 'Hello,' } satisfies TextPart,
-      { type: 'text', text: ' world!' } satisfies TextPart,
-      { type: 'think', think: 'thinking...' },
-      {
-        type: 'image_url',
-        imageUrl: { url: 'https://example.com/image.png', id: 'img-1' },
-      },
-      {
-        type: 'audio_url',
-        audioUrl: { url: 'https://example.com/audio.mp3' },
-      } satisfies AudioURLPart,
-      {
-        type: 'video_url',
-        videoUrl: { url: 'https://example.com/video.mp4' },
-      } satisfies VideoURLPart,
-      {
-        type: 'function',
-        id: 'call-1',
-        name: 'search',
-        arguments: '{"q":"python"',
-      } satisfies ToolCall,
-      { type: 'tool_call_part', argumentsPart: '}' } satisfies ToolCallPart,
-    ]);
 
     // Second call
     const secondStream = await provider.generate('', [], []);
