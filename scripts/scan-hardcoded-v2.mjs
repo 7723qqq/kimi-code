@@ -117,6 +117,23 @@ const MODULES = [
     fileTypes: ['.ts', '.tsx'],
     tImportName: 't',
   },
+  {
+    // The extension host. Its own catalog (apps/vscode/src/i18n), not the
+    // webview's — the two hold disjoint vocabularies, so Detection 1 is
+    // driven from the host catalog while the webview module above uses its
+    // own. It is a separate MODULES entry (rather than a second srcDir on the
+    // webview one) precisely because the two need different locale sources.
+    name: 'vscode-extension-host',
+    srcDir: 'apps/vscode/src',
+    localeDir: 'apps/vscode/src/i18n/locales',
+    localeEn: 'apps/vscode/src/i18n/locales/en.ts',
+    localeZh: 'apps/vscode/src/i18n/locales/zh.ts',
+    tPattern: /\bt\(['"]/,
+    importPattern: /from\s+['"].*i18n['"]/,
+    skipDirs: ['i18n'],
+    fileTypes: ['.ts'],
+    tImportName: 't',
+  },
 ];
 
 // ── TS module loader ───────────────────────────────────────────────────────
@@ -283,6 +300,10 @@ function scanFile(filePath, content, moduleInfo, valueToKeys, valueRegexes) {
         !/[\u4E00-\u9FFF]/.test(plainValue)
       )
         continue;
+      // A VS Code codicon prefix (`$(folder) Browse…`) is an icon glyph the
+      // editor substitutes, not translatable copy. The value is legitimately
+      // shared between locales, so matching it here would flag every host.
+      if (/^\$\([a-z0-9-]+\)\s/.test(plainValue)) continue;
 
       const regexes = valueRegexes.get(normalizedValue);
       if (regexes.value.test(trimmed)) {

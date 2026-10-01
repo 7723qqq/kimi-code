@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { Events, Methods } from '../../shared/bridge';
 import type { FileChange, ProjectFile } from '../../shared/types';
 import type { BaselineSession } from '../managers/baseline.manager';
+import { t } from '../i18n';
 import {
   isWorkspacePathContained,
   resolveWorkspacePath,
@@ -85,12 +86,12 @@ const pickMedia: Handler<PickMediaParams, string[]> = async (params) => {
   const filters: Record<string, string[]> = { Images: IMAGE_EXTENSIONS };
   if (includeVideo) {
     filters['Videos'] = VIDEO_EXTENSIONS;
-    filters['All Media'] = [...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS];
+    filters[t('ui.allMedia')] = [...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS];
   }
   const uris = await vscode.window.showOpenDialog({
     canSelectMany: true,
     filters,
-    title: 'Select Media',
+    title: t('ui.selectMedia'),
   });
   if (!uris) return [];
 
@@ -240,7 +241,7 @@ export const fileHandlers: Record<string, Handler<any, any>> = {
 
 function requireBaselineSession(ctx: Parameters<Handler>[1]): BaselineSession {
   const session = ctx.fileManager.getSession(ctx.webviewId);
-  if (session === null) throw new Error('No active session.');
+  if (session === null) throw new Error(t('errors.noActiveSession'));
   return session;
 }
 

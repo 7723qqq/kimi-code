@@ -15,6 +15,7 @@ import {
   type UpdateMCPServerRequest,
 } from '../../shared/legacy-sdk';
 import type { Handler } from './types';
+import { t } from '../i18n';
 
 const SENSITIVE_MCP_KEY_WORDS = new Set([
   'authorization',
@@ -71,7 +72,7 @@ export const mcpHandlers: Record<string, Handler<any, any>> = {
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: `Kimi: Authenticating "${name}"...`,
+        title: t('mcp.authenticating', { name }),
         cancellable: false,
       },
       async () => {
@@ -79,10 +80,10 @@ export const mcpHandlers: Record<string, Handler<any, any>> = {
           await ctx.harness.authenticateMcpServer(name, {
             onAuthorizationUrl: async (url) => vscode.env.openExternal(vscode.Uri.parse(url)),
           });
-          await vscode.window.showInformationMessage(`Kimi: OAuth completed for "${name}"`);
+          await vscode.window.showInformationMessage(t('mcp.oauthCompleted', { name }));
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          await vscode.window.showErrorMessage(`Kimi: OAuth failed for "${name}": ${message}`);
+          await vscode.window.showErrorMessage(t('mcp.oauthFailed', { name, message }));
           throw error;
         }
       },
@@ -94,16 +95,16 @@ export const mcpHandlers: Record<string, Handler<any, any>> = {
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: `Kimi: Resetting auth for "${name}"...`,
+        title: t('mcp.resettingAuth', { name }),
         cancellable: false,
       },
       async () => {
         try {
           await ctx.harness.resetMcpServerAuth(name);
-          await vscode.window.showInformationMessage(`Kimi: Auth reset for "${name}"`);
+          await vscode.window.showInformationMessage(t('mcp.authReset', { name }));
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          await vscode.window.showErrorMessage(`Kimi: Reset auth failed for "${name}": ${message}`);
+          await vscode.window.showErrorMessage(t('mcp.authResetFailed', { name, message }));
           throw error;
         }
       },
@@ -112,7 +113,7 @@ export const mcpHandlers: Record<string, Handler<any, any>> = {
   },
 
   [Methods.TestMCP]: async ({ name }: NameParams, ctx): Promise<MCPTestResult> => {
-    void vscode.window.showInformationMessage(`Kimi: Testing MCP server "${name}"...`);
+    void vscode.window.showInformationMessage(t('mcp.testing', { name }));
     const result = toWebviewTestResult(
       await ctx.harness.testMcpServer(name, {
         cwd: ctx.workDir ?? undefined,
@@ -359,7 +360,7 @@ async function updateOrRenameServer(
     return;
   }
   if (current === undefined) {
-    throw new Error(`MCP server "${originalName}" was not found`);
+    throw new Error(t('mcp.notFound', { name: originalName }));
   }
 
   await harness.addMcpServer(next);

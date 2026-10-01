@@ -16,6 +16,7 @@ import type {
   ToolCall,
 } from '../../shared/legacy-sdk';
 import type { UIStreamEvent } from '../../shared/types';
+import { t } from '../i18n';
 import { toLegacyToolName } from './event-adapter';
 import { inferToolDisplay, toLegacyDisplay } from './tool-display';
 
@@ -38,7 +39,7 @@ export function replaySessionToWebviewEvents(
   sessionId: string,
 ): UIStreamEvent[] {
   const main = state.agents['main'];
-  if (main === undefined) throw new Error('Session history is unavailable.');
+  if (main === undefined) throw new Error(t('errors.sessionHistoryUnavailable'));
   return replayAgentToWebviewEvents(
     main,
     sessionId,

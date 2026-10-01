@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 
 import * as vscode from 'vscode';
 
+import { t } from '../i18n';
 import type { SessionRuntime } from '../runtime/session-runtime';
 import {
   buildExportMarkdown,
@@ -67,24 +68,22 @@ export async function runHostSlashCommand(
       const result = await importContext(runtime, command.args, ctx);
       emit(result.message);
       if (result.sensitive) {
-        void vscode.window.showWarningMessage(
-          'Kimi: The imported file may contain API keys, tokens, or credentials.',
-        );
+        void vscode.window.showWarningMessage(t('slashCommand.importSensitiveWarning'));
       }
     } else {
       switch (command.name) {
         case 'init':
           await runtime.session.init();
-          emit('AGENTS.md has been generated.');
+          emit(t('slashCommand.agentsMdGenerated'));
           break;
         case 'compact':
           await runtime.compactHostAction(actionId, command.args || undefined);
-          emit('The context has been compacted.');
+          emit(t('slashCommand.contextCompacted'));
           break;
         case 'clear':
         case 'reset':
           await runtime.session.clearContext();
-          emit('The context has been cleared.');
+          emit(t('slashCommand.contextCleared'));
           break;
         case 'yolo':
           await toggleLegacyPermission(runtime, 'yolo', emit);
@@ -156,21 +155,25 @@ async function runPlanCommand(
   }
   if (subcommand === 'clear') {
     await runtime.session.clearPlan();
-    emit('Plan cleared.');
+    emit(t('slashCommand.planCleared'));
     return;
   }
   const status = await runtime.session.getStatus();
   const enabled = subcommand === 'on' ? true : subcommand === 'off' ? false : !status.planMode;
   if (subcommand && subcommand !== 'on' && subcommand !== 'off') {
-    throw new Error(`Unknown plan subcommand: ${subcommand}`);
+    throw new Error(t('slashCommand.planUnknownSubcommand', { subcommand }));
   }
   if (status.planMode !== enabled) await runtime.session.setPlanMode(enabled);
   if (!enabled) {
-    emit('Plan mode OFF. All tools are now available.');
+    emit(t('slashCommand.planOff'));
     return;
   }
   const plan = await runtime.session.getPlan().catch(() => null);
-  emit(plan?.path ? `Plan mode ON. Plan file: ${plan.path}` : 'Plan mode ON.');
+  emit(
+    plan?.path
+      ? t('slashCommand.planOnWithPath', { path: plan.path })
+      : t('slashCommand.planOn'),
+  );
 }
 
 async function runAddDirCommand(
@@ -183,13 +186,15 @@ async function runAddDirCommand(
     const dirs = runtime.session.summary?.additionalDirs ?? [];
     emit(
       dirs.length === 0
-        ? 'No additional directories. Usage: /add-dir <path>'
-        : ['Additional directories:', ...dirs.map((path) => `  - ${path}`)].join('\n'),
+        ? t('slashCommand.noAdditionalDirs')
+        : [t('slashCommand.additionalDirsHeader'), ...dirs.map((path) => `  - ${path}`)].join(
+            '\n',
+          ),
     );
     return;
   }
   const result = await runtime.session.addAdditionalDir(input, { persist: false });
-  emit(`Added directory to workspace: ${result.additionalDirs.at(-1) ?? input}`);
+  emit(t('slashCommand.dirAdded', { path: result.additionalDirs.at(-1) ?? input }));
 }
 
 async function exportContext(
@@ -199,7 +204,7 @@ async function exportContext(
 ): Promise<void> {
   const context = await runtime.session.getContext();
   if (context.history.length === 0) {
-    emit('No messages to export.');
+    emit(t('session.noMessagesToExport'));
     return;
   }
   const now = new Date();
@@ -215,13 +220,15 @@ async function exportContext(
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, markdown, 'utf8');
   emit(
-    `Exported ${String(context.history.length)} messages to ${outputPath}\n\n` +
-      'Note: The exported file may contain sensitive information. Please be cautious when sharing it externally.',
+    t('session.exportCount', { count: String(context.history.length), path: outputPath }) +
+      '\n\n' +
+      t('session.exportNote'),
   );
+  const openFileLabel = t('session.openFile');
   void vscode.window
-    .showInformationMessage('Kimi: Session exported.', 'Open File')
+    .showInformationMessage(t('session.exported'), openFileLabel)
     .then((action) => {
-      if (action !== 'Open File') return;
+      if (action !== openFileLabel) return;
       void vscode.window.showTextDocument(vscode.Uri.file(outputPath));
     });
 }
@@ -232,21 +239,24 @@ async function importContext(
   ctx: HandlerContext,
 ): Promise<{ message: string; sensitive: boolean }> {
   const target = stripMatchingQuotes(args.trim());
-  if (!target) throw new Error('Usage: /import <file_path or session_id>');
+  if (!target) throw new Error(t('slashCommand.importUsage'));
 
   const candidate = resolveUserPath(target, runtime.session.workDir);
   const file = await fileInfo(candidate);
-  if (file?.isDirectory())
-    throw new Error('The specified path is a directory; please provide a file to import.');
+  if (file?.isDirectory()) throw new Error(t('slashCommand.importIsDirectory'));
   if (file?.isFile()) {
     if (!isImportableTextFile(candidate)) {
       throw new Error(
-        `Unsupported file type '${candidate.slice(candidate.lastIndexOf('.'))}'. /import only supports text-based files.`,
+        t('slashCommand.importUnsupportedType', {
+          ext: candidate.slice(candidate.lastIndexOf('.')),
+        }),
       );
     }
     if (file.size > MAX_IMPORT_BYTES) {
       throw new Error(
-        `File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum import size is 10 MB.`,
+        t('slashCommand.importTooLarge', {
+          size: (file.size / 1024 / 1024).toFixed(1),
+        }),
       );
     }
     const bytes = await readFile(candidate);
@@ -254,39 +264,45 @@ async function importContext(
     try {
       content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     } catch {
-      throw new Error(`Cannot import '${basename(candidate)}': the file is not valid UTF-8 text.`);
+      throw new Error(t('slashCommand.importNotUtf8', { file: basename(candidate) }));
     }
-    if (!content.trim()) throw new Error('The file is empty, nothing to import.');
-    const source = `file '${basename(candidate)}'`;
+    if (!content.trim()) throw new Error(t('slashCommand.importEmpty'));
+    const source = t('slashCommand.sourceFile', { file: basename(candidate) });
     await runtime.session.importContext(content, source);
     return {
-      message: `Imported context from ${source} (${String(content.length)} chars).`,
+      message: t('slashCommand.importedFrom', {
+        source,
+        count: String(content.length),
+      }),
       sensitive: isSensitiveFile(basename(candidate)),
     };
   }
 
-  if (target === runtime.id) throw new Error('Cannot import the current session into itself.');
+  if (target === runtime.id) throw new Error(t('slashCommand.importSelf'));
   const summary = (
     await ctx.harness.listSessions({
       workDir: runtime.session.workDir,
       sessionId: target,
     })
   ).find((session) => session.id === target);
-  if (summary === undefined) throw new Error(`'${target}' is not a valid file path or session ID.`);
+  if (summary === undefined) throw new Error(t('slashCommand.importBadTarget', { target }));
 
   const activeSource = ctx.runtime.getSession(target)?.session;
   const sourceSession = activeSource ?? (await ctx.harness.resumeSession({ id: target }));
   try {
     const sourceContext = await sourceSession.getContext();
-    if (sourceContext.history.length === 0) throw new Error('The source session has no messages.');
+    if (sourceContext.history.length === 0) throw new Error(t('slashCommand.importNoMessages'));
     const content = stringifyContextHistory(sourceContext.history);
     if (Buffer.byteLength(content, 'utf8') > MAX_IMPORT_BYTES) {
-      throw new Error('Session content is too large. Maximum import size is 10 MB.');
+      throw new Error(t('slashCommand.importSessionTooLarge'));
     }
-    const source = `session '${target}'`;
+    const source = t('slashCommand.sourceSession', { id: target });
     await runtime.session.importContext(content, source);
     return {
-      message: `Imported context from ${source} (${String(content.length)} chars).`,
+      message: t('slashCommand.importedFrom', {
+        source,
+        count: String(content.length),
+      }),
       sensitive: false,
     };
   } finally {

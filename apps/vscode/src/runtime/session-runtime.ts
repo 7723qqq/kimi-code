@@ -22,6 +22,7 @@ import {
   legacyApprovalMetadata,
   type LegacyApprovalFlags,
 } from './legacy-approval';
+import { t } from '../i18n';
 import { ReverseRpcController } from './reverse-rpc';
 
 export type RuntimeBroadcast = (event: string, data: unknown, webviewId?: string) => void;
@@ -305,10 +306,10 @@ export class SessionRuntime {
 
   async compactHostAction(actionId: number, instruction?: string): Promise<void> {
     if (!this.hostActionActive || actionId !== this.activeHostActionId) {
-      throw new Error('The host action is no longer active.');
+      throw new Error(t('errors.hostActionInactive'));
     }
     if (this.pendingHostCompaction !== undefined) {
-      throw new Error('A context compaction is already running.');
+      throw new Error(t('errors.compactionAlreadyRunning'));
     }
 
     let resolveCompletion!: (result: 'completed' | 'cancelled') => void;
@@ -334,7 +335,7 @@ export class SessionRuntime {
 
     const result = await completion;
     if (result === 'cancelled') {
-      throw new Error('Context compaction was cancelled.');
+      throw new Error(t('errors.compactionCancelled'));
     }
   }
 
@@ -373,7 +374,7 @@ export class SessionRuntime {
   async runExclusiveAfterCancelling<T>(action: () => Promise<T>): Promise<T> {
     this.ensureOpen();
     if (this.exclusiveActionActive) {
-      throw new Error('Another session operation is already in progress.');
+      throw new Error(t('errors.sessionOpInProgress'));
     }
 
     this.exclusiveActionActive = true;
@@ -640,7 +641,7 @@ export class SessionRuntime {
   }
 
   private ensureOpen(): void {
-    if (this.closed) throw new Error('Session is closed.');
+    if (this.closed) throw new Error(t('errors.sessionClosed'));
   }
 }
 

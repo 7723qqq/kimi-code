@@ -7,6 +7,7 @@ import {
 } from '@moonshot-ai/kimi-code-sdk';
 import { setTelemetryContext, track, withTelemetryContext } from '@moonshot-ai/kimi-telemetry';
 
+import { t } from '../i18n';
 import { areSameFsPath } from '../utils/fs-path';
 import {
   corePermissionForLegacyApproval,
@@ -287,7 +288,7 @@ export class KimiRuntime {
   }
 
   private ensureOpen(): void {
-    if (this.closed) throw new Error('Kimi runtime is closed.');
+    if (this.closed) throw new Error(t('errors.runtimeClosed'));
   }
 }
 
@@ -318,6 +319,6 @@ function flagsDiffer(a: LegacyApprovalFlags, b: LegacyApprovalFlags): boolean {
 
 function assertSessionWorkDir(session: Pick<Session, 'workDir'>, expectedWorkDir: string): void {
   if (!areSameFsPath(session.workDir, expectedWorkDir)) {
-    throw new Error('The selected session belongs to a different working directory.');
+    throw new Error(t('errors.sessionDifferentWorkDir'));
   }
 }

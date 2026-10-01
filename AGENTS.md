@@ -65,10 +65,13 @@ LocalizedText::with_params(
 ```
 
 Locale keys live under `engine.*` in `packages/i18n-catalog/src/locales/{en,zh}.ts`
-— the single owner of the whole locale catalog, 2419 leaves across 24 top-level
+— the single owner of the whole locale catalog, 2358 leaves across 16 top-level
 namespaces (the host installs them via `setEngineLocale`; see `packages/i18n-runtime` and
 `apps/kimi-code/src/i18n`). Run `bun run check:engine-i18n` after any change — CI
-gates on it.
+gates on it. The count is a hand-synced snapshot, not a gated fact: no gate compares
+it, so a commit that adds or drops keys leaves it stale (it last drifted when
+`fc0aee5661` dropped the eight zero-reference `v2*` namespaces, 2429 → 2358). Re-derive
+it from `packages/i18n-catalog/src/locales/en.ts` when you touch the catalog.
 
 ### Hard rules
 
@@ -109,6 +112,13 @@ gates on it.
   see. Surfacing it needs a protocol change, tracked separately.
 - **Informational footers are still English** — "Total lines in file: N.",
   "Showing matches X–Y of Z.", "Continue with the same search arguments…".
+  These live in the Rust engine (`tools/mod.rs` around the Read / Grep result
+  builders, beside `engine.tools.grep.noFilesMatched`, which *is* localized), and
+  **no gate can catch them**: `scan:hardcoded`'s six `MODULES` are all TypeScript
+  trees, so `packages/kimi-agent` has zero hardcoded-string coverage. Do not "fix"
+  this by adding a Rust scan — that would also sweep in the model-input
+  scaffolding and wire tokens listed above. The judgement call (UI or protocol?)
+  is the user's; see the What not to translate section.
 
 ### Known rough edges
 
@@ -122,7 +132,7 @@ gates on it.
   `{{name}}` needs two links to hold, and they are checked separately:
   `check:engine-i18n`'s `PARAMS` rule compares each `with_params` site's bound
   `i18n_params!` names against the `{{placeholders}}` in `locales/en.json`, and
-  `bun scripts/check-locale-placeholders.cjs` compares `en` against `zh` in
+  `bun run check:locale-placeholders` compares `en` against `zh` in
   `packages/i18n-catalog/src/locales/{en,zh}.ts` — the sources
   `generate-locale-json.cjs` embeds. Run both. The residue neither covers: a
   catalog key no `LocalizedText` names has no `i18n_params!` to check, so its
@@ -270,7 +280,7 @@ Debug visualization tool for kimi-code sessions. Composed of `vis/server` (backe
 
 ```
 packages/
-  i18n-catalog/        — The single locale catalog (en/zh, 2419 keys); its JSON is generated into packages/kimi-agent/src/locales/
+  i18n-catalog/        — The single locale catalog (en/zh, 2358 keys — hand-synced snapshot, see above); its JSON is generated into packages/kimi-agent/src/locales/
   i18n-runtime/        — Shared i18n infrastructure (t() with en/zh support)
   i18n-shared/         — Shared i18n core (types, locale detection, web-safe)
   kaos/                — Execution environment abstraction (local / ssh / login-shell)
@@ -311,6 +321,7 @@ plugins/
 scripts/
   generate-locale-json.cjs      — Generate locale JSON from translation source
   check-locale-keys.mjs         — Check locale key coverage
+  check-locale-orphans.mjs      — Ratchet orphan keys across both consumers (`locale-orphan-allowlist.json` holds the accepted debt)
   check-locale-placeholders.cjs — Validate i18n placeholder consistency
   check-nix-workspace.mjs       — Validate flake.nix vs workspace membership
   check-no-comments.mjs         — Enforce no-comment policy (transcript)
@@ -319,8 +330,28 @@ scripts/
   scan-parity.mjs               — Rust ↔ TS interface parity (REST / WS events / WS control / tool names / napi / config keys)
   check-engine-i18n-parity.mjs  — Engine key-set consistency (key exists, no `engine.*` orphan, `i18n_params!` names match the en template's `{{placeholders}}`)
   check-no-legacy-engine.mjs    — Fail if a retired engine package is still referenced
+  check-upstream-v2-delta.mjs   — Retired-package upstream delta ratchet (`upstream-v2-delta-allowlist.json`)
+  check-architecture-drift.mjs  — Architecture drift vs `architecture.json` (layers, acyclicity, exemptions)
+  check-roadmap-refs.mjs        — Divergence-ledger citation gate
   prompt-optimizer/             — Prompt benchmark and optimization tools
 ```
+
+Every gate above has a `package.json` entry (`check:*` / `scan:*`) and runs in CI; `check:architecture` and
+`check:normify` additionally gate on `architecture.json` and `normify-kimi-code/` respectively. When adding a
+gate script, add the `package.json` entry in the same commit — an ungated entry point is a gate a developer
+cannot run from the documented commands.
+
+Two gates fail for environment reasons rather than code defects, and neither failure is a green run:
+
+- `check:upstream-v2-delta` exits **2** when `refs/remotes/upstream/main` cannot be resolved (a clone without
+  the upstream remote, or a stale ref). It refuses to pass on purpose — an unavailable upstream is
+  indistinguishable from having no deltas. Fetch first: `git fetch upstream main:refs/remotes/upstream/main --force`.
+- `scan:hardcoded` scans only the six TypeScript trees in its `MODULES` list. `packages/kimi-agent` has no
+  hardcoded-string coverage, so a green run is not a statement about the Rust engine. The VS Code extension
+  is split across two entries — `vscode-webview` and `vscode-extension-host` — because the two halves keep
+  **disjoint catalogs** (`webview-ui/src/i18n` vs `src/i18n`). The host detects its locale from
+  `vscode.env.language` (the webview cannot reach the editor API); it resolves that through a lazy
+  `require('vscode')`, never a top-level import, so tests that mock nothing still load the module.
 
 ---
 
@@ -406,7 +437,7 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job install
 3. **test-rust** — `cargo fmt --check` + `cargo clippy --all-targets --features cli -- -D warnings` (Ubuntu only), then `cargo test --no-default-features --features cli,workflow-js` on Ubuntu and Windows
 4. **test-windows** — the full vitest suite on `windows-latest` (napi addon built first), so Windows-only regressions are caught
 5. **test-pi-tui** — `pi-tui` suite (dispatches to `bun test` under Bun and `node --test` under Node; CI runs it via Bun)
-6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, `check-no-legacy-engine.mjs`, `check-nix-workspace.mjs`, two architecture gates (`check:architecture` = `architecture.json`; `check:normify` = `normify-kimi-code/`), the divergence-ledger citation gate (`check-roadmap-refs.mjs`), Rust ↔ TS interface parity (`scan-parity.mjs`), no-comment policy (`check-no-comments.mjs`), `t()` coverage (`check-t-call-coverage.mjs`), engine i18n parity (`check-engine-i18n-parity.mjs`), hardcoded-string scan (`scan-hardcoded-v2.mjs`), retired-package upstream delta ratchet (`check-upstream-v2-delta.mjs`), locale key parity (`check-locale-keys.mjs`), catalog-wide orphan ratchet (`check:locale-orphans`, both consumers — engine `LocalizedText` and host `t()` — with the accepted debt in `scripts/locale-orphan-allowlist.json`), locale placeholder validity (`check-locale-placeholders.cjs`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
+6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, `check:no-legacy-engine`, `check:nix-workspace`, two architecture gates (`check:architecture` = `architecture.json`; `check:normify` = `normify-kimi-code/`), the divergence-ledger citation gate (`check:roadmap-refs`), Rust ↔ TS interface parity (`check:parity`), no-comment policy (`check:no-comments`), `t()` coverage (`check:t-call-coverage`), engine i18n parity (`check:engine-i18n`), hardcoded-string scan (`scan:hardcoded`, TypeScript trees only), retired-package upstream delta ratchet (`check:upstream-v2-delta`), locale key parity (`check:locale-keys`), catalog-wide orphan ratchet (`check:locale-orphans`, both consumers — engine `LocalizedText` and host `t()` — with the accepted debt in `scripts/locale-orphan-allowlist.json`), locale placeholder validity (`check:locale-placeholders`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
 7. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
 8. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-agent && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test.
 9. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
@@ -480,9 +511,11 @@ Pushes to `main` run `release.yml`: the changesets action opens/updates a **"ci:
 
 - All user-facing strings must use `t()` calls from the i18n framework.
 - Supported locales: `en` (English), `zh` (Chinese).
-- Locale JSON must be regenerated after translation changes: `bun scripts/generate-locale-json.cjs`. It reads `packages/i18n-catalog/src/locales/{en,zh}.ts` and writes `packages/kimi-agent/src/locales/{en,zh}.json`, which CI diffs for drift.
-- Run `bun scripts/scan-hardcoded-v2.mjs` to find hardcoded strings that should be localized.
-- Run `bun scripts/check-locale-placeholders.cjs` to validate placeholder consistency.
+- Locale JSON must be regenerated after translation changes: `bun run generate:locale-json`. It reads `packages/i18n-catalog/src/locales/{en,zh}.ts` and writes `packages/kimi-agent/src/locales/{en,zh}.json`, which CI diffs for drift.
+- Run `bun run scan:hardcoded` to find hardcoded strings that should be localized.
+  It covers the six TypeScript trees in its `MODULES` list; the Rust engine is not
+  among them, so a green run says nothing about `packages/kimi-agent`.
+- Run `bun run check:locale-placeholders` to validate placeholder consistency.
 
 ---
 

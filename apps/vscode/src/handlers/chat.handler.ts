@@ -6,6 +6,7 @@ import { getUserMessage } from '../../shared/errors';
 import type { ApprovalResponse, ContentPart } from '../../shared/legacy-sdk';
 import type { ErrorPhase } from '../../shared/types';
 import { VSCodeSettings } from '../config/vscode-settings';
+import { t } from '../i18n';
 import { normalizeEffort } from '../runtime/kimi-runtime';
 import type { SessionRuntime } from '../runtime/session-runtime';
 import { isWorkspacePathContained, relativeWorkspacePath } from '../utils/workspace-path';
@@ -80,9 +81,9 @@ function prependSystemContext(
 
 const streamChat: Handler<StreamChatParams, { done: boolean }> = async (params, ctx) => {
   if (!ctx.workDir) {
-    emitPreflightError(ctx, 'NO_WORKSPACE', 'Please open a folder to start.');
+    emitPreflightError(ctx, 'NO_WORKSPACE', t('chat.noWorkspacePreflight'));
     void vscode.window
-      .showWarningMessage('Kimi: Please open a folder first.', 'Open Folder')
+      .showWarningMessage(t('chat.openFolderFirst'), t('chat.openFolder'))
       .then((action) => {
         if (action) void vscode.commands.executeCommand('vscode.openFolder');
       });
@@ -168,7 +169,7 @@ const respondApproval: Handler<RespondApprovalParams, { ok: boolean }> = async (
 
 const respondQuestion: Handler<RespondQuestionParams, { ok: boolean }> = async (params, ctx) => {
   const id = params.questionRequestId;
-  if (!id) throw new Error('Missing questionRequestId');
+  if (!id) throw new Error(t('errors.missingQuestionRequestId'));
   return { ok: ctx.getSession()?.respondQuestion(id, params.answers) ?? false };
 };
 

@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 import { Events, Methods } from '../../shared/bridge';
 import type { SessionInfo } from '../../shared/legacy-sdk';
 import type { BaselineSession } from '../managers/baseline.manager';
+import { t } from '../i18n';
 import { replaySessionToWebviewEvents } from '../runtime/replay-adapter';
 import { areSameFsPath, isFsPathInsideOrEqual } from '../utils/fs-path';
 import { isWorkspacePathContained, workDirUriFromPath } from '../utils/workspace-path';
@@ -93,14 +94,14 @@ export const sessionHandlers: Record<string, Handler<any, any>> = {
 
     const picked = await vscode.window.showQuickPick(
       [
-        { label: '$(folder) Browse...', description: 'Open folder picker', alwaysShow: true },
+        { label: t('ui.browse'), description: t('ui.openFolderPicker'), alwaysShow: true },
         { label: '', kind: vscode.QuickPickItemKind.Separator },
         ...subdirectories.map((name) => ({
           label: `$(folder) ${name}`,
           description: path.join(ctx.workspaceRoot!, name),
         })),
       ],
-      { placeHolder: 'Select a subdirectory or browse...', title: 'Working Directory' },
+      { placeHolder: t('ui.selectSubdirectory'), title: t('ui.workingDirectory') },
     );
     if (!picked) return { ok: false, workDir: null };
 
@@ -124,7 +125,7 @@ export const sessionHandlers: Record<string, Handler<any, any>> = {
     }
 
     if (!(await isWorkspacePathContained(workspaceUri, selectedUri))) {
-      await vscode.window.showWarningMessage('Selected directory must be within the workspace.');
+      await vscode.window.showWarningMessage(t('session.outsideWorkspace'));
       return { ok: false, workDir: null };
     }
     const selected = selectedUri.fsPath;
@@ -137,14 +138,14 @@ export const sessionHandlers: Record<string, Handler<any, any>> = {
     const runtime = await ctx.resumeSession(params.kimiSessionId);
     if (!areSameFsPath(runtime.session.workDir, ctx.workDir)) {
       await ctx.closeSession();
-      throw new Error('The selected session belongs to a different working directory.');
+      throw new Error(t('errors.sessionDifferentWorkDir'));
     }
 
     let history: ReturnType<typeof replaySessionToWebviewEvents>;
     try {
       const resumeState = runtime.session.getResumeState();
       if (resumeState?.agents['main'] === undefined) {
-        throw new Error('Session history is unavailable.');
+        throw new Error(t('errors.sessionHistoryUnavailable'));
       }
       history = replaySessionToWebviewEvents(resumeState, runtime.id);
     } catch (error) {
@@ -232,7 +233,7 @@ export const sessionHandlers: Record<string, Handler<any, any>> = {
       const targetSummary = fork.summary;
       if (targetSummary === undefined) {
         await fork.close();
-        throw new Error('Forked session metadata is unavailable.');
+        throw new Error(t('errors.forkMetadataUnavailable'));
       }
 
       let materializeError: unknown;

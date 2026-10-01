@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { Events } from '../shared/bridge';
 import { onSettingsChange, VSCodeSettings } from './config/vscode-settings';
 import { KimiWebviewProvider } from './KimiWebviewProvider';
+import { t } from './i18n';
 import { activateExtensionTelemetry, deactivateExtensionTelemetry } from './telemetry';
 import { updateLoginContext } from './utils/context';
 
@@ -68,7 +69,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await context.globalState.update('kimi.config', undefined);
       await context.globalState.update('kimi.mcpServers', undefined);
       await context.workspaceState.update('kimi.mcpEnabled', undefined);
-      await vscode.window.showInformationMessage('Kimi: Extension UI state cleared.');
+      await vscode.window.showInformationMessage(t('commands.stateCleared'));
     },
     'kimi.openInTab': () => {
       provider?.createPanel();
@@ -83,14 +84,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'kimi.insertMention': async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
-        await vscode.window.showWarningMessage('No active editor');
+        await vscode.window.showWarningMessage(t('commands.noActiveEditor'));
         return;
       }
       await vscode.commands.executeCommand('kimi.webview.focus');
       if (!(await provider?.insertEditorMention(editor.document.uri, editor.selection))) {
-        await vscode.window.showWarningMessage(
-          'The active file is outside the selected working directory.',
-        );
+        await vscode.window.showWarningMessage(t('commands.fileOutsideWorkspace'));
       }
     },
     'kimi.newConversation': async () => {
@@ -101,7 +100,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'kimi.resetKimi': () => provider?.resetAllWebviews(),
     'kimi.logout': async () => {
       await vscode.commands.executeCommand('kimi.webview.focus');
-      await vscode.window.showInformationMessage('Use the logout button in Kimi settings.');
+      await vscode.window.showInformationMessage(t('commands.useLogoutButton'));
     },
   };
 

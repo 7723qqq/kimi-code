@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 
 import { validateRpcMessage, type RpcMethod, type RpcResult } from '../shared/bridge';
 import { VSCodeSettings } from './config/vscode-settings';
+import { t } from './i18n';
 import {
   handlers,
   type BroadcastFn,
@@ -51,7 +52,9 @@ export class BridgeHandler {
       });
     } catch (error) {
       throw new Error(
-        `Failed to start the Kimi engine: ${error instanceof Error ? error.message : String(error)}.`,
+        t('errors.engineStartFailed', {
+          message: error instanceof Error ? error.message : String(error),
+        }),
         { cause: error },
       );
     }
@@ -107,14 +110,14 @@ export class BridgeHandler {
     const workspaceRoot = this.workspaceRoot;
     const workspaceRootUri = this.workspaceRootUri;
     if (workspaceRoot === null || workspaceRootUri === null)
-      throw new Error('No workspace folder open');
+      throw new Error(t('errors.noWorkspaceFolder'));
     if (workDir !== null) {
       const workDirUri = workDirUriFromPath(workspaceRootUri, workspaceRoot, workDir);
       if (
         workDirUri === undefined ||
         !(await isWorkspacePathContained(workspaceRootUri, workDirUri))
       ) {
-        throw new Error('Working directory must be within the workspace');
+        throw new Error(t('errors.workDirOutsideWorkspace'));
       }
     }
     if (workDir && workDir !== this.workspaceRoot) {
@@ -128,19 +131,19 @@ export class BridgeHandler {
 
   private requireWorkDir(webviewId: string): string {
     const workDir = this.getWorkDir(webviewId);
-    if (!workDir) throw new Error('No workspace folder open');
+    if (!workDir) throw new Error(t('errors.noWorkspaceFolder'));
     return workDir;
   }
 
   private requireWorkDirUri(webviewId: string): vscode.Uri {
     const workDirUri = this.getWorkDirUri(webviewId);
-    if (!workDirUri) throw new Error('No workspace folder open');
+    if (!workDirUri) throw new Error(t('errors.noWorkspaceFolder'));
     return workDirUri;
   }
 
   private async dispatch(method: RpcMethod, params: unknown, webviewId: string): Promise<unknown> {
     const handler = handlers[method];
-    if (handler === undefined) throw new Error(`Unknown method: ${method}`);
+    if (handler === undefined) throw new Error(t('errors.unknownMethod', { method }));
     return handler(params, this.createContext(webviewId));
   }
 
@@ -187,7 +190,7 @@ export class BridgeHandler {
               this.logRuntimeError('Unable to close a rejected session', error);
             });
           }
-          throw new Error('The selected session belongs to a different working directory.');
+          throw new Error(t('errors.sessionDifferentWorkDir'));
         }
         const runtime = await this.runtime.attachResumedSession(
           webviewId,
@@ -295,7 +298,7 @@ export class BridgeHandler {
   async getBaselineContent(sessionId: string, filePath: string): Promise<string> {
     const active = this.runtime.getSession(sessionId)?.summary;
     const summary = active ?? (await this.runtime.harness.listSessions({ sessionId }))[0];
-    if (summary === undefined) throw new Error('Session was not found.');
+    if (summary === undefined) throw new Error(t('errors.sessionNotFound'));
     return this.baselineManager.getContent(baselineSummary(summary), filePath);
   }
 

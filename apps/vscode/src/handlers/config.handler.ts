@@ -15,31 +15,40 @@ import type {
 } from '../../shared/legacy-sdk';
 import type { ExtensionConfig, SessionConfig } from '../../shared/types';
 import { VSCodeSettings } from '../config/vscode-settings';
+import { t } from '../i18n';
 import type { Handler } from './types';
 
-const SLASH_COMMANDS: SlashCommandInfo[] = [
-  { name: 'init', aliases: [], description: 'Analyze the codebase and generate AGENTS.md' },
-  { name: 'compact', aliases: [], description: 'Compact the conversation context' },
-  { name: 'clear', aliases: ['reset'], description: 'Clear the context' },
-  {
-    name: 'yolo',
-    aliases: [],
-    description: 'Toggle YOLO mode (auto-approve tool actions; may still ask questions)',
-  },
-  {
-    name: 'auto',
-    aliases: ['afk'],
-    description: 'Toggle Auto mode (fully autonomous; the agent will not ask questions)',
-  },
-  { name: 'plan', aliases: [], description: 'Toggle plan mode. Usage: /plan [on|off|view|clear]' },
-  {
-    name: 'add-dir',
-    aliases: [],
-    description: 'Add a directory to the workspace. Usage: /add-dir <path>',
-  },
-  { name: 'export', aliases: [], description: 'Export current session context to a markdown file' },
-  { name: 'import', aliases: [], description: 'Import context from a file or session ID' },
-];
+/**
+ * Built per call rather than at module load: `t()` reads `vscode.env.language`,
+ * which is only reliable once the extension host has activated, while this
+ * module is imported during activation. A module-level table would freeze the
+ * first locale it saw.
+ */
+function slashCommands(): SlashCommandInfo[] {
+  return [
+    { name: 'init', aliases: [], description: t('slashCommandDescriptions.init') },
+    { name: 'compact', aliases: [], description: t('slashCommandDescriptions.compact') },
+    { name: 'clear', aliases: ['reset'], description: t('slashCommandDescriptions.clear') },
+    {
+      name: 'yolo',
+      aliases: [],
+      description: t('slashCommandDescriptions.yolo'),
+    },
+    {
+      name: 'auto',
+      aliases: ['afk'],
+      description: t('slashCommandDescriptions.auto'),
+    },
+    { name: 'plan', aliases: [], description: t('slashCommandDescriptions.plan') },
+    {
+      name: 'add-dir',
+      aliases: [],
+      description: t('slashCommandDescriptions.addDir'),
+    },
+    { name: 'export', aliases: [], description: t('slashCommandDescriptions.export') },
+    { name: 'import', aliases: [], description: t('slashCommandDescriptions.import') },
+  ];
+}
 
 const saveConfig: Handler<SessionConfig, { ok: boolean }> = async (params, ctx) => {
   const effort = sessionConfigEffort(params);
@@ -94,7 +103,7 @@ const getModels: Handler<void, WebviewKimiConfig> = async (_, ctx) => {
 };
 
 const getSlashCommands: Handler<void, SlashCommandInfo[]> = async (_, ctx) => {
-  if (!ctx.workDir) return SLASH_COMMANDS;
+  if (!ctx.workDir) return slashCommands();
   try {
     const skills = await ctx.harness.listWorkspaceSkills(ctx.workDir);
     const skillCommands = skills
@@ -105,10 +114,10 @@ const getSlashCommands: Handler<void, SlashCommandInfo[]> = async (_, ctx) => {
         aliases: [],
         description: skill.description ?? '',
       }));
-    return [...SLASH_COMMANDS, ...skillCommands];
+    return [...slashCommands(), ...skillCommands];
   } catch (error) {
     ctx.logError('Unable to list workspace skills', error);
-    return SLASH_COMMANDS;
+    return slashCommands();
   }
 };
 
