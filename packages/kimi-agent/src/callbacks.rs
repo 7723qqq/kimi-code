@@ -37,6 +37,15 @@ pub trait HostCallbacks: Send + Sync {
         request: LlmChatRequest,
     ) -> BoxFuture<'static, Result<LlmChatResponse, String>>;
 
+    /// The user-configured external-hook gate for this pipeline (G-6 #6),
+    /// when one was built — lets engine subsystems that only hold
+    /// `Arc<dyn HostCallbacks>` (the Agent tool spawners, the swarm
+    /// launcher) dispatch the observe-only session hook events. `None`
+    /// when hooks were not configured for this session.
+    fn hook_guard(&self) -> Option<Arc<crate::tools::external_hooks::HookGuard>> {
+        None
+    }
+
     /// Send a tool execution request to the JS host and return the response.
     fn execute_tool(
         &self,
@@ -588,6 +597,10 @@ pub type PlanGuard =
     dyn Fn(&str, &serde_json::Value) -> BoxFuture<'static, Option<String>> + Send + Sync;
 
 impl HostCallbacks for NativeToolCallbacks {
+    fn hook_guard(&self) -> Option<Arc<crate::tools::external_hooks::HookGuard>> {
+        self.hook_guard.clone()
+    }
+
     /// Arm native file-history capture on the wrapped toolset. This is the
     /// production wiring point: `write` / `edit` record a
     /// `session_file_history` row only when a recorder is installed, and
@@ -798,6 +811,19 @@ impl HostCallbacks for NativeToolCallbacks {
                         }))
                     }
                     crate::permission::VerdictDecision::Ask => {
+                        // v2 `PermissionApprovalRequested` (fire-and-forget): the
+                        // request edge of an interactive approval.
+                        if let Some(ref guard) = this.hook_guard {
+                            guard
+                                .notify_permission_request(
+                                    &request.tool_name,
+                                    &request.tool_call_id,
+                                    &request.turn_id,
+                                    &request.arguments,
+                                    verdict.reason.as_deref(),
+                                )
+                                .await;
+                        }
                         this.inner
                             .check_permission(PermissionCheckRequest {
                                 tool_name: request.tool_name.clone(),
@@ -814,6 +840,20 @@ impl HostCallbacks for NativeToolCallbacks {
                     }
                 }
             } else {
+                // The host owns this tool entirely: the Ask edge still exists
+                // (the host will prompt), so the hook event fires with a
+                // `None` reason, mirroring the local-engine ask path.
+                if let Some(ref guard) = this.hook_guard {
+                    guard
+                        .notify_permission_request(
+                            &request.tool_name,
+                            &request.tool_call_id,
+                            &request.turn_id,
+                            &request.arguments,
+                            None,
+                        )
+                        .await;
+                }
                 this.inner
                     .check_permission(PermissionCheckRequest {
                         tool_name: request.tool_name.clone(),
@@ -826,6 +866,24 @@ impl HostCallbacks for NativeToolCallbacks {
                     })
                     .await?
             };
+            // v2 `PermissionApprovalResolved`: the decision edge, with the
+            // allow/deny verdict mapped to upstream's approved/rejected.
+            if let Some(ref guard) = this.hook_guard {
+                guard
+                    .notify_permission_result(
+                        &request.tool_name,
+                        &request.tool_call_id,
+                        &request.turn_id,
+                        &request.arguments,
+                        if decision.is_allow() {
+                            "approved"
+                        } else {
+                            "rejected"
+                        },
+                        decision.reason.as_deref(),
+                    )
+                    .await;
+            }
             if !decision.is_allow() {
                 let reason = decision.reason.unwrap_or_else(|| {
                     LocalizedText::new("engine.permission.deniedByHostPermission").render()
@@ -1279,6 +1337,10 @@ impl CountingCallbacks {
 }
 
 impl HostCallbacks for CountingCallbacks {
+    fn hook_guard(&self) -> Option<Arc<crate::tools::external_hooks::HookGuard>> {
+        self.inner.hook_guard()
+    }
+
     fn llm_chat(
         &self,
         request: LlmChatRequest,
@@ -1389,6 +1451,10 @@ pub struct StateStoreCallbacks {
 }
 
 impl HostCallbacks for StateStoreCallbacks {
+    fn hook_guard(&self) -> Option<Arc<crate::tools::external_hooks::HookGuard>> {
+        self.inner.hook_guard()
+    }
+
     fn llm_chat(
         &self,
         request: LlmChatRequest,
@@ -3098,6 +3164,50 @@ mod tests {
         );
         assert_eq!(native_count.load(Ordering::Relaxed), 1);
         assert_eq!(executed.load(Ordering::Relaxed), 0);
+    }
+
+    /// The permission hook wiring on the host-owned edge (no local engine):
+    /// `PermissionRequest` fires before `check_permission` is asked, and
+    /// `PermissionResult` carries the resolved verdict — remove either dispatch
+    /// site and its capture file stays empty.
+    #[tokio::test]
+    async fn permission_hooks_fire_on_the_host_owned_edge() {
+        use crate::tools::external_hooks::capture;
+        let Some(dir) = capture::dir() else {
+            return;
+        };
+        let request = dir.path().join("permission-request.json");
+        let result = dir.path().join("permission-result.json");
+        let (_tool_dir, native, _executed, _native_count, permission_calls, _goal_reads, _events) =
+            hook_gate_setup(vec![
+                capture::hook("PermissionRequest", "Write", &request),
+                capture::hook("PermissionResult", "Write", &result),
+            ]);
+        let response = native
+            .execute_tool(ToolExecuteRequest {
+                agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
+                turn_id: "t".into(),
+                tool_call_id: "c1".into(),
+                tool_name: "Write".into(),
+                arguments: serde_json::json!({ "path": "a.txt", "content": "x" }),
+            })
+            .await
+            .unwrap();
+        assert!(!response.is_error);
+        assert_eq!(permission_calls.load(Ordering::Relaxed), 1);
+
+        let request_payload = capture::wait(&request).await;
+        assert_eq!(request_payload["hook_event_name"], "PermissionRequest");
+        assert_eq!(request_payload["tool_name"], "Write");
+        assert_eq!(request_payload["tool_call_id"], "c1");
+        assert_eq!(request_payload["turn_id"], "t");
+        // The host-owned edge carries no engine-side explanation.
+        assert!(request_payload.get("reason").is_none());
+
+        let result_payload = capture::wait(&result).await;
+        assert_eq!(result_payload["hook_event_name"], "PermissionResult");
+        assert_eq!(result_payload["tool_call_id"], "c1");
+        assert_eq!(result_payload["decision"], "approved");
     }
     /// A stub that answers questions, recording the request it received.
     struct AskQuestionCallbacks {

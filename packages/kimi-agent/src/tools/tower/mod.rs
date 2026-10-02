@@ -107,11 +107,12 @@ fn spawn_detached_run(
                     turn.stop_reason,
                     crate::turn_loop::types::LoopTurnStopReason::Aborted
                 ) {
-                    callbacks.emit_event(serde_json::json!({
-                        "type": "subagent.failed",
-                        "subagent_id": agent,
-                        "error": "The tower worker was stopped before it finished.",
-                    }));
+                    crate::tools::agent_tool::emit_failed(
+                        callbacks.as_ref(),
+                        &agent,
+                        TOWER_WORKER_PROFILE,
+                        "The tower worker was stopped before it finished.",
+                    );
                     // Record the death in the tower protocol so TowerStatus can
                     // flag the orphaned mission and suggest the resume hint.
                     if let Err(e) = store.mark_agent_dead(&agent).await {
@@ -123,31 +124,34 @@ fn spawn_detached_run(
                     }
                 } else {
                     let summary = crate::subagent::manager::final_assistant_summary(&turn.messages);
-                    callbacks.emit_event(serde_json::json!({
-                        "type": "subagent.completed",
-                        "subagent_id": agent,
-                        "result_summary": summary,
-                        "usage": crate::tools::agent_tool::usage_json(&turn.usage),
-                    }));
+                    crate::tools::agent_tool::emit_completed(
+                        callbacks.as_ref(),
+                        &agent,
+                        TOWER_WORKER_PROFILE,
+                        &summary,
+                        &turn.usage,
+                    );
                 }
             }
             Ok(crate::subagent::manager::ForegroundTurnOutcome::ParentCancelled) => {
-                callbacks.emit_event(serde_json::json!({
-                    "type": "subagent.failed",
-                    "subagent_id": agent,
-                    "error": "The tower worker was stopped by the user before it finished.",
-                }));
+                crate::tools::agent_tool::emit_failed(
+                    callbacks.as_ref(),
+                    &agent,
+                    TOWER_WORKER_PROFILE,
+                    "The tower worker was stopped by the user before it finished.",
+                );
                 let _ = store.mark_agent_dead(&agent).await;
             }
             Err(err) => {
                 if err.contains("rate limit") || err.contains("429") {
                     rate_limit.report_rate_limited();
                 }
-                callbacks.emit_event(serde_json::json!({
-                    "type": "subagent.failed",
-                    "subagent_id": agent,
-                    "error": err,
-                }));
+                crate::tools::agent_tool::emit_failed(
+                    callbacks.as_ref(),
+                    &agent,
+                    TOWER_WORKER_PROFILE,
+                    &err,
+                );
                 let _ = store.mark_agent_dead(&agent).await;
             }
         }
@@ -435,6 +439,7 @@ pub async fn execute_tower_spawn(
                 Some(&args.name),
                 true,
                 None,
+                &prompt,
             );
             slot.disarm();
             spawn_detached_run(
@@ -519,6 +524,7 @@ pub async fn execute_tower_spawn(
                 Some(&args.name),
                 true,
                 None,
+                &prompt,
             );
             slot.disarm();
             spawn_detached_run(

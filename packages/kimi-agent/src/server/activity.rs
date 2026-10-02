@@ -599,6 +599,10 @@ pub struct ActivityCallbacks {
 }
 
 impl HostCallbacks for ActivityCallbacks {
+    fn hook_guard(&self) -> Option<Arc<crate::tools::external_hooks::HookGuard>> {
+        self.inner.hook_guard()
+    }
+
     fn llm_chat(
         &self,
         request: LlmChatRequest,

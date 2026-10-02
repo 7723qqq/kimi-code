@@ -427,6 +427,8 @@ struct SessionContext {
     /// reason). The pump writes it when a turn settles; `run_session_turn`
     /// reads and clears it.
     last_turn_aborted: Arc<std::sync::atomic::AtomicBool>,
+    /// When the session's pump was created — `SessionHeartbeat` uptime.
+    created_at: std::time::Instant,
 }
 
 /// The turn lifecycle owner. A cloneable handle; the pump task runs turns
@@ -449,6 +451,10 @@ pub struct EngineSession {
     /// #3697: shared with the pump (per-turn refresh), the steer admission
     /// (trigger) and the native toolset's `WaitFor`.
     steer_slot: Option<Arc<std::sync::Mutex<Option<crate::subagent::types::ParentCancel>>>>,
+    /// Turn-lifecycle hook dispatch; mirrors [`SessionConfig::hook_guard`] so
+    /// `EngineSession` (the non-pump side) can fire the events the enqueue
+    /// path owns, like `UserPromptQueued`.
+    hook_guard: Option<Arc<crate::tools::external_hooks::HookGuard>>,
 }
 
 impl EngineSession {
@@ -493,11 +499,18 @@ impl EngineSession {
             media_dropped: Default::default(),
             telemetry: config.telemetry,
             last_turn_aborted: Arc::new(AtomicBool::new(false)),
+            created_at: std::time::Instant::now(),
         });
         let wakeup = Arc::new(Notify::new());
         let shutdown = Arc::new(AtomicBool::new(false));
         let callbacks = ctx.callbacks.clone();
-        tokio::spawn(pump(core.clone(), ctx, wakeup.clone(), shutdown.clone()));
+        tokio::spawn(pump(
+            core.clone(),
+            ctx.clone(),
+            wakeup.clone(),
+            shutdown.clone(),
+        ));
+        tokio::spawn(heartbeat(ctx, shutdown.clone()));
         Self {
             core,
             wakeup,
@@ -506,6 +519,7 @@ impl EngineSession {
             callbacks,
             agent_cancel_slot: config.agent_cancel_slot,
             steer_slot: config.steer_slot,
+            hook_guard: config.hook_guard.clone(),
         }
     }
 
@@ -537,6 +551,13 @@ impl EngineSession {
     pub fn enqueue_turn(&self, request: TurnRequest) -> Result<TurnReceipt, String> {
         let (outcome_tx, outcome_rx) = oneshot::channel();
         let mut core = self.core.lock().unwrap_or_else(|e| e.into_inner());
+        // v2 `publishPromptQueued`: a *user* prompt admitted behind an active
+        // turn (or parked by a quiescence guard) gets one hook event. Steer
+        // admissions never do — upstream routes them through `PromptSteered`,
+        // which has no hook.
+        let user_prompt = request.origin.get("kind").and_then(|kind| kind.as_str()) == Some("user");
+        let queued_behind_active = core.active_turn_id.is_some();
+        let prompt_text = request.prompt.content.clone();
         if core.quiescence_depth > 0 {
             // Quiescence: park the request. The id is allocated now (the
             // receipt is already in the caller's hands); admission happens on
@@ -550,6 +571,11 @@ impl EngineSession {
                 cancel: Arc::new(AtomicBool::new(false)),
                 outcome: Some(outcome_tx),
             });
+            let queue_length = core.held.len();
+            drop(core);
+            if user_prompt {
+                self.fire_user_prompt_queued(turn_id, &prompt_text, queue_length);
+            }
             return Ok(TurnReceipt {
                 turn_id,
                 outcome: outcome_rx,
@@ -564,10 +590,31 @@ impl EngineSession {
             &self.steer_slot,
             &self.wakeup,
         )?;
+        let queue_length = core.pending.len();
+        drop(core);
+        if user_prompt && queued_behind_active {
+            self.fire_user_prompt_queued(turn_id, &prompt_text, queue_length);
+        }
         Ok(TurnReceipt {
             turn_id,
             outcome: outcome_rx,
         })
+    }
+
+    /// Fire the `UserPromptQueued` hook event from the non-async enqueue
+    /// path (the notify method spawns the hook command and only needs a
+    /// runtime handle).
+    fn fire_user_prompt_queued(&self, turn_id: u64, prompt: &str, queue_length: usize) {
+        let Some(ref guard) = self.hook_guard else {
+            return;
+        };
+        let guard = guard.clone();
+        let prompt = prompt.to_string();
+        tokio::spawn(async move {
+            guard
+                .notify_user_prompt_queued(turn_id, &prompt, queue_length)
+                .await;
+        });
     }
 
     /// Shared admission logic (v2 `admit`, :242-265). `preallocated_id` is
@@ -905,6 +952,48 @@ impl Drop for QuiescenceGuard {
     }
 }
 
+/// The 60s `SessionHeartbeat` tick (v2
+/// `sessionExternalHooksService.ts:25`): one interval per session, gated on
+/// a listener being configured so an unhooked session spends no timer.
+/// `uptimeMs` is measured from session creation; like the other session
+/// lifecycle payloads, `session_title` is host metadata the engine does not
+/// track and stays empty.
+async fn heartbeat(ctx: Arc<SessionContext>, shutdown: Arc<AtomicBool>) {
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        if shutdown.load(Ordering::SeqCst) {
+            return;
+        }
+        heartbeat_tick(
+            ctx.hook_guard.as_deref(),
+            ctx.created_at.elapsed().as_millis() as u64,
+        )
+        .await;
+    }
+}
+
+/// One `SessionHeartbeat` firing — the listener gate (`has_hooks_for`) plus
+/// the payload, split from the 60s loop above so the behavior can be tested
+/// without waiting out a minute. No guard or no listener = silence.
+async fn heartbeat_tick(guard: Option<&crate::tools::external_hooks::HookGuard>, uptime_ms: u64) {
+    let Some(guard) = guard else {
+        return;
+    };
+    if !guard.has_hooks_for("SessionHeartbeat") {
+        return;
+    }
+    guard
+        .notify_session_lifecycle(
+            "SessionHeartbeat",
+            "",
+            serde_json::json!({
+                "session_title": "",
+                "uptime_ms": uptime_ms,
+            }),
+        )
+        .await;
+}
+
 async fn pump(
     core: Arc<Mutex<Core>>,
     ctx: Arc<SessionContext>,
@@ -988,6 +1077,11 @@ async fn pump(
             turn_id,
             origin: origin.clone(),
         });
+        if let Some(ref guard) = ctx.hook_guard {
+            guard
+                .notify_turn_started(turn_id, &origin, &prompt.content)
+                .await;
+        }
         // Kept past the move into `run_session_turn` so the print settle can
         // observe a cancel that arrives while it holds the receipt.
         let turn_cancel = cancel.clone();
@@ -1089,12 +1183,36 @@ async fn pump(
         // Durable: the host folds this into `turnKey.lastEnded` and drives any
         // terminal-state display from it.
         if let Ok(TurnOutcome::Ran(result)) = &outcome {
+            let reason = end_reason_of(&result.stop_reason);
+            let error = turn_end_error_payload(&result.stop_reason, result.steps);
             ctx.callbacks.turn_event(TurnEvent::Ended {
                 turn_id,
-                reason: end_reason_of(&result.stop_reason),
-                error: turn_end_error_payload(&result.stop_reason, result.steps),
+                reason,
+                error: error.clone(),
                 duration_ms: Some(turn_duration_ms),
             });
+            if let Some(ref guard) = ctx.hook_guard {
+                match reason {
+                    // v2 `TurnEnded` filters: Interrupt on cancelled,
+                    // StopFailure carries the turn's error payload.
+                    TurnEndReason::Cancelled => guard.notify_interrupt(turn_id).await,
+                    TurnEndReason::Failed => {
+                        let (error_type, error_message) = error
+                            .as_ref()
+                            .and_then(|payload| {
+                                Some((
+                                    payload.get("code")?.as_str()?.to_string(),
+                                    payload.get("message")?.as_str()?.to_string(),
+                                ))
+                            })
+                            .unwrap_or_else(|| {
+                                ("internal".to_string(), format!("{:?}", result.stop_reason))
+                            });
+                        guard.notify_stop_failure(&error_type, &error_message).await;
+                    }
+                    _ => {}
+                }
+            }
         } else if let Err(e) = &outcome {
             let payload = turn_failure_payload(e);
             ctx.callbacks.turn_event(TurnEvent::Ended {
@@ -1103,6 +1221,17 @@ async fn pump(
                 error: Some(payload.clone()),
                 duration_ms: Some(turn_duration_ms),
             });
+            if let Some(ref guard) = ctx.hook_guard {
+                let error_type = payload
+                    .get("code")
+                    .and_then(|code| code.as_str())
+                    .unwrap_or("internal");
+                let error_message = payload
+                    .get("message")
+                    .and_then(|message| message.as_str())
+                    .unwrap_or(e);
+                guard.notify_stop_failure(error_type, error_message).await;
+            }
             // v2 dispatches a separate `AgentErrorEvent` alongside the failed
             // `turn.ended` (loopService.ts:1533-1537); the host renders that
             // one, so a turn that dies before producing any output is not
@@ -1806,6 +1935,10 @@ impl SteerQueueCallbacks {
 }
 
 impl HostCallbacks for SteerQueueCallbacks {
+    fn hook_guard(&self) -> Option<Arc<crate::tools::external_hooks::HookGuard>> {
+        self.inner.hook_guard()
+    }
+
     fn llm_chat(
         &self,
         request: LlmChatRequest,
@@ -1990,9 +2123,26 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .push(params.messages.to_vec());
+            let cancel = params.cancel.clone();
             Box::pin(async move {
                 if let Some(rx) = gate.and_then(|g| g) {
-                    let _ = rx.await;
+                    // Real transports select on `params.cancel` while the
+                    // request is in flight (types.rs `LLMChatParams::cancel`);
+                    // mirror that so a turn cancel cuts a gated response short
+                    // instead of racing it, and the call fails with an error
+                    // the retry layer never retries.
+                    let cancelled = async {
+                        match cancel.as_ref() {
+                            Some(token) => token.cancelled().await,
+                            None => std::future::pending::<()>().await,
+                        }
+                    };
+                    tokio::select! {
+                        _ = rx => {}
+                        _ = cancelled => {
+                            return Err("llm cancelled by script".into());
+                        }
+                    }
                 }
                 Ok(resp)
             })
@@ -3039,6 +3189,187 @@ mod tests {
             2,
             "an id matching nothing must not report a cancellation"
         );
+    }
+
+    /// The turn-lifecycle hook wiring: `TurnStarted` when a turn starts,
+    /// `UserPromptQueued` when a prompt waits behind an active turn, and
+    /// `Interrupt` when the active turn is cancelled — each reaching the
+    /// session's hook guard (remove the wiring at any site and its capture
+    /// file stays empty).
+    #[tokio::test]
+    async fn turn_lifecycle_hooks_fire_from_the_session_wiring() {
+        use crate::tools::external_hooks::capture;
+        let Some(dir) = capture::dir() else {
+            return;
+        };
+        let started = dir.path().join("turn-started.json");
+        let queued = dir.path().join("prompt-queued.json");
+        let interrupt = dir.path().join("interrupt.json");
+        let guard = Arc::new(crate::tools::external_hooks::HookGuard::new(vec![
+            capture::hook("TurnStarted", "user", &started),
+            capture::hook("UserPromptQueued", "second", &queued),
+            capture::hook("Interrupt", "", &interrupt),
+        ]));
+
+        let (llm, gates) =
+            ScriptedLlm::with_gate(vec![text_response("first"), text_response("second")]);
+        let server = Arc::new(RpcServer::new());
+        let session = EngineSession::new(SessionConfig {
+            llm: Arc::new(llm),
+            callbacks: rpc_callbacks(server),
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            tool_defs: Arc::new(|| Box::pin(async { Vec::new() })),
+            goal: None,
+            on_before_turn: None,
+            agent_cancel_slot: None,
+            steer_slot: None,
+            hook_guard: Some(guard),
+            print_background: None,
+            session_id: None,
+            task_runner: None,
+            toolset: None,
+            telemetry: None,
+        })
+        .await;
+
+        let mut r1 = session
+            .enqueue_turn(TurnRequest::user(
+                msg("user", "first prompt"),
+                Admission::NewTurn,
+            ))
+            .unwrap();
+        wait_until(|| session.status().active_turn_id == Some(r1.turn_id)).await;
+        let payload = capture::wait(&started).await;
+        assert_eq!(payload["hook_event_name"], "TurnStarted");
+        assert_eq!(payload["turn_id"], r1.turn_id);
+        assert_eq!(payload["origin_kind"], "user");
+        assert_eq!(payload["prompt"], "first prompt");
+
+        // A prompt enqueued while a turn is active fires UserPromptQueued
+        // (the matcher runs against the prompt text).
+        let mut r2 = session
+            .enqueue_turn(TurnRequest::user(
+                msg("user", "the second prompt"),
+                Admission::NewTurn,
+            ))
+            .unwrap();
+        let queued_payload = capture::wait(&queued).await;
+        assert_eq!(queued_payload["hook_event_name"], "UserPromptQueued");
+        assert_eq!(queued_payload["prompt_id"], r2.turn_id);
+        assert_eq!(queued_payload["prompt"], "the second prompt");
+        assert!(queued_payload["queue_length"].as_u64().unwrap() >= 1);
+
+        // Cancelling the active turn ends it with the Aborted stop reason ⇒
+        // Interrupt, and releases the gate so the queued turn can run. The
+        // sleep gives the cancel flag's 25 ms poll time to cancel the token
+        // while the gated LLM call is still in flight.
+        assert!(session.cancel_turn(Some(r1.turn_id)));
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        for gate in gates {
+            let _ = gate.send(());
+        }
+        r1.outcome().await.unwrap();
+        let interrupt_payload = capture::wait(&interrupt).await;
+        assert_eq!(interrupt_payload["hook_event_name"], "Interrupt");
+        assert_eq!(interrupt_payload["turn_id"], r1.turn_id);
+
+        r2.outcome().await.unwrap();
+    }
+
+    /// A turn that ends `Failed` (a filtered response) reaches `StopFailure`
+    /// with the turn's error code and message — remove the arm at the turn-end
+    /// dispatch and the capture file stays empty.
+    #[tokio::test]
+    async fn stop_failure_hook_fires_for_a_failed_turn() {
+        use crate::tools::external_hooks::capture;
+        let Some(dir) = capture::dir() else {
+            return;
+        };
+        let failed = dir.path().join("stop-failure.json");
+        let guard = Arc::new(crate::tools::external_hooks::HookGuard::new(vec![
+            capture::hook("StopFailure", "provider.filtered", &failed),
+        ]));
+
+        let llm = Arc::new(ScriptedLlm::simple(vec![LLMChatResponse {
+            content: "blocked".into(),
+            thinking: Vec::new(),
+            tool_calls: Vec::new(),
+            finish_reason: Some("content_filter".into()),
+            usage: TokenUsage::default(),
+            timing: None,
+        }]));
+        let server = Arc::new(RpcServer::new());
+        let session = EngineSession::new(SessionConfig {
+            llm,
+            callbacks: rpc_callbacks(server),
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            tool_defs: Arc::new(|| Box::pin(async { Vec::new() })),
+            goal: None,
+            on_before_turn: None,
+            agent_cancel_slot: None,
+            steer_slot: None,
+            hook_guard: Some(guard),
+            print_background: None,
+            session_id: None,
+            task_runner: None,
+            toolset: None,
+            telemetry: None,
+        })
+        .await;
+
+        let mut receipt = session
+            .enqueue_turn(TurnRequest::user(msg("user", "hi"), Admission::NewTurn))
+            .unwrap();
+        let outcome = receipt.outcome().await.unwrap();
+        assert!(matches!(outcome, TurnOutcome::Ran(_)));
+
+        let payload = capture::wait(&failed).await;
+        assert_eq!(payload["hook_event_name"], "StopFailure");
+        assert_eq!(payload["error_type"], "provider.filtered");
+        assert!(
+            payload["error_message"]
+                .as_str()
+                .is_some_and(|message| message.contains("safety")),
+            "the turn's error message rides the payload: {payload}"
+        );
+    }
+
+    /// `SessionHeartbeat` fires only when a listener is configured: no guard
+    /// and a guard without the event both stay silent, and the payload
+    /// carries the uptime with the (engine-untracked) empty session title.
+    #[tokio::test]
+    async fn heartbeat_tick_fires_only_for_a_listener() {
+        use crate::tools::external_hooks::capture;
+        let Some(dir) = capture::dir() else {
+            return;
+        };
+        let beat = dir.path().join("heartbeat.json");
+        let other = dir.path().join("other-event.json");
+
+        heartbeat_tick(None, 4_242).await;
+        let wrong_event = Arc::new(crate::tools::external_hooks::HookGuard::new(vec![
+            capture::hook("SessionStart", "", &other),
+        ]));
+        heartbeat_tick(Some(&wrong_event), 4_242).await;
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert!(!other.exists(), "a non-heartbeat listener must not fire");
+
+        let guard = Arc::new(crate::tools::external_hooks::HookGuard::new(vec![
+            capture::hook("SessionHeartbeat", "", &beat),
+        ]));
+        heartbeat_tick(Some(&guard), 4_242).await;
+        let payload = capture::wait(&beat).await;
+        assert_eq!(payload["hook_event_name"], "SessionHeartbeat");
+        assert_eq!(payload["uptime_ms"], 4_242);
+        assert_eq!(payload["session_title"], "");
     }
 
     #[tokio::test]

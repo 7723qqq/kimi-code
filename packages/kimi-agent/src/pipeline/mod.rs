@@ -354,6 +354,13 @@ pub async fn build_engine_pipeline(
                             {
                                 runner.set_event_sink(sink.clone());
                             }
+                            // `TaskStarted` / `Notification` hook dispatch
+                            // needs only the same per-pipeline hook snapshot.
+                            if let (Some(runner), Some(guard)) =
+                                (runner.as_ref(), hook_guard.as_ref())
+                            {
+                                runner.set_hook_guard(guard.clone());
+                            }
                             (
                                 Arc::new(crate::callbacks::StateStoreCallbacks {
                                     inner: base_callbacks.clone(),

@@ -434,6 +434,8 @@ pub async fn start_repl(
     ));
     let permission_engine = Arc::new(PermissionEngine::new(policy_snapshot));
     let tool_truncator = Arc::new(ToolResultTruncator::for_workspace(&workspace));
+    // `TaskStarted` / `Notification` hook dispatch on the same guard.
+    task_runner.set_hook_guard(hook_guard.clone());
 
     let event_bus = Arc::new(EventBus::new());
     event_bus.subscribe(|event| match event {

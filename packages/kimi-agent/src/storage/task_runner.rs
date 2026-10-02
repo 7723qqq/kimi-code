@@ -245,6 +245,10 @@ pub struct TaskRunner {
     /// (pump disposed), so a late settle announces nothing and queues
     /// nothing. Absent = no gating (the legacy always-fire behavior).
     liveness_check: Mutex<Option<TaskLivenessCheck>>,
+    /// User-configured external hooks (v2 `agentExternalHooksService`):
+    /// `TaskStarted` fires on spawn, `Notification` when a completion
+    /// notification is queued. `None`, or unset, skips both dispatches.
+    hook_guard: Mutex<Option<Arc<crate::tools::external_hooks::HookGuard>>>,
     /// How long [`Self::stop`] waits for a cooperative exit
     /// (`[background].kill_grace_period_ms`); defaults to [`STOP_GRACE`].
     /// Mutable so a shared runner can pick the value up after construction
@@ -292,6 +296,7 @@ impl TaskRunner {
             pending_notifications: Mutex::new(Vec::new()),
             event_sink: Mutex::new(None),
             liveness_check: Mutex::new(None),
+            hook_guard: Mutex::new(None),
             kill_grace: Mutex::new(STOP_GRACE),
             max_running: AtomicUsize::new(0),
         }
@@ -332,6 +337,14 @@ impl TaskRunner {
     /// out to the task's session lane — or `global` when the task has none).
     pub fn set_event_sink(&self, sink: TaskEventSink) {
         *self.event_sink.lock().unwrap() = Some(sink);
+    }
+
+    /// Install the external-hook gate so task lifecycle events reach
+    /// user-configured `[[hooks]]` commands (`TaskStarted` /
+    /// `Notification`). Like the event sink, this is per-runner state the
+    /// pipeline installs once it owns the runner.
+    pub fn set_hook_guard(&self, guard: Arc<crate::tools::external_hooks::HookGuard>) {
+        *self.hook_guard.lock().unwrap() = Some(guard);
     }
 
     /// Install the liveness predicate (v2 `taskService.lifecycleActive`): the
@@ -545,6 +558,19 @@ impl TaskRunner {
                 "description": description,
             }),
         );
+        // v2 `TaskStarted` hook event (agentExternalHooksService): hooks
+        // match against the task kind.
+        let guard = self.hook_guard.lock().unwrap().clone();
+        if let Some(guard) = guard {
+            let kind = spawn_kind.clone();
+            let description = description.clone();
+            let task_id = id.clone();
+            tokio::spawn(async move {
+                guard
+                    .notify_task_started(&task_id, &kind, &description, "running", started_at)
+                    .await;
+            });
+        }
         Ok(())
     }
 
@@ -911,6 +937,29 @@ impl TaskRunner {
         // notification has no future reader — queueing it just leaks. v2
         // gates `notifyAgentTask` on `lifecycleActive()` the same way.
         if self.session_alive(session_id.as_deref()) {
+            // v2 `Notification` hook event (agentExternalHooksService,
+            // delivered-as-context task notifications): hooks match against
+            // the terminal status.
+            let guard = self.hook_guard.lock().unwrap().clone();
+            if let Some(guard) = guard {
+                let (task_id, description, status, started_at) = (
+                    id.to_string(),
+                    description.clone(),
+                    status.as_str(),
+                    started_at,
+                );
+                tokio::spawn(async move {
+                    guard
+                        .notify_task_notification(
+                            &task_id,
+                            &description,
+                            status,
+                            started_at,
+                            ended_at,
+                        )
+                        .await;
+                });
+            }
             self.pending_notifications
                 .lock()
                 .unwrap()
@@ -1459,6 +1508,53 @@ mod tests {
             Some("running"),
             "the live task keeps its running status: {stored}"
         );
+    }
+
+    /// The task lifecycle hook wiring: `TaskStarted` at spawn (matched on the
+    /// task kind) and `Notification` at settle (matched on the terminal
+    /// status) — remove either dispatch site and its capture file stays
+    /// empty.
+    #[tokio::test]
+    async fn task_hooks_fire_on_spawn_and_settle() {
+        use crate::tools::external_hooks::capture;
+        let (_tmp, runner) = runner();
+        let Some(dir) = capture::dir() else {
+            return;
+        };
+        let started = dir.path().join("task-started.json");
+        let notified = dir.path().join("task-notification.json");
+        runner.set_hook_guard(Arc::new(crate::tools::external_hooks::HookGuard::new(
+            vec![
+                capture::hook("TaskStarted", "subagent", &started),
+                capture::hook("Notification", "completed", &notified),
+            ],
+        )));
+        runner
+            .spawn_task_with_meta(
+                TaskSpawnMeta {
+                    session_id: None,
+                    kind: "subagent",
+                    subagent_type: Some("explore"),
+                    agent_id: None,
+                },
+                "task-hook".into(),
+                "explore the tree".into(),
+                async { TaskOutcome::Completed("done".into()) },
+            )
+            .unwrap();
+
+        let started_payload = capture::wait(&started).await;
+        assert_eq!(started_payload["hook_event_name"], "TaskStarted");
+        assert_eq!(started_payload["task_id"], "task-hook");
+        assert_eq!(started_payload["kind"], "subagent");
+        assert_eq!(started_payload["description"], "explore the tree");
+        assert_eq!(started_payload["status"], "running");
+
+        let notified_payload = capture::wait(&notified).await;
+        assert_eq!(notified_payload["hook_event_name"], "Notification");
+        assert_eq!(notified_payload["task_id"], "task-hook");
+        assert_eq!(notified_payload["status"], "completed");
+        assert_eq!(notified_payload["sink"], "context");
     }
 
     #[test]

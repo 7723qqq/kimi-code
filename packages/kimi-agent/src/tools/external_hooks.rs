@@ -7,10 +7,15 @@
 //! command runs through the platform shell with the snake_case payload JSON
 //! on stdin, exit code 2 or a stdout JSON `permissionDecision: "deny"`
 //! blocks the call, and any hook execution failure fails closed),
-//! `PostToolUse` / `PostToolUseFailure` and `UserPromptSubmit` /
-//! `PreCompact` fire observe-only notifications, and `Stop` hooks can veto
-//! a clean text stop once per turn (v2 `runStop`,
-//! agentExternalHooksService.ts:412).
+//! `PostToolUse` / `PostToolUseFailure`, `UserPromptSubmit` /
+//! `PreCompact` / `PostCompact`, `PermissionRequest` / `PermissionResult`,
+//! `TurnStarted` / `StopFailure` / `Interrupt` / `UserPromptQueued`,
+//! `TaskStarted` / `Notification`, `SubagentStart` / `SubagentStop` and
+//! `SessionHeartbeat` fire observe-only notifications, and `Stop` hooks
+//! can veto a clean text stop once per turn (v2 `runStop`,
+//! agentExternalHooksService.ts:412). Together with `SessionStart` /
+//! `SessionEnd` and the gating `PreToolUse`, that covers all 20 of v2's
+//! `HOOK_EVENT_TYPES`.
 
 use std::process::ExitStatus;
 use std::sync::Arc;
@@ -326,6 +331,298 @@ impl HookGuard {
         spawn_hooks(event, matched, payload, self.hook_result.get().cloned());
     }
 
+    /// Whether any configured hook listens for `event` — the agent-side
+    /// equivalent of v2 `runner.hasHooksFor`, used to gate the
+    /// heartbeat timer instead of ticking for no listener.
+    pub fn has_hooks_for(&self, event: &str) -> bool {
+        self.hooks.iter().any(|hook| hook.event == event)
+    }
+
+    /// Notify user-configured `PermissionRequest` hooks (v2
+    /// `agentExternalHooksService`, from `PermissionApprovalRequested`).
+    /// Fire-and-forget: the verdict is already assembling. `reason` is the
+    /// local policy's explanation, when one exists; the upstream payload's
+    /// `id` / `sessionId` / `agentId` / `action` / `display` are host-owned
+    /// metadata the engine does not track.
+    pub async fn notify_permission_request(
+        &self,
+        tool_name: &str,
+        tool_call_id: &str,
+        turn_id: &str,
+        tool_input: &Value,
+        reason: Option<&str>,
+    ) {
+        let matched = self.matched_hooks("PermissionRequest", tool_name);
+        if matched.is_empty() {
+            return;
+        }
+        let mut payload = serde_json::json!({
+            "tool_name": tool_name,
+            "tool_call_id": tool_call_id,
+            "turn_id": turn_id,
+            "tool_input": tool_input,
+        });
+        if let Some(reason) = reason {
+            payload["reason"] = Value::String(reason.to_string());
+        }
+        spawn_hooks(
+            "PermissionRequest",
+            matched,
+            payload,
+            self.hook_result.get().cloned(),
+        );
+    }
+
+    /// Notify user-configured `PermissionResult` hooks (v2
+    /// `PermissionApprovalResolved`). `decision` is `"approved"` or
+    /// `"rejected"`; `feedback` is the host's rejection explanation, when one
+    /// was given. Fire-and-forget, like [`Self::notify_permission_request`].
+    pub async fn notify_permission_result(
+        &self,
+        tool_name: &str,
+        tool_call_id: &str,
+        turn_id: &str,
+        tool_input: &Value,
+        decision: &str,
+        feedback: Option<&str>,
+    ) {
+        let matched = self.matched_hooks("PermissionResult", tool_name);
+        if matched.is_empty() {
+            return;
+        }
+        let mut payload = serde_json::json!({
+            "tool_name": tool_name,
+            "tool_call_id": tool_call_id,
+            "turn_id": turn_id,
+            "tool_input": tool_input,
+            "decision": decision,
+        });
+        if let Some(feedback) = feedback {
+            payload["feedback"] = Value::String(feedback.to_string());
+        }
+        spawn_hooks(
+            "PermissionResult",
+            matched,
+            payload,
+            self.hook_result.get().cloned(),
+        );
+    }
+
+    /// Notify user-configured `TurnStarted` hooks (v2 event of the same
+    /// name). Fire-and-forget; hooks match against the prompt's origin kind
+    /// (`user` / `system_trigger` / …), as in v2.
+    pub async fn notify_turn_started(&self, turn_id: u64, origin: &Value, prompt: &str) {
+        let origin_kind = origin
+            .get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let matched = self.matched_hooks("TurnStarted", origin_kind);
+        if matched.is_empty() {
+            return;
+        }
+        let mut payload = serde_json::json!({
+            "turn_id": turn_id,
+            "origin_kind": origin_kind,
+            "prompt": prompt,
+        });
+        if let Some(name) = origin.get("name").and_then(Value::as_str) {
+            payload["origin_name"] = Value::String(name.to_string());
+        }
+        spawn_hooks(
+            "TurnStarted",
+            matched,
+            payload,
+            self.hook_result.get().cloned(),
+        );
+    }
+
+    /// Notify user-configured `Interrupt` hooks (v2: fired when a turn ends
+    /// with `reason: "cancelled"`). Matching carries no value in v2, so the
+    /// matcher here is empty.
+    pub async fn notify_interrupt(&self, turn_id: u64) {
+        let matched = self.matched_hooks("Interrupt", "");
+        if matched.is_empty() {
+            return;
+        }
+        spawn_hooks(
+            "Interrupt",
+            matched,
+            serde_json::json!({ "turn_id": turn_id, "reason": "cancelled" }),
+            self.hook_result.get().cloned(),
+        );
+    }
+
+    /// Notify user-configured `StopFailure` hooks (v2: fired when a turn
+    /// ends with `reason: "failed"`). Hooks match against the error type
+    /// (the protocol error code, e.g. `provider.api_error`), as upstream
+    /// matches against the error's class name.
+    pub async fn notify_stop_failure(&self, error_type: &str, error_message: &str) {
+        let matched = self.matched_hooks("StopFailure", error_type);
+        if matched.is_empty() {
+            return;
+        }
+        spawn_hooks(
+            "StopFailure",
+            matched,
+            serde_json::json!({
+                "error_type": error_type,
+                "error_message": error_message,
+            }),
+            self.hook_result.get().cloned(),
+        );
+    }
+
+    /// Notify user-configured `UserPromptQueued` hooks (v2: a tracked user
+    /// prompt submitted while a turn is active, parked, or the machine
+    /// paused). Hooks match against the prompt text, as in v2.
+    pub async fn notify_user_prompt_queued(
+        &self,
+        prompt_id: u64,
+        prompt: &str,
+        queue_length: usize,
+    ) {
+        let matched = self.matched_hooks("UserPromptQueued", prompt);
+        if matched.is_empty() {
+            return;
+        }
+        spawn_hooks(
+            "UserPromptQueued",
+            matched,
+            serde_json::json!({
+                "prompt_id": prompt_id,
+                "prompt": prompt,
+                "queue_length": queue_length,
+            }),
+            self.hook_result.get().cloned(),
+        );
+    }
+
+    /// Notify user-configured `PostCompact` hooks (v2
+    /// `fullCompaction.hooks.onWillCompact` → result). Fire-and-forget;
+    /// hooks match against the compaction trigger, as in v2. `turn_id` is
+    /// carried since, unlike v2's, the fork's payload lacks agent context.
+    pub async fn notify_post_compact(
+        &self,
+        turn_id: &str,
+        trigger: &str,
+        estimated_token_count: u64,
+    ) {
+        let matched = self.matched_hooks("PostCompact", trigger);
+        if matched.is_empty() {
+            return;
+        }
+        spawn_hooks(
+            "PostCompact",
+            matched,
+            serde_json::json!({
+                "turn_id": turn_id,
+                "trigger": trigger,
+                "estimated_token_count": estimated_token_count,
+            }),
+            self.hook_result.get().cloned(),
+        );
+    }
+
+    /// Notify user-configured `TaskStarted` hooks (v2 `TaskStarted` event).
+    /// Hooks match against the task kind (`subagent` / `bash` / `tool`).
+    pub async fn notify_task_started(
+        &self,
+        task_id: &str,
+        kind: &str,
+        description: &str,
+        status: &str,
+        started_at: u64,
+    ) {
+        let matched = self.matched_hooks("TaskStarted", kind);
+        if matched.is_empty() {
+            return;
+        }
+        spawn_hooks(
+            "TaskStarted",
+            matched,
+            serde_json::json!({
+                "task_id": task_id,
+                "kind": kind,
+                "description": description,
+                "status": status,
+                "started_at": started_at,
+            }),
+            self.hook_result.get().cloned(),
+        );
+    }
+
+    /// Notify user-configured `Notification` hooks (v2 `TaskNotified`
+    /// delivered to the conversation). Hooks match against the terminal
+    /// status (`completed` / `failed` / `killed`); v2's distinct
+    /// notification-type vocabulary is carried here by the status string.
+    pub async fn notify_task_notification(
+        &self,
+        task_id: &str,
+        description: &str,
+        status: &str,
+        started_at: u64,
+        ended_at: u64,
+    ) {
+        let matched = self.matched_hooks("Notification", status);
+        if matched.is_empty() {
+            return;
+        }
+        spawn_hooks(
+            "Notification",
+            matched,
+            serde_json::json!({
+                "sink": "context",
+                "task_id": task_id,
+                "description": description,
+                "status": status,
+                "started_at": started_at,
+                "ended_at": ended_at,
+            }),
+            self.hook_result.get().cloned(),
+        );
+    }
+
+    /// Notify user-configured `SubagentStart` hooks (v2 session-level
+    /// `subagent` hook). Hooks match against the subagent's profile name.
+    pub async fn notify_subagent_start(&self, agent_name: &str, prompt: &str) {
+        let matched = self.matched_hooks("SubagentStart", agent_name);
+        if matched.is_empty() {
+            return;
+        }
+        spawn_hooks(
+            "SubagentStart",
+            matched,
+            serde_json::json!({
+                "agent_name": agent_name,
+                "prompt": prompt,
+                "session_title": "",
+            }),
+            self.hook_result.get().cloned(),
+        );
+    }
+
+    /// Notify user-configured `SubagentStop` hooks (v2
+    /// `subagents.onDidStopAgentTask`). Hooks match against the subagent's
+    /// profile name. `response` is the final assistant text for a completed
+    /// run, the error text for a failed one, and the empty string for a
+    /// cancelled one.
+    pub async fn notify_subagent_stop(&self, agent_name: &str, response: &str) {
+        let matched = self.matched_hooks("SubagentStop", agent_name);
+        if matched.is_empty() {
+            return;
+        }
+        spawn_hooks(
+            "SubagentStop",
+            matched,
+            serde_json::json!({
+                "agent_name": agent_name,
+                "response": response,
+                "session_title": "",
+            }),
+            self.hook_result.get().cloned(),
+        );
+    }
+
     /// Run matching `Stop` hooks when a turn is about to end (v2
     /// `agentExternalHooksService`'s step-finish registration,
     /// agentExternalHooksService.ts:239-258, calling its private `runStop` at
@@ -617,6 +914,58 @@ fn fallback_reason(event: &str, reason: &str) -> String {
         format!("Blocked by {event} hook")
     } else {
         reason.into()
+    }
+}
+
+/// Shared test support for any test that asserts on the payload a hook
+/// received on stdin: a shell-safe temp dir, capture-file hooks, and a wait
+/// for the fire-and-forget write to land.
+#[cfg(test)]
+pub(crate) mod capture {
+    use serde_json::Value;
+
+    use crate::permission::HookDef;
+
+    /// A temp dir safe for shell redirection — a path with spaces breaks the
+    /// capture command, so `None` means skip the test.
+    pub fn dir() -> Option<tempfile::TempDir> {
+        let dir = tempfile::tempdir().ok()?;
+        if dir.path().to_string_lossy().contains(' ') {
+            return None;
+        }
+        Some(dir)
+    }
+
+    /// A hook whose command copies its stdin payload to `target` (`more`
+    /// reads the pipe to EOF on cmd, `cat` elsewhere).
+    pub fn hook(event: &str, matcher: &str, target: &std::path::Path) -> HookDef {
+        let command = if cfg!(windows) {
+            format!("more > {}", target.to_string_lossy())
+        } else {
+            format!("cat > {}", target.to_string_lossy())
+        };
+        HookDef {
+            event: event.into(),
+            matcher: matcher.into(),
+            command,
+            timeout: None,
+            cwd: None,
+            env: None,
+        }
+    }
+
+    /// Wait for the hook's capture file to become non-empty (or the deadline
+    /// to pass), then parse the payload.
+    pub async fn wait(target: &std::path::Path) -> Value {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let content = loop {
+            let content = std::fs::read_to_string(target).unwrap_or_default();
+            if !content.is_empty() || std::time::Instant::now() >= deadline {
+                break content;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        };
+        serde_json::from_str(&content).expect("the hook received a JSON payload")
     }
 }
 
@@ -1171,6 +1520,232 @@ mod tests {
             .expect("the hook received a JSON payload");
         assert_eq!(payload["hook_event_name"], "SessionEnd");
         assert_eq!(payload["reason"], "archive");
+    }
+
+    #[tokio::test]
+    async fn turn_started_matches_the_origin_kind_and_only_carries_origin_name_when_present() {
+        let dir = tempfile::tempdir().unwrap();
+        if skip_if_path_has_spaces(dir.path()) {
+            return;
+        }
+        let captured = dir.path().join("turn-started.json");
+        let guard = HookGuard::new(vec![hook(
+            "TurnStarted",
+            "system_trigger",
+            &capture_stdin_command(&captured),
+        )]);
+
+        // A `user` origin does not match a `system_trigger` hook: no file.
+        guard
+            .notify_turn_started(7, &json!({ "kind": "user" }), "hello")
+            .await;
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert!(!captured.exists());
+
+        guard
+            .notify_turn_started(
+                7,
+                &json!({ "kind": "system_trigger", "name": "cron" }),
+                "tick",
+            )
+            .await;
+        let payload: Value = serde_json::from_str(&wait_for_capture(&captured).await)
+            .expect("the hook received a JSON payload");
+        assert_eq!(payload["hook_event_name"], "TurnStarted");
+        assert_eq!(payload["turn_id"], 7);
+        assert_eq!(payload["origin_kind"], "system_trigger");
+        assert_eq!(payload["origin_name"], "cron");
+        assert_eq!(payload["prompt"], "tick");
+    }
+
+    #[tokio::test]
+    async fn stop_failure_matches_against_the_error_type() {
+        let dir = tempfile::tempdir().unwrap();
+        if skip_if_path_has_spaces(dir.path()) {
+            return;
+        }
+        let captured = dir.path().join("stop-failure.json");
+        let guard = HookGuard::new(vec![hook(
+            "StopFailure",
+            "provider.api_error",
+            &capture_stdin_command(&captured),
+        )]);
+
+        // A different error type does not match.
+        guard.notify_stop_failure("permission.denied", "nope").await;
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert!(!captured.exists());
+
+        guard
+            .notify_stop_failure("provider.api_error", "boom")
+            .await;
+        let payload: Value = serde_json::from_str(&wait_for_capture(&captured).await)
+            .expect("the hook received a JSON payload");
+        assert_eq!(payload["hook_event_name"], "StopFailure");
+        assert_eq!(payload["error_type"], "provider.api_error");
+        assert_eq!(payload["error_message"], "boom");
+    }
+
+    #[tokio::test]
+    async fn user_prompt_queued_carries_the_queue_length_and_matches_the_prompt() {
+        let dir = tempfile::tempdir().unwrap();
+        if skip_if_path_has_spaces(dir.path()) {
+            return;
+        }
+        let captured = dir.path().join("prompt-queued.json");
+        let guard = HookGuard::new(vec![hook(
+            "UserPromptQueued",
+            "second thought",
+            &capture_stdin_command(&captured),
+        )]);
+
+        guard.notify_user_prompt_queued(9, "unrelated", 2).await;
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert!(!captured.exists());
+
+        guard
+            .notify_user_prompt_queued(9, "a second thought", 2)
+            .await;
+        let payload: Value = serde_json::from_str(&wait_for_capture(&captured).await)
+            .expect("the hook received a JSON payload");
+        assert_eq!(payload["hook_event_name"], "UserPromptQueued");
+        assert_eq!(payload["prompt_id"], 9);
+        assert_eq!(payload["queue_length"], 2);
+        assert_eq!(payload["prompt"], "a second thought");
+    }
+
+    #[tokio::test]
+    async fn permission_events_match_the_tool_and_carry_the_decision() {
+        let dir = tempfile::tempdir().unwrap();
+        if skip_if_path_has_spaces(dir.path()) {
+            return;
+        }
+        let request = dir.path().join("permission-request.json");
+        let result = dir.path().join("permission-result.json");
+        let guard = HookGuard::new(vec![
+            hook(
+                "PermissionRequest",
+                "Bash",
+                &capture_stdin_command(&request),
+            ),
+            hook("PermissionResult", "Bash", &capture_stdin_command(&result)),
+        ]);
+        let input = json!({ "command": "rm -rf /tmp/x" });
+
+        guard
+            .notify_permission_request("Bash", "c1", "t1", &input, Some("DangerousCommandAsk"))
+            .await;
+        guard
+            .notify_permission_result("Bash", "c1", "t1", &input, "rejected", Some("not today"))
+            .await;
+
+        let request_payload: Value = serde_json::from_str(&wait_for_capture(&request).await)
+            .expect("the request hook received a JSON payload");
+        assert_eq!(request_payload["hook_event_name"], "PermissionRequest");
+        assert_eq!(request_payload["tool_name"], "Bash");
+        assert_eq!(request_payload["reason"], "DangerousCommandAsk");
+
+        let result_payload: Value = serde_json::from_str(&wait_for_capture(&result).await)
+            .expect("the result hook received a JSON payload");
+        assert_eq!(result_payload["hook_event_name"], "PermissionResult");
+        assert_eq!(result_payload["decision"], "rejected");
+        assert_eq!(result_payload["feedback"], "not today");
+    }
+
+    #[tokio::test]
+    async fn subagent_hooks_match_the_profile_name() {
+        let dir = tempfile::tempdir().unwrap();
+        if skip_if_path_has_spaces(dir.path()) {
+            return;
+        }
+        let started = dir.path().join("subagent-start.json");
+        let stopped = dir.path().join("subagent-stop.json");
+        let guard = HookGuard::new(vec![
+            hook("SubagentStart", "explore", &capture_stdin_command(&started)),
+            hook("SubagentStop", "explore", &capture_stdin_command(&stopped)),
+        ]);
+
+        guard.notify_subagent_start("general", "wrong prompt").await;
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert!(!started.exists());
+
+        guard
+            .notify_subagent_start("explore", "list the files")
+            .await;
+        guard.notify_subagent_stop("explore", "done").await;
+
+        let start_payload: Value = serde_json::from_str(&wait_for_capture(&started).await)
+            .expect("the start hook received a JSON payload");
+        assert_eq!(start_payload["hook_event_name"], "SubagentStart");
+        assert_eq!(start_payload["agent_name"], "explore");
+        assert_eq!(start_payload["prompt"], "list the files");
+
+        let stop_payload: Value = serde_json::from_str(&wait_for_capture(&stopped).await)
+            .expect("the stop hook received a JSON payload");
+        assert_eq!(stop_payload["hook_event_name"], "SubagentStop");
+        assert_eq!(stop_payload["response"], "done");
+    }
+
+    #[tokio::test]
+    async fn task_and_compaction_events_match_on_kind_and_trigger() {
+        let dir = tempfile::tempdir().unwrap();
+        if skip_if_path_has_spaces(dir.path()) {
+            return;
+        }
+        let task = dir.path().join("task-started.json");
+        let notify = dir.path().join("task-notification.json");
+        let post = dir.path().join("post-compact.json");
+        let guard = HookGuard::new(vec![
+            hook("TaskStarted", "subagent", &capture_stdin_command(&task)),
+            hook("Notification", "completed", &capture_stdin_command(&notify)),
+            hook("PostCompact", "auto", &capture_stdin_command(&post)),
+        ]);
+
+        // A `bash` task does not match a `subagent` matcher: no file.
+        guard
+            .notify_task_started("t0", "bash", "other", "running", 99)
+            .await;
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert!(!task.exists());
+
+        guard
+            .notify_task_started("t1", "subagent", "run a helper", "running", 100)
+            .await;
+        guard
+            .notify_task_notification("t1", "run a helper", "completed", 100, 200)
+            .await;
+        guard.notify_post_compact("turn-1", "auto", 42_000).await;
+
+        let task_payload: Value = serde_json::from_str(&wait_for_capture(&task).await)
+            .expect("the task hook received a JSON payload");
+        assert_eq!(task_payload["hook_event_name"], "TaskStarted");
+        assert_eq!(task_payload["kind"], "subagent");
+
+        let notify_payload: Value = serde_json::from_str(&wait_for_capture(&notify).await)
+            .expect("the notification hook received a JSON payload");
+        assert_eq!(notify_payload["hook_event_name"], "Notification");
+        assert_eq!(notify_payload["sink"], "context");
+        assert_eq!(notify_payload["status"], "completed");
+
+        let post_payload: Value = serde_json::from_str(&wait_for_capture(&post).await)
+            .expect("the post-compact hook received a JSON payload");
+        assert_eq!(post_payload["hook_event_name"], "PostCompact");
+        assert_eq!(post_payload["trigger"], "auto");
+        assert_eq!(post_payload["estimated_token_count"], 42_000);
+    }
+
+    #[tokio::test]
+    async fn interrupt_matches_empty_and_stop_failure_error_type() {
+        let guard = HookGuard::new(vec![
+            hook("Interrupt", "", exit_two_silent()),
+            hook("StopFailure", "permission.denied", exit_two_silent()),
+        ]);
+        // Both fire observationally — an exit-2 hook changes nothing here.
+        guard.notify_interrupt(3).await;
+        guard.notify_stop_failure("permission.denied", "nope").await;
+        // `has_hooks_for` reports listener presence for the heartbeat gate.
+        assert!(guard.has_hooks_for("Interrupt"));
+        assert!(!guard.has_hooks_for("SessionHeartbeat"));
     }
 
     /// A command that writes plain text to stdout and exits 0 — v2 allows

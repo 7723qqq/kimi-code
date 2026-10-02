@@ -321,6 +321,7 @@ fn emit_subagent_event(callbacks: &dyn crate::callbacks::HostCallbacks, event: s
 /// for a standalone subagent. The host's swarm progress component sorts and
 /// labels its members by this position, and it is the only place the index
 /// reaches it — the batch launcher holds no other channel to the UI.
+#[allow(clippy::too_many_arguments)]
 pub fn emit_spawned_started(
     callbacks: &dyn crate::callbacks::HostCallbacks,
     agent_id: &str,
@@ -329,6 +330,7 @@ pub fn emit_spawned_started(
     description: Option<&str>,
     run_in_background: bool,
     swarm_index: Option<usize>,
+    prompt: &str,
 ) {
     // v2 `emitAgentRunSpawned` carries `parentAgentId` / `callerAgentId` on
     // every `subagent.spawned` (mirrorAgentRun.ts:141-142): the child is
@@ -356,11 +358,21 @@ pub fn emit_spawned_started(
         callbacks,
         serde_json::json!({ "type": "subagent.started", "subagent_id": agent_id }),
     );
+    // v2 session-level `SubagentStart` hook (sessionExternalHooksService):
+    // matcher is the profile name; the prompt rides along for the hook
+    // script's stdin.
+    if let Some(guard) = callbacks.hook_guard() {
+        let guard = guard.clone();
+        let agent_name = profile_name.to_string();
+        let prompt = prompt.to_string();
+        tokio::spawn(async move { guard.notify_subagent_start(&agent_name, &prompt).await });
+    }
 }
 
-fn emit_completed(
+pub(crate) fn emit_completed(
     callbacks: &dyn crate::callbacks::HostCallbacks,
     agent_id: &str,
+    agent_name: &str,
     summary: &str,
     usage: &crate::rpc::types::TokenUsage,
 ) {
@@ -373,9 +385,20 @@ fn emit_completed(
             "usage": usage_json(usage),
         }),
     );
+    if let Some(guard) = callbacks.hook_guard() {
+        let guard = guard.clone();
+        let agent_name = agent_name.to_string();
+        let summary = summary.to_string();
+        tokio::spawn(async move { guard.notify_subagent_stop(&agent_name, &summary).await });
+    }
 }
 
-fn emit_failed(callbacks: &dyn crate::callbacks::HostCallbacks, agent_id: &str, error: &str) {
+pub(crate) fn emit_failed(
+    callbacks: &dyn crate::callbacks::HostCallbacks,
+    agent_id: &str,
+    agent_name: &str,
+    error: &str,
+) {
     emit_subagent_event(
         callbacks,
         serde_json::json!({
@@ -384,13 +407,23 @@ fn emit_failed(callbacks: &dyn crate::callbacks::HostCallbacks, agent_id: &str, 
             "error": error,
         }),
     );
+    if let Some(guard) = callbacks.hook_guard() {
+        let guard = guard.clone();
+        let agent_name = agent_name.to_string();
+        let error = error.to_string();
+        tokio::spawn(async move { guard.notify_subagent_stop(&agent_name, &error).await });
+    }
 }
 
 /// A subagent the user interrupted is not a failure: v2 emitted a distinct
 /// `subagent.cancelled` event for it, which the TUI renders as a cancelled
 /// member rather than a failed one. Emitted in addition to the tool result's
 /// interruption text, which stays the model-visible outcome.
-fn emit_cancelled(callbacks: &dyn crate::callbacks::HostCallbacks, agent_id: &str) {
+pub(crate) fn emit_cancelled(
+    callbacks: &dyn crate::callbacks::HostCallbacks,
+    agent_id: &str,
+    agent_name: &str,
+) {
     emit_subagent_event(
         callbacks,
         serde_json::json!({
@@ -398,6 +431,11 @@ fn emit_cancelled(callbacks: &dyn crate::callbacks::HostCallbacks, agent_id: &st
             "subagent_id": agent_id,
         }),
     );
+    if let Some(guard) = callbacks.hook_guard() {
+        let guard = guard.clone();
+        let agent_name = agent_name.to_string();
+        tokio::spawn(async move { guard.notify_subagent_stop(&agent_name, "").await });
+    }
 }
 
 pub(crate) fn usage_json(usage: &crate::rpc::types::TokenUsage) -> serde_json::Value {
@@ -564,6 +602,7 @@ async fn execute_resume(
         None,
         false,
         None,
+        &prompt,
     );
 
     // v2 `taskService` arms the timeout only when `timeoutMs > 0` — an
@@ -589,7 +628,13 @@ async fn execute_resume(
     let (content, is_error) = match run {
         Ok(Some(Ok(ForegroundTurnOutcome::Completed(turn)))) => {
             let summary = crate::subagent::manager::final_assistant_summary(&turn.messages);
-            emit_completed(runtime.callbacks.as_ref(), resume_id, &summary, &turn.usage);
+            emit_completed(
+                runtime.callbacks.as_ref(),
+                resume_id,
+                &profile_name,
+                &summary,
+                &turn.usage,
+            );
             (format_success(resume_id, &profile_name, &summary), false)
         }
         Ok(Some(Ok(ForegroundTurnOutcome::ParentCancelled))) => {
@@ -597,7 +642,7 @@ async fn execute_resume(
             // (`:1038`, `:611`): without it `subagent.started` from
             // `emit_spawned_started` above is never settled and the member
             // stays Running forever.
-            emit_cancelled(runtime.callbacks.as_ref(), resume_id);
+            emit_cancelled(runtime.callbacks.as_ref(), resume_id, &profile_name);
             (
                 format_failure(
                     resume_id,
@@ -695,12 +740,14 @@ async fn run_resume_in_background(
         None,
         true,
         None,
+        prompt,
     );
     let mgr = manager.clone();
     let cb = callbacks.clone();
     let agent = resume_id.to_string();
     let bg_prompt = prompt.to_string();
     let profile = profile_name.to_string();
+    let bg_profile = profile.clone();
     let bg_future = async move {
         // No parent cancel: a background subagent outlives this turn and is
         // stopped through the task runner, not the turn's cancel signal
@@ -709,48 +756,28 @@ async fn run_resume_in_background(
         match outcome {
             Some(Ok(ForegroundTurnOutcome::Completed(turn))) => {
                 if matches!(turn.stop_reason, LoopTurnStopReason::Aborted) {
-                    cb.emit_event(serde_json::json!({
-                        "type": "subagent.failed",
-                        "subagent_id": agent,
-                        "error": SUBAGENT_STOPPED_MESSAGE,
-                    }));
+                    emit_failed(cb.as_ref(), &agent, &bg_profile, SUBAGENT_STOPPED_MESSAGE);
                     TaskOutcome::Failed(SUBAGENT_STOPPED_MESSAGE.to_string())
                 } else {
                     let summary = crate::subagent::manager::final_assistant_summary(&turn.messages);
-                    cb.emit_event(serde_json::json!({
-                        "type": "subagent.completed",
-                        "subagent_id": agent,
-                        "result_summary": summary,
-                        "usage": usage_json(&turn.usage),
-                    }));
+                    emit_completed(cb.as_ref(), &agent, &bg_profile, &summary, &turn.usage);
                     TaskOutcome::Completed(summary)
                 }
             }
             Some(Ok(ForegroundTurnOutcome::ParentCancelled)) => {
-                cb.emit_event(serde_json::json!({
-                    "type": "subagent.cancelled",
-                    "subagent_id": agent,
-                }));
+                emit_cancelled(cb.as_ref(), &agent, &bg_profile);
                 // Not `Killed`: that status means the runner's own `stop()` cut
                 // the task short, and this arm means the subagent was
                 // cancelled upstream while the task ran to its end.
                 TaskOutcome::Failed(USER_INTERRUPTED_SUBAGENT_MESSAGE.to_string())
             }
             Some(Err(message)) => {
-                cb.emit_event(serde_json::json!({
-                    "type": "subagent.failed",
-                    "subagent_id": agent,
-                    "error": message.clone(),
-                }));
+                emit_failed(cb.as_ref(), &agent, &bg_profile, &message);
                 TaskOutcome::Failed(format!("Error: {message}"))
             }
             None => {
                 let message = "resume state was lost".to_string();
-                cb.emit_event(serde_json::json!({
-                    "type": "subagent.failed",
-                    "subagent_id": agent,
-                    "error": message,
-                }));
+                emit_failed(cb.as_ref(), &agent, &bg_profile, &message);
                 TaskOutcome::Failed(message)
             }
         }
@@ -789,6 +816,7 @@ async fn run_resume_in_background(
             emit_failed(
                 callbacks.as_ref(),
                 resume_id,
+                profile_name,
                 &format!("failed to register the background resume task: {error}"),
             );
             return ExecutableToolResult {
@@ -1004,6 +1032,7 @@ pub async fn execute_agent(
             Some(&description),
             true,
             None,
+            &prompt,
         );
         let mgr = manager.clone();
         let cb = runtime.callbacks.clone();
@@ -1017,6 +1046,7 @@ pub async fn execute_agent(
         };
         let task_runner = manager.get_task_runner().await;
 
+        let profile = profile_name.clone();
         let bg_future = async move {
             let outcome = mgr
                 .run_foreground_turn_with_history(&agent, &prompt_clone, bg_history, None)
@@ -1024,39 +1054,23 @@ pub async fn execute_agent(
             match outcome {
                 Ok(ForegroundTurnOutcome::Completed(turn)) => {
                     if matches!(turn.stop_reason, LoopTurnStopReason::Aborted) {
-                        cb.emit_event(serde_json::json!({
-                            "type": "subagent.failed",
-                            "subagent_id": agent,
-                            "error": SUBAGENT_STOPPED_MESSAGE,
-                        }));
+                        emit_failed(cb.as_ref(), &agent, &profile, SUBAGENT_STOPPED_MESSAGE);
                         TaskOutcome::Failed(SUBAGENT_STOPPED_MESSAGE.to_string())
                     } else {
                         let summary =
                             crate::subagent::manager::final_assistant_summary(&turn.messages);
-                        cb.emit_event(serde_json::json!({
-                            "type": "subagent.completed",
-                            "subagent_id": agent,
-                            "result_summary": summary,
-                            "usage": usage_json(&turn.usage),
-                        }));
+                        emit_completed(cb.as_ref(), &agent, &profile, &summary, &turn.usage);
                         TaskOutcome::Completed(summary)
                     }
                 }
                 Ok(ForegroundTurnOutcome::ParentCancelled) => {
                     // The user interrupted this background subagent: report it as
                     // cancelled (not failed), matching the foreground path.
-                    cb.emit_event(serde_json::json!({
-                        "type": "subagent.cancelled",
-                        "subagent_id": agent,
-                    }));
+                    emit_cancelled(cb.as_ref(), &agent, &profile);
                     TaskOutcome::Failed(USER_INTERRUPTED_SUBAGENT_MESSAGE.to_string())
                 }
                 Err(err_msg) => {
-                    cb.emit_event(serde_json::json!({
-                        "type": "subagent.failed",
-                        "subagent_id": agent,
-                        "error": err_msg.clone(),
-                    }));
+                    emit_failed(cb.as_ref(), &agent, &profile, &err_msg);
                     TaskOutcome::Failed(format!("Error: {err_msg}"))
                 }
             }
@@ -1095,7 +1109,12 @@ pub async fn execute_agent(
             // while the future is already gone is the worst of the two, so
             // settle the lifecycle and hand the caller an error.
             let message = format!("failed to register the background task: {error}");
-            emit_failed(runtime.callbacks.as_ref(), &agent_id, &message);
+            emit_failed(
+                runtime.callbacks.as_ref(),
+                &agent_id,
+                &profile_name,
+                &message,
+            );
             return Some(ExecutableToolResult {
                 delivery: None,
                 stop_turn: false,
@@ -1153,6 +1172,7 @@ pub async fn execute_agent(
         Some(&description),
         false,
         None,
+        &prompt,
     );
 
     // v2 `taskService` arms the timeout only when `timeoutMs > 0` — an
@@ -1179,7 +1199,7 @@ pub async fn execute_agent(
             if matches!(turn.stop_reason, LoopTurnStopReason::Aborted) {
                 let interrupted = parent_cancel.is_some_and(|signal| signal.triggered());
                 let message = if interrupted {
-                    emit_cancelled(runtime.callbacks.as_ref(), &agent_id);
+                    emit_cancelled(runtime.callbacks.as_ref(), &agent_id, &profile_name);
                     USER_INTERRUPTED_SUBAGENT_MESSAGE
                 } else {
                     // The instance stopped itself. The background path reports
@@ -1188,6 +1208,7 @@ pub async fn execute_agent(
                     emit_failed(
                         runtime.callbacks.as_ref(),
                         &agent_id,
+                        &profile_name,
                         SUBAGENT_STOPPED_MESSAGE,
                     );
                     SUBAGENT_STOPPED_MESSAGE
@@ -1198,14 +1219,12 @@ pub async fn execute_agent(
                 )
             } else {
                 let summary = crate::subagent::manager::final_assistant_summary(&turn.messages);
-                emit_subagent_event(
+                emit_completed(
                     runtime.callbacks.as_ref(),
-                    serde_json::json!({
-                        "type": "subagent.completed",
-                        "subagent_id": agent_id,
-                        "result_summary": summary,
-                        "usage": usage_json(&turn.usage),
-                    }),
+                    &agent_id,
+                    &profile_name,
+                    &summary,
+                    &turn.usage,
                 );
                 (format_success(&agent_id, &profile_name, &summary), false)
             }
@@ -1215,7 +1234,7 @@ pub async fn execute_agent(
             // `subagent.cancelled` here instead of a failure, so the TUI can
             // mark the member cancelled. The user-interruption message still
             // becomes the tool result.
-            emit_cancelled(runtime.callbacks.as_ref(), &agent_id);
+            emit_cancelled(runtime.callbacks.as_ref(), &agent_id, &profile_name);
             (
                 format_failure(
                     &agent_id,
@@ -1227,7 +1246,12 @@ pub async fn execute_agent(
             )
         }
         Ok(Err(message)) => {
-            emit_failed(runtime.callbacks.as_ref(), &agent_id, &message);
+            emit_failed(
+                runtime.callbacks.as_ref(),
+                &agent_id,
+                &profile_name,
+                &message,
+            );
             (
                 format_failure(&agent_id, &profile_name, &message, false),
                 true,
@@ -1239,7 +1263,12 @@ pub async fn execute_agent(
                 "Agent timed out after {}.",
                 format_timeout_description(timeout)
             );
-            emit_failed(runtime.callbacks.as_ref(), &agent_id, &message);
+            emit_failed(
+                runtime.callbacks.as_ref(),
+                &agent_id,
+                &profile_name,
+                &message,
+            );
             (
                 format_failure(&agent_id, &profile_name, &message, true),
                 true,
@@ -2601,6 +2630,7 @@ mod tests {
     struct EventRecorder {
         inner: NoopCallbacks,
         events: Mutex<Vec<serde_json::Value>>,
+        guard: Option<Arc<crate::tools::external_hooks::HookGuard>>,
     }
 
     impl EventRecorder {
@@ -2608,6 +2638,14 @@ mod tests {
             Self {
                 inner: NoopCallbacks,
                 events: Mutex::new(Vec::new()),
+                guard: None,
+            }
+        }
+
+        fn with_hook_guard(guard: Arc<crate::tools::external_hooks::HookGuard>) -> Self {
+            Self {
+                guard: Some(guard),
+                ..Self::new()
             }
         }
 
@@ -2646,6 +2684,9 @@ mod tests {
         }
         fn emit_event(&self, event: serde_json::Value) {
             self.events.lock().unwrap().push(event);
+        }
+        fn hook_guard(&self) -> Option<Arc<crate::tools::external_hooks::HookGuard>> {
+            self.guard.clone()
         }
     }
 
@@ -2844,6 +2885,53 @@ mod tests {
         let completed = events.last().unwrap();
         assert_eq!(completed["result_summary"], "findings: all done");
         assert!(completed["usage"]["total_tokens"].is_number());
+    }
+
+    /// The session-level subagent hooks ride the emit helpers: removing the
+    /// dispatch inside `emit_spawned_started` / `emit_completed` (the single
+    /// seam every launch site funnels through) leaves the capture files
+    /// empty.
+    #[tokio::test]
+    async fn subagent_hooks_fire_from_the_emit_helpers() {
+        use crate::tools::external_hooks::capture;
+        let Some(dir) = capture::dir() else {
+            return;
+        };
+        let started = dir.path().join("subagent-start.json");
+        let stopped = dir.path().join("subagent-stop.json");
+        let recorder = EventRecorder::with_hook_guard(Arc::new(
+            crate::tools::external_hooks::HookGuard::new(vec![
+                capture::hook("SubagentStart", "explore", &started),
+                capture::hook("SubagentStop", "explore", &stopped),
+            ]),
+        ));
+
+        emit_spawned_started(
+            &recorder,
+            "child-1",
+            "explore",
+            Some("c1"),
+            Some("scan"),
+            false,
+            None,
+            "scan the tree",
+        );
+        emit_completed(
+            &recorder,
+            "child-1",
+            "explore",
+            "all done",
+            &TokenUsage::default(),
+        );
+
+        let start_payload = capture::wait(&started).await;
+        assert_eq!(start_payload["hook_event_name"], "SubagentStart");
+        assert_eq!(start_payload["agent_name"], "explore");
+        assert_eq!(start_payload["prompt"], "scan the tree");
+
+        let stop_payload = capture::wait(&stopped).await;
+        assert_eq!(stop_payload["hook_event_name"], "SubagentStop");
+        assert_eq!(stop_payload["response"], "all done");
     }
 
     #[tokio::test]

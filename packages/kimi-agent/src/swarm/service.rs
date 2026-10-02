@@ -34,9 +34,9 @@ use crate::swarm::agent_run_batch::{
 /// worker does not first report a failure and then a completion.
 pub trait SwarmEventSink: Send + Sync {
     fn member_suspended(&self, agent_id: &str, reason: &str);
-    fn member_completed(&self, agent_id: &str, summary: Option<&str>);
-    fn member_failed(&self, agent_id: &str, error: &str);
-    fn member_cancelled(&self, agent_id: &str);
+    fn member_completed(&self, agent_id: &str, agent_name: Option<&str>, summary: Option<&str>);
+    fn member_failed(&self, agent_id: &str, agent_name: Option<&str>, error: &str);
+    fn member_cancelled(&self, agent_id: &str, agent_name: Option<&str>);
 }
 
 /// A swarm run's cancellation handle, mirroring v2's `inFlight` map.
@@ -189,7 +189,7 @@ impl SwarmEventSink for CallbackSink {
         }));
     }
 
-    fn member_completed(&self, agent_id: &str, summary: Option<&str>) {
+    fn member_completed(&self, agent_id: &str, agent_name: Option<&str>, summary: Option<&str>) {
         if !self.terminalized.terminalize(agent_id) {
             return;
         }
@@ -198,9 +198,15 @@ impl SwarmEventSink for CallbackSink {
             "subagent_id": agent_id,
             "result_summary": summary.unwrap_or_default(),
         }));
+        if let (Some(guard), Some(name)) = (self.callbacks.hook_guard(), agent_name) {
+            let guard = guard.clone();
+            let name = name.to_string();
+            let summary = summary.unwrap_or_default().to_string();
+            tokio::spawn(async move { guard.notify_subagent_stop(&name, &summary).await });
+        }
     }
 
-    fn member_failed(&self, agent_id: &str, error: &str) {
+    fn member_failed(&self, agent_id: &str, agent_name: Option<&str>, error: &str) {
         if !self.terminalized.terminalize(agent_id) {
             return;
         }
@@ -209,9 +215,15 @@ impl SwarmEventSink for CallbackSink {
             "subagent_id": agent_id,
             "error": error,
         }));
+        if let (Some(guard), Some(name)) = (self.callbacks.hook_guard(), agent_name) {
+            let guard = guard.clone();
+            let name = name.to_string();
+            let error = error.to_string();
+            tokio::spawn(async move { guard.notify_subagent_stop(&name, &error).await });
+        }
     }
 
-    fn member_cancelled(&self, agent_id: &str) {
+    fn member_cancelled(&self, agent_id: &str, agent_name: Option<&str>) {
         if !self.terminalized.terminalize(agent_id) {
             return;
         }
@@ -219,6 +231,11 @@ impl SwarmEventSink for CallbackSink {
             "type": "subagent.cancelled",
             "subagent_id": agent_id,
         }));
+        if let (Some(guard), Some(name)) = (self.callbacks.hook_guard(), agent_name) {
+            let guard = guard.clone();
+            let name = name.to_string();
+            tokio::spawn(async move { guard.notify_subagent_stop(&name, "").await });
+        }
     }
 }
 
@@ -263,6 +280,7 @@ pub struct Emitter {
     pub parent_tool_call_id: String,
     pub description: String,
     pub swarm_index: Option<usize>,
+    pub prompt: String,
 }
 
 impl Emitter {
@@ -279,6 +297,7 @@ impl Emitter {
             Some(&self.description),
             false,
             self.swarm_index,
+            &self.prompt,
         );
     }
 
@@ -520,13 +539,14 @@ async fn resume_member(
 fn announce_member(
     sink: &dyn SwarmEventSink,
     agent_id: &str,
+    agent_name: Option<&str>,
     outcome: &Result<AgentRunCompletion, AgentRunError>,
 ) {
     match outcome {
-        Ok(completion) => sink.member_completed(agent_id, Some(&completion.result)),
+        Ok(completion) => sink.member_completed(agent_id, agent_name, Some(&completion.result)),
         Err(error) if error.is_rate_limit => {}
-        Err(error) if error.cancelled => sink.member_cancelled(agent_id),
-        Err(error) => sink.member_failed(agent_id, &error.message),
+        Err(error) if error.cancelled => sink.member_cancelled(agent_id, agent_name),
+        Err(error) => sink.member_failed(agent_id, agent_name, &error.message),
     }
 }
 
@@ -545,7 +565,9 @@ impl<T: Clone + Send + Sync + 'static> AgentRunBatchLauncher<T> for SwarmLaunche
             parent_tool_call_id: options.run.parent_tool_call_id.clone(),
             description: options.run.description.clone(),
             swarm_index: options.run.swarm_index,
+            prompt: options.run.prompt.clone(),
         };
+        let profile_name = options.profile_name.clone();
         // The batch resolves members on the scheduler's own tasks, which do not
         // inherit the caller's `CALLER_AGENT_ID` scope, so the parent is named
         // here rather than read at spawn time. The index and the spawning tool
@@ -596,7 +618,12 @@ impl<T: Clone + Send + Sync + 'static> AgentRunBatchLauncher<T> for SwarmLaunche
                         &signal,
                     )
                     .await;
-                    announce_member(self_sink.as_ref(), &target_id, &outcome);
+                    announce_member(
+                        self_sink.as_ref(),
+                        &target_id,
+                        Some(&profile_name),
+                        &outcome,
+                    );
                     outcome
                 });
 
@@ -653,7 +680,11 @@ impl<T: Clone + Send + Sync + 'static> AgentRunBatchLauncher<T> for SwarmLaunche
                         &signal,
                     )
                     .await;
-                    announce_member(sink.as_ref(), &target_id, &outcome);
+                    // A resumed member's original profile name is not on the
+                    // attempt options, so its stop hook cannot carry the v2
+                    // matcher value — the event still fires through the spawn
+                    // path's sink when it is the first launch.
+                    announce_member(sink.as_ref(), &target_id, None, &outcome);
                     outcome
                 });
 
@@ -684,9 +715,10 @@ impl<T: Clone + Send + Sync + 'static> AgentRunBatchLauncher<T> for SwarmLaunche
     /// retry later succeeds — cannot double-report.
     fn abandoned(&self, event: AgentRunAbandonedEvent<T>) {
         match event.outcome {
-            AgentRunAbandonOutcome::Cancelled => self.sink.member_cancelled(&event.agent_id),
+            AgentRunAbandonOutcome::Cancelled => self.sink.member_cancelled(&event.agent_id, None),
             AgentRunAbandonOutcome::Failed => self.sink.member_failed(
                 &event.agent_id,
+                None,
                 event.error.as_deref().unwrap_or("Provider rate limit"),
             ),
         }

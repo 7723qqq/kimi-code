@@ -1083,6 +1083,16 @@ pub fn run_turn<'a>(
                     "type": "compaction.started",
                     "trigger": "auto",
                 }));
+                // Fire-and-forget pair around each compaction (v2
+                // `agentExternalHooksService.notifyPreCompact` / its
+                // completion arm), paired with the host events above:
+                // `PreCompact` with the pre-trim message count fires while
+                // the original history still exists, `PostCompact` only on
+                // the success arm below. Hooks observe the trim but never
+                // block it.
+                if let Some(ref guard) = hook_guard {
+                    guard.notify_pre_compact(&turn_id, messages.len()).await;
+                }
                 // v2 `postProcessSummary` reads the todo state at compaction
                 // time; a host without the bridge or without todos degrades
                 // to a plain summary.
@@ -1116,11 +1126,15 @@ pub fn run_turn<'a>(
                             after = compacted.len(),
                             "compacted turn context before LLM call"
                         );
-                        // Fire-and-forget before each compaction (v2
-                        // `agentExternalHooksService.notifyPreCompact`); hooks
-                        // observe the trim but never block it.
+                        // The completion arm of the pair opened alongside
+                        // `compaction.started` above (v2
+                        // `agentExternalHooksService` PostCompact): the
+                        // trigger and the post-trim token count describe the
+                        // trim that just landed.
                         if let Some(ref guard) = hook_guard {
-                            guard.notify_pre_compact(&turn_id, messages.len()).await;
+                            guard
+                                .notify_post_compact(&turn_id, "auto", report.tokens_after as u64)
+                                .await;
                         }
                         context_tokens.invalidate();
                         // The compacted shape already closes its block with
@@ -1381,6 +1395,13 @@ pub fn run_turn<'a>(
                         "type": "compaction.started",
                         "trigger": "auto",
                     }));
+                    // Same pair as the threshold path above (v2 fires
+                    // PreCompact / PostCompact around every compaction):
+                    // `PreCompact` while the original history still exists,
+                    // `PostCompact` on the success arm below.
+                    if let Some(ref guard) = hook_guard {
+                        guard.notify_pre_compact(&turn_id, messages.len()).await;
+                    }
                     // Same todo suffix as the threshold path (v2
                     // `postProcessSummary`), read at compaction time.
                     let todos = crate::compaction::read_todos_for_summary(callbacks.as_ref()).await;
@@ -1445,6 +1466,13 @@ pub fn run_turn<'a>(
                             "tokensAfter": report.tokens_after,
                         },
                     }));
+                    // Completion arm of the pair opened alongside
+                    // `compaction.started` above.
+                    if let Some(ref guard) = hook_guard {
+                        guard
+                            .notify_post_compact(&turn_id, "auto", report.tokens_after as u64)
+                            .await;
+                    }
                     tracing::warn!(
                         turn_id = %turn_id,
                         step = step_num,
@@ -7693,6 +7721,23 @@ mod tests {
         let server = Arc::new(RpcServer::new());
         let callbacks = rpc_callbacks(server);
 
+        // The compaction pair rides the same input: PreCompact carries the
+        // message count before the trim, PostCompact the trigger and the
+        // post-trim token count. Removing either dispatch site inside the
+        // overflow-recovery arm leaves its capture file empty.
+        use crate::tools::external_hooks::capture;
+        let Some(dir) = capture::dir() else {
+            return;
+        };
+        let pre = dir.path().join("pre-compact.json");
+        let post = dir.path().join("post-compact.json");
+        let hook_guard = Some(Arc::new(crate::tools::external_hooks::HookGuard::new(
+            vec![
+                capture::hook("PreCompact", "auto", &pre),
+                capture::hook("PostCompact", "auto", &post),
+            ],
+        )));
+
         let input = RunTurnInput {
             agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
             previous_turn_aborted: false,
@@ -7734,7 +7779,7 @@ mod tests {
             permission_mode: None,
             goal: None,
             cancellation: None,
-            hook_guard: None,
+            hook_guard,
             media: None,
             media_dropped: None,
             toolset: None,
@@ -7747,6 +7792,13 @@ mod tests {
             result.messages.last().unwrap().content,
             "Recovered successfully"
         );
+        let pre_payload = capture::wait(&pre).await;
+        assert_eq!(pre_payload["hook_event_name"], "PreCompact");
+        assert!(pre_payload["message_count"].as_u64().unwrap() > 0);
+        let post_payload = capture::wait(&post).await;
+        assert_eq!(post_payload["hook_event_name"], "PostCompact");
+        assert_eq!(post_payload["trigger"], "auto");
+        assert!(post_payload["estimated_token_count"].as_u64().unwrap() > 0);
     }
 
     /// v2 #3750: the host's `loopControl.compactionMaxAttempts` reaches the

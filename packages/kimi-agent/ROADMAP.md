@@ -4814,7 +4814,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 
 | # | 项 | 证据强度 | 落点 |
 |---|---|---|---|
-| 3 | **14 个 hook 事件未触发**（v2 有 20 种，fork 只 6 种）。全部只观察、从不否决；`HookGuard::notify_session_lifecycle(event: &str, …)` 已接受任意事件名 | 已核实（20 种事件名逐条确认） | `tools/external_hooks.rs`。**一个通用入口覆盖 14 个** |
+| 3 | ~~**14 个 hook 事件未触发**~~ **已完成 2026-10-03**（v2 有 20 种，fork 原只 6 种）。全部只观察、从不否决 | 已核实（20 种事件名逐条确认） | 见 **§10.27**。`tools/external_hooks.rs` 新增 12 个 `notify_*` + `has_hooks_for`，接线落在 session / turn_loop / callbacks / task_runner / agent_tool / swarm 六处 |
 | 4 | **Anthropic 多发一个 `cache_control` 槽**（fork 4 / 上游 3）。stable-history 位是 **fork 自加**，此前被误登记为「非自加」 | 已核实（`anthropic.rs:184-192` 四处发射点 `:164/:192/:239/:254`；上游 `anthropic.ts:352-362` 无该分支） | **冗余但无害，降级**：stable 位在 `msgs.len()-3`，**每轮向前移动**，故永远不是同一前缀——两种缓存语义下都不带来命中收益，唯一效果是多写一条条目。详见 6.45.1 |
 | 5 | ~~**micro compaction 的 `detect()` 两个门禁**~~ **已完成 2026-10-02** | 已核实 | 见 **§10.25**。`compaction/micro.rs` 增 `detect_micro_compaction()` + `DetectOutcome`，配置面补 `cache_missed_threshold_ms` / `min_context_usage_ratio` 两个 v2 默认值；引擎侧增 per-session `last_assistant_at`，每轮 `save_turn` 后打戳（v2 `onDidFinishStep`）。**§6.29 曾把它标成「不得开工」，6.44.1 已推翻** |
 | 6 | **wire 协议无版本概念**：`wire_events` 表无版本列、无 `metadata` 记录、无迁移链（v2 有 v1.0→v1.5 五级 + 前向拒绝）。旧会话既不能迁移也不能识别 | 已核实 | `session/sqlite_store.rs:439` |
@@ -6540,4 +6540,69 @@ v2 在 parser 里就返回该字面量；fork 的解析层返回空串，但渲�
 实测，已删除。分层规则已写入 `AGENTS.md` 的 Verification Standard（normative）
 与 Build & Test Commands 的四层表；`MEMORY.md` 记下了三个已知 flake 的单跑方式，
 以免下次把"全量红一次"当成回归。
+
+### 10.27 §6.45 P1-3 落地：14 个缺失 hook 事件接通（2026-10-03）
+
+v2 的 `HOOK_EVENT_TYPES` 共 20 种事件（`features/externalHooks/internal/types.ts:1-20`），
+fork 原先只触发 PreToolUse、PostToolUse/PostToolUseFailure、UserPromptSubmit、
+PreCompact、Stop、SessionStart/SessionEnd 六七种。本轮把缺的 12 种全部接通，
+**全部只观察、从不否决**（fire-and-forget），matcher 口径逐条对齐 v2
+（`agentExternalHooksService.ts` / `sessionExternalHooksService.ts`）。
+
+**新增的 12 个事件与接线落点**
+
+| 事件 | notify 方法 | 接线位置 | matcher 对齐 |
+|---|---|---|---|
+| TurnStarted | `notify_turn_started` | `session/mod.rs` turn 执行头 | origin kind（`user` / `subagent` …） |
+| Interrupt | `notify_interrupt` | `session/mod.rs` TurnEnd `Cancelled` 臂 | 任意 |
+| StopFailure | `notify_stop_failure` | `session/mod.rs` TurnEnd `Failed` / Err 臂 | error code |
+| UserPromptQueued | `notify_user_prompt_queued` | `session/mod.rs` enqueue（`queued_behind_active` 才发） | prompt 文本 |
+| SessionHeartbeat | `notify_session_lifecycle("SessionHeartbeat", …)` | `session/mod.rs` `heartbeat_tick`（60s 循环按 `has_hooks_for` 门控） | 任意 |
+| PostCompact | `notify_post_compact` | `turn_loop/run_turn.rs` **两条压缩路径**（阈值 + overflow 重试）成功臂 | trigger（`auto`） |
+| PermissionRequest | `notify_permission_request` | `callbacks.rs` Ask 分支 + host-owned 分支 | tool name |
+| PermissionResult | `notify_permission_result` | `callbacks.rs` 权限决策落地处 | tool name |
+| SubagentStart | `notify_subagent_start` | `agent_tool.rs` `emit_spawned_started`（新增 `prompt` 参数） | profile 名 |
+| SubagentStop | `notify_subagent_stop` | `agent_tool.rs` `emit_completed` / `emit_failed` / `emit_cancelled`（新增 `agent_name` 参数） | profile 名 |
+| TaskStarted | `notify_task_started` | `storage/task_runner.rs` spawn 成功后 | task kind（`subagent` / `bash` / `tool`） |
+| Notification | `notify_notification` | `storage/task_runner.rs` settle | 终态 status |
+
+**支撑改动**：`HookGuard::has_hooks_for(event)`（心跳/空转门控）；`HostCallbacks`
+新增默认 trait 方法 `hook_guard()`（默认 `None`），`NativeToolCallbacks` 返回自身，
+StateStore/Counting/Activity/SteerQueue 包装器转发 inner；`TaskRunner` 新增
+`hook_guard` 字段 + `set_hook_guard`（`pipeline/mod.rs` / `repl/mod.rs` 装配）；
+`SwarmEventSink` 三方法加 `agent_name: Option<&str>`（spawn 路径传 `Some`，
+resume/abandon 传 `None`——无可信名字，代码内已注释）；内联 bg_future/tower 的
+`subagent.*` 事件去重改走 emit_* 助手。
+
+**刻意记录的偏差**（不是缺陷，是引擎边界，逐条写明以免下轮误判）：
+
+1. **swarm resume/abandon 的 SubagentStop 无名字**——resume 拿到的只有 agent id，
+   profile 名要再查一次注册表且可能已失效，传 `None` 时 matcher 对 profile 名不匹配，
+   空 matcher 的 hook 仍会收到。
+2. **SessionHeartbeat 的 `session_title` 恒为空串**——与其它 session 生命周期
+   payload 同口径：标题是 host 元数据，引擎不跟踪。
+3. **Notification 的 matcher 走 status**（v2 同样以终态字符串为 matcher 目标）。
+4. **UserPromptQueued / TurnStarted 的 `prompt_id` 用引擎 `turn_id`**——v2 的
+   prompt id 是 host 侧 uuid，引擎只有单调 turn 序号，同一含义、不同字面值。
+5. **PermissionRequest 只在 native 权限路径触发**——v2 事件源自
+   `PermissionApprovalRequested`；host 直接放行/拒绝且不经过 Ask 的边不发事件，
+   与「一次审批一次结果」的语义一致。
+6. **PreCompact 挪到了压缩真正开始之前**（对齐 v2 `notifyPreCompact` 的时序）：
+   与 `compaction.started` 同点成对开火，PostCompact 只在成功臂。此前实现把两者
+   都放在成功臂里，等于「pre」事后才发，且 **overflow 重试路径整段没接**——是本轮
+   写测试时实跑抓出来的（阈值路径接了、测试走的是 overflow 路径，capture 超时）。
+
+**测试**（每条接线删掉即红）：`external_hooks` 7 条 payload/matcher 测试（33 total）、
+`session::tests` 3 条（turn 生命周期三事件 + StopFailure + heartbeat_tick 门控）、
+`task_runner` 1 条（spawn/settle 对）、`callbacks` 1 条（权限两事件）、
+`agent_tool` 1 条（emit 助手两事件）、`run_turn` 扩展 overflow-recovery 测试
+（PreCompact/PostCompact 对）。共享 capture 辅助抽到
+`external_hooks::capture`（`#[cfg(test)]`），避免四处复制。附带把测试桩
+`ScriptedLlm` 改成尊重 `params.cancel`（真实传输都这么干，否则 cancel 与 gate 竞速，
+Interrupt 测不稳）。
+
+**验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --no-default-features
+--features cli -D warnings` ✅｜`cargo test --lib session::` 89 passed｜
+`hooks_fire` 过滤 5 passed｜`cargo test --no-default-features --features cli`
+全量（见提交前记录）。`bun run check:roadmap-refs` ✅。
 
