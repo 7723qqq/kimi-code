@@ -930,7 +930,16 @@ impl ServerEngine {
             .store
             .load_session_history(session_id)
             .unwrap_or_default();
-        let context_tokens: usize = history.iter().map(|m| m.content.len() / 4).sum();
+        // Token estimate for the status line. Uses the compaction estimator
+        // rather than `len() / 4`: that shortcut charges a quarter token per
+        // BYTE, so CJK text (3 UTF-8 bytes per char) reads ~25% low — the gauge
+        // drifts low precisely in the sessions that are filling up. Sharing
+        // `compaction::estimate_tokens` also means the gauge and the compaction
+        // trigger cannot disagree about how full the context is.
+        let context_tokens: usize = history
+            .iter()
+            .map(|m| crate::compaction::estimate_tokens(&m.content) as usize)
+            .sum();
 
         let mut payload = serde_json::json!({
             "type": "agent.status.updated",
@@ -1341,10 +1350,16 @@ impl ServerEngine {
         // `input_cache_creation` for Anthropic), so the numbers are in the
         // engine — nothing accumulates them per step and compares.
         //
-        // It is not portable as it stands: micro compaction came from the
-        // fork's *own* v2 copy and upstream never had it, so the `detect()`
-        // reference was deleted with that package. Reinstating it is
-        // reconstruction, not a port — see ROADMAP §6.28.
+        // It IS portable, and was blocked only by a wrong claim. An earlier
+        // version of this comment (and ROADMAP §6.28) said the `detect()`
+        // reference "was deleted with that package, so reinstating it is
+        // reconstruction, not a port". That was wrong: the reference is intact
+        // in `.tmp/v2-ref/…/agent/microCompaction/` — `microCompaction.ts:4-23`
+        // for the config and `:20,22` for the two gate defaults,
+        // `microCompactionService.ts:89-134` for `detect()` itself, whose
+        // cache-miss test is *idle time since the last assistant output*
+        // (`:94-95`), not `cache_read == 0`. ROADMAP §6.43.1 records the
+        // correction; the remaining work is that gate, roughly 40 lines.
         if let Some(config) = self.micro_compaction_config().await {
             let outcome = crate::compaction::micro::apply_micro_compaction(&history, &config);
             if outcome.changed {
@@ -1857,6 +1872,59 @@ mod tests {
             Arc::new(EventHub::new()),
             Arc::new(SqliteSessionStore::in_memory().unwrap()),
         )
+    }
+
+    /// The status line's `contextTokens` used to be `content.len() / 4`, which
+    /// charges a quarter token per **byte** and therefore reads low on any
+    /// non-ASCII text — ~25% low on CJK (3 UTF-8 bytes per character), so the
+    /// gauge drifted low exactly in the sessions filling up. It also truncated:
+    /// 43 ASCII chars gave 10, not 11.
+    ///
+    /// Both halves are pinned. ASCII moves by at most one token per message
+    /// (rounding, always upward). CJK is the substantive fix: 100 characters
+    /// must count as 100 tokens, where the byte shortcut said 75.
+    #[test]
+    fn context_tokens_count_cjk_per_character_and_leave_ascii_alone() {
+        let est = crate::compaction::estimate_tokens;
+        let ascii = "the quick brown fox jumps over the lazy dog"; // 43 chars
+        assert_eq!(ascii.len(), 43);
+        assert_eq!(
+            est(ascii) as usize,
+            ascii.len().div_ceil(4),
+            "ASCII now rounds up instead of truncating: 43 chars -> 11, not 10"
+        );
+        assert!(
+            (est(ascii) as usize).abs_diff(ascii.len() / 4) <= 1,
+            "the ASCII difference is rounding only, never the 25% the CJK case had"
+        );
+
+        // 100 CJK chars = 300 UTF-8 bytes. Old: 300/4 = 75. New: 100.
+        let cjk = "中".repeat(100);
+        assert_eq!(cjk.len(), 300, "3 UTF-8 bytes per CJK char");
+        assert_eq!(
+            est(&cjk) as usize,
+            100,
+            "one token per CJK character, not one per 4 bytes"
+        );
+        assert_eq!(
+            cjk.len() / 4,
+            75,
+            "the old shortcut under-reported by 25%, which is the bug"
+        );
+
+        // Mixed content: per-character totals, not a byte average. Note this is
+        // NOT `est(cjk) + est(ascii)` — the ASCII chars are contiguous here, so
+        // one `div_ceil` covers the whole run rather than one per fragment.
+        let mixed = format!("{cjk}hello");
+        assert_eq!(
+            est(&mixed) as usize,
+            100 + "hello".len().div_ceil(4),
+            "CJK chars count one each; the ASCII tail rounds up as a single run"
+        );
+        assert!(
+            (est(&mixed) as usize) > cjk.len() / 4 + "hello".len() / 4,
+            "the mixed string must still exceed what the byte shortcut reported"
+        );
     }
 
     /// The `[experimental].micro_compaction` flag gates the wiring: off/unset

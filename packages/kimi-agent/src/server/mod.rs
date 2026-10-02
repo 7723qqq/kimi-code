@@ -5579,6 +5579,23 @@ impl HttpServer {
                 }
                 match self.store.undo_turns(session_id, count) {
                     Ok(undone) => {
+                        // Restore the engine-owned state domains (`todo`,
+                        // `plan`, …) to the anchor each turn pushed. Without
+                        // this the transcript loses turns while `todo.json`
+                        // still lists work the model can no longer see, and the
+                        // next turn inherits a stale plan.
+                        //
+                        // Runs *after* the rows are deleted so that the
+                        // compaction-boundary refusal above (`plan_undo_turns`)
+                        // happens before any state changes; a failure here is
+                        // therefore a partial application and must be reported
+                        // rather than swallowed — a silent divergence is worse
+                        // than a visible error.
+                        if let Err(e) = self.rollback_state_for_undo(session_id, count) {
+                            return HttpResponse::internal_error(format!(
+                                "undo removed {undone} turn(s) but the workspace state could not be restored ({e}). The transcript and the todo/plan state now disagree; re-run /undo or restart the session."
+                            ));
+                        }
                         // Online transcripts must learn about the cut, exactly
                         // like delete/patch publish their own events.
                         self.hub
@@ -7333,6 +7350,52 @@ impl HttpServer {
             "applied_patch": patch_set,
             "undo_patch": inverse_patch,
         }))
+    }
+
+    /// Roll the engine-owned state domains back by `count` turns.
+    ///
+    /// `StateStoreCallbacks::checkpoint` (`callbacks.rs`) pushes one snapshot
+    /// per turn and calls it the durable undo anchor, but only the REPL's
+    /// `/undo` ever popped one — the REST route deleted transcript rows and left
+    /// `todo` / `plan` describing work the model can no longer see, so the next
+    /// turn inherited a stale plan.
+    ///
+    /// The checkpoint stack is LIFO (`rollback` pops the newest snapshot), so
+    /// `count` turns means `count` pops. `Ok(false)` means the stack is already
+    /// empty — normal for a session that never checkpointed — so the loop stops
+    /// quietly rather than reporting a failure.
+    ///
+    /// A session with no resolvable workdir is an error rather than a skip: the
+    /// caller deletes the transcript rows before calling this, so doing nothing
+    /// would leave the two permanently out of sync.
+    fn rollback_state_for_undo(&self, session_id: &str, count: usize) -> Result<(), String> {
+        let Some(workdir) = fs_routes::resolve_session_workdir(&self.store, session_id) else {
+            return Err(format!(
+                "session {session_id} has no resolvable working directory, so its state domains cannot be located"
+            ));
+        };
+        let store = crate::storage::StateStore::for_workspace(&workdir)
+            .map_err(|e| format!("state store for {}: {e}", workdir.display()))?;
+        for turn in 1..=count {
+            match store.rollback() {
+                Ok(true) => {}
+                Ok(false) => {
+                    tracing::debug!(
+                        session_id,
+                        turn,
+                        count,
+                        "checkpoint stack exhausted before the requested undo depth"
+                    );
+                    return Ok(());
+                }
+                Err(e) => {
+                    return Err(format!(
+                        "restoring the checkpoint for turn {turn} of {count} failed: {e}"
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     fn handle_session_patch_undo(&self, session_id: &str) -> HttpResponse {
@@ -13423,6 +13486,109 @@ max_context_size = 1000
         assert_eq!(
             std::fs::read_to_string(temp.path().join("a.txt")).unwrap(),
             "after-1"
+        );
+    }
+
+    /// `/undo` used to delete transcript rows while leaving `todo` / `plan` on
+    /// disk describing work the model could no longer see. These cover the
+    /// checkpoint stack being unwound LIFO, and — just as important — an *empty*
+    /// stack staying a non-error so sessions that never checkpointed are
+    /// unaffected.
+    #[tokio::test]
+    async fn undo_restores_state_domains_from_the_checkpoint_stack() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let server = HttpServer::new(store.clone());
+        let sid = "sess-undo-state";
+        store.create_session(sid, None).unwrap();
+        store
+            .put_state(
+                "metadata",
+                sid,
+                &json!({ "cwd": temp.path().display().to_string() }),
+            )
+            .unwrap();
+
+        // Turn 1 pushes the anchor, then mutates the domain.
+        let state = crate::storage::StateStore::for_workspace(temp.path()).unwrap();
+        state
+            .write_domain("todo", &json!([{ "id": "T1" }]))
+            .unwrap();
+        state.checkpoint().unwrap();
+        state
+            .write_domain("todo", &json!([{ "id": "T1" }, { "id": "T2" }]))
+            .unwrap();
+
+        // Turn 2 pushes a second anchor and mutates again.
+        state.checkpoint().unwrap();
+        state
+            .write_domain(
+                "todo",
+                &json!([{ "id": "T1" }, { "id": "T2" }, { "id": "T3" }]),
+            )
+            .unwrap();
+        assert_eq!(state.checkpoint_depth(), 2);
+
+        let msgs = vec![crate::turn_loop::types::LLMMessage::user("hi")];
+        store.save_turn(sid, "t1", 1, &msgs, None, None).unwrap();
+        store.save_turn(sid, "t2", 2, &msgs, None, None).unwrap();
+
+        // Undoing both turns must unwind both snapshots and land on the
+        // pre-turn-1 value, not merely one level up.
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: format!("/api/v1/sessions/{sid}:undo"),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "count": 2 })).unwrap(),
+            })
+            .await;
+        assert_eq!(res.status, 200);
+        let body: Value = serde_json::from_slice(&res.body).unwrap();
+        assert_eq!(body["undone"], 2);
+
+        assert_eq!(state.checkpoint_depth(), 0, "both snapshots are consumed");
+        assert_eq!(
+            state.read_domain("todo"),
+            Some(json!([{ "id": "T1" }])),
+            "LIFO unwind must reach the earliest anchor, not stop one level short"
+        );
+    }
+
+    /// An empty checkpoint stack is normal, not a failure: sessions that never
+    /// went through `StateStoreCallbacks::checkpoint` must still undo cleanly.
+    /// Pinned because the wired-up route now touches the state store at all.
+    #[tokio::test]
+    async fn undo_succeeds_when_no_checkpoint_was_ever_taken() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Arc::new(SqliteSessionStore::in_memory().unwrap());
+        let server = HttpServer::new(store.clone());
+        let sid = "sess-undo-no-ckpt";
+        store.create_session(sid, None).unwrap();
+        store
+            .put_state(
+                "metadata",
+                sid,
+                &json!({ "cwd": temp.path().display().to_string() }),
+            )
+            .unwrap();
+
+        let msgs = vec![crate::turn_loop::types::LLMMessage::user("hi")];
+        store.save_turn(sid, "t1", 1, &msgs, None, None).unwrap();
+
+        let res = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: format!("/api/v1/sessions/{sid}:undo"),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "count": 3 })).unwrap(),
+            })
+            .await;
+        assert_eq!(
+            res.status, 200,
+            "requesting more undos than checkpoints exist must not error"
         );
     }
 
