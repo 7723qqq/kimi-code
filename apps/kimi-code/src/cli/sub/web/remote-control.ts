@@ -271,7 +271,19 @@ export function rewriteRemoteControlResponse(
 ): Buffer {
   const normalizedPrefix = publicPrefix.replace(/\/+$/, '');
   if (contentType.toLowerCase().includes('text/html')) {
-    const prefixLiteral = JSON.stringify(normalizedPrefix);
+    // `JSON.stringify` escapes quotes and backslashes but **not** `<`, so a
+    // prefix containing `</script>` closes the block early and everything after
+    // it is parsed as markup. Escaping `<` keeps the literal valid JavaScript
+    // and inert to the HTML parser; U+2028 / U+2029 are line terminators to a
+    // pre-ES2019 parser and would break the statement on their own.
+    //
+    // Today's only caller percent-encodes both halves of the prefix, so this is
+    // hardening rather than a live hole — but the function takes an arbitrary
+    // string, and the escaping it relied on did not make that true.
+    const prefixLiteral = JSON.stringify(normalizedPrefix)
+      .replaceAll('<', '\\u003c')
+      .replaceAll('\u2028', '\\u2028')
+      .replaceAll('\u2029', '\\u2029');
     const injected = `<script>(function(){var p=${prefixLiteral};try{sessionStorage.setItem('kimi-desktop-server-origin',location.origin+p)}catch(e){}var w=function(f){return function(s,t,u){if(typeof u==='string'&&u.charAt(0)==='/'&&u.indexOf(p)!==0)u=p+u;return f.apply(this,[s,t,u])}};history.pushState=w(history.pushState);history.replaceState=w(history.replaceState)})();</script>`;
     let text = body.toString('utf8');
     const headMatch = /<head(?:\s[^>]*)?>/i.exec(text);

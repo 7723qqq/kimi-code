@@ -125,6 +125,12 @@ it from `packages/i18n-catalog/src/locales/en.ts` when you touch the catalog.
   question at all — v2's `src/runtime/` capability layer that §6.8.2 needs is
   registered in `packages/kimi-agent/ROADMAP.md` §6.24, and the engine's
   missing runtime layer is upstream's to match, not a fork preference.
+  **Corrected 2026-10-01 (§6.42):** the *layer* is a real unported subsystem,
+  but it is **not** a prerequisite for the watcher. `RuntimeCapability` is
+  `'fs' | 'process' | 'terminal'` — there is no `watch` rung
+  (`runtime/runtime.ts:8`); upstream's watcher is a standalone service
+  (`human/utils/watch.ts:473`, own `[watch]` config section). Schedule §6.8.2
+  as its own subsystem.
 - **The Grep / Glob notices were the reverse case, and it is fixed (2026-10-01).**
   Seven of them — `noMatches`, `noNonSensitive`, `noNonSensitiveFiltered`,
   `noMoreMatches`, `noFilesMatched`, `filteredSensitive`,

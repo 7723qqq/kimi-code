@@ -200,6 +200,30 @@ describe('Remote Control HTTP forwarding', () => {
     ).toString();
     expect(css).toBe(`.x{background:url(${prefix}/assets/x.png)}`);
   });
+
+  it('keeps a prefix that contains a script-closing tag from breaking out of the block', () => {
+    // `JSON.stringify` escapes quotes and backslashes but not `<`, so a prefix
+    // holding `</script>` used to end the block early and leave the rest of the
+    // literal to be parsed as markup. The one caller percent-encodes its halves
+    // today, but this function takes an arbitrary string and the escaping it
+    // relied on did not make that safe.
+    const html = rewriteRemoteControlResponse(
+      'text/html; charset=utf-8',
+      Buffer.from('<html><head></head><body></body></html>'),
+      '/relay/devices/d1</script><img src=x onerror=alert(1)>',
+    ).toString();
+
+    // Exactly the one script block we inject: every `<` the payload carried is
+    // escaped, so it stays inside the literal instead of closing the block and
+    // letting the rest be parsed as markup. The text itself is still there — it
+    // is inert data in a JS string, which is where it belongs. Only `<` matters:
+    // a bare `>` cannot open a tag.
+    expect(html.match(/<script>/g)).toHaveLength(1);
+    expect(html.match(/<\/script>/g)).toHaveLength(1);
+    expect(html).toContain('\\u003c');
+    expect(html).toContain('onerror=alert(1)');
+    expect(html).not.toContain('<img');
+  });
 });
 
 describe('Remote Control tunnel', () => {

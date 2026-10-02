@@ -8,20 +8,25 @@
 //! This half closes what a lexical decision structurally cannot see: a symlink
 //! whose *name* is innocuous and whose *target* is not. `notes.txt -> .env`
 //! passes every lexical test, and so does a link that points out of the
-//! workspace entirely. v2 added `tool/realpath-access.ts` for exactly this and
-//! wired it into all six file tools (read, write, edit, glob, grep,
-//! read-media-file).
+//! workspace entirely. Upstream has no `tool/realpath-access.ts`; the equivalent
+//! is inline in `workspace/workspaceFs/fsService.ts:1116-1165` —
+//! `realpathExistingPrefix` (`:1116`) plus the `symlink_outside` refusal inside
+//! `resolveWithin` (`:1157-1163`).
 //!
 //! Three things are refused here that the lexical half cannot catch:
 //!
 //!   - a symlink whose target does not exist (a dangling link — the lexical pass
-//!     has no target to look at, and v2 refuses rather than following it);
+//!     has no target to look at). **Fork-original:** upstream's
+//!     `realpathExistingPrefix` does *not* refuse a dangling link — it climbs to
+//!     the nearest existing ancestor and, failing that, returns the input path
+//!     unchanged; only the `symlink_outside` case throws. Refusing here is this
+//!     fork's own fail-closed reading, not a ported rule;
 //!   - a link that resolves to a sensitive file, even under an innocent name;
 //!   - a link that resolves outside the real workspace roots.
 //!
-//! Writes add a fourth: a link that lands on the project-local config, because
-//! the write must go through the approval that guards that file rather than
-//! arriving by a side door.
+//! Writes add a fourth, also **fork-original**: a link that lands on the
+//! project-local config, because the write must go through the approval that
+//! guards that file rather than arriving by a side door.
 //!
 //! The resolution walk mirrors v2's `realpathExistingPrefix`: climb toward the
 //! filesystem root until `realpath` succeeds, then re-join whatever tail did not

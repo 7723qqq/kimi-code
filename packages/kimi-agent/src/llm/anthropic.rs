@@ -12,12 +12,16 @@ use crate::llm::wire::{StreamDelta, WireMessage};
 use crate::rpc::types::TokenUsage;
 use crate::turn_loop::types::{ContentBlock, LLMChatResponse, ToolCall, ToolInfo};
 
-/// Content block types that accept a `cache_control` breakpoint: the Rust side
-/// of v2's `CACHEABLE_TYPES`
-/// (`packages/kosong/src/providers/anthropic-cache-breakpoints.ts:25-34`), the
-/// single source of truth both v2 provider layers import so the breakpoint
-/// strategy cannot drift between them. `thinking` / `redacted_thinking` are
-/// deliberately absent — a reasoning block is not a cacheable unit.
+/// Content block types that accept a `cache_control` breakpoint, matching
+/// v2's `CACHEABLE_TYPES` (`packages/kosong/src/providers/anthropic.ts:341-350`,
+/// where upstream declares the set inline). `thinking` / `redacted_thinking`
+/// are deliberately absent — a reasoning block is not a cacheable unit.
+///
+/// An earlier version of this comment cited a shared
+/// `anthropic-cache-breakpoints.ts` "imported by both v2 provider layers". No
+/// such file exists upstream (`21406fb4c8`); it only ever lived in this fork's
+/// retired v2 copy, so the claim could not be substantiated against upstream.
+/// The vocabulary itself is unaffected — only its provenance was misdescribed.
 const CACHEABLE_TYPES: [&str; 8] = [
     "text",
     "image",
@@ -147,13 +151,10 @@ pub fn build_request_full(
     }
 
     // Tail breakpoint: the last block of the absolute last message
-    // (messages.at(-1)). v2 injects both of the message breakpoints here, from
-    // `injectCacheControlOnLastBlock`
-    // (`packages/kosong/src/providers/anthropic-cache-breakpoints.ts:36-73`),
-    // which agent-core-v2's vendored provider imports rather than
-    // re-declaring (its `anthropic.ts:22-25`, called at `:861`). Together with
-    // the system and tools breakpoints below that is all 4 Anthropic
-    // cache_control slots. Only a cacheable block type takes one.
+    // (messages.at(-1)). v2 injects this one from `injectCacheControlOnLastBlock`
+    // (`packages/kosong/src/providers/anthropic.ts:352-362`, called at `:1040`).
+    // Together with the system and tools breakpoints below that is 3 of the 4
+    // Anthropic cache_control slots. Only a cacheable block type takes one.
     // Supports both user text/media and assistant tool_use blocks.
     if let Some(last_msg) = msgs.last_mut()
         && let Some(content_arr) = last_msg.get_mut("content").and_then(|c| c.as_array_mut())
@@ -164,13 +165,22 @@ pub fn build_request_full(
     }
 
     // Stable history breakpoint: the last block of a message that is not one of
-    // the last 2 messages (v2 `injectCacheControlOnLastBlock`'s second half,
-    // `anthropic-cache-breakpoints.ts:51-73` — the same function, not a fork
-    // addition). This creates a prefix cache covering the stable conversation
-    // history, so appended messages still hit the prefix and only the new tail
-    // is processed fresh. With system + tools that fills all 4 Anthropic
-    // cache_control slots. A cacheable type the tail does not already own is
-    // required, exactly as in v2.
+    // the last 2 messages. This creates a prefix cache covering the stable
+    // conversation history, so appended messages still hit the prefix and only
+    // the new tail is processed fresh. With system + tools that fills all 4
+    // Anthropic cache_control slots. A cacheable type the tail does not already
+    // own is required.
+    //
+    // Provenance: **fork-added, not a port.** Upstream's
+    // `injectCacheControlOnLastBlock` (`anthropic.ts:352-362`) touches only the
+    // last message — there is no `messages.length >= 4` branch anywhere in it —
+    // so upstream emits 3 breakpoints and this emits 4. An earlier version of
+    // this comment claimed the stable half came from the same v2 function
+    // "rather than being a fork addition"; that was wrong, and the claim rested
+    // on a `anthropic-cache-breakpoints.ts` file that exists only in this fork's
+    // retired v2 copy. ROADMAP §1 板块 2 records the correction; whether the
+    // extra slot should be kept or dropped is still a user decision, since it
+    // changes real cache-hit behaviour and cost.
     if msgs.len() >= 4 {
         let stable_idx = msgs.len() - 3;
         if let Some(stable_msg) = msgs.get_mut(stable_idx)
@@ -1526,11 +1536,11 @@ mod tests {
         assert_eq!(asst_content[1]["cache_control"]["type"], "ephemeral");
     }
 
-    /// v2 gates both breakpoints on `CACHEABLE_TYPES`
-    /// (`anthropic-cache-breakpoints.ts:45`, `:66`): the reasoning types are
-    /// not in it, so a `thinking` / `redacted_thinking` block never takes a
-    /// `cache_control`. Pinned item by item against v2's set — this is the
-    /// list the injection mirrors, not a local preference.
+    /// v2 gates both of its breakpoints on `CACHEABLE_TYPES`
+    /// (`packages/kosong/src/providers/anthropic.ts:341-350`): the reasoning
+    /// types are not in it, so a `thinking` / `redacted_thinking` block never
+    /// takes a `cache_control`. Pinned item by item against v2's set — this is
+    /// the list the injection mirrors, not a local preference.
     #[test]
     fn cacheable_block_types_match_the_v2_vocabulary() {
         for cacheable in CACHEABLE_TYPES {

@@ -162,8 +162,21 @@ export function toKimiErrorPayload(error: unknown): KimiErrorPayload {
  * the whole line. The original HTML remains available in logs and `details`.
  */
 function sanitizeStatusErrorMessage(message: string): string {
-  const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(message);
-  const extracted = titleMatch?.[1]?.trim();
+  // The body here comes off the network, and the single-regex form this replaces
+  // (`/<title[^>]*>([\s\S]*?)<\/title>/i`) is quadratic on it: the lazy span
+  // restarts at every offset looking for a `</title>` that a large error page
+  // may never contain. Finding the open tag and then the next close tag
+  // explicitly is the same match in linear time — the close tag is still matched
+  // case-insensitively, via one lower-cased copy used only for the search.
+  const openTag = /<title[^>]*>/i.exec(message);
+  let extracted: string | undefined;
+  if (openTag !== null) {
+    const bodyStart = openTag.index + openTag[0].length;
+    const closeAt = message.toLowerCase().indexOf('</title>', bodyStart);
+    if (closeAt >= 0) {
+      extracted = message.slice(bodyStart, closeAt).trim();
+    }
+  }
   const normalized = extracted !== undefined && extracted.length > 0 ? extracted : message;
   return normalized.replaceAll('\r', '');
 }

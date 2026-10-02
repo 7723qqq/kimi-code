@@ -132,6 +132,53 @@ describe('Session.prompt events', () => {
     }
   });
 
+  it('redacts a pasted private key out of the persisted prompt metadata', async () => {
+    // The redaction rule that could actually leak a credential had no coverage.
+    // It matters because the prompt text is the user's own — pasting a key into
+    // a prompt is exactly what people do when asking for help with one.
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir });
+
+    try {
+      await configureFakeProvider(harness);
+      const session = await harness.createSession({ id: 'ses_prompt_pem', workDir });
+
+      const pkcs8 = [
+        '-----BEGIN PRIVATE KEY-----',
+        'MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ',
+        'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOP',
+        '-----END PRIVATE KEY-----',
+      ].join('\n');
+      // A PKCS#1 header carries a label between BEGIN and PRIVATE KEY, which
+      // the pattern has to allow.
+      const pkcs1 = [
+        '-----BEGIN RSA PRIVATE KEY-----',
+        'MIIEowIBAAKCAQEAy8Dbv8prpJ/0kKhlGeJYozo2t60EG8L0561g13R29LvMR5hy',
+        '-----END RSA PRIVATE KEY-----',
+      ].join('\n');
+
+      let done = waitForEvent(session, (event) => event.type === 'turn.ended');
+      await session.prompt(`why does this fail\n${pkcs8}`);
+      await done;
+      const statePath = join(session.summary!.sessionDir, 'session-meta.json');
+      const first = JSON.parse(await readFile(statePath, 'utf-8')) as Record<string, unknown>;
+      for (const field of ['title', 'lastPrompt']) {
+        expect(first[field]).toBe('why does this fail [redacted]');
+        expect(String(first[field])).not.toContain('BEGIN PRIVATE KEY');
+        expect(String(first[field])).not.toContain('MIIEvQIBADAN');
+      }
+
+      done = waitForEvent(session, (event) => event.type === 'turn.ended');
+      await session.prompt(`and this one\n${pkcs1}`);
+      await done;
+      const second = JSON.parse(await readFile(statePath, 'utf-8')) as Record<string, unknown>;
+      expect(second['lastPrompt']).toBe('and this one [redacted]');
+    } finally {
+      await harness.close();
+    }
+  });
+
   it('persists sanitized prompt metadata without marking the title custom', async () => {
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();

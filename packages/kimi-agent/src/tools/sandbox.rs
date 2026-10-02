@@ -44,9 +44,15 @@ impl<'de> Deserialize<'de> for SandboxMode {
 
 impl SandboxMode {
     /// The spellings [`SandboxMode::validate`] accepts, quoted for the error
-    /// message. Mirrors v2 `z.enum(['off', 'read-only', 'workspace-write'])`
-    /// (`workspace/sandbox/sandbox.ts:20`) plus the two no-hyphen aliases and
-    /// the case/whitespace tolerance the wire path has always had.
+    /// message. The canonical spellings are `"off"`, `"read-only"` and
+    /// `"workspace-write"`, plus the two no-hyphen aliases and the
+    /// case/whitespace tolerance the wire path has always had.
+    ///
+    /// Provenance: fork-original. An earlier version of this comment cited
+    /// `agent-core-v2` `workspace/sandbox/sandbox.ts:20` and said "mirrors v2" —
+    /// no such file exists at upstream HEAD (`21406fb4c8`); the only `sandbox`
+    /// token in the whole reference tree is one prose line in
+    /// `app/agentProfileCatalog/system.md`. ROADMAP §6.42 records the fix.
     const ACCEPTED_SPELLINGS: &str =
         "\"off\", \"read-only\" (or \"readonly\"), \"workspace-write\" (or \"workspacewrite\")";
 
