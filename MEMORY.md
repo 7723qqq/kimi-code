@@ -1,5 +1,39 @@
 # Project memory — kimi-code fork
 
+## The ruleset made every push impossible (2026-10-02)
+
+Ruleset `all` (id `24322082`) covered `~ALL` refs and required CodeQL to report zero
+`error` alerts before a push. CodeQL only runs on `push` to main and on PRs targeting
+main (`codeql.yml:3-9`) — so a **branch** push could never satisfy a rule that governed
+branch pushes, and `current_user_can_bypass` was `never`. Direct-to-main and
+branch-push were both blocked; the only working path was the PR.
+
+Fixed by dropping the `code_scanning` rule from the ruleset (2026-10-02, user approved
+a one-time change). `deletion`, `non_fast_forward` and `code_quality` remain.
+
+**Two things to know if this comes back:**
+
+- `enforcement: "evaluate"` — the conservative fix, keeping the rules recorded but not
+  blocking on them — is **rejected on this plan**: "not supported on this plan. Please
+  upgrade to Enterprise". Removing the rule is the only option here.
+- CodeQL dismissals do **not** survive a rescan. Alerts #28 (`mcp-tool-name.ts`),
+  #103 (`serialize.ts`) and #104 (`remote-control.test.ts`) were each dismissed after
+  `50055ddfce` fixed the underlying code, then re-opened by a later scan of an unrelated
+  large diff. A dismissal is bound to the scan, not to the code — expect to re-dismiss
+  after any sizeable diff.
+
+## Two flaky tests that fail on Windows runners, not on the code
+
+Both were red on `main` before this work and are unrelated to it:
+
+- `packages/node-sdk/test/native-harness.test.ts` — `EBUSY` from `rmSync` on the temp
+  home in `afterEach`. The test body is green; the **cleanup** exhausts its 10 × 200 ms
+  budget under a full ~520-file parallel run. Do not "fix" it by enlarging the budget —
+  10 is the repo-wide convention (`removeTempDir` in `test/session-runtime-helpers.ts`).
+- `packages/tree-sitter-bash/test/parse.test.ts` — "parses a 500KB heredoc body under
+  the default budget" is a **time budget** test, so it fails on a loaded runner and
+  passes in ~7 ms locally. Not a parser regression; do not chase it.
+
 ## Remote transports (user rule, 2026-10-01)
 
 - **GitHub → SSH.** `origin` = `git@github.com:7723qqq/kimi-code.git`,
