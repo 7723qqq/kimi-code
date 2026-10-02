@@ -42,6 +42,9 @@ const MODEL_PATH = resolve(root, 'architecture.json');
 // The fingerprint input set is load-bearing: it is what the 16 stored hashes
 // were computed from. Adding or removing an extension here silently invalidates
 // every one of them, so it stays exactly as it was when the hashes were taken.
+// (Widening the *file source* to include untracked files — see
+// `fingerprintFiles` — moved none of them: no module source directory held an
+// untracked, non-ignored file when it was made.)
 const FINGERPRINT_EXTENSIONS = ['.ts', '.tsx', '.js', '.mjs', '.rs', '.json', '.md'];
 const FINGERPRINT_SKIP_DIRS = new Set(['node_modules', 'target', '.git']);
 
@@ -262,8 +265,15 @@ function resolveImportAlias(spec, imports) {
 }
 
 /**
- * The files a module's fingerprint covers: the ones git tracks under its
- * source directory.
+ * The files a module's fingerprint covers: every source file under its source
+ * directory that git would commit — tracked, plus untracked-but-not-ignored.
+ *
+ * `--others --exclude-standard` is load-bearing, not decoration. Plain
+ * `git ls-files` lists the *index*, so the input set moved with the staging
+ * state: a file that was on disk but not yet `git add`ed silently dropped out
+ * of the set, and the gate blessed a 274-file hash for a 275-file tree
+ * (`packages/kimi-agent/src/frontmatter.rs`, 2026-10-02). Reading the worktree
+ * too makes the set a property of the tree rather than of the staging area.
  *
  * Walking the filesystem instead would fold in build output that happens to sit
  * inside a source tree — `apps/kimi-code/src/generated/vis-web-asset.ts` is
@@ -276,23 +286,27 @@ function resolveImportAlias(spec, imports) {
  *
  * Falls back to the filesystem walk when git cannot answer, so the gate still
  * runs in an exported tree.
+ *
+ * `rootDir` is the repository the pathspec is resolved against — the same one
+ * `checkArchitecture` was handed, not the script's own location, so a fixture
+ * outside this checkout takes the git path instead of silently falling back.
  */
-function fingerprintFiles(sourceDir) {
+function fingerprintFiles(sourceDir, rootDir) {
   const extensions = new Set(FINGERPRINT_EXTENSIONS);
   try {
     // git takes the pathspec relative to the repository root, not as an
     // absolute path — an absolute spec is not matched reliably and comes back
     // empty, which would silently fall through to the filesystem walk.
-    const spec = relative(root, sourceDir).split(sep).join('/');
-    const out = execFileSync('git', ['ls-files', '-z', '--', spec], {
-      cwd: root,
+    const spec = relative(rootDir, sourceDir).split(sep).join('/');
+    const out = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', spec], {
+      cwd: rootDir,
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
     });
     const files = out
       .split('\0')
       .filter((p) => p.length > 0 && extensions.has(extname(p)))
-      .map((p) => resolve(root, p));
+      .map((p) => resolve(rootDir, p));
     if (files.length > 0) return files;
   } catch {
     // Not a git checkout, or git is unavailable — fall through.
@@ -300,24 +314,38 @@ function fingerprintFiles(sourceDir) {
   return walkFiles(sourceDir, FINGERPRINT_EXTENSIONS, FINGERPRINT_SKIP_DIRS);
 }
 
-/** SHA-256 (16 hex chars) of a module's sorted path+content fingerprint. */
-function fingerprintOf(sourceDir) {
+/**
+ * SHA-256 (16 hex chars) of a module's sorted path+content fingerprint, plus
+ * the input-set files that are absent from the working tree.
+ *
+ * A file that is in the index but deleted on disk used to reach `readFileSync`
+ * and kill the gate with a raw ENOENT — no module, no path, just a stack. It is
+ * returned instead so the caller can name it: the hash covers what is actually
+ * there, and `--update` refuses to record it.
+ */
+function fingerprintOf(sourceDir, rootDir) {
   // Sort by code unit rather than by locale: `localeCompare` orders
   // punctuation and case using the platform's collation tables, so two
   // machines can walk the same tree in a different order and hash a
   // different sequence of files.
-  const files = fingerprintFiles(sourceDir).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const files = fingerprintFiles(sourceDir, rootDir).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   const hash = createHash('sha256');
+  const missing = [];
   for (const file of files) {
     // `relative` is platform-dependent — `sub\file.rs` on Windows, `sub/file.rs`
     // everywhere else — so hashing it raw would give every module a different
     // fingerprint per platform, and a value recorded on one could never match a
     // checkout on the other. Normalize to the forward slash the repo uses
     // everywhere, including `.gitattributes`.
-    hash.update(relative(sourceDir, file).split(sep).join('/'));
+    const rel = relative(sourceDir, file).split(sep).join('/');
+    if (!existsSync(file)) {
+      missing.push(rel);
+      continue;
+    }
+    hash.update(rel);
     hash.update(readFileSync(file));
   }
-  return hash.digest('hex').slice(0, 16);
+  return { hash: hash.digest('hex').slice(0, 16), missing };
 }
 
 /**
@@ -602,7 +630,12 @@ export async function checkArchitecture(model, rootDir) {
     if (!mod.fingerprint) continue;
     const dir = resolve(rootDir, mod.source);
     if (!existsSync(dir)) continue; // already reported in Check A
-    const current = fingerprintOf(dir);
+    const { hash: current, missing } = fingerprintOf(dir, rootDir);
+    if (missing.length > 0) {
+      const shown = missing.slice(0, 3).join(', ');
+      const more = missing.length > 3 ? ` (+${missing.length - 3} more)` : '';
+      diag('error', 'drift/missing-source-file', `Module "${mod.id}" has ${missing.length} fingerprint-set file(s) missing from the working tree`, mod.id, `${shown}${more}`);
+    }
     if (current !== mod.fingerprint) {
       diag('error', 'drift/fingerprint', `Module "${mod.id}" source changed but architecture model fingerprint is stale`, mod.id, `stored=${mod.fingerprint} current=${current}`);
     }
@@ -659,6 +692,8 @@ function loadModel(modelPath, rootDir) {
  * Recompute every module's fingerprint. Returns the per-module changes so the
  * caller can report them. A missing source directory is a hard stop: recording
  * a fingerprint for a directory that is not there would bless a broken model.
+ * So is a file the input set names but the working tree does not have — the
+ * hash would describe the remainder and read as a legitimate refresh.
  */
 function refreshFingerprints(model, rootDir) {
   const changes = [];
@@ -667,7 +702,10 @@ function refreshFingerprints(model, rootDir) {
     if (!existsSync(dir)) {
       throw new ModelError(`module "${mod.id}" source directory does not exist: ${mod.source} — refusing to record a fingerprint for it`);
     }
-    const current = fingerprintOf(dir);
+    const { hash: current, missing } = fingerprintOf(dir, rootDir);
+    if (missing.length > 0) {
+      throw new ModelError(`module "${mod.id}" has fingerprint-set files missing from the working tree: ${missing.join(', ')} — refusing to record a fingerprint for an incomplete tree`);
+    }
     if (current === mod.fingerprint) continue;
     changes.push({ id: mod.id, was: mod.fingerprint, now: current, added: !mod.fingerprint });
     mod.fingerprint = current;

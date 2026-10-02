@@ -1,4 +1,5 @@
 import { afterAll, test, expect } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -59,6 +60,33 @@ function makeWorkspace({ packages = {}, files = {} } = {}) {
     writeFileSync(file, contents);
   }
   return dir;
+}
+
+/**
+ * The same workspace, but a git repository — so `fingerprintFiles` takes its
+ * git path instead of the filesystem-walk fallback. `staged` names the files to
+ * `git add`; everything else stays untracked. `core.autocrlf` is pinned off so
+ * the fixture does not depend on the developer's git config.
+ */
+function makeGitWorkspace({ files = {}, staged = [] } = {}) {
+  const dir = makeWorkspace({ files });
+  execFileSync('git', ['init', '-q'], { cwd: dir });
+  if (staged.length > 0) {
+    execFileSync('git', ['-c', 'core.autocrlf=false', 'add', '--', ...staged], { cwd: dir });
+  }
+  return dir;
+}
+
+/** The checker's fingerprint: sorted path+content, SHA-256, first 16 hex chars. */
+function fingerprintOfFiles(src, names) {
+  const hash = createHash('sha256');
+  // Code-unit order, matching the checker's own sort — `localeCompare` would
+  // order the same two names differently on a different machine.
+  for (const name of names.toSorted((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
+    hash.update(name);
+    hash.update(readFileSync(join(src, name)));
+  }
+  return hash.digest('hex').slice(0, 16);
 }
 
 test('passes when the model is consistent', async () => {
@@ -124,6 +152,42 @@ test('detects fingerprint drift', async () => {
   };
   const diags = await checkArchitecture(model, dir);
   expect(withCode(diags, 'drift/fingerprint').some((d) => d.subject === 'engine')).toBe(true);
+});
+
+test('an untracked source file is part of the fingerprint set', async () => {
+  const dir = makeGitWorkspace({
+    files: { 'src/index.ts': 'const x = 1;\n', 'src/extra.ts': 'const y = 2;\n' },
+    staged: ['src/index.ts'],
+  });
+  const src = join(dir, 'src');
+  const model = {
+    ...baseModel,
+    modules: [
+      {
+        id: 'engine',
+        source: src,
+        layer: 'engine',
+        deps: [],
+        fingerprint: fingerprintOfFiles(src, ['index.ts', 'extra.ts']),
+      },
+    ],
+  };
+  const diags = await checkArchitecture(model, dir);
+  expect(withCode(diags, 'drift/fingerprint')).toHaveLength(0);
+});
+
+test('a fingerprint-set file missing from the working tree is reported, not thrown', async () => {
+  const dir = makeGitWorkspace({ files: { 'src/index.ts': 'const x = 1;\n' }, staged: ['src/index.ts'] });
+  const src = join(dir, 'src');
+  rmSync(join(src, 'index.ts'));
+  const model = {
+    ...baseModel,
+    modules: [{ id: 'engine', source: src, layer: 'engine', deps: [], fingerprint: 'deadbeefdeadbeef' }],
+  };
+  const diags = await checkArchitecture(model, dir);
+  const missing = withCode(diags, 'drift/missing-source-file');
+  expect(missing.some((d) => d.subject === 'engine')).toBe(true);
+  expect(missing[0].evidence).toContain('index.ts');
 });
 
 // ── Check B: the code half (import scan) ────────────────────────────────────
