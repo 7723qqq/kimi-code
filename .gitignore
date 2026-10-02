@@ -100,6 +100,10 @@ packages/.kimi-*-napi-stage-*/
 *.log
 *-log.txt
 logs/
+# `logs/` matches at any depth, and this one is a source directory: without the
+# negation a new file under it is silently untracked (`LogsTab.tsx` predates the
+# pattern, which is why the directory looks fine today).
+!apps/vis/web/src/components/logs/
 
 # Legacy pnpm artifacts; Bun is the package manager. pnpm auto-installs
 # may recreate these locally — never commit them.
