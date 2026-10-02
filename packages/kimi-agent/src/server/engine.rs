@@ -273,6 +273,13 @@ pub struct ServerEngine {
     /// interruption reminder's trigger, v2 `TurnEnded` reason filter). Read
     /// and cleared when the next turn's spec is built.
     last_turn_aborted: Mutex<HashMap<String, bool>>,
+    /// When this session last produced assistant output, in epoch millis.
+    /// Micro compaction's cache-miss gate is *idle time since that moment*
+    /// (v2 `AgentMicroCompactionService.lastAssistantAt`, stamped on
+    /// `onDidFinishStep`), not a cache-hit counter: a prompt cache expires on
+    /// its own schedule, so what matters is how long the prefix has been
+    /// sitting unused.
+    last_assistant_at: Mutex<HashMap<String, i64>>,
     /// Per-session activity trackers (the `agent.status.updated` phase
     /// machine), shared with the interaction manager so a pending
     /// approval/question moves the phase too.
@@ -323,6 +330,7 @@ impl ServerEngine {
             host_factory: Mutex::new(None),
             status_hashes: Mutex::new(HashMap::new()),
             last_turn_aborted: Mutex::new(HashMap::new()),
+            last_assistant_at: Mutex::new(HashMap::new()),
             media: crate::llm::media_resolver::MediaResolver::new()
                 .with_upload_cache(store.clone()),
             media_dropped: Mutex::new(HashMap::new()),
@@ -442,6 +450,57 @@ impl ServerEngine {
             None => false,
         };
         enabled.then(crate::compaction::micro::MicroCompactionConfig::default)
+    }
+
+    /// When this session last produced assistant output, or `None` if it never
+    /// has. Consumed by [`Self::model_context_window`]'s caller — micro
+    /// compaction's cache-miss gate — and nothing else.
+    fn last_assistant_at_for(&self, session_id: &str) -> Option<i64> {
+        self.last_assistant_at
+            .lock()
+            .ok()
+            .and_then(|map| map.get(session_id).copied())
+    }
+
+    /// The context window of the session's active model, from its config alias.
+    ///
+    /// `None` means "unknown", which micro compaction reads as a full window
+    /// (v2 `detect()` `:102-103` substitutes a ratio of 1 for an undefined
+    /// `maxContextTokens`) — so the usage gate never suppresses a pass the
+    /// idle gate already allowed.
+    async fn model_context_window(&self, session_id: &str) -> Option<usize> {
+        let model = self
+            .store
+            .get_state("agent_config", session_id)
+            .ok()
+            .flatten()
+            .and_then(|profile| {
+                profile
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+            })
+            .unwrap_or_else(|| self.spec.model_name.clone());
+        let source = self.config_source()?;
+        let config = {
+            let guard = source.lock().await;
+            guard.clone()
+        }?;
+        let alias = config.models.get(&model)?;
+        let size = alias.max_context_size?;
+        (size > 0).then_some(size as usize)
+    }
+
+    /// Record that this session just produced assistant output, which resets
+    /// micro compaction's idle clock (v2 `onDidFinishStep` stamping
+    /// `lastAssistantAt`).
+    fn stamp_last_assistant_at(&self, session_id: &str) {
+        if let Ok(mut map) = self.last_assistant_at.lock() {
+            map.insert(
+                session_id.to_string(),
+                chrono::Utc::now().timestamp_millis(),
+            );
+        }
     }
 
     /// Whether the background memory filing pass may run: the
@@ -1342,35 +1401,44 @@ impl ServerEngine {
         // originals — so the blanked prefix is stable across requests (one
         // cache miss on first application, then stable).
         //
-        // v2 additionally gates on a *detected* prompt-cache miss, decided by
-        // `cacheMissedThresholdMs` + `minContextUsageRatio` in the caller's
-        // `detect()`. That gate is not wired here, so the flag alone decides.
-        // What is missing is the **cross-step decision**, not the measurement:
-        // every provider's usage parser already fills `input_cache_read` (and
-        // `input_cache_creation` for Anthropic), so the numbers are in the
-        // engine — nothing accumulates them per step and compares.
+        // v2 gates the pass on a *detected* prompt-cache miss
+        // (`detect()`, `microCompactionService.ts:89-107`). Its test is **idle
+        // time since the last assistant output** against
+        // `cacheMissedThresholdMs` — not a cache-read counter — combined with a
+        // `minContextUsageRatio` fullness gate. Both are ported into
+        // `compaction::micro::detect_micro_compaction`; this call supplies the
+        // per-session `last_assistant_at` the engine stamps after each turn.
         //
-        // It IS portable, and was blocked only by a wrong claim. An earlier
-        // version of this comment (and ROADMAP §6.28) said the `detect()`
-        // reference "was deleted with that package, so reinstating it is
-        // reconstruction, not a port". That was wrong: the reference is intact
-        // in `.tmp/v2-ref/…/agent/microCompaction/` — `microCompaction.ts:4-23`
-        // for the config and `:20,22` for the two gate defaults,
-        // `microCompactionService.ts:89-134` for `detect()` itself, whose
-        // cache-miss test is *idle time since the last assistant output*
-        // (`:94-95`), not `cache_read == 0`. ROADMAP §6.43.1 records the
-        // correction; the remaining work is that gate, roughly 40 lines.
+        // ROADMAP §6.28 once recorded this work as blocked because the
+        // reference "was deleted with that package". That was wrong: the
+        // reference is intact in `.tmp/v2-ref/…/agent/microCompaction/`, and
+        // §6.43.1 records the correction.
         if let Some(config) = self.micro_compaction_config().await {
-            let outcome = crate::compaction::micro::apply_micro_compaction(&history, &config);
-            if outcome.changed {
-                self.hub
-                    .bus_for(session_id)
-                    .publish(&crate::events::EngineEvent::Custom(serde_json::json!({
-                        "type": "micro_compaction.apply",
-                        "sessionId": session_id,
-                        "cutoff": outcome.cutoff,
-                    })));
-                history = outcome.messages;
+            let now = chrono::Utc::now().timestamp_millis();
+            let last_assistant_at = self.last_assistant_at_for(session_id);
+            let context_tokens: usize = history
+                .iter()
+                .map(|m| crate::compaction::estimate_tokens(&m.content) as usize)
+                .sum();
+            let outcome_gate = crate::compaction::micro::detect_micro_compaction(
+                last_assistant_at,
+                now,
+                context_tokens,
+                self.model_context_window(session_id).await,
+                &config,
+            );
+            if outcome_gate.triggered() {
+                let outcome = crate::compaction::micro::apply_micro_compaction(&history, &config);
+                if outcome.changed {
+                    self.hub
+                        .bus_for(session_id)
+                        .publish(&crate::events::EngineEvent::Custom(serde_json::json!({
+                            "type": "micro_compaction.apply",
+                            "sessionId": session_id,
+                            "cutoff": outcome.cutoff,
+                        })));
+                    history = outcome.messages;
+                }
             }
         }
 
@@ -1632,6 +1700,11 @@ impl ServerEngine {
                 origin.as_ref(),
             )
             .map_err(EngineError::Store)?;
+
+        // Reset micro compaction's idle clock: this turn produced assistant
+        // output, so the prefix is fresh again and a cache miss is not due
+        // (v2 stamps `lastAssistantAt` on `onDidFinishStep`).
+        self.stamp_last_assistant_at(session_id);
 
         // Report the status only after the turn is durable: the snapshot
         // reads the session history, so it must see this turn's context
@@ -1924,6 +1997,48 @@ mod tests {
         assert!(
             (est(&mixed) as usize) > cjk.len() / 4 + "hello".len() / 4,
             "the mixed string must still exceed what the byte shortcut reported"
+        );
+    }
+
+    /// The idle clock is the gate's input, so it has to be per session and has to
+    /// advance only when a turn actually produced output.
+    #[tokio::test]
+    async fn the_assistant_idle_clock_is_per_session_and_starts_empty() {
+        let engine = engine();
+        assert_eq!(
+            engine.last_assistant_at_for("s1"),
+            None,
+            "a session that never produced output has no idle age, so micro \
+             compaction cannot trigger (v2's `cacheAgeMs === null`)"
+        );
+        assert_eq!(engine.last_assistant_at_for("s2"), None);
+
+        engine.stamp_last_assistant_at("s1");
+        let stamped = engine.last_assistant_at_for("s1").expect("s1 was stamped");
+        assert!(
+            stamped > 0,
+            "the stamp is a wall-clock millis value, got {stamped}"
+        );
+        assert_eq!(
+            engine.last_assistant_at_for("s2"),
+            None,
+            "stamping one session must not make another look idle"
+        );
+    }
+
+    /// The window lookup backs micro compaction's fullness gate. An unknown
+    /// model must read as "no window" rather than as zero — the gate treats an
+    /// absent window as full, and a zero would invert that.
+    #[tokio::test]
+    async fn the_context_window_is_unknown_for_a_model_with_no_size() {
+        let engine = engine();
+        engine.set_config_source(Arc::new(tokio::sync::Mutex::new(Some(
+            crate::config::KimiConfig::default(),
+        ))));
+        assert_eq!(
+            engine.model_context_window("s1").await,
+            None,
+            "no alias for the model means an unknown window, not a zero one"
         );
     }
 

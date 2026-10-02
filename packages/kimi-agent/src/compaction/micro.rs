@@ -15,11 +15,11 @@
 //! prefix stays small. This module is a **pure function**: no IO, no global
 //! state, no env reads. It mirrors `AgentMicroCompactionService.compact()`.
 //!
-//! The cache-miss trigger (`cacheMissedThresholdMs`), the context-usage gate
-//! (`minContextUsageRatio`), and the `micro_compaction` flag are the CALLER's
-//! responsibility — they live in `turn_loop` (see the header comment of
-//! `microCompactionService.ts`, method `detect()`). This module only performs
-//! the truncation once the caller has decided to trigger.
+//! The cache-miss trigger (`cacheMissedThresholdMs`) and the context-usage
+//! gate (`minContextUsageRatio`) live in [`detect_micro_compaction`], a pure
+//! function over the same config — v2 keeps them in `detect()` on the service,
+//! which is stateful only because it tracks `lastAssistantAt`. This module stays
+//! pure: the caller supplies that timestamp.
 //!
 //! ## What gets replaced
 //! For each message at history index `i < cutoff` (where
@@ -43,8 +43,9 @@
 //! provider projection boundary that selects `blocks` over `content`.
 //!
 //! ## Wiring note (for `turn_loop` integration)
-//! This module is algorithm-only. The caller must:
-//! 1. decide to trigger on a detected prompt-cache miss + context-usage gate,
+//! The caller must:
+//! 1. call [`detect_micro_compaction`] with the last assistant-output time, the
+//!    current context size and the model's window,
 //! 2. call [`apply_micro_compaction`] over the outgoing message view,
 //! 3. raise the cutoff (persist `outcome.cutoff` and emit a
 //!    `micro_compaction.apply` event carrying `{ cutoff }`, mirroring
@@ -59,11 +60,12 @@ use crate::turn_loop::types::{ContentBlock, LLMMessage};
 /// `apps/vis/server/src/lib/context-projector.ts`.
 pub const DEFAULT_TRUNCATED_MARKER: &str = "[Old tool result content cleared]";
 
-/// Knobs for the micro-compaction truncation pass. Mirrors the relevant fields
-/// of v2 `MicroCompactionConfig` (`microCompaction.ts`). The cache-miss and
-/// context-usage gate fields from v2 are intentionally omitted: the caller
-/// decides *when* to trigger, this module only performs the truncation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Knobs for the micro-compaction truncation pass. Mirrors v2's
+/// `MicroCompactionConfig` (`microCompaction.ts`) field for field, including
+/// the two gate knobs — [`Self::cache_missed_threshold_ms`] and
+/// [`Self::min_context_usage_ratio`] — which [`detect_micro_compaction`]
+/// reads. Defaults are v2's `DEFAULT_MICRO_COMPACTION_CONFIG` (`:17-23`).
+#[derive(Debug, Clone, PartialEq)]
 pub struct MicroCompactionConfig {
     /// Number of trailing messages exempt from truncation. Mirrors
     /// `keepRecentMessages` (v2 default 20).
@@ -74,6 +76,12 @@ pub struct MicroCompactionConfig {
     /// Marker text replacing a truncated tool result. Mirrors
     /// `truncatedMarker`.
     pub truncated_marker: String,
+    /// Idle time after the last assistant output that counts as a prompt-cache
+    /// miss (v2 `cacheMissedThresholdMs`, default 1 hour).
+    pub cache_missed_threshold_ms: u64,
+    /// Minimum context-window usage ratio for truncation to apply (v2
+    /// `minContextUsageRatio`, default 0.5).
+    pub min_context_usage_ratio: f64,
 }
 
 impl Default for MicroCompactionConfig {
@@ -82,8 +90,68 @@ impl Default for MicroCompactionConfig {
             keep_recent_messages: 20,
             min_content_tokens: 100,
             truncated_marker: DEFAULT_TRUNCATED_MARKER.to_string(),
+            cache_missed_threshold_ms: 60 * 60 * 1000,
+            min_context_usage_ratio: 0.5,
         }
     }
+}
+
+/// Why micro compaction did or did not trigger, for the caller's telemetry
+/// (v2 reports both `cache_age_ms` and the thresholds it compared against).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DetectOutcome {
+    /// The context had not been idle long enough to count as a cache miss.
+    NotIdleLongEnough,
+    /// The context was full enough to be worth compacting.
+    Triggered,
+    /// The context is too empty to gain anything from compacting.
+    ContextTooEmpty,
+}
+
+impl DetectOutcome {
+    pub fn triggered(self) -> bool {
+        matches!(self, Self::Triggered)
+    }
+}
+
+/// Decide whether a micro-compaction pass should run — the two gates v2's
+/// `detect()` applies before it will truncate anything.
+///
+/// `last_assistant_at_ms` is when this agent last produced assistant output;
+/// `None` means it never has, which v2 treats as "no idle time yet" and so does
+/// not trigger on (`cacheAgeMs === null` fails the comparison). The fork's
+/// engine passes the session's history so the age is measured against real
+/// output rather than a step counter.
+///
+/// Mirrors `AgentMicroCompactionService.detect()`
+/// (`microCompactionService.ts:89-107`): idle beyond the threshold, **and** a
+/// context filling at least `min_context_usage_ratio` of the window. An unknown
+/// or zero window yields a ratio of 1 — v2's `:102-103` treats an undefined
+/// `maxContextTokens` as full, so the usage gate never silently suppresses a
+/// pass the idle gate already allowed.
+pub fn detect_micro_compaction(
+    last_assistant_at_ms: Option<i64>,
+    now_ms: i64,
+    context_tokens: usize,
+    max_context_tokens: Option<usize>,
+    config: &MicroCompactionConfig,
+) -> DetectOutcome {
+    let Some(last) = last_assistant_at_ms else {
+        return DetectOutcome::NotIdleLongEnough;
+    };
+    let idle_ms = now_ms.saturating_sub(last).max(0) as u64;
+    if idle_ms < config.cache_missed_threshold_ms {
+        return DetectOutcome::NotIdleLongEnough;
+    }
+
+    let ratio = match max_context_tokens {
+        Some(max) if max > 0 => context_tokens as f64 / max as f64,
+        _ => 1.0,
+    };
+    if ratio < config.min_context_usage_ratio {
+        return DetectOutcome::ContextTooEmpty;
+    }
+    DetectOutcome::Triggered
 }
 
 /// One tool result that was truncated — the info the caller needs to emit a
@@ -238,6 +306,77 @@ mod tests {
             keep_recent_messages: 0,
             ..config()
         }
+    }
+
+    /// v2's `detect()` runs two gates, and the fork had neither: the flag alone
+    /// decided, so any session with the feature on compacted on every request.
+    /// These pin both, plus the two boundary cases that decide silently.
+    #[test]
+    fn detect_requires_both_idle_time_and_a_full_context() {
+        let cfg = config();
+        let hour = 60 * 60 * 1000;
+        let now = 10 * hour;
+
+        // Never produced output: v2's `cacheAgeMs === null` fails the test, so
+        // there is no idle time to judge and nothing triggers.
+        assert_eq!(
+            detect_micro_compaction(None, now, 1000, Some(1000), &cfg),
+            DetectOutcome::NotIdleLongEnough
+        );
+
+        // Fresh output (one second idle) must not trigger, however full.
+        assert_eq!(
+            detect_micro_compaction(Some(now - 1_000), now, 1000, Some(1000), &cfg),
+            DetectOutcome::NotIdleLongEnough
+        );
+
+        // Idle past the threshold but the context is empty: the usage gate
+        // suppresses it. 100/1000 = 0.1 < 0.5.
+        assert_eq!(
+            detect_micro_compaction(Some(now - hour), now, 100, Some(1000), &cfg),
+            DetectOutcome::ContextTooEmpty
+        );
+
+        // Both gates satisfied: exactly at the 0.5 boundary, v2's `<` lets it through.
+        assert_eq!(
+            detect_micro_compaction(Some(now - hour), now, 500, Some(1000), &cfg),
+            DetectOutcome::Triggered
+        );
+
+        // One millisecond short of the idle threshold does not trigger.
+        assert_eq!(
+            detect_micro_compaction(Some(now - hour + 1), now, 1000, Some(1000), &cfg),
+            DetectOutcome::NotIdleLongEnough
+        );
+    }
+
+    /// An unknown window counts as full, so a configured idle clock is never
+    /// silently cancelled by a model that reports no `max_context_size` (v2
+    /// substitutes a ratio of 1 at `detect()` `:102-103`).
+    #[test]
+    fn an_unknown_window_is_treated_as_full() {
+        let cfg = config();
+        let hour = 60 * 60 * 1000;
+        let now = 10 * hour;
+        for window in [None, Some(0)] {
+            assert_eq!(
+                detect_micro_compaction(Some(now - hour), now, 1, window, &cfg),
+                DetectOutcome::Triggered,
+                "window {window:?} must not suppress the pass"
+            );
+        }
+    }
+
+    /// A clock that reads as idle must not be defeated by a future timestamp
+    /// (clock skew, or a stored value from a later machine).
+    #[test]
+    fn a_future_last_output_does_not_trigger() {
+        let cfg = config();
+        let now = 1_000_000;
+        assert_eq!(
+            detect_micro_compaction(Some(now + 5_000), now, 10_000, Some(1000), &cfg),
+            DetectOutcome::NotIdleLongEnough
+        );
     }
 
     #[test]

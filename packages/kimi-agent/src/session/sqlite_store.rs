@@ -254,6 +254,125 @@ fn reclaim_file_history_space(conn: &Connection) -> Result<(), rusqlite::Error> 
 /// they project history: the v3 `turn` entity has an origin for exactly that.
 pub const COMPACT_TURN_ID: &str = "turn-compact";
 
+/// Why a fork could not be sliced at the requested turn (v2
+/// `assertForkTurnIndex` / `sliceMainRecordsAtTurn`'s `REQUEST_INVALID`).
+/// These are caller mistakes, not store failures, so they travel separately
+/// from [`rusqlite::Error`] and surface as a 4xx rather than a 500.
+#[derive(Debug)]
+pub enum ForkError {
+    /// `turnIndex` was present but not a non-negative safe integer
+    /// (v2 `assertForkTurnIndex`).
+    InvalidTurnIndex,
+    /// The session has fewer visible turns than the index names (v2
+    /// `sliceMainRecordsAtTurn`'s "Turn N was not found" arm).
+    TurnNotFound {
+        turn_index: u64,
+        available_turns: usize,
+    },
+    /// The store failed while copying.
+    Store(rusqlite::Error),
+}
+
+impl From<rusqlite::Error> for ForkError {
+    fn from(e: rusqlite::Error) -> Self {
+        Self::Store(e)
+    }
+}
+
+impl std::fmt::Display for ForkError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidTurnIndex => {
+                write!(
+                    f,
+                    "forkSession turnIndex must be a non-negative safe integer"
+                )
+            }
+            Self::TurnNotFound {
+                turn_index,
+                available_turns,
+            } => write!(
+                f,
+                "Turn {turn_index} was not found in the session ({available_turns} available)"
+            ),
+            Self::Store(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+/// The row key a copied turn gets in the forked session.
+///
+/// It must be **fresh**: `turns.turn_id` is the table's PRIMARY KEY — globally,
+/// not per session — and `save_turn` upserts on it, so reusing the source's key
+/// would silently update the *source's* row instead of inserting the fork's,
+/// and the copy would hold no turns at all. The turn's position is carried
+/// separately in `turn_number`, which is what callers and the wire project read,
+/// so the opaque key is free to be fork-local.
+///
+/// The compaction turn is the one key that is *recognised* rather than opaque:
+/// `select_undo_turns` refuses an undo crossing it by name. Copying the
+/// sentinel verbatim would re-collide on the primary key (see above) and
+/// overwrite the source's summary row, so the fork gets a fork-local key that
+/// [`turn_is_compaction`] still recognises — otherwise the fork would silently
+/// lose the undo guard and an undo could delete a turn out from under the
+/// summary explaining it.
+fn forked_turn_id(source_turn_id: &str, new_session_id: &str, number: u32) -> String {
+    if turn_is_compaction(source_turn_id) {
+        return format!("{new_session_id}-{COMPACT_TURN_ID}");
+    }
+    format!("{new_session_id}-turn-{number}")
+}
+
+/// Whether a `turn_id` names the compaction turn — in a live session or in a
+/// fork of one, whose copy carries the fork id as a prefix (see
+/// [`forked_turn_id`]).
+fn turn_is_compaction(turn_id: &str) -> bool {
+    turn_id == COMPACT_TURN_ID || turn_id.ends_with(&format!("-{COMPACT_TURN_ID}"))
+}
+
+/// Whether a persisted turn counts as a user-visible turn, i.e. one a fork can
+/// name as a cut point.
+///
+/// This is v2 `isUserVisibleTurnRecord` (forkTurnSlice.ts:86-103) applied to
+/// what this store actually persists. v2 reads the classification off the
+/// `context.append_message` record's `origin.kind`; the fork's equivalent
+/// record is a `turns` row plus its `origin` JSON, written by `save_turn`
+/// from the request's prompt origin.
+///
+/// **Both of v2's guards, in order.** v2 checks the message `role` *before* it
+/// looks at `origin`, and so does this: the origin vocabulary is permissive by
+/// design (`undefined` and `user` are visible), so a turn that opened with a
+/// non-user first message is only excluded if the role is actually consulted.
+/// [`TurnRecord`] carries no role of its own — it is a row header — so the
+/// caller passes the turn's opening message role in, read from the `messages`
+/// table the same way v2 reads it off the record.
+///
+/// The vocabulary is v2's and is deliberately not extended: `undefined` and
+/// `user` are visible; `skill_activation` / `plugin_command` only when the
+/// client says the trigger was a typed slash (`user-slash`); `shell_command`
+/// only in its `input` phase; every other kind is invisible. A turn with no
+/// origin at all is visible — that is the `undefined` arm, and it is the
+/// common case for a session recorded before origins were persisted.
+fn turn_is_user_visible(origin: Option<&Value>, opening_role_is_user: bool) -> bool {
+    if !opening_role_is_user {
+        return false;
+    }
+    let Some(origin) = origin else {
+        return true;
+    };
+    let Some(kind) = origin.get("kind").and_then(Value::as_str) else {
+        return true;
+    };
+    match kind {
+        "user" => true,
+        "skill_activation" | "plugin_command" => {
+            origin.get("trigger").and_then(Value::as_str) == Some("user-slash")
+        }
+        "shell_command" => origin.get("phase").and_then(Value::as_str) == Some("input"),
+        _ => false,
+    }
+}
+
 pub struct SqliteSessionStore {
     /// One connection, guarded for the whole store — so this lock is the
     /// highest-blast-radius mutex in the engine.
@@ -831,17 +950,89 @@ impl SqliteSessionStore {
     }
 
     /// Fork an existing session into a new session with copied history.
+    ///
+    /// `turn_index` names a user-visible turn to cut at (v2 `forkSession`'s
+    /// `opts.turnIndex`). `None` copies the whole session, which is what the
+    /// parameter's absence means upstream too
+    /// (`sessionLifecycleService.ts:569-576`). When it is `Some`, the copy
+    /// keeps turns `0..=turn_index` and drops the rest — v2's `sliceMainRecordsAtTurn`
+    /// takes `records.slice(0, turnStarts[turnIndex + 1])`, i.e. the named turn
+    /// *and everything before it*.
+    ///
+    /// The retained turns keep their own `turn_id` / `turn_number` / `origin`
+    /// rather than collapsing into one synthetic row. That is the defect this
+    /// replaces: the old path called `save_turn(new, "turn-fork", 1, &history)`,
+    /// so a four-message two-turn session forked into a single turn and
+    /// `list_turns` reported one row. Turn identity is what makes a later
+    /// `/undo`, a turn-scoped file-history read, and a re-fork of the fork work.
     pub fn fork_session(
         &self,
         source_session_id: &str,
         new_session_id: &str,
         title: Option<&str>,
-    ) -> Result<bool, rusqlite::Error> {
-        let history = self.load_session_history(source_session_id)?;
+        turn_index: Option<u64>,
+    ) -> Result<bool, ForkError> {
         let source = self.get_session(source_session_id)?;
         let Some(source) = source else {
             return Ok(false);
         };
+        let turns = self.list_turns(source_session_id)?;
+        // Loaded before the visibility pass because v2's first guard is the
+        // message `role`, which lives in the `messages` table, not on the turn
+        // row. A turn with no messages at all is not nameable: v2 classifies a
+        // `context.append_message` record, and a turn that never appended one
+        // has nothing to classify.
+        let messages = self.load_session_messages(source_session_id)?;
+        let opening_role = |turn_id: &str| -> bool {
+            messages
+                .iter()
+                .find(|m| m.turn_id == turn_id)
+                .is_some_and(|m| m.message.role == "user")
+        };
+
+        // Which turns are nameable cut points, and where the copy stops.
+        // `turn_index` counts *visible* turns, not rows, so an invisible turn
+        // sitting between two visible ones must not shift the numbering.
+        let visible: Vec<usize> = turns
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| turn_is_user_visible(t.origin.as_ref(), opening_role(&t.turn_id)))
+            .map(|(i, _)| i)
+            .collect();
+        let retained_upto_row = match turn_index {
+            None => turns.len(),
+            Some(index) => {
+                let start = usize::try_from(index)
+                    .ok()
+                    .and_then(|i| visible.get(i).copied());
+                match start {
+                    None => {
+                        return Err(ForkError::TurnNotFound {
+                            turn_index: index,
+                            available_turns: visible.len(),
+                        });
+                    }
+                    Some(start_row) => start_row + 1,
+                }
+            }
+        };
+
+        let retained: Vec<(&TurnRecord, Vec<LLMMessage>)> = turns
+            .iter()
+            .take(retained_upto_row)
+            .map(|turn| {
+                let turn_messages: Vec<LLMMessage> = messages
+                    .iter()
+                    .filter(|m| m.turn_id == turn.turn_id)
+                    .map(|m| m.message.clone())
+                    .collect();
+                (turn, turn_messages)
+            })
+            .filter(|(_, msgs)| !msgs.is_empty())
+            .collect();
+
+        // Validation is already done, so creating the child now cannot leave an
+        // orphan session behind on a rejected `turnIndex`.
         let effective_title = title.or(source.title.as_deref());
         self.create_session_with_workspace(
             new_session_id,
@@ -849,17 +1040,40 @@ impl SqliteSessionStore {
             source.workspace_id.as_deref(),
         )?;
         // Children are queryable via /sessions/{id}/children.
-        {
-            let conn = self.conn.lock();
-            conn.execute(
-                "UPDATE sessions SET parent_session_id = ?1 WHERE session_id = ?2",
-                params![source_session_id, new_session_id],
+        self.link_to_parent(source_session_id, new_session_id)?;
+        // One `save_turn` per retained source turn, each re-stamped with its own
+        // number so the fork's `next_turn_number` continues the sequence instead
+        // of restarting it. The compaction summary turn is a real row in the
+        // source and is copied like any other: dropping it would leave the
+        // fork's history without the summary that explains its oldest messages.
+        // A session with no turns still gets its child, matching the old
+        // whole-session path.
+        for (number, (turn, turn_messages)) in retained.iter().enumerate() {
+            self.save_turn(
+                new_session_id,
+                &forked_turn_id(&turn.turn_id, new_session_id, number as u32 + 1),
+                number as u32 + 1,
+                turn_messages,
+                turn.usage.as_ref(),
+                turn.origin.as_ref(),
             )?;
         }
-        if !history.is_empty() {
-            self.save_turn(new_session_id, "turn-fork", 1, &history, None, None)?;
-        }
         Ok(true)
+    }
+
+    /// Point `new_session_id` at `parent_session_id`, which is what makes the
+    /// fork queryable through `/sessions/{id}/children`.
+    fn link_to_parent(
+        &self,
+        source_session_id: &str,
+        new_session_id: &str,
+    ) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE sessions SET parent_session_id = ?1 WHERE session_id = ?2",
+            params![source_session_id, new_session_id],
+        )?;
+        Ok(())
     }
 
     /// Archive a session (v2 `archive` action): hidden from the default
@@ -965,7 +1179,7 @@ impl SqliteSessionStore {
             .filter_map(|r| r.ok())
             .collect();
 
-        if selected.iter().any(|(tid, _)| tid == COMPACT_TURN_ID) {
+        if selected.iter().any(|(tid, _)| turn_is_compaction(tid)) {
             return Err(format!(
                 "undo refused: crossing the compaction boundary turn '{COMPACT_TURN_ID}' would corrupt the session projection"
             ));
@@ -2656,7 +2870,7 @@ mod tests {
 
         // Fork to sess-fork with explicit title
         let ok = store
-            .fork_session("sess-orig", "sess-fork", Some("Forked"))
+            .fork_session("sess-orig", "sess-fork", Some("Forked"), None)
             .unwrap();
         assert!(ok);
 
@@ -2686,7 +2900,7 @@ mod tests {
 
         // Fork without title inherits original title
         let ok_inherit = store
-            .fork_session("sess-orig", "sess-inherit", None)
+            .fork_session("sess-orig", "sess-inherit", None, None)
             .unwrap();
         assert!(ok_inherit);
         let inherited = store.get_session("sess-inherit").unwrap().unwrap();
@@ -2695,9 +2909,373 @@ mod tests {
 
         // Fork non-existent returns false
         let missing = store
-            .fork_session("sess-missing", "sess-none", None)
+            .fork_session("sess-missing", "sess-none", None, None)
             .unwrap();
         assert!(!missing);
+    }
+
+    /// A fork keeps the source's turn structure instead of collapsing it into one
+    /// synthetic row (v2 `sliceMainRecordsAtTurn` / `copyAgentWire`).
+    ///
+    /// Before the cut, `fork_session` called
+    /// `save_turn(new, "turn-fork", 1, &history)` — a four-message, two-turn
+    /// session came back as four messages under a single turn, so `list_turns`
+    /// reported one row and turn-scoped reads (`/undo`'s plan, file history)
+    /// had nothing to scope to.
+    #[test]
+    fn a_fork_preserves_the_source_turn_structure() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store
+            .create_session_with_workspace("sess-src", Some("Src"), Some("wd_fork"))
+            .unwrap();
+        store
+            .save_turn(
+                "sess-src",
+                "turn-a",
+                1,
+                &[LLMMessage::user("u1"), LLMMessage::assistant("a1")],
+                None,
+                None,
+            )
+            .unwrap();
+        store
+            .save_turn(
+                "sess-src",
+                "turn-b",
+                2,
+                &[LLMMessage::user("u2"), LLMMessage::assistant("a2")],
+                None,
+                None,
+            )
+            .unwrap();
+
+        store
+            .fork_session("sess-src", "sess-whole", None, None)
+            .unwrap();
+
+        let turns = store.list_turns("sess-whole").unwrap();
+        assert_eq!(
+            turns.iter().map(|t| t.turn_number).collect::<Vec<_>>(),
+            vec![1, 2],
+            "each source turn is copied as its own row, numbered consecutively"
+        );
+        assert_eq!(store.load_session_history("sess-whole").unwrap().len(), 4);
+        // The copy is independent: a later source turn must not leak in.
+        store
+            .save_turn(
+                "sess-src",
+                "turn-c",
+                3,
+                &[LLMMessage::user("u3")],
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(store.load_session_history("sess-whole").unwrap().len(), 4);
+    }
+
+    /// `turnIndex` names the last retained turn: v2 slices
+    /// `records.slice(0, turnStarts[turnIndex + 1])`, so the named turn *and
+    /// everything before it* are kept and later turns are dropped.
+    #[test]
+    fn a_turn_index_cuts_the_history_at_that_turn() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store
+            .create_session_with_workspace("sess-src", Some("Src"), Some("wd_cut"))
+            .unwrap();
+        for (n, id) in ["turn-a", "turn-b", "turn-c"].iter().enumerate() {
+            store
+                .save_turn(
+                    "sess-src",
+                    id,
+                    n as u32 + 1,
+                    &[LLMMessage::user(*id), LLMMessage::assistant("reply")],
+                    None,
+                    None,
+                )
+                .unwrap();
+        }
+
+        store
+            .fork_session("sess-src", "sess-cut", None, Some(1))
+            .unwrap();
+
+        let turns = store.list_turns("sess-cut").unwrap();
+        assert_eq!(
+            turns.iter().map(|t| t.turn_number).collect::<Vec<_>>(),
+            vec![1, 2],
+            "index 1 keeps turns 0 and 1 and drops turn 2"
+        );
+        let history = store.load_session_history("sess-cut").unwrap();
+        assert_eq!(history.len(), 4);
+        assert!(
+            history.iter().all(|m| m.content != "turn-c"),
+            "the cut turn's messages are absent"
+        );
+    }
+
+    /// The compaction turn is a recognised key, not just a label: `undo` refuses
+    /// to cross it by string comparison. Copying a compacted session must keep
+    /// that exact id, or the fork silently loses the guard and an undo could
+    /// delete a turn out from under the summary that explains it.
+    #[test]
+    fn a_fork_keeps_the_compaction_undo_guard() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store
+            .create_session_with_workspace("sess-c", Some("Src"), Some("wd_compact"))
+            .unwrap();
+        store
+            .save_turn(
+                "sess-c",
+                COMPACT_TURN_ID,
+                1,
+                &[LLMMessage::assistant("summary of earlier work")],
+                None,
+                None,
+            )
+            .unwrap();
+        store
+            .save_turn(
+                "sess-c",
+                "turn-real",
+                2,
+                &[LLMMessage::user("q"), LLMMessage::assistant("a")],
+                None,
+                None,
+            )
+            .unwrap();
+
+        store
+            .fork_session("sess-c", "sess-c-fork", None, None)
+            .unwrap();
+
+        let forked_ids: Vec<String> = store
+            .list_turns("sess-c-fork")
+            .unwrap()
+            .into_iter()
+            .map(|t| t.turn_id)
+            .collect();
+        assert_eq!(
+            forked_ids.len(),
+            2,
+            "both the summary and the real turn are copied, got {forked_ids:?}"
+        );
+        assert_eq!(
+            forked_ids
+                .iter()
+                .filter(|id| turn_is_compaction(id))
+                .count(),
+            1,
+            "the fork carries exactly one recognisable compaction turn"
+        );
+        // The source must be untouched: reusing its key would have upserted
+        // the source's rows instead of inserting the fork's.
+        assert_eq!(
+            store.list_turns("sess-c").unwrap().len(),
+            2,
+            "the source keeps both of its rows"
+        );
+        // And the guard still fires on the fork: undoing both turns would cross it.
+        assert!(
+            store.plan_undo_turns("sess-c-fork", 2).is_err(),
+            "the fork must refuse an undo that crosses the compaction boundary"
+        );
+        // Undoing only the real turn is still fine.
+        assert_eq!(
+            store.plan_undo_turns("sess-c-fork", 1).unwrap(),
+            vec![2],
+            "the compaction guard does not block a same-side undo"
+        );
+    }
+
+    /// An index past the last turn is a client error, and it must not leave a
+    /// half-created session behind.
+    #[test]
+    fn an_out_of_range_turn_index_is_refused_without_creating_the_child() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store
+            .create_session_with_workspace("sess-src", Some("Src"), Some("wd_range"))
+            .unwrap();
+        store
+            .save_turn(
+                "sess-src",
+                "turn-a",
+                1,
+                &[LLMMessage::user("u1")],
+                None,
+                None,
+            )
+            .unwrap();
+
+        let err = store
+            .fork_session("sess-src", "sess-none", None, Some(7))
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ForkError::TurnNotFound {
+                    turn_index: 7,
+                    available_turns: 1
+                }
+            ),
+            "expected TurnNotFound naming the real count, got {err:?}"
+        );
+        assert!(
+            store.get_session("sess-none").unwrap().is_none(),
+            "a rejected index must not create the child session"
+        );
+    }
+
+    /// `turnIndex` counts *visible* turns (v2 `isUserVisibleTurnRecord`), so an
+    /// invisible turn sitting between two visible ones must not shift the
+    /// numbering the caller sees.
+    #[test]
+    fn an_invisible_turn_does_not_shift_the_turn_index() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store
+            .create_session_with_workspace("sess-src", Some("Src"), Some("wd_vis"))
+            .unwrap();
+        let user_origin = json!({ "kind": "user" });
+        // An auto-injected shell command is not a user-visible turn.
+        let shell_origin = json!({ "kind": "shell_command", "phase": "output" });
+        store
+            .save_turn(
+                "sess-src",
+                "turn-user-1",
+                1,
+                &[LLMMessage::user("q1")],
+                None,
+                Some(&user_origin),
+            )
+            .unwrap();
+        store
+            .save_turn(
+                "sess-src",
+                "turn-shell",
+                2,
+                &[LLMMessage::user("auto")],
+                None,
+                Some(&shell_origin),
+            )
+            .unwrap();
+        store
+            .save_turn(
+                "sess-src",
+                "turn-user-2",
+                3,
+                &[LLMMessage::user("q2")],
+                None,
+                Some(&user_origin),
+            )
+            .unwrap();
+
+        // Visible turns are index 0 (q1) and index 1 (q2); the shell turn sits
+        // between them and must be carried along as part of the prefix.
+        store
+            .fork_session("sess-src", "sess-cut", None, Some(1))
+            .unwrap();
+
+        let turns = store.list_turns("sess-cut").unwrap();
+        assert_eq!(
+            turns.iter().map(|t| t.turn_number).collect::<Vec<_>>(),
+            vec![1, 2, 3],
+            "cutting at visible turn 1 keeps the invisible turn before it"
+        );
+        let history = store.load_session_history("sess-cut").unwrap();
+        assert!(
+            history.iter().any(|m| m.content == "auto"),
+            "the invisible shell turn rides along inside the retained prefix"
+        );
+
+        // The invisible turn is not nameable on its own: index 2 is past the end.
+        let err = store
+            .fork_session("sess-src", "sess-cut2", None, Some(2))
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ForkError::TurnNotFound {
+                    available_turns: 2,
+                    ..
+                }
+            ),
+            "only two turns are nameable, got {err:?}"
+        );
+    }
+
+    /// v2's *first* visibility guard is the message `role`, checked before
+    /// `origin.kind` (`forkTurnSlice.ts:89-91`): a turn whose opening message is
+    /// not a user message is never a nameable cut point, whatever its origin
+    /// says. Without that guard a `kind: "user"` turn opened by the engine
+    /// itself would be offered as a cut point and silently consume index 0.
+    #[test]
+    fn a_non_user_opening_message_is_not_a_visible_turn() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store
+            .create_session_with_workspace("sess-role", Some("Src"), Some("wd_role"))
+            .unwrap();
+        let user_origin = json!({ "kind": "user" });
+        // A genuine user turn.
+        store
+            .save_turn(
+                "sess-role",
+                "turn-user",
+                1,
+                &[LLMMessage::user("q1")],
+                None,
+                Some(&user_origin),
+            )
+            .unwrap();
+        // Claims `kind: "user"` — the most permissive origin there is — but
+        // opened by the assistant, so v2 excludes it on the role check alone.
+        store
+            .save_turn(
+                "sess-role",
+                "turn-assistant",
+                2,
+                &[LLMMessage::assistant("auto-reply")],
+                None,
+                Some(&user_origin),
+            )
+            .unwrap();
+        store
+            .save_turn(
+                "sess-role",
+                "turn-user-2",
+                3,
+                &[LLMMessage::user("q2")],
+                None,
+                Some(&user_origin),
+            )
+            .unwrap();
+
+        // Only the two real user turns are nameable, so index 2 is past the end
+        // even though three rows exist.
+        let err = store
+            .fork_session("sess-role", "sess-role-cut", None, Some(2))
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ForkError::TurnNotFound {
+                    available_turns: 2,
+                    ..
+                }
+            ),
+            "the assistant-opened turn must not be nameable, got {err:?}"
+        );
+
+        // Cutting at visible index 1 keeps rows 1..=3 — the assistant turn rides
+        // along inside the retained prefix, exactly as an invisible turn does.
+        store
+            .fork_session("sess-role", "sess-role-ok", None, Some(1))
+            .unwrap();
+        let turns = store.list_turns("sess-role-ok").unwrap();
+        assert_eq!(
+            turns.iter().map(|t| t.turn_number).collect::<Vec<_>>(),
+            vec![1, 2, 3],
+            "the retained prefix carries the role-excluded turn along"
+        );
     }
 
     #[test]

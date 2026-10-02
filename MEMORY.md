@@ -34,6 +34,21 @@ Both were red on `main` before this work and are unrelated to it:
   the default budget" is a **time budget** test, so it fails on a loaded runner and
   passes in ~7 ms locally. Not a parser regression; do not chase it.
 
+**A third, on the Rust side** (2026-10-02, recorded in ROADMAP §10.24):
+`kimi_agent::storage::state_store::tests::read_workspace_state_resolves_the_workspace_directory`
+(`state_store.rs:1183`) — passes alone, fails intermittently in a full
+`cargo test --no-default-features --features cli` run. Parallel-run resource contention,
+not logic. When a full Rust run goes red on exactly this test, re-run **it alone**:
+
+```sh
+cd packages/kimi-agent && cargo test --lib read_workspace_state_resolves_the_workspace_directory
+```
+
+Do not re-run the full suite to "confirm" a fix, and do not widen a retry budget to
+make it pass. `AGENTS.md` → Verification Standard → "Scale the verification to the
+blast radius" is the normative rule; this file is where the specific names live.
+
+
 ## Remote transports (user rule, 2026-10-01)
 
 - **GitHub → SSH.** `origin` = `git@github.com:7723qqq/kimi-code.git`,

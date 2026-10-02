@@ -11,6 +11,7 @@ pub mod cron;
 pub mod engine;
 pub mod env;
 pub mod events;
+pub mod frontmatter;
 pub mod goal;
 pub mod i18n;
 pub mod injection;

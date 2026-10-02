@@ -222,6 +222,19 @@ describe('forkSessionRequestSchema', () => {
   it('rejects non-object metadata', () => {
     expect(forkSessionRequestSchema.safeParse({ metadata: 'x' }).success).toBe(false);
   });
+
+  it('accepts a non-negative turnIndex as the cut point', () => {
+    expect(forkSessionRequestSchema.parse({ turnIndex: 0 })).toEqual({ turnIndex: 0 });
+    expect(forkSessionRequestSchema.parse({ turnIndex: 12 })).toEqual({ turnIndex: 12 });
+  });
+
+  // v2 `assertForkTurnIndex` requires a non-negative safe integer, so a
+  // negative or fractional index is a client error rather than a rounded value.
+  it('rejects a negative or fractional turnIndex', () => {
+    expect(forkSessionRequestSchema.safeParse({ turnIndex: -1 }).success).toBe(false);
+    expect(forkSessionRequestSchema.safeParse({ turnIndex: 1.5 }).success).toBe(false);
+    expect(forkSessionRequestSchema.safeParse({ turnIndex: '2' }).success).toBe(false);
+  });
 });
 
 describe('createSessionChildRequestSchema', () => {

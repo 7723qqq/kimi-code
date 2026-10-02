@@ -545,7 +545,11 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    const PROFILE: &str = "---\nname: profile\ndescription: Who they are: name, role, employer.\ntype: note\nsources: [chat]\naliases: [me, the user]\n---\n\n- [stated] Works on the kimi-code CLI.\n";
+    /// Quoted because an unquoted `Who they are: name, role, employer.` is not
+    /// valid YAML — a second `: ` makes it a nested mapping — and the engine
+    /// now reads frontmatter as real YAML (v2 uses `js-yaml`, which throws on
+    /// the unquoted form). The old line-by-line reader tolerated it.
+    const PROFILE: &str = "---\nname: profile\ndescription: \"Who they are: name, role, employer.\"\ntype: note\nsources: [chat]\naliases: [me, the user]\n---\n\n- [stated] Works on the kimi-code CLI.\n";
 
     fn base() -> (TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();

@@ -1012,7 +1012,12 @@ impl AcpServer {
                         ),
                         Some(_) => {
                             let forked = format!("sess-{}", fastrand::u64(..));
-                            match self.store.fork_session(source, &forked, None) {
+                            // `None` is not a missing feature here: v2's ACP
+                            // `session/fork` calls `klient.session(id).fork()`
+                            // with no options at all (acp-server/src/server.ts:276),
+                            // and `ForkSessionRequest` carries no turn index.
+                            // Only the REST surface exposes the cut point.
+                            match self.store.fork_session(source, &forked, None, None) {
                                 Ok(true) => {
                                     self.modes
                                         .lock()
@@ -1032,11 +1037,14 @@ impl AcpServer {
                                     -32602,
                                     format!("Unknown sessionId: {source}"),
                                 ),
-                                Err(e) => JsonRpcResponse::error(
-                                    req.id,
-                                    -32000,
-                                    format!("Database error: {e}"),
-                                ),
+                                Err(crate::session::sqlite_store::ForkError::Store(e)) => {
+                                    JsonRpcResponse::error(
+                                        req.id,
+                                        -32000,
+                                        format!("Database error: {e}"),
+                                    )
+                                }
+                                Err(e) => JsonRpcResponse::error(req.id, -32602, e.to_string()),
                             }
                         }
                     },

@@ -4807,8 +4807,8 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 
 | # | 项 | 证据强度 | 落点 |
 |---|---|---|---|
-| 1 | **frontmatter 不是 YAML**：四条独立失败——`description: >` → 字面量 `">"`；`scopes:` 块列表**整体丢失**（改变 skill 可见范围）；行内注释混入值；嵌套 map 被展平且父键变空串 | **实证**（临时探针实跑，已删） | `skills/mod.rs:98-172`、`tools/tower/frontmatter.rs:19-48`；建议合并为一个真 YAML crate |
-| 2 | **分叉只能整段进行**：实测两轮会话（4 消息）分叉后仍拿全部 4 条，且 `list_turns` 只返回 1 行 `turn_id="turn-fork"`——**轮次结构被压平** | **实证**（同上） | `sqlite_store.rs:834-863` 加 `turn_index`；调用方 `server/mod.rs:5165`（body 未解析 `turnIndex`）、`acp/mod.rs:1015`。v2 契约 `sessionLifecycle.ts:25` |
+| 1 | ~~**frontmatter 不是 YAML**~~ **已完成 2026-10-02** | **实证** | 见 **§10.24**。新增 `src/frontmatter.rs` 移植 v2 `_base/text/frontmatter.ts`（底层 `serde_yaml`），替换 `skills/mod.rs` 与 `tools/tower/frontmatter.rs` 两处手写解析。四条失败实跑复现后全部修复；**台账一处需订正**：`arguments:` 块列表一直是对的，丢失只发生在 `scopes:` |
+| 2 | ~~**分叉只能整段进行**~~ **已完成 2026-10-02** | **实证**（同上） | 见 **§10.23**。`fork_session` 增 `turn_index` 参数并按轮次复制（保留 `usage`/`origin`），REST `POST /sessions/{id}/fork` 解析 body 的 `turnIndex`（v2 `sessionLifecycle.ts:25`），越界与非法值均 400（v2 是 `REQUEST_INVALID`）。共享契约 `sessionForkSchema` 补 `turnIndex`。**ACP 侧刻意传 `None`**——v2 的 ACP `session/fork` 本身不带该参数 |
 
 #### P1 — 已核实，性价比高
 
@@ -4816,7 +4816,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 |---|---|---|---|
 | 3 | **14 个 hook 事件未触发**（v2 有 20 种，fork 只 6 种）。全部只观察、从不否决；`HookGuard::notify_session_lifecycle(event: &str, …)` 已接受任意事件名 | 已核实（20 种事件名逐条确认） | `tools/external_hooks.rs`。**一个通用入口覆盖 14 个** |
 | 4 | **Anthropic 多发一个 `cache_control` 槽**（fork 4 / 上游 3）。stable-history 位是 **fork 自加**，此前被误登记为「非自加」 | 已核实（`anthropic.rs:184-192` 四处发射点 `:164/:192/:239/:254`；上游 `anthropic.ts:352-362` 无该分支） | **冗余但无害，降级**：stable 位在 `msgs.len()-3`，**每轮向前移动**，故永远不是同一前缀——两种缓存语义下都不带来命中收益，唯一效果是多写一条条目。详见 6.45.1 |
-| 5 | **micro compaction 的 `detect()` 两个门禁**（cache-miss 判据 + 用量闸）。算法、接线、事件、9 项测试**全已在**；缺的只是约 40 行的跨 step 判定 | 已核实（`server/engine.rs:1329-1359`） | `server/engine.rs`。**§6.29 曾错误地把它标成「不得开工」，6.44.1 已推翻** |
+| 5 | ~~**micro compaction 的 `detect()` 两个门禁**~~ **已完成 2026-10-02** | 已核实 | 见 **§10.25**。`compaction/micro.rs` 增 `detect_micro_compaction()` + `DetectOutcome`，配置面补 `cache_missed_threshold_ms` / `min_context_usage_ratio` 两个 v2 默认值；引擎侧增 per-session `last_assistant_at`，每轮 `save_turn` 后打戳（v2 `onDidFinishStep`）。**§6.29 曾把它标成「不得开工」，6.44.1 已推翻** |
 | 6 | **wire 协议无版本概念**：`wire_events` 表无版本列、无 `metadata` 记录、无迁移链（v2 有 v1.0→v1.5 五级 + 前向拒绝）。旧会话既不能迁移也不能识别 | 已核实 | `session/sqlite_store.rs:439` |
 | 7 | **磁盘日志缺失 + 导出 ZIP 只有 2 个成员**。而 `locales/en.json:2600` 正在叫用户出错时跑 `/export-debug-zip`；`apps/vis` 的 Logs 标签页是死的 | 已核实 | `napi_bindings.rs`、`server/mod.rs:1680-1721`、`vis/server/src/routes/logs.ts` |
 | 8 | **POST /undo 不做 state 回滚**：`StateStore::rollback` 生产代码里只有 REPL `/undo` 一个调用方。**是一次缺失的调用，不是缺失的模型** | 已核实（grep 全仓确认） | `server/mod.rs:5511-5602` |
@@ -4831,7 +4831,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 | 12 | `SessionOutcomeMirror` 不落库 | `last_turn_reason` 只发活事件；线形字段已在 `protocol/src/session.ts:112` 但无写入方 |
 | 13 | `toolResultRender` 状态包装缺失 | `<system>ERROR:…</system>` 是模型判断工具成败的唯一信号；`locales/en.json:609` 的串全仓无人用 |
 | 14 | ~~`SessionHeartbeat` hook 缺失~~ **已撤销** | 它就是 P1-3 那 14 个未触发事件之一（`types.ts:17`），重复计数。唯一额外成本是需要 session 心跳定时器 |
-| 15 | 遥测事件 ~10/60 | 优先补解释故障的：`api_error`、`compaction_failed`、`tool_call_dedup_detected`、`session_load_failed` 等。**`api_error` 与 P1-5 合并做**（都要跨 step 累积 usage，见 6.45.2） |
+| 15 | 遥测事件 ~10/60 | 优先补解释故障的：`api_error`、`compaction_failed`、`tool_call_dedup_detected`、`session_load_failed` 等。**`api_error` 原与 P1-5 合并做，该理由已于 2026-10-02 推翻**（见 §10.25：v2 的 cache-miss 判据不读 usage，两者无共用结构），现为独立工单 |
 | 16 | trust 披露服务（§6.23.6） | 消费者已写好但是死的：`trust-prompt.ts:89-97` 只在数组非空时渲染，`kimi-tui.ts:2689` 硬编码 `[]` |
 | 17 | `workspaceAliases` 缺失 | 同一目录的符号链接/大小写变体会变成两个 workspace；`delete_workspace` 无墓碑 |
 | 18 | stdio MCP 的 proxy env 继承 | v2 额外应用 `HTTP_PROXY`/`NO_PROXY`；实际影响低 |
@@ -4870,7 +4870,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 | 合并项 | 原编号 | 理由 |
 |---|---|---|
 | **`SessionHeartbeat` 不单列** | P2-14 撤销 | 它**就是**那 14 个未触发 hook 事件之一（`types.ts:17`），与 P1-3 重复计数。唯一额外成本是需要 session 心跳定时器，属实现细节不是独立工单 |
-| **micro compaction 门禁 + 遥测补 `api_error` 一起做** | P1-5 + P2-15 合并 | 两者都要**跨 step 累积 usage**：前者要 `input_cache_read` 才能判 cache-miss，后者要同源数据才能报 `api_error`。共用一次数据结构改动，拆开做要改两遍 |
+| ~~**micro compaction 门禁 + 遥测补 `api_error` 一起做**~~ **合并理由不成立，已拆开（2026-10-02）** | P1-5 + P2-15 合并 | ❌ **原判断被推翻**：v2 的 cache-miss 判据是**距上次 assistant 输出的空闲时长**（`microCompactionService.ts:94-95`），**完全不读 usage**，故与 `api_error` 无共用数据结构。P1-5 已单独完成（§10.25）；`api_error` 留在 P2-15 独立做 |
 | **fork 自创三件的出处补齐一起做** | 裁决项 5 | `workflow` / `lsp_tool` / `thinking_guard` 只是加模块头说明 + 台账登记，**无代码改动**，应作为一次文档提交而非三个待办 |
 
 **真实的依赖链**（除此之外均可并行）：
@@ -6284,3 +6284,260 @@ v2 侧四个构造函数（`acp-server/src/events-map.ts:398-537`）全是**纯�
 本轮**未修改任何产品代码**（`git diff --stat` 对 `acp/`、`events/` 为空）。
 `cargo fmt --check` ✅｜`cargo test --no-default-features --features cli`
 2891 passed / 0 failed / 1 ignored。
+
+### 10.23 §6.45 P0-2 落地：分叉按轮次切分（2026-10-02）
+
+§6.45 P0-2「分叉只能整段进行」已实现。**先复现再动手**：临时探针实跑输出
+`messages=4 turns=1 turn_ids=["turn-fork"]`——台账的「实证」属实。
+
+**参考**：`.tmp/v2-ref-upstream` @ `21406fb4c8`（本轮**未能刷新**，网络不可达；
+该 HEAD 与 `check:upstream-v2-delta` 报告的一致，故引用仍有效）。
+`forkTurnSlice.ts:32-68` `sliceMainRecordsAtTurn`、
+`:22-30` `assertForkTurnIndex`、`:86-103` `isUserVisibleTurnRecord`；
+调用侧 `sessionLifecycleService.ts:569-576`。
+
+**改动**
+
+| 落点 | 内容 |
+|---|---|
+| `session/sqlite_store.rs` `fork_session` | 增 `turn_index: Option<u64>`；按轮次逐条 `save_turn`，保留 `usage` / `origin`；新增 `ForkError`（`InvalidTurnIndex` / `TurnNotFound` / `Store`）与 `turn_is_user_visible` 判据 |
+| `server/mod.rs:5169` | fork 路由解析 body 的 `turnIndex`；非法值 400，越界 400（v2 两者都是 `REQUEST_INVALID`） |
+| `acp/mod.rs:1020` | 传 `None`——**这不是缺口**：v2 的 ACP `session/fork` 调 `klient.session(id).fork()` 不带任何 options（`acp-server/src/server.ts:276`），`ForkSessionRequest` 无此字段 |
+| `packages/protocol/src/session.ts` `sessionForkSchema` | 共享契约补 `turnIndex: z.number().int().nonnegative().optional()` |
+
+**实现中撞到并修掉的两个真 bug（都是主键陷阱，两层）**
+
+1. **复制轮次时沿用源 `turn_id`**。`turns.turn_id` 是主键而 `save_turn` 是
+   upsert——于是**更新了源会话的行**（连带刷新它的 `completed_at`），fork 自己
+   反而一行轮次都没有。首次跑测试即 `left: []`。改由 `forked_turn_id()` 生成
+   fork 本地的新键；轮次位置由 `turn_number` 承载。
+2. **`COMPACT_TURN_ID` 不是不透明标签，是被识别的键**。`select_undo_turns`
+   （`:1142`）按**字符串相等**拒绝跨压缩边界的 undo。第一版修法把哨兵原样复制，
+   结果（a）fork 再次撞上同一个全局主键，覆盖源会话的摘要行，（b）即便不撞，
+   也会让 fork 悄悄失去那道守卫。**自审时才发现**：新增测试首跑报
+   `got ["sess-c-fork-turn-2"]`——压缩轮次整个消失。现引入
+   `turn_is_compaction()`（认 `turn-compact` 与其 `{fork}-` 前缀形式），
+   守卫改调它，复制时用 `{fork}-turn-compact` 既避开主键又保持可识别。
+
+   **教训**：`turns` 的主键是**全局**的而非按会话，且其中有一个键带语义。
+   只按「不透明 id」思考会漏掉第二层。
+
+**语义与 v2 对齐的确认**：`turnIndex` 保留「该轮及其之前」（v2 是
+`records.slice(0, turnStarts[turnIndex + 1])`），不是排他。
+
+**顺带核实**（未发现问题，探针已删）：压缩后 `list_turns` 的 `ORDER BY
+turn_number` 与 fork 的重编号——压缩把摘要写回 `turn_number = 1`，但它同时
+`DELETE FROM messages` 再整体重存，故消息顺序由 `messages.id` 决定、与轮次号
+无冲突；实测 4 轮会话 fork 后仍为 `[1,2,3,4]`，与源一致。
+
+**验证**：6 条新测试（4 store + 1 REST 路由 + 3 protocol schema 断言）。
+**均已反证**——把实现退回旧写法后 `a_fork_preserves_the_source_turn_structure`
+与 `a_turn_index_cuts_the_history_at_that_turn` 失败，把 `turn_index` 解析改成
+`None` 后 `the_fork_route_reads_turn_index_and_rejects_a_bad_one` 失败
+（`left: 6 / right: 4`）；`a_fork_keeps_the_compaction_undo_guard` 在哨兵原样复制的
+那版上首跑即失败（`got ["sess-c-fork-turn-2"]`）。`cargo fmt --check` ✅｜
+`cargo clippy --all-targets
+--features cli -- -D warnings` ✅｜`cargo test --no-default-features --features cli`
+**3127 passed / 0 failed / 1 ignored**｜`check:parity` ✅｜`bun run lint` 0 errors｜
+`check:architecture`（刷新 2 个指纹）✅。
+
+**同时查出一处语义分歧（未改，留待裁决）**：`packages/node-sdk` 的
+`forkSession` **早就有 `turnIndex`**，但走的是客户端实现
+（`sdk-rpc-client-native.ts:3528-3563` + `retainThroughTurn:477`），判据是
+**按 `role === 'user'` 数消息**，而非 v2 的 `origin.kind` 可见性。两处差别：
+
+1. **计数口径不同**。SDK 数 user 消息条数；v2 数用户可见**轮次**。含 steer
+   的会话里两者会错位（steer 是 user 消息但不开新轮）。
+2. **静默兜底不同**。`retainThroughTurn` 匹配不到时 `return history.length`
+   ——**整段复制**。SDK 用上下界检查堵住了这条路径（`:3550`，两条测试
+   `session-prompt-events.test.ts:489/504` 钉住），故不是活的缺陷；但兜底
+   本身与 v2「越界即 `REQUEST_INVALID`」相反。
+
+本次只补了引擎侧与共享契约，**未改 SDK**：它服务的传输面与 REST 不同，
+改它属另一项工单，且需先确认客户端是否依赖「按消息计数」这一既有语义。
+
+### 10.24 §6.45 P0-1 落地：frontmatter 改读真 YAML（2026-10-02）
+
+§6.45 P0-1 已实现：**新增 `src/frontmatter.rs`（v2 `_base/text/frontmatter.ts`
+的移植，底层 `serde_yaml`），替换 `skills/mod.rs` 与 `tools/tower/frontmatter.rs`
+两处手写逐行解析。**
+
+**先复现再动手**（临时探针实跑，已删）。台账四条**全部属实**，但有一条要订正：
+
+| 用例 | 旧解析器实跑 | 判定 |
+|---|---|---|
+| `description: >` + 缩进折行 | `">"` | ✅ 属实 |
+| `scopes:` 块列表 | `None`（整体丢失 → **skill 可见范围被放大**） | ✅ 属实 |
+| `name: s  # 注释` | `"s  # the name"` | ✅ 属实 |
+| 嵌套 map `meta:` | 父键变空串 | ✅ 属实 |
+| `arguments:` 块列表 | `["alpha","beta"]` | ❌ **台账说「块列表整体丢失」只对 `scopes` 成立**——`arguments` 早就有专门的 `- ` 消费逻辑，一直是对的 |
+
+修复后同一探针：`"a long folded description"` / `Some(["tui","web"])` / `"s"` /
+嵌套键保留 / `["alpha","beta"]`。
+
+**依赖选择**：`serde_yaml 0.9` 官方已弃用，但**上游自己就锁 `js-yaml`**（同样
+无维护），两者的行为基线一致；`serde_yml` 是非官方分叉、API 面更旧。故取
+`serde_yaml`——与上游选择同一类实现，不自创第三种。弃用状态记在此处。
+
+**过程中撞到并修掉的两个问题**
+
+1. **退化路径会从原文取 description**（自审发现）。YAML 解析失败时我最初直接
+   回退到扫描**全文**的首个散文行，于是 `name: s` 这一行 frontmatter 被当成了
+   skill 的描述。现先切出 body 再取散文行（`body_of` + `first_prose_line`），
+   并加测试 `a_malformed_frontmatter_block_degrades_instead_of_inventing_values`；
+   **已反证**：退回「扫全文」后该测试失败（`left: "name: s"`）。
+2. **一个既有测试 fixture 本身不是合法 YAML**。`memory_store.rs` 的 `PROFILE`
+   写的是 `description: Who they are: name, role, employer.`——未加引号的值里
+   含 `: `，会被解析成嵌套映射。**实测 v2 用的 `js-yaml` 对同一输入抛
+   `bad indentation of a mapping entry`**，即上游同样拒绝。按仓库规则
+   （「测试因用户改动失败时先改测试」）改为加引号，未改实现。
+
+**这是否会让用户的既有文件失效？** 已实跑核对：仓库内 19 份已发布 skill
+（`src/skills/builtin` + `.agents/skills` + `plugins/official`）全部解析正常，
+name 与 description 均非空（探针已删）。但**风险是真的**：用户手写的 memory /
+skill 文件里若有未加引号且含 `: ` 的值，现在会退化（描述取自正文首行）而非
+被误读。v2 行为相同，故不额外宽容——宽容反而会与上游分叉。
+
+**验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli --
+-D warnings` ✅｜`cargo test --no-default-features --features cli`
+**3142 passed / 0 failed / 1 ignored**（+15）｜`check:parity` ✅｜
+`check:architecture` ✅｜`check:roadmap-refs` ✅。
+
+### 10.25 §6.45 P1-5 落地：micro compaction 的 `detect()` 两个门禁（2026-10-02）
+
+§6.45 P1-5 已实现。**本轮网络恢复，已按 Verification Standard 刷新参考**：
+`.tmp/v2-ref-upstream` → `21406fb4c8`（**与上一轮相同**，故 §10.23 / §10.24 的
+引用依然成立，无需改）。
+
+**参考**：`.tmp/v2-ref/…/agent/microCompaction/`
+`microCompaction.ts:4-23`（配置与五个默认值）、`microCompactionService.ts:89-107`
+（`detect()` 全文）、`:60-70`（两个 hook 的挂点）。
+
+**核心事实（此前 §6.45.2 把它与遥测 `api_error` 合并的理由是错的）**：台账说
+「两者都要跨 step 累积 usage」，**不成立**。v2 的 cache-miss 判据**根本不看
+usage**——`:94-95` 是 `Date.now() - lastAssistantAt >= cacheMissedThresholdMs`，
+即**距上次 assistant 输出的空闲时长**（默认 1 小时）。各 provider 的
+`input_cache_read` 数字与此无关。故本次**只做 detect 门禁，未动遥测**，
+两者也不必合并。
+
+**改动**
+
+| 落点 | 内容 |
+|---|---|
+| `compaction/micro.rs` | 配置面补 `cache_missed_threshold_ms`（默认 `60*60*1000`）与 `min_context_usage_ratio`（默认 `0.5`），与 `microCompaction.ts:17-23` 逐值对齐；新增纯函数 `detect_micro_compaction()` 与 `DetectOutcome` |
+| `server/engine.rs` | 增 per-session `last_assistant_at`；`save_turn` 成功后 `stamp_last_assistant_at()`（对应 v2 `onDidFinishStep`）；调用点先过门禁再 `apply_micro_compaction` |
+| 同上 | `model_context_window()` 从 config 的 model alias 读 `max_context_size`；读不到时返回 `None`，门禁按「窗口未知 = 满」处理（v2 `:102-103` 以 ratio 1 代入） |
+
+**与 v2 的两处刻意差异**（均为 fork 机制所迫，非自创）：
+1. v2 在 `onWillBeginStep`（**每 step**）跑 `detect()`；fork 的
+   `run_turn_with_media` 只在发请求前跑一次，故门禁按**每轮**判定。
+   对本功能无影响：`keepRecentMessages` 的 cutoff 只依赖 `history.length`。
+2. v2 把 `lastAssistantAt` 放在 agent state 里；fork 放引擎内存 map，**不落库**。
+
+**顺带修掉一个我自己引入的真回归（由外部注入的探针发现）**：
+`render_frontmatter` 写的是 `subject: Re: review of feat/foo` —— **这不是合法
+YAML**（第二个 `: ` 被读作嵌套映射），`js-yaml`（v2 所用，实测确认抛
+`bad indentation of a mapping entry`）与 `serde_yaml` 都会拒。改成真 YAML 解析
+后，tower 消息会**静默变成零字段**——`Re:` 前缀正是 subject 最常见的形态。
+现由 `quote_if_needed()` 在渲染时转义，两条测试钉住（`Re:` 往返 + 10 个边界值
+往返）。
+
+**方法论记录**：这条回归**不是我自查发现的**，而是一条在我跑测试期间被外部写入
+工作树的探针测试报出来的（`zz_review_probe_colon_in_value`，随后被移除）。
+我当时的默认反应是「我没写这个测试」，但那条反射是对的——探针指出的问题真实
+存在。**被外部改动打断时应先核对工作树，而不是先质疑对方**。
+
+**另一条失败是 flake**：`storage::state_store::read_workspace_state_resolves_the_workspace_directory`
+单跑通过、全量偶发失败，与本次改动无关（并行执行下的资源竞争），未处理。
+
+**验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli --
+-D warnings` ✅｜`cargo test --no-default-features --features cli`
+**3149 passed / 0 failed / 1 ignored**（+7）｜`check:parity` ✅｜
+`check:architecture` ✅｜`check:roadmap-refs` ✅。
+
+### 10.26 v2 对齐复核：fork 可见性判据与描述兜底（2026-10-02）
+
+§10.23–§10.25 落地后做了一轮**独立复核**，参考仍为 `.tmp/v2-ref-upstream` @
+`21406fb4c8`（已刷新，日期未变，故前几节引用继续成立）。逐条核对三块改动的
+上游依据，结论：fork 与 micro compaction 的每条引用**均为真**（含行号与语义）；
+frontmatter 侧有**两处偏离**，本节处理其中可取的一处，并记录另一处为何不改。
+
+**核对结果**
+
+| 改动 | v2 依据 | 判定 |
+|---|---|---|
+| `turnIndex` 校验 | `assertForkTurnIndex`（`forkTurnSlice.ts:22-30`） | ✅ 逐条一致 |
+| 切片含当轮 | `slice(0, turnStarts[turnIndex + 1])` | ✅ 一致 |
+| 微压缩两门 + 顺序 | `detect()`（`microCompactionService.ts:89-107`） | ✅ 逐条一致 |
+| 五个默认阈值 | `DEFAULT_MICRO_COMPACTION_CONFIG`（`:17-23`） | ✅ 逐项一致 |
+| tower frontmatter 解析 | `features/tower/protocol/frontmatter.ts` | ⚠️ **v2 刻意不用 YAML**，见§10.24 |
+| skill 描述兜底 | `descriptionFromBody`（`catalog/parser.ts:143-150`） | ⚠️ 缺 240 截断，**本节已补** |
+
+**已修①：可见性判据缺 v2 的 `role` 前置检查**（`sqlite_store.rs`）
+
+v2 `isUserVisibleTurnRecord`（`forkTurnSlice.ts:89-91`）有**两道**判据，顺序是
+先 `message.role === 'user'`、再看 `origin.kind`：
+
+```ts
+if (message === undefined || message['role'] !== 'user') return false;
+const origin = asRecord(message['origin']);
+switch (origin?.['kind']) { … }
+```
+
+§10.23 只移植了第二道。这不是等价省略——origin 词表是**故意宽松**的
+（`undefined` 与 `user` 都可见），所以一个引擎自己开启、首条消息非 user 的轮次，
+只有真正去读 `role` 才会被排除。`TurnRecord` 是行头、本身不带 role（role 在
+`messages` 表的 `LLMMessage.role`），故 `turn_is_user_visible` 多收一个布尔参数
+（该轮首条消息是否为 user），由 `fork_session` 读出后传入（v2 也是从 record 上读
+role）。`messages` 的加载相应提前到可见性判定之前。
+
+**已修②：body 兜底描述缺 v2 的 240 字符截断**（`skills/mod.rs`）
+
+v2 `descriptionFromBody`（`catalog/parser.ts:148-149`）在 240 字符处把第 240 个
+字符替换为省略号，故结果恒不超过 240。fork 原先无上限，一条超长首行会**无界**
+进prompt。已按v2 逐字补上（`chars().count()` 而非 `len()`，与 v2 的
+`String.length` 口径一致地按**字符**计）。
+
+**刻意不改①：描述兜底的跳过规则**
+
+v2 只取**首个非空行**；fork 额外跳过 `#` / ` ``` ` / `>` 开头的行。fork 的规则
+是 v2 的**超集**——skill 正文几乎总以`##` 或代码围栏开头，v2 的版本会把标记
+原样交给模型。两条都在任一正文上取到同一行时结果相同，故保留 fork 规则并在
+doc comment 里写明这是有意偏离。
+
+**刻意不改②：空 body 的 `'No description provided.'`**
+
+v2 在 parser 里就返回该字面量；fork 的解析层返回空串，但渲染层
+`prompt/skills_renderer.rs:52` 做了同一兜底，**最终 prompt 与 v2 一致**。分层
+放置比在 parser 里塞一个展示用字面量更合理，故不动。
+
+**顺带核实（未发现问题）**：`has-sub-skill` 确为 v2 真实契约，且 v2 判据更宽——
+`fileSkillDiscovery.ts:220-231` 除 `has-sub-skill` / `hasSubSkill` 两个顶层键
+外，还检查 `metadata.metadata` 下的同名嵌套键（`nestedFlag`）。fork 只查顶层
+两键。当前无skill 写这个嵌套形态，**记为潜在差异，未改**。
+
+**验证**：新增2 条测试，**均已反证**——把 `role` 检查退回忽略该布尔入参的写法后
+`a_non_user_opening_message_is_not_a_visible_turn` 失败（`unwrap_err()` 拿到
+`Ok(true)`，即assistant 轮次被当成可见）；把 240 截断移除后
+`a_body_derived_description_is_capped_at_240_characters` 失败（`left: 300`）。
+
+**验证（按改动范围分层，见 `AGENTS.md` → Verification Standard）**：
+`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -D warnings` ✅｜
+`cargo test --lib skills::` **17 passed / 0 failed**（7.9 s）｜
+`cargo test --lib session::sqlite_store` **33 passed / 0 failed**（1.2 s）｜
+`bun run check:roadmap-refs` ✅（79 file + 156 test 引用全 resolve——**本节第一版
+就是把反证用的参数名当成了测试名引用，被该门禁抓出后改掉的**）。
+
+**未跑全量套件**，故不声称全量通过。理由是它观察不到本次改动：两个模块的
+50 条测试已覆盖全部改动的路径，而全量在本机需数分钟。该层的触发时机是交付前，
+由人决定何时跑，不由 Agent 挂着一个长期任务。
+
+**方法论：本节一开始把"分层验证"写成了文档，然后自己违反了它。** 第一次
+`cargo test --lib skills:: session::sqlite_store` 只花 9 s 就覆盖了本次全部改动；
+随后又启动了全量套件，它**跑了 9 分 52 秒仍未结束**，被终止，**一行结果都没有
+产出**。更糟的是我在它挂起期间去改文档、把它当成"已验证"——**没有在等的测试
+等于没有跑**。上面那句 `3163 passed` 就是这么来的：照抄 §10.24 的数字推算，而非
+实测，已删除。分层规则已写入 `AGENTS.md` 的 Verification Standard（normative）
+与 Build & Test Commands 的四层表；`MEMORY.md` 记下了三个已知 flake 的单跑方式，
+以免下次把"全量红一次"当成回归。
+

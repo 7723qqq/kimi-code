@@ -5161,8 +5161,27 @@ impl HttpServer {
                 };
                 let new_session_id = format!("sess-{}", fastrand::u64(..));
                 let title = body.get("title").and_then(|v| v.as_str());
+                // v2 `forkSession`'s `opts.turnIndex` (`sessionLifecycle.ts:25`,
+                // validated by `assertForkTurnIndex`): a non-negative safe
+                // integer naming a user-visible turn to cut at. A present but
+                // non-integer / negative / fractional value is a client error,
+                // not a silent "copy everything".
+                let turn_index = match body.get("turnIndex") {
+                    None | Some(Value::Null) => None,
+                    Some(raw) => match raw.as_u64() {
+                        Some(index) => Some(index),
+                        None => {
+                            return HttpResponse::bad_request(
+                                "forkSession turnIndex must be a non-negative safe integer",
+                            );
+                        }
+                    },
+                };
 
-                match self.store.fork_session(session_id, &new_session_id, title) {
+                match self
+                    .store
+                    .fork_session(session_id, &new_session_id, title, turn_index)
+                {
                     Ok(true) => {
                         // v2 `forkSessionResponseSchema = sessionSchema`
                         // (kap-server/src/protocol/rest-session.ts:103) answered as
@@ -5178,7 +5197,13 @@ impl HttpServer {
                         HttpResponse::ok(&wire)
                     }
                     Ok(false) => HttpResponse::not_found(),
-                    Err(e) => HttpResponse::internal_error(format!("Database error: {e}")),
+                    // v2 raises `REQUEST_INVALID` for both a malformed index
+                    // and one naming a turn the session does not have, so both
+                    // are 400s here rather than a store 500.
+                    Err(crate::session::sqlite_store::ForkError::Store(e)) => {
+                        HttpResponse::internal_error(format!("Database error: {e}"))
+                    }
+                    Err(e) => HttpResponse::bad_request(e.to_string()),
                 }
             }
             ("POST", p) if extract_session_action(p, "restore").is_some() => {
@@ -8675,6 +8700,78 @@ mod tests {
             })
             .await;
         assert_eq!(res_clear.status, 200);
+    }
+
+    /// The REST fork surface is where `turnIndex` (v2 `opts.turnIndex`) actually
+    /// reaches the store. It pins three things the store tests cannot: the body
+    /// field is parsed at all, a bad value is a 400 rather than a silent
+    /// whole-session copy, and an out-of-range index does not create a session.
+    #[tokio::test]
+    async fn the_fork_route_reads_turn_index_and_rejects_a_bad_one() {
+        let server = HttpServer::in_memory().unwrap();
+        server.store_arc().create_session("sess-cut", None).unwrap();
+        for (n, id) in ["turn-a", "turn-b", "turn-c"].iter().enumerate() {
+            server
+                .store_arc()
+                .save_turn(
+                    "sess-cut",
+                    id,
+                    n as u32 + 1,
+                    &[
+                        crate::turn_loop::types::LLMMessage::user(*id),
+                        crate::turn_loop::types::LLMMessage::assistant("reply"),
+                    ],
+                    None,
+                    None,
+                )
+                .unwrap();
+        }
+
+        let fork_with = |body: Value| {
+            let server = &server;
+            async move {
+                server
+                    .handle_request(&HttpRequest {
+                        method: "POST".into(),
+                        path: "/api/v1/sessions/sess-cut/fork".into(),
+                        query: None,
+                        headers: HashMap::new(),
+                        body: serde_json::to_vec(&body).unwrap(),
+                    })
+                    .await
+            }
+        };
+
+        // Cutting at turn 1 keeps two of the three turns.
+        let res = fork_with(json!({ "turnIndex": 1 })).await;
+        assert_eq!(res.status, 200);
+        let val: Value = serde_json::from_slice(&res.body).unwrap();
+        let sid = val["id"].as_str().unwrap().to_string();
+        let forked = server.store_arc().load_session_history(&sid).unwrap();
+        assert_eq!(forked.len(), 4, "two turns of two messages each");
+        assert!(
+            forked.iter().all(|m| m.content != "turn-c"),
+            "the third turn is dropped"
+        );
+
+        // A non-integer index is a client error, not a whole-session copy.
+        let res = fork_with(json!({ "turnIndex": "one" })).await;
+        assert_eq!(res.status, 400, "a string turnIndex must be refused");
+
+        // So is a negative one — `as_u64` cannot represent it.
+        let res = fork_with(json!({ "turnIndex": -1 })).await;
+        assert_eq!(res.status, 400);
+
+        // An index naming a turn the session does not have is a 400 too, and
+        // it must not leave a stray child session behind.
+        let res = fork_with(json!({ "turnIndex": 99 })).await;
+        assert_eq!(res.status, 400);
+        let children = server.store_arc().list_children("sess-cut").unwrap();
+        assert_eq!(
+            children.len(),
+            1,
+            "only the successful fork created a child; the rejected ones did not"
+        );
     }
 
     #[tokio::test]

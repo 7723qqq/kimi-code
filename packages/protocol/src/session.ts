@@ -148,6 +148,16 @@ export type SessionUpdate = z.infer<typeof sessionUpdateSchema>;
 export const sessionForkSchema = z.object({
   title: z.string().min(1).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  /**
+   * Cut the fork at this user-visible turn (v2 `forkSession`'s `opts.turnIndex`,
+   * `sessionLifecycle.ts:25`). The named turn and everything before it are
+   * kept; later turns are dropped. Omitted means copy the whole session, which
+   * is what v2 does when the field is absent.
+   *
+   * Non-negative and integral, matching v2 `assertForkTurnIndex`'s
+   * `Number.isSafeInteger(turnIndex) && turnIndex >= 0`.
+   */
+  turnIndex: z.number().int().nonnegative().optional(),
 });
 
 export type SessionFork = z.infer<typeof sessionForkSchema>;

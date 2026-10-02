@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Wire-compatible skill descriptor returned by `/api/v1/workspaces/:id/skills`
 /// and `/api/v1/sessions/:id/skills`.
@@ -45,22 +46,35 @@ pub struct SkillDescriptor {
 /// the skill visible everywhere.
 pub type SkillScopes = Option<Vec<String>>;
 
-/// Parse `scopes` from a frontmatter value: a bracketed list
-/// (`[tui, web]`), a comma-separated bare form (`tui, web`), or a single
-/// token. Unknown tokens are dropped; an empty result stays `None`.
-fn parse_scopes_value(val: &str) -> SkillScopes {
-    let cleaned = val.trim().trim_start_matches('[').trim_end_matches(']');
-    let scopes: Vec<String> = cleaned
-        .split(',')
-        .map(|token| {
-            token
-                .trim()
-                .trim_matches('"')
-                .trim_matches('\'')
-                .to_lowercase()
-        })
-        .filter(|token| matches!(token.as_str(), "tui" | "web"))
-        .collect();
+/// Parse `scopes` from a frontmatter value (v2 `SkillScope`, #3843).
+///
+/// Accepts the array YAML produces (including a block list), the bracketed
+/// inline list, and a bare comma-separated form. Unknown tokens are dropped;
+/// an empty result stays `None`.
+fn parse_scopes_value(value: Option<&Value>) -> SkillScopes {
+    let scopes: Vec<String> = match value {
+        Some(Value::Array(items)) => items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(|token| token.trim().to_lowercase())
+            .filter(|token| matches!(token.as_str(), "tui" | "web"))
+            .collect(),
+        Some(Value::String(raw)) => raw
+            .trim()
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .split(',')
+            .map(|token| {
+                token
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .to_lowercase()
+            })
+            .filter(|token| matches!(token.as_str(), "tui" | "web"))
+            .collect(),
+        _ => Vec::new(),
+    };
     if scopes.is_empty() {
         None
     } else {
@@ -95,8 +109,11 @@ pub fn parse_skill_metadata(content: &str, fallback_name: &str) -> (String, Stri
 }
 
 /// Parse the full frontmatter (see [`ParsedSkillMeta`]).
+///
+/// Uses the shared YAML frontmatter reader (v2 `parseFrontmatter`), so folded
+/// scalars, block lists, inline comments and nested maps are real YAML rather
+/// than the line-by-line reading this replaced.
 pub fn parse_skill_frontmatter(content: &str, fallback_name: &str) -> ParsedSkillMeta {
-    let trimmed = content.trim_start();
     let mut meta = ParsedSkillMeta {
         name: fallback_name.to_string(),
         description: String::new(),
@@ -107,106 +124,139 @@ pub fn parse_skill_frontmatter(content: &str, fallback_name: &str) -> ParsedSkil
         has_sub_skill: false,
     };
 
-    if let Some(rest) = trimmed.strip_prefix("---")
-        && let Some(end_idx) = rest.find("\n---")
-    {
-        let frontmatter = &rest[..end_idx];
-        let mut lines = frontmatter.lines().peekable();
-        while let Some(line) = lines.next() {
-            let line = line.trim();
-            if let Some(val) = line.strip_prefix("name:") {
-                if let Some(parsed) = non_empty_trimmed(val) {
-                    meta.name = parsed;
-                }
-            } else if let Some(val) = line.strip_prefix("description:") {
-                if let Some(parsed) = non_empty_trimmed(val) {
-                    meta.description = parsed;
-                }
-            } else if let Some(val) = line.strip_prefix("type:") {
-                if let Some(parsed) = non_empty_trimmed(val) {
-                    meta.skill_type = Some(parsed);
-                }
-            } else if (line.strip_prefix("disable-model-invocation:").is_some()
-                || line.strip_prefix("disable_model_invocation:").is_some())
-                && line
-                    .rsplit(':')
-                    .next()
-                    .is_some_and(|val| val.trim().eq_ignore_ascii_case("true"))
-            {
-                // v2 `METADATA_ALIASES` accepts both spellings, and the docs
-                // and existing skills use the snake_case one.
-                meta.disable_model_invocation = true;
-            } else if (line.strip_prefix("has-sub-skill:").is_some()
-                || line.strip_prefix("hasSubSkill:").is_some())
-                && line
-                    .rsplit(':')
-                    .next()
-                    .is_some_and(|val| val.trim().eq_ignore_ascii_case("true"))
-            {
-                meta.has_sub_skill = true;
-            } else if let Some(val) = line.strip_prefix("scopes:") {
-                meta.scopes = parse_scopes_value(val);
-            } else if let Some(val) = line.strip_prefix("arguments:") {
-                meta.argument_names = parse_argument_names_value(val, &mut lines);
-            }
+    // A frontmatter block that cannot be read is not fatal here: the catalog
+    // scans whatever skills a directory holds, and one malformed file must not
+    // hide the rest. v2 throws (`SkillParseError`); the fork degrades to the
+    // body-derived description instead, which is what it did before too.
+    //
+    // The description is derived from the **body**, never from the raw text:
+    // scanning the whole document would pick a frontmatter line such as
+    // `name: s` as the skill's description, which is what happened when this
+    // path fell back to the un-split text.
+    let Ok(parsed) = crate::frontmatter::parse_frontmatter(content) else {
+        let body = body_of(content);
+        return ParsedSkillMeta {
+            description: first_prose_line(&body),
+            ..meta
+        };
+    };
+    let data = parsed.data;
+
+    if let Some(name) = non_empty_string(data.get("name")) {
+        meta.name = name;
+    }
+    if let Some(description) = non_empty_string(data.get("description")) {
+        meta.description = description;
+    }
+    if let Some(kind) = non_empty_string(data.get("type")) {
+        meta.skill_type = Some(kind);
+    }
+    // v2 `METADATA_ALIASES` accepts both spellings of each of these two keys.
+    for key in ["disable-model-invocation", "disable_model_invocation"] {
+        if data.get(key).and_then(Value::as_bool) == Some(true) {
+            meta.disable_model_invocation = true;
         }
     }
+    for key in ["has-sub-skill", "hasSubSkill"] {
+        if data.get(key).and_then(Value::as_bool) == Some(true) {
+            meta.has_sub_skill = true;
+        }
+    }
+    meta.scopes = parse_scopes_value(data.get("scopes"));
+    meta.argument_names = parse_argument_names_value(data.get("arguments"));
 
     if meta.description.is_empty() {
-        for line in content.lines() {
-            let line = line.trim();
-            if line.is_empty()
-                || line.starts_with('#')
-                || line.starts_with("---")
-                || line.starts_with("```")
-                || line.starts_with('>')
-            {
-                continue;
-            }
-            meta.description = line.to_string();
-            break;
-        }
+        meta.description = first_prose_line(&parsed.body);
     }
-
     meta
 }
 
-fn non_empty_trimmed(val: &str) -> Option<String> {
-    let parsed = val.trim().trim_matches('"').trim_matches('\'');
-    if parsed.is_empty() {
-        None
+/// The document's body: everything after the closing fence, or the whole text
+/// when there is no frontmatter. Used to recover a body even when the YAML
+/// between the fences failed to parse.
+fn body_of(content: &str) -> String {
+    crate::frontmatter::parse_frontmatter(content)
+        .map(|parsed| parsed.body)
+        .unwrap_or_else(|_| {
+            // The YAML is unparseable but the fences may still be findable.
+            let lines: Vec<&str> = content.lines().collect();
+            match lines
+                .iter()
+                .enumerate()
+                .skip(1)
+                .find(|(_, line)| line.trim() == "---")
+            {
+                Some((idx, _)) => lines[idx + 1..].join("\n"),
+                None => content.to_string(),
+            }
+        })
+}
+
+/// v2 `descriptionFromBody` (`catalog/parser.ts:143-150`): the first line of
+/// prose, truncated to 240 characters.
+///
+/// **One deliberate divergence.** v2 takes the first *non-empty* line; this
+/// also skips headings, fences and block quotes, because a skill body almost
+/// always opens with `##` or a code fence and v2's version would hand that
+/// markup to the model as the description. The line-length rule below is v2's
+/// verbatim. The skip list is a superset of v2's filter, so any body where v2
+/// and this agree on the first prose line also agree on the result.
+fn first_prose_line(body: &str) -> String {
+    let first = body
+        .lines()
+        .map(str::trim)
+        .find(|line| {
+            !line.is_empty()
+                && !line.starts_with('#')
+                && !line.starts_with("---")
+                && !line.starts_with("```")
+                && !line.starts_with('>')
+        })
+        .unwrap_or_default();
+    // v2's cap: 240 characters, and the 240th is replaced by an ellipsis so the
+    // result is never longer than 240. Applied here too — a long description
+    // would otherwise reach the prompt unbounded.
+    if first.chars().count() > 240 {
+        let truncated: String = first.chars().take(239).collect();
+        format!("{truncated}…")
     } else {
-        Some(parsed.to_string())
+        first.to_string()
     }
+}
+
+/// v2 `nonEmptyString`: a string is used only when it is not blank.
+fn non_empty_string(value: Option<&Value>) -> Option<String> {
+    value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|trimmed| !trimmed.is_empty())
+        .map(str::to_string)
 }
 
 fn is_valid_argument_name(name: &str) -> bool {
     !name.is_empty() && !name.bytes().all(|b| b.is_ascii_digit())
 }
 
-/// Parse frontmatter `arguments`: a bare whitespace string, an inline
-/// bracket list, or — when the value is empty — a block list of `- item`
-/// lines that follow.
-fn parse_argument_names_value(
-    val: &str,
-    lines: &mut std::iter::Peekable<std::str::Lines>,
-) -> Vec<String> {
-    let raw = val.trim();
-    if raw.is_empty() {
-        let mut out = Vec::new();
-        while let Some(next) = lines.peek() {
-            let entry = next.trim();
-            let Some(item) = entry.strip_prefix('-') else {
-                break;
-            };
-            let item = item.trim().trim_matches('"').trim_matches('\'');
-            if is_valid_argument_name(item) {
-                out.push(item.to_string());
-            }
-            lines.next();
+/// Parse frontmatter `arguments` (v2 `skillArgumentNames`).
+///
+/// Accepts a real YAML array — including a block list, which the previous
+/// line-based reader had to special-case — plus the bare whitespace string and
+/// the inline `[a, b]` list. Entries that are not valid names (blank or all
+/// digits) are dropped, matching v2's `isValidName`.
+fn parse_argument_names_value(value: Option<&Value>) -> Vec<String> {
+    let raw = match value {
+        Some(Value::Array(items)) => {
+            return items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|item| is_valid_argument_name(item))
+                .map(str::to_string)
+                .collect();
         }
-        return out;
-    }
+        Some(Value::String(raw)) => raw.trim(),
+        _ => return Vec::new(),
+    };
     if let Some(inner) = raw.strip_prefix('[') {
         inner
             .trim_end_matches(']')
@@ -908,6 +958,111 @@ This is the first paragraph describing the skill.
 
         // Builtins stay regardless of the switch.
         assert!(selected.iter().any(|s| s.name == "check-kimi-code-docs"));
+    }
+
+    /// A body-derived description is capped the way v2 caps it
+    /// (`descriptionFromBody`, `catalog/parser.ts:148-149`): past 240
+    /// characters the 240th is replaced by an ellipsis, so the result is never
+    /// longer than 240. Without the cap an unbounded first line reaches the
+    /// prompt as the skill's description.
+    #[test]
+    fn a_body_derived_description_is_capped_at_240_characters() {
+        let long = "x".repeat(300);
+        let doc = format!("---\nname: s\n---\n{long}\n");
+        let meta = parse_skill_frontmatter(&doc, "s");
+        assert_eq!(
+            meta.description.chars().count(),
+            240,
+            "the cap is 240 characters including the ellipsis"
+        );
+        assert!(
+            meta.description.ends_with('…'),
+            "the 240th character is replaced by an ellipsis, got {:?}",
+            meta.description.chars().last()
+        );
+        assert!(
+            !meta.description.starts_with('x') || meta.description.contains('…'),
+            "a capped description is marked, not silently truncated"
+        );
+
+        // Exactly at the cap: untouched, because v2 only truncates *past* 240.
+        let exact = "y".repeat(240);
+        let doc = format!("---\nname: s\n---\n{exact}\n");
+        let meta = parse_skill_frontmatter(&doc, "s");
+        assert_eq!(meta.description, exact, "240 characters is not truncated");
+        assert!(!meta.description.contains('…'));
+
+        // An explicit frontmatter description is the author's, not the
+        // fallback, so the cap does not apply to it — v2 caps only
+        // `descriptionFromBody`'s output.
+        let doc = format!("---\nname: s\ndescription: \"{long}\"\n---\nbody\n");
+        let meta = parse_skill_frontmatter(&doc, "s");
+        assert_eq!(
+            meta.description, long,
+            "a declared description is not capped"
+        );
+    }
+
+    /// The four ways the previous line-by-line reader mis-read frontmatter.
+    /// Each case was run against the old parser and produced a wrong value:
+    /// a folded scalar came back as the literal `">"`, a block `scopes:` list
+    /// was dropped entirely (widening the skill's visibility), an inline
+    /// comment was kept in the value, and a nested map left its parent key
+    /// empty. Real YAML (v2 `parseFrontmatter` over `js-yaml`) fixes all four.
+    #[test]
+    fn frontmatter_is_read_as_yaml_not_as_lines() {
+        let folded = parse_skill_frontmatter(
+            "---\nname: s\ndescription: >\n  a long folded\n  desc\n---\nb",
+            "s",
+        );
+        assert_eq!(folded.description, "a long folded desc");
+
+        let block = parse_skill_frontmatter(
+            "---\nname: s\ndescription: d\nscopes:\n  - tui\n  - web\n---\nbody",
+            "s",
+        );
+        assert_eq!(block.scopes, Some(vec!["tui".into(), "web".into()]));
+
+        let commented =
+            parse_skill_frontmatter("---\nname: s  # the name\ndescription: d\n---\nbody", "s");
+        assert_eq!(commented.name, "s");
+
+        // The nested map keeps its own keys; `meta` is not flattened to "".
+        let nested = parse_skill_frontmatter(
+            "---\nname: s\ndescription: d\nmeta:\n  a: 1\n  b: 2\n---\nbody",
+            "s",
+        );
+        assert_eq!(nested.name, "s");
+        assert_eq!(nested.description, "d");
+
+        let block_args = parse_skill_frontmatter(
+            "---\nname: s\ndescription: d\narguments:\n  - alpha\n  - beta\n---\nbody",
+            "s",
+        );
+        assert_eq!(block_args.argument_names, vec!["alpha", "beta"]);
+    }
+
+    /// An unquoted value containing `: ` is not valid YAML — the second colon
+    /// starts a nested mapping. v2 throws here (`js-yaml` does too), so the
+    /// fork degrades to the body-derived description rather than inventing a
+    /// value; a quoted one parses normally.
+    #[test]
+    fn a_malformed_frontmatter_block_degrades_instead_of_inventing_values() {
+        let bad = parse_skill_frontmatter(
+            "---\nname: s\ndescription: Who they are: name, role.\n---\n\nFirst body line.\n",
+            "s",
+        );
+        assert_eq!(
+            bad.description, "First body line.",
+            "an unparseable block falls back to the body's first prose line"
+        );
+        assert_eq!(bad.name, "s", "the fallback name still applies");
+
+        let quoted = parse_skill_frontmatter(
+            "---\nname: s\ndescription: \"Who they are: name, role.\"\n---\nbody",
+            "s",
+        );
+        assert_eq!(quoted.description, "Who they are: name, role.");
     }
 
     #[test]

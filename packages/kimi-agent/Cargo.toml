@@ -79,6 +79,7 @@ portable-pty = "0.9"
 # Plugin archives: a catalog `source` that is a GitHub repo or a zip URL is
 # downloaded and extracted into the managed plugin root.
 zip = { version = "2", default-features = false, features = ["deflate"] }
+serde_yaml = { version = "0.9", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

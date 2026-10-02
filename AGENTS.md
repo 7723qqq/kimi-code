@@ -433,6 +433,46 @@ bun run version               # Apply changesets (bump versions)
 bun run publish               # Full publish pipeline
 ```
 
+### Verification tiers
+
+Pick the narrowest tier that can observe the change; see
+[Verification Standard](#verification-standard-normative) for when to widen.
+
+| Tier | Use after | Cost |
+| --- | --- | --- |
+| **1 · fast** | one function / branch | seconds |
+| **2 · module** | a module, service, or route | ~1 min |
+| **3 · package** | a shared type, contract, or schema | minutes |
+| **4 · full** | before delivery only | tens of min |
+
+```sh
+# Tier 1 — Rust: one module. JS: one file.
+cd packages/kimi-agent && cargo test --lib skills::
+bun run test packages/protocol/src/__tests__/rest-session.test.ts
+
+# Tier 2 — Rust: format + clippy, the module's tests, and the gate its diff can trip.
+cd packages/kimi-agent && cargo fmt --check && \
+  cargo clippy --all-targets --features cli -- -D warnings && \
+  cargo test --lib <module>
+bun run check:parity && bun run check:architecture
+
+# Tier 3 — the package, plus the gates that own the surfaces it touched.
+cd packages/kimi-agent && cargo test --no-default-features --features cli
+bun run typecheck && bun run lint
+bun run check:engine-i18n   # only if engine i18n text moved
+bun run check:roadmap-refs  # only if ROADMAP.md moved
+
+# Tier 4 — delivery.
+cd packages/kimi-agent && cargo test --no-default-features --features cli
+bun run test && bun run typecheck && bun run lint && bun run build
+```
+
+The `check:*` tier is cheap and catches drift a test suite cannot — `check:architecture`
+and `check:normify` fail on a stale fingerprint, `check:roadmap-refs` on a dangling
+reference, `check:parity` on a v1/v3 protocol divergence. Run the ones whose inputs
+your diff actually moved; running all of them is itself the habit this tiering exists
+to avoid.
+
 ### Makefile targets
 
 ```sh
@@ -737,6 +777,15 @@ Standing rules for every `upstream` tag merge (decided 2026-09-03). Upstream is 
 - **Consult both v2 references, not one.** A port is not verified until both checkouts have been read: the fork's retired reference (`.tmp/v2-ref` — the packages as they stood before deletion, and the only place `kap-server` / `klient` / `acp-server` and the v1 / v3 protocol wiring exist) **and** the official upstream (`.tmp/v2-ref-upstream` — `upstream/main`). They are **not** byte-identical: the retired reference is frozen at `ecad4136d9` (2026-09-08) while upstream keeps moving, so a shared file may legitimately differ and a file may exist in only one. Refresh the upstream checkout before citing it, and when the two disagree on a shared file, surface the difference as a finding instead of silently picking a side.
 - **Reproduce before fixing.** A reported bug is not understood until it is reproduced on demand. If it cannot be reproduced, say so and ask for the exact sequence rather than fixing a guess.
 - **Name what was not verified.** When a path could not be exercised, state it plainly instead of implying coverage.
+- **Scale the verification to the blast radius; do not run the full suite after every edit.** A passing suite is a *possible* outcome, and running the whole thing every time is the most expensive way to get it. Pick the narrowest layer that can actually observe the change, and widen only on a risk signal:
+  - **Touched one function / one branch** → that module's tests only (`cargo test --lib <module>`, `bun run vitest <path>`). Seconds.
+  - **Touched a module, service, or route** → that package's tests + the `check:*` gates its own diff can trip (`check:parity`, `check:architecture`, `check:roadmap-refs`, `check:engine-i18n`).
+  - **Touched a shared type, a public contract, the store schema, or a cross-package seam** → both packages' tests, then the full suite.
+  - **Before delivery only** → the full suite, `typecheck`, `lint`, and the build. This layer is not optional, it is *last*.
+  The cost is asymmetric: a full `cargo test --no-default-features --features cli` is minutes and grows with the tree, so spending it per edit makes the wall-clock budget go to waiting instead of to the work. Note the Rust side needs its **own** gate names — the `check:*` scripts above are the JS/bun ones; `cargo check` / `cargo clippy --features cli -- -D warnings` / `cargo fmt --check` are the Rust layer's fast tier.
+- **Widen on a risk signal, not on a schedule.** Expand the range when the change touches a shared type, a public contract, a schema, or global config; when local tests pass but integration behavior looks wrong; or when it affects multiple callers. Otherwise stay at the narrow layer.
+- **When a full run fails, do not re-run the full suite to confirm the fix.** Fix the failing item, re-run *that* item, then decide whether a regression run is warranted. Re-running everything to observe one green test spends the exact budget the tiering exists to save. This repo already has known load-dependent failures — `packages/node-sdk/test/native-harness.test.ts` (`EBUSY` in `afterEach`), `packages/tree-sitter-bash/test/parse.test.ts` (a *time* budget test), `storage::state_store::read_workspace_state_resolves_the_workspace_directory` (parallel-run resource contention) — all pass in isolation. Treat a full-suite red that names one of those as a flake to re-run narrowly, not a regression to re-run globally, and do not "fix" a flake by loosening a budget.
+
 
 ## Workflow Requirements
 
