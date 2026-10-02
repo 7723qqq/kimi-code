@@ -287,6 +287,62 @@ pub fn remap_response_tool_calls(
     }
 }
 
+/// v2 `dedupeDuplicateToolCalls`
+/// (`agent/contextProjector/projection.ts:260-298`), applied to a request the
+/// provider has already rejected for its shape.
+///
+/// The normalizer above is the *preventive* half — it stops a repeated id from
+/// ever entering history. This is the *repair* half, for ids that were already
+/// recorded: a session resumed across a crash, a turn replayed from a fork, or
+/// a history merged from two sources can carry the same `tool_call_id` twice,
+/// and a provider answers that with a 400 rather than picking one. v2 keeps
+/// the first declaration, drops the repeats, and drops the second result for a
+/// call already answered.
+///
+/// Only ever called on the strict retry (see `llm::request_structure`): it
+/// rewrites recorded history, which needs a provider complaint to justify.
+///
+/// Returns whether anything was actually repaired — the caller uses it to tell
+/// a strict retry that changed the request from one that did not, so a history
+/// that only had a redundant call *inside* a surviving assistant still counts.
+pub fn dedupe_duplicate_tool_calls(messages: &mut Vec<LLMMessage>) -> bool {
+    let mut seen_tool_call_ids: HashSet<String> = HashSet::new();
+    let mut answered_tool_calls: HashSet<String> = HashSet::new();
+    let mut repaired = false;
+
+    messages.retain_mut(|message| {
+        if message.role == "assistant" {
+            let declared = message.tool_calls.len();
+            let mut kept: Vec<_> = Vec::with_capacity(declared);
+            for call in message.tool_calls.drain(..) {
+                if seen_tool_call_ids.insert(call.id.clone()) {
+                    kept.push(call);
+                }
+            }
+            repaired |= kept.len() != declared;
+            if kept.is_empty() && message.content.trim().is_empty() && message.blocks.is_empty() {
+                // v2's `vacuous_message_dropped`: an assistant left saying
+                // nothing is the empty message the provider rejects next.
+                repaired = true;
+                return false;
+            }
+            message.tool_calls = kept;
+            return true;
+        }
+        if message.role == "tool"
+            && let Some(ref id) = message.tool_call_id
+            && !answered_tool_calls.insert(id.clone())
+        {
+            // A second result for a call already answered.
+            repaired = true;
+            return false;
+        }
+        true
+    });
+
+    repaired
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,5 +619,121 @@ mod tests {
         assert!(normalizer.is_taken("taken_1"));
         response.rollback();
         assert!(!normalizer.is_taken("taken_1"));
+    }
+
+    fn msg(role: &str, content: &str, calls: Vec<ToolCall>) -> LLMMessage {
+        LLMMessage {
+            role: role.to_string(),
+            content: content.to_string(),
+            tool_calls: calls,
+            tool_call_id: None,
+            ..Default::default()
+        }
+    }
+
+    fn tool_msg(id: &str, output: &str) -> LLMMessage {
+        LLMMessage {
+            role: "tool".to_string(),
+            content: output.to_string(),
+            tool_call_id: Some(id.to_string()),
+            ..Default::default()
+        }
+    }
+
+    /// The case the strict retry exists for: a replayed step re-declares a call
+    /// the history already contains, which every provider answers with a 400.
+    #[test]
+    fn a_repeated_declaration_and_its_second_result_are_dropped() {
+        let mut messages = vec![
+            msg("user", "run it", vec![]),
+            msg("assistant", "", vec![call("c1"), call("c2")]),
+            tool_msg("c1", "one"),
+            tool_msg("c2", "two"),
+            msg("assistant", "", vec![call("c1")]),
+            tool_msg("c1", "one again"),
+        ];
+        assert!(dedupe_duplicate_tool_calls(&mut messages));
+
+        assert_eq!(messages.len(), 4);
+        let declared: Vec<&str> = messages
+            .iter()
+            .flat_map(|m| m.tool_calls.iter().map(|c| c.id.as_str()))
+            .collect();
+        assert_eq!(declared, ["c1", "c2"]);
+        let results: Vec<&str> = messages
+            .iter()
+            .filter_map(|m| m.tool_call_id.as_deref())
+            .collect();
+        assert_eq!(results, ["c1", "c2"], "the replayed result must go");
+        assert_eq!(messages[2].content, "one", "the first answer must stay");
+    }
+
+    /// A second result for one call is as unsendable as a second declaration.
+    #[test]
+    fn a_duplicated_result_alone_is_dropped() {
+        let mut messages = vec![
+            msg("assistant", "", vec![call("c1")]),
+            tool_msg("c1", "first"),
+            tool_msg("c1", "second"),
+        ];
+        assert!(dedupe_duplicate_tool_calls(&mut messages));
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[1].content, "first");
+    }
+
+    /// Non-vacuous: a clean history must come out untouched, or the retry would
+    /// silently truncate a conversation that needed no repair.
+    #[test]
+    fn a_clean_history_is_left_alone() {
+        let mut messages = vec![
+            msg("user", "what is the weather?", vec![]),
+            msg("assistant", "", vec![call("c1")]),
+            tool_msg("c1", "sunny"),
+            msg("assistant", "It is sunny.", vec![]),
+        ];
+        let before: Vec<(String, String, usize)> = messages
+            .iter()
+            .map(|m| (m.role.clone(), m.content.clone(), m.tool_calls.len()))
+            .collect();
+        assert!(!dedupe_duplicate_tool_calls(&mut messages));
+        let after: Vec<(String, String, usize)> = messages
+            .iter()
+            .map(|m| (m.role.clone(), m.content.clone(), m.tool_calls.len()))
+            .collect();
+        assert_eq!(before, after);
+    }
+
+    /// An assistant whose every call was a duplicate and which said nothing else
+    /// is what v2 drops — keeping it leaves the empty message the provider
+    /// rejects next.
+    #[test]
+    fn an_assistant_left_with_nothing_to_say_is_dropped() {
+        let mut messages = vec![
+            msg("assistant", "", vec![call("c1")]),
+            tool_msg("c1", "done"),
+            msg("assistant", "", vec![call("c1")]),
+        ];
+        assert!(dedupe_duplicate_tool_calls(&mut messages));
+        assert_eq!(messages.len(), 2);
+    }
+
+    /// ...but the same assistant carrying prose survives, and keeps the call
+    /// that was not a repeat.
+    #[test]
+    fn a_surviving_assistant_keeps_its_content_and_its_fresh_call() {
+        let mut messages = vec![
+            msg("assistant", "", vec![call("c1")]),
+            tool_msg("c1", "done"),
+            msg(
+                "assistant",
+                "Let me try again.",
+                vec![call("c2"), call("c1")],
+            ),
+        ];
+        assert!(dedupe_duplicate_tool_calls(&mut messages));
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[2].content, "Let me try again.");
+        assert_eq!(messages[2].tool_calls.len(), 1);
+        assert_eq!(messages[2].tool_calls[0].id, "c2");
     }
 }

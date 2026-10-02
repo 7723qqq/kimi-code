@@ -860,6 +860,10 @@ pub fn run_turn<'a>(
         // degrade the older media, then strip every media part.
         let mut media_degraded = false;
         let mut media_stripped = false;
+        // v2's third projection fallback, also spent at most once per turn: a
+        // provider that rejects the request's *shape* gets one resend with the
+        // strict projection (`llmRequesterService.ts:594-601`).
+        let mut structure_strict = false;
 
         // Turn-level injection registry. The built-in date-change and
         // workspace-AGENTS.md reminders are registered by `with_defaults`;
@@ -1317,6 +1321,34 @@ pub fn run_turn<'a>(
                             },
                         }));
                         continue 'overflow_recovery;
+                    }
+                    // v2 `nextProjectionPolicyForError`, third arm
+                    // (`llmRequesterService.ts:594-601`): a provider that
+                    // rejects the request's *shape* — a duplicated
+                    // `tool_call_id`, roles that do not alternate — gets one
+                    // resend with the strict projection. Checked after the two
+                    // media arms because those share a 400 and their recovery
+                    // actually works, and before the overflow arm for the same
+                    // reason: compaction cannot repair a malformed exchange.
+                    if !structure_strict
+                        && crate::llm::request_structure::is_recoverable_request_structure_error(
+                            &err_str,
+                        )
+                    {
+                        structure_strict = true;
+                        // Only a real repair earns the round trip: resending an
+                        // unchanged request would spend the one strict attempt
+                        // on a shape problem the dedupe cannot see (an
+                        // unrecorded field, a provider quirk).
+                        if super::tool_call_id::dedupe_duplicate_tool_calls(&mut messages) {
+                            callbacks.emit_event(serde_json::json!({
+                                "type": "warning",
+                                "code": crate::llm::request_structure::STRUCTURE_STRICT_CODE,
+                                "message": "Provider rejected the structure of the request; duplicate tool calls were removed and the request was retried.",
+                            }));
+                            continue 'overflow_recovery;
+                        }
+                        structure_strict = false;
                     }
                     let estimated_request_tokens =
                         crate::compaction::estimate_messages_tokens(&messages);
@@ -3840,7 +3872,182 @@ mod tests {
         }
     }
 
-    /// The whole point of the P0-1 fix, exercised through the **real turn loop**
+    /// A provider that behaves the way a real one does about a duplicated
+    /// `tool_call_id`: it reads the request, and rejects its *shape* with a 400
+    /// naming the problem. Only a request whose duplicates are gone is
+    /// accepted. This is the only way to prove the strict retry is reachable
+    /// from the real loop rather than merely callable.
+    struct RejectsDuplicateToolCallsLlm {
+        calls: AtomicU32,
+        /// Tool-call ids seen per request, recorded so the test can assert the
+        /// second request was actually clean rather than accidentally accepted.
+        seen_per_call: std::sync::Mutex<Vec<Vec<String>>>,
+    }
+
+    impl RejectsDuplicateToolCallsLlm {
+        fn new() -> Self {
+            Self {
+                calls: AtomicU32::new(0),
+                seen_per_call: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    impl LLM for RejectsDuplicateToolCallsLlm {
+        fn system_prompt(&self) -> &str {
+            "You are helpful."
+        }
+        fn model_name(&self) -> &str {
+            "strict-shape"
+        }
+        fn is_retryable_error(&self, _: &str) -> bool {
+            false
+        }
+        fn transport(&self) -> &'static str {
+            "native-http"
+        }
+        fn chat(
+            &self,
+            params: LLMChatParams,
+        ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+        {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let mut seen: Vec<String> = Vec::new();
+            let mut duplicate: Option<String> = None;
+            for message in params.messages.iter() {
+                for tool_call in &message.tool_calls {
+                    if seen.contains(&tool_call.id) {
+                        duplicate = Some(tool_call.id.clone());
+                    }
+                    seen.push(tool_call.id.clone());
+                }
+            }
+            self.seen_per_call.lock().unwrap().push(seen);
+            Box::pin(async move {
+                // The verdict is a function of the request alone. A mock that
+                // also failed "the first time" would pass this test whether or
+                // not the retry actually removed the duplicate.
+                if let Some(id) = duplicate {
+                    return Err(Box::new(std::io::Error::other(format!(
+                        "llm http status 400: messages: tool_use ids must be unique (duplicate {id})"
+                    )))
+                        as Box<dyn std::error::Error + Send + Sync>);
+                }
+                Ok(LLMChatResponse {
+                    content: "recovered".to_string(),
+                    thinking: vec![],
+                    tool_calls: vec![],
+                    finish_reason: Some("stop".into()),
+                    usage: TokenUsage {
+                        input_tokens: 10,
+                        output_tokens: 5,
+                        total_tokens: 15,
+                        ..Default::default()
+                    },
+                    timing: None,
+                })
+            })
+        }
+    }
+
+    /// End-to-end through the real loop: a history carrying a duplicated
+    /// `tool_call_id` is rejected by the provider, and the turn recovers on the
+    /// strict resend instead of failing the user's request. Asserts the second
+    /// request really was clean — otherwise this would pass on a mock that
+    /// simply stopped complaining.
+    #[tokio::test]
+    async fn a_turn_resends_with_the_strict_projection_after_a_shape_rejection() {
+        let llm = RejectsDuplicateToolCallsLlm::new();
+        let server = Arc::new(RpcServer::new());
+        let callbacks = rpc_callbacks(server);
+
+        let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
+            previous_turn_aborted: false,
+            turn_id: "turn-strict".into(),
+            llm: &llm,
+            messages: vec![
+                LLMMessage {
+                    role: "user".into(),
+                    content: "Run it twice.".into(),
+                    ..Default::default()
+                },
+                LLMMessage {
+                    role: "assistant".into(),
+                    content: String::new(),
+                    tool_calls: vec![ToolCall {
+                        id: "call_1".into(),
+                        name: "Bash".into(),
+                        arguments: serde_json::json!({}),
+                        extras: None,
+                    }],
+                    ..Default::default()
+                },
+                LLMMessage {
+                    role: "tool".into(),
+                    content: "done".into(),
+                    tool_call_id: Some("call_1".into()),
+                    ..Default::default()
+                },
+                // The replayed step: the same call declared a second time.
+                LLMMessage {
+                    role: "assistant".into(),
+                    content: String::new(),
+                    tool_calls: vec![ToolCall {
+                        id: "call_1".into(),
+                        name: "Bash".into(),
+                        arguments: serde_json::json!({}),
+                        extras: None,
+                    }],
+                    ..Default::default()
+                },
+            ],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+            toolset: None,
+        };
+
+        let result = run_turn(input, &callbacks)
+            .await
+            .expect("the strict resend must recover the turn");
+
+        assert_eq!(
+            llm.calls.load(Ordering::SeqCst),
+            2,
+            "one rejection, one resend"
+        );
+        let seen = llm.seen_per_call.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert_eq!(
+            seen[0].iter().filter(|id| *id == "call_1").count(),
+            2,
+            "the first request carried the duplicate"
+        );
+        assert_eq!(
+            seen[1].iter().filter(|id| *id == "call_1").count(),
+            1,
+            "the resend carried exactly one declaration"
+        );
+        assert!(
+            result
+                .messages
+                .iter()
+                .rev()
+                .any(|m| m.role == "assistant" && m.content == "recovered"),
+            "the turn ends on the recovered answer"
+        );
+    }
+
     /// rather than the retry helper in isolation: a provider that answers 200
     /// with nothing used to end the turn as a success, so the model stopped
     /// early and nothing — transcript, telemetry, UI — could tell it from a

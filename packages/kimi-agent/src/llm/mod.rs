@@ -12,6 +12,7 @@ pub mod openai_responses;
 pub mod opencode_adapter;
 pub mod prompt_media;
 pub mod proxy;
+pub mod request_structure;
 pub mod thinking_guard;
 pub mod timing;
 pub mod wire;
