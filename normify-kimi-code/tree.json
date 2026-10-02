@@ -9,7 +9,7 @@
         "repository": "https://github.com/7723qqq/kimi-code"
       }
     ],
-    "compiled_at": "2026-10-02T14:45:39.412Z",
+    "compiled_at": "2026-10-02T17:34:18.981Z",
     "stats": {
       "tree_count": 1,
       "module_count": 74,
@@ -619,9 +619,9 @@
           "path": "packages/kimi-agent/src/pipeline/mod.rs"
         }
       ],
-      "revision": "dc564cfd4f7045437b3c0368cfe8b95ae10b2326",
-      "updated_at": "2026-10-02T14:00:48.404Z",
-      "fingerprint": "01e626c0ee1840ddbdddd1fe7672e1954597c80207dcb08f561694cc1859ac0b",
+      "revision": "eda504886764c81ed141c5d77c765d4abda32bcf",
+      "updated_at": "2026-10-02T17:32:01.684Z",
+      "fingerprint": "1ff196bac01e8e5639bfdecf72f28fbe60a1632cb93ea62f1eebff36c48c15bd",
       "deps": [
         {
           "kind": "call",
@@ -872,9 +872,9 @@
           "path": "packages/kimi-agent/src/session/patch.rs"
         }
       ],
-      "revision": "dc564cfd4f7045437b3c0368cfe8b95ae10b2326",
-      "updated_at": "2026-10-02T14:00:48.407Z",
-      "fingerprint": "7185d687292e2bfc58d0805af391e6da30094f0dee283774f6992b0e7b9e5fde",
+      "revision": "eda504886764c81ed141c5d77c765d4abda32bcf",
+      "updated_at": "2026-10-02T17:32:01.685Z",
+      "fingerprint": "ee509fad344322fc0814900067544277558b67722adc865d25cd7cadcb80ff09",
       "deps": [
         {
           "kind": "dataflow",
@@ -1029,9 +1029,9 @@
           "path": "packages/kimi-agent/src/turn_loop/retry.rs"
         }
       ],
-      "revision": "53ea8e5b33152202997612d20c3679e4841d5806",
-      "updated_at": "2026-10-02T09:11:48.976Z",
-      "fingerprint": "65fc2ca0987701f3f1341b5614983f9e28314586ece4a5a2dd62ca64bc5a72ba",
+      "revision": "eda504886764c81ed141c5d77c765d4abda32bcf",
+      "updated_at": "2026-10-02T17:32:01.686Z",
+      "fingerprint": "f873d61241e8620113f46f0e29097d63cfa3dc123f681cfaa619eb4c0bed778e",
       "deps": [
         {
           "kind": "call",
@@ -1905,9 +1905,9 @@
           "path": "packages/kimi-agent/src/tools/select_tools.rs"
         }
       ],
-      "revision": "435e51cd310eb9df90ddb522a8d245cae01e86cf",
-      "updated_at": "2026-09-30T19:09:30.072Z",
-      "fingerprint": "9db28074a1d88430d1623100c81922065de9200a01da632f672c1081ae5f4daf",
+      "revision": "eda504886764c81ed141c5d77c765d4abda32bcf",
+      "updated_at": "2026-10-02T17:32:01.687Z",
+      "fingerprint": "949edefdfebc8b445f5206c3caf1705fb3b3440e9cb8dfdbe64d26d56f0031b1",
       "apis": [
         {
           "protocol": "rpc",
