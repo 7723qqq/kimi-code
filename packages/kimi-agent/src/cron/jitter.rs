@@ -1,5 +1,6 @@
-//! Anti-herd jitter for cron fire times, ported from the retired v2
-//! `features/cron/internal/jitter.ts`.
+//! Anti-herd jitter for cron fire times, ported from
+//! `packages/agent-core-v2/src/features/cron/internal/jitter.ts` (live upstream
+//! as of `upstream/main` @ 21406fb4c8, not a retired copy).
 //!
 //! Without jitter every client whose clock agrees fires `0 9 * * *` at the
 //! same millisecond and hammers the provider together. The offset is

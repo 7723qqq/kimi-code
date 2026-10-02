@@ -5,9 +5,13 @@
 //! `phase`, `log`, file IO, `fetch`, `search`, `exec`). The App-scoped
 //! [`WorkflowService`] owns the run registry so runs survive across turns.
 //!
-//! Ported from the retired `agent-core-v2` workflow domain
-//! (`src/app/workflow/`): the JS sandbox contract, the meta parser, and the
-//! nine built-in scripts.
+//! Provenance: **fork-original**, not a port. An earlier version of this header
+//! claimed the engine was ported from a retired `agent-core-v2` workflow domain
+//! (`src/app/workflow/`). No such domain exists: at `21406fb4c8` (upstream/main
+//! HEAD) a tree-wide search for `*workflow*` under `agent-core-v2/src` returns
+//! nothing, and `app/` has no `workflow/` directory. ROADMAP §6.39 records the
+//! correction and treats the engine as fork behavior carried over from the
+//! retired `kimi-native-tools` crate.
 
 pub mod host;
 pub mod registry;
