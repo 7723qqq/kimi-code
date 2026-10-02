@@ -31,7 +31,7 @@
 
 > **2026-10-02 全表重核（本轮）**：本矩阵每一行都以**权威树 `upstream/main` @ `21406fb4c8`**
 > （本地镜像 `.tmp/v2-ref-upstream`，另以 `git show upstream/main:<path>` 与 `git ls-tree` 交叉验证）
-> 与**本地 Rust 工作树**为基准核对，方法沿用 §6.39.5 的三条口径（refute-first、
+> 与**本地 Rust 工作树**为基准核对，方法沿用 §6.40.5 的三条口径（refute-first、
 > 跨 `packages/kimi-agent/src` / `packages/node-sdk/src` / `apps/*/src` 三树搜索、
 > 不把 v2 的实现手段当行为）。**核对的深度分两档，不要混**：全部 46 行都做了**路径级**核对
 > （引用的文件是否存在），其中约 2/3 的行另做了**内容级**核对（打开文件比对到行）——
@@ -40,9 +40,9 @@
 > 但**「未标注」只代表本轮没查到，不代表已证实**。
 > **一条口径必须先说清**：本仓的 `.tmp/v2-ref`（退役副本）与 `ecad4136d9^`（fork 自己的
 > 退役提交）**都不是「上游」**——`git merge-base --is-ancestor ecad4136d9 upstream/main`
-> 返回**非祖先**。历史上多行错误都源于把它们当权威（§6.39.4、§6.42.2、§6.43.3 各记一例）；
+> 返回**非祖先**。历史上多行错误都源于把它们当权威（§6.40.4、§6.43.2、§6.44.3 各记一例）；
 > 本轮又独立查出两例（micro compaction 的归属、staleGuard 的「基准」），见板块 5 与板块 4。
-> **第三项口径（2026-10-02 追加）**：本轮的 ✅/⚠️ 判定还与 §6.39–§6.44 已登记的缺口**逐条对表**过一遍——
+> **第三项口径（2026-10-02 追加）**：本轮的 ✅/⚠️ 判定还与 §6.40–§6.45 已登记的缺口**逐条对表**过一遍——
 > 凡是 §6 记了缺口、而本表仍标 ✅ 的行，一律在行内补注并指向对应小节（本轮补了 6 行：命令执行与环境、
 > 权限决策模型、G-6 #6 PreToolUse、Profile 角色注册表、会话与状态持久化、转录流数据层）。
 > **本表的 ✅ 是「核心面已移植」，不等于「无未闭环缺口」——读 ✅ 行时请一并看行内的补注。**
@@ -75,8 +75,8 @@
 | 子模块 / 职责 | TypeScript 源码（GitHub 原型） | Rust 引擎实现 | 对齐状态 | 架构深度分析与技术细节 |
 |---|---|---|:---:|---|
 | **OpenAI 兼容协议** | `packages/kosong/src/providers/openai-legacy.ts`<br>`openai-common.ts`, `chat-completions-stream.ts` | `kimi-agent/src/llm/openai.rs`<br>`src/llm/wire.rs` | ✅ **100% 原生** | Chat Completions SSE 流式解析、原生 Tool Calls 增量合并、自定义请求头（customHeaders）、`reasoning_effort` 结构化透传、Audio/Video 媒体块原生编码。 |
-| **OpenAI Responses** | `packages/kosong/src/providers/openai-responses.ts` | `kimi-agent/src/llm/openai_responses.rs` | ✅ **100% 原生** | 对齐 OpenAI Responses 协议的请求投影与流式 Delta/failed/error 事件解析。两侧均无服务端会话状态追踪（TS 侧 store:false、无 previous_response_id）。**（2026-10-01 更正：本行原写「Rust 亦未请求 `include: reasoning.encrypted_content`」，与代码不符——`openai_responses.rs:250` 已发送该字段，`:222` 已透传 `store:false`，且 fork 自有测试 `assistant_thinking_is_replayed_as_a_reasoning_item`（`llm/openai_responses.rs:727-728`）对 `req["include"]` 有断言。正文 §6.16.2 早已记录该修复完成，摘要表未回填。另：`previous_response_id` v2 从不发，故「未透传」从来不是偏差。）** |
-| **Anthropic Messages** | `packages/kosong/src/providers/anthropic.ts` | `kimi-agent/src/llm/anthropic.rs` | ⚠️ **有差异（2026-10-01 两次订正）** | 实现 Anthropic 提示词缓存断点注入（`cache_control: {"type": "ephemeral"}`）。**Rust 发 4 处断点（system / 末工具 / 尾块 / stable-history），上游发 3 处（system / 末工具 / 尾块）——stable-history 位是 fork 自加。** 依据：上游 `kosong/src/providers/anthropic.ts` 的 `injectCacheControlOnLastBlock`（`:352-362`）只注入尾部一块，其调用点 `:1040` 之前无任何 `messages.length >= 4` 分支；Rust 侧 `anthropic.rs:174-175` 有 `if msgs.len() >= 4 { let stable_idx = msgs.len() - 3; … }`，fork 自有测试 `llm/anthropic.rs:1483` 记的也是 4 个槽位。**该差异此前被登记为「不存在」，属方向反转，已撤销。** 另：上游内联 `CACHEABLE_TYPES`（`anthropic.ts:341-350`）与 `injectCacheControlOnLastBlock`（`:352-362`），**上游无 `anthropic-cache-breakpoints.ts` 文件**（该文件只存在于退役副本 `.tmp/v2-ref`，故「两侧共用 single source of truth」之说不可对上游证实）。**类型守卫**：`anthropic.rs:25-34` 的 8 型集合与上游 `anthropic.ts:341` 的集合逐项相同，尾块与 stable 位均受其门禁（`:161,:179`），fork 自有测试 `:1535/1557/1632/1671`。**2026-10-02 重核并对上游证实**：`providers/anthropic.ts`（1,334 行）确有内联 `CACHEABLE_TYPES`（`:341`）与 `injectCacheControlOnLastBlock`（`:352-362`），上游发射点为 `:999`（system）/`:1040`（尾块）/`:1083`（末工具）共 **3 处**，fork `anthropic.rs` 为 `:164`/`:192`/`:239`/`:254` 共 **4 处**——「4 vs 3」成立；「Rust 的类型守卫与上游同集合」也成立（`anthropic.rs:25-34` 的 8 型集合 ↔ 上游 `:341`）。**该差异已按 §6.44.1 降级为「冗余但无害，不需裁决」**：stable 位取 `msgs.len()-3`，每轮向前移动、从不重复标记同一条，两种缓存语义下都不带来命中收益，唯一效果是多写一条缓存条目；要收敛删 `anthropic.rs:184-192` 一段即可，但无性能理由。另更正本行的一处坐标系：`anthropic-cache-breakpoints.ts` 只存在于 fork 的退役副本，上游零命中——**文件不存在不等于逻辑不存在**，逻辑是内联的。支持 `thinking.budget_tokens` 与思考块提取，自动恢复上下文溢出。 |
+| **OpenAI Responses** | `packages/kosong/src/providers/openai-responses.ts` | `kimi-agent/src/llm/openai_responses.rs` | ✅ **100% 原生** | 对齐 OpenAI Responses 协议的请求投影与流式 Delta/failed/error 事件解析。两侧均无服务端会话状态追踪（TS 侧 store:false、无 previous_response_id）。**（2026-10-01 更正：本行原写「Rust 亦未请求 `include: reasoning.encrypted_content`」，与代码不符——`openai_responses.rs:250` 已发送该字段，`:222` 已透传 `store:false`，且 fork 自有测试 `assistant_thinking_is_replayed_as_a_reasoning_item`（`llm/openai_responses.rs:727-728`）对 `req["include"]` 有断言。正文 §6.17.2 早已记录该修复完成，摘要表未回填。另：`previous_response_id` v2 从不发，故「未透传」从来不是偏差。）** |
+| **Anthropic Messages** | `packages/kosong/src/providers/anthropic.ts` | `kimi-agent/src/llm/anthropic.rs` | ⚠️ **有差异（2026-10-01 两次订正）** | 实现 Anthropic 提示词缓存断点注入（`cache_control: {"type": "ephemeral"}`）。**Rust 发 4 处断点（system / 末工具 / 尾块 / stable-history），上游发 3 处（system / 末工具 / 尾块）——stable-history 位是 fork 自加。** 依据：上游 `kosong/src/providers/anthropic.ts` 的 `injectCacheControlOnLastBlock`（`:352-362`）只注入尾部一块，其调用点 `:1040` 之前无任何 `messages.length >= 4` 分支；Rust 侧 `anthropic.rs:174-175` 有 `if msgs.len() >= 4 { let stable_idx = msgs.len() - 3; … }`，fork 自有测试 `llm/anthropic.rs:1483` 记的也是 4 个槽位。**该差异此前被登记为「不存在」，属方向反转，已撤销。** 另：上游内联 `CACHEABLE_TYPES`（`anthropic.ts:341-350`）与 `injectCacheControlOnLastBlock`（`:352-362`），**上游无 `anthropic-cache-breakpoints.ts` 文件**（该文件只存在于退役副本 `.tmp/v2-ref`，故「两侧共用 single source of truth」之说不可对上游证实）。**类型守卫**：`anthropic.rs:25-34` 的 8 型集合与上游 `anthropic.ts:341` 的集合逐项相同，尾块与 stable 位均受其门禁（`:161,:179`），fork 自有测试 `:1535/1557/1632/1671`。**2026-10-02 重核并对上游证实**：`providers/anthropic.ts`（1,334 行）确有内联 `CACHEABLE_TYPES`（`:341`）与 `injectCacheControlOnLastBlock`（`:352-362`），上游发射点为 `:999`（system）/`:1040`（尾块）/`:1083`（末工具）共 **3 处**，fork `anthropic.rs` 为 `:164`/`:192`/`:239`/`:254` 共 **4 处**——「4 vs 3」成立；「Rust 的类型守卫与上游同集合」也成立（`anthropic.rs:25-34` 的 8 型集合 ↔ 上游 `:341`）。**该差异已按 §6.45.1 降级为「冗余但无害，不需裁决」**：stable 位取 `msgs.len()-3`，每轮向前移动、从不重复标记同一条，两种缓存语义下都不带来命中收益，唯一效果是多写一条缓存条目；要收敛删 `anthropic.rs:184-192` 一段即可，但无性能理由。另更正本行的一处坐标系：`anthropic-cache-breakpoints.ts` 只存在于 fork 的退役副本，上游零命中——**文件不存在不等于逻辑不存在**，逻辑是内联的。支持 `thinking.budget_tokens` 与思考块提取，自动恢复上下文溢出。 |
 | **Google GenAI** | `packages/kosong/src/providers/google-genai.ts` | `kimi-agent/src/llm/google_genai.rs` | ✅ **100% 原生** | 原生 Gemini REST/SSE 协议，支持多模态 Part（inlineData 图片、fileData/fileUri URL 媒体、audio/video Part，mime 按扩展名推断）与 Function Calling（含工具名回查与 `thoughtSignature` 往返恢复）。SafetySettings 两侧均未实现。 |
 | **MultiLLM 竞速降级**| `packages/kosong/src/generate.ts` | `kimi-agent/src/llm/multi.rs` | ✅ **100% 原生** | 支持多个 Provider 并发 First-past-the-post 竞速，锁定粒度是整个响应完成（非首包），竞速期间无 delta 流出；败者经 child CancellationToken 中断原生 HTTP 通道并回收，全失败合并错误。注：TS kosong 侧并无竞速实现（竞速是本 fork 的 Rust 端能力）。 |
 
@@ -100,18 +100,18 @@
 
 **（2026-10-01 二次更正 + 已修第二层门禁）** 上段的「未决」本身是基于**旧基线**的误判，已被更新的 v2 推翻：#4013 的回退（`929403b6db`，§6.8.1）在新版 v2（`52437299`，2026-09-29）里把 `resolveForContainment` 整体删掉了，**策略层确实是词法**，`tools/mod.rs:2059-2071` 与 §1641-1644 的说法正确。但 v2 并非就此不防符号链接——**2026-10-02 订正**：它**没有**独立模块，上游**无 `tool/realpath-access.ts`、无 `PATH_SYMLINK_ESCAPE`**（`PathSecurityCode` 只有 3 个码，`tool/path-access.ts:86`）；等价逻辑内联在 `workspace/workspaceFs/fsService.ts:1116-1165`（`realpathExistingPrefix` 于 `:1116`，逃逸拒绝于 `:1157-1163`），同样覆盖那六个文件工具。所以真正的结论是：**词法是对的，缺的是这第二层**。已新增 `src/native/realpath_access.rs` 移植该逻辑（`realpathExistingPrefix` 向上求 nearest-existing-ancestor 再接回缺失尾部，深度上限 256；链接→敏感文件拒绝；链接→工作区外拒绝），接在词法门禁之后、权限层之前（**2026-10-02 订正归属**：该模块里有两条规则是 **fork 自加**，不是 v2 移植——① **悬空链接拒绝**：上游 `realpathExistingPrefix` 并不拒绝悬空链接，它爬到最近存在的祖先、仍失败就原样返回输入路径，只有 `symlink_outside` 才抛；② **写侧链接→project-local config 拒绝**。该文件头已按此改写），并保留 v2 的**两支不对称**：词法上已在工作区外的绝对路径只查敏感模式后**原样放行**（那是调用方的明示意图，仍由权限层裁决），逃逸检查只针对「声称在里面」的链接——`a_symlink_outside_the_workspace_is_still_served` 钉住这一支，因为把两支合并会误杀所有工作区外的绝对读写（首次实现时正是这样被 4 个既有测试抓出来的）。`path_access.rs` 文件头那段「v2 用 realpath、此处是缺口」的说法已一并改正。
 | **文件搜索与模式匹配**| `agent-core-v2/src/agent/tools/os/`<br>`grep/`, `glob/` | `kimi-agent/src/tools/mod.rs`（Grep/Glob 工具）<br>`src/native/grep.rs`（napi 历史接口） | ✅ **100% 原生** | Grep：`regex` 引擎逐行扫描（非 ripgrep 子进程），开启 `--hidden` 等价行为并移植 `isSensitiveFile` 敏感文件过滤与脱敏提示；活体实现的 multiline 走整文件缓冲（`tools/mod.rs:2732-2736`）。`src/native/grep.rs` 的 napi 接口无仓内 TS 消费者。Glob：基于 `ignore`/`globset` 遵循 `.gitignore`，目录折叠。**2026-09-15 更正路径，2026-09-19 复核行数**：`Glob` 工具的定义与派发在 `src/tools/core_tool_defs.rs` / `src/tools/mod.rs`，而 `src/native/glob.rs`（61 行）只是 MCP 工具名过滤与权限模式匹配用的 `glob_matches_any` 辅助，不是该工具的实现。 |
-| **命令执行与环境** | `agent-core-v2/src/agent/tools/os/bash/`<br>`packages/kaos/` | `kimi-agent/src/native/bash_spawn.rs`<br>`kimi-agent/src/tools/kaos.rs` | ✅ **100% 原生** | 原生执行平台 Bash（Windows 优先定位 MSYS2/Git Bash，拒绝 cmd），支持超时强制 Kill（默认 60s/上限 300s）、输出截断（`BASH_MAX_OUTPUT_BYTES = 256KB`，`tools/mod.rs:225`）、非零退出码原样传播、实时输出流向 `tool.progress` 广播。**2026-09-15 更正路径，2026-09-19 复核行数**：真正的一次性命令执行在 `src/native/bash_spawn.rs`（673 行）；`src/native/bash.rs`（41 行）只保留超时常量与 `kill_process_tree`。**（2026-10-02 补注：POSIX 侧 shell 探测是缺口）** `native/shell.rs:88-95` 的 `#[cfg(not(windows))]` 分支**硬编码** `program: "/bin/bash"`——无探测、无 `/bin/sh` 回落；上游 `environmentProbe.ts:68-117` 会依次探 `/bin/bash`→`/usr/bin/bash`→`/usr/local/bin/bash`，再回落 `/bin/sh`。Windows 侧 fork 可合法落到 `pwsh`/`cmd`，而上游**要求** Git Bash、否则抛 `ProbeShellNotFoundError`（`:178-181`）。与 §6.41.5 的登记一致。 |
+| **命令执行与环境** | `agent-core-v2/src/agent/tools/os/bash/`<br>`packages/kaos/` | `kimi-agent/src/native/bash_spawn.rs`<br>`kimi-agent/src/tools/kaos.rs` | ✅ **100% 原生** | 原生执行平台 Bash（Windows 优先定位 MSYS2/Git Bash，拒绝 cmd），支持超时强制 Kill（默认 60s/上限 300s）、输出截断（`BASH_MAX_OUTPUT_BYTES = 256KB`，`tools/mod.rs:225`）、非零退出码原样传播、实时输出流向 `tool.progress` 广播。**2026-09-15 更正路径，2026-09-19 复核行数**：真正的一次性命令执行在 `src/native/bash_spawn.rs`（673 行）；`src/native/bash.rs`（41 行）只保留超时常量与 `kill_process_tree`。**（2026-10-02 补注：POSIX 侧 shell 探测是缺口）** `native/shell.rs:88-95` 的 `#[cfg(not(windows))]` 分支**硬编码** `program: "/bin/bash"`——无探测、无 `/bin/sh` 回落；上游 `environmentProbe.ts:68-117` 会依次探 `/bin/bash`→`/usr/bin/bash`→`/usr/local/bin/bash`，再回落 `/bin/sh`。Windows 侧 fork 可合法落到 `pwsh`/`cmd`，而上游**要求** Git Bash、否则抛 `ProbeShellNotFoundError`（`:178-181`）。与 §6.42.5 的登记一致。 |
 | **沙箱隔离策略网关** | 无上游对应物（fork 自研） | `kimi-agent/src/tools/sandbox.rs` | ✅ **fork 自研** | P155 SandboxGuard：支持 Off / ReadOnly / WorkspaceWrite。规范化 Windows 盘符大小写不敏感匹配，越界写操作与命令执行 Fail-Closed 拦截，只读操作安全放行。**2026-09-19 更正出处**：引用的 `agent-core-v2/src/workspace/sandbox/sandbox.ts` 从未存在于上游，是 fork 在自有 v2 中新增（f007fc9f71）后随 v2 一并退役——本模块是 fork 原创，不是 v2 移植。 |
 
 ### 板块 4：权限决策引擎与 G-6 否决链
 
 | 子模块 / 职责 | TypeScript 源码（GitHub 原型） | Rust 引擎实现 | 对齐状态 | 架构深度分析与技术细节 |
 |---|---|---|:---:|---|
-| **权限决策模型** | `agent-core-v2/src/agent/permissionGate/permissionGateService.ts`<br>`agent-core-v2/src/agent/permissionPolicy/policies/` | `kimi-agent/src/permission/mod.rs`<br>`src/callbacks.rs` | ✅ **100% 原生** | 完备实现 Manual / Auto / Yolo 三大模式及完整策略链求值，支持独立运行本地判定与宿主双向委托（Fail-Closed 兜底，绝不发生二次弹窗）。**（2026-10-02 重核）** 上游策略目录 15 个文件 = **13 条策略** + 2 个 helper（`path-utils.ts`、`session-approval-history.ts`）——**别把 15 当 13**；顺序在 fork 侧由 `permission/mod.rs:475` `evaluate()` 的 13 个编号注释列出，策略链在 `permission/mod.rs:475` `evaluate()` 内、13 个编号注释从 `:479` 的 `AutoModeAskUserQuestionDeny` 到 `:721` 的 `FallbackAsk`（`permission/mod.rs:6` 的文件头即自述「Mirrors the 13-policy chain」）。**（2026-10-02 补注：审批留痕是缺口）** fork 的 `session_approvals: Vec<String>`（`permission/mod.rs:152`）是**扁平模式表**，没有上游 `agent/permissionRules/permissionRules.ts:15` 的 `PermissionRuleScope = 'turn-override' \| 'session-runtime' \| 'project' \| 'user'` 四档，也没有 `recordApprovalResult` 把类型化的 `PermissionApprovalResultRecord` 写进 agent state——**谁批了什么决定不留痕**（`PermissionRuleScope` / `recordApprovalResult` 在 fork 全仓零命中）。与 §6.42.4 的登记一致。 |
+| **权限决策模型** | `agent-core-v2/src/agent/permissionGate/permissionGateService.ts`<br>`agent-core-v2/src/agent/permissionPolicy/policies/` | `kimi-agent/src/permission/mod.rs`<br>`src/callbacks.rs` | ✅ **100% 原生** | 完备实现 Manual / Auto / Yolo 三大模式及完整策略链求值，支持独立运行本地判定与宿主双向委托（Fail-Closed 兜底，绝不发生二次弹窗）。**（2026-10-02 重核）** 上游策略目录 15 个文件 = **13 条策略** + 2 个 helper（`path-utils.ts`、`session-approval-history.ts`）——**别把 15 当 13**；顺序在 fork 侧由 `permission/mod.rs:475` `evaluate()` 的 13 个编号注释列出，策略链在 `permission/mod.rs:475` `evaluate()` 内、13 个编号注释从 `:479` 的 `AutoModeAskUserQuestionDeny` 到 `:721` 的 `FallbackAsk`（`permission/mod.rs:6` 的文件头即自述「Mirrors the 13-policy chain」）。**（2026-10-02 补注：审批留痕是缺口）** fork 的 `session_approvals: Vec<String>`（`permission/mod.rs:152`）是**扁平模式表**，没有上游 `agent/permissionRules/permissionRules.ts:15` 的 `PermissionRuleScope = 'turn-override' \| 'session-runtime' \| 'project' \| 'user'` 四档，也没有 `recordApprovalResult` 把类型化的 `PermissionApprovalResultRecord` 写进 agent state——**谁批了什么决定不留痕**（`PermissionRuleScope` / `recordApprovalResult` 在 fork 全仓零命中）。与 §6.43.4 的登记一致。 |
 | **G-6 #1: Plan 文件保护**| `agent-core-v2/src/features/plan/` | `kimi-agent/src/tools/plan_mode.rs` | ✅ **100% 原生** | 计划模式激活期间，严格拦截除指定计划文件外的任意写操作与破坏性工具。**（2026-10-02 上游测试对照，发现一处判据差异）** 上游 `features/plan/planGuard.test.ts`（552 行）有两条用例在 fork 上会失败：① `Write`/`Edit` **无 `path` 参数**时应否决（`:269-279`）；② 参数是计划文件、但**另有其他写访问**时应否决（`:281-297`）。原因是判据基础不同——上游用 `writesOnlyPlanFile(event, plan.path)`（`features/plan/planService.ts:259-270`，取 `execution.accesses` 里的**每一条**写访问），fork 用 `args.get("path")`（`tools/plan_mode.rs:58`，只看参数、取不到即放行）。详见表末「上游测试对照结果」。 |
 | **G-6 #2: 工具重复调用去重**| `agent-core-v2/src/agent/toolDedupe/` | `kimi-agent/src/tools/tool_dedupe.rs` | ✅ **100% 原生** | 识别并阻止同一 turn 内相同参数的只读工具重复执行，直接复用历史缓存。 |
-| **G-6 #3: 盲写陈旧防护**| `agent-core-v2/src/features/staleGuard/`（**上游已移除**，#3517） | `kimi-agent/src/tools/stale_guard.rs` | ✅ **100% 原生（移植）** | 写操作前置校验文件自读取以来的修改时间戳（mtime），防止并发冲突与盲写覆盖。**2026-10-01 再次更正出处**：本行原记「无上游对应物（fork 自研）」，依据是「上游 `features/staleGuard/` 已在 a020946916（#3517）删除、所述上游行为从未存在」。该依据不成立——**2026-10-02 重核确认**：`git merge-base --is-ancestor a020946916 ecad4136d9` 返回**非祖先**，即上游的删除发生在 fork 快照**之后**（`git log upstream/main -- '*staleGuard*'` 确实列出 `a020946916`「remove the staleGuard feature (#3517)」与引入它的 `67fbcdf1ba` #3096）；`ecad4136d9^` 上有该特性的完整源码——**但 `ecad4136d9^` 是 fork 自己的退役树，不是「上游」**（`git merge-base --is-ancestor ecad4136d9 upstream/main` = 非祖先，`--is-ancestor ecad4136d9 HEAD` = 是），引用它时必须写明这一点：`staleGuardService.ts` 146 行可执行、`guardWrite` 精确匹配 Edit/Write、两条否决文案与 `stale_guard.rs` 同文（该次比对的基准是 fork 自己的退役树），且经 `staleGuardFeature.ts:19` `registerFeature` 真实挂载（**2026-10-02：这两处 `staleGuardFeature.ts:19` / `staleGuardOps.ts:39-41` 在权威树里无法解析**——它们只存在于 fork 的退役副本 `.tmp/v2-ref/packages/agent-core-v2/src/features/staleGuard/`（4 个文件：`staleGuard.ts`/`staleGuardFeature.ts`/`staleGuardOps.ts`/`staleGuardService.ts`），引用时必须同时写明这一点）。**行为本身一直是对齐的，错的是归属**——而正是这个错归属让后续审计认定「fork 原创、无需对齐」而跳过了比对。**「runtime 切换时无 clear 路径」不是缺口（2026-10-01 复核改判，详见 §6.25）**：原文记「v2 在 runtime 切换时 dispatch `StaleGuardCleared` 清表（`staleGuardOps.ts:39-41`），本模块无 clear 路径，方向为 fail-open，待补」——清表这件事属实，但**方向说反了**，且它不是可独立修补的缺口，而是 §6.24 分层裁决的前置。 |
-| **G-6 #6: PreToolUse 钩子**| `agent-core-v2/src/features/externalHooks/` | `kimi-agent/src/tools/external_hooks.rs` | ✅ **100% 原生** | 在工具执行前同步触发用户自定义外部钩子，超时（Fail-Closed）或返回非零时立即拦截。**（2026-10-02 重核）** 上游 `features/externalHooks/` 12 个文件（`agent/`、`app/`、`session/`、`internal/` 四层）；fork `external_hooks.rs` 1,253 行，PreToolUse 门禁在 `:175` `denial()`（`exit code 2` 或 stdout JSON `permissionDecision: "deny"` 拦截，执行失败 fail-closed）——本行描述成立。**但同一模块另有两处自陈的部分对齐**：`UserPromptSubmit` 只走观察路径，v2 还会按 `block` 跳过模型调用、按 `append` 注入上下文（`external_hooks.rs:270-272`）；`PreCompact` 不上报 token 数（`:294` 起）。与 §6.22.7 的登记一致。**（2026-10-02 补注：事件面只覆盖 8/20）** 上游 `features/externalHooks/internal/types.ts:3-24` 的 `HOOK_EVENT_TYPES` 有 **20** 种；fork 实际触发 **8** 种（`PreToolUse` / `PostToolUse` / `PostToolUseFailure` / `UserPromptSubmit` / `PreCompact` / `SessionStart` / `SessionEnd` / `Stop`，见 `external_hooks.rs` 的各 `notify_*`）。缺 **12** 种：`PermissionRequest` / `PermissionResult` / `UserPromptQueued` / `TurnStarted` / `StopFailure` / `Interrupt` / `SessionHeartbeat` / `SubagentStart` / `SubagentStop` / `TaskStarted` / `PostCompact` / `Notification`。全部是 fire-and-forget / 只观察（上游 `agentExternalHooksService.ts:118-132` 的 `fireAndForget` 丢弃返回值并 `catch {}`），且既有 `notify_session_lifecycle(event: &str, …)` 已接受任意事件名——**一个通用入口即可覆盖大部分**。**注**：§6.42.4 与 §6.44.4 记的是「fork 只 6 种、缺 14 种」，与按 `types.ts` 的 `HOOK_EVENT_TYPES`（20 项）和 `external_hooks.rs` 的 `notify_*`（8 项）直接数出来的结果（8 / 12）不符。 |
+| **G-6 #3: 盲写陈旧防护**| `agent-core-v2/src/features/staleGuard/`（**上游已移除**，#3517） | `kimi-agent/src/tools/stale_guard.rs` | ✅ **100% 原生（移植）** | 写操作前置校验文件自读取以来的修改时间戳（mtime），防止并发冲突与盲写覆盖。**2026-10-01 再次更正出处**：本行原记「无上游对应物（fork 自研）」，依据是「上游 `features/staleGuard/` 已在 a020946916（#3517）删除、所述上游行为从未存在」。该依据不成立——**2026-10-02 重核确认**：`git merge-base --is-ancestor a020946916 ecad4136d9` 返回**非祖先**，即上游的删除发生在 fork 快照**之后**（`git log upstream/main -- '*staleGuard*'` 确实列出 `a020946916`「remove the staleGuard feature (#3517)」与引入它的 `67fbcdf1ba` #3096）；`ecad4136d9^` 上有该特性的完整源码——**但 `ecad4136d9^` 是 fork 自己的退役树，不是「上游」**（`git merge-base --is-ancestor ecad4136d9 upstream/main` = 非祖先，`--is-ancestor ecad4136d9 HEAD` = 是），引用它时必须写明这一点：`staleGuardService.ts` 146 行可执行、`guardWrite` 精确匹配 Edit/Write、两条否决文案与 `stale_guard.rs` 同文（该次比对的基准是 fork 自己的退役树），且经 `staleGuardFeature.ts:19` `registerFeature` 真实挂载（**2026-10-02：这两处 `staleGuardFeature.ts:19` / `staleGuardOps.ts:39-41` 在权威树里无法解析**——它们只存在于 fork 的退役副本 `.tmp/v2-ref/packages/agent-core-v2/src/features/staleGuard/`（4 个文件：`staleGuard.ts`/`staleGuardFeature.ts`/`staleGuardOps.ts`/`staleGuardService.ts`），引用时必须同时写明这一点）。**行为本身一直是对齐的，错的是归属**——而正是这个错归属让后续审计认定「fork 原创、无需对齐」而跳过了比对。**「runtime 切换时无 clear 路径」不是缺口（2026-10-01 复核改判，详见 §6.26）**：原文记「v2 在 runtime 切换时 dispatch `StaleGuardCleared` 清表（`staleGuardOps.ts:39-41`），本模块无 clear 路径，方向为 fail-open，待补」——清表这件事属实，但**方向说反了**，且它不是可独立修补的缺口，而是 §6.25 分层裁决的前置。 |
+| **G-6 #6: PreToolUse 钩子**| `agent-core-v2/src/features/externalHooks/` | `kimi-agent/src/tools/external_hooks.rs` | ✅ **100% 原生** | 在工具执行前同步触发用户自定义外部钩子，超时（Fail-Closed）或返回非零时立即拦截。**（2026-10-02 重核）** 上游 `features/externalHooks/` 12 个文件（`agent/`、`app/`、`session/`、`internal/` 四层）；fork `external_hooks.rs` 1,253 行，PreToolUse 门禁在 `:175` `denial()`（`exit code 2` 或 stdout JSON `permissionDecision: "deny"` 拦截，执行失败 fail-closed）——本行描述成立。**但同一模块另有两处自陈的部分对齐**：`UserPromptSubmit` 只走观察路径，v2 还会按 `block` 跳过模型调用、按 `append` 注入上下文（`external_hooks.rs:270-272`）；`PreCompact` 不上报 token 数（`:294` 起）。与 §6.23.7 的登记一致。**（2026-10-02 补注：事件面只覆盖 8/20）** 上游 `features/externalHooks/internal/types.ts:3-24` 的 `HOOK_EVENT_TYPES` 有 **20** 种；fork 实际触发 **8** 种（`PreToolUse` / `PostToolUse` / `PostToolUseFailure` / `UserPromptSubmit` / `PreCompact` / `SessionStart` / `SessionEnd` / `Stop`，见 `external_hooks.rs` 的各 `notify_*`）。缺 **12** 种：`PermissionRequest` / `PermissionResult` / `UserPromptQueued` / `TurnStarted` / `StopFailure` / `Interrupt` / `SessionHeartbeat` / `SubagentStart` / `SubagentStop` / `TaskStarted` / `PostCompact` / `Notification`。全部是 fire-and-forget / 只观察（上游 `agentExternalHooksService.ts:118-132` 的 `fireAndForget` 丢弃返回值并 `catch {}`），且既有 `notify_session_lifecycle(event: &str, …)` 已接受任意事件名——**一个通用入口即可覆盖大部分**。**注**：§6.43.4 与 §6.45.4 记的是「fork 只 6 种、缺 14 种」，与按 `types.ts` 的 `HOOK_EVENT_TYPES`（20 项）和 `external_hooks.rs` 的 `notify_*`（8 项）直接数出来的结果（8 / 12）不符。 |
 | **G-6 #7/#8: Goal 准入与过期**| `agent-core-v2/src/features/goal/` | `kimi-agent/src/tools/goal_guard.rs` | ✅ **100% 原生** | 阻断在不合法状态下启动新 Goal，并在检测到 Goal 快照过期时强制拒绝工具调用。 |
 | **G-6 #12: Tower TodoList 否决**| `agent-core-v2/src/features/tower/` | `kimi-agent/src/tools/tower/mod.rs` | ✅ **100% 原生** | P154：Tower 模式下即时否决子代理调用 TodoList，防止舰队任务串行化。 |
 | **G-6 #13: Worker 工作区写隔离**| `agent-core-v2/src/features/tower/` | `kimi-agent/src/tools/tower/mod.rs` | ✅ **100% 原生** | P154：强制校验 Tower Worker 写操作的目标路径，越界逃逸立即否决，杜绝跨分支污染。 |
@@ -120,7 +120,7 @@
 
 | 子模块 / 职责 | TypeScript 源码（GitHub 原型） | Rust 引擎实现 | 对齐状态 | 架构深度分析与技术细节 |
 |---|---|---|:---:|---|
-| **上下文智能压缩** | `agent-core-v2/src/agent/fullCompaction/`<br>`human/compaction/`（micro compaction **无上游对应物**） | `kimi-agent/src/compaction/mod.rs`<br>`src/compaction/micro.rs` | ✅ **100% 原生** | 基于滑动窗口的上下文裁剪，保留系统提示词、用户首轮意图与最近尾部消息；中段消息结构化提取为第一人称摘要；精准对齐 CJK/多模态/JSON Token 预算。`microCompaction` 已补齐（`compaction/micro.rs`，2026-10-02 实测 366 行 + fork 自有 7 个单测）：把超过 `min_content_tokens` 的旧工具结果内容清空，变换是确定性投影，store 保留原文，因此重建出的前缀跨请求稳定。由 `server/engine.rs` 在每轮构建 pipeline 后按 `[experimental].micro_compaction` 应用，并发布 `micro_compaction.apply` 事件。**（2026-10-02 重大归属订正：micro compaction 无上游对应物）** 权威树 `upstream/main` @ `21406fb4c8` 全树 `microCompaction` / `minContentTokens` / `keepRecentMessages` / `cacheMissedThresholdMs` **全部零命中**，`git log upstream/main -- '*microCompaction*'` **为空**（上游历史里没有任何提交触及该路径）；唯一新增它的提交是 `431b584a44`（fork 的 v1→v2 迁移），`git merge-base --is-ancestor 431b584a44 upstream/main` = 非祖先。**即这个模块是 fork 自有的**——`.tmp/v2-ref` 里的 4 个文件是 fork 自己的退役代码。此前 §6.28 与 §6.43.1 都把它当 v2 参考实现（§6.43.1 还据此推翻 §6.28），两处都踩了 §6.39.4/§6.42.2 命名的「退役副本当权威」坐标系错误；**§6.43.1「可施工」的结论不变，但它称的「参考实现」是 fork 的旧代码**。**（2026-10-01 复核改判，详见 §6.28）** 该 `detect()` 判据为「检测到 prompt-cache miss」。原文记「该信号尚未接入引擎」**不准确**——测量侧早就在引擎里了：四个 provider 的 usage 解析都填 `input_cache_read`（Anthropic 另填 `input_cache_creation`）。缺的是**跨 step 的判定**：没有把上一步的命中数累积起来再比阈值。目前仅由开关决定。 |
+| **上下文智能压缩** | `agent-core-v2/src/agent/fullCompaction/`<br>`human/compaction/`（micro compaction **无上游对应物**） | `kimi-agent/src/compaction/mod.rs`<br>`src/compaction/micro.rs` | ✅ **100% 原生** | 基于滑动窗口的上下文裁剪，保留系统提示词、用户首轮意图与最近尾部消息；中段消息结构化提取为第一人称摘要；精准对齐 CJK/多模态/JSON Token 预算。`microCompaction` 已补齐（`compaction/micro.rs`，2026-10-02 实测 366 行 + fork 自有 7 个单测）：把超过 `min_content_tokens` 的旧工具结果内容清空，变换是确定性投影，store 保留原文，因此重建出的前缀跨请求稳定。由 `server/engine.rs` 在每轮构建 pipeline 后按 `[experimental].micro_compaction` 应用，并发布 `micro_compaction.apply` 事件。**（2026-10-02 重大归属订正：micro compaction 无上游对应物）** 权威树 `upstream/main` @ `21406fb4c8` 全树 `microCompaction` / `minContentTokens` / `keepRecentMessages` / `cacheMissedThresholdMs` **全部零命中**，`git log upstream/main -- '*microCompaction*'` **为空**（上游历史里没有任何提交触及该路径）；唯一新增它的提交是 `431b584a44`（fork 的 v1→v2 迁移），`git merge-base --is-ancestor 431b584a44 upstream/main` = 非祖先。**即这个模块是 fork 自有的**——`.tmp/v2-ref` 里的 4 个文件是 fork 自己的退役代码。此前 §6.29 与 §6.44.1 都把它当 v2 参考实现（§6.44.1 还据此推翻 §6.29），两处都踩了 §6.40.4/§6.43.2 命名的「退役副本当权威」坐标系错误；**§6.44.1「可施工」的结论不变，但它称的「参考实现」是 fork 的旧代码**。**（2026-10-01 复核改判，详见 §6.29）** 该 `detect()` 判据为「检测到 prompt-cache miss」。原文记「该信号尚未接入引擎」**不准确**——测量侧早就在引擎里了：四个 provider 的 usage 解析都填 `input_cache_read`（Anthropic 另填 `input_cache_creation`）。缺的是**跨 step 的判定**：没有把上一步的命中数累积起来再比阈值。目前仅由开关决定。 |
 | **提醒与节律注入** | `agent-core-v2/src/features/reminder/` | `kimi-agent/src/injection/mod.rs`<br>`src/injection/goal_plan.rs`<br>`src/injection/permission_mode.rs` | ⚠️ **部分原生** | `<system-reminder>` 包装与识别。内置日期变更注入、Goal 预算耗尽与 Plan-Mode Cadence 节律注入、权限模式进入/退出 auto 的两段提醒，压缩操作不丢失注入块。**2026-09-15 补齐**：v2 的 `permission_mode` 变体（`agent-core-v2/src/agent/permissionMode/injection/permissionModeInjection.ts`）此前在 fork 中整体缺失，现已落地为 `injection/permission_mode.rs`（两段文案 + 进入/退出转移 + 历史基线扫描 + `KIMI_CODE_PERMISSION_MODE_REMINDER` 门禁）。**与 v2 的差异**：v2 从 agent state 读 `permissionMode.lastMode`、从历史读该变体自己的 `injectedPositions`；fork 两者都从历史扫描恢复（`scan_permission_mode_baseline`），因此「提醒被压缩/撤销掉后重新宣告」与「恢复会话不重复宣告」两种行为都成立。模式来源是 host 传入的 `PolicySnapshot.mode`（`RunTurnInput.permission_mode`），不新增 napi 参数。**（2026-10-01 下调评级并更正：本行原把「工作区 AGENTS.md 动态提醒」与上述项一起标为 ✅ 100% 原生，实测不成立。v2 是三套机制——`agentsMdReminderService.ts:106-110` 在每次工具执行后按 `accesses` 触发的 `probeAndRemind`（`:182-215`）沿目录链探测**子目录**的 AGENTS.md、selfKnown 抑制重复、`:122-140 announceChanged` 的 fs 变更监听（modified 标 known / deleted 移出 known 以便重新提醒）；fork 侧当时 `agents_md_provider`（`injection/mod.rs:358`）只对**会话根**做一次性 stat 并置 `injected=true` 永久返回 `None`，全仓 `announce_changed` 零命中。状态标注由 ✅ 改为 ⚠️。**（2026-10-02 复核：本行的「三套机制全部缺失」已过期——前三项已在本表下方「2026-10-01 部分补齐：per-access 探测链已落地」块中落地，本行未回填。）** 现状：`AgentsMdReminder` 在 `injection/mod.rs:406`（`known` / `read_recently` 在 `:413,:505-511`），`StepAccess` 在 `:102`，入口 `build_injections_with_accesses` 在 `:207`；`run_turn.rs:980,1165,1817-1846` 已把每 step 的目录/`cwd`/刚读过的 AGENTS.md 接上；链式探测的 fork 自有测试在 `injection/mod.rs:982,1014,1045`；**上游规格**是 `test/agent/agentsMdReminder/agentsMdReminder.test.ts`（1,600 行），它断言两个 variant（`agents_md` / `agents_md_change`）——fork 只注册了 `agents_md`（`injection/mod.rs:177`），`agents_md_change` 全仓零命中，故「磁盘变更通告」这一项的缺失有上游测试作证。**仍未做只剩两项**：(3) Bash **操作数**目录（需 bash 语法树，Rust 侧无解析器）与 (6) fs 变更通告（fork 无监听地基）。**（2026-10-01 已完成测绘，未实施）**：逐行读完 `agent/agentsMdReminder/agentsMdReminderService.ts` 后，该缺口实际由六个组件构成，**每一个在 fork 侧是否有地基都需要单独确认**，不能当作一处小补丁：(1) **触发点**——v2 挂在 `toolExecutor.hooks.onDidExecuteTool`（`:106-110`），fork 的 provider 在每次 LLM 调用前跑（`run_turn.rs:1147`），**时点等价**（上一 step 的工具调用已结束），但 `InjectionContext` 只有 `is_new_turn` 与 `injected`，**没有"本 step 访问了哪些目录"这个输入**，需从 `run_turn.rs:1804` 的 `infer_tool_accesses` 结果透传。(2) **目标目录推导**（`:284-306`）——Read/Edit/Write 取 `dirname(access.path)`，grep/glob 取 `access.path` 本身；且当模型刚成功读过某个 AGENTS.md 时把该路径记入 `selfKnown` 以免立刻提醒自己。fork 侧 `ToolResourceAccess::File` 已带 `path`，可直接取。(3) **Bash 分支**（`:240-278`）——需用 bash parser 解析命令抽目标目录，fork 侧是否有等价物**未确认**。(4) **探测链**（`:308-329`）——不是只探测被访问的那一层，而是 `nearestExistingDir` → `findProjectRoot` → `dirsRootToLeaf` **从项目根到叶子逐层探测**候选路径；这正是"访问 `sub/deep/f.txt` 能发现 `sub/AGENTS.md`"的原因。fork 侧 `prompt/agents_md.rs` 的发现顺序是**指令注入**用的（品牌 home → `~/.agents` → 工作区），**不是** project-root 探测，两者不可直接复用。(5) **known 集与队列**——`known` / `remindQueue` / `readRecently` 三份状态，且 `known` 经 `contributeState` **跨会话恢复**（`onDidRestore` 时从 profile 重新 seed，`:98-105`）；fork 侧用 `scan_agents_md_baseline` 扫历史文本替代 `origin.disclosure`，是与 date/swarm/permission 一致的既有做法，但**没有队列**。(6) **fs 变更通告**（`:122-140`）——依赖 `instructions.onDidChange` 事件源，**fork 侧无文件系统监听地基**，需先确认是否存在观察器。此外 v2 的提醒文案（`:353-359`，"apply to paths accessed by your recent tool call"）与 fork 现有的 workspace-root 文案**逐字不同**，实施时须一并替换而非并存。**结论：这是独立的一块工作，不应与门禁类修复混在同一批次。** |
 
 ### 板块 6：系统提示词与 Profile 角色目录
@@ -131,13 +131,13 @@
 | **环境探测与目录树** | `agent-core-v2/src/agent/profile/context.ts` | `kimi-agent/src/prompt/environment.rs` | ✅ **100% 原生** | 原生跨平台探测 OS 与 Shell 路径，调用 `native_list_directory` 输出紧凑两级目录树（折叠隐藏目录，根宽30/子宽10），Windows 自动注入 Unix shell 指南。 |
 | **AGENTS.md 级联** | `agent-core-v2/src/agent/profile/context.ts` | `kimi-agent/src/prompt/agents_md.rs` | ✅ **100% 原生** | 发现品牌 home `AGENTS.md` → `~/.agents/{AGENTS.md,agents.md}` 取首个 → 工作区 `.kimi-code/AGENTS.md` → 工作区首个 plain name，注入 `<!-- From: ... -->` 来源头，内置 32KB 预算告警。**（2026-10-01 更正：本行原写「逐级向上级联发现」，但两侧实现都是**从工作区根向 user home 单向收集**（`agents_md.rs:86-105`；v2 `loadAgentsMdDetailed` 同形状），不存在逐级向上查找。）** |
 | **技能清单 Markdown** | `agent-core-v2/src/app/agentProfileCatalog/` | `kimi-agent/src/prompt/skills_renderer.rs` | ✅ **100% 原生** | 扫描 Project / User / Built-in 技能，按作用域分级排版为 Markdown 列表（`- name: desc` + `  Path: …`），自动过滤 `disable_model_invocation` 私有技能与 `is_sub_skill`。**（2026-10-01 更正：本行原写「排版为标准 Markdown **表格**」，两侧实际都不是表格。）** |
-| **Profile 角色注册表**| `agent-core-v2/src/session/agentLifecycle/`<br>`profile/profiles.ts` | `kimi-agent/src/prompt/profiles.rs` | ✅ **100% 原生** | 原生提供 `agent`（全功能）、`coder`（带交接 Handover 强化）、`explore`（只读探索）与 `plan`（架构规划）预设角色与工具许可清单。**（2026-10-02 补注：`inspect()` 是缺口）** 上游 `session/sessionAgentProfileCatalog/sessionAgentProfileCatalog.ts:6-26` 的 `inspect(name)` 返回 `AgentProfileInspection`（含 `sourceId`/`priority`/`suppressed[]`，抑制原因 `'priority' \| 'builtin-override-required'`）；fork 的 `get`/`getDefault`/`list` 已移植，`AgentProfileInspection` / `builtin-override-required` **全仓零命中**——**profile 被内置项覆盖时用户不可见**。与 §6.42.4 的登记一致。 |
+| **Profile 角色注册表**| `agent-core-v2/src/session/agentLifecycle/`<br>`profile/profiles.ts` | `kimi-agent/src/prompt/profiles.rs` | ✅ **100% 原生** | 原生提供 `agent`（全功能）、`coder`（带交接 Handover 强化）、`explore`（只读探索）与 `plan`（架构规划）预设角色与工具许可清单。**（2026-10-02 补注：`inspect()` 是缺口）** 上游 `session/sessionAgentProfileCatalog/sessionAgentProfileCatalog.ts:6-26` 的 `inspect(name)` 返回 `AgentProfileInspection`（含 `sourceId`/`priority`/`suppressed[]`，抑制原因 `'priority' \| 'builtin-override-required'`）；fork 的 `get`/`getDefault`/`list` 已移植，`AgentProfileInspection` / `builtin-override-required` **全仓零命中**——**profile 被内置项覆盖时用户不可见**。与 §6.43.4 的登记一致。 |
 
 ### 板块 7：本地守护服务端（REST + WebSocket）
 
 | 子模块 / 职责 | TypeScript 源码（GitHub 原型） | Rust 引擎实现 | 对齐状态 | 架构深度分析与技术细节 |
 |---|---|---|:---:|---|
-| **REST API 全路由** | `packages/kap-server/src/routes/`（上游 40 个文件，2026-10-02 按 `git ls-tree -r` 复核；上一版写 41） | `kimi-agent/src/server/router.rs`<br>`src/server/http.rs`, `fs_routes.rs` | ✅ **100% 原生** | 原生提供 `/api/v1` 接口面：`/sessions` (CRUD, status, abort, fork)、`/workspaces`、`/skills`、`/models`、`/mcp`、`/plugins`、`/terminals`、`/fs` 等。**（2026-10-02 补注：fs 错误码未在失败点应用）** 分类表在 `packages/protocol/src/error-codes.ts` 完整存在且数值与 v2 线表逐条一致，但 Rust 侧 `error_codes::FS_PATH_NOT_FOUND`（`server/envelope.rs:29`，值 `40409`）**只被自己的单测引用**（`envelope.rs:289`）；实际处理器在失败点返回的是**字符串字面量**（`server/fs_routes.rs:920` 的 `{"error": "FS_PATH_NOT_FOUND"}`、`:924` 的 `FS_IS_DIRECTORY`）。低价值，但确实是形状不一致。与 §6.41.5 的登记一致。 |
+| **REST API 全路由** | `packages/kap-server/src/routes/`（上游 40 个文件，2026-10-02 按 `git ls-tree -r` 复核；上一版写 41） | `kimi-agent/src/server/router.rs`<br>`src/server/http.rs`, `fs_routes.rs` | ✅ **100% 原生** | 原生提供 `/api/v1` 接口面：`/sessions` (CRUD, status, abort, fork)、`/workspaces`、`/skills`、`/models`、`/mcp`、`/plugins`、`/terminals`、`/fs` 等。**（2026-10-02 补注：fs 错误码未在失败点应用）** 分类表在 `packages/protocol/src/error-codes.ts` 完整存在且数值与 v2 线表逐条一致，但 Rust 侧 `error_codes::FS_PATH_NOT_FOUND`（`server/envelope.rs:29`，值 `40409`）**只被自己的单测引用**（`envelope.rs:289`）；实际处理器在失败点返回的是**字符串字面量**（`server/fs_routes.rs:920` 的 `{"error": "FS_PATH_NOT_FOUND"}`、`:924` 的 `FS_IS_DIRECTORY`）。低价值，但确实是形状不一致。与 §6.42.5 的登记一致。 |
 | **WebSocket 全双工** | `packages/kap-server/src/transport/ws/` | `kimi-agent/src/server/ws.rs`<br>`src/server/hub.rs` | ✅ **100% 原生** | RFC 6455 协议支持，实现打字机推流（stream.delta）、思考流（thinking.delta）、工具进度（tool.progress）、双向 Prompt/Cancel 控制帧与心跳 Ping/Pong（含 40112 鉴权）。**2026-09-19 更正路径**：上游无 `kap-server/src/ws/` 目录，实际在 `src/transport/ws/`。 |
 | **虚拟终端 PTY** | `packages/kap-server/src/routes/terminals.ts`<br>+ `src/protocol/rest-terminal.ts` | `kimi-agent/src/server/terminal.rs` | ✅ **100% 原生** | 跨平台终端管理，基于 `portable-pty`（wezterm）：每个终端是一个真伪终端，REST 创建/列出/关闭 + WebSocket 二进制双向吞吐，`resize` 经 `MasterPty::resize` 下达 `TIOCSWINSZ`/`ResizePseudoConsole` 给子进程，Ctrl-C、作业控制与 `isatty` 行为与真终端一致。**2026-09-19 更正路径**：上游无 `kap-server/src/terminal/` 目录。 |
 | **静态资产与 SPA** | `packages/kap-server/src/routes/webAssets.ts` | `kimi-agent/src/server/static_files.rs` | ✅ **100% 原生** | 内置静态 Web 资源托管与 SPA 前端回退路由支持。 |
@@ -146,7 +146,7 @@
 
 | 子模块 / 职责 | TypeScript 源码（GitHub 原型） | Rust 引擎实现 | 对齐状态 | 架构深度分析与技术细节 |
 |---|---|---|:---:|---|
-| **ACP 协议宿主** | `packages/acp-server/` | `kimi-agent/src/acp/mod.rs`<br>`src/acp/types.rs` | ✅ **100% 原生** | 原生 Agent Client Protocol (ACP) 规范实现，支持 Stdio 与网络通道，零 Node 依赖。**2026-09-15 审计列出的七项缺陷**：每一项都能在代码里指到实现点（行号为 2026-10-02 重定位）：`stopReason` 经 `acp/events_map.rs:76` `turn_stop_reason_to_acp` 映射为 `end_turn`/`cancelled` 等 ACP 词表（fork 自有测试 `acp/mod.rs:3152` `test_acp_prompt_reports_acp_stop_reason`）；`$/cancel_request` 已处理（`acp/mod.rs:1133-1138` 的 match 臂 + `:420` `cancel_requested`）；`terminal/kill` 有调用点（`acp/permission.rs:935`，定义在 `channel.rs:237-240`）；`additionalDirectories` 已读取并持久化（`acp/mod.rs:653` 读取、`:2784` 记在 session 上，运行期追加走 `:1278-1290` 的显式拒绝并告知）；Bash 反向改道经 `resolve_shell` 解析引擎 shell（`acp/permission.rs:116`）；`session/set_model` 已服务（`acp/mod.rs:1156`）。反向 RPC 为 9 个（其中 `terminal/kill` 此前无调用点的缺陷已随上一项闭环）。**（2026-10-02 重核：以上行号已按当前 `acp/mod.rs`（3,321 行）重新定位。原文的 `events_map.rs:59-66`、`mod.rs:1120-1125`、`permission.rs:161-163`、`mod.rs:645,690-692`、`permission.rs:107-110`、`mod.rs:1143`、测试 `mod.rs:3075` **全部已漂移**——都在文件内，但指向了别处（`permission.rs:162` 现在只是一句注释）。这是 §6.43.5 记的第二类错误（漂移跨结构边界）的又一实例。）** |
+| **ACP 协议宿主** | `packages/acp-server/` | `kimi-agent/src/acp/mod.rs`<br>`src/acp/types.rs` | ✅ **100% 原生** | 原生 Agent Client Protocol (ACP) 规范实现，支持 Stdio 与网络通道，零 Node 依赖。**2026-09-15 审计列出的七项缺陷**：每一项都能在代码里指到实现点（行号为 2026-10-02 重定位）：`stopReason` 经 `acp/events_map.rs:76` `turn_stop_reason_to_acp` 映射为 `end_turn`/`cancelled` 等 ACP 词表（fork 自有测试 `acp/mod.rs:3152` `test_acp_prompt_reports_acp_stop_reason`）；`$/cancel_request` 已处理（`acp/mod.rs:1133-1138` 的 match 臂 + `:420` `cancel_requested`）；`terminal/kill` 有调用点（`acp/permission.rs:935`，定义在 `channel.rs:237-240`）；`additionalDirectories` 已读取并持久化（`acp/mod.rs:653` 读取、`:2784` 记在 session 上，运行期追加走 `:1278-1290` 的显式拒绝并告知）；Bash 反向改道经 `resolve_shell` 解析引擎 shell（`acp/permission.rs:116`）；`session/set_model` 已服务（`acp/mod.rs:1156`）。反向 RPC 为 9 个（其中 `terminal/kill` 此前无调用点的缺陷已随上一项闭环）。**（2026-10-02 重核：以上行号已按当前 `acp/mod.rs`（3,321 行）重新定位。原文的 `events_map.rs:59-66`、`mod.rs:1120-1125`、`permission.rs:161-163`、`mod.rs:645,690-692`、`permission.rs:107-110`、`mod.rs:1143`、测试 `mod.rs:3075` **全部已漂移**——都在文件内，但指向了别处（`permission.rs:162` 现在只是一句注释）。这是 §6.44.5 记的第二类错误（漂移跨结构边界）的又一实例。）** |
 | **Stdio JSON-RPC** | 无（仓内无 TS 调用方） | `kimi-agent/src/rpc/types.rs`<br>`src/main.rs` | ⚠️ **Rust 侧就绪，TS 侧未接线** | Rust 侧提供严格匹配 LSP/JSON-RPC 2.0 规范的 Stdio 双向通讯层；但仓内没有任何 TypeScript 客户端调用它——`apps/kimi-code/src/cli/rust-engine.ts` 只是 bundle 存在性检查，不是 RPC 客户端。实际运行路径是 napi addon（`session-handle.ts` → `NapiSessionTransport`）。 |
 | **客户端 SDK 门面** | `packages/klient/src/` | — | ✅ **已退役** | `packages/klient` 已按 P159 物理删除（连同 `agent-core-v2` / `acp-server` / `kap-server`）。消费方直连 Rust REST/WebSocket/NAPI。见本文件 §4 与「工作区状态」。 |
 
@@ -154,11 +154,11 @@
 
 | 子模块 / 职责 | TypeScript 源码（GitHub 原型） | Rust 引擎实现 | 对齐状态 | 架构深度分析与技术细节 |
 |---|---|---|:---:|---|
-| **Tower 多工作区协作**| `agent-core-v2/src/features/tower/` | `kimi-agent/src/tools/tower/` | ✅ **100% 原生** | 原生管理 Git Worktree、分支派生与合并、Mission 状态追踪与 Worker 工作区写隔离。**（2026-10-02 补注）** 本行的 ✅ 只覆盖核心面：§6.22.4 已把上游 `09af3b48` 的六簇硬化记为 tracked 债（`TowerTeardown` 的 live-agent 保护 / `exclude` / `dry_run`、死亡写会话守卫与活动日志、`death_status`/`death_reason` 写入、inbox 前置门禁、跨进程锁文件），尚未移植。 |
-| **AgentSwarm 批处理** | `agent-core-v2/src/features/swarm/`+`agent-core-v2/src/agent/tools/agent/` | `kimi-agent/src/swarm/`<br>`src/tools/swarm_tool.rs`<br>`src/tools/agent_tool.rs` | ✅ **100% 原生** | 原生批量派发并发子代理，内置速率限制自适应收缩与弹性恢复算法。**（2026-10-02 补注：本行的证据全在 fork 侧）** 下文的「变异测试」「真实对话 e2e」全部跑在 `packages/kimi-agent` 里，只证明 fork 内部自洽；上游规格是 `test/features/swarm/{swarm,sessionSwarm}.test.ts`，本轮**未逐条对照**。**2026-10-01 v2 对齐审计**：**（2026-10-02 订正参照物）** v2 的 swarm 在 `upstream/main` @ `21406fb4c8` **仍然活着**（`features/swarm/` 15 个文件 + `agent/tools/agent/` 7 个文件，`git ls-tree upstream/main` 的输出）。原文写「已在上游 `ecad4136d9` 删除、经 `git archive` 取回」是错的：`ecad4136d9` 是**本 fork 自己的退役提交**（`git merge-base --is-ancestor ecad4136d9 upstream/main` = 非祖先，`--is-ancestor ecad4136d9 HEAD` = 是），拿它当「上游」即 §6.39.4 命名的坐标错位。**结论可能仍成立，但当时比对的是 fork 自己的退役树**，应以权威树复核一遍。批量调度器（`agent_run_batch.rs`）的 8 个常量、退避序列 `base*factor^(retryCount-1)`=3000/6000/12000/24000、容量收缩/恢复、`isOnlyUnfinishedTask` 短路、用户取消两级区分、`resolveSwarmMaxConcurrency` 三态返回，在 2026-10-01 那次比对中与基准逐项对应（**基准是 fork 自己的退役树**，见上）。审计发现并**已修复 3 处 v2 门禁缺失**（此前均未登记，§4 亦无记录）：① `resume_agent_ids` 缺归属校验——v2 `requireOwnedSubagent` 拒「非本父 agent 的子代理」，Rust 原先无任何父归属记录，任意 agent id 都能被恢复；已补 `SubagentManager` 父归属记录（spawn 时记 `CALLER_AGENT_ID` 作用域 + 显式 `set_parent`，随 `subagent_resume` 记录持久化以支持冷恢复）+ `swarm/service.rs::require_owned_subagent`，两种拒绝文案分开。② swarm 模式下 `Agent` 工具未被禁用——v2 `swarmService.ts:49-66` 有独立 `onBeforeExecuteTool` 门禁，fork 只移植了第二个（AgentSwarm 独占）门禁；locale 里 `agentDeniedInSwarmMode` 文案一直在（`locales/{en,zh}.json:564`）却无任何代码引用；已补 `veto_agent_in_swarm_mode` + `run_turn` 逐调用门禁。③ `AgentSwarm` 跳过 `forkIncompatibility`——`subagent/fork.rs` 有该函数且单发 `Agent` 工具已调用（`agent_tool.rs:839`），swarm 一次没调；已补（fork + 非空 resume / 不同 subagent_type / 不同 model 三条拒绝）。另修 3 处静默偏离：恢复成员补回 `swarmItem` 标签（v2 `getSwarmItem`）、turn 异常结束也清模式（v2 靠 `TurnEnded` 订阅，Rust 原先只在正常返回路径清，`run_turn.rs:552` 的 `?` 会绕过）、注入基线扫描只认 `<system-reminder>` 包裹（v2 按 `origin.kind==='injection'`，原先按内容匹配，用户消息里出现 `## Swarm Mode` 就会压掉真实宣告）。**保留的刻意偏离**：校验失败不进入 swarm 模式（v2 先 `enter('tool')` 再校验，Rust 顺序相反）——模型可见行为无差异（`tool` 触发本就不播报提醒），少一对空转事件，视为改进并在此登记。**同日第二批（渲染/快照链路）**：用户报「swarm 变回普通 agent 并混在主对话」。live 事件其实是对的（实测回放引擎真实事件流 + 真实结果 XML，成员正文只进面板），断点在**快照/重放**这一侧，而 v2 判别式在 `coreEventMap.ts` 的 `role: event.swarmIndex !== undefined ? 'member' : 'child'`。追出的断链：`agent_tool.rs` 只把 `swarm_index` 写进 **live** 事件；`EngineEvent::SubagentSpawned`（持久化记录）**没有该字段**，serde 静默丢弃；`server/transcript/project.rs:421` 用 `..` 忽略其余字段、只产 `TaskKind::Subagent`（无 member/child 之分）；`server/mod.rs` 快照 `subagents[]` 不发 `swarm_index`/`parent_tool_call_id`——而 `packages/protocol/src/rest/snapshot.ts:63-66` 的注释明写快照正是「otherwise only rides the (non-replayed) `subagent.spawned` WS event」的替代载体，客户端 `apps/kimi-web/src/api/daemon/mappers.ts:393-395` 正读这两个键。**已修**：`SubagentParent` 增 `parent_tool_call_id`/`swarm_index`（随 `subagent_resume` 持久化以支持冷恢复）；swarm launcher 记录二者；`EngineEvent::SubagentSpawned` 增 `swarm_index`（`skip_serializing_if`，普通子代理保持键缺失而非 null，对齐客户端 `typeof === 'number'` 判别）；快照按有值才插键。回归断言 3 条落在**跨层最终形状**上（journal 往返、普通子代理无键、快照带 index），不再是「字段存在」这种自证式断言。v2 侧对应 changeset `restore-swarm-members` / `swarm-members-after-restore`，说明该类问题 v2 已修、移植时未带上。**同日第三批（SDK resume 侧）**：真实对话测试（真引擎 + mock OpenAI SSE，模型真调 `AgentSwarm`、3 个成员各跑一轮、5 次模型调用）暴露第二个独立断点——`packages/node-sdk/src/native/sdk-rpc-client-native.ts` 的 resume 用**正则从渲染后文本**刨子代理（`/(?:^\|\n)agent_id:\s*([^\s]+)/` + `/\[summary\]/`），而这两个 pattern **只认单发 `Agent` 的纯文本信封**（`agent_tool.rs:240-243` 的 `format_success` 信封）；swarm 的结果是不重叠的 XML（`swarm_tool.rs:189-247`，`agent_id="…"` **等号**、无 `[summary]` 块），因此 `discoveredSubagents` 对 swarm **恒为空**。该机制是 fork 自创（v2 靠类型化记录折叠，不需要猜文本形状），所以 v2 不可能有此 bug。**已修**：抽出导出的纯函数 `discoverSubagentsFromToolResult`，按结果形状分派（`<agent_swarm_result>` → 解析全部 `<subagent>`；否则走原 `Agent` 信封），失败/中止成员也保留（它当时就在用户的 swarm 卡上出现过，恢复时不该留洞）。**变异测试**：把 swarm 分支移除后单测 4/6 转红、真实对话 e2e 的 `agents` 从 3 个成员塌成 `["main"]`——两处都确认是「能红」的护栏，不是自证式断言。**同日第七批（子代理模块扩展扫描）**：v2 的 Agent 工具实现在 `agent-core-v2/src/agent/tools/agent/agentTool.ts`（**不在** `session/subagent/`，此前按错路径推断过一次）。其 resume 路径有五道门：`AGENT_NOT_FOUND`（调用方/目标不存在）、`AGENT_NOT_A_SUBAGENT`、`AGENT_NOT_OWNED`（**父归属**）、`AGENT_ALREADY_RUNNING`（**占用**）、以及后台任务上限。fork 侧 `execute_resume`（`agent_tool.rs`）原先**一道都没有**——与 swarm 同源的隔离/并发洞，且 `Agent` 比 `AgentSwarm` 常用得多。**已修**：复用 `swarm/service.rs` 的 `require_owned_subagent` + `require_idle_subagent` 挂在 resume 入口，两条 resume 路径共用同一实现、无法各自漂移；`spawn_persistent` 补登记父属（否则持久子代理会被读成「不是子代理」而不可恢复）。4 处既有 resume 测试改为在 `CALLER_AGENT_ID` 作用域内建子代理（生产的调用路径上 spawner 处于某 agent 的 turn 内；测试原先在作用域外 spawn，是不真实的夹具）。**教训**：上轮我曾断言「v2 在 subagent 那层没有归属门禁」——错在不存在的路径上推断；**跨层判定的结论必须来自实际读到的文件，不是相邻文件的印象**。**未改**：resume 侧 `parentAgentId: 'main'` 硬编码（`AgentSwarm` 仅主 agent 可派发，该值实际正确；真要收紧需先证明子 agent 也能派发 swarm）。**同日第五批（收尾补齐）**：补上 v2 `requireIdleSubagent`（`AGENT_ALREADY_RUNNING`）——Rust 原先只在 `spawn_persistent`（manager.rs:1849）有「已在运行」守卫，`resume_foreground_turn` 路径上没有；现 `swarm/service.rs::require_idle_subagent` 与 `require_owned_subagent` 并列挂在 resume 入口（「是我的成员吗」+「此刻能驱动吗」两道 v2 门禁）。**变异测试**：拆掉接线后端到端用例红，且症状具体——忙碌成员被**真的恢复执行**（`<summary>completed: 1</summary>`）而不是被拒。**同日第六批（两项遗留取舍落地）**：① **`subagent_fork` flag**：v2 `session/subagent/flag.ts` 声明 `default: false`（上游 fork 默认关，flag 关时 strip schema 参数并以 `FORK_EXPERIMENTAL_UNAVAILABLE` 拒绝）；fork 侧原先**只声明不读**（`locales/en.json:1571` 有条目，引擎无任何读取点），`fork` 无条件可用。**刻意反向对齐**：flag 改为**默认开**（`subagent::fork::subagent_fork_enabled`，走 `env::env_switch_default_on` + `KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK`），`Agent` 与 `AgentSwarm` 在 flag 关时既从 schema strip `fork`（v2 `stripSubagentForkParameter`）又拒绝 `fork: true`。理由：照 v2 默认关会移除一个已可用功能，对现存用户是倒退；反向对齐保住默认行为，同时把死声明变成真正的 kill switch。② **`display`**：v2 每个工具执行带 `display` + `approvalRule`（`resolveExecution`）；fork 侧 `ToolInputDisplay` 枚举与 `RunnableToolExecution.display` 字段都在，protocol 的 `ToolCallStartedEvent.display` 也在，`apps/kimi-code` 审批适配器**在消费** `display.agent_name`，但 `ToolInputDisplay::` **全仓零构造**、`tool.call.started` 从不带该字段——整条通道在原生侧从未被填过。**本轮只补 v2 真正声明了 `agent_call` 的两个工具**：`agent_tool::agent_call_display` 按 `resolveExecution` 的形状产出（swarm 按**原始参数长度**计数 → `swarm (N subagents)`，Agent 取 `subagent_type` + `prompt`），由 `run_turn.rs` 的 `tool.call.started` 携带。其余工具的 display 仍为 None，属独立的跨工具工作，**未做**。**覆盖度**：接线已补上端到端断言（`run_turn.rs::tests::a_swarm_tool_call_rides_its_display_on_the_started_event` 断言事件里 `display.kind == "agent_call"`、`agent_name == "swarm (3 subagents)"`、`prompt == description`；另一条断言未声明 display 的工具**连键都不带**，不是 null）。变异测试确认：移除 `run_turn.rs` 的接线后，该用例红（`left: Null, right: "agent_call"`），而 5 项纯函数单测保持绿——即「形状」与「真的被发出」两层分别有护栏。其余工具的 display 仍为 None，属独立的跨工具工作，**未做**。**同日第四批（用户复测后定位，live 路径的真正断点）**：用户重跑「成员会调工具」的冒烟，现象仍在。真实对话探针（mock SSE 让 3 个成员各调一次 `Bash`）抓到的引擎事件流显示——`AgentSwarm` 的 `tool.call.started`（`run_turn.rs:1661`，确实在 `execute_tool` 之前发）在**宿主观测顺序上晚于**全部成员事件；`subagent.spawned` 带 `swarmIndex`，但此时 `agentSwarmProgress` 尚未按 toolCallId 建好（只有 `handleToolCallStarted` 会建），于是 `routeChildAgentEvent` 查找 miss，**每个成员都掉进 `setSubagentMeta` + `appendSubagentText` 的单子代理兜底路径**，把三个成员的 Bash 调用与正文灌进同一张卡，而面板随后才由 args 建出——正是「面板正确 + 旁边一张混合的普通 agent 卡」。先前探针之所以没复现，正因为成员不调工具就没有可灌入的子事件。**已修**（`apps/kimi-code/src/tui/controllers/subagent-event-handler.ts`）：`handleForegroundSubagentSpawned` 在查找 miss 且事件带 `swarmIndex` 时**惰性建面板**再注册成员，令路由不再依赖事件先后；标题由成员 description 的 `#n (profile)` 尾缀回推，成员数由 `swarmIndex` 撑开（`swarmArgsFromLifecycle`）。**变异测试**：移除惰性分支后，乱序用例红在 `expect(transcript).not.toContain('echo 1-ok')`——正是用户看到的那张混合卡；另两条（有序到达、普通 `Agent` 子代理）保持绿，确认判据本身没被改坏。 |
+| **Tower 多工作区协作**| `agent-core-v2/src/features/tower/` | `kimi-agent/src/tools/tower/` | ✅ **100% 原生** | 原生管理 Git Worktree、分支派生与合并、Mission 状态追踪与 Worker 工作区写隔离。**（2026-10-02 补注）** 本行的 ✅ 只覆盖核心面：§6.23.4 已把上游 `09af3b48` 的六簇硬化记为 tracked 债（`TowerTeardown` 的 live-agent 保护 / `exclude` / `dry_run`、死亡写会话守卫与活动日志、`death_status`/`death_reason` 写入、inbox 前置门禁、跨进程锁文件），尚未移植。 |
+| **AgentSwarm 批处理** | `agent-core-v2/src/features/swarm/`+`agent-core-v2/src/agent/tools/agent/` | `kimi-agent/src/swarm/`<br>`src/tools/swarm_tool.rs`<br>`src/tools/agent_tool.rs` | ✅ **100% 原生** | 原生批量派发并发子代理，内置速率限制自适应收缩与弹性恢复算法。**（2026-10-02 补注：本行的证据全在 fork 侧）** 下文的「变异测试」「真实对话 e2e」全部跑在 `packages/kimi-agent` 里，只证明 fork 内部自洽；上游规格是 `test/features/swarm/{swarm,sessionSwarm}.test.ts`，本轮**未逐条对照**。**2026-10-01 v2 对齐审计**：**（2026-10-02 订正参照物）** v2 的 swarm 在 `upstream/main` @ `21406fb4c8` **仍然活着**（`features/swarm/` 15 个文件 + `agent/tools/agent/` 7 个文件，`git ls-tree upstream/main` 的输出）。原文写「已在上游 `ecad4136d9` 删除、经 `git archive` 取回」是错的：`ecad4136d9` 是**本 fork 自己的退役提交**（`git merge-base --is-ancestor ecad4136d9 upstream/main` = 非祖先，`--is-ancestor ecad4136d9 HEAD` = 是），拿它当「上游」即 §6.40.4 命名的坐标错位。**结论可能仍成立，但当时比对的是 fork 自己的退役树**，应以权威树复核一遍。批量调度器（`agent_run_batch.rs`）的 8 个常量、退避序列 `base*factor^(retryCount-1)`=3000/6000/12000/24000、容量收缩/恢复、`isOnlyUnfinishedTask` 短路、用户取消两级区分、`resolveSwarmMaxConcurrency` 三态返回，在 2026-10-01 那次比对中与基准逐项对应（**基准是 fork 自己的退役树**，见上）。审计发现并**已修复 3 处 v2 门禁缺失**（此前均未登记，§4 亦无记录）：① `resume_agent_ids` 缺归属校验——v2 `requireOwnedSubagent` 拒「非本父 agent 的子代理」，Rust 原先无任何父归属记录，任意 agent id 都能被恢复；已补 `SubagentManager` 父归属记录（spawn 时记 `CALLER_AGENT_ID` 作用域 + 显式 `set_parent`，随 `subagent_resume` 记录持久化以支持冷恢复）+ `swarm/service.rs::require_owned_subagent`，两种拒绝文案分开。② swarm 模式下 `Agent` 工具未被禁用——v2 `swarmService.ts:49-66` 有独立 `onBeforeExecuteTool` 门禁，fork 只移植了第二个（AgentSwarm 独占）门禁；locale 里 `agentDeniedInSwarmMode` 文案一直在（`locales/{en,zh}.json:564`）却无任何代码引用；已补 `veto_agent_in_swarm_mode` + `run_turn` 逐调用门禁。③ `AgentSwarm` 跳过 `forkIncompatibility`——`subagent/fork.rs` 有该函数且单发 `Agent` 工具已调用（`agent_tool.rs:839`），swarm 一次没调；已补（fork + 非空 resume / 不同 subagent_type / 不同 model 三条拒绝）。另修 3 处静默偏离：恢复成员补回 `swarmItem` 标签（v2 `getSwarmItem`）、turn 异常结束也清模式（v2 靠 `TurnEnded` 订阅，Rust 原先只在正常返回路径清，`run_turn.rs:552` 的 `?` 会绕过）、注入基线扫描只认 `<system-reminder>` 包裹（v2 按 `origin.kind==='injection'`，原先按内容匹配，用户消息里出现 `## Swarm Mode` 就会压掉真实宣告）。**保留的刻意偏离**：校验失败不进入 swarm 模式（v2 先 `enter('tool')` 再校验，Rust 顺序相反）——模型可见行为无差异（`tool` 触发本就不播报提醒），少一对空转事件，视为改进并在此登记。**同日第二批（渲染/快照链路）**：用户报「swarm 变回普通 agent 并混在主对话」。live 事件其实是对的（实测回放引擎真实事件流 + 真实结果 XML，成员正文只进面板），断点在**快照/重放**这一侧，而 v2 判别式在 `coreEventMap.ts` 的 `role: event.swarmIndex !== undefined ? 'member' : 'child'`。追出的断链：`agent_tool.rs` 只把 `swarm_index` 写进 **live** 事件；`EngineEvent::SubagentSpawned`（持久化记录）**没有该字段**，serde 静默丢弃；`server/transcript/project.rs:421` 用 `..` 忽略其余字段、只产 `TaskKind::Subagent`（无 member/child 之分）；`server/mod.rs` 快照 `subagents[]` 不发 `swarm_index`/`parent_tool_call_id`——而 `packages/protocol/src/rest/snapshot.ts:63-66` 的注释明写快照正是「otherwise only rides the (non-replayed) `subagent.spawned` WS event」的替代载体，客户端 `apps/kimi-web/src/api/daemon/mappers.ts:393-395` 正读这两个键。**已修**：`SubagentParent` 增 `parent_tool_call_id`/`swarm_index`（随 `subagent_resume` 持久化以支持冷恢复）；swarm launcher 记录二者；`EngineEvent::SubagentSpawned` 增 `swarm_index`（`skip_serializing_if`，普通子代理保持键缺失而非 null，对齐客户端 `typeof === 'number'` 判别）；快照按有值才插键。回归断言 3 条落在**跨层最终形状**上（journal 往返、普通子代理无键、快照带 index），不再是「字段存在」这种自证式断言。v2 侧对应 changeset `restore-swarm-members` / `swarm-members-after-restore`，说明该类问题 v2 已修、移植时未带上。**同日第三批（SDK resume 侧）**：真实对话测试（真引擎 + mock OpenAI SSE，模型真调 `AgentSwarm`、3 个成员各跑一轮、5 次模型调用）暴露第二个独立断点——`packages/node-sdk/src/native/sdk-rpc-client-native.ts` 的 resume 用**正则从渲染后文本**刨子代理（`/(?:^\|\n)agent_id:\s*([^\s]+)/` + `/\[summary\]/`），而这两个 pattern **只认单发 `Agent` 的纯文本信封**（`agent_tool.rs:240-243` 的 `format_success` 信封）；swarm 的结果是不重叠的 XML（`swarm_tool.rs:189-247`，`agent_id="…"` **等号**、无 `[summary]` 块），因此 `discoveredSubagents` 对 swarm **恒为空**。该机制是 fork 自创（v2 靠类型化记录折叠，不需要猜文本形状），所以 v2 不可能有此 bug。**已修**：抽出导出的纯函数 `discoverSubagentsFromToolResult`，按结果形状分派（`<agent_swarm_result>` → 解析全部 `<subagent>`；否则走原 `Agent` 信封），失败/中止成员也保留（它当时就在用户的 swarm 卡上出现过，恢复时不该留洞）。**变异测试**：把 swarm 分支移除后单测 4/6 转红、真实对话 e2e 的 `agents` 从 3 个成员塌成 `["main"]`——两处都确认是「能红」的护栏，不是自证式断言。**同日第七批（子代理模块扩展扫描）**：v2 的 Agent 工具实现在 `agent-core-v2/src/agent/tools/agent/agentTool.ts`（**不在** `session/subagent/`，此前按错路径推断过一次）。其 resume 路径有五道门：`AGENT_NOT_FOUND`（调用方/目标不存在）、`AGENT_NOT_A_SUBAGENT`、`AGENT_NOT_OWNED`（**父归属**）、`AGENT_ALREADY_RUNNING`（**占用**）、以及后台任务上限。fork 侧 `execute_resume`（`agent_tool.rs`）原先**一道都没有**——与 swarm 同源的隔离/并发洞，且 `Agent` 比 `AgentSwarm` 常用得多。**已修**：复用 `swarm/service.rs` 的 `require_owned_subagent` + `require_idle_subagent` 挂在 resume 入口，两条 resume 路径共用同一实现、无法各自漂移；`spawn_persistent` 补登记父属（否则持久子代理会被读成「不是子代理」而不可恢复）。4 处既有 resume 测试改为在 `CALLER_AGENT_ID` 作用域内建子代理（生产的调用路径上 spawner 处于某 agent 的 turn 内；测试原先在作用域外 spawn，是不真实的夹具）。**教训**：上轮我曾断言「v2 在 subagent 那层没有归属门禁」——错在不存在的路径上推断；**跨层判定的结论必须来自实际读到的文件，不是相邻文件的印象**。**未改**：resume 侧 `parentAgentId: 'main'` 硬编码（`AgentSwarm` 仅主 agent 可派发，该值实际正确；真要收紧需先证明子 agent 也能派发 swarm）。**同日第五批（收尾补齐）**：补上 v2 `requireIdleSubagent`（`AGENT_ALREADY_RUNNING`）——Rust 原先只在 `spawn_persistent`（manager.rs:1849）有「已在运行」守卫，`resume_foreground_turn` 路径上没有；现 `swarm/service.rs::require_idle_subagent` 与 `require_owned_subagent` 并列挂在 resume 入口（「是我的成员吗」+「此刻能驱动吗」两道 v2 门禁）。**变异测试**：拆掉接线后端到端用例红，且症状具体——忙碌成员被**真的恢复执行**（`<summary>completed: 1</summary>`）而不是被拒。**同日第六批（两项遗留取舍落地）**：① **`subagent_fork` flag**：v2 `session/subagent/flag.ts` 声明 `default: false`（上游 fork 默认关，flag 关时 strip schema 参数并以 `FORK_EXPERIMENTAL_UNAVAILABLE` 拒绝）；fork 侧原先**只声明不读**（`locales/en.json:1571` 有条目，引擎无任何读取点），`fork` 无条件可用。**刻意反向对齐**：flag 改为**默认开**（`subagent::fork::subagent_fork_enabled`，走 `env::env_switch_default_on` + `KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK`），`Agent` 与 `AgentSwarm` 在 flag 关时既从 schema strip `fork`（v2 `stripSubagentForkParameter`）又拒绝 `fork: true`。理由：照 v2 默认关会移除一个已可用功能，对现存用户是倒退；反向对齐保住默认行为，同时把死声明变成真正的 kill switch。② **`display`**：v2 每个工具执行带 `display` + `approvalRule`（`resolveExecution`）；fork 侧 `ToolInputDisplay` 枚举与 `RunnableToolExecution.display` 字段都在，protocol 的 `ToolCallStartedEvent.display` 也在，`apps/kimi-code` 审批适配器**在消费** `display.agent_name`，但 `ToolInputDisplay::` **全仓零构造**、`tool.call.started` 从不带该字段——整条通道在原生侧从未被填过。**本轮只补 v2 真正声明了 `agent_call` 的两个工具**：`agent_tool::agent_call_display` 按 `resolveExecution` 的形状产出（swarm 按**原始参数长度**计数 → `swarm (N subagents)`，Agent 取 `subagent_type` + `prompt`），由 `run_turn.rs` 的 `tool.call.started` 携带。其余工具的 display 仍为 None，属独立的跨工具工作，**未做**。**覆盖度**：接线已补上端到端断言（`run_turn.rs::tests::a_swarm_tool_call_rides_its_display_on_the_started_event` 断言事件里 `display.kind == "agent_call"`、`agent_name == "swarm (3 subagents)"`、`prompt == description`；另一条断言未声明 display 的工具**连键都不带**，不是 null）。变异测试确认：移除 `run_turn.rs` 的接线后，该用例红（`left: Null, right: "agent_call"`），而 5 项纯函数单测保持绿——即「形状」与「真的被发出」两层分别有护栏。其余工具的 display 仍为 None，属独立的跨工具工作，**未做**。**同日第四批（用户复测后定位，live 路径的真正断点）**：用户重跑「成员会调工具」的冒烟，现象仍在。真实对话探针（mock SSE 让 3 个成员各调一次 `Bash`）抓到的引擎事件流显示——`AgentSwarm` 的 `tool.call.started`（`run_turn.rs:1661`，确实在 `execute_tool` 之前发）在**宿主观测顺序上晚于**全部成员事件；`subagent.spawned` 带 `swarmIndex`，但此时 `agentSwarmProgress` 尚未按 toolCallId 建好（只有 `handleToolCallStarted` 会建），于是 `routeChildAgentEvent` 查找 miss，**每个成员都掉进 `setSubagentMeta` + `appendSubagentText` 的单子代理兜底路径**，把三个成员的 Bash 调用与正文灌进同一张卡，而面板随后才由 args 建出——正是「面板正确 + 旁边一张混合的普通 agent 卡」。先前探针之所以没复现，正因为成员不调工具就没有可灌入的子事件。**已修**（`apps/kimi-code/src/tui/controllers/subagent-event-handler.ts`）：`handleForegroundSubagentSpawned` 在查找 miss 且事件带 `swarmIndex` 时**惰性建面板**再注册成员，令路由不再依赖事件先后；标题由成员 description 的 `#n (profile)` 尾缀回推，成员数由 `swarmIndex` 撑开（`swarmArgsFromLifecycle`）。**变异测试**：移除惰性分支后，乱序用例红在 `expect(transcript).not.toContain('echo 1-ok')`——正是用户看到的那张混合卡；另两条（有序到达、普通 `Agent` 子代理）保持绿，确认判据本身没被改坏。 |
 > **⚠ 子代理任务 hook 缺失（2026-10-01 扫描发现，未修）**：v2 的 `ISessionSubagentService`（`session/subagent/subagent.ts`）暴露 `hooks: Hooks<AgentTaskHooks>`（`onWillStartAgentTask`）与 `onDidStopAgentTask` 事件，在每个子代理任务前后触发用户可配置的 hook。fork 侧全仓零命中（Rust 引擎 / TUI / protocol 三处均无该 hook 名），即围绕子代理任务的 hook 能力整体不存在。**⚠ fork 拒绝文案与 v2 不一致（判据本身是对齐的）**：权威判据是 `session/subagent/spawn.ts` 的 `forkIncompatibility`（与调用点一致），它「与调用方 profile/model 不同才拒」——`subagent/fork.rs:66` 的实现**与之等价**。此前误拿 `session/subagent/forkCompat.ts`（另一个同名但更严：非空即拒）当基准，比错了对象；`forkCompat.ts` 并非 spawn 路径所用。真实差异仅在四条拒绝文案：v2 为 `Cannot set resume when forking the current context. …` / `Cannot set a different subagent_type when forking the current context. …` / `Cannot override the model when forking the current context. …` / `fork is disabled: the subagent_fork experimental flag is off.`，fork 侧为自撰措辞。**（2026-10-01 复核：上句尾「fork 侧为自撰措辞」已过期——`435e51cd31` 已把这四条文案改成与 v2 `spawn.ts:5-12` 相同的文字（`subagent/fork.rs:20-31`，含 `FORK_EXPERIMENTAL_UNAVAILABLE`）。文案差异已消除，「判据本身对齐」这一结论仍然成立。）**
 
-**（2026-10-01 部分补齐：per-access 探测链已落地）** §6.18.5 测绘出的六组件里，本次实现了 **(2) 目标目录推导**、**(4) 探测链**、**(5) known/queue/readRecently 状态机** 三项，**(1) 触发点**所需的输入也一并接上：
+**（2026-10-01 部分补齐：per-access 探测链已落地）** §6.19.5 测绘出的六组件里，本次实现了 **(2) 目标目录推导**、**(4) 探测链**、**(5) known/queue/readRecently 状态机** 三项，**(1) 触发点**所需的输入也一并接上：
 
 - `InjectionContext` 新增一个 `StepAccess`（`dirs` / `self_read` / `declared_cwds`）；`build_injections` 保留为薄封装（传 `StepAccess::default()`），新增 `build_injections_with_accesses`，**既有调用点与测试全部不受影响**。（先落地时是两个裸切片参数，四参签名难用，收成了一个结构体。）
 - `run_turn.rs` 在 step 循环外声明 `step_access`，在已算好的 `scheduled[].accesses` 上按 v2 `targetDirsFromAccesses`（`:284-306`）推导：文件类工具取**父目录**、树搜索取路径本身、刚读过的 AGENTS.md 记入 `self_read`。
@@ -171,10 +171,10 @@
 
 > **⚠ 子代理 profile 契约断链（2026-10-01 扫描发现，未修）**：v2 的 agent profile 有 `subagents` 字段（内置 `agent` profile 声明 `subagents: ['coder', 'explore', 'plan']`），`subagentService.planSpawn` 用 `subagentAllowlistFor` 强制它，越界即 `AGENT_TYPE_NOT_ALLOWED`，另有 `rootDelegationExtras` / `withoutDelegatingTargets` 用于约束「嵌套派生的可达范围不超过根 agent」。fork 侧该链路在第一跳就断：`packages/node-sdk/src/agent-file.ts:12,130` **解析了** `subagents`，但全仓无人消费（`grep '.subagents'` 零命中），于是它既没进 `SubagentProfileWire`（无该字段）也没进 `SubagentDefinition`（无该字段），`register_profile_snapshot` 逐字段拷贝自然也带不过来。**后果**：任何持有 `Agent` 工具的 agent 都能派生**任意**已注册 profile（含插件/自定义），没有 v2 的升级边界。**修法安全**：v2 自身判据是 `if (allowlist !== undefined && !allowlist.includes(...))`，即「未声明 = 不限制」，所以补齐三跳管道（agent-file → SDK profile → `SubagentProfileWire` → `SubagentDefinition`）并仅在声明时强制，对现有未声明的 profile 零行为变化。**未做**，等确认。
 
-| **Team 辩论共识引擎** | 无上游对应物（fork 自创，§6.39.2 已登记） | `kimi-agent/src/team/` | ✅ **100% 原生** | 原生实现多 Agent 轮换辩论、跨评估与共识收敛协议。**2026-10-02 更正**：上游全树 `*team*` 零命中，本行原写「Fork 特色增强功能」却未标出处，现补记为 fork 自创。 |
+| **Team 辩论共识引擎** | 无上游对应物（fork 自创，§6.40.2 已登记） | `kimi-agent/src/team/` | ✅ **100% 原生** | 原生实现多 Agent 轮换辩论、跨评估与共识收敛协议。**2026-10-02 更正**：上游全树 `*team*` 零命中，本行原写「Fork 特色增强功能」却未标出处，现补记为 fork 自创。 |
 | **Goal 目标状态机** | `agent-core-v2/src/features/goal/` | `kimi-agent/src/goal/`<br>`src/tools/goal_tools.rs` | ✅ **100% 原生** | 完备实现 Token、Turn 与 Wall-Clock 三维预算管理，支持状态变更事件与 Deadline 调度器。**2026-10-02 修正表格结构**：本行原与上一行挤在同一物理行（双竖线分隔），渲染时会被并成一个单元格。 |
 | **Cron 定时任务** | `agent-core-v2/src/features/cron/` | `kimi-agent/src/cron/`<br>`src/tools/cron_tools.rs` | ⚠️ **有未记录差异** | 标准 5 字段 Cron 解析、Jitter 防羊群效应偏移、合并触发计数与 7 天生命周期管理——这四项在 2026-10-01 那次审计中与 v2 逐项比对过。**（2026-10-02 上游测试对照）** 拿 `features/cron/{jitter,cron-expr}.test.ts` 当规格逐条对：三个 jitter 常量（`0.1` / `15min` / `90_000`）同值，recurring 的单向偏移与 `min(10% 周期, 15min)` 上限、按 id 的确定性、one-shot 的「仅 :00/:30 前移、≤90s、`createdAt` 预算不足则不动」、以及 `daysOfMonthWildcard`/`daysOfWeekWildcard` 的 OR 语义，都能在 `cron/jitter.rs:16-112` 与 `cron/mod.rs:24-25,467-473` 找到对应。**两处接口差异**：`minute_of_hour` 用显式 `tz_offset_minutes` 而非宿主本地时区；缺上游的 `oneShotMaxMs > 0` 守卫（不可达）。详见「上游测试对照结果」第二批。**（2026-10-01 审计新增记录）**① **已修**：v2 `tickCron` 在 agent loop 处于 `running` 时整轮跳过、本轮不消费条目、下一轮补同一窗口（`cronService.ts:282`）；fork 原先无此门禁，turn 运行中照常触发。已加 `CronScheduler::tick_if_idle(from_ms, now_ms, busy)`，门禁放在 `tick()` **之前**（否则 one-shot 条目已被消费，"下一轮补"会变成"永久丢失"），busy 探针用既有的 `ServerEngine::is_busy(session_id)`（daemon，`active_turns`）与 `EngineSession::status().active_turn_id`（napi），busy 时**不推进 `last_tick`**。② **未修，且此前记错了方向**：本轮审计一度把偏差记为「缺 `lastFiredAt` 游标，重启后回落到 `created_at` 重复补发」——**该描述不成立**。`main.rs:1460` 与 `napi_bindings.rs` 都把 `last_tick` 初始化为**进程启动时刻**，`tick()` 只用调用方传入的 `from_ms`，`created_at` 只喂 `is_stale_at` 与 one-shot jitter，因此重启后窗口是空的，既不回落到 `created_at` 也不补发。**真实偏差方向相反**：v2 会把停机窗口合并成一次补发（`cronService.ts:232-234` 的 `baseFromMs = seen > createdAt ? seen : createdAt`，游标落库于 `:265-269`），fork 是**静默丢弃**。未修的原因不是无方案，而是三条修复路径各自受阻：daemon 可用 `put_state("cron","cursors")` 旁路键零 schema 变更（`sqlite_store.rs:1336` 的 `put_state` 是不透明 JSON blob、主键 `(domain,key)`，cron 注册表本就无列 schema），但只覆盖 3 条 tick 路径中的 1 条、会让 napi/print 的语义更不一致；走 `CronEntry` 加字段则要改 `server/mod.rs:4391`，而该处会把新字段吐进 `GET /api/v1/cron` 响应，属对外契约形状变更；且注册表由 host 所有（`cron_tools.rs:5-11` 明写 host 是 authority，write 只接受 `create`/`delete`），回写游标需 host 新增动作。**留待裁决**。③ **架构性 N/A**：v2 在 runtime 切换时 dispatch `StaleGuardCleared` 清 stale 表；fork 的 `StaleGate` 生命周期等于 pipeline 生命周期，重建 pipeline 天然得到空表，仓内三处 "runtime"（`subagent/manager.rs::set_runtime`、`workflow/runtime.rs`、napi settings rebuild）均非该语义，故无缺口。④ **已知副作用**：busy 判定目前是整轮粒度，daemon 里任一 session 长时间 running 会推迟整轮 cron，包括只 publish 事件的全局 `/api/v1/cron` 条目；改为 per-entry 需要 per-entry 游标，即 ② 本身。 |
-| **TodoList 进度追踪** | `agent-core-v2/src/features/todo/` | `kimi-agent/src/storage/state_store.rs`<br>`src/tools/todo_list.rs` | ⚠️ **部分原生（2026-10-02 下调）** | 原生维护 Todo 树结构、父子 Milestone 关联及完成进度计算。**（2026-10-02 下调评级）** 上游的**陈旧提醒**整项缺失：`features/todo/todoListReminder.ts` 的 `TODO_LIST_REMINDER_VARIANT = 'todo_list_reminder'`、`TURNS_SINCE_WRITE = 10`、`TURNS_BETWEEN_REMINDERS = 10`（`:5,7,8`）在 fork 全仓**零命中**；fork 只有写入时提醒（`todo_list.rs:18` 的 `TODO_LIST_WRITE_REMINDER`），`injection/mod.rs` 的注册表里无该 variant。与 §6.39.1 的登记一致。 |
+| **TodoList 进度追踪** | `agent-core-v2/src/features/todo/` | `kimi-agent/src/storage/state_store.rs`<br>`src/tools/todo_list.rs` | ⚠️ **部分原生（2026-10-02 下调）** | 原生维护 Todo 树结构、父子 Milestone 关联及完成进度计算。**（2026-10-02 下调评级）** 上游的**陈旧提醒**整项缺失：`features/todo/todoListReminder.ts` 的 `TODO_LIST_REMINDER_VARIANT = 'todo_list_reminder'`、`TURNS_SINCE_WRITE = 10`、`TURNS_BETWEEN_REMINDERS = 10`（`:5,7,8`）在 fork 全仓**零命中**；fork 只有写入时提醒（`todo_list.rs:18` 的 `TODO_LIST_WRITE_REMINDER`），`injection/mod.rs` 的注册表里无该 variant。与 §6.40.1 的登记一致。 |
 | **Skill 技能系统** | `agent-core-v2/src/features/skill/` | `kimi-agent/src/skills/`<br>`src/tools/skill.rs` | ✅ **100% 原生** | 目录递归探测、YAML Frontmatter 解析、命令行参数宏展开与执行调度。 |
 | **Plan / Stale / Hooks**| `features/plan/`、`features/externalHooks/`（上游）；`features/staleGuard/` **上游已于 #3517 移除** | `kimi-agent/src/tools/` 对应原生模块 | ✅ **100% 原生** | 计划模式审批锁、盲写防护、Pre/PostToolUse 钩子执行全面闭环。**2026-10-01 更正**：本行原注「上游 staleGuard 已删除（a020946916），`stale_guard.rs` 为 fork 原创」，与板块 4 G-6 #3 行同源错误，一并更正为「fork 的 v2 快照（`ecad4136d9^`，**fork 自己的树**）里 `features/staleGuard/` 完整存在，本模块为其移植；上游 `upstream/main` 上该特性已被 `a020946916`（#3517）移除，且该删除**不在 fork 快照的祖先里**」。**（2026-10-02 复核：上述时序已用 `git log upstream/main -- '*staleGuard*'` 与 `--is-ancestor` 独立验证。）** |
 
@@ -182,9 +182,9 @@
 
 | 子模块 / 职责 | TypeScript 源码（GitHub 原型） | Rust 引擎实现 | 对齐状态 | 架构深度分析与技术细节 |
 |---|---|---|:---:|---|
-| **会话与状态持久化** | `packages/minidb/`<br>`agent-core-v2/src/persistence/` | `kimi-agent/src/session/sqlite_store.rs`<br>`src/storage/state_store.rs` | ✅ **100% 原生** | 采用嵌入式 SQLite（`rusqlite`）替代 TS 内存加 WAL 的 minidb，实现事务级一致性与跨进程多路访问。**（2026-10-02 补注：minidb 读模型整层未接线）** `packages/minidb/src/` 是 **50 个文件**的实现（WAL + 快照 + trigram 全文索引 + 复合索引 + 压缩 + cluster），但**引擎侧零引用**——`minidb` / `IQueryStore` / `read_model` 在 `packages/kimi-agent/src/**/*.rs` 全仓零命中（仓内仅 `apps/kimi-code/src/native/minidb-worker.ts` 一条 smoke 路径）；`[database]` config section 亦不存在。上游 `persistence/interface/queryStore.ts` 是 `ISessionIndex`、projector、mirror、dirty-journal 与全局搜索 worker 的共同基底。与 §6.40.2 的登记一致（该节同时把「fork 是否需要会话全文检索」列为待裁决项）。 |
-| **状态增量更新** | `agent-core-v2/src/state/` | `kimi-agent/src/session/patch.rs` | ✅ **100% 原生** | 严格实现 RFC 6902 JSON Patch 与 RFC 6901 JSON Pointer（`session/patch.rs:1-4`，1,043 行，含双向 diff 与反向 patch 生成）。**（2026-10-02 更正）** 原文的「毫秒级输出最小增量变更集」是无测试支撑的性能断言，已删除。另注：本行只覆盖 `patch.rs` 这个**算法模块**；fork 的 `StateStore` 本身是固定 6 名的 JSON 文件存储 + 整店快照，与 v2 的 per-participant 事件溯源折叠**不是同一个模型**（§6.40.5 已详述）。**（2026-10-02 补注：§6.39.1 记的 undo 缺口已闭合）** §6.39.1 曾把「undo 后的 state 对齐」记为 partial（服务器 `POST /undo` 从不调 `StateStore::rollback`）；§6.44.4 记其已修；代码里可指到 ——`rollback_state_for_undo` 在 `server/mod.rs:7371`（内部 `store.rollback()` 于 `:7380`），由 undo 路由 `:5594` 调用。**该缺口不再是开放项。** |
-| **转录流数据层** | `packages/transcript/` | `kimi-agent/src/native/event_store/`<br>`kimi-agent/src/events/` | ✅ **100% 原生** | 原生 EventStore 与事件分类模型，实现跨平台同构事件折叠。**（2026-10-02 补注：wire 记录无版本概念）** 上游 `wire/record.ts:23-27,38-44` 有 `WIRE_PROTOCOL_VERSION='1.5'`、五级迁移（`wire/migration/`，v1.0→v1.5）、`isNewerWireVersion` 前向拒绝，`metadata` 记录携带 `protocol_version`。fork 的 `wire_events` 表（`session/sqlite_store.rs:439`）**无版本列**，`WIRE_PROTOCOL_VERSION` / `schema_version` 在 `packages/kimi-agent/src/**/*.rs` 零命中（唯一的 `protocol_version` 命中是 ACP 自己的握手，`acp/types.rs:86`，与本表无关）。后果：旧版本会话被新引擎读到时**既不能迁移、也不能识别、也不能拒绝**，只能尽力解析。与 §6.40.2 的登记一致。 |
+| **会话与状态持久化** | `packages/minidb/`<br>`agent-core-v2/src/persistence/` | `kimi-agent/src/session/sqlite_store.rs`<br>`src/storage/state_store.rs` | ✅ **100% 原生** | 采用嵌入式 SQLite（`rusqlite`）替代 TS 内存加 WAL 的 minidb，实现事务级一致性与跨进程多路访问。**（2026-10-02 补注：minidb 读模型整层未接线）** `packages/minidb/src/` 是 **50 个文件**的实现（WAL + 快照 + trigram 全文索引 + 复合索引 + 压缩 + cluster），但**引擎侧零引用**——`minidb` / `IQueryStore` / `read_model` 在 `packages/kimi-agent/src/**/*.rs` 全仓零命中（仓内仅 `apps/kimi-code/src/native/minidb-worker.ts` 一条 smoke 路径）；`[database]` config section 亦不存在。上游 `persistence/interface/queryStore.ts` 是 `ISessionIndex`、projector、mirror、dirty-journal 与全局搜索 worker 的共同基底。与 §6.41.2 的登记一致（该节同时把「fork 是否需要会话全文检索」列为待裁决项）。 |
+| **状态增量更新** | `agent-core-v2/src/state/` | `kimi-agent/src/session/patch.rs` | ✅ **100% 原生** | 严格实现 RFC 6902 JSON Patch 与 RFC 6901 JSON Pointer（`session/patch.rs:1-4`，1,043 行，含双向 diff 与反向 patch 生成）。**（2026-10-02 更正）** 原文的「毫秒级输出最小增量变更集」是无测试支撑的性能断言，已删除。另注：本行只覆盖 `patch.rs` 这个**算法模块**；fork 的 `StateStore` 本身是固定 6 名的 JSON 文件存储 + 整店快照，与 v2 的 per-participant 事件溯源折叠**不是同一个模型**（§6.41.5 已详述）。**（2026-10-02 补注：§6.40.1 记的 undo 缺口已闭合）** §6.40.1 曾把「undo 后的 state 对齐」记为 partial（服务器 `POST /undo` 从不调 `StateStore::rollback`）；§6.45.4 记其已修；代码里可指到 ——`rollback_state_for_undo` 在 `server/mod.rs:7371`（内部 `store.rollback()` 于 `:7380`），由 undo 路由 `:5594` 调用。**该缺口不再是开放项。** |
+| **转录流数据层** | `packages/transcript/` | `kimi-agent/src/native/event_store/`<br>`kimi-agent/src/events/` | ✅ **100% 原生** | 原生 EventStore 与事件分类模型，实现跨平台同构事件折叠。**（2026-10-02 补注：wire 记录无版本概念）** 上游 `wire/record.ts:23-27,38-44` 有 `WIRE_PROTOCOL_VERSION='1.5'`、五级迁移（`wire/migration/`，v1.0→v1.5）、`isNewerWireVersion` 前向拒绝，`metadata` 记录携带 `protocol_version`。fork 的 `wire_events` 表（`session/sqlite_store.rs:439`）**无版本列**，`WIRE_PROTOCOL_VERSION` / `schema_version` 在 `packages/kimi-agent/src/**/*.rs` 零命中（唯一的 `protocol_version` 命中是 ACP 自己的握手，`acp/types.rs:86`，与本表无关）。后果：旧版本会话被新引擎读到时**既不能迁移、也不能识别、也不能拒绝**，只能尽力解析。与 §6.41.2 的登记一致。 |
 
 ### 2026-10-02 本轮复核范围（第二段：板块 4、7、8、9、10）
 
@@ -206,7 +206,7 @@
 
 **仍未解决**
 
-§6.43.5 命名的三类系统性错误（退役副本 provenance、行号漂移跨结构、方向反转）仍无现成门禁。本轮为此**另写了一个行号↔符号一致性检查**（临时脚本，未入库）：对 §1 的全部 68 处 `path:line` 引用解析出文件（本地树优先、上游树次之、裸文件名按唯一后缀匹配），再检查该行 ±3 行内是否仍出现同行先前点名的符号。
+§6.44.5 命名的三类系统性错误（退役副本 provenance、行号漂移跨结构、方向反转）仍无现成门禁。本轮为此**另写了一个行号↔符号一致性检查**（临时脚本，未入库）：对 §1 的全部 68 处 `path:line` 引用解析出文件（本地树优先、上游树次之、裸文件名按唯一后缀匹配），再检查该行 ±3 行内是否仍出现同行先前点名的符号。
 
 **结果**：57 处可解析、11 处不可解析（其中 9 处是刻意保留在订正说明里的**旧引用原文**，1 处是只存在于退役副本的 staleGuard 文件，1 处是 `manager.rs` 这类重名裸文件名）。57 处中报出 9 条可疑，人工复核后**确认 5 处真漂移**，已就地重定位：
 
@@ -316,7 +316,7 @@ fork 判据 `args.get("path")`（`tools/plan_mode.rs:58`）：只看**参数**�
 | 工具重复熔断 | `agent/toolDedupe/toolDedupe.test.ts`（1,286 行，20+ 例） | 阈值 `REPEAT_REMINDER_{1,2,3}_START = 3/5/8`、`REPEAT_FORCE_STOP_STREAK = 12`；三段提醒的判定子串；「同 step 内的重复不触发」；「插入不同调用即重置」；「同一 step 的 dup 继承 original 的提醒」 | `tools/tool_dedupe.rs:44-72`（阈值与文案）、`:162-205`（`finalize_step` / `streak_at`） | **一致**。四个阈值与上游 `toolDedupeService.ts:63-66` 同值；三段文案含上游断言的全部子串（`what new information you expect` / `issued {n} times in a row` / `Choose exactly one of the following` / `Falsification check` / `without any further tool calls`）。「同 step 不触发」由 `streak_at` 只对 original 计一次实现（dup 被 `plan.original_of[i] != i` 跳过），与上游用例吻合。 |
 | cron 表达式与 jitter | `features/cron/{cron-expr,jitter}.test.ts` 等 6 个文件 | 默认 `recurringMaxFractionOfPeriod=0.1` / `recurringMaxMs=15min` / `oneShotMaxMs=90_000`；recurring 单向偏移、`≤ min(10% 周期, 15min)`、按 id 确定性；one-shot **前移**、`≤90s`、**仅 :00/:30**、非圆点分钟原样通过、`createdAt` 预算不足则不动；`daysOfMonthWildcard`/`daysOfWeekWildcard` 的 OR 语义 | `cron/jitter.rs:16-112`、`cron/mod.rs:24-25,467-473` | **一致**。`fraction_from_id` 的 djb2 与 8-hex 快路径同式（上游正则带 `/i`，fork 的 `is_ascii_hexdigit()` 同样接受两种大小写）；三个常量同值；圆点分钟判定与 `createdAt` 预算分支同形；DOM/DOW 通配的 OR 语义对应上游 `cron-expr.ts:244-246`。**两处接口差异**：① `minute_of_hour` 用调用方传入的 `tz_offset_minutes` 计算，上游用 `new Date(ms).getMinutes()`（宿主本地时区）；② 上游有 `if (!(config.oneShotMaxMs > 0)) return idealMs` 守卫，fork 没有——常量恒为 90s，该分支不可达。 |
 
-**本批另发现一处出处错误（非行为差异）**：`cron/jitter.rs:1` 原写「ported from the **retired** v2 `features/cron/internal/jitter.ts`」，而该文件在 `upstream/main` 上是**活的**——`git ls-tree upstream/main packages/agent-core-v2/src/features/cron/internal/` 可见 `clock.ts` / `cron-expr.ts` / `format.ts` / `jitter.ts` 四个文件。已改为如实标注。这是 §6.39.4 命名的坐标错位的又一例（这次是「把活的上游文件说成退役」的反向）。
+**本批另发现一处出处错误（非行为差异）**：`cron/jitter.rs:1` 原写「ported from the **retired** v2 `features/cron/internal/jitter.ts`」，而该文件在 `upstream/main` 上是**活的**——`git ls-tree upstream/main packages/agent-core-v2/src/features/cron/internal/` 可见 `clock.ts` / `cron-expr.ts` / `format.ts` / `jitter.ts` 四个文件。已改为如实标注。这是 §6.40.4 命名的坐标错位的又一例（这次是「把活的上游文件说成退役」的反向）。
 
 ---
 
@@ -728,7 +728,7 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
 > 其中慢消费者 `42903` 回告**能力本身仍然存在**，但落点已不是 `ws_v3` 溢出臂——
 > 现在的实现见 `server/hub.rs`（每连接有界 `mpsc`，`SUBSCRIBER_QUEUE_DEPTH = 256`）
 > 与 `server/envelope.rs:46` 的错误码常量，详见本台账 §6.2 的慢消费者条目。
-> 同类失效引用（`server/v3/live.rs:376`、`ws_v3.rs:29`、`ws_v3.rs:373` 等）见 §6.17.1。
+> 同类失效引用（`server/v3/live.rs:376`、`ws_v3.rs:29`、`ws_v3.rs:373` 等）见 §6.18.1。
    仍缺：`workspace`/`capability` 事件无生产者——workspace 实体要等 fork 实现工作区生命周期变更，
    capability 在引擎侧是 ACP initialize 的**静态**清单、没有变更语义可广播（结构性留白，非缺口））→
    P4 客户端（kimi-inspect、kimi-web、`apps/kimi-code` 的
@@ -1873,10 +1873,10 @@ docs / release / changelog：`a1e4c13d41`、`f67e6398fb`、`be7d5f5fea`）。两
 
 **`tracked`（功能缺口，不是行为差异；规模已核实）**：v2 侧这次改动确实只有两行（`human/utils/watch.ts` 的 `watchEnabledFromConfig` `false→true`、`app/config/configService.ts` 的 `?? false→?? true`），但**被翻转的东西在 fork 里整个不存在** —— 无 `KIMI_CODE_WATCH`、无 `setWatchEnabled`、`packages/node-sdk/src/config-local/schema.ts` 无 `[watch]` 段、`packages/kimi-agent/src` 无 watcher 依赖（无 notify / inotify / ReadDirectoryChangesW）。**移植量实测：`watch.ts` 756 行**，导出整套 `WatchService` / `watch` / `watchCandidates` / `NativeFsWatcher` 运行时抽象，**12 个生产消费方**（`app/config/configService`、`app/workspace/fileWorkspacePersistence`、`app/watch/configSection`、`features/skill/{catalog/userFileSkillSource, workspace/rootFileSkillSource}`、`session/sessionInstructions/instructionsProvider`、`workspace/{workspaceDirs, workspaceAgentProfileLoader, workspaceInstructions, workspaceInstructionsService, workspaceMcpConfig}`），监听面覆盖 `config.toml`、工作区 catalog、用户/工作区 skill 目录、AGENTS.md 类 instructions、workspace MCP 配置等 8 类文件。**结论：这是一个子系统级移植（还牵涉「watcher 归 Rust 还是归 TS 宿主」的架构选择），不是补默认值** —— fork 现在只有显式 `/reload`、`/reload-tui`。保持 `tracked`，动手前需先定层。
 
-> 📌 **2026-10-01 补注：层的问题已有答案，见 §6.24。** v2 的 `src/runtime/` 本身就是那层——watch 只是
+> 📌 **2026-10-01 补注：层的问题已有答案，见 §6.25。** v2 的 `src/runtime/` 本身就是那层——watch 只是
 > `RuntimeCapability` 的四档之一，与 `process` / `terminal` / `fs` 共用同一个 `Runtime` 接口和它的
 > 六态生命周期。所以「先立 capability 层、再挂 watch」是唯一能对齐上游的顺序；先单独移植 watch 会做出
-> 一个上游不存在的独立子系统。§6.24 已按上游基准把该层登记为 `tracked`，本条的前置条件由它承担。
+> 一个上游不存在的独立子系统。§6.25 已按上游基准把该层登记为 `tracked`，本条的前置条件由它承担。
 
 **已同步的文档半边（2026-09-24）**：本提交的代码半边裁 `tracked`，但**文档半边照上游镜像同步**
 了 —— `docs/{en,zh}/configuration/{config-files.md,env-vars.md}` 四个文件取自 `be7d5f5fea`，
@@ -2931,7 +2931,7 @@ node-sdk / kimi-code 的 vitest 套件在本机无法启动（napi addon 在 vit
 
 ---
 
-### 6.14 Web 搜索模块 v2 对比打磨与 DDG 路径登记（2026-09-26，用户裁定「保留并登记」）
+### 6.15 Web 搜索模块 v2 对比打磨与 DDG 路径登记（2026-09-26，用户裁定「保留并登记」）
 
 **背景**：v2 的 `WebSearch` 只走 Moonshot 服务（`webSearchService.ts` 的
 `fromServicesConfig() ?? fromManagedOAuth()`），**无免密钥搜索路径**；无 provider 时
@@ -2968,7 +2968,423 @@ Moonshot 后端的用户失去搜索），并登记为 fork delta。
 **验证**：`cargo check --lib` ✅｜`cargo test --lib web_search` 14 passed /
 0 failed ✅（native 9 + tools 5）。
 
-### 6.20 swarm 模式在 napi 路径整体失联、成员不发终态事件（2026-09-28，端到端对拍发现并修复）
+### 6.16 2026-09-27 移植/重写/近似审查后的更正与修复（**推翻本轮两条审查结论**）
+
+**背景**：对 Rust 引擎做了一次分区移植性审查（5 路并行，按文件分为
+PORTED / REWRITTEN / APPROXIMATE / FORK-ORIGINAL 四类）。审查全程只读源码、
+未执行代码，因此其结论按 AGENTS.md 的验证标准只算「读出来的」。本轮对最重的
+几条做了实测复核，**两条排名最前的结论不成立**，另有三条确认成立并已修复。
+
+#### 6.16.1 推翻：REST 信封并非 opt-in（原判为 P0 现网故障）
+
+审查称 `server/mod.rs:7088` 只在 `req.wants_envelope()` 时包
+`{code,msg,data,request_id}`，而 `dist-web` 从不发 `X-Envelope`，故 Web UI
+的 REST 链路全坏。**实测推翻**：`server/http.rs:203-205` 在
+`handle_request` **之后**无条件调用 `envelope_response`，且该函数幂等
+（已包信封的 body 直接放行）。`wants_envelope()` 这道门只存在于 `mod.rs`
+的内层分支与单测里，在真实 serving 路径上是冗余的。
+
+实测证据（`bun run dev:server` 起真实服务后 curl）：`/api/v1/healthz`、
+`/api/v1/meta`、`/api/v1/sessions`、404 路径，均在不带 `X-Envelope` 时返回
+带 `code` 的信封。**结论：信封行为正确，无需修复。** 教训是「只读到一个 gate
+就下结论」——判据必须跟到 serving 层。
+
+#### 6.16.2 推翻：`tool.call.completed` 未泄漏到 wire
+
+审查称 `events/types.rs:138,146` 的 `tool.call.completed/failed` 是 fork 发明名
+（两个 v2 检出 0 命中、bundle 0 命中），工具完成事件到不了 Web transcript。
+**复核修正**：该字符串只出现在 `EngineEvent` 的 serde tag 上，供 napi/内部
+识别；进 transcript 的 fold 走 `TranscriptProjector::apply_event`，对
+`ToolCallCompleted` 分支发出的是 `TranscriptOperation::FrameUpsert`
+（`server/transcript/project.rs:1438-1450`），**不含该字符串**。WS 侧
+`ws.rs:458` 喂的是 `EngineEvent` 枚举，客户端收到的是 `FrameUpsert`。
+Wire 词汇与 `packages/transcript` 的契约一致，**无需修复**。
+
+#### 6.16.3 确认并修复：BTW 侧信道工具策略反了
+
+v2 `features/btw/btw.ts:3` 的 `BTW_READONLY_TOOLS = {Read, Grep, Glob}`，
+侧信道**允许**这三个只读工具（`btwService.ts:38-43` 只否决集合外的调用）。
+Rust 原为「禁止一切工具」（`TOOL_CALL_DISABLED_MESSAGE` 文案亦不同）。
+后果：侧信道提问需要当前文件内容时拿不到，合法 `Read` 被拒。
+
+修复：`subagent/btw.rs` 新增 `BTW_READONLY_TOOLS`，`check_btw_tool_denial`
+增加 `tool_name` 参数并放行集合内工具，提示词与文案对齐 v2；调用点
+`tools/mod.rs:1253` 同步传参。验证：`cargo test --lib btw` 4 passed。
+
+#### 6.16.4 确认并修复：`[cron]` 配置段缺失
+
+v2 `features/cron/configSection.ts:11-52` 有 `debug/noJitter/noStale/disabled/
+manualTick/clock/pollIntervalMs` 与 7 个 env 绑定；`config/mod.rs` 此前
+**0 处**引用 cron，故 `KIMI_DISABLE_CRON=1` 与 `[cron] disabled = true`
+两个上游文档化的开关在此无效——而 ROADMAP 第 124 行把 `cron/` 标为
+「✅ 100% 原生」，与之矛盾。
+
+修复：新增 `CronConfig{disabled,no_jitter,no_stale}`，`KimiConfig` 增加 `cron` 段，三个
+resolver 按「env 覆盖文件」优先级实现，`main.rs` 的 tick 循环在
+`cron_disabled()` 时整体不启动。验证：`cargo test --lib config::` 61 passed。
+
+> **订正（2026-09-27）**：原文写「接受并忽略无消费者的 `debug`/`manualTick`，避免未知键报错」，
+> 这不准确——`config/mod.rs:388-400` 的 struct **只有 3 个字段**，`debug`/`manualTick`
+> 根本不在其中，是被 serde 直接丢弃（不 round-trip、不出现在序列化输出里），并非"接受"。
+> 同理 v2 的 `clock` / `pollIntervalMs` 也仍未移植。
+> 另需补记：`KimiConfig::cron_no_jitter()`（`config/mod.rs:1385`）与 `cron_no_stale()`（`:1392`）
+> **全仓只有测试调用，无任何生产消费者**——`cron/jitter.rs:61/90/116` 的 `no_jitter`/`no_stale`
+> 是形参，目前无人把配置值传进去。因此本节「三个 resolver 已实现」成立，但**只有
+> `disabled` 真正通电**。同时 `src/cron/jitter.rs:54` 的注释仍写着「the engine has no
+> `[cron]` config surface」，已被本节修复直接推翻，需一并修订。
+
+#### 6.16.5 确认并修复：ACP `session/set_mode` 的 `plan` 只落了一半
+
+v2 `acpModeToToggles`（`modes.ts:72-88`）把 mode 解析为 `{plan, permission}`
+两个开关并在 `session.ts:1103-1121` 分别 `enterPlan()`/`cancelPlan()` 与
+`setPermission()`。Rust 的 `apply_session_mode` 只写 `permission_mode`，
+plan 那一半从未生效——Zed/JetBrains 选 Plan 得到的是手动审批，只读约束不启用。
+
+修复：`acp/mod.rs` 新增 `acp_mode_plan()` 与 `apply_plan_toggle()`，经
+`StateStore::for_workspace` 写 `plan` 域（`tools/plan_mode.rs` 读的同一域），
+best-effort：域不可达时记 warn 而非让整个 mode 切换失败。验证：新增
+`test_acp_set_mode_plan_activates_plan_mode`，`cargo test --lib acp::tests` 30 passed。
+
+#### 6.16.6 维持「已登记的 fork delta」，不修
+
+`native/read.rs` 的 `MAX_LINES=1000` / `MAX_LINE_LENGTH=2000` / `MAX_BYTES=100KiB`
+与 `native/grep.rs` 的 `MAX_OUTPUT_BYTES=512KiB`（v2 为 10 MiB）确有差异，但：
+- `native/read.rs:28-39` 在文件头三段注明为 fork-original，且 ROADMAP:3721-3725 已登记；
+- `native/read.rs` 是**遗留读器**，模型实际调用的是 `tools/mod.rs`，后者按 v2
+  的 `max_chars`（100k/500k，纯字符）计量。
+故属已登记的 fork delta，不做对齐。
+
+> **订正（2026-09-27）**：本节原写「**两者均**在文件头注明…且 ROADMAP:3720 已登记」，
+> 该表述只对 `read.rs` 成立。`native/grep.rs:27-28` 的 `MAX_OUTPUT_BYTES` 只有一行
+> 「Maximum stdout bytes before truncation.」，**无 fork-original 标注**，且本台账也未登记
+> 这条 512KiB（v2 为 10 MiB）的差异。它应按「未登记的 fork delta」单独记一条，
+> 或在 `native/grep.rs:27` 补注释后再登记。
+
+#### 6.16.7 本轮审查的方法论结论
+
+分区审查给出的 28.3% APPROXIMATE 是**文件粒度**的下界，且按流量加权后有效
+近似率更高（近似集中在 `run_turn.rs`、`server/mod.rs`、`transcript/project.rs`、
+`config/mod.rs` 等必经路径）。但**未执行的静态审查会同时产生假阳性与漏报**：
+本轮两条最高优先级结论即被实测推翻。后续同类审查必须配上真实调用验证。
+
+### 6.17 2026-09-27 LLM 层三条 v2 偏差的修复（含一条「结论收窄」）
+
+继 6.16 之后继续打磨。本轮对审查报出的 LLM 层 finding 逐条实测复核，
+**三条确认成立并修复，一条收窄到远小于原判的范围**。
+
+#### 6.17.1 修复：Gemini 3 的思考深度丢失
+
+v2 `encodeGoogleGenAIThinking`（`google-genai/format.ts:147-167`）对 `gemini-3`
+把 effort 编码为 `thinkingLevel: MINIMAL/LOW/MEDIUM/HIGH`；Rust 只发
+`thinkingBudget` + `includeThoughts`，**effort 从未上线**，模型按自己的默认深度思考。
+
+修复：`llm/google_genai.rs` 新增 `thinking_level_for()`，并在
+`build_request_for_model()`（新增，保留原 `build_request_full` 签名）里写
+`thinkingLevel`；非 gemini-3 由新增的 `thinking_budget_for()` 从 `reasoning_effort`
+解析数值预算（`off|none`→0、`low`→1024、`medium`→4096、`high|xhigh|max`→32000，
+default 档只发 `includeThoughts`），与 v2 `encodeGoogleGenAIThinking`
+（`google-genai/format.ts:168-181`）逐档一致。level 与 budget **互斥**：gemini-3
+命中 level 时不再附带 budget（两者并存会被 API 拒）。`llm/http.rs:340` 同步传入
+model 与 `reasoning_effort`。验证：`cargo test --lib google_genai` 14 passed。
+
+> **订正（2026-09-27）**：原句写「非 gemini-3 **仍走数值预算**」，该表述不成立——
+> 修 gemini-3 时 `thinking_budget` 的唯一产出者被 `config/mod.rs::native_llm_config`
+> 的 `protocol == "anthropic"` 条件挡在门外，Google 线上恒为 `None`，`google_genai.rs`
+> 里两个 `thinking_budget` 分支是**死代码**。详见 6.17.2 之下新增的「非 gemini-3 的
+> effort 从未上线」一条。
+
+#### 6.17.1b 修复：非 gemini-3 的 effort 从未上线（`thinkingBudget` 死代码）
+
+v2 `encodeGoogleGenAIThinking`（`google-genai/format.ts:168-181`）对**每个** effort 都
+返回 `thinkingConfig`：`off`→`{includeThoughts:false, thinkingBudget:0}`，
+`low`/`medium`/`high`→1024/4096/32000，default 只发 `includeThoughts`。而 Rust 侧
+`thinking_budget` 只在 anthropic 分支产出，Google 线上恒为 `None`。
+
+后果：`effort="off"` 时 `http.rs` 算出 `include_thoughts=false`、`level=None`，整个
+`generationConfig` 被省略——gemini-2.5 按其动态默认预算**继续思考、继续计费**，用户
+以为已关；`low`/`medium`/`high` 同样只发出 `includeThoughts`，档位形同虚设。
+
+修复：`google_genai.rs` 新增 `thinking_budget_for()`，与 `thinking_level_for()` 同处
+一个 v2 开关；`off` 档输出 `{thinkingBudget:0}` 且不写 `includeThoughts`（缺省即
+false，与 v2 显式写 `false` 在线上等价）；effort 推导的预算受
+`model_supports_thoughts()` 约束（**pre-2.5 如 `gemini-2.0` 会拒收整个
+`thinkingConfig`**，不加此闸门修复会引入 400）；宿主显式配置的预算语义不变，仅
+gemini-3 命中 level 时被丢弃。`thinking_budget` 字段仍限 anthropic，`config/mod.rs`
+无行为改动，OpenAI 兼容协议不会拿到它。
+
+验证：`cargo test --lib google_genai` 14 passed，新增
+`gemini_2_5_carries_the_effort_as_a_thinking_budget`；两次「回退即失败」证明
+（置空 `effort_budget` → `off` 档断言失败且请求体无 `generationConfig`；只摘三档数字
+→ `low` 档断言失败）。`bun run check:parity` 仍 EXIT=0，`nllm 18/16` 未变。
+
+> 遗留待定：v2 的数值开关没有 `minimal` 档，故 gemini-2.5 上的 `minimal` 落进 default
+> 档（只发 `includeThoughts`）。本次严格对齐 v2，未自行发明数值；若认为 2.5 的
+> `minimal` 应等价于最小非零预算，需另开一次改动。
+
+#### 6.17.2 修复：OpenAI Responses 的思考块在重放时整体丢失
+
+v2 `lowerMessage`（`openai-responses/lower.ts:176-203`）把 assistant 的 think
+part 重建为独立的 `reasoning` 输入项（连续且 `encrypted` 相同的 part 合并为一个
+item、多个 `summary_text`），并携带 `encrypted_content`。Rust 的 assistant 分支
+只发文本 + `function_call`，**模型在每次重放时丢掉自己的前序推理**，且没有
+`encrypted_content` 时 Responses 服务端无法恢复跨轮推理连续性。
+
+修复：`llm/openai_responses.rs` 新增 `reasoning_items()`（含 `flush_reasoning`），
+在文本消息**之前**按 v2 顺序发出 reasoning 项。验证：
+`cargo test --lib openai_responses` 26 passed（新增
+`assistant_thinking_is_replayed_as_a_reasoning_item`）。
+
+#### 6.17.3 收窄：压缩「阻塞机制整体缺失」远没有原判那么严重
+
+审查称 Rust 缺 v2 的 `shouldBlock` / `blockRatio` / `checkAfterStep` /
+`lastCompactedTokenCount`，后果是「长回合跑过窗口、更多 400/413」。**复核收窄**：
+
+- v2 `RuntimeCompactionStrategy.config()` 里 `blockRatio = Math.max(triggerRatio, 0.85)`，
+  而 `checkAfterStep = triggerRatio !== blockRatio`。Rust 的 `trigger_ratio`
+  恒为 0.85 且从不可配，故 **`blockRatio` 与 `triggerRatio` 恒等** →
+  `shouldBlock` 与 `shouldCompact` 判据相同、`checkAfterStep` 为 **false**。
+  即：v2 在默认配置下也不会阻塞、也不会步后复检。**原判的「更多 400/413」不成立。**
+- v2 `block()` 的实现是 `if (active === null) return;` —— 它只等待**已在飞行中**
+  的压缩，并不自己发起一次。这进一步缩小了差异面。
+
+真正的、可达的缺口被收窄为：**v2 的 `[loop_control]` 暴露
+`compaction_trigger_ratio`（0.5..=0.99）与 `reserved_context_size`，Rust 从不读取**，
+且 `trigger_ratio` 在 Rust 侧恒为 0.85。只有当用户把 trigger 调到 0.85 以下时，
+v2 才会阻塞而 Rust 不会——这是一个真实但**窄**的行为差异。
+
+修复（就窄缺口部分）：`config/mod.rs` 的 `LoopControlConfig` 增加两个键（含
+camelCase 别名）与两个 resolver，越界值回落到引擎默认而非静默生效。验证：
+`cargo test --lib config::tests::loop_control_compaction_knobs_parse_and_ignore_out_of_range` 通过。
+**未做**：把这两个键接到 `CompactionConfig`——它经 napi 由 host 注入
+（`RunTurnInput.compaction_max_attempts` 同路径），属跨层改动，单独立项。
+
+#### 6.17.4 本轮方法论补记
+
+6.16.7 说「静态审查会同时产生假阳性与漏报」，本轮给出一个**反向**样本：一条
+被判为「压缩阻塞缺失、后果严重」的 finding，实测后不仅没有那么严重，而且在
+默认配置下几乎为零。原因是审查只读了 v2 的 `strategy.ts` 接口定义（确有
+`shouldBlock`），没有读 `RuntimeCompactionStrategy.config()` 的实际取值
+（`blockRatio = max(triggerRatio, 0.85)`）。**只读接口不看取值，会系统性高估差异。**
+
+### 6.18 2026-09-27 台账自身的抽验：失效条目与制度性盲区
+
+一次独立抽验（本轮 34 条：6 个维度并行审计，每个维度要求「先 grep 本台账再报」）的结论。
+先说好的：**可信度显著高于同类手写台账**，34 条里 30 条完全属实，多处行号**逐字精确**
+（`oauth/service.rs:34/67/134/148`、`client_shared.rs:26/34/82`、`server/files.rs:90/226/316`、
+`errors.rs:12/55`、`thinking.ts:123/145`），测试名与断言内容逐条对得上（「89 tools / 104 napi」
+这类聚合数也能独立复算一致），并且罕见地记录了**自我推翻**（6.12.4 推翻 6.12.1/6.12.2、
+6.13 推翻 6.12.11 的两处前提、6.16 推翻两条审查结论、6.17.3 收窄一条 finding）。
+引用的 15 条带过滤子句的 `cargo test` 命令**全部至少命中 1 个现存测试**——本台账已知的
+「过滤器匹配 0 个仍 exit 0」这个假绿模式，在这 4000+ 行里**没有复发**。
+
+#### 6.18.1 本轮已订正的失效条目
+
+| 位置 | 问题 | 处置 |
+|---|---|---|
+| §10.18 | 引用的 `test_overflow_recovery_retries_within_its_budget_then_fails` 在工作树与**全部 git 历史**中零命中；那行「实测输出」也从未由任何测试断言过 | 就地改写为真正承担该不变量的两条测试，并写明这是**转述的运行结果**而非可 grep 的符号 |
+| §6.13 | `stamp_agent_id()` 与三条测试已随 §6.14 删除，证据行仍是现在时 | 就地加订正块并划掉三条测试，保留仍存在的第四条 |
+| §6.16.6 | 「**两者均**在文件头注明 fork-original 且已登记」只对 `read.rs` 成立；`grep.rs` 的 512KiB 无标注也未登记 | 就地拆开陈述，并标为「未登记的 fork delta」 |
+| §6.16.5 | 「`acp::tests` 4 passed」实为 30 passed（过滤器有效，计数错，会让读者低估回归面） | 改为 30 |
+| §6.16.4 | 「接受并忽略 `debug`/`manualTick`」不准确——二者根本不在 struct 内，是被 serde 丢弃；且 `no_jitter`/`no_stale` 至今**无生产消费者**，只有 `disabled` 通电 | 就地订正，并记下 `cron/jitter.rs:54` 的过期注释 |
+| §6.1-4 尾部 | 「仍缺的只剩 workspace/plugin/capability 事件生产者」读起来像活 TODO | 就地加订正块，指向 §8.11 |
+
+#### 6.18.2 制度性盲区（本台账最该改的一件事）
+
+三种失效同源：**证据的「存在性」被反复验证，证据的「坐标」与「归属」从不复验。**
+
+1. **行号是快照，不是锚点。** 同一份台账里，`server/engine.rs:239/576/589`（实际
+   277/324/333）、`tools/mod.rs:1253`（实际 1239）、`tools/mod.rs:1527`（实际 1944）、
+   `sdk-rpc-client-native.ts:1389`（实际 1425）、`mcp/manager.rs:943`（实际 930）都漂了
+   14~260 行；而另一些引用（`oauth/service.rs:67`）却精确到行。**精度取决于哪一轮写的、
+   作者当天的细心程度，而不是台账制度。**
+2. **被取代的证据不回填。** §6.13 的三个符号/测试、§6.1-4 的整段 v3 证据都已随
+   §6.14 / §8.11 作废，但作废声明只写在别的小节标题里，原证据行仍是现在时。
+3. **「实测输出」类数字缺复核。** §10.18 那行是唯一一条被判定为 FALSE 的内容，
+   它的证据形态与其它条目不同：是一段**转述的运行结果**，不是可 grep 的符号或测试名，
+   因此从不随代码一起被 review 看见。
+
+#### 6.18.3 建议：台账引用检查器
+
+在 CI 门禁里加一条检查器——正则抽出本台账中所有 `src/…rs:<line>` 形式的引用，以及所有
+反引号包裹的 `fn 测试名`，逐条断言「该行仍包含所引用的符号」或「该测试名仍存在」，
+不一致就打 warn 并列出清单。成本极低，可一次性覆盖上表除 §10.18 外的**全部**行号漂移
+与死测试名。
+
+§10.18 那类「转述的实测输出」不在其射程内，只能靠一条人工规则兜：
+**凡在本台账写出具体数字的运行结果，必须同时写出产生它的测试名。**
+
+### 6.19 2026-09-27 目录内嵌引擎：i18n napi 契约收窄与 locale 全局量改造
+
+本分支把 locale 目录从 TypeScript 侧搬进 Rust 二进制（`native/catalog.rs` 的
+`include_str!`），并借这次内嵌把进程全局的 locale **载荷**改成一个 `Locale` **枚举**。
+三处都是 fork-original 的引擎侧 delta，按根 `AGENTS.md` 的 Upstream Merge Policy 登记。
+
+#### 6.19.1 破坏性：i18n napi 表面 7 → 2
+
+| 迁移前 | 迁移后 |
+|---|---|
+| `nativeTranslate(localeJson, fallbackJson, key, params?)` | — |
+| `nativeTranslateCached(localeJson, fallbackJson, key, params?)` | — |
+| `nativeTranslateClearCache()` | — |
+| `nativeTranslateBatch(localeJson, fallbackJson, keys, params?)` | — |
+| `nativeTranslateBatchCached(...)` | — |
+| `setEngineLocale(localeJson, fallbackJson)` | `setEngineLocale(locale)` |
+| `clearEngineLocale()` | — |
+| — | `translate(key, params?)` |
+
+删除落在 `bf63a11a92`（连带删掉 `native/translation.rs` 590 行的解析与缓存实现）与
+`79d9ae0e37`。任何直接调旧表面的下游都得改；`index.native.d.ts:488` 与
+`napi-contract.d.ts:1677` 是现在仅剩的两处声明。宿主侧 `t()` 过去调
+`nativeTranslateCached`（缺绑定时退 `nativeTranslate`），现在调 `translate`——对调用方
+语义不变（key 进、字符串出、两处 locale 都查不到时返回 key 本身），变的是绑定的名字和
+解析的来源：不再收 JSON，改为解析内嵌目录。
+
+#### 6.19.2 进程全局：载荷 → `Locale` 枚举
+
+旧 `set_engine_locale(locale_json, fallback_json)` 往一个 `OnceLock<RwLock<EngineI18n>>`
+里塞两棵消息树；现在 `EngineI18n` 只剩 `active: Locale`（`i18n.rs:79-82`），`Locale` 是
+`catalog.rs:19-24` 的两变体枚举（`En` 为 `#[default]`，`from_name` 解析）。
+
+这不是重构洁癖，是**修 bug**：进程里有两个互不知情的 JS locale 槽——CLI 侧
+`apps/kimi-code/src/i18n/index.ts` 的 `localeJsonEn` / `localeCurrentJson`，以及
+`i18n-runtime` 侧的 `localeJsonMap`——各自把 `(localeJson, fallbackJson)` 推给**同一个**
+Rust 全局槽。谁最后调谁说了算；从没调过的那一侧就沿用对方留下的语言，于是引擎自有的
+权限理由与工具报错不跟随界面语言。改成只传语言名之后，两次安装只可能一致。
+`set_locale` 从未被调用时引擎停在 `En`，所以「未接线的宿主保持英文」这条承诺依然成立。
+
+#### 6.19.3 158 条英文常量 → 目录 key
+
+`packages/kimi-agent/src/locales/en.json` 下现有 **158** 个 `engine.*` 叶子，由
+`packages/kimi-agent/src` 里 **196** 处 `LocalizedText::{new, with_params}` 调用点引用
+（两项均按 §6.18.3 的要求可复算：key 数与 `bun run check:engine-i18n` 的输出一致，
+调用点数按 `grep -o 'LocalizedText::\(new\|with_params\)' -r packages/kimi-agent/src | wc -l`）。
+英文句子的唯一来源因此是目录里那一份 en，与宿主 `t()` 解析的是同一份；解析不到 key 就
+渲染裸 key，由 `scripts/check-engine-i18n-parity.mjs` 拦下（key 必须存在、不得有孤儿
+key、`i18n_params!` 绑定名要与模板 `{{placeholder}}` 逐字一致）。
+
+一处渲染结果因此变化：`tools/fetch_url.rs:489` 的 `validate_url` 原先走
+`LocalizedText::fmt` 的内联英文兜底 `Invalid URL: {e}`，现在解析
+`engine.tools.fetchUrl.invalidUrl`，输出变成 `Failed to fetch URL: Invalid URL: <e>`。
+两条 locale 里一直就是这句长文本，重复的 "Invalid URL" 属既有目录文本，不是本次引入；
+它对用户不可见：该 `validate_url` 只被同文件内的 `#[cfg(test)]` 单元测试调用
+（`:640-658`、`:700-707`），没有任何生产调用方——`server/plugin_archive.rs:79`
+经 `:15` 的 import 走的是 `native/fetch_url.rs:203` 的三参数 pinned 变体，它仍用内联
+`format!("Invalid URL: {e}")`（`:208`），不碰本 key。因此这次改动的实际收益是：同一句
+英文不再有目录与 Rust 字面量两份来源，去掉了一处会漂移的副本，并由
+`bun run check:engine-i18n` 守住。生产路径 `tools/fetch_url.rs:159` 早已是
+`Failed to fetch URL: Invalid URL: {e}`，与目录逐字一致，输出未变。
+
+#### 6.19.4 门禁：生成脚本的退出码
+
+`generate-locale-json.cjs` 生成的 JSON 经 `include_str!` 进二进制，CI 用
+「重新生成 + `git diff --exit-code -- '**/locales/*.json'`」保证新鲜度。本次把该脚本的
+源加载失败从「打印 + 继续、退出码 0」改为非零退出（`scripts/generate-locale-json.cjs:56-57`
+与 `:133-144`）：否则某个源加载失败时 JSON 不会被重写，diff 为空，CI 会带着**过期的
+内嵌目录**判绿——正好是 `native/catalog.rs` 头部注释承诺「malformed JSON 到不了构建」
+的反面。
+
+#### 6.19.5 目录级孤儿键：826 / 2429 不可达，且此前无门禁（2026-10-01 审计新增）
+
+§6.19 记录的是 `engine.*` 那一层：158 个叶子、196 处 `LocalizedText`、`check-engine-i18n-parity.mjs`
+三条规则（键存在 / `engine.*` 无孤儿 / `i18n_params!` 与模板逐字一致）。**但那三条只覆盖 `engine.*`**，
+而 `packages/kimi-agent/src/locales/en.json` 实际有 **23 个顶层命名空间**。
+
+关键在于**非 `engine` 的部分不是死重，而是活的宿主接口**：§6.19.1 把 i18n napi 表面收窄到
+`translate(key, params)`，而 `apps/kimi-code/src/i18n/index.ts:131` 与
+`packages/i18n-runtime/src/i18n.ts:182` 的 `t()` 在原生引擎在场时正是调它；
+`packages/kimi-agent/test/translation.test.ts` 用 `common.ok` / `tui.statusMessages.*` 证明了这条路径。
+所以孤儿判定必须**同时看两个消费方**，只扫 Rust 的 `LocalizedText` 对大部分目录是**结构性失明**——
+这正是无人引用的条目能在那里安静积累的原因。
+
+**测量结果（`scripts/check-locale-orphans.mjs`，扫描 246 个 Rust 文件 + 1912 个 TS 文件）：
+2429 个叶子中 758 个两侧都不可达**，按命名空间：`toolsV2.*` 179、`tui.*` 160、`v2Errors.*` 139、
+`errors.*` 60、`svc.*` 41、`shell.*` 34、`v2Goal.*` 29、`plugin.*` 25、`v2Mcp.*` 18、
+`background.*` 14、`tools.*` 13、`cli.*` 9、`v2Fs.*` 9、`flags.*` 6、`v2Storage.*` 5、
+`v2Wire.*` 4、`serverErrors.*` 3，其余 6 个命名空间各 1–2 个。此前记录的「19 个死 locale 键」只是
+`v2Goal` / `background` / `flags` 三族的抽样，实际规模大一个数量级。
+
+**可达性判定必须是"两种消费方 + 三种命名形态"。** 头一版门禁只扫 `t('…')` 实参，报出 826 条，其中
+**68 条是假阳性**：除显示用键外，目录里还有一类**线令牌**——引擎产出一个 reason 串、TypeScript 侧
+用 `===` / `Set` / `case` 识别，`scripts/scan-hardcoded-v2.mjs:458-463` 明确记录了这类
+（并举例 `shell.pausedAfterInterruption` / `v2Goal.pausedAfterResume` / `toolsV2.abort.abortedByUser`；
+顺带发现那两个例子的出处**已过期**，它们如今只出现在该注释里）。还有一类是**无复数机制的手工二选一**：
+`AGENTS.md:115-118` 记的 14 组 `_one` / `_other`（28 行）由调用点手工挑
+（`tui/components/chrome/footer.ts`），不是 `t(base)` 形态。最终判据改为**按形状匹配**（`ns.segment…`
+的引号包裹记号），同时覆盖三者，且不依赖引号配对——中途试过"扫全部字面量"，结果更差（826 → 1196）：
+注释里的 `don't` 会让配对正则把后面一整段吞掉，反而**少**找到键。新集合 758 是旧集合的**严格子集**，
+与"模型只会更宽松"一致，这个方向性本身就是一次自检。**新模型仍只保证不误报、不保证不漏报**（运行时
+拼出来的键看不见），所以不自动删除。
+
+**来源分类（用 v2 基线 `ecad4136d9^` 复核，结论与直觉相反）**：把基线上 `t('…')` 出现的 2049 个键
+与今天的可达集做差，只有 **27 条**属于"随退役的 TS 引擎一起死"（`tui.*` 13、`v2Errors.*` 5、
+`toolsV2.*` 4、`errors.*` 2、`serverErrors.*` 2、`startup.*` 1）；其余 **799 条在基线上也从未被引用过**。
+其中 8 个命名空间在基线上**任何形式都零引用**（`v2Goal` `v2Mcp` `v2Auth` `v2Loop` `v2Fs` `v2Storage`
+`v2Wire` `v2Model`，共 71 键），今天同样只出现在目录定义与本门禁自己的产物里。**因此这不是 Rust 移植
+丢了功能，而是 TS 时代就积下的目录债**；`v2Errors.*` 虽有 139 键，基线上真正被 `agent-core-v2` /
+`kap-server` 引用过的只有 5 键，那两个包已被本 fork 退役。
+
+**处置：不删除，改为双向棘轮。** 自动删 758 条本地化文案是不可逆的，且过度近似看不见运行时拼出的键
+与未来插件宿主面会引用的键；因此把债记进 `scripts/locale-orphan-allowlist.json`，门禁双向收紧：
+
+- 现在不可达、但不在名单里 → **失败**（债不能增长）；
+- 名单里、但现在已可达 → **失败**（有东西被接线了，名单必须收缩）。
+
+两者都用 `bun scripts/check-locale-orphans.mjs --update` 重录。该门禁已进 CI lint job，并做过突变
+测试：注入一个从未被引用的假键被抓到；把一个已记录的孤儿变得可达（加一处 `t()` 调用）也被抓到
+（报 `resolved`）；6 个已知在用的键正确判为非孤儿。
+
+**待办**：758 → **687**。已删掉证据最硬的一批：8 个在 v2 基线上**任何形式都零引用**、今天同样只出现在目录定义与本门禁产物里的命名空间（`v2Goal` `v2Mcp` `v2Auth` `v2Loop` `v2Fs` `v2Storage` `v2Wire` `v2Model`，共 71 键，en + zh）。删除前确认过两件事：`@moonshot-ai/i18n-catalog` 是 **`private: true` 未发布**包，删键不构成对外破坏性变更；文案本身仍可从本仓 git 历史（`ecad4136d9^`）取回。删后目录从 2429 降到 2358，`generate-locale-json.cjs` 重新生成后 10 个产物里只有引擎那两个 JSON 变化，其余 app 的 locale 源不同源、未受影响；`check:locale-keys` / `check:locale-placeholders` / `check:engine-i18n` 全绿。棘轮为此区分了两种收敛：**键被接线**（仍在目录、变可达）与**键被删除**（已不在目录），两者都要求重录。剩余 687 条需逐族定论；证据次强的一类是那 27 条"随退役的 TS 引擎一起死"的键（`v2Errors.*` 等），删除同样安全但需按基线引用文件逐条确认。
+
+**另不要**把 `goal_tools.rs` / `create_goal.rs` / `get_goal.rs` 里的硬编码英文当作债——那些是**模型可见**的工具结果文案，v2 侧同样硬编码英文（`features/goal/errors.ts` 的 `GoalErrors.info[].action`），而 §6.19 的「单一英文来源」约束的是**用户可见**的引擎文案（`engine.*`，如 `engine.permission.deniedByUserRule`）。把模型可见文案也搬进目录反而会**偏离 v2**。
+
+**不要删那 13 条「随退役引擎而死」的键。** 复核后它们分成两类：①
+`toolsV2.sandbox.writeBlockedReadOnly` / `writeBlockedOutsideWorkspace` /
+`toolsV2.swarm.agentDeniedInSwarmMode` / `toolsV2.spill.retrievalHint` ——
+文案与 v2 目录原文**逐字一致**，且是**刻意保持英文**的：`swarm/mode.rs:265-267`
+写明了理由「it is model input, not a user-facing failure」，并把
+`locales/en.json` 的 `toolsV2.swarm` 记为该硬编码串的**出处**——删键会让这条
+provenance 引用悬空。② `errors.*`（2）、`serverErrors.*`（2）、`v2Errors.*`（5）
+是纯退役残留，删是安全的，但只占 687 的 1.3%，不值得为它再动一次共享目录。
+
+### 6.20 中断提醒在全部生产入口不可达（2026-09-28，端到端对拍发现并修复）
+
+**症状（实测）**：napi 会话路径上，用户取消一次流中 turn 后，下一轮的请求消息里没有 v2
+的中断提醒。探针 `.tmp/cancel-probe/probe.ts`（mock SSE 吐半句后挂住 →
+`sessionCancelTurn` → `getHistory` → 再跑一轮看回放），证据 `.tmp/cancel-probe/out.json`。
+取消本身正常：9 ms 落地、`stopReason: Aborted`、`turn.cancel {target:"active",
+reason:"user_cancelled"}` 与 v2 逐字一致。
+
+**根因**：`turn_loop/run_turn.rs` 的 `run_turn_continued` 解构 `RunTurnInput` 时把
+`previous_turn_aborted` 丢弃，重建每轮输入时写死 `false`。所有生产入口都必经它
+（`session/mod.rs:1758`/`:1765`、stdio、`run_turn_rust`、`server/engine.rs:1513`），所以
+`injection/interruption_reminder.rs` 只在「直接调 `run_turn` 且传 `true`」时才会注入，而
+全仓没有任何非测试调用点传 `true`。09-25 修的 `session/mod.rs` 双 `swap` 是真缺陷但只修了
+一半：标志送达 wrapper 后在这里被丢掉——§6 那条「会话路径永不注入」当时并未真正闭环；
+`.changeset/interruption-reminder-reads-the-abort-flag-once.md` 的措辞也因此提前。
+
+**修复**：`run_turn_continued` 首轮透传调用方标志，续跑轮仍置 `false`（同一 turn 的
+Stop-hook 续跑不该重复播报）。回归测试
+`turn_loop::run_turn::tests::test_previous_turn_aborted_reaches_the_interruption_reminder`
+**走 wrapper 本身**——原有测试全部直调 `run_turn`，这正是缺口能长期静默的原因。
+
+**验证（2026-09-28）**：新回归测试 ✅｜`cargo test --release --lib -- turn_loop`
+198 passed / 0 failed ✅｜`-- injection` 59 passed / 0 failed ✅｜探针复跑：第二轮请求
+出现提醒（修复前完全为空）✅｜`.node` 与 `cargo build --release --features cli` 均已重建 ✅。
+
+**本机环境注记（先于代码怀疑）**：默认 `TEMP`（`C:\Users\ADMINI~1\...` 短路径）在本机
+不可写会制造假失败——`tempfile::tempdir()` panic（turn_loop 子集 6 项、injection 4 项）、
+napi 链接 `LNK1104`（`lnk*.tmp` 打不开）、vitest `EPERM: mkdir ...\ssr`。把 `TEMP`/`TMP`
+指到可写目录（如 `.tmp/linktmp`）后上述全部转绿。**跑 Rust/TS 测试与 `bun run build` 前先
+设 TEMP**，否则会把环境问题误读成行为回归。
+
+**对拍同时暴露、未处理（属设计决策）**：① 被取消步骤的半截 assistant 消息不进引擎历史，
+v2 以 `partial: true` 保留并让下一轮模型看到；② 提醒的位置不同——v2 落在取消事件点
+（下一条 user 消息之前），Rust 在下一轮 turn 头注入（落在新 prompt 之后）。两条都要先定
+「引擎历史 vs 宿主转录」的边界归属。
+
+---
+
+### 6.21 swarm 模式在 napi 路径整体失联、成员不发终态事件（2026-09-28，端到端对拍发现并修复）
 
 **症状（实测）**：探针 `.tmp/swarm-e2e.mts` 驱动真实 SDK 接缝（napi addon → Rust 引擎 →
 turn loop → 注入 → 宿主事件），配 mock provider 跑 4 个场景（control / task / manual /
@@ -3001,7 +3417,7 @@ turn loop → 注入 → 宿主事件），配 mock provider 跑 4 个场景（c
    member 与普通 child）；**没有 `subagent.suspended` 分支**（限流重排的成员永远显示运行中）；
    **没有引擎 `agent.status.updated` 分支**（`if/else` 链无 fallthrough，引擎发什么都被丢）。
 5. `SwarmEventSink` trait **零 impl**，`Terminalizer` / `SwarmRegistry` 从未构造 —— swarm 成员
-   永远不发终态事件，§6.14 记的「swarm 成员不发终态事件」就是这条。
+   永远不发终态事件，§6.21 记的「swarm 成员不发终态事件」就是这条。
 6. `AgentRunBatchLauncher` **缺 `abandoned` 钩子**（v2 `agentRunBatch.ts:72-73` 有），被放弃的
    成员无人 terminalize。
 
@@ -3066,7 +3482,7 @@ F8 只过了 parity 门，**从未有人看见过这个字符串真的渲染出�
 「TowerInit 关掉了它」断言就变成空断言（模式是别人关的）。加锁会把这个测试专用 API 扩散到
 几十个测试、并且迟早有人忘加。**因此选择不交付一个偶发红的测试**：该调用点目前靠
 `tools/mod.rs` 的代码审查 + 上面 3 个函数级测试覆盖，这一点是已知缺口，不是「已验证」。
-要根治得让 swarm 模式注册表可注入（按 task/turn 而非进程全局），那是 §6.20 之外的结构改动。
+要根治得让 swarm 模式注册表可注入（按 task/turn 而非进程全局），那是 §6.21 之外的结构改动。
 
 **一处需要更正本节早先的说法**：独占门并非「已存在但结束 turn」，而是 **`HEAD~1` 里根本不存在**
 ——它属于未提交的移植。`HEAD~1` 上那批 `[AgentSwarm, Bash]` 直接执行、两个成员照常 spawn。
@@ -3101,43 +3517,1408 @@ match the implementation"）。转折点是端到端探针：它先给出 9 项�
 第二次拿「本轮新增请求」当增量，但请求体带整段历史，标记数无法区分「新注入」与「历史里本来
 就有」。**修法是每个场景独立 session + 一个 control 场景先证明探测器有效**，否则数字无意义。
 
-### 6.19 中断提醒在全部生产入口不可达（2026-09-28，端到端对拍发现并修复）
+### 6.22 2026-09-29 v2 步数记账：双计数器语义，与重试计费差异（**记录，不改**）
 
-**症状（实测）**：napi 会话路径上，用户取消一次流中 turn 后，下一轮的请求消息里没有 v2
-的中断提醒。探针 `.tmp/cancel-probe/probe.ts`（mock SSE 吐半句后挂住 →
-`sessionCancelTurn` → `getHistory` → 再跑一轮看回放），证据 `.tmp/cancel-probe/out.json`。
-取消本身正常：9 ms 落地、`stopReason: Aborted`、`turn.cancel {target:"active",
-reason:"user_cancelled"}` 与 v2 逐字一致。
+本条是「v2 → Rust 行为对照」的一轮结果。结论先写：**不改代码**。两次中途结论被自查
+推翻，最终结论附算式，可复算。
 
-**根因**：`turn_loop/run_turn.rs` 的 `run_turn_continued` 解构 `RunTurnInput` 时把
-`previous_turn_aborted` 丢弃，重建每轮输入时写死 `false`。所有生产入口都必经它
-（`session/mod.rs:1758`/`:1765`、stdio、`run_turn_rust`、`server/engine.rs:1513`），所以
-`injection/interruption_reminder.rs` 只在「直接调 `run_turn` 且传 `true`」时才会注入，而
-全仓没有任何非测试调用点传 `true`。09-25 修的 `session/mod.rs` 双 `swap` 是真缺陷但只修了
-一半：标志送达 wrapper 后在这里被丢掉——§6 那条「会话路径永不注入」当时并未真正闭环；
-`.changeset/interruption-reminder-reads-the-abort-flag-once.md` 的措辞也因此提前。
+#### 6.22.1 v2 有两个独立计数器
 
-**修复**：`run_turn_continued` 首轮透传调用方标志，续跑轮仍置 `false`（同一 turn 的
-Stop-hook 续跑不该重复播报）。回归测试
-`turn_loop::run_turn::tests::test_previous_turn_aborted_reaches_the_interruption_reminder`
-**走 wrapper 本身**——原有测试全部直调 `run_turn`，这正是缺口能长期静默的原因。
+turn 上下文字段（`packages/agent-core-v2/src/human/agent/turn.ts:229-230`）：
 
-**验证（2026-09-28）**：新回归测试 ✅｜`cargo test --release --lib -- turn_loop`
-198 passed / 0 failed ✅｜`-- injection` 59 passed / 0 failed ✅｜探针复跑：第二轮请求
-出现提醒（修复前完全为空）✅｜`.node` 与 `cargo build --release --features cli` 均已重建 ✅。
+| 字段 | 初值 | 写入点 | 单调性 |
+|---|---|---|---|
+| `step` | 0（`:442`） | 每次进入 `thinking` 时 `+1`（`:485`） | turn 内单调，从不重置 |
+| `steps` | 1（`:441`） | `turn.notify` 带消息时压回 1（`:856`）；另被 gate 每步回写 | 被 gate 单调化 |
 
-**本机环境注记（先于代码怀疑）**：默认 `TEMP`（`C:\Users\ADMINI~1\...` 短路径）在本机
-不可写会制造假失败——`tempfile::tempdir()` panic（turn_loop 子集 6 项、injection 4 项）、
-napi 链接 `LNK1104`（`lnk*.tmp` 打不开）、vitest `EPERM: mkdir ...\ssr`。把 `TEMP`/`TMP`
-指到可写目录（如 `.tmp/linktmp`）后上述全部转绿。**跑 Rust/TS 测试与 `bun run build` 前先
-设 TEMP**，否则会把环境问题误读成行为回归。
+`currentStep()` 只有两处写入：`turn.started` 归零、`step.started` 取当时的 `context.step`
+（`packages/agent-core-v2/src/agent/loop/machine/engine.ts:365`、`:372`）——turn 内不重置。
 
-**对拍同时暴露、未处理（属设计决策）**：① 被取消步骤的半截 assistant 消息不进引擎历史，
-v2 以 `partial: true` 保留并让下一轮模型看到；② 提醒的位置不同——v2 落在取消事件点
-（下一条 user 消息之前），Rust 在下一轮 turn 头注入（落在新 prompt 之后）。两条都要先定
-「引擎历史 vs 宿主转录」的边界归属。
+#### 6.22.2 权威上限在 gate，且它把可重置计数器重新单调化
 
----
+`packages/agent-core-v2/src/agent/loop/loopService.ts:983`：
+
+```ts
+const stepOrdinal = Math.max(this.engine?.currentStep() ?? 0, turn.steps + 1);
+if (stepOrdinal > maxSteps && !consumed.bypass) { /* fail */ }
+```
+
+紧接着 `:994` 是 `turn.steps = stepOrdinal`——**每次 gate 都把那个可重置的计数器按
+单调值回写**。gate 无条件挂在 requester 上（`:218`），且每次 `generate` 前都调
+（`packages/agent-core-v2/src/agent/loop/machine/requester.ts:61-62`）。
+
+所以「通知重置可以放宽步数上限」不成立：`stepOrdinal ≥ currentStep()` 恒成立，重置值在
+下一次 gate 就被覆盖。
+
+#### 6.22.3 算出来的实际差异
+
+设第 k 次 LLM 调用，`steps` 始终跟随 ordinal：
+
+- 无重置：`ordinal_k = max(k, k+1) = k+1`，失败线 `k+1 > maxSteps` → 允许 **maxSteps-1** 次调用
+- 有重置（`steps` 被压回 1）：`ordinal_k = max(k, 2) = k`（k ≥ 2）→ 允许 **maxSteps** 次
+
+本移植 `src/turn_loop/run_turn.rs:963` 是 `for` 循环的 `steps = step_num + 1`，
+**允许 maxSteps 次**。即：**当前实现已经等于 v2 的上沿**；把重置忠实移植进来反而会收紧
+1 次调用。重置的真实收益是**每次通知 +1 次调用**，而唯一会 turn 内反复触发的 provider 是
+`plan_mode`（`PLAN_MODE_DEDUP_MIN_TURNS = 2` / `PLAN_MODE_FULL_REFRESH_TURNS = 5`，
+`packages/agent-core-v2/src/features/plan/injection/planModeInjection.ts:17-18`；其
+`assistantTurnsSince` 是遍历历史数 assistant 消息，即步级）；`goal` 是 turn-gated
+（`packages/agent-core-v2/src/features/goal/injection/goalInjection.ts:24` 的
+`isNewTurn ? this.reminder() : undefined`），turn 内不触发。
+
+#### 6.22.4 真正的差异：v2 把重试计入步数，Rust 不计
+
+`retrying` 状态是 `after: { retryDelay: 'thinking' }`
+（`packages/agent-core-v2/src/human/agent/turn.ts:717-720`）——**重试会重新进入
+`thinking`**，而其 entry 含 `step: context.step + 1`（`:485`）。因此 v2 里每一次 LLM
+重试都消耗一单位步数预算。
+
+本移植的 `steps` 只在 for 迭代入口赋值一次（`src/turn_loop/run_turn.rs:963`）；重试循环
+在 `execute_loop_step_with_retry` 内部，只读 `step` 参数，不回写预算。
+
+量级：`max_attempts_per_step` 默认 10（`src/turn_loop/turn_step.rs:319`）。v2 里一个步骤
+若重试 5 次即烧掉 6 单位预算——在 `ServerEngine` 默认 `max_steps = 32`
+（`src/server/engine.rs:300`）上，一个 provider 抖动的 turn 可能在 3 步内被截断；本移植不会。
+
+#### 6.22.5 记录不改的理由
+
+- 通知重置的收益是每次 +1 次调用，且本移植已在 v2 上沿，**忠实移植是净收紧**。
+- 重试计费的差异方向是「本移植更宽松」。是否要收紧取决于真实 turn 的重试分布与长度
+  分布，**仓库没有这项遥测**，据猜测收紧可能让长 turn 提前失败。
+- 这两条都需要真实使用数据才能判断，因此记录在案、等数据。
+
+#### 6.22.6 同批完成：注入层收敛为单一抽象
+
+同一轮里发现 `crate::injection` 存在三处由「parallel workstream」临时接线留下的重复
+抽象，注释自称 *"the injection-layer work item"*，已全部收敛：
+
+| 概念 | 收敛前 | 收敛后 |
+|---|---|---|
+| `InjectionRegistry` | `injection/mod.rs` 的 struct **+** `injection/goal_plan.rs` 的 trait | 仅 struct（`src/injection/mod.rs:114`） |
+| `InjectionProvider` | 两个同名不同签名 | 仅一个（`src/injection/mod.rs:105`） |
+| 状态契约 | `goal_plan::StateStore`（与 `storage::StateStore` 同名不同义） | `src/injection/state.rs` 的 `DomainValueSource` |
+| 桥接适配器 | `injection/mod.rs` 的一层 `impl` | 删除 |
+
+`register_goal_plan_injections` 去掉泛型 `R`，直接收 `&mut InjectionRegistry`；两个
+provider 改用 `&InjectionContext` 并返回 `Option<String>`，原先由适配器负责的
+「空白渲染 → 不注入」映射搬进闭包本身。三个测试改用真 registry（原先用只捕获
+provider 的 `FakeRegistry`，而它们测的本来就是 provider 而非 registry），因此现在真正
+走一遍注册表的包裹与过滤。行为影响为零：调用顺序、blank 过滤、包裹文本均不变。
+
+新增的 `a_provider_that_renders_blank_injects_nothing` 替代了被删的适配器测试，保住
+其意图。`DomainValueSource` 改名而非保留 `StateStore`，是因为两者同名、同有
+`read_domain`、语义不同（trait 契约 vs 带生命周期与迁移的具体类型），是这轮全部麻烦的
+起点。
+
+
+
+### 6.23 2026-09-29 退役包 delta 复核：7 条上游提交（2 补丁 / 5 功能 / 1 不适用）
+
+`scripts/upstream-v2-delta-allowlist.json` 的 7 条新条目在此逐条落账，证据与
+"要实现它需要什么"写在各条的 `note` 里，这里只留索引与结论。判定口径：**补丁** = fork
+已有该机制、只是漏了这一种情形；**功能** = fork 从未构建过该能力；**不适用** = 无可观测
+行为差异。功能类按规矩需用户许可，未获许可前只记账不实现。
+
+| 条目 | 提交 | 裁决 | 落点 |
+| --- | --- | --- | --- |
+| §6.23.1 | `1f6f0b1fa2` #4059 | **ported** | `KIMI_CODE_TRUST_WORKSPACE` env 短路，落在 `node-sdk`（2026-09-29 已实现） |
+| §6.23.2 | `4fbe065442` #4054 | tracked | NotifyUser 需要"宿主有更新面板"的能力位，Rust 无此概念 |
+| §6.23.3 | `a940f2ff04` #4057 | tracked | 权限模式要发 `agent.status.updated`，引擎无该事件、无 `permission` 字段 |
+| §6.23.4 | `09af3b483f` #3998 | tracked | tower 六簇加固 + wake 打断，全部是新面；仅 tmp+rename 判不适用 |
+| §6.23.5 | `e3bf50c083` #4076 | tracked | undo 需按 prompt 归属撤销；fork 的 undo 只按轮数 |
+| §6.23.6 | `395d537237` #4056 | tracked | workspace trust 披露服务缺失，`gatedMcpServers` 恒空 |
+| §6.23.7 | `06ebfc821e` #4081 | tracked | hook 输出不入 prompt，且内容块缺 `meta` 契约 |
+
+#### 6.23.1 已完成：`KIMI_CODE_TRUST_WORKSPACE`
+
+`getWorkspaceTrustInfo` 在读 `trusted-workspaces.json` 之前先用 `parseBooleanEnv` 短路
+（仅 `1/true/yes/on` 为真，拼错则照常询问）。`resolveSessionAdditionalDirs` 无需改动——
+它本就经由该访问器，这正是它算补丁而非功能的原因。测试见
+`packages/node-sdk/test/workspace-trust.test.ts`（5 例：fail-closed、已记录信任、env 压过记录、
+全部真值拼写、假值/无法识别拼写不生效）。文档同步 `docs/{en,zh}/configuration/env-vars.md`。
+**未移植**：`mcpRegistryService` / `workspaceMcpConfigService` 两处——`gatedMcpServers` 在
+`sdk-rpc-client-native.ts:5209` 硬编码为空，没有可解锁的项目级 MCP 面；print 模式告警字符串在本
+fork 不存在。
+
+#### 6.23.2–6.23.7 五条功能类
+
+共同结论：**它们不是"漏了一种情形"，而是 fork 从未构建过对应能力**。逐条要什么见 allowlist 的
+`note`。三处最容易被误判的：
+
+- **§6.23.7** 的数据其实已经就位——`LLMMessage` 同时带 `origin`（v2 `PromptOrigin`，开轮 user
+  消息上就设了，`turn_loop/types.rs:189-196`）和 `prompt_id`（`:188`）。缺的是**消费方**：fork 的
+  undo 是按轮数的（`session/sqlite_store.rs:980,988`），`grep prompt_id src/session/mod.rs` 无命中，
+  所以没有任何代码能回答"这一轮属于哪个 prompt"。
+- **§6.23.7 的残留半移植**：宿主层仍在完整实现 commit 之前的 `hook_result` 折叠，而引擎从不发这种
+  消息——`packages/transcript/src/history/groupTurns.ts:482`、`foldFacts.ts:130`、
+  `apps/kimi-code/src/tui/utils/message-replay.ts:332`、`session-replay.ts:215,274,338,365,651`、
+  `node-sdk/src/types.ts:434`。同一提交里的技能块 meta 标记重构**在本 fork 不是免费的**：`meta` 字段
+  本身是契约变更，所以它随本条记账，不单列为补丁。
+- **§6.23.4** 里唯一判 `n/a` 的是 v2 把 `state.json` 临时文件后缀加上 pid+uuid；fork 已经在写
+  per-writer tmp + 原子 rename（`tools/tower/store.rs:295-307`），机制相同、后缀不同，无可观测差异。
+
+文档侧同步修正一处不实描述：`docs/{en,zh}/customization/hooks.md` 的 `UserPromptSubmit` 行原写
+"返回文本会附加到上下文、阻断则本轮不调用模型"，而 `tools/external_hooks.rs:270-272` 的注释白纸黑字
+写着引擎只走观察路径、返回值被丢弃。2026-09-29 按实现改正。
+
+### 6.24 2026-09-29 退役包 delta 复核（续）：2 条上游提交（1 补丁 / 1 不适用）
+
+上游在 §6.23 落账后当天又推了两条触及 `agent-core-v2` 的提交，ratchet 照常报红。逐条裁决如下。
+
+**本节是复核后的版本。** 第一遍只读 `git show --stat` 加单个文件就下了结论，用户追问后重做：先把
+`.tmp/v2-ref-upstream` 刷到当天的上游 tip（`f409caa21e`），再逐条读实现。复核推翻了两个东西——§6.24.1
+的**证据链**（结论不变，但第一遍漏了 fork 的第二个 cron 面）和 §6.24.2 的**移植完整性**（上限对齐了，
+描述散文没有）。同时证伪了 `AGENTS.md` 里"两个参考检出的 `agent-core-v2` 逐字节相同"这句话：实测
+38 个文件内容不同、1 个文件只在 upstream 侧存在，因为退役参考冻结在删除点而 upstream 一直在动。
+
+| 条目 | 提交 | 裁决 | 落点 |
+| --- | --- | --- | --- |
+| §6.24.1 | `f409caa21e` #4083 | **not-applicable** | fork 的两个 cron 面都不是会话级，且 `fork_session` 不复制任何状态行 |
+| §6.24.2 | `20a2cea72f` #4061 | **tracked** | 上限与 schema 已移植；描述散文 / 重复等待警告 / 子代理指引 / TUI Enter steer 未移植 |
+
+#### 6.24.1 不适用：`f409caa21e` 清空 fork 继承的 cron 任务
+
+v2 把 cron 任务作为 `cron.add` 记录写进会话 journal，而 fork 复制 journal，于是 fork 继承了源会话的
+任务、两个会话同时触发。**这个机制在本 fork 不存在**，四条证据：
+
+- **`fork_session` 不复制任何状态。** `session/sqlite_store.rs:834-861` 只做
+  `load_session_history` → `create_session_with_workspace` → `UPDATE sessions SET parent_session_id`
+  → `save_turn(new_session_id, "turn-fork", 1, &history, None, None)`，对 `state_entries` 和
+  `wire_events` 的引用数都是 0。两个 fork 入口都走它（`acp/mod.rs:1015`、`server/mod.rs:5130`）；
+  `btw` 侧信道根本不 fork 会话——`napi_bindings.rs:3167-3170` 用
+  `session.snapshot_history()` 喂一个内存态子代理。
+- **服务器级那个面不是会话级。** `server/mod.rs:595-599` 写明条目存在 state key `("cron", "entries")`；
+  `put_state`（`session/sqlite_store.rs:1336`）写入时不带 `session_id`，所以该行 `session_id` 恒为
+  NULL、全局共享。
+- **模型侧那个面根本不在会话存储里。** 它是按工作区键控的文件存储：
+  `<home>/.kimi-code/engine-state/<workspace-key>/state/cron.json`（`storage/paths.rs:3-7`、
+  `storage/state_store.rs:3-7`），key 是规范化工作区路径的摘要。**第一遍漏的就是这一条**——只看了
+  `server/mod.rs` 的注释，没顺着"模型侧 Cron\* 工具用另一个面"这句往下查。
+- **会话级状态存在，但从不装 cron。** `state_entries` 确实有 `session_id` 列
+  （`session/sqlite_store.rs:516-530`），`put_session_state`（`:1356`）会写它，但所有调用点只用于
+  `metadata` 与 `agent_config`（`acp/mod.rs:475,526,684`；`server/mod.rs:1155,1183,5263,6001,7252,7259,7345,7352`），
+  没有一处是 cron。
+
+结论：fork 与源会话共享同一份工作区排程，这与该工作区里任何其他会话的关系完全一样，是设计而非缺陷。
+上游那条 `cron_fork_cleared` 提醒在这里没有对应物——告诉模型"本 fork 没有定时任务"会是假话。同一提交
+把 `Forked` 事件类从 `features/goal` 挪到 `session/agentLifecycle`、把 `CronModelState` 从裸 `Map`
+拓宽成 `{ tasks, forkNotice }`，都是 v2 的模块布局，Rust 侧无对应面。
+
+#### 6.24.2 部分移植：`20a2cea72f` 把 WaitFor 上限收到 90s
+
+**已移植（2026-09-29）**：`WAIT_FOR_MAX_TIMEOUT_S` 600 → 90（`tools/task_tools.rs:28`），连同所有
+陈述旧上限的位置——`parse_timeout` 的文档注释、`TASK_WAIT_DESCRIPTION` 的 timeout guideline、JSON
+schema 的 `maximum` 及其 description、schema 测试，以及 `docs/{en,zh}/reference/tools.md`。上游在同一
+提交里把这个常量从 `DEFAULT_BACKGROUND_TIMEOUT_S` 解耦成字面量 90；fork 的 Bash 后台超时仍是 600，
+上游也没动它。**输入 schema 现在与上游 `WaitForInputSchema` 逐字相同**——`timeout` 与 `task_id` 两条
+描述都对得上。
+
+**未移植，而且这是更大的一半**：
+
+- **描述散文。** 把 fork 的 `TASK_WAIT_DESCRIPTION` 与上游 `task-wait.md` 逐行 diff，除数字外还有
+  **7 处实质差异**：上游开头是限制性的（"Only call this tool when you really have no other work to
+  do"）而 fork 是许可性的；上游多出"the user is kept waiting too"和独立一段"they notify you
+  automatically"；多出"think about what else you can do meanwhile"与"the result also lists other
+  tasks that finished during the wait window"两条 guideline；把 timeout 那条收紧成"Prefer moving on
+  to other work over calling WaitFor again"；并删掉 fork 那条 steering guideline（上游把 steering 并进
+  了开头段）。**第一遍汇报时我只说"改了陈述旧上限的位置"，没说散文整体没动**——这是披露缺口。
+- **按轮统计的重复等待计数**与 `[wait_warning]` 块（`taskWaitTool.ts` 的 `countCall` /
+  `withRepeatWarning` / `repeatWaitAdvice`，三种建议分别对应子代理、goal 活跃、普通情形）。
+- **子代理专用描述**（`task-wait-subagent.md`，当 `scopeContext.agentId !== MAIN_AGENT_ID` 时追加）
+  与超时文案的子代理/主代理分叉。
+- **TUI 那半。**
+
+**文档刻意保留 fork 自己的 `Ctrl-S` 表述**，没有照抄上游那句"pressing `Enter` … steers the message
+into the turn"。复核后有了确切依据：fork 的 steer 被 tower 模式门控
+（`tui/controllers/message-dispatch.ts:652-666`，`steerIntoCoordinator` 要求 `appState.towerMode`），
+所以等待期间按普通 Enter 是**排队**（`tui/commands/dispatch.ts:144-145` 的注释写明"submissions
+through sendNormalUserInput queue while busy"），只有 `Ctrl-S` 会 steer
+（`tui/controllers/editor-keyboard.ts:324` 的 `onCtrlS`）。照抄会写出本 fork 没有的行为。
+
+### 6.25 2026-10-01 v2 的 runtime capability 层在 fork 完全缺席（**非** §6.8.2 的前置条件——2026-10-01 订正）
+
+> **本节 2026-10-01 经第四轮审计订正三处，并撤回一条依赖论断。** 订正依据：`.tmp/v2-ref-upstream` @ `21406fb4c8` 的 `runtime/runtime.ts:7-8` 与 `features/` 目录列举。原文的可信部分（缺口本身）不变；**被改的是它的证据与推理**。
+
+**订正一：`RuntimeCapability` 没有 `watch`。** 原文 `:4943` 写 `RuntimeCapability = 'fs' | 'process' | 'watch' | 'terminal'`——**错**。权威树 `runtime/runtime.ts:8` 是三项：`'fs' | 'process' | 'terminal'`。全部 8 个 `runtime/` 文件里 `watch` 只出现一次：`fakeRuntime.ts:15` 的 `readonly watch = undefined`，而那**不在 `Runtime` 接口上**（`runtime.ts:45-47` 只声明 `fs`/`process`/`terminal`）——测试替身的死字段。
+
+**订正二：不是 9 个文件，是 8 个。** 原文 `:4941` 写「9 个文件」。`runtime/` 实为 8 个：`runtime.ts`、`runtimeRegistry.ts`、`runtimeProvider.ts`、`runtimeUnitHost.ts`、`runtimeWorkspaceView.ts`、`localRuntime.ts`、`standaloneRuntime.ts`、`fakeRuntime.ts`。
+
+**订正三：文件数之外，消费点也从 9 改为 6 类**（原表把同一消费者的多个调用点各算一条）。实际消费者：workspaceFs（`process`）、bash 工具（`process`）、read/write/edit 工具（`fs`）、glob/grep 工具（`fs`+`process`）、read-media-file（`fs`）、fileHistory（`fs`）、agentsMdReminder（`fs`）、git 服务（`process`）、terminal 服务（`terminal`）、stdio MCP（`process`）、subagent 服务（`process`）。
+
+**撤回：§6.8.2 的依赖论断方向是反的。** 原文 `:4938-4939` 称「runtime 层是 §6.8.2（fs watcher）的前置条件——v2 里 watch 只是 `RuntimeCapability` 的一档」。**这个前提不存在**（订正一）。上游的 watch 是**完全独立的服务**，不经过 capability 层：
+- `human/utils/watch.ts:473` `createWatchService(runtime: WatchRuntime)`、`:511` `WATCH_ENV = 'KIMI_CODE_WATCH'`
+- `app/watch/configSection.ts:8-18` 自有 `[watch]` config section
+- 真实消费方只有 `workspace/workspaceInstructions/workspaceInstructionsService.ts:14,116-139`（AGENTS.md 热重载）与 `session/sessionInstructions/instructionsProvider.ts:4,13` 的 `onDidChange` 类型
+
+**结论**：watch 不需要 capability 层，§6.8.2 那个「先补 runtime 才谈得上 watch」的前置关系不成立，§6.8.2 应按独立子系统排期。本节自身的裁定（`tracked`，无排期）不变。
+
+**v2 侧的形态**（`.tmp/v2-ref-upstream/packages/agent-core-v2/src/runtime/`，8 个文件）：
+
+- `runtime/runtime.ts:7` — `RuntimeStatus = 'connecting' | 'ready' | 'degraded' | 'disconnected' | 'draining' | 'disposed'`（六态生命周期）
+- `runtime/runtime.ts:8` — `RuntimeCapability = 'fs' | 'process' | 'terminal'`（**三项，无 watch**）
+- `runtime/runtime.ts:39` — `Runtime` 接口（`:40` 是 `readonly identity`），配 `localRuntime` / `standaloneRuntime` /
+  `runtimeRegistry` / `runtimeProvider`，走 DI 容器注册多实现
+- 状态门禁语义在 `runtimeRegistry.ts:342-346`（`runtimeStatusAllows`）：`ready` 全放行；`degraded` 仅当请求的每个能力都存在才放行；其余四态拒绝。`draining`/`disposed` 另在 `:296` 硬拒注册。drain 上界 `RUNTIME_DRAIN_TIMEOUT_MS = 5_000`（`:6`），与租约释放在 `:281-285` 竞速。
+
+**它不是死代码 —— 11 处生产消费点，覆盖三类能力**（能力只有 fs / process / terminal 三档）：
+
+| 消费点 | 用的能力 |
+|---|---|
+| `features/fileHistory/fileHistoryService.ts:475` | `lease.runtime.fs` |
+| `features/staleGuard/staleGuardService.ts:130` | `lease.runtime.fs!.stat` |
+| `workspace/workspaceFs/fsService.ts:666` | `lease.runtime.process!.spawn`（rg 二进制） |
+| `workspace/workspaceFs/fsService.ts:1055` | `lease.runtime.process!`（exec） |
+| `app/git/gitService.ts:154` | `lease.runtime.process!` |
+| `session/terminal/terminalService.ts:86` | `lease.runtime.terminal!.spawn` |
+| `session/terminal/terminalService.ts:83` | `lease.runtime.environment.shellPath` |
+| `mcpCore/client-stdio.ts:192-193` | `lease.runtime.path.resolve` / `environment.homeDir` |
+
+**fork 侧的对应事实**（全部实测，非推断）：
+
+- `packages/kaos/src` 共 12 个文件，只有 local / ssh / login-shell 三种执行环境；
+  六个状态名（`connecting`/`ready`/`degraded`/`disconnected`/`draining`/`disposed`）与
+  `RuntimeCapability` 在该包**全部零命中**——唯一 grep 到 `draining` 的位置是
+  `kaos/src/internal.ts:251` 注释里的英文词 "without draining unboundedly"，与状态机无关。
+  即：没有生命周期状态机，没有 watch 能力
+- `packages/kimi-agent/src` 下 `Command::new` 共 **35 处**，分布在 17 个文件，全部直接调本地进程，
+  无任何抽象中转
+- 引擎无 ssh / remote 执行路径（`ssh` 命中均为 remote URL 或 `allow_remote_shutdown`，与此无关）
+
+**为什么它不属于 commit 级 allowlist**：`check-upstream-v2-delta` 棘轮按上游提交记录，而这一层在
+导出点就已存在、从未被任何单个提交改动，因此不会被该门禁发现。它属于 §6.18.2 说的那种
+"存在性之外的归属盲区"：**不是跟丢了上游的某次变更，而是从未决定移植**。
+
+**与 §6.8.2 的关系**：§6.8.2 已判定 watch 移植"动手前需先定层"。按 v2 的形态，层已经定了——
+watch/process/terminal 三个能力共用同一个 `Runtime` 接口与其状态机，先立 capability 层再挂 watch，
+是唯一能对齐上游的顺序；反过来先单独移植 watch 会做出一个上游没有的独立子系统。
+
+**登记为 `tracked`，不排期。** 移植它需要先回答一个分层问题：DI 注册表与状态机归 Rust 引擎
+（`packages/kimi-agent`）还是归 TS 宿主（`packages/node-sdk`）——v2 两边都有份，fork 必须二选一，
+这与 §6.8.2 的"watcher 归 Rust 还是归 TS"是同一个未决问题。**未经用户裁决不得开工**。
+
+### 6.26 2026-10-01 stale guard 的「无 clear 路径」改判为非缺口（§6.25 的下游结论）
+
+> **本节 2026-10-01 订正：全节所依据的 v2 证据在权威树里不存在。** 订正依据：`.tmp/v2-ref-upstream` @ `21406fb4c8` 全树检索 `staleGuard|StaleGuard` **只命中两个字符串字面量**——`state/eventDispatcherService.ts:58-59` 的 `'staleGuard.recorded'` / `'staleGuard.cleared'`，属 wire record 类型名。`features/staleGuard/` 目录在权威树中**不存在**（`features/` 实为 17 个目录，无此名）。
+>
+> 而 `.tmp/v2-ref`（fork 退役副本）里**有完整 4 个文件**：`features/staleGuard/{staleGuard,staleGuardFeature,staleGuardOps,staleGuardService}.ts`。所以真实关系是：**上游在 fork 拉取之后删除了 stale guard 子系统**，而 fork 保留了它并移植成了 `tools/stale_guard.rs`。
+>
+> 这意味着：下面 §6.26 的**结论**（「fork 侧不存在记录失效这个失效模式，因为没有可换的 runtime」）**仍然成立**——它依据的是 fork 侧的事实（`stale_guard.rs` 直接 `std::fs::metadata`、gate 按会话构造），不依赖 v2 那个文件。但**论证 v2 侧行为的部分全部作废**，因为上游已无此代码可引。据此：
+>
+> - 应当记录的是「stale guard 是 **fork 保留的上游已删子系统**」，而非「v2 有而 fork 缺 clear 路径」。
+> - §6.25 订正后，runtime 层与 watch 已解耦，本节作为 §6.25 下游的措辞也随之失效。
+> - 保留本节原文仅为记录推理过程，**其中所有 `staleGuard*.ts:行号` 引用应视为指向 fork 退役副本，不是上游**。
+
+原文如下（**证据已失效，结论保留**）：
+
+§1 板块 4 的 G-6 #3 行原记一条**遗留缺口**：「v2 在 runtime 切换时 dispatch `StaleGuardCleared`
+清表（`staleGuardOps.ts:39-41`），本模块无 clear 路径，方向为 fail-open，待补」。逐条复核后
+**改判：清表这件事属实，但「fail-open 待补」的方向说反了，而且它不是一个能独立修补的缺口。**
+
+**v2 为什么需要清表**（`staleGuardService.ts`）：记录的写入与检查**都经由同一个 runtime 的 fs**——
+`statFile()` 走 `this.runtime.acquire(['fs'])` 后 `lease.runtime.fs!.stat(path)`（`:127-137`），
+`recordCurrentMtime`（`:121-125`）与 `checkWritable`（`:102-119`）共用它。清表挂在
+`this.runtime.onDidChange`（`:64-68`）上，触发条件是 **runtime 状态迁移**
+（`RuntimeStatus` 六态，`runtime/runtime.ts:8`）。也就是说：**表变脏的原因是脚下的 runtime 被换掉了，
+不是时间流逝**。localRuntime ↔ standaloneRuntime / 远端之间切换后，同一路径的 mtime 来自另一套
+文件系统，已记录的数值不再可比。
+
+**fork 侧没有可换的 runtime**（承 §6.25）：`stale_guard.rs` 的 `mtime_of()` 直接
+`std::fs::metadata`，与写入方（`NativeToolset` 解析出的目标）落在**同一个本地文件系统**上。
+因此一条记录与当前 mtime 不符，只可能因为**文件真的变了**——而那正是这个 guard 要拦的情况。
+换言之，fork 侧不存在"记录失效"这个失效模式。
+
+**fork 侧确实有的清表是 gate 自身的生命周期**，而且比 v2 更严、方向相反（fail-closed）：
+`StaleGate` 按 pipeline 构造（`pipeline/mod.rs:369`）、按 REPL 进程构造（`repl/mod.rs:525`）、
+按原生 run 构造（`lib.rs:422`），三者都是**每个会话一份**。会话重建即得一张空表，
+"先读后写"的否决重新武装——不需要任何显式 clear。v2 的表是 contributed state 且
+`StaleGuardCleared.durable = true`，跨重建存活，才必须显式清。
+
+**结论与后续条件**：
+- 本条**不是**待补缺口，登记为**已澄清**；`stale_guard.rs` 文件头同步改写，不再自述
+  "never cleared mid-session"。
+- 若将来按 §6.25 移植 runtime capability 层，则**必须同时**把 v2 的 `onDidChange → StaleGuardCleared`
+  一并挂上，否则新层会引入 fork 今天没有的失效模式（runtime 切换后旧表不再可比）。这是 §6.25
+  验收清单里的一项，不是独立工单。
+- 顺带更正本轮的一处归属漂移：本条与 §6.25 此前各自独立记录，读起来像两个可分别开工的缺口；
+  实际上后者是前者的前置。
+
+### 6.27 2026-10-01 上游 delta 门禁恢复运行：1 条新 delta（#4091），逐 hunk 判定
+
+**先说门禁本身。** `check:upstream-v2-delta` 长期以 exit 2 拒绝放行，因为 `refs/remotes/upstream/*`
+在本仓根本不存在（`upstream` 远端是配好的，只是从没 fetch 过）。门禁的设计是对的——拉不到上游
+就 refuse，而不是报"没有 delta"（`scripts/check-upstream-v2-delta.mjs:28-30`）。但**fail-closed
+只在有人真的跑它的时候才起作用**：allowlist 的 `recordedMergeBase` 冻结在 2026-09-29 的
+`52437299ff` 半个月无人察觉，因为本地跑它是红的、CI 上它也是红的，两边都没人把"红"当成事故去查。
+补上 `git fetch upstream main:refs/remotes/upstream/main --force` 后，门禁立刻报出 1 条未处理
+delta——**这正是当初排第一的风险项落地的样子**。
+
+**delta `21406fb4c8`（2026-09-30，#4091 "omit completion token cap unless explicitly configured"）**
+一个 commit 捆了五处改动，只有一处是真偏差，所以判定按 hunk 写而不是按 commit 写：
+
+| hunk | v2 改了什么 | fork 侧事实 | 判定 |
+|---|---|---|---|
+| a | 不再为"模型没有声明输出上限"的情况推导 completion cap（删掉 `DEFAULT_UNKNOWN_CONTEXT_FALLBACK = 32000` 与 `reservedContextSize` 兜底） | `llm/openai.rs:58-62` 的请求体只有 `{model, messages, stream}`，**根本不发** `max_tokens` / `max_completion_tokens`；`max_completion_tokens` 在 `packages/kimi-agent/src` 下零命中 | 无需移植：要修的代码路径在这里不存在，strict serving stack（bare vLLM）上的重复 400 从未可达 |
+| b | `format.ts` 让 `maxCompletionTokens <= 0` 表示"不设上限" | 无从遵守：文档宣称的开关 `KIMI_MODEL_MAX_COMPLETION_TOKENS` **只出现在 `docs/{en,zh}/configuration/env-vars.md:179`**，全仓无任何代码读取；`packages/kosong/src/provider.ts` 的 `maxCompletionTokens` 是类型面，其注释自己指向一个不存在的引擎字段 | 无需移植；文档/代码脱节按 §6.8.2 的既有惯例**记录而不改文档** |
+| c | 新增 `kimiUnsetCompletionTokens` trait（缺省 cap = `max(1, window - usedContextTokens)`） | 同 b：没有 cap 可给 | 无需移植 |
+| d | `usedContextTokens` 为 undefined 时不再传 | 无对应字段 | no-op |
+| e | **`anthropic/profile.ts` 把 `FALLBACK_MAX_TOKENS` 从 128000 降到 64000** | `llm/anthropic.rs::default_max_tokens_for_model` 对阶梯认不出的 model id 返回 128000，文件头注释与两处测试都把这个 128000 钉成"TS provider 的兜底" | **本轮已移植** → 64000 |
+
+**e 的副作用值得单独记。** fork 用 `contains()` 子串匹配，v2 解析 `family-major[-minor]` 并对无
+`claude` 标记的 id 直接拒绝走兜底。v2 的兜底从 128k 降到 64k 之后，这条**既有偏差变成了双向**：
+`relay-opus-4-1` 在 fork 侧 32k、v2 侧 64k（向下），`my-sonnet-4-6-clone` 在 fork 侧 128k、v2 侧
+64k（**向上**）——在这次提交之前 fork 只可能比 v2 低。`my-opus-4-5-clone` 是唯一一个现在两侧重合的
+relay id。三者都钉在 `default_max_tokens_agrees_with_v2_on_every_real_claude_id` 里。Anthropic 的
+`max_tokens` 仍然必发（`anthropic.rs:196-200`），#4091 不动这条——Anthropic API 要求该字段。
+
+**顺带确认的一条文档缺陷**：`KIMI_MODEL_MAX_COMPLETION_TOKENS` 是 fork 文档里承诺、代码里不存在的
+开关，与 §6.8.2 已登记的 `KIMI_CODE_WATCH`、`KIMI_CODE_SEARCH_WORKER`、
+`KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` 同属一类（文档从上游逐字节同步，代码那一半从未移植）。
+按该节惯例登记而不改文档。
+
+**门禁当前状态**：12 条 delta 全部已分诊（ported=3 / not-applicable=1 / tracked=8），
+`recordedAt` 推到 2026-10-01。merge base 仍是 `52437299ff`——fork 没合入新东西，所以分诊区间
+的起点没变，这是对的。**但这个绿只在 ref 是新的时候有意义**：下次再过半个月没人 fetch，
+同样的假绿会重新出现。
+
+### 6.28 2026-10-01 #4061（WaitFor）四块未移植项逐条复核：合并 4 行描述、发现一处机制依赖、关闭 1 项
+
+**先记一条方法论更正，它是本节的前提。** `.tmp/v2-ref` 是 `ecad4136d9^` 的**冻结导出**，
+因此**无法裁决任何晚于导出点的 delta**。复核 #4061 时先按该目录判定"`countCall` /
+`withRepeatWarning` / `repeatWaitAdvice` 与 `task-wait-subagent.md` 在 v2 里不存在"——
+**这个判定是错的**：四者都在 `20a2cea72f` 的 v2 里（`git show 20a2cea72f:…/taskWaitTool.ts`
+可见 `countCall` / `withRepeatWarning` / `repeatWaitAdvice` / `[wait_warning]`，
+`git ls-tree` 可见 `task-wait-subagent.md`）。基线早于 #4061，所以它当然没有。正确读法是
+`git show <commit>:<path>` 读上游对象——本轮起 upstream ref 已可用（§6.27）。
+**台账中凡以 `.tmp/v2-ref` 为据、而 delta 晚于导出点的结论，都要按这条重查。**
+
+**逐条结论**（allowlist §6.24.2 的 (a)(b)(c)(d)）：
+
+| 项 | 结论 | 依据 |
+|---|---|---|
+| (a) 描述散文 | **本轮合并 4 行** | 见下 |
+| (a′) "结果还会列出等待期间完成的其他任务" | **不能搬，台账归类错误** | v2 由 `collectExtras` → `[completed_during_wait]` + `markTasksDeliveredViaWait` 实现；fork 的 `task_tools.rs` 里 `completed_during_wait` / `extras` **零命中**。搬这句等于告诉模型结果里有一块它拿不到的东西。**先补 `collectExtras`，再搬这句。** |
+| (b) 每轮重复等待计数 + `[wait_warning]` | **需先铺三处前提** | 要 (i) 每轮状态（v2 按 `tally.turnId` 复位）、(ii) `isSubagent`、(iii) goal 活跃判定。fork 四个渲染器 `render_wait_completed` / `render_wait_timeout` / `render_wait_interrupted` / `render_wait_no_tasks` 都是**纯函数**，不接轮次上下文；(ii)(iii) 在引擎里也没有对应读口 |
+| (c) `task-wait-subagent.md` | **需结构改动** | v2 按 `scopeContext.agentId !== MAIN_AGENT_ID` 追加；fork 的工具表在 `tool_policy.rs:437` 是**一张与作用域无关的平表**（`defs.push(wait_for_tool_def())`），没有按子代理重建描述的地方 |
+| (d) TUI / 文档半边 | **关闭：经核实无需移植** | 见下 |
+
+**(a) 合并的 4 行**（`TASK_WAIT_DESCRIPTION`，每行可溯源）：`but the user is kept waiting too`
+子句、独立的 "they notify you automatically … do not need to busily wait for them" 段、
+"Before calling … think about what else you can do meanwhile" guideline、
+timeout 那条收尾的 "Prefer moving on to other work … repeated waits keep the user waiting"。
+**未取自 v2 的三处**（理由写在 `task_tools.rs` 头部注释里）：v2 的限制性开头
+（fork 的工具比 v2 多一条 steer 语义，整段换掉会低报自己的能力）、(a′) 那句、
+以及 "(for example, a new user message)"（fork 区分 interruption 与 steer，steering 那条
+guideline 才是描述后者的）。
+
+**(d) 为什么关闭**：台账原记"fork 刻意保留 `Ctrl-S` 那句"。复核确认这不是随意的取舍，而是
+**fork 文档本来就说对了**：`docs/en/reference/tools.md:151` 写 "Steering (`Ctrl-S` in the
+terminal) ends the wait early"，而 `tui/controllers/editor-keyboard.ts:324-326` 的 `onCtrlS`
+确实走 `steerWithEditorDraft()`；`tui/commands/dispatch.ts:144-146` 写明 busy 时普通提交是
+**排队**。照抄上游的 "pressing `Enter` … steers" 会写出一条本 fork 不存在的行为。台账把它
+列在"未移植"里是分类错误——它本来就该留在 fork 这一侧。
+
+**测试**：`task_wait_description_carries_the_ported_lines_and_omits_the_unimplemented_one`
+钉住 4 行已搬、1 行刻意不搬、以及两个名字只差名字本身。
+
+### 6.29 2026-10-01 micro compaction 的 cache-miss 触发：不是"信号缺失"，是参考实现已被删除
+
+§1 板块 5 与 `server/engine.rs` 的注释都写着「检测到 prompt-cache miss」这个信号
+**尚未接入引擎**。复核后**改判**：信号早就在引擎里了。
+
+**测量侧早已存在**（逐个 provider 实测，非推断）：
+
+| provider | 字段 | 位置 |
+|---|---|---|
+| OpenAI 兼容 | `input_cache_read`（DeepSeek `prompt_cache_hit_tokens` / Moonshot `cached_tokens` / OpenAI `prompt_tokens_details.cached_tokens` 三种格式都认） | `llm/openai.rs:403-433` |
+| Anthropic | `input_cache_read` + `input_cache_creation` | `llm/anthropic.rs:389-397`、`stream` 累加器 `:546-556` |
+| OpenAI Responses | `input_cache_read`（`input_tokens_details.cached_tokens`，并从 `input_tokens` 里扣减） | `llm/openai_responses.rs:354-360` |
+| Google GenAI | `input_cache_read`（`cachedContentTokenCount`） | `llm/google_genai.rs:489-492` |
+
+**真正缺的是跨 step 的判定**：v2 的触发由调用方的 `detect()` 决定，两个参数是
+`cacheMissedThresholdMs` 与 `minContextUsageRatio`（`compaction/micro.rs:18-22` 的头部注释
+点名了这两个名字，也点名了它们属于调用方）。引擎里没有任何地方把上一步的
+`input_cache_read` 累积起来与阈值比较，所以现在**只由 `[experimental].micro_compaction`
+开关决定**。
+
+**但这一项不能按"移植"来做，这是本节的关键结论。** ❌ **本段结论已于 2026-10-01 推翻，见 6.44.1。**
+
+> **原结论（已作废）**：micro compaction 来自 fork 自有的 v2 副本，上游从未有过，因此 `detect()`
+> 那份参考实现「随包删除后已不存在于任何地方」，重建它属于「无参考实现的创作」，需用户裁决。
+>
+> **推翻理由**：`.tmp/v2-ref/…/agent/microCompaction/` 有 **4 个文件**（`flag.ts` / `microCompaction.ts`
+> / `microCompactionOps.ts` / `microCompactionService.ts`），`cacheMissedThresholdMs` 与
+> `minContextUsageRatio` 两个参数就在其中。参考实现**完整可读**，这是一次**移植**而非创作，
+> 原「不得自行开工」的闸门不成立。完整契约与 `detect()` 实现见 6.44.1。
+
+**当前行为不危险，无需急改**：开关默认关（`server/engine.rs:404-409` 解析 `[experimental]`），
+且变换是确定性投影、store 保留原文，所以即使触发得比 v2 频繁，也不会丢数据。
+
+### 6.30 2026-10-01 `promptWithSkills` 对齐 v2：元数据取调用方 parts（另记 3 处未修偏差）
+
+参考库：`.tmp/v2-ref-upstream`（`upstream/main @ 21406fb4c8`，origin = MoonshotAI/kimi-code）。
+按 §6.28 的方法论更正，本节一切晚于导出点的判定都读上游对象，不读 `.tmp/v2-ref`。
+
+**本轮已改**（`packages/node-sdk/src/native/sdk-rpc-client-native.ts::promptWithSkills`）：
+v2 `AgentSkillService.promptWithSkills`（`features/skill/skillService.ts:139-146`）把 prompt 元数据
+从**调用方自己的 parts**（`input.input`，尚未拼上渲染块）派生，并在记录 activation 之前应用；
+拼给引擎的内容则是 `[...prepared.map(a => a.part), ...input.input]`（`:155`）。
+本 fork 之前把两者合成一份 parts 交给 `prompt()`，而 `prompt()` 只能从递给它的 parts 派生元数据，
+于是 skill 渲染体（`User activated the skill …` + `<skill-loaded>` 包装，含本机绝对路径）成了
+会话标题与 `lastPrompt` 的开头。实测（改前）：`"Please fix the failing test User activated the
+skill \"review\"…"`；把渲染块前插后进一步变成 `"User activated the skill \"review\"…"`——
+`/skill:xxx` 内联激活走的正是这条路径，新会话标题因此变成说明书开头。
+现按 v2 拆开：以调用方 parts 调 `applyPromptMetadata`，`prompt()` 传 `skipPromptMetadata: true`，
+与 `activateSkill` 既有写法（`/`name args` + skip）同构；并照 v2 只在 main agent 上应用
+（btw 侧通道不动会话元数据）。测试钉在 `session-skills.test.ts`
+（`derives the title and lastPrompt from the caller text, not the skill body`，撤掉修复即红）。
+
+**同时确认两处改动与 v2 一致，予以保留**：整包校验（`prepareBundled` 遇未知名字抛
+`SKILL_NOT_FOUND`，故整包拒绝而非丢弃单个）、渲染块前插（`:155`，且 `protocol/events.ts:50`
+与 `transcript/groupTurns.ts` 的 `parts.slice(bundled.length)` 都要求这个顺序——旧顺序会把用户
+自己的前几个 part 折进技能卡片）。
+
+**本轮发现但未修的三处偏差**（按铁律登记，不自行开工；都需要用户裁决或独立排期）：
+
+| # | v2 行为 | fork 现状 | 判定 |
+|---|---|---|---|
+| a | `skill.activated` 的 `agentId` 取 `scopeContext.agentContext.agentId`（`skillService.ts:248`） | ~~硬编码 `'main'`~~ | **本轮已改**：两条路径（`promptWithSkills` / `activateSkill`）都改取 `this.interactiveAgentId`。先确认过无消费者依赖该值：TUI `handleSkillActivated`（`session-event-handler.ts:1298`）不按 agentId 分流，kimi-web `agentEventProjector.ts:1514` 显式忽略该事件。测试用 btw 面板同一条缝（`harness.withInteractiveAgent` + `startBtw`）驱动，断言事件带 btw agentId。**但可见症状未变**：`handleSkillActivated` 仍不按 agentId 过滤，卡片依旧落在主 transcript——btw 面板没有自己的技能卡片渲染面，单独记在下方 |
+| b | 非用户可激类型拒绝：`!isUserActivatableSkillType(skill.metadata.type)` → `SKILL_TYPE_UNSUPPORTED`（`:199`，类型 ∈ {undefined,prompt,inline,flow}，`catalog/types.ts:82-87`） | ~~两条路径都没有此门~~ | **本轮已改**，且是本轮最大的一块：见下方 §6.31 |
+| c | 提交前预检：`input.input` 为空 → `REQUEST_INVALID`，`input.skills` 为空 → `REQUEST_INVALID`（`:126-134`） | 无预检；空 input 由 Rust 引擎在更深一层以 `request.prompt_input_empty` 拒（错误码不同、时机更晚），空 skills 则退化为一次普通 prompt | 可对齐但优先级低；注意加预检后元数据应用时机需一并前移 |
+
+**btw 技能卡片渲染面**（(a) 的可见一半，单独记）：v2 的 btw 面板有自己的 transcript，技能卡片落在
+子代理名下；fork 的 `handleSkillActivated` 无条件写主 transcript，btw 面板收不到卡片。这不是 v2
+移植而是 UI 缺口，登记待排期。(a) 已让事件归属正确，但这一项不做，btw 的技能卡片依旧显示在主对话里。
+
+### 6.31 2026-10-01 `/skill:` 提示词改由引擎渲染（(b) 的完整落地，附一处同源修复）
+
+**为什么不是把 v2 的渲染器搬进 TS**：fork 早就有两份渲染器——引擎的 `tools/skill.rs`（模型 `Skill`
+工具路径，带 `$ARGUMENTS` / `${KIMI_SKILL_DIR}` 展开、plugin 指令前缀、builtin 支持）与 SDK 的
+`sdk-rpc-client-native.ts::renderSkillPrompt`（`/skill:` 路径，手写）。v2 只有一份，且在引擎侧：
+`AgentSkillService` 向自己的 catalog 要（`skillService.ts:207`）。所以本轮**不新增第三份**，而是把
+引擎已有的那份暴露给 `/skill:` 路径用。
+
+**改了什么**
+
+| 面 | 内容 |
+|---|---|
+| 引擎 `tools/skill.rs` | 新增 `is_user_activatable_skill_type`（v2 `catalog/types.ts:85-87` 的原判定）、`SkillPromptError`、`UserSlashSkillPrompt`，以及 `render_user_slash_skill_prompt`——复用 `Skill` 工具路径同一套 `scan_skill` / `expand_skill_parameters` / `prefix_plugin_instructions` / `render_skill_attributes`，只把 trigger 换成 `user-slash` 并按 v2 `prompt.ts:29-33` 加指令行 |
+| 引擎 `napi_bindings.rs` | 新增 `session_render_skill_prompt`，返回 `{status: ok\|not_found\|type_unsupported, text, name, path?, source?, skillType?}` |
+| 引擎 `skills/mod.rs` | `SkillDescriptor` 补 `skill_type`——`ParsedSkillMeta` 早就解析了它（v2 `SkillMetadata.type`）却从不序列化，导致 TS 侧 `SkillSummary.type` 是个**永远收不到的字段**。补上后该声明不再是谎言 |
+| SDK | `renderSkillPrompt` → `resolveSkillPrompt`：走引擎，按 `status` 抛 `skill.not_found` / `skill.type_unsupported`（文案与 v2 逐字一致：`Skill "x" cannot be activated by the user`）；两条激活路径的 origin / `skill.activated` 事件改带目录给出的 `skillType` / `skillPath` / `skillSource`（原先一律 `source="project"` 靠猜） |
+| SDK 兜底 | 老 addon（无该导出）仍走原 `renderProjectSkillPrompt`，行为与今天完全一致——只在项目目录找、不展开参数、不设类型门。这是**降级**，不是平级实现，故明确注释 |
+
+**顺带修掉的同源缺陷**（(b) 探测时发现，一并解决）：`renderSkillPrompt` 只在
+`<workDir>/.kimi-code/skills/<name>/SKILL.md` 找文件，因此 **builtin 技能与 `extra_skill_dirs`
+今天 `/skill:` 激活必定 `skill.not_found`**，哪怕系统提示词的 `# Skills` 章节正把它们列给模型。
+引擎扫描覆盖 project / extra / user / builtin 四类，交给它就自然覆盖了。测试
+`activates a builtin skill the host-side renderer could not resolve` 钉住这一条。
+
+**行为变化（用户可感知，需要 release note）**
+1. `type: reference`（及其他非用户可激类型）的技能，`/skill:` 激活从"能激活"变成报
+   `skill.type_unsupported`。这是 v2 的规则，但对本 fork 的存量用户是收紧。
+2. builtin 与 `extra_skill_dirs` 技能从"激活失败"变成可激活。
+3. 渲染出的 `<skill-loaded>` 属性与正文改由引擎给出：`source` 不再恒为 `project`，
+   `$ARGUMENTS` / `${KIMI_SKILL_DIR}` 真正展开，`ARGUMENTS:` 尾行消失（v2 没有这一行），
+   plugin 技能会带 `<plugin-instructions>` 前缀。
+
+**测试**：Rust 4 个（门判定、渲染块与 provenance、`reference` 被拒、未知名字、参数展开），
+`session-skills.test.ts` 3 个（builtin 可激活、`reference` 被拒且整包被拒、既有 15 个全绿）。
+`cargo test` 3097 passed / 0 failed，`cargo clippy -D warnings` 与 `cargo fmt --check` 干净。
+
+**未做**：(c) 的空输入预检、btw 技能卡片渲染面。按用户指示，等 fork 与 v2 一致后再补。
+
+### 6.32 2026-10-01 skill 扫描优先级对齐 v2，并记下本轮审计的其余缺口
+
+**已改：扫描顺序与 `source` 标签**。v2 的来源优先级是显式常量
+（`features/skill/catalog/skillSource.ts:11-17`，`builtin 0 < plugin 5 < extra 10 < user 20 <
+workspace 30`），由 `workspaceSkillCatalogService.ts:140` 按**数字大者胜**应用
+（`remerge()` 里 `toSorted((a,b) => a.priority - b.priority)` 后逐个 `register(..., {replace:true})`）。
+fork 的 `scan_all_skills_with_extra_and_merge` 是"先到先得"，顺序为 project → extra → user →
+builtin，两处偏差：
+
+1. **`extra_skill_dirs` 被排在 user 之前**，于是同名技能里 extra 目录压过用户目录——与 v2 的
+   `user(20) > extra(10)` 相反。现改为 project → user → extra → builtin。
+2. **extra 目录里的技能被标成 `"project"`**，而 v2 给它 `"extra"`。这个标签会一路进到模型看到的
+   `<skill-loaded source=...>`（§6.31 之后由引擎渲染），标错等于对模型撒谎。已改为 `"extra"`。
+
+改的是同一个扫描函数，所以系统提示词的 `# Skills` 章节、`Skill` 工具的解析、napi 的技能目录三处
+同时对齐。测试 `test_extra_dirs_rank_below_user_and_report_their_own_source` 钉住两半，并已逐半
+验证非空转（改回旧标签 → `left: "project" / right: "extra"`；把 extra 挪回 user 之前 →
+`left: "From an extra dir" / right: "From the user scope"`）。
+
+**本轮审计到的其余偏差，已按 §6.33–§6.36 逐条落地**（用户指示"完整修"）。原表五项的处置：
+
+| # | 处置 | 落在 |
+|---|---|---|
+| d | **已修**：plugin 技能来源补齐——独立扫描根、优先级 5、plugin 身份、`skillInstructions` 前缀 | §6.33 |
+| e | **已修**：`activate` 接受 `content` / `attachments`，两者都进 origin，协议 schema 同步 | §6.34 |
+| f | **改判为非缺口**（不是"未修"）：fork 用 prompt id 放置 steer 消息，合并会破坏它 | §6.35 |
+| g | **已修**：user-slash 路径发 `skill_invoked` / `flow_invoked` | §6.36 |
+| h | **已修**，且从"线形不兼容"升级为**真缺陷**：transcript 一直在丢弃 origin 的 metadata | §6.36 |
+
+**已确认无缺口的两处**（避免下次重复查）：
+- `inTurn`：v2 用它在 origin 上标记"turn 内的 steer 消息"（`isUndoAnchor` 判据之一）。fork 改用
+  prompt id 判定（`groupTurns` 的 `turnPromptIds` / `opensAsTurnPrompt`），机制不同但目的相同，
+  且 undo 提醒那条缺口已由 §6.23.5 单独登记。
+- `$ARGUMENTS` 展开、plugin 指令前缀、嵌套深度门、sub-skill 限定名：§6.31 之后引擎那份渲染器
+  已覆盖用户路径，两条路径共用同一实现。
+
+**未验证项（如实记录）**：渲染块前插这一顺序，本轮**没有**端到端钉住。该套件里
+`@moonshot-ai/kosong` 的 fake provider 从未被任何断言消费过（原生 Rust 引擎不经过它），
+turn 既不产生 provider 调用也不落 `wire.jsonl`，因此模型侧顺序与落盘顺序都无法在此环境观测。
+已尝试并放弃的路径：`session.getContext()`（返回空）、`agents/main/wire.jsonl`（ENOENT）。
+消费侧（`transcript`）的折叠语义另有 `packages/transcript/test/layers.test.ts` 覆盖；
+缺的是生产侧的一钉，需要一个能真正跑起模型调用的测试夹具。
+
+### 6.33 2026-10-01 plugin 技能来源：独立扫描根、优先级 5、plugin 身份、`skillInstructions` 前缀
+
+**已改。** v2 的 `pluginSkillSource.ts` 是一个独立的 `ISkillSource`（`id =
+PLUGIN_SKILL_SOURCE_ID`、`priority = SKILL_SOURCE_PRIORITY.plugin = 5`），发现逻辑在
+`manager.pluginSkillRoots()`（`app/plugin/manager.ts:307-321`）：遍历 enabled 且
+`state === 'ok'` 的插件记录，读 manifest 的 `skills`（单路径或数组，相对插件根解析），每条产出
+一个 `SkillRoot`，并挂上 `plugin: { id, instructions: record.skillInstructions }`
+（`manager.ts:614` 从 manifest 解析）。
+
+fork 的现状与三处偏差：
+
+1. **没有独立的 plugin 来源。** `PluginManager::plugin_skill_dirs()`（`server/plugins.rs`）把插件
+   目录塞进 `extra_dirs`（napi 的 `skill_dirs`、`server/mod.rs` 四处 `extra.extend(...)`）。
+   **发现本身是通的**——这纠正了上一轮 §6.32 表格里"无 plugin 技能扫描源"那句话：`skills/mod.rs`
+   里确实没有 plugin 字样，但插件技能是被扫到的。
+2. **优先级"恰好正确"，但没有被表达。** 插件目录被 append 在 `extra_skill_dirs` 之后，而扫描是
+   先到先得，所以实际顺序（project → user → extra → **plugin** → builtin）与 v2 的名次一致。
+   但这是两个列表拼接的副产物：`merge_all_available_skills` 只作用于 brand 分组、不作用于 extra
+   组（`scan_all_skills_with_extra_and_merge` 第 3 步是逐目录 `scan_directory`），所以开关两种取值
+   下这条路径都不会错——代价是**插件身份无处可挂**。
+3. **`skillInstructions` 从未落地。** `SkillPluginWire { id, instructions }`（`tools/skill.rs`）与
+   `prefix_plugin_instructions` 都在，`ResolvedSkill.plugin` 也有字段，但**只有 host state bridge
+   那条路会填**，扫描这条路恒为 `None`——插件声明的指令因此永远到不了模型。
+
+改动（新增第一类扫描根 `skills::PluginSkillDir { dir, plugin_id, instructions }`）：
+
+- `PluginManifest` 增 `skill_instructions`；`plugin_skill_dirs()` 改为返回
+  `Vec<PluginSkillDir>`（含 id 与 trim 过的 instructions），另出 `plugin_skill_dir_paths()` 供只需
+  扁平路径的调用方（REST 技能列表、提示词章节）。
+- `SkillScanRoots` / `PipelineSpec` / `NativeToolset` 各增 `plugin_dirs`；扫描顺序由
+  `roots_in_precedence_order()` 单点表达（extra 在 plugin 之前，即 v2 的 10 > 5），`catalog()` 与
+  `scan_skill` 共用它，不再各拼一份。
+- `scan_skill` 按**技能目录的父目录**反查 plugin 根（plugin 根是技能目录的*容器*，`scan_directory`
+  读的是 `<root>/<skill>/SKILL.md`），填 `ResolvedSkill.plugin`。渲染器随即自动生效，两条触发路径
+  共用（§6.31 那个 `prefix_plugin_instructions`）。
+- **独立 server / ACP 路径原本完全看不到插件技能**：`main.rs` 构造 `ServerEngine` 时 server 还不
+  存在，而 spec 的 `skill_dirs` 只有 config 的 extra 目录。修法是给引擎装一个**读取器**
+  （`with_plugin_skill_roots(Arc<dyn Fn() -> Vec<PluginSkillDir>>)`），由 `Server::with_engine` 用
+  自己的 `plugin_manager` 装上，`session_spec` 每 turn 现取。选"现取"而不是缓存 + 刷新钩子，是因为
+  插件有 install / enable / disable / remove 四条改动路径，缓存就多四处可能漏掉的同步点；读取器让
+  下一个 turn 必然是新的。`PluginSkillRoots` 起了 type alias，否则 clippy `type_complexity` 拦下。
+
+**标签说明**：plugin 技能在 wire 上仍是 `source: "extra"`——v2 自己也这么标（`manager.ts:314` 的
+`source: 'extra'`），身份靠 `<plugin-instructions plugin="id">` 体现；`skill-loaded` 标签**没有**
+`plugin` 属性，因为 v2 的 `renderSkillAttributes`（`features/skill/prompt.ts:57-69`）只有
+name / trigger / source / dir / args 五个。
+
+**测试**：`plugin_roots_rank_below_extra_dirs`（优先级 + 插件独有技能确实被扫到）、
+`a_plugin_contributed_skill_is_prefixed_with_the_plugin_instructions`（user-slash 路径）、
+`the_model_tool_path_prefixes_plugin_instructions_too`（模型工具路径，且不借 host bridge 兜底）、
+`enabled_plugins_contribute_skill_dirs_and_mcp_configs`（manifest 的 `skillInstructions` 被读出并
+trim）。新测试均已验证非空转。
+
+**未验证项（如实记录）**：`Server::with_engine` 装读取器这条，只经编译与既有 session 套件覆盖，
+**没有**在真实插件安装后驱动一个 turn 去观察 `Skill` 工具命中插件技能——那需要起一个 standalone
+server 并装一个插件，本环境未做。napi 路径（CLI / TUI / VS Code 实际走的路）的 plugin 目录是每次
+`runTurn` 现取的 `plugin_skill_dirs()`，不存在新鲜度问题。
+
+### 6.34 2026-10-01 `activate` 的 `content` / `attachments`：补齐生产端
+
+**已改。** v2 的 `SkillActivationInput`（`features/skill/skill.ts:8-9`）带
+`content?: ContentPart[]` 与 `attachments?: PromptFileAttachment[]`；`activate` 提交的是
+`[rendered, ...(input.content ?? [])]`（`skillService.ts:73-85`），`attachments` 进
+`SkillActivationOrigin`。
+
+§6.32 记的是"消费端在、生产端缺"，现在两端都通：
+
+- `ActivateSkillRpcInput` 增 `content` / `attachments`；`Session.activateSkill` 的第三个参数
+  （`{ content?, attachments?, displayText? }`）把它们送下去，并把 `displayText` 收成
+  `clientMetadata`（此前公开 API 连 `displayText` 都没有入口）。
+- origin 侧：`UserPromptOrigin` / `SkillActivationOrigin` 增 `attachments`（protocol 的
+  `userPromptOriginSchema` / `skillActivationOriginSchema` 同步，共用 `promptFileAttachmentSchema`），
+  SDK 侧 `PromptFileAttachment` 同形。`transcript` 侧未动——`groupTurns.ts:524` 的
+  `originFileAttachments` 早就认这两种 origin。
+- 引擎侧无需改动：origin 对引擎是**不透明**的（随 `LLMMessage` 透传），Rust 不解释这两个字段。
+
+**测试**：`carries the origin metadata as v2 entry list, plus attachments and trailing content`
+断言 `turn.started` 回显的 origin 上 `attachments` 与 `clientMetadata` 数组都在（`turn.started` 会
+带出 origin，所以这一层可观测）。**未验证**：`content` 追加块在模型侧的位置——与 §6.32 末尾那条
+"渲染块前插顺序无法观测"是同一个环境限制。
+
+### 6.35 2026-10-01 `mergeSteerMessages` 改判为非缺口（fork 机制不同，合并会致回归）
+
+**结论：不移植。** v2 在一次 step 里 drain 出多条 steer 时，用 `mergeSteerMessages`
+（`human/agent/origin.ts:87-123`）把它们并成**一条** user 消息，技能块提到最前，
+activations / attachments / clientMetadata 依次拼接——这依赖 v2 在 origin 上用 `inTurn` 标记
+"turn 内的消息"。
+
+fork 不用 `inTurn`：它给每条消息带 **prompt id**（`enqueue_steer` → `LLMMessage.prompt_id`），
+`transcript` 靠 `groupTurns` 的 `turnPromptIds` / `steeredByMessageId` 把 steer 消息**按 id 放回**
+它所属的那次提交。合并会把 N 条消息压成 1 条，N−1 个 prompt id 随之消失，**放置信息一起丢掉**——
+即 §6.32 已记的同一处机制选择在另一处的必然后果。
+
+所以这不是"漏了一个合并"，而是 fork 用另一套机制解决了同一问题。照搬 v2 会主动引入回归，按
+AGENTS.md「不准发明行为，也不得为对齐而破坏既有机制」判为 **not-applicable**；不记进
+`upstream-v2-delta-allowlist.json`（那本账只记"v2 有、fork 刻意不做"的**产品**取舍，此处是机制
+等价，不是有意舍弃功能）。
+
+**若日后要改**：方向是把 fork 的 prompt id 机制换成合并语义（或让合并后的消息保留全部 prompt
+id），而不是把 v2 的合并搬过来。
+
+### 6.36 2026-10-01 user-slash 遥测 + origin `clientMetadata` 数组化（(g) 与 (h)）
+
+**(g) 遥测。** v2 的 `publishActivation`（`skillService.ts:277-287`）对每次激活发
+`skill_invoked { skill_name, trigger }`，`type: flow` 再发一条 `flow_invoked { flow_name }`。
+fork 的模型工具路径已有（`tools/skill.rs`），`/skill:` 路径的激活记录在**宿主**侧（SDK 发布
+`skill.activated` + origin），所以遥测也从宿主发：新增 `trackSkillInvocation()`，`activateSkill`
+与 `promptWithSkills` 的每条激活各调一次。不需要给引擎开口子——该路径的激活本来就是宿主记的账。
+
+**(h) `clientMetadata` 数组化：从"线形不兼容"改判为真缺陷。** 上一轮只记了"若日后要与上游交换
+origin 需先处理"，理由是 fork 的判定逻辑在自己的 `applyPromptMetadata` 里、语义等价。**但消费端
+并不是这么写的**：
+
+- `transcript` 的 `projectTranscriptUserOrigin`（`contract/origin.ts:14-16`）只接受**数组**，非数组
+  一律当空；`origin.ts:28` 更进一步——`skillActivations` 不是数组且 `clientMetadata` 为空时直接回落
+  成 `{ kind: 'user' }`。
+- `packages/transcript/src/contract/schema.ts:74,82,377` 与 `model/prompt.ts:16` 的类型全是数组。
+
+即 **fork 发的对象形 metadata 从来没进过 transcript**：每条 prompt 的 `displayText` 都被静默丢弃，
+而丢弃无声无息（回落成普通 user origin，正是 v2 对"没有 metadata"的处理）。`promptWithSkills` 的
+origin 更是连 `clientMetadata` 都没带（只带 `skillActivations`）。
+
+修法是**生产端对齐 v2 的数组形**（不是改消费端）：`originClientMetadata()` 把 `{ displayText }`
+转成 `[{ display_text }]`，`activateSkill` 与 `promptWithSkills` 两条 origin 都带。SDK 与 protocol
+的 origin 类型随之改为数组，并新增 `PromptOriginMetadataEntry` 以区别于**提交层**那个
+`ClientPromptMetadata`（单对象）。下游无人读 `origin.clientMetadata`（`rg` 只命中 transcript 自己的
+类型声明），改 wire 形状是安全的。
+
+**测试**：`rejects an empty prompt or an empty skill list before touching the catalog`（v2
+`skillService.ts:126-134` 的两个前置检查。空 skills 那半是实际会咬人的：没有它，一次空技能提交会
+退化成"什么都没激活的普通 prompt"；空 input 那半在 RPC 边界，公开 API 上被共享的
+`normalizePromptInput` 先拦下，所以断言的是 `prompt()` 也在用的那个码，防止它漂成第二个错误码）、
+`records a user-slash activation in telemetry`、
+`carries the origin metadata as v2 entry list, plus attachments and trailing content`。
+
+### 6.37 2026-10-01 `PluginInfo` 补齐 v2 契约：manifest / kind / shadowed / diagnostics / 安装时刻
+
+**发现（方向与直觉相反）。** 上一轮我把它记成"TUI 面板读死字段"，只对了一半。面板
+（`apps/kimi-code/src/tui/components/messages/plugins-status-panel.ts`）读的字段**恰好就是 v2
+`PluginInfo` 的字段**（`app/plugin/types.ts:148-158`）：`root` / `installedAt` / `updatedAt` /
+`manifestKind` / `manifestPath` / `manifest` / `mcpServers` / `shadowedManifestPath` /
+`diagnostics`。所以面板是**忠于 v2 的**，欠生产端的是引擎——和 (e)(h) 同一类（消费端在、生产端缺）。
+而它一直没被发现，是因为 SDK 的 `PluginInfo` 带着 `readonly [key: string]: any`
+（`packages/node-sdk/src/types.ts:284`）：引擎少发的字段在类型层面**无法被检出**。
+
+**顺带查出两个更要紧的东西**，都不是"面板少一行"：
+
+1. **manifest 路径没有容器检查（安全相关）。** fork 解析 `skills` 的方式是
+   `root.join(rel.trim_start_matches("./"))`，并且**显式接受绝对路径**
+   （`if Path::new(&rel).is_absolute() { PathBuf::from(&rel) }`）。v2 的
+   `resolveDirListField`（`app/plugin/manifest.ts:161-212`）要求每条以 `./` 开头，
+   再 canonicalize，然后 `isWithin(real, realRoot)` 逐段判断是否越界
+   （`isWithin` 是**按路径段**比，`/plugin-evil` 不算在 `/plugin` 内）。也就是说 fork 允许一个
+   第三方 manifest 用 `"skills": "/任意/目录"` 把扫描范围指到机器上任何地方。现已按 v2 补上。
+2. **单一 `skills` 字符串会毁掉面板的技能列表。** v2 的 `PluginManifest.skills` 归一为
+   `string[]`，面板是 `for (const dir of info.manifest?.skills ?? [])`——若按 manifest 原样透传
+   一个字符串，迭代出来的是**逐字符**。现在恒为数组。
+
+**已改（`server/plugins.rs`）**：
+
+- 新增 `parse_plugin_manifest(root) -> ParsedPluginManifest`（v2 `parseManifest`），`read_plugin_manifest`
+  变成只取 `.manifest` 的薄封装。`ParsedPluginManifest` = v2 的 `ParsedManifestResult`
+  （`manifest.ts:30-36`）四个字段。
+- **两处 manifest 位置**：`kimi.plugin.json` 与 `.kimi-plugin/plugin.json`，根式优先，另一个作为
+  `shadowedManifestPath` 上报（v2 `manifest.ts:16-17,55-57`）。fork 此前只读根式，所以用目录式的
+  插件**什么都不贡献**。`\\?\` verbatim 前缀（Windows `canonicalize` 产物）在出模块时剥掉，
+  否则会原样进 wire 和面板。
+- `PluginManifest` 补齐 v2 字段集（`types.ts:34-52`）**减去 `systemPrompt` / `systemPromptPath`**
+  （本引擎从不读，manifest 留着不影响加载）：`keywords` / `author`（字符串与对象两种写法都收，
+  v2 `readAuthor` 的简写）/ `homepage` / `license` / `agents` / `sessionStart` / `interface`，
+  `skills` / `agents` 改为**已解析、已容器校验**的绝对路径列表。`RawPluginManifest` 只在解析这一层
+  存在——"字符串还是数组"这个区别只在该层之前有意义。
+- `PluginInfo` 增 `manifest` / `manifest_kind` / `shadowed_manifest_path` / `diagnostics`
+  （`PluginDiagnostic { severity, message }`），并修掉 `manifest_path` 的旧行为：此前**无条件**返回
+  `<root>/kimi.plugin.json`，哪怕文件不存在（用目录式的插件会被指到一个不存在的文件），现在用解析
+  真正用到的那条路径。
+- `InstalledPluginInfo` 增 `installed_at` / `original_source`（都可选，**旧记录照常反序列化**，
+  缺就是"未知"，面板那两行不画——对旧记录而言这是真话：那一刻本来就没记）。首次安装盖章、
+  之后保留，所以"重装"不会悄悄改写安装时间。SDK 侧 `PluginInfo.manifest` / `diagnostics` /
+  `manifestKind` 从 `any` 换成真类型（`PluginManifestInfo` / `PluginDiagnostic` /
+  `PluginManifestKind`），面板的读法从此受类型检查。
+- `state` / `has_errors` **故意不动**：仍是 `root.is_some()` 与"manifest 读不出来"。把 v2 的
+  name 正则、unsupported runtime fields 那套校验接进来会让**现有插件从 ok 翻成 error**，这是产品
+  取舍不是对齐动作，留给用户裁决（见下"本节未做"）。
+
+**`skills` 不存在目录的行为变了**（有意的 v2 语义）：此前 manifest 声明几条就算几个技能
+（`count_manifest_paths` 数声明数），现在非目录的条目被丢弃并给一条 `warn`。受影响的只有
+manifest 写错、目录其实不存在的插件——它们此前显示"1 个技能"而实际扫到 0 个。
+
+**测试**（Rust）：`a_manifest_is_read_from_either_location_and_a_shadowed_one_is_reported`、
+`a_manifest_path_may_not_leave_the_plugin_and_every_drop_is_reported`（**非空转已验证**：把
+`is_within` 短路后该测试失败，并明确打印出被接受的越界路径 `...\outside-skills`）、
+`containment_is_component_wise_not_a_prefix_match`、`the_manifest_reaches_the_host_in_the_shape_the_panel_reads`、
+`an_install_records_when_and_from_where_and_keeps_both`（**非空转已验证**：去掉时间戳后失败）、
+`an_older_install_record_loads_without_the_new_fields`。
+两个既有 fixture 补了 `skills` 目录（它们声明了该目录却没建，断言的是旧的宽松计数）。
+TS：`native-harness.test.ts` 的插件用例扩到断言 `manifestKind` / `manifestPath` /
+`shadowedManifestPath` / `installedAt` / `originalSource` / `manifest.sessionStart` /
+`manifest.skillInstructions` / `manifest.keywords` / `manifest.interface` / `manifest.skills` /
+`diagnostics` 的**线上形状**——addon 重建后跑通，且首次运行就抓到一处真实不符（空 `diagnostics`
+在 wire 上是**省略**而非 `[]`）。
+
+**本节未做（如实登记，待裁决）**：
+
+| 项 | v2 | fork 现状 | 为什么不在本节做 |
+|---|---|---|---|
+| `state` / `hasErrors` 由 diagnostics 决定 | `PluginState = 'ok' \| 'error'`，`manager` 按诊断置态 | `root.is_some()` → ok / remote | 接上 v2 的 name 正则等校验会让**现存插件翻成 error**，是产品取舍（谁受影响、怎么逃逸）需要用户拍板 |
+| `updatedAt` | 插件内容更新时写 | 字段不存在 | fork **没有插件更新流程**，无从写入；加了就是"永为 null 的死字段" |
+| `github`（owner/repo/ref/installedSha） | marketplace 带 github ref | marketplace schema **没有** github 字段（只有 `source` 字符串） | 需要扩 marketplace schema + 安装路径，改动面远大于本节 |
+| `rootSkillFallback` / `scanMode: 'root-skill-only'` | 无 `skills` 但有根级 `SKILL.md` 时把插件根本身当技能根（`manifest.ts:103-108`、`manager.ts:316`） | 无 | fork 的 `scan_directory` 读的是 `<root>/<skill>/SKILL.md`，根级 `SKILL.md` 扫不到；要支持得给共享扫描器加"扫描模式"概念。本节**刻意不解析**该字段——解析出来却扫不到，比不解析更糟 |
+| `systemPrompt` / `systemPromptPath` | 内联 32 KB 上限 + 文件 | 无 | 本引擎不读，manifest 里留着不影响加载；`PluginManifest` 的文档注释写明了这个取舍 |
+
+### 6.38 2026-10-01 `source` 词汇表与 github 元数据：四个宿主消费者从"永远走不到"变成真的
+
+**发现。** §6.37 顺藤摸到 `plugin-source-label.ts`（`apps/kimi-code/src/tui/utils/`）——**它整个是照 v2
+契约写的**：`plugin.source === 'github' && plugin.github !== undefined`、
+`plugin.source === 'zip-url' && plugin.originalSource !== undefined`、
+`pluginTrustLabel` 只给 Kimi CDN 的 zip 官方/curated 徽章、`isOfficialPluginInstall` 同理。
+`plugins.ts:944` 的 `sourceIdentity` 是第五个读者。
+
+而引擎发的 `source` 是 **catalog 原始字符串**（`"./official/demo"` /
+`"https://github.com/obra/superpowers"`，兜底时是毫无意义的 `"plugin:{id}"`）——**永远不等于
+`'github'` 或 `'zip-url'`**。后果不是"显示得丑"，是四个机制恒为死代码：
+
+1. `pluginTrustLabel` 恒返回 `third-party`——**所有插件都没有官方/curated 徽章**。
+2. `formatPluginSourceLabel` 恒落到 `return plugin.source`，打印原始 URL 而不是
+   `github owner/repo@ref`。
+3. `isOfficialPluginInstall` 恒 false →
+   `plugin-update-notifier.ts:177` 的 `if (!isOfficialPluginInstall(installed)) return;`
+   **让官方市场的更新提示永不触发**。
+4. 详情面板的 `source` 行显示的是路径/URL 原文，而不是词汇值。
+
+**已改**：
+
+- 新增 `PluginSourceKind`（`local-path` / `zip-url` / `github`，v2 `types.ts:96` 的
+  `PluginSource`）、`PluginGithubRefKind`、`PluginGithubRef`、`PluginGithubMetadata`、以及
+  `classify_plugin_source()` / `parse_github_url()`——**逐条照 v2 `app/plugin/source.ts:19-92`**：
+  仅 `https` + `github.com`/`www.github.com`、剥 `.git`、`tree/<ref>`（7–40 位小写十六进制判为
+  `sha`，否则 `branch`）、`releases/tag/<tag>` → `tag`、`commit/<sha>` → `sha`、路径段
+  percent-decode 后 join；其余一律**不猜**（`blob/main/...`、非 github host、`http://` 皆非 github 源）。
+- `PluginInfo.source` / `PluginSummary.source` 改为该词汇值；`PluginSummary` 补
+  `originalSource` + `github`（v2 `types.ts:131-146` 本来就有——列表视图的标签与徽章正是从
+  **summary** 算的，此前两处都没有）。`PluginInfo` 补 `github` + `updatedAt`。
+- 分类输入取 `original_source`（安装时用户给的原字符串，拷贝进托管根之后唯一还有意义的写法），
+  退回 catalog 的 `source`——这正是 v2 把 `source` 与 `originalSource` 分开存的原因。
+- `InstalledPluginInfo.updated_at`：**每次安装都重新盖章，`installed_at` 保留首次**
+  （v2 `manager.ts:140-141`）。我上一轮判"`updatedAt` 无写入方"是**错的**——v2 的写入方就是 install
+  本身，因为这个引擎没有独立的更新流程，重装就是"更新"这件事。面板只在两者不同时显示该行。
+- SDK 侧 `PluginGithubRef` 原本**形状就是错的**（是 metadata 形状）、`ref?: any`、还带
+  `[key: string]: any`——正是它让 `plugin.github.ref.value` 在无生产端的情况下也能编译。
+  改为 `PluginGithubProvenance { owner, repo, ref: {kind,value}, installedSha? }`（`ref` 必填），
+  旧名保留为 `@deprecated` 别名。
+
+**一处刻意的偏差**：v2 对非 URL 的相对路径**抛错**（`source.ts:28-34`），因为它的 catalog 存绝对路径。
+fork 的 catalog 存 marketplace 相对路径（`"./official/demo"`，见 `resolve_plugin_root`），而它在
+记录存在之前就已经相对 marketplace 目录解析完了——所以非 URL 一律报 `local-path`，与 v2 解析后
+给出的答案相同。这条写进了 `classify_plugin_source` 的文档注释。
+
+**`installedSha` 不产出**：fork 不记录安装时的 commit，填一个就是编造；v2 的每个消费者都把"缺失"
+读作"无法与上游比对"而非"一致"。
+
+**`ref` 对裸仓库 URL 记 `branch` / `HEAD`**：v2 会先联网解析最新 release tag，解析不到才落
+`HEAD`（`github-resolver.ts:62-69`）。本引擎没有 resolver，而 `manager.ts:498` 的
+`explicitGithubRef` 本来就把 `value === 'HEAD'` 当"无显式 pin"丢弃——即 `HEAD` 是 v2 自己表示
+"未指定 ref"的写法，所有消费者读法一致。**在插件列表读取路径里加网络调用不是对齐，是发明。**
+
+**测试**：Rust 侧 `an_install_source_is_classified_the_way_v2_classifies_it`（v2 的每个分支 +
+六个"不算 github 源"的反例，**非空转已验证**：把 `looks_like_sha` 短路成恒 false 后该测试失败）、
+`the_wire_carries_the_source_vocabulary_and_the_github_metadata`（断言 `PluginSummary` 的
+**序列化 JSON** 里 `source === "github"`、`github.ref.kind === "branch"`）、
+`a_reinstall_keeps_the_install_time_and_advances_the_update_time`。
+TS 侧 `native-harness.test.ts` 补 `source` / `originalSource` / `github` 的线上断言（本地路径形状）。
+
+**覆盖限制（如实记录）**：`github` / `zip-url` 两种形状**只在 Rust+serde 层验证**。我先在
+`native-harness.test.ts` 写了装远程源的 TS 用例，失败后发现**装远程源会真的下载**（`pluginInstall`
+走的是取档路径，HTTP 404）——本环境无网络，所以 TS 层只能覆盖 `local-path`。三种形状的 serde
+输出由 Rust 测试断言，SDK 侧的类型与之逐字段对应。
+
+### 6.39 2026-10-01 `state` 由 diagnostics 决定（v2 `recordFrom`），并修掉 §6.37 引入的一个误报
+
+**上一轮我把这个列为"需要产品裁决"，那个判断过头了。** 重新核实两点：
+
+1. **谁按 `state` 分支？** 全仓检索：只有面板把它渲染成徽章
+   （`buildPluginsListLines` 的 `plugin.state === 'ok' ? '' : ' [${plugin.state}]'`）。**没有任何逻辑
+   以 `state` 为条件决定插件是否可用**。所以采用 v2 的规则是**纯报告层面**的。
+2. **§6.37 已经先移除了能力。** 那些会触发 `error` 的诊断（路径越界、不以 `./` 开头、类型不对）
+   在 §6.37 里**已经把对应路径丢了**——插件本来就拿不到那些技能。所以把状态改成 `error` 只是让徽章
+   与它**已经在做的事**一致，不是新增损失。
+
+**已改**（`plugins.rs`，逐条照 v2 `recordFrom`，`app/plugin/manager.ts:596-602`）：
+
+```rust
+let has_error = diagnostics.iter().any(|d| d.severity == "error");
+state = if root.is_none()          { "remote" }   // fork 自己的状态，v2 无此词
+    else if has_error || manifest.is_none() { "error" }
+    else { "ok" }
+has_errors = state == "error"     // 两者不再互相矛盾
+```
+
+`warn` **不**翻转状态（v2 同）。`remote` 保留给"已登记但本地无内容"——v2 没有这个词，因为它的每条
+记录都有托管根。
+
+**顺带修掉 §6.37 留下的一个真 bug（是我自己的测试发现的）。** 写"warn 不翻转状态"这条用例时，
+一个**根本不存在**的 `skills` 目录被报成 `resolves outside the plugin`（error）而不是 v2 的
+`not a directory`（warn）。原因：容器检查对**目标**做 `canonicalize`，失败时退回"按写法拼出的
+路径"，而根是**规范化过**的——Windows 上根常被拼成 8.3 短名（`C:\Users\ADMINI~1\...`），
+规范化后变长名（`C:\Users\Administrator\...`），两者一比就"越界"。也就是说**最普通的 manifest
+（声明了一个还没建的目录）会被报成越界错误**。改为 `canonicalize_allowing_missing()`：从最深的
+**存在**祖先做规范化再接回缺失的尾巴，两边形态一致。一个"见谁都喊越界"的容器检查比没有更糟。
+回归测试 `a_missing_declared_root_is_a_warning_and_not_an_escape` 钉住。
+
+**测试**：`the_state_follows_the_diagnostics_and_a_warning_does_not_flip_it`（四种情形：干净 → ok；
+仅 warn → **ok**；路径越界 → error；无 manifest → error，**非空转已验证**：把 error 分支短路后该
+测试失败）、`a_missing_declared_root_is_a_warning_and_not_an_escape`。
+
+**仍未做，且现在理由更充分**：
+
+| 项 | 为什么不在这节做 |
+|---|---|
+| v2 规则的后半：**error 状态的插件不贡献任何东西**（`pluginSkillRoots` 过滤 `state !== 'ok'`，`manager.ts:310`） | 这是**能力**变更而非报告变更：一条坏路径会让整个插件的技能、命令、MCP 一起失效。fork 的各贡献读取器（`plugin_skill_dirs` / `plugin_commands` / `plugin_mcp_servers`）今天都只看 `enabled`，不看 `state`。谁该为"一个可选路径写错"付掉全部功能，是产品判断 |
+| `PLUGIN_NAME_REGEX`（`^[a-z0-9][a-z0-9_-]{0,63}$`，`types.ts:196`） | 会**新增拒绝**：fork 的 `is_safe_plugin_id` 只查容器安全（分隔符/盘符/`..`），所以名为 `MyPlugin`、`plugin.v2` 的 manifest 今天可装，接上 v2 就会失败。仓内三个插件（`normify` / `kimi-webbridge` / `kimi-datasource`）都符合该正则，**受影响面只有第三方插件**——但那是"别人的插件突然不工作了"，需要你签字 |
+
+### 6.40 2026-10-01 双向审计：v2→fork 缺口与 fork 自创出处对照
+
+上游合并政策要求审计**两个方向**都是义务。本节把 2026-10-01 那次双向审计的结果落账：一头是 v2 有而 fork 没有（缺口 = 待补的移植债），另一头是 fork 有而 v2 没有（自创 = 按铁律需带出处，否则算缺陷）。
+
+**基线（先验证，再引用）**：
+
+- 参考取 `.tmp/v2-ref-upstream` = `21406fb4c8` = `upstream/main` HEAD，与 `refs/remotes/upstream/main` 一致。
+- 删除点 `2db62c835a`（`ecad4136d9^`）的 v2 树经 `git ls-tree` 确认**没有 `human/` 目录**。`human/` 由上游 2026-09-06 的 #3580（`485594f65e`）引入，早于 merge-base `52437299ff`（2026-09-23），但**不在 fork 拉取范围内**，故属真实差异而非快照失效。两份参考不可互换，本节同时对照过 `.tmp/v2-ref`（已退役副本，1022 文件）与 upstream（1042 文件，差 146 个 `human/` 文件）。
+- 机械门禁 `check:upstream-v2-delta` 当前为绿（12 commit / ported=3 / tracked=8 / not-applicable=1）。**它测不出本节任何一条**：门禁按 upstream commit 计增量，而自创模块与 `human/` 层级差异不产生新 commit。这正是 6.0 记的那个结构性盲区，此处是它的第一批实测样本。
+
+**判定词**：`ported` 同行为（可能改名）｜`partial` 部分实现｜`missing` v2 有而 fork 无｜`n-a` v2 有但无可观察行为（DI/架构件）｜`fork-original` v2 无对应。
+
+#### 6.40.1 v2 → fork：缺口
+
+**本表经 6.40.5 的反查修订过一轮。** 初版只搜了 `packages/kimi-agent/src`（Rust 侧），把几条实际由宿主层拥有的能力误判为缺失；另有两条经对照上游目录树后改判。下表是修订后的结果，**每条都注明了核实范围**。
+
+| 子系统 | 判定 | v2 出处 | 说明 |
+|---|---|---|---|
+| `agent/contextProjector/` strict 投影 + `structure:'strict'` 重发 | **本轮已补** | `projection.ts:66` `projectStrict`、`:260` `dedupeDuplicateToolCalls`、`contextProjectorService.ts:59`、`llmRequesterService.ts:594-601` | 见 6.40.3 |
+| undo 后的 state 对齐 | **partial（真实）** | `conversationUndoParticipants.ts:10-14`、`undoService.ts:110-160` | fork 的 checkpoint/rollback 栈**存在且已接进 turn 管线**（`storage/state_store.rs:175,210`；`callbacks.rs:1536`；REPL `/undo` 已调 `repl/mod.rs:781`），但**服务器那条 `POST /undo`（`server/mod.rs:5511-5602`）从不调 `rollback`**——同仓两条 undo 路径只有一条对齐了。另 `lastPrompt` 全仓从未写入（`server/mod.rs:2976` 恒为 `Value::Null`）。**不需要** v2 的 registry/phase 机制：fork 只有一类需对齐的 state，且已有快照机制 |
+| `!` shell 命令的**历史留存** | **partial（真实，但已从 missing 改判）** | `shellCommandService.ts:232,242`（`appendShellInput`/`appendShellOutput`） | **通道本身完整存在且属宿主层**：`sdk-rpc-client-native.ts:4261-4352`（spawn/流式/取消）、`apps/kimi-code/src/tui/kimi-tui.ts:1186-1315`（`!` 解析、流式、Ctrl-C、Ctrl-B 转后台）、`session-event-handler.ts:351` 消费 `shell.output`。**真正缺的只有历史留存**：v2 把命令与输出作为 `origin.kind='shell_command'` 的 user 消息 + `<bash-input>`/`<bash-stdout>` 标签**写进会话历史**，fork 不写。受影响的下游已核实：`session-replay.ts:372-395` 靠 `origin.kind` + 这些标签重建 `$ cmd` 卡片，`config-helpers.ts:101-103` 靠它把 shell 输入判为 replay 锚点——**两者都不会触发，结果是 `!` 命令在恢复的会话里完全消失** |
+| `agent/replayBuilder/` 的非消息 replay | **partial（真实，但已从 missing 改判）** | `replayBuilder/types.ts:32-43`（7 种 variant） | `resumeSession` + `ResumedAgentState` **已存在**（`sdk-rpc-client-native.ts:2444,2722-2759`），`replay` 数组也按序产出（`:2740`）；fold 也已有且与 v2 等价（`fold_wire_events` 合成 v2 逐字相同的 `TOOL_INTERRUPTED_ON_RESUME_OUTPUT`）。**真实缺口只有两点**：replay 数组只含 `{type:'message'}`，v2 有 7 种 variant，跨消息的 `plan_updated`/`permission_updated` 等失去时序（ACP 侧 `acp/mod.rs:841` 完全无法重建，只在 `session/load` 结果里带带外返回）；`meta.usage` 在 `:2494` 被重置为 0，尽管逐轮 usage 已落库。**不要去实现 `foldWireRecords`** |
+| usage 的 `byModel` 分组 + status 带 usage | **partial（真实）** | **`session/usage/usageAgentModel.ts:28-29,64-75`**、`usageEvents.ts:8-19` | 逐轮 usage 已落库（`sqlite_store.rs:1272`）、会话总计已累加并对外服务（`sdk-rpc-client-native.ts:5561-5567`、`:3229`）。缺两点：`AgentUsageMeta{by_model,current_turn,total}` 类型**已声明但从未构造**（`server/transcript/model.rs:687-694`，像半成品移植）；`status_payload`（`server/engine.rs:916-969`）无 `usage` 键，而 v2 里它是第一字段。cacheProbe 遥测缺（`cacheProbeService.ts:23` 仅对 fork 会话首轮）——属遥测非能力，**建议跳过** |
+| `agent/tokenCounting/` anchor 模型 | **missing（真实）** | `tokenCountingOps.ts:23-71`、`configSection.ts:12-19` | 四个 durable 事件（`token_counting.measured/truncated/rebased/turn_recorded`）全缺（`token_counting\.` 全仓零命中），config section 缺（fork 有完整的 config-section 框架可挂，如 `config/mod.rs:1396`），无 anchor 三元组。**已验证不是"雏形"**：provider 实测 usage 与估算**各算各的、永不相遇**。另注：`native/tokens.rs:87-92` 记明 anchor tracker 曾存在但作为未接线的重复实现被清理。`server/engine.rs:933` 的 `len()/4` 比 fork 自己的 `native::tokens::estimate_tokens` 更粗糙（对 CJK 低报约 4 倍），**这一行无论其余做不做都该单独修** |
+| `agent/userTool/` 持久注册 | **missing（真实）** | `userToolOps.ts:10,27,57`、`userToolService.ts:60` | `userToolKey` 是 `defineState(...).replayable(...)` 的 **durable** state（`:57`），配 `ToolsRegisterUserTool`/`ToolsUnregisterUserTool` 两个 durable 事件（`:24,40`）。fork 侧 `register_user_tool`/`UserToolRegistration`/`userToolKey`/`inheritUserTools` **全仓零命中** |
+| `toolResultRender` 状态包装 | **partial（真实）** | `toolResultRender.ts:32-49`（`renderStatus`）、`:51-68`、`:79-85` | fork 模型可见的 tool result（`run_turn.rs:1925`）只加 wall-time 前置；`tr.is_error` 只用于发事件（`:1907`），**从不包装模型可见内容**。i18n 串存在而无人用：`locales/en.json:609` 的 `"Tool output is empty."` 全仓只此一处。v2 侧每个请求的每条 `role:"tool"` 消息都过这个渲染（`projection.ts:342`），**这是模型判断工具成败的唯一信号**；且 `Read` 用渲染后字符数算截断预算（`readTool.ts:508-543`） |
+| `features/todo` 陈旧提醒 | **missing（真实）** | `todoListReminder.ts:7-8,21-33` | 阈值已核实：`TURNS_SINCE_WRITE=10` 且 `TURNS_BETWEEN_REMINDERS=10` **两者同时满足**才触发（`:25-30`）；计数**只数 assistant 消息**（`:43-61`），分别停在最后一个带 `TodoList` tool call 的 assistant（`:69-81`）与最后条 `origin.variant='todo_list_reminder'` 注入（`:83-88`）。fork 只有写入提醒（`todo_list.rs:20`），`injection/mod.rs:159-184` 的注册表里无此 variant |
+| `features/notify` nudge actor | **partial（真实，但价值最低）** | `notifyUserNudgeService.ts:34-62`、`notifyUserNudge.ts:6,67-88` | 两分支：连续 8 次 tool call 未 NotifyUser 的 streak nudge（阈值 `:6`）+ 中途文本回复提示（`:57-58`）；`notify_user_nudge` variant 未注册。**但它唯一效果就是往历史注入一条 system-reminder**，无状态、无 tool call、无协议事件；fork 的静态提示词指引（`prompt/builder.rs:75-76`）已覆盖意图。**可跳过** |
+
+**已改判为「不必做」的四条**（初版误判，反查后撤回）：
+
+| 初版判定 | 撤回理由 |
+|---|---|
+| `mediaProjection` snapshot 键控 | fork 的 `strip_all_media`（`media_budget.rs:278`）是**就地改写** `messages`，效果等价于 v2 按轮重放快照；`media_degraded`/`media_stripped` 是 `run_turn` 内 bool（`run_turn.rs:861-862`），与 v2 的按轮作用域一致；且每轮只 strip 一次，不存在重复剥离。**fork 中无任何消费者能观察到差异** |
+| `agent/blob/` byte LRU + blobref | fork 用另一套机制解决同一问题且更强：`media_budget.rs` 20MiB 请求预算（`:23`）+ 跨轮遗漏集（`:50`）、`file_cache.rs` 32 项 TOCTOU 安全缓存、每图字节预算。`blobref:` 协议在 TUI 与 `packages/protocol` **零消费者**——建了没有读取方 |
+| `agent/loop/` 7 个方法 | 全部存在（`session/mod.rs` 的 submit/steer/cancel/snapshot/settled/try_acquire_quiescence + `InjectionRegistry`），4 种 admission 模式与 v2 决策表**逐条对应**。fork 还多一项：steer 信号可打断阻塞等待（`session/mod.rs:622-627`） |
+| 13-policy 权限链 / `fullCompaction` / `loopEventFold` | 已逐条复核。13 条策略**顺序完全一致**（`permission/mod.rs:478-724`）。`fullCompaction` 策略集一致，唯一的 `blockRatio` 缺口因 fork 恒用 0.85 而**不可达**。`loopEventFold` 已确认 usage/llmTiming 差异真实，但该 fold 在 fork 里**只被自身单测使用**，且逐轮 usage 另有活路径 |
+
+
+#### 6.40.2 fork → v2：自创
+
+已记录（此处不重复论证）：`github.rs`（3826-3830）、`team/`（139、1249-1250）、`subagent/persistent.rs` debate（3839）、`memory_*`（1251-1252）、`knowledge_tool.rs`（1253-1254）、`opencode_adapter.rs`（1929-1977）、DDG/Bing/Sogou 搜索（2766-2801）。
+
+**本轮新登记三处**（此前无出处裁定）：
+
+| fork 模块 | v2 对应 | 依据 |
+|---|---|---|
+| `src/workflow/` + `tools/workflow.rs` | **无** | upstream `21406fb4c8` 全树 `*workflow*` 零命中；`app/` 无 `workflow/` 目录 |
+| `tools/lsp_tool.rs` + `native/lsp/` | **无** | upstream `*lsp*` 零命中；`agent/toolPolicy/evaluate.ts` 无 LSP 条目 |
+| `llm/thinking_guard.rs` | **无** | `human/llm/thinking.ts` 只解析 effort/capability；无 guard/repetition/n-gram |
+
+三者里 `workflow` 的 blast radius 最大——模型可影响的 JavaScript 在宿主进程内执行；`thinking_guard` 是**用户可见**行为（按启发式静默丢弃 thinking delta）。两者都需要一次产品裁决，不只是补台账。
+
+#### 6.40.3 本轮已补：strict 投影与 `structure:'strict'` 重发
+
+**为什么先做这条**：它是全部缺口里唯一有可构造失败场景的——历史里出现重复 `tool_call_id`（崩溃恢复、会话续跑、分叉重放都会）时，provider 直接回 400，用户的请求就此失败。v2 有自愈，fork 没有。
+
+**先纠正审计中一个不准确的结论**。初判以为 fork 缺整个 `projectStrict`，实读后发现 `sanitize_and_repair_projection` 已实现其中 4 项（含孤儿 tool result 丢弃），`Message` 也已带 `tool_call_id`。真正缺的只有 `dedupeDuplicateToolCalls` 这一项，外加**没有任何东西触发它**。
+
+**改动**（3 处）：
+
+1. `llm/request_structure.rs`（新增）— 移植 v2 的结构类判定链：`isRecoverableRequestStructureError`（`contract/errors.ts:327`）→ `isRequestStructureStatusError`（`human/llm/errors.ts:306`）→ `isToolExchangeAdjacencyStatusError`（同文件 `:300`），逐条照 `TOOL_EXCHANGE_ADJACENCY_MESSAGE_PATTERNS`（`:155-164`）与 `STRUCTURAL_REQUEST_MESSAGE_PATTERNS`（`:166-174`）移植，不自创关键词表。**413 与 400 的 media 类被刻意排除**——它们与结构类共享 400，但各有能用的恢复（degrade / strip），抢走会拿一个有效的恢复换一个空转。
+2. `turn_loop/tool_call_id.rs` — 新增 `dedupe_duplicate_tool_calls`。放在这个模块是因为它是既有同族：文件头的 `ToolCallIdNormalizer` 管的是**预防**（重复 id 不许进历史），新函数管**修复**（已录进去的重复 id 清理）。
+3. `turn_loop/run_turn.rs` — `'overflow_recovery` 循环内新增第三个投影分支（`:1333`），插在两个 media 分支之后、context overflow 之前，顺序照 v2 `llmRequesterService.ts:583-601`。三重护栏与 media 分支一致：`structure_strict` 为真不再进入。
+
+**与 v2 的一处有意分歧**：v2 判定为结构类就重发；fork 先确认去重**确有改动**才重发。理由是 fork 的修复面比 v2 窄（只去重，不修其他形状问题），若历史里根本没有重复 id，重发的是同一个请求，白白花掉唯一一次 strict 机会。
+
+**验证**：`cargo test --lib` 3134 passed / 0 failed / 1 ignored（基线 2933）。新增 11 项：结构类判定 5 项、去重 5 项（event_store 侧 5 + turn_loop 侧 5，其中重叠计 10）、端到端 1 项。端到端那项用真 `run_turn` + 一个按**请求内容**判定的 mock provider（读到重复 `tool_call_id` 就回 400），断言第二次请求只剩一个声明——**mock 不含"第一次无条件失败"这类旁路**，否则测试会在去重没生效时也变绿。**非空转已验证**：临时把分支条件短路为 `if false`，该项立即失败且失败原因正是原始 400；恢复后通过。
+
+**未验证**：真实 provider 的 400 文案是否落在移植的模式表内。模式表逐条来自 v2，但真实网关的措辞可能不同——这一点只能靠线上日志确认，本轮无 provider 可跑。
+
+#### 6.40.4 顺带更正：六处拿 fork 自己的退役副本当「v2」的引用
+
+根因是同一个：**把 fork 退役的 v2 副本（`ecad4136d9^`）当成了 v2**。3011-3017 已定过「上游曾有后删」与「上游从未有」必须区分，这六处的措辞都暗示了前者。逐条经 upstream `21406fb4c8` 全树检索核实：
+
+| 位置 | 原措辞 | 核实结果 |
+|---|---|---|
+| `src/workflow/mod.rs:8` | 「Ported from the retired `agent-core-v2` workflow domain (`src/app/workflow/)`」 | 上游两处路径均不存在 → 改为 fork 自创并指向本节 |
+| `tool-name-contract.json` `lsp` | 「v2 side: unreachable — lspFeature is imported by no feature assembly」 | 描述的是 fork 退役副本的内部结构；上游无 `*lsp*` |
+| 同上 `Knowledge` | 「v2 tool module `agent/knowledge/tools/knowledge-tool.ts` self-registers but NOTHING imports it」 | 上游无 `*knowledge*` |
+| 同上 `Team` | 「teamTool.ts self-registers but is imported by nothing」 | 上游无 `*team*`、无 debate 机制 |
+| 同上 `Memory` / `session_query` / `run_code` | 隐含 v2 有这些工具 | 上游全树零命中 → 补注 fork 自创 |
+| 同上 `unloadedInV2` | 「M3a 从 agent-core-v2 删除了 lsp/sessionQuery/codeRuntime/knowledge/team/workflow/memory/attachment」 | 混了两类：(a) lsp/workflow/sessionQuery/codeRuntime/knowledge/team/memory_* 上游**从未有**；(b) `attachment` 上游**仍然活着**（`human/agent/origin.ts` 的 `PromptFileAttachment`、`agent/media` 的 attachmentStore、`agent/tools/fileReadSource.ts`），M3a 删的是 fork 自己的副本 |
+
+`check:parity` 与 JSON 语法均已验证通过。
+
+#### 6.40.5 方法教训：这份台账第一版错了六处，错法有规律
+
+初版台账由「广度扫描 + 抽样核实」得出，随后做了一轮**反查**（专门去推翻自己的结论），六条被推翻。错的不是判断力，是**方法**。三条规律值得留给下一个做同类审计的人：
+
+**规律一：只搜引擎目录，就会把宿主层能力误判为缺失。**
+`!` shell 通道被初版判为「整体缺失」，理由是 `packages/kimi-agent/src` 里搜不到 `shell.output`。实际上它完整存在于 `sdk-rpc-client-native.ts:4261-4352` 与 `apps/kimi-code/src/tui/kimi-tui.ts:1186-1315`——**fork 把这条通道放在了宿主层，引擎不拥有它**。`agent/replayBuilder` 同理，`resumeSession` + `ResumedAgentState` 在 `sdk-rpc-client-native.ts:2444` 早已实现。
+→ **判「缺失」前必须跨 `packages/kimi-agent/src` / `packages/node-sdk/src` / `apps/*/src` 三处搜**，且要问「这条能力在 v2 是引擎行为还是宿主行为」——v2 的 DI 容器把两者混在同一个包里，fork 拆开了，目录边界不等价于行为边界。
+
+**规律二：v2 的「实现手段」不是 v2 的「行为」。**
+`agent/blob/` 的 byte LRU + `blobref:` 协议缺失是真的，但**不该照着建**：fork 用 `media_budget.rs`（20MiB 请求预算 + 跨轮遗漏集）解决同一问题且更强，而 `blobref:` 在 TUI 与 `packages/protocol` 零消费者。`mediaProjection` 的 snapshot 键控同理——fork 就地改写 `messages`，效果等价。
+→ **判「缺失」时要问「fork 是否用别的机制达到了同一目的，且是否有消费者能观察到差异」**。照搬 v2 的实现手段会造出没有读取方的新协议。
+
+**规律三：反向核查（专门找反证）的收益远高于正向核实。**
+初版逐条核实了约 25 条，但六条被推翻的那一轮只做了两件事：把判定词从「存在？」改成「**尝试证伪**」，以及跨出引擎目录。正向核实只能确认「我找的地方有」，反向核查才能发现「我找的地方不对」。
+→ **审计 fork 移植时，判定词应当是 `refuted` / `confirmed`，而不是 `ported` / `missing`**；并优先派发「去推翻已知结论」的任务。
+
+另有一类错误与上述无关但同样要注意：**引用了上游不存在的路径**。初版写 `agent/usage/usageAgentModel.ts`，实际在 `session/usage/usageAgentModel.ts`——`agent/usage/` 下只有 6 个文件且不含它。这与 3011-3017 记的「存在性会被复核、坐标从不复核」是同一个陷阱的变体。
+
+### 6.41 2026-10-01 第二轮：未审过的树（`human/` `app/` `wire/` `state/` `persistence/` `program/` `debug/`）
+
+6.40 覆盖的是 `agent/` `features/` `session/` 等主干。本轮补上从未审过的部分，沿用 6.40.5 的三条口径（refute-first、三树搜索、不把 v2 的实现手段当行为）。
+
+#### 6.41.1 `human/`（146 文件）的定性——本轮最重要的发现
+
+**`human/` 不是 v2.5 分叉，也不是与 `agent/` 并行的第二套引擎，而是 v2 的共享内核。** 三条证据：
+
+1. `human/package.json:4` 给它单独的 `#/*` import 作用域，所以 `human/agent/machine.ts:16` 里的 `#/llm/message` 指向 `human/llm/message` 而非外层。
+2. `packages/agent-core-v2/src/index.ts:151-166` 直接从 `#human/` 再导出 `Message` / `ContentPart` / `TokenUsage` / `FinishReason` / `ThinkingEffort` / `ToolCallIdPolicy` / `KimiThinkingConfig`，另有 112 个非 human 文件经 `#human/` 导入（230 处）。
+3. 自 #3580 起 `agent/loop/` 退化为 facade：`agent/loop/machine/engine.ts:7,8,10,12,14,22,24` 从 `#human/agent/machine` 等处导入 `createAgentMachine` / `createTurnMachine` / `createToolMachine` / `agentSlices` / `createEventStoreSync` / `memoryJournal` / `resolveMaxAttempts`——**单文件 21 处 `#human/` 导入**；`loopService.ts:86,88` 亦然。
+
+**含义**：一次正常的 turn 就跑在 `human/` 上。fork 整条 turn 路径的行为面因此**钉在一个从未被任何门禁追踪的基底上**——`check:upstream-v2-delta` 以「触及已删路径的 upstream commit」为键，而 `human/` 在 fork 自己的 v2 副本里**从来不存在**，所以它既不进 allowlist 也不产生 commit。这是 6.0 那个结构性盲区最严重的一例：不是「测不出」，是**连测的对象都没有**。
+
+逐项核对结果（`ported` 者均给出 v2 与 fork 双向行号）：`human/agent/` 的 turn 机器（`turn_loop/run_turn.rs:516,562`）、`human/llm/` 消息与 usage 类型、`human/llm/requester/retry.ts`（`turn_loop/retry.rs:3,10,14,17` 逐常量对齐）、`bases/openai-responses/`（`llm/openai_responses.rs` 每条规则标注 v2 行号，连 v2 遗漏 gpt-5 的 developer-role 集都在 `:15-19` 刻意复现）、`human/compaction/controller.ts:75`（`compaction/mod.rs:51-93` 逐旋钮对齐）、`human/interaction/machine.ts:29-79`（`server/interaction.rs:44-63`，另加 TTL）、`human/timing/`（`llm/timing.rs:43-66`）——**全部 ported**。这部分不必做。
+
+#### 6.41.2 本轮新增缺口
+
+| 子系统 | 判定 | 出处 | 说明 |
+|---|---|---|---|
+| **wire 协议版本与迁移链** | **missing（本轮我亲自核实）** | `wire/migration/migration.ts:19,29-35`、`wire/record.ts:23-27,38-44` | v2 有 `WIRE_PROTOCOL_VERSION='1.5'` + 五级迁移（v1.0→v1.5）+ `isNewerWireVersion` 前向拒绝（`:37-39`）+ `metadata` 记录携带 `protocol_version`（`record.ts:25,41`）。**fork 的 `wire_events` 表（`session/sqlite_store.rs:439-443`）无版本列，全仓 `protocol_version` / `schema_version` / `WIRE_PROTOCOL_VERSION` 零命中，`native/event_store` 也不认 `metadata` 记录。**后果：旧版本会话被新引擎读到时**既不能迁移、也不能识别、也不能拒绝**，只能尽力解析 |
+| **`app/sessionExport/` 产物偏薄** | **partial（真实，用户可见）** | `app/sessionExport/sessionExportService.ts:42-279`、`manifest.ts:28-51`、`wire-scan.ts` | fork 的 `build_session_export_zip`（`server/mod.rs:1680-1721`）只打包**两个成员**：`session.json` + `transcript.md`；v2 打整个会话目录 + `manifest.json`（16 字段：版本、协议版本、os、shellEnv、首末活动时间、installSource…）+ **四个日志文件** + wire 扫描。**而 `locales/en.json:2600` 正在叫用户出错时跑 `/export-debug-zip` 把文件交给诊断**——用户按提示交出的档案缺 manifest、缺日志、缺版本溯源。另 v2 导出前会 flush 活会话，fork 不做 |
+| **`IQueryStore` / minidb 读模型未接线** | **missing（最大单点）** | `persistence/interface/queryStore.ts:87-115`、`persistence/configSection.ts:12-43` | `packages/minidb/` 是完整的 44 文件实现（WAL + 快照 + trigram 全文索引 + 复合索引 + 压缩 + cluster），但**引擎侧零引用**（`minidb`/`read_model` 在 Rust 全仓零命中；仓内仅 `apps/kimi-code/src/native/minidb-worker.ts` 一条 smoke 路径）。`IQueryStore` 是 v2 `ISessionIndex`、其 projector、mirror、dirty-journal 与全局搜索 worker 的共同基底。连带 `[database]` config section 整个不存在（`config/mod.rs` 无 `database`/`MINIDB`） |
+| **遥测事件目录 ~10/60** | partial | `app/telemetry/events.ts:599-1359` | 缝隙本身可用（`callbacks.rs:199-207` 的 `telemetry`、`server/mod.rs:307-334` 的 `TelemetrySink`），缺的是目录。**最值得补的是解释故障的那批**：`api_error`、`compaction_failed`、`tool_call_dedup_detected`、`tool_call_repeat`、`permission_approval_result`、`session_load_failed`、`agent_create_failed`、`context_projection_repaired`。注意 fork 的 TS 宿主侧独立上报了其中若干（`model_switch`/`thinking_toggle`/`plugin_toggle`），所以缺的是**引擎侧**覆盖而非管道 |
+| `app/workspaceAliases/` | missing | `workspaceAliasesService.ts:83-101` `resolveAliasIds` | 三树皆无。fork 只用 `encode_workdir_key` 作键，**同一目录的符号链接或大小写变体会变成两个 workspace**。清理原语 `delete_workspace`（`sqlite_store.rs:776`）也没留 `deletedIds` 墓碑，删除后可能在下次合并时回来 |
+| `human/store/` 分支文档存储 | **不建，只记录** | `store/types.ts:32-40`、`store.ts:60-75,104-190`、`internal/codec.ts` | 无对应物（三树皆无 `TreeStore`/`BranchHeader`/`journalFromBranch`）。但 fork 用「复制会话」而非「分支文档」实现 fork（`sqlite_store.rs:833-886`），**照搬会造出没有读取方的存储**——正是 6.40.5 规律二。只有 `verify`/`CorruptionReport` 这一条有独立价值 |
+| `human/eventStore/` 内部 | partial | `journal.ts:76-98`、`eventStore.ts:34-49,274-283` | v2 沿分支链重建历史、带显式 `Cause`（event/internal/reset/slice-joined）、fold 有 `drainLimit`。fork 的 `fold_wire_events`（`native/event_store/mod.rs:394-482`）是纯函数折叠，无事件轴、无 drain 上界。**但它建立在上面那个不打算建的 store 之上**，故不单独施工 |
+| `app/sessionManager/` 生命周期面 | partial | `sessionManager.ts:34-52` | `createChild` / `whenResumeSettled` / `withLifecycleSerialization` 与可等待的 `onWillCreate`/`onWillClose`/`onWillDelete` 无对应。仅对需要 gate 会话销毁或从活会话派生子会话的宿主有意义 |
+| 四个 config section 缺失 | missing | `persistence/configSection.ts:12`、`app/watch/configSection.ts:11`、`app/agentIdentity/configSection.ts:37`、`agent/tools/os/read/configSection.ts:14` | `[database]`、`[watch]`、`[identity]`、`[read]`。前三个是真实缺口（fork 无文件监听器、无 agent 身份块、无数据库配置）；`[read]` 很可能已被 `[image]` 的字节预算覆盖（`config/mod.rs:377-386`）。注：`[watch]` 已在 6.8.2 记为「文档已同步、代码未移植」 |
+| `human/llm/requester/recovery.ts` | partial | `recovery.ts`（`LlmRecovery.propose` 返回 `attemptMessageOverride`） | fork 的 `llm/proxy.rs` 忠实覆盖了重试分类，但**没有等价的「消息改写式恢复提案」机制**。本轮补的 `structure:'strict'`（见 6.40.3）是 fork 唯一的结构性恢复，两者是否同轴需施工时再核 |
+
+#### 6.41.3 明确不必做（已逐条核实）
+
+- **`debug/` 全部 9 个文件** — `debugGraph`/`debugCascade`/`debugLedger`/`scopeTree` 都是 **DI 容器内省**：`DebugGraphNode{id,token,scopePath,uid,state}` 以 `ServiceIdentifier` 为键，`debugCascade` 的 `unprovide`/`update`/`dispose` 是对容器的**实时变更**。fork 无 DI 容器、无 `UnitState`、无 cascade 引擎，因而无可内省之物。fork 的对应物是 `server/debug.rs`（`--debug-endpoints`），它反射**引擎真实结构**而非容器结构。**n-a**
+- **`state/agentModel.ts` + `state.ts` + `stateContribution.ts`** — v2 的 immer fold/freeze 模型。fork 用普通 JSON 快照，是另一种有效机制而非待补的缺口
+- **`persistence/interface/blobStore.ts`** — `FileStore`（`server/files.rs:82-398`）对 fork 的有界传输是忠实对应：id 正则 `^f_[A-Za-z0-9][A-Za-z0-9_-]*$` 与 meta 字段一致，且 `parse_range`（`:535`）+ `content_disposition`（`:570`）提供范围读。v2 的 `putStream`/`getStream(range)` 流式面在此不需要
+- **`persistence/interface/atomicDocumentStore.ts`** — fork **更严**：`write_domain`（`state_store.rs:318-327`）做 tmp+fsync+rename+dir-fsync，且 `DomainRead::{Absent,Corrupt,Value}`（`:89-122`）拒绝把损坏域冻进 checkpoint（`:186-194`）也拒绝在 rollback 时删掉它（`:227-237`）——v2 只承诺「抛 `STORAGE_DECODE_FAILED`」
+- **`app/workspaceSessions/` / `app/state/` / `app/file/` / `app/hostFolderBrowser/` / `app/auth/` / `app/git/` / `app/workspace/` CRUD** — 全部 refuted，见下表
+- **`program/program.ts` 的 runtime lease / generation 机制** — fork 只有一个进程内 runtime、无 runtime 注册表，故 v2 的租约与引用计数退休无对应；覆盖面（LLM/工具/回调接线、config 解析、会话存储、auth、events、cron、模型目录、workspace trust）已由 `main.rs:1234-1547` `run_serve` + `pipeline/mod.rs` 覆盖
+- **`app/bashParser/`** — v2 的 `BashParserService` 只是 `@moonshot-ai/tree-sitter-bash` 的 DI 薄壳（`bashParserService.ts:44-54`），**能力本身完整存在**于 `packages/tree-sitter-bash/src/parser.ts`（3700+ 行手写递归下降）。其消费者之一（危险命令）已移植为原生词法分析（`native/permission_engine/dangerous_command.rs:101-115`），且该文件**已自陈代价**（`:14-18,79-83`：无 tree-sitter 的 `literalText` 元数据，v2 的 `UNSAFE_OPERAND` 判定被折叠成字符黑名单，且重定向目标会被误读为操作数——`rm -rf /tmp/x > log` 从保守侧判为危险）。另一消费者（AGENTS.md 提醒的 bash 解析）无对应
+
+#### 6.41.4 refuted 清单（fork 已有，初审可能被误判为缺失的）
+
+| v2 子系统 | fork 对应物 |
+|---|---|
+| `app/flag/` 实验开关 | `sdk-rpc-client-native.ts:843-927`；优先级逐条复现（env > `[experimental]` > master env > default，对应 `flagService.ts:54-65`）；TUI 面板 `tui/commands/experimental-flags.ts:17` |
+| `app/workspace/` 目录 | `sqlite_store.rs:644-809` 五个 CRUD + trust + 完整 REST 面（`server/mod.rs:3690,4197,4221,4241,4269,4292,4327,4354`），含 v2 的 `Workspace` 线形与 `session_count`。仅「从 session index 合并/压缩 + `deletedIds` 墓碑」三点缺失 |
+| `app/sessionIndex/` | `list_sessions`/`get_session`（`sqlite_store.rs:569-613`）+ 分页路由。`Page<T>` 游标面与 projector/mirror/dirty-journal 降级路径缺，但 SQLite 表**就是**索引，在没有 minidb 读模型的前提下是正当简化 |
+| `app/git/` | `server/fs_routes.rs:149-260` 用 **porcelain v2**（v2 自己用 v1），线形字段 `branch`/`ahead`/`behind`/`entries` 一致，另有 `--numstat` diff；路由 `server/mod.rs:6100`。`tools/tower/git.rs` 是 worktree 另一件事 |
+| `app/file/` `IFileService` | `FileStore`（`server/files.rs:82-398`）save/save_with_id/get/delete/list/blob_path 全套，id 正则与 meta 字段一致。差别仅在返回路径而非流 |
+| `app/auth/` | `server/mod.rs:4111-4199` 完整 OAuth 面，含 v2 `oauthFlowSnapshotSchema` 的状态映射（`:1759-1766`） |
+| `app/hostFolderBrowser/` | `server/mod.rs:3695-3795` `fs:home` + `fs:browse`（规范化 + parent/entries） |
+| `app/workspaceSessions/` | `list_workspaces` 的关联 COUNT（`sqlite_store.rs:697`）已回答 |
+| `app/state/` | `sqlite_store.rs:1336,1404` 的 domain+key K/V，同形 |
+| `app/kosongConfig` `app/agentIdentity` `app/mcpConfig` `app/mcpRegistry` `app/mcpManagement` `app/plugin` `app/task` `app/projectLocalConfig` | 抽查全部 refuted（`config/mod.rs:356,215,388`、`server/plugins.rs`、`server/custom_registry.rs`、`project_local_config.rs`） |
+| `persistence/interface/appendLogStore.ts` | 追加式 wire journal（`native/event_store/` + `loop_fold.rs`）+ `undoToLastCheckpoint` 语义（`sqlite_store.rs:980-1020`、`server/mod.rs:6665` 的 `undo_to_last_checkpoint`、`event_store/mod.rs:43-47` 的 `UndoCompactionBoundary`），只是落在 SQLite 表而非 JSONL |
+
+#### 6.41.5 `state/eventDispatcherService` vs `storage/state_store`（6.40 那条 undo 缺口的深层原因）
+
+两者**不是同一样东西，fork 的是严格子集，且分解轴不同**。v2 的 dispatcher 是事件溯源折叠引擎：durable participant（`eventDispatcher.ts:14-21`：`events`/`transition`/`undoable`/`getState`/`commit`）按事件类注册 applier（`eventDispatcherService.ts:347-378`），事件经 immer `produce` 折进每个 participant 自己的状态，checkpoint 是**每 participant 一摞**（`StateMeta{checkpoints}`，`:648-696`），重放分两趟按 `undoable` 切分（`:770-810`），迟到挂载的 participant 按标志从 `readRestorable()` 或 `readJournal()` 补放（`:303-305`）。fork 的 `StateStore` 是**固定 6 名的 JSON 文件存储**（`state_store.rs:34`）+ 整店快照到编号文件（`:175-201`）+ 单级 `rollback()`（`:210-241`）。
+
+三处结构性差异：**(a) 无事件轴**——v2 能「回退到 checkpoint 而不必重算」，因为状态本就是 durable 日志的折叠；fork 的 undo 是整文件还原。**(b) 无 per-participant 粒度**——一次 `goal` 写入会连带还原 `todo`。**(c) checkpoint 只从三条路径中的两条到达**：`StateStoreCallbacks::checkpoint` 在 pipeline 路径（`pipeline/mod.rs:342-366`）与 server 路径（`server/engine.rs:1153-1159`）都接好了，但 **`rollback()` 生产代码里只有一个调用方：REPL 的 `/undo`（`repl/mod.rs:781-788`）**（本轮已独立 grep 确认：其余命中全在 `llm/http.rs`/`tool_call_id.rs` 的同名无关方法与 `state_store.rs` 自身单测里）。服务器的 `POST .../undo`（`server/mod.rs:5511-5599`）只走 SQLite turn 行与文件回滚，从不碰 `StateStore::rollback`。
+
+**结论**：6.40 记的「服务器 undo 不做 state 回滚」** proximate 原因是一次缺失的调用**，不是缺失的模型——修起来便宜；而 participant 模型解释了为什么「完全忠实的修法」很贵（undo 要变成对 wire journal 的按 participant 折回）。两件事不要混为一谈。
+
+#### 6.41.6 本轮新增的 fork 自创（第 4 处，无出处记录）
+
+**`llm/multi.rs`（`MultiLLM`）** — 并发向多个 provider 发同一 prompt、返回首个成功（first-past-the-post），失败 provider 记录但不阻塞。v2 无对应物（也无 failover 机制）。该文件模块注释只描述机制、不述出处，ROADMAP 亦无记录。按铁律属「自创需带出处」，现予登记，并建议在模块头补一句 v2 无对应。
+
+### 6.42 2026-10-01 第三轮：`mcpCore/` `workspace/` `os/` `_base/` `llm-adapter/` 与 frontmatter
+
+第三轮补上最后几棵树。口径同前：refute-first、三树搜索、不把 v2 的实现手段当行为。
+
+#### 6.42.1 `forkTurnSlice`——本轮最高影响，且用户可见（已实证）
+
+v2 的 `ForkSessionOptions` 有 `turnIndex?: number`（`workspace/sessionLifecycle/sessionLifecycle.ts:25`），`sliceMainRecordsAtTurn`（`sessionLifecycle/internal/forkTurnSlice.ts:33-66`）据此：按 `origin.kind` 分类 `context.append_message` 记录找出第 N 个**用户可见轮次起点**（`:80-99`——user / `skill_activation`+`user-slash` / `shell_command`+`input`），切到下一个轮次边界，再用 promptId / steer-messageId 配对只保留与保留轮次相配的 `turn.prompt`/`turn.steer`（`:118-176`）。它还算出 `cutoffTime` 与 `lastPrompt`（`:60-63`），后者驱动 `sliceSubagentRecordsAtTime`（`:68-79`）把子代理记录按墙钟时间切断。
+
+**fork 侧**：`fork_session(source, new, title)`（`session/sqlite_store.rs:834-863`）**无 turn index 参数**，走 `load_session_history` → `create_session_with_workspace` → `save_turn(..., "turn-fork", 1, &history, ...)` 全量复制。两个生产调用方都只能整段分叉：REST（`server/mod.rs:5165`，body 只读 `title`，**`turnIndex` 根本没被解析**）与 ACP `session/fork`（`acp/mod.rs:1015`）。
+
+**实证（本轮实跑，非推断）**：临时探针建两轮会话（4 条消息）后调 `fork_session`，实测结果——分叉会话拿到**全部 4 条**，且 `list_turns` 只返回 **1 行**：`turn_id="turn-fork" seq=1`。即**除了无法停在轮次边界，轮次结构本身也被压平**：v2 保留真实轮次边界与 `turn.prompt` 配对，fork 连轮次序号都重建了。探针已删除（`git diff --stat` 确认工作树干净，3135 项测试通过）。**用户说「从这里分叉」拿到的永远是全部历史。**
+
+#### 6.42.2 frontmatter 解析不是 YAML（已实证，且比初判更严重）
+
+v2 的 `_base/text/frontmatter.ts:20-43` 直接委托 `js-yaml` 的 `load()`。fork 有**两个手写平面解析器**，都不是 YAML-complete：`tools/tower/frontmatter.rs:19-48`（`BTreeMap<String,String>`，逐行找第一个 `:`）与 `skills/mod.rs:98-172`（针对固定字段集的扫描器）。
+
+**实证（本轮实跑四个真实 YAML 形式，非推断）**：
+
+| 输入 | skills 解析结果 | tower 解析结果 |
+|---|---|---|
+| `description: >` + 两行缩进正文 | `description = ">"` | `{"description": ">", "name": "probe-skill"}` |
+| `scopes:` + `- repo` / `- user` 块列表 | **`scopes = None`（整个丢失）** | — |
+| `description: Has a map  # trailing comment` | `description = "Has a map  # trailing comment"`（注释进值） | 同左 |
+| `meta:` + `a: 1` / `b: 2` 嵌套 map | （未解析） | `{"a":"1","b":"2","meta":"","name":"probe-nested"}`——**嵌套层级被展平，`meta` 成空串** |
+| 单行 `description: This skill does a thing.` | 正确 | 正确 |
+
+即**四条独立失败**：折叠标量变成字面量 `">"`；块列表整体丢失；行内注释混入值；嵌套 map 被展平且父键变空串。`non_empty_trimmed`（`skills/mod.rs:174-181`）把 `">"` 判为非空，于是 `:155-169` 的正文 fallback 也不触发——**fallback 救不了这个 bug**。缺收尾 fence 时 tower 解析器返回 `({}, 原文)` 而 v2 **抛** `FrontmatterError`（`frontmatter.ts:27-29`），且未对 `yamlText` 做 `.trim()`（`:33-35`）。
+
+fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` 两种 alias 拼写 `:129-146`），缺的正是**难**的部分。**影响是用户可见的**：手写 skill 的 frontmatter 一旦用折叠标量、嵌套 map 或行内注释，元数据就被静默丢弃或误读；`scopes` 丢失会直接改变该 skill 的可见范围。建议两处合并为一个真 YAML crate（`serde_yaml`）的解析器。探针已删除（`git diff --stat` 确认工作树干净）。
+
+#### 6.42.3 SSRF 防护：fork 更强，refuted（我亲自核实）
+
+`_base/utils/private-address.ts` 在权威树里**已不存在**（只在退役副本里有）——防护实际搬到了 `app/web/providers/local-fetch-url.ts:207-227`，且**只在 fetch-url 路径上**。fork 有**两份独立实现且都更强**：`native/fetch_url.rs:203-266` 的 `validate_url` + `:168-201` 的 `PinnedHosts`（解析一次、校验每个地址、再把结果**钉进** ureq 解析器，未预校验的主机直接硬失败 `:195-197`；v2 只是向 undici *提示* 一个 pinned `lookup`，可被忽略），以及 `tools/fetch_url.rs:414-487`。两份 blocklist 与 v2 逐条一致（11 条 CIDR，含 `100.64.0.0/10`、`0.0.0.0/8`），fork 另加 IPv4-mapped-IPv6 解包（`:327-329`）与 `.localhost` 后缀拒绝（`:238-240`），并有测试（`:512-561`）。`server/plugin_archive.rs:6,52` 复用同一 guard。**MCP 与 LLM 传输两侧都无 gate**——这是对等且正确的：那些 URL 由运维配置而非模型控制；fork 另加 scheme 校验（`mcp/client_shared.rs:49-57`）与跨源 `Authorization` 剥离（`:92-101`）。**无安全缺口。**
+
+#### 6.42.4 LLM 错误分类逐类对照：11 类 ported，1 处真实缺口
+
+| v2 类（`llm-adapter/contract/errors.ts`） | fork 检出点 | 判定 |
+|---|---|---|
+| `APIStatusError` | `llm/error.rs:23-65`（带类型化 `status_code`/`retry_after`） | ported |
+| `APIConnectionError` / `APITimeoutError` | `llm/http.rs:900-913` 打 `llm transport error connect` / `timeout` | ported |
+| `APIContextOverflowError` | `compaction/mod.rs:349-356` | ported |
+| `APIRequestTooLargeError` | `llm/media_budget.rs:210` | ported |
+| `APIProviderRateLimitError` | `llm/http.rs:851-853`（429 在重试集） | ported |
+| `APIProviderQuotaExhaustedError` | `llm/http.rs:991-1009`（10 个标记）+ `:1124-1126` 豁免 | ported |
+| `APIProviderOverloadedError` | `llm/http.rs:852`（529）、`:1147`（`overloaded` 关键词） | ported |
+| `APIEmptyResponseError` | `turn_loop/turn_step.rs:135-197` | ported |
+| `isImageFormatError` | `llm/media_budget.rs:219` | ported |
+| `isRecoverableRequestStructureError` / `isToolExchangeAdjacencyError` | `llm/request_structure.rs:132-140` / `:88-126` | ported（6.40.3 本轮所补） |
+| `credential-recovery`（401/403 → 强制刷新 → 重试一次） | `llm/http.rs:396-402` | ported |
+| **`requestId` / `traceId`** | `llm/error.rs:23-30` 两字段都没有 | **missing** |
+
+唯一的实质缺口是 `requestId`/`traceId`：v2 从响应头解析 `x-trace-id`（`errors.ts:302-311`）并带进 `details` 供支持诊断，**每个 OpenAI 兼容 provider 都发这个头**。只影响可诊断性，不影响控制流，故排末位。
+
+#### 6.42.5 其余新缺口
+
+| 子系统 | 判定 | 出处 | 说明 |
+|---|---|---|---|
+| **磁盘日志文件** | **missing** | `_base/log/fileLog.ts:37-255`（`RotatingFileWriter`：异步串行队列、`PENDING_MAX=1000` 溢出告警、按大小轮转 N 代、目录 fsync）、`logConfig.ts:41-52` | fork 只有 stdout/stderr：`napi_bindings.rs:174-215` 与 `main.rs:1025-1034` 的 `EnvFilter`，**无文件写入器、无 `KIMI_LOG_LEVEL`、无 `*_MAX_BYTES`/`*_FILES`、无脱敏层**。与 6.41.2 的 sessionExport 缺口**叠加**：即便有日志，导出 ZIP 也不会带上它 |
+| `fsSearch.ts` 路径建议器 | missing（待确认） | `fsSearch.ts:130-330`（`evaluateSuggestCandidate` 的分层/跨度/深度打分、`matchSuggestPath`、`SuggestTopHeap`） | fork 唯一的模糊建议器是 `tools/select_tools.rs:110` `suggest_tool_names`，匹配的是**工具名**不是文件路径。这驱动 `@`-mention 文件选择器。**未决**：TUI 是否已有客户端排序（`apps/kimi-code/src/tui/components/editor/file-mention-provider.ts` 未读），若有则本条 n-a |
+| trust 披露服务 | missing | `trustDisclosureService.ts:65-200` | 6.23.6 仍成立（本轮复核）。消费者已写好但是死的：`trust-prompt.ts:89-97` 只在数组非空时渲染 MCP 块，`kimi-tui.ts:2689` 硬编码 `[]` |
+| `fs` 错误分类未在失败点应用 | partial | `workspaceFs/internal/errors.ts:4-15`（10 个码） | 分类表在 `packages/protocol/src/error-codes.ts:170-211` 完整存在（且数值与 v2 线表逐条一致，另多两个 v2 没有的），但 Rust 侧只定义了 `FS_PATH_NOT_FOUND`（`server/envelope.rs:29`）**且仅被自己的单测引用**（`:289`）；实际处理器返回字符串错误（`server/fs_routes.rs:920,924`、`tools/list_directory.rs:74,87`）。**低价值**：v2 自身消费者也不多 |
+| stdio MCP 的 proxy env 继承 | partial | `mcpCore/client-stdio.ts:292-304` `mergeStdioEnv` | v2 做三件事：继承 `process.env`、叠加 config env、**再应用 proxy env**（`proxyEnvForChild` + `reconcileChildNoProxy`）。fork 的 `McpClient::spawn_stdio`（`mcp/client.rs:187,194-196`）只叠加 config env，父环境靠 `Command` 隐式继承（无 `env_clear`），所以**代理后面的 MCP server 看不到 `HTTP_PROXY`/`NO_PROXY`**。`_base/utils/proxy.ts` 无 Rust 对应。实际影响低（MCP stdio server 通常是本地 npm 包） |
+| `workspaceMcp` 与 `workspaceMcpConfig` 的边界 | partial | `workspaceMcp.ts:15-28`（运行时 + 每会话 overlay）、`workspaceMcpConfig.ts:17-27`（配置映射 + tunables + `onDidChange`） | fork 把两者融进一个 `McpClient` + 可变 `tool_timeout`（`mcp/client.rs:114`），tunables 在但**没有 `onDidChange` 边界**，也没有每会话 overlay |
+| POSIX shell 探测 | partial | `environmentProbe.ts:68-117`（探 `/bin/bash`→`/usr/bin/bash`→`/usr/local/bin/bash`，回落 `/bin/sh`）、`:119-182`（Windows 先查 `KIMI_SHELL_PATH`） | `KIMI_SHELL_PATH` 在 Windows 上确实优先（`native/shell.rs:98-104`），但 POSIX 侧**硬编码 `/bin/bash`、无探测、无 `/bin/sh` 回落**（`:88-95`）；且 Windows 链可合法落到 `pwsh`/`cmd`，而 v2 **要求** Git Bash 否则抛 `ProbeShellNotFoundError`（`environmentProbe.ts:178-181`）。`loginShellPath.ts` **不缺**——已落 `packages/kaos/src/login-shell-path.ts:46-127`（宿主 TS 进程，非引擎） |
+
+#### 6.42.6 refuted / n-a（本轮核实，不必做）
+
+| v2 子系统 | 结论 |
+|---|---|
+| `workspaceFs/internal/{rgLocator,runRg,fsProcess}.ts` | **n-a——实现手段**。v2 靠 shell out 到 ripgrep（locator 三级回落 `rgLocator.ts:41-58`、20s 超时 + SIGTERM→SIGKILL 优雅 `runRg.ts:5-8`、EAGAIN 重试启发式 `:145-152`）；fork 进程内原生实现（`native/grep.rs:205`、`native/glob.rs:20`），20s 超时与输出上限作为进程内常量保留（`native/grep.rs:28-31`）。`grep_tool_rg_fallback` 等遥测事件是「shell out」这一手段的产物，非行为。`tools/grep_types.rs:1-5` 转录 rg15 的 217 条 `--type-list` 使 `--type` 接受同名，并有对账测试（`:583`）。`locales/en.json:283` 的 `rgNotAvailable` 是无调用方的孤儿文案 |
+| `os/interface/terminal.ts` + `terminalErrors.ts` | **ported 且 fork 是超集**。v2 只用四个操作（spawn/订阅 data+exit/write/resize/kill，`session/terminal/terminalService.ts:86-87,113-114,157,163,170,181`），fork 全有（`server/terminal.rs:166-240,387,416-441,446-483`），另加 resize 转发到 `MasterPty::resize`（`:430-436`，子进程真收 SIGWINCH）与 Windows `taskkill /T` 进程树 kill（`:478-481`）——v2 的 node-pty 路径做不到 |
+| `os/interface/hostFsErrors.ts` | **n-a**。`OS_FS_UNAVAILABLE` 存在是为了跨远程 runtime 传播「宿主消失」，单进程 fork 无此概念 |
+| `workspaceInstance/**` | **n-a**。四态生命周期（`workspaceInstance.ts:8`）与 `getOrCreate`/`findByRoot`/`addProvider`（`workspaceInstanceManager.ts:19-30`）全为跨远程宿主复用 runtime unit 而存在。fork 单进程、一个 event store、一张扁平 `workspaces` 表 |
+| `sessionLifecycle/internal/addressing.ts` | **n-a**。v2 的字符串路径拼接只为「会话存成嵌套目录里的 JSON 文档」而存在；fork 是规范化 SQLite 表 + `session_id` 外键 |
+| `sessionLifecycle/coldSessionArchive.ts` | **refuted**。fork 的 `archive_session`/`restore_session`（`sqlite_store.rs:867-884`）是无条件 `UPDATE`，列在 `:367` 声明、`:482-485` 有迁移、`:572` 的 `WHERE` 把归档会话排除出默认列表、`server/debug.rs:850-857` 暴露 action。批量（并发 8）缺，但那是批量 API 细节 |
+| `workspaceAgentProfileLoader/**`（4 层 5 作用域） | **refuted——且不在 Rust 树**。`packages/node-sdk/src/agent-file.ts:182-188` 完整复现 v2 作用域与优先级序（`explicit`/`project`/`extra`/`user`/`plugin`）；`agentRoots.ts` 的对应物是 `projectAgentDirs`（`:259-262`，`.git` 锚定向上查找）、`userAgentDirs`（`:264-272`）；`agentFileDiscovery.ts` 的递归 `.md` 遍历是 `listMarkdownFiles`（`:310-330`）且 skip 集（`.git`/`node_modules`）与「跳过并告警而非抛错」语义（`:298-304`）一致，显式文件才抛（`:234-239`）。测试 `packages/node-sdk/test/agent-file-discovery.test.ts`（12 例） |
+| `workspaceTrust/trustRecord.ts` | **ported（他机制）**。`sdk-rpc-client-native.ts:534-548` 的 `workspaceTrustKey` 用规范根做键、`:5516-5529` 存 `trusted-workspaces.json`。仅「旧 slug 键迁移」无对应——fork 从未发布过旧键 |
+| `workspaceState` | **ported 且 fork 更前**。v2 的 `workspaceState.ts:4` 只是通用状态注册表上的 DI 薄壳；fork 有具体实现（`state_store.rs:34` 六域 + 路径摘要作键 `:1077-1085`），并额外提供 checkpoint/rollback 栈与「损坏 vs 缺失」判别（`:103-120`，故 undo 永不删掉读不出的文件） |
+| `workspaceContext` / `workspaceDirs` / `workspaceInstructions` / `workspaceGit` | **ported**。分别对应 `server/mod.rs:4221-4354`、`sdk-rpc-client-native.ts:1001-1007,2537-2560`、`injection/mod.rs:337-390` 的 `find_agents_md`、`server/fs_routes.rs:224-330` |
+| `_base/di/**`（17 文件）、`_base/lifecycle/**` | **n-a**。唯一排序语义是通用 LIFO（`lifecycle/ledger.ts:230-247` 反向遍历、`lifecycleMachine.ts:97-172` 先 rollback 后 deferred 仅成功时 `afterCommit`）；全上游树搜 `disposal order`/`reverse order` **零命中**，即无可抄的跨子系统顺序契约。fork 的拆卸靠所有权表达而非显式 ledger：`session_dispose` 摘注册表项 → 析构 `Arc<EngineSession>`（`main.rs:494`）→ task runner 的 `Weak` 存活检查（`main.rs:496-509`）转为 false，晚到的 settle 自然静默 |
+| `contract/request-trace.ts` / `record-diff.ts` | **n-a**。前者是 3 行、只含一个可选 `traceId` 字段（已由 6.42.4 的 `x-trace-id` 缺口覆盖）；后者唯一消费者是 v2 进程内的 registry 变更通知（`model-service.ts:85`、`provider-service.ts:88`），fork 的目录是轮询而非事件驱动，无可 diff |
+| `llm-adapter/protocol/**` + `provider/**` | **n-a**。fork 用直连 wire 模块（`llm/{anthropic,openai,openai_responses,google_genai}.rs`）替代 adapter registry 这一层间接 |
+| `completion-budget.ts` | **refuted**。HEAD 上该文件仅 32 行、只剩 `resolveCompletionBudget`/`completionBudgetParams`；`DEFAULT_UNKNOWN_CONTEXT_FALLBACK` **在权威树里根本不存在**（grep 零命中），印证 6.39 记录的 `21406fb4c8` 已将其移除。故 fork「不发 `max_tokens`」与 v2 行为**一致**。另 `engine/step_hooks.rs:16-28` 的 `max_tokens_limit` **不是** wire 预算（其注释自陈被读作 `RunTurnInput.max_context_tokens` 进 `run_turn`），是压缩预算，另一根轴 |
+| `anthropic` 默认 max_tokens | **refuted**。`llm/anthropic.rs:429-432` 已承载 #4091 的下调（64000），与 `human/llm/requester/bases/anthropic/profile.ts:136` 的 `FALLBACK_MAX_TOKENS` 一致，阶梯由 `:1380-1397` 的测试钉住 |
+| 模型目录能力维度 | **refuted**。`server/models_dev.rs:301-321` 覆盖 v2 `ModelCapability` 的全部 8 个维度，缓存语义相同（`CACHE_TTL` 10 分钟 `:32`、in-flight 去重、陈旧回落内置 `:4-11`，对 `models.dev/api.json`）。唯一 v2 独有的是 `UNKNOWN_CAPABILITY` 哨兵（`capability.ts:14-46`），**无消费者**，fork 用 `max_input_size: Option` 的 `None`/`Some` 等价表达 |
+| `mcpCore/connection-manager.ts` | **refuted（近乎逐行）**。六态机含 `needs-auth`/`removed`、`attemptId` 陈旧尝试守卫（`:425-428,522-524`）、`reconnectAndJoin` 单飞（`:289-299`）、`waitForInitialLoad`（`:238-242`）、`markNeedsAuth` + OAuth 窥探（`:307-339`）、`computeEnabledNames`（`:558-571`）、`stderrTail`、`watchForUnexpectedClose`、`DEFAULT_STARTUP_TIMEOUT_MS=30_000`、per-server→env→global 超时优先级（`:435-436`）全部存在于 `mcp/manager.rs`。`client-remote.ts` 是**合并**而非缺失（头部构造并入 `McpServerRecipe::{Sse,Http}`，`manager.rs:50-59`）；`oauth/callback-server.ts` **refuted**（`mcp/oauth/device.rs:157` 与 `service.rs:240` 都绑 `127.0.0.1:0`） |
+| `tool-naming.ts` | **refuted，逐字节一致**，含 FNV-1a 经**有符号**解释渲染出 `_-785fd989` 这一怪癖（`native/tool_naming.rs:72-87`，测试钉在 `:176-186`） |
+| `canonical-args.ts` | **refuted，两者一致**。v2 递归排序键（`canonical-args.ts:6-18`）；fork 依赖 serde_json 默认 BTreeMap——已核实 `Cargo.toml:33` 是 `serde_json = "1"` 且**全仓无 `preserve_order` feature**，故 `to_string` 递归排序。**已知无害差异**（已在 `tool_dedupe.rs:73-74` 自陈）：`JSON.stringify` 把 `1.0` 渲染成 `1`，serde_json 渲染成 `1.0`，故 `{"a":1.0}` 与 `{"a":1}` 在两侧产生不同去重键——只能导致**漏合并**（安全方向），且工具参数实际都是整数。**非缺陷** |
+| `text/encoding.ts` / `line-endings.ts` / `xml-escape.ts` | **refuted**。`native/encoding.rs:64-120` 逐行对齐并另加 GBK 遗留编码；`native/escape.rs:16-55` 三变体全中 |
+| `_base/execEnv/shellPathBridge.ts` | **refuted**（`native/shell_path_bridge.rs:1-293`）；`globPattern.ts` 亦有对应（`globset` + `literal_separator(true)` ≈ `[^/]*`，`native/glob.rs:20-38`） |
+| `hero-slug.ts` / `workdir-slug.ts` / `render-prompt.ts` | **n-a**，三者服务的子系统（plan-slug、workspace alias、模板插值）在 fork 均不存在 |
+| `fileMeta.ts` | partial：`guessMime` 已移植（`server/media.rs:8`）；`buildEtag`/`textExtensionForMime`/`guessLanguageId` 缺但**三树皆无消费者**，不建（会成为死代码） |
+| `mcpCore` 与 LLM 传输的 private-address gate | **两侧皆无 = 对等**，且应当如此（URL 由运维配置，非模型可控） |
+
+### 6.43 2026-10-01 第四轮：剩余树 + 订正本台账自身的两处错误
+
+前三轮覆盖了 v2 的全部主干树。本轮补上 `runtime/`、顶层文件与 `session/` 零散目录，并**订正本台账 §6.25 与 §6.26 两节的错误**——这是本轮最重要的产出。
+
+#### 6.43.1 订正一：§6.25 的 `RuntimeCapability` 多了 `watch`（已修）
+
+见 §6.25 顶部的订正框。要点：`runtime/runtime.ts:8` 是**三项**（`fs`/`process`/`terminal`），`watch` 不在其中；`runtime/` 是 8 个文件不是 9；**「runtime 层是 watch 的前置条件」这条依赖论断方向是反的**——上游 watcher 是独立服务（`human/utils/watch.ts:473` + 自有 `[watch]` section），不需要 capability 层。§6.25 自身的裁定（`tracked`）不变，`AGENTS.md:125-133` 同步更正。
+
+#### 6.43.2 订正二：§6.26 的全部 v2 证据在权威树里不存在（已加订正框）
+
+上游全树搜 `staleGuard|StaleGuard` **只命中 `state/eventDispatcherService.ts:58-59` 两个字符串字面量**，`features/staleGuard/` 目录不存在；而 fork 退役副本 `.tmp/v2-ref` 里有完整 4 个文件。真实关系是**上游在 fork 拉取后删除了 stale guard，fork 保留了它**。§6.26 的结论仍成立（它依据 fork 侧事实），但论证 v2 行为的部分作废。
+
+**这是 6.40.5「引用坐标系」陷阱的第四种变体**，前三轮已记录三种：拿退役副本当权威（6.40.4）、引用上游不存在的路径（6.40.5）、只搜引擎目录（规律一）。第四种是**上游删了而 fork 副本还在**——此时「fork 有、v2 无」与「v2 有、fork 缺」都可能被误判，必须先确定删除发生在 fork 拉取之前还是之后。
+
+#### 6.43.3 订正三：`tools/sandbox.rs` 的失效引用（已改）
+
+`sandbox.rs:47-48` 原写「Mirrors v2 `z.enum(...)`（`workspace/sandbox/sandbox.ts:20`）」。该文件在权威树**不存在**（`workspace/` 12 个目录无 `sandbox`），全树 `sandbox` 只有 `app/agentProfileCatalog/system.md:59` 的一句散文。sandbox 是 fork 自创——模块头原本就这么说，注释却引用了 v2，自相矛盾。已改为如实描述并标注原引用的失效。
+
+#### 6.43.4 剩余树的新发现
+
+| 子系统 | 判定 | 出处 | 说明 |
+|---|---|---|---|
+| **14 个未触发的 hook 事件** | **missing（性价比最高）** | `features/externalHooks/internal/types.ts:3-24` 共 20 种事件类型 | fork 只触发 6 种（`PreToolUse`/`PostToolUse`/`PostToolUseFailure`/`UserPromptSubmit`/`Stop` + `PreCompact`、`SessionStart`/`SessionEnd`）。缺 14 种，每个在上游都有活的触发点：`PermissionRequest`/`PermissionResult`（`agentExternalHooksService.ts:181,187`）、`TurnStarted`（`:224`）、`TaskStarted`（`:288`）、`Interrupt`（`:392`）、`StopFailure`（`:399`）、`PostCompact`（`:439`）、`Notification`（`:451`）、`UserPromptQueued`（`:205`）、`SessionHeartbeat`（`sessionExternalHooksService.ts:101,143-144`）、`SubagentStart`/`SubagentStop`（`:157,172`）。**全部是 fire-and-forget / 只观察**（从不否决），且 fork 现有 `HookGuard::notify_session_lifecycle`（`external_hooks.rs:321`）已接受任意事件名——**一个通用入口即可覆盖 14 个事件** |
+| `SessionOutcomeMirror` 的持久化 | missing | `session/sessionActivity/sessionOutcomeMirrorService.ts:130-147` | fork 把 `last_turn_reason` 作为**活事件**发布（`server/engine.rs:832-844`）却从不写进持久化的会话元数据；v2 有 `metadata.update({lastTurnReason})`。线形字段已在 `packages/protocol/src/session.ts:112` 但无写入方 |
+| `PermissionRuleScope` / `recordApprovalResult` | partial | `agent/permissionRules/permissionRules.ts:16`、`permissionRulesService.ts:45-52` | `PermissionRuleScope` 有 4 档（`turn-override`/`session-runtime`/`project`/`user`），`recordApprovalResult` 把类型化的 `PermissionApprovalResultRecord` 写进 agent state。fork 的 `session_approvals: Vec<String>`（`permission/mod.rs:152`）是扁平模式表，**无 turn-override 作用域、不记录审批结果**——谁批了什么决定不留痕。这是「单 `permission/mod.rs` 已正确合并三个目录」这一说法的**唯一不完整处** |
+| `sessionLogService` | missing | `session/sessionLog/sessionLogService.ts:23-67`、`_base/log/logConfig.ts:37-39` | 见 6.42.5。**补充本轮核实**：这是**两个东西**——`_base/log/fileLog.ts` 是可复用的轮转写入器（基础设施），`sessionLogService.ts` 只是把它绑到 `sessionDir/logs/kimi-code.log` 的薄 DI 绑定（每会话一份）。fork 两者皆无，**但消费方还在**：`apps/vis/server/src/routes/logs.ts:8,21,31` 硬编码 `SESSION_LOG_REL` 提供该文件，`apps/vis/web/src/components/logs/LogsTab.tsx:44` 渲染它——**Logs 标签页是死的**。另 `packages/node-sdk/src/logging.ts:787-789` 仍导出 `resolveSessionLogPath`（零调用方），而其 `:791-813` 仍解析全部五个 `KIMI_LOG_*` 环变（含两个 session 专用的 `KIMI_LOG_SESSION_MAX_BYTES`/`KIMI_LOG_SESSION_FILES`），其文件头 `:9-15` 却声称「per-session log routing 已丢弃」——**这个注释现在在一个方向上是错的** |
+| `agent/command` 的可扩展性 | partial | `agent/command/commandContribution.ts:4-13` | fork 有 slash 命令**派发**（REPL/宿主侧，含 `configInvalidSlashCommand`/`configUnknownSlashCommand`），但 v2 的 `CommandContribution` **注册表**（扩展缝）无对应——fork 的 slash 命令不能从引擎外部插拔 |
+| `agent/scopeContext` 的 `forkedFrom` | partial | `agent/scopeContext/scopeContext.ts:9-16` | `agentId` 已移植；**`forkedFrom?: string` 全仓零命中**——fork 的 subagent 溯源不在 agent context 上携带 |
+| `errors.ts` 错误码覆盖 | partial | `packages/agent-core-v2/src/errors.ts:112-241`（约 130 码） | `packages/node-sdk/src/error-protocol/error-codes.ts:11-84` 载有 62/130。缺 `fs.*`(10)、`os.fs.*`(8)、`os.process.*`(2)、`storage.*`(7)、`wire.*`(4)、`agent.*`(6)、`session.export_*`(2)、`auth.*`(3)、`provider.overloaded`(1) 等。`server/envelope.rs:8-49` 是**另一套**分类法（整数 HTTP 模拟，仅 25 码），不算缺口。fork 另**新增**了 `fs.path_escapes_session`、`fs.watch_limit_exceeded`、`internal.error`、`persistence.failure`、`tool.*`（fork 自创，无 v2 出处） |
+| `sessionAgentProfileCatalog.inspect()` | partial | `session/sessionAgentProfileCatalog.ts:6-26` | `get`/`getDefault`/`list` 已移植；`inspect()` + `AgentProfileInspection.suppressed`（`sourceId`/`priority`/`reason:'priority'\|'builtin-override-required'`）无对应，`builtin-override-required` 全仓零命中。即 profile 被内置项覆盖时**用户不可见** |
+| `sessionInstructionsProvider.onDidChange` | missing | `session/sessionInstructions/instructionsProvider.ts:4,13` | 这是 `WatchChange` 的**唯一**消费者，即 `KIMI_CODE_WATCH` 的实际载荷。fork 无 `"watch"`/`KIMI_CODE_WATCH` 字符串 |
+
+#### 6.43.5 第四轮的 refuted（不必做）
+
+- **`NATIVE_CAPABILITY_IDS` 不是 runtime 层的替代物**（`server/mod.rs:1274-1294`）——它是 19 个 **HTTP 能力路由 id** 的扁平清单（`bash`/`file_history`/`mcp`/`terminals`…），由 `GET /api/v1/capabilities` 提供，**无状态轴、无租约、无 generation、无 provider 挂载**。只是名字撞车。
+- **`tools/sandbox.rs` 的 `SandboxMode` 也不是**——`SandboxMode{Off,ReadOnly,WorkspaceWrite}` 是 3 值的**写入围栏模式**，无能力概念。
+- `runtimeUnitHost`（`runtimeUnitHost.ts:44-56`）**n-a** — 纯 DI 管道，Rust 无 DI 容器，`RuntimeUnitHandle` 无消费者。
+- `fakeRuntime`（`fakeRuntime.ts:10`）**n-a** — 测试替身。`standaloneRuntime`（`:22-30`）**n-a** — 仅 `LifecycleScope.App` DI 注册，无超出 `LocalRuntime` 的行为。
+- `hooks.ts` 本身**n-a** — 通用有序中间件工具（`OrderedHookSlot`/`createHooks`）；fork 的 `HostCallbacks`（`callbacks.rs:33`）是 pull 形态，不同物但覆盖需要。（其**触发点**覆盖见 6.43.4。）
+- `sessionContext`（`sessionContext.ts:5-18`）**refuted** — 纯 DI 作用域描述符（`sessionId`/`workspaceId`/`sessionDir`/`cwd`），fork 以 pipeline 字段承载。
+- `sessionActivity`（`sessionActivity.ts:4-23`）**refuted** — `SessionActivityState{busy,mainTurnActive,pendingInteraction,lastTurnReason}` 1:1 对应 `WorkChanged`，且 fork **超出**：v2 只折叠事件，fork 从活的 `InteractionManager` 导出 `pending_interaction_kind`。
+- `session/workspaceContext`（`:3-19`）、`session/workspaceInfo`（`:4-17`）**refuted** — `is_within_workspace`/`is_within_directory`（`permission/mod.rs:860-878,691-711`）逐分量实现 `isWithin`；`additionalDirs` 解析已移植。
+- `session/state/*`（23 行）**n-a** — 空构造的 DI 注册，无行为。
+- `agent/modeMutex` **refuted（fork ⊃ v2）** — v2 侧只是 3 行空标记接口（`modeMutex.ts:4-6`，仅 `{_serviceBrand}`）；fork 有真实行为（`tools/mode_mutex.rs`）。
+- `agent/toolApproval` / `agent/permissionGate` / `agent/permissionPolicy` / `agent/llmRequester` 全部 **refuted**（服务缝是 DI，行为已移植）。
+- **`agent/agentContext`（3 字段值对象）、`agent/actorService`（xstate 基类）、`state/sessionState.ts` 均 n-a**。
+- `agent/feature/` **不存在** — `agent/` 实为 42 个目录，无此名；v2 的 `features/` 是**同级**顶层（17 个目录）。审计任务书里的 hedge 正确。
+
+
+
+#### 6.43.7 关于 `agent/blob/` 撤回决定的复核（结论不变）
+
+上一轮以「v2 的实现手段不是 v2 的行为」为由撤回了 `blobref` 的移植建议。**本轮复核维持撤回**，并把事实记准以便不再第四次重开：`IAgentBlobService`（`agent/blob/agentBlobService.ts:8-16`）把 >4096 字节的 data-URI 媒体卸载为 `blobref:<mime>;<sha256>`，在**持久化时**改写、读取时反转（`agentBlobServiceImpl.ts:12,63-68,126-132`），有三个真实消费者（`wire/wireService.ts:109`、`state/eventDispatcherService.ts:859`、`session/agentLifecycle/agentLifecycleService.ts:296`）。fork 最近似的对应物是 `llm/prompt_media.rs:130-146` 的 `persist_original_image`——同样按 sha256 内容寻址（`f_orig_{:x}`）存入 `FileStore`，但**返回文件路径**而非改写记录。关键差异：fork 在**请求构建时**解析内联媒体（`llm/media_resolver.rs`），v2 在**持久化时**改写。`blobref:` 是无外部消费者的内部 URL 方案，且 fork 的 transcript 由 SQLite 承载而非 wire journal。**正确地不移植。**
+
+#### 6.43.6 `human/` 树未入门禁的**量化后果**（2026-10-01 补测）
+
+6.41.1 断言「`human/` 既不进 allowlist 也不产生 commit」，本节把它量化。
+
+**门禁机制**（`scripts/check-upstream-v2-delta.mjs:69-79`）：`collectDeltas()` 跑 `git log --no-merges <mergeBase>..<upstreamRef> -- packages/agent-core-v2 packages/kap-server packages/klient packages/acp-server`。即**只有触及这四个已删路径的 commit 才进入视野**。
+
+**实测数字**（`.tmp/v2-ref-upstream` @ `21406fb4c8`）：
+
+| 范围 | `human/` 上的 commit 数 |
+|---|---|
+| `52437299ff..21406fb4c8`（门禁实际区间，即 allowlist 记录的 merge base） | **3** |
+| `2db62c835a..21406fb4c8`（自 fork 真正拉取 v2 的删除点起） | **46** |
+
+**即 43 次 `human/` 改动从未进入门禁视野。** 那 3 次之所以出现，是因为它们同时触及了别的已删路径（如 `kap-server`），属连带命中，不是门禁看见了 `human/`。
+
+**但这不等于存在缺口。** 抽查 46 次中落在 6.41.1 判定为 ported 子系统上的改动，逐条核实结果：
+
+- `#3910`（恢复 openrouter 推理方言的 thinking）→ fork 有 `llm/openai.rs:612-626` 的 `seenReasoningContent` 优先逻辑 + `REASONING_DETAILS_KEY`/`DEFAULT_REASONING_KEY`（`:245,249`），6 项测试覆盖（`:1109,1184,1219-1228`）。**ported**。
+- `#3735`（`reasoning_content` 优先于 `reasoning_details` summary）→ 同上路径，**ported**。
+- `#3762`（`api_key_env` provider 凭据）→ 属 6.42 未审范围，未核。
+
+**结论**：门禁盲区的真实后果是**「无法自动证明」而非「已知有缺口」**。这与 6.0 记的盲区性质相同，但更隐蔽——`human/` 连「已删路径」这个身份都没有，所以它既不会被报为 delta，也不能靠 allowlist 记录裁定。**任何声称 `human/` 已对齐的结论，目前只能靠人工审计支撑**（6.41.1 即是）。可行的机械对策尚未设计（`human/` 不是「已删路径」，不能直接加进 `RETIRED_PACKAGES`——那会让门禁去核对 fork 树里本来就不存在的路径）；本节只记录事实，不假装已解决。
+
+### 6.44 2026-10-01 第五轮：台账自身的可靠性抽样（发现 11 处错误，含 1 处阻断了工作）
+
+前四轮的做法是「拿 v2 审 fork」。本轮反过来：**抽验本台账自己**——因为人要拿它派活，而 §6.25/§6.26 的错误是「后来审计碰巧读到才发现」的，那些没被碰过的老节至今未验证。
+
+**方法**：从 §1 十板块矩阵、§2/§5/§6.1-6.24/§7/§8/§9/§10 抽样 58 条事实断言，逐条打开被引文件**比对内容**（不是只查路径存在——那正是现有门禁做的事）。权威树 `.tmp/v2-ref-upstream` @ `21406fb4c8`。
+
+**总体结论：可信度约 85%，但错误不是随机的——按「引用坐标系」聚集。** 抽样中 10 处引用指向退役副本或两棵树都不存在的路径，其中 **8 处的结论是关于「与上游的差异」**。即：**退役副本的引用系统性地支撑「fork 已对齐」或「上游没有 X」**。这是有方向的偏置，不是噪声。现有门禁（`check-roadmap-refs`）只查文件存在与测试函数存在，**这 11 处一处都测不出**。
+
+#### 6.44.1 最严重：§6.29 把一项可移植的工作标成「无参考实现、需裁决」（已推翻）
+
+§6.29 断言 micro compaction 的 `detect()` 参考实现「随包删除后已不存在于任何地方」，并据此登记为**「需裁决，不得自行开工」**。**该断言错误。** `.tmp/v2-ref/…/agent/microCompaction/` 有 4 个文件，参考实现完整可读：
+
+- `microCompaction.ts:4-15` 完整配置契约、`:17-23` 全部默认值（`keepRecentMessages: 20`、`minContentTokens: 100`、`cacheMissedThresholdMs: 60*60*1000`、`truncatedMarker: '[Old tool result content cleared]'`、`minContextUsageRatio: 0.5`）、`:25-41` 接口四方法（`setConfig`/`detect`/`compact`/`reset`）
+- `microCompactionService.ts:89-134` 的 `detect()` 全文：flag 门禁（`:90`）→ **miss 判据是「距上次 assistant 输出的空闲时长 ≥ 阈值」**（`:94-95`，不是 `cache_read == 0`，也不是环比下降）→ 上下文用量比 = `contextTokens / (max_input_tokens ?? max_context_tokens)`，未定义时取 1（`:99-103`）→ 低于 `minContextUsageRatio` 则放弃（`:104`）→ `nextCutoff = max(0, len - keepRecentMessages)`（`:107`）→ cutoff 未变则不发事件（`:109`）→ 发出 `MicroCompactionFinishedEvent` 带 12 个字段（`:122-134`）
+
+**影响**：一项本可施工的工作被一个不存在的闸门挡住。**这是本次抽样最重要的产出。**
+
+**缺口的确切范围（2026-10-01 复核，比 §6.29 描述的窄得多）**：micro compaction **并非"整项待做"**。`server/engine.rs:1329-1359` 显示它已完整接线——flag 解析（`:420-444`）→ `apply_micro_compaction`（`:1349`）→ 发 `micro_compaction.apply` 事件携带 `cutoff`（`:1351-1357`）→ 9 项测试（`:1862-1907`）。`compaction/micro.rs` 的 `compact()` 算法（含 CJK 全 token 权重）也已移植。
+
+**真正缺的只有 `detect()` 的两个门禁**：
+1. **cache-miss 判据**——v2 用「距上次 assistant 输出的空闲时长 ≥ `cacheMissedThresholdMs`」（默认 1 小时），fork 完全没有。注释 `:1339-1342` 自己也承认「缺的是跨 step 判定，不是测量」——各 provider 的 usage parser 已填 `input_cache_read`/`input_cache_creation`，**数字在引擎里，只是没人按 step 累积并比较**。
+2. **上下文用量闸**——`contextTokens / (max_input_tokens ?? max_context_tokens)`（未定义取 1）低于 `minContextUsageRatio`（默认 0.5）则放弃。
+
+即：**约 40 行**（`detect()` 的判据与两个常量的配置面），不是一项新功能。§6.29 `engine.rs:1344-1347` 那段「不可移植、属重建」的注释也随之失效，须一并更正。
+
+#### 6.44.2 §1 板块 3：Read 工具整段描述的是退役副本（安全/成本面，方向被反转）
+
+§1 `:64` 写「v2 三个上限都有，且数值与 Rust 完全相同：`read.ts:6-8` 的 `MAX_LINES=1000` / `MAX_LINE_LENGTH=2000` / `MAX_BYTES=100*1024`」。**三个常量在上游全都不存在。** 上游 `read.ts:6-9` 是 `DEFAULT_MAX_CHARS = 100_000`、`DEFAULT_MAX_CHARS_LIMIT = 500_000`、`TRANSCODE_MAX_BYTES = 10*1024*1024`；`TailLineOffsetSchema`（`:12`）是 `z.number().int().negative()`——**无下界**，不是 `-1000..-1`；`readTool.ts:344` 是 `const limits = this.limits();`，无 `truncateLine`、无字节闸。
+
+**正确表述**：上游已把那套行/长度/字节上限**换成字符预算**（`max_chars` + 可配置 `limits()`，`readTool.ts:194,347-348`）；fork 的 1000 行/2000 字符/100KB 上限对应的是 **fork 自己的 v2 副本**，不是上游。
+
+同段另一处方向反转：`:64` 称「与 v2 的差异仅两个 fork 参数：`column_offset` 与 `max_chars`（v2 全仓零命中）」。**恰恰相反**——两者都是上游参数（`read.ts:26` 与 `:37`，实现于 `readTool.ts:208,347,382,429-453,487-490`）。
+
+**影响**：按 §1 给 Read 工具估工作量会算错范围，且在一条成本控制面上把「fork 与 v2 一致」当成了事实。
+
+#### 6.44.3 其余 9 处（已记录，未逐条改写原文）
+
+| 位置 | 错误性质 |
+|---|---|
+| §1 `:66` realpath-access 段 | 上游**无** `tool/realpath-access.ts`、**无** `PATH_SYMLINK_ESCAPE`（`PathSecurityCode` 上游只有 3 个码，`path-access.ts:86`）。等价逻辑在上游位于 `workspaceFs/fsService.ts:1116-1165`（`realpathExistingPrefix` + `symlink_outside`），而非独立模块 |
+| §1 `:64` 未决子句 | `path-access.ts:317` + `resolveForContainment:273-289` 只存在于退役副本；上游 `resolvePathAccess` 无 containment 解析 |
+| §1 `:123` swarm 基线来源 | 「v2 源码已在上游 `ecad4136d9` 删除、经 `git archive` 取回」**错误**——上游 `features/swarm/` 是**活的**（`agent/swarm.ts`、`agent/swarmService.ts`、`agent/injection/`、2 个 reminder md）。该行的结论可能仍对，但**参照物取错了树** |
+| §1 `:75` 权限行路径 | 上游无 `workspace/permission/`（`workspace/` 12 目录无此项，两棵树都没有）；真实位置是 `agent/permissionGate/`、`agent/permissionPolicy/policies/` |
+| §1 `:38` retry 行 | 可重试集 `[408,409,429,500,502,503,504,529]` **正确**，但引 `kosong/contract/errors.ts:248` — 上游无 `kosong/src/contract/` 目录，真实位置 `kosong/src/errors.ts:233`；`:248` 落在 image-format 注释块里 |
+| §1 `:47` cache breakpoints | `anthropic-cache-breakpoints.ts` 上游**零命中**，且上游**根本没有** `agent-core-v2/src/kosong/`（无 vendored provider 树）。「两侧 4 处断点」与「Rust 缺 `CACHEABLE_TYPES` 守卫」两说均**未对上游证实** |
+| §1 `:54-57` | `astron-models.ts` 上游已不在（`providers/` 17 文件无此项），台账称其「仍是活代码」——描述的是 fork 自己的树 |
+| §1 `:36,39` | `agent/loop/stepRequestQueue.ts` 与 `nativeBackgroundAgentTask.ts` 上游均无（上游 `agent/loop/` 7 文件 + `machine/`），只存在于退役副本 |
+| §2.5 `:184,186,194` | 三处行号漂移到**结构性不同的代码**：`loopService.ts:2117-2119` 现是 `emitStepInterrupted` 的参数（真实位置 `:1729`/`:1876`）；`loop.ts:20-27` 现是 `AgentActivityTurnSnapshot`（真实位置 `:55-60`）。语义仍成立，但跟指针的人会落到错的机制上 |
+
+#### 6.44.4 抽样中**确认无误**的部分（占多数）
+
+板块 1 的重试算术（500ms/32s/单侧 +25%）、可重试集、`all()` 独占语义；板块 2 的 thoughtSignature 往返与 SafetySettings 双侧缺失；板块 5 的 `agentsMdReminderService.ts` 六处行号**全部精确命中**；板块 6 的 AGENTS.md 发现顺序与 32KB 预算、四个 profile；板块 9 的 cron `baseFromMs` 与 running 闸、swarm solo-tool 否决（漂移到 `:48-66`）、subagent profile 允许链、fork 拒绝文案逐字节一致、Tower camelCase schema、subagent task hooks；**§7.2 的「零偏差」是真的零偏差**（14 个 transcript op 两侧同名同序，含 `items.remove`/`meta.merge`/`prompt.upsert`）。
+
+#### 6.44.5 第三、第四类系统性错误（此前未命名）
+
+6.43.2 已命名第一类「退役副本provenance」。本轮抽样暴露另两类，现有门禁都测不出：
+
+- **第二类：漂移跨越了结构边界**——引用的行号仍在文件内，但已指向**另一个函数**（如 §2.5 那三处）。台账开头把行号漂移视为「无害，一次 grep 即可」，但漂移到**别的机制**上时，读者的结论会错。
+- **第三类：方向反转**——把 fork 独有的功能说成 v2 的（§1 板块 6 那句「已补回」的安全约束，实为 fork 自加，见下），或把 v2 独有的说成 fork 独有的（§1 板块 3 的 `column_offset`/`max_chars`）。**这类最危险**，因为它直接反转 provenance 判断，而 provenance 判断正是本文件 铁律 的依据。
+
+**附带更正**：§1 `:95` 称 v2 `system.md:59` 有安全约束句「Unless the user explicitly instructs otherwise...」而 fork 缺失、**已补回**。该句**上游 `system.md` 全文 82 行中不存在**（`:59` 是 `You are running on **${os}**...`），只存在于 fork 的 `prompt/system.md:108`。同段另有两处归属反转：`${notify_user_guidance}` 是**上游**的（`system.md:13`），`${runtime_notes}` 才是 fork 独有（`prompt/system.md:109`）。
+
+
+### 6.45 2026-10-01 施工清单（第五轮汇总，供派工）
+
+五轮审计（§6.40–§6.44）登记的缺口的**优先级汇总**。证据强度分三档：**实证**＝实跑复现；**已核实**＝逐条打开文件比对内容确认；**待裁决**＝需产品判断。
+
+#### P0 — 已实证，且改变用户可见行为
+
+| # | 项 | 证据强度 | 落点 |
+|---|---|---|---|
+| 1 | **frontmatter 不是 YAML**：四条独立失败——`description: >` → 字面量 `">"`；`scopes:` 块列表**整体丢失**（改变 skill 可见范围）；行内注释混入值；嵌套 map 被展平且父键变空串 | **实证**（临时探针实跑，已删） | `skills/mod.rs:98-172`、`tools/tower/frontmatter.rs:19-48`；建议合并为一个真 YAML crate |
+| 2 | **分叉只能整段进行**：实测两轮会话（4 消息）分叉后仍拿全部 4 条，且 `list_turns` 只返回 1 行 `turn_id="turn-fork"`——**轮次结构被压平** | **实证**（同上） | `sqlite_store.rs:834-863` 加 `turn_index`；调用方 `server/mod.rs:5165`（body 未解析 `turnIndex`）、`acp/mod.rs:1015`。v2 契约 `sessionLifecycle.ts:25` |
+
+#### P1 — 已核实，性价比高
+
+| # | 项 | 证据强度 | 落点 |
+|---|---|---|---|
+| 3 | **14 个 hook 事件未触发**（v2 有 20 种，fork 只 6 种）。全部只观察、从不否决；`HookGuard::notify_session_lifecycle(event: &str, …)` 已接受任意事件名 | 已核实（20 种事件名逐条确认） | `tools/external_hooks.rs`。**一个通用入口覆盖 14 个** |
+| 4 | **Anthropic 多发一个 `cache_control` 槽**（fork 4 / 上游 3）。stable-history 位是 **fork 自加**，此前被误登记为「非自加」 | 已核实（`anthropic.rs:184-192` 四处发射点 `:164/:192/:239/:254`；上游 `anthropic.ts:352-362` 无该分支） | **冗余但无害，降级**：stable 位在 `msgs.len()-3`，**每轮向前移动**，故永远不是同一前缀——两种缓存语义下都不带来命中收益，唯一效果是多写一条条目。详见 6.45.1 |
+| 5 | **micro compaction 的 `detect()` 两个门禁**（cache-miss 判据 + 用量闸）。算法、接线、事件、9 项测试**全已在**；缺的只是约 40 行的跨 step 判定 | 已核实（`server/engine.rs:1329-1359`） | `server/engine.rs`。**§6.29 曾错误地把它标成「不得开工」，6.44.1 已推翻** |
+| 6 | **wire 协议无版本概念**：`wire_events` 表无版本列、无 `metadata` 记录、无迁移链（v2 有 v1.0→v1.5 五级 + 前向拒绝）。旧会话既不能迁移也不能识别 | 已核实 | `session/sqlite_store.rs:439` |
+| 7 | **磁盘日志缺失 + 导出 ZIP 只有 2 个成员**。而 `locales/en.json:2600` 正在叫用户出错时跑 `/export-debug-zip`；`apps/vis` 的 Logs 标签页是死的 | 已核实 | `napi_bindings.rs`、`server/mod.rs:1680-1721`、`vis/server/src/routes/logs.ts` |
+| 8 | **POST /undo 不做 state 回滚**：`StateStore::rollback` 生产代码里只有 REPL `/undo` 一个调用方。**是一次缺失的调用，不是缺失的模型** | 已核实（grep 全仓确认） | `server/mod.rs:5511-5602` |
+
+#### P2 — 已核实，范围或影响需先界定
+
+| # | 项 | 说明 |
+|---|---|---|
+| 9 | `minidb` 读模型未接线（44 文件实现，引擎侧零引用）+ `[database]` config 缺失 | 最大单点。**范围已界定**：v2 侧 `IQueryStore` 接口是 `queryStore.ts:96-116` 的 13 个方法（put/batch/delete/get/getMany/query/pageByColumn/ensureIndex/listKeys/dropCollection/getCheckpoint/setCheckpoint/storeEpoch），成本在其上三层消费者（projector / mirror / search worker）。若 fork 只需「会话列表 + 标题搜索」，SQLite FTS5 即可，不必引入 minidb。**待裁决：fork 是否需要会话全文检索**（见 6.45.3） |
+| 10 | `tokenCounting` anchor 模型缺失 | **状态栏那部分已修**（见 6.45.4 第 10 行）；anchor 模型本身是报告精度改进，不影响正确性。**待裁决：值得做，还是就此停手** |
+| 11 | `PermissionRuleScope` 4 档 + `recordApprovalResult` 缺失 | `session_approvals: Vec<String>` 是扁平表，**谁批了什么决定不留痕** |
+| 12 | `SessionOutcomeMirror` 不落库 | `last_turn_reason` 只发活事件；线形字段已在 `protocol/src/session.ts:112` 但无写入方 |
+| 13 | `toolResultRender` 状态包装缺失 | `<system>ERROR:…</system>` 是模型判断工具成败的唯一信号；`locales/en.json:609` 的串全仓无人用 |
+| 14 | ~~`SessionHeartbeat` hook 缺失~~ **已撤销** | 它就是 P1-3 那 14 个未触发事件之一（`types.ts:17`），重复计数。唯一额外成本是需要 session 心跳定时器 |
+| 15 | 遥测事件 ~10/60 | 优先补解释故障的：`api_error`、`compaction_failed`、`tool_call_dedup_detected`、`session_load_failed` 等。**`api_error` 与 P1-5 合并做**（都要跨 step 累积 usage，见 6.45.2） |
+| 16 | trust 披露服务（§6.23.6） | 消费者已写好但是死的：`trust-prompt.ts:89-97` 只在数组非空时渲染，`kimi-tui.ts:2689` 硬编码 `[]` |
+| 17 | `workspaceAliases` 缺失 | 同一目录的符号链接/大小写变体会变成两个 workspace；`delete_workspace` 无墓碑 |
+| 18 | stdio MCP 的 proxy env 继承 | v2 额外应用 `HTTP_PROXY`/`NO_PROXY`；实际影响低 |
+| 19 | `requestId`/`traceId` 丢失 | 每个 OpenAI 兼容 provider 都发 `x-trace-id`；纯可诊断性 |
+| 20 | POSIX shell 探测 | fork 硬编码 `/bin/bash` 无 `/bin/sh` 回落；Windows 链可落到 `pwsh`/`cmd` 而 v2 要求 Git Bash 否则抛错 |
+
+#### 明确不做（已逐条核实，勿重复评估）
+
+`agent/blob/` blobref（fork 用请求预算 + 文件缓存解决得更强，`blobref:` 零消费者）｜`mediaProjection` snapshot（就地改写等价）｜`human/store/` 分支存储（照搬会造出无读取方的存储）｜`debug/` 全部 9 文件（纯 DI 内省）｜`_base/di/**` 17 文件（无可抄的顺序契约）｜`_base/lifecycle/**`（通用 LIFO）｜`rgLocator`/`runRg`（shell-out 手段产物）｜`workspaceInstance` / `addressing.ts` / `os/interface/hostFsErrors`（多 runtime/远程专属）｜`fileMeta` 的 etag/language-id（三树无消费者）｜`blobStore` / `atomicDocumentStore`（后者 fork 更严）｜`NATIVE_CAPABILITY_IDS`（只是与 runtime 层名字撞车，非其替代物）
+
+#### 6.45.1 P1-4 的技术结论：冗余但无害（不再是待裁决项）
+
+上一轮把这条标成"影响真实费用、待你裁决"。**推演后该定性是错的**，这里给出推导以便复核。
+
+**事实**：fork 四处 `cache_control` 发射点为 `anthropic.rs:164`（尾部消息）、`:192`（stable 历史）、`:239`（system）、`:254`（末工具）；上游 `anthropic.ts:352-362` 的 `injectCacheControlOnLastBlock` 只做尾部一处，故上游 3 / fork 4。
+
+**关键观察**：stable 位取 `stable_idx = msgs.len() - 3`，**每轮随历史增长而向前移动**——
+
+| 轮次 | 消息序列 | `len-3` 落在 | 该轮写入的缓存边界 |
+|---|---|---|---|
+| N | `u1 a1 u2 a2 u3 a3` | 3 | a2 |
+| N+1 | `u1 a1 u2 a2 u3 a3 u4 a4` | 5 | a3 |
+
+即**它每轮标记一条新的边界，从不重复标记同一条**。
+
+**两种缓存语义下都不带来命中收益**：
+- **最长前缀复用**（Anthropic 文档所述）——上一轮写至 a(N-1) 的条目，下一轮查找时已能命中并只写增量；stable 位只是额外多写一条。
+- **精确位置匹配**——无 stable 位时每轮重写全部；**有** stable 位时位置同样每轮移动，也每轮重写全部。两者等价。
+
+**唯一效果是多写一条缓存条目**（Anthropic 的 1.25x / 2x 写入计价）。**结论：降级为「冗余但无害」，从 P1 移出，不需裁决。** 若日后要收敛，删 `anthropic.rs:184-192` 一段即可，无其他依赖——但也没有性能理由去删。
+
+#### 6.45.2 依赖关系与合并建议（原清单未给）
+
+上一轮漏了依赖图，导致同一份工作被列成两条。三处需要合并：
+
+| 合并项 | 原编号 | 理由 |
+|---|---|---|
+| **`SessionHeartbeat` 不单列** | P2-14 撤销 | 它**就是**那 14 个未触发 hook 事件之一（`types.ts:17`），与 P1-3 重复计数。唯一额外成本是需要 session 心跳定时器，属实现细节不是独立工单 |
+| **micro compaction 门禁 + 遥测补 `api_error` 一起做** | P1-5 + P2-15 合并 | 两者都要**跨 step 累积 usage**：前者要 `input_cache_read` 才能判 cache-miss，后者要同源数据才能报 `api_error`。共用一次数据结构改动，拆开做要改两遍 |
+| **fork 自创三件的出处补齐一起做** | 裁决项 5 | `workflow` / `lsp_tool` / `thinking_guard` 只是加模块头说明 + 台账登记，**无代码改动**，应作为一次文档提交而非三个待办 |
+
+**真实的依赖链**（除此之外均可并行）：
+
+```
+frontmatter(YAML)          ← 独立，但波及 skill 解析 → 影响 skill 可见范围
+分叉 turn_index             ← 独立
+14 个 hook 事件             ← 独立，通用入口已存在
+wire 版本 + metadata        ← 独立，但**应在任何新的 wire 记录类型之前做**，
+                              否则新字段同样无法版本化
+undo 回滚接线               ← 独立，1 次调用
+日志 + 导出 ZIP             ← 有序：先有日志写入，再把它塞进 ZIP
+usage 累积 + detect() + 遥测  ← 三合一（见上表）
+```
+
+#### 6.45.4 工作量估算（按实际代码规模，非印象）
+
+估算方法：先量模板与插桩点的真实体量，再按「同一个模板实例化了几次」推算。**人天含实现 + 测试 + 一次 `check:*` 全绿**。
+
+| # | 项 | 规模依据 | 估 |
+|---|---|---|---|
+| 3 | **14 个 hook 事件** | 模板 `notify_pre_compact`（`external_hooks.rs:298-313`）是 15 行；`notify_session_lifecycle`（`:321`）已支持任意事件名 + 三个参数，**14 个事件里 11 个可用它实现**（各加一个 8-15 行包装）。另 3 个需新方法：`SessionHeartbeat`（要 session 心跳定时器，+30 行）、`SubagentStart/Stop`（挂在 `subagent/manager.rs` 生命周期上）。插桩点已现成：`permission/mod.rs:475` `evaluate`（覆盖 Permission 两个）、`run_turn.rs:1203` `emit_step_begin_event`（覆盖 TurnStarted）、`tool_scheduler` 工具完成处（覆盖 TaskStarted）。**无否决风险**：上游 `agentExternalHooksService.ts:118-132` 的 `fireAndForget` 丢弃返回值并 `catch {}`，纯观察 | **2-3 人天** |
+| 1 | **frontmatter 真 YAML** | 引入 `serde_yaml`，替换 `skills/mod.rs:98-172`（约 75 行）与 `tower/frontmatter.rs:19-48`（30 行）两处手写解析；需保留现有 9 项 skills 测试行为并补 4 条失败用例的回归。**风险点**：`scopes` 当前的块列表解析（`skills/mod.rs:188+`）与 `_` 别名拼写（`:129-146`）不能被 YAML 库的行为覆盖 | **2-3 人天** |
+| 2 | **分叉 turn_index** | `sqlite_store.rs:834-863` 加参数 + 按 v2 `forkTurnSlice.ts:80-99` 的 `origin.kind` 分类切边界 + promptId 配对（`:118-176`）；调用方两处（`server/mod.rs:5165` 解析 body 的 `turnIndex`、`acp/mod.rs:1015`）；**注意 fork 的历史按 `save_turn` 分行存储，切分要按 turn 而非按 message** | **3-4 人天** |
+| 5+15 | **micro `detect()` + 遥测 `api_error`** | 新增一个跨 step 的 usage 累积结构（`input_cache_read` / `input_cache_creation` / tokens），`server/engine.rs:1348` 前加判据，配置面加 2 个常量；遥测侧同源数据报 `api_error` | **2-3 人天** |
+| 6 | **wire 版本 + metadata + 迁移链** | 加 `protocol_version` 列与 `metadata` 记录类型（写侧 + 读侧兼容），再逐级实现 v1.0→v1.5 五个迁移。**前置约束**：必须早于任何新的 wire 记录类型 | **4-6 人天**（含迁移的向后兼容测试） |
+| 7 | **磁盘日志 + 导出 ZIP** | 引入 `tracing_appender` 的滚动 appender（约 60 行，对齐 v2 的 6MB×5 全局 / 5MB×3 会话）；`server/mod.rs:1680-1721` 扩 manifest 字段并加 4 个日志成员；`vis` 侧 Logs 标签页随之复活 | **2-3 人天** |
+| 8 | ~~POST /undo 回滚接线~~ **已完成 2026-10-01** | 新增 `rollback_state_for_undo`（`server/mod.rs:7371`），接在 `undo` 路由 `:5594`。**台账原引三处「已有模式」全是假的**——`engine.rs` 中 `.rollback()` 零调用，唯一生产调用者是 `repl/mod.rs:782`；`engine.rs:1168` 是 `for_workspace` 的 `Err(_)` 臂、`:1197` 只是注释提到 `StateStoreCallbacks`。真实模式在 `callbacks.rs:1536-1554`。**核实后新增的要点**：checkpoint 是 LIFO 栈（`state_store.rs:175/244`），`count=N` 必须弹 N 次而非一次。失败如实上报而非静默——行已删除，静默分叉比可见错误更糟。两个测试：`undo_restores_state_domains_from_the_checkpoint_stack`（钉 LIFO 到最早锚点）与 `undo_succeeds_when_no_checkpoint_was_ever_taken`（钉空栈不算错）；前者已用环境变量探针反证——断开接线后 depth 停在 2，测试确实失败 | **已完成** |
+| 10 | ~~`len()/4` 一行修正~~ **已完成 2026-10-01** | `server/engine.rs:933` 改用 `compaction::estimate_tokens`。**实测纠正**：原估「对 CJK 低报约 4 倍」是错的——`len()` 是字节数，3 字节/汉字 → 低报 **25%**（300 字节报 75，实际 100 token）。附带修掉截断：43 ASCII 字符旧值报 10，现为 11。新增测试 `context_tokens_count_cjk_per_character_and_leave_ascii_alone`（ASCII 差异 ≤1 仅进位、CJK 100 字符 = 100 token、混合串按连续 ASCII 段一次进位）。副作用是状态栏与压缩触发器现在共用同一估算器，两者不会再对「有多满」产生分歧 | **已完成** |
+| 11 | **PermissionRuleScope + 审批留痕** | `permission/mod.rs:152` 的 `Vec<String>` 换成带 scope 与 result 的结构；`recordApprovalResult` 需 agent state 写入通道 | **2-3 人天** |
+| 12 | `SessionOutcomeMirror` 落库 | **行号已重定位**：原写 `engine.rs:1697` **已漂移**（现指向一处 `.await;`）。真实链路：`engine.rs:832` `publish_work_changed` 只发活事件，其 `:844` 构造 payload；`events/types.rs:136` 声明字段；`server/transcript/project.rs:2296/2308` 是投影侧。落库点应在 `publish_work_changed` 调用方 | **0.5-1 人天** |
+| 13 | `toolResultRender` 状态包装 | `run_turn.rs:1925` 构建模型可见 tool result 处加 error 前缀与空输出替换；`locales` 已有串 | **1 人天**（若还要对齐 Read 的渲染后字符预算 +1） |
+| 17 | `workspaceAliases` | **已核实**：`delete_workspace` 在 `session/sqlite_store.rs:776`；全仓 `workspaceAliases` / `workspace_aliases` **零命中**，即 fork 确实无别名概念——同一目录的符号链接/大小写变体会算成两个 workspace，且删除后无墓碑 | **1-2 人天** |
+| 9 | minidb 读模型 | **待裁决后再估**（取决于是否需要全文检索；若只需 FTS5 则 2-3 人天，若需 minidb 全套则 10+ 人天） | — |
+| 16 | trust 披露 | 消费者已写好，主要是喂数据（读项目 `.mcp.json` + `local.toml` + instruction sources） | **2-3 人天** |
+| 18-20 | proxy env / `x-trace-id` / shell 探测 | 各 0.5-1 人天的局部改动 | **各 < 1 人天** |
+
+**合计（不含待裁决项）**：约 **21-30 人天**（原 22-32；第 8、10 项已实做各扣 0.5-1）。P0+P1 剩余约 **14-20 人天**。
+
+**并行度**：14 个 hook 事件、frontmatter、分叉切轮次——**三项互不依赖，可同时开工**（第 8、10 项已完成）。wire 版本必须最早开始（其余 wire 改动依赖它）。日志→导出 ZIP 是唯一有内部顺序的一对。
+
+**已实做两条的共同教训**：两处的**成本依据都是错的**（一个是编的调用点，一个是凭印象的倍数），且都是**动手做或读源码才发现**。派工前请把 §6.45.4 每一行的行号都重新核一遍——`check:roadmap-refs` 只验存在性，这 13 处台账错误全部能通过它。
+
+#### 6.45.5 需用户裁决（已剔除 P1-4）
+
+1. **P2-9 minidb 读模型**：v2 的消费者（session-index projector / mirror / 全局搜索 worker）在 fork 无对应需求，而 `packages/minidb/` 已是完整实现且引擎侧零引用。**问题不是「要不要移植 v2 的 `IQueryStore`（13 个方法，`queryStore.ts:96-116`）」，而是「fork 是否需要会话全文检索」**——这是产品问题。若只需要「会话列表 + 标题搜索」，SQLite FTS5 够用，不必引入 minidb；若需要跨会话的正文检索与聚合，那 minidb 的 trigram 索引才有不可替代之处。
+2. **§1 板块 6 那句「已补回」的安全约束**：实为 fork 自加（上游 82 行 `system.md` 中不存在该句，只在 fork `prompt/system.md:108`）。保留为 fork 强化，还是按上游删掉以免两处提示词分叉？
+3. **P2-10 tokenCounting anchor**：值得做，还是只修 `server/engine.rs:933` 的 `len()/4` 一行（对 CJK 低报约 4 倍）？anchor 模型本身是**报告精度**改进，不影响正确性——压缩用的是 `compaction::estimate_*` 同一族。
 
 ## 7. v1 / v3 协议面自创实现审计（2026-09-20，按铁律）
 
@@ -4076,7 +5857,7 @@ CI 的 Windows runner 或任何设了该变量的机器上都会假失败。已�
 | `tools/grep_types.rs` | 651 行 / 3 测试 | 217 类型表与本机 ripgrep 15.0.0 的 `--type-list` 数目吻合，且仓库自带对账测试 `table_agrees_with_the_local_ripgrep_type_list`（有 rg 时真跑） |
 | `pipeline/mod.rs` | 917 行 / 6 测试 | 构造链与注释逐句相符，无缺陷 |
 | `llm/wire.rs` | 170 行 | 见 10.5 |
-| `llm/thinking_guard.rs` | 330 行 | **fork 自创，出处见 6.39**（此前此行写作「见 10.5」，而 10.5 讲的是 `llm/proxy.rs` 的重试分类，与本文件无关——指针断裂，非仅遗漏） |
+| `llm/thinking_guard.rs` | 330 行 | **fork 自创，出处见 6.40**（此前此行写作「见 10.5」，而 10.5 讲的是 `llm/proxy.rs` 的重试分类，与本文件无关——指针断裂，非仅遗漏） |
 
 **本轮另修 5 处失效引用**（延续 10.1 的口径）：
 - `runStopHooks` → 上游真实名是私有方法 `runStop`（`agentExternalHooksService.ts:412`），
@@ -4387,7 +6168,7 @@ re-append 以免破坏调用方的 fold 索引）。
 > 工作树与**全部 git 历史**中都不存在（`git log -S` 零提交），那行实测输出也从未由任何测试断言过
 > ——它是一段转述的运行结果，而非可 grep 的符号，因此从未随代码一起被 review。上面两条测试是
 > 真正承担这两条不变量的测试，`context_overflow_recovery_retries_the_step` 更早于本节引入
-> （`f8ee5280de`）。这类失效模式的制度性根因见 §6.17.2，建议的对策见 §6.17.3。
+> （`f8ee5280de`）。这类失效模式的制度性根因见 §6.18.2，建议的对策见 §6.18.3。
 
 **过程中的两次自我修正**（都记下来，因为都是「以为绿了其实没有」）：
 1. 摘要/步骤分流最初用 `params.tools.is_empty()`，但本测试的 `tools: &[]` 让步骤
@@ -4503,1791 +6284,3 @@ v2 侧四个构造函数（`acp-server/src/events-map.ts:398-537`）全是**纯�
 本轮**未修改任何产品代码**（`git diff --stat` 对 `acp/`、`events/` 为空）。
 `cargo fmt --check` ✅｜`cargo test --no-default-features --features cli`
 2891 passed / 0 failed / 1 ignored。
-
-### 6.15 2026-09-27 移植/重写/近似审查后的更正与修复（**推翻本轮两条审查结论**）
-
-**背景**：对 Rust 引擎做了一次分区移植性审查（5 路并行，按文件分为
-PORTED / REWRITTEN / APPROXIMATE / FORK-ORIGINAL 四类）。审查全程只读源码、
-未执行代码，因此其结论按 AGENTS.md 的验证标准只算「读出来的」。本轮对最重的
-几条做了实测复核，**两条排名最前的结论不成立**，另有三条确认成立并已修复。
-
-#### 6.15.1 推翻：REST 信封并非 opt-in（原判为 P0 现网故障）
-
-审查称 `server/mod.rs:7088` 只在 `req.wants_envelope()` 时包
-`{code,msg,data,request_id}`，而 `dist-web` 从不发 `X-Envelope`，故 Web UI
-的 REST 链路全坏。**实测推翻**：`server/http.rs:203-205` 在
-`handle_request` **之后**无条件调用 `envelope_response`，且该函数幂等
-（已包信封的 body 直接放行）。`wants_envelope()` 这道门只存在于 `mod.rs`
-的内层分支与单测里，在真实 serving 路径上是冗余的。
-
-实测证据（`bun run dev:server` 起真实服务后 curl）：`/api/v1/healthz`、
-`/api/v1/meta`、`/api/v1/sessions`、404 路径，均在不带 `X-Envelope` 时返回
-带 `code` 的信封。**结论：信封行为正确，无需修复。** 教训是「只读到一个 gate
-就下结论」——判据必须跟到 serving 层。
-
-#### 6.15.2 推翻：`tool.call.completed` 未泄漏到 wire
-
-审查称 `events/types.rs:138,146` 的 `tool.call.completed/failed` 是 fork 发明名
-（两个 v2 检出 0 命中、bundle 0 命中），工具完成事件到不了 Web transcript。
-**复核修正**：该字符串只出现在 `EngineEvent` 的 serde tag 上，供 napi/内部
-识别；进 transcript 的 fold 走 `TranscriptProjector::apply_event`，对
-`ToolCallCompleted` 分支发出的是 `TranscriptOperation::FrameUpsert`
-（`server/transcript/project.rs:1438-1450`），**不含该字符串**。WS 侧
-`ws.rs:458` 喂的是 `EngineEvent` 枚举，客户端收到的是 `FrameUpsert`。
-Wire 词汇与 `packages/transcript` 的契约一致，**无需修复**。
-
-#### 6.15.3 确认并修复：BTW 侧信道工具策略反了
-
-v2 `features/btw/btw.ts:3` 的 `BTW_READONLY_TOOLS = {Read, Grep, Glob}`，
-侧信道**允许**这三个只读工具（`btwService.ts:38-43` 只否决集合外的调用）。
-Rust 原为「禁止一切工具」（`TOOL_CALL_DISABLED_MESSAGE` 文案亦不同）。
-后果：侧信道提问需要当前文件内容时拿不到，合法 `Read` 被拒。
-
-修复：`subagent/btw.rs` 新增 `BTW_READONLY_TOOLS`，`check_btw_tool_denial`
-增加 `tool_name` 参数并放行集合内工具，提示词与文案对齐 v2；调用点
-`tools/mod.rs:1253` 同步传参。验证：`cargo test --lib btw` 4 passed。
-
-#### 6.15.4 确认并修复：`[cron]` 配置段缺失
-
-v2 `features/cron/configSection.ts:11-52` 有 `debug/noJitter/noStale/disabled/
-manualTick/clock/pollIntervalMs` 与 7 个 env 绑定；`config/mod.rs` 此前
-**0 处**引用 cron，故 `KIMI_DISABLE_CRON=1` 与 `[cron] disabled = true`
-两个上游文档化的开关在此无效——而 ROADMAP 第 124 行把 `cron/` 标为
-「✅ 100% 原生」，与之矛盾。
-
-修复：新增 `CronConfig{disabled,no_jitter,no_stale}`，`KimiConfig` 增加 `cron` 段，三个
-resolver 按「env 覆盖文件」优先级实现，`main.rs` 的 tick 循环在
-`cron_disabled()` 时整体不启动。验证：`cargo test --lib config::` 61 passed。
-
-> **订正（2026-09-27）**：原文写「接受并忽略无消费者的 `debug`/`manualTick`，避免未知键报错」，
-> 这不准确——`config/mod.rs:388-400` 的 struct **只有 3 个字段**，`debug`/`manualTick`
-> 根本不在其中，是被 serde 直接丢弃（不 round-trip、不出现在序列化输出里），并非"接受"。
-> 同理 v2 的 `clock` / `pollIntervalMs` 也仍未移植。
-> 另需补记：`KimiConfig::cron_no_jitter()`（`config/mod.rs:1385`）与 `cron_no_stale()`（`:1392`）
-> **全仓只有测试调用，无任何生产消费者**——`cron/jitter.rs:61/90/116` 的 `no_jitter`/`no_stale`
-> 是形参，目前无人把配置值传进去。因此本节「三个 resolver 已实现」成立，但**只有
-> `disabled` 真正通电**。同时 `src/cron/jitter.rs:54` 的注释仍写着「the engine has no
-> `[cron]` config surface」，已被本节修复直接推翻，需一并修订。
-
-#### 6.15.5 确认并修复：ACP `session/set_mode` 的 `plan` 只落了一半
-
-v2 `acpModeToToggles`（`modes.ts:72-88`）把 mode 解析为 `{plan, permission}`
-两个开关并在 `session.ts:1103-1121` 分别 `enterPlan()`/`cancelPlan()` 与
-`setPermission()`。Rust 的 `apply_session_mode` 只写 `permission_mode`，
-plan 那一半从未生效——Zed/JetBrains 选 Plan 得到的是手动审批，只读约束不启用。
-
-修复：`acp/mod.rs` 新增 `acp_mode_plan()` 与 `apply_plan_toggle()`，经
-`StateStore::for_workspace` 写 `plan` 域（`tools/plan_mode.rs` 读的同一域），
-best-effort：域不可达时记 warn 而非让整个 mode 切换失败。验证：新增
-`test_acp_set_mode_plan_activates_plan_mode`，`cargo test --lib acp::tests` 30 passed。
-
-#### 6.15.6 维持「已登记的 fork delta」，不修
-
-`native/read.rs` 的 `MAX_LINES=1000` / `MAX_LINE_LENGTH=2000` / `MAX_BYTES=100KiB`
-与 `native/grep.rs` 的 `MAX_OUTPUT_BYTES=512KiB`（v2 为 10 MiB）确有差异，但：
-- `native/read.rs:28-39` 在文件头三段注明为 fork-original，且 ROADMAP:3721-3725 已登记；
-- `native/read.rs` 是**遗留读器**，模型实际调用的是 `tools/mod.rs`，后者按 v2
-  的 `max_chars`（100k/500k，纯字符）计量。
-故属已登记的 fork delta，不做对齐。
-
-> **订正（2026-09-27）**：本节原写「**两者均**在文件头注明…且 ROADMAP:3720 已登记」，
-> 该表述只对 `read.rs` 成立。`native/grep.rs:27-28` 的 `MAX_OUTPUT_BYTES` 只有一行
-> 「Maximum stdout bytes before truncation.」，**无 fork-original 标注**，且本台账也未登记
-> 这条 512KiB（v2 为 10 MiB）的差异。它应按「未登记的 fork delta」单独记一条，
-> 或在 `native/grep.rs:27` 补注释后再登记。
-
-#### 6.15.7 本轮审查的方法论结论
-
-分区审查给出的 28.3% APPROXIMATE 是**文件粒度**的下界，且按流量加权后有效
-近似率更高（近似集中在 `run_turn.rs`、`server/mod.rs`、`transcript/project.rs`、
-`config/mod.rs` 等必经路径）。但**未执行的静态审查会同时产生假阳性与漏报**：
-本轮两条最高优先级结论即被实测推翻。后续同类审查必须配上真实调用验证。
-
-### 6.16 2026-09-27 LLM 层三条 v2 偏差的修复（含一条「结论收窄」）
-
-继 6.15 之后继续打磨。本轮对审查报出的 LLM 层 finding 逐条实测复核，
-**三条确认成立并修复，一条收窄到远小于原判的范围**。
-
-#### 6.16.1 修复：Gemini 3 的思考深度丢失
-
-v2 `encodeGoogleGenAIThinking`（`google-genai/format.ts:147-167`）对 `gemini-3`
-把 effort 编码为 `thinkingLevel: MINIMAL/LOW/MEDIUM/HIGH`；Rust 只发
-`thinkingBudget` + `includeThoughts`，**effort 从未上线**，模型按自己的默认深度思考。
-
-修复：`llm/google_genai.rs` 新增 `thinking_level_for()`，并在
-`build_request_for_model()`（新增，保留原 `build_request_full` 签名）里写
-`thinkingLevel`；非 gemini-3 由新增的 `thinking_budget_for()` 从 `reasoning_effort`
-解析数值预算（`off|none`→0、`low`→1024、`medium`→4096、`high|xhigh|max`→32000，
-default 档只发 `includeThoughts`），与 v2 `encodeGoogleGenAIThinking`
-（`google-genai/format.ts:168-181`）逐档一致。level 与 budget **互斥**：gemini-3
-命中 level 时不再附带 budget（两者并存会被 API 拒）。`llm/http.rs:340` 同步传入
-model 与 `reasoning_effort`。验证：`cargo test --lib google_genai` 14 passed。
-
-> **订正（2026-09-27）**：原句写「非 gemini-3 **仍走数值预算**」，该表述不成立——
-> 修 gemini-3 时 `thinking_budget` 的唯一产出者被 `config/mod.rs::native_llm_config`
-> 的 `protocol == "anthropic"` 条件挡在门外，Google 线上恒为 `None`，`google_genai.rs`
-> 里两个 `thinking_budget` 分支是**死代码**。详见 6.16.2 之下新增的「非 gemini-3 的
-> effort 从未上线」一条。
-
-#### 6.16.1b 修复：非 gemini-3 的 effort 从未上线（`thinkingBudget` 死代码）
-
-v2 `encodeGoogleGenAIThinking`（`google-genai/format.ts:168-181`）对**每个** effort 都
-返回 `thinkingConfig`：`off`→`{includeThoughts:false, thinkingBudget:0}`，
-`low`/`medium`/`high`→1024/4096/32000，default 只发 `includeThoughts`。而 Rust 侧
-`thinking_budget` 只在 anthropic 分支产出，Google 线上恒为 `None`。
-
-后果：`effort="off"` 时 `http.rs` 算出 `include_thoughts=false`、`level=None`，整个
-`generationConfig` 被省略——gemini-2.5 按其动态默认预算**继续思考、继续计费**，用户
-以为已关；`low`/`medium`/`high` 同样只发出 `includeThoughts`，档位形同虚设。
-
-修复：`google_genai.rs` 新增 `thinking_budget_for()`，与 `thinking_level_for()` 同处
-一个 v2 开关；`off` 档输出 `{thinkingBudget:0}` 且不写 `includeThoughts`（缺省即
-false，与 v2 显式写 `false` 在线上等价）；effort 推导的预算受
-`model_supports_thoughts()` 约束（**pre-2.5 如 `gemini-2.0` 会拒收整个
-`thinkingConfig`**，不加此闸门修复会引入 400）；宿主显式配置的预算语义不变，仅
-gemini-3 命中 level 时被丢弃。`thinking_budget` 字段仍限 anthropic，`config/mod.rs`
-无行为改动，OpenAI 兼容协议不会拿到它。
-
-验证：`cargo test --lib google_genai` 14 passed，新增
-`gemini_2_5_carries_the_effort_as_a_thinking_budget`；两次「回退即失败」证明
-（置空 `effort_budget` → `off` 档断言失败且请求体无 `generationConfig`；只摘三档数字
-→ `low` 档断言失败）。`bun run check:parity` 仍 EXIT=0，`nllm 18/16` 未变。
-
-> 遗留待定：v2 的数值开关没有 `minimal` 档，故 gemini-2.5 上的 `minimal` 落进 default
-> 档（只发 `includeThoughts`）。本次严格对齐 v2，未自行发明数值；若认为 2.5 的
-> `minimal` 应等价于最小非零预算，需另开一次改动。
-
-#### 6.16.2 修复：OpenAI Responses 的思考块在重放时整体丢失
-
-v2 `lowerMessage`（`openai-responses/lower.ts:176-203`）把 assistant 的 think
-part 重建为独立的 `reasoning` 输入项（连续且 `encrypted` 相同的 part 合并为一个
-item、多个 `summary_text`），并携带 `encrypted_content`。Rust 的 assistant 分支
-只发文本 + `function_call`，**模型在每次重放时丢掉自己的前序推理**，且没有
-`encrypted_content` 时 Responses 服务端无法恢复跨轮推理连续性。
-
-修复：`llm/openai_responses.rs` 新增 `reasoning_items()`（含 `flush_reasoning`），
-在文本消息**之前**按 v2 顺序发出 reasoning 项。验证：
-`cargo test --lib openai_responses` 26 passed（新增
-`assistant_thinking_is_replayed_as_a_reasoning_item`）。
-
-#### 6.16.3 收窄：压缩「阻塞机制整体缺失」远没有原判那么严重
-
-审查称 Rust 缺 v2 的 `shouldBlock` / `blockRatio` / `checkAfterStep` /
-`lastCompactedTokenCount`，后果是「长回合跑过窗口、更多 400/413」。**复核收窄**：
-
-- v2 `RuntimeCompactionStrategy.config()` 里 `blockRatio = Math.max(triggerRatio, 0.85)`，
-  而 `checkAfterStep = triggerRatio !== blockRatio`。Rust 的 `trigger_ratio`
-  恒为 0.85 且从不可配，故 **`blockRatio` 与 `triggerRatio` 恒等** →
-  `shouldBlock` 与 `shouldCompact` 判据相同、`checkAfterStep` 为 **false**。
-  即：v2 在默认配置下也不会阻塞、也不会步后复检。**原判的「更多 400/413」不成立。**
-- v2 `block()` 的实现是 `if (active === null) return;` —— 它只等待**已在飞行中**
-  的压缩，并不自己发起一次。这进一步缩小了差异面。
-
-真正的、可达的缺口被收窄为：**v2 的 `[loop_control]` 暴露
-`compaction_trigger_ratio`（0.5..=0.99）与 `reserved_context_size`，Rust 从不读取**，
-且 `trigger_ratio` 在 Rust 侧恒为 0.85。只有当用户把 trigger 调到 0.85 以下时，
-v2 才会阻塞而 Rust 不会——这是一个真实但**窄**的行为差异。
-
-修复（就窄缺口部分）：`config/mod.rs` 的 `LoopControlConfig` 增加两个键（含
-camelCase 别名）与两个 resolver，越界值回落到引擎默认而非静默生效。验证：
-`cargo test --lib config::tests::loop_control_compaction_knobs_parse_and_ignore_out_of_range` 通过。
-**未做**：把这两个键接到 `CompactionConfig`——它经 napi 由 host 注入
-（`RunTurnInput.compaction_max_attempts` 同路径），属跨层改动，单独立项。
-
-#### 6.16.4 本轮方法论补记
-
-6.15.7 说「静态审查会同时产生假阳性与漏报」，本轮给出一个**反向**样本：一条
-被判为「压缩阻塞缺失、后果严重」的 finding，实测后不仅没有那么严重，而且在
-默认配置下几乎为零。原因是审查只读了 v2 的 `strategy.ts` 接口定义（确有
-`shouldBlock`），没有读 `RuntimeCompactionStrategy.config()` 的实际取值
-（`blockRatio = max(triggerRatio, 0.85)`）。**只读接口不看取值，会系统性高估差异。**
-
-### 6.17 2026-09-27 台账自身的抽验：失效条目与制度性盲区
-
-一次独立抽验（本轮 34 条：6 个维度并行审计，每个维度要求「先 grep 本台账再报」）的结论。
-先说好的：**可信度显著高于同类手写台账**，34 条里 30 条完全属实，多处行号**逐字精确**
-（`oauth/service.rs:34/67/134/148`、`client_shared.rs:26/34/82`、`server/files.rs:90/226/316`、
-`errors.rs:12/55`、`thinking.ts:123/145`），测试名与断言内容逐条对得上（「89 tools / 104 napi」
-这类聚合数也能独立复算一致），并且罕见地记录了**自我推翻**（6.12.4 推翻 6.12.1/6.12.2、
-6.13 推翻 6.12.11 的两处前提、6.15 推翻两条审查结论、6.16.3 收窄一条 finding）。
-引用的 15 条带过滤子句的 `cargo test` 命令**全部至少命中 1 个现存测试**——本台账已知的
-「过滤器匹配 0 个仍 exit 0」这个假绿模式，在这 4000+ 行里**没有复发**。
-
-#### 6.17.1 本轮已订正的失效条目
-
-| 位置 | 问题 | 处置 |
-|---|---|---|
-| §10.18 | 引用的 `test_overflow_recovery_retries_within_its_budget_then_fails` 在工作树与**全部 git 历史**中零命中；那行「实测输出」也从未由任何测试断言过 | 就地改写为真正承担该不变量的两条测试，并写明这是**转述的运行结果**而非可 grep 的符号 |
-| §6.13 | `stamp_agent_id()` 与三条测试已随 §6.14 删除，证据行仍是现在时 | 就地加订正块并划掉三条测试，保留仍存在的第四条 |
-| §6.15.6 | 「**两者均**在文件头注明 fork-original 且已登记」只对 `read.rs` 成立；`grep.rs` 的 512KiB 无标注也未登记 | 就地拆开陈述，并标为「未登记的 fork delta」 |
-| §6.15.5 | 「`acp::tests` 4 passed」实为 30 passed（过滤器有效，计数错，会让读者低估回归面） | 改为 30 |
-| §6.15.4 | 「接受并忽略 `debug`/`manualTick`」不准确——二者根本不在 struct 内，是被 serde 丢弃；且 `no_jitter`/`no_stale` 至今**无生产消费者**，只有 `disabled` 通电 | 就地订正，并记下 `cron/jitter.rs:54` 的过期注释 |
-| §6.1-4 尾部 | 「仍缺的只剩 workspace/plugin/capability 事件生产者」读起来像活 TODO | 就地加订正块，指向 §8.11 |
-
-#### 6.17.2 制度性盲区（本台账最该改的一件事）
-
-三种失效同源：**证据的「存在性」被反复验证，证据的「坐标」与「归属」从不复验。**
-
-1. **行号是快照，不是锚点。** 同一份台账里，`server/engine.rs:239/576/589`（实际
-   277/324/333）、`tools/mod.rs:1253`（实际 1239）、`tools/mod.rs:1527`（实际 1944）、
-   `sdk-rpc-client-native.ts:1389`（实际 1425）、`mcp/manager.rs:943`（实际 930）都漂了
-   14~260 行；而另一些引用（`oauth/service.rs:67`）却精确到行。**精度取决于哪一轮写的、
-   作者当天的细心程度，而不是台账制度。**
-2. **被取代的证据不回填。** §6.13 的三个符号/测试、§6.1-4 的整段 v3 证据都已随
-   §6.14 / §8.11 作废，但作废声明只写在别的小节标题里，原证据行仍是现在时。
-3. **「实测输出」类数字缺复核。** §10.18 那行是唯一一条被判定为 FALSE 的内容，
-   它的证据形态与其它条目不同：是一段**转述的运行结果**，不是可 grep 的符号或测试名，
-   因此从不随代码一起被 review 看见。
-
-#### 6.17.3 建议：台账引用检查器
-
-在 CI 门禁里加一条检查器——正则抽出本台账中所有 `src/…rs:<line>` 形式的引用，以及所有
-反引号包裹的 `fn 测试名`，逐条断言「该行仍包含所引用的符号」或「该测试名仍存在」，
-不一致就打 warn 并列出清单。成本极低，可一次性覆盖上表除 §10.18 外的**全部**行号漂移
-与死测试名。
-
-§10.18 那类「转述的实测输出」不在其射程内，只能靠一条人工规则兜：
-**凡在本台账写出具体数字的运行结果，必须同时写出产生它的测试名。**
-
-### 6.18 2026-09-27 目录内嵌引擎：i18n napi 契约收窄与 locale 全局量改造
-
-本分支把 locale 目录从 TypeScript 侧搬进 Rust 二进制（`native/catalog.rs` 的
-`include_str!`），并借这次内嵌把进程全局的 locale **载荷**改成一个 `Locale` **枚举**。
-三处都是 fork-original 的引擎侧 delta，按根 `AGENTS.md` 的 Upstream Merge Policy 登记。
-
-#### 6.18.1 破坏性：i18n napi 表面 7 → 2
-
-| 迁移前 | 迁移后 |
-|---|---|
-| `nativeTranslate(localeJson, fallbackJson, key, params?)` | — |
-| `nativeTranslateCached(localeJson, fallbackJson, key, params?)` | — |
-| `nativeTranslateClearCache()` | — |
-| `nativeTranslateBatch(localeJson, fallbackJson, keys, params?)` | — |
-| `nativeTranslateBatchCached(...)` | — |
-| `setEngineLocale(localeJson, fallbackJson)` | `setEngineLocale(locale)` |
-| `clearEngineLocale()` | — |
-| — | `translate(key, params?)` |
-
-删除落在 `bf63a11a92`（连带删掉 `native/translation.rs` 590 行的解析与缓存实现）与
-`79d9ae0e37`。任何直接调旧表面的下游都得改；`index.native.d.ts:488` 与
-`napi-contract.d.ts:1677` 是现在仅剩的两处声明。宿主侧 `t()` 过去调
-`nativeTranslateCached`（缺绑定时退 `nativeTranslate`），现在调 `translate`——对调用方
-语义不变（key 进、字符串出、两处 locale 都查不到时返回 key 本身），变的是绑定的名字和
-解析的来源：不再收 JSON，改为解析内嵌目录。
-
-#### 6.18.2 进程全局：载荷 → `Locale` 枚举
-
-旧 `set_engine_locale(locale_json, fallback_json)` 往一个 `OnceLock<RwLock<EngineI18n>>`
-里塞两棵消息树；现在 `EngineI18n` 只剩 `active: Locale`（`i18n.rs:79-82`），`Locale` 是
-`catalog.rs:19-24` 的两变体枚举（`En` 为 `#[default]`，`from_name` 解析）。
-
-这不是重构洁癖，是**修 bug**：进程里有两个互不知情的 JS locale 槽——CLI 侧
-`apps/kimi-code/src/i18n/index.ts` 的 `localeJsonEn` / `localeCurrentJson`，以及
-`i18n-runtime` 侧的 `localeJsonMap`——各自把 `(localeJson, fallbackJson)` 推给**同一个**
-Rust 全局槽。谁最后调谁说了算；从没调过的那一侧就沿用对方留下的语言，于是引擎自有的
-权限理由与工具报错不跟随界面语言。改成只传语言名之后，两次安装只可能一致。
-`set_locale` 从未被调用时引擎停在 `En`，所以「未接线的宿主保持英文」这条承诺依然成立。
-
-#### 6.18.3 158 条英文常量 → 目录 key
-
-`packages/kimi-agent/src/locales/en.json` 下现有 **158** 个 `engine.*` 叶子，由
-`packages/kimi-agent/src` 里 **196** 处 `LocalizedText::{new, with_params}` 调用点引用
-（两项均按 §6.17.3 的要求可复算：key 数与 `bun run check:engine-i18n` 的输出一致，
-调用点数按 `grep -o 'LocalizedText::\(new\|with_params\)' -r packages/kimi-agent/src | wc -l`）。
-英文句子的唯一来源因此是目录里那一份 en，与宿主 `t()` 解析的是同一份；解析不到 key 就
-渲染裸 key，由 `scripts/check-engine-i18n-parity.mjs` 拦下（key 必须存在、不得有孤儿
-key、`i18n_params!` 绑定名要与模板 `{{placeholder}}` 逐字一致）。
-
-一处渲染结果因此变化：`tools/fetch_url.rs:489` 的 `validate_url` 原先走
-`LocalizedText::fmt` 的内联英文兜底 `Invalid URL: {e}`，现在解析
-`engine.tools.fetchUrl.invalidUrl`，输出变成 `Failed to fetch URL: Invalid URL: <e>`。
-两条 locale 里一直就是这句长文本，重复的 "Invalid URL" 属既有目录文本，不是本次引入；
-它对用户不可见：该 `validate_url` 只被同文件内的 `#[cfg(test)]` 单元测试调用
-（`:640-658`、`:700-707`），没有任何生产调用方——`server/plugin_archive.rs:79`
-经 `:15` 的 import 走的是 `native/fetch_url.rs:203` 的三参数 pinned 变体，它仍用内联
-`format!("Invalid URL: {e}")`（`:208`），不碰本 key。因此这次改动的实际收益是：同一句
-英文不再有目录与 Rust 字面量两份来源，去掉了一处会漂移的副本，并由
-`bun run check:engine-i18n` 守住。生产路径 `tools/fetch_url.rs:159` 早已是
-`Failed to fetch URL: Invalid URL: {e}`，与目录逐字一致，输出未变。
-
-#### 6.18.4 门禁：生成脚本的退出码
-
-`generate-locale-json.cjs` 生成的 JSON 经 `include_str!` 进二进制，CI 用
-「重新生成 + `git diff --exit-code -- '**/locales/*.json'`」保证新鲜度。本次把该脚本的
-源加载失败从「打印 + 继续、退出码 0」改为非零退出（`scripts/generate-locale-json.cjs:56-57`
-与 `:133-144`）：否则某个源加载失败时 JSON 不会被重写，diff 为空，CI 会带着**过期的
-内嵌目录**判绿——正好是 `native/catalog.rs` 头部注释承诺「malformed JSON 到不了构建」
-的反面。
-
-#### 6.18.5 目录级孤儿键：826 / 2429 不可达，且此前无门禁（2026-10-01 审计新增）
-
-§6.18 记录的是 `engine.*` 那一层：158 个叶子、196 处 `LocalizedText`、`check-engine-i18n-parity.mjs`
-三条规则（键存在 / `engine.*` 无孤儿 / `i18n_params!` 与模板逐字一致）。**但那三条只覆盖 `engine.*`**，
-而 `packages/kimi-agent/src/locales/en.json` 实际有 **23 个顶层命名空间**。
-
-关键在于**非 `engine` 的部分不是死重，而是活的宿主接口**：§6.18.1 把 i18n napi 表面收窄到
-`translate(key, params)`，而 `apps/kimi-code/src/i18n/index.ts:131` 与
-`packages/i18n-runtime/src/i18n.ts:182` 的 `t()` 在原生引擎在场时正是调它；
-`packages/kimi-agent/test/translation.test.ts` 用 `common.ok` / `tui.statusMessages.*` 证明了这条路径。
-所以孤儿判定必须**同时看两个消费方**，只扫 Rust 的 `LocalizedText` 对大部分目录是**结构性失明**——
-这正是无人引用的条目能在那里安静积累的原因。
-
-**测量结果（`scripts/check-locale-orphans.mjs`，扫描 246 个 Rust 文件 + 1912 个 TS 文件）：
-2429 个叶子中 758 个两侧都不可达**，按命名空间：`toolsV2.*` 179、`tui.*` 160、`v2Errors.*` 139、
-`errors.*` 60、`svc.*` 41、`shell.*` 34、`v2Goal.*` 29、`plugin.*` 25、`v2Mcp.*` 18、
-`background.*` 14、`tools.*` 13、`cli.*` 9、`v2Fs.*` 9、`flags.*` 6、`v2Storage.*` 5、
-`v2Wire.*` 4、`serverErrors.*` 3，其余 6 个命名空间各 1–2 个。此前记录的「19 个死 locale 键」只是
-`v2Goal` / `background` / `flags` 三族的抽样，实际规模大一个数量级。
-
-**可达性判定必须是"两种消费方 + 三种命名形态"。** 头一版门禁只扫 `t('…')` 实参，报出 826 条，其中
-**68 条是假阳性**：除显示用键外，目录里还有一类**线令牌**——引擎产出一个 reason 串、TypeScript 侧
-用 `===` / `Set` / `case` 识别，`scripts/scan-hardcoded-v2.mjs:458-463` 明确记录了这类
-（并举例 `shell.pausedAfterInterruption` / `v2Goal.pausedAfterResume` / `toolsV2.abort.abortedByUser`；
-顺带发现那两个例子的出处**已过期**，它们如今只出现在该注释里）。还有一类是**无复数机制的手工二选一**：
-`AGENTS.md:115-118` 记的 14 组 `_one` / `_other`（28 行）由调用点手工挑
-（`tui/components/chrome/footer.ts`），不是 `t(base)` 形态。最终判据改为**按形状匹配**（`ns.segment…`
-的引号包裹记号），同时覆盖三者，且不依赖引号配对——中途试过"扫全部字面量"，结果更差（826 → 1196）：
-注释里的 `don't` 会让配对正则把后面一整段吞掉，反而**少**找到键。新集合 758 是旧集合的**严格子集**，
-与"模型只会更宽松"一致，这个方向性本身就是一次自检。**新模型仍只保证不误报、不保证不漏报**（运行时
-拼出来的键看不见），所以不自动删除。
-
-**来源分类（用 v2 基线 `ecad4136d9^` 复核，结论与直觉相反）**：把基线上 `t('…')` 出现的 2049 个键
-与今天的可达集做差，只有 **27 条**属于"随退役的 TS 引擎一起死"（`tui.*` 13、`v2Errors.*` 5、
-`toolsV2.*` 4、`errors.*` 2、`serverErrors.*` 2、`startup.*` 1）；其余 **799 条在基线上也从未被引用过**。
-其中 8 个命名空间在基线上**任何形式都零引用**（`v2Goal` `v2Mcp` `v2Auth` `v2Loop` `v2Fs` `v2Storage`
-`v2Wire` `v2Model`，共 71 键），今天同样只出现在目录定义与本门禁自己的产物里。**因此这不是 Rust 移植
-丢了功能，而是 TS 时代就积下的目录债**；`v2Errors.*` 虽有 139 键，基线上真正被 `agent-core-v2` /
-`kap-server` 引用过的只有 5 键，那两个包已被本 fork 退役。
-
-**处置：不删除，改为双向棘轮。** 自动删 758 条本地化文案是不可逆的，且过度近似看不见运行时拼出的键
-与未来插件宿主面会引用的键；因此把债记进 `scripts/locale-orphan-allowlist.json`，门禁双向收紧：
-
-- 现在不可达、但不在名单里 → **失败**（债不能增长）；
-- 名单里、但现在已可达 → **失败**（有东西被接线了，名单必须收缩）。
-
-两者都用 `bun scripts/check-locale-orphans.mjs --update` 重录。该门禁已进 CI lint job，并做过突变
-测试：注入一个从未被引用的假键被抓到；把一个已记录的孤儿变得可达（加一处 `t()` 调用）也被抓到
-（报 `resolved`）；6 个已知在用的键正确判为非孤儿。
-
-**待办**：758 → **687**。已删掉证据最硬的一批：8 个在 v2 基线上**任何形式都零引用**、今天同样只出现在目录定义与本门禁产物里的命名空间（`v2Goal` `v2Mcp` `v2Auth` `v2Loop` `v2Fs` `v2Storage` `v2Wire` `v2Model`，共 71 键，en + zh）。删除前确认过两件事：`@moonshot-ai/i18n-catalog` 是 **`private: true` 未发布**包，删键不构成对外破坏性变更；文案本身仍可从本仓 git 历史（`ecad4136d9^`）取回。删后目录从 2429 降到 2358，`generate-locale-json.cjs` 重新生成后 10 个产物里只有引擎那两个 JSON 变化，其余 app 的 locale 源不同源、未受影响；`check:locale-keys` / `check:locale-placeholders` / `check:engine-i18n` 全绿。棘轮为此区分了两种收敛：**键被接线**（仍在目录、变可达）与**键被删除**（已不在目录），两者都要求重录。剩余 687 条需逐族定论；证据次强的一类是那 27 条"随退役的 TS 引擎一起死"的键（`v2Errors.*` 等），删除同样安全但需按基线引用文件逐条确认。
-
-**另不要**把 `goal_tools.rs` / `create_goal.rs` / `get_goal.rs` 里的硬编码英文当作债——那些是**模型可见**的工具结果文案，v2 侧同样硬编码英文（`features/goal/errors.ts` 的 `GoalErrors.info[].action`），而 §6.18 的「单一英文来源」约束的是**用户可见**的引擎文案（`engine.*`，如 `engine.permission.deniedByUserRule`）。把模型可见文案也搬进目录反而会**偏离 v2**。
-
-**不要删那 13 条「随退役引擎而死」的键。** 复核后它们分成两类：①
-`toolsV2.sandbox.writeBlockedReadOnly` / `writeBlockedOutsideWorkspace` /
-`toolsV2.swarm.agentDeniedInSwarmMode` / `toolsV2.spill.retrievalHint` ——
-文案与 v2 目录原文**逐字一致**，且是**刻意保持英文**的：`swarm/mode.rs:265-267`
-写明了理由「it is model input, not a user-facing failure」，并把
-`locales/en.json` 的 `toolsV2.swarm` 记为该硬编码串的**出处**——删键会让这条
-provenance 引用悬空。② `errors.*`（2）、`serverErrors.*`（2）、`v2Errors.*`（5）
-是纯退役残留，删是安全的，但只占 687 的 1.3%，不值得为它再动一次共享目录。
-
-### 6.21 2026-09-29 v2 步数记账：双计数器语义，与重试计费差异（**记录，不改**）
-
-本条是「v2 → Rust 行为对照」的一轮结果。结论先写：**不改代码**。两次中途结论被自查
-推翻，最终结论附算式，可复算。
-
-#### 6.21.1 v2 有两个独立计数器
-
-turn 上下文字段（`packages/agent-core-v2/src/human/agent/turn.ts:229-230`）：
-
-| 字段 | 初值 | 写入点 | 单调性 |
-|---|---|---|---|
-| `step` | 0（`:442`） | 每次进入 `thinking` 时 `+1`（`:485`） | turn 内单调，从不重置 |
-| `steps` | 1（`:441`） | `turn.notify` 带消息时压回 1（`:856`）；另被 gate 每步回写 | 被 gate 单调化 |
-
-`currentStep()` 只有两处写入：`turn.started` 归零、`step.started` 取当时的 `context.step`
-（`packages/agent-core-v2/src/agent/loop/machine/engine.ts:365`、`:372`）——turn 内不重置。
-
-#### 6.21.2 权威上限在 gate，且它把可重置计数器重新单调化
-
-`packages/agent-core-v2/src/agent/loop/loopService.ts:983`：
-
-```ts
-const stepOrdinal = Math.max(this.engine?.currentStep() ?? 0, turn.steps + 1);
-if (stepOrdinal > maxSteps && !consumed.bypass) { /* fail */ }
-```
-
-紧接着 `:994` 是 `turn.steps = stepOrdinal`——**每次 gate 都把那个可重置的计数器按
-单调值回写**。gate 无条件挂在 requester 上（`:218`），且每次 `generate` 前都调
-（`packages/agent-core-v2/src/agent/loop/machine/requester.ts:61-62`）。
-
-所以「通知重置可以放宽步数上限」不成立：`stepOrdinal ≥ currentStep()` 恒成立，重置值在
-下一次 gate 就被覆盖。
-
-#### 6.21.3 算出来的实际差异
-
-设第 k 次 LLM 调用，`steps` 始终跟随 ordinal：
-
-- 无重置：`ordinal_k = max(k, k+1) = k+1`，失败线 `k+1 > maxSteps` → 允许 **maxSteps-1** 次调用
-- 有重置（`steps` 被压回 1）：`ordinal_k = max(k, 2) = k`（k ≥ 2）→ 允许 **maxSteps** 次
-
-本移植 `src/turn_loop/run_turn.rs:963` 是 `for` 循环的 `steps = step_num + 1`，
-**允许 maxSteps 次**。即：**当前实现已经等于 v2 的上沿**；把重置忠实移植进来反而会收紧
-1 次调用。重置的真实收益是**每次通知 +1 次调用**，而唯一会 turn 内反复触发的 provider 是
-`plan_mode`（`PLAN_MODE_DEDUP_MIN_TURNS = 2` / `PLAN_MODE_FULL_REFRESH_TURNS = 5`，
-`packages/agent-core-v2/src/features/plan/injection/planModeInjection.ts:17-18`；其
-`assistantTurnsSince` 是遍历历史数 assistant 消息，即步级）；`goal` 是 turn-gated
-（`packages/agent-core-v2/src/features/goal/injection/goalInjection.ts:24` 的
-`isNewTurn ? this.reminder() : undefined`），turn 内不触发。
-
-#### 6.21.4 真正的差异：v2 把重试计入步数，Rust 不计
-
-`retrying` 状态是 `after: { retryDelay: 'thinking' }`
-（`packages/agent-core-v2/src/human/agent/turn.ts:717-720`）——**重试会重新进入
-`thinking`**，而其 entry 含 `step: context.step + 1`（`:485`）。因此 v2 里每一次 LLM
-重试都消耗一单位步数预算。
-
-本移植的 `steps` 只在 for 迭代入口赋值一次（`src/turn_loop/run_turn.rs:963`）；重试循环
-在 `execute_loop_step_with_retry` 内部，只读 `step` 参数，不回写预算。
-
-量级：`max_attempts_per_step` 默认 10（`src/turn_loop/turn_step.rs:319`）。v2 里一个步骤
-若重试 5 次即烧掉 6 单位预算——在 `ServerEngine` 默认 `max_steps = 32`
-（`src/server/engine.rs:300`）上，一个 provider 抖动的 turn 可能在 3 步内被截断；本移植不会。
-
-#### 6.21.5 记录不改的理由
-
-- 通知重置的收益是每次 +1 次调用，且本移植已在 v2 上沿，**忠实移植是净收紧**。
-- 重试计费的差异方向是「本移植更宽松」。是否要收紧取决于真实 turn 的重试分布与长度
-  分布，**仓库没有这项遥测**，据猜测收紧可能让长 turn 提前失败。
-- 这两条都需要真实使用数据才能判断，因此记录在案、等数据。
-
-#### 6.21.6 同批完成：注入层收敛为单一抽象
-
-同一轮里发现 `crate::injection` 存在三处由「parallel workstream」临时接线留下的重复
-抽象，注释自称 *"the injection-layer work item"*，已全部收敛：
-
-| 概念 | 收敛前 | 收敛后 |
-|---|---|---|
-| `InjectionRegistry` | `injection/mod.rs` 的 struct **+** `injection/goal_plan.rs` 的 trait | 仅 struct（`src/injection/mod.rs:114`） |
-| `InjectionProvider` | 两个同名不同签名 | 仅一个（`src/injection/mod.rs:105`） |
-| 状态契约 | `goal_plan::StateStore`（与 `storage::StateStore` 同名不同义） | `src/injection/state.rs` 的 `DomainValueSource` |
-| 桥接适配器 | `injection/mod.rs` 的一层 `impl` | 删除 |
-
-`register_goal_plan_injections` 去掉泛型 `R`，直接收 `&mut InjectionRegistry`；两个
-provider 改用 `&InjectionContext` 并返回 `Option<String>`，原先由适配器负责的
-「空白渲染 → 不注入」映射搬进闭包本身。三个测试改用真 registry（原先用只捕获
-provider 的 `FakeRegistry`，而它们测的本来就是 provider 而非 registry），因此现在真正
-走一遍注册表的包裹与过滤。行为影响为零：调用顺序、blank 过滤、包裹文本均不变。
-
-新增的 `a_provider_that_renders_blank_injects_nothing` 替代了被删的适配器测试，保住
-其意图。`DomainValueSource` 改名而非保留 `StateStore`，是因为两者同名、同有
-`read_domain`、语义不同（trait 契约 vs 带生命周期与迁移的具体类型），是这轮全部麻烦的
-起点。
-
-
-
-### 6.22 2026-09-29 退役包 delta 复核：7 条上游提交（2 补丁 / 5 功能 / 1 不适用）
-
-`scripts/upstream-v2-delta-allowlist.json` 的 7 条新条目在此逐条落账，证据与
-"要实现它需要什么"写在各条的 `note` 里，这里只留索引与结论。判定口径：**补丁** = fork
-已有该机制、只是漏了这一种情形；**功能** = fork 从未构建过该能力；**不适用** = 无可观测
-行为差异。功能类按规矩需用户许可，未获许可前只记账不实现。
-
-| 条目 | 提交 | 裁决 | 落点 |
-| --- | --- | --- | --- |
-| §6.22.1 | `1f6f0b1fa2` #4059 | **ported** | `KIMI_CODE_TRUST_WORKSPACE` env 短路，落在 `node-sdk`（2026-09-29 已实现） |
-| §6.22.2 | `4fbe065442` #4054 | tracked | NotifyUser 需要"宿主有更新面板"的能力位，Rust 无此概念 |
-| §6.22.3 | `a940f2ff04` #4057 | tracked | 权限模式要发 `agent.status.updated`，引擎无该事件、无 `permission` 字段 |
-| §6.22.4 | `09af3b483f` #3998 | tracked | tower 六簇加固 + wake 打断，全部是新面；仅 tmp+rename 判不适用 |
-| §6.22.5 | `e3bf50c083` #4076 | tracked | undo 需按 prompt 归属撤销；fork 的 undo 只按轮数 |
-| §6.22.6 | `395d537237` #4056 | tracked | workspace trust 披露服务缺失，`gatedMcpServers` 恒空 |
-| §6.22.7 | `06ebfc821e` #4081 | tracked | hook 输出不入 prompt，且内容块缺 `meta` 契约 |
-
-#### 6.22.1 已完成：`KIMI_CODE_TRUST_WORKSPACE`
-
-`getWorkspaceTrustInfo` 在读 `trusted-workspaces.json` 之前先用 `parseBooleanEnv` 短路
-（仅 `1/true/yes/on` 为真，拼错则照常询问）。`resolveSessionAdditionalDirs` 无需改动——
-它本就经由该访问器，这正是它算补丁而非功能的原因。测试见
-`packages/node-sdk/test/workspace-trust.test.ts`（5 例：fail-closed、已记录信任、env 压过记录、
-全部真值拼写、假值/无法识别拼写不生效）。文档同步 `docs/{en,zh}/configuration/env-vars.md`。
-**未移植**：`mcpRegistryService` / `workspaceMcpConfigService` 两处——`gatedMcpServers` 在
-`sdk-rpc-client-native.ts:5209` 硬编码为空，没有可解锁的项目级 MCP 面；print 模式告警字符串在本
-fork 不存在。
-
-#### 6.22.2–6.22.7 五条功能类
-
-共同结论：**它们不是"漏了一种情形"，而是 fork 从未构建过对应能力**。逐条要什么见 allowlist 的
-`note`。三处最容易被误判的：
-
-- **§6.22.7** 的数据其实已经就位——`LLMMessage` 同时带 `origin`（v2 `PromptOrigin`，开轮 user
-  消息上就设了，`turn_loop/types.rs:189-196`）和 `prompt_id`（`:188`）。缺的是**消费方**：fork 的
-  undo 是按轮数的（`session/sqlite_store.rs:980,988`），`grep prompt_id src/session/mod.rs` 无命中，
-  所以没有任何代码能回答"这一轮属于哪个 prompt"。
-- **§6.22.7 的残留半移植**：宿主层仍在完整实现 commit 之前的 `hook_result` 折叠，而引擎从不发这种
-  消息——`packages/transcript/src/history/groupTurns.ts:482`、`foldFacts.ts:130`、
-  `apps/kimi-code/src/tui/utils/message-replay.ts:332`、`session-replay.ts:215,274,338,365,651`、
-  `node-sdk/src/types.ts:434`。同一提交里的技能块 meta 标记重构**在本 fork 不是免费的**：`meta` 字段
-  本身是契约变更，所以它随本条记账，不单列为补丁。
-- **§6.22.4** 里唯一判 `n/a` 的是 v2 把 `state.json` 临时文件后缀加上 pid+uuid；fork 已经在写
-  per-writer tmp + 原子 rename（`tools/tower/store.rs:295-307`），机制相同、后缀不同，无可观测差异。
-
-文档侧同步修正一处不实描述：`docs/{en,zh}/customization/hooks.md` 的 `UserPromptSubmit` 行原写
-"返回文本会附加到上下文、阻断则本轮不调用模型"，而 `tools/external_hooks.rs:270-272` 的注释白纸黑字
-写着引擎只走观察路径、返回值被丢弃。2026-09-29 按实现改正。
-
-### 6.23 2026-09-29 退役包 delta 复核（续）：2 条上游提交（1 补丁 / 1 不适用）
-
-上游在 §6.22 落账后当天又推了两条触及 `agent-core-v2` 的提交，ratchet 照常报红。逐条裁决如下。
-
-**本节是复核后的版本。** 第一遍只读 `git show --stat` 加单个文件就下了结论，用户追问后重做：先把
-`.tmp/v2-ref-upstream` 刷到当天的上游 tip（`f409caa21e`），再逐条读实现。复核推翻了两个东西——§6.23.1
-的**证据链**（结论不变，但第一遍漏了 fork 的第二个 cron 面）和 §6.23.2 的**移植完整性**（上限对齐了，
-描述散文没有）。同时证伪了 `AGENTS.md` 里"两个参考检出的 `agent-core-v2` 逐字节相同"这句话：实测
-38 个文件内容不同、1 个文件只在 upstream 侧存在，因为退役参考冻结在删除点而 upstream 一直在动。
-
-| 条目 | 提交 | 裁决 | 落点 |
-| --- | --- | --- | --- |
-| §6.23.1 | `f409caa21e` #4083 | **not-applicable** | fork 的两个 cron 面都不是会话级，且 `fork_session` 不复制任何状态行 |
-| §6.23.2 | `20a2cea72f` #4061 | **tracked** | 上限与 schema 已移植；描述散文 / 重复等待警告 / 子代理指引 / TUI Enter steer 未移植 |
-
-#### 6.23.1 不适用：`f409caa21e` 清空 fork 继承的 cron 任务
-
-v2 把 cron 任务作为 `cron.add` 记录写进会话 journal，而 fork 复制 journal，于是 fork 继承了源会话的
-任务、两个会话同时触发。**这个机制在本 fork 不存在**，四条证据：
-
-- **`fork_session` 不复制任何状态。** `session/sqlite_store.rs:834-861` 只做
-  `load_session_history` → `create_session_with_workspace` → `UPDATE sessions SET parent_session_id`
-  → `save_turn(new_session_id, "turn-fork", 1, &history, None, None)`，对 `state_entries` 和
-  `wire_events` 的引用数都是 0。两个 fork 入口都走它（`acp/mod.rs:1015`、`server/mod.rs:5130`）；
-  `btw` 侧信道根本不 fork 会话——`napi_bindings.rs:3167-3170` 用
-  `session.snapshot_history()` 喂一个内存态子代理。
-- **服务器级那个面不是会话级。** `server/mod.rs:595-599` 写明条目存在 state key `("cron", "entries")`；
-  `put_state`（`session/sqlite_store.rs:1336`）写入时不带 `session_id`，所以该行 `session_id` 恒为
-  NULL、全局共享。
-- **模型侧那个面根本不在会话存储里。** 它是按工作区键控的文件存储：
-  `<home>/.kimi-code/engine-state/<workspace-key>/state/cron.json`（`storage/paths.rs:3-7`、
-  `storage/state_store.rs:3-7`），key 是规范化工作区路径的摘要。**第一遍漏的就是这一条**——只看了
-  `server/mod.rs` 的注释，没顺着"模型侧 Cron\* 工具用另一个面"这句往下查。
-- **会话级状态存在，但从不装 cron。** `state_entries` 确实有 `session_id` 列
-  （`session/sqlite_store.rs:516-530`），`put_session_state`（`:1356`）会写它，但所有调用点只用于
-  `metadata` 与 `agent_config`（`acp/mod.rs:475,526,684`；`server/mod.rs:1155,1183,5263,6001,7252,7259,7345,7352`），
-  没有一处是 cron。
-
-结论：fork 与源会话共享同一份工作区排程，这与该工作区里任何其他会话的关系完全一样，是设计而非缺陷。
-上游那条 `cron_fork_cleared` 提醒在这里没有对应物——告诉模型"本 fork 没有定时任务"会是假话。同一提交
-把 `Forked` 事件类从 `features/goal` 挪到 `session/agentLifecycle`、把 `CronModelState` 从裸 `Map`
-拓宽成 `{ tasks, forkNotice }`，都是 v2 的模块布局，Rust 侧无对应面。
-
-#### 6.23.2 部分移植：`20a2cea72f` 把 WaitFor 上限收到 90s
-
-**已移植（2026-09-29）**：`WAIT_FOR_MAX_TIMEOUT_S` 600 → 90（`tools/task_tools.rs:28`），连同所有
-陈述旧上限的位置——`parse_timeout` 的文档注释、`TASK_WAIT_DESCRIPTION` 的 timeout guideline、JSON
-schema 的 `maximum` 及其 description、schema 测试，以及 `docs/{en,zh}/reference/tools.md`。上游在同一
-提交里把这个常量从 `DEFAULT_BACKGROUND_TIMEOUT_S` 解耦成字面量 90；fork 的 Bash 后台超时仍是 600，
-上游也没动它。**输入 schema 现在与上游 `WaitForInputSchema` 逐字相同**——`timeout` 与 `task_id` 两条
-描述都对得上。
-
-**未移植，而且这是更大的一半**：
-
-- **描述散文。** 把 fork 的 `TASK_WAIT_DESCRIPTION` 与上游 `task-wait.md` 逐行 diff，除数字外还有
-  **7 处实质差异**：上游开头是限制性的（"Only call this tool when you really have no other work to
-  do"）而 fork 是许可性的；上游多出"the user is kept waiting too"和独立一段"they notify you
-  automatically"；多出"think about what else you can do meanwhile"与"the result also lists other
-  tasks that finished during the wait window"两条 guideline；把 timeout 那条收紧成"Prefer moving on
-  to other work over calling WaitFor again"；并删掉 fork 那条 steering guideline（上游把 steering 并进
-  了开头段）。**第一遍汇报时我只说"改了陈述旧上限的位置"，没说散文整体没动**——这是披露缺口。
-- **按轮统计的重复等待计数**与 `[wait_warning]` 块（`taskWaitTool.ts` 的 `countCall` /
-  `withRepeatWarning` / `repeatWaitAdvice`，三种建议分别对应子代理、goal 活跃、普通情形）。
-- **子代理专用描述**（`task-wait-subagent.md`，当 `scopeContext.agentId !== MAIN_AGENT_ID` 时追加）
-  与超时文案的子代理/主代理分叉。
-- **TUI 那半。**
-
-**文档刻意保留 fork 自己的 `Ctrl-S` 表述**，没有照抄上游那句"pressing `Enter` … steers the message
-into the turn"。复核后有了确切依据：fork 的 steer 被 tower 模式门控
-（`tui/controllers/message-dispatch.ts:652-666`，`steerIntoCoordinator` 要求 `appState.towerMode`），
-所以等待期间按普通 Enter 是**排队**（`tui/commands/dispatch.ts:144-145` 的注释写明"submissions
-through sendNormalUserInput queue while busy"），只有 `Ctrl-S` 会 steer
-（`tui/controllers/editor-keyboard.ts:324` 的 `onCtrlS`）。照抄会写出本 fork 没有的行为。
-
-### 6.24 2026-10-01 v2 的 runtime capability 层在 fork 完全缺席（**非** §6.8.2 的前置条件——2026-10-01 订正）
-
-> **本节 2026-10-01 经第四轮审计订正三处，并撤回一条依赖论断。** 订正依据：`.tmp/v2-ref-upstream` @ `21406fb4c8` 的 `runtime/runtime.ts:7-8` 与 `features/` 目录列举。原文的可信部分（缺口本身）不变；**被改的是它的证据与推理**。
-
-**订正一：`RuntimeCapability` 没有 `watch`。** 原文 `:4943` 写 `RuntimeCapability = 'fs' | 'process' | 'watch' | 'terminal'`——**错**。权威树 `runtime/runtime.ts:8` 是三项：`'fs' | 'process' | 'terminal'`。全部 8 个 `runtime/` 文件里 `watch` 只出现一次：`fakeRuntime.ts:15` 的 `readonly watch = undefined`，而那**不在 `Runtime` 接口上**（`runtime.ts:45-47` 只声明 `fs`/`process`/`terminal`）——测试替身的死字段。
-
-**订正二：不是 9 个文件，是 8 个。** 原文 `:4941` 写「9 个文件」。`runtime/` 实为 8 个：`runtime.ts`、`runtimeRegistry.ts`、`runtimeProvider.ts`、`runtimeUnitHost.ts`、`runtimeWorkspaceView.ts`、`localRuntime.ts`、`standaloneRuntime.ts`、`fakeRuntime.ts`。
-
-**订正三：文件数之外，消费点也从 9 改为 6 类**（原表把同一消费者的多个调用点各算一条）。实际消费者：workspaceFs（`process`）、bash 工具（`process`）、read/write/edit 工具（`fs`）、glob/grep 工具（`fs`+`process`）、read-media-file（`fs`）、fileHistory（`fs`）、agentsMdReminder（`fs`）、git 服务（`process`）、terminal 服务（`terminal`）、stdio MCP（`process`）、subagent 服务（`process`）。
-
-**撤回：§6.8.2 的依赖论断方向是反的。** 原文 `:4938-4939` 称「runtime 层是 §6.8.2（fs watcher）的前置条件——v2 里 watch 只是 `RuntimeCapability` 的一档」。**这个前提不存在**（订正一）。上游的 watch 是**完全独立的服务**，不经过 capability 层：
-- `human/utils/watch.ts:473` `createWatchService(runtime: WatchRuntime)`、`:511` `WATCH_ENV = 'KIMI_CODE_WATCH'`
-- `app/watch/configSection.ts:8-18` 自有 `[watch]` config section
-- 真实消费方只有 `workspace/workspaceInstructions/workspaceInstructionsService.ts:14,116-139`（AGENTS.md 热重载）与 `session/sessionInstructions/instructionsProvider.ts:4,13` 的 `onDidChange` 类型
-
-**结论**：watch 不需要 capability 层，§6.8.2 那个「先补 runtime 才谈得上 watch」的前置关系不成立，§6.8.2 应按独立子系统排期。本节自身的裁定（`tracked`，无排期）不变。
-
-**v2 侧的形态**（`.tmp/v2-ref-upstream/packages/agent-core-v2/src/runtime/`，8 个文件）：
-
-- `runtime/runtime.ts:7` — `RuntimeStatus = 'connecting' | 'ready' | 'degraded' | 'disconnected' | 'draining' | 'disposed'`（六态生命周期）
-- `runtime/runtime.ts:8` — `RuntimeCapability = 'fs' | 'process' | 'terminal'`（**三项，无 watch**）
-- `runtime/runtime.ts:39` — `Runtime` 接口（`:40` 是 `readonly identity`），配 `localRuntime` / `standaloneRuntime` /
-  `runtimeRegistry` / `runtimeProvider`，走 DI 容器注册多实现
-- 状态门禁语义在 `runtimeRegistry.ts:342-346`（`runtimeStatusAllows`）：`ready` 全放行；`degraded` 仅当请求的每个能力都存在才放行；其余四态拒绝。`draining`/`disposed` 另在 `:296` 硬拒注册。drain 上界 `RUNTIME_DRAIN_TIMEOUT_MS = 5_000`（`:6`），与租约释放在 `:281-285` 竞速。
-
-**它不是死代码 —— 11 处生产消费点，覆盖三类能力**（能力只有 fs / process / terminal 三档）：
-
-| 消费点 | 用的能力 |
-|---|---|
-| `features/fileHistory/fileHistoryService.ts:475` | `lease.runtime.fs` |
-| `features/staleGuard/staleGuardService.ts:130` | `lease.runtime.fs!.stat` |
-| `workspace/workspaceFs/fsService.ts:666` | `lease.runtime.process!.spawn`（rg 二进制） |
-| `workspace/workspaceFs/fsService.ts:1055` | `lease.runtime.process!`（exec） |
-| `app/git/gitService.ts:154` | `lease.runtime.process!` |
-| `session/terminal/terminalService.ts:86` | `lease.runtime.terminal!.spawn` |
-| `session/terminal/terminalService.ts:83` | `lease.runtime.environment.shellPath` |
-| `mcpCore/client-stdio.ts:192-193` | `lease.runtime.path.resolve` / `environment.homeDir` |
-
-**fork 侧的对应事实**（全部实测，非推断）：
-
-- `packages/kaos/src` 共 12 个文件，只有 local / ssh / login-shell 三种执行环境；
-  六个状态名（`connecting`/`ready`/`degraded`/`disconnected`/`draining`/`disposed`）与
-  `RuntimeCapability` 在该包**全部零命中**——唯一 grep 到 `draining` 的位置是
-  `kaos/src/internal.ts:251` 注释里的英文词 "without draining unboundedly"，与状态机无关。
-  即：没有生命周期状态机，没有 watch 能力
-- `packages/kimi-agent/src` 下 `Command::new` 共 **35 处**，分布在 17 个文件，全部直接调本地进程，
-  无任何抽象中转
-- 引擎无 ssh / remote 执行路径（`ssh` 命中均为 remote URL 或 `allow_remote_shutdown`，与此无关）
-
-**为什么它不属于 commit 级 allowlist**：`check-upstream-v2-delta` 棘轮按上游提交记录，而这一层在
-导出点就已存在、从未被任何单个提交改动，因此不会被该门禁发现。它属于 §6.17.2 说的那种
-"存在性之外的归属盲区"：**不是跟丢了上游的某次变更，而是从未决定移植**。
-
-**与 §6.8.2 的关系**：§6.8.2 已判定 watch 移植"动手前需先定层"。按 v2 的形态，层已经定了——
-watch/process/terminal 三个能力共用同一个 `Runtime` 接口与其状态机，先立 capability 层再挂 watch，
-是唯一能对齐上游的顺序；反过来先单独移植 watch 会做出一个上游没有的独立子系统。
-
-**登记为 `tracked`，不排期。** 移植它需要先回答一个分层问题：DI 注册表与状态机归 Rust 引擎
-（`packages/kimi-agent`）还是归 TS 宿主（`packages/node-sdk`）——v2 两边都有份，fork 必须二选一，
-这与 §6.8.2 的"watcher 归 Rust 还是归 TS"是同一个未决问题。**未经用户裁决不得开工**。
-
-### 6.25 2026-10-01 stale guard 的「无 clear 路径」改判为非缺口（§6.24 的下游结论）
-
-> **本节 2026-10-01 订正：全节所依据的 v2 证据在权威树里不存在。** 订正依据：`.tmp/v2-ref-upstream` @ `21406fb4c8` 全树检索 `staleGuard|StaleGuard` **只命中两个字符串字面量**——`state/eventDispatcherService.ts:58-59` 的 `'staleGuard.recorded'` / `'staleGuard.cleared'`，属 wire record 类型名。`features/staleGuard/` 目录在权威树中**不存在**（`features/` 实为 17 个目录，无此名）。
->
-> 而 `.tmp/v2-ref`（fork 退役副本）里**有完整 4 个文件**：`features/staleGuard/{staleGuard,staleGuardFeature,staleGuardOps,staleGuardService}.ts`。所以真实关系是：**上游在 fork 拉取之后删除了 stale guard 子系统**，而 fork 保留了它并移植成了 `tools/stale_guard.rs`。
->
-> 这意味着：下面 §6.25 的**结论**（「fork 侧不存在记录失效这个失效模式，因为没有可换的 runtime」）**仍然成立**——它依据的是 fork 侧的事实（`stale_guard.rs` 直接 `std::fs::metadata`、gate 按会话构造），不依赖 v2 那个文件。但**论证 v2 侧行为的部分全部作废**，因为上游已无此代码可引。据此：
->
-> - 应当记录的是「stale guard 是 **fork 保留的上游已删子系统**」，而非「v2 有而 fork 缺 clear 路径」。
-> - §6.24 订正后，runtime 层与 watch 已解耦，本节作为 §6.24 下游的措辞也随之失效。
-> - 保留本节原文仅为记录推理过程，**其中所有 `staleGuard*.ts:行号` 引用应视为指向 fork 退役副本，不是上游**。
-
-原文如下（**证据已失效，结论保留**）：
-
-§1 板块 4 的 G-6 #3 行原记一条**遗留缺口**：「v2 在 runtime 切换时 dispatch `StaleGuardCleared`
-清表（`staleGuardOps.ts:39-41`），本模块无 clear 路径，方向为 fail-open，待补」。逐条复核后
-**改判：清表这件事属实，但「fail-open 待补」的方向说反了，而且它不是一个能独立修补的缺口。**
-
-**v2 为什么需要清表**（`staleGuardService.ts`）：记录的写入与检查**都经由同一个 runtime 的 fs**——
-`statFile()` 走 `this.runtime.acquire(['fs'])` 后 `lease.runtime.fs!.stat(path)`（`:127-137`），
-`recordCurrentMtime`（`:121-125`）与 `checkWritable`（`:102-119`）共用它。清表挂在
-`this.runtime.onDidChange`（`:64-68`）上，触发条件是 **runtime 状态迁移**
-（`RuntimeStatus` 六态，`runtime/runtime.ts:8`）。也就是说：**表变脏的原因是脚下的 runtime 被换掉了，
-不是时间流逝**。localRuntime ↔ standaloneRuntime / 远端之间切换后，同一路径的 mtime 来自另一套
-文件系统，已记录的数值不再可比。
-
-**fork 侧没有可换的 runtime**（承 §6.24）：`stale_guard.rs` 的 `mtime_of()` 直接
-`std::fs::metadata`，与写入方（`NativeToolset` 解析出的目标）落在**同一个本地文件系统**上。
-因此一条记录与当前 mtime 不符，只可能因为**文件真的变了**——而那正是这个 guard 要拦的情况。
-换言之，fork 侧不存在"记录失效"这个失效模式。
-
-**fork 侧确实有的清表是 gate 自身的生命周期**，而且比 v2 更严、方向相反（fail-closed）：
-`StaleGate` 按 pipeline 构造（`pipeline/mod.rs:369`）、按 REPL 进程构造（`repl/mod.rs:525`）、
-按原生 run 构造（`lib.rs:422`），三者都是**每个会话一份**。会话重建即得一张空表，
-"先读后写"的否决重新武装——不需要任何显式 clear。v2 的表是 contributed state 且
-`StaleGuardCleared.durable = true`，跨重建存活，才必须显式清。
-
-**结论与后续条件**：
-- 本条**不是**待补缺口，登记为**已澄清**；`stale_guard.rs` 文件头同步改写，不再自述
-  "never cleared mid-session"。
-- 若将来按 §6.24 移植 runtime capability 层，则**必须同时**把 v2 的 `onDidChange → StaleGuardCleared`
-  一并挂上，否则新层会引入 fork 今天没有的失效模式（runtime 切换后旧表不再可比）。这是 §6.24
-  验收清单里的一项，不是独立工单。
-- 顺带更正本轮的一处归属漂移：本条与 §6.24 此前各自独立记录，读起来像两个可分别开工的缺口；
-  实际上后者是前者的前置。
-
-### 6.26 2026-10-01 上游 delta 门禁恢复运行：1 条新 delta（#4091），逐 hunk 判定
-
-**先说门禁本身。** `check:upstream-v2-delta` 长期以 exit 2 拒绝放行，因为 `refs/remotes/upstream/*`
-在本仓根本不存在（`upstream` 远端是配好的，只是从没 fetch 过）。门禁的设计是对的——拉不到上游
-就 refuse，而不是报"没有 delta"（`scripts/check-upstream-v2-delta.mjs:28-30`）。但**fail-closed
-只在有人真的跑它的时候才起作用**：allowlist 的 `recordedMergeBase` 冻结在 2026-09-29 的
-`52437299ff` 半个月无人察觉，因为本地跑它是红的、CI 上它也是红的，两边都没人把"红"当成事故去查。
-补上 `git fetch upstream main:refs/remotes/upstream/main --force` 后，门禁立刻报出 1 条未处理
-delta——**这正是当初排第一的风险项落地的样子**。
-
-**delta `21406fb4c8`（2026-09-30，#4091 "omit completion token cap unless explicitly configured"）**
-一个 commit 捆了五处改动，只有一处是真偏差，所以判定按 hunk 写而不是按 commit 写：
-
-| hunk | v2 改了什么 | fork 侧事实 | 判定 |
-|---|---|---|---|
-| a | 不再为"模型没有声明输出上限"的情况推导 completion cap（删掉 `DEFAULT_UNKNOWN_CONTEXT_FALLBACK = 32000` 与 `reservedContextSize` 兜底） | `llm/openai.rs:58-62` 的请求体只有 `{model, messages, stream}`，**根本不发** `max_tokens` / `max_completion_tokens`；`max_completion_tokens` 在 `packages/kimi-agent/src` 下零命中 | 无需移植：要修的代码路径在这里不存在，strict serving stack（bare vLLM）上的重复 400 从未可达 |
-| b | `format.ts` 让 `maxCompletionTokens <= 0` 表示"不设上限" | 无从遵守：文档宣称的开关 `KIMI_MODEL_MAX_COMPLETION_TOKENS` **只出现在 `docs/{en,zh}/configuration/env-vars.md:179`**，全仓无任何代码读取；`packages/kosong/src/provider.ts` 的 `maxCompletionTokens` 是类型面，其注释自己指向一个不存在的引擎字段 | 无需移植；文档/代码脱节按 §6.8.2 的既有惯例**记录而不改文档** |
-| c | 新增 `kimiUnsetCompletionTokens` trait（缺省 cap = `max(1, window - usedContextTokens)`） | 同 b：没有 cap 可给 | 无需移植 |
-| d | `usedContextTokens` 为 undefined 时不再传 | 无对应字段 | no-op |
-| e | **`anthropic/profile.ts` 把 `FALLBACK_MAX_TOKENS` 从 128000 降到 64000** | `llm/anthropic.rs::default_max_tokens_for_model` 对阶梯认不出的 model id 返回 128000，文件头注释与两处测试都把这个 128000 钉成"TS provider 的兜底" | **本轮已移植** → 64000 |
-
-**e 的副作用值得单独记。** fork 用 `contains()` 子串匹配，v2 解析 `family-major[-minor]` 并对无
-`claude` 标记的 id 直接拒绝走兜底。v2 的兜底从 128k 降到 64k 之后，这条**既有偏差变成了双向**：
-`relay-opus-4-1` 在 fork 侧 32k、v2 侧 64k（向下），`my-sonnet-4-6-clone` 在 fork 侧 128k、v2 侧
-64k（**向上**）——在这次提交之前 fork 只可能比 v2 低。`my-opus-4-5-clone` 是唯一一个现在两侧重合的
-relay id。三者都钉在 `default_max_tokens_agrees_with_v2_on_every_real_claude_id` 里。Anthropic 的
-`max_tokens` 仍然必发（`anthropic.rs:196-200`），#4091 不动这条——Anthropic API 要求该字段。
-
-**顺带确认的一条文档缺陷**：`KIMI_MODEL_MAX_COMPLETION_TOKENS` 是 fork 文档里承诺、代码里不存在的
-开关，与 §6.8.2 已登记的 `KIMI_CODE_WATCH`、`KIMI_CODE_SEARCH_WORKER`、
-`KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` 同属一类（文档从上游逐字节同步，代码那一半从未移植）。
-按该节惯例登记而不改文档。
-
-**门禁当前状态**：12 条 delta 全部已分诊（ported=3 / not-applicable=1 / tracked=8），
-`recordedAt` 推到 2026-10-01。merge base 仍是 `52437299ff`——fork 没合入新东西，所以分诊区间
-的起点没变，这是对的。**但这个绿只在 ref 是新的时候有意义**：下次再过半个月没人 fetch，
-同样的假绿会重新出现。
-
-### 6.27 2026-10-01 #4061（WaitFor）四块未移植项逐条复核：合并 4 行描述、发现一处机制依赖、关闭 1 项
-
-**先记一条方法论更正，它是本节的前提。** `.tmp/v2-ref` 是 `ecad4136d9^` 的**冻结导出**，
-因此**无法裁决任何晚于导出点的 delta**。复核 #4061 时先按该目录判定"`countCall` /
-`withRepeatWarning` / `repeatWaitAdvice` 与 `task-wait-subagent.md` 在 v2 里不存在"——
-**这个判定是错的**：四者都在 `20a2cea72f` 的 v2 里（`git show 20a2cea72f:…/taskWaitTool.ts`
-可见 `countCall` / `withRepeatWarning` / `repeatWaitAdvice` / `[wait_warning]`，
-`git ls-tree` 可见 `task-wait-subagent.md`）。基线早于 #4061，所以它当然没有。正确读法是
-`git show <commit>:<path>` 读上游对象——本轮起 upstream ref 已可用（§6.26）。
-**台账中凡以 `.tmp/v2-ref` 为据、而 delta 晚于导出点的结论，都要按这条重查。**
-
-**逐条结论**（allowlist §6.23.2 的 (a)(b)(c)(d)）：
-
-| 项 | 结论 | 依据 |
-|---|---|---|
-| (a) 描述散文 | **本轮合并 4 行** | 见下 |
-| (a′) "结果还会列出等待期间完成的其他任务" | **不能搬，台账归类错误** | v2 由 `collectExtras` → `[completed_during_wait]` + `markTasksDeliveredViaWait` 实现；fork 的 `task_tools.rs` 里 `completed_during_wait` / `extras` **零命中**。搬这句等于告诉模型结果里有一块它拿不到的东西。**先补 `collectExtras`，再搬这句。** |
-| (b) 每轮重复等待计数 + `[wait_warning]` | **需先铺三处前提** | 要 (i) 每轮状态（v2 按 `tally.turnId` 复位）、(ii) `isSubagent`、(iii) goal 活跃判定。fork 四个渲染器 `render_wait_completed` / `render_wait_timeout` / `render_wait_interrupted` / `render_wait_no_tasks` 都是**纯函数**，不接轮次上下文；(ii)(iii) 在引擎里也没有对应读口 |
-| (c) `task-wait-subagent.md` | **需结构改动** | v2 按 `scopeContext.agentId !== MAIN_AGENT_ID` 追加；fork 的工具表在 `tool_policy.rs:437` 是**一张与作用域无关的平表**（`defs.push(wait_for_tool_def())`），没有按子代理重建描述的地方 |
-| (d) TUI / 文档半边 | **关闭：经核实无需移植** | 见下 |
-
-**(a) 合并的 4 行**（`TASK_WAIT_DESCRIPTION`，每行可溯源）：`but the user is kept waiting too`
-子句、独立的 "they notify you automatically … do not need to busily wait for them" 段、
-"Before calling … think about what else you can do meanwhile" guideline、
-timeout 那条收尾的 "Prefer moving on to other work … repeated waits keep the user waiting"。
-**未取自 v2 的三处**（理由写在 `task_tools.rs` 头部注释里）：v2 的限制性开头
-（fork 的工具比 v2 多一条 steer 语义，整段换掉会低报自己的能力）、(a′) 那句、
-以及 "(for example, a new user message)"（fork 区分 interruption 与 steer，steering 那条
-guideline 才是描述后者的）。
-
-**(d) 为什么关闭**：台账原记"fork 刻意保留 `Ctrl-S` 那句"。复核确认这不是随意的取舍，而是
-**fork 文档本来就说对了**：`docs/en/reference/tools.md:151` 写 "Steering (`Ctrl-S` in the
-terminal) ends the wait early"，而 `tui/controllers/editor-keyboard.ts:324-326` 的 `onCtrlS`
-确实走 `steerWithEditorDraft()`；`tui/commands/dispatch.ts:144-146` 写明 busy 时普通提交是
-**排队**。照抄上游的 "pressing `Enter` … steers" 会写出一条本 fork 不存在的行为。台账把它
-列在"未移植"里是分类错误——它本来就该留在 fork 这一侧。
-
-**测试**：`task_wait_description_carries_the_ported_lines_and_omits_the_unimplemented_one`
-钉住 4 行已搬、1 行刻意不搬、以及两个名字只差名字本身。
-
-### 6.28 2026-10-01 micro compaction 的 cache-miss 触发：不是"信号缺失"，是参考实现已被删除
-
-§1 板块 5 与 `server/engine.rs` 的注释都写着「检测到 prompt-cache miss」这个信号
-**尚未接入引擎**。复核后**改判**：信号早就在引擎里了。
-
-**测量侧早已存在**（逐个 provider 实测，非推断）：
-
-| provider | 字段 | 位置 |
-|---|---|---|
-| OpenAI 兼容 | `input_cache_read`（DeepSeek `prompt_cache_hit_tokens` / Moonshot `cached_tokens` / OpenAI `prompt_tokens_details.cached_tokens` 三种格式都认） | `llm/openai.rs:403-433` |
-| Anthropic | `input_cache_read` + `input_cache_creation` | `llm/anthropic.rs:389-397`、`stream` 累加器 `:546-556` |
-| OpenAI Responses | `input_cache_read`（`input_tokens_details.cached_tokens`，并从 `input_tokens` 里扣减） | `llm/openai_responses.rs:354-360` |
-| Google GenAI | `input_cache_read`（`cachedContentTokenCount`） | `llm/google_genai.rs:489-492` |
-
-**真正缺的是跨 step 的判定**：v2 的触发由调用方的 `detect()` 决定，两个参数是
-`cacheMissedThresholdMs` 与 `minContextUsageRatio`（`compaction/micro.rs:18-22` 的头部注释
-点名了这两个名字，也点名了它们属于调用方）。引擎里没有任何地方把上一步的
-`input_cache_read` 累积起来与阈值比较，所以现在**只由 `[experimental].micro_compaction`
-开关决定**。
-
-**但这一项不能按"移植"来做，这是本节的关键结论。** ❌ **本段结论已于 2026-10-01 推翻，见 6.43.1。**
-
-> **原结论（已作废）**：micro compaction 来自 fork 自有的 v2 副本，上游从未有过，因此 `detect()`
-> 那份参考实现「随包删除后已不存在于任何地方」，重建它属于「无参考实现的创作」，需用户裁决。
->
-> **推翻理由**：`.tmp/v2-ref/…/agent/microCompaction/` 有 **4 个文件**（`flag.ts` / `microCompaction.ts`
-> / `microCompactionOps.ts` / `microCompactionService.ts`），`cacheMissedThresholdMs` 与
-> `minContextUsageRatio` 两个参数就在其中。参考实现**完整可读**，这是一次**移植**而非创作，
-> 原「不得自行开工」的闸门不成立。完整契约与 `detect()` 实现见 6.43.1。
-
-**当前行为不危险，无需急改**：开关默认关（`server/engine.rs:404-409` 解析 `[experimental]`），
-且变换是确定性投影、store 保留原文，所以即使触发得比 v2 频繁，也不会丢数据。
-
-### 6.29 2026-10-01 `promptWithSkills` 对齐 v2：元数据取调用方 parts（另记 3 处未修偏差）
-
-参考库：`.tmp/v2-ref-upstream`（`upstream/main @ 21406fb4c8`，origin = MoonshotAI/kimi-code）。
-按 §6.27 的方法论更正，本节一切晚于导出点的判定都读上游对象，不读 `.tmp/v2-ref`。
-
-**本轮已改**（`packages/node-sdk/src/native/sdk-rpc-client-native.ts::promptWithSkills`）：
-v2 `AgentSkillService.promptWithSkills`（`features/skill/skillService.ts:139-146`）把 prompt 元数据
-从**调用方自己的 parts**（`input.input`，尚未拼上渲染块）派生，并在记录 activation 之前应用；
-拼给引擎的内容则是 `[...prepared.map(a => a.part), ...input.input]`（`:155`）。
-本 fork 之前把两者合成一份 parts 交给 `prompt()`，而 `prompt()` 只能从递给它的 parts 派生元数据，
-于是 skill 渲染体（`User activated the skill …` + `<skill-loaded>` 包装，含本机绝对路径）成了
-会话标题与 `lastPrompt` 的开头。实测（改前）：`"Please fix the failing test User activated the
-skill \"review\"…"`；把渲染块前插后进一步变成 `"User activated the skill \"review\"…"`——
-`/skill:xxx` 内联激活走的正是这条路径，新会话标题因此变成说明书开头。
-现按 v2 拆开：以调用方 parts 调 `applyPromptMetadata`，`prompt()` 传 `skipPromptMetadata: true`，
-与 `activateSkill` 既有写法（`/`name args` + skip）同构；并照 v2 只在 main agent 上应用
-（btw 侧通道不动会话元数据）。测试钉在 `session-skills.test.ts`
-（`derives the title and lastPrompt from the caller text, not the skill body`，撤掉修复即红）。
-
-**同时确认两处改动与 v2 一致，予以保留**：整包校验（`prepareBundled` 遇未知名字抛
-`SKILL_NOT_FOUND`，故整包拒绝而非丢弃单个）、渲染块前插（`:155`，且 `protocol/events.ts:50`
-与 `transcript/groupTurns.ts` 的 `parts.slice(bundled.length)` 都要求这个顺序——旧顺序会把用户
-自己的前几个 part 折进技能卡片）。
-
-**本轮发现但未修的三处偏差**（按铁律登记，不自行开工；都需要用户裁决或独立排期）：
-
-| # | v2 行为 | fork 现状 | 判定 |
-|---|---|---|---|
-| a | `skill.activated` 的 `agentId` 取 `scopeContext.agentContext.agentId`（`skillService.ts:248`） | ~~硬编码 `'main'`~~ | **本轮已改**：两条路径（`promptWithSkills` / `activateSkill`）都改取 `this.interactiveAgentId`。先确认过无消费者依赖该值：TUI `handleSkillActivated`（`session-event-handler.ts:1298`）不按 agentId 分流，kimi-web `agentEventProjector.ts:1514` 显式忽略该事件。测试用 btw 面板同一条缝（`harness.withInteractiveAgent` + `startBtw`）驱动，断言事件带 btw agentId。**但可见症状未变**：`handleSkillActivated` 仍不按 agentId 过滤，卡片依旧落在主 transcript——btw 面板没有自己的技能卡片渲染面，单独记在下方 |
-| b | 非用户可激类型拒绝：`!isUserActivatableSkillType(skill.metadata.type)` → `SKILL_TYPE_UNSUPPORTED`（`:199`，类型 ∈ {undefined,prompt,inline,flow}，`catalog/types.ts:82-87`） | ~~两条路径都没有此门~~ | **本轮已改**，且是本轮最大的一块：见下方 §6.30 |
-| c | 提交前预检：`input.input` 为空 → `REQUEST_INVALID`，`input.skills` 为空 → `REQUEST_INVALID`（`:126-134`） | 无预检；空 input 由 Rust 引擎在更深一层以 `request.prompt_input_empty` 拒（错误码不同、时机更晚），空 skills 则退化为一次普通 prompt | 可对齐但优先级低；注意加预检后元数据应用时机需一并前移 |
-
-**btw 技能卡片渲染面**（(a) 的可见一半，单独记）：v2 的 btw 面板有自己的 transcript，技能卡片落在
-子代理名下；fork 的 `handleSkillActivated` 无条件写主 transcript，btw 面板收不到卡片。这不是 v2
-移植而是 UI 缺口，登记待排期。(a) 已让事件归属正确，但这一项不做，btw 的技能卡片依旧显示在主对话里。
-
-### 6.30 2026-10-01 `/skill:` 提示词改由引擎渲染（(b) 的完整落地，附一处同源修复）
-
-**为什么不是把 v2 的渲染器搬进 TS**：fork 早就有两份渲染器——引擎的 `tools/skill.rs`（模型 `Skill`
-工具路径，带 `$ARGUMENTS` / `${KIMI_SKILL_DIR}` 展开、plugin 指令前缀、builtin 支持）与 SDK 的
-`sdk-rpc-client-native.ts::renderSkillPrompt`（`/skill:` 路径，手写）。v2 只有一份，且在引擎侧：
-`AgentSkillService` 向自己的 catalog 要（`skillService.ts:207`）。所以本轮**不新增第三份**，而是把
-引擎已有的那份暴露给 `/skill:` 路径用。
-
-**改了什么**
-
-| 面 | 内容 |
-|---|---|
-| 引擎 `tools/skill.rs` | 新增 `is_user_activatable_skill_type`（v2 `catalog/types.ts:85-87` 的原判定）、`SkillPromptError`、`UserSlashSkillPrompt`，以及 `render_user_slash_skill_prompt`——复用 `Skill` 工具路径同一套 `scan_skill` / `expand_skill_parameters` / `prefix_plugin_instructions` / `render_skill_attributes`，只把 trigger 换成 `user-slash` 并按 v2 `prompt.ts:29-33` 加指令行 |
-| 引擎 `napi_bindings.rs` | 新增 `session_render_skill_prompt`，返回 `{status: ok\|not_found\|type_unsupported, text, name, path?, source?, skillType?}` |
-| 引擎 `skills/mod.rs` | `SkillDescriptor` 补 `skill_type`——`ParsedSkillMeta` 早就解析了它（v2 `SkillMetadata.type`）却从不序列化，导致 TS 侧 `SkillSummary.type` 是个**永远收不到的字段**。补上后该声明不再是谎言 |
-| SDK | `renderSkillPrompt` → `resolveSkillPrompt`：走引擎，按 `status` 抛 `skill.not_found` / `skill.type_unsupported`（文案与 v2 逐字一致：`Skill "x" cannot be activated by the user`）；两条激活路径的 origin / `skill.activated` 事件改带目录给出的 `skillType` / `skillPath` / `skillSource`（原先一律 `source="project"` 靠猜） |
-| SDK 兜底 | 老 addon（无该导出）仍走原 `renderProjectSkillPrompt`，行为与今天完全一致——只在项目目录找、不展开参数、不设类型门。这是**降级**，不是平级实现，故明确注释 |
-
-**顺带修掉的同源缺陷**（(b) 探测时发现，一并解决）：`renderSkillPrompt` 只在
-`<workDir>/.kimi-code/skills/<name>/SKILL.md` 找文件，因此 **builtin 技能与 `extra_skill_dirs`
-今天 `/skill:` 激活必定 `skill.not_found`**，哪怕系统提示词的 `# Skills` 章节正把它们列给模型。
-引擎扫描覆盖 project / extra / user / builtin 四类，交给它就自然覆盖了。测试
-`activates a builtin skill the host-side renderer could not resolve` 钉住这一条。
-
-**行为变化（用户可感知，需要 release note）**
-1. `type: reference`（及其他非用户可激类型）的技能，`/skill:` 激活从"能激活"变成报
-   `skill.type_unsupported`。这是 v2 的规则，但对本 fork 的存量用户是收紧。
-2. builtin 与 `extra_skill_dirs` 技能从"激活失败"变成可激活。
-3. 渲染出的 `<skill-loaded>` 属性与正文改由引擎给出：`source` 不再恒为 `project`，
-   `$ARGUMENTS` / `${KIMI_SKILL_DIR}` 真正展开，`ARGUMENTS:` 尾行消失（v2 没有这一行），
-   plugin 技能会带 `<plugin-instructions>` 前缀。
-
-**测试**：Rust 4 个（门判定、渲染块与 provenance、`reference` 被拒、未知名字、参数展开），
-`session-skills.test.ts` 3 个（builtin 可激活、`reference` 被拒且整包被拒、既有 15 个全绿）。
-`cargo test` 3097 passed / 0 failed，`cargo clippy -D warnings` 与 `cargo fmt --check` 干净。
-
-**未做**：(c) 的空输入预检、btw 技能卡片渲染面。按用户指示，等 fork 与 v2 一致后再补。
-
-### 6.31 2026-10-01 skill 扫描优先级对齐 v2，并记下本轮审计的其余缺口
-
-**已改：扫描顺序与 `source` 标签**。v2 的来源优先级是显式常量
-（`features/skill/catalog/skillSource.ts:11-17`，`builtin 0 < plugin 5 < extra 10 < user 20 <
-workspace 30`），由 `workspaceSkillCatalogService.ts:140` 按**数字大者胜**应用
-（`remerge()` 里 `toSorted((a,b) => a.priority - b.priority)` 后逐个 `register(..., {replace:true})`）。
-fork 的 `scan_all_skills_with_extra_and_merge` 是"先到先得"，顺序为 project → extra → user →
-builtin，两处偏差：
-
-1. **`extra_skill_dirs` 被排在 user 之前**，于是同名技能里 extra 目录压过用户目录——与 v2 的
-   `user(20) > extra(10)` 相反。现改为 project → user → extra → builtin。
-2. **extra 目录里的技能被标成 `"project"`**，而 v2 给它 `"extra"`。这个标签会一路进到模型看到的
-   `<skill-loaded source=...>`（§6.30 之后由引擎渲染），标错等于对模型撒谎。已改为 `"extra"`。
-
-改的是同一个扫描函数，所以系统提示词的 `# Skills` 章节、`Skill` 工具的解析、napi 的技能目录三处
-同时对齐。测试 `test_extra_dirs_rank_below_user_and_report_their_own_source` 钉住两半，并已逐半
-验证非空转（改回旧标签 → `left: "project" / right: "extra"`；把 extra 挪回 user 之前 →
-`left: "From an extra dir" / right: "From the user scope"`）。
-
-**本轮审计到的其余偏差，已按 §6.32–§6.35 逐条落地**（用户指示"完整修"）。原表五项的处置：
-
-| # | 处置 | 落在 |
-|---|---|---|
-| d | **已修**：plugin 技能来源补齐——独立扫描根、优先级 5、plugin 身份、`skillInstructions` 前缀 | §6.32 |
-| e | **已修**：`activate` 接受 `content` / `attachments`，两者都进 origin，协议 schema 同步 | §6.33 |
-| f | **改判为非缺口**（不是"未修"）：fork 用 prompt id 放置 steer 消息，合并会破坏它 | §6.34 |
-| g | **已修**：user-slash 路径发 `skill_invoked` / `flow_invoked` | §6.35 |
-| h | **已修**，且从"线形不兼容"升级为**真缺陷**：transcript 一直在丢弃 origin 的 metadata | §6.35 |
-
-**已确认无缺口的两处**（避免下次重复查）：
-- `inTurn`：v2 用它在 origin 上标记"turn 内的 steer 消息"（`isUndoAnchor` 判据之一）。fork 改用
-  prompt id 判定（`groupTurns` 的 `turnPromptIds` / `opensAsTurnPrompt`），机制不同但目的相同，
-  且 undo 提醒那条缺口已由 §6.22.5 单独登记。
-- `$ARGUMENTS` 展开、plugin 指令前缀、嵌套深度门、sub-skill 限定名：§6.30 之后引擎那份渲染器
-  已覆盖用户路径，两条路径共用同一实现。
-
-**未验证项（如实记录）**：渲染块前插这一顺序，本轮**没有**端到端钉住。该套件里
-`@moonshot-ai/kosong` 的 fake provider 从未被任何断言消费过（原生 Rust 引擎不经过它），
-turn 既不产生 provider 调用也不落 `wire.jsonl`，因此模型侧顺序与落盘顺序都无法在此环境观测。
-已尝试并放弃的路径：`session.getContext()`（返回空）、`agents/main/wire.jsonl`（ENOENT）。
-消费侧（`transcript`）的折叠语义另有 `packages/transcript/test/layers.test.ts` 覆盖；
-缺的是生产侧的一钉，需要一个能真正跑起模型调用的测试夹具。
-
-### 6.32 2026-10-01 plugin 技能来源：独立扫描根、优先级 5、plugin 身份、`skillInstructions` 前缀
-
-**已改。** v2 的 `pluginSkillSource.ts` 是一个独立的 `ISkillSource`（`id =
-PLUGIN_SKILL_SOURCE_ID`、`priority = SKILL_SOURCE_PRIORITY.plugin = 5`），发现逻辑在
-`manager.pluginSkillRoots()`（`app/plugin/manager.ts:307-321`）：遍历 enabled 且
-`state === 'ok'` 的插件记录，读 manifest 的 `skills`（单路径或数组，相对插件根解析），每条产出
-一个 `SkillRoot`，并挂上 `plugin: { id, instructions: record.skillInstructions }`
-（`manager.ts:614` 从 manifest 解析）。
-
-fork 的现状与三处偏差：
-
-1. **没有独立的 plugin 来源。** `PluginManager::plugin_skill_dirs()`（`server/plugins.rs`）把插件
-   目录塞进 `extra_dirs`（napi 的 `skill_dirs`、`server/mod.rs` 四处 `extra.extend(...)`）。
-   **发现本身是通的**——这纠正了上一轮 §6.31 表格里"无 plugin 技能扫描源"那句话：`skills/mod.rs`
-   里确实没有 plugin 字样，但插件技能是被扫到的。
-2. **优先级"恰好正确"，但没有被表达。** 插件目录被 append 在 `extra_skill_dirs` 之后，而扫描是
-   先到先得，所以实际顺序（project → user → extra → **plugin** → builtin）与 v2 的名次一致。
-   但这是两个列表拼接的副产物：`merge_all_available_skills` 只作用于 brand 分组、不作用于 extra
-   组（`scan_all_skills_with_extra_and_merge` 第 3 步是逐目录 `scan_directory`），所以开关两种取值
-   下这条路径都不会错——代价是**插件身份无处可挂**。
-3. **`skillInstructions` 从未落地。** `SkillPluginWire { id, instructions }`（`tools/skill.rs`）与
-   `prefix_plugin_instructions` 都在，`ResolvedSkill.plugin` 也有字段，但**只有 host state bridge
-   那条路会填**，扫描这条路恒为 `None`——插件声明的指令因此永远到不了模型。
-
-改动（新增第一类扫描根 `skills::PluginSkillDir { dir, plugin_id, instructions }`）：
-
-- `PluginManifest` 增 `skill_instructions`；`plugin_skill_dirs()` 改为返回
-  `Vec<PluginSkillDir>`（含 id 与 trim 过的 instructions），另出 `plugin_skill_dir_paths()` 供只需
-  扁平路径的调用方（REST 技能列表、提示词章节）。
-- `SkillScanRoots` / `PipelineSpec` / `NativeToolset` 各增 `plugin_dirs`；扫描顺序由
-  `roots_in_precedence_order()` 单点表达（extra 在 plugin 之前，即 v2 的 10 > 5），`catalog()` 与
-  `scan_skill` 共用它，不再各拼一份。
-- `scan_skill` 按**技能目录的父目录**反查 plugin 根（plugin 根是技能目录的*容器*，`scan_directory`
-  读的是 `<root>/<skill>/SKILL.md`），填 `ResolvedSkill.plugin`。渲染器随即自动生效，两条触发路径
-  共用（§6.30 那个 `prefix_plugin_instructions`）。
-- **独立 server / ACP 路径原本完全看不到插件技能**：`main.rs` 构造 `ServerEngine` 时 server 还不
-  存在，而 spec 的 `skill_dirs` 只有 config 的 extra 目录。修法是给引擎装一个**读取器**
-  （`with_plugin_skill_roots(Arc<dyn Fn() -> Vec<PluginSkillDir>>)`），由 `Server::with_engine` 用
-  自己的 `plugin_manager` 装上，`session_spec` 每 turn 现取。选"现取"而不是缓存 + 刷新钩子，是因为
-  插件有 install / enable / disable / remove 四条改动路径，缓存就多四处可能漏掉的同步点；读取器让
-  下一个 turn 必然是新的。`PluginSkillRoots` 起了 type alias，否则 clippy `type_complexity` 拦下。
-
-**标签说明**：plugin 技能在 wire 上仍是 `source: "extra"`——v2 自己也这么标（`manager.ts:314` 的
-`source: 'extra'`），身份靠 `<plugin-instructions plugin="id">` 体现；`skill-loaded` 标签**没有**
-`plugin` 属性，因为 v2 的 `renderSkillAttributes`（`features/skill/prompt.ts:57-69`）只有
-name / trigger / source / dir / args 五个。
-
-**测试**：`plugin_roots_rank_below_extra_dirs`（优先级 + 插件独有技能确实被扫到）、
-`a_plugin_contributed_skill_is_prefixed_with_the_plugin_instructions`（user-slash 路径）、
-`the_model_tool_path_prefixes_plugin_instructions_too`（模型工具路径，且不借 host bridge 兜底）、
-`enabled_plugins_contribute_skill_dirs_and_mcp_configs`（manifest 的 `skillInstructions` 被读出并
-trim）。新测试均已验证非空转。
-
-**未验证项（如实记录）**：`Server::with_engine` 装读取器这条，只经编译与既有 session 套件覆盖，
-**没有**在真实插件安装后驱动一个 turn 去观察 `Skill` 工具命中插件技能——那需要起一个 standalone
-server 并装一个插件，本环境未做。napi 路径（CLI / TUI / VS Code 实际走的路）的 plugin 目录是每次
-`runTurn` 现取的 `plugin_skill_dirs()`，不存在新鲜度问题。
-
-### 6.33 2026-10-01 `activate` 的 `content` / `attachments`：补齐生产端
-
-**已改。** v2 的 `SkillActivationInput`（`features/skill/skill.ts:8-9`）带
-`content?: ContentPart[]` 与 `attachments?: PromptFileAttachment[]`；`activate` 提交的是
-`[rendered, ...(input.content ?? [])]`（`skillService.ts:73-85`），`attachments` 进
-`SkillActivationOrigin`。
-
-§6.31 记的是"消费端在、生产端缺"，现在两端都通：
-
-- `ActivateSkillRpcInput` 增 `content` / `attachments`；`Session.activateSkill` 的第三个参数
-  （`{ content?, attachments?, displayText? }`）把它们送下去，并把 `displayText` 收成
-  `clientMetadata`（此前公开 API 连 `displayText` 都没有入口）。
-- origin 侧：`UserPromptOrigin` / `SkillActivationOrigin` 增 `attachments`（protocol 的
-  `userPromptOriginSchema` / `skillActivationOriginSchema` 同步，共用 `promptFileAttachmentSchema`），
-  SDK 侧 `PromptFileAttachment` 同形。`transcript` 侧未动——`groupTurns.ts:524` 的
-  `originFileAttachments` 早就认这两种 origin。
-- 引擎侧无需改动：origin 对引擎是**不透明**的（随 `LLMMessage` 透传），Rust 不解释这两个字段。
-
-**测试**：`carries the origin metadata as v2 entry list, plus attachments and trailing content`
-断言 `turn.started` 回显的 origin 上 `attachments` 与 `clientMetadata` 数组都在（`turn.started` 会
-带出 origin，所以这一层可观测）。**未验证**：`content` 追加块在模型侧的位置——与 §6.31 末尾那条
-"渲染块前插顺序无法观测"是同一个环境限制。
-
-### 6.34 2026-10-01 `mergeSteerMessages` 改判为非缺口（fork 机制不同，合并会致回归）
-
-**结论：不移植。** v2 在一次 step 里 drain 出多条 steer 时，用 `mergeSteerMessages`
-（`human/agent/origin.ts:87-123`）把它们并成**一条** user 消息，技能块提到最前，
-activations / attachments / clientMetadata 依次拼接——这依赖 v2 在 origin 上用 `inTurn` 标记
-"turn 内的消息"。
-
-fork 不用 `inTurn`：它给每条消息带 **prompt id**（`enqueue_steer` → `LLMMessage.prompt_id`），
-`transcript` 靠 `groupTurns` 的 `turnPromptIds` / `steeredByMessageId` 把 steer 消息**按 id 放回**
-它所属的那次提交。合并会把 N 条消息压成 1 条，N−1 个 prompt id 随之消失，**放置信息一起丢掉**——
-即 §6.31 已记的同一处机制选择在另一处的必然后果。
-
-所以这不是"漏了一个合并"，而是 fork 用另一套机制解决了同一问题。照搬 v2 会主动引入回归，按
-AGENTS.md「不准发明行为，也不得为对齐而破坏既有机制」判为 **not-applicable**；不记进
-`upstream-v2-delta-allowlist.json`（那本账只记"v2 有、fork 刻意不做"的**产品**取舍，此处是机制
-等价，不是有意舍弃功能）。
-
-**若日后要改**：方向是把 fork 的 prompt id 机制换成合并语义（或让合并后的消息保留全部 prompt
-id），而不是把 v2 的合并搬过来。
-
-### 6.35 2026-10-01 user-slash 遥测 + origin `clientMetadata` 数组化（(g) 与 (h)）
-
-**(g) 遥测。** v2 的 `publishActivation`（`skillService.ts:277-287`）对每次激活发
-`skill_invoked { skill_name, trigger }`，`type: flow` 再发一条 `flow_invoked { flow_name }`。
-fork 的模型工具路径已有（`tools/skill.rs`），`/skill:` 路径的激活记录在**宿主**侧（SDK 发布
-`skill.activated` + origin），所以遥测也从宿主发：新增 `trackSkillInvocation()`，`activateSkill`
-与 `promptWithSkills` 的每条激活各调一次。不需要给引擎开口子——该路径的激活本来就是宿主记的账。
-
-**(h) `clientMetadata` 数组化：从"线形不兼容"改判为真缺陷。** 上一轮只记了"若日后要与上游交换
-origin 需先处理"，理由是 fork 的判定逻辑在自己的 `applyPromptMetadata` 里、语义等价。**但消费端
-并不是这么写的**：
-
-- `transcript` 的 `projectTranscriptUserOrigin`（`contract/origin.ts:14-16`）只接受**数组**，非数组
-  一律当空；`origin.ts:28` 更进一步——`skillActivations` 不是数组且 `clientMetadata` 为空时直接回落
-  成 `{ kind: 'user' }`。
-- `packages/transcript/src/contract/schema.ts:74,82,377` 与 `model/prompt.ts:16` 的类型全是数组。
-
-即 **fork 发的对象形 metadata 从来没进过 transcript**：每条 prompt 的 `displayText` 都被静默丢弃，
-而丢弃无声无息（回落成普通 user origin，正是 v2 对"没有 metadata"的处理）。`promptWithSkills` 的
-origin 更是连 `clientMetadata` 都没带（只带 `skillActivations`）。
-
-修法是**生产端对齐 v2 的数组形**（不是改消费端）：`originClientMetadata()` 把 `{ displayText }`
-转成 `[{ display_text }]`，`activateSkill` 与 `promptWithSkills` 两条 origin 都带。SDK 与 protocol
-的 origin 类型随之改为数组，并新增 `PromptOriginMetadataEntry` 以区别于**提交层**那个
-`ClientPromptMetadata`（单对象）。下游无人读 `origin.clientMetadata`（`rg` 只命中 transcript 自己的
-类型声明），改 wire 形状是安全的。
-
-**测试**：`rejects an empty prompt or an empty skill list before touching the catalog`（v2
-`skillService.ts:126-134` 的两个前置检查。空 skills 那半是实际会咬人的：没有它，一次空技能提交会
-退化成"什么都没激活的普通 prompt"；空 input 那半在 RPC 边界，公开 API 上被共享的
-`normalizePromptInput` 先拦下，所以断言的是 `prompt()` 也在用的那个码，防止它漂成第二个错误码）、
-`records a user-slash activation in telemetry`、
-`carries the origin metadata as v2 entry list, plus attachments and trailing content`。
-
-### 6.36 2026-10-01 `PluginInfo` 补齐 v2 契约：manifest / kind / shadowed / diagnostics / 安装时刻
-
-**发现（方向与直觉相反）。** 上一轮我把它记成"TUI 面板读死字段"，只对了一半。面板
-（`apps/kimi-code/src/tui/components/messages/plugins-status-panel.ts`）读的字段**恰好就是 v2
-`PluginInfo` 的字段**（`app/plugin/types.ts:148-158`）：`root` / `installedAt` / `updatedAt` /
-`manifestKind` / `manifestPath` / `manifest` / `mcpServers` / `shadowedManifestPath` /
-`diagnostics`。所以面板是**忠于 v2 的**，欠生产端的是引擎——和 (e)(h) 同一类（消费端在、生产端缺）。
-而它一直没被发现，是因为 SDK 的 `PluginInfo` 带着 `readonly [key: string]: any`
-（`packages/node-sdk/src/types.ts:284`）：引擎少发的字段在类型层面**无法被检出**。
-
-**顺带查出两个更要紧的东西**，都不是"面板少一行"：
-
-1. **manifest 路径没有容器检查（安全相关）。** fork 解析 `skills` 的方式是
-   `root.join(rel.trim_start_matches("./"))`，并且**显式接受绝对路径**
-   （`if Path::new(&rel).is_absolute() { PathBuf::from(&rel) }`）。v2 的
-   `resolveDirListField`（`app/plugin/manifest.ts:161-212`）要求每条以 `./` 开头，
-   再 canonicalize，然后 `isWithin(real, realRoot)` 逐段判断是否越界
-   （`isWithin` 是**按路径段**比，`/plugin-evil` 不算在 `/plugin` 内）。也就是说 fork 允许一个
-   第三方 manifest 用 `"skills": "/任意/目录"` 把扫描范围指到机器上任何地方。现已按 v2 补上。
-2. **单一 `skills` 字符串会毁掉面板的技能列表。** v2 的 `PluginManifest.skills` 归一为
-   `string[]`，面板是 `for (const dir of info.manifest?.skills ?? [])`——若按 manifest 原样透传
-   一个字符串，迭代出来的是**逐字符**。现在恒为数组。
-
-**已改（`server/plugins.rs`）**：
-
-- 新增 `parse_plugin_manifest(root) -> ParsedPluginManifest`（v2 `parseManifest`），`read_plugin_manifest`
-  变成只取 `.manifest` 的薄封装。`ParsedPluginManifest` = v2 的 `ParsedManifestResult`
-  （`manifest.ts:30-36`）四个字段。
-- **两处 manifest 位置**：`kimi.plugin.json` 与 `.kimi-plugin/plugin.json`，根式优先，另一个作为
-  `shadowedManifestPath` 上报（v2 `manifest.ts:16-17,55-57`）。fork 此前只读根式，所以用目录式的
-  插件**什么都不贡献**。`\\?\` verbatim 前缀（Windows `canonicalize` 产物）在出模块时剥掉，
-  否则会原样进 wire 和面板。
-- `PluginManifest` 补齐 v2 字段集（`types.ts:34-52`）**减去 `systemPrompt` / `systemPromptPath`**
-  （本引擎从不读，manifest 留着不影响加载）：`keywords` / `author`（字符串与对象两种写法都收，
-  v2 `readAuthor` 的简写）/ `homepage` / `license` / `agents` / `sessionStart` / `interface`，
-  `skills` / `agents` 改为**已解析、已容器校验**的绝对路径列表。`RawPluginManifest` 只在解析这一层
-  存在——"字符串还是数组"这个区别只在该层之前有意义。
-- `PluginInfo` 增 `manifest` / `manifest_kind` / `shadowed_manifest_path` / `diagnostics`
-  （`PluginDiagnostic { severity, message }`），并修掉 `manifest_path` 的旧行为：此前**无条件**返回
-  `<root>/kimi.plugin.json`，哪怕文件不存在（用目录式的插件会被指到一个不存在的文件），现在用解析
-  真正用到的那条路径。
-- `InstalledPluginInfo` 增 `installed_at` / `original_source`（都可选，**旧记录照常反序列化**，
-  缺就是"未知"，面板那两行不画——对旧记录而言这是真话：那一刻本来就没记）。首次安装盖章、
-  之后保留，所以"重装"不会悄悄改写安装时间。SDK 侧 `PluginInfo.manifest` / `diagnostics` /
-  `manifestKind` 从 `any` 换成真类型（`PluginManifestInfo` / `PluginDiagnostic` /
-  `PluginManifestKind`），面板的读法从此受类型检查。
-- `state` / `has_errors` **故意不动**：仍是 `root.is_some()` 与"manifest 读不出来"。把 v2 的
-  name 正则、unsupported runtime fields 那套校验接进来会让**现有插件从 ok 翻成 error**，这是产品
-  取舍不是对齐动作，留给用户裁决（见下"本节未做"）。
-
-**`skills` 不存在目录的行为变了**（有意的 v2 语义）：此前 manifest 声明几条就算几个技能
-（`count_manifest_paths` 数声明数），现在非目录的条目被丢弃并给一条 `warn`。受影响的只有
-manifest 写错、目录其实不存在的插件——它们此前显示"1 个技能"而实际扫到 0 个。
-
-**测试**（Rust）：`a_manifest_is_read_from_either_location_and_a_shadowed_one_is_reported`、
-`a_manifest_path_may_not_leave_the_plugin_and_every_drop_is_reported`（**非空转已验证**：把
-`is_within` 短路后该测试失败，并明确打印出被接受的越界路径 `...\outside-skills`）、
-`containment_is_component_wise_not_a_prefix_match`、`the_manifest_reaches_the_host_in_the_shape_the_panel_reads`、
-`an_install_records_when_and_from_where_and_keeps_both`（**非空转已验证**：去掉时间戳后失败）、
-`an_older_install_record_loads_without_the_new_fields`。
-两个既有 fixture 补了 `skills` 目录（它们声明了该目录却没建，断言的是旧的宽松计数）。
-TS：`native-harness.test.ts` 的插件用例扩到断言 `manifestKind` / `manifestPath` /
-`shadowedManifestPath` / `installedAt` / `originalSource` / `manifest.sessionStart` /
-`manifest.skillInstructions` / `manifest.keywords` / `manifest.interface` / `manifest.skills` /
-`diagnostics` 的**线上形状**——addon 重建后跑通，且首次运行就抓到一处真实不符（空 `diagnostics`
-在 wire 上是**省略**而非 `[]`）。
-
-**本节未做（如实登记，待裁决）**：
-
-| 项 | v2 | fork 现状 | 为什么不在本节做 |
-|---|---|---|---|
-| `state` / `hasErrors` 由 diagnostics 决定 | `PluginState = 'ok' \| 'error'`，`manager` 按诊断置态 | `root.is_some()` → ok / remote | 接上 v2 的 name 正则等校验会让**现存插件翻成 error**，是产品取舍（谁受影响、怎么逃逸）需要用户拍板 |
-| `updatedAt` | 插件内容更新时写 | 字段不存在 | fork **没有插件更新流程**，无从写入；加了就是"永为 null 的死字段" |
-| `github`（owner/repo/ref/installedSha） | marketplace 带 github ref | marketplace schema **没有** github 字段（只有 `source` 字符串） | 需要扩 marketplace schema + 安装路径，改动面远大于本节 |
-| `rootSkillFallback` / `scanMode: 'root-skill-only'` | 无 `skills` 但有根级 `SKILL.md` 时把插件根本身当技能根（`manifest.ts:103-108`、`manager.ts:316`） | 无 | fork 的 `scan_directory` 读的是 `<root>/<skill>/SKILL.md`，根级 `SKILL.md` 扫不到；要支持得给共享扫描器加"扫描模式"概念。本节**刻意不解析**该字段——解析出来却扫不到，比不解析更糟 |
-| `systemPrompt` / `systemPromptPath` | 内联 32 KB 上限 + 文件 | 无 | 本引擎不读，manifest 里留着不影响加载；`PluginManifest` 的文档注释写明了这个取舍 |
-
-### 6.37 2026-10-01 `source` 词汇表与 github 元数据：四个宿主消费者从"永远走不到"变成真的
-
-**发现。** §6.36 顺藤摸到 `plugin-source-label.ts`（`apps/kimi-code/src/tui/utils/`）——**它整个是照 v2
-契约写的**：`plugin.source === 'github' && plugin.github !== undefined`、
-`plugin.source === 'zip-url' && plugin.originalSource !== undefined`、
-`pluginTrustLabel` 只给 Kimi CDN 的 zip 官方/curated 徽章、`isOfficialPluginInstall` 同理。
-`plugins.ts:944` 的 `sourceIdentity` 是第五个读者。
-
-而引擎发的 `source` 是 **catalog 原始字符串**（`"./official/demo"` /
-`"https://github.com/obra/superpowers"`，兜底时是毫无意义的 `"plugin:{id}"`）——**永远不等于
-`'github'` 或 `'zip-url'`**。后果不是"显示得丑"，是四个机制恒为死代码：
-
-1. `pluginTrustLabel` 恒返回 `third-party`——**所有插件都没有官方/curated 徽章**。
-2. `formatPluginSourceLabel` 恒落到 `return plugin.source`，打印原始 URL 而不是
-   `github owner/repo@ref`。
-3. `isOfficialPluginInstall` 恒 false →
-   `plugin-update-notifier.ts:177` 的 `if (!isOfficialPluginInstall(installed)) return;`
-   **让官方市场的更新提示永不触发**。
-4. 详情面板的 `source` 行显示的是路径/URL 原文，而不是词汇值。
-
-**已改**：
-
-- 新增 `PluginSourceKind`（`local-path` / `zip-url` / `github`，v2 `types.ts:96` 的
-  `PluginSource`）、`PluginGithubRefKind`、`PluginGithubRef`、`PluginGithubMetadata`、以及
-  `classify_plugin_source()` / `parse_github_url()`——**逐条照 v2 `app/plugin/source.ts:19-92`**：
-  仅 `https` + `github.com`/`www.github.com`、剥 `.git`、`tree/<ref>`（7–40 位小写十六进制判为
-  `sha`，否则 `branch`）、`releases/tag/<tag>` → `tag`、`commit/<sha>` → `sha`、路径段
-  percent-decode 后 join；其余一律**不猜**（`blob/main/...`、非 github host、`http://` 皆非 github 源）。
-- `PluginInfo.source` / `PluginSummary.source` 改为该词汇值；`PluginSummary` 补
-  `originalSource` + `github`（v2 `types.ts:131-146` 本来就有——列表视图的标签与徽章正是从
-  **summary** 算的，此前两处都没有）。`PluginInfo` 补 `github` + `updatedAt`。
-- 分类输入取 `original_source`（安装时用户给的原字符串，拷贝进托管根之后唯一还有意义的写法），
-  退回 catalog 的 `source`——这正是 v2 把 `source` 与 `originalSource` 分开存的原因。
-- `InstalledPluginInfo.updated_at`：**每次安装都重新盖章，`installed_at` 保留首次**
-  （v2 `manager.ts:140-141`）。我上一轮判"`updatedAt` 无写入方"是**错的**——v2 的写入方就是 install
-  本身，因为这个引擎没有独立的更新流程，重装就是"更新"这件事。面板只在两者不同时显示该行。
-- SDK 侧 `PluginGithubRef` 原本**形状就是错的**（是 metadata 形状）、`ref?: any`、还带
-  `[key: string]: any`——正是它让 `plugin.github.ref.value` 在无生产端的情况下也能编译。
-  改为 `PluginGithubProvenance { owner, repo, ref: {kind,value}, installedSha? }`（`ref` 必填），
-  旧名保留为 `@deprecated` 别名。
-
-**一处刻意的偏差**：v2 对非 URL 的相对路径**抛错**（`source.ts:28-34`），因为它的 catalog 存绝对路径。
-fork 的 catalog 存 marketplace 相对路径（`"./official/demo"`，见 `resolve_plugin_root`），而它在
-记录存在之前就已经相对 marketplace 目录解析完了——所以非 URL 一律报 `local-path`，与 v2 解析后
-给出的答案相同。这条写进了 `classify_plugin_source` 的文档注释。
-
-**`installedSha` 不产出**：fork 不记录安装时的 commit，填一个就是编造；v2 的每个消费者都把"缺失"
-读作"无法与上游比对"而非"一致"。
-
-**`ref` 对裸仓库 URL 记 `branch` / `HEAD`**：v2 会先联网解析最新 release tag，解析不到才落
-`HEAD`（`github-resolver.ts:62-69`）。本引擎没有 resolver，而 `manager.ts:498` 的
-`explicitGithubRef` 本来就把 `value === 'HEAD'` 当"无显式 pin"丢弃——即 `HEAD` 是 v2 自己表示
-"未指定 ref"的写法，所有消费者读法一致。**在插件列表读取路径里加网络调用不是对齐，是发明。**
-
-**测试**：Rust 侧 `an_install_source_is_classified_the_way_v2_classifies_it`（v2 的每个分支 +
-六个"不算 github 源"的反例，**非空转已验证**：把 `looks_like_sha` 短路成恒 false 后该测试失败）、
-`the_wire_carries_the_source_vocabulary_and_the_github_metadata`（断言 `PluginSummary` 的
-**序列化 JSON** 里 `source === "github"`、`github.ref.kind === "branch"`）、
-`a_reinstall_keeps_the_install_time_and_advances_the_update_time`。
-TS 侧 `native-harness.test.ts` 补 `source` / `originalSource` / `github` 的线上断言（本地路径形状）。
-
-**覆盖限制（如实记录）**：`github` / `zip-url` 两种形状**只在 Rust+serde 层验证**。我先在
-`native-harness.test.ts` 写了装远程源的 TS 用例，失败后发现**装远程源会真的下载**（`pluginInstall`
-走的是取档路径，HTTP 404）——本环境无网络，所以 TS 层只能覆盖 `local-path`。三种形状的 serde
-输出由 Rust 测试断言，SDK 侧的类型与之逐字段对应。
-
-### 6.38 2026-10-01 `state` 由 diagnostics 决定（v2 `recordFrom`），并修掉 §6.36 引入的一个误报
-
-**上一轮我把这个列为"需要产品裁决"，那个判断过头了。** 重新核实两点：
-
-1. **谁按 `state` 分支？** 全仓检索：只有面板把它渲染成徽章
-   （`buildPluginsListLines` 的 `plugin.state === 'ok' ? '' : ' [${plugin.state}]'`）。**没有任何逻辑
-   以 `state` 为条件决定插件是否可用**。所以采用 v2 的规则是**纯报告层面**的。
-2. **§6.36 已经先移除了能力。** 那些会触发 `error` 的诊断（路径越界、不以 `./` 开头、类型不对）
-   在 §6.36 里**已经把对应路径丢了**——插件本来就拿不到那些技能。所以把状态改成 `error` 只是让徽章
-   与它**已经在做的事**一致，不是新增损失。
-
-**已改**（`plugins.rs`，逐条照 v2 `recordFrom`，`app/plugin/manager.ts:596-602`）：
-
-```rust
-let has_error = diagnostics.iter().any(|d| d.severity == "error");
-state = if root.is_none()          { "remote" }   // fork 自己的状态，v2 无此词
-    else if has_error || manifest.is_none() { "error" }
-    else { "ok" }
-has_errors = state == "error"     // 两者不再互相矛盾
-```
-
-`warn` **不**翻转状态（v2 同）。`remote` 保留给"已登记但本地无内容"——v2 没有这个词，因为它的每条
-记录都有托管根。
-
-**顺带修掉 §6.36 留下的一个真 bug（是我自己的测试发现的）。** 写"warn 不翻转状态"这条用例时，
-一个**根本不存在**的 `skills` 目录被报成 `resolves outside the plugin`（error）而不是 v2 的
-`not a directory`（warn）。原因：容器检查对**目标**做 `canonicalize`，失败时退回"按写法拼出的
-路径"，而根是**规范化过**的——Windows 上根常被拼成 8.3 短名（`C:\Users\ADMINI~1\...`），
-规范化后变长名（`C:\Users\Administrator\...`），两者一比就"越界"。也就是说**最普通的 manifest
-（声明了一个还没建的目录）会被报成越界错误**。改为 `canonicalize_allowing_missing()`：从最深的
-**存在**祖先做规范化再接回缺失的尾巴，两边形态一致。一个"见谁都喊越界"的容器检查比没有更糟。
-回归测试 `a_missing_declared_root_is_a_warning_and_not_an_escape` 钉住。
-
-**测试**：`the_state_follows_the_diagnostics_and_a_warning_does_not_flip_it`（四种情形：干净 → ok；
-仅 warn → **ok**；路径越界 → error；无 manifest → error，**非空转已验证**：把 error 分支短路后该
-测试失败）、`a_missing_declared_root_is_a_warning_and_not_an_escape`。
-
-**仍未做，且现在理由更充分**：
-
-| 项 | 为什么不在这节做 |
-|---|---|
-| v2 规则的后半：**error 状态的插件不贡献任何东西**（`pluginSkillRoots` 过滤 `state !== 'ok'`，`manager.ts:310`） | 这是**能力**变更而非报告变更：一条坏路径会让整个插件的技能、命令、MCP 一起失效。fork 的各贡献读取器（`plugin_skill_dirs` / `plugin_commands` / `plugin_mcp_servers`）今天都只看 `enabled`，不看 `state`。谁该为"一个可选路径写错"付掉全部功能，是产品判断 |
-| `PLUGIN_NAME_REGEX`（`^[a-z0-9][a-z0-9_-]{0,63}$`，`types.ts:196`） | 会**新增拒绝**：fork 的 `is_safe_plugin_id` 只查容器安全（分隔符/盘符/`..`），所以名为 `MyPlugin`、`plugin.v2` 的 manifest 今天可装，接上 v2 就会失败。仓内三个插件（`normify` / `kimi-webbridge` / `kimi-datasource`）都符合该正则，**受影响面只有第三方插件**——但那是"别人的插件突然不工作了"，需要你签字 |
-
-### 6.39 2026-10-01 双向审计：v2→fork 缺口与 fork 自创出处对照
-
-上游合并政策要求审计**两个方向**都是义务。本节把 2026-10-01 那次双向审计的结果落账：一头是 v2 有而 fork 没有（缺口 = 待补的移植债），另一头是 fork 有而 v2 没有（自创 = 按铁律需带出处，否则算缺陷）。
-
-**基线（先验证，再引用）**：
-
-- 参考取 `.tmp/v2-ref-upstream` = `21406fb4c8` = `upstream/main` HEAD，与 `refs/remotes/upstream/main` 一致。
-- 删除点 `2db62c835a`（`ecad4136d9^`）的 v2 树经 `git ls-tree` 确认**没有 `human/` 目录**。`human/` 由上游 2026-09-06 的 #3580（`485594f65e`）引入，早于 merge-base `52437299ff`（2026-09-23），但**不在 fork 拉取范围内**，故属真实差异而非快照失效。两份参考不可互换，本节同时对照过 `.tmp/v2-ref`（已退役副本，1022 文件）与 upstream（1042 文件，差 146 个 `human/` 文件）。
-- 机械门禁 `check:upstream-v2-delta` 当前为绿（12 commit / ported=3 / tracked=8 / not-applicable=1）。**它测不出本节任何一条**：门禁按 upstream commit 计增量，而自创模块与 `human/` 层级差异不产生新 commit。这正是 6.0 记的那个结构性盲区，此处是它的第一批实测样本。
-
-**判定词**：`ported` 同行为（可能改名）｜`partial` 部分实现｜`missing` v2 有而 fork 无｜`n-a` v2 有但无可观察行为（DI/架构件）｜`fork-original` v2 无对应。
-
-#### 6.39.1 v2 → fork：缺口
-
-**本表经 6.39.5 的反查修订过一轮。** 初版只搜了 `packages/kimi-agent/src`（Rust 侧），把几条实际由宿主层拥有的能力误判为缺失；另有两条经对照上游目录树后改判。下表是修订后的结果，**每条都注明了核实范围**。
-
-| 子系统 | 判定 | v2 出处 | 说明 |
-|---|---|---|---|
-| `agent/contextProjector/` strict 投影 + `structure:'strict'` 重发 | **本轮已补** | `projection.ts:66` `projectStrict`、`:260` `dedupeDuplicateToolCalls`、`contextProjectorService.ts:59`、`llmRequesterService.ts:594-601` | 见 6.39.3 |
-| undo 后的 state 对齐 | **partial（真实）** | `conversationUndoParticipants.ts:10-14`、`undoService.ts:110-160` | fork 的 checkpoint/rollback 栈**存在且已接进 turn 管线**（`storage/state_store.rs:175,210`；`callbacks.rs:1536`；REPL `/undo` 已调 `repl/mod.rs:781`），但**服务器那条 `POST /undo`（`server/mod.rs:5511-5602`）从不调 `rollback`**——同仓两条 undo 路径只有一条对齐了。另 `lastPrompt` 全仓从未写入（`server/mod.rs:2976` 恒为 `Value::Null`）。**不需要** v2 的 registry/phase 机制：fork 只有一类需对齐的 state，且已有快照机制 |
-| `!` shell 命令的**历史留存** | **partial（真实，但已从 missing 改判）** | `shellCommandService.ts:232,242`（`appendShellInput`/`appendShellOutput`） | **通道本身完整存在且属宿主层**：`sdk-rpc-client-native.ts:4261-4352`（spawn/流式/取消）、`apps/kimi-code/src/tui/kimi-tui.ts:1186-1315`（`!` 解析、流式、Ctrl-C、Ctrl-B 转后台）、`session-event-handler.ts:351` 消费 `shell.output`。**真正缺的只有历史留存**：v2 把命令与输出作为 `origin.kind='shell_command'` 的 user 消息 + `<bash-input>`/`<bash-stdout>` 标签**写进会话历史**，fork 不写。受影响的下游已核实：`session-replay.ts:372-395` 靠 `origin.kind` + 这些标签重建 `$ cmd` 卡片，`config-helpers.ts:101-103` 靠它把 shell 输入判为 replay 锚点——**两者都不会触发，结果是 `!` 命令在恢复的会话里完全消失** |
-| `agent/replayBuilder/` 的非消息 replay | **partial（真实，但已从 missing 改判）** | `replayBuilder/types.ts:32-43`（7 种 variant） | `resumeSession` + `ResumedAgentState` **已存在**（`sdk-rpc-client-native.ts:2444,2722-2759`），`replay` 数组也按序产出（`:2740`）；fold 也已有且与 v2 等价（`fold_wire_events` 合成 v2 逐字相同的 `TOOL_INTERRUPTED_ON_RESUME_OUTPUT`）。**真实缺口只有两点**：replay 数组只含 `{type:'message'}`，v2 有 7 种 variant，跨消息的 `plan_updated`/`permission_updated` 等失去时序（ACP 侧 `acp/mod.rs:841` 完全无法重建，只在 `session/load` 结果里带带外返回）；`meta.usage` 在 `:2494` 被重置为 0，尽管逐轮 usage 已落库。**不要去实现 `foldWireRecords`** |
-| usage 的 `byModel` 分组 + status 带 usage | **partial（真实）** | **`session/usage/usageAgentModel.ts:28-29,64-75`**、`usageEvents.ts:8-19` | 逐轮 usage 已落库（`sqlite_store.rs:1272`）、会话总计已累加并对外服务（`sdk-rpc-client-native.ts:5561-5567`、`:3229`）。缺两点：`AgentUsageMeta{by_model,current_turn,total}` 类型**已声明但从未构造**（`server/transcript/model.rs:687-694`，像半成品移植）；`status_payload`（`server/engine.rs:916-969`）无 `usage` 键，而 v2 里它是第一字段。cacheProbe 遥测缺（`cacheProbeService.ts:23` 仅对 fork 会话首轮）——属遥测非能力，**建议跳过** |
-| `agent/tokenCounting/` anchor 模型 | **missing（真实）** | `tokenCountingOps.ts:23-71`、`configSection.ts:12-19` | 四个 durable 事件（`token_counting.measured/truncated/rebased/turn_recorded`）全缺（`token_counting\.` 全仓零命中），config section 缺（fork 有完整的 config-section 框架可挂，如 `config/mod.rs:1396`），无 anchor 三元组。**已验证不是"雏形"**：provider 实测 usage 与估算**各算各的、永不相遇**。另注：`native/tokens.rs:87-92` 记明 anchor tracker 曾存在但作为未接线的重复实现被清理。`server/engine.rs:933` 的 `len()/4` 比 fork 自己的 `native::tokens::estimate_tokens` 更粗糙（对 CJK 低报约 4 倍），**这一行无论其余做不做都该单独修** |
-| `agent/userTool/` 持久注册 | **missing（真实）** | `userToolOps.ts:10,27,57`、`userToolService.ts:60` | `userToolKey` 是 `defineState(...).replayable(...)` 的 **durable** state（`:57`），配 `ToolsRegisterUserTool`/`ToolsUnregisterUserTool` 两个 durable 事件（`:24,40`）。fork 侧 `register_user_tool`/`UserToolRegistration`/`userToolKey`/`inheritUserTools` **全仓零命中** |
-| `toolResultRender` 状态包装 | **partial（真实）** | `toolResultRender.ts:32-49`（`renderStatus`）、`:51-68`、`:79-85` | fork 模型可见的 tool result（`run_turn.rs:1925`）只加 wall-time 前置；`tr.is_error` 只用于发事件（`:1907`），**从不包装模型可见内容**。i18n 串存在而无人用：`locales/en.json:609` 的 `"Tool output is empty."` 全仓只此一处。v2 侧每个请求的每条 `role:"tool"` 消息都过这个渲染（`projection.ts:342`），**这是模型判断工具成败的唯一信号**；且 `Read` 用渲染后字符数算截断预算（`readTool.ts:508-543`） |
-| `features/todo` 陈旧提醒 | **missing（真实）** | `todoListReminder.ts:7-8,21-33` | 阈值已核实：`TURNS_SINCE_WRITE=10` 且 `TURNS_BETWEEN_REMINDERS=10` **两者同时满足**才触发（`:25-30`）；计数**只数 assistant 消息**（`:43-61`），分别停在最后一个带 `TodoList` tool call 的 assistant（`:69-81`）与最后条 `origin.variant='todo_list_reminder'` 注入（`:83-88`）。fork 只有写入提醒（`todo_list.rs:20`），`injection/mod.rs:159-184` 的注册表里无此 variant |
-| `features/notify` nudge actor | **partial（真实，但价值最低）** | `notifyUserNudgeService.ts:34-62`、`notifyUserNudge.ts:6,67-88` | 两分支：连续 8 次 tool call 未 NotifyUser 的 streak nudge（阈值 `:6`）+ 中途文本回复提示（`:57-58`）；`notify_user_nudge` variant 未注册。**但它唯一效果就是往历史注入一条 system-reminder**，无状态、无 tool call、无协议事件；fork 的静态提示词指引（`prompt/builder.rs:75-76`）已覆盖意图。**可跳过** |
-
-**已改判为「不必做」的四条**（初版误判，反查后撤回）：
-
-| 初版判定 | 撤回理由 |
-|---|---|
-| `mediaProjection` snapshot 键控 | fork 的 `strip_all_media`（`media_budget.rs:278`）是**就地改写** `messages`，效果等价于 v2 按轮重放快照；`media_degraded`/`media_stripped` 是 `run_turn` 内 bool（`run_turn.rs:861-862`），与 v2 的按轮作用域一致；且每轮只 strip 一次，不存在重复剥离。**fork 中无任何消费者能观察到差异** |
-| `agent/blob/` byte LRU + blobref | fork 用另一套机制解决同一问题且更强：`media_budget.rs` 20MiB 请求预算（`:23`）+ 跨轮遗漏集（`:50`）、`file_cache.rs` 32 项 TOCTOU 安全缓存、每图字节预算。`blobref:` 协议在 TUI 与 `packages/protocol` **零消费者**——建了没有读取方 |
-| `agent/loop/` 7 个方法 | 全部存在（`session/mod.rs` 的 submit/steer/cancel/snapshot/settled/try_acquire_quiescence + `InjectionRegistry`），4 种 admission 模式与 v2 决策表**逐条对应**。fork 还多一项：steer 信号可打断阻塞等待（`session/mod.rs:622-627`） |
-| 13-policy 权限链 / `fullCompaction` / `loopEventFold` | 已逐条复核。13 条策略**顺序完全一致**（`permission/mod.rs:478-724`）。`fullCompaction` 策略集一致，唯一的 `blockRatio` 缺口因 fork 恒用 0.85 而**不可达**。`loopEventFold` 已确认 usage/llmTiming 差异真实，但该 fold 在 fork 里**只被自身单测使用**，且逐轮 usage 另有活路径 |
-
-
-#### 6.39.2 fork → v2：自创
-
-已记录（此处不重复论证）：`github.rs`（3826-3830）、`team/`（139、1249-1250）、`subagent/persistent.rs` debate（3839）、`memory_*`（1251-1252）、`knowledge_tool.rs`（1253-1254）、`opencode_adapter.rs`（1929-1977）、DDG/Bing/Sogou 搜索（2766-2801）。
-
-**本轮新登记三处**（此前无出处裁定）：
-
-| fork 模块 | v2 对应 | 依据 |
-|---|---|---|
-| `src/workflow/` + `tools/workflow.rs` | **无** | upstream `21406fb4c8` 全树 `*workflow*` 零命中；`app/` 无 `workflow/` 目录 |
-| `tools/lsp_tool.rs` + `native/lsp/` | **无** | upstream `*lsp*` 零命中；`agent/toolPolicy/evaluate.ts` 无 LSP 条目 |
-| `llm/thinking_guard.rs` | **无** | `human/llm/thinking.ts` 只解析 effort/capability；无 guard/repetition/n-gram |
-
-三者里 `workflow` 的 blast radius 最大——模型可影响的 JavaScript 在宿主进程内执行；`thinking_guard` 是**用户可见**行为（按启发式静默丢弃 thinking delta）。两者都需要一次产品裁决，不只是补台账。
-
-#### 6.39.3 本轮已补：strict 投影与 `structure:'strict'` 重发
-
-**为什么先做这条**：它是全部缺口里唯一有可构造失败场景的——历史里出现重复 `tool_call_id`（崩溃恢复、会话续跑、分叉重放都会）时，provider 直接回 400，用户的请求就此失败。v2 有自愈，fork 没有。
-
-**先纠正审计中一个不准确的结论**。初判以为 fork 缺整个 `projectStrict`，实读后发现 `sanitize_and_repair_projection` 已实现其中 4 项（含孤儿 tool result 丢弃），`Message` 也已带 `tool_call_id`。真正缺的只有 `dedupeDuplicateToolCalls` 这一项，外加**没有任何东西触发它**。
-
-**改动**（3 处）：
-
-1. `llm/request_structure.rs`（新增）— 移植 v2 的结构类判定链：`isRecoverableRequestStructureError`（`contract/errors.ts:327`）→ `isRequestStructureStatusError`（`human/llm/errors.ts:306`）→ `isToolExchangeAdjacencyStatusError`（同文件 `:300`），逐条照 `TOOL_EXCHANGE_ADJACENCY_MESSAGE_PATTERNS`（`:155-164`）与 `STRUCTURAL_REQUEST_MESSAGE_PATTERNS`（`:166-174`）移植，不自创关键词表。**413 与 400 的 media 类被刻意排除**——它们与结构类共享 400，但各有能用的恢复（degrade / strip），抢走会拿一个有效的恢复换一个空转。
-2. `turn_loop/tool_call_id.rs` — 新增 `dedupe_duplicate_tool_calls`。放在这个模块是因为它是既有同族：文件头的 `ToolCallIdNormalizer` 管的是**预防**（重复 id 不许进历史），新函数管**修复**（已录进去的重复 id 清理）。
-3. `turn_loop/run_turn.rs` — `'overflow_recovery` 循环内新增第三个投影分支（`:1333`），插在两个 media 分支之后、context overflow 之前，顺序照 v2 `llmRequesterService.ts:583-601`。三重护栏与 media 分支一致：`structure_strict` 为真不再进入。
-
-**与 v2 的一处有意分歧**：v2 判定为结构类就重发；fork 先确认去重**确有改动**才重发。理由是 fork 的修复面比 v2 窄（只去重，不修其他形状问题），若历史里根本没有重复 id，重发的是同一个请求，白白花掉唯一一次 strict 机会。
-
-**验证**：`cargo test --lib` 3134 passed / 0 failed / 1 ignored（基线 2933）。新增 11 项：结构类判定 5 项、去重 5 项（event_store 侧 5 + turn_loop 侧 5，其中重叠计 10）、端到端 1 项。端到端那项用真 `run_turn` + 一个按**请求内容**判定的 mock provider（读到重复 `tool_call_id` 就回 400），断言第二次请求只剩一个声明——**mock 不含"第一次无条件失败"这类旁路**，否则测试会在去重没生效时也变绿。**非空转已验证**：临时把分支条件短路为 `if false`，该项立即失败且失败原因正是原始 400；恢复后通过。
-
-**未验证**：真实 provider 的 400 文案是否落在移植的模式表内。模式表逐条来自 v2，但真实网关的措辞可能不同——这一点只能靠线上日志确认，本轮无 provider 可跑。
-
-#### 6.39.4 顺带更正：六处拿 fork 自己的退役副本当「v2」的引用
-
-根因是同一个：**把 fork 退役的 v2 副本（`ecad4136d9^`）当成了 v2**。3011-3017 已定过「上游曾有后删」与「上游从未有」必须区分，这六处的措辞都暗示了前者。逐条经 upstream `21406fb4c8` 全树检索核实：
-
-| 位置 | 原措辞 | 核实结果 |
-|---|---|---|
-| `src/workflow/mod.rs:8` | 「Ported from the retired `agent-core-v2` workflow domain (`src/app/workflow/)`」 | 上游两处路径均不存在 → 改为 fork 自创并指向本节 |
-| `tool-name-contract.json` `lsp` | 「v2 side: unreachable — lspFeature is imported by no feature assembly」 | 描述的是 fork 退役副本的内部结构；上游无 `*lsp*` |
-| 同上 `Knowledge` | 「v2 tool module `agent/knowledge/tools/knowledge-tool.ts` self-registers but NOTHING imports it」 | 上游无 `*knowledge*` |
-| 同上 `Team` | 「teamTool.ts self-registers but is imported by nothing」 | 上游无 `*team*`、无 debate 机制 |
-| 同上 `Memory` / `session_query` / `run_code` | 隐含 v2 有这些工具 | 上游全树零命中 → 补注 fork 自创 |
-| 同上 `unloadedInV2` | 「M3a 从 agent-core-v2 删除了 lsp/sessionQuery/codeRuntime/knowledge/team/workflow/memory/attachment」 | 混了两类：(a) lsp/workflow/sessionQuery/codeRuntime/knowledge/team/memory_* 上游**从未有**；(b) `attachment` 上游**仍然活着**（`human/agent/origin.ts` 的 `PromptFileAttachment`、`agent/media` 的 attachmentStore、`agent/tools/fileReadSource.ts`），M3a 删的是 fork 自己的副本 |
-
-`check:parity` 与 JSON 语法均已验证通过。
-
-#### 6.39.5 方法教训：这份台账第一版错了六处，错法有规律
-
-初版台账由「广度扫描 + 抽样核实」得出，随后做了一轮**反查**（专门去推翻自己的结论），六条被推翻。错的不是判断力，是**方法**。三条规律值得留给下一个做同类审计的人：
-
-**规律一：只搜引擎目录，就会把宿主层能力误判为缺失。**
-`!` shell 通道被初版判为「整体缺失」，理由是 `packages/kimi-agent/src` 里搜不到 `shell.output`。实际上它完整存在于 `sdk-rpc-client-native.ts:4261-4352` 与 `apps/kimi-code/src/tui/kimi-tui.ts:1186-1315`——**fork 把这条通道放在了宿主层，引擎不拥有它**。`agent/replayBuilder` 同理，`resumeSession` + `ResumedAgentState` 在 `sdk-rpc-client-native.ts:2444` 早已实现。
-→ **判「缺失」前必须跨 `packages/kimi-agent/src` / `packages/node-sdk/src` / `apps/*/src` 三处搜**，且要问「这条能力在 v2 是引擎行为还是宿主行为」——v2 的 DI 容器把两者混在同一个包里，fork 拆开了，目录边界不等价于行为边界。
-
-**规律二：v2 的「实现手段」不是 v2 的「行为」。**
-`agent/blob/` 的 byte LRU + `blobref:` 协议缺失是真的，但**不该照着建**：fork 用 `media_budget.rs`（20MiB 请求预算 + 跨轮遗漏集）解决同一问题且更强，而 `blobref:` 在 TUI 与 `packages/protocol` 零消费者。`mediaProjection` 的 snapshot 键控同理——fork 就地改写 `messages`，效果等价。
-→ **判「缺失」时要问「fork 是否用别的机制达到了同一目的，且是否有消费者能观察到差异」**。照搬 v2 的实现手段会造出没有读取方的新协议。
-
-**规律三：反向核查（专门找反证）的收益远高于正向核实。**
-初版逐条核实了约 25 条，但六条被推翻的那一轮只做了两件事：把判定词从「存在？」改成「**尝试证伪**」，以及跨出引擎目录。正向核实只能确认「我找的地方有」，反向核查才能发现「我找的地方不对」。
-→ **审计 fork 移植时，判定词应当是 `refuted` / `confirmed`，而不是 `ported` / `missing`**；并优先派发「去推翻已知结论」的任务。
-
-另有一类错误与上述无关但同样要注意：**引用了上游不存在的路径**。初版写 `agent/usage/usageAgentModel.ts`，实际在 `session/usage/usageAgentModel.ts`——`agent/usage/` 下只有 6 个文件且不含它。这与 3011-3017 记的「存在性会被复核、坐标从不复核」是同一个陷阱的变体。
-
-### 6.40 2026-10-01 第二轮：未审过的树（`human/` `app/` `wire/` `state/` `persistence/` `program/` `debug/`）
-
-6.39 覆盖的是 `agent/` `features/` `session/` 等主干。本轮补上从未审过的部分，沿用 6.39.5 的三条口径（refute-first、三树搜索、不把 v2 的实现手段当行为）。
-
-#### 6.40.1 `human/`（146 文件）的定性——本轮最重要的发现
-
-**`human/` 不是 v2.5 分叉，也不是与 `agent/` 并行的第二套引擎，而是 v2 的共享内核。** 三条证据：
-
-1. `human/package.json:4` 给它单独的 `#/*` import 作用域，所以 `human/agent/machine.ts:16` 里的 `#/llm/message` 指向 `human/llm/message` 而非外层。
-2. `packages/agent-core-v2/src/index.ts:151-166` 直接从 `#human/` 再导出 `Message` / `ContentPart` / `TokenUsage` / `FinishReason` / `ThinkingEffort` / `ToolCallIdPolicy` / `KimiThinkingConfig`，另有 112 个非 human 文件经 `#human/` 导入（230 处）。
-3. 自 #3580 起 `agent/loop/` 退化为 facade：`agent/loop/machine/engine.ts:7,8,10,12,14,22,24` 从 `#human/agent/machine` 等处导入 `createAgentMachine` / `createTurnMachine` / `createToolMachine` / `agentSlices` / `createEventStoreSync` / `memoryJournal` / `resolveMaxAttempts`——**单文件 21 处 `#human/` 导入**；`loopService.ts:86,88` 亦然。
-
-**含义**：一次正常的 turn 就跑在 `human/` 上。fork 整条 turn 路径的行为面因此**钉在一个从未被任何门禁追踪的基底上**——`check:upstream-v2-delta` 以「触及已删路径的 upstream commit」为键，而 `human/` 在 fork 自己的 v2 副本里**从来不存在**，所以它既不进 allowlist 也不产生 commit。这是 6.0 那个结构性盲区最严重的一例：不是「测不出」，是**连测的对象都没有**。
-
-逐项核对结果（`ported` 者均给出 v2 与 fork 双向行号）：`human/agent/` 的 turn 机器（`turn_loop/run_turn.rs:516,562`）、`human/llm/` 消息与 usage 类型、`human/llm/requester/retry.ts`（`turn_loop/retry.rs:3,10,14,17` 逐常量对齐）、`bases/openai-responses/`（`llm/openai_responses.rs` 每条规则标注 v2 行号，连 v2 遗漏 gpt-5 的 developer-role 集都在 `:15-19` 刻意复现）、`human/compaction/controller.ts:75`（`compaction/mod.rs:51-93` 逐旋钮对齐）、`human/interaction/machine.ts:29-79`（`server/interaction.rs:44-63`，另加 TTL）、`human/timing/`（`llm/timing.rs:43-66`）——**全部 ported**。这部分不必做。
-
-#### 6.40.2 本轮新增缺口
-
-| 子系统 | 判定 | 出处 | 说明 |
-|---|---|---|---|
-| **wire 协议版本与迁移链** | **missing（本轮我亲自核实）** | `wire/migration/migration.ts:19,29-35`、`wire/record.ts:23-27,38-44` | v2 有 `WIRE_PROTOCOL_VERSION='1.5'` + 五级迁移（v1.0→v1.5）+ `isNewerWireVersion` 前向拒绝（`:37-39`）+ `metadata` 记录携带 `protocol_version`（`record.ts:25,41`）。**fork 的 `wire_events` 表（`session/sqlite_store.rs:439-443`）无版本列，全仓 `protocol_version` / `schema_version` / `WIRE_PROTOCOL_VERSION` 零命中，`native/event_store` 也不认 `metadata` 记录。**后果：旧版本会话被新引擎读到时**既不能迁移、也不能识别、也不能拒绝**，只能尽力解析 |
-| **`app/sessionExport/` 产物偏薄** | **partial（真实，用户可见）** | `app/sessionExport/sessionExportService.ts:42-279`、`manifest.ts:28-51`、`wire-scan.ts` | fork 的 `build_session_export_zip`（`server/mod.rs:1680-1721`）只打包**两个成员**：`session.json` + `transcript.md`；v2 打整个会话目录 + `manifest.json`（16 字段：版本、协议版本、os、shellEnv、首末活动时间、installSource…）+ **四个日志文件** + wire 扫描。**而 `locales/en.json:2600` 正在叫用户出错时跑 `/export-debug-zip` 把文件交给诊断**——用户按提示交出的档案缺 manifest、缺日志、缺版本溯源。另 v2 导出前会 flush 活会话，fork 不做 |
-| **`IQueryStore` / minidb 读模型未接线** | **missing（最大单点）** | `persistence/interface/queryStore.ts:87-115`、`persistence/configSection.ts:12-43` | `packages/minidb/` 是完整的 44 文件实现（WAL + 快照 + trigram 全文索引 + 复合索引 + 压缩 + cluster），但**引擎侧零引用**（`minidb`/`read_model` 在 Rust 全仓零命中；仓内仅 `apps/kimi-code/src/native/minidb-worker.ts` 一条 smoke 路径）。`IQueryStore` 是 v2 `ISessionIndex`、其 projector、mirror、dirty-journal 与全局搜索 worker 的共同基底。连带 `[database]` config section 整个不存在（`config/mod.rs` 无 `database`/`MINIDB`） |
-| **遥测事件目录 ~10/60** | partial | `app/telemetry/events.ts:599-1359` | 缝隙本身可用（`callbacks.rs:199-207` 的 `telemetry`、`server/mod.rs:307-334` 的 `TelemetrySink`），缺的是目录。**最值得补的是解释故障的那批**：`api_error`、`compaction_failed`、`tool_call_dedup_detected`、`tool_call_repeat`、`permission_approval_result`、`session_load_failed`、`agent_create_failed`、`context_projection_repaired`。注意 fork 的 TS 宿主侧独立上报了其中若干（`model_switch`/`thinking_toggle`/`plugin_toggle`），所以缺的是**引擎侧**覆盖而非管道 |
-| `app/workspaceAliases/` | missing | `workspaceAliasesService.ts:83-101` `resolveAliasIds` | 三树皆无。fork 只用 `encode_workdir_key` 作键，**同一目录的符号链接或大小写变体会变成两个 workspace**。清理原语 `delete_workspace`（`sqlite_store.rs:776`）也没留 `deletedIds` 墓碑，删除后可能在下次合并时回来 |
-| `human/store/` 分支文档存储 | **不建，只记录** | `store/types.ts:32-40`、`store.ts:60-75,104-190`、`internal/codec.ts` | 无对应物（三树皆无 `TreeStore`/`BranchHeader`/`journalFromBranch`）。但 fork 用「复制会话」而非「分支文档」实现 fork（`sqlite_store.rs:833-886`），**照搬会造出没有读取方的存储**——正是 6.39.5 规律二。只有 `verify`/`CorruptionReport` 这一条有独立价值 |
-| `human/eventStore/` 内部 | partial | `journal.ts:76-98`、`eventStore.ts:34-49,274-283` | v2 沿分支链重建历史、带显式 `Cause`（event/internal/reset/slice-joined）、fold 有 `drainLimit`。fork 的 `fold_wire_events`（`native/event_store/mod.rs:394-482`）是纯函数折叠，无事件轴、无 drain 上界。**但它建立在上面那个不打算建的 store 之上**，故不单独施工 |
-| `app/sessionManager/` 生命周期面 | partial | `sessionManager.ts:34-52` | `createChild` / `whenResumeSettled` / `withLifecycleSerialization` 与可等待的 `onWillCreate`/`onWillClose`/`onWillDelete` 无对应。仅对需要 gate 会话销毁或从活会话派生子会话的宿主有意义 |
-| 四个 config section 缺失 | missing | `persistence/configSection.ts:12`、`app/watch/configSection.ts:11`、`app/agentIdentity/configSection.ts:37`、`agent/tools/os/read/configSection.ts:14` | `[database]`、`[watch]`、`[identity]`、`[read]`。前三个是真实缺口（fork 无文件监听器、无 agent 身份块、无数据库配置）；`[read]` 很可能已被 `[image]` 的字节预算覆盖（`config/mod.rs:377-386`）。注：`[watch]` 已在 6.8.2 记为「文档已同步、代码未移植」 |
-| `human/llm/requester/recovery.ts` | partial | `recovery.ts`（`LlmRecovery.propose` 返回 `attemptMessageOverride`） | fork 的 `llm/proxy.rs` 忠实覆盖了重试分类，但**没有等价的「消息改写式恢复提案」机制**。本轮补的 `structure:'strict'`（见 6.39.3）是 fork 唯一的结构性恢复，两者是否同轴需施工时再核 |
-
-#### 6.40.3 明确不必做（已逐条核实）
-
-- **`debug/` 全部 9 个文件** — `debugGraph`/`debugCascade`/`debugLedger`/`scopeTree` 都是 **DI 容器内省**：`DebugGraphNode{id,token,scopePath,uid,state}` 以 `ServiceIdentifier` 为键，`debugCascade` 的 `unprovide`/`update`/`dispose` 是对容器的**实时变更**。fork 无 DI 容器、无 `UnitState`、无 cascade 引擎，因而无可内省之物。fork 的对应物是 `server/debug.rs`（`--debug-endpoints`），它反射**引擎真实结构**而非容器结构。**n-a**
-- **`state/agentModel.ts` + `state.ts` + `stateContribution.ts`** — v2 的 immer fold/freeze 模型。fork 用普通 JSON 快照，是另一种有效机制而非待补的缺口
-- **`persistence/interface/blobStore.ts`** — `FileStore`（`server/files.rs:82-398`）对 fork 的有界传输是忠实对应：id 正则 `^f_[A-Za-z0-9][A-Za-z0-9_-]*$` 与 meta 字段一致，且 `parse_range`（`:535`）+ `content_disposition`（`:570`）提供范围读。v2 的 `putStream`/`getStream(range)` 流式面在此不需要
-- **`persistence/interface/atomicDocumentStore.ts`** — fork **更严**：`write_domain`（`state_store.rs:318-327`）做 tmp+fsync+rename+dir-fsync，且 `DomainRead::{Absent,Corrupt,Value}`（`:89-122`）拒绝把损坏域冻进 checkpoint（`:186-194`）也拒绝在 rollback 时删掉它（`:227-237`）——v2 只承诺「抛 `STORAGE_DECODE_FAILED`」
-- **`app/workspaceSessions/` / `app/state/` / `app/file/` / `app/hostFolderBrowser/` / `app/auth/` / `app/git/` / `app/workspace/` CRUD** — 全部 refuted，见下表
-- **`program/program.ts` 的 runtime lease / generation 机制** — fork 只有一个进程内 runtime、无 runtime 注册表，故 v2 的租约与引用计数退休无对应；覆盖面（LLM/工具/回调接线、config 解析、会话存储、auth、events、cron、模型目录、workspace trust）已由 `main.rs:1234-1547` `run_serve` + `pipeline/mod.rs` 覆盖
-- **`app/bashParser/`** — v2 的 `BashParserService` 只是 `@moonshot-ai/tree-sitter-bash` 的 DI 薄壳（`bashParserService.ts:44-54`），**能力本身完整存在**于 `packages/tree-sitter-bash/src/parser.ts`（3700+ 行手写递归下降）。其消费者之一（危险命令）已移植为原生词法分析（`native/permission_engine/dangerous_command.rs:101-115`），且该文件**已自陈代价**（`:14-18,79-83`：无 tree-sitter 的 `literalText` 元数据，v2 的 `UNSAFE_OPERAND` 判定被折叠成字符黑名单，且重定向目标会被误读为操作数——`rm -rf /tmp/x > log` 从保守侧判为危险）。另一消费者（AGENTS.md 提醒的 bash 解析）无对应
-
-#### 6.40.4 refuted 清单（fork 已有，初审可能被误判为缺失的）
-
-| v2 子系统 | fork 对应物 |
-|---|---|
-| `app/flag/` 实验开关 | `sdk-rpc-client-native.ts:843-927`；优先级逐条复现（env > `[experimental]` > master env > default，对应 `flagService.ts:54-65`）；TUI 面板 `tui/commands/experimental-flags.ts:17` |
-| `app/workspace/` 目录 | `sqlite_store.rs:644-809` 五个 CRUD + trust + 完整 REST 面（`server/mod.rs:3690,4197,4221,4241,4269,4292,4327,4354`），含 v2 的 `Workspace` 线形与 `session_count`。仅「从 session index 合并/压缩 + `deletedIds` 墓碑」三点缺失 |
-| `app/sessionIndex/` | `list_sessions`/`get_session`（`sqlite_store.rs:569-613`）+ 分页路由。`Page<T>` 游标面与 projector/mirror/dirty-journal 降级路径缺，但 SQLite 表**就是**索引，在没有 minidb 读模型的前提下是正当简化 |
-| `app/git/` | `server/fs_routes.rs:149-260` 用 **porcelain v2**（v2 自己用 v1），线形字段 `branch`/`ahead`/`behind`/`entries` 一致，另有 `--numstat` diff；路由 `server/mod.rs:6100`。`tools/tower/git.rs` 是 worktree 另一件事 |
-| `app/file/` `IFileService` | `FileStore`（`server/files.rs:82-398`）save/save_with_id/get/delete/list/blob_path 全套，id 正则与 meta 字段一致。差别仅在返回路径而非流 |
-| `app/auth/` | `server/mod.rs:4111-4199` 完整 OAuth 面，含 v2 `oauthFlowSnapshotSchema` 的状态映射（`:1759-1766`） |
-| `app/hostFolderBrowser/` | `server/mod.rs:3695-3795` `fs:home` + `fs:browse`（规范化 + parent/entries） |
-| `app/workspaceSessions/` | `list_workspaces` 的关联 COUNT（`sqlite_store.rs:697`）已回答 |
-| `app/state/` | `sqlite_store.rs:1336,1404` 的 domain+key K/V，同形 |
-| `app/kosongConfig` `app/agentIdentity` `app/mcpConfig` `app/mcpRegistry` `app/mcpManagement` `app/plugin` `app/task` `app/projectLocalConfig` | 抽查全部 refuted（`config/mod.rs:356,215,388`、`server/plugins.rs`、`server/custom_registry.rs`、`project_local_config.rs`） |
-| `persistence/interface/appendLogStore.ts` | 追加式 wire journal（`native/event_store/` + `loop_fold.rs`）+ `undoToLastCheckpoint` 语义（`sqlite_store.rs:980-1020`、`server/mod.rs:6665` 的 `undo_to_last_checkpoint`、`event_store/mod.rs:43-47` 的 `UndoCompactionBoundary`），只是落在 SQLite 表而非 JSONL |
-
-#### 6.40.5 `state/eventDispatcherService` vs `storage/state_store`（6.39 那条 undo 缺口的深层原因）
-
-两者**不是同一样东西，fork 的是严格子集，且分解轴不同**。v2 的 dispatcher 是事件溯源折叠引擎：durable participant（`eventDispatcher.ts:14-21`：`events`/`transition`/`undoable`/`getState`/`commit`）按事件类注册 applier（`eventDispatcherService.ts:347-378`），事件经 immer `produce` 折进每个 participant 自己的状态，checkpoint 是**每 participant 一摞**（`StateMeta{checkpoints}`，`:648-696`），重放分两趟按 `undoable` 切分（`:770-810`），迟到挂载的 participant 按标志从 `readRestorable()` 或 `readJournal()` 补放（`:303-305`）。fork 的 `StateStore` 是**固定 6 名的 JSON 文件存储**（`state_store.rs:34`）+ 整店快照到编号文件（`:175-201`）+ 单级 `rollback()`（`:210-241`）。
-
-三处结构性差异：**(a) 无事件轴**——v2 能「回退到 checkpoint 而不必重算」，因为状态本就是 durable 日志的折叠；fork 的 undo 是整文件还原。**(b) 无 per-participant 粒度**——一次 `goal` 写入会连带还原 `todo`。**(c) checkpoint 只从三条路径中的两条到达**：`StateStoreCallbacks::checkpoint` 在 pipeline 路径（`pipeline/mod.rs:342-366`）与 server 路径（`server/engine.rs:1153-1159`）都接好了，但 **`rollback()` 生产代码里只有一个调用方：REPL 的 `/undo`（`repl/mod.rs:781-788`）**（本轮已独立 grep 确认：其余命中全在 `llm/http.rs`/`tool_call_id.rs` 的同名无关方法与 `state_store.rs` 自身单测里）。服务器的 `POST .../undo`（`server/mod.rs:5511-5599`）只走 SQLite turn 行与文件回滚，从不碰 `StateStore::rollback`。
-
-**结论**：6.39 记的「服务器 undo 不做 state 回滚」** proximate 原因是一次缺失的调用**，不是缺失的模型——修起来便宜；而 participant 模型解释了为什么「完全忠实的修法」很贵（undo 要变成对 wire journal 的按 participant 折回）。两件事不要混为一谈。
-
-#### 6.40.6 本轮新增的 fork 自创（第 4 处，无出处记录）
-
-**`llm/multi.rs`（`MultiLLM`）** — 并发向多个 provider 发同一 prompt、返回首个成功（first-past-the-post），失败 provider 记录但不阻塞。v2 无对应物（也无 failover 机制）。该文件模块注释只描述机制、不述出处，ROADMAP 亦无记录。按铁律属「自创需带出处」，现予登记，并建议在模块头补一句 v2 无对应。
-
-### 6.41 2026-10-01 第三轮：`mcpCore/` `workspace/` `os/` `_base/` `llm-adapter/` 与 frontmatter
-
-第三轮补上最后几棵树。口径同前：refute-first、三树搜索、不把 v2 的实现手段当行为。
-
-#### 6.41.1 `forkTurnSlice`——本轮最高影响，且用户可见（已实证）
-
-v2 的 `ForkSessionOptions` 有 `turnIndex?: number`（`workspace/sessionLifecycle/sessionLifecycle.ts:25`），`sliceMainRecordsAtTurn`（`sessionLifecycle/internal/forkTurnSlice.ts:33-66`）据此：按 `origin.kind` 分类 `context.append_message` 记录找出第 N 个**用户可见轮次起点**（`:80-99`——user / `skill_activation`+`user-slash` / `shell_command`+`input`），切到下一个轮次边界，再用 promptId / steer-messageId 配对只保留与保留轮次相配的 `turn.prompt`/`turn.steer`（`:118-176`）。它还算出 `cutoffTime` 与 `lastPrompt`（`:60-63`），后者驱动 `sliceSubagentRecordsAtTime`（`:68-79`）把子代理记录按墙钟时间切断。
-
-**fork 侧**：`fork_session(source, new, title)`（`session/sqlite_store.rs:834-863`）**无 turn index 参数**，走 `load_session_history` → `create_session_with_workspace` → `save_turn(..., "turn-fork", 1, &history, ...)` 全量复制。两个生产调用方都只能整段分叉：REST（`server/mod.rs:5165`，body 只读 `title`，**`turnIndex` 根本没被解析**）与 ACP `session/fork`（`acp/mod.rs:1015`）。
-
-**实证（本轮实跑，非推断）**：临时探针建两轮会话（4 条消息）后调 `fork_session`，实测结果——分叉会话拿到**全部 4 条**，且 `list_turns` 只返回 **1 行**：`turn_id="turn-fork" seq=1`。即**除了无法停在轮次边界，轮次结构本身也被压平**：v2 保留真实轮次边界与 `turn.prompt` 配对，fork 连轮次序号都重建了。探针已删除（`git diff --stat` 确认工作树干净，3135 项测试通过）。**用户说「从这里分叉」拿到的永远是全部历史。**
-
-#### 6.41.2 frontmatter 解析不是 YAML（已实证，且比初判更严重）
-
-v2 的 `_base/text/frontmatter.ts:20-43` 直接委托 `js-yaml` 的 `load()`。fork 有**两个手写平面解析器**，都不是 YAML-complete：`tools/tower/frontmatter.rs:19-48`（`BTreeMap<String,String>`，逐行找第一个 `:`）与 `skills/mod.rs:98-172`（针对固定字段集的扫描器）。
-
-**实证（本轮实跑四个真实 YAML 形式，非推断）**：
-
-| 输入 | skills 解析结果 | tower 解析结果 |
-|---|---|---|
-| `description: >` + 两行缩进正文 | `description = ">"` | `{"description": ">", "name": "probe-skill"}` |
-| `scopes:` + `- repo` / `- user` 块列表 | **`scopes = None`（整个丢失）** | — |
-| `description: Has a map  # trailing comment` | `description = "Has a map  # trailing comment"`（注释进值） | 同左 |
-| `meta:` + `a: 1` / `b: 2` 嵌套 map | （未解析） | `{"a":"1","b":"2","meta":"","name":"probe-nested"}`——**嵌套层级被展平，`meta` 成空串** |
-| 单行 `description: This skill does a thing.` | 正确 | 正确 |
-
-即**四条独立失败**：折叠标量变成字面量 `">"`；块列表整体丢失；行内注释混入值；嵌套 map 被展平且父键变空串。`non_empty_trimmed`（`skills/mod.rs:174-181`）把 `">"` 判为非空，于是 `:155-169` 的正文 fallback 也不触发——**fallback 救不了这个 bug**。缺收尾 fence 时 tower 解析器返回 `({}, 原文)` 而 v2 **抛** `FrontmatterError`（`frontmatter.ts:27-29`），且未对 `yamlText` 做 `.trim()`（`:33-35`）。
-
-fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` 两种 alias 拼写 `:129-146`），缺的正是**难**的部分。**影响是用户可见的**：手写 skill 的 frontmatter 一旦用折叠标量、嵌套 map 或行内注释，元数据就被静默丢弃或误读；`scopes` 丢失会直接改变该 skill 的可见范围。建议两处合并为一个真 YAML crate（`serde_yaml`）的解析器。探针已删除（`git diff --stat` 确认工作树干净）。
-
-#### 6.41.3 SSRF 防护：fork 更强，refuted（我亲自核实）
-
-`_base/utils/private-address.ts` 在权威树里**已不存在**（只在退役副本里有）——防护实际搬到了 `app/web/providers/local-fetch-url.ts:207-227`，且**只在 fetch-url 路径上**。fork 有**两份独立实现且都更强**：`native/fetch_url.rs:203-266` 的 `validate_url` + `:168-201` 的 `PinnedHosts`（解析一次、校验每个地址、再把结果**钉进** ureq 解析器，未预校验的主机直接硬失败 `:195-197`；v2 只是向 undici *提示* 一个 pinned `lookup`，可被忽略），以及 `tools/fetch_url.rs:414-487`。两份 blocklist 与 v2 逐条一致（11 条 CIDR，含 `100.64.0.0/10`、`0.0.0.0/8`），fork 另加 IPv4-mapped-IPv6 解包（`:327-329`）与 `.localhost` 后缀拒绝（`:238-240`），并有测试（`:512-561`）。`server/plugin_archive.rs:6,52` 复用同一 guard。**MCP 与 LLM 传输两侧都无 gate**——这是对等且正确的：那些 URL 由运维配置而非模型控制；fork 另加 scheme 校验（`mcp/client_shared.rs:49-57`）与跨源 `Authorization` 剥离（`:92-101`）。**无安全缺口。**
-
-#### 6.41.4 LLM 错误分类逐类对照：11 类 ported，1 处真实缺口
-
-| v2 类（`llm-adapter/contract/errors.ts`） | fork 检出点 | 判定 |
-|---|---|---|
-| `APIStatusError` | `llm/error.rs:23-65`（带类型化 `status_code`/`retry_after`） | ported |
-| `APIConnectionError` / `APITimeoutError` | `llm/http.rs:900-913` 打 `llm transport error connect` / `timeout` | ported |
-| `APIContextOverflowError` | `compaction/mod.rs:349-356` | ported |
-| `APIRequestTooLargeError` | `llm/media_budget.rs:210` | ported |
-| `APIProviderRateLimitError` | `llm/http.rs:851-853`（429 在重试集） | ported |
-| `APIProviderQuotaExhaustedError` | `llm/http.rs:991-1009`（10 个标记）+ `:1124-1126` 豁免 | ported |
-| `APIProviderOverloadedError` | `llm/http.rs:852`（529）、`:1147`（`overloaded` 关键词） | ported |
-| `APIEmptyResponseError` | `turn_loop/turn_step.rs:135-197` | ported |
-| `isImageFormatError` | `llm/media_budget.rs:219` | ported |
-| `isRecoverableRequestStructureError` / `isToolExchangeAdjacencyError` | `llm/request_structure.rs:132-140` / `:88-126` | ported（6.39.3 本轮所补） |
-| `credential-recovery`（401/403 → 强制刷新 → 重试一次） | `llm/http.rs:396-402` | ported |
-| **`requestId` / `traceId`** | `llm/error.rs:23-30` 两字段都没有 | **missing** |
-
-唯一的实质缺口是 `requestId`/`traceId`：v2 从响应头解析 `x-trace-id`（`errors.ts:302-311`）并带进 `details` 供支持诊断，**每个 OpenAI 兼容 provider 都发这个头**。只影响可诊断性，不影响控制流，故排末位。
-
-#### 6.41.5 其余新缺口
-
-| 子系统 | 判定 | 出处 | 说明 |
-|---|---|---|---|
-| **磁盘日志文件** | **missing** | `_base/log/fileLog.ts:37-255`（`RotatingFileWriter`：异步串行队列、`PENDING_MAX=1000` 溢出告警、按大小轮转 N 代、目录 fsync）、`logConfig.ts:41-52` | fork 只有 stdout/stderr：`napi_bindings.rs:174-215` 与 `main.rs:1025-1034` 的 `EnvFilter`，**无文件写入器、无 `KIMI_LOG_LEVEL`、无 `*_MAX_BYTES`/`*_FILES`、无脱敏层**。与 6.40.2 的 sessionExport 缺口**叠加**：即便有日志，导出 ZIP 也不会带上它 |
-| `fsSearch.ts` 路径建议器 | missing（待确认） | `fsSearch.ts:130-330`（`evaluateSuggestCandidate` 的分层/跨度/深度打分、`matchSuggestPath`、`SuggestTopHeap`） | fork 唯一的模糊建议器是 `tools/select_tools.rs:110` `suggest_tool_names`，匹配的是**工具名**不是文件路径。这驱动 `@`-mention 文件选择器。**未决**：TUI 是否已有客户端排序（`apps/kimi-code/src/tui/components/editor/file-mention-provider.ts` 未读），若有则本条 n-a |
-| trust 披露服务 | missing | `trustDisclosureService.ts:65-200` | 6.22.6 仍成立（本轮复核）。消费者已写好但是死的：`trust-prompt.ts:89-97` 只在数组非空时渲染 MCP 块，`kimi-tui.ts:2689` 硬编码 `[]` |
-| `fs` 错误分类未在失败点应用 | partial | `workspaceFs/internal/errors.ts:4-15`（10 个码） | 分类表在 `packages/protocol/src/error-codes.ts:170-211` 完整存在（且数值与 v2 线表逐条一致，另多两个 v2 没有的），但 Rust 侧只定义了 `FS_PATH_NOT_FOUND`（`server/envelope.rs:29`）**且仅被自己的单测引用**（`:289`）；实际处理器返回字符串错误（`server/fs_routes.rs:920,924`、`tools/list_directory.rs:74,87`）。**低价值**：v2 自身消费者也不多 |
-| stdio MCP 的 proxy env 继承 | partial | `mcpCore/client-stdio.ts:292-304` `mergeStdioEnv` | v2 做三件事：继承 `process.env`、叠加 config env、**再应用 proxy env**（`proxyEnvForChild` + `reconcileChildNoProxy`）。fork 的 `McpClient::spawn_stdio`（`mcp/client.rs:187,194-196`）只叠加 config env，父环境靠 `Command` 隐式继承（无 `env_clear`），所以**代理后面的 MCP server 看不到 `HTTP_PROXY`/`NO_PROXY`**。`_base/utils/proxy.ts` 无 Rust 对应。实际影响低（MCP stdio server 通常是本地 npm 包） |
-| `workspaceMcp` 与 `workspaceMcpConfig` 的边界 | partial | `workspaceMcp.ts:15-28`（运行时 + 每会话 overlay）、`workspaceMcpConfig.ts:17-27`（配置映射 + tunables + `onDidChange`） | fork 把两者融进一个 `McpClient` + 可变 `tool_timeout`（`mcp/client.rs:114`），tunables 在但**没有 `onDidChange` 边界**，也没有每会话 overlay |
-| POSIX shell 探测 | partial | `environmentProbe.ts:68-117`（探 `/bin/bash`→`/usr/bin/bash`→`/usr/local/bin/bash`，回落 `/bin/sh`）、`:119-182`（Windows 先查 `KIMI_SHELL_PATH`） | `KIMI_SHELL_PATH` 在 Windows 上确实优先（`native/shell.rs:98-104`），但 POSIX 侧**硬编码 `/bin/bash`、无探测、无 `/bin/sh` 回落**（`:88-95`）；且 Windows 链可合法落到 `pwsh`/`cmd`，而 v2 **要求** Git Bash 否则抛 `ProbeShellNotFoundError`（`environmentProbe.ts:178-181`）。`loginShellPath.ts` **不缺**——已落 `packages/kaos/src/login-shell-path.ts:46-127`（宿主 TS 进程，非引擎） |
-
-#### 6.41.6 refuted / n-a（本轮核实，不必做）
-
-| v2 子系统 | 结论 |
-|---|---|
-| `workspaceFs/internal/{rgLocator,runRg,fsProcess}.ts` | **n-a——实现手段**。v2 靠 shell out 到 ripgrep（locator 三级回落 `rgLocator.ts:41-58`、20s 超时 + SIGTERM→SIGKILL 优雅 `runRg.ts:5-8`、EAGAIN 重试启发式 `:145-152`）；fork 进程内原生实现（`native/grep.rs:205`、`native/glob.rs:20`），20s 超时与输出上限作为进程内常量保留（`native/grep.rs:28-31`）。`grep_tool_rg_fallback` 等遥测事件是「shell out」这一手段的产物，非行为。`tools/grep_types.rs:1-5` 转录 rg15 的 217 条 `--type-list` 使 `--type` 接受同名，并有对账测试（`:583`）。`locales/en.json:283` 的 `rgNotAvailable` 是无调用方的孤儿文案 |
-| `os/interface/terminal.ts` + `terminalErrors.ts` | **ported 且 fork 是超集**。v2 只用四个操作（spawn/订阅 data+exit/write/resize/kill，`session/terminal/terminalService.ts:86-87,113-114,157,163,170,181`），fork 全有（`server/terminal.rs:166-240,387,416-441,446-483`），另加 resize 转发到 `MasterPty::resize`（`:430-436`，子进程真收 SIGWINCH）与 Windows `taskkill /T` 进程树 kill（`:478-481`）——v2 的 node-pty 路径做不到 |
-| `os/interface/hostFsErrors.ts` | **n-a**。`OS_FS_UNAVAILABLE` 存在是为了跨远程 runtime 传播「宿主消失」，单进程 fork 无此概念 |
-| `workspaceInstance/**` | **n-a**。四态生命周期（`workspaceInstance.ts:8`）与 `getOrCreate`/`findByRoot`/`addProvider`（`workspaceInstanceManager.ts:19-30`）全为跨远程宿主复用 runtime unit 而存在。fork 单进程、一个 event store、一张扁平 `workspaces` 表 |
-| `sessionLifecycle/internal/addressing.ts` | **n-a**。v2 的字符串路径拼接只为「会话存成嵌套目录里的 JSON 文档」而存在；fork 是规范化 SQLite 表 + `session_id` 外键 |
-| `sessionLifecycle/coldSessionArchive.ts` | **refuted**。fork 的 `archive_session`/`restore_session`（`sqlite_store.rs:867-884`）是无条件 `UPDATE`，列在 `:367` 声明、`:482-485` 有迁移、`:572` 的 `WHERE` 把归档会话排除出默认列表、`server/debug.rs:850-857` 暴露 action。批量（并发 8）缺，但那是批量 API 细节 |
-| `workspaceAgentProfileLoader/**`（4 层 5 作用域） | **refuted——且不在 Rust 树**。`packages/node-sdk/src/agent-file.ts:182-188` 完整复现 v2 作用域与优先级序（`explicit`/`project`/`extra`/`user`/`plugin`）；`agentRoots.ts` 的对应物是 `projectAgentDirs`（`:259-262`，`.git` 锚定向上查找）、`userAgentDirs`（`:264-272`）；`agentFileDiscovery.ts` 的递归 `.md` 遍历是 `listMarkdownFiles`（`:310-330`）且 skip 集（`.git`/`node_modules`）与「跳过并告警而非抛错」语义（`:298-304`）一致，显式文件才抛（`:234-239`）。测试 `packages/node-sdk/test/agent-file-discovery.test.ts`（12 例） |
-| `workspaceTrust/trustRecord.ts` | **ported（他机制）**。`sdk-rpc-client-native.ts:534-548` 的 `workspaceTrustKey` 用规范根做键、`:5516-5529` 存 `trusted-workspaces.json`。仅「旧 slug 键迁移」无对应——fork 从未发布过旧键 |
-| `workspaceState` | **ported 且 fork 更前**。v2 的 `workspaceState.ts:4` 只是通用状态注册表上的 DI 薄壳；fork 有具体实现（`state_store.rs:34` 六域 + 路径摘要作键 `:1077-1085`），并额外提供 checkpoint/rollback 栈与「损坏 vs 缺失」判别（`:103-120`，故 undo 永不删掉读不出的文件） |
-| `workspaceContext` / `workspaceDirs` / `workspaceInstructions` / `workspaceGit` | **ported**。分别对应 `server/mod.rs:4221-4354`、`sdk-rpc-client-native.ts:1001-1007,2537-2560`、`injection/mod.rs:337-390` 的 `find_agents_md`、`server/fs_routes.rs:224-330` |
-| `_base/di/**`（17 文件）、`_base/lifecycle/**` | **n-a**。唯一排序语义是通用 LIFO（`lifecycle/ledger.ts:230-247` 反向遍历、`lifecycleMachine.ts:97-172` 先 rollback 后 deferred 仅成功时 `afterCommit`）；全上游树搜 `disposal order`/`reverse order` **零命中**，即无可抄的跨子系统顺序契约。fork 的拆卸靠所有权表达而非显式 ledger：`session_dispose` 摘注册表项 → 析构 `Arc<EngineSession>`（`main.rs:494`）→ task runner 的 `Weak` 存活检查（`main.rs:496-509`）转为 false，晚到的 settle 自然静默 |
-| `contract/request-trace.ts` / `record-diff.ts` | **n-a**。前者是 3 行、只含一个可选 `traceId` 字段（已由 6.41.4 的 `x-trace-id` 缺口覆盖）；后者唯一消费者是 v2 进程内的 registry 变更通知（`model-service.ts:85`、`provider-service.ts:88`），fork 的目录是轮询而非事件驱动，无可 diff |
-| `llm-adapter/protocol/**` + `provider/**` | **n-a**。fork 用直连 wire 模块（`llm/{anthropic,openai,openai_responses,google_genai}.rs`）替代 adapter registry 这一层间接 |
-| `completion-budget.ts` | **refuted**。HEAD 上该文件仅 32 行、只剩 `resolveCompletionBudget`/`completionBudgetParams`；`DEFAULT_UNKNOWN_CONTEXT_FALLBACK` **在权威树里根本不存在**（grep 零命中），印证 6.38 记录的 `21406fb4c8` 已将其移除。故 fork「不发 `max_tokens`」与 v2 行为**一致**。另 `engine/step_hooks.rs:16-28` 的 `max_tokens_limit` **不是** wire 预算（其注释自陈被读作 `RunTurnInput.max_context_tokens` 进 `run_turn`），是压缩预算，另一根轴 |
-| `anthropic` 默认 max_tokens | **refuted**。`llm/anthropic.rs:429-432` 已承载 #4091 的下调（64000），与 `human/llm/requester/bases/anthropic/profile.ts:136` 的 `FALLBACK_MAX_TOKENS` 一致，阶梯由 `:1380-1397` 的测试钉住 |
-| 模型目录能力维度 | **refuted**。`server/models_dev.rs:301-321` 覆盖 v2 `ModelCapability` 的全部 8 个维度，缓存语义相同（`CACHE_TTL` 10 分钟 `:32`、in-flight 去重、陈旧回落内置 `:4-11`，对 `models.dev/api.json`）。唯一 v2 独有的是 `UNKNOWN_CAPABILITY` 哨兵（`capability.ts:14-46`），**无消费者**，fork 用 `max_input_size: Option` 的 `None`/`Some` 等价表达 |
-| `mcpCore/connection-manager.ts` | **refuted（近乎逐行）**。六态机含 `needs-auth`/`removed`、`attemptId` 陈旧尝试守卫（`:425-428,522-524`）、`reconnectAndJoin` 单飞（`:289-299`）、`waitForInitialLoad`（`:238-242`）、`markNeedsAuth` + OAuth 窥探（`:307-339`）、`computeEnabledNames`（`:558-571`）、`stderrTail`、`watchForUnexpectedClose`、`DEFAULT_STARTUP_TIMEOUT_MS=30_000`、per-server→env→global 超时优先级（`:435-436`）全部存在于 `mcp/manager.rs`。`client-remote.ts` 是**合并**而非缺失（头部构造并入 `McpServerRecipe::{Sse,Http}`，`manager.rs:50-59`）；`oauth/callback-server.ts` **refuted**（`mcp/oauth/device.rs:157` 与 `service.rs:240` 都绑 `127.0.0.1:0`） |
-| `tool-naming.ts` | **refuted，逐字节一致**，含 FNV-1a 经**有符号**解释渲染出 `_-785fd989` 这一怪癖（`native/tool_naming.rs:72-87`，测试钉在 `:176-186`） |
-| `canonical-args.ts` | **refuted，两者一致**。v2 递归排序键（`canonical-args.ts:6-18`）；fork 依赖 serde_json 默认 BTreeMap——已核实 `Cargo.toml:33` 是 `serde_json = "1"` 且**全仓无 `preserve_order` feature**，故 `to_string` 递归排序。**已知无害差异**（已在 `tool_dedupe.rs:73-74` 自陈）：`JSON.stringify` 把 `1.0` 渲染成 `1`，serde_json 渲染成 `1.0`，故 `{"a":1.0}` 与 `{"a":1}` 在两侧产生不同去重键——只能导致**漏合并**（安全方向），且工具参数实际都是整数。**非缺陷** |
-| `text/encoding.ts` / `line-endings.ts` / `xml-escape.ts` | **refuted**。`native/encoding.rs:64-120` 逐行对齐并另加 GBK 遗留编码；`native/escape.rs:16-55` 三变体全中 |
-| `_base/execEnv/shellPathBridge.ts` | **refuted**（`native/shell_path_bridge.rs:1-293`）；`globPattern.ts` 亦有对应（`globset` + `literal_separator(true)` ≈ `[^/]*`，`native/glob.rs:20-38`） |
-| `hero-slug.ts` / `workdir-slug.ts` / `render-prompt.ts` | **n-a**，三者服务的子系统（plan-slug、workspace alias、模板插值）在 fork 均不存在 |
-| `fileMeta.ts` | partial：`guessMime` 已移植（`server/media.rs:8`）；`buildEtag`/`textExtensionForMime`/`guessLanguageId` 缺但**三树皆无消费者**，不建（会成为死代码） |
-| `mcpCore` 与 LLM 传输的 private-address gate | **两侧皆无 = 对等**，且应当如此（URL 由运维配置，非模型可控） |
-
-### 6.42 2026-10-01 第四轮：剩余树 + 订正本台账自身的两处错误
-
-前三轮覆盖了 v2 的全部主干树。本轮补上 `runtime/`、顶层文件与 `session/` 零散目录，并**订正本台账 §6.24 与 §6.25 两节的错误**——这是本轮最重要的产出。
-
-#### 6.42.1 订正一：§6.24 的 `RuntimeCapability` 多了 `watch`（已修）
-
-见 §6.24 顶部的订正框。要点：`runtime/runtime.ts:8` 是**三项**（`fs`/`process`/`terminal`），`watch` 不在其中；`runtime/` 是 8 个文件不是 9；**「runtime 层是 watch 的前置条件」这条依赖论断方向是反的**——上游 watcher 是独立服务（`human/utils/watch.ts:473` + 自有 `[watch]` section），不需要 capability 层。§6.24 自身的裁定（`tracked`）不变，`AGENTS.md:125-133` 同步更正。
-
-#### 6.42.2 订正二：§6.25 的全部 v2 证据在权威树里不存在（已加订正框）
-
-上游全树搜 `staleGuard|StaleGuard` **只命中 `state/eventDispatcherService.ts:58-59` 两个字符串字面量**，`features/staleGuard/` 目录不存在；而 fork 退役副本 `.tmp/v2-ref` 里有完整 4 个文件。真实关系是**上游在 fork 拉取后删除了 stale guard，fork 保留了它**。§6.25 的结论仍成立（它依据 fork 侧事实），但论证 v2 行为的部分作废。
-
-**这是 6.39.5「引用坐标系」陷阱的第四种变体**，前三轮已记录三种：拿退役副本当权威（6.39.4）、引用上游不存在的路径（6.39.5）、只搜引擎目录（规律一）。第四种是**上游删了而 fork 副本还在**——此时「fork 有、v2 无」与「v2 有、fork 缺」都可能被误判，必须先确定删除发生在 fork 拉取之前还是之后。
-
-#### 6.42.3 订正三：`tools/sandbox.rs` 的失效引用（已改）
-
-`sandbox.rs:47-48` 原写「Mirrors v2 `z.enum(...)`（`workspace/sandbox/sandbox.ts:20`）」。该文件在权威树**不存在**（`workspace/` 12 个目录无 `sandbox`），全树 `sandbox` 只有 `app/agentProfileCatalog/system.md:59` 的一句散文。sandbox 是 fork 自创——模块头原本就这么说，注释却引用了 v2，自相矛盾。已改为如实描述并标注原引用的失效。
-
-#### 6.42.4 剩余树的新发现
-
-| 子系统 | 判定 | 出处 | 说明 |
-|---|---|---|---|
-| **14 个未触发的 hook 事件** | **missing（性价比最高）** | `features/externalHooks/internal/types.ts:3-24` 共 20 种事件类型 | fork 只触发 6 种（`PreToolUse`/`PostToolUse`/`PostToolUseFailure`/`UserPromptSubmit`/`Stop` + `PreCompact`、`SessionStart`/`SessionEnd`）。缺 14 种，每个在上游都有活的触发点：`PermissionRequest`/`PermissionResult`（`agentExternalHooksService.ts:181,187`）、`TurnStarted`（`:224`）、`TaskStarted`（`:288`）、`Interrupt`（`:392`）、`StopFailure`（`:399`）、`PostCompact`（`:439`）、`Notification`（`:451`）、`UserPromptQueued`（`:205`）、`SessionHeartbeat`（`sessionExternalHooksService.ts:101,143-144`）、`SubagentStart`/`SubagentStop`（`:157,172`）。**全部是 fire-and-forget / 只观察**（从不否决），且 fork 现有 `HookGuard::notify_session_lifecycle`（`external_hooks.rs:321`）已接受任意事件名——**一个通用入口即可覆盖 14 个事件** |
-| `SessionOutcomeMirror` 的持久化 | missing | `session/sessionActivity/sessionOutcomeMirrorService.ts:130-147` | fork 把 `last_turn_reason` 作为**活事件**发布（`server/engine.rs:832-844`）却从不写进持久化的会话元数据；v2 有 `metadata.update({lastTurnReason})`。线形字段已在 `packages/protocol/src/session.ts:112` 但无写入方 |
-| `PermissionRuleScope` / `recordApprovalResult` | partial | `agent/permissionRules/permissionRules.ts:16`、`permissionRulesService.ts:45-52` | `PermissionRuleScope` 有 4 档（`turn-override`/`session-runtime`/`project`/`user`），`recordApprovalResult` 把类型化的 `PermissionApprovalResultRecord` 写进 agent state。fork 的 `session_approvals: Vec<String>`（`permission/mod.rs:152`）是扁平模式表，**无 turn-override 作用域、不记录审批结果**——谁批了什么决定不留痕。这是「单 `permission/mod.rs` 已正确合并三个目录」这一说法的**唯一不完整处** |
-| `sessionLogService` | missing | `session/sessionLog/sessionLogService.ts:23-67`、`_base/log/logConfig.ts:37-39` | 见 6.41.5。**补充本轮核实**：这是**两个东西**——`_base/log/fileLog.ts` 是可复用的轮转写入器（基础设施），`sessionLogService.ts` 只是把它绑到 `sessionDir/logs/kimi-code.log` 的薄 DI 绑定（每会话一份）。fork 两者皆无，**但消费方还在**：`apps/vis/server/src/routes/logs.ts:8,21,31` 硬编码 `SESSION_LOG_REL` 提供该文件，`apps/vis/web/src/components/logs/LogsTab.tsx:44` 渲染它——**Logs 标签页是死的**。另 `packages/node-sdk/src/logging.ts:787-789` 仍导出 `resolveSessionLogPath`（零调用方），而其 `:791-813` 仍解析全部五个 `KIMI_LOG_*` 环变（含两个 session 专用的 `KIMI_LOG_SESSION_MAX_BYTES`/`KIMI_LOG_SESSION_FILES`），其文件头 `:9-15` 却声称「per-session log routing 已丢弃」——**这个注释现在在一个方向上是错的** |
-| `agent/command` 的可扩展性 | partial | `agent/command/commandContribution.ts:4-13` | fork 有 slash 命令**派发**（REPL/宿主侧，含 `configInvalidSlashCommand`/`configUnknownSlashCommand`），但 v2 的 `CommandContribution` **注册表**（扩展缝）无对应——fork 的 slash 命令不能从引擎外部插拔 |
-| `agent/scopeContext` 的 `forkedFrom` | partial | `agent/scopeContext/scopeContext.ts:9-16` | `agentId` 已移植；**`forkedFrom?: string` 全仓零命中**——fork 的 subagent 溯源不在 agent context 上携带 |
-| `errors.ts` 错误码覆盖 | partial | `packages/agent-core-v2/src/errors.ts:112-241`（约 130 码） | `packages/node-sdk/src/error-protocol/error-codes.ts:11-84` 载有 62/130。缺 `fs.*`(10)、`os.fs.*`(8)、`os.process.*`(2)、`storage.*`(7)、`wire.*`(4)、`agent.*`(6)、`session.export_*`(2)、`auth.*`(3)、`provider.overloaded`(1) 等。`server/envelope.rs:8-49` 是**另一套**分类法（整数 HTTP 模拟，仅 25 码），不算缺口。fork 另**新增**了 `fs.path_escapes_session`、`fs.watch_limit_exceeded`、`internal.error`、`persistence.failure`、`tool.*`（fork 自创，无 v2 出处） |
-| `sessionAgentProfileCatalog.inspect()` | partial | `session/sessionAgentProfileCatalog.ts:6-26` | `get`/`getDefault`/`list` 已移植；`inspect()` + `AgentProfileInspection.suppressed`（`sourceId`/`priority`/`reason:'priority'\|'builtin-override-required'`）无对应，`builtin-override-required` 全仓零命中。即 profile 被内置项覆盖时**用户不可见** |
-| `sessionInstructionsProvider.onDidChange` | missing | `session/sessionInstructions/instructionsProvider.ts:4,13` | 这是 `WatchChange` 的**唯一**消费者，即 `KIMI_CODE_WATCH` 的实际载荷。fork 无 `"watch"`/`KIMI_CODE_WATCH` 字符串 |
-
-#### 6.42.5 第四轮的 refuted（不必做）
-
-- **`NATIVE_CAPABILITY_IDS` 不是 runtime 层的替代物**（`server/mod.rs:1274-1294`）——它是 19 个 **HTTP 能力路由 id** 的扁平清单（`bash`/`file_history`/`mcp`/`terminals`…），由 `GET /api/v1/capabilities` 提供，**无状态轴、无租约、无 generation、无 provider 挂载**。只是名字撞车。
-- **`tools/sandbox.rs` 的 `SandboxMode` 也不是**——`SandboxMode{Off,ReadOnly,WorkspaceWrite}` 是 3 值的**写入围栏模式**，无能力概念。
-- `runtimeUnitHost`（`runtimeUnitHost.ts:44-56`）**n-a** — 纯 DI 管道，Rust 无 DI 容器，`RuntimeUnitHandle` 无消费者。
-- `fakeRuntime`（`fakeRuntime.ts:10`）**n-a** — 测试替身。`standaloneRuntime`（`:22-30`）**n-a** — 仅 `LifecycleScope.App` DI 注册，无超出 `LocalRuntime` 的行为。
-- `hooks.ts` 本身**n-a** — 通用有序中间件工具（`OrderedHookSlot`/`createHooks`）；fork 的 `HostCallbacks`（`callbacks.rs:33`）是 pull 形态，不同物但覆盖需要。（其**触发点**覆盖见 6.42.4。）
-- `sessionContext`（`sessionContext.ts:5-18`）**refuted** — 纯 DI 作用域描述符（`sessionId`/`workspaceId`/`sessionDir`/`cwd`），fork 以 pipeline 字段承载。
-- `sessionActivity`（`sessionActivity.ts:4-23`）**refuted** — `SessionActivityState{busy,mainTurnActive,pendingInteraction,lastTurnReason}` 1:1 对应 `WorkChanged`，且 fork **超出**：v2 只折叠事件，fork 从活的 `InteractionManager` 导出 `pending_interaction_kind`。
-- `session/workspaceContext`（`:3-19`）、`session/workspaceInfo`（`:4-17`）**refuted** — `is_within_workspace`/`is_within_directory`（`permission/mod.rs:860-878,691-711`）逐分量实现 `isWithin`；`additionalDirs` 解析已移植。
-- `session/state/*`（23 行）**n-a** — 空构造的 DI 注册，无行为。
-- `agent/modeMutex` **refuted（fork ⊃ v2）** — v2 侧只是 3 行空标记接口（`modeMutex.ts:4-6`，仅 `{_serviceBrand}`）；fork 有真实行为（`tools/mode_mutex.rs`）。
-- `agent/toolApproval` / `agent/permissionGate` / `agent/permissionPolicy` / `agent/llmRequester` 全部 **refuted**（服务缝是 DI，行为已移植）。
-- **`agent/agentContext`（3 字段值对象）、`agent/actorService`（xstate 基类）、`state/sessionState.ts` 均 n-a**。
-- `agent/feature/` **不存在** — `agent/` 实为 42 个目录，无此名；v2 的 `features/` 是**同级**顶层（17 个目录）。审计任务书里的 hedge 正确。
-
-### 6.44 2026-10-01 施工清单（第五轮汇总，供派工）
-
-五轮审计（§6.39–§6.43）登记的缺口的**优先级汇总**。证据强度分三档：**实证**＝实跑复现；**已核实**＝逐条打开文件比对内容确认；**待裁决**＝需产品判断。
-
-#### P0 — 已实证，且改变用户可见行为
-
-| # | 项 | 证据强度 | 落点 |
-|---|---|---|---|
-| 1 | **frontmatter 不是 YAML**：四条独立失败——`description: >` → 字面量 `">"`；`scopes:` 块列表**整体丢失**（改变 skill 可见范围）；行内注释混入值；嵌套 map 被展平且父键变空串 | **实证**（临时探针实跑，已删） | `skills/mod.rs:98-172`、`tools/tower/frontmatter.rs:19-48`；建议合并为一个真 YAML crate |
-| 2 | **分叉只能整段进行**：实测两轮会话（4 消息）分叉后仍拿全部 4 条，且 `list_turns` 只返回 1 行 `turn_id="turn-fork"`——**轮次结构被压平** | **实证**（同上） | `sqlite_store.rs:834-863` 加 `turn_index`；调用方 `server/mod.rs:5165`（body 未解析 `turnIndex`）、`acp/mod.rs:1015`。v2 契约 `sessionLifecycle.ts:25` |
-
-#### P1 — 已核实，性价比高
-
-| # | 项 | 证据强度 | 落点 |
-|---|---|---|---|
-| 3 | **14 个 hook 事件未触发**（v2 有 20 种，fork 只 6 种）。全部只观察、从不否决；`HookGuard::notify_session_lifecycle(event: &str, …)` 已接受任意事件名 | 已核实（20 种事件名逐条确认） | `tools/external_hooks.rs`。**一个通用入口覆盖 14 个** |
-| 4 | **Anthropic 多发一个 `cache_control` 槽**（fork 4 / 上游 3）。stable-history 位是 **fork 自加**，此前被误登记为「非自加」 | 已核实（`anthropic.rs:184-192` 四处发射点 `:164/:192/:239/:254`；上游 `anthropic.ts:352-362` 无该分支） | **冗余但无害，降级**：stable 位在 `msgs.len()-3`，**每轮向前移动**，故永远不是同一前缀——两种缓存语义下都不带来命中收益，唯一效果是多写一条条目。详见 6.44.1 |
-| 5 | **micro compaction 的 `detect()` 两个门禁**（cache-miss 判据 + 用量闸）。算法、接线、事件、9 项测试**全已在**；缺的只是约 40 行的跨 step 判定 | 已核实（`server/engine.rs:1329-1359`） | `server/engine.rs`。**§6.28 曾错误地把它标成「不得开工」，6.43.1 已推翻** |
-| 6 | **wire 协议无版本概念**：`wire_events` 表无版本列、无 `metadata` 记录、无迁移链（v2 有 v1.0→v1.5 五级 + 前向拒绝）。旧会话既不能迁移也不能识别 | 已核实 | `session/sqlite_store.rs:439` |
-| 7 | **磁盘日志缺失 + 导出 ZIP 只有 2 个成员**。而 `locales/en.json:2600` 正在叫用户出错时跑 `/export-debug-zip`；`apps/vis` 的 Logs 标签页是死的 | 已核实 | `napi_bindings.rs`、`server/mod.rs:1680-1721`、`vis/server/src/routes/logs.ts` |
-| 8 | **POST /undo 不做 state 回滚**：`StateStore::rollback` 生产代码里只有 REPL `/undo` 一个调用方。**是一次缺失的调用，不是缺失的模型** | 已核实（grep 全仓确认） | `server/mod.rs:5511-5602` |
-
-#### P2 — 已核实，范围或影响需先界定
-
-| # | 项 | 说明 |
-|---|---|---|
-| 9 | `minidb` 读模型未接线（44 文件实现，引擎侧零引用）+ `[database]` config 缺失 | 最大单点。**范围已界定**：v2 侧 `IQueryStore` 接口是 `queryStore.ts:96-116` 的 13 个方法（put/batch/delete/get/getMany/query/pageByColumn/ensureIndex/listKeys/dropCollection/getCheckpoint/setCheckpoint/storeEpoch），成本在其上三层消费者（projector / mirror / search worker）。若 fork 只需「会话列表 + 标题搜索」，SQLite FTS5 即可，不必引入 minidb。**待裁决：fork 是否需要会话全文检索**（见 6.44.3） |
-| 10 | `tokenCounting` anchor 模型缺失 | **状态栏那部分已修**（见 6.44.4 第 10 行）；anchor 模型本身是报告精度改进，不影响正确性。**待裁决：值得做，还是就此停手** |
-| 11 | `PermissionRuleScope` 4 档 + `recordApprovalResult` 缺失 | `session_approvals: Vec<String>` 是扁平表，**谁批了什么决定不留痕** |
-| 12 | `SessionOutcomeMirror` 不落库 | `last_turn_reason` 只发活事件；线形字段已在 `protocol/src/session.ts:112` 但无写入方 |
-| 13 | `toolResultRender` 状态包装缺失 | `<system>ERROR:…</system>` 是模型判断工具成败的唯一信号；`locales/en.json:609` 的串全仓无人用 |
-| 14 | ~~`SessionHeartbeat` hook 缺失~~ **已撤销** | 它就是 P1-3 那 14 个未触发事件之一（`types.ts:17`），重复计数。唯一额外成本是需要 session 心跳定时器 |
-| 15 | 遥测事件 ~10/60 | 优先补解释故障的：`api_error`、`compaction_failed`、`tool_call_dedup_detected`、`session_load_failed` 等。**`api_error` 与 P1-5 合并做**（都要跨 step 累积 usage，见 6.44.2） |
-| 16 | trust 披露服务（§6.22.6） | 消费者已写好但是死的：`trust-prompt.ts:89-97` 只在数组非空时渲染，`kimi-tui.ts:2689` 硬编码 `[]` |
-| 17 | `workspaceAliases` 缺失 | 同一目录的符号链接/大小写变体会变成两个 workspace；`delete_workspace` 无墓碑 |
-| 18 | stdio MCP 的 proxy env 继承 | v2 额外应用 `HTTP_PROXY`/`NO_PROXY`；实际影响低 |
-| 19 | `requestId`/`traceId` 丢失 | 每个 OpenAI 兼容 provider 都发 `x-trace-id`；纯可诊断性 |
-| 20 | POSIX shell 探测 | fork 硬编码 `/bin/bash` 无 `/bin/sh` 回落；Windows 链可落到 `pwsh`/`cmd` 而 v2 要求 Git Bash 否则抛错 |
-
-#### 明确不做（已逐条核实，勿重复评估）
-
-`agent/blob/` blobref（fork 用请求预算 + 文件缓存解决得更强，`blobref:` 零消费者）｜`mediaProjection` snapshot（就地改写等价）｜`human/store/` 分支存储（照搬会造出无读取方的存储）｜`debug/` 全部 9 文件（纯 DI 内省）｜`_base/di/**` 17 文件（无可抄的顺序契约）｜`_base/lifecycle/**`（通用 LIFO）｜`rgLocator`/`runRg`（shell-out 手段产物）｜`workspaceInstance` / `addressing.ts` / `os/interface/hostFsErrors`（多 runtime/远程专属）｜`fileMeta` 的 etag/language-id（三树无消费者）｜`blobStore` / `atomicDocumentStore`（后者 fork 更严）｜`NATIVE_CAPABILITY_IDS`（只是与 runtime 层名字撞车，非其替代物）
-
-#### 6.44.1 P1-4 的技术结论：冗余但无害（不再是待裁决项）
-
-上一轮把这条标成"影响真实费用、待你裁决"。**推演后该定性是错的**，这里给出推导以便复核。
-
-**事实**：fork 四处 `cache_control` 发射点为 `anthropic.rs:164`（尾部消息）、`:192`（stable 历史）、`:239`（system）、`:254`（末工具）；上游 `anthropic.ts:352-362` 的 `injectCacheControlOnLastBlock` 只做尾部一处，故上游 3 / fork 4。
-
-**关键观察**：stable 位取 `stable_idx = msgs.len() - 3`，**每轮随历史增长而向前移动**——
-
-| 轮次 | 消息序列 | `len-3` 落在 | 该轮写入的缓存边界 |
-|---|---|---|---|
-| N | `u1 a1 u2 a2 u3 a3` | 3 | a2 |
-| N+1 | `u1 a1 u2 a2 u3 a3 u4 a4` | 5 | a3 |
-
-即**它每轮标记一条新的边界，从不重复标记同一条**。
-
-**两种缓存语义下都不带来命中收益**：
-- **最长前缀复用**（Anthropic 文档所述）——上一轮写至 a(N-1) 的条目，下一轮查找时已能命中并只写增量；stable 位只是额外多写一条。
-- **精确位置匹配**——无 stable 位时每轮重写全部；**有** stable 位时位置同样每轮移动，也每轮重写全部。两者等价。
-
-**唯一效果是多写一条缓存条目**（Anthropic 的 1.25x / 2x 写入计价）。**结论：降级为「冗余但无害」，从 P1 移出，不需裁决。** 若日后要收敛，删 `anthropic.rs:184-192` 一段即可，无其他依赖——但也没有性能理由去删。
-
-#### 6.44.2 依赖关系与合并建议（原清单未给）
-
-上一轮漏了依赖图，导致同一份工作被列成两条。三处需要合并：
-
-| 合并项 | 原编号 | 理由 |
-|---|---|---|
-| **`SessionHeartbeat` 不单列** | P2-14 撤销 | 它**就是**那 14 个未触发 hook 事件之一（`types.ts:17`），与 P1-3 重复计数。唯一额外成本是需要 session 心跳定时器，属实现细节不是独立工单 |
-| **micro compaction 门禁 + 遥测补 `api_error` 一起做** | P1-5 + P2-15 合并 | 两者都要**跨 step 累积 usage**：前者要 `input_cache_read` 才能判 cache-miss，后者要同源数据才能报 `api_error`。共用一次数据结构改动，拆开做要改两遍 |
-| **fork 自创三件的出处补齐一起做** | 裁决项 5 | `workflow` / `lsp_tool` / `thinking_guard` 只是加模块头说明 + 台账登记，**无代码改动**，应作为一次文档提交而非三个待办 |
-
-**真实的依赖链**（除此之外均可并行）：
-
-```
-frontmatter(YAML)          ← 独立，但波及 skill 解析 → 影响 skill 可见范围
-分叉 turn_index             ← 独立
-14 个 hook 事件             ← 独立，通用入口已存在
-wire 版本 + metadata        ← 独立，但**应在任何新的 wire 记录类型之前做**，
-                              否则新字段同样无法版本化
-undo 回滚接线               ← 独立，1 次调用
-日志 + 导出 ZIP             ← 有序：先有日志写入，再把它塞进 ZIP
-usage 累积 + detect() + 遥测  ← 三合一（见上表）
-```
-
-#### 6.44.4 工作量估算（按实际代码规模，非印象）
-
-估算方法：先量模板与插桩点的真实体量，再按「同一个模板实例化了几次」推算。**人天含实现 + 测试 + 一次 `check:*` 全绿**。
-
-| # | 项 | 规模依据 | 估 |
-|---|---|---|---|
-| 3 | **14 个 hook 事件** | 模板 `notify_pre_compact`（`external_hooks.rs:298-313`）是 15 行；`notify_session_lifecycle`（`:321`）已支持任意事件名 + 三个参数，**14 个事件里 11 个可用它实现**（各加一个 8-15 行包装）。另 3 个需新方法：`SessionHeartbeat`（要 session 心跳定时器，+30 行）、`SubagentStart/Stop`（挂在 `subagent/manager.rs` 生命周期上）。插桩点已现成：`permission/mod.rs:475` `evaluate`（覆盖 Permission 两个）、`run_turn.rs:1203` `emit_step_begin_event`（覆盖 TurnStarted）、`tool_scheduler` 工具完成处（覆盖 TaskStarted）。**无否决风险**：上游 `agentExternalHooksService.ts:118-132` 的 `fireAndForget` 丢弃返回值并 `catch {}`，纯观察 | **2-3 人天** |
-| 1 | **frontmatter 真 YAML** | 引入 `serde_yaml`，替换 `skills/mod.rs:98-172`（约 75 行）与 `tower/frontmatter.rs:19-48`（30 行）两处手写解析；需保留现有 9 项 skills 测试行为并补 4 条失败用例的回归。**风险点**：`scopes` 当前的块列表解析（`skills/mod.rs:188+`）与 `_` 别名拼写（`:129-146`）不能被 YAML 库的行为覆盖 | **2-3 人天** |
-| 2 | **分叉 turn_index** | `sqlite_store.rs:834-863` 加参数 + 按 v2 `forkTurnSlice.ts:80-99` 的 `origin.kind` 分类切边界 + promptId 配对（`:118-176`）；调用方两处（`server/mod.rs:5165` 解析 body 的 `turnIndex`、`acp/mod.rs:1015`）；**注意 fork 的历史按 `save_turn` 分行存储，切分要按 turn 而非按 message** | **3-4 人天** |
-| 5+15 | **micro `detect()` + 遥测 `api_error`** | 新增一个跨 step 的 usage 累积结构（`input_cache_read` / `input_cache_creation` / tokens），`server/engine.rs:1348` 前加判据，配置面加 2 个常量；遥测侧同源数据报 `api_error` | **2-3 人天** |
-| 6 | **wire 版本 + metadata + 迁移链** | 加 `protocol_version` 列与 `metadata` 记录类型（写侧 + 读侧兼容），再逐级实现 v1.0→v1.5 五个迁移。**前置约束**：必须早于任何新的 wire 记录类型 | **4-6 人天**（含迁移的向后兼容测试） |
-| 7 | **磁盘日志 + 导出 ZIP** | 引入 `tracing_appender` 的滚动 appender（约 60 行，对齐 v2 的 6MB×5 全局 / 5MB×3 会话）；`server/mod.rs:1680-1721` 扩 manifest 字段并加 4 个日志成员；`vis` 侧 Logs 标签页随之复活 | **2-3 人天** |
-| 8 | ~~POST /undo 回滚接线~~ **已完成 2026-10-01** | 新增 `rollback_state_for_undo`（`server/mod.rs:7371`），接在 `undo` 路由 `:5594`。**台账原引三处「已有模式」全是假的**——`engine.rs` 中 `.rollback()` 零调用，唯一生产调用者是 `repl/mod.rs:782`；`engine.rs:1168` 是 `for_workspace` 的 `Err(_)` 臂、`:1197` 只是注释提到 `StateStoreCallbacks`。真实模式在 `callbacks.rs:1536-1554`。**核实后新增的要点**：checkpoint 是 LIFO 栈（`state_store.rs:175/244`），`count=N` 必须弹 N 次而非一次。失败如实上报而非静默——行已删除，静默分叉比可见错误更糟。两个测试：`undo_restores_state_domains_from_the_checkpoint_stack`（钉 LIFO 到最早锚点）与 `undo_succeeds_when_no_checkpoint_was_ever_taken`（钉空栈不算错）；前者已用环境变量探针反证——断开接线后 depth 停在 2，测试确实失败 | **已完成** |
-| 10 | ~~`len()/4` 一行修正~~ **已完成 2026-10-01** | `server/engine.rs:933` 改用 `compaction::estimate_tokens`。**实测纠正**：原估「对 CJK 低报约 4 倍」是错的——`len()` 是字节数，3 字节/汉字 → 低报 **25%**（300 字节报 75，实际 100 token）。附带修掉截断：43 ASCII 字符旧值报 10，现为 11。新增测试 `context_tokens_count_cjk_per_character_and_leave_ascii_alone`（ASCII 差异 ≤1 仅进位、CJK 100 字符 = 100 token、混合串按连续 ASCII 段一次进位）。副作用是状态栏与压缩触发器现在共用同一估算器，两者不会再对「有多满」产生分歧 | **已完成** |
-| 11 | **PermissionRuleScope + 审批留痕** | `permission/mod.rs:152` 的 `Vec<String>` 换成带 scope 与 result 的结构；`recordApprovalResult` 需 agent state 写入通道 | **2-3 人天** |
-| 12 | `SessionOutcomeMirror` 落库 | **行号已重定位**：原写 `engine.rs:1697` **已漂移**（现指向一处 `.await;`）。真实链路：`engine.rs:832` `publish_work_changed` 只发活事件，其 `:844` 构造 payload；`events/types.rs:136` 声明字段；`server/transcript/project.rs:2296/2308` 是投影侧。落库点应在 `publish_work_changed` 调用方 | **0.5-1 人天** |
-| 13 | `toolResultRender` 状态包装 | `run_turn.rs:1925` 构建模型可见 tool result 处加 error 前缀与空输出替换；`locales` 已有串 | **1 人天**（若还要对齐 Read 的渲染后字符预算 +1） |
-| 17 | `workspaceAliases` | **已核实**：`delete_workspace` 在 `session/sqlite_store.rs:776`；全仓 `workspaceAliases` / `workspace_aliases` **零命中**，即 fork 确实无别名概念——同一目录的符号链接/大小写变体会算成两个 workspace，且删除后无墓碑 | **1-2 人天** |
-| 9 | minidb 读模型 | **待裁决后再估**（取决于是否需要全文检索；若只需 FTS5 则 2-3 人天，若需 minidb 全套则 10+ 人天） | — |
-| 16 | trust 披露 | 消费者已写好，主要是喂数据（读项目 `.mcp.json` + `local.toml` + instruction sources） | **2-3 人天** |
-| 18-20 | proxy env / `x-trace-id` / shell 探测 | 各 0.5-1 人天的局部改动 | **各 < 1 人天** |
-
-**合计（不含待裁决项）**：约 **21-30 人天**（原 22-32；第 8、10 项已实做各扣 0.5-1）。P0+P1 剩余约 **14-20 人天**。
-
-**并行度**：14 个 hook 事件、frontmatter、分叉切轮次——**三项互不依赖，可同时开工**（第 8、10 项已完成）。wire 版本必须最早开始（其余 wire 改动依赖它）。日志→导出 ZIP 是唯一有内部顺序的一对。
-
-**已实做两条的共同教训**：两处的**成本依据都是错的**（一个是编的调用点，一个是凭印象的倍数），且都是**动手做或读源码才发现**。派工前请把 §6.44.4 每一行的行号都重新核一遍——`check:roadmap-refs` 只验存在性，这 13 处台账错误全部能通过它。
-
-#### 6.44.5 需用户裁决（已剔除 P1-4）
-
-1. **P2-9 minidb 读模型**：v2 的消费者（session-index projector / mirror / 全局搜索 worker）在 fork 无对应需求，而 `packages/minidb/` 已是完整实现且引擎侧零引用。**问题不是「要不要移植 v2 的 `IQueryStore`（13 个方法，`queryStore.ts:96-116`）」，而是「fork 是否需要会话全文检索」**——这是产品问题。若只需要「会话列表 + 标题搜索」，SQLite FTS5 够用，不必引入 minidb；若需要跨会话的正文检索与聚合，那 minidb 的 trigram 索引才有不可替代之处。
-2. **§1 板块 6 那句「已补回」的安全约束**：实为 fork 自加（上游 82 行 `system.md` 中不存在该句，只在 fork `prompt/system.md:108`）。保留为 fork 强化，还是按上游删掉以免两处提示词分叉？
-3. **P2-10 tokenCounting anchor**：值得做，还是只修 `server/engine.rs:933` 的 `len()/4` 一行（对 CJK 低报约 4 倍）？anchor 模型本身是**报告精度**改进，不影响正确性——压缩用的是 `compaction::estimate_*` 同一族。
-
-
-
-#### 6.42.7 `human/` 树未入门禁的**量化后果**（2026-10-01 补测）
-
-6.40.1 断言「`human/` 既不进 allowlist 也不产生 commit」，本节把它量化。
-
-**门禁机制**（`scripts/check-upstream-v2-delta.mjs:69-79`）：`collectDeltas()` 跑 `git log --no-merges <mergeBase>..<upstreamRef> -- packages/agent-core-v2 packages/kap-server packages/klient packages/acp-server`。即**只有触及这四个已删路径的 commit 才进入视野**。
-
-**实测数字**（`.tmp/v2-ref-upstream` @ `21406fb4c8`）：
-
-| 范围 | `human/` 上的 commit 数 |
-|---|---|
-| `52437299ff..21406fb4c8`（门禁实际区间，即 allowlist 记录的 merge base） | **3** |
-| `2db62c835a..21406fb4c8`（自 fork 真正拉取 v2 的删除点起） | **46** |
-
-**即 43 次 `human/` 改动从未进入门禁视野。** 那 3 次之所以出现，是因为它们同时触及了别的已删路径（如 `kap-server`），属连带命中，不是门禁看见了 `human/`。
-
-**但这不等于存在缺口。** 抽查 46 次中落在 6.40.1 判定为 ported 子系统上的改动，逐条核实结果：
-
-- `#3910`（恢复 openrouter 推理方言的 thinking）→ fork 有 `llm/openai.rs:612-626` 的 `seenReasoningContent` 优先逻辑 + `REASONING_DETAILS_KEY`/`DEFAULT_REASONING_KEY`（`:245,249`），6 项测试覆盖（`:1109,1184,1219-1228`）。**ported**。
-- `#3735`（`reasoning_content` 优先于 `reasoning_details` summary）→ 同上路径，**ported**。
-- `#3762`（`api_key_env` provider 凭据）→ 属 6.41 未审范围，未核。
-
-**结论**：门禁盲区的真实后果是**「无法自动证明」而非「已知有缺口」**。这与 6.0 记的盲区性质相同，但更隐蔽——`human/` 连「已删路径」这个身份都没有，所以它既不会被报为 delta，也不能靠 allowlist 记录裁定。**任何声称 `human/` 已对齐的结论，目前只能靠人工审计支撑**（6.40.1 即是）。可行的机械对策尚未设计（`human/` 不是「已删路径」，不能直接加进 `RETIRED_PACKAGES`——那会让门禁去核对 fork 树里本来就不存在的路径）；本节只记录事实，不假装已解决。
-
-#### 6.42.6 关于 `agent/blob/` 撤回决定的复核（结论不变）
-
-上一轮以「v2 的实现手段不是 v2 的行为」为由撤回了 `blobref` 的移植建议。**本轮复核维持撤回**，并把事实记准以便不再第四次重开：`IAgentBlobService`（`agent/blob/agentBlobService.ts:8-16`）把 >4096 字节的 data-URI 媒体卸载为 `blobref:<mime>;<sha256>`，在**持久化时**改写、读取时反转（`agentBlobServiceImpl.ts:12,63-68,126-132`），有三个真实消费者（`wire/wireService.ts:109`、`state/eventDispatcherService.ts:859`、`session/agentLifecycle/agentLifecycleService.ts:296`）。fork 最近似的对应物是 `llm/prompt_media.rs:130-146` 的 `persist_original_image`——同样按 sha256 内容寻址（`f_orig_{:x}`）存入 `FileStore`，但**返回文件路径**而非改写记录。关键差异：fork 在**请求构建时**解析内联媒体（`llm/media_resolver.rs`），v2 在**持久化时**改写。`blobref:` 是无外部消费者的内部 URL 方案，且 fork 的 transcript 由 SQLite 承载而非 wire journal。**正确地不移植。**
-
-### 6.43 2026-10-01 第五轮：台账自身的可靠性抽样（发现 11 处错误，含 1 处阻断了工作）
-
-前四轮的做法是「拿 v2 审 fork」。本轮反过来：**抽验本台账自己**——因为人要拿它派活，而 §6.24/§6.25 的错误是「后来审计碰巧读到才发现」的，那些没被碰过的老节至今未验证。
-
-**方法**：从 §1 十板块矩阵、§2/§5/§6.1-6.23/§7/§8/§9/§10 抽样 58 条事实断言，逐条打开被引文件**比对内容**（不是只查路径存在——那正是现有门禁做的事）。权威树 `.tmp/v2-ref-upstream` @ `21406fb4c8`。
-
-**总体结论：可信度约 85%，但错误不是随机的——按「引用坐标系」聚集。** 抽样中 10 处引用指向退役副本或两棵树都不存在的路径，其中 **8 处的结论是关于「与上游的差异」**。即：**退役副本的引用系统性地支撑「fork 已对齐」或「上游没有 X」**。这是有方向的偏置，不是噪声。现有门禁（`check-roadmap-refs`）只查文件存在与测试函数存在，**这 11 处一处都测不出**。
-
-#### 6.43.1 最严重：§6.28 把一项可移植的工作标成「无参考实现、需裁决」（已推翻）
-
-§6.28 断言 micro compaction 的 `detect()` 参考实现「随包删除后已不存在于任何地方」，并据此登记为**「需裁决，不得自行开工」**。**该断言错误。** `.tmp/v2-ref/…/agent/microCompaction/` 有 4 个文件，参考实现完整可读：
-
-- `microCompaction.ts:4-15` 完整配置契约、`:17-23` 全部默认值（`keepRecentMessages: 20`、`minContentTokens: 100`、`cacheMissedThresholdMs: 60*60*1000`、`truncatedMarker: '[Old tool result content cleared]'`、`minContextUsageRatio: 0.5`）、`:25-41` 接口四方法（`setConfig`/`detect`/`compact`/`reset`）
-- `microCompactionService.ts:89-134` 的 `detect()` 全文：flag 门禁（`:90`）→ **miss 判据是「距上次 assistant 输出的空闲时长 ≥ 阈值」**（`:94-95`，不是 `cache_read == 0`，也不是环比下降）→ 上下文用量比 = `contextTokens / (max_input_tokens ?? max_context_tokens)`，未定义时取 1（`:99-103`）→ 低于 `minContextUsageRatio` 则放弃（`:104`）→ `nextCutoff = max(0, len - keepRecentMessages)`（`:107`）→ cutoff 未变则不发事件（`:109`）→ 发出 `MicroCompactionFinishedEvent` 带 12 个字段（`:122-134`）
-
-**影响**：一项本可施工的工作被一个不存在的闸门挡住。**这是本次抽样最重要的产出。**
-
-**缺口的确切范围（2026-10-01 复核，比 §6.28 描述的窄得多）**：micro compaction **并非"整项待做"**。`server/engine.rs:1329-1359` 显示它已完整接线——flag 解析（`:420-444`）→ `apply_micro_compaction`（`:1349`）→ 发 `micro_compaction.apply` 事件携带 `cutoff`（`:1351-1357`）→ 9 项测试（`:1862-1907`）。`compaction/micro.rs` 的 `compact()` 算法（含 CJK 全 token 权重）也已移植。
-
-**真正缺的只有 `detect()` 的两个门禁**：
-1. **cache-miss 判据**——v2 用「距上次 assistant 输出的空闲时长 ≥ `cacheMissedThresholdMs`」（默认 1 小时），fork 完全没有。注释 `:1339-1342` 自己也承认「缺的是跨 step 判定，不是测量」——各 provider 的 usage parser 已填 `input_cache_read`/`input_cache_creation`，**数字在引擎里，只是没人按 step 累积并比较**。
-2. **上下文用量闸**——`contextTokens / (max_input_tokens ?? max_context_tokens)`（未定义取 1）低于 `minContextUsageRatio`（默认 0.5）则放弃。
-
-即：**约 40 行**（`detect()` 的判据与两个常量的配置面），不是一项新功能。§6.28 `engine.rs:1344-1347` 那段「不可移植、属重建」的注释也随之失效，须一并更正。
-
-#### 6.43.2 §1 板块 3：Read 工具整段描述的是退役副本（安全/成本面，方向被反转）
-
-§1 `:64` 写「v2 三个上限都有，且数值与 Rust 完全相同：`read.ts:6-8` 的 `MAX_LINES=1000` / `MAX_LINE_LENGTH=2000` / `MAX_BYTES=100*1024`」。**三个常量在上游全都不存在。** 上游 `read.ts:6-9` 是 `DEFAULT_MAX_CHARS = 100_000`、`DEFAULT_MAX_CHARS_LIMIT = 500_000`、`TRANSCODE_MAX_BYTES = 10*1024*1024`；`TailLineOffsetSchema`（`:12`）是 `z.number().int().negative()`——**无下界**，不是 `-1000..-1`；`readTool.ts:344` 是 `const limits = this.limits();`，无 `truncateLine`、无字节闸。
-
-**正确表述**：上游已把那套行/长度/字节上限**换成字符预算**（`max_chars` + 可配置 `limits()`，`readTool.ts:194,347-348`）；fork 的 1000 行/2000 字符/100KB 上限对应的是 **fork 自己的 v2 副本**，不是上游。
-
-同段另一处方向反转：`:64` 称「与 v2 的差异仅两个 fork 参数：`column_offset` 与 `max_chars`（v2 全仓零命中）」。**恰恰相反**——两者都是上游参数（`read.ts:26` 与 `:37`，实现于 `readTool.ts:208,347,382,429-453,487-490`）。
-
-**影响**：按 §1 给 Read 工具估工作量会算错范围，且在一条成本控制面上把「fork 与 v2 一致」当成了事实。
-
-#### 6.43.3 其余 9 处（已记录，未逐条改写原文）
-
-| 位置 | 错误性质 |
-|---|---|
-| §1 `:66` realpath-access 段 | 上游**无** `tool/realpath-access.ts`、**无** `PATH_SYMLINK_ESCAPE`（`PathSecurityCode` 上游只有 3 个码，`path-access.ts:86`）。等价逻辑在上游位于 `workspaceFs/fsService.ts:1116-1165`（`realpathExistingPrefix` + `symlink_outside`），而非独立模块 |
-| §1 `:64` 未决子句 | `path-access.ts:317` + `resolveForContainment:273-289` 只存在于退役副本；上游 `resolvePathAccess` 无 containment 解析 |
-| §1 `:123` swarm 基线来源 | 「v2 源码已在上游 `ecad4136d9` 删除、经 `git archive` 取回」**错误**——上游 `features/swarm/` 是**活的**（`agent/swarm.ts`、`agent/swarmService.ts`、`agent/injection/`、2 个 reminder md）。该行的结论可能仍对，但**参照物取错了树** |
-| §1 `:75` 权限行路径 | 上游无 `workspace/permission/`（`workspace/` 12 目录无此项，两棵树都没有）；真实位置是 `agent/permissionGate/`、`agent/permissionPolicy/policies/` |
-| §1 `:38` retry 行 | 可重试集 `[408,409,429,500,502,503,504,529]` **正确**，但引 `kosong/contract/errors.ts:248` — 上游无 `kosong/src/contract/` 目录，真实位置 `kosong/src/errors.ts:233`；`:248` 落在 image-format 注释块里 |
-| §1 `:47` cache breakpoints | `anthropic-cache-breakpoints.ts` 上游**零命中**，且上游**根本没有** `agent-core-v2/src/kosong/`（无 vendored provider 树）。「两侧 4 处断点」与「Rust 缺 `CACHEABLE_TYPES` 守卫」两说均**未对上游证实** |
-| §1 `:54-57` | `astron-models.ts` 上游已不在（`providers/` 17 文件无此项），台账称其「仍是活代码」——描述的是 fork 自己的树 |
-| §1 `:36,39` | `agent/loop/stepRequestQueue.ts` 与 `nativeBackgroundAgentTask.ts` 上游均无（上游 `agent/loop/` 7 文件 + `machine/`），只存在于退役副本 |
-| §2.5 `:184,186,194` | 三处行号漂移到**结构性不同的代码**：`loopService.ts:2117-2119` 现是 `emitStepInterrupted` 的参数（真实位置 `:1729`/`:1876`）；`loop.ts:20-27` 现是 `AgentActivityTurnSnapshot`（真实位置 `:55-60`）。语义仍成立，但跟指针的人会落到错的机制上 |
-
-#### 6.43.4 抽样中**确认无误**的部分（占多数）
-
-板块 1 的重试算术（500ms/32s/单侧 +25%）、可重试集、`all()` 独占语义；板块 2 的 thoughtSignature 往返与 SafetySettings 双侧缺失；板块 5 的 `agentsMdReminderService.ts` 六处行号**全部精确命中**；板块 6 的 AGENTS.md 发现顺序与 32KB 预算、四个 profile；板块 9 的 cron `baseFromMs` 与 running 闸、swarm solo-tool 否决（漂移到 `:48-66`）、subagent profile 允许链、fork 拒绝文案逐字节一致、Tower camelCase schema、subagent task hooks；**§7.2 的「零偏差」是真的零偏差**（14 个 transcript op 两侧同名同序，含 `items.remove`/`meta.merge`/`prompt.upsert`）。
-
-#### 6.43.5 第三、第四类系统性错误（此前未命名）
-
-6.42.2 已命名第一类「退役副本provenance」。本轮抽样暴露另两类，现有门禁都测不出：
-
-- **第二类：漂移跨越了结构边界**——引用的行号仍在文件内，但已指向**另一个函数**（如 §2.5 那三处）。台账开头把行号漂移视为「无害，一次 grep 即可」，但漂移到**别的机制**上时，读者的结论会错。
-- **第三类：方向反转**——把 fork 独有的功能说成 v2 的（§1 板块 6 那句「已补回」的安全约束，实为 fork 自加，见下），或把 v2 独有的说成 fork 独有的（§1 板块 3 的 `column_offset`/`max_chars`）。**这类最危险**，因为它直接反转 provenance 判断，而 provenance 判断正是本文件 铁律 的依据。
-
-**附带更正**：§1 `:95` 称 v2 `system.md:59` 有安全约束句「Unless the user explicitly instructs otherwise...」而 fork 缺失、**已补回**。该句**上游 `system.md` 全文 82 行中不存在**（`:59` 是 `You are running on **${os}**...`），只存在于 fork 的 `prompt/system.md:108`。同段另有两处归属反转：`${notify_user_guidance}` 是**上游**的（`system.md:13`），`${runtime_notes}` 才是 fork 独有（`prompt/system.md:109`）。
-
-
-
-
-
-
-
-
