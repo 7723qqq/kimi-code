@@ -1874,10 +1874,15 @@ docs / release / changelog：`a1e4c13d41`、`f67e6398fb`、`be7d5f5fea`）。两
 
 **`tracked`（功能缺口，不是行为差异；规模已核实）**：v2 侧这次改动确实只有两行（`human/utils/watch.ts` 的 `watchEnabledFromConfig` `false→true`、`app/config/configService.ts` 的 `?? false→?? true`），但**被翻转的东西在 fork 里整个不存在** —— 无 `KIMI_CODE_WATCH`、无 `setWatchEnabled`、`packages/node-sdk/src/config-local/schema.ts` 无 `[watch]` 段、`packages/kimi-agent/src` 无 watcher 依赖（无 notify / inotify / ReadDirectoryChangesW）。**移植量实测：`watch.ts` 756 行**，导出整套 `WatchService` / `watch` / `watchCandidates` / `NativeFsWatcher` 运行时抽象，**12 个生产消费方**（`app/config/configService`、`app/workspace/fileWorkspacePersistence`、`app/watch/configSection`、`features/skill/{catalog/userFileSkillSource, workspace/rootFileSkillSource}`、`session/sessionInstructions/instructionsProvider`、`workspace/{workspaceDirs, workspaceAgentProfileLoader, workspaceInstructions, workspaceInstructionsService, workspaceMcpConfig}`），监听面覆盖 `config.toml`、工作区 catalog、用户/工作区 skill 目录、AGENTS.md 类 instructions、workspace MCP 配置等 8 类文件。**结论：这是一个子系统级移植（还牵涉「watcher 归 Rust 还是归 TS 宿主」的架构选择），不是补默认值** —— fork 现在只有显式 `/reload`、`/reload-tui`。保持 `tracked`，动手前需先定层。
 
-> 📌 **2026-10-01 补注：层的问题已有答案，见 §6.25。** v2 的 `src/runtime/` 本身就是那层——watch 只是
-> `RuntimeCapability` 的四档之一，与 `process` / `terminal` / `fs` 共用同一个 `Runtime` 接口和它的
-> 六态生命周期。所以「先立 capability 层、再挂 watch」是唯一能对齐上游的顺序；先单独移植 watch 会做出
-> 一个上游不存在的独立子系统。§6.25 已按上游基准把该层登记为 `tracked`，本条的前置条件由它承担。
+> 📌 **2026-10-01 补注（2026-10-04 订正）：层的问题见 §6.25。** v2 的 `src/runtime/` 本身就是一层——
+> 但 **watch 不在其中**：权威树 `runtime/runtime.ts:8` 是三项 `'fs' | 'process' | 'terminal'`，
+> 无 `watch`。上游的 watcher 是**独立服务**（`human/utils/watch.ts` 的 `createWatchService`，
+> 自有 `[watch]` config section），不经过 capability 层。**2026-10-01 补注曾写「watch 只是
+> `RuntimeCapability` 的四档之一」并据此称「先立 capability 层、再挂 watch 是唯一能对齐上游的顺序」——
+> 该前提与顺序均已被 §6.25 的订正一/撤回推翻**：本条的移植**不以 capability 层为前置**，
+> 按独立子系统排期；§6.25 的 capability 层缺口仍是 `tracked`，但两者是两条排期。
+> （订正依据：`git show upstream/main:packages/agent-core-v2/src/runtime/runtime.ts` 的 `:8`；
+> 四档写法出自退役副本，见 §6.25 订正一的沿革说明。）
 
 **已同步的文档半边（2026-09-24）**：本提交的代码半边裁 `tracked`，但**文档半边照上游镜像同步**
 了 —— `docs/{en,zh}/configuration/{config-files.md,env-vars.md}` 四个文件取自 `be7d5f5fea`，
@@ -3740,7 +3745,9 @@ through sendNormalUserInput queue while busy"），只有 `Ctrl-S` 会 steer
 
 > **本节 2026-10-01 经第四轮审计订正三处，并撤回一条依赖论断。** 订正依据：`.tmp/v2-ref-upstream` @ `21406fb4c8` 的 `runtime/runtime.ts:7-8` 与 `features/` 目录列举。原文的可信部分（缺口本身）不变；**被改的是它的证据与推理**。
 
-**订正一：`RuntimeCapability` 没有 `watch`。** 原文 `:4943` 写 `RuntimeCapability = 'fs' | 'process' | 'watch' | 'terminal'`——**错**。权威树 `runtime/runtime.ts:8` 是三项：`'fs' | 'process' | 'terminal'`。全部 8 个 `runtime/` 文件里 `watch` 只出现一次：`fakeRuntime.ts:15` 的 `readonly watch = undefined`，而那**不在 `Runtime` 接口上**（`runtime.ts:45-47` 只声明 `fs`/`process`/`terminal`）——测试替身的死字段。
+**订正一：`RuntimeCapability` 在上游是三项，`watch` 已被上游移除；原文的「四档」描述的是 fork 自己的退役快照。** 原文 `:4943` 写 `RuntimeCapability = 'fs' | 'process' | 'watch' | 'terminal'`。权威树 `runtime/runtime.ts:8` 是三项：`'fs' | 'process' | 'terminal'`；全部 8 个 `runtime/` 文件里 `watch` 只出现一次：`fakeRuntime.ts:15` 的 `readonly watch = undefined`，而那**不在 `Runtime` 接口上**（`runtime.ts:45-47` 只声明 `fs`/`process`/`terminal`）——测试替身的死字段。
+**沿革（2026-10-04 复核）**：退役副本 `.tmp/v2-ref` 的 `runtime/runtime.ts:9` **确实**是四档（并 import `IHostFsWatchService`、`:48` 声明 `readonly watch?`），所以原文并非凭空写错——它描述的是 fork 自己的快照。上游在 `3f967e1410`（#3502，2026-09-07，`refactor(agent-core-v2): unify fs watching into a single xstate watch service`）把 `watch` 从该联合类型里删掉（该提交对 `runtime.ts` 的 diff 是 `-export type RuntimeCapability = 'fs' | 'process' | 'watch' | 'terminal';` / `+export type RuntimeCapability = 'fs' | 'process' | 'terminal';`）。该提交是 `upstream/main` 的祖先、**不是** `ecad4136d9`（fork 的退役提交）的祖先（`git merge-base --is-ancestor` 分别返回 0 / 1），即 **fork 从未导入那次删除**。
+**判据不变**：移植的权威是上游的三档；「四档」只可作历史记录引用。
 
 **订正二：不是 9 个文件，是 8 个。** 原文 `:4941` 写「9 个文件」。`runtime/` 实为 8 个：`runtime.ts`、`runtimeRegistry.ts`、`runtimeProvider.ts`、`runtimeUnitHost.ts`、`runtimeWorkspaceView.ts`、`localRuntime.ts`、`standaloneRuntime.ts`、`fakeRuntime.ts`。
 
@@ -3759,20 +3766,22 @@ through sendNormalUserInput queue while busy"），只有 `Ctrl-S` 会 steer
 - `runtime/runtime.ts:8` — `RuntimeCapability = 'fs' | 'process' | 'terminal'`（**三项，无 watch**）
 - `runtime/runtime.ts:39` — `Runtime` 接口（`:40` 是 `readonly identity`），配 `localRuntime` / `standaloneRuntime` /
   `runtimeRegistry` / `runtimeProvider`，走 DI 容器注册多实现
-- 状态门禁语义在 `runtimeRegistry.ts:342-346`（`runtimeStatusAllows`）：`ready` 全放行；`degraded` 仅当请求的每个能力都存在才放行；其余四态拒绝。`draining`/`disposed` 另在 `:296` 硬拒注册。drain 上界 `RUNTIME_DRAIN_TIMEOUT_MS = 5_000`（`:6`），与租约释放在 `:281-285` 竞速。
+- 状态门禁语义在 `runtimeRegistry.ts:331-334`（`runtimeStatusAllows`）：`ready` 全放行；`degraded` 仅当请求的每个能力都存在才放行；其余四态拒绝。`draining`/`disposed` 另在 `:294` 硬拒注册。drain 上界 `RUNTIME_DRAIN_TIMEOUT_MS = 5_000`（`:5`），与租约释放在 `:316-320` 竞速（`:185-189` 的 `release` 在租约归零时 `releaseDrain`）。**（2026-10-04 订正）** 原文引 `:342-346`、`:296`、`:6`、`:281-285`，四处全部漂移；`runtimeRegistry.ts` 全文 **334 行**，故 `:342-346` 已在文件末尾之外——实测 `git show upstream/main:packages/agent-core-v2/src/runtime/runtimeRegistry.ts | wc -l` = 334。漂移不能归因于读错副本：该文件在 `.tmp/v2-ref`（退役副本）与 `upstream/main` 之间**逐字节相同**（`git hash-object` 两侧同为 `659acc5beb`），两侧的 `runtimeStatusAllows` 都落在 `:331`。
 
 **它不是死代码 —— 11 处生产消费点，覆盖三类能力**（能力只有 fs / process / terminal 三档）：
 
 | 消费点 | 用的能力 |
 |---|---|
-| `features/fileHistory/fileHistoryService.ts:475` | `lease.runtime.fs` |
-| `features/staleGuard/staleGuardService.ts:130` | `lease.runtime.fs!.stat` |
-| `workspace/workspaceFs/fsService.ts:666` | `lease.runtime.process!.spawn`（rg 二进制） |
-| `workspace/workspaceFs/fsService.ts:1055` | `lease.runtime.process!`（exec） |
-| `app/git/gitService.ts:154` | `lease.runtime.process!` |
+| `features/fileHistory/fileHistoryService.ts:469` | `lease.runtime.fs` |
+| `features/staleGuard/staleGuardService.ts:130`（**仅退役副本**） | `lease.runtime.fs!.stat` |
+| `workspace/workspaceFs/fsService.ts:680` | `lease.runtime.process!.spawn`（rg 二进制） |
+| `workspace/workspaceFs/fsService.ts:901` | `lease.runtime.process!.spawn`（rgPath） |
+| `workspace/workspaceFs/fsService.ts:1084` | `lease.runtime.process!`（exec，`runCommand`） |
+| `app/git/gitService.ts:149` | `lease.runtime.process!` |
 | `session/terminal/terminalService.ts:86` | `lease.runtime.terminal!.spawn` |
 | `session/terminal/terminalService.ts:83` | `lease.runtime.environment.shellPath` |
-| `mcpCore/client-stdio.ts:192-193` | `lease.runtime.path.resolve` / `environment.homeDir` |
+| `mcpCore/client-stdio.ts:186-187` | `lease.runtime.path.resolve` / `environment.homeDir` |
+| `mcpCore/client-stdio.ts:188` | `lease.runtime.process!.spawn` |
 
 **fork 侧的对应事实**（全部实测，非推断）：
 
@@ -3789,9 +3798,11 @@ through sendNormalUserInput queue while busy"），只有 `Ctrl-S` 会 steer
 导出点就已存在、从未被任何单个提交改动，因此不会被该门禁发现。它属于 §6.18.2 说的那种
 "存在性之外的归属盲区"：**不是跟丢了上游的某次变更，而是从未决定移植**。
 
-**与 §6.8.2 的关系**：§6.8.2 已判定 watch 移植"动手前需先定层"。按 v2 的形态，层已经定了——
-watch/process/terminal 三个能力共用同一个 `Runtime` 接口与其状态机，先立 capability 层再挂 watch，
-是唯一能对齐上游的顺序；反过来先单独移植 watch 会做出一个上游没有的独立子系统。
+**与 §6.8.2 的关系**：**本节 2026-10-01 的「先立 capability 层、再挂 watch」顺序已由本节的撤回条推翻**——
+那条顺序的前提是「watch 是 `RuntimeCapability` 的一档」，而权威树是三项、watch 是独立服务
+（`human/utils/watch.ts`）。两条缺口因此**没有前置关系**：§6.8.2 的 watcher 按独立子系统排期，
+本节的 capability 层是另一条 `tracked` 项，各自的「归 Rust 还是归 TS」问题要分别裁决。
+（本段原写「层已经定了……先立 capability 层再挂 watch 是唯一能对齐上游的顺序」，与本节撤回条自相矛盾。）
 
 **登记为 `tracked`，不排期。** 移植它需要先回答一个分层问题：DI 注册表与状态机归 Rust 引擎
 （`packages/kimi-agent`）还是归 TS 宿主（`packages/node-sdk`）——v2 两边都有份，fork 必须二选一，
