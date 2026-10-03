@@ -62,6 +62,8 @@
     "check:architecture:update": "bun scripts/check-architecture-drift.mjs --update",
     "check:normify": "bun packages/normify/src/cli.ts normify_validate \"{\\\"project\\\":\\\"kimi-code\\\",\\\"repoRoot\\\":\\\".\\\"}\"",
     "check:roadmap-refs": "bun scripts/check-roadmap-refs.mjs",
+    "check:rust-module-deps": "bun scripts/check-rust-module-deps.mjs",
+    "check:rust-module-deps:update": "bun scripts/check-rust-module-deps.mjs --update",
     "gen:brief": "bun scripts/gen-brief.mjs",
     "changeset": "changeset",
     "version": "changeset version",
