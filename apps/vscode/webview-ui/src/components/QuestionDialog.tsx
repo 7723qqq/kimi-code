@@ -76,7 +76,7 @@ export function QuestionDialog() {
       <div className="p-2 space-y-2">
         {questions.length > 1 && (
           <div className="text-[10px] text-muted-foreground">
-            Question {questionIndex + 1} of {questions.length}
+            {t('questionDialog.counter', { index: questionIndex + 1, total: questions.length })}
           </div>
         )}
         {question.header && <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{question.header}</div>}

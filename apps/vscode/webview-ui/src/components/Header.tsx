@@ -92,7 +92,7 @@ export function Header() {
           <div className="space-y-3 py-2">
             <div>
               <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
-                Session ID
+                {t('header.sessionId')}
               </div>
               <code className="text-xs font-mono text-foreground break-all select-all">
                 {sessionId}

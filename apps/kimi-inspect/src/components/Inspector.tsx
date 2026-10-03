@@ -105,7 +105,7 @@ export function Inspector({
       {sessionId !== null ? (
         <div className="border-b border-neutral-800 px-3 py-2">
           <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
-            Active agent
+            {t('inspector.activeAgent')}
           </label>
           <select
             className="w-full rounded border border-neutral-700 bg-neutral-950 px-2 py-1.5 text-[12px] text-neutral-100 outline-none focus:border-sky-600"
@@ -141,7 +141,7 @@ export function Inspector({
           <>
             <div className="mb-3 rounded border border-neutral-800 bg-neutral-950/40 p-2 text-[11px]">
               <div className="mb-1 flex items-center gap-2 font-semibold uppercase tracking-wider text-neutral-500">
-                Runtime binding
+                {t('inspector.runtimeBinding')}
                 {runtimeBinding.data !== undefined ? (
                   <Badge tone={runtimeBinding.data.available ? 'green' : 'red'}>
                     {runtimeBinding.data.available ? 'available' : 'unavailable'}

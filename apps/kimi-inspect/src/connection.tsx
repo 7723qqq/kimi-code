@@ -216,7 +216,7 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
       ) : config !== null ? (
         <div className="flex h-screen items-center justify-center">
           <div className="text-sm text-neutral-500">
-            Connecting to {resolveBaseUrl(config.url)}…
+            {t('connection.connecting', { url: resolveBaseUrl(config.url) })}
           </div>
         </div>
       ) : discovering && !suppressDiscovery ? (
@@ -257,11 +257,11 @@ function DebugSurfaceError({
           {t('connection.debugSurfaceUnavailable')}
         </h1>
         <p className="mb-3 text-xs leading-relaxed text-neutral-400">
-          Kimi Inspect talks to the server exclusively over the debug RPC surface (
-          <code className="text-neutral-300">/api/v1/debug</code>), and{' '}
-          <code className="text-neutral-300">{baseUrl}</code> does not serve it. Start the server
-          with <code className="text-neutral-300">--debug-endpoints</code> on a loopback bind and
-          retry.
+          {t('connection.debugRpcOnly', {
+            endpoint: '/api/v1/debug',
+            baseUrl,
+            flag: '--debug-endpoints',
+          })}
         </p>
         <div className="mb-4 rounded bg-red-950/50 px-2 py-1.5 font-mono text-[11px] text-red-400">
           {error}

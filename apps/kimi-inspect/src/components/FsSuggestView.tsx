@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 
 import { useConnection } from '../connection';
 import { fetchFsSuggest, type FsSuggestResult } from '../fs/api';
+import { t } from '../i18n';
 import { Badge, ErrorLine } from '../ui';
 import { WorkspaceDirBrowser } from './WorkspaceDirBrowser';
 
@@ -94,11 +95,7 @@ export function FsSuggestView() {
             <h1 className="text-sm font-semibold text-neutral-200">
               {t('views.filesystemSuggest')}
             </h1>
-            <p className="mt-1 text-[11px] text-neutral-500">
-              Query file and directory completion candidates via the workspace-independent
-              fs:suggest API — the selected workspace supplies its root, or enter arbitrary
-              roots to override it.
-            </p>
+            <p className="mt-1 text-[11px] text-neutral-500">{t('fsSuggest.description')}</p>
           </div>
           <form
             className="grid gap-3 rounded border border-neutral-800 bg-neutral-900/30 p-3 md:grid-cols-2"
@@ -109,7 +106,7 @@ export function FsSuggestView() {
           >
             <label className="md:col-span-2">
               <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
-                Roots (absolute paths, one per line or comma-separated; overrides the workspace selection)
+                {t('fsSuggest.rootsHint')}
               </span>
               <textarea
                 className="h-16 w-full resize-y rounded border border-neutral-700 bg-neutral-950 px-2 py-1.5 font-mono text-[12px] text-neutral-100 outline-none focus:border-sky-600"
@@ -161,7 +158,7 @@ export function FsSuggestView() {
             </div>
             <label>
               <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
-                Include globs
+                {t('fsSuggest.includeGlobs')}
               </span>
               <input
                 className="w-full rounded border border-neutral-700 bg-neutral-950 px-2 py-1.5 font-mono text-[11px] text-neutral-100 outline-none focus:border-sky-600"
@@ -172,7 +169,7 @@ export function FsSuggestView() {
             </label>
             <label>
               <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
-                Exclude globs
+                {t('fsSuggest.excludeGlobs')}
               </span>
               <input
                 className="w-full rounded border border-neutral-700 bg-neutral-950 px-2 py-1.5 font-mono text-[11px] text-neutral-100 outline-none focus:border-sky-600"
@@ -197,7 +194,7 @@ export function FsSuggestView() {
           {suggest.isError ? <ErrorLine error={suggest.error} /> : null}
           {suggest.data === undefined && !suggest.isError ? (
             <div className="rounded border border-dashed border-neutral-800 p-6 text-center text-[12px] text-neutral-600">
-              Submit a query to inspect the complete response.
+              {t('fsSuggest.submitHint')}
             </div>
           ) : null}
           {suggest.data !== undefined ? <SuggestResult result={suggest.data} /> : null}
@@ -247,7 +244,7 @@ function SuggestResult({ result }: { readonly result: FsSuggestResult }) {
       </section>
       <details className="rounded border border-neutral-800 bg-neutral-950/50">
         <summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">
-          Full JSON response
+          {t('fsSuggest.fullJsonResponse')}
         </summary>
         <pre className="max-h-[420px] overflow-auto border-t border-neutral-800 p-3 text-[11px] leading-relaxed text-neutral-300">
           {JSON.stringify(result, null, 2)}

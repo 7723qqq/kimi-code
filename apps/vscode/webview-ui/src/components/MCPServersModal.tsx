@@ -293,7 +293,7 @@ function ServerForm({
           />
           <div>
             <Label className="text-[10px] text-muted-foreground">
-              Bearer Token Environment Variable
+              {t('mcpServersModal.bearerTokenEnv')}
             </Label>
             <Input
               value={data.bearerTokenEnvVar}

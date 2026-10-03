@@ -25,7 +25,8 @@
     "session": "Session",
     "history": "History",
     "messages": "Messages",
-    "startNewConversation": "Start New Conversation?"
+    "startNewConversation": "Start New Conversation?",
+    "sessionId": "Session ID"
   },
   "mcpServers": {
     "name": "Name",
@@ -44,7 +45,9 @@
     "deleteWarning": "This will remove \"{name}\" from your configuration. This action cannot be undone."
   },
   "workDir": {
-    "loadFailed": "Failed to load working directories"
+    "loadFailed": "Failed to load working directories",
+    "select": "Select Working Directory",
+    "browse": "Browse..."
   },
   "actionMenu": {
     "settings": "Settings",
@@ -68,7 +71,8 @@
   "questionDialog": {
     "responsePlaceholder": "Enter your response…",
     "selectAll": "Select all that apply",
-    "customResponse": "Custom response…"
+    "customResponse": "Custom response…",
+    "counter": "Question {index} of {total}"
   },
   "recommendedMcp": {
     "playwrightDescription": "Browser automation and web scraping with headless Chrome",
@@ -115,7 +119,8 @@
     "insertNow": "Insert now (steer)"
   },
   "inputArea": {
-    "exitPlanMode": "Exit Plan Mode"
+    "exitPlanMode": "Exit Plan Mode",
+    "addMedia": "Add files or media"
   },
   "actionMenuItems": {
     "workingDirectory": "Working Directory",
@@ -147,7 +152,26 @@
     "retry": "Retry"
   },
   "fileChanges": {
-    "none": "No file changes"
+    "none": "No file changes",
+    "view": "View Changes",
+    "undo": "Undo Changes",
+    "keep": "Keep Changes"
+  },
+  "approvalDialog": {
+    "allowAction": "Allow this {action}?"
+  },
+  "planCard": {
+    "planMode": "Plan Mode"
+  },
+  "slashCommandMenu": {
+    "noCommands": "No commands found"
+  },
+  "toolRenderers": {
+    "step": "Step {n}",
+    "shellCommand": "Shell Command"
+  },
+  "mcpServersModal": {
+    "bearerTokenEnv": "Bearer Token Environment Variable"
   },
   "filePicker": {
     "selectMedia": "Select images or videos…",

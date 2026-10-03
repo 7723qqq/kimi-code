@@ -71,7 +71,7 @@ function FileItem({ file, onRevert, onKeep, onViewDiff, disabled, isStreaming }:
               <IconGitCompare className="size-3" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>View Changes</TooltipContent>
+          <TooltipContent>{t('fileChanges.view')}</TooltipContent>
         </Tooltip>
         {!isStreaming && (
           <>
@@ -87,7 +87,7 @@ function FileItem({ file, onRevert, onKeep, onViewDiff, disabled, isStreaming }:
                   <IconArrowBackUp className="size-3" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Undo Changes</TooltipContent>
+              <TooltipContent>{t('fileChanges.undo')}</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -101,7 +101,7 @@ function FileItem({ file, onRevert, onKeep, onViewDiff, disabled, isStreaming }:
                   <IconCheck className="size-3" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Keep Changes</TooltipContent>
+              <TooltipContent>{t('fileChanges.keep')}</TooltipContent>
             </Tooltip>
           </>
         )}

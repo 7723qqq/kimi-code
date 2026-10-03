@@ -75,7 +75,7 @@ export function WorkDirModal() {
     <Dialog open={workDirModalOpen} onOpenChange={setWorkDirModalOpen}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Select Working Directory</DialogTitle>
+          <DialogTitle>{t('workDir.select')}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-1 max-h-64 overflow-y-auto -mx-1 px-1">
@@ -127,7 +127,7 @@ export function WorkDirModal() {
               disabled={loading}
             >
               <IconFolderOpen className="size-4 mr-1.5" />
-              Browse...
+              {t('workDir.browse')}
             </Button>
             {currentWorkDir && (
               <Button

@@ -18,6 +18,7 @@ import {
   type QuestionAnswerWire,
   type QuestionWire,
 } from '../interactions/api';
+import { t } from '../i18n';
 import { ActionButton, Badge, ErrorLine, JsonView } from '../ui';
 
 interface PendingInteraction {

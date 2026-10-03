@@ -4,6 +4,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import type { DisplayBlock, DiffBlock, TodoBlock, BriefBlock, ShellBlock } from 'shared/legacy-sdk';
 
+import { t } from '@/i18n';
 import { cn } from '@/lib/utils';
 
 function useIsDark(): boolean {
@@ -196,7 +197,7 @@ export function ShellBlockView({ block, maxHeight = 'max-h-40' }: ShellBlockProp
     <div className="text-[11px] border border-border rounded-md overflow-hidden">
       <div className="px-2 py-1 bg-muted/50 border-b border-border text-muted-foreground flex items-center gap-2">
         <span className="font-mono">$</span>
-        <span>Shell Command</span>
+        <span>{t('toolRenderers.shellCommand')}</span>
       </div>
       <div className={cn('overflow-auto', maxHeight)}>
         <SyntaxHighlighter

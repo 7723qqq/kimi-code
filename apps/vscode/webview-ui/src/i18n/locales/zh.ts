@@ -26,6 +26,7 @@ export default {
     history: '历史',
     messages: '消息',
     startNewConversation: '开始新对话？',
+    sessionId: '会话 ID',
   },
   mcpServers: {
     name: '名称',
@@ -45,6 +46,8 @@ export default {
   },
   workDir: {
     loadFailed: '加载工作目录失败',
+    select: '选择工作目录',
+    browse: '浏览…',
   },
   actionMenu: {
     settings: '设置',
@@ -69,6 +72,7 @@ export default {
     responsePlaceholder: '请输入你的回答…',
     selectAll: '可多选',
     customResponse: '自定义回答…',
+    counter: '第 {index} / {total} 个问题',
   },
   recommendedMcp: {
     playwrightDescription: '用无头 Chrome 做浏览器自动化与网页抓取',
@@ -116,6 +120,7 @@ export default {
   },
   inputArea: {
     exitPlanMode: '退出计划模式',
+    addMedia: '添加文件或媒体',
   },
   login: {
     skip: '跳过',
@@ -164,6 +169,25 @@ export default {
   },
   fileChanges: {
     none: '没有文件变更',
+    view: '查看变更',
+    undo: '撤销变更',
+    keep: '保留变更',
+  },
+  approvalDialog: {
+    allowAction: '允许执行 {action}？',
+  },
+  planCard: {
+    planMode: '计划模式',
+  },
+  slashCommandMenu: {
+    noCommands: '未找到命令',
+  },
+  toolRenderers: {
+    step: '步骤 {n}',
+    shellCommand: 'Shell 命令',
+  },
+  mcpServersModal: {
+    bearerTokenEnv: 'Bearer Token 环境变量',
   },
   filePicker: {
     selectMedia: '选择图片或视频…',

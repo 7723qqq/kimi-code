@@ -18,6 +18,8 @@ export default {
     tokenPlaceholder: '~/.kimi-code/server.token',
     connectButton: '连接',
     debugSurfaceUnavailable: '调试接口不可用',
+    debugRpcOnly:
+      'Kimi Inspect 仅通过调试 RPC 接口（{{endpoint}}）与服务端通信，而 {{baseUrl}} 未提供该接口。请以 {{flag}} 在回环地址上启动服务端后重试。',
     retry: '重试',
     changeServer: '切换服务器',
     debugHint: '连接到以以下参数启动的服务器',
@@ -41,6 +43,16 @@ export default {
     noHitsForQuery: '“{{query}}” 无匹配结果。',
     searchExamples: '示例…',
     auditEmpty: '暂无记录 — 初始会话记录加载中。',
+    transcriptUnavailable: '加载会话记录失败 — 服务端版本可能过旧，未提供会话记录 API。',
+  },
+  fsSuggest: {
+    description:
+      '通过与工作区无关的 fs:suggest API 查询文件与目录的补全候选 — 所选工作区会提供其根目录，也可直接输入任意根目录覆盖。',
+    rootsHint: '根目录（绝对路径，每行一个或用逗号分隔；将覆盖工作区选择）',
+    includeGlobs: '包含 glob',
+    excludeGlobs: '排除 glob',
+    submitHint: '提交查询以查看完整响应。',
+    fullJsonResponse: '完整 JSON 响应',
   },
   inspector: {
     tabs: {
@@ -51,6 +63,7 @@ export default {
     },
     dynamicChannelUnavailable: '动态通道列表不可用 — 仅显示手写面板',
     activeAgent: '活动 Agent',
+    runtimeBinding: '运行时绑定',
     agentNotLoaded: '{{id}}（未加载）',
     agentNotMaterialized:
       '此 Agent 未在运行中的服务器实例化（例如在重启前创建）— 调用将失败；其持久化记录保留在磁盘',

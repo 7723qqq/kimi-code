@@ -17,6 +17,7 @@ import { formatContentOutput } from 'shared/legacy-sdk';
 import type { ToolResult, DisplayBlock, TodoBlock } from 'shared/legacy-sdk';
 import { cleanSystemTags } from 'shared/utils';
 
+import { t } from '@/i18n';
 import { cn } from '@/lib/utils';
 import type { UIToolCall, UIStep, UIStepItem } from '@/stores/chat.store';
 
@@ -411,7 +412,7 @@ function TaskTool({ call, result, subagentSteps }: ToolRendererProps) {
               {subagentSteps.map((step) => (
                 <div key={step.n} className="space-y-2">
                   <div className="text-[0.75rem] text-muted-foreground uppercase tracking-wider">
-                    Step {step.n}
+                    {t('toolRenderers.step', { n: step.n })}
                   </div>
                   <div className="space-y-2">
                     {step.items.map((item, idx) => (

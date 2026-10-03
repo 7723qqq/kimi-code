@@ -19,11 +19,23 @@ export default {
     tokenPlaceholder: '~/.kimi-code/server.token',
     connectButton: 'Connect',
     debugSurfaceUnavailable: 'Debug surface unavailable',
+    debugRpcOnly:
+      'Kimi Inspect talks to the server exclusively over the debug RPC surface ({{endpoint}}), and {{baseUrl}} does not serve it. Start the server with {{flag}} on a loopback bind and retry.',
     retry: 'Retry',
     changeServer: 'Change server',
     debugHint: 'Connect to a server started with',
     proxyHint: 'Leave the URL empty to use the same-origin dev proxy',
     discoveredLocal: 'Discovered on this machine',
+  },
+  fsSuggest: {
+    description:
+      'Query file and directory completion candidates via the workspace-independent fs:suggest API — the selected workspace supplies its root, or enter arbitrary roots to override it.',
+    rootsHint:
+      'Roots (absolute paths, one per line or comma-separated; overrides the workspace selection)',
+    includeGlobs: 'Include globs',
+    excludeGlobs: 'Exclude globs',
+    submitHint: 'Submit a query to inspect the complete response.',
+    fullJsonResponse: 'Full JSON response',
   },
   chat: {
     nonTextContent: '[non-text content]',
@@ -43,6 +55,8 @@ export default {
     noHitsForQuery: 'No hits for “{{query}}”.',
     searchExamples: 'examples…',
     auditEmpty: 'Nothing recorded yet — the initial transcript load is still running.',
+    transcriptUnavailable:
+      'Failed to load the transcript — the server may be too old to expose the transcript API.',
   },
   inspector: {
     tabs: {
@@ -53,6 +67,7 @@ export default {
     },
     dynamicChannelUnavailable: 'dynamic channel list unavailable — showing handwritten panels only',
     activeAgent: 'Active agent',
+    runtimeBinding: 'Runtime binding',
     agentNotLoaded: '{{id}} (not loaded)',
     agentNotMaterialized:
       'this agent is not materialized in the running server (e.g. created before a restart) — calls will fail; its persisted records remain on disk',

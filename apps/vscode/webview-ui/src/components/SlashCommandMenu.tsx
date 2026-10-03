@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { SlashCommandInfo } from 'shared/legacy-sdk';
 
+import { t } from '@/i18n';
 import { cn } from '@/lib/utils';
 
 interface SlashCommandMenuProps {
@@ -70,7 +71,7 @@ export function SlashCommandMenu({
   if (commands.length === 0) {
     return (
       <div className="rounded-md border bg-popover shadow-md p-3 text-xs text-muted-foreground text-center">
-        No commands found
+        {t('slashCommandMenu.noCommands')}
       </div>
     );
   }

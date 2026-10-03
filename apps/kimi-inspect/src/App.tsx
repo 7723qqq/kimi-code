@@ -37,6 +37,7 @@ import { Sidebar } from './components/Sidebar';
 import { WorkspaceServicesView } from './components/WorkspaceServicesView';
 import { useConnection } from './connection';
 import type { SearchHit } from './search/api';
+import { t } from './i18n';
 import { errorMessage } from './ui';
 
 export function App() {
@@ -138,7 +139,7 @@ export function App() {
             <Sidebar activeSessionId={sessionId} onSelectSession={setSessionId} />
             {resumeError !== null ? (
               <div className="flex flex-1 items-center justify-center p-6 text-center text-[12px] text-red-400">
-                Failed to open session: {errorMessage(resumeError)}
+                {t('app.failedToOpenSession', { message: errorMessage(resumeError) })}
               </div>
             ) : (
               <ChatView

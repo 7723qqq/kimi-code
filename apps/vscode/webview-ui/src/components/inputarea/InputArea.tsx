@@ -542,7 +542,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
                     <IconPlus className="size-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Add files or media</TooltipContent>
+                <TooltipContent>{t('inputArea.addMedia')}</TooltipContent>
               </Tooltip>
 
               <ActionMenu onAuthAction={onAuthAction} />

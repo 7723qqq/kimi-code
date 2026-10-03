@@ -283,10 +283,21 @@ function scanFile(filePath, content, moduleInfo, valueToKeys, valueRegexes) {
 
     // Fast path: every value regex requires a quoted literal, so a line
     // without any quote cannot match any of them.
-    if (!/['"`]/.test(trimmed)) continue;
+    //
+    // This guards Detection 1 *only*, and it must stay a scoped condition
+    // rather than a `continue`. A `continue` here ends the whole loop body,
+    // which silently skipped Detections 2, 3 and 4 as well — harmless for the
+    // first two, which need a quote by construction, but not for Detection 4:
+    // its JSX-text arm matches `<TooltipContent>Add files or media
+    // </TooltipContent>`, a form that has no quote anywhere on the line and is
+    // exactly what that detection exists to catch. One `continue` hid 31 real
+    // findings, including every untranslated button label in the VS Code
+    // webview.
+    const hasQuote = /['"`]/.test(trimmed);
 
-    // Look for locale values appearing as string literals
-    for (const [normalizedValue, keys] of valueToKeys) {
+    if (hasQuote) {
+      // Look for locale values appearing as string literals
+      for (const [normalizedValue, keys] of valueToKeys) {
       // Skip single-word short values that look like identifiers, not display text
       const plainValue = normalizedValue.replaceAll('*', '');
       if (plainValue.length < 5 && !/[\u4E00-\u9FFF]/.test(plainValue)) continue;
@@ -330,6 +341,7 @@ function scanFile(filePath, content, moduleInfo, valueToKeys, valueRegexes) {
           keys,
           context: trimmed.slice(0, 100),
         });
+      }
       }
     }
 
@@ -569,6 +581,12 @@ function scanDisplaySlots(line, relPath, prevLine = '') {
  * own pattern.
  *
  * Single-line form: `>text<` on one line.
+ *
+ * The `>` that opens the run must be a *tag close*, not an operator. `=>` in a
+ * TypeScript signature reads as `>) GoalQueueSnapshot | void | Promise<…>;`
+ * otherwise, and reported a type union as untranslated copy — the arrow in
+ * `readonly onAction: (action: X) => GoalQueueSnapshot | void;` is not markup.
+ * Any operator character immediately before the `>` disqualifies it.
  */
 function scanJsxText(line) {
   if (!/[<>]/.test(line)) return [];
@@ -576,6 +594,9 @@ function scanJsxText(line) {
   const re = />([^<>{}"'`/][^<>{}]*?)</g;
   const out = [];
   for (const m of line.matchAll(re)) {
+    // Reject an operator `>`: `=>`, `>=`, `>>`, `+>`, `!>`, and friends.
+    const before = line[m.index - 1];
+    if (before !== undefined && '=-+*/%<>!&|^~?:'.includes(before)) continue;
     const value = m[1].replace(/\s+/g, ' ').trim();
     if (!value) continue;
     if (isAllowlistedLiteral(value)) continue;
@@ -617,6 +638,13 @@ function scanJsxTextContinuation(line, prevLine) {
   if (!value || !/[A-Za-z一-鿿]/.test(value)) return [];
   if (isAllowlistedLiteral(value)) return [];
   if (!looksLikeUserFacing(value)) return [];
+  // A line that is mostly interpolation is a layout skeleton, not copy:
+  // `L{lines.start}–{lines.end}` is assembled from expressions and the letters
+  // around them are units, not words. `looksLikeUserFacing` sees the leading
+  // capital and passes it, so the decision belongs here — strip the expressions
+  // and require the *remainder* to still contain a real word.
+  const literal = value.replace(/\{[^{}]*\}/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!/[A-Za-z一-鿿]{2,}/.test(literal)) return [];
   return [value];
 }
 

@@ -1,6 +1,7 @@
 import { IconClipboardList, IconChevronDown } from '@tabler/icons-react';
 import { type ReactNode, useState } from 'react';
 
+import { t } from '@/i18n';
 import { cn } from '@/lib/utils';
 
 interface PlanCardProps {
@@ -19,7 +20,7 @@ export function PlanCard({ children }: PlanCardProps) {
       >
         <IconClipboardList className="size-3.5 text-amber-600 dark:text-amber-400" />
         <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300 flex-1 text-left">
-          Plan Mode
+          {t('planCard.planMode')}
         </span>
         <IconChevronDown
           className={cn(

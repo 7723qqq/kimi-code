@@ -26,6 +26,7 @@ export default {
     history: 'History',
     messages: 'Messages',
     startNewConversation: 'Start New Conversation?',
+    sessionId: 'Session ID',
   },
   mcpServers: {
     name: 'Name',
@@ -45,6 +46,8 @@ export default {
   },
   workDir: {
     loadFailed: 'Failed to load working directories',
+    select: 'Select Working Directory',
+    browse: 'Browse...',
   },
   actionMenu: {
     settings: 'Settings',
@@ -73,6 +76,7 @@ export default {
     responsePlaceholder: 'Enter your response…',
     selectAll: 'Select all that apply',
     customResponse: 'Custom response…',
+    counter: 'Question {index} of {total}',
   },
   recommendedMcp: {
     playwrightDescription: 'Browser automation and web scraping with headless Chrome',
@@ -125,6 +129,7 @@ export default {
   },
   inputArea: {
     exitPlanMode: 'Exit Plan Mode',
+    addMedia: 'Add files or media',
   },
   actionMenuItems: {
     workingDirectory: 'Working Directory',
@@ -160,6 +165,25 @@ export default {
   },
   fileChanges: {
     none: 'No file changes',
+    view: 'View Changes',
+    undo: 'Undo Changes',
+    keep: 'Keep Changes',
+  },
+  approvalDialog: {
+    allowAction: 'Allow this {action}?',
+  },
+  planCard: {
+    planMode: 'Plan Mode',
+  },
+  slashCommandMenu: {
+    noCommands: 'No commands found',
+  },
+  toolRenderers: {
+    step: 'Step {n}',
+    shellCommand: 'Shell Command',
+  },
+  mcpServersModal: {
+    bearerTokenEnv: 'Bearer Token Environment Variable',
   },
   filePicker: {
     selectMedia: 'Select images or videos…',

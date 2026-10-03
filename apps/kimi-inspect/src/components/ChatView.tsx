@@ -75,6 +75,7 @@ import {
   TranscriptChatStore,
 } from '../transcript/store';
 import { TranscriptWs } from '../transcript/ws';
+import { t } from '../i18n';
 import { ActionButton, Badge, ErrorLine, JsonView, relTime } from '../ui';
 import { ChatSearchBar } from './ChatSearchBar';
 
@@ -571,14 +572,14 @@ export function ChatView({
   if (sessionId === null) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-neutral-600">
-        Select a session on the left to open its conversation.
+        {t('chat.selectSessionHint')}
       </div>
     );
   }
   if (!ready) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-neutral-600">
-        Loading session…
+        {t('chat.loadingSession')}
       </div>
     );
   }
@@ -624,8 +625,7 @@ export function ChatView({
             <div className="mb-2">
               <ErrorLine error={loadError} />
               <div className="mt-1 text-[11px] text-neutral-600">
-                Failed to load the transcript — the server may be too old to expose the transcript
-                API.
+                {t('chat.transcriptUnavailable')}
               </div>
             </div>
           ) : null}
