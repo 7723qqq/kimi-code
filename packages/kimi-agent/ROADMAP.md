@@ -4683,7 +4683,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 |---|---|---|---|
 | **14 个未触发的 hook 事件** | **missing（性价比最高）** | `features/externalHooks/internal/types.ts:3-24` 共 20 种事件类型 | fork 只触发 6 种（`PreToolUse`/`PostToolUse`/`PostToolUseFailure`/`UserPromptSubmit`/`Stop` + `PreCompact`、`SessionStart`/`SessionEnd`）。缺 14 种，每个在上游都有活的触发点：`PermissionRequest`/`PermissionResult`（`agentExternalHooksService.ts:181,187`）、`TurnStarted`（`:224`）、`TaskStarted`（`:288`）、`Interrupt`（`:392`）、`StopFailure`（`:399`）、`PostCompact`（`:439`）、`Notification`（`:451`）、`UserPromptQueued`（`:205`）、`SessionHeartbeat`（`sessionExternalHooksService.ts:101,143-144`）、`SubagentStart`/`SubagentStop`（`:157,172`）。**全部是 fire-and-forget / 只观察**（从不否决），且 fork 现有 `HookGuard::notify_session_lifecycle`（`external_hooks.rs:321`）已接受任意事件名——**一个通用入口即可覆盖 14 个事件** |
 | `SessionOutcomeMirror` 的持久化 | **本轮已补（§10.35）** | `session/sessionActivity/sessionOutcomeMirrorService.ts:130-147` | fork 把 `last_turn_reason` 作为**活事件**发布却从不写进持久化的会话元数据。2026-10-03 已落地（§10.35）：`sessions.last_turn_reason` 列 + 两处回合结束点落盘（**不动 `updated_at`**，v2 `touchUpdatedAt: false`）+ `format_wire_session` 输出。台账原写的 `engine.rs:1697` 已漂移，真实是 `:891`/`:1663`/`:1668` |
-| `PermissionRuleScope` / `recordApprovalResult` | partial | `agent/permissionRules/permissionRules.ts:16`、`permissionRulesService.ts:45-52` | `PermissionRuleScope` 有 4 档（`turn-override`/`session-runtime`/`project`/`user`），`recordApprovalResult` 把类型化的 `PermissionApprovalResultRecord` 写进 agent state。fork 的 `session_approvals: Vec<String>`（`permission/mod.rs:152`）是扁平模式表，**无 turn-override 作用域、不记录审批结果**——谁批了什么决定不留痕。这是「单 `permission/mod.rs` 已正确合并三个目录」这一说法的**唯一不完整处** |
+| `PermissionRuleScope` / `recordApprovalResult` | partial | `agent/permissionRules/permissionRules.ts:16`、`permissionRulesService.ts:45-52` | `PermissionRuleScope` 有 4 档（`turn-override`/`session-runtime`/`project`/`user`），`recordApprovalResult` 把类型化的 `PermissionApprovalResultRecord` 写进 agent state。**症状已按 §10.36 更正**：`session_approvals` 实际**永远为空**（宿主 `native-llm-resolver.ts:398` 硬编码 `[]`，批准响应里的 `scope` 被完全忽略），所以真实缺陷是「**批准从未被安装**，下一轮照样再问」，而「不留痕」是其次生后果。忠实修法需引擎在批准请求里带候选规则模式（协议改动）。这是「单 `permission/mod.rs` 已正确合并三个目录」这一说法的**唯一不完整处** |
 | `sessionLogService` | **本轮已补**（§10.33） | `session/sessionLog/sessionLogService.ts:23-67`、`_base/log/logConfig.ts:37-39` | 见 6.42.5。**补充本轮核实**：这是**两个东西**——`_base/log/fileLog.ts` 是可复用的轮转写入器（基础设施），`sessionLogService.ts` 只是把它绑到 `sessionDir/logs/kimi-code.log` 的薄 DI 绑定（每会话一份）。fork 两者皆无，**但消费方还在**：`apps/vis/server/src/routes/logs.ts:8,21,31` 硬编码 `SESSION_LOG_REL` 提供该文件，`apps/vis/web/src/components/logs/LogsTab.tsx:44` 渲染它——**该标签页的会话视图此前是死的**（2026-10-03 已接线，见 §10.33）。另 `packages/node-sdk/src/logging.ts:787-789` 仍导出 `resolveSessionLogPath`（零调用方），而其 `:791-813` 仍解析全部五个 `KIMI_LOG_*` 环变（含两个 session 专用的 `KIMI_LOG_SESSION_MAX_BYTES`/`KIMI_LOG_SESSION_FILES`），其文件头 `:9-15` 却声称「per-session log routing 已丢弃」——**这个注释现在在一个方向上是错的** |
 | `agent/command` 的可扩展性 | partial | `agent/command/commandContribution.ts:4-13` | fork 有 slash 命令**派发**（REPL/宿主侧，含 `configInvalidSlashCommand`/`configUnknownSlashCommand`），但 v2 的 `CommandContribution` **注册表**（扩展缝）无对应——fork 的 slash 命令不能从引擎外部插拔 |
 | `agent/scopeContext` 的 `forkedFrom` | partial | `agent/scopeContext/scopeContext.ts:9-16` | `agentId` 已移植；**`forkedFrom?: string` 全仓零命中**——fork 的 subagent 溯源不在 agent context 上携带 |
@@ -4827,7 +4827,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 |---|---|---|
 | 9 | `minidb` 读模型未接线（44 文件实现，引擎侧零引用）+ `[database]` config 缺失 | 最大单点。**范围已界定**：v2 侧 `IQueryStore` 接口是 `queryStore.ts:96-116` 的 13 个方法（put/batch/delete/get/getMany/query/pageByColumn/ensureIndex/listKeys/dropCollection/getCheckpoint/setCheckpoint/storeEpoch），成本在其上三层消费者（projector / mirror / search worker）。若 fork 只需「会话列表 + 标题搜索」，SQLite FTS5 即可，不必引入 minidb。**待裁决：fork 是否需要会话全文检索**（见 6.45.3） |
 | 10 | `tokenCounting` anchor 模型缺失 | **状态栏那部分已修**（见 6.45.4 第 10 行）；anchor 模型本身是报告精度改进，不影响正确性。**待裁决：值得做，还是就此停手** |
-| 11 | `PermissionRuleScope` 4 档 + `recordApprovalResult` 缺失 | `session_approvals: Vec<String>` 是扁平表，**谁批了什么决定不留痕** |
+| 11 | **`PermissionRuleScope` 4 档 + `recordApprovalResult` 缺失** | **诊断已更正，见 §10.36**：不是「不留痕」，是**批准从未被安装**（`session_approvals` 恒空）。修法需协议改动（引擎提供候选规则模式）；**粒度不能降到工具名**，那是授权范围判定 |
 | 12 | `SessionOutcomeMirror` 不落库 | `last_turn_reason` 只发活事件；线形字段已在 `protocol/src/session.ts:112` 但无写入方 |
 | 13 | ~~`toolResultRender` 状态包装缺失~~ **已完成 2026-10-03**：见 §10.28 | `<system>ERROR:…</system>` 是模型判断工具成败的唯一信号；`locales/en.json:609` 的串全仓无人用 |
 | 14 | ~~`SessionHeartbeat` hook 缺失~~ **已撤销** | 它就是 P1-3 那 14 个未触发事件之一（`types.ts:17`），重复计数。唯一额外成本是需要 session 心跳定时器 |
@@ -7105,3 +7105,55 @@ Web 客户端拿到的 bundle 没有 manifest、没有日志，而同一台机�
 
 **验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -D warnings` ✅｜
 `cargo test --no-default-features --features cli` 全量 ✅｜15 道门禁 ✅。
+
+### 10.36 §6.45 P2-11 前置界定：缺的不是「审计」，是批准根本没被记住（2026-10-03，**未开工**）
+
+§6.40 与 §6.45 把这一条写成「`session_approvals` 是扁平 `Vec<String>`，无 turn-override 作用域、
+不记录审批结果——**谁批了什么决定不留痕**」。核验后发现**症状描述错了**，而且真实缺陷比它更严重、也更常见。
+
+**实测：`session_approvals` 永远是空的。**
+
+- 该字段是**宿主所有**的 policy-snapshot 入参：`native-llm-resolver.ts:84` 声明、`wire-schema.ts:208` 进协议，
+  引擎只**消费**它（`permission/mod.rs:430` 编译成规则），从不写入。
+- 而 `native-llm-resolver.ts:398` 把它硬编码为 `[]`——**紧邻的 `deny_rules` / `ask_rules` / `allow_rules`
+  都是从 `rules` 按 `decision` 过滤出来的，唯独 approvals 没有映射**。全仓对它的写入只有这一处 `[]`。
+- 批准路径：`sdk-rpc-client-native.ts:2136` 拿到 `ApprovalResponse` 后只做 `decision === 'approved'` 判断并
+  回一次性 `{decision:'allow'}`，**完全忽略 `res.scope`**。而协议里 scope 是存在的
+  （`packages/protocol/src/approval.ts:34`，测试用 `scope: 'session'`）。
+
+**所以真实缺陷是**：用户选「本会话内批准」，引擎下一轮**照样再问**——批准从未被安装。台账写的
+「不留痕」是它的**次生后果**（没有记录，所以也没有可续用的规则），把次生当主因会把修法指向错误方向
+（去做审计表，而不是去做接线）。
+
+**v2 的语义（`permissionRulesOps.ts` 与 `permissionRules.ts`）比台账精确**：
+
+- `PermissionRuleScope = 'turn-override' | 'session-runtime' | 'project' | 'user'`（4 档）。
+- 审批结果是一条 **durable agent 事件** `permission.record_approval_result`，载荷含
+  `agentId / turnId / toolCallId / toolName / action / sessionApprovalRule? / result`。
+- 状态归约（`permissionRulesOps.ts:59-69`）**三个条件同时成立**才把模式提升为会话级记忆：
+  `result.decision === 'approved'` **且** `result.scope === 'session'` **且** `sessionApprovalRule` 存在且未记录。
+  ——即「细粒度作用域」不是装饰，它就是**是否允许记住**的闸门。
+
+**要忠实修它，绕不开一次协议改动**：宿主手里没有可记住的**规则模式**。引擎发给宿主的批准请求
+（`sdk-rpc-client-native.ts:2118-2135` 可见的字段是 `tool_call_id / action / tool_name / display / reason`）
+**不含候选规则模式**，而 v2 的 `sessionApprovalRule` 由引擎提供。缺了它，宿主只能按**工具名**这一档粒度
+去记。
+
+**为什么不能用工具名当回退（安全）**：`session_approvals` 是模式表，引擎按模式放行。若把工具名整档写进去，
+**批准一次 `Bash` 就等于在本会话内放行之后所有 Bash 调用**，包括危险命令——而用户当时批准的很可能是
+一条具体命令。fork 自己的测试用的是细粒度形态（`permission/mod.rs:1495` 的 `"Bash(cargo test)"`、
+`"Write(src/*.rs)"`），也印证粒度不能降到工具名。**这是一次授权范围的判定，不由本轮代决。**
+
+**建议的落点（供裁定后施工）**：
+
+1. 引擎在批准请求里带上候选的会话级规则模式（v2 `sessionApprovalRule`），协议侧补一个可选字段——
+   这一步是整个改动的前置。
+2. 宿主在 `decision === 'approved' && scope === 'session'` 时记住该模式，并把 `session_approvals`
+   由硬编码 `[]` 改为真实列表（`native-llm-resolver.ts:398`）。
+3. 留痕（审计）是**同一件事的另一半**：模式一旦被记住，`turnId / toolCallId / toolName / action`
+   就是它的出处；v2 把它放在 durable 事件里，fork 可以放在宿主侧或落 `state_entries`。
+4. 作用域 4 档中，`turn-override`（仅本回合）与 `session-runtime`（本会话）会立刻改变行为；
+   `project` / `user` 需写到配置面，属更大的改动，建议先只做前两档并明确登记。
+
+**本轮未开工**：它是一次协议改动 + 宿主状态 + （可选的）落库，且含一处授权范围判定。
+先把诊断摆正——§6.40/§6.45 的「谁批了什么不留痕」需要按本节更正为「批准从未被安装」。
