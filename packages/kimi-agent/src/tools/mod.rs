@@ -237,7 +237,6 @@ pub mod get_goal;
 pub mod github;
 pub mod goal_guard;
 pub mod goal_tools;
-pub mod kaos;
 pub mod knowledge_tool;
 pub mod list_directory;
 pub mod lsp_tool;
