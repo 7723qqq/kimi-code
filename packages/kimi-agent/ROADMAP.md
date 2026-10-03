@@ -4783,19 +4783,21 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 
 **影响**：按 §1 给 Read 工具估工作量会算错范围，且在一条成本控制面上把「fork 与 v2 一致」当成了事实。
 
-#### 6.44.3 其余 9 处（已记录，未逐条改写原文）
+#### 6.44.3 其余 9 处（**2026-10-04 状态：9 处的原文均已就地改写**）
 
-| 位置 | 错误性质 |
-|---|---|
-| §1 `:66` realpath-access 段 | 上游**无** `tool/realpath-access.ts`、**无** `PATH_SYMLINK_ESCAPE`（`PathSecurityCode` 上游只有 3 个码，`path-access.ts:86`）。等价逻辑在上游位于 `workspaceFs/fsService.ts:1116-1165`（`realpathExistingPrefix` + `symlink_outside`），而非独立模块 |
-| §1 `:64` 未决子句 | `path-access.ts:317` + `resolveForContainment:273-289` 只存在于退役副本；上游 `resolvePathAccess` 无 containment 解析 |
-| §1 `:123` swarm 基线来源 | 「v2 源码已在上游 `ecad4136d9` 删除、经 `git archive` 取回」**错误**——上游 `features/swarm/` 是**活的**（`agent/swarm.ts`、`agent/swarmService.ts`、`agent/injection/`、2 个 reminder md）。该行的结论可能仍对，但**参照物取错了树** |
-| §1 `:75` 权限行路径 | 上游无 `workspace/permission/`（`workspace/` 12 目录无此项，两棵树都没有）；真实位置是 `agent/permissionGate/`、`agent/permissionPolicy/policies/` |
-| §1 `:38` retry 行 | 可重试集 `[408,409,429,500,502,503,504,529]` **正确**，但引 `kosong/contract/errors.ts:248` — 上游无 `kosong/src/contract/` 目录，真实位置 `kosong/src/errors.ts:233`；`:248` 落在 image-format 注释块里 |
-| §1 `:47` cache breakpoints | `anthropic-cache-breakpoints.ts` 上游**零命中**，且上游**根本没有** `agent-core-v2/src/kosong/`（无 vendored provider 树）。「两侧 4 处断点」与「Rust 缺 `CACHEABLE_TYPES` 守卫」两说均**未对上游证实** |
-| §1 `:54-57` | `astron-models.ts` 上游已不在（`providers/` 17 文件无此项），台账称其「仍是活代码」——描述的是 fork 自己的树 |
-| §1 `:36,39` | `agent/loop/stepRequestQueue.ts` 与 `nativeBackgroundAgentTask.ts` 上游均无（上游 `agent/loop/` 7 文件 + `machine/`），只存在于退役副本 |
-| §2.5 `:184,186,194` | 三处行号漂移到**结构性不同的代码**：`loopService.ts:2117-2119` 现是 `emitStepInterrupted` 的参数（真实位置 `:1729`/`:1876`）；`loop.ts:20-27` 现是 `AgentActivityTurnSnapshot`（真实位置 `:55-60`）。语义仍成立，但跟指针的人会落到错的机制上 |
+**本节标题原写「已记录，未逐条改写原文」，与事实不符，2026-10-04 订正**：这 9 处的原文此后都已在 §1 / §2.5 的行内改写过（§1 的 8 处带「2026-10-02 重核/订正」注，§2.5 的 3 处行号由 2026-10-04 的订正落地）。下表因此补一列「落地状态」，并把「位置」由行号改为**行名**——原表的行号（`:36`/`:38`/`:39`/`:47`/`:54-57`/`:64`/`:66`/`:75`/`:123`）在改写后已全部漂移，行号本身会再次过期。
+
+| 位置（行名） | 错误性质 | 落地状态 |
+|---|---|---|
+| §1 板块 3「文件读写与修改」的 realpath-access 段 | 上游**无** `tool/realpath-access.ts`、**无** `PATH_SYMLINK_ESCAPE`（`PathSecurityCode` 上游只有 3 个码，`path-access.ts:86`）。等价逻辑在上游位于 `workspaceFs/fsService.ts:1116-1165`（`realpathExistingPrefix` + `symlink_outside`），而非独立模块 | 已改写：该行现带「2026-10-02 订正」，并列上游 `fsService.ts` 的位置 |
+| §1 板块 3「文件读写与修改」的「未决」子句 | `path-access.ts:317` + `resolveForContainment:273-289` 只存在于退役副本；上游 `resolvePathAccess` 无 containment 解析 | 已改写：该行现写「原「未决」所引的 … **只存在于 fork 的退役副本**」 |
+| §1 板块 9「AgentSwarm 批处理」的基线来源 | 「v2 源码已在上游 `ecad4136d9` 删除、经 `git archive` 取回」**错误**——上游 `features/swarm/` 是**活的**（`agent/swarm.ts`、`agent/swarmService.ts`、`agent/injection/`、2 个 reminder md）。该行的结论可能仍对，但**参照物取错了树** | 已改写：该行现写「原文写「已在上游 `ecad4136d9` 删除、经 `git archive` 取回」是错的」并附 `--is-ancestor` 输出 |
+| §1 板块 4「权限决策模型」的路径 | 上游无 `workspace/permission/`（`workspace/` 12 目录无此项，两棵树都没有）；真实位置是 `agent/permissionGate/`、`agent/permissionPolicy/policies/` | 已改写：该行的 TS 列现为 `agent-core-v2/src/agent/permissionGate/permissionGateService.ts` |
+| §1 板块 1「故障退避与重试」的 retry 行 | 可重试集 `[408,409,429,500,502,503,504,529]` **正确**，但引 `kosong/contract/errors.ts:248` — 上游无 `kosong/src/contract/` 目录，真实位置 `kosong/src/errors.ts:233`；`:248` 落在 image-format 注释块里 | 已改写：该行现引 `packages/kosong/src/errors.ts:233`，并写明原引的错处 |
+| §1 板块 2「Anthropic Messages」的 cache breakpoints | `anthropic-cache-breakpoints.ts` 上游**零命中**，且上游**根本没有** `agent-core-v2/src/kosong/`（无 vendored provider 树）。「两侧 4 处断点」与「Rust 缺 `CACHEABLE_TYPES` 守卫」两说均**未对上游证实** | 已改写并收窄：「上游无 `anthropic-cache-breakpoints.ts` 文件」成立；「4 vs 3」与「8 型集合同集合」经 2026-10-02 重核成立（内联逻辑，非独立文件） |
+| §1 板块 2 表末注 | `astron-models.ts` 上游已不在（`providers/` 17 文件无此项），台账称其「仍是活代码」——描述的是 fork 自己的树 | 已改写：该注现写「**上游不存在**……它是 **fork 自有**文件，活消费者在 fork 侧」 |
+| §1 板块 1「Turn 主循环驱动」/「后台异步任务」 | `agent/loop/stepRequestQueue.ts` 与 `nativeBackgroundAgentTask.ts` 上游均无（上游 `agent/loop/` 7 文件 + `machine/`），只存在于退役副本 | 已改写：两行均带「2026-10-02 重核订正出处」，并各自换为同族真实文件（`agent/task/`） |
+| §2.5「工具结果 stopTurn」/「重试遥测」/「max_steps 耗尽」三行 | 三处行号漂移到**结构性不同的代码**：`loopService.ts:2117-2119` 现是 `emitStepInterrupted` 的参数（真实位置 `:1729`/`:1876`）；`loop.ts:20-27` 现是 `AgentActivityTurnSnapshot`（真实位置 `:55-60`）。语义仍成立，但跟指针的人会落到错的机制上 | 已改写（2026-10-04）：三行行号改为 `:1729`/`:1876`、`turnEvents.ts:164-176`、`loop.ts:55-62`；同一张表另两行（`toolExecutorService.ts:380,450`、`:437`）的差一漂移一并订正 |
 
 #### 6.44.4 抽样中**确认无误**的部分（占多数）
 
