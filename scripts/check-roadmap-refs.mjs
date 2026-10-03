@@ -208,7 +208,7 @@ const RESOLUTION_ROOTS = [ROOT, CRATE, join(ROOT, 'packages')];
 const UPSTREAM_REF = 'upstream/main';
 const RETIRED_REF = 'ecad4136d9^';
 
-const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' });
+const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
 /**
  * Every `path:line` / `path:line-line` citation in the ledger, plus every bare
