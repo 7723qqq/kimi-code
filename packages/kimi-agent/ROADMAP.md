@@ -7971,3 +7971,83 @@ variant and no `permission` field on any event ⋯⋯ **no wire representation a
 - `check:architecture` 指纹随之刷新：`kimi-agent` `67f08048e88d1ad0` → `7c2aac365ae8fd31`
 - `check:normify` **0 error / 60 warning**（无 fingerprint-drift）
 - `check:no-comments` / `scan:hardcoded:rust` / `check:engine-i18n` / `check:roadmap-refs` ✅
+
+## 13. 2026-10-03 梳理 #4076 时发现的根因：注入的提醒被当作**持久历史**落库（台账此前未记）
+
+§11.6 把 #4076 记为「仍 tracked」。动手前先读参考实现与落库路径，结论是**原描述的成本与修法都不成立**，
+而在追这条线时发现了一个**此前没有登记**的结构性缺陷——代码里自己写着「Still open」。
+
+### 13.1 代码里的自陈（此前未入账）
+
+`src/server/engine.rs:1696-1699` 原文：
+
+> `// Still open: the appended slice includes the loop's per-turn injected`
+> `// reminders (date change, workspace AGENTS.md), which are regenerated`
+> `// each turn and were never meant to be durable. Filtering them needs a`
+>> `// tag from the injection registry; until then they land in history.`
+
+它描述的是 `src/server/engine.rs:1700-1703` 的落库切片：
+
+\`\`\`
+let mut transcript = Vec::with_capacity(1 + result.messages.len().saturating_sub(input_len));
+transcript.push(user_message);
+transcript.extend(result.messages.iter().skip(1 + input_len).cloned());
+\`\`\`
+
+而注入正是在 `src/turn_loop/run_turn.rs:1182` 被 `messages.push(injection_message(text))` 追加进
+`result.messages` 的。两者相接即：**每一轮注入的 `<system-reminder>`（日期变更、AGENTS.md、
+权限模式、中断提醒…）都会作为该轮的消息写进 `messages` 表**——也就是持久会话历史。
+
+**这条在台账里查不到**（`durable` 的既有命中全部是 v2 的事件语义，见 §6.x/§6.40 各条），
+所以它是一个新登记的缺口，不是已知项的推论。
+
+### 13.2 它为什么正好是 #4076 的根因
+
+v2 的中断提醒是**带归属的注入**：`ownerPromptId: history.findLast(isUndoAnchor)?.id`
+（`interruptionReminderService.ts:44`），消费侧 `isPromptOwnedInjection`（`conversationTime.ts:31-41`）
+按 `origin.kind === 'injection' && origin.ownerPromptId === prompt.id` 判定——**注入的生命周期绑定在它归属的
+那条 prompt 上**：prompt 还在，注入就在；prompt 被 undo 掉，注入随之消失。
+
+fork 的注入**没有任何归属标签**，落库后就是一条普通消息，生命周期自然绑在**它被写进的那一轮**。于是：
+
+| 场景 | v2 | fork |
+|---|---|---|
+| abort 第 5 轮 → 第 6 轮注入 R → **只 undo 第 6 轮**（第 5 轮仍在） | R 归属第 5 轮的 prompt，**仍在** | R 是第 6 轮的消息，**随第 6 轮一起删除**；且 `previous_turn_aborted` 是一次性内存原子量（`src/session/mod.rs:1845` 的 `swap(false)`、`src/server/engine.rs:933` 的 `take_last_turn_aborted`），已被消费 → **再也生不回来** |
+| undo 掉第 5 轮（须连第 6 轮一起 undo） | R 随归属 prompt 消失 | R 随第 6 轮消失（结果一致） |
+
+**所以「undo 需按 prompt 归属撤销」这条描述指向的不是 undo 本身**，而是：fork 缺少那个归属标签，
+而 v2 的归属判据**就写在注入自己身上**。
+
+### 13.3 为什么不能「干脆不落库」
+
+`engine.rs:1696` 说这些注入「从来不该持久化」，但**持久化是承重的**——多个基线扫描正是**读历史**来判断
+「这条提醒是不是已经宣告过」：`scan_date_baseline`、`scan_agents_md_baseline`、
+`scan_permission_mode_baseline`、`scan_interruption_baseline`（`src/turn_loop/run_turn.rs:717-738`）。
+一旦注入不再进历史，这些扫描在**恢复会话/进程重启**后一律读空，提醒会重新宣告一遍。
+（fork 另有 `resumeReminded` 这类**持久 marker** 作为先例，见 `run_turn.rs:729-731` 的注释。）
+
+即两条路都要先有那个 tag：
+- **(a) 给注入打标签**（v2 的形状：`origin.kind === 'injection'` + `ownerPromptId`），重建时按归属过滤——
+  与 `engine.rs:1699` 说的「needs a tag from the injection registry」是同一件事；
+- **(b) 不落库 + 把「已宣告」状态单独持久化**（marker 路线）——需要给四类注入各自定义 marker 与其失效条件。
+
+### 13.4 对 #4076 的成本与修法订正
+
+- **成本**：不是台账暗示的「< 1 人天」小件。它要求先建注入标签（跨 `run_turn` 的注入注册表、
+  `engine.rs` 的落库切片、`sqlite_store` 的读回），再在重建路径上做归属过滤——**跨三层**，
+  且要同时保住四个基线扫描的语义。
+- **修法**：锚在 v2 的 `isPromptOwnedInjection`（`conversationTime.ts:31-41`），
+  而不是给 undo 加特例。
+- **不做**：本轮**不落地**。理由是它有一个前置决策（tag 的形状与 (a)/(b) 二选一），
+  属于设计面；按铁律，未经裁决自创一套等于发明表面。
+
+### 13.5 复现
+
+| 结论 | 命令/位置 |
+|---|---|
+| 注入进入 `result.messages` | `src/turn_loop/run_turn.rs:1182` |
+| 该切片被落库 | `src/server/engine.rs:1700-1713` |
+| 代码自陈「从来不该持久化」 | `src/server/engine.rs:1696-1699` |
+| 基线扫描读历史 | `src/turn_loop/run_turn.rs:717-738` |
+| v2 的归属判据 | `.tmp/v2-ref-upstream` 的 `interruptionReminder/interruptionReminderService.ts:44`、`contextMemory/conversationTime.ts:31-41` |
+| undo 不重算 turn 结果 | `src/session/sqlite_store.rs:1276-1303` |
