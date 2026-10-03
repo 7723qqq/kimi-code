@@ -3314,7 +3314,7 @@ key、`i18n_params!` 绑定名要与模板 `{{placeholder}}` 逐字一致）。
 用 `===` / `Set` / `case` 识别，`scripts/scan-hardcoded-v2.mjs:458-463` 明确记录了这类
 （并举例 `shell.pausedAfterInterruption` / `v2Goal.pausedAfterResume` / `toolsV2.abort.abortedByUser`；
 顺带发现那两个例子的出处**已过期**，它们如今只出现在该注释里）。还有一类是**无复数机制的手工二选一**：
-`AGENTS.md:115-118` 记的 14 组 `_one` / `_other`（28 行）由调用点手工挑
+`AGENTS.md` 的「Known rough edges」小节里 **No plural machinery** 那条记的 14 组 `_one` / `_other`（28 行）由调用点手工挑
 （`tui/components/chrome/footer.ts`），不是 `t(base)` 形态。最终判据改为**按形状匹配**（`ns.segment…`
 的引号包裹记号），同时覆盖三者，且不依赖引号配对——中途试过"扫全部字面量"，结果更差（826 → 1196）：
 注释里的 `don't` 会让配对正则把后面一整段吞掉，反而**少**找到键。新集合 758 是旧集合的**严格子集**，
@@ -4677,7 +4677,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 
 #### 6.43.1 订正一：§6.25 的 `RuntimeCapability` 多了 `watch`（已修）
 
-见 §6.25 顶部的订正框。要点：`runtime/runtime.ts:8` 是**三项**（`fs`/`process`/`terminal`），`watch` 不在其中；`runtime/` 是 8 个文件不是 9；**「runtime 层是 watch 的前置条件」这条依赖论断方向是反的**——上游 watcher 是独立服务（`human/utils/watch.ts:473` + 自有 `[watch]` section），不需要 capability 层。§6.25 自身的裁定（`tracked`）不变，`AGENTS.md:125-133` 同步更正。
+见 §6.25 顶部的订正框。要点：`runtime/runtime.ts:8` 是**三项**（`fs`/`process`/`terminal`），`watch` 不在其中；`runtime/` 是 8 个文件不是 9；**「runtime 层是 watch 的前置条件」这条依赖论断方向是反的**——上游 watcher 是独立服务（`human/utils/watch.ts:473` + 自有 `[watch]` section），不需要 capability 层。§6.25 自身的裁定（`tracked`）不变；`AGENTS.md` 的「Known gaps」小节里 **Informational footers are still English** 那条的 `Corrected 2026-10-01` 段同步记载了同一订正（**2026-10-04 订正指针**：原文引 `AGENTS.md:125-133`，行号已漂移；引小节名而非行号）。
 
 #### 6.43.2 订正二：§6.26 的全部 v2 证据在权威树里不存在（已加订正框）
 
