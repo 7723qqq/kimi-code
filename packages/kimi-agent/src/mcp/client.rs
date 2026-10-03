@@ -207,6 +207,20 @@ impl McpClient {
             cmd.current_dir(dir);
         }
 
+        // v2 `mergeStdioEnv`: the child inherits the parent environment
+        // (`Command` does that implicitly — there is no `env_clear`), then the
+        // server's own env, then the proxy variables derived from the parent,
+        // and finally a config-supplied `no_proxy` wins over both.
+        //
+        // Deriving them is not the same as inheriting them. Node only reads
+        // `HTTP_PROXY`/`NO_PROXY` when `NODE_USE_ENV_PROXY` is set, so a
+        // Node-based MCP server behind a proxy silently bypasses it — which is
+        // the whole reason v2 computes this block instead of relying on
+        // inheritance.
+        let derived_proxy = proxy_env_for_child(&std::env::vars().collect());
+        cmd.envs(derived_proxy.clone());
+        cmd.envs(reconcile_child_no_proxy(&derived_proxy, env));
+
         let mut child = cmd.spawn().map_err(|e| {
             McpError::transport(format!("Failed to spawn MCP server '{command}': {e}"))
         })?;
@@ -959,5 +973,246 @@ mod tests {
             let _ = std::fs::remove_file(path);
         }
         let _ = std::fs::remove_dir(dir);
+    }
+}
+
+/// v2 `_base/utils/proxy.ts` `LOOPBACK_NO_PROXY`.
+const LOOPBACK_NO_PROXY: [&str; 4] = ["localhost", "127.0.0.1", "::1", "[::1]"];
+
+/// v2 `schemeOf`: the leading `scheme:` of a URL-ish value, lowercased.
+fn scheme_of(value: &str) -> Option<String> {
+    let colon = value.find(':')?;
+    let scheme = &value[..colon];
+    if scheme.is_empty() || !scheme.starts_with(|c: char| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    if !scheme
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
+    {
+        return None;
+    }
+    Some(scheme.to_ascii_lowercase())
+}
+
+/// v2 `firstNonBlank`: the first trimmed, non-empty value among `keys`.
+fn first_non_blank<'a>(
+    env: &'a std::collections::HashMap<String, String>,
+    keys: &[&str],
+) -> Option<&'a str> {
+    keys.iter().find_map(|key| {
+        env.get(*key)
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+    })
+}
+
+/// v2 `httpSchemeValue`: a value that is not a socks proxy. A socks URL sitting
+/// in `http_proxy` must not be handed to a child as an HTTP proxy.
+fn http_scheme_value(value: Option<&str>) -> Option<&str> {
+    let value = value?;
+    match scheme_of(value).as_deref() {
+        Some("socks" | "socks4" | "socks4a" | "socks5" | "socks5h") => None,
+        _ => Some(value),
+    }
+}
+
+/// v2 `hasHttpProxy`.
+fn has_http_proxy(env: &std::collections::HashMap<String, String>) -> bool {
+    [
+        first_non_blank(env, &["http_proxy", "HTTP_PROXY"]),
+        first_non_blank(env, &["https_proxy", "HTTPS_PROXY"]),
+        first_non_blank(env, &["all_proxy", "ALL_PROXY"]),
+    ]
+    .iter()
+    .any(|value| http_scheme_value(*value).is_some())
+}
+
+/// v2 `resolveNoProxy`: trimmed, de-duplicated by absence, with the loopback
+/// hosts appended unless the list is the `*` wildcard.
+fn resolve_no_proxy(env: &std::collections::HashMap<String, String>) -> String {
+    let raw = ["no_proxy", "NO_PROXY"]
+        .iter()
+        .find_map(|key| {
+            env.get(*key)
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or("");
+    let mut hosts: Vec<String> = raw
+        .split(',')
+        .map(|host| host.trim().to_string())
+        .filter(|host| !host.is_empty())
+        .collect();
+    if hosts.iter().any(|host| host == "*") {
+        return "*".to_string();
+    }
+    for loopback in LOOPBACK_NO_PROXY {
+        if !hosts.iter().any(|host| host == loopback) {
+            hosts.push(loopback.to_string());
+        }
+    }
+    hosts.join(",")
+}
+
+/// v2 `proxyEnvForChild`: the proxy variables a spawned child needs, or none
+/// when the parent has no http(s) proxy.
+fn proxy_env_for_child(env: &std::collections::HashMap<String, String>) -> Vec<(String, String)> {
+    if !has_http_proxy(env) {
+        return Vec::new();
+    }
+    let no_proxy = resolve_no_proxy(env);
+    let all_proxy = http_scheme_value(first_non_blank(env, &["all_proxy", "ALL_PROXY"]));
+    let http_proxy =
+        http_scheme_value(first_non_blank(env, &["http_proxy", "HTTP_PROXY"])).or(all_proxy);
+    let https_proxy =
+        http_scheme_value(first_non_blank(env, &["https_proxy", "HTTPS_PROXY"])).or(all_proxy);
+
+    let mut out = vec![
+        ("NODE_USE_ENV_PROXY".to_string(), "1".to_string()),
+        ("NO_PROXY".to_string(), no_proxy.clone()),
+        ("no_proxy".to_string(), no_proxy),
+    ];
+    if let Some(value) = http_proxy {
+        out.push(("HTTP_PROXY".to_string(), value.to_string()));
+        out.push(("http_proxy".to_string(), value.to_string()));
+    }
+    if let Some(value) = https_proxy {
+        out.push(("HTTPS_PROXY".to_string(), value.to_string()));
+        out.push(("https_proxy".to_string(), value.to_string()));
+    }
+    out
+}
+
+/// v2 `reconcileChildNoProxy`: a `no_proxy` from the server's own env overrides
+/// the one derived from the parent. Empty when the server sets none.
+fn reconcile_child_no_proxy(
+    _derived: &[(String, String)],
+    config_env: &std::collections::HashMap<String, String>,
+) -> Vec<(String, String)> {
+    let override_value = ["no_proxy", "NO_PROXY"].iter().find_map(|key| {
+        config_env
+            .get(*key)
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+    });
+    let Some(override_value) = override_value else {
+        return Vec::new();
+    };
+    let mut scoped = std::collections::HashMap::new();
+    scoped.insert("no_proxy".to_string(), override_value.to_string());
+    scoped.insert("NO_PROXY".to_string(), override_value.to_string());
+    let no_proxy = resolve_no_proxy(&scoped);
+    vec![
+        ("NO_PROXY".to_string(), no_proxy.clone()),
+        ("no_proxy".to_string(), no_proxy),
+    ]
+}
+#[cfg(test)]
+mod proxy_env_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn env(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn no_http_proxy_means_no_env_at_all() {
+        assert!(proxy_env_for_child(&env(&[])).is_empty());
+        // A socks URL is not an HTTP proxy; handing it over as one would make
+        // the child send plain HTTP CONNECT to a socks endpoint.
+        assert!(proxy_env_for_child(&env(&[("http_proxy", "socks5://127.0.0.1:1080")])).is_empty());
+    }
+
+    #[test]
+    fn the_node_flag_is_what_makes_inheritance_insufficient() {
+        let out = proxy_env_for_child(&env(&[("HTTPS_PROXY", "http://proxy:3128")]));
+        let map: HashMap<_, _> = out.into_iter().collect();
+        assert_eq!(map.get("NODE_USE_ENV_PROXY").map(String::as_str), Some("1"));
+        assert_eq!(
+            map.get("HTTPS_PROXY").map(String::as_str),
+            Some("http://proxy:3128")
+        );
+        assert_eq!(
+            map.get("https_proxy").map(String::as_str),
+            Some("http://proxy:3128")
+        );
+        // Only the configured one is set: `all_proxy` is what fills the other,
+        // and it is absent here.
+        assert_eq!(map.get("HTTP_PROXY").map(String::as_str), None);
+    }
+
+    #[test]
+    fn all_proxy_fills_whichever_specific_proxy_is_missing() {
+        let map: HashMap<_, _> = proxy_env_for_child(&env(&[("ALL_PROXY", "http://proxy:3128")]))
+            .into_iter()
+            .collect();
+        assert_eq!(
+            map.get("HTTP_PROXY").map(String::as_str),
+            Some("http://proxy:3128")
+        );
+        assert_eq!(
+            map.get("HTTPS_PROXY").map(String::as_str),
+            Some("http://proxy:3128")
+        );
+        // A specific value wins over the catch-all.
+        let map: HashMap<_, _> = proxy_env_for_child(&env(&[
+            ("ALL_PROXY", "http://fallback:3128"),
+            ("http_proxy", "http://specific:3128"),
+        ]))
+        .into_iter()
+        .collect();
+        assert_eq!(
+            map.get("HTTP_PROXY").map(String::as_str),
+            Some("http://specific:3128")
+        );
+        assert_eq!(
+            map.get("HTTPS_PROXY").map(String::as_str),
+            Some("http://fallback:3128")
+        );
+    }
+
+    #[test]
+    fn the_loopback_hosts_are_always_exempt_unless_the_list_is_a_wildcard() {
+        assert_eq!(resolve_no_proxy(&env(&[])), "localhost,127.0.0.1,::1,[::1]");
+        assert_eq!(
+            resolve_no_proxy(&env(&[("NO_PROXY", "example.com")])),
+            "example.com,localhost,127.0.0.1,::1,[::1]"
+        );
+        // Already listed: not duplicated.
+        assert_eq!(
+            resolve_no_proxy(&env(&[("NO_PROXY", "localhost")])),
+            "localhost,127.0.0.1,::1,[::1]"
+        );
+        assert_eq!(resolve_no_proxy(&env(&[("NO_PROXY", "*")])), "*");
+    }
+
+    #[test]
+    fn a_config_no_proxy_overrides_the_derived_one() {
+        let derived = proxy_env_for_child(&env(&[("HTTP_PROXY", "http://proxy:3128")]));
+        assert!(reconcile_child_no_proxy(&derived, &env(&[])).is_empty());
+        let overridden =
+            reconcile_child_no_proxy(&derived, &env(&[("no_proxy", "internal.example")]))
+                .into_iter()
+                .collect::<HashMap<_, _>>();
+        assert_eq!(
+            overridden.get("NO_PROXY").map(String::as_str),
+            Some("internal.example,localhost,127.0.0.1,::1,[::1]")
+        );
+        assert_eq!(
+            overridden.get("no_proxy").map(String::as_str),
+            Some("internal.example,localhost,127.0.0.1,::1,[::1]")
+        );
+    }
+
+    #[test]
+    fn scheme_parsing_is_case_insensitive_and_rejects_non_schemes() {
+        assert_eq!(scheme_of("HTTP://x").as_deref(), Some("http"));
+        assert_eq!(scheme_of("127.0.0.1:8080"), None);
+        assert_eq!(scheme_of("://x"), None);
     }
 }

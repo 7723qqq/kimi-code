@@ -4626,7 +4626,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 | `fsSearch.ts` 路径建议器 | missing（待确认） | `fsSearch.ts:130-330`（`evaluateSuggestCandidate` 的分层/跨度/深度打分、`matchSuggestPath`、`SuggestTopHeap`） | fork 唯一的模糊建议器是 `tools/select_tools.rs:110` `suggest_tool_names`，匹配的是**工具名**不是文件路径。这驱动 `@`-mention 文件选择器。**未决**：TUI 是否已有客户端排序（`apps/kimi-code/src/tui/components/editor/file-mention-provider.ts` 未读），若有则本条 n-a |
 | trust 披露服务 | missing | `trustDisclosureService.ts:65-200` | 6.23.6 仍成立（本轮复核）。消费者已写好但是死的：`trust-prompt.ts:89-97` 只在数组非空时渲染 MCP 块，`kimi-tui.ts:2689` 硬编码 `[]` |
 | `fs` 错误分类未在失败点应用 | partial | `workspaceFs/internal/errors.ts:4-15`（10 个码） | 分类表在 `packages/protocol/src/error-codes.ts:170-211` 完整存在（且数值与 v2 线表逐条一致，另多两个 v2 没有的），但 Rust 侧只定义了 `FS_PATH_NOT_FOUND`（`server/envelope.rs:29`）**且仅被自己的单测引用**（`:289`）；实际处理器返回字符串错误（`server/fs_routes.rs:920,924`、`tools/list_directory.rs:74,87`）。**低价值**：v2 自身消费者也不多 |
-| stdio MCP 的 proxy env 继承 | partial | `mcpCore/client-stdio.ts:292-304` `mergeStdioEnv` | v2 做三件事：继承 `process.env`、叠加 config env、**再应用 proxy env**（`proxyEnvForChild` + `reconcileChildNoProxy`）。fork 的 `McpClient::spawn_stdio`（`mcp/client.rs:187,194-196`）只叠加 config env，父环境靠 `Command` 隐式继承（无 `env_clear`），所以**代理后面的 MCP server 看不到 `HTTP_PROXY`/`NO_PROXY`**。`_base/utils/proxy.ts` 无 Rust 对应。实际影响低（MCP stdio server 通常是本地 npm 包） |
+| stdio MCP 的 proxy env 继承 | **本轮已补（§10.37）** | `mcpCore/client-stdio.ts:292-304` `mergeStdioEnv` | v2 做三件事：继承 `process.env`、叠加 config env、**再应用 proxy env**（`proxyEnvForChild` + `reconcileChildNoProxy`）。**症状已按 §10.37 更正**：父环境本来就能通过 `Command` 隐式继承，`HTTP_PROXY` 是传得到的。真正缺的是 v2 额外计算的 `proxyEnvForChild`——**`NODE_USE_ENV_PROXY=1`**（Node 只在该变量设置后才读代理变量，这才是「继承不够」的原因）、`NO_PROXY` 归一化（补回环）、socks 排除、以及子进程 `no_proxy` 覆盖。已逐条落地（`mcp/client.rs`），6 项测试。实际影响仍低（本地 npm 包通常不走代理） |
 | `workspaceMcp` 与 `workspaceMcpConfig` 的边界 | partial | `workspaceMcp.ts:15-28`（运行时 + 每会话 overlay）、`workspaceMcpConfig.ts:17-27`（配置映射 + tunables + `onDidChange`） | fork 把两者融进一个 `McpClient` + 可变 `tool_timeout`（`mcp/client.rs:114`），tunables 在但**没有 `onDidChange` 边界**，也没有每会话 overlay |
 | POSIX shell 探测 | partial | `environmentProbe.ts:68-117`（探 `/bin/bash`→`/usr/bin/bash`→`/usr/local/bin/bash`，回落 `/bin/sh`）、`:119-182`（Windows 先查 `KIMI_SHELL_PATH`） | `KIMI_SHELL_PATH` 在 Windows 上确实优先（`native/shell.rs:98-104`），但 POSIX 侧**硬编码 `/bin/bash`、无探测、无 `/bin/sh` 回落**（`:88-95`）；且 Windows 链可合法落到 `pwsh`/`cmd`，而 v2 **要求** Git Bash 否则抛 `ProbeShellNotFoundError`（`environmentProbe.ts:178-181`）。`loginShellPath.ts` **不缺**——已落 `packages/kaos/src/login-shell-path.ts:46-127`（宿主 TS 进程，非引擎） |
 
@@ -4906,7 +4906,7 @@ usage 累积 + detect() + 遥测  ← 三合一（见上表）
 | 17 | `workspaceAliases` | **已核实**：`delete_workspace` 在 `session/sqlite_store.rs:776`；全仓 `workspaceAliases` / `workspace_aliases` **零命中**，即 fork 确实无别名概念——同一目录的符号链接/大小写变体会算成两个 workspace，且删除后无墓碑 | **1-2 人天** |
 | 9 | minidb 读模型 | **待裁决后再估**（取决于是否需要全文检索；若只需 FTS5 则 2-3 人天，若需 minidb 全套则 10+ 人天） | — |
 | 16 | trust 披露 | 消费者已写好，主要是喂数据（读项目 `.mcp.json` + `local.toml` + instruction sources） | **2-3 人天** |
-| 18-20 | proxy env / `x-trace-id` / shell 探测 | 各 0.5-1 人天的局部改动 | **各 < 1 人天** |
+| 18-20 | ~~proxy env~~ **已完成（§10.37）** / `x-trace-id` / shell 探测 | 各 0.5-1 人天的局部改动 | **各 < 1 人天** |
 
 **合计（不含待裁决项）**：约 **21-30 人天**（原 22-32；第 8、10 项已实做各扣 0.5-1）。P0+P1 剩余约 **14-20 人天**。
 
@@ -7157,3 +7157,38 @@ Web 客户端拿到的 bundle 没有 manifest、没有日志，而同一台机�
 
 **本轮未开工**：它是一次协议改动 + 宿主状态 + （可选的）落库，且含一处授权范围判定。
 先把诊断摆正——§6.40/§6.45 的「谁批了什么不留痕」需要按本节更正为「批准从未被安装」。
+
+### 10.37 §6.45 P2-18 落地：stdio MCP 子进程的 proxy env（2026-10-03，**前提已更正**）
+
+§6.42.5 的原始表述是「fork 的 `spawn_stdio` 只叠加 config env，父环境靠 `Command` 隐式继承（无
+`env_clear`），所以**代理后面的 MCP server 看不到 `HTTP_PROXY`/`NO_PROXY`**」。
+
+**这句症状是错的**：`Command` 默认就继承父环境，`HTTP_PROXY` 本来就能传给孩子。真正缺的是 v2
+**额外计算**的那一块（`_base/utils/proxy.ts` 的 `proxyEnvForChild`）：
+
+1. **`NODE_USE_ENV_PROXY=1`** —— Node 只有在设置该变量后才读 `HTTP_PROXY`/`NO_PROXY`。
+   **这才是「继承不够」的真正原因**：一个 Node 写的 MCP server 即使拿到了代理变量也不会用。
+2. **`NO_PROXY` / `no_proxy` 的归一化**（`resolveNoProxy`）：按逗号拆分、去空、并在不是 `*` 时
+   补齐回环地址（`localhost` / `127.0.0.1` / `::1` / `[::1]`）。
+3. **大小写两份都写**（`HTTP_PROXY` + `http_proxy`），并按 `all_proxy` 兜底填充缺失的那个——
+   `httpSchemeValue` 还会**排除 socks**：把 socks URL 当 HTTP 代理交给子进程会让它向外发明文
+   CONNECT。
+4. **`reconcileChildNoProxy`**：子进程自己 env 里的 `no_proxy` **覆盖**从父进程推导出来的那个。
+
+**落地**（`mcp/client.rs`）：`spawn_stdio` 在 `.envs(env)` 之后叠加 `proxy_env_for_child(&parent)`，
+再叠加 `reconcile_child_no_proxy(...)` 的覆盖——与 v2 `mergeStdioEnv` 的**顺序一致**（继承 → 子进程
+env → 代理块 → no_proxy 覆盖）。四个辅助函数逐条对齐 v2，含 socks 排除与回环补齐。
+
+**测试**：6 项——无 http 代理时不产出任何变量（含 socks 被排除）；`NODE_USE_ENV_PROXY` 存在且只设置
+被配置的那一个；`all_proxy` 兜底且被具体值覆盖；回环地址始终豁免（除非 `*`）；子进程 env 的 `no_proxy`
+覆盖；scheme 解析大小写不敏感且拒绝非 scheme。
+
+**一处自己写错的测试**：首版断言「只设 `HTTPS_PROXY` 时 `HTTP_PROXY` 会被 `all_proxy` 填充」——但那个
+用例里根本没有 `all_proxy`，是**测试写错**而非实现错。已拆成两条：只设具体值时不产出另一个；单设
+`all_proxy` 时两个都被填充，且具体值优先。
+
+**影响面（沿用台账判断）**：实际影响低——MCP stdio server 通常是本地 npm 包、不走代理。但这条不是
+「补一个能力」而是**修一处「以为继承就够」的错误假设**，故仍值得落地并登记。
+
+**验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -D warnings` ✅｜
+`cargo test --no-default-features --features cli` 全量 ✅｜15 道门禁 ✅。
