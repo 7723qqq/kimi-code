@@ -24,7 +24,7 @@
           "description": "ACP stdio protocol server"
         }
       ],
-      "fingerprint": "b22b75572d741c0c"
+      "fingerprint": "1a9ffeac26234d9c"
     },
     {
       "id": "node-sdk",
@@ -46,7 +46,7 @@
           "description": "Public SDK package"
         }
       ],
-      "fingerprint": "68ae8e09460d1579"
+      "fingerprint": "476689b85b18ed77"
     },
     {
       "id": "kimi-code",
@@ -140,7 +140,7 @@
       "source": "packages/i18n-catalog/src",
       "layer": "shared",
       "deps": [],
-      "fingerprint": "ed4353baee00258b"
+      "fingerprint": "c0d4f75c944e72be"
     },
     {
       "id": "i18n-runtime",
@@ -210,7 +210,7 @@
         "transcript",
         "i18n-shared"
       ],
-      "fingerprint": "7f4e0dde28562359"
+      "fingerprint": "c8af3f08c699dcd5"
     }
   ],
   "rules": {
