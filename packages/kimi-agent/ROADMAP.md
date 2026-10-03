@@ -4517,7 +4517,7 @@ has_errors = state == "error"     // 两者不再互相矛盾
 | 子系统 | 判定 | 出处 | 说明 |
 |---|---|---|---|
 | **wire 协议版本与迁移链** | **missing（本轮我亲自核实）** | `wire/migration/migration.ts:19,29-35`、`wire/record.ts:23-27,38-44` | v2 有 `WIRE_PROTOCOL_VERSION='1.5'` + 五级迁移（v1.0→v1.5）+ `isNewerWireVersion` 前向拒绝（`:37-39`）+ `metadata` 记录携带 `protocol_version`（`record.ts:25,41`）。**fork 的 `wire_events` 表（`session/sqlite_store.rs:439-443`）无版本列，全仓 `protocol_version` / `schema_version` / `WIRE_PROTOCOL_VERSION` 零命中，`native/event_store` 也不认 `metadata` 记录。**后果：旧版本会话被新引擎读到时**既不能迁移、也不能识别、也不能拒绝**，只能尽力解析 |
-| **`app/sessionExport/` 产物偏薄** | **partial（真实，用户可见）** | `app/sessionExport/sessionExportService.ts:42-279`、`manifest.ts:28-51`、`wire-scan.ts` | fork 的 `build_session_export_zip`（`server/mod.rs:1680-1721`）只打包**两个成员**：`session.json` + `transcript.md`；v2 打整个会话目录 + `manifest.json`（16 字段：版本、协议版本、os、shellEnv、首末活动时间、installSource…）+ **四个日志文件** + wire 扫描。**而 `locales/en.json:2600` 正在叫用户出错时跑 `/export-debug-zip` 把文件交给诊断**——用户按提示交出的档案缺 manifest、缺日志、缺版本溯源。另 v2 导出前会 flush 活会话，fork 不做 |
+| **`app/sessionExport/` 产物偏薄** | **partial（仅引擎 REST 路径，见 §10.30）** | `app/sessionExport/sessionExportService.ts:42-279`、`manifest.ts:28-51`、`wire-scan.ts` | fork 的 `build_session_export_zip`（`server/mod.rs:1680-1721`）只打包**两个成员**：`session.json` + `transcript.md`；v2 打整个会话目录 + `manifest.json`（16 字段：版本、协议版本、os、shellEnv、首末活动时间、installSource…）+ **四个日志文件** + wire 扫描。**而 `locales/en.json:2600` 正在叫用户出错时跑 `/export-debug-zip` 把文件交给诊断**——用户按提示交出的档案缺 manifest、缺日志、缺版本溯源。另 v2 导出前会 flush 活会话，fork 不做 |
 | **`IQueryStore` / minidb 读模型未接线** | **missing（最大单点）** | `persistence/interface/queryStore.ts:87-115`、`persistence/configSection.ts:12-43` | `packages/minidb/` 是完整的 44 文件实现（WAL + 快照 + trigram 全文索引 + 复合索引 + 压缩 + cluster），但**引擎侧零引用**（`minidb`/`read_model` 在 Rust 全仓零命中；仓内仅 `apps/kimi-code/src/native/minidb-worker.ts` 一条 smoke 路径）。`IQueryStore` 是 v2 `ISessionIndex`、其 projector、mirror、dirty-journal 与全局搜索 worker 的共同基底。连带 `[database]` config section 整个不存在（`config/mod.rs` 无 `database`/`MINIDB`） |
 | **遥测事件目录 ~10/60** | partial | `app/telemetry/events.ts:599-1359` | 缝隙本身可用（`callbacks.rs:199-207` 的 `telemetry`、`server/mod.rs:307-334` 的 `TelemetrySink`），缺的是目录。**最值得补的是解释故障的那批**：`api_error`、`compaction_failed`、`tool_call_dedup_detected`、`tool_call_repeat`、`permission_approval_result`、`session_load_failed`、`agent_create_failed`、`context_projection_repaired`。注意 fork 的 TS 宿主侧独立上报了其中若干（`model_switch`/`thinking_toggle`/`plugin_toggle`），所以缺的是**引擎侧**覆盖而非管道 |
 | `app/workspaceAliases/` | missing | `workspaceAliasesService.ts:83-101` `resolveAliasIds` | 三树皆无。fork 只用 `encode_workdir_key` 作键，**同一目录的符号链接或大小写变体会变成两个 workspace**。清理原语 `delete_workspace`（`sqlite_store.rs:776`）也没留 `deletedIds` 墓碑，删除后可能在下次合并时回来 |
@@ -4818,7 +4818,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 | 4 | **Anthropic 多发一个 `cache_control` 槽**（fork 4 / 上游 3）。stable-history 位是 **fork 自加**，此前被误登记为「非自加」 | 已核实（`anthropic.rs:184-192` 四处发射点 `:164/:192/:239/:254`；上游 `anthropic.ts:352-362` 无该分支） | **冗余但无害，降级**：stable 位在 `msgs.len()-3`，**每轮向前移动**，故永远不是同一前缀——两种缓存语义下都不带来命中收益，唯一效果是多写一条条目。详见 6.45.1 |
 | 5 | ~~**micro compaction 的 `detect()` 两个门禁**~~ **已完成 2026-10-02** | 已核实 | 见 **§10.25**。`compaction/micro.rs` 增 `detect_micro_compaction()` + `DetectOutcome`，配置面补 `cache_missed_threshold_ms` / `min_context_usage_ratio` 两个 v2 默认值；引擎侧增 per-session `last_assistant_at`，每轮 `save_turn` 后打戳（v2 `onDidFinishStep`）。**§6.29 曾把它标成「不得开工」，6.44.1 已推翻** |
 | 6 | **wire 协议无版本概念**：`wire_events` 表无版本列、无 `metadata` 记录、无迁移链（v2 有 v1.0→v1.5 五级 + 前向拒绝）。旧会话既不能迁移也不能识别 | 已核实 | `session/sqlite_store.rs:439` |
-| 7 | **磁盘日志缺失 + 导出 ZIP 只有 2 个成员**。而 `locales/en.json:2600` 正在叫用户出错时跑 `/export-debug-zip`；`apps/vis` 的 Logs 标签页是死的。**卡在两个决策上，见 §10.29**：(1) 轮转命名——`tracing_appender` 的日期后缀与 `log-reader.ts` 期待的 `.N` 不符；(2) manifest 由谁产出——v2 在宿主层取 `process.platform` / `process.version` / installSource / shellEnv，fork 在引擎里拼 ZIP | 已核实 | `napi_bindings.rs`、`server/mod.rs:1680-1721`、`vis/server/src/routes/logs.ts` |
+| 7 | ~~**磁盘日志缺失 + 导出 ZIP 只有 2 个成员**~~ **按原样不存在，见 §10.30**：日志子系统已在宿主层 `node-sdk/src/logging.ts`（`~/.kimi-code/logs/kimi-code.log` 实测 5.8MB 且在写、`.1`–`.4` 归档）；`/export-debug-zip` 走宿主完整导出并有 e2e 钉住。**真正残余两项**：(a) 会话级日志无调用方（已另登记为 §6.40 的 `sessionLogService`），(b) **引擎 REST `/export`（Web 客户端）比宿主导出薄**（2 成员、无 manifest） | 已核实（文件系统 + e2e 实测） | `server/mod.rs:1680-1721`（Web 路径）、`node-sdk/src/logging.ts`、`tui/commands/session.ts:163` |
 | 8 | ~~**POST /undo 不做 state 回滚**~~ **已完成 2026-10-01**（`ac180b4dbe`）：闭环记录见 §6.45.4 第 8 行。**本行此前未划线、与 §6.45.4 自相矛盾，2026-10-03 订正**——两表同源于 §6.40，而修正只落在了后者 | 已核实（grep 全仓确认） | `server/mod.rs:5511-5602` |
 
 #### P2 — 已核实，范围或影响需先界定
@@ -4897,7 +4897,7 @@ usage 累积 + detect() + 遥测  ← 三合一（见上表）
 | 2 | **分叉 turn_index** | `sqlite_store.rs:834-863` 加参数 + 按 v2 `forkTurnSlice.ts:80-99` 的 `origin.kind` 分类切边界 + promptId 配对（`:118-176`）；调用方两处（`server/mod.rs:5165` 解析 body 的 `turnIndex`、`acp/mod.rs:1015`）；**注意 fork 的历史按 `save_turn` 分行存储，切分要按 turn 而非按 message** | **3-4 人天** |
 | 5+15 | **micro `detect()` + 遥测 `api_error`** | 新增一个跨 step 的 usage 累积结构（`input_cache_read` / `input_cache_creation` / tokens），`server/engine.rs:1348` 前加判据，配置面加 2 个常量；遥测侧同源数据报 `api_error` | **2-3 人天** |
 | 6 | **wire 版本 + metadata + 迁移链** | 加 `protocol_version` 列与 `metadata` 记录类型（写侧 + 读侧兼容），再逐级实现 v1.0→v1.5 五个迁移。**前置约束**：必须早于任何新的 wire 记录类型 | **4-6 人天**（含迁移的向后兼容测试） |
-| 7 | **磁盘日志 + 导出 ZIP** | ~~引入 `tracing_appender` 滚动 appender（约 60 行）~~ **方案已订正，见 §10.29**：v2 的日志层是 `_base/log/` **5 文件约 687 行**（含定义行格式的 `formatter.ts`），且 crate 的日期后缀与 `log-reader.ts:33-37` 期待的 `.N` 命名不符；manifest 的 16 字段里多项只有宿主层有 | **需重估**（原 2-3 人天按「引 crate」估，偏低） |
+| 7 | ~~**磁盘日志 + 导出 ZIP**~~ **原描述不成立（§10.30）**：日志已由宿主层移植并实测在写，CLI 导出已完整且有 e2e。**残余只剩**：会话级日志接线（`resolveSessionLogPath` 无调用方）与**引擎 REST `/export` 对齐宿主导出能力** | 引擎侧 REST 导出补 manifest + 日志成员 + 遍历会话树，参照 `sdk-rpc-client-native.ts:3642-3698` | **0.5-1 人天** |
 | 8 | ~~POST /undo 回滚接线~~ **已完成 2026-10-01** | 新增 `rollback_state_for_undo`（`server/mod.rs:7371`），接在 `undo` 路由 `:5594`。**台账原引三处「已有模式」全是假的**——`engine.rs` 中 `.rollback()` 零调用，唯一生产调用者是 `repl/mod.rs:782`；`engine.rs:1168` 是 `for_workspace` 的 `Err(_)` 臂、`:1197` 只是注释提到 `StateStoreCallbacks`。真实模式在 `callbacks.rs:1536-1554`。**核实后新增的要点**：checkpoint 是 LIFO 栈（`state_store.rs:175/244`），`count=N` 必须弹 N 次而非一次。失败如实上报而非静默——行已删除，静默分叉比可见错误更糟。两个测试：`undo_restores_state_domains_from_the_checkpoint_stack`（钉 LIFO 到最早锚点）与 `undo_succeeds_when_no_checkpoint_was_ever_taken`（钉空栈不算错）；前者已用环境变量探针反证——断开接线后 depth 停在 2，测试确实失败 | **已完成** |
 | 10 | ~~`len()/4` 一行修正~~ **已完成 2026-10-01** | `server/engine.rs:933` 改用 `compaction::estimate_tokens`。**实测纠正**：原估「对 CJK 低报约 4 倍」是错的——`len()` 是字节数，3 字节/汉字 → 低报 **25%**（300 字节报 75，实际 100 token）。附带修掉截断：43 ASCII 字符旧值报 10，现为 11。新增测试 `context_tokens_count_cjk_per_character_and_leave_ascii_alone`（ASCII 差异 ≤1 仅进位、CJK 100 字符 = 100 token、混合串按连续 ASCII 段一次进位）。副作用是状态栏与压缩触发器现在共用同一估算器，两者不会再对「有多满」产生分歧 | **已完成** |
 | 11 | **PermissionRuleScope + 审批留痕** | `permission/mod.rs:152` 的 `Vec<String>` 换成带 scope 与 result 的结构；`recordApprovalResult` 需 agent state 写入通道 | **2-3 人天** |
@@ -6825,3 +6825,58 @@ v2 的 `buildExportManifest`（`app/sessionExport/manifest.ts:15-51`）在**宿�
 （`server/mod.rs:1708-1717`）；提示用户跑 `/export-debug-zip` 的文案确实在售
 （`packages/i18n-catalog/src/locales/en.ts:2952`）；`tracing_appender` 可取（
 `cargo add --dry-run` 命中 rsproxy 源，v0.2.5），但见第三条。
+
+### 10.30 §6.45 P1-7 复核：台账的四项表述与代码不符（2026-10-03，**该条目按原样不存在**）
+
+§10.29 记的是「方案与现状冲突」；本轮继续往下核，发现**问题本身**就不成立。四项表述逐条对代码与
+文件系统核验的结果如下，**全部推翻**。
+
+**一、「磁盘日志缺失」——假**
+
+`~/.kimi-code/logs/` 下实测：`kimi-code.log` 5,818,555 字节、最后写入 **2026-10-03 15:41**（就在本次
+会话期间），另有 `kimi-code.log.1` … `.4` **四个归档**，与 `globalFiles = 5` 吻合。原因：v2 的整套
+日志子系统**已经移植在宿主层** `packages/node-sdk/src/logging.ts` 里，而不是缺席——
+`resolveGlobalLogPath`（`:783-785`，= `<home>/logs/kimi-code.log`）、`resolveSessionLogPath`
+（`:787-789`，= `<sessionDir>/logs/kimi-code.log`）、默认值 `globalMaxBytes = 6MB` / `globalFiles = 5` /
+`sessionMaxBytes = 5MB` / `sessionFiles = 3`（`:808-811`，与 §6.45.4 写的「6MB×5 全局 / 5MB×3 会话」
+**逐字一致**）、以及同一套 `.N` 轮转 `rotate()`（`:703`，与 v2 `fileLog.ts:172-195` 同序：
+先 `files-2 → 1` 逐个改名、再把活动文件改名为 `.1`、最后 unlink `.{files}`）。
+
+**二、「`apps/vis` 的 Logs 标签页是死的」——对全局视图假**
+
+`apps/vis/server/src/routes/logs.ts` 的 `HOME_GLOBAL_LOG_REL = ['logs','kimi-code.log']` 读的正是
+上面那个**存在且在增长**的文件；命名与轮转后缀也和 `log-reader.ts` 的 `discoverLogFiles` 期待的一致。
+该路由另有测试（`apps/vis/server/test/routes/logs.test.ts`）。
+
+**三、「导出 ZIP 只有 2 个成员」——只对引擎 REST `/export` 成立**
+
+`server/mod.rs:1680-1721` 的 `build_session_export_zip` 确实只写 `session.json` + `transcript.md`，但它的
+注释写明用途是「the ZIP the Web client's `exportSession` asks for」（`:1673-1675`）——**Web 客户端那条路**，
+不是用户敲 `/export-debug-zip` 走的那条。
+
+**四、「用户按提示交出的档案缺 manifest、缺日志、缺版本溯源」——假**
+
+`/export-debug-zip` 的实现是 `apps/kimi-code/src/tui/commands/session.ts:152-176`，它调
+`host.harness.exportSession({ id, version, installSource, shellEnv, includeGlobalLog: true })`
+（`:163-169`）——即**宿主层的完整导出** `sdk-rpc-client-native.ts:3642-3698`：收集 `logs/kimi-code.log*`
+为 `logs/…` 成员、产出 `export-manifest.json`（含 `exportedAt` / `sessionId` / `kimiCodeVersion` /
+`os` / `nodejsVersion` / `globalLogPath`）、并按相对 posix 路径遍历整个会话树。
+**并且这条链路有 e2e 钉住**：`apps/kimi-code/test/e2e/local-logging-export.e2e.test.ts:81-96` 断言
+`logs/kimi-code.log` 存在于归档且内容非空、`export-manifest.json` 的 `globalLogPath` 指向它、
+`--no-include-global-log` 时两者同时消失。
+
+**复核结论：P1-7 按原样不存在。** 真正的残余缺口是另外两件，且它们的形状与原描述无关：
+
+1. **会话级日志从未写入**：`resolveSessionLogPath` 全仓**只有定义、没有调用方**（grep 仅命中
+   `logging.ts:787` 与两处类型），因此 `<sessionDir>/logs/kimi-code.log` 从不产生——Logs 标签页的
+   **会话视图**（`SESSION_LOG_REL`）才是空的那一半。此项**已单独登记**为 ROADMAP:4687 的
+   `sessionLogService | missing`，与本条重复计数。
+2. **引擎 REST `/export` 比宿主导出薄**：Web 客户端拿到的 bundle 没有 manifest、没有日志、不遍历会话树，
+   而同一台机器上 CLI 拿到的有。两条导出路径的能力不一致，这才是可施工的缺口。
+
+**另记**：宿主把 manifest 命名为 `export-manifest.json`（v2 用 `manifest.json`）。核查过消费方——
+`vis` / 导入器都不读这个名字，只有宿主自己的测试引用，故这是 fork 侧的自洽选择，**不必改**。
+
+**方法论备注**：这是本会话第三次遇到「台账表述与代码不符」（前两次是 §6.45 的 P1-8 行与 P1-7 的施工
+方案）。三次的共同点是**台账写了结论、没写复核方式**，而 `check:roadmap-refs` 只验引用存在性、
+不验结论为真。可复核的写法是把「文件在哪、跑什么命令能看到」一并记下——§10.29 与本节都按此写。
