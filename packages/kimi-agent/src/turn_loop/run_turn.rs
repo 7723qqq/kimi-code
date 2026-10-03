@@ -17,6 +17,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use super::retry::RetryConfig;
+use super::tool_result_render;
 use super::tool_scheduler::{self, ScheduledToolCall};
 use super::turn_step::execute_loop_step_with_retry;
 use super::types::*;
@@ -1944,11 +1945,16 @@ pub fn run_turn<'a>(
                         // content, and a result with no measured duration
                         // (a scheduler-synthesized error) never gets one.
                         let tool_name = tool_calls.get(i).map(|tc| tc.name.as_str()).unwrap_or("");
+                        // v2 renders the status wrapper first and prepends the
+                        // wall-time header on top of it
+                        // (`renderToolResultForModel`), so a failed call reads
+                        // `Wall time: …\n<system>ERROR: …`.
+                        let rendered = tool_result_render::render_status(&tr.content, tr.is_error);
                         let content = match durations_ms.get(i).copied().flatten() {
                             Some(duration_ms) if wall_time::should_render_wall_time(tool_name) => {
-                                wall_time::prepend_wall_time(&tr.content, duration_ms)
+                                wall_time::prepend_wall_time(&rendered, duration_ms)
                             }
-                            _ => tr.content.clone(),
+                            _ => rendered,
                         };
                         messages.push(LLMMessage {
                             role: "tool".into(),

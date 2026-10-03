@@ -8721,6 +8721,27 @@
       "text": "turns {}/{} (remaining {})",
       "reason": "deferred"
     },
+    "packages/kimi-agent/src/turn_loop/tool_result_render.rs:<system>ERROR: Tool execution failed. Tool output is empty.</system>": {
+      "file": "packages/kimi-agent/src/turn_loop/tool_result_render.rs",
+      "text": "<system>ERROR: Tool execution failed. Tool output is empty.</system>",
+      "reason": "format-scaffolding"
+    },
+    "packages/kimi-agent/src/turn_loop/tool_result_render.rs:<system>ERROR: Tool execution failed.</system>": {
+      "file": "packages/kimi-agent/src/turn_loop/tool_result_render.rs",
+      "text": "<system>ERROR: Tool execution failed.</system>",
+      "reason": "format-scaffolding"
+    },
+    "packages/kimi-agent/src/turn_loop/tool_result_render.rs:<system>Tool output is empty.</system>": {
+      "file": "packages/kimi-agent/src/turn_loop/tool_result_render.rs",
+      "text": "<system>Tool output is empty.</system>",
+      "reason": "format-scaffolding"
+    },
+    "packages/kimi-agent/src/turn_loop/tool_result_render.rs:Tool output is empty.": {
+      "file": "packages/kimi-agent/src/turn_loop/tool_result_render.rs",
+      "text": "Tool output is empty.",
+      "reason": "wire-token",
+      "manual": true
+    },
     "packages/kimi-agent/src/turn_loop/tool_scheduler.rs:Tool task join error: {e}": {
       "file": "packages/kimi-agent/src/turn_loop/tool_scheduler.rs",
       "text": "Tool task join error: {e}",
