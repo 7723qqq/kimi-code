@@ -1,0 +1,246 @@
+{
+  "note": "Citation anchors for packages/kimi-agent/ROADMAP.md. Each entry names the 'cited' literal as it appears in the ledger, the tree it resolves in (worktree / upstream / retired), and the symbol expected at that location. scripts/check-roadmap-refs.mjs verifies each anchored citation; UNANCHORED citations are counted but never fail. The full manifest is deliberately partial: the gate reports its coverage, so the gap is measured rather than hidden. See the validator's header for the four citation shapes this design exists to handle.",
+  "coverageNote": "25 of 194 line-carrying citations the extractor can see (plus an unknown number it cannot see at all). 138 of the 217 visible line citations sit OUTSIDE historical blocks and are therefore live pointers, but they are unanchored. The seed was drawn from this session's proven drift cases, not from density alone, and the 21-of-25 blind-spot shapes are deliberate: a shape the extractor cannot see is where a silently-stale citation survives longest, so those carry the most value per anchor. The known-unverified residue, by count and by category (re-measured 2026-10-04): (a) 24 live citations of src/server/mod.rs and 17 of sdk-rpc-client-native.ts — the two densest files, and both had live drift this session (see the two filed findings); (b) ~10 citations of upstream and retired trees via fully-qualified paths, which analyzeLedger short-circuits before checked++ and therefore NEVER existence-tests today; (c) the remainder of the 60 distinct live paths — 52 of them cited 1-2 times (41 once, 11 twice), against 8 cited 3+ times (src/server/mod.rs 24, sdk-rpc-client-native.ts 17, src/main.rs 10, src/session/mod.rs 8, src/napi_bindings.rs 7, src/mcp/manager.rs 3, node-sdk/src/types.ts 3, src/server/engine.rs 3). A follow-on mission should extend the manifest from (a) and (b) first — they are where a defect is both most likely and most costly.",
+  "upstreamRef": "upstream/main",
+  "retiredRef": "ecad4136d9^",
+  "anchors": [
+    {
+      "cited": "loopService.ts:1729",
+      "origin": "upstream",
+      "path": "packages/agent-core-v2/src/agent/loop/loopService.ts",
+      "line": 1729,
+      "context": "leted 收尾（`",
+      "expect": "if (result.stopTurn === true) {",
+      "note": "§2.5 工具结果 stopTurn — the real stopTurn write; M1 re-located this from :2117-2119"
+    },
+    {
+      "cited": ":1876",
+      "origin": "upstream",
+      "path": "packages/agent-core-v2/src/agent/loop/loopService.ts",
+      "line": 1876,
+      "context": "quested`；`",
+      "expect": "if (context.stopTurn) turn.stopRequested = true;",
+      "note": "§2.5 stopTurn — second write (turn.stopRequested); cited as a bare :line continuing :1729"
+    },
+    {
+      "cited": "loopService.ts:1599-1612",
+      "origin": "upstream",
+      "path": "packages/agent-core-v2/src/agent/loop/loopService.ts",
+      "line": 1599,
+      "endLine": 1612,
+      "context": "ode）（派发点 `",
+      "expect": "new TurnStepRetrying({",
+      "note": "§2.5 重试遥测事件 — the TurnStepRetrying dispatch; M1 re-located this from :1571-1585"
+    },
+    {
+      "cited": "turnEvents.ts:164-176",
+      "origin": "upstream",
+      "path": "packages/agent-core-v2/src/agent/loop/turnEvents.ts",
+      "line": 164,
+      "endLine": 176,
+      "context": "12`，载荷定义 `",
+      "expect": "export interface TurnStepRetryingPayload {",
+      "note": "§2.5 retry payload interface; M1 re-located this from :163"
+    },
+    {
+      "cited": "_base/utils/retry.ts:46",
+      "origin": "upstream",
+      "path": "packages/agent-core-v2/src/_base/utils/retry.ts",
+      "line": 46,
+      "context": "ields` 在 `",
+      "expect": "export function retryErrorFields(",
+      "note": "§2.5 retryErrorFields producer"
+    },
+    {
+      "cited": "loop.ts:55-62",
+      "origin": "upstream",
+      "path": "packages/agent-core-v2/src/agent/loop/loop.ts",
+      "line": 55,
+      "endLine": 62,
+      "context": "teps` + 错误文案（`",
+      "expect": "export function createMaxStepsExceededError(",
+      "note": "§2.5 max_steps 耗尽 — error factory; M1 re-located this from :20-27"
+    },
+    {
+      "cited": "loopService.ts:1902-1911",
+      "origin": "upstream",
+      "path": "packages/agent-core-v2/src/agent/loop/loopService.ts",
+      "line": 1902,
+      "endLine": 1911,
+      "context": "ailed（对齐 `",
+      "expect": "if (turn.filtered) {",
+      "note": "§2.5 Filtered→failed alignment; M1 re-located this from :877-882"
+    },
+    {
+      "cited": "forkTurnSlice.ts:86-103",
+      "origin": "upstream",
+      "path": "packages/agent-core-v2/src/workspace/sessionLifecycle/internal/forkTurnSlice.ts",
+      "line": 86,
+      "endLine": 103,
+      "context": "分类的真实位置是 `",
+      "expect": "function isUserVisibleTurnRecord(record: WireRecord): boolean {",
+      "note": "§10.23 turn_index — origin.kind classification; M1 re-located this from :80-99. Bare basename: resolved path carried as data."
+    },
+    {
+      "cited": "forkTurnSlice.ts:22-30",
+      "origin": "upstream",
+      "path": "packages/agent-core-v2/src/workspace/sessionLifecycle/internal/forkTurnSlice.ts",
+      "line": 22,
+      "endLine": 30,
+      "context": "rnIndex`（`",
+      "expect": "export function assertForkTurnIndex(",
+      "note": "§6.44.2 turnIndex 校验. Bare basename: resolved path carried as data."
+    },
+    {
+      "cited": "runtime/runtime.ts:8",
+      "origin": "upstream",
+      "path": "packages/agent-core-v2/src/runtime/runtime.ts",
+      "line": 8,
+      "context": "` — `Runti",
+      "expect": "export type RuntimeCapability",
+      "note": "§6.25/§6.43.1 — RuntimeCapability has three rungs, no watch. Abbreviated path (crate-relative to upstream root)."
+    },
+    {
+      "cited": "human/utils/watch.ts:473",
+      "origin": "upstream",
+      "path": "packages/agent-core-v2/src/human/utils/watch.ts",
+      "line": 473,
+      "context": "` `createW",
+      "expect": "export function createWatchService(",
+      "note": "§6.25/§6.43.1 — the watcher is a standalone service, not a capability. Abbreviated path."
+    },
+    {
+      "cited": "sqlite_store.rs:1042",
+      "origin": "worktree",
+      "path": "packages/kimi-agent/src/session/sqlite_store.rs",
+      "line": 1042,
+      "context": "sion` 现在 `",
+      "expect": "pub fn fork_session(",
+      "note": "§6.42.1/§10.23 — post-M1 pointer; M1 re-located this from :834-863. Bare basename: resolved path carried as data."
+    },
+    {
+      "cited": "server/mod.rs:5292",
+      "origin": "worktree",
+      "path": "packages/kimi-agent/src/server/mod.rs",
+      "line": 5292,
+      "context": "REST 解析在 `",
+      "expect": "let turn_index = match body.get(\"turnIndex\") {",
+      "note": "§10.23 REST turnIndex parse; M1 re-located this from :5165. Bare basename: resolved path carried as data."
+    },
+    {
+      "cited": "acp/mod.rs:1020",
+      "origin": "worktree",
+      "path": "packages/kimi-agent/src/acp/mod.rs",
+      "line": 1020,
+      "context": "；ACP 调用在 `",
+      "expect": "match self.store.fork_session(source, &forked, None, None) {",
+      "note": "§10.23 ACP fork call; M1 re-located this from :1015. Bare basename: resolved path carried as data."
+    },
+    {
+      "cited": "compaction/micro.rs:132-155",
+      "origin": "worktree",
+      "path": "packages/kimi-agent/src/compaction/micro.rs",
+      "line": 132,
+      "endLine": 155,
+      "context": "见 §10.25（`",
+      "expect": "pub fn detect_micro_compaction(",
+      "note": "§10.25/§6.45.2 — the fork's own micro-compaction criterion (fork-original; upstream has no such module). Crate-relative sub-path form."
+    },
+    {
+      "cited": "server/engine.rs:1416-1429",
+      "origin": "worktree",
+      "path": "packages/kimi-agent/src/server/engine.rs",
+      "line": 1416,
+      "endLine": 1429,
+      "context": "ion`，调用点 `",
+      "expect": "crate::compaction::micro::detect_micro_compaction(",
+      "note": "§10.25 — the call site of the fork's micro-compaction gate. Crate-relative sub-path form."
+    },
+    {
+      "cited": "packages/kimi-agent/src/server/mod.rs:6234-6240",
+      "origin": "worktree",
+      "path": "packages/kimi-agent/src/server/mod.rs",
+      "line": 6234,
+      "endLine": 6240,
+      "context": "` 在 profil",
+      "expect": "engine.publish_status_updated(session_id).await;",
+      "note": "§10.34 — the explicit post-profile-write status refresh"
+    },
+    {
+      "cited": "kimi-agent/src/native/bash_spawn.rs",
+      "origin": "worktree",
+      "path": "packages/kimi-agent/src/native/bash_spawn.rs",
+      "line": 1,
+      "context": "kaos/` | `",
+      "expect": "//! Managed bash processes",
+      "note": "§1 命令执行 — the live one-shot command execution module; M6's replacement reference for the deleted kaos.rs. CRATE-RELATIVE form the old regex cannot see (blind spot 1); no line number, so the anchor pins the module head instead."
+    },
+    {
+      "cited": "microCompactionService.ts:89-134",
+      "origin": "retired",
+      "path": "packages/agent-core-v2/src/agent/microCompaction/microCompactionService.ts",
+      "line": 89,
+      "endLine": 134,
+      "context": "` 的 `detec",
+      "expect": "detect(): void {",
+      "note": "§6.29 — the retry/cache-miss criterion lives ONLY in the retired copy; upstream has no microCompaction module (git-object test proves it). Bare basename: resolved path carried as data."
+    },
+    {
+      "cited": "microCompaction.ts:17-23",
+      "origin": "retired",
+      "path": "packages/agent-core-v2/src/agent/microCompaction/microCompaction.ts",
+      "line": 17,
+      "endLine": 23,
+      "context": "（默认 `0.5`），与 `",
+      "expect": "DEFAULT_MICRO_COMPACTION_CONFIG",
+      "note": "§6.44.2 — the two default values the Rust side was aligned to; retired copy only. Bare basename: resolved path carried as data."
+    },
+    {
+      "cited": "docs/en/reference/tools.md:151",
+      "origin": "worktree",
+      "path": "docs/en/reference/tools.md",
+      "line": 151,
+      "context": "本来就说对了**：`",
+      "expect": "suspends the current turn until a background task finishes",
+      "note": "§6.24.2 — the WaitFor doc sentence; a cross-document pointer (docs tree, not source)"
+    },
+    {
+      "cited": "packages/kimi-agent/src/native/shell.rs:112-133",
+      "origin": "worktree",
+      "path": "packages/kimi-agent/src/native/shell.rs",
+      "line": 112,
+      "endLine": 133,
+      "context": " → cmd**（`",
+      "expect": "pub fn resolve_shell(",
+      "note": "§12 — the pwsh → powershell → Git Bash → cmd chain"
+    },
+    {
+      "cited": "packages/kimi-agent/napi-contract.d.ts:1524",
+      "origin": "worktree",
+      "path": "packages/kimi-agent/napi-contract.d.ts",
+      "line": 1524,
+      "context": "to stop」（`",
+      "expect": "pump task is signalled to stop",
+      "note": "§10.42 — the contract wording 'signalled' the dispose note cites"
+    },
+    {
+      "cited": "packages/kimi-agent/src/tools/mod.rs:4662",
+      "origin": "worktree",
+      "path": "packages/kimi-agent/src/tools/mod.rs",
+      "line": 4662,
+      "context": "`），把句式的可变部",
+      "expect": "pub(crate) fn arg_error_text(",
+      "note": "§10 — the {{tool}}/{{field}} parameterized arg-error helper"
+    },
+    {
+      "cited": ":3717-3818",
+      "origin": "worktree",
+      "path": "packages/node-sdk/src/native/sdk-rpc-client-native.ts",
+      "line": 3717,
+      "endLine": 3818,
+      "context": "ssion`（现 `",
+      "expect": "override async exportSession(input: ExportSessionInput): Promise<ExportSessionResult> {",
+      "note": "§10.25 — the corrected host-side export range M1 recorded (`现 :3717-3818`), re-pointed from :3642-3698. The same stale pointer is still live at L6878; see the filed finding."
+    }
+  ]
+}
