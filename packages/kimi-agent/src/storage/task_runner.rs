@@ -765,6 +765,65 @@ impl TaskRunner {
         Ok(self.entry_wire(entry))
     }
 
+    /// Cooperatively stop EVERY running task spawned for `session_id`.
+    ///
+    /// v2 stops a session's tasks as an explicit step of closing it
+    /// (`IAgentTaskService.stopAllOnExit('Session closed')` —
+    /// `session/agentLifecycle/agentLifecycleService.ts:629`). This runner is
+    /// process-wide and shared across sessions, so a session's teardown has no
+    /// way to reach its tasks by dropping state: it has to name them (ROADMAP
+    /// §15 D2 — closing a session used to leave its background bash and
+    /// subagents running).
+    ///
+    /// Every owned running task is flagged under ONE lock and only then
+    /// awaited, so a task that never yields cannot hold up stopping the rest,
+    /// and the whole wait is bounded by a single grace period rather than one
+    /// per task. `reason` defaults to `"Session closed"`, v2's wording.
+    ///
+    /// Returns the ids it flagged (unordered). Already-terminal tasks are left
+    /// alone — their `stopReason` is never overwritten — and a session with
+    /// nothing running returns an empty list. As with [`Self::stop`], a task
+    /// that does not yield stays `running` in the entry until its wrapper
+    /// settles it; the flag and the reason are what this guarantees.
+    pub async fn stop_session(&self, session_id: &str, reason: Option<&str>) -> Vec<String> {
+        let reason = reason
+            .map(str::trim)
+            .filter(|r| !r.is_empty())
+            .unwrap_or("Session closed")
+            .to_string();
+        let mut ids = Vec::new();
+        let mut waits: Vec<Shared<BoxFuture<'static, ()>>> = Vec::new();
+        {
+            let mut tasks = self.tasks.lock().unwrap();
+            for (id, entry) in tasks.iter_mut() {
+                if entry.session_id.as_deref() != Some(session_id) {
+                    continue;
+                }
+                if entry.status != TaskStatus::Running {
+                    continue;
+                }
+                if entry.stop_reason.is_none() {
+                    entry.stop_reason = Some(reason.clone());
+                }
+                entry.cancel.store(true, Ordering::Relaxed);
+                entry.cancel_notify.notify_waiters();
+                ids.push(id.clone());
+                waits.push(entry.done.clone());
+            }
+        }
+        if waits.is_empty() {
+            return ids;
+        }
+        let grace = *self.kill_grace.lock().unwrap();
+        let settle = async {
+            for done in waits {
+                done.await;
+            }
+        };
+        let _ = tokio::time::timeout(grace, settle).await;
+        ids
+    }
+
     /// Wait for a task to settle, up to `timeout_ms` (v2 `wait`
     /// semantics: a terminal task returns immediately, `timeout_ms == 0`
     /// returns the current entry without waiting, and a timeout is not
@@ -2145,6 +2204,87 @@ mod tests {
             other => panic!("expected timed out, got {other:?}"),
         }
         runner.stop("task-1", None).await.unwrap();
+    }
+
+    /// The primitive behind v2's `stopAllOnExit('Session closed')`: it stops
+    /// the named session's tasks and nobody else's (ROADMAP §15 D2).
+    #[tokio::test]
+    async fn stop_session_flags_only_its_own_tasks() {
+        let (_tmp, runner) = runner();
+        for (id, session) in [("a-1", "sess-a"), ("a-2", "sess-a"), ("b-1", "sess-b")] {
+            runner
+                .spawn_task_with_meta(
+                    TaskSpawnMeta {
+                        session_id: Some(session),
+                        kind: "bash",
+                        subagent_type: None,
+                        agent_id: None,
+                    },
+                    id.into(),
+                    format!("task {id}"),
+                    std::future::pending::<TaskOutcome>(),
+                )
+                .unwrap();
+        }
+
+        let mut stopped = runner.stop_session("sess-a", None).await;
+        stopped.sort();
+        assert_eq!(stopped, vec!["a-1".to_string(), "a-2".to_string()]);
+
+        // Its own tasks carry the close reason; the other session's task was
+        // never touched — an unscoped stop would be a cross-session kill.
+        assert_eq!(runner.entry("a-1").unwrap()["stopReason"], "Session closed");
+        assert_eq!(runner.entry("a-2").unwrap()["stopReason"], "Session closed");
+        assert!(runner.entry("b-1").unwrap()["stopReason"].is_null());
+        assert_eq!(runner.entry("b-1").unwrap()["status"], "running");
+    }
+
+    #[tokio::test]
+    async fn stop_session_is_empty_for_a_session_that_owns_nothing() {
+        let (_tmp, runner) = runner();
+        assert!(runner.stop_session("nobody", None).await.is_empty());
+
+        // A task with no session is nobody's to stop by naming a session.
+        runner
+            .spawn_task_with_meta(
+                TaskSpawnMeta {
+                    session_id: None,
+                    kind: "tool",
+                    subagent_type: None,
+                    agent_id: None,
+                },
+                "unattributed".into(),
+                "no session".into(),
+                std::future::pending::<TaskOutcome>(),
+            )
+            .unwrap();
+        assert!(runner.stop_session("nobody", None).await.is_empty());
+        assert!(runner.entry("unattributed").unwrap()["stopReason"].is_null());
+        runner.stop("unattributed", None).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn stop_session_does_not_overwrite_a_reason_already_set() {
+        let (_tmp, runner) = runner();
+        runner
+            .spawn_task_with_meta(
+                TaskSpawnMeta {
+                    session_id: Some("sess-r"),
+                    kind: "bash",
+                    subagent_type: None,
+                    agent_id: None,
+                },
+                "task-r".into(),
+                "reasoned".into(),
+                std::future::pending::<TaskOutcome>(),
+            )
+            .unwrap();
+        runner.stop("task-r", Some("user cancelled")).await.unwrap();
+        runner.stop_session("sess-r", None).await;
+        assert_eq!(
+            runner.entry("task-r").unwrap()["stopReason"],
+            "user cancelled"
+        );
     }
 
     #[tokio::test]

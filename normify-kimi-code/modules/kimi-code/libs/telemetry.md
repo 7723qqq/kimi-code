@@ -10,8 +10,8 @@ description:
   en: >
       Telemetry client: event collection and context management.
       
-revision: 67ba21094b198c6b3276a9e9650565e17f1d9d40
-updated_at: "2026-10-03T15:32:22.806Z"
+revision: 18c71cdd8583b337dd80efc94225c9033f341f42
+updated_at: "2026-10-03T16:26:56.352Z"
 fingerprint: 7f422e4163eac4d96e2f80274ee158dbc8e73e11710be1a14e068ca55395c7c2
 source:
   - path: "packages/telemetry/src/index.ts"

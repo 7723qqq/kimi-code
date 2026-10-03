@@ -1004,6 +1004,18 @@ async fn pump(
         // A disposed session's pump must not outlive it: parked on `wakeup` it
         // held `core` — the whole conversation — for the life of the process.
         if shutdown.load(Ordering::SeqCst) {
+            // …and neither may its background work. v2 stops a session's tasks
+            // as an explicit step of closing it (`IAgentTaskService.stopAllOnExit
+            // ('Session closed')`, `agentLifecycleService.ts:629`). The runner is
+            // process-wide, so the tasks have to be named here: without this a
+            // disposed session's background bash and subagents keep running
+            // (ROADMAP §15 D2). The pump is the right place for it — it is the
+            // engine's own teardown point and already runs on the runtime.
+            if let (Some(runner), Some(session_id)) = (&ctx.task_runner, &ctx.session_id) {
+                runner
+                    .stop_session(session_id, Some("Session closed"))
+                    .await;
+            }
             return;
         }
         // Start the next runnable turn when idle. Cancelled entries are
@@ -2267,6 +2279,62 @@ mod tests {
             session.history_len(),
             1,
             "history stays readable until drop"
+        );
+    }
+
+    /// The pump's teardown also stops the session's background work: v2 does
+    /// it as an explicit close step (`stopAllOnExit('Session closed')`), and
+    /// the runner is process-wide, so nothing else can reach those tasks
+    /// (ROADMAP §15 D2). Removing the `stop_session` call in `pump` makes this
+    /// red, which is the point: the primitive has its own tests, but a tested
+    /// primitive with an unwired caller is exactly the "logic tested, wiring
+    /// not" gap §10.44 records.
+    #[tokio::test]
+    async fn shutdown_stops_the_sessions_background_tasks() {
+        let runner = Arc::new(crate::storage::TaskRunner::new(None));
+        runner
+            .spawn_task_with_meta(
+                crate::storage::TaskSpawnMeta {
+                    session_id: Some("sess-pump"),
+                    kind: "bash",
+                    subagent_type: None,
+                    agent_id: None,
+                },
+                "task-pump".into(),
+                "background".into(),
+                std::future::pending::<crate::storage::TaskOutcome>(),
+            )
+            .unwrap();
+        assert!(runner.entry("task-pump").unwrap()["stopReason"].is_null());
+
+        let server = Arc::new(RpcServer::new());
+        let config = SessionConfig {
+            llm: Arc::new(ScriptedLlm::simple(Vec::new())),
+            callbacks: rpc_callbacks(server),
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            tool_defs: Arc::new(|| Box::pin(async { Vec::new() })),
+            goal: None,
+            on_before_turn: None,
+            agent_cancel_slot: None,
+            steer_slot: None,
+            hook_guard: None,
+            print_background: None,
+            session_id: Some("sess-pump".into()),
+            task_runner: Some(runner.clone()),
+            toolset: None,
+            telemetry: None,
+        };
+        let session = EngineSession::new(config).await;
+
+        session.shutdown();
+        wait_until(|| !runner.entry("task-pump").unwrap()["stopReason"].is_null()).await;
+        assert_eq!(
+            runner.entry("task-pump").unwrap()["stopReason"],
+            "Session closed"
         );
     }
 

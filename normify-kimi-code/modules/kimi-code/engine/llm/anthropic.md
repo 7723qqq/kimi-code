@@ -10,8 +10,8 @@ description:
   en: >
       Anthropic Messages protocol adapter: request shaping, thinking passthrough and stream mapping.
       
-revision: 67ba21094b198c6b3276a9e9650565e17f1d9d40
-updated_at: "2026-10-03T15:32:22.787Z"
+revision: 18c71cdd8583b337dd80efc94225c9033f341f42
+updated_at: "2026-10-03T16:26:56.322Z"
 fingerprint: 5fd4a404350be30b65ecfdaa47b850da10bc19a9022bee2c2c6e7d1c542f500f
 source:
   - path: "packages/kimi-agent/src/llm/anthropic.rs"

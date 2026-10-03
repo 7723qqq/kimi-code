@@ -10,8 +10,8 @@ description:
   en: >
       The host-side SDK: native RPC client, session facade, plugin/skill/MCP facades and config resolution.
       
-revision: 67ba21094b198c6b3276a9e9650565e17f1d9d40
-updated_at: "2026-10-03T15:32:22.808Z"
+revision: 18c71cdd8583b337dd80efc94225c9033f341f42
+updated_at: "2026-10-03T16:26:56.354Z"
 fingerprint: b8ad737f28c80932f2afb89a961a5204f926ff5e2b91ef110032f46d015c8248
 source:
   - path: "packages/node-sdk/src/native/sdk-rpc-client-native.ts"

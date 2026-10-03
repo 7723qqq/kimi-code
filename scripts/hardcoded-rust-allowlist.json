@@ -4364,6 +4364,12 @@
       "text": "<cron-fire jobId=\"{}\" cron=\"{}\" recurring=\"{}\" coalescedCount=\"{coalesced_count}\" stale=\"{stale}\"> <prompt> {} </prompt> </cron-fire>",
       "reason": "deferred"
     },
+    "packages/kimi-agent/src/session/mod.rs:Session closed": {
+      "file": "packages/kimi-agent/src/session/mod.rs",
+      "text": "Session closed",
+      "reason": "wire-token",
+      "note": "v2 stopAllOnExit wording; lands on the task entry as stopReason (ROADMAP §16)"
+    },
     "packages/kimi-agent/src/session/mod.rs:Step request requires an active turn": {
       "file": "packages/kimi-agent/src/session/mod.rs",
       "text": "Step request requires an active turn",
@@ -4688,6 +4694,12 @@
       "file": "packages/kimi-agent/src/storage/state_store.rs",
       "text": "write tmp file {}: {e}",
       "reason": "deferred"
+    },
+    "packages/kimi-agent/src/storage/task_runner.rs:Session closed": {
+      "file": "packages/kimi-agent/src/storage/task_runner.rs",
+      "text": "Session closed",
+      "reason": "wire-token",
+      "note": "v2 stopAllOnExit wording; lands on the task entry as stopReason (ROADMAP §16)"
     },
     "packages/kimi-agent/src/storage/task_runner.rs:Stopped by TaskStop": {
       "file": "packages/kimi-agent/src/storage/task_runner.rs",

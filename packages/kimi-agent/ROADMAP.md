@@ -8256,3 +8256,51 @@ D1 是契约问题，会让每个"close 之后删数据目录"的宿主动作都
 | runner 是进程级 | `src/storage/task_runner.rs:1007-1008` |
 | v2 的 await 序列 | `.tmp/v2-ref-upstream` 的 `session/agentLifecycle/agentLifecycleService.ts:612-649` |
 | v2 的 disposeAsync | 同文件 `:324,357,532`；以及 `createAwaitingClose.ts` |
+
+## 16. 2026-10-03 §15 D2 落地：会话关闭现在会停掉自己的后台任务
+
+§15 登记了 D1/D2。这一节落 **S2**——D2 的修复，以及它的**接线测试**。
+
+### 16.1 落地内容
+
+- `src/storage/task_runner.rs` 新增 `TaskRunner::stop_session(session_id, reason)`：在**一把锁**下把该会话
+  所有运行中任务标记（`stop_reason` 默认 `"Session closed"`，v2 的原话）并置 cancel + notify，然后
+  **只等一个 grace**（`kill_grace`）而不是每个任务各等一次——否则一个永不 yield 的任务会拖住其余任务的停止。
+  已终态的任务不碰（`stop_reason` 永不被覆盖，沿用 `stop()` 的契约）；`session_id: None` 的任务
+  不会被任何 `stop_session` 命中；返回被标记的 id（无序）。
+- `src/session/mod.rs` 的 `pump` 关闭出口接线（`:1006` 起）：
+
+  ```rust
+  if let (Some(runner), Some(session_id)) = (&ctx.task_runner, &ctx.session_id) {
+      runner.stop_session(session_id, Some("Session closed")).await;
+  }
+  ```
+
+  **为什么落在这里而不是 napi 的 `session_dispose`**：① pump 本来就在 tokio 运行时上——`session_dispose`
+  是**同步** napi 函数，在里面 `tokio::spawn` 没有运行时上下文会 panic，而走 `env.execute_tokio_future`
+  就要改 `sessionDispose` 的返回类型，牵动契约与生成包装；② pump 的关闭出口注释本来就写着
+  "a disposed session's pump must not outlive it"——它**已经是**引擎自己的拆卸点；③ 这里同时拿得到
+  `task_runner` 与 `session_id`。
+
+### 16.2 测试与变异验证
+
+- `storage::task_runner` 三项新测试：只停自己会话的任务（别的会话仍 `running` 且 `stopReason` 为 null）、
+  无主任务不被误停、已有 reason 不被覆盖。
+- `session::tests::shutdown_stops_the_sessions_background_tasks`：给会话装上 runner + session id 与一个
+  pending 任务，`shutdown()` 后断言该任务的 `stopReason` 变成 `"Session closed"`。
+  **变异验证**：删掉 pump 里那次 `stop_session` 调用 → 该测试 **FAILED**（`condition not met after yield loop`），
+  而既有的 `shutdown_releases_the_pump_and_the_conversation` 仍通过。即**接线确实被测住**——
+  这正是 §10.44 记的"逻辑被测、接线没测"那一类。
+
+### 16.3 仍未做：D1 的另一半
+
+**D1 本身没修**：`dispose()` 的契约仍是"已请求"而非"已释放"。上面那次 stop 发生在 **pump 内部**，
+宿主 `await handle.dispose()` **不会**等它结束。要让契约成立需要 §15.8 的 S1：pump 在真正 drop 掉
+`Core` 之后发一个可等待的确认，napi 侧暴露该确认、TS 侧 await 它。
+（本条不改 `napi-contract.d.ts`，因此 `check:parity` 不受影响。）
+
+### 16.4 验证
+
+- `cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -- -D warnings` ✅
+- `cargo test --no-default-features --features cli --lib` **3209 passed / 0 failed**（+4）
+- 指纹随之刷新（`kimi-agent` 模块）
