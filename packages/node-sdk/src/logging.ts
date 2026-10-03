@@ -6,21 +6,22 @@
  * `Logger` & friends) without importing `agent-core`; keep it byte-identical
  * to the v1 original.
  *
- * Trimmed vs the v1 original: the per-session log routing
- * (`RootLogger.attachSession` and the session-sink machinery) is dropped —
- * nothing in the SDK surface attaches session logs after the v1 client's
- * removal, so entries carrying a `sessionId` context fall through to the
- * global sink exactly like v1's un-routed entries. `resolveGlobalLogPath` /
- * `resolveLoggingConfig` are localized here as well (identical shape and
- * values); `pathe` → `node:path`.
+ * Per-session log routing is back (it was dropped, then restored once a real
+ * consumer appeared): `RootLogger.attachSession` binds a session directory to
+ * its own rotating sink at `<sessionDir>/logs/kimi-code.log`, which `apps/vis`
+ * reads via `routes/logs.ts`'s `SESSION_LOG_REL`. Measured before the restore:
+ * all 180 session directories under `~/.kimi-code/sessions/` held only
+ * `history.jsonl` and `session-meta.json`, so the Logs tab's session view had
+ * nothing to show.
  *
- * That trade is no longer free. `apps/vis` reads `<sessionDir>/logs/kimi-code.log`
- * (`routes/logs.ts`'s `SESSION_LOG_REL`, rendered by `LogsTab.tsx`) and shows an
- * empty panel because nothing writes it: measured 2026-10-03, all 180 session
- * directories under `~/.kimi-code/sessions/` hold only `history.jsonl` and
- * `session-meta.json`. Restoring v1's `attachSession` — either/or routing: a
- * session-routed entry goes to the session sink and *not* to the global one — is
- * specified in ROADMAP §10.32.
+ * `emit` is either/or, as in the v1 original: a session-routed entry goes to the
+ * session sink (with `sessionId` — and `agentId` for `main` — omitted, since the
+ * id is already in the filename) and *not* to the global one. Routing is resolved
+ * by the handle's own `logId` when the entry carries one, and otherwise only when
+ * the id maps to exactly one open entry.
+ *
+ * `resolveGlobalLogPath` / `resolveLoggingConfig` are localized here as well
+ * (identical shape and values); `pathe` → `node:path`.
  */
 import { appendFileSync, closeSync, fsyncSync, mkdirSync, openSync } from 'node:fs';
 import { mkdir, open, rename, stat, unlink } from 'node:fs/promises';
@@ -81,10 +82,38 @@ export interface LoggingConfig {
   readonly sessionFiles: number;
 }
 
+/**
+ * Handle to one session's log sink, returned by `RootLogger.attachSession`.
+ *
+ * `logger` is bound to the session, so anything logged through it lands in
+ * `<sessionDir>/logs/kimi-code.log` instead of the global file — see the
+ * either/or rule in `RootLoggerImpl.emit`.
+ */
+export interface SessionLogHandle {
+  readonly logger: Logger;
+  flush(): Promise<void>;
+  close(): Promise<void>;
+}
+
+export interface SessionAttachInput {
+  readonly sessionId: string;
+  readonly sessionDir: string;
+}
+
 export interface RootLogger {
   configure(config: LoggingConfig): Promise<void>;
+  /**
+   * Bind a session directory to its own rotating sink. Attaching the same
+   * `(sessionId, sessionDir)` twice returns the same open entry with its
+   * reference count raised; `close()` on the handle drops one reference.
+   */
+  attachSession(input: SessionAttachInput): SessionLogHandle;
   /** False if any sink could not flush its pending batch. */
   flush(): Promise<boolean>;
+  /** False if the global sink could not flush; true when there is no global sink. */
+  flushGlobal(): Promise<boolean>;
+  /** False if the session sink could not flush; true when there is no active sink. */
+  flushSession(sessionId: string): Promise<boolean>;
   flushSync(): void;
   isConfigured(): boolean;
   getConfig(): LoggingConfig | undefined;
@@ -104,9 +133,30 @@ export function levelEnabled(threshold: LogLevel, level: Exclude<LogLevel, 'off'
 
 const ROOT_SYMBOL = Symbol.for('kimi.logger.root');
 
+/**
+ * Internal context key carrying a handle's `logId`. It travels inside the
+ * bound context of the logger `attachSession` hands out, and `emitAt` strips it
+ * from the entry's visible ctx so it can never reach a formatter or a redactor.
+ */
+const SESSION_LOG_ID = Symbol('kimi.logger.sessionLogId');
+
+type InternalLogContext = LogContext & { [SESSION_LOG_ID]?: unknown };
+
+interface SessionEntry {
+  readonly logId: string;
+  readonly sessionId: string;
+  readonly sessionDir: string;
+  readonly sink: RotatingFileSink;
+  state: 'open' | 'closing';
+  closePromise: Promise<void> | undefined;
+  refCount: number;
+}
+
 class RootLoggerImpl implements RootLogger {
   private config: LoggingConfig | undefined;
   private globalSink: RotatingFileSink | undefined;
+  private readonly sessions = new Map<string, SessionEntry>();
+  private readonly sessionsById = new Map<string, Set<string>>();
 
   isConfigured(): boolean {
     return this.config !== undefined;
@@ -126,13 +176,64 @@ class RootLoggerImpl implements RootLogger {
     return oldGlobalSink?.close() ?? Promise.resolve();
   }
 
+  attachSession(input: SessionAttachInput): SessionLogHandle {
+    const existing = this.findOpenSession(input.sessionId, input.sessionDir);
+    if (existing !== undefined) {
+      existing.refCount += 1;
+      return makeHandle(existing);
+    }
+    const config = this.config;
+    if (config === undefined || config.level === 'off') {
+      return makeNoopHandle(input.sessionId);
+    }
+    const sink = new RotatingFileSink({
+      path: join(input.sessionDir, 'logs', 'kimi-code.log'),
+      maxBytes: config.sessionMaxBytes,
+      files: config.sessionFiles,
+    });
+    const entry: SessionEntry = {
+      logId: 'session-log-' + String(++nextSessionLogId),
+      sessionId: input.sessionId,
+      sessionDir: input.sessionDir,
+      sink,
+      state: 'open',
+      closePromise: undefined,
+      refCount: 1,
+    };
+    this.sessions.set(entry.logId, entry);
+    this.trackSessionId(entry);
+    return makeHandle(entry);
+  }
+
   async flush(): Promise<boolean> {
+    const tasks: Promise<boolean>[] = [];
+    if (this.globalSink !== undefined) tasks.push(this.globalSink.flush());
+    for (const entry of this.sessions.values()) tasks.push(this.flushEntry(entry));
+    if (tasks.length === 0) return true;
+    const results = await Promise.all(tasks);
+    return results.every(Boolean);
+  }
+
+  async flushGlobal(): Promise<boolean> {
     if (this.globalSink === undefined) return true;
     return this.globalSink.flush();
   }
 
+  async flushSession(sessionId: string): Promise<boolean> {
+    const entries = this.getEntriesForSessionId(sessionId);
+    if (entries.length === 0) return true;
+    const results = await Promise.all(entries.map((entry) => this.flushEntry(entry)));
+    return results.every(Boolean);
+  }
+
   flushSync(): void {
+    const deadline = Date.now() + 200;
     this.globalSink?.flushSync();
+    for (const entry of this.sessions.values()) {
+      if (entry.state !== 'open') continue;
+      if (Date.now() > deadline) break;
+      entry.sink.flushSync();
+    }
   }
 
   emit(entry: LogEntry): void {
@@ -140,19 +241,157 @@ class RootLoggerImpl implements RootLogger {
     if (config === undefined || config.level === 'off') return;
     if (!levelEnabled(config.level, entry.level)) return;
 
+    // Either/or, never both: a session-routed entry belongs to the session
+    // file, and mirroring every one of them into the global file would double
+    // the disk cost of whichever sink sees the most traffic.
+    const session = this.resolveSessionEntry(entry);
+    if (session !== undefined) {
+      const formatted = formatEntry(entry, {
+        omitContextKeys: llmRequestSessionLogOmittedKeys(entry),
+      });
+      if (!formatted.dropped) session.sink.enqueue(formatted.text + '\n');
+      return;
+    }
+
     const formatted = formatEntry(entry);
     if (formatted.dropped) return;
     this.globalSink?.enqueue(formatted.text + '\n');
+  }
+
+  detachSession(logId: string): Promise<void> {
+    const entry = this.sessions.get(logId);
+    if (entry === undefined) return Promise.resolve();
+    if (entry.state === 'closing') return entry.closePromise ?? Promise.resolve();
+    entry.refCount -= 1;
+    if (entry.refCount > 0) return Promise.resolve();
+    entry.state = 'closing';
+    entry.closePromise = entry.sink.close().finally(() => {
+      if (this.sessions.get(logId) === entry) {
+        this.sessions.delete(logId);
+        this.untrackSessionId(entry);
+      }
+    });
+    return entry.closePromise;
   }
 
   /** @internal — vitest only. */
   async __shutdownForTest(): Promise<void> {
     const closes: Promise<void>[] = [];
     if (this.globalSink !== undefined) closes.push(this.globalSink.close());
+    for (const entry of this.sessions.values()) {
+      if (entry.state === 'closing') {
+        if (entry.closePromise !== undefined) closes.push(entry.closePromise);
+      } else {
+        entry.state = 'closing';
+        entry.closePromise = entry.sink.close();
+        closes.push(entry.closePromise);
+      }
+    }
+    this.sessions.clear();
+    this.sessionsById.clear();
     this.globalSink = undefined;
     this.config = undefined;
     await Promise.allSettled(closes);
   }
+
+  private findOpenSession(sessionId: string, sessionDir: string): SessionEntry | undefined {
+    for (const entry of this.getEntriesForSessionId(sessionId)) {
+      if (entry.sessionDir === sessionDir && entry.state === 'open') return entry;
+    }
+    return undefined;
+  }
+
+  private trackSessionId(entry: SessionEntry): void {
+    const ids = this.sessionsById.get(entry.sessionId) ?? new Set<string>();
+    ids.add(entry.logId);
+    this.sessionsById.set(entry.sessionId, ids);
+  }
+
+  private untrackSessionId(entry: SessionEntry): void {
+    const ids = this.sessionsById.get(entry.sessionId);
+    if (ids === undefined) return;
+    ids.delete(entry.logId);
+    if (ids.size === 0) this.sessionsById.delete(entry.sessionId);
+  }
+
+  private getEntriesForSessionId(sessionId: string): SessionEntry[] {
+    const ids = this.sessionsById.get(sessionId);
+    if (ids === undefined) return [];
+    return [...ids]
+      .map((id) => this.sessions.get(id))
+      .filter((entry): entry is SessionEntry => entry !== undefined);
+  }
+
+  private resolveSessionEntry(entry: LogEntry): SessionEntry | undefined {
+    if (entry.sessionLogId !== undefined) {
+      const session = this.sessions.get(entry.sessionLogId);
+      return session?.state === 'open' ? session : undefined;
+    }
+    if (entry.sessionId === undefined) return undefined;
+    // Ambiguous once the same id is attached under more than one directory;
+    // only the handle's own logger can disambiguate, via sessionLogId.
+    const openEntries = this.getEntriesForSessionId(entry.sessionId).filter(
+      (item) => item.state === 'open',
+    );
+    return openEntries.length === 1 ? openEntries[0] : undefined;
+  }
+
+  private async flushEntry(entry: SessionEntry): Promise<boolean> {
+    if (entry.state === 'closing') {
+      await entry.closePromise;
+      return true;
+    }
+    return entry.sink.flush();
+  }
+}
+
+/** Session ids are in the filename, so the per-session file need not repeat them. */
+const LLM_REQUEST_SESSION_LOG_OMITTED_CONTEXT_KEYS = ['sessionId'];
+const MAIN_LLM_REQUEST_SESSION_LOG_OMITTED_CONTEXT_KEYS = ['sessionId', 'agentId'];
+
+let nextSessionLogId = 0;
+
+function llmRequestSessionLogOmittedKeys(entry: LogEntry): readonly string[] {
+  return entry.ctx?.['agentId'] === 'main'
+    ? MAIN_LLM_REQUEST_SESSION_LOG_OMITTED_CONTEXT_KEYS
+    : LLM_REQUEST_SESSION_LOG_OMITTED_CONTEXT_KEYS;
+}
+
+function makeHandle(entry: SessionEntry): SessionLogHandle {
+  let closed = false;
+  return {
+    logger: log.createChild({
+      sessionId: entry.sessionId,
+      [SESSION_LOG_ID]: entry.logId,
+    } as LogContext),
+    async flush() {
+      if (entry.state === 'closing') {
+        await entry.closePromise;
+      } else {
+        await entry.sink.flush();
+      }
+    },
+    async close() {
+      if (closed) return;
+      closed = true;
+      await getRootInternal().detachSession(entry.logId);
+    },
+  };
+}
+
+function makeNoopHandle(sessionId: string): SessionLogHandle {
+  return {
+    logger: log.createChild({ sessionId }),
+    async flush() {},
+    async close() {},
+  };
+}
+
+function stripInternalCtx(ctx: LogContext | undefined): LogContext | undefined {
+  if (ctx === undefined) return undefined;
+  if (!(SESSION_LOG_ID in ctx)) return ctx;
+  const { [SESSION_LOG_ID]: _internal, ...visible } = ctx as InternalLogContext;
+  return visible;
 }
 
 function getRootInternal(): RootLoggerImpl {
@@ -210,13 +449,15 @@ class LoggerImpl implements Logger {
       // Bound ctx wins so call-site can't overwrite ownership fields.
       const ctx = mergeCtx(payloadCtx, this.boundCtx);
       const sessionId = ctx?.['sessionId'];
+      const sessionLogId = (ctx as InternalLogContext | undefined)?.[SESSION_LOG_ID];
       root.emit({
         t: Date.now(),
         level,
         msg: message,
-        ctx,
+        ctx: stripInternalCtx(ctx),
         error,
         sessionId: typeof sessionId === 'string' ? sessionId : undefined,
+        sessionLogId: typeof sessionLogId === 'string' ? sessionLogId : undefined,
       });
     } catch {
       // Diagnostic logging is best-effort and must never affect main control flow.

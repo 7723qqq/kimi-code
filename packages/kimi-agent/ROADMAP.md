@@ -4684,7 +4684,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 | **14 个未触发的 hook 事件** | **missing（性价比最高）** | `features/externalHooks/internal/types.ts:3-24` 共 20 种事件类型 | fork 只触发 6 种（`PreToolUse`/`PostToolUse`/`PostToolUseFailure`/`UserPromptSubmit`/`Stop` + `PreCompact`、`SessionStart`/`SessionEnd`）。缺 14 种，每个在上游都有活的触发点：`PermissionRequest`/`PermissionResult`（`agentExternalHooksService.ts:181,187`）、`TurnStarted`（`:224`）、`TaskStarted`（`:288`）、`Interrupt`（`:392`）、`StopFailure`（`:399`）、`PostCompact`（`:439`）、`Notification`（`:451`）、`UserPromptQueued`（`:205`）、`SessionHeartbeat`（`sessionExternalHooksService.ts:101,143-144`）、`SubagentStart`/`SubagentStop`（`:157,172`）。**全部是 fire-and-forget / 只观察**（从不否决），且 fork 现有 `HookGuard::notify_session_lifecycle`（`external_hooks.rs:321`）已接受任意事件名——**一个通用入口即可覆盖 14 个事件** |
 | `SessionOutcomeMirror` 的持久化 | missing | `session/sessionActivity/sessionOutcomeMirrorService.ts:130-147` | fork 把 `last_turn_reason` 作为**活事件**发布（`server/engine.rs:832-844`）却从不写进持久化的会话元数据；v2 有 `metadata.update({lastTurnReason})`。线形字段已在 `packages/protocol/src/session.ts:112` 但无写入方 |
 | `PermissionRuleScope` / `recordApprovalResult` | partial | `agent/permissionRules/permissionRules.ts:16`、`permissionRulesService.ts:45-52` | `PermissionRuleScope` 有 4 档（`turn-override`/`session-runtime`/`project`/`user`），`recordApprovalResult` 把类型化的 `PermissionApprovalResultRecord` 写进 agent state。fork 的 `session_approvals: Vec<String>`（`permission/mod.rs:152`）是扁平模式表，**无 turn-override 作用域、不记录审批结果**——谁批了什么决定不留痕。这是「单 `permission/mod.rs` 已正确合并三个目录」这一说法的**唯一不完整处** |
-| `sessionLogService` | missing | `session/sessionLog/sessionLogService.ts:23-67`、`_base/log/logConfig.ts:37-39` | 见 6.42.5。**补充本轮核实**：这是**两个东西**——`_base/log/fileLog.ts` 是可复用的轮转写入器（基础设施），`sessionLogService.ts` 只是把它绑到 `sessionDir/logs/kimi-code.log` 的薄 DI 绑定（每会话一份）。fork 两者皆无，**但消费方还在**：`apps/vis/server/src/routes/logs.ts:8,21,31` 硬编码 `SESSION_LOG_REL` 提供该文件，`apps/vis/web/src/components/logs/LogsTab.tsx:44` 渲染它——**Logs 标签页是死的**。另 `packages/node-sdk/src/logging.ts:787-789` 仍导出 `resolveSessionLogPath`（零调用方），而其 `:791-813` 仍解析全部五个 `KIMI_LOG_*` 环变（含两个 session 专用的 `KIMI_LOG_SESSION_MAX_BYTES`/`KIMI_LOG_SESSION_FILES`），其文件头 `:9-15` 却声称「per-session log routing 已丢弃」——**这个注释现在在一个方向上是错的** |
+| `sessionLogService` | **本轮已补**（§10.33） | `session/sessionLog/sessionLogService.ts:23-67`、`_base/log/logConfig.ts:37-39` | 见 6.42.5。**补充本轮核实**：这是**两个东西**——`_base/log/fileLog.ts` 是可复用的轮转写入器（基础设施），`sessionLogService.ts` 只是把它绑到 `sessionDir/logs/kimi-code.log` 的薄 DI 绑定（每会话一份）。fork 两者皆无，**但消费方还在**：`apps/vis/server/src/routes/logs.ts:8,21,31` 硬编码 `SESSION_LOG_REL` 提供该文件，`apps/vis/web/src/components/logs/LogsTab.tsx:44` 渲染它——**该标签页的会话视图此前是死的**（2026-10-03 已接线，见 §10.33）。另 `packages/node-sdk/src/logging.ts:787-789` 仍导出 `resolveSessionLogPath`（零调用方），而其 `:791-813` 仍解析全部五个 `KIMI_LOG_*` 环变（含两个 session 专用的 `KIMI_LOG_SESSION_MAX_BYTES`/`KIMI_LOG_SESSION_FILES`），其文件头 `:9-15` 却声称「per-session log routing 已丢弃」——**这个注释现在在一个方向上是错的** |
 | `agent/command` 的可扩展性 | partial | `agent/command/commandContribution.ts:4-13` | fork 有 slash 命令**派发**（REPL/宿主侧，含 `configInvalidSlashCommand`/`configUnknownSlashCommand`），但 v2 的 `CommandContribution` **注册表**（扩展缝）无对应——fork 的 slash 命令不能从引擎外部插拔 |
 | `agent/scopeContext` 的 `forkedFrom` | partial | `agent/scopeContext/scopeContext.ts:9-16` | `agentId` 已移植；**`forkedFrom?: string` 全仓零命中**——fork 的 subagent 溯源不在 agent context 上携带 |
 | `errors.ts` 错误码覆盖 | partial | `packages/agent-core-v2/src/errors.ts:112-241`（约 130 码） | `packages/node-sdk/src/error-protocol/error-codes.ts:11-84` 载有 62/130。缺 `fs.*`(10)、`os.fs.*`(8)、`os.process.*`(2)、`storage.*`(7)、`wire.*`(4)、`agent.*`(6)、`session.export_*`(2)、`auth.*`(3)、`provider.overloaded`(1) 等。`server/envelope.rs:8-49` 是**另一套**分类法（整数 HTTP 模拟，仅 25 码），不算缺口。fork 另**新增**了 `fs.path_escapes_session`、`fs.watch_limit_exceeded`、`internal.error`、`persistence.failure`、`tool.*`（fork 自创，无 v2 出处） |
@@ -6923,7 +6923,7 @@ Web 客户端拿到的 bundle 没有 manifest、没有日志，而同一台机�
 **仍未做**：会话级日志接线（`resolveSessionLogPath` 无调用方，见 §10.30 残余 (a)，已另有 `sessionLogService` 条目）；
 以及引擎侧**不可能**复刻的会话树遍历。
 
-### 10.32 §6.45 P1-7 残余（a）前置界定：会话级日志接线的完整规格（2026-10-03，**未开工**）
+### 10.32 §6.45 P1-7 残余（a）前置界定：会话级日志接线的完整规格（2026-10-03，**已落地，见 §10.33**）
 
 §10.30 的残余 (a)：`resolveSessionLogPath` 无调用方，故 `<sessionDir>/logs/kimi-code.log` 从不产生。
 本轮把**规格核到可以直接施工**，但**没有动手**——这是一次跨两文件、含 handle 生命周期的移植，
@@ -6969,3 +6969,45 @@ Web 客户端拿到的 bundle 没有 manifest、没有日志，而同一台机�
 2. `logging.ts:9-15` 的文件头说「nothing in the SDK surface attaches session logs」——**对代码为真、对后果不完整**：
    消费方 `apps/vis` 一直在等这个文件。已就地在文件头补记该消费方与实测数据，避免下一个人读到「故意丢弃、
    因此无妨」就跳过。
+
+### 10.33 §6.45 P1-7 残余（a）落地：会话级日志接线（2026-10-03）
+
+按 §10.32 的规格实现。**根因是宿主层单方面丢弃了 v1 的 per-session 路由**，而消费方一直在等：
+`apps/vis` 的 `SESSION_LOG_REL` 与 `LogsTab.tsx`。实测开工前 180 个会话目录**全部**没有 `logs/`。
+
+**`packages/node-sdk/src/logging.ts`（基础设施早已在，只差绑定）**：
+
+- 恢复 `SessionLogHandle` / `SessionAttachInput` 类型与 `RootLogger` 的 `attachSession` / `flushGlobal` /
+  `flushSession`；`RootLoggerImpl` 恢复 `sessions`（按 logId）与 `sessionsById`（按 sessionId）两张表，
+  以及 `findOpenSession` / `trackSessionId` / `untrackSessionId` / `getEntriesForSessionId` /
+  `resolveSessionEntry` / `flushEntry` / `detachSession`。
+- `attachSession` 在 `(sessionId, sessionDir)` 已开着时**复用并 `refCount += 1`**；新建时用既有
+  `RotatingFileSink` 指向 `<sessionDir>/logs/kimi-code.log`，容量取 `sessionMaxBytes` / `sessionFiles`
+  （5MB×3，`resolveLoggingConfig` 本来就在解析这两个环变）；level 为 `off` 时返回 **no-op handle**。
+- **`emit` 改为 v1 的「二选一」**：命中会话就只写会话 sink（并按 `omitContextKeys` 省去 `sessionId`，
+  `agentId === 'main'` 时连 `agentId` 一起省——id 已在文件名里），**不写全局**。这一点是本条最容易被
+  写错的地方，故用变异测试钉住（见下）。
+- `emitAt` 从绑定上下文里取内部符号键 `SESSION_LOG_ID` 得到 `sessionLogId`，并用 `stripInternalCtx`
+  把它从可见 ctx 里剥掉——否则内部句柄会渗进格式化器与脱敏层。
+- `flush` / `flushSync`（200ms 预算）带上全部会话 sink；`__shutdownForTest` 一并清理两张表。
+
+**`sdk-rpc-client-native.ts`（真正让文件出现的那一步）**：句柄挂在 `NativeSessionMeta.logHandle` 上，
+由一对私有方法管理——`attachSessionLog`（**按 meta 幂等**，避免 create 后 resume 同一 id 把 refCount
+抬到 2 再在首次 close 时泄漏一个 sink）与 `detachSessionLog`。接线点为**两处** `liveSessions.set`
+（创建 `:1444`、恢复 `:2506`）与**四处**拆除：创建失败的**回滚**、`deleteSession`、`closeSession`、
+以及 `close()` 的循环——最后这处必须在 `liveSessions.clear()` **之前**关闭，否则清表后就没有引用能触达
+那个 sink，缓冲里的行会留在原地。
+
+**刻意不动**：`rebuildHandle`（`:5641`）只替换引擎句柄、会话仍然存活，故**不** detach——在那里断开会让
+一次模型切换就把会话日志切没。
+
+**既有测试需要改，而这是应当的**：`local-logging.test.ts` 原有一条
+`session-tagged entries land in the global log (no per-session SDK sinks anymore)` **正是钉住被丢弃行为**的
+用例。按新语义改写为「会话条目进会话日志、**不进**全局，且行内不重复 sessionId」；另补一条句柄用例
+（`attachSession` → 经 `handle.logger` 写入 → `close()` 后不再落盘）。
+
+**变异验证**：把 `emit` 的会话分支末尾 `return` 去掉（即「两边都写」），
+`session-tagged entries land in the session log, not the global one` 立刻失败——二选一规则真的被钉住了。
+
+**验证**：`bun run typecheck` ✅｜`bun run lint` 0 error（4235 warnings 基线）✅｜
+`packages/node-sdk` 套件 **40 文件 / 376 passed**（原 375）✅｜15 道门禁 ✅。

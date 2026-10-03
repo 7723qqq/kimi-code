@@ -100,7 +100,13 @@ import type { QuestionItem, ToolInputDisplay } from '#/events';
 import { ImageLimits } from '#/image-limits';
 import { KimiHarness } from '#/kimi-harness';
 import { ErrorCodes, KimiError } from '#/error-protocol';
-import { flushDiagnosticLogs, getRootLogger, log, resolveLoggingConfig } from '#/logging';
+import {
+  flushDiagnosticLogs,
+  getRootLogger,
+  log,
+  resolveLoggingConfig,
+  type SessionLogHandle,
+} from '#/logging';
 import {
   SDKRpcClientBase,
   type ActivatePluginCommandRpcInput,
@@ -1043,6 +1049,12 @@ interface NativeSessionMeta {
   agentFiles?: readonly string[];
   activeAgentId?: string;
   handle?: EngineSessionHandle;
+  /**
+   * This session's own log sink. Attached when the session becomes live and
+   * closed when it stops being live, so `<sessionDir>/logs/kimi-code.log`
+   * exists for exactly as long as the session does.
+   */
+  logHandle?: SessionLogHandle;
   agents?: Record<string, AgentMeta>;
 }
 
@@ -1311,6 +1323,27 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
   readonly skillDirs: readonly string[];
 
   private readonly liveSessions = new Map<string, NativeSessionMeta>();
+
+  /**
+   * Bind the session's log sink. Idempotent per meta, so a create followed by
+   * a resume of the same id cannot raise the sink's reference count twice and
+   * then leak it on the first close.
+   */
+  private attachSessionLog(meta: NativeSessionMeta): void {
+    if (meta.logHandle !== undefined) return;
+    meta.logHandle = getRootLogger().attachSession({
+      sessionId: meta.id,
+      sessionDir: meta.sessionDir,
+    });
+  }
+
+  /** Release it; a failure to flush must not stop the session from closing. */
+  private async detachSessionLog(meta: NativeSessionMeta): Promise<void> {
+    const handle = meta.logHandle;
+    meta.logHandle = undefined;
+    if (handle === undefined) return;
+    await handle.close().catch(() => {});
+  }
   private readonly sessionBaseDir: string;
   /** Set once `initPluginStore` has opened the engine's plugin registry. */
   private pluginStoreReady = false;
@@ -1442,6 +1475,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     if (input.thinking !== undefined) meta.thinkingEffort = input.thinking;
     if (input.permission !== undefined) meta.permissionMode = input.permission;
     this.liveSessions.set(sessionId, meta);
+    this.attachSessionLog(meta);
 
     try {
       // An unresolvable `--agent` must fail loudly at creation: silently
@@ -1451,6 +1485,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     } catch (error) {
       // Do not leave a handle-less session advertised as live.
       this.liveSessions.delete(sessionId);
+      await this.detachSessionLog(meta);
       throw error;
     }
     this.persistMeta(meta);
@@ -2504,6 +2539,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       };
       meta = created;
       this.liveSessions.set(sessionId, created);
+      this.attachSessionLog(created);
       // A binding is validated at first create; on resume it is restored, not
       // re-litigated. A profile whose file has since been deleted warns and
       // falls back to the engine default rather than bricking the session.
@@ -3041,6 +3077,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       await meta.handle.dispose().catch(() => {});
     }
     this.liveSessions.delete(input.sessionId);
+    if (meta !== undefined) await this.detachSessionLog(meta);
     // The live handle is gone, but the directory is what `listSessions`
     // enumerates: swallowing a failed removal told the caller the delete
     // succeeded while the session reappeared in the picker on the next list.
@@ -3059,6 +3096,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // listSessions keep advertising a closed session, and the next prompt would
     // enqueue a turn onto a freed native session id.
     this.liveSessions.delete(input.sessionId);
+    if (meta !== undefined) await this.detachSessionLog(meta);
   }
 
   override async prompt(input: SessionPromptRpcInput): Promise<void> {
@@ -6104,6 +6142,10 @@ private renderProjectSkillPrompt(
       if (meta.handle) {
         await meta.handle.dispose().catch(() => {});
       }
+      // Close each session sink while its meta is still in hand: the clear()
+      // below drops the last reference that can reach it, and an unclosed sink
+      // leaves whatever is still buffered on the floor.
+      await this.detachSessionLog(meta);
     }
     this.liveSessions.clear();
     if (this.pluginStoreReady) {

@@ -89,21 +89,55 @@ describe('Local logging — harness integration', () => {
     await harness.close();
   });
 
-  it('session-tagged entries land in the global log (no per-session SDK sinks anymore)', async () => {
+  it('session-tagged entries land in the session log, not the global one', async () => {
     const homeDir = await makeTempDir('kimi-log-home-');
     const workDir = await makeTempDir('kimi-log-work-');
     const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir });
     const session = await harness.createSession({ id: 'ses_logging_int', workDir });
 
-    // The v1 per-session log routing is gone with the v1 client: the SDK
-    // root logger keeps `sessionId` as context on the global entry.
+    // A live session owns a sink of its own. Routing is either/or: the entry
+    // belongs to the session file, and mirroring it into the global file would
+    // double the disk cost of whichever sink carries the most traffic.
     log.warn('session diagnostic', { sessionId: session.id });
     await flushDiagnosticLogs();
 
-    const globalPath = join(homeDir, 'logs', 'kimi-code.log');
-    const text = await readFile(globalPath, 'utf-8');
-    expect(text).toContain('session diagnostic');
-    expect(text).toContain('ses_logging_int');
+    const sessionText = await readFile(
+      join(homeDir, 'sessions', 'ses_logging_int', 'logs', 'kimi-code.log'),
+      'utf-8',
+    );
+    expect(sessionText).toContain('session diagnostic');
+    // The id is already in the filename, so the line must not repeat it — that
+    // is the whole point of `omitContextKeys: ['sessionId']`.
+    expect(sessionText).not.toContain('ses_logging_int');
+
+    const globalText = await readOptionalFile(join(homeDir, 'logs', 'kimi-code.log'));
+    expect(globalText).not.toContain('session diagnostic');
+
+    await harness.close();
+  });
+
+  it('routes by handle, and drops the session sink when the handle closes', async () => {
+    const homeDir = await makeTempDir('kimi-log-home-');
+    const sessionDir = await makeTempDir('kimi-log-session-');
+    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir });
+
+    // Two directories can carry the same id; only the handle's own logger can
+    // say which sink an entry belongs to, and it does so without the caller
+    // naming a sessionId at all.
+    const handle = getRootLogger().attachSession({ sessionId: 'ses_by_handle', sessionDir });
+    handle.logger.warn('through the handle');
+    await handle.flush();
+    expect(await readOptionalFile(join(sessionDir, 'logs', 'kimi-code.log'))).toContain(
+      'through the handle',
+    );
+
+    await handle.close();
+    handle.logger.warn('after close');
+    await handle.flush();
+    expect(await readOptionalFile(join(sessionDir, 'logs', 'kimi-code.log'))).not.toContain(
+      'after close',
+    );
+
     await harness.close();
   });
 
