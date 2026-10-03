@@ -3626,7 +3626,7 @@ provider 的 `FakeRegistry`，而它们测的本来就是 provider 而非 regist
 | §6.23.3 | `a940f2ff04` #4057 | tracked | 权限模式要发 `agent.status.updated`，引擎无该事件、无 `permission` 字段 |
 | §6.23.4 | `09af3b483f` #3998 | tracked | tower 六簇加固 + wake 打断，全部是新面；仅 tmp+rename 判不适用 |
 | §6.23.5 | `e3bf50c083` #4076 | tracked | undo 需按 prompt 归属撤销；fork 的 undo 只按轮数 |
-| §6.23.6 | `395d537237` #4056 | tracked | workspace trust 披露服务已接线（§10.41），`gatedMcpServers` 不再是空的 |
+| §6.23.6 | `395d537237` #4056 | tracked | workspace trust 披露服务**部分**接线（§10.41）；`gatedMcpServers` 不再是空的，但 v2 还有 `additionalDirs`/`warnings`/`instructionSources` 三类未做，且项目 `.mcp.json` 的取路径不对——见 §10.49 |
 | §6.23.7 | `06ebfc821e` #4081 | tracked | hook 输出不入 prompt，且内容块缺 `meta` 契约 |
 
 #### 6.23.1 已完成：`KIMI_CODE_TRUST_WORKSPACE`
@@ -4624,7 +4624,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 |---|---|---|---|
 | **磁盘日志文件**（**仅引擎层**，见 §10.32） | **missing（限引擎）** | `_base/log/fileLog.ts:37-255`（`RotatingFileWriter`：异步串行队列、`PENDING_MAX=1000` 溢出告警、按大小轮转 N 代、目录 fsync）、`logConfig.ts:41-52` | **此行的判定只对引擎自身的 tracing 成立**：`napi_bindings.rs:174-215` 与 `main.rs:1025-1034` 的 `EnvFilter` 确实只写 stderr。**但宿主层有完整实现**——`packages/node-sdk/src/logging.ts` 的 `RotatingFileSink`（`:548`）与 `resolveLoggingConfig`（`:791-813`，含 `KIMI_LOG_LEVEL` / `*_MAX_BYTES` / `*_FILES` 全部五个环变）已在生产使用：`~/.kimi-code/logs/kimi-code.log` 实测 5.8MB 且在写，`.1`–`.4` 四个归档。**故「fork 无文件写入器」是错的**，缺的是引擎侧接线与会话级绑定（后者见 §10.32）。与 6.41.2 的 sessionExport 缺口「叠加」的说法也随之作废：CLI 导出实测已带全局日志（`local-logging-export.e2e.test.ts`） |
 | `fsSearch.ts` 路径建议器 | missing（待确认） | `fsSearch.ts:130-330`（`evaluateSuggestCandidate` 的分层/跨度/深度打分、`matchSuggestPath`、`SuggestTopHeap`） | fork 唯一的模糊建议器是 `tools/select_tools.rs:110` `suggest_tool_names`，匹配的是**工具名**不是文件路径。这驱动 `@`-mention 文件选择器。**未决**：TUI 是否已有客户端排序（`apps/kimi-code/src/tui/components/editor/file-mention-provider.ts` 未读），若有则本条 n-a |
-| trust 披露服务 | **本轮已补（§10.41）** | `trustDisclosureService.ts:65-200` | 消费者本来就对（非空才渲染）；恒空点在生产者 `getWorkspaceTrustInfo`。已接线：读项目级 `<workDir>/.mcp.json` 与 `.kimi-code/mcp.json`（**不是** `listWorkspaceMcpServers`，它忽略 workDir 返回全局表），只披露安全子集（不含 env） |
+| trust 披露服务 | **部分完成（§10.41 只做了 `mcpServers`；见 §10.49）** | `trustDisclosureService.ts:65-200` | 消费者本来就对（非空才渲染）；恒空点在生产者 `getWorkspaceTrustInfo`。已接线：读项目级 `.mcp.json` 与 `.kimi-code/mcp.json`（**不是** `listWorkspaceMcpServers`，它忽略 workDir 返回全局表），只披露安全子集（不含 env）。**但 §10.49 核实 v2 的 `describeGatedActivation()` 还有 `additionalDirs`/`additionalDirSources`/`warnings`/`instructionSources` 四类未做，且项目 `.mcp.json` 应取 `findGitWorkTree(cwd).root` 而非 cwd，已信任时 v2 直接返回空** |
 | `fs` 错误分类未在失败点应用 | partial | `workspaceFs/internal/errors.ts:4-15`（10 个码） | 分类表在 `packages/protocol/src/error-codes.ts:170-211` 完整存在（且数值与 v2 线表逐条一致，另多两个 v2 没有的），但 Rust 侧只定义了 `FS_PATH_NOT_FOUND`（`server/envelope.rs:29`）**且仅被自己的单测引用**（`:289`）；实际处理器返回字符串错误（`server/fs_routes.rs:920,924`、`tools/list_directory.rs:74,87`）。**低价值**：v2 自身消费者也不多 |
 | stdio MCP 的 proxy env 继承 | **本轮已补（§10.37）** | `mcpCore/client-stdio.ts:292-304` `mergeStdioEnv` | v2 做三件事：继承 `process.env`、叠加 config env、**再应用 proxy env**（`proxyEnvForChild` + `reconcileChildNoProxy`）。**症状已按 §10.37 更正**：父环境本来就能通过 `Command` 隐式继承，`HTTP_PROXY` 是传得到的。真正缺的是 v2 额外计算的 `proxyEnvForChild`——**`NODE_USE_ENV_PROXY=1`**（Node 只在该变量设置后才读代理变量，这才是「继承不够」的原因）、`NO_PROXY` 归一化（补回环）、socks 排除、以及子进程 `no_proxy` 覆盖。已逐条落地（`mcp/client.rs`），6 项测试。实际影响仍低（本地 npm 包通常不走代理） |
 | `workspaceMcp` 与 `workspaceMcpConfig` 的边界 | partial | `workspaceMcp.ts:15-28`（运行时 + 每会话 overlay）、`workspaceMcpConfig.ts:17-27`（配置映射 + tunables + `onDidChange`） | fork 把两者融进一个 `McpClient` + 可变 `tool_timeout`（`mcp/client.rs:114`），tunables 在但**没有 `onDidChange` 边界**，也没有每会话 overlay |
@@ -4905,7 +4905,7 @@ usage 累积 + detect() + 遥测  ← 三合一（见上表）
 | 13 | ~~`toolResultRender` 状态包装~~ **已完成 2026-10-03** | 新增 `turn_loop/tool_result_render.rs`，接在 `run_turn` 构建模型可见 tool result 处。**两处刻意不做**（详见 §10.28）：`note` 追加（本引擎把 `note` 兼作内部出处标签）与 Read 的渲染后字符预算 | **已完成** |
 | 17 | `workspaceAliases` | **已核实**：`delete_workspace` 在 `session/sqlite_store.rs:776`；全仓 `workspaceAliases` / `workspace_aliases` **零命中**，即 fork 确实无别名概念——同一目录的符号链接/大小写变体会算成两个 workspace，且删除后无墓碑 | **1-2 人天** |
 | 9 | minidb 读模型 | **待裁决后再估**（取决于是否需要全文检索；若只需 FTS5 则 2-3 人天，若需 minidb 全套则 10+ 人天） | — |
-| 16 | ~~trust 披露~~ **已完成 2026-10-03**（§10.41） | 消费者已写好，主要是喂数据（读项目 `.mcp.json` + `local.toml` + instruction sources） | **2-3 人天** |
+| 16 | **trust 披露（部分完成）** | 消费者已写好，主要是喂数据（读项目 `.mcp.json` + `local.toml` + instruction sources） | **2-3 人天** |
 | 18-20 | ~~proxy env~~ **已完成（§10.37）** / ~~`x-trace-id`~~（失败路径已完成，§10.38） / shell 探测 | 各 0.5-1 人天的局部改动 | **各 < 1 人天** |
 
 **合计（不含待裁决项）**：约 **21-30 人天**（原 22-32；第 8、10 项已实做各扣 0.5-1）。P0+P1 剩余约 **14-20 人天**。
@@ -7656,3 +7656,49 @@ workspace」在 **v2 里也存在**，v2 靠 `workspaceRootKey` 在目录层消�
 
 **验证**：`cargo fmt --check` 通过｜`cargo clippy --all-targets --features cli -D warnings` 通过｜
 `llm::` **237 项**｜`session::sqlite_store` 38 项｜`turn_loop::turn_step` 22 项｜P2-17 的契约测试经变异验证。
+
+### 10.49 核完 P2-18 与 P2-16：一处已修，一处我标错了完成度（2026-10-03）
+
+**P2-18（proxy env）走样：推导的输入错了。** v2 的 `mergeStdioEnv`（`mcpCore/client-stdio.ts:292-304`）：
+
+```js
+const merged = {};                       // 1. 复制父环境
+Object.assign(merged, configEnv);        // 2. 叠加服务器自身 env
+Object.assign(merged, proxyEnvForChild(merged));   // 3. ← 从「父 ∪ 配置」推导
+reconcileChildNoProxy(merged, configEnv);          // 4. 配置的 no_proxy 覆盖
+```
+
+我第 3 步传的是 `std::env::vars()`（**仅父环境**）。后果：**服务器自己 `env` 块里配的 `HTTPS_PROXY`
+对推导不可见**，于是 `NODE_USE_ENV_PROXY` 与 `no_proxy` 都不会被设出来——**服务器坐在代理后面却不用它**，
+正是这个块存在的理由。已改为从「父 ∪ 配置」推导。
+
+新增测试 `a_server_configured_proxy_reaches_the_derivation`（父环境无代理，代理只在配置里）。
+**变异验证**：改回仅父环境推导，该测试 FAILED，且捕获到的环境正是 `{"HTTPS_PROXY":
+"http://server-own:3128"}`——**没有 `NODE_USE_ENV_PROXY`**。
+
+两个辅助函数逐条对下来是忠实的：`schemeOf` 的正则、`httpSchemeValue` 的 socks 排除、`resolveNoProxy` 的
+`*` 短路与回环补齐顺序、`proxyEnvForChild` 的变量集合。
+
+**P2-16（trust 披露）我标错了完成度。** §10.41 写「P2-16 落地」，但 v2 的 `describeGatedActivation()`
+（`workspace/workspaceTrust/trustDisclosureService.ts:65`）返回的是：
+
+| v2 字段 | fork 现状 |
+|---|---|
+| `mcpServers` | ✅ 已实现 |
+| `additionalDirs` + `additionalDirSources` | ❌ 未做 |
+| `warnings`（各扫描失败时的说明） | ❌ 未做 |
+| `instructionSources`（`agentsMdPaths`/`skills`/`agentProfiles`/`paths`） | ❌ 未做 |
+
+即 **1/5**。另外三处差异：
+
+1. **已信任时 v2 直接返回空**（`if (this.trust.isTrusted()) return EMPTY_ACTIVATION;`），我没有该短路。
+2. v2 的 `TrustGatedMcpServer` 多一个 **`origin`** 字段（来源文件），fork 的外层类型没有。
+3. **项目 MCP 路径我取错了位置**。v2 `resolveMcpJsonPaths`（`app/mcpConfig/configLoader.ts:23-32`）是
+   `projectRoot = findGitWorkTree(cwd).root` 的 `.mcp.json`（**git 工作树根**）与 `cwd/.kimi-code/mcp.json`；
+   我硬编码的是 `cwd/.mcp.json`。**在子目录里工作时两者是不同文件**，而 fork 里 `find_git_work_tree` 原语
+   本来就存在。
+
+**台账订正**：P2-16 由「已完成」改为「**部分完成（仅 `mcpServers`；余四类与路径位置见 §10.49）**」。
+
+**验证**：`cargo fmt --check` 通过｜`cargo clippy --all-targets --features cli -D warnings` 通过｜
+`mcp::client` 22 项｜P2-18 的新测试经变异验证。

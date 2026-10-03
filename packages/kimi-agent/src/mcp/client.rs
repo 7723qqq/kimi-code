@@ -117,7 +117,15 @@ fn stdio_command(
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
-    let derived_proxy = proxy_env_for_child(parent_env);
+    // v2 `mergeStdioEnv` derives the block from the *merged* env — the parent
+    // plus the server's own env block — not from the parent alone. A proxy the
+    // server configures for itself is therefore seen, and the Node flag and the
+    // no_proxy list are derived from it. Deriving from the parent only left such
+    // a server behind the proxy with no `NODE_USE_ENV_PROXY`, which is the exact
+    // failure this block exists to prevent.
+    let mut merged: HashMap<String, String> = parent_env.clone();
+    merged.extend(env.iter().map(|(key, value)| (key.clone(), value.clone())));
+    let derived_proxy = proxy_env_for_child(&merged);
     cmd.envs(derived_proxy.clone());
     cmd.envs(reconcile_child_no_proxy(&derived_proxy, env));
     cmd
@@ -1292,5 +1300,51 @@ mod proxy_env_tests {
             // set, or half the ecosystem still ignores the proxy.
             assert!(applied.contains_key("NO_PROXY") && applied.contains_key("no_proxy"));
         }
+    }
+
+    /// A proxy configured for the MCP server itself reaches the derivation.
+    ///
+    /// v2 `mergeStdioEnv` derives the block from the *merged* env — parent plus
+    /// the server's own `env` block — so a proxy the server configures for
+    /// itself produces `NODE_USE_ENV_PROXY` and the no_proxy list. Deriving from
+    /// the parent alone left that server behind a proxy with no Node flag, which
+    /// is precisely the failure the block exists to prevent.
+    #[test]
+    fn a_server_configured_proxy_reaches_the_derivation() {
+        // The parent has no proxy at all: everything here comes from the config.
+        let parent = env(&[]);
+        let config = env(&[("HTTPS_PROXY", "http://server-own:3128")]);
+
+        let cmd = stdio_command("node", &["server.js"], &config, None, &parent);
+        let applied: HashMap<String, String> = cmd
+            .as_std()
+            .get_envs()
+            .filter_map(|(key, value)| {
+                value.map(|value| {
+                    (
+                        key.to_string_lossy().into_owned(),
+                        value.to_string_lossy().into_owned(),
+                    )
+                })
+            })
+            .collect();
+
+        assert_eq!(
+            applied.get("NODE_USE_ENV_PROXY").map(String::as_str),
+            Some("1"),
+            "the server's own proxy must still turn the Node flag on: {applied:?}"
+        );
+        assert_eq!(
+            applied.get("HTTPS_PROXY").map(String::as_str),
+            Some("http://server-own:3128")
+        );
+        // The no_proxy list is derived too, so it carries the loopback exemption
+        // even though the config named none.
+        let no_proxy = applied.get("NO_PROXY").or_else(|| applied.get("no_proxy"));
+        assert_eq!(
+            no_proxy.map(String::as_str),
+            Some("localhost,127.0.0.1,::1,[::1]"),
+            "applied: {applied:?}"
+        );
     }
 }
