@@ -1661,11 +1661,22 @@ impl ServerEngine {
                 let reason = work_turn_reason(&result.stop_reason);
                 self.publish_turn_ended(session_id, turn_number, reason);
                 self.publish_work_changed(session_id, false, Some(reason));
+                // Mirror the outcome into the session row as well as the live
+                // event (v2 `SessionOutcomeMirror`): a client that attaches
+                // after this turn, or after a restart, still sees the outcome.
+                // A failure here must not fail the turn — the live event has
+                // already gone out and the transcript is unaffected.
+                if let Err(e) = self.store.set_last_turn_reason(session_id, Some(reason)) {
+                    tracing::warn!(%session_id, %e, "could not persist the turn outcome");
+                }
                 result
             }
             Err(error) => {
                 self.publish_turn_ended(session_id, turn_number, "failed");
                 self.publish_work_changed(session_id, false, Some("failed"));
+                if let Err(e) = self.store.set_last_turn_reason(session_id, Some("failed")) {
+                    tracing::warn!(%session_id, %e, "could not persist the turn outcome");
+                }
                 self.publish_status_updated(session_id).await;
                 activity.interrupted(
                     crate::server::activity::InterruptReason::Error,

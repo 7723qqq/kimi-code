@@ -4682,7 +4682,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 | 子系统 | 判定 | 出处 | 说明 |
 |---|---|---|---|
 | **14 个未触发的 hook 事件** | **missing（性价比最高）** | `features/externalHooks/internal/types.ts:3-24` 共 20 种事件类型 | fork 只触发 6 种（`PreToolUse`/`PostToolUse`/`PostToolUseFailure`/`UserPromptSubmit`/`Stop` + `PreCompact`、`SessionStart`/`SessionEnd`）。缺 14 种，每个在上游都有活的触发点：`PermissionRequest`/`PermissionResult`（`agentExternalHooksService.ts:181,187`）、`TurnStarted`（`:224`）、`TaskStarted`（`:288`）、`Interrupt`（`:392`）、`StopFailure`（`:399`）、`PostCompact`（`:439`）、`Notification`（`:451`）、`UserPromptQueued`（`:205`）、`SessionHeartbeat`（`sessionExternalHooksService.ts:101,143-144`）、`SubagentStart`/`SubagentStop`（`:157,172`）。**全部是 fire-and-forget / 只观察**（从不否决），且 fork 现有 `HookGuard::notify_session_lifecycle`（`external_hooks.rs:321`）已接受任意事件名——**一个通用入口即可覆盖 14 个事件** |
-| `SessionOutcomeMirror` 的持久化 | missing | `session/sessionActivity/sessionOutcomeMirrorService.ts:130-147` | fork 把 `last_turn_reason` 作为**活事件**发布（`server/engine.rs:832-844`）却从不写进持久化的会话元数据；v2 有 `metadata.update({lastTurnReason})`。线形字段已在 `packages/protocol/src/session.ts:112` 但无写入方 |
+| `SessionOutcomeMirror` 的持久化 | **本轮已补（§10.35）** | `session/sessionActivity/sessionOutcomeMirrorService.ts:130-147` | fork 把 `last_turn_reason` 作为**活事件**发布却从不写进持久化的会话元数据。2026-10-03 已落地（§10.35）：`sessions.last_turn_reason` 列 + 两处回合结束点落盘（**不动 `updated_at`**，v2 `touchUpdatedAt: false`）+ `format_wire_session` 输出。台账原写的 `engine.rs:1697` 已漂移，真实是 `:891`/`:1663`/`:1668` |
 | `PermissionRuleScope` / `recordApprovalResult` | partial | `agent/permissionRules/permissionRules.ts:16`、`permissionRulesService.ts:45-52` | `PermissionRuleScope` 有 4 档（`turn-override`/`session-runtime`/`project`/`user`），`recordApprovalResult` 把类型化的 `PermissionApprovalResultRecord` 写进 agent state。fork 的 `session_approvals: Vec<String>`（`permission/mod.rs:152`）是扁平模式表，**无 turn-override 作用域、不记录审批结果**——谁批了什么决定不留痕。这是「单 `permission/mod.rs` 已正确合并三个目录」这一说法的**唯一不完整处** |
 | `sessionLogService` | **本轮已补**（§10.33） | `session/sessionLog/sessionLogService.ts:23-67`、`_base/log/logConfig.ts:37-39` | 见 6.42.5。**补充本轮核实**：这是**两个东西**——`_base/log/fileLog.ts` 是可复用的轮转写入器（基础设施），`sessionLogService.ts` 只是把它绑到 `sessionDir/logs/kimi-code.log` 的薄 DI 绑定（每会话一份）。fork 两者皆无，**但消费方还在**：`apps/vis/server/src/routes/logs.ts:8,21,31` 硬编码 `SESSION_LOG_REL` 提供该文件，`apps/vis/web/src/components/logs/LogsTab.tsx:44` 渲染它——**该标签页的会话视图此前是死的**（2026-10-03 已接线，见 §10.33）。另 `packages/node-sdk/src/logging.ts:787-789` 仍导出 `resolveSessionLogPath`（零调用方），而其 `:791-813` 仍解析全部五个 `KIMI_LOG_*` 环变（含两个 session 专用的 `KIMI_LOG_SESSION_MAX_BYTES`/`KIMI_LOG_SESSION_FILES`），其文件头 `:9-15` 却声称「per-session log routing 已丢弃」——**这个注释现在在一个方向上是错的** |
 | `agent/command` 的可扩展性 | partial | `agent/command/commandContribution.ts:4-13` | fork 有 slash 命令**派发**（REPL/宿主侧，含 `configInvalidSlashCommand`/`configUnknownSlashCommand`），但 v2 的 `CommandContribution` **注册表**（扩展缝）无对应——fork 的 slash 命令不能从引擎外部插拔 |
@@ -4901,7 +4901,7 @@ usage 累积 + detect() + 遥测  ← 三合一（见上表）
 | 8 | ~~POST /undo 回滚接线~~ **已完成 2026-10-01** | 新增 `rollback_state_for_undo`（`server/mod.rs:7371`），接在 `undo` 路由 `:5594`。**台账原引三处「已有模式」全是假的**——`engine.rs` 中 `.rollback()` 零调用，唯一生产调用者是 `repl/mod.rs:782`；`engine.rs:1168` 是 `for_workspace` 的 `Err(_)` 臂、`:1197` 只是注释提到 `StateStoreCallbacks`。真实模式在 `callbacks.rs:1536-1554`。**核实后新增的要点**：checkpoint 是 LIFO 栈（`state_store.rs:175/244`），`count=N` 必须弹 N 次而非一次。失败如实上报而非静默——行已删除，静默分叉比可见错误更糟。两个测试：`undo_restores_state_domains_from_the_checkpoint_stack`（钉 LIFO 到最早锚点）与 `undo_succeeds_when_no_checkpoint_was_ever_taken`（钉空栈不算错）；前者已用环境变量探针反证——断开接线后 depth 停在 2，测试确实失败 | **已完成** |
 | 10 | ~~`len()/4` 一行修正~~ **已完成 2026-10-01** | `server/engine.rs:933` 改用 `compaction::estimate_tokens`。**实测纠正**：原估「对 CJK 低报约 4 倍」是错的——`len()` 是字节数，3 字节/汉字 → 低报 **25%**（300 字节报 75，实际 100 token）。附带修掉截断：43 ASCII 字符旧值报 10，现为 11。新增测试 `context_tokens_count_cjk_per_character_and_leave_ascii_alone`（ASCII 差异 ≤1 仅进位、CJK 100 字符 = 100 token、混合串按连续 ASCII 段一次进位）。副作用是状态栏与压缩触发器现在共用同一估算器，两者不会再对「有多满」产生分歧 | **已完成** |
 | 11 | **PermissionRuleScope + 审批留痕** | `permission/mod.rs:152` 的 `Vec<String>` 换成带 scope 与 result 的结构；`recordApprovalResult` 需 agent state 写入通道 | **2-3 人天** |
-| 12 | `SessionOutcomeMirror` 落库 | **行号已重定位**：原写 `engine.rs:1697` **已漂移**（现指向一处 `.await;`）。真实链路：`engine.rs:832` `publish_work_changed` 只发活事件，其 `:844` 构造 payload；`events/types.rs:136` 声明字段；`server/transcript/project.rs:2296/2308` 是投影侧。落库点应在 `publish_work_changed` 调用方 | **0.5-1 人天** |
+| 12 | ~~`SessionOutcomeMirror` 落库~~ **已完成 2026-10-03**（§10.35） | **行号已重定位**：原写 `engine.rs:1697` **已漂移**（现指向一处 `.await;`）。真实链路：`engine.rs:832` `publish_work_changed` 只发活事件，其 `:844` 构造 payload；`events/types.rs:136` 声明字段；`server/transcript/project.rs:2296/2308` 是投影侧。落库点应在 `publish_work_changed` 调用方 | **已完成** |
 | 13 | ~~`toolResultRender` 状态包装~~ **已完成 2026-10-03** | 新增 `turn_loop/tool_result_render.rs`，接在 `run_turn` 构建模型可见 tool result 处。**两处刻意不做**（详见 §10.28）：`note` 追加（本引擎把 `note` 兼作内部出处标签）与 Read 的渲染后字符预算 | **已完成** |
 | 17 | `workspaceAliases` | **已核实**：`delete_workspace` 在 `session/sqlite_store.rs:776`；全仓 `workspaceAliases` / `workspace_aliases` **零命中**，即 fork 确实无别名概念——同一目录的符号链接/大小写变体会算成两个 workspace，且删除后无墓碑 | **1-2 人天** |
 | 9 | minidb 读模型 | **待裁决后再估**（取决于是否需要全文检索；若只需 FTS5 则 2-3 人天，若需 minidb 全套则 10+ 人天） | — |
@@ -7059,3 +7059,49 @@ Web 客户端拿到的 bundle 没有 manifest、没有日志，而同一台机�
 
 **仍未做**：迁移链本身（`apply_wire_migrations` 的等价物）**故意不建空壳**——没有可注册的迁移时，一个空链
 只会是死代码；等真有形状变更时，本轮的版本戳与拒绝逻辑就是它需要的前置。
+
+### 10.35 §6.45 P2-12 落地：`SessionOutcomeMirror` 落库（2026-10-03）
+
+§6.40 的缺口行（ROADMAP:4685）：fork 把 `last_turn_reason` 作为**活事件**发布，却从不写进持久化的
+会话元数据；v2 有 `metadata.update({lastTurnReason})`，而线形字段早就声明在协议里但从无写入方。
+
+**开工前核验（台账自己警告过这行行号漂移过一次，果然）**：
+
+- 台账写 `engine.rs:1697` 是落点，**已漂移**；实际是 `server/engine.rs:891` 的 `publish_work_changed`，
+  调用点 `:1663`（成功）与 `:1668`（失败）。
+- 线形字段确实存在，但**不在** `packages/protocol/src/session.ts:112`（台账此处是对的）——注意它是
+  **snake_case** 的 `last_turn_reason: z.enum(['completed','cancelled','failed']).optional()`，按
+  `lastTurnReason` 去搜会漏掉。
+- `sessions` 表（`sqlite_store.rs:481-488`）当时只有 `session_id/title/created_at/updated_at/archived/
+  parent_session_id`，**没有**该列。
+- 全仓 `last_turn_reason` 的生产写入只有 `publish_work_changed`；`server/transcript/project.rs:2296/2308`
+  那两处是**测试代码**，不是写入路径。
+
+**v2 参考（`sessionOutcomeMirrorService.ts`）有三条语义，逐条照搬**：
+
+1. `:158-159` 的 `metadata.update({ lastTurnReason })` —— 这就是缺的那次写。
+2. **`touchUpdatedAt: false`**（`:159`）：这是「镜像一件已经在别处结束的事」，若当成活动就会
+   **每回合结束都重排会话列表**。本实现因此只 `UPDATE sessions SET last_turn_reason = ?`，绝不碰
+   `updated_at`，并有测试用钉死的 `updated_at` 反证。
+3. 理由**归一化**（`:120-126` 的 `adoptLastEnded`）：`completed`/`cancelled` 保留，其余一律写 `failed`。
+   本引擎已有等价物 `work_turn_reason`（`engine.rs:1789`），它把 `LoopTurnStopReason` 映到协议允许的
+   三个值，故直接复用，不另写一份归一化。
+
+**落地**：
+
+- `sessions` 表加 `last_turn_reason TEXT`，并在既有的「Ensure columns exist…」块里补**幂等**
+  `ALTER TABLE sessions ADD COLUMN last_turn_reason TEXT`（旧库兼容）。
+- `SqliteSessionStore::set_last_turn_reason` / `last_turn_reason`。getter 用 `.ok().flatten()` 而不是
+  `query_row` + `.optional()`——后者叠出三层 `Option`（`query_row` 已为 NULL 列产出 `Option<String>`），
+  编译期就会拦下。
+- `format_wire_session`（`server/mod.rs:2337`）补 `last_turn_reason` 字段：**没有持久化这一步，加列毫无
+  意义**——REST 不输出的话客户端依旧只能从活事件看到它，而活事件对「之后才 attach 的客户端」与
+  「重启后」都是不可见的。未发生回合结束时输出 `null`（协议里它是 optional）。
+- 引擎在两处回合结束点落盘；**写失败只 `tracing::warn`，不让回合失败**——活事件已经发出，转录也不受
+  这条镜像影响。
+
+**测试**：2 项新增——往返与清空（含 `None` 清除、未知会话不报错）；以及用固定 `updated_at` 反证写入
+**不改动** `updated_at`。
+
+**验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -D warnings` ✅｜
+`cargo test --no-default-features --features cli` 全量 ✅｜15 道门禁 ✅。

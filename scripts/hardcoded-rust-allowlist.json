@@ -2976,6 +2976,12 @@
       "text": "Interaction channel closed",
       "reason": "deferred"
     },
+    "packages/kimi-agent/src/server/engine.rs:could not persist the turn outcome": {
+      "file": "packages/kimi-agent/src/server/engine.rs",
+      "text": "could not persist the turn outcome",
+      "reason": "diagnostic",
+      "manual": true
+    },
     "packages/kimi-agent/src/server/engine.rs:host does not support oauth token fetch": {
       "file": "packages/kimi-agent/src/server/engine.rs",
       "text": "host does not support oauth token fetch",

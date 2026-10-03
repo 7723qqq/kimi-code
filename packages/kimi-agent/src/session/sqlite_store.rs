@@ -484,7 +484,8 @@ impl SqliteSessionStore {
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 archived INTEGER NOT NULL DEFAULT 0,
-                parent_session_id TEXT
+                parent_session_id TEXT,
+                last_turn_reason TEXT
             );
 
             CREATE TABLE IF NOT EXISTS turns (
@@ -580,10 +581,11 @@ impl SqliteSessionStore {
         };
         if !columns.contains("tool_calls") {
             let _ = conn.execute(
-            "ALTER TABLE wire_events ADD COLUMN protocol_version TEXT",
-            [],
-        );
-        let _ = conn.execute("ALTER TABLE messages ADD COLUMN tool_calls TEXT", []);
+                "ALTER TABLE wire_events ADD COLUMN protocol_version TEXT",
+                [],
+            );
+            let _ = conn.execute("ALTER TABLE sessions ADD COLUMN last_turn_reason TEXT", []);
+            let _ = conn.execute("ALTER TABLE messages ADD COLUMN tool_calls TEXT", []);
         }
         if !columns.contains("tool_call_id") {
             let _ = conn.execute("ALTER TABLE messages ADD COLUMN tool_call_id TEXT", []);
@@ -2250,6 +2252,43 @@ impl SqliteSessionStore {
             )
             .optional()?;
         Ok(max_seq.unwrap_or(0))
+    }
+
+    /// Persist the main agent's most recent turn outcome
+    /// (v2 `SessionOutcomeMirror`).
+    ///
+    /// Deliberately does **not** touch `updated_at`. This mirrors a turn that
+    /// already ended on another path, and treating it as activity would reorder
+    /// the session list on every turn end — v2 passes `touchUpdatedAt: false`
+    /// for the same reason.
+    pub fn set_last_turn_reason(
+        &self,
+        session_id: &str,
+        reason: Option<&str>,
+    ) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE sessions SET last_turn_reason = ?2 WHERE session_id = ?1",
+            params![session_id, reason],
+        )?;
+        Ok(())
+    }
+
+    /// The persisted outcome, for the session wire. `None` for a session that
+    /// has not ended a turn since it was created, and for rows written before
+    /// the column existed.
+    pub fn last_turn_reason(&self, session_id: &str) -> Option<String> {
+        let conn = self.conn.lock();
+        // `query_row` already yields `Option<String>` for a NULL column, and
+        // `QueryReturnedNoRows` covers an unknown session; `.ok().flatten()`
+        // collapses both into the single `None` the wire wants.
+        conn.query_row(
+            "SELECT last_turn_reason FROM sessions WHERE session_id = ?1",
+            params![session_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten()
     }
 
     /// Fold stored wire events for `session_id` into a sanitized context message projection.
@@ -4535,5 +4574,74 @@ mod tests {
             EventStoreError::UndoCompactionBoundary => {}
             other => panic!("Expected UndoCompactionBoundary, got {:?}", other),
         }
+    }
+
+    /// The outcome mirror persists, and an explicit `None` clears it — a turn
+    /// that ended must not leave the previous outcome stuck on the session.
+    #[test]
+    fn last_turn_reason_round_trips_and_clears() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store.create_session("sess-outcome", None).unwrap();
+
+        assert_eq!(store.last_turn_reason("sess-outcome"), None);
+        store
+            .set_last_turn_reason("sess-outcome", Some("completed"))
+            .unwrap();
+        assert_eq!(
+            store.last_turn_reason("sess-outcome").as_deref(),
+            Some("completed")
+        );
+        store
+            .set_last_turn_reason("sess-outcome", Some("failed"))
+            .unwrap();
+        assert_eq!(
+            store.last_turn_reason("sess-outcome").as_deref(),
+            Some("failed")
+        );
+        store.set_last_turn_reason("sess-outcome", None).unwrap();
+        assert_eq!(store.last_turn_reason("sess-outcome"), None);
+
+        // An unknown session is not an error: the wire asks unconditionally.
+        store
+            .set_last_turn_reason("sess-absent", Some("completed"))
+            .unwrap();
+        assert_eq!(store.last_turn_reason("sess-absent"), None);
+    }
+
+    /// v2 passes `touchUpdatedAt: false` for this write, and the reason matters:
+    /// the outcome mirrors a turn that already ended elsewhere, so treating it
+    /// as activity would reorder the session list on every turn end.
+    #[test]
+    fn last_turn_reason_does_not_touch_updated_at() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        store.create_session("sess-stamp", None).unwrap();
+        let pinned: i64 = 1_700_000_000_000;
+        {
+            let conn = store.conn.lock();
+            conn.execute(
+                "UPDATE sessions SET updated_at = ?2 WHERE session_id = ?1",
+                params!["sess-stamp", pinned],
+            )
+            .unwrap();
+        }
+
+        store
+            .set_last_turn_reason("sess-stamp", Some("cancelled"))
+            .unwrap();
+
+        let after: i64 = {
+            let conn = store.conn.lock();
+            conn.query_row(
+                "SELECT updated_at FROM sessions WHERE session_id = 'sess-stamp'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(after, pinned, "the mirror must not read as activity");
+        assert_eq!(
+            store.last_turn_reason("sess-stamp").as_deref(),
+            Some("cancelled")
+        );
     }
 }

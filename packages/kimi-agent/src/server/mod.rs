@@ -2360,7 +2360,13 @@ fn format_wire_session(
         },
         "permission_rules": [],
         "message_count": message_count,
-        "last_seq": store.latest_wire_event_seq(session_id).unwrap_or(0)
+        "last_seq": store.latest_wire_event_seq(session_id).unwrap_or(0),
+        // The engine publishes this on `session.work_changed` as it happens;
+        // persisting it as well is what lets a client that attaches later (or
+        // after a restart) still see the last outcome. Absent, not null, when a
+        // turn has not ended since activation — the wire schema marks it
+        // optional and its own doc says it is "when the session is live".
+        "last_turn_reason": store.last_turn_reason(session_id)
     })
 }
 
