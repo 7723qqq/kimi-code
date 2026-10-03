@@ -7455,3 +7455,43 @@ REST 列表带该字段。
 `cargo clippy --all-targets --features cli -D warnings` ✅｜`cargo test --lib server::` **403 项** ✅｜
 `cargo test --test server_e2e_integration` ✅｜`packages/protocol` **544 项** ✅｜`bun run typecheck` ✅｜
 `bun run lint` 0 error（4235 基线）✅｜`packages/node-sdk` **41 文件 / 387**（+8）✅｜15 道门禁 ✅。
+
+### 10.44 测试方向审计：5 处「以为覆盖了、实际没有」（2026-10-03）
+
+起因是一句质疑：「先确认你的测试是按**需要的方向**写的，而不是你**希望的方向**」。方法很便宜——
+**把实现里的那一行改掉，看有没有测试会红**。查出的 5 处如下，全部有变异证据。
+
+| # | 改动点 | 删掉后仍全绿的测试 | 处置 |
+|---|---|---|---|
+| 1 | `spawn_stdio` 应用 proxy env（`mcp/client.rs` 两行 `cmd.envs`） | `mcp::` **114 项** + proxy 6 项 | **已修**：抽出 `stdio_command()`，测试读回 `Command` 的 env |
+| 2 | wire 上输出 `last_turn_reason`（`server/mod.rs:2369`） | `server::` **403 项** + e2e 2 项 | **已修**：在既有 `format_wire_session` 测试里断言该字段 |
+| 3 | `compaction_failed` 事件名 | `turn_loop::` **233 项** | **未覆盖**，已记录 |
+| 4 | `session_load_failed` 事件名 | `server::` **403 项** | **未覆盖**，已记录 |
+| 5 | `x-trace-id` 的**捕获**（`llm/http.rs` 的 `.get("x-trace-id")`） | `llm::` **236 项** | **未覆盖**，已记录 |
+
+**为什么这是一类问题而不是五个偶然**：前四条都是「逻辑被测、**接线**没被测」。#1 是新写的纯函数被测、
+调用点没测；#2/#3/#4 是事件与字段被测、**发射点**没测；#5 更微妙——`LlmError::with_request_id` 的渲染
+被测得很细，但**从响应头取值的那一行**没人碰，所以生产里 `request_id` 恒为 `None` 时我的测试也会全绿。
+
+**已修的两处怎么修的（关键是让测试能看见接线）**：
+
+- #1：把构造 `Command` 抽成模块级 `stdio_command()`，测试用 `as_std().get_envs()` 读回**将要传给子进程的
+  环境**。先前尝试真的 spawn 一个探测进程——**行不通**：`spawn_stdio` 会读子进程 stdout，短命令的子进程
+  立刻退出会被判成传输失败，而让它存活则每次测试要付一个进程加一次超时。
+- #2：在既有的 `the_web_bundle_contract_holds_for_the_shapes_it_maps_directly` 里，先把 reason 写进 store，
+  再 GET 会话文档断言字段；同一条测试顺带断言 `updated_at` 未被触碰（v2 `touchUpdatedAt: false`）。
+  **两处改动都用变异验证过**：改回去，对应测试立刻红，其余不红。
+
+**顺带修正的一个测试平台语义错误**：新写的 #1 测试一开始断言 `NO_PROXY` 与 `no_proxy` **两个**都出现。
+实测 dump 是 `{"HTTPS_PROXY": ..., "no_proxy": ..., "NODE_USE_ENV_PROXY": "1"}`——**Windows 环境变量
+大小写不敏感**，两种拼写会合并成一个，所以 `NO_PROXY` 不见了。**是测试写错了平台语义，不是实现错**
+（v2 写两种拼写是为了 Unix：Node 读一种、libcurl 读另一种）。已改为「归一化后的值出现在任一种拼写下」，
+并在非 Windows 上额外断言两种拼写都存在。
+
+**未覆盖的三处为何先记录不硬做**：#4 要构造一个读历史必然失败的 store（`SqliteSessionStore` 是具体类型，
+无故障注入点）；#3 要构造一个必然失败的 summarizer；#5 要一个假的 LLM HTTP server 才能走到读响应头那一步。
+三者都需要先建测试基础设施，属于独立工单——**但必须记下来，否则「有测试」会继续被当成「覆盖了」**。
+
+**验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -D warnings` ✅｜
+`cargo test --lib "mcp::client"` 20 项 ✅｜`the_web_bundle_contract_...` ✅｜
+变异验证：#1 与 #2 各被且仅被预期测试抓住。#3/#4/#5 的变异证据见上表（872 项带变异全绿）。

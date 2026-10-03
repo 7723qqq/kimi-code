@@ -14831,6 +14831,20 @@ max_context_size = 1000
                 None,
             )
             .unwrap();
+        // The outcome of the last turn, as the engine persists it at the end of
+        // one. Without this on the wire the value is only ever a live event, so
+        // a client that attaches after the turn — or after a restart — never
+        // learns how it ended.
+        let updated_before = server
+            .store
+            .get_session("sess-wire")
+            .unwrap()
+            .unwrap()
+            .updated_at;
+        server
+            .store
+            .set_last_turn_reason("sess-wire", Some("cancelled"))
+            .unwrap();
 
         // Every shape here is read off the shipped `dist-web` bundle's API client;
         // each assertion fails against the response the route used to serve, which
@@ -14865,6 +14879,26 @@ max_context_size = 1000
         assert!(
             body.get("messages").is_none(),
             "messages live on `/messages`, not on the session document"
+        );
+        // The persisted turn outcome, read back by a client that did not see the
+        // live event. `null` is the honest answer for a session whose turn never
+        // ended, which is why the value is asserted rather than its presence.
+        assert_eq!(
+            body["last_turn_reason"], "cancelled",
+            "the wire must carry the persisted outcome: {body}"
+        );
+        // v2 passes `touchUpdatedAt: false` for this write, because the mirror
+        // records a turn that already ended elsewhere; treating it as activity
+        // would reorder the session list on every turn end.
+        let updated_after = server
+            .store
+            .get_session("sess-wire")
+            .unwrap()
+            .unwrap()
+            .updated_at;
+        assert_eq!(
+            updated_after, updated_before,
+            "the mirror must not read as activity"
         );
 
         // v2 `listMessagesResponseSchema` is `{items, has_more}`.

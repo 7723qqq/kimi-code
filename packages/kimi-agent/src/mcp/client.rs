@@ -78,6 +78,51 @@ pub(crate) async fn fire_or_buffer_unexpected_close(
     }
 }
 
+/// Build the child command with the environment v2 `mergeStdioEnv` computes.
+///
+/// Separate from `spawn_stdio` so the environment the child will actually
+/// receive is observable without spawning one: a test reads it back off the
+/// `Command`. The alternative — spawning a probe process — cannot use a
+/// short-lived child, because `spawn_stdio` reads that child's stdout and
+/// treats an early close as a transport failure.
+///
+/// v2 `mergeStdioEnv`: the child inherits the parent environment (`Command` does
+/// that implicitly — there is no `env_clear`), then the server's own env, then
+/// the proxy variables derived from the parent, and finally a config-supplied
+/// `no_proxy` wins over both.
+///
+/// Deriving them is not the same as inheriting them. Node only reads
+/// `HTTP_PROXY`/`NO_PROXY` when `NODE_USE_ENV_PROXY` is set, so a Node-based MCP
+/// server behind a proxy silently bypasses it — which is the whole reason v2
+/// computes this block instead of relying on inheritance.
+fn stdio_command(
+    command: &str,
+    args: &[&str],
+    env: &HashMap<String, String>,
+    cwd: Option<&str>,
+    parent_env: &HashMap<String, String>,
+) -> Command {
+    let mut cmd = Command::new(command);
+    cmd.args(args)
+        .envs(env)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        // Capture stderr into a bounded tail so startup failures can report
+        // the child's diagnostics (v2 `stderrSnapshot`,
+        // client-stdio.ts:STDERR_BUFFER_CAPACITY).
+        .stderr(Stdio::piped())
+        // A startup timeout or a dropped client must not leave the child
+        // process running (v2 closes the client on both paths).
+        .kill_on_drop(true);
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
+    let derived_proxy = proxy_env_for_child(parent_env);
+    cmd.envs(derived_proxy.clone());
+    cmd.envs(reconcile_child_no_proxy(&derived_proxy, env));
+    cmd
+}
+
 impl McpClient {
     /// Create a mock MCP client for testing without spawning subprocesses.
     pub fn mock(server_name: &str) -> Self {
@@ -191,35 +236,7 @@ impl McpClient {
         env: &HashMap<String, String>,
         cwd: Option<&str>,
     ) -> Result<Self, McpError> {
-        let mut cmd = Command::new(command);
-        cmd.args(args)
-            .envs(env)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            // Capture stderr into a bounded tail so startup failures can report
-            // the child's diagnostics (v2 `stderrSnapshot`,
-            // client-stdio.ts:STDERR_BUFFER_CAPACITY).
-            .stderr(Stdio::piped())
-            // A startup timeout or a dropped client must not leave the child
-            // process running (v2 closes the client on both paths).
-            .kill_on_drop(true);
-        if let Some(dir) = cwd {
-            cmd.current_dir(dir);
-        }
-
-        // v2 `mergeStdioEnv`: the child inherits the parent environment
-        // (`Command` does that implicitly — there is no `env_clear`), then the
-        // server's own env, then the proxy variables derived from the parent,
-        // and finally a config-supplied `no_proxy` wins over both.
-        //
-        // Deriving them is not the same as inheriting them. Node only reads
-        // `HTTP_PROXY`/`NO_PROXY` when `NODE_USE_ENV_PROXY` is set, so a
-        // Node-based MCP server behind a proxy silently bypasses it — which is
-        // the whole reason v2 computes this block instead of relying on
-        // inheritance.
-        let derived_proxy = proxy_env_for_child(&std::env::vars().collect());
-        cmd.envs(derived_proxy.clone());
-        cmd.envs(reconcile_child_no_proxy(&derived_proxy, env));
+        let mut cmd = stdio_command(command, args, env, cwd, &std::env::vars().collect());
 
         let mut child = cmd.spawn().map_err(|e| {
             McpError::transport(format!("Failed to spawn MCP server '{command}': {e}"))
@@ -1214,5 +1231,66 @@ mod proxy_env_tests {
         assert_eq!(scheme_of("HTTP://x").as_deref(), Some("http"));
         assert_eq!(scheme_of("127.0.0.1:8080"), None);
         assert_eq!(scheme_of("://x"), None);
+    }
+
+    /// The environment the child will actually be started with.
+    ///
+    /// The tests above exercise the derivation and keep passing if
+    /// `spawn_stdio` stops applying its result — verified by deleting the two
+    /// `cmd.envs` calls, after which every test in this module still passed. A
+    /// feature that can be disconnected without a red test is not covered, so
+    /// this reads the environment back off the `Command` that `spawn_stdio`
+    /// spawns.
+    ///
+    /// Read off the command rather than off a spawned child: `spawn_stdio`
+    /// reads the child's stdout, so a probe process cannot be short-lived, and
+    /// one that stays alive costs a process and a timeout on every run.
+    #[test]
+    fn the_command_spawn_stdio_uses_carries_the_reconciled_env() {
+        let parent = env(&[("HTTPS_PROXY", "http://proxy:3128")]);
+        let config = env(&[("no_proxy", "internal.example")]);
+
+        let cmd = stdio_command("node", &["server.js"], &config, Some("/tmp"), &parent);
+        let applied: HashMap<String, String> = cmd
+            .as_std()
+            .get_envs()
+            .filter_map(|(key, value)| {
+                value.map(|value| {
+                    (
+                        key.to_string_lossy().into_owned(),
+                        value.to_string_lossy().into_owned(),
+                    )
+                })
+            })
+            .collect();
+
+        // The Node flag is what makes the derived block more than inheritance:
+        // without it a Node-based server ignores the proxy vars entirely.
+        assert_eq!(
+            applied.get("NODE_USE_ENV_PROXY").map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(
+            applied.get("HTTPS_PROXY").map(String::as_str),
+            Some("http://proxy:3128")
+        );
+        // The config `no_proxy` overrides the derived one and still carries the
+        // loopback exemption — the difference between the reconciled value and
+        // the raw config string.
+        // Both spellings are written because different consumers read different
+        // ones, but on Windows the environment is case-insensitive and the two
+        // collapse into a single variable — so the claim is that the reconciled
+        // value is present, not that two entries exist.
+        let no_proxy = applied.get("NO_PROXY").or_else(|| applied.get("no_proxy"));
+        assert_eq!(
+            no_proxy.map(String::as_str),
+            Some("internal.example,localhost,127.0.0.1,::1,[::1]"),
+            "applied: {applied:?}"
+        );
+        if !cfg!(windows) {
+            // On a case-sensitive platform both keys survive and both must be
+            // set, or half the ecosystem still ignores the proxy.
+            assert!(applied.contains_key("NO_PROXY") && applied.contains_key("no_proxy"));
+        }
     }
 }
