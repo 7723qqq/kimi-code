@@ -386,14 +386,15 @@ scripts/
   check-no-legacy-engine.mjs    — Fail if a retired engine package is still referenced
   check-upstream-v2-delta.mjs   — Retired-package upstream delta ratchet (`upstream-v2-delta-allowlist.json`)
   check-architecture-drift.mjs  — Architecture drift vs `architecture.json` (layers, acyclicity, exemptions)
+  check-rust-module-deps.mjs    — Intra-crate module dependency graph of the Rust engine (two-way ratchet, `rust-module-deps-baseline.json`)
   check-roadmap-refs.mjs        — Divergence-ledger citation gate
   prompt-optimizer/             — Prompt benchmark and optimization tools
 ```
 
-Every gate above has a `package.json` entry (`check:*` / `scan:*`) and runs in CI; `check:architecture` and
-`check:normify` additionally gate on `architecture.json` and `normify-kimi-code/` respectively. When adding a
-gate script, add the `package.json` entry in the same commit — an ungated entry point is a gate a developer
-cannot run from the documented commands.
+Every gate above has a `package.json` entry (`check:*` / `scan:*`) and runs in CI; `check:architecture`,
+`check:normify`, and `check:rust-module-deps` additionally gate on `architecture.json`, `normify-kimi-code/`,
+and `rust-module-deps-baseline.json` respectively. When adding a gate script, add the `package.json` entry
+in the same commit — an ungated entry point is a gate a developer cannot run from the documented commands.
 
 Two gates fail for environment reasons rather than code defects, and neither failure is a green run:
 
@@ -533,7 +534,7 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job install
 3. **test-rust** — `cargo fmt --check` + `cargo clippy --all-targets --features cli -- -D warnings` (Ubuntu only), then `cargo test --no-default-features --features cli,workflow-js` on Ubuntu and Windows
 4. **test-windows** — the full vitest suite on `windows-latest` (napi addon built first), so Windows-only regressions are caught
 5. **test-pi-tui** — `pi-tui` suite (dispatches to `bun test` under Bun and `node --test` under Node; CI runs it via Bun)
-6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, `check:no-legacy-engine`, `check:nix-workspace`, two architecture gates (`check:architecture` = `architecture.json`; `check:normify` = `normify-kimi-code/`), the divergence-ledger citation gate (`check:roadmap-refs`), Rust ↔ TS interface parity (`check:parity`), no-comment policy (`check:no-comments`), `t()` coverage (`check:t-call-coverage`), engine i18n parity (`check:engine-i18n`), hardcoded-string scans (`scan:hardcoded` for the TypeScript trees, `scan:hardcoded:rust` for `packages/kimi-agent`), retired-package upstream delta ratchet (`check:upstream-v2-delta`), locale key parity (`check:locale-keys`), catalog-wide orphan ratchet (`check:locale-orphans`, both consumers — engine `LocalizedText` and host `t()` — with the accepted debt in `scripts/locale-orphan-allowlist.json`), locale placeholder validity (`check:locale-placeholders`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
+6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, `check:no-legacy-engine`, `check:nix-workspace`, three structural gates (`check:architecture` = `architecture.json`; `check:normify` = `normify-kimi-code/`; `check:rust-module-deps` = `rust-module-deps-baseline.json`), the divergence-ledger citation gate (`check:roadmap-refs`), Rust ↔ TS interface parity (`check:parity`), no-comment policy (`check:no-comments`), `t()` coverage (`check:t-call-coverage`), engine i18n parity (`check:engine-i18n`), hardcoded-string scans (`scan:hardcoded` for the TypeScript trees, `scan:hardcoded:rust` for `packages/kimi-agent`), retired-package upstream delta ratchet (`check:upstream-v2-delta`), locale key parity (`check:locale-keys`), catalog-wide orphan ratchet (`check:locale-orphans`, both consumers — engine `LocalizedText` and host `t()` — with the accepted debt in `scripts/locale-orphan-allowlist.json`), locale placeholder validity (`check:locale-placeholders`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
 7. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
 8. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-agent && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test.
 9. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
