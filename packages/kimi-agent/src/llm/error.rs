@@ -27,11 +27,17 @@ pub struct LlmError {
     retry_after: Option<Duration>,
     /// The HTTP status, when the failure reached a response. v2 `statusCode`.
     status_code: Option<u16>,
-    /// The provider's own request id for the failed call (v2 `requestId`),
-    /// captured from the `x-trace-id` response header. It is the one string a
-    /// user can quote to the provider's support, and nothing else in the
-    /// failure carries it.
-    request_id: Option<String>,
+    /// v2 `traceId`: the provider's trace id for the failed call, captured from
+    /// the `x-trace-id` response header. It is the one string a user can quote
+    /// to the provider's support, and nothing else in the failure carries it.
+    ///
+    /// Named `trace_id` and not `request_id` because v2 keeps those apart:
+    /// `requestId` comes from the provider error body's `requestID`
+    /// (`human/llm-kimi/errors.ts`), while `traceId` comes from this header
+    /// (`human/kimi/trace.ts`). An earlier version of this field carried the
+    /// header value under the `request_id` name, which is exactly the confusion
+    /// this naming avoids. v2's `requestId` is not captured yet.
+    trace_id: Option<String>,
 }
 
 impl LlmError {
@@ -50,7 +56,7 @@ impl LlmError {
             message: format!("llm http status {status}: {brief}{suffix}"),
             retry_after,
             status_code: Some(status),
-            request_id: None,
+            trace_id: None,
         }
     }
 
@@ -66,14 +72,14 @@ impl LlmError {
             message: message.to_string(),
             retry_after: None,
             status_code,
-            request_id: None,
+            trace_id: None,
         }
     }
 
     /// A failure that is not one HTTP response: the retry budget ran out.
     ///
-    /// Keeps the last attempt's status and, through [`Self::with_request_id`],
-    /// the provider's request id — the two things a consumer needs to tell a
+    /// Keeps the last attempt's status and, through [`Self::with_trace_id`],
+    /// the provider's trace id — the two things a consumer needs to tell a
     /// throttled call from a transport fault. Returning a bare text error here
     /// (as this path used to) silently dropped both: the rendered text is
     /// unchanged, but the typed channel now survives the wrap.
@@ -83,11 +89,11 @@ impl LlmError {
             message: format!("LLM call failed after {attempts} attempts: {message}"),
             retry_after: None,
             status_code,
-            request_id: None,
+            trace_id: None,
         }
     }
 
-    /// Attach the provider's request id and append it to the rendered message.
+    /// Attach v2's `traceId` and append it to the rendered message.
     ///
     /// v2 keeps `requestId` on the typed error and every classifier reads the
     /// field; this transport renders a string, so the id is written into it as
@@ -95,12 +101,12 @@ impl LlmError {
     /// report show. The suffix is absent when the provider sent no header, which
     /// keeps the rendered text of the common case exactly what it was.
     #[must_use]
-    pub fn with_request_id(mut self, request_id: Option<&str>) -> Self {
-        let Some(id) = request_id.map(str::trim).filter(|id| !id.is_empty()) else {
+    pub fn with_trace_id(mut self, trace_id: Option<&str>) -> Self {
+        let Some(id) = trace_id.map(str::trim).filter(|id| !id.is_empty()) else {
             return self;
         };
         self.message = format!("{} [trace {id}]", self.message);
-        self.request_id = Some(id.to_string());
+        self.trace_id = Some(id.to_string());
         self
     }
 
@@ -119,9 +125,9 @@ impl LlmError {
         self.status_code
     }
 
-    /// The provider's request id for a failed call, when it sent one.
-    pub fn request_id(&self) -> Option<&str> {
-        self.request_id.as_deref()
+    /// The provider's trace id for a failed call, when it sent one.
+    pub fn trace_id(&self) -> Option<&str> {
+        self.trace_id.as_deref()
     }
 }
 
@@ -182,9 +188,9 @@ mod tests {
     /// The provider's request id is the one identifier its support can search
     /// on, so a failed call must keep it — in the field and in the text.
     #[test]
-    fn a_request_id_is_carried_and_rendered() {
-        let err = LlmError::http(500, "upstream broke", None).with_request_id(Some("abc-123"));
-        assert_eq!(err.request_id(), Some("abc-123"));
+    fn a_trace_id_is_carried_and_rendered() {
+        let err = LlmError::http(500, "upstream broke", None).with_trace_id(Some("abc-123"));
+        assert_eq!(err.trace_id(), Some("abc-123"));
         assert_eq!(
             err.to_string(),
             "llm http status 500: upstream broke [trace abc-123]"
@@ -201,24 +207,24 @@ mod tests {
     /// before the field existed — that is the contract this module states for
     /// `Display`, and the common case is a provider that sends no header.
     #[test]
-    fn no_request_id_leaves_the_message_untouched() {
+    fn no_trace_id_leaves_the_message_untouched() {
         let plain = LlmError::http(429, "slow down", Some(Duration::from_secs(7)));
         let expected = "llm http status 429: slow down (retry-after 7s)";
         assert_eq!(plain.to_string(), expected);
         for absent in [None, Some(""), Some("   ")] {
             let err = LlmError::http(429, "slow down", Some(Duration::from_secs(7)))
-                .with_request_id(absent);
+                .with_trace_id(absent);
             assert_eq!(err.to_string(), expected, "absent: {absent:?}");
-            assert_eq!(err.request_id(), None);
+            assert_eq!(err.trace_id(), None);
         }
     }
 
     /// The id is trimmed, so a header padded with whitespace cannot put a
     /// trailing blank inside the marker.
     #[test]
-    fn a_request_id_is_trimmed() {
-        let err = LlmError::http(503, "busy", None).with_request_id(Some("  t-9  "));
-        assert_eq!(err.request_id(), Some("t-9"));
+    fn a_trace_id_is_trimmed() {
+        let err = LlmError::http(503, "busy", None).with_trace_id(Some("  t-9  "));
+        assert_eq!(err.trace_id(), Some("t-9"));
         assert!(err.to_string().ends_with("[trace t-9]"));
     }
 }

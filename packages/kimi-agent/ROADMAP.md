@@ -7518,7 +7518,7 @@ REST 列表带该字段。
 |---|---|---|---|
 | `a_failing_summarizer_reports_compaction_failed` | 压缩失败发 `compaction_failed`，带 `turn_id` 与原因，且终态 `compaction.cancelled` 仍发出 | 改事件名 | **红**（`left: 0, right: 1`） |
 | `an_unreadable_history_reports_session_load_failed` | 历史读不出时发 `session_load_failed`，带 `session_id` / `stage: history` / 原因 | 改事件名 | **红**（载荷证实 `no such table: messages`） |
-| `a_failed_call_keeps_the_provider_request_id` | 失败调用保留 provider 的 `x-trace-id`（类型化字段**与**渲染文本都要有） | 改 header 名 | **红** |
+| `a_failed_call_keeps_the_provider_trace_id` | 失败调用保留 provider 的 `x-trace-id`（类型化字段**与**渲染文本都要有） | 改 header 名 | **红** |
 
 **#4 顺带证明的一件事**：`captured` 载荷是 `reason: "no such table: messages"`——说明注入的故障确实走到了
 那条分支，而不是因为别的错误提前返回。这正是「测试不能靠碰巧通过」的检查方式。
@@ -7607,3 +7607,52 @@ REST 列表带该字段。
 
 **验证**：`cargo fmt --check` 通过｜`cargo clippy --all-targets --features cli -D warnings` 通过｜
 `turn_loop::` **235 项**｜`server::` **404 项**｜4 条既有测试按 v2 属性名改写后全绿。
+
+### 10.48 逐个功能对 v2 源码：又两处走样（P2-17 过度实现、P2-19 命名张冠李戴）（2026-10-03）
+
+接 §10.47，把每个「已按 v2 对齐」的说法逐个对 **v2 源码**核（不核台账描述）。本轮核了 P2-12/P2-11/P2-17/P2-19。
+
+**P2-12 通过**：`lastTurnReason?: 'completed' | 'cancelled' | 'failed'`（`docs/state-manifest.d.ts:666`）——
+正是我用的三个值。
+
+**P2-11 通过**：`wire/migration/v1.2.ts:41` 的 `approvalRecord.result.scope !== 'session'` 与
+`v1.2.ts:5` 的 `readonly scope?: 'session'`——scope 取值就是 `'session'`，与我的闸门一致。
+
+**P2-17 走样：我把键函数做多了。** v2 的 `workspaceRootKey`（`_base/utils/workdir-slug.ts:27-32`）是
+**纯词法**的：
+
+```js
+const slashed = root.replaceAll('\\', '/');
+const shaped = WIN_SHAPED.test(slashed);   // /^(?:[A-Za-z]:[\\/]|\\\\|\/\/)/
+return shaped ? slashed.replace(/\/+$/, '').toLowerCase() : normalized;
+```
+
+两个要点，我都做错了：
+
+1. **不碰文件系统**。我用了 `std::fs::canonicalize`（解符号链接、查真实大小写），因此在「根是符号链接」
+   与「路径记录的字母大小写与磁盘不同」两种情况下给出 **v2 永远不会有的答案**。v2 自己的测试
+   （`workspaceService.test.ts:752-754`）钉的就是词法契约。
+2. **小写判据是路径形态，不是宿主 OS**。v2 只对 Windows 形态（`C:/…`、`//…`）小写；POSIX 路径**在任何
+   平台都保留大小写**（大小写敏感的系统上，两种拼写真的是两个目录）。我写的是 `cfg!(windows)`——
+   于是 Windows 上跑 `/Home/Foo` 会被折成 `/home/foo`，**合并了用户有意分开的两个工作区**。
+
+已按 v2 逐字重写（含 `is_windows_shaped`），并新增测试 `workspace_root_key_is_lexical_and_folds_by_path_shape`
+直接引用 v2 的三条例子。**变异验证**：把形态判据换回 `cfg!(windows)`，该测试立刻红
+（`left: /home/foo/proj` / `right: /Home/Foo/Proj`）。
+
+**顺带一个反证**：v2 的 `encodeWorkDirKey` 与 fork 原有实现**逐字等价**——所以「同一目录大小写不同 → 两个
+workspace」在 **v2 里也存在**，v2 靠 `workspaceRootKey` 在目录层消解。即 §10.40 的**别名消解部分我对了**，
+**键函数改造是我自己加的**。
+
+**P2-19 走样：字段名张冠李戴。** v2 的 `APIStatusError`（`llm-adapter/contract/errors.ts:88-110`）有
+**四个**独立字段：`statusCode` / `requestId` / `retryAfterMs` / **`traceId`**。二者来源不同：
+
+- `requestId` ← **provider 错误体的 `requestID` 属性**（`human/llm-kimi/errors.ts:55`: `readStringProp(error, 'requestID')`）
+- `traceId` ← **`x-trace-id` 响应头**（`human/kimi/trace.ts:12`）
+
+**我的 `LlmError.request_id` 是从 `x-trace-id` 填的——那是 v2 的 `traceId`。** 值用对了（所以 `api_error.trace_id`
+恰好正确），但**字段名指错了东西**，而这正是本轮反复出错的根源类型。已改名为 `trace_id`（getter/builder/
+捕获处/测试同步），并在文档里写明二者区别与「v2 的 `requestId` 尚未捕获」。
+
+**验证**：`cargo fmt --check` 通过｜`cargo clippy --all-targets --features cli -D warnings` 通过｜
+`llm::` **237 项**｜`session::sqlite_store` 38 项｜`turn_loop::turn_step` 22 项｜P2-17 的契约测试经变异验证。

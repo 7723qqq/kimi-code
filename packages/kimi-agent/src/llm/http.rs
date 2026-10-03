@@ -423,7 +423,7 @@ impl NativeHttpLlm {
             // and the failed path) and keeps it on the typed error. It is the
             // only identifier the provider's support can search on, so it must
             // not be dropped just because the call failed.
-            let request_id = response
+            let trace_id = response
                 .headers()
                 .get("x-trace-id")
                 .and_then(|v| v.to_str().ok())
@@ -432,7 +432,7 @@ impl NativeHttpLlm {
             let retry_after = header_retry_after.or(body_retry_after);
             return Err(Box::new(
                 crate::llm::LlmError::http(status.as_u16(), &brief, retry_after)
-                    .with_request_id(request_id.as_deref()),
+                    .with_trace_id(trace_id.as_deref()),
             ));
         }
 
@@ -1888,7 +1888,7 @@ mod tests {
     /// `x-trace-id` in the header lookup left every test in this module green,
     /// so in production `request_id()` could have been permanently `None`.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_failed_call_keeps_the_provider_request_id() {
+    async fn a_failed_call_keeps_the_provider_trace_id() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
@@ -1931,7 +1931,7 @@ mod tests {
             .expect("the transport must keep its typed error, not only its text");
         assert_eq!(typed.status_code(), Some(500));
         assert_eq!(
-            typed.request_id(),
+            typed.trace_id(),
             Some("trace-abc-123"),
             "the provider's request id must survive the failure"
         );

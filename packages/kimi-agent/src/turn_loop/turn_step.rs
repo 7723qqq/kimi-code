@@ -61,8 +61,8 @@ fn classify_llm_error(
         // fields every consumer reads. Return a typed error when there is
         // anything typed to keep, the text alone otherwise.
         let status_code = typed_status.or_else(|| crate::llm::http::llm_http_status(&err_str));
-        let request_id = typed.and_then(crate::llm::LlmError::request_id);
-        if status_code.is_none() && request_id.is_none() {
+        let trace_id = typed.and_then(crate::llm::LlmError::trace_id);
+        if status_code.is_none() && trace_id.is_none() {
             return Err(boxed_err(err_str));
         }
         // `typed`, not `attempts_exhausted`: this branch must not add the
@@ -70,7 +70,7 @@ fn classify_llm_error(
         // paths in `run_turn` detect a specific provider rejection by matching
         // the message text, so a rewritten message silently disables them.
         return Err(Box::new(
-            crate::llm::LlmError::typed(&err_str, status_code).with_request_id(request_id),
+            crate::llm::LlmError::typed(&err_str, status_code).with_trace_id(trace_id),
         ));
     }
     // `KIMI_CODE_INFINITE_RETRY` retries every retryable LLM request without
@@ -82,10 +82,10 @@ fn classify_llm_error(
         // request id are what a consumer correlates on, and a plain text error
         // would drop both. The rendered text is unchanged.
         let status_code = typed_status.or_else(|| crate::llm::http::llm_http_status(&err_str));
-        let request_id = typed.and_then(crate::llm::LlmError::request_id);
+        let trace_id = typed.and_then(crate::llm::LlmError::trace_id);
         return Err(Box::new(
             crate::llm::LlmError::attempts_exhausted(attempt, &err_str, status_code)
-                .with_request_id(request_id),
+                .with_trace_id(trace_id),
         ));
     }
     let status_code = typed_status.or_else(|| crate::llm::http::llm_http_status(&err_str));
@@ -420,7 +420,7 @@ pub fn execute_loop_step_with_retry<'a>(
                     if let Some(code) = status_code {
                         payload["status_code"] = serde_json::json!(code);
                     }
-                    if let Some(id) = typed.and_then(crate::llm::LlmError::request_id) {
+                    if let Some(id) = typed.and_then(crate::llm::LlmError::trace_id) {
                         payload["trace_id"] = serde_json::json!(id);
                     }
                     telemetry(payload);
@@ -1403,12 +1403,12 @@ mod tests {
     /// with no consumer the field was dead, and without the typed read here
     /// `api_error` would report it as null.
     #[tokio::test]
-    async fn api_error_carries_the_provider_request_id() {
+    async fn api_error_carries_the_provider_trace_id() {
         let llm = TypedErrorLlm {
             system_prompt: "test".into(),
             model_name: "typed".into(),
             error: crate::llm::LlmError::http(503, "upstream unavailable", None)
-                .with_request_id(Some("trace-42")),
+                .with_trace_id(Some("trace-42")),
         };
         let config = RetryConfig {
             max_attempts: 3,

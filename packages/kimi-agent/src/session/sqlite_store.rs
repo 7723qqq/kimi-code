@@ -61,64 +61,43 @@ pub fn encode_workdir_key(work_dir: &str) -> String {
 /// The identity of a workspace root, independent of how it was spelled.
 ///
 /// Two spellings of the same directory — a symlink and its target, a different
-/// path case on Windows, a relative and an absolute form — must resolve to one
-/// workspace. Hashing the raw string (what [`encode_workdir_key`] does) cannot
-/// do that: it lower-cases only the *slug*, while the hash covers the path as
-/// written, so `G:\\Kimi\\kimi-code` and `G:\\kimi\\kimi-code` are two
-/// workspaces on a case-insensitive filesystem.
+/// path case, a relative and an absolute form — must resolve to one workspace.
 ///
-/// Canonicalization needs the path to exist. A root that is not on this machine
-/// (a remote root, a directory not created yet) falls back to the lexical form
-/// of its deepest existing ancestor — the same treatment
-/// `canonicalize_allowing_missing` gives plugin paths. Without the fallback an
-/// ordinary missing directory would compare as empty and silently stop matching
-/// anything, which is worse than the duplicate it replaces.
+/// This is v2 `workdir-slug.ts` `workspaceRootKey`, verbatim in behaviour: it is
+/// **lexical only**. No filesystem call, so no symlink resolution and no on-disk
+/// case lookup. An earlier version of this function canonicalized instead, which
+/// reached the filesystem and therefore answered differently for a symlinked root
+/// and for a path whose stored case differs from the disk — two answers v2 never
+/// had. v2's own tests pin the lexical contract:
+///
+/// ```text
+/// workspaceRootKey('C:\\Users\\Foo\\Proj') === 'c:/users/foo/proj'
+/// workspaceRootKey('c:/Users/Foo/Proj/')  === 'c:/users/foo/proj'
+/// ```
+///
+/// The case fold is keyed on the **path's shape**, not on the host OS: only a
+/// Windows-shaped root (`C:/…`, `//…`) is lower-cased. A POSIX path keeps its
+/// case wherever this runs, because on a case-sensitive filesystem two spellings
+/// really are two directories.
 pub fn workspace_root_key(root: &str) -> String {
-    let normalized = canonicalize_allowing_missing(std::path::Path::new(root));
-    let trimmed = normalized.trim_end_matches('/');
-    if cfg!(windows) {
-        trimmed.to_lowercase()
+    let slashed = root.replace('\\', "/");
+    let normalized = slashed.trim_end_matches('/');
+    if is_windows_shaped(&slashed) {
+        normalized.to_lowercase()
     } else {
-        trimmed.to_string()
+        normalized.to_string()
     }
 }
 
-/// Canonicalize the deepest existing ancestor and re-append the rest.
-fn canonicalize_allowing_missing(path: &std::path::Path) -> String {
-    let mut tail: Vec<String> = Vec::new();
-    let mut current = path.to_path_buf();
-    loop {
-        if let Ok(canonical) = std::fs::canonicalize(&current) {
-            let mut result = strip_verbatim_prefix(&canonical.to_string_lossy());
-            for segment in tail.iter().rev() {
-                if !result.ends_with('/') {
-                    result.push('/');
-                }
-                result.push_str(segment);
-            }
-            return result;
-        }
-        let Some(name) = current
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-        else {
-            break;
-        };
-        tail.push(name);
-        if !current.pop() {
-            break;
-        }
-    }
-    path.to_string_lossy().replace('\\', "/")
-}
-
-/// `std::fs::canonicalize` answers the `\\?\` verbatim form on Windows, which
-/// works for every filesystem call and reads terribly everywhere else.
-fn strip_verbatim_prefix(value: &str) -> String {
-    value
-        .replace('\\', "/")
-        .trim_start_matches("//?/")
-        .to_string()
+/// v2 `WIN_SHAPED`: a drive-letter root, a UNC root, or a double-slash root.
+///
+/// Tested against the slash-converted form, as v2 does, so `C:\\x` and `C:/x`
+/// agree.
+fn is_windows_shaped(slashed: &str) -> bool {
+    let bytes = slashed.as_bytes();
+    let drive =
+        bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'/';
+    drive || slashed.starts_with("//")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -4778,6 +4757,49 @@ mod tests {
         assert_ne!(
             workspace_root_key(&as_posix),
             workspace_root_key(&as_posix.replace("still-gone", "other"))
+        );
+    }
+
+    /// v2's own examples, pinned verbatim: the key is lexical, and the case fold
+    /// is decided by the path's *shape*, not by the host this runs on. An earlier
+    /// version of `workspace_root_key` canonicalized instead, which reached the
+    /// filesystem and answered differently for symlinked roots.
+    #[test]
+    fn workspace_root_key_is_lexical_and_folds_by_path_shape() {
+        // v2 `workspaceService.test.ts:752-754`.
+        assert_eq!(
+            workspace_root_key("C:\\Users\\Foo\\Proj"),
+            "c:/users/foo/proj"
+        );
+        assert_eq!(
+            workspace_root_key("c:/Users/Foo/Proj/"),
+            "c:/users/foo/proj"
+        );
+        assert_eq!(
+            workspace_root_key("C:\\Users\\Foo\\Proj"),
+            workspace_root_key("c:/users/foo/proj")
+        );
+
+        // A POSIX root keeps its case *wherever this runs*: on a
+        // case-sensitive filesystem two spellings are two directories, so
+        // folding them would merge workspaces the user keeps apart.
+        assert_eq!(workspace_root_key("/Home/Foo/Proj"), "/Home/Foo/Proj");
+        // A UNC root is Windows-shaped and folds.
+        assert_eq!(
+            workspace_root_key("\\\\Server\\Share\\Proj"),
+            "//server/share/proj"
+        );
+
+        // Shape decides, not the OS: on a case-insensitive host a POSIX-shaped
+        // root still keeps its case, and on a case-sensitive host a
+        // Windows-shaped one still folds.
+        assert_ne!(
+            workspace_root_key("/tmp/Case"),
+            workspace_root_key("/tmp/case")
+        );
+        assert_eq!(
+            workspace_root_key("D:/Case/"),
+            workspace_root_key("d:/case")
         );
     }
 }
