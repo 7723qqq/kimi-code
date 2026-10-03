@@ -4417,7 +4417,7 @@ has_errors = state == "error"     // 两者不再互相矛盾
 | usage 的 `byModel` 分组 + status 带 usage | **partial（真实）** | **`session/usage/usageAgentModel.ts:28-29,64-75`**、`usageEvents.ts:8-19` | 逐轮 usage 已落库（`sqlite_store.rs:1272`）、会话总计已累加并对外服务（`sdk-rpc-client-native.ts:5561-5567`、`:3229`）。缺两点：`AgentUsageMeta{by_model,current_turn,total}` 类型**已声明但从未构造**（`server/transcript/model.rs:687-694`，像半成品移植）；`status_payload`（`server/engine.rs:916-969`）无 `usage` 键，而 v2 里它是第一字段。cacheProbe 遥测缺（`cacheProbeService.ts:23` 仅对 fork 会话首轮）——属遥测非能力，**建议跳过** |
 | `agent/tokenCounting/` anchor 模型 | **missing（真实）** | `tokenCountingOps.ts:23-71`、`configSection.ts:12-19` | 四个 durable 事件（`token_counting.measured/truncated/rebased/turn_recorded`）全缺（`token_counting\.` 全仓零命中），config section 缺（fork 有完整的 config-section 框架可挂，如 `config/mod.rs:1396`），无 anchor 三元组。**已验证不是"雏形"**：provider 实测 usage 与估算**各算各的、永不相遇**。另注：`native/tokens.rs:87-92` 记明 anchor tracker 曾存在但作为未接线的重复实现被清理。`server/engine.rs:933` 的 `len()/4` 比 fork 自己的 `native::tokens::estimate_tokens` 更粗糙（对 CJK 低报约 4 倍），**这一行无论其余做不做都该单独修** |
 | `agent/userTool/` 持久注册 | **missing（真实）** | `userToolOps.ts:10,27,57`、`userToolService.ts:60` | `userToolKey` 是 `defineState(...).replayable(...)` 的 **durable** state（`:57`），配 `ToolsRegisterUserTool`/`ToolsUnregisterUserTool` 两个 durable 事件（`:24,40`）。fork 侧 `register_user_tool`/`UserToolRegistration`/`userToolKey`/`inheritUserTools` **全仓零命中** |
-| `toolResultRender` 状态包装 | **本轮已补**（见 §10.28） | `toolResultRender.ts:32-49`（`renderStatus`）、`:51-68`、`:79-85` | fork 模型可见的 tool result（`run_turn.rs:1925`）只加 wall-time 前置；`tr.is_error` 只用于发事件（`:1907`），**从不包装模型可见内容**。i18n 串存在而无人用：`locales/en.json:609` 的 `"Tool output is empty."` 全仓只此一处。v2 侧每个请求的每条 `role:"tool"` 消息都过这个渲染（`projection.ts:342`），**这是模型判断工具成败的唯一信号**；且 `Read` 用渲染后字符数算截断预算（`readTool.ts:508-543`） |
+| `toolResultRender` 状态包装 + `note` 追加 | **本轮已补**（状态包装见 §10.28；`note` 追加见 §10.50） | `toolResultRender.ts:32-49`（`renderStatus`）、`:51-68`、`:79-85` | fork 模型可见的 tool result（`run_turn.rs:1925`）只加 wall-time 前置；`tr.is_error` 只用于发事件（`:1907`），**从不包装模型可见内容**。i18n 串存在而无人用：`locales/en.json:609` 的 `"Tool output is empty."` 全仓只此一处。v2 侧每个请求的每条 `role:"tool"` 消息都过这个渲染（`projection.ts:342`），**这是模型判断工具成败的唯一信号**；且 `Read` 用渲染后字符数算截断预算（`readTool.ts:508-543`） |
 | `features/todo` 陈旧提醒 | **missing（真实）** | `todoListReminder.ts:7-8,21-33` | 阈值已核实：`TURNS_SINCE_WRITE=10` 且 `TURNS_BETWEEN_REMINDERS=10` **两者同时满足**才触发（`:25-30`）；计数**只数 assistant 消息**（`:43-61`），分别停在最后一个带 `TodoList` tool call 的 assistant（`:69-81`）与最后条 `origin.variant='todo_list_reminder'` 注入（`:83-88`）。fork 只有写入提醒（`todo_list.rs:20`），`injection/mod.rs:159-184` 的注册表里无此 variant |
 | `features/notify` nudge actor | **partial（真实，但价值最低）** | `notifyUserNudgeService.ts:34-62`、`notifyUserNudge.ts:6,67-88` | 两分支：连续 8 次 tool call 未 NotifyUser 的 streak nudge（阈值 `:6`）+ 中途文本回复提示（`:57-58`）；`notify_user_nudge` variant 未注册。**但它唯一效果就是往历史注入一条 system-reminder**，无状态、无 tool call、无协议事件；fork 的静态提示词指引（`prompt/builder.rs:75-76`）已覆盖意图。**可跳过** |
 
@@ -4829,7 +4829,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 | 10 | `tokenCounting` anchor 模型缺失 | **状态栏那部分已修**（见 6.45.4 第 10 行）；anchor 模型本身是报告精度改进，不影响正确性。**待裁决：值得做，还是就此停手** |
 | 11 | ~~`PermissionRuleScope` 4 档 + `recordApprovalResult` 缺失~~ **已完成 2026-10-03**（§10.42） | **诊断已更正，见 §10.36**：不是「不留痕」，是**批准从未被安装**（`session_approvals` 恒空）。修法需协议改动（引擎提供候选规则模式）；**粒度不能降到工具名**，那是授权范围判定 |
 | 12 | `SessionOutcomeMirror` 不落库 | `last_turn_reason` 只发活事件；线形字段已在 `protocol/src/session.ts:112` 但无写入方 |
-| 13 | ~~`toolResultRender` 状态包装缺失~~ **已完成 2026-10-03**：见 §10.28 | `<system>ERROR:…</system>` 是模型判断工具成败的唯一信号；`locales/en.json:609` 的串全仓无人用 |
+| 13 | ~~`toolResultRender` 状态包装缺失 + `note` 未到模型~~ **已完成 2026-10-03**：包装见 §10.28，**`note` 追加见 §10.50** | `<system>ERROR:…</system>` 是模型判断工具成败的唯一信号；`locales/en.json:609` 的串全仓无人用 |
 | 14 | ~~`SessionHeartbeat` hook 缺失~~ **已撤销** | 它就是 P1-3 那 14 个未触发事件之一（`types.ts:17`），重复计数。唯一额外成本是需要 session 心跳定时器 |
 | 15 | ~~遥测事件 ~10/60~~ **解释故障的三个本轮已补（§10.39）**：`api_error` / `compaction_failed` / `session_load_failed`；余项各自落点需单独核实 | 优先补解释故障的：`api_error`、`compaction_failed`、`tool_call_dedup_detected`、`session_load_failed` 等。**`api_error` 原与 P1-5 合并做，该理由已于 2026-10-02 推翻**（见 §10.25：v2 的 cache-miss 判据不读 usage，两者无共用结构），现为独立工单 |
 | 16 | trust 披露服务（§6.23.6） | 消费者已写好但是死的：`trust-prompt.ts:89-97` 只在数组非空时渲染，`kimi-tui.ts:2689` 硬编码 `[]` |
@@ -4902,7 +4902,7 @@ usage 累积 + detect() + 遥测  ← 三合一（见上表）
 | 10 | ~~`len()/4` 一行修正~~ **已完成 2026-10-01** | `server/engine.rs:933` 改用 `compaction::estimate_tokens`。**实测纠正**：原估「对 CJK 低报约 4 倍」是错的——`len()` 是字节数，3 字节/汉字 → 低报 **25%**（300 字节报 75，实际 100 token）。附带修掉截断：43 ASCII 字符旧值报 10，现为 11。新增测试 `context_tokens_count_cjk_per_character_and_leave_ascii_alone`（ASCII 差异 ≤1 仅进位、CJK 100 字符 = 100 token、混合串按连续 ASCII 段一次进位）。副作用是状态栏与压缩触发器现在共用同一估算器，两者不会再对「有多满」产生分歧 | **已完成** |
 | 11 | ~~**PermissionRuleScope + 审批留痕**~~ **已完成 2026-10-03**（§10.42） | 结论与估算不同：无需把 `Vec<String>` 换结构，也无需 agent state 通道——引擎侧的 `UserConfiguredAsk` 本就有命中规则，把它带到批准请求与 wire，宿主在 `scope==='session'` 时记住即可 | **已完成** |
 | 12 | ~~`SessionOutcomeMirror` 落库~~ **已完成 2026-10-03**（§10.35） | **行号已重定位**：原写 `engine.rs:1697` **已漂移**（现指向一处 `.await;`）。真实链路：`engine.rs:832` `publish_work_changed` 只发活事件，其 `:844` 构造 payload；`events/types.rs:136` 声明字段；`server/transcript/project.rs:2296/2308` 是投影侧。落库点应在 `publish_work_changed` 调用方 | **已完成** |
-| 13 | ~~`toolResultRender` 状态包装~~ **已完成 2026-10-03** | 新增 `turn_loop/tool_result_render.rs`，接在 `run_turn` 构建模型可见 tool result 处。**两处刻意不做**（详见 §10.28）：`note` 追加（本引擎把 `note` 兼作内部出处标签）与 Read 的渲染后字符预算 | **已完成** |
+| 13 | ~~`toolResultRender` 状态包装 + `note` 追加~~ **已完成 2026-10-03**（`note` 见 §10.50） | 新增 `turn_loop/tool_result_render.rs`，接在 `run_turn` 构建模型可见 tool result 处。**两处刻意不做**（详见 §10.28）：`note` 追加（本引擎把 `note` 兼作内部出处标签）与 Read 的渲染后字符预算 | **已完成** |
 | 17 | `workspaceAliases` | **已核实**：`delete_workspace` 在 `session/sqlite_store.rs:776`；全仓 `workspaceAliases` / `workspace_aliases` **零命中**，即 fork 确实无别名概念——同一目录的符号链接/大小写变体会算成两个 workspace，且删除后无墓碑 | **1-2 人天** |
 | 9 | minidb 读模型 | **待裁决后再估**（取决于是否需要全文检索；若只需 FTS5 则 2-3 人天，若需 minidb 全套则 10+ 人天） | — |
 | 16 | **trust 披露（部分完成）** | 消费者已写好，主要是喂数据（读项目 `.mcp.json` + `local.toml` + instruction sources） | **2-3 人天** |
@@ -7702,3 +7702,39 @@ reconcileChildNoProxy(merged, configEnv);          // 4. 配置的 no_proxy 覆�
 
 **验证**：`cargo fmt --check` 通过｜`cargo clippy --all-targets --features cli -D warnings` 通过｜
 `mcp::client` 22 项｜P2-18 的新测试经变异验证。
+
+### 10.50 P2-13 的第三件事没做：`note` 没到模型；以及我的门禁验证范围不全（2026-10-03）
+
+**P2-13 的 `note` 追加：真缺口，已修。** v2 的 `renderToolResultForModel`（`contextMemory/toolResultRender.ts:32-49`）
+做三件事：`renderStatus` → 追加 wall-time 头 → **追加 `note`**。前两件我做了，第三件没有。
+
+而 `note` **不是装饰**。Read 工具把它当**给模型的指引**用（`tools/mod.rs:2661`）：
+
+- 「Lines […] were truncated to N characters; use Bash (e.g. cut or sed) to read the elided content」
+- 「Edit and Write expect UTF-8 — convert the file's encoding first」
+- 「Mixed or lone carriage-return line endings are shown as \r」
+
+fork 只把这些放进了 `note`，而 `note` 只出现在**事件载荷**里（`run_turn.rs:1965`、`callbacks.rs:1141`）——
+**模型永远看不到**。后果是模型拿到被截断的文件、却收不到「用 Bash 读被省略的部分」这条指令。
+
+已按 v2 顺序追加（在 wall-time 之后）。新测试 `a_tool_note_reaches_the_model_after_the_status` 断言模型看到的
+内容是 `file contents\n<system>3 lines were truncated.</system>`。**变异验证**：去掉追加 → 红
+（`left: "file contents"`）；回退并**刷新 mtime**后 → 绿（见下）。
+
+**`check:parity` 的 shell 顺序：不是 v2 的主张，规则属实。** 那是我加的 `rustShellOrder`/`tsShellOrder`/
+`shellOrderFindings`，规则是「宿主探测顺序必须是引擎顺序的**前缀**」。这与 v2 无关——
+`probeShellPath` 的注释明说它 mirror **引擎**（`native/shell.rs:5`：`KIMI_SHELL_PATH` → 配置偏好 → `pwsh` →
+`powershell` → Git Bash → `cmd`），所以这是 **fork 内部两个实现的一致性检查**。
+检查本身是实的：`rustShellOrder` **从源码提取**（`resolve_shell` 的 Windows 分支），且**空读会失败关闭**
+（防「两边都空所以相等」的假通过）；`scan-parity.test.mjs` **11 项**含反向用例（顺序颠倒、缺 pwsh、改名）。
+
+**但我发现自己的验证范围不全**：`check:parity` 门禁只跑**脚本本体**，**不自测**；
+门禁自测（`scripts/*.test.mjs` 与 `packages/cli/test/scripts/*.test.ts`）只在 `bun run test` 里跑，
+而我一直只跑过 node-sdk / protocol 子集，**从没跑过 `bun run test scripts`**。
+跑了一遍：**13 个文件 / 102 项全绿**（含 `check-architecture-drift` 27 项、`scan-parity` 11 项、
+`check-nix-workspace`、`check-no-legacy-engine` 等）——没有查出缺陷，但**门禁自身的正确性此前不在我的验证范围内**。
+已列入提交边界检查清单。
+
+**验证**：`cargo fmt --check` 通过｜`cargo clippy --all-targets --features cli -D warnings` 通过｜
+`turn_loop::run_turn` **80 项**（+1）｜`mcp::client` 21 项｜`bun run test scripts` 102 项通过｜
+`note` 追加经变异验证（含回退后的绿色复验）。

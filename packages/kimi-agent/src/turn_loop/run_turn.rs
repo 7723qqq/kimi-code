@@ -1984,6 +1984,20 @@ pub fn run_turn<'a>(
                             }
                             _ => rendered,
                         };
+                        // v2 appends the note last (`renderToolResultForModel`,
+                        // `contextMemory/toolResultRender.ts:43-48`): status
+                        // wrapper, then the wall-time header, then the note.
+                        //
+                        // The note is not decoration. Read fills it with the
+                        // guidance the model needs to act on what it just got —
+                        // "use Bash to read the elided content", "Edit and Write
+                        // expect UTF-8 — convert the file's encoding first" — so
+                        // leaving it out hides the instructions and leaves the
+                        // model with a truncated file and no idea why.
+                        let content = match tr.note.as_deref().filter(|note| !note.is_empty()) {
+                            Some(note) => format!("{content}\n{note}"),
+                            None => content,
+                        };
                         messages.push(LLMMessage {
                             role: "tool".into(),
                             content,
@@ -4902,6 +4916,121 @@ mod tests {
         assert_eq!(
             tool_message.content, "<system>ERROR: Tool execution failed.</system>\nboom",
             "a failed result must carry the status sentinel the model reads"
+        );
+    }
+
+    /// The tool note reaches the model, appended after the status wrapper.
+    ///
+    /// v2 `renderToolResultForModel` appends it last. This engine put it only in
+    /// an event, and the note is not decoration: Read fills it with the guidance
+    /// the model needs ("use Bash to read the elided content", "Edit and Write
+    /// expect UTF-8"), so hiding it left the model holding a truncated file with
+    /// no idea why.
+    #[tokio::test]
+    async fn a_tool_note_reaches_the_model_after_the_status() {
+        struct NotingToolLlm {
+            call: AtomicU32,
+            requests: std::sync::Mutex<Vec<Vec<LLMMessage>>>,
+        }
+        impl LLM for NotingToolLlm {
+            fn system_prompt(&self) -> &str {
+                "test"
+            }
+            fn model_name(&self) -> &str {
+                "noting-tool-llm"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let call = self.call.fetch_add(1, Ordering::SeqCst);
+                self.requests.lock().unwrap().push(params.messages.to_vec());
+                Box::pin(async move {
+                    if call == 0 {
+                        Ok(LLMChatResponse {
+                            content: String::new(),
+                            thinking: vec![],
+                            tool_calls: vec![ToolCall {
+                                id: "tc-note".into(),
+                                name: "read".into(),
+                                arguments: serde_json::json!({"path": "/a.txt"}),
+                                extras: None,
+                            }],
+                            finish_reason: Some("tool_calls".into()),
+                            usage: TokenUsage::default(),
+                            timing: None,
+                        })
+                    } else {
+                        Ok(LLMChatResponse {
+                            content: String::new(),
+                            thinking: vec![],
+                            tool_calls: vec![],
+                            finish_reason: Some("stop".into()),
+                            usage: TokenUsage::default(),
+                            timing: None,
+                        })
+                    }
+                })
+            }
+        }
+
+        let llm = NotingToolLlm {
+            call: AtomicU32::new(0),
+            requests: std::sync::Mutex::new(Vec::new()),
+        };
+        let server = Arc::new(RpcServer::new());
+        // The note is what Read puts its model-facing guidance in.
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    delivery: None,
+                    stop_turn: false,
+                    content: "file contents".into(),
+                    is_error: false,
+                    note: Some("<system>3 lines were truncated.</system>".into()),
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        let callbacks = rpc_callbacks(server.clone());
+        let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
+            previous_turn_aborted: false,
+            turn_id: "test-tool-note".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "read it".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+            toolset: None,
+        };
+        run_turn(input, &callbacks).await.unwrap();
+
+        let requests = llm.requests.lock().unwrap();
+        let tool_message = requests[1]
+            .iter()
+            .find(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some("tc-note"))
+            .expect("the tool result must reach the model");
+        assert_eq!(
+            tool_message.content, "file contents\n<system>3 lines were truncated.</system>",
+            "the note must follow the status wrapper, as v2 appends it"
         );
     }
 

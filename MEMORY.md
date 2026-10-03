@@ -284,3 +284,17 @@ observable and are asserted there.
 
 **推论**：变异验证只在**同一个构建周期内**可靠（改之前红、改之后绿，且两次都确实重编了）。
 跨回退的比较必须确认重编，否则得到的不是证据。
+
+## 门禁脚本自己也有测试，而且不在「跑门禁」里
+
+「15 道门禁全绿」不等于门禁是对的。`scripts/scan-parity.mjs` 这类门禁脚本**本身有自测**
+（`scripts/*.test.mjs`、`packages/cli/test/scripts/*.test.ts`），它们只在 `bun run test` 里跑；
+`bun run check:parity` 这类门禁命令**只跑脚本本体**。
+
+所以「跑了 15 道门禁」覆盖的是**规则在树上是否通过**，不是**规则本身是否还生效**。后者要靠
+`bun run test scripts`（13 个文件 / 102 项）。
+
+一次差点因此漏判：`scan-parity` 的 shell 顺序检查有反向用例（顺序颠倒、缺 pwsh、改名都要报），
+不跑它的自测就不知道它还在工作——而这些自测全绿，说明检查本身是活的。
+
+**提交边界应包含两项**：`bun run test scripts`（门禁自测）+ 15 道门禁（规则在树上通过）。
