@@ -1851,6 +1851,11 @@
       "text": "Undo violation: Cannot undo across compaction boundary",
       "reason": "deferred"
     },
+    "packages/kimi-agent/src/native/event_store/mod.rs:Wire protocol {found} is newer than this engine supports ({supported})": {
+      "file": "packages/kimi-agent/src/native/event_store/mod.rs",
+      "text": "Wire protocol {found} is newer than this engine supports ({supported})",
+      "reason": "deferred"
+    },
     "packages/kimi-agent/src/native/event_store/mod.rs:[Image (stripped):": {
       "file": "packages/kimi-agent/src/native/event_store/mod.rs",
       "text": "[Image (stripped):",

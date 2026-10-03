@@ -564,6 +564,7 @@ impl SqliteSessionStore {
                 is_checkpoint BOOLEAN NOT NULL DEFAULT 0,
                 is_compaction BOOLEAN NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
+                protocol_version TEXT,
                 FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS idx_wire_session_seq ON wire_events(session_id, seq);
@@ -578,7 +579,11 @@ impl SqliteSessionStore {
             names.filter_map(std::result::Result::ok).collect()
         };
         if !columns.contains("tool_calls") {
-            let _ = conn.execute("ALTER TABLE messages ADD COLUMN tool_calls TEXT", []);
+            let _ = conn.execute(
+            "ALTER TABLE wire_events ADD COLUMN protocol_version TEXT",
+            [],
+        );
+        let _ = conn.execute("ALTER TABLE messages ADD COLUMN tool_calls TEXT", []);
         }
         if !columns.contains("tool_call_id") {
             let _ = conn.execute("ALTER TABLE messages ADD COLUMN tool_call_id TEXT", []);

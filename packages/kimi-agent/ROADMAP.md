@@ -4817,7 +4817,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 | 3 | ~~**14 个 hook 事件未触发**~~ **已完成 2026-10-03**（v2 有 20 种，fork 原只 6 种）。全部只观察、从不否决 | 已核实（20 种事件名逐条确认） | 见 **§10.27**。`tools/external_hooks.rs` 新增 12 个 `notify_*` + `has_hooks_for`，接线落在 session / turn_loop / callbacks / task_runner / agent_tool / swarm 六处 |
 | 4 | **Anthropic 多发一个 `cache_control` 槽**（fork 4 / 上游 3）。stable-history 位是 **fork 自加**，此前被误登记为「非自加」 | 已核实（`anthropic.rs:184-192` 四处发射点 `:164/:192/:239/:254`；上游 `anthropic.ts:352-362` 无该分支） | **冗余但无害，降级**：stable 位在 `msgs.len()-3`，**每轮向前移动**，故永远不是同一前缀——两种缓存语义下都不带来命中收益，唯一效果是多写一条条目。详见 6.45.1 |
 | 5 | ~~**micro compaction 的 `detect()` 两个门禁**~~ **已完成 2026-10-02** | 已核实 | 见 **§10.25**。`compaction/micro.rs` 增 `detect_micro_compaction()` + `DetectOutcome`，配置面补 `cache_missed_threshold_ms` / `min_context_usage_ratio` 两个 v2 默认值；引擎侧增 per-session `last_assistant_at`，每轮 `save_turn` 后打戳（v2 `onDidFinishStep`）。**§6.29 曾把它标成「不得开工」，6.44.1 已推翻** |
-| 6 | **wire 协议无版本概念**：`wire_events` 表无版本列、无 `metadata` 记录、无迁移链（v2 有 v1.0→v1.5 五级 + 前向拒绝）。旧会话既不能迁移也不能识别 | 已核实 | `session/sqlite_store.rs:439` |
+| 6 | ~~**wire 协议无版本概念**~~ **已完成 2026-10-03**（§10.34）：`protocol_version` 列 + 写入打戳 + 读取侧对更新版本**拒绝**。**五个迁移经核验无物可迁**（v2 是 JSONL 记录字段重写；最大的 v1.3→v1.4 全是 `goal.*`，fork 零命中；表从未被 ALTER 过） | 已核实 | `native/event_store/mod.rs`、`session/sqlite_store.rs:558` |
 | 7 | ~~**磁盘日志缺失 + 导出 ZIP 只有 2 个成员**~~ **按原样不存在，见 §10.30**；残余 (b) **已完成 2026-10-03**（§10.31）：日志子系统已在宿主层 `node-sdk/src/logging.ts`（`~/.kimi-code/logs/kimi-code.log` 实测 5.8MB 且在写、`.1`–`.4` 归档）；`/export-debug-zip` 走宿主完整导出并有 e2e 钉住。**真正残余两项**：(a) 会话级日志无调用方（已另登记为 §6.40 的 `sessionLogService`），(b) **引擎 REST `/export`（Web 客户端）比宿主导出薄**（2 成员、无 manifest） | 已核实（文件系统 + e2e 实测） | `server/mod.rs:1680-1721`（Web 路径）、`node-sdk/src/logging.ts`、`tui/commands/session.ts:163` |
 | 8 | ~~**POST /undo 不做 state 回滚**~~ **已完成 2026-10-01**（`ac180b4dbe`）：闭环记录见 §6.45.4 第 8 行。**本行此前未划线、与 §6.45.4 自相矛盾，2026-10-03 订正**——两表同源于 §6.40，而修正只落在了后者 | 已核实（grep 全仓确认） | `server/mod.rs:5511-5602` |
 
@@ -4896,7 +4896,7 @@ usage 累积 + detect() + 遥测  ← 三合一（见上表）
 | 1 | **frontmatter 真 YAML** | 引入 `serde_yaml`，替换 `skills/mod.rs:98-172`（约 75 行）与 `tower/frontmatter.rs:19-48`（30 行）两处手写解析；需保留现有 9 项 skills 测试行为并补 4 条失败用例的回归。**风险点**：`scopes` 当前的块列表解析（`skills/mod.rs:188+`）与 `_` 别名拼写（`:129-146`）不能被 YAML 库的行为覆盖 | **2-3 人天** |
 | 2 | **分叉 turn_index** | `sqlite_store.rs:834-863` 加参数 + 按 v2 `forkTurnSlice.ts:80-99` 的 `origin.kind` 分类切边界 + promptId 配对（`:118-176`）；调用方两处（`server/mod.rs:5165` 解析 body 的 `turnIndex`、`acp/mod.rs:1015`）；**注意 fork 的历史按 `save_turn` 分行存储，切分要按 turn 而非按 message** | **3-4 人天** |
 | 5+15 | **micro `detect()` + 遥测 `api_error`** | 新增一个跨 step 的 usage 累积结构（`input_cache_read` / `input_cache_creation` / tokens），`server/engine.rs:1348` 前加判据，配置面加 2 个常量；遥测侧同源数据报 `api_error` | **2-3 人天** |
-| 6 | **wire 版本 + metadata + 迁移链** | 加 `protocol_version` 列与 `metadata` 记录类型（写侧 + 读侧兼容），再逐级实现 v1.0→v1.5 五个迁移。**前置约束**：必须早于任何新的 wire 记录类型 | **4-6 人天**（含迁移的向后兼容测试） |
+| 6 | ~~**wire 版本 + metadata + 迁移链**~~ **已完成 2026-10-03**（§10.34） | 版本列 + 打戳 + 前向拒绝已落地；**五个迁移经证据核验无物可迁**（见 §10.34 三条理由），故不建空迁移链 | **已完成**（原 4-6 人天为五个迁移定价，那些迁移不适用） |
 | 7 | ~~**磁盘日志 + 导出 ZIP**~~ **原描述不成立（§10.30）**；引擎 REST 那半**已完成 2026-10-03**（§10.31）。日志已由宿主层移植并实测在写，CLI 导出已完整且有 e2e。**残余只剩**：会话级日志接线（`resolveSessionLogPath` 无调用方）与**引擎 REST `/export` 对齐宿主导出能力** | 引擎侧 REST 导出补 manifest + 日志成员 + 遍历会话树，参照 `sdk-rpc-client-native.ts:3642-3698` | **0.5-1 人天** |
 | 8 | ~~POST /undo 回滚接线~~ **已完成 2026-10-01** | 新增 `rollback_state_for_undo`（`server/mod.rs:7371`），接在 `undo` 路由 `:5594`。**台账原引三处「已有模式」全是假的**——`engine.rs` 中 `.rollback()` 零调用，唯一生产调用者是 `repl/mod.rs:782`；`engine.rs:1168` 是 `for_workspace` 的 `Err(_)` 臂、`:1197` 只是注释提到 `StateStoreCallbacks`。真实模式在 `callbacks.rs:1536-1554`。**核实后新增的要点**：checkpoint 是 LIFO 栈（`state_store.rs:175/244`），`count=N` 必须弹 N 次而非一次。失败如实上报而非静默——行已删除，静默分叉比可见错误更糟。两个测试：`undo_restores_state_domains_from_the_checkpoint_stack`（钉 LIFO 到最早锚点）与 `undo_succeeds_when_no_checkpoint_was_ever_taken`（钉空栈不算错）；前者已用环境变量探针反证——断开接线后 depth 停在 2，测试确实失败 | **已完成** |
 | 10 | ~~`len()/4` 一行修正~~ **已完成 2026-10-01** | `server/engine.rs:933` 改用 `compaction::estimate_tokens`。**实测纠正**：原估「对 CJK 低报约 4 倍」是错的——`len()` 是字节数，3 字节/汉字 → 低报 **25%**（300 字节报 75，实际 100 token）。附带修掉截断：43 ASCII 字符旧值报 10，现为 11。新增测试 `context_tokens_count_cjk_per_character_and_leave_ascii_alone`（ASCII 差异 ≤1 仅进位、CJK 100 字符 = 100 token、混合串按连续 ASCII 段一次进位）。副作用是状态栏与压缩触发器现在共用同一估算器，两者不会再对「有多满」产生分歧 | **已完成** |
@@ -7011,3 +7011,51 @@ Web 客户端拿到的 bundle 没有 manifest、没有日志，而同一台机�
 
 **验证**：`bun run typecheck` ✅｜`bun run lint` 0 error（4235 warnings 基线）✅｜
 `packages/node-sdk` 套件 **40 文件 / 376 passed**（原 375）✅｜15 道门禁 ✅。
+
+### 10.34 §6.45 P1-6 落地：wire 协议版本与读取侧拒绝（2026-10-03）
+
+§6.45 P1-6 的条目是「加 `protocol_version` 列与 `metadata` 记录类型，再逐级实现 v1.0→v1.5 五个迁移」，
+估 4–6 人天。核验后发现**五个迁移在 fork 里无物可迁**，而**版本能力本身**才是真缺口（台账也把它标为
+「必须早于任何新的 wire 记录类型」的前置约束）。本轮落地后者，并把前者的结论用证据登记。
+
+**为什么五个迁移不适用**：
+
+1. **表示不同**。v2 的 wire 是每 agent 一个 `wire.jsonl`（`record.ts:3` 的
+   `AGENT_WIRE_RECORD_KEY = 'wire.jsonl'`），迁移是对**记录字段**的重写；fork 的 wire 是 SQLite
+   `wire_events` 行（`event_type` + 不透明 `payload`），两者不是同一层。
+2. **最大的那个迁移无对应物**。`v1.3→v1.4`（99 行，五个迁移里最大）**整篇都是 `goal.*` 记录形状**的
+   改写：去掉记录体里的 `goalId`、把 `goal.account_usage` / `goal.continuation` 并入 `goal.update`。
+   fork 全仓 `goal.create` / `goal.update` / `goal.account_usage` / `goal.continuation` / `goal.clear`
+   **零命中**——这些记录类型在这里不存在。
+3. **没有历史形状**。`wire_events` 建表语句自 `9ba414429d`（kimi-native-tools 并入 kimi-agent）起
+   从未被 ALTER 过，全仓无 `ALTER TABLE wire_events`。即 fork 的 wire 是作为 Rust 移植**出生在 v1.5
+   形状上**的，不存在需要迁移的旧数据。
+
+**本轮落地（版本能力）**：
+
+- `native/event_store/mod.rs` 新增 `WIRE_PROTOCOL_VERSION = "1.5"`、`compare_wire_versions`
+  （逐段数值比较，缺段读 0——v2 `compareWireVersions`）与 `is_newer_wire_version`
+  （v2 `isNewerWireVersion`）。**数值而非字典序**是关键：`"1.10"` 必须比 `"1.5"` 新，否则会误拒一个
+  本引擎其实读得懂的日志。不可解析的段读 0，因此它永远无法伪装成「更新」。
+- `EventStoreError::WireProtocolTooNew { found, supported }`——**拒绝而不是折叠**：本引擎认识的记录
+  形状不保证是新版的真前缀，静默截断的投影比可见的错误更糟。
+- 三处 `wire_events` 建表（`native/event_store/mod.rs` 的磁盘与内存两个、以及 `session/sqlite_store.rs:558`
+  那个**会话存储自己的**表）都加上 `protocol_version TEXT`，并在两处磁盘路径补**幂等**
+  `ALTER TABLE ... ADD COLUMN`（沿用仓库既有的 `let _ = conn.execute("ALTER TABLE … ADD COLUMN …", [])`
+  写法）。
+- `append_event` 落版本戳；`read_fold_rows` 在**折叠任何一行之前**先 `SELECT DISTINCT protocol_version`
+  并拒绝更新的版本。把签名由 `rusqlite::Result` 改为 `Result<_, EventStoreError>` 是 drop-in——两个调用方
+  （两处 `fold_projection`）都在 `?` 上，且都返回 `EventStoreError`。
+- **NULL 的语义**：列不存在时期写入的行是 NULL，读取时按**本版本**处理。这是有据的——表只有过一种形状，
+  所以 NULL 不可能藏着更旧的记录。
+
+**过程中被全量测试抓到的错**：我最初只改了 `native/event_store/mod.rs` 的两处建表（那里有两处），
+全量 `cargo test` 立刻报 3 项 `no such column: protocol_version`——**`session/sqlite_store.rs:558` 还有第三处**
+`wire_events` 建表（会话存储自己建的），失败的是 `session::sqlite_store` 与 `server::tests` 的投影测试。
+补上第三处与它的 ALTER 后全绿。这条记在这里是因为它说明「局部 grep 找全建表点」不可靠。
+
+**测试**：4 项新增——版本比较的数值语义与不可解析段；`append_event` 确实打戳；把已写入的行改成 `'9.9'` 后
+`fold_projection` 返回 `WireProtocolTooNew`（且 `found`/`supported` 都对）；把版本置 NULL 后照常折叠。
+
+**仍未做**：迁移链本身（`apply_wire_migrations` 的等价物）**故意不建空壳**——没有可注册的迁移时，一个空链
+只会是死代码；等真有形状变更时，本轮的版本戳与拒绝逻辑就是它需要的前置。

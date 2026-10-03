@@ -17,6 +17,44 @@ pub struct RawWireEvent {
     pub created_at: i64,
 }
 
+/// The wire protocol version this engine writes (v2 `WIRE_PROTOCOL_VERSION`).
+///
+/// This engine stores rows, not v2's JSONL records, so the version is a per-row
+/// stamp rather than a leading `metadata` record. The discipline is the same:
+/// a log says which protocol wrote it, a newer log is refused rather than
+/// half-read, and a migration chain exists to be filled in the day a record
+/// shape changes.
+pub const WIRE_PROTOCOL_VERSION: &str = "1.5";
+
+/// Numeric comparison of dotted versions, a missing segment reading as zero
+/// (v2 `compareWireVersions`).
+pub fn compare_wire_versions(a: &str, b: &str) -> i32 {
+    let mut left = a.split('.');
+    let mut right = b.split('.');
+    loop {
+        let l = left.next();
+        let r = right.next();
+        if l.is_none() && r.is_none() {
+            return 0;
+        }
+        let diff = parse_version_segment(l.unwrap_or("")) - parse_version_segment(r.unwrap_or(""));
+        if diff != 0 {
+            return diff;
+        }
+    }
+}
+
+/// A segment that is not a number reads as zero, so an unparseable version
+/// compares as older and can never masquerade as one this engine must refuse.
+fn parse_version_segment(segment: &str) -> i32 {
+    segment.parse::<i32>().unwrap_or(0)
+}
+
+/// v2 `isNewerWireVersion`: true when the log was written by a newer engine.
+pub fn is_newer_wire_version(read_version: &str) -> bool {
+    compare_wire_versions(read_version, WIRE_PROTOCOL_VERSION) > 0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageRole {
@@ -51,6 +89,11 @@ pub enum EventStoreError {
     UndoCompactionBoundary,
     #[error("Undo failed: Checkpoint not found or history exhausted")]
     CheckpointNotFound,
+    /// The log was written by a newer engine. Refusing beats folding it: this
+    /// engine's record shapes are not guaranteed to be a prefix of the newer
+    /// ones, and a silently truncated projection is worse than a visible error.
+    #[error("Wire protocol {found} is newer than this engine supports ({supported})")]
+    WireProtocolTooNew { found: String, supported: String },
 }
 
 pub trait EventStore: Send + Sync {
@@ -76,7 +119,33 @@ pub type WireEventFoldRow = (String, serde_json::Value, bool);
 pub fn read_fold_rows(
     conn: &Connection,
     session_id: &str,
-) -> rusqlite::Result<(Vec<WireEventFoldRow>, usize)> {
+) -> Result<(Vec<WireEventFoldRow>, usize), EventStoreError> {
+    // Refuse a log from a newer engine before folding any of it. Rows written
+    // before the column existed are NULL and mean *this* version — the table
+    // has only ever had one shape, so a NULL cannot be hiding an older record.
+    let newer = {
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT protocol_version FROM wire_events WHERE session_id = ?1 \
+             AND protocol_version IS NOT NULL",
+        )?;
+        let mut rows = stmt.query(params![session_id])?;
+        let mut found: Option<String> = None;
+        while let Some(row) = rows.next()? {
+            let version: String = row.get(0)?;
+            if is_newer_wire_version(&version) {
+                found = Some(version);
+                break;
+            }
+        }
+        found
+    };
+    if let Some(found) = newer {
+        return Err(EventStoreError::WireProtocolTooNew {
+            found,
+            supported: WIRE_PROTOCOL_VERSION.to_string(),
+        });
+    }
+
     let mut stmt = conn.prepare(
         "SELECT seq, event_type, payload, is_compaction FROM wire_events WHERE session_id = ?1 \
          AND seq >= (SELECT COALESCE(MAX(seq), 0) FROM wire_events WHERE session_id = ?1 AND is_compaction = 1) \
@@ -133,11 +202,21 @@ impl SqliteEventStore {
                 payload TEXT NOT NULL,
                 is_checkpoint BOOLEAN NOT NULL DEFAULT 0,
                 is_compaction BOOLEAN NOT NULL DEFAULT 0,
-                created_at INTEGER NOT NULL
+                created_at INTEGER NOT NULL,
+                protocol_version TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_session_seq ON wire_events(session_id, seq);
             "#,
         )?;
+        // Databases written before the column existed: the ALTER is the same
+        // idempotent shape the session store uses for its own columns. NULL
+        // means "no version recorded", which the reader treats as this
+        // version — the table has only ever had one shape, so NULL cannot be
+        // hiding an older record.
+        let _ = conn.execute(
+            "ALTER TABLE wire_events ADD COLUMN protocol_version TEXT",
+            [],
+        );
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
@@ -155,7 +234,8 @@ impl SqliteEventStore {
                 payload TEXT NOT NULL,
                 is_checkpoint BOOLEAN NOT NULL DEFAULT 0,
                 is_compaction BOOLEAN NOT NULL DEFAULT 0,
-                created_at INTEGER NOT NULL
+                created_at INTEGER NOT NULL,
+                protocol_version TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_session_seq ON wire_events(session_id, seq);
             "#,
@@ -574,8 +654,8 @@ impl EventStore for SqliteEventStore {
         let conn = self.conn.lock();
         let payload_str = serde_json::to_string(&event.payload)?;
         conn.execute(
-            "INSERT INTO wire_events (id, session_id, event_type, payload, is_checkpoint, is_compaction, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO wire_events (id, session_id, event_type, payload, is_checkpoint, is_compaction, created_at, protocol_version)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 event.id,
                 event.session_id,
@@ -583,7 +663,8 @@ impl EventStore for SqliteEventStore {
                 payload_str,
                 event.is_checkpoint,
                 event.is_compaction,
-                event.created_at
+                event.created_at,
+                WIRE_PROTOCOL_VERSION
             ],
         )?;
         Ok(conn.last_insert_rowid() as u64)
@@ -1221,5 +1302,109 @@ mod tests {
         assert_eq!(msgs[2].role, MessageRole::Tool);
         assert_eq!(msgs[2].tool_call_id.as_deref(), Some("call_weather_1"));
         assert_eq!(msgs[2].content, "Sunny, 25C");
+    }
+
+    #[test]
+    fn wire_versions_compare_numerically_not_as_strings() {
+        // "1.10" is newer than "1.5"; a string compare would say otherwise and
+        // would refuse a log the engine can read.
+        assert!(compare_wire_versions("1.10", "1.5") > 0);
+        assert!(compare_wire_versions("1.5", "1.5") == 0);
+        assert!(compare_wire_versions("1.4", "1.5") < 0);
+        assert!(compare_wire_versions("2", "1.5") > 0);
+        // A missing segment reads as zero on both sides.
+        assert!(compare_wire_versions("1", "1.0") == 0);
+        assert!(compare_wire_versions("1.5.1", "1.5") > 0);
+        // An unparseable segment cannot masquerade as newer.
+        assert!(!is_newer_wire_version("next"));
+        assert!(!is_newer_wire_version(WIRE_PROTOCOL_VERSION));
+        assert!(is_newer_wire_version("1.6"));
+    }
+
+    #[test]
+    fn append_event_stamps_the_current_protocol_version() {
+        let store = SqliteEventStore::new_in_memory().unwrap();
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_stamp".into(),
+                session_id: "sess_stamp".into(),
+                event_type: "message.user".into(),
+                payload: serde_json::json!({ "content": "hi" }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 1,
+            })
+            .unwrap();
+        let stamped: String = {
+            let conn = store.conn.lock();
+            conn.query_row(
+                "SELECT protocol_version FROM wire_events WHERE id = 'evt_stamp'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(stamped, WIRE_PROTOCOL_VERSION);
+    }
+
+    #[test]
+    fn a_newer_log_is_refused_before_any_of_it_is_folded() {
+        let store = SqliteEventStore::new_in_memory().unwrap();
+        let session = "sess_too_new";
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_new".into(),
+                session_id: session.into(),
+                event_type: "message.user".into(),
+                payload: serde_json::json!({ "content": "from the future" }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 1,
+            })
+            .unwrap();
+        {
+            let conn = store.conn.lock();
+            conn.execute(
+                "UPDATE wire_events SET protocol_version = '9.9' WHERE session_id = ?1",
+                params![session],
+            )
+            .unwrap();
+        }
+        let err = store.fold_projection(session).unwrap_err();
+        match err {
+            EventStoreError::WireProtocolTooNew { found, supported } => {
+                assert_eq!(found, "9.9");
+                assert_eq!(supported, WIRE_PROTOCOL_VERSION);
+            }
+            other => panic!("expected WireProtocolTooNew, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rows_written_before_the_column_existed_read_as_this_version() {
+        let store = SqliteEventStore::new_in_memory().unwrap();
+        let session = "sess_legacy";
+        store
+            .append_event(&RawWireEvent {
+                id: "evt_legacy".into(),
+                session_id: session.into(),
+                event_type: "message.user".into(),
+                payload: serde_json::json!({ "content": "pre-column" }),
+                is_checkpoint: false,
+                is_compaction: false,
+                created_at: 1,
+            })
+            .unwrap();
+        {
+            let conn = store.conn.lock();
+            conn.execute(
+                "UPDATE wire_events SET protocol_version = NULL WHERE session_id = ?1",
+                params![session],
+            )
+            .unwrap();
+        }
+        // NULL is not "unknown but suspicious" — the table has had one shape,
+        // so it reads as the version this engine writes.
+        assert_eq!(store.fold_projection(session).unwrap().len(), 1);
     }
 }
