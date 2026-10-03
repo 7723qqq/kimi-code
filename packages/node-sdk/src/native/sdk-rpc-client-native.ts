@@ -176,6 +176,7 @@ import type {
   TelemetryProperties,
   UploadFileOptions,
   WorkspaceTrustInfo,
+  WorkspaceTrustMcpServerInfo,
   ExperimentalFlagSource,
 } from '#/types';
 
@@ -5536,6 +5537,69 @@ private renderProjectSkillPrompt(
     return resolveExperimentalFeatures(loadRuntimeConfigLenient(this.configPath));
   }
 
+  /**
+   * The project-level MCP servers that trusting this workspace would enable,
+   * in the shape the trust prompt renders.
+   *
+   * Read straight from the two project candidates rather than through
+   * `listWorkspaceMcpServers`: that method ignores its `workDir` and answers
+   * the *user-global* `mcp.json` (its own comment says so), so it would
+   * disclose servers the user already chose instead of the ones this project
+   * gates. Showing the wrong set here is worse than showing none: the prompt
+   * asks the user to judge a directory on the strength of that list.
+   *
+   * Deliberately the safe subset. `env`, headers and anything else the config
+   * carries are what a planted `.mcp.json` would exfiltrate, and this prompt
+   * runs *before* the workspace is trusted, so they are not carried into it.
+   * The renderer sanitizes control characters on top of that.
+   */
+  private readProjectMcpDisclosure(workDir: string): WorkspaceTrustMcpServerInfo[] {
+    const candidates = [join(workDir, '.mcp.json'), join(workDir, '.kimi-code', 'mcp.json')];
+    const disclosure: WorkspaceTrustMcpServerInfo[] = [];
+    for (const file of candidates) {
+      let parsed: { mcpServers?: Record<string, unknown> };
+      try {
+        parsed = JSON.parse(readFileSync(file, 'utf-8')) as {
+          mcpServers?: Record<string, unknown>;
+        };
+      } catch {
+        // Missing or unparseable: the same silent skip the vscode handler makes.
+        continue;
+      }
+      const servers = parsed?.mcpServers;
+      if (servers === null || typeof servers !== 'object') continue;
+      for (const [name, raw] of Object.entries(servers)) {
+        if (raw === null || typeof raw !== 'object') continue;
+        const cfg = raw as Record<string, unknown>;
+        const command = typeof cfg['command'] === 'string' ? cfg['command'] : undefined;
+        const url = typeof cfg['url'] === 'string' ? cfg['url'] : undefined;
+        const declared = cfg['transport'];
+        const transport =
+          declared === 'stdio' || declared === 'http' || declared === 'sse'
+            ? declared
+            : command !== undefined
+              ? ('stdio' as const)
+              : url !== undefined
+                ? ('http' as const)
+                : undefined;
+        // Neither a command nor a url: there is nothing to describe, and
+        // guessing a transport would put a claim in front of the user that the
+        // config never made.
+        if (transport === undefined) continue;
+        const args = cfg['args'];
+        disclosure.push({
+          name,
+          transport,
+          command,
+          args: Array.isArray(args) ? args.map(String) : undefined,
+          cwd: typeof cfg['cwd'] === 'string' ? cfg['cwd'] : undefined,
+          url,
+        });
+      }
+    }
+    return disclosure;
+  }
+
   override async getWorkspaceTrustInfo(workDir: string): Promise<WorkspaceTrustInfo> {
     // Fail closed: a workspace is untrusted until the user explicitly trusts it.
     // The previous `trusted: true` stub silently disabled the TUI's "do you trust
@@ -5555,7 +5619,7 @@ private renderProjectSkillPrompt(
     const trusted =
       envTrusted ||
       this.readTrustedWorkspaces().some((entry) => workspaceTrustKey(entry) === workspaceTrustKey(workDir));
-    return { trusted, gatedMcpServers: [] };
+    return { trusted, gatedMcpServers: this.readProjectMcpDisclosure(workDir) };
   }
 
   override async trustWorkspace(workDir: string): Promise<void> {

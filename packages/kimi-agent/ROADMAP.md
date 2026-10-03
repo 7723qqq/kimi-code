@@ -3626,7 +3626,7 @@ provider 的 `FakeRegistry`，而它们测的本来就是 provider 而非 regist
 | §6.23.3 | `a940f2ff04` #4057 | tracked | 权限模式要发 `agent.status.updated`，引擎无该事件、无 `permission` 字段 |
 | §6.23.4 | `09af3b483f` #3998 | tracked | tower 六簇加固 + wake 打断，全部是新面；仅 tmp+rename 判不适用 |
 | §6.23.5 | `e3bf50c083` #4076 | tracked | undo 需按 prompt 归属撤销；fork 的 undo 只按轮数 |
-| §6.23.6 | `395d537237` #4056 | tracked | workspace trust 披露服务缺失，`gatedMcpServers` 恒空 |
+| §6.23.6 | `395d537237` #4056 | tracked | workspace trust 披露服务已接线（§10.41），`gatedMcpServers` 不再是空的 |
 | §6.23.7 | `06ebfc821e` #4081 | tracked | hook 输出不入 prompt，且内容块缺 `meta` 契约 |
 
 #### 6.23.1 已完成：`KIMI_CODE_TRUST_WORKSPACE`
@@ -4624,7 +4624,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 |---|---|---|---|
 | **磁盘日志文件**（**仅引擎层**，见 §10.32） | **missing（限引擎）** | `_base/log/fileLog.ts:37-255`（`RotatingFileWriter`：异步串行队列、`PENDING_MAX=1000` 溢出告警、按大小轮转 N 代、目录 fsync）、`logConfig.ts:41-52` | **此行的判定只对引擎自身的 tracing 成立**：`napi_bindings.rs:174-215` 与 `main.rs:1025-1034` 的 `EnvFilter` 确实只写 stderr。**但宿主层有完整实现**——`packages/node-sdk/src/logging.ts` 的 `RotatingFileSink`（`:548`）与 `resolveLoggingConfig`（`:791-813`，含 `KIMI_LOG_LEVEL` / `*_MAX_BYTES` / `*_FILES` 全部五个环变）已在生产使用：`~/.kimi-code/logs/kimi-code.log` 实测 5.8MB 且在写，`.1`–`.4` 四个归档。**故「fork 无文件写入器」是错的**，缺的是引擎侧接线与会话级绑定（后者见 §10.32）。与 6.41.2 的 sessionExport 缺口「叠加」的说法也随之作废：CLI 导出实测已带全局日志（`local-logging-export.e2e.test.ts`） |
 | `fsSearch.ts` 路径建议器 | missing（待确认） | `fsSearch.ts:130-330`（`evaluateSuggestCandidate` 的分层/跨度/深度打分、`matchSuggestPath`、`SuggestTopHeap`） | fork 唯一的模糊建议器是 `tools/select_tools.rs:110` `suggest_tool_names`，匹配的是**工具名**不是文件路径。这驱动 `@`-mention 文件选择器。**未决**：TUI 是否已有客户端排序（`apps/kimi-code/src/tui/components/editor/file-mention-provider.ts` 未读），若有则本条 n-a |
-| trust 披露服务 | missing | `trustDisclosureService.ts:65-200` | 6.23.6 仍成立（本轮复核）。消费者已写好但是死的：`trust-prompt.ts:89-97` 只在数组非空时渲染 MCP 块，`kimi-tui.ts:2689` 硬编码 `[]` |
+| trust 披露服务 | **本轮已补（§10.41）** | `trustDisclosureService.ts:65-200` | 消费者本来就对（非空才渲染）；恒空点在生产者 `getWorkspaceTrustInfo`。已接线：读项目级 `<workDir>/.mcp.json` 与 `.kimi-code/mcp.json`（**不是** `listWorkspaceMcpServers`，它忽略 workDir 返回全局表），只披露安全子集（不含 env） |
 | `fs` 错误分类未在失败点应用 | partial | `workspaceFs/internal/errors.ts:4-15`（10 个码） | 分类表在 `packages/protocol/src/error-codes.ts:170-211` 完整存在（且数值与 v2 线表逐条一致，另多两个 v2 没有的），但 Rust 侧只定义了 `FS_PATH_NOT_FOUND`（`server/envelope.rs:29`）**且仅被自己的单测引用**（`:289`）；实际处理器返回字符串错误（`server/fs_routes.rs:920,924`、`tools/list_directory.rs:74,87`）。**低价值**：v2 自身消费者也不多 |
 | stdio MCP 的 proxy env 继承 | **本轮已补（§10.37）** | `mcpCore/client-stdio.ts:292-304` `mergeStdioEnv` | v2 做三件事：继承 `process.env`、叠加 config env、**再应用 proxy env**（`proxyEnvForChild` + `reconcileChildNoProxy`）。**症状已按 §10.37 更正**：父环境本来就能通过 `Command` 隐式继承，`HTTP_PROXY` 是传得到的。真正缺的是 v2 额外计算的 `proxyEnvForChild`——**`NODE_USE_ENV_PROXY=1`**（Node 只在该变量设置后才读代理变量，这才是「继承不够」的原因）、`NO_PROXY` 归一化（补回环）、socks 排除、以及子进程 `no_proxy` 覆盖。已逐条落地（`mcp/client.rs`），6 项测试。实际影响仍低（本地 npm 包通常不走代理） |
 | `workspaceMcp` 与 `workspaceMcpConfig` 的边界 | partial | `workspaceMcp.ts:15-28`（运行时 + 每会话 overlay）、`workspaceMcpConfig.ts:17-27`（配置映射 + tunables + `onDidChange`） | fork 把两者融进一个 `McpClient` + 可变 `tool_timeout`（`mcp/client.rs:114`），tunables 在但**没有 `onDidChange` 边界**，也没有每会话 overlay |
@@ -4905,7 +4905,7 @@ usage 累积 + detect() + 遥测  ← 三合一（见上表）
 | 13 | ~~`toolResultRender` 状态包装~~ **已完成 2026-10-03** | 新增 `turn_loop/tool_result_render.rs`，接在 `run_turn` 构建模型可见 tool result 处。**两处刻意不做**（详见 §10.28）：`note` 追加（本引擎把 `note` 兼作内部出处标签）与 Read 的渲染后字符预算 | **已完成** |
 | 17 | `workspaceAliases` | **已核实**：`delete_workspace` 在 `session/sqlite_store.rs:776`；全仓 `workspaceAliases` / `workspace_aliases` **零命中**，即 fork 确实无别名概念——同一目录的符号链接/大小写变体会算成两个 workspace，且删除后无墓碑 | **1-2 人天** |
 | 9 | minidb 读模型 | **待裁决后再估**（取决于是否需要全文检索；若只需 FTS5 则 2-3 人天，若需 minidb 全套则 10+ 人天） | — |
-| 16 | trust 披露 | 消费者已写好，主要是喂数据（读项目 `.mcp.json` + `local.toml` + instruction sources） | **2-3 人天** |
+| 16 | ~~trust 披露~~ **已完成 2026-10-03**（§10.41） | 消费者已写好，主要是喂数据（读项目 `.mcp.json` + `local.toml` + instruction sources） | **2-3 人天** |
 | 18-20 | ~~proxy env~~ **已完成（§10.37）** / ~~`x-trace-id`~~（失败路径已完成，§10.38） / shell 探测 | 各 0.5-1 人天的局部改动 | **各 < 1 人天** |
 
 **合计（不含待裁决项）**：约 **21-30 人天**（原 22-32；第 8、10 项已实做各扣 0.5-1）。P0+P1 剩余约 **14-20 人天**。
@@ -7326,3 +7326,49 @@ fork 目前没有这两条消费链，先接一个无人读的字段只会是死
 
 **验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -D warnings` ✅｜
 `cargo test --no-default-features --features cli` 全量 ✅｜15 道门禁 ✅。
+
+### 10.41 §6.45 P2-16 落地：trust 披露的 `gatedMcpServers` 接线（2026-10-03）
+
+§6.42.5 的原表述：「trust 披露服务 missing。消费者已写好但是死的：`trust-prompt.ts:89-97` 只在数组非空时
+渲染 MCP 块，`kimi-tui.ts:2689` 硬编码 `[]`」。
+
+**前半成立，但引用的行号与归因需要更正**：
+
+- `kimi-tui.ts` 那处**不是**硬编码 stub，而是 `getWorkspaceTrustInfo` 的 `try/catch` **错误回退**
+  （`info = { trusted: false, gatedMcpServers: [] }`），随即把 `info.gatedMcpServers` 传给提示组件。
+  真正的恒空点是生产者：`sdk-rpc-client-native.ts` 的 `getWorkspaceTrustInfo` 返回
+  `{ trusted, gatedMcpServers: [] }`，注释还写着「gatedMcpServers stays empty until the MCP catalog is
+  wired」。
+- `trust-prompt.ts:89` 的渲染分支**本来就对**（非空才渲染）。
+
+**一个关键的排除项**：现成的 `listWorkspaceMcpServers(workDir)` **不能**当生产者——它的实现
+`listWorkspaceMcpServers(_workDir)` **忽略了 `workDir`**，返回的是**用户全局** `mcp.json`（它自己的注释
+写明这一点）。而披露块的语义是「信任该目录后会启用的**项目级**服务器」。拿全局列表去填，会把用户**已经
+自己配好**的服务器当成项目门禁项展示——**给用户看错的一份清单，比不给他看更糟**：提示词正是让他据此判断
+要不要信任这个目录。
+
+**真正的项目级约定在仓库里是有的**：`apps/vscode/src/handlers/mcp.handler.ts:137` 已在读
+`<workDir>/.mcp.json` 与 `<workDir>/.kimi-code/mcp.json`（`{"mcpServers": {name: cfg}}`）。缺的只是
+**原生客户端**这一条。
+
+**落地**：`SDKRpcClientNative` 新增 `readProjectMcpDisclosure(workDir)`，按同样的两处候选读、按同样的
+静默跳过处理缺失/损坏的 JSON，并投影成 `WorkspaceTrustMcpServerInfo`。要点：
+
+1. **只取安全子集**：`env`、headers 一律**不进入**披露对象。理由写在代码里——这份提示词在**信任之前**
+   渲染，别有用心的 `.mcp.json` 正是要从这里偷东西；渲染侧另有 `sanitizeForDisplay` 剥控制字符。
+2. **transport 不猜**：明确声明 `stdio|http|sse` 就用它；否则有 `command` 记 stdio、有 `url` 记 http；
+   **两者都没有就整条跳过**——配置没做的声明，不该由我替它做。
+3. `args` 用 `Array.map(String)` 归一，`cwd`/`url` 仅在为字符串时带上。
+
+**测试 3 项**：(1) 一份含 stdio / sse / 「既无 command 又无 url」的 `.mcp.json`——断言披露的 name 与
+transport、stdio 的 `command`/`args`/`cwd`，断言 `env` **键不存在**（不是空，而是不在形状里）且序列化结果
+**不含**那个假密钥，且不可描述的那条**没被猜**出来；(2) `.kimi-code/mcp.json` 与根 `.mcp.json` 都读到；
+(3) 无配置时不抛错、返回空，损坏 JSON 同样。
+
+**变异验证**：把 `gatedMcpServers` 退回 `[]`，3 条中 2 条立刻失败。
+
+**一处自己的 lint 失误**：新测试用了 `.sort()`，仓库规范要 `.toSorted()`，使全仓告警从 4235 涨到 4237；
+改回后回到 **4235 基线**。
+
+**验证**：`bun run typecheck` ✅｜`bun run lint` 0 error（4235 基线）✅｜`packages/node-sdk` 套件
+**40 文件 / 379 passed**（原 376）✅｜15 道门禁 ✅。

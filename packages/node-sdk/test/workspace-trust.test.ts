@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -79,5 +79,77 @@ describe('SDKRpcClientNative workspace trust', () => {
       rmSync(dirs.pop()!, { recursive: true, force: true });
       rmSync(dirs.pop()!, { recursive: true, force: true });
     }
+  });
+
+  /**
+   * The disclosure is what a user judges a directory on before trusting it, so
+   * it has to describe the *project's* servers — and only their safe surface.
+   */
+  it('discloses the project MCP servers trusting would enable', async () => {
+    const { rpc, workDir } = client();
+    writeFileSync(
+      join(workDir, '.mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          local: {
+            command: 'node',
+            args: ['server.js'],
+            cwd: '/tmp/x',
+            // Secrets live here. The prompt renders before the workspace is
+            // trusted, so they must not reach it.
+            env: { API_KEY: 'sk-do-not-disclose' },
+          },
+          remote: { transport: 'sse', url: 'https://example.test/sse' },
+          undescribable: { note: 'neither command nor url' },
+        },
+      }),
+    );
+
+    const info = await rpc.getWorkspaceTrustInfo(workDir);
+    expect(info.trusted).toBe(false);
+    expect(info.gatedMcpServers.map((s) => s.name).toSorted()).toEqual(['local', 'remote']);
+
+    const local = info.gatedMcpServers.find((s) => s.name === 'local');
+    expect(local).toMatchObject({
+      transport: 'stdio',
+      command: 'node',
+      args: ['server.js'],
+      cwd: '/tmp/x',
+    });
+    // No env key at all: not merely empty, absent from the shape.
+    expect(Object.keys(local ?? {})).not.toContain('env');
+    expect(JSON.stringify(info.gatedMcpServers)).not.toContain('sk-do-not-disclose');
+
+    expect(info.gatedMcpServers.find((s) => s.name === 'remote')).toMatchObject({
+      transport: 'sse',
+      url: 'https://example.test/sse',
+    });
+    // A transport it cannot infer is not guessed.
+    expect(info.gatedMcpServers.some((s) => s.name === 'undescribable')).toBe(false);
+  });
+
+  it('reads the team-shared .kimi-code/mcp.json as well as the root one', async () => {
+    const { rpc, workDir } = client();
+    writeFileSync(
+      join(workDir, '.mcp.json'),
+      JSON.stringify({ mcpServers: { fromRoot: { command: 'a' } } }),
+    );
+    const nested = join(workDir, '.kimi-code');
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(
+      join(nested, 'mcp.json'),
+      JSON.stringify({ mcpServers: { fromNested: { command: 'b' } } }),
+    );
+
+    const info = await rpc.getWorkspaceTrustInfo(workDir);
+    expect(info.gatedMcpServers.map((s) => s.name).toSorted()).toEqual(['fromNested', 'fromRoot']);
+  });
+
+  it('discloses nothing for a workspace with no MCP config, and does not throw on a broken one', async () => {
+    const { rpc, workDir } = client();
+    expect((await rpc.getWorkspaceTrustInfo(workDir)).gatedMcpServers).toEqual([]);
+
+    writeFileSync(join(workDir, '.mcp.json'), '{ not json');
+    expect((await rpc.getWorkspaceTrustInfo(workDir)).gatedMcpServers).toEqual([]);
   });
 });
