@@ -10,9 +10,9 @@ description:
   en: >
       MCP client and manager: stdio/SSE/HTTP transports, process-wide connection reuse, aggregated tool table.
       
-revision: 779fa7ba58daaeed4dd885c941bf1c29d2fe902e
-updated_at: "2026-09-29T11:43:38.995Z"
-fingerprint: 4850d93a07f26c8d7b8e2d6f18eb2fb1457815588c6ed50786465f7dda3ca9dd
+revision: 48a5874382539b2ebd9967d15808195f1160b645
+updated_at: "2026-10-03T10:09:32.924Z"
+fingerprint: 8ddf239e4ee0a049e82fb500e9babd0b3a3699a1f5b114599d17db967089e2db
 source:
   - path: "packages/kimi-agent/src/mcp/manager.rs"
   - path: "packages/kimi-agent/src/mcp/client.rs"
