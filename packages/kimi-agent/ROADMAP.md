@@ -4622,7 +4622,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 
 | 子系统 | 判定 | 出处 | 说明 |
 |---|---|---|---|
-| **磁盘日志文件** | **missing** | `_base/log/fileLog.ts:37-255`（`RotatingFileWriter`：异步串行队列、`PENDING_MAX=1000` 溢出告警、按大小轮转 N 代、目录 fsync）、`logConfig.ts:41-52` | fork 只有 stdout/stderr：`napi_bindings.rs:174-215` 与 `main.rs:1025-1034` 的 `EnvFilter`，**无文件写入器、无 `KIMI_LOG_LEVEL`、无 `*_MAX_BYTES`/`*_FILES`、无脱敏层**。与 6.41.2 的 sessionExport 缺口**叠加**：即便有日志，导出 ZIP 也不会带上它 |
+| **磁盘日志文件**（**仅引擎层**，见 §10.32） | **missing（限引擎）** | `_base/log/fileLog.ts:37-255`（`RotatingFileWriter`：异步串行队列、`PENDING_MAX=1000` 溢出告警、按大小轮转 N 代、目录 fsync）、`logConfig.ts:41-52` | **此行的判定只对引擎自身的 tracing 成立**：`napi_bindings.rs:174-215` 与 `main.rs:1025-1034` 的 `EnvFilter` 确实只写 stderr。**但宿主层有完整实现**——`packages/node-sdk/src/logging.ts` 的 `RotatingFileSink`（`:548`）与 `resolveLoggingConfig`（`:791-813`，含 `KIMI_LOG_LEVEL` / `*_MAX_BYTES` / `*_FILES` 全部五个环变）已在生产使用：`~/.kimi-code/logs/kimi-code.log` 实测 5.8MB 且在写，`.1`–`.4` 四个归档。**故「fork 无文件写入器」是错的**，缺的是引擎侧接线与会话级绑定（后者见 §10.32）。与 6.41.2 的 sessionExport 缺口「叠加」的说法也随之作废：CLI 导出实测已带全局日志（`local-logging-export.e2e.test.ts`） |
 | `fsSearch.ts` 路径建议器 | missing（待确认） | `fsSearch.ts:130-330`（`evaluateSuggestCandidate` 的分层/跨度/深度打分、`matchSuggestPath`、`SuggestTopHeap`） | fork 唯一的模糊建议器是 `tools/select_tools.rs:110` `suggest_tool_names`，匹配的是**工具名**不是文件路径。这驱动 `@`-mention 文件选择器。**未决**：TUI 是否已有客户端排序（`apps/kimi-code/src/tui/components/editor/file-mention-provider.ts` 未读），若有则本条 n-a |
 | trust 披露服务 | missing | `trustDisclosureService.ts:65-200` | 6.23.6 仍成立（本轮复核）。消费者已写好但是死的：`trust-prompt.ts:89-97` 只在数组非空时渲染 MCP 块，`kimi-tui.ts:2689` 硬编码 `[]` |
 | `fs` 错误分类未在失败点应用 | partial | `workspaceFs/internal/errors.ts:4-15`（10 个码） | 分类表在 `packages/protocol/src/error-codes.ts:170-211` 完整存在（且数值与 v2 线表逐条一致，另多两个 v2 没有的），但 Rust 侧只定义了 `FS_PATH_NOT_FOUND`（`server/envelope.rs:29`）**且仅被自己的单测引用**（`:289`）；实际处理器返回字符串错误（`server/fs_routes.rs:920,924`、`tools/list_directory.rs:74,87`）。**低价值**：v2 自身消费者也不多 |
@@ -6922,3 +6922,50 @@ Web 客户端拿到的 bundle 没有 manifest、没有日志，而同一台机�
 
 **仍未做**：会话级日志接线（`resolveSessionLogPath` 无调用方，见 §10.30 残余 (a)，已另有 `sessionLogService` 条目）；
 以及引擎侧**不可能**复刻的会话树遍历。
+
+### 10.32 §6.45 P1-7 残余（a）前置界定：会话级日志接线的完整规格（2026-10-03，**未开工**）
+
+§10.30 的残余 (a)：`resolveSessionLogPath` 无调用方，故 `<sessionDir>/logs/kimi-code.log` 从不产生。
+本轮把**规格核到可以直接施工**，但**没有动手**——这是一次跨两文件、含 handle 生命周期的移植，
+留到有完整预算时做，好过交一个半成品。
+
+**前提已实测**：`~/.kimi-code/sessions/` 下 **180 个 `session_*` 目录，0 个有 `logs/`**（每个目录实测只有
+`history.jsonl` + `session-meta.json`）。消费方确实在等这个文件：`apps/vis/server/src/routes/logs.ts` 的
+`SESSION_LOG_REL = ['logs','kimi-code.log']` 与 `apps/vis/web/src/components/logs/LogsTab.tsx:44`。
+
+**权威语义已从 git 历史取出**（v1 源码在 `bb16383aa1^`，即「移除 agent-core v1」之前；本仓
+`logging.ts` 的文件头自称是该文件的逐字移植，故它才是判据，不是 v2）：
+
+- v1 `RootLoggerImpl.emit`（`agent-core/src/logging/logger.ts:120-139`）是**二选一**：
+  `const session = this.resolveSessionEntry(entry)` —— 命中就写**会话 sink**（并用
+  `omitContextKeys` 去掉 `sessionId`/`agentId`），**否则**才写 global sink。**不是两边都写。**
+- `attachSession(input)`（`:62-90`）：按 `(sessionId, sessionDir)` 复用已有条目并 `refCount += 1`；
+  新建时用 `RotatingFileSink { path: join(sessionDir,'logs','kimi-code.log'), maxBytes: config.sessionMaxBytes,
+  files: config.sessionFiles }`，条目结构 `{ logId, sessionId, sessionDir, sink, state, closePromise,
+  refCount }`，并登记进 `sessions`（按 logId）与 `sessionsById`（按 sessionId）。
+- `detachSession(logId)`（`:141+`）：`refCount -= 1`，归零才 `state='closing'` 并 `sink.close()`，
+  再清理两张表——句柄语义（`SessionLogHandle`）在此。
+- `flush()` / `flushSession(sessionId)` / `flushGlobal()` / `flushSync()` 都要带上会话条目；
+  `flushSync` 有 200ms 总预算（`:109-115`）。
+- 等级 `off` 或未配置时 `attachSession` 返回 **no-op handle**（不建 sink）。
+
+**本仓已有的部分**：`logging.ts` 里的 `RotatingFileSink`（`:548`）就是 v2 `fileLog.ts` 的等价物
+（轮转 + 异步串行队列 + `flushSync`），**基础设施不需要重写**；`LoggerImpl.emitAt`（`:197-216`）
+**已经算出 `sessionId`** 并挂在 entry 上（`:211`），只是 `RootLoggerImpl.emit` 忽略它。
+`resolveLoggingConfig`（`:791-813`）也**仍在解析** `KIMI_LOG_SESSION_MAX_BYTES` / `KIMI_LOG_SESSION_FILES`，
+`sameLoggingConfig`（`:228-237`）也在比这两个值——即管道都留着，只差绑定。
+
+**要动的三处**：(1) `RootLogger` 接口与 `SessionAttachInput` / `SessionLogHandle` 类型；(2) `RootLoggerImpl`
+恢复 `sessions`/`sessionsById` 与 `attachSession`/`detachSession`/`resolveSessionEntry`，并把 `emit` 改成二选一；
+(3) 调用方——`sdk-rpc-client-native.ts` 在会话创建/恢复时 `attachSession`、关闭时 `detachSession`
+（它已经持有 `sessionDir`）。外加更新 `logging.ts:9-15` 的文件头，把「per-session 路由已丢弃」改为现状说明。
+
+**顺带纠正两处台账/注释**：
+
+1. §6.42.5 的「**磁盘日志文件 missing**」（ROADMAP:4625）把**引擎层与宿主层混为一谈**：它引的是
+   `napi_bindings.rs`/`main.rs` 的 tracing（的确只写 stderr），但**宿主层 `packages/node-sdk/src/logging.ts`
+   有完整的轮转写入器**，`~/.kimi-code/logs/kimi-code.log` 实测 5.8MB 且在写。该行需要限定为「引擎自身的
+   tracing 不落盘」，而不是「fork 没有文件写入器」。
+2. `logging.ts:9-15` 的文件头说「nothing in the SDK surface attaches session logs」——**对代码为真、对后果不完整**：
+   消费方 `apps/vis` 一直在等这个文件。已就地在文件头补记该消费方与实测数据，避免下一个人读到「故意丢弃、
+   因此无妨」就跳过。

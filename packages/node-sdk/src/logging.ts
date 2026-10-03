@@ -13,6 +13,14 @@
  * global sink exactly like v1's un-routed entries. `resolveGlobalLogPath` /
  * `resolveLoggingConfig` are localized here as well (identical shape and
  * values); `pathe` → `node:path`.
+ *
+ * That trade is no longer free. `apps/vis` reads `<sessionDir>/logs/kimi-code.log`
+ * (`routes/logs.ts`'s `SESSION_LOG_REL`, rendered by `LogsTab.tsx`) and shows an
+ * empty panel because nothing writes it: measured 2026-10-03, all 180 session
+ * directories under `~/.kimi-code/sessions/` hold only `history.jsonl` and
+ * `session-meta.json`. Restoring v1's `attachSession` — either/or routing: a
+ * session-routed entry goes to the session sink and *not* to the global one — is
+ * specified in ROADMAP §10.32.
  */
 import { appendFileSync, closeSync, fsyncSync, mkdirSync, openSync } from 'node:fs';
 import { mkdir, open, rename, stat, unlink } from 'node:fs/promises';
