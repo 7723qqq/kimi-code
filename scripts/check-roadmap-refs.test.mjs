@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   EXEMPT_PATHS,
   analyzeLedger,
+  anchorSites,
   citedPaths,
   findMissingTests,
   readGitObject,
@@ -174,6 +175,7 @@ const anchor = (over = {}) => ({
   origin: 'worktree',
   path: 'pkgs/thing/src/thing.rs',
   line: 10,
+  context: 'prose citing `',
   expect: 'fn do_the_thing(',
   note: 'test anchor',
   ...over,
@@ -218,13 +220,13 @@ describe('verifyAnchors', () => {
   });
 
   it('fails an anchor whose target is absent from its declared tree', () => {
-    const r = verifyAnchors('cite `thing.rs:10`', { anchors: [anchor()] }, readerFor({}));
+    const r = verifyAnchors('prose citing `thing.rs:10`', { anchors: [anchor()] }, readerFor({}));
     expect(r.counts.missingTarget).toBe(1);
     expect(r.missingTargets[0]).toMatchObject({ origin: 'worktree', path: 'pkgs/thing/src/thing.rs' });
   });
 
   it('never fails on an unavailable tree — it counts the anchor as unchecked instead', () => {
-    const r = verifyAnchors('cite `thing.rs:10`', { anchors: [anchor()] }, () => null);
+    const r = verifyAnchors('prose citing `thing.rs:10`', { anchors: [anchor()] }, () => null);
     expect(r.counts).toMatchObject({ unchecked: 1, verified: 0, missingTarget: 0, drift: 0 });
     expect(r.unchecked[0].reason).toContain('unavailable');
   });
@@ -233,6 +235,30 @@ describe('verifyAnchors', () => {
     const r = verifyAnchors('the prose dropped the pointer', { anchors: [anchor()] }, () => 'fn do_the_thing() {}');
     expect(r.counts.stale).toBe(1);
     expect(r.staleAnchors[0]).toMatchObject({ cited: 'thing.rs:10' });
+  });
+
+  it('goes stale when the literal survives elsewhere but its own citation site is gone', () => {
+    // The reviewer's simulation of the real ledger: `:1876` appears on three
+    // lines, so a bare `text.includes()` test kept the anchor "live" after the
+    // §2.5 row lost the pointer. Site-pinning must catch that.
+    const text = ['row one cites `:1876` and says stopRequested', 'row two cites `:1876` inside a later note'].join('\n');
+    const a = anchor({ cited: ':1876', context: 'and says stopRequested' });
+    const body = [...Array(9).fill('// filler'), 'fn do_the_thing() {}'].join('\n');
+    expect(verifyAnchors(text, { anchors: [a] }, () => body).counts.verified).toBe(1);
+
+    const mutated = text.replace('cites `:1876` and says stopRequested', 'cites `:9999` and says stopRequested');
+    expect(mutated.includes(':1876')).toBe(true);
+    const r = verifyAnchors(mutated, { anchors: [a] }, () => body);
+    expect(r.counts.stale).toBe(1);
+    expect(r.staleAnchors[0]).toMatchObject({ cited: ':1876', occurrences: [2] });
+  });
+
+  it('fails an anchor whose context does not pick a single site — the same hole, under-specified', () => {
+    const text = ['first `thing.rs:10` one', 'second `thing.rs:10` one'].join('\n');
+    const a = anchor({ context: '`thing.rs:10` one' });
+    const r = verifyAnchors(text, { anchors: [a] }, () => 'fn do_the_thing() {}');
+    expect(r.counts).toMatchObject({ ambiguous: 1, verified: 0, stale: 0 });
+    expect(r.ambiguousAnchors[0]).toMatchObject({ cited: 'thing.rs:10', sites: [1, 2] });
   });
 
   it('counts an unanchored citation without failing it — the extractor sees it, the manifest does not claim it', () => {
@@ -251,10 +277,10 @@ describe('verifyAnchors', () => {
       'fully-qualified upstream `packages/agent-core-v2/src/agent/gone/gone.ts:3`',
     ].join('\n');
     const anchors = [
-      anchor({ cited: 'kimi-agent/src/tools/kaos.rs', origin: 'worktree', path: 'packages/kimi-agent/src/tools/kaos.rs', line: 1, expect: 'mod kaos;' }),
-      anchor({ cited: 'forkTurnSlice.ts:86-103', origin: 'upstream', path: 'packages/agent-core-v2/src/workspace/forkTurnSlice.ts', line: 86, endLine: 103, expect: 'function isUserVisibleTurnRecord(' }),
-      anchor({ cited: 'runtime/runtime.ts:8', origin: 'upstream', path: 'packages/agent-core-v2/src/runtime/runtime.ts', line: 8, expect: 'export type RuntimeCapability' }),
-      anchor({ cited: 'packages/agent-core-v2/src/agent/gone/gone.ts:3', origin: 'upstream', path: 'packages/agent-core-v2/src/agent/gone/gone.ts', line: 3, expect: 'anything' }),
+      anchor({ cited: 'kimi-agent/src/tools/kaos.rs', origin: 'worktree', path: 'packages/kimi-agent/src/tools/kaos.rs', line: 1, context: 'crate-relative `', expect: 'mod kaos;' }),
+      anchor({ cited: 'forkTurnSlice.ts:86-103', origin: 'upstream', path: 'packages/agent-core-v2/src/workspace/forkTurnSlice.ts', line: 86, endLine: 103, context: 'bare basename `', expect: 'function isUserVisibleTurnRecord(' }),
+      anchor({ cited: 'runtime/runtime.ts:8', origin: 'upstream', path: 'packages/agent-core-v2/src/runtime/runtime.ts', line: 8, context: 'upstream sub-path `', expect: 'export type RuntimeCapability' }),
+      anchor({ cited: 'packages/agent-core-v2/src/agent/gone/gone.ts:3', origin: 'upstream', path: 'packages/agent-core-v2/src/agent/gone/gone.ts', line: 3, context: 'fully-qualified upstream `', expect: 'anything' }),
     ];
     // The extractor sees only the fully-qualified shape (1 of 4); the first
     // three are invisible by construction, and the visible one is never
@@ -304,7 +330,7 @@ describe('the shipped manifest', () => {
     expect(manifest.anchors.length).toBeGreaterThan(0);
     expect(manifest.anchors.length).toBeLessThanOrEqual(25);
     for (const a of manifest.anchors) {
-      for (const field of ['cited', 'origin', 'path', 'line', 'expect', 'note']) {
+      for (const field of ['cited', 'origin', 'path', 'line', 'context', 'expect', 'note']) {
         expect(a[field], `${a.cited} is missing ${field}`).toBeDefined();
       }
       expect(['worktree', 'upstream', 'retired'], a.cited).toContain(a.origin);
@@ -312,10 +338,27 @@ describe('the shipped manifest', () => {
     }
   });
 
+  it('pins every anchor to exactly one ledger site, so the ratchet cannot be defeated by a repeated literal', () => {
+    const text = readFileSync(join(import.meta.dirname, '..', 'packages/kimi-agent/ROADMAP.md'), 'utf8');
+    for (const a of manifest.anchors) {
+      const { sites, occurrences } = anchorSites(text, a);
+      expect(sites, `${a.cited} must match exactly one site (context ${JSON.stringify(a.context)})`).toHaveLength(1);
+      expect(occurrences.length, a.cited).toBeGreaterThanOrEqual(sites.length);
+    }
+    // The condition this protects against really is live in the ledger.
+    const repeated = manifest.anchors.filter((a) => anchorSites(text, a).occurrences.length > 1);
+    expect(repeated.length, 'anchors whose literal occurs more than once').toBeGreaterThan(0);
+  });
+
   it('is satisfied by the real ledger and the real trees', () => {
     const text = readFileSync(join(import.meta.dirname, '..', 'packages/kimi-agent/ROADMAP.md'), 'utf8');
-    const { counts, drift, staleAnchors, missingTargets } = verifyAnchors(text, manifest);
-    expect({ drift, staleAnchors, missingTargets }).toEqual({ drift: [], staleAnchors: [], missingTargets: [] });
+    const { counts, drift, staleAnchors, ambiguousAnchors, missingTargets } = verifyAnchors(text, manifest);
+    expect({ drift, staleAnchors, ambiguousAnchors, missingTargets }).toEqual({
+      drift: [],
+      staleAnchors: [],
+      ambiguousAnchors: [],
+      missingTargets: [],
+    });
     expect(counts.verified + counts.unchecked).toBe(manifest.anchors.length);
   });
 });

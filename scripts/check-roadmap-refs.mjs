@@ -92,17 +92,23 @@
  *      verification runs *outside* `analyzeLedger` — the upstream
  *      short-circuit cannot skip an anchored citation.
  *
- * Failure semantics (the anchor layer fails on exactly three classes; the
- * fourth is a reporting state, not a finding):
+ * Failure semantics (the anchor layer fails on exactly four classes; the fifth
+ * is a reporting state, not a finding):
  *
  *   - `citation-drift` — the anchored symbol is not within ±3 lines of the
  *     cited coordinate. Fails, and prints expected vs actual, because a reader
  *     following the pointer lands on the wrong code.
- *   - `stale-anchor` — an anchor whose `cited` literal no longer appears
- *     anywhere in the ledger. Fails: this is a two-way ratchet, the same one
- *     `EXEMPT_PATHS` uses. An anchor that is no longer needed must be dropped
- *     or re-pointed, or the list only grows and eventually "verifies" prose
- *     nobody cites.
+ *   - `stale-anchor` — an anchor whose *citation site* is gone from the ledger.
+ *     Fails: this is a two-way ratchet, the same one `EXEMPT_PATHS` uses. An
+ *     anchor that is no longer needed must be dropped or re-pointed, or the
+ *     list only grows and eventually "verifies" prose nobody cites. The test is
+ *     site-aware rather than `text.includes(literal)`, because a repeated
+ *     literal would otherwise keep an anchor alive after its own row lost the
+ *     pointer — see `anchorSites` for the two live instances and the reasoning.
+ *   - `ambiguous-anchor` — an anchor's `cited` + `context` pair matches more
+ *     than one ledger line. Fails: such an entry is satisfied by whichever
+ *     occurrence survives, which is the same silent-ratchet hole as above. The
+ *     fix is a longer `context`, and the error names every matching line.
  *   - `anchor-missing-target` — the anchor's resolved path does not exist in
  *     its declared tree. Fails (this is the §6.43.2 "cited as upstream, lives
  *     in the retired copy" class).
@@ -114,8 +120,11 @@
  *
  * `expect` is a single-line substring taken from the real file; the window is
  * ±3 lines so that trivial line movement inside one symbol does not fail while
- * a move onto a different symbol does. Coverage is printed on every run:
- * anchored vs unanchored, split by whether the extractor can see the shape.
+ * a move onto a different symbol does. `context` names the citation site in the
+ * ledger and `expect` names the symbol at the coordinate: the first guards the
+ * manifest's own ratchet, the second guards the ledger's pointer. Coverage is
+ * printed on every run: anchored vs unanchored, split by whether the extractor
+ * can see the shape.
  *
  * Usage:
  *   bun scripts/check-roadmap-refs.mjs          # check (exit 1 on findings)
@@ -338,6 +347,35 @@ export function readWorktreeFile(path) {
 }
 
 /**
+ * The ledger lines that are *this anchor's* citation site: lines that carry
+ * `cited`, and — when the anchor specifies a `context` — also carry that
+ * context there.
+ *
+ * A bare `text.includes(cited)` is too weak to ratchet on, because several
+ * anchors cite a literal that the ledger legitimately repeats — `:1876` appears
+ * on three lines (one of them a substring of `mod.rs:1876-1893`), and
+ * `runtime/runtime.ts:8` on five. Under a substring test any one of those keeps
+ * the anchor "live" after the row it actually pins has lost its pointer, so the
+ * ratchet silently stops firing — the exact failure mode the manifest exists to
+ * catch. `context` is a short substring that sits beside the citation at the
+ * intended site and nowhere else, so the pair identifies the site.
+ *
+ * Pure. Returns `{ sites, occurrences }`: `occurrences` is every line carrying
+ * the literal (diagnostics only); `sites` is the subset that is the anchor's.
+ */
+export function anchorSites(text, { cited, context }) {
+  const lines = text.split('\n');
+  const occurrences = [];
+  const sites = [];
+  for (const [i, line] of lines.entries()) {
+    if (!line.includes(cited)) continue;
+    occurrences.push(i + 1);
+    if (context === undefined || line.includes(context)) sites.push(i + 1);
+  }
+  return { sites, occurrences };
+}
+
+/**
  * Verify the anchor manifest against the ledger text.
  *
  * `readers` is injectable so the test can feed a ledger fragment and a map of
@@ -348,19 +386,38 @@ export function readWorktreeFile(path) {
  * Pure: given (text, manifest, readers) the result is deterministic.
  */
 export function verifyAnchors(text, manifest, readers = defaultAnchorReaders()) {
-  const counts = { anchors: manifest.anchors.length, verified: 0, unchecked: 0, drift: 0, stale: 0, missingTarget: 0 };
+  const counts = {
+    anchors: manifest.anchors.length,
+    verified: 0,
+    unchecked: 0,
+    drift: 0,
+    stale: 0,
+    ambiguous: 0,
+    missingTarget: 0,
+  };
   const drift = [];
   const staleAnchors = [];
+  const ambiguousAnchors = [];
   const missingTargets = [];
   const unchecked = [];
 
   for (const anchor of manifest.anchors) {
-    // An anchor whose citation no longer exists is itself the finding: the
+    // An anchor whose citation site no longer exists is itself the finding: the
     // manifest must shrink when the prose it pinned does, or it silently grows
-    // into "verifying" lines nobody cites.
-    if (!text.includes(anchor.cited)) {
+    // into "verifying" lines nobody cites. The test is site-aware — the literal
+    // and its `context` must sit on the same line — so a literal that survives
+    // only on some other line does not keep the anchor alive.
+    const { sites, occurrences } = anchorSites(text, anchor);
+    if (sites.length === 0) {
       counts.stale++;
-      staleAnchors.push({ cited: anchor.cited, note: anchor.note });
+      staleAnchors.push({ cited: anchor.cited, context: anchor.context, occurrences, note: anchor.note });
+      continue;
+    }
+    if (sites.length > 1) {
+      // The context is supposed to pick exactly one site. Two means this entry
+      // is under-specified: the ratchet would pass as long as either survives.
+      counts.ambiguous++;
+      ambiguousAnchors.push({ cited: anchor.cited, context: anchor.context, sites });
       continue;
     }
 
@@ -391,12 +448,13 @@ export function verifyAnchors(text, manifest, readers = defaultAnchorReaders()) 
       origin: anchor.origin,
       path: anchor.path,
       line: anchor.line,
+      ledgerSite: sites[0],
       expect: anchor.expect,
       actual: (lines[anchor.line - 1] ?? '').trim(),
     });
   }
 
-  return { counts, drift, staleAnchors, missingTargets, unchecked };
+  return { counts, drift, staleAnchors, ambiguousAnchors, missingTargets, unchecked };
 }
 
 function defaultAnchorReaders() {
@@ -513,7 +571,7 @@ function loadAnchors() {
   const manifest = JSON.parse(readFileSync(ANCHORS, 'utf8'));
   const problems = [];
   for (const [i, a] of manifest.anchors.entries()) {
-    for (const field of ['cited', 'origin', 'path', 'line', 'expect', 'note']) {
+    for (const field of ['cited', 'origin', 'path', 'line', 'context', 'expect', 'note']) {
       if (a[field] === undefined || a[field] === '') problems.push(`anchors[${i}] (${a.cited ?? '?'}): missing "${field}"`);
     }
     if (a.origin !== undefined && !['worktree', 'upstream', 'retired'].includes(a.origin)) {
@@ -583,6 +641,7 @@ function main() {
     staleExemptions.length +
     anchors.drift.length +
     anchors.staleAnchors.length +
+    anchors.ambiguousAnchors.length +
     anchors.missingTargets.length;
 
   if (process.argv.includes('--json')) {
@@ -598,6 +657,7 @@ function main() {
             coverage,
             drift: anchors.drift,
             staleAnchors: anchors.staleAnchors,
+            ambiguousAnchors: anchors.ambiguousAnchors,
             missingTargets: anchors.missingTargets,
             uncheckedAnchors: anchors.unchecked,
           },
@@ -628,7 +688,8 @@ function main() {
     `check-roadmap-refs: ${findings} finding(s) ` +
       `(${missingFiles.length} file(s), ${missingTests.length} test name(s), ` +
       `${staleExemptions.length} stale exemption(s), ${anchors.drift.length} coordinate drift(s), ` +
-      `${anchors.staleAnchors.length} stale anchor(s), ${anchors.missingTargets.length} missing anchor target(s)).\n`,
+      `${anchors.staleAnchors.length} stale anchor(s), ${anchors.ambiguousAnchors.length} ambiguous anchor(s), ` +
+      `${anchors.missingTargets.length} missing anchor target(s)).\n`,
   );
   for (const { path, lines } of missingFiles) {
     const shown = lines.slice(0, 5).join(', ');
@@ -648,9 +709,16 @@ function main() {
     );
   }
   for (const s of anchors.staleAnchors) {
+    const other = s.occurrences.length > 0 ? ` (the literal still appears on ledger line(s) ${s.occurrences.join(', ')}, but not at this anchor's site: ${JSON.stringify(s.context)})` : '';
     console.error(
-      `  [stale-anchor] \`${s.cited}\` is anchored but no longer cited by the ledger — drop the anchor or\n` +
-        `      re-point it (was: ${s.note})`,
+      `  [stale-anchor] \`${s.cited}\` is anchored but its citation site is gone from the ledger${other} —\n` +
+        `      drop the anchor or re-point it (was: ${s.note})`,
+    );
+  }
+  for (const a of anchors.ambiguousAnchors) {
+    console.error(
+      `  [ambiguous-anchor] \`${a.cited}\` + context ${JSON.stringify(a.context)} matches ledger line(s) ${a.sites.join(', ')} —\n` +
+        `      the context must pick exactly one site, or the anchor is satisfied by whichever survives`,
     );
   }
   for (const m of anchors.missingTargets) {
