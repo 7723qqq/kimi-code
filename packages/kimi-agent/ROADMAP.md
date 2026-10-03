@@ -4818,7 +4818,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 | 4 | **Anthropic 多发一个 `cache_control` 槽**（fork 4 / 上游 3）。stable-history 位是 **fork 自加**，此前被误登记为「非自加」 | 已核实（`anthropic.rs:184-192` 四处发射点 `:164/:192/:239/:254`；上游 `anthropic.ts:352-362` 无该分支） | **冗余但无害，降级**：stable 位在 `msgs.len()-3`，**每轮向前移动**，故永远不是同一前缀——两种缓存语义下都不带来命中收益，唯一效果是多写一条条目。详见 6.45.1 |
 | 5 | ~~**micro compaction 的 `detect()` 两个门禁**~~ **已完成 2026-10-02** | 已核实 | 见 **§10.25**。`compaction/micro.rs` 增 `detect_micro_compaction()` + `DetectOutcome`，配置面补 `cache_missed_threshold_ms` / `min_context_usage_ratio` 两个 v2 默认值；引擎侧增 per-session `last_assistant_at`，每轮 `save_turn` 后打戳（v2 `onDidFinishStep`）。**§6.29 曾把它标成「不得开工」，6.44.1 已推翻** |
 | 6 | **wire 协议无版本概念**：`wire_events` 表无版本列、无 `metadata` 记录、无迁移链（v2 有 v1.0→v1.5 五级 + 前向拒绝）。旧会话既不能迁移也不能识别 | 已核实 | `session/sqlite_store.rs:439` |
-| 7 | **磁盘日志缺失 + 导出 ZIP 只有 2 个成员**。而 `locales/en.json:2600` 正在叫用户出错时跑 `/export-debug-zip`；`apps/vis` 的 Logs 标签页是死的 | 已核实 | `napi_bindings.rs`、`server/mod.rs:1680-1721`、`vis/server/src/routes/logs.ts` |
+| 7 | **磁盘日志缺失 + 导出 ZIP 只有 2 个成员**。而 `locales/en.json:2600` 正在叫用户出错时跑 `/export-debug-zip`；`apps/vis` 的 Logs 标签页是死的。**卡在两个决策上，见 §10.29**：(1) 轮转命名——`tracing_appender` 的日期后缀与 `log-reader.ts` 期待的 `.N` 不符；(2) manifest 由谁产出——v2 在宿主层取 `process.platform` / `process.version` / installSource / shellEnv，fork 在引擎里拼 ZIP | 已核实 | `napi_bindings.rs`、`server/mod.rs:1680-1721`、`vis/server/src/routes/logs.ts` |
 | 8 | ~~**POST /undo 不做 state 回滚**~~ **已完成 2026-10-01**（`ac180b4dbe`）：闭环记录见 §6.45.4 第 8 行。**本行此前未划线、与 §6.45.4 自相矛盾，2026-10-03 订正**——两表同源于 §6.40，而修正只落在了后者 | 已核实（grep 全仓确认） | `server/mod.rs:5511-5602` |
 
 #### P2 — 已核实，范围或影响需先界定
@@ -4897,7 +4897,7 @@ usage 累积 + detect() + 遥测  ← 三合一（见上表）
 | 2 | **分叉 turn_index** | `sqlite_store.rs:834-863` 加参数 + 按 v2 `forkTurnSlice.ts:80-99` 的 `origin.kind` 分类切边界 + promptId 配对（`:118-176`）；调用方两处（`server/mod.rs:5165` 解析 body 的 `turnIndex`、`acp/mod.rs:1015`）；**注意 fork 的历史按 `save_turn` 分行存储，切分要按 turn 而非按 message** | **3-4 人天** |
 | 5+15 | **micro `detect()` + 遥测 `api_error`** | 新增一个跨 step 的 usage 累积结构（`input_cache_read` / `input_cache_creation` / tokens），`server/engine.rs:1348` 前加判据，配置面加 2 个常量；遥测侧同源数据报 `api_error` | **2-3 人天** |
 | 6 | **wire 版本 + metadata + 迁移链** | 加 `protocol_version` 列与 `metadata` 记录类型（写侧 + 读侧兼容），再逐级实现 v1.0→v1.5 五个迁移。**前置约束**：必须早于任何新的 wire 记录类型 | **4-6 人天**（含迁移的向后兼容测试） |
-| 7 | **磁盘日志 + 导出 ZIP** | 引入 `tracing_appender` 的滚动 appender（约 60 行，对齐 v2 的 6MB×5 全局 / 5MB×3 会话）；`server/mod.rs:1680-1721` 扩 manifest 字段并加 4 个日志成员；`vis` 侧 Logs 标签页随之复活 | **2-3 人天** |
+| 7 | **磁盘日志 + 导出 ZIP** | ~~引入 `tracing_appender` 滚动 appender（约 60 行）~~ **方案已订正，见 §10.29**：v2 的日志层是 `_base/log/` **5 文件约 687 行**（含定义行格式的 `formatter.ts`），且 crate 的日期后缀与 `log-reader.ts:33-37` 期待的 `.N` 命名不符；manifest 的 16 字段里多项只有宿主层有 | **需重估**（原 2-3 人天按「引 crate」估，偏低） |
 | 8 | ~~POST /undo 回滚接线~~ **已完成 2026-10-01** | 新增 `rollback_state_for_undo`（`server/mod.rs:7371`），接在 `undo` 路由 `:5594`。**台账原引三处「已有模式」全是假的**——`engine.rs` 中 `.rollback()` 零调用，唯一生产调用者是 `repl/mod.rs:782`；`engine.rs:1168` 是 `for_workspace` 的 `Err(_)` 臂、`:1197` 只是注释提到 `StateStoreCallbacks`。真实模式在 `callbacks.rs:1536-1554`。**核实后新增的要点**：checkpoint 是 LIFO 栈（`state_store.rs:175/244`），`count=N` 必须弹 N 次而非一次。失败如实上报而非静默——行已删除，静默分叉比可见错误更糟。两个测试：`undo_restores_state_domains_from_the_checkpoint_stack`（钉 LIFO 到最早锚点）与 `undo_succeeds_when_no_checkpoint_was_ever_taken`（钉空栈不算错）；前者已用环境变量探针反证——断开接线后 depth 停在 2，测试确实失败 | **已完成** |
 | 10 | ~~`len()/4` 一行修正~~ **已完成 2026-10-01** | `server/engine.rs:933` 改用 `compaction::estimate_tokens`。**实测纠正**：原估「对 CJK 低报约 4 倍」是错的——`len()` 是字节数，3 字节/汉字 → 低报 **25%**（300 字节报 75，实际 100 token）。附带修掉截断：43 ASCII 字符旧值报 10，现为 11。新增测试 `context_tokens_count_cjk_per_character_and_leave_ascii_alone`（ASCII 差异 ≤1 仅进位、CJK 100 字符 = 100 token、混合串按连续 ASCII 段一次进位）。副作用是状态栏与压缩触发器现在共用同一估算器，两者不会再对「有多满」产生分歧 | **已完成** |
 | 11 | **PermissionRuleScope + 审批留痕** | `permission/mod.rs:152` 的 `Vec<String>` 换成带 scope 与 result 的结构；`recordApprovalResult` 需 agent state 写入通道 | **2-3 人天** |
@@ -6780,3 +6780,48 @@ v2 的 `renderToolResultForModel`（`contextMemory/toolResultRender.ts`）对每
 内容逐字不变，只有失败/空结果受影响）｜新增 6 项单测（错误前缀、错误且空、错误保留空白、
 成功原样、空成功、哨兵串 trim 后判空）｜`scan:hardcoded:rust` 1759 条 / 0 new / 0 stale ✅。
 
+
+### 10.29 §6.45 P1-7 的前置界定：台账给的施工方案对不上（2026-10-03，**未开工**）
+
+按 §6.45 P1-7 开工前核验时，发现**台账写的做法与仓库现状冲突**，且冲突不是实现细节而是设计决策。
+记录于此，避免下一个人再走到同一岔口。
+
+**一、`tracing_appender` 的轮转命名与 `vis` 读取器不一致**
+
+§6.45.4 的方案是「引入 `tracing_appender` 的滚动 appender（约 60 行）……`vis` 侧 Logs 标签页随之
+复活」。但 `apps/vis/server/src/lib/log-reader.ts:33-37` 的 `discoverLogFiles` 是按 **v2
+`_base/log/fileLog.ts` 的 `rotate()`** 写的：**活动文件不带后缀、归档依次改名到 `.1` / `.2` …**
+（`.1` 最新、`.N` 最旧）。`tracing-appender` 的 `RollingFileAppender` 按**日期后缀**命名
+（`kimi-code.log.2026-10-03`），读取器只认数字后缀——**照台账方案落地，日志照样落在 Logs 标签页
+之外**，即「条目完成、结果未达成」。二选一：自己按 `.N` 命名（不引 crate），或改读取器去认日期
+后缀（会让已导出的历史 bundle 失配）。
+
+**二、v2 的日志层是子系统，不是 60 行**
+
+`.tmp/v2-ref-upstream/packages/agent-core-v2/src/_base/log/` 共 5 个文件：`fileLog.ts` 250 行、
+`formatter.ts` 172、`logService.ts` 159、`logConfig.ts` 59、`log.ts` 47（约 687 行）。其中
+`formatter.ts` 不是可选项——读取器用 `^(\d{4}-\d{2}-\d{2}T[\d:.]+Z)\s+([A-Za-z]+)\s+(.*)$`
+解析行，即 `<ISO 时间> <LEVEL> <消息>  key=value`，格式由它定义。§6.45.4 的「约 60 行」是按
+**引入 crate** 估的，不含格式化器与命名对齐，量级需要重估。
+
+**三、manifest 的部分字段只有宿主层有**
+
+v2 的 `buildExportManifest`（`app/sessionExport/manifest.ts:15-51`）在**宿主/服务层**组装 16 个
+字段，其中 `os` 取 `process.platform + process.arch`（`:33`）、`nodejsVersion` 取
+`process.version`（`:34`），`installSource` / `shellEnv` / `desktopVersion` / `webLogPath`
+同样是宿主量（`:46-50`）。fork 的 ZIP 却在**引擎里**拼（`server/mod.rs:1680-1721`）。照搬要么让
+引擎发一份**降级 manifest**（缺协议版本、缺运行时版本、缺安装来源），要么给导出请求**加一个宿主
+传入的 manifest 字段**——两条都改接口，属需要裁定的范围界定，不是照 v2 抄一遍。
+
+**四、归档布局的消费方已确认，成员不能随意增删**
+
+`apps/vis/server/src/lib/import-store.ts:4` 写明导入是「unzip 成与真实会话目录**同形**」，
+`logs.ts` 又从 `detail.sessionDir` 下找 `logs/kimi-code.log` 与 `logs/global/kimi-code.log`。
+故新增日志成员必须是**会话目录相对路径**（`logs/…`），不能挂在 ZIP 根；这也与 v2「整个会话目录 +
+根上放 manifest.json」的形状一致。
+
+**结论**：P1-7 拆成两半，各自卡在一个决策上——(1) 轮转命名；(2) manifest 由谁产出。本轮**不开工**。
+已核实的前提（供接手省一轮）：ZIP 当前确为 `session.json` + `transcript.md` 两成员
+（`server/mod.rs:1708-1717`）；提示用户跑 `/export-debug-zip` 的文案确实在售
+（`packages/i18n-catalog/src/locales/en.ts:2952`）；`tracing_appender` 可取（
+`cargo add --dry-run` 命中 rsproxy 源，v0.2.5），但见第三条。
