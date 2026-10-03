@@ -4520,7 +4520,7 @@ has_errors = state == "error"     // 两者不再互相矛盾
 | **`app/sessionExport/` 产物偏薄** | **partial（仅引擎 REST 路径，见 §10.30）** | `app/sessionExport/sessionExportService.ts:42-279`、`manifest.ts:28-51`、`wire-scan.ts` | fork 的 `build_session_export_zip`（`server/mod.rs:1680-1721`）只打包**两个成员**：`session.json` + `transcript.md`；v2 打整个会话目录 + `manifest.json`（16 字段：版本、协议版本、os、shellEnv、首末活动时间、installSource…）+ **四个日志文件** + wire 扫描。**而 `locales/en.json:2600` 正在叫用户出错时跑 `/export-debug-zip` 把文件交给诊断**——用户按提示交出的档案缺 manifest、缺日志、缺版本溯源。另 v2 导出前会 flush 活会话，fork 不做 |
 | **`IQueryStore` / minidb 读模型未接线** | **missing（最大单点）** | `persistence/interface/queryStore.ts:87-115`、`persistence/configSection.ts:12-43` | `packages/minidb/` 是完整的 44 文件实现（WAL + 快照 + trigram 全文索引 + 复合索引 + 压缩 + cluster），但**引擎侧零引用**（`minidb`/`read_model` 在 Rust 全仓零命中；仓内仅 `apps/kimi-code/src/native/minidb-worker.ts` 一条 smoke 路径）。`IQueryStore` 是 v2 `ISessionIndex`、其 projector、mirror、dirty-journal 与全局搜索 worker 的共同基底。连带 `[database]` config section 整个不存在（`config/mod.rs` 无 `database`/`MINIDB`） |
 | **遥测事件目录 ~10/60** | **前三项本轮已补（§10.39）** | `app/telemetry/events.ts:599-1359` | 缝隙本身可用（`callbacks.rs:199-207` 的 `telemetry`、`server/mod.rs:307-334` 的 `TelemetrySink`），缺的是目录。**最值得补的是解释故障的那批**：`api_error`、`compaction_failed`、`tool_call_dedup_detected`、`tool_call_repeat`、`permission_approval_result`、`session_load_failed`、`agent_create_failed`、`context_projection_repaired`。注意 fork 的 TS 宿主侧独立上报了其中若干（`model_switch`/`thinking_toggle`/`plugin_toggle`），所以缺的是**引擎侧**覆盖而非管道 |
-| `app/workspaceAliases/` | missing | `workspaceAliasesService.ts:83-101` `resolveAliasIds` | 三树皆无。fork 只用 `encode_workdir_key` 作键，**同一目录的符号链接或大小写变体会变成两个 workspace**。清理原语 `delete_workspace`（`sqlite_store.rs:776`）也没留 `deletedIds` 墓碑，删除后可能在下次合并时回来 |
+| `app/workspaceAliases/` | **别名半边本轮已补（§10.40）** | `workspaceAliasesService.ts:83-101` `resolveAliasIds` | `create_workspace` 现在先按 `workspace_root_key`（canonicalize + Windows 小写 + 缺路径兜底）复用已有 id，同目录的不同拼写不再是两个 workspace。**墓碑半边判为 n-a**：引擎无任何 workspace 合并/同步，没有读取方 |
 | `human/store/` 分支文档存储 | **不建，只记录** | `store/types.ts:32-40`、`store.ts:60-75,104-190`、`internal/codec.ts` | 无对应物（三树皆无 `TreeStore`/`BranchHeader`/`journalFromBranch`）。但 fork 用「复制会话」而非「分支文档」实现 fork（`sqlite_store.rs:833-886`），**照搬会造出没有读取方的存储**——正是 6.40.5 规律二。只有 `verify`/`CorruptionReport` 这一条有独立价值 |
 | `human/eventStore/` 内部 | partial | `journal.ts:76-98`、`eventStore.ts:34-49,274-283` | v2 沿分支链重建历史、带显式 `Cause`（event/internal/reset/slice-joined）、fold 有 `drainLimit`。fork 的 `fold_wire_events`（`native/event_store/mod.rs:394-482`）是纯函数折叠，无事件轴、无 drain 上界。**但它建立在上面那个不打算建的 store 之上**，故不单独施工 |
 | `app/sessionManager/` 生命周期面 | partial | `sessionManager.ts:34-52` | `createChild` / `whenResumeSettled` / `withLifecycleSerialization` 与可等待的 `onWillCreate`/`onWillClose`/`onWillDelete` 无对应。仅对需要 gate 会话销毁或从活会话派生子会话的宿主有意义 |
@@ -7284,3 +7284,45 @@ fork 目前没有这两条消费链，先接一个无人读的字段只会是死
 修法是给 `LlmError` 增加一个**逐字保留消息**的 `typed()` 构造器，不可重试路径用它——只把类型化字段带上，
 **不动文本**；只有重试耗尽路径才保留原有的 `attempts_exhausted` 前缀（那是它改动前就有的措辞）。
 `turn_loop` 233 项随后全绿。这条记在这里是因为「保持渲染文本不变」不是洁癖：有别的模块靠它做检测。
+
+### 10.40 §6.45 P2-17 落地：同一目录只应是一个 workspace（2026-10-03）
+
+§6.42.5 的原表述：「fork 只用 `encode_workdir_key` 作键，**同一目录的符号链接或大小写变体会变成
+两个 workspace**。清理原语 `delete_workspace`（`sqlite_store.rs:776`）也没留 `deletedIds` 墓碑，删除后
+可能在下次合并时回来」。
+
+**前半成立，后半没有消费方**——核实：引擎里**没有任何 workspace 合并/同步**（全仓 `merge_workspace` /
+`syncWorkspace` 零命中，唯一含 merge 的是技能目录的合并，无关）。墓碑是为了让「合并时不要把删掉的东西
+带回来」，没有合并就没有读取方，加了就是死代码。故本轮只做前半，并把后半记为 **n-a（无消费方）**。
+
+**前半的根因（读代码后确认，比台账更具体）**：`encode_workdir_key` 的哈希输入是
+`work_dir.replace('\\', "/").trim_end_matches('/')`——**只做了分隔符与尾斜杠的规范化**。它把 slug
+小写化了，但**哈希覆盖的是路径的原样拼写**，于是：
+
+- `G:\\Kimi\\kimi-code` 与 `G:\\kimi\\kimi-code` → **两个 id**（在大小写不敏感的文件系统上同一个目录）；
+- 符号链接指向的路径与真实路径 → **两个 id**；
+- 相对路径与绝对路径 → **两个 id**。
+
+**落地**：
+
+1. 新增 `workspace_root_key(root)`——**规范化后的身份**：`std::fs::canonicalize` 解出符号链接与真实大小写
+   （Windows 上再统一小写），剥掉 `\\?\` verbatim 前缀，分隔符统一为 `/`。
+2. **关键细节：路径可能不存在**。canonicalize 对不存在的路径会失败，直接失败会让一个普通的
+   「还没创建的目录」比较成空、从而**不再匹配任何东西**——比它要修的重复更糟。故用
+   `canonicalize_allowing_missing`：**规范化最深的已存在祖先、再拼回剩余段**（这正是 MEMORY.md 记的
+   插件路径教训的同一处理）。兜底是词典序规范化。
+3. `create_workspace` 在写行之前调用 `resolve_workspace_id`：扫描已有行的 `workspace_root_key`，命中就**复用
+   那个 id**（v2 `resolveAliasIds` 的语义）。**重复是在创建处诞生的，所以修在创建处**，而不是事后做
+   修复轮。
+4. **既有行仍保留自己存的那个 id**——不动 id 推导，就没有任何 session 的 `workspace_id` 被作废。这是
+   刻意选择：直接改 `encode_workdir_key` 会让历史 `workspace_id` 变成孤儿。
+
+**测试 2 项**：(1) 同一真实临时目录的「尾斜杠写法」与「大小写写法」（Windows 上）都得到同一个 id，且
+`workspaces` 表只有 **1 行**；(2) 不存在的路径仍有**稳定且互不相同**的 key——钉住上面的兜底，
+否则「不存在的目录不再匹配任何东西」这个更糟的失败模式不会被发现。
+
+**变异验证**：把 `create_workspace` 退回 `encode_workdir_key(root)`，
+`one_directory_is_one_workspace_however_it_is_spelled` 立刻失败。
+
+**验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -D warnings` ✅｜
+`cargo test --no-default-features --features cli` 全量 ✅｜15 道门禁 ✅。

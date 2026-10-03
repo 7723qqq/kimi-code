@@ -10,9 +10,9 @@ description:
   en: >
       REST surface: plugin/workspace/session/config routes, fs routes, auth and host guard.
       
-revision: 253bcdf88cc2ef63e89f0327599fa0b4c39c90d2
-updated_at: "2026-10-03T09:38:57.925Z"
-fingerprint: 83eae61ad293701ea88cb6411f1de3d586f9235ec6ab1f2b4a1b654531b78918
+revision: 5d7ef5644a0810da5d401c2951b5e5cd2f441df9
+updated_at: "2026-10-03T10:50:05.007Z"
+fingerprint: 90f6b7a0ba70f1fff9626d898fec65ae595f3c825f9ed03a8c6e86636854a6e9
 source:
   - path: "packages/kimi-agent/src/server/mod.rs"
   - path: "packages/kimi-agent/src/server/auth.rs"

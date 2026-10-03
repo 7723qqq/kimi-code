@@ -2,7 +2,7 @@
   "schema_version": 1,
   "ok": true,
   "project": "normify-kimi-code",
-  "compiled_at": "2026-10-03T10:29:58.381Z",
+  "compiled_at": "2026-10-03T10:56:40.872Z",
   "stats": {
     "tree_count": 1,
     "module_count": 74,
@@ -26,7 +26,7 @@
   },
   "artifacts": {
     "tree.json": {
-      "sha256": "84a485eaf3791704ed11a2c179d5aaf3888e4919b1ce7a97672a7a0c29c640ef",
+      "sha256": "c438655ef4eb5c4c955b93fba63d8c73cf072a022a255a2aced34a06e92b6402",
       "bytes": 121513
     },
     "outline.md": {
@@ -38,7 +38,7 @@
       "bytes": 2053
     },
     "receipt.json": {
-      "sha256": "95b4f399234aef721ab31ae1672d53aac674764316059e38c011710d3a7a1823",
+      "sha256": "c8146a409ec20c102c4d2bfec22a7960b70d986f5c04fd84449d0906e2cec2df",
       "bytes": 1028
     }
   }

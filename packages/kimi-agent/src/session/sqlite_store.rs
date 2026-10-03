@@ -58,6 +58,69 @@ pub fn encode_workdir_key(work_dir: &str) -> String {
     format!("wd_{final_slug}_{hash12}")
 }
 
+/// The identity of a workspace root, independent of how it was spelled.
+///
+/// Two spellings of the same directory — a symlink and its target, a different
+/// path case on Windows, a relative and an absolute form — must resolve to one
+/// workspace. Hashing the raw string (what [`encode_workdir_key`] does) cannot
+/// do that: it lower-cases only the *slug*, while the hash covers the path as
+/// written, so `G:\\Kimi\\kimi-code` and `G:\\kimi\\kimi-code` are two
+/// workspaces on a case-insensitive filesystem.
+///
+/// Canonicalization needs the path to exist. A root that is not on this machine
+/// (a remote root, a directory not created yet) falls back to the lexical form
+/// of its deepest existing ancestor — the same treatment
+/// `canonicalize_allowing_missing` gives plugin paths. Without the fallback an
+/// ordinary missing directory would compare as empty and silently stop matching
+/// anything, which is worse than the duplicate it replaces.
+pub fn workspace_root_key(root: &str) -> String {
+    let normalized = canonicalize_allowing_missing(std::path::Path::new(root));
+    let trimmed = normalized.trim_end_matches('/');
+    if cfg!(windows) {
+        trimmed.to_lowercase()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Canonicalize the deepest existing ancestor and re-append the rest.
+fn canonicalize_allowing_missing(path: &std::path::Path) -> String {
+    let mut tail: Vec<String> = Vec::new();
+    let mut current = path.to_path_buf();
+    loop {
+        if let Ok(canonical) = std::fs::canonicalize(&current) {
+            let mut result = strip_verbatim_prefix(&canonical.to_string_lossy());
+            for segment in tail.iter().rev() {
+                if !result.ends_with('/') {
+                    result.push('/');
+                }
+                result.push_str(segment);
+            }
+            return result;
+        }
+        let Some(name) = current
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+        else {
+            break;
+        };
+        tail.push(name);
+        if !current.pop() {
+            break;
+        }
+    }
+    path.to_string_lossy().replace('\\', "/")
+}
+
+/// `std::fs::canonicalize` answers the `\\?\` verbatim form on Windows, which
+/// works for every filesystem call and reads terribly everywhere else.
+fn strip_verbatim_prefix(value: &str) -> String {
+    value
+        .replace('\\', "/")
+        .trim_start_matches("//?/")
+        .to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WireEventRecord {
     pub seq: u64,
@@ -766,13 +829,38 @@ impl SqliteSessionStore {
         }))
     }
 
+    /// The existing workspace id for `root`, or the freshly derived one.
+    ///
+    /// v2 `resolveAliasIds`: an alias is another id that points at the same
+    /// root. The place duplicates are *born* is creation, so the lookup happens
+    /// here — before a second row is written — rather than as a repair pass
+    /// afterwards. Existing rows keep the id they were stored with, so no
+    /// session's `workspace_id` is invalidated by this.
+    fn resolve_workspace_id(&self, root: &str) -> Result<String, rusqlite::Error> {
+        let key = workspace_root_key(root);
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare("SELECT workspace_id, root FROM workspaces")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (id, row_root) = row?;
+            if workspace_root_key(&row_root) == key {
+                // The guard is dropped when this function returns, so the
+                // caller's own `lock()` does not deadlock against it.
+                return Ok(id);
+            }
+        }
+        Ok(encode_workdir_key(root))
+    }
+
     /// Create or update a workspace.
     pub fn create_workspace(
         &self,
         root: &str,
         name: Option<&str>,
     ) -> Result<WorkspaceSummary, rusqlite::Error> {
-        let id = encode_workdir_key(root);
+        let id = self.resolve_workspace_id(root)?;
         let normalized_root = root.replace('\\', "/").trim_end_matches('/').to_string();
         let base = normalized_root
             .split('/')
@@ -4642,6 +4730,54 @@ mod tests {
         assert_eq!(
             store.last_turn_reason("sess-stamp").as_deref(),
             Some("cancelled")
+        );
+    }
+
+    #[test]
+    fn one_directory_is_one_workspace_however_it_is_spelled() {
+        let store = SqliteSessionStore::in_memory().unwrap();
+        let dir = std::env::temp_dir().join(format!("kimi-ws-alias-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let real = dir.to_string_lossy().replace('\\', "/");
+
+        let first = store.create_workspace(&real, None).unwrap();
+        let with_slash = store.create_workspace(&format!("{real}/"), None).unwrap();
+        assert_eq!(
+            first.id, with_slash.id,
+            "a trailing slash is not a new workspace"
+        );
+
+        if cfg!(windows) {
+            let upper = real.to_uppercase();
+            if upper != real {
+                let cased = store.create_workspace(&upper, None).unwrap();
+                assert_eq!(first.id, cased.id, "path case is not a new workspace");
+            }
+        }
+
+        let count: i64 = {
+            let conn = store.conn.lock();
+            conn.query_row("SELECT COUNT(*) FROM workspaces", [], |row| row.get(0))
+                .unwrap()
+        };
+        assert_eq!(count, 1, "one directory, one row");
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_missing_root_still_gets_a_stable_key() {
+        let missing = std::env::temp_dir().join("kimi-ws-absent/deeper/still-gone");
+        let as_posix = missing.to_string_lossy().replace('\\', "/");
+        let with_slash = format!("{as_posix}/");
+        assert_eq!(
+            workspace_root_key(&as_posix),
+            workspace_root_key(&with_slash)
+        );
+        assert!(!workspace_root_key(&as_posix).is_empty());
+        assert_ne!(
+            workspace_root_key(&as_posix),
+            workspace_root_key(&as_posix.replace("still-gone", "other"))
         );
     }
 }

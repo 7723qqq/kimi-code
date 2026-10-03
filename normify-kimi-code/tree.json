@@ -9,7 +9,7 @@
         "repository": "https://github.com/7723qqq/kimi-code"
       }
     ],
-    "compiled_at": "2026-10-03T10:29:58.381Z",
+    "compiled_at": "2026-10-03T10:56:40.872Z",
     "stats": {
       "tree_count": 1,
       "module_count": 74,
@@ -583,8 +583,8 @@
           "path": "packages/kimi-agent/src/lib.rs"
         }
       ],
-      "revision": "1d8d64b4b7b219e3da075845ca51342d829c58e9",
-      "updated_at": "2026-10-03T10:29:58.204Z",
+      "revision": "fa553a49ae2488ed6ba23dd9686812a0d73cbf5f",
+      "updated_at": "2026-10-03T10:56:40.681Z",
       "fingerprint": "f3bdc1d18ee20dcc0e6f1c18071ed862e5946cabf7864f99910b42f664af756a",
       "aggregate": {
         "descendant_count": 36,
@@ -619,9 +619,9 @@
           "path": "packages/kimi-agent/src/pipeline/mod.rs"
         }
       ],
-      "revision": "253bcdf88cc2ef63e89f0327599fa0b4c39c90d2",
-      "updated_at": "2026-10-03T09:38:57.924Z",
-      "fingerprint": "46e1b582b55f53a7d995d45b27eab290ab6fc1a528a3efe17465163cb09beed9",
+      "revision": "fa553a49ae2488ed6ba23dd9686812a0d73cbf5f",
+      "updated_at": "2026-10-03T10:56:40.681Z",
+      "fingerprint": "b8be29937ae34736f52ecf5c6df7d2a7ab5aae8efdc454c56fe36e9c9e459596",
       "deps": [
         {
           "kind": "call",
@@ -872,9 +872,9 @@
           "path": "packages/kimi-agent/src/session/patch.rs"
         }
       ],
-      "revision": "253bcdf88cc2ef63e89f0327599fa0b4c39c90d2",
-      "updated_at": "2026-10-03T09:38:57.923Z",
-      "fingerprint": "a1012d493d8d51a4a8897acd1181a5fdd38f5fb02cf914b40ebe0fb9eef91d81",
+      "revision": "fa553a49ae2488ed6ba23dd9686812a0d73cbf5f",
+      "updated_at": "2026-10-03T10:56:40.680Z",
+      "fingerprint": "28edc262ffe658740383e953146ad17bca94b5f73419932eca0a37b1936c1e25",
       "deps": [
         {
           "kind": "dataflow",
@@ -916,9 +916,9 @@
           "path": "packages/kimi-agent/src/session/patch.rs"
         }
       ],
-      "revision": "253bcdf88cc2ef63e89f0327599fa0b4c39c90d2",
-      "updated_at": "2026-10-03T09:38:57.923Z",
-      "fingerprint": "1a1236242c71220391f2a8d53ff24e2901a3ecde9fc62dbaaea41d9d4b54330b",
+      "revision": "fa553a49ae2488ed6ba23dd9686812a0d73cbf5f",
+      "updated_at": "2026-10-03T10:56:40.679Z",
+      "fingerprint": "c382547255f7b5a6a9b6a17ddd9b28e7a30c9174515112bec4a107b97b741313",
       "aggregate": {
         "descendant_count": 0,
         "own_api_count": 0,
@@ -1029,9 +1029,9 @@
           "path": "packages/kimi-agent/src/turn_loop/retry.rs"
         }
       ],
-      "revision": "71b8b2333357cbc1b2dad100399da38d1b7fb8ec",
-      "updated_at": "2026-10-03T08:25:20.448Z",
-      "fingerprint": "1b8e5cff052cc479e1f047d1e398096ca751d0db3b984d6388a4fb9fcdf8fa8d",
+      "revision": "5d7ef5644a0810da5d401c2951b5e5cd2f441df9",
+      "updated_at": "2026-10-03T10:50:05.006Z",
+      "fingerprint": "a1bcdbbb3ba9e1fd6022666e16eca74b6b774777147838403ce76d008119bc50",
       "deps": [
         {
           "kind": "call",
@@ -1677,9 +1677,9 @@
           "path": "packages/kimi-agent/src/server/hub.rs"
         }
       ],
-      "revision": "253bcdf88cc2ef63e89f0327599fa0b4c39c90d2",
-      "updated_at": "2026-10-03T09:38:57.926Z",
-      "fingerprint": "d91c31123e28377747e81256681f741f7578b14b0484019a102612f1f8fc3b84",
+      "revision": "5d7ef5644a0810da5d401c2951b5e5cd2f441df9",
+      "updated_at": "2026-10-03T10:50:05.008Z",
+      "fingerprint": "aff9928f552828d181f9b4320ca29d8b03d56f41bd325e53e0147823da6bc865",
       "deps": [
         {
           "kind": "dataflow",
@@ -1724,9 +1724,9 @@
           "path": "packages/kimi-agent/src/server/fs_routes.rs"
         }
       ],
-      "revision": "253bcdf88cc2ef63e89f0327599fa0b4c39c90d2",
-      "updated_at": "2026-10-03T09:38:57.925Z",
-      "fingerprint": "83eae61ad293701ea88cb6411f1de3d586f9235ec6ab1f2b4a1b654531b78918",
+      "revision": "5d7ef5644a0810da5d401c2951b5e5cd2f441df9",
+      "updated_at": "2026-10-03T10:50:05.007Z",
+      "fingerprint": "90f6b7a0ba70f1fff9626d898fec65ae595f3c825f9ed03a8c6e86636854a6e9",
       "apis": [
         {
           "protocol": "http",
