@@ -5023,8 +5023,24 @@ prose 字面量 2609（其中 555 落在 `LocalizedText` 接缝上被天然豁�
    `vi.mock('node:child_process', { spy: true })` 只桩掉 `spawnSync`（不 mock `node:fs`，
    避免误伤同图其它模块），并临时改写 `process.platform` 以进入 Windows 分支。
    **做过变异验证**：把实现里的 pwsh / powershell 两块对调后，6 例中 3 例失败——即这条测试真的能
-   抓住顺序回退，不是装饰。仍**未**闭环的部分：两侧顺序依然是两份独立实现，
-   TS 测试管不到 Rust 侧；若日后要真正消除漂移，应把顺序收敛成一处定义（或进 `check:parity`）。
+   抓住顺序回退，不是装饰。
+
+   **两侧顺序已收敛进 `check:parity`（同日补）**：顺序仍是两份实现（Rust 与 TS 分居两种语言，
+   而 `shellPath` 是宿主**传给**引擎的入参、非 undefined 即胜出，所以"宿主说 pwsh 而引擎本会选
+   powershell"这类漂移会静默改变真正执行的 shell）。`scan-parity.mjs` 新增 `rustShellOrder` /
+   `tsShellOrder` / `shellOrderFindings`：分别从 `resolve_shell` 的 Windows 分支与
+   `probeShellPath` 读出 rung 顺序，要求**宿主的列表是引擎列表的前缀**（宿主找到即返回，找不到才留给
+   引擎解析，故只允许提前停止，不允许乱序或漏项）。空读取**fail-closed**（源形状一变就报错，
+   而不是"两边都空所以相等"地空过）。变异验证：只把宿主的 pwsh / powershell 两行对调，
+   `check:parity` 立刻红并打印
+   `the host probes powershell -> pwsh -> bash but the engine resolves pwsh -> powershell -> bash -> cmd`；
+   `scripts/scan-parity.test.mjs` 另 11 例覆盖乱序、漏项、引擎改名、空读取与真实源码。
+
+   **仍未收敛的部分**：真正的「一处定义」需要引擎把解析结果发布给宿主（新增 napi 导出，
+   或让宿主不再探测、直接让引擎决议），而后者会改两处运行期行为——Windows 上
+   `LOCALAPPDATA\Programs\Git\bin\bash.exe` 这个宿主独有的 Git Bash 候选会丢，
+   非 Windows 上 `$SHELL`（如 zsh）会被引擎写死的 `/bin/bash` 取代。两者都是产品判断，
+   不由本轮代决；门禁已保证在做出该判断之前不会再静默漂移。
 2. ~~**源码注释里的「46」与实际不符**~~ **已按实测改写（2026-10-03）**：`tools/mod.rs`、
    `locales/en.ts` 与 `check-engine-i18n-parity.mjs` 三处改为「`arg_error` 有 **20 处调用点**，
    改动前树上有 **23 处**通用句式字面量」——两个数字都可复现。原「46」**三个口径都对不上**：

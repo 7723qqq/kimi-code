@@ -381,7 +381,7 @@ scripts/
   check-t-call-coverage.mjs     — Check t() call coverage
   scan-hardcoded[-v2].mjs       — Scan for hardcoded strings (i18n compliance, TypeScript trees)
   scan-hardcoded-rust.mjs       — Rust engine hardcoded-prose ratchet (`hardcoded-rust-allowlist.json` holds the recorded debt)
-  scan-parity.mjs               — Rust ↔ TS interface parity (REST / WS events / WS control / tool names / napi / config keys)
+  scan-parity.mjs               — Rust ↔ TS interface parity (REST / WS events / WS control / tool names / napi / config keys / Windows shell order)
   check-engine-i18n-parity.mjs  — Engine key-set consistency (key exists, no `engine.*` orphan, `i18n_params!` names match the en template's `{{placeholders}}`)
   check-no-legacy-engine.mjs    — Fail if a retired engine package is still referenced
   check-upstream-v2-delta.mjs   — Retired-package upstream delta ratchet (`upstream-v2-delta-allowlist.json`)

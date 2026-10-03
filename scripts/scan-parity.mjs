@@ -16,6 +16,10 @@
  *     functions in the crate's binding modules.
  *   - Config keys: `packages/node-sdk/src/config-local/schema.ts` top-level
  *     keys vs the `KimiConfig` fields/aliases in `src/config/mod.rs`.
+ *   - Windows shell order: `native/shell.rs::resolve_shell` vs
+ *     `native-llm-resolver.ts::probeShellPath`. The host's answer is passed into
+ *     the engine as `shellPath`, so it wins outright — the two orders have to
+ *     agree rung for rung or the prompt describes a shell the tool is not using.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -326,6 +330,85 @@ function collectRustStructFields(structName) {
   return fields;
 }
 
+/**
+ * The Windows shell preference order, as logical names.
+ *
+ * Two implementations express it: the engine's `resolve_shell`, which is what
+ * actually runs the command, and the host's `probeShellPath`, whose answer is
+ * handed *into* the engine as `shellPath` and therefore wins outright when it is
+ * not undefined. They are written in different languages, so nothing makes them
+ * fail together: a host that answers Git Bash while the engine would have chosen
+ * pwsh silently changes which shell a command runs in, and the prompt's shell
+ * note then describes a shell the tool is not using.
+ *
+ * The invariant is a prefix, not equality. The host answers the first shell it
+ * finds and leaves the engine to resolve only when it finds none, so its list
+ * must match the engine's *leading* rungs; it is allowed to stop early (it never
+ * names `cmd`).
+ */
+const SHELL_NAMES = new Set(['pwsh', 'powershell', 'bash', 'cmd']);
+
+/** `C:\\Program Files\\Git\\bin\\bash.exe` -> `bash`; `git_bash()` -> `bash`. */
+function shellName(raw) {
+  const file = String(raw).replaceAll('\\', '/').split('/').pop() ?? '';
+  return file.toLowerCase().replace(/\.exe$/, '').replace(/^git[-_]/, '');
+}
+
+/** The rungs of `resolve_shell`'s Windows branch, in source order. */
+export function rustShellOrder(text) {
+  const fn = text.match(/pub fn resolve_shell\([\s\S]*?\n\}/)?.[0] ?? '';
+  const win = fn.slice(fn.indexOf('#[cfg(windows)]'));
+  /** @type {string[]} */
+  const order = [];
+  for (const m of win.matchAll(/\bwhich\("([^"]+)"\)|(\bgit_bash\(\))|program:\s*"([^"]+)"/g)) {
+    const name = shellName(m[1] ?? (m[2] ? 'bash' : m[3]));
+    if (SHELL_NAMES.has(name) && !order.includes(name)) order.push(name);
+  }
+  return order;
+}
+
+/** The rungs `probeShellPath` tries on Windows, in source order. */
+export function tsShellOrder(text) {
+  const fn = text.match(/export function probeShellPath\([\s\S]*?\n\}/)?.[0] ?? '';
+  const win = fn.slice(fn.indexOf("'win32'"));
+  /** @type {string[]} */
+  const order = [];
+  for (const m of win.matchAll(/whichOnPath\('([^']+)'\)/g)) {
+    const name = shellName(m[1]);
+    if (SHELL_NAMES.has(name) && !order.includes(name)) order.push(name);
+  }
+  // The Git Bash candidates are reached through `existsSync`, not `which`, so
+  // they carry no `whichOnPath` call to read the name off.
+  if (/bash\.exe/.test(win) && !order.includes('bash')) order.push('bash');
+  return order;
+}
+
+/** Findings for the shell-order invariant; empty when the two sides agree. */
+export function shellOrderFindings(rustText, tsText) {
+  const rust = rustShellOrder(rustText);
+  const host = tsShellOrder(tsText);
+  /** @type {string[]} */
+  const findings = [];
+  // Fail closed on an empty read: a vacuous "both empty, so equal" pass is
+  // exactly what a moved source shape would produce.
+  if (rust.length === 0)
+    findings.push(
+      'SHELL no Windows order could be read out of native/shell.rs::resolve_shell (the extractor and the source have diverged)',
+    );
+  if (host.length === 0)
+    findings.push(
+      'SHELL no Windows order could be read out of native-llm-resolver.ts::probeShellPath (the extractor and the source have diverged)',
+    );
+  if (findings.length > 0) return findings;
+
+  const prefix = rust.slice(0, host.length);
+  if (host.join(' -> ') !== prefix.join(' -> '))
+    findings.push(
+      `SHELL the host probes ${host.join(' -> ')} but the engine resolves ${rust.join(' -> ')} — the host's answer is passed in as shellPath and wins, so the two must agree rung for rung`,
+    );
+  return findings;
+}
+
 function main() {
   /** @type {string[]} */
   const failures = [];
@@ -459,6 +542,12 @@ function main() {
       failures.push(`NLLM  ${field} is a stale KNOWN_NATIVE_LLM_FIELD_GAPS entry`);
   }
 
+  // ── Windows shell preference order ──────────────────────────────────────
+  const rustShellText = read(join(AGENT, 'src/native/shell.rs'));
+  const hostShellText = read(join(ROOT, 'packages/node-sdk/src/native/native-llm-resolver.ts'));
+  for (const f of shellOrderFindings(rustShellText, hostShellText)) failures.push(f);
+  const shellRungs = rustShellOrder(rustShellText).join(' > ');
+
   if (failures.length) {
     console.error('❌ Rust <-> TS interface parity check failed.\n');
     console.error('The two sides disagree on the following surface items:\n');
@@ -469,8 +558,10 @@ function main() {
 
   console.log('✅ Rust <-> TS interface parity OK:');
   console.log(
-    `   REST ${tsEndpoints.length} endpoints | WS events server=${WsEventContract.serverEvents.length} (web-only no-ops=${webOnly.length}) | WS ctl ${tsClientOps.size} client ops | tools ${nativeGroups.reduce((n, g) => n + (ToolNameContract[g]?.length ?? 0), 0)} | napi ${dtsNapi.size} | config ${tsConfigKeys.length} keys | model ${tsModelFields.size}/${rustModelFields.size} fields | nllm ${tsNativeLlm.size}/${rustResolvedLlm.size} fields${upstreamModelNote}`,
+    `   REST ${tsEndpoints.length} endpoints | WS events server=${WsEventContract.serverEvents.length} (web-only no-ops=${webOnly.length}) | WS ctl ${tsClientOps.size} client ops | tools ${nativeGroups.reduce((n, g) => n + (ToolNameContract[g]?.length ?? 0), 0)} | napi ${dtsNapi.size} | config ${tsConfigKeys.length} keys | model ${tsModelFields.size}/${rustModelFields.size} fields | nllm ${tsNativeLlm.size}/${rustResolvedLlm.size} fields | shell ${shellRungs}${upstreamModelNote}`,
   );
 }
 
-main();
+if (import.meta.main) {
+  main();
+}
