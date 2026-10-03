@@ -3,7 +3,10 @@
 //! Ported from the retired `kimi-native-tools/src/bash.rs` detection after the
 //! `[shell] preference` config landed: on Windows the order is
 //! `KIMI_SHELL_PATH` env override → the configured preference → `pwsh` →
-//! `powershell` → Git Bash → `cmd`; on POSIX the shell is always `/bin/bash`.
+//! `powershell` → Git Bash → `cmd`; on POSIX `/bin/bash` → `/usr/bin/bash` →
+//! `/usr/local/bin/bash`, else `/bin/sh` (v2 `probeHostEnvironment`'s POSIX arm).
+//! `[shell].preference` stays Windows-only: it has no v2 counterpart, so honoring
+//! it on POSIX would be new behavior rather than a port.
 //!
 //! PowerShell runs with `-NoProfile -NonInteractive` and cmd with `/c`, so the
 //! Bash tool's exec prefix is flavor-dependent rather than a fixed `-c`.
@@ -80,6 +83,29 @@ impl ResolvedShell {
     }
 }
 
+/// The POSIX candidate chain, as a pure function of "does this path exist".
+///
+/// Mirrors v2 `probeHostEnvironment`'s POSIX arm (`_base/execEnv/environmentProbe.ts`):
+/// `/bin/bash` → `/usr/bin/bash` → `/usr/local/bin/bash`, else `/bin/sh`. v2's own
+/// `isFile` is an `access(F_OK)` existence check (`:261-268`), hence `exists` rather
+/// than `is_file`. `/bin/sh` is classified `Bash` on purpose: it takes the same `-c`
+/// prefix, and nothing downstream branches on the difference.
+///
+/// Public rather than `#[cfg(not(windows))]`-private so the chain stays testable on
+/// every platform, including the Windows hosts where the POSIX arm is compiled out.
+pub fn posix_shell(exists: &dyn Fn(&str) -> bool) -> ResolvedShell {
+    const CANDIDATES: &[&str] = &["/bin/bash", "/usr/bin/bash", "/usr/local/bin/bash"];
+    let program = CANDIDATES
+        .iter()
+        .find(|candidate| exists(candidate))
+        .copied()
+        .unwrap_or("/bin/sh");
+    ResolvedShell {
+        program: program.to_string(),
+        flavor: ShellFlavor::Bash,
+    }
+}
+
 /// Resolve the shell for local command execution.
 ///
 /// `preference` is the `[shell].preference` value; `None` / `auto` means
@@ -88,10 +114,7 @@ pub fn resolve_shell(preference: Option<&str>) -> ResolvedShell {
     #[cfg(not(windows))]
     {
         let _ = preference;
-        ResolvedShell {
-            program: "/bin/bash".to_string(),
-            flavor: ShellFlavor::Bash,
-        }
+        posix_shell(&|candidate| std::path::Path::new(candidate).exists())
     }
     #[cfg(windows)]
     {
@@ -222,6 +245,77 @@ mod tests {
             ShellFlavor::Pwsh.args_prefix(),
             vec!["-NoProfile", "-NonInteractive", "-Command"]
         );
+    }
+
+    #[test]
+    fn posix_chain_prefers_bin_bash_and_keeps_the_c_prefix() {
+        let resolved = posix_shell(&|candidate| candidate == "/bin/bash");
+        assert_eq!(resolved.program, "/bin/bash");
+        assert_eq!(resolved.flavor, ShellFlavor::Bash);
+        assert_eq!(resolved.args_prefix(), vec!["-c"]);
+    }
+
+    #[test]
+    fn posix_chain_walks_the_three_bash_locations_in_order() {
+        assert_eq!(
+            posix_shell(&|candidate| candidate == "/usr/bin/bash").program,
+            "/usr/bin/bash"
+        );
+        assert_eq!(
+            posix_shell(&|candidate| candidate == "/usr/local/bin/bash").program,
+            "/usr/local/bin/bash"
+        );
+        // The FIRST existing candidate wins, even when a later one also exists.
+        assert_eq!(
+            posix_shell(&|candidate| candidate == "/bin/bash" || candidate == "/usr/local/bin/bash")
+                .program,
+            "/bin/bash"
+        );
+    }
+
+    #[test]
+    fn posix_chain_falls_back_to_sh_when_no_bash_exists() {
+        // A host with no bash at all (Alpine, slim containers) must still get a
+        // usable shell: the old hardcoded `/bin/bash` made the Bash tool unrunnable.
+        let resolved = posix_shell(&|_| false);
+        assert_eq!(resolved.program, "/bin/sh");
+        assert_eq!(resolved.args_prefix(), vec!["-c"]);
+    }
+
+    #[test]
+    fn the_posix_arm_predicate_typechecks_and_probes_the_filesystem() {
+        // The POSIX arm calls `posix_shell` with exactly this closure. Compiling and
+        // running it here means a type error in that arm cannot hide behind
+        // `#[cfg(not(windows))]` on a Windows host, which is the only host this crate
+        // can currently be compiled on (no POSIX target is installed).
+        let probe = |candidate: &str| std::path::Path::new(candidate).exists();
+        let resolved = posix_shell(&probe);
+        assert!(
+            [
+                "/bin/bash",
+                "/usr/bin/bash",
+                "/usr/local/bin/bash",
+                "/bin/sh"
+            ]
+            .contains(&resolved.program.as_str())
+        );
+        assert_eq!(resolved.args_prefix(), vec!["-c"]);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn resolve_shell_picks_a_real_posix_candidate() {
+        let resolved = resolve_shell(None);
+        assert!(
+            [
+                "/bin/bash",
+                "/usr/bin/bash",
+                "/usr/local/bin/bash",
+                "/bin/sh"
+            ]
+            .contains(&resolved.program.as_str())
+        );
+        assert_eq!(resolved.args_prefix(), vec!["-c"]);
     }
 
     #[test]

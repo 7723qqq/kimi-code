@@ -208,7 +208,11 @@ pub fn detect_shell(override_shell: Option<&str>) -> (String, String) {
         {
             return (shell_name_from_path(&sh), sh);
         }
-        ("bash".to_string(), "/bin/bash".to_string())
+        // No `$SHELL`: name the shell the Bash tool actually runs, exactly as the
+        // Windows arm above does. A hardcoded `/bin/bash` claims a shell that need
+        // not exist — v2 falls back to `/bin/sh`.
+        let resolved = crate::native::shell::resolve_shell(None);
+        (shell_name_from_path(&resolved.program), resolved.program)
     }
 }
 
@@ -284,6 +288,21 @@ mod tests {
         let (ps_name, ps_path) = detect_shell(Some("pwsh.exe"));
         assert_eq!(ps_name, "pwsh");
         assert_eq!(ps_path, "pwsh.exe");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn posix_prompt_shell_prefers_shell_env_then_the_tool_shell() {
+        // Pins the contract, not a path: `$SHELL` still wins (that precedence is a
+        // separate, still-open question), and with no `$SHELL` the prompt names the
+        // shell `native/shell.rs` actually runs rather than a hardcoded `/bin/bash`.
+        let (name, path) = detect_shell(None);
+        let expected = match std::env::var("SHELL") {
+            Ok(sh) if !sh.is_empty() => sh,
+            _ => crate::native::shell::resolve_shell(None).program,
+        };
+        assert_eq!(path, expected);
+        assert_eq!(name, shell_name_from_path(&path));
     }
 
     #[test]
