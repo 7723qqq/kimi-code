@@ -10,9 +10,9 @@ description:
   en: >
       Standalone server: REST API, WebSocket event stream, transcript projection and session hosting.
       
-revision: b067d168c0ff8fd2b70789daa5b060307453e25b
-updated_at: "2026-10-03T08:51:30.992Z"
-fingerprint: 9542c303d2cc66f9d9f50af98627e2a185a5cedec9dbb1f5d9d8fafb314f8ff3
+revision: 253bcdf88cc2ef63e89f0327599fa0b4c39c90d2
+updated_at: "2026-10-03T09:38:57.926Z"
+fingerprint: d91c31123e28377747e81256681f741f7578b14b0484019a102612f1f8fc3b84
 source:
   - path: "packages/kimi-agent/src/server/mod.rs"
   - path: "packages/kimi-agent/src/server/hub.rs"

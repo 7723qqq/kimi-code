@@ -9,7 +9,7 @@
         "repository": "https://github.com/7723qqq/kimi-code"
       }
     ],
-    "compiled_at": "2026-10-03T09:26:43.685Z",
+    "compiled_at": "2026-10-03T09:38:58.204Z",
     "stats": {
       "tree_count": 1,
       "module_count": 74,
@@ -583,8 +583,8 @@
           "path": "packages/kimi-agent/src/lib.rs"
         }
       ],
-      "revision": "98161435eacca9f4e07723903de997d8d4715c4c",
-      "updated_at": "2026-10-03T09:26:43.460Z",
+      "revision": "253bcdf88cc2ef63e89f0327599fa0b4c39c90d2",
+      "updated_at": "2026-10-03T09:38:57.926Z",
       "fingerprint": "f3bdc1d18ee20dcc0e6f1c18071ed862e5946cabf7864f99910b42f664af756a",
       "aggregate": {
         "descendant_count": 36,
@@ -619,8 +619,8 @@
           "path": "packages/kimi-agent/src/pipeline/mod.rs"
         }
       ],
-      "revision": "98161435eacca9f4e07723903de997d8d4715c4c",
-      "updated_at": "2026-10-03T09:26:43.459Z",
+      "revision": "253bcdf88cc2ef63e89f0327599fa0b4c39c90d2",
+      "updated_at": "2026-10-03T09:38:57.924Z",
       "fingerprint": "46e1b582b55f53a7d995d45b27eab290ab6fc1a528a3efe17465163cb09beed9",
       "deps": [
         {
@@ -872,9 +872,9 @@
           "path": "packages/kimi-agent/src/session/patch.rs"
         }
       ],
-      "revision": "98161435eacca9f4e07723903de997d8d4715c4c",
-      "updated_at": "2026-10-03T09:26:43.458Z",
-      "fingerprint": "34c54a53f1c42a30fb6b66a81ffd271314791cefd5bd2fc0444b6ca8c29988b4",
+      "revision": "253bcdf88cc2ef63e89f0327599fa0b4c39c90d2",
+      "updated_at": "2026-10-03T09:38:57.923Z",
+      "fingerprint": "a1012d493d8d51a4a8897acd1181a5fdd38f5fb02cf914b40ebe0fb9eef91d81",
       "deps": [
         {
           "kind": "dataflow",
@@ -916,9 +916,9 @@
           "path": "packages/kimi-agent/src/session/patch.rs"
         }
       ],
-      "revision": "98161435eacca9f4e07723903de997d8d4715c4c",
-      "updated_at": "2026-10-03T09:26:43.458Z",
-      "fingerprint": "155e2c5ecadce732b51a6cca0ad369dfd2e3ffb2a356e9fb107221ddb1d4d156",
+      "revision": "253bcdf88cc2ef63e89f0327599fa0b4c39c90d2",
+      "updated_at": "2026-10-03T09:38:57.923Z",
+      "fingerprint": "1a1236242c71220391f2a8d53ff24e2901a3ecde9fc62dbaaea41d9d4b54330b",
       "aggregate": {
         "descendant_count": 0,
         "own_api_count": 0,
@@ -1677,9 +1677,9 @@
           "path": "packages/kimi-agent/src/server/hub.rs"
         }
       ],
-      "revision": "b067d168c0ff8fd2b70789daa5b060307453e25b",
-      "updated_at": "2026-10-03T08:51:30.992Z",
-      "fingerprint": "9542c303d2cc66f9d9f50af98627e2a185a5cedec9dbb1f5d9d8fafb314f8ff3",
+      "revision": "253bcdf88cc2ef63e89f0327599fa0b4c39c90d2",
+      "updated_at": "2026-10-03T09:38:57.926Z",
+      "fingerprint": "d91c31123e28377747e81256681f741f7578b14b0484019a102612f1f8fc3b84",
       "deps": [
         {
           "kind": "dataflow",
@@ -1724,9 +1724,9 @@
           "path": "packages/kimi-agent/src/server/fs_routes.rs"
         }
       ],
-      "revision": "b067d168c0ff8fd2b70789daa5b060307453e25b",
-      "updated_at": "2026-10-03T08:51:30.991Z",
-      "fingerprint": "59dedf0f0868796731a8839a8974a383954c6914624c30d6577beeb4f4df2f7b",
+      "revision": "253bcdf88cc2ef63e89f0327599fa0b4c39c90d2",
+      "updated_at": "2026-10-03T09:38:57.925Z",
+      "fingerprint": "83eae61ad293701ea88cb6411f1de3d586f9235ec6ab1f2b4a1b654531b78918",
       "apis": [
         {
           "protocol": "http",
