@@ -54,6 +54,39 @@ impl LlmError {
         }
     }
 
+    /// A typed failure that keeps the message exactly as given.
+    ///
+    /// Unlike [`Self::attempts_exhausted`] this adds no prefix, and that is the
+    /// point: the callers that recover from a specific provider rejection (the
+    /// overflow and shape-recovery paths in `run_turn`) match on the message
+    /// text, so rewriting it would silently disable their detection.
+    #[must_use]
+    pub fn typed(message: &str, status_code: Option<u16>) -> Self {
+        Self {
+            message: message.to_string(),
+            retry_after: None,
+            status_code,
+            request_id: None,
+        }
+    }
+
+    /// A failure that is not one HTTP response: the retry budget ran out.
+    ///
+    /// Keeps the last attempt's status and, through [`Self::with_request_id`],
+    /// the provider's request id — the two things a consumer needs to tell a
+    /// throttled call from a transport fault. Returning a bare text error here
+    /// (as this path used to) silently dropped both: the rendered text is
+    /// unchanged, but the typed channel now survives the wrap.
+    #[must_use]
+    pub fn attempts_exhausted(attempts: u32, message: &str, status_code: Option<u16>) -> Self {
+        Self {
+            message: format!("LLM call failed after {attempts} attempts: {message}"),
+            retry_after: None,
+            status_code,
+            request_id: None,
+        }
+    }
+
     /// Attach the provider's request id and append it to the rendered message.
     ///
     /// v2 keeps `requestId` on the typed error and every classifier reads the

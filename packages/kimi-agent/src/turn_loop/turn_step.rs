@@ -56,16 +56,37 @@ fn classify_llm_error(
     let err_str = err.to_string();
     // `err` is dropped here (end of function scope for the parameter).
     if !llm.is_retryable_error(&err_str) {
-        return Err(boxed_err(err_str));
+        // Same reason as the exhaustion branch below: boxing the text alone
+        // drops the status and the provider's request id, and they are the two
+        // fields every consumer reads. Return a typed error when there is
+        // anything typed to keep, the text alone otherwise.
+        let status_code = typed_status.or_else(|| crate::llm::http::llm_http_status(&err_str));
+        let request_id = typed.and_then(crate::llm::LlmError::request_id);
+        if status_code.is_none() && request_id.is_none() {
+            return Err(boxed_err(err_str));
+        }
+        // `typed`, not `attempts_exhausted`: this branch must not add the
+        // "failed after N attempts" prefix. The overflow and shape-recovery
+        // paths in `run_turn` detect a specific provider rejection by matching
+        // the message text, so a rewritten message silently disables them.
+        return Err(Box::new(
+            crate::llm::LlmError::typed(&err_str, status_code).with_request_id(request_id),
+        ));
     }
     // `KIMI_CODE_INFINITE_RETRY` retries every retryable LLM request without
     // exhausting the budget (v2 #3240, llmRequesterService.ts). Context
     // overflow is never retryable, so the deterministic overflow-recovery
     // path is unaffected.
     if !infinite_retry && attempt >= config.max_attempts {
-        return Err(boxed_err(format!(
-            "LLM call failed after {attempt} attempts: {err_str}"
-        )));
+        // Keep the typed channel across the wrap: the status and the provider's
+        // request id are what a consumer correlates on, and a plain text error
+        // would drop both. The rendered text is unchanged.
+        let status_code = typed_status.or_else(|| crate::llm::http::llm_http_status(&err_str));
+        let request_id = typed.and_then(crate::llm::LlmError::request_id);
+        return Err(Box::new(
+            crate::llm::LlmError::attempts_exhausted(attempt, &err_str, status_code)
+                .with_request_id(request_id),
+        ));
     }
     let status_code = typed_status.or_else(|| crate::llm::http::llm_http_status(&err_str));
     // v2's `errorName` is the JS error class name; the closest analogue here is
@@ -342,6 +363,37 @@ pub fn execute_loop_step_with_retry<'a>(
                 break resp;
             }
             if let Some(e) = return_err {
+                // v2 `api_error`: the event that explains a failed provider
+                // call. It fires where the call is definitively over rather
+                // than on every attempt, so the count matches the failures a
+                // user actually saw.
+                //
+                // The provider's own request id rides along when it sent one:
+                // the transport keeps it on the typed error (P2-19) and this
+                // is its first consumer. Without it a support ticket has only
+                // the message text to go on.
+                if let Some(telemetry) = telemetry {
+                    let text = e.to_string();
+                    telemetry(serde_json::json!({
+                        "event": "api_error",
+                        "turn_id": turn_id,
+                        "step": step,
+                        "attempts": attempt,
+                        // Typed fields first: the retry-exhausted path wraps
+                        // the message, and `llm_http_status` only parses a
+                        // leading `llm http status`, so the text alone loses
+                        // the status there. The typed read is the same one the
+                        // retry classifier uses.
+                        "status_code": e
+                            .downcast_ref::<crate::llm::LlmError>()
+                            .and_then(crate::llm::LlmError::status_code)
+                            .or_else(|| crate::llm::http::llm_http_status(&text)),
+                        "trace_id": e
+                            .downcast_ref::<crate::llm::LlmError>()
+                            .and_then(crate::llm::LlmError::request_id),
+                        "error_message": text,
+                    }));
+                }
                 return Err(e);
             }
             let decision = retry_decision.expect("a retryable failure carries its decision");
@@ -627,10 +679,13 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
+        // Two events: the backoff that was announced, then the terminal
+        // failure. `api_error` fires once, where the call is definitively over,
+        // so its count matches the failures a user saw rather than the attempts.
         assert_eq!(
             recorded.len(),
-            1,
-            "one backoff before giving up: {recorded:?}"
+            2,
+            "one backoff, one api_error: {recorded:?}"
         );
         let event = &recorded[0];
         assert_eq!(event["event"], "TurnStepRetrying");
@@ -642,6 +697,16 @@ mod tests {
         assert_eq!(event["delay_ms"], 7000);
         assert_eq!(event["error_name"], "APIStatusError");
         assert_eq!(event["status_code"], 429);
+        // The terminal event keeps the last attempt's status and attempt count,
+        // which is why the exhausted path boxes a typed error instead of a
+        // bare string: `llm_http_status` only parses a leading `llm http
+        // status`, and this message is wrapped.
+        let api_error = &recorded[1];
+        assert_eq!(api_error["event"], "api_error");
+        assert_eq!(api_error["step"], 3);
+        assert_eq!(api_error["attempts"], 2);
+        assert_eq!(api_error["status_code"], 429);
+        assert!(api_error["trace_id"].is_null());
         assert!(
             event["error_message"]
                 .as_str()
@@ -683,9 +748,14 @@ mod tests {
             Some(&telemetry),
         )
         .await;
+        // The claim is that nothing retried, not that nothing was recorded:
+        // the terminal failure still reports itself as `api_error`.
+        let recorded = events.lock().unwrap().clone();
         assert!(
-            events.lock().unwrap().is_empty(),
-            "a cancellation never retries"
+            recorded
+                .iter()
+                .all(|event| event["event"] != "TurnStepRetrying"),
+            "a cancellation never retries: {recorded:?}"
         );
         assert!(crate::llm::http::is_cancelled_error(
             "llm cancelled: request aborted"
@@ -1246,6 +1316,96 @@ mod tests {
         assert!(
             err.to_string().contains("empty response"),
             "the error must name the cause, got: {err}"
+        );
+    }
+
+    /// Returns a *typed* `LlmError`, so the tests can prove the fields the
+    /// transport keeps on it survive all the way into telemetry. `StatusLlm`
+    /// returns a plain string, which exercises only the text fallback.
+    struct TypedErrorLlm {
+        system_prompt: String,
+        model_name: String,
+        error: crate::llm::LlmError,
+    }
+
+    impl LLM for TypedErrorLlm {
+        fn system_prompt(&self) -> &str {
+            &self.system_prompt
+        }
+        fn model_name(&self) -> &str {
+            &self.model_name
+        }
+        fn is_retryable_error(&self, _error: &str) -> bool {
+            // Never retryable: the failure is terminal on the first attempt, so
+            // the test observes exactly one `api_error` and no backoff.
+            false
+        }
+        fn chat(
+            &self,
+            _params: LLMChatParams,
+        ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+        {
+            let error = self.error.clone();
+            Box::pin(
+                async move { Err(Box::new(error) as Box<dyn std::error::Error + Send + Sync>) },
+            )
+        }
+    }
+
+    /// The provider's request id reaches telemetry. This is the link between the
+    /// transport keeping it on the typed error and anything actually using it:
+    /// with no consumer the field was dead, and without the typed read here
+    /// `api_error` would report it as null.
+    #[tokio::test]
+    async fn api_error_carries_the_provider_request_id() {
+        let llm = TypedErrorLlm {
+            system_prompt: "test".into(),
+            model_name: "typed".into(),
+            error: crate::llm::LlmError::http(503, "upstream unavailable", None)
+                .with_request_id(Some("trace-42")),
+        };
+        let config = RetryConfig {
+            max_attempts: 3,
+            base_delay_ms: 1,
+            max_delay_ms: 10,
+        };
+        let events: Arc<std::sync::Mutex<Vec<serde_json::Value>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&events);
+        let telemetry = move |event: serde_json::Value| {
+            sink.lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(event);
+        };
+
+        let _ = execute_loop_step_with_retry(
+            "t1",
+            1,
+            &llm,
+            &[],
+            &[],
+            &[],
+            &config,
+            None,
+            Some(&telemetry),
+        )
+        .await;
+
+        let recorded = events.lock().unwrap().clone();
+        assert_eq!(
+            recorded.len(),
+            1,
+            "terminal on the first attempt: {recorded:?}"
+        );
+        assert_eq!(recorded[0]["event"], "api_error");
+        assert_eq!(recorded[0]["status_code"], 503);
+        assert_eq!(recorded[0]["trace_id"], "trace-42");
+        assert_eq!(recorded[0]["attempts"], 1);
+        assert!(
+            recorded[0]["error_message"]
+                .as_str()
+                .unwrap()
+                .contains("[trace trace-42]")
         );
     }
 }

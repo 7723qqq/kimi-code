@@ -4859,7 +4859,23 @@ impl HttpServer {
                 };
                 let history = match self.store.load_session_history(session_id) {
                     Ok(messages) => messages,
-                    Err(error) => return HttpResponse::internal_error(error.to_string()),
+                    Err(error) => {
+                        // v2 `session_load_failed`: a session whose stored
+                        // history cannot be read is the failure a user hits as
+                        // "my conversation is gone", and until now it left no
+                        // event behind — only a 500 in the access log. Both
+                        // sites here are the same failure mode: a turn cannot
+                        // start, so the user sees the same nothing.
+                        self.emit_session_telemetry(
+                            "session_load_failed",
+                            serde_json::json!({
+                                "session_id": session_id,
+                                "stage": "history",
+                                "reason": error.to_string(),
+                            }),
+                        );
+                        return HttpResponse::internal_error(error.to_string());
+                    }
                 };
                 let turn_number = match self.store.next_turn_number(session_id) {
                     Ok(number) => number,
@@ -7299,7 +7315,23 @@ impl HttpServer {
 
                 let history = match self.store.load_session_history(session_id) {
                     Ok(messages) => messages,
-                    Err(error) => return HttpResponse::internal_error(error.to_string()),
+                    Err(error) => {
+                        // v2 `session_load_failed`: a session whose stored
+                        // history cannot be read is the failure a user hits as
+                        // "my conversation is gone", and until now it left no
+                        // event behind — only a 500 in the access log. Both
+                        // sites here are the same failure mode: a turn cannot
+                        // start, so the user sees the same nothing.
+                        self.emit_session_telemetry(
+                            "session_load_failed",
+                            serde_json::json!({
+                                "session_id": session_id,
+                                "stage": "history",
+                                "reason": error.to_string(),
+                            }),
+                        );
+                        return HttpResponse::internal_error(error.to_string());
+                    }
                 };
                 let turn_number = match self.store.next_turn_number(session_id) {
                     Ok(number) => number,

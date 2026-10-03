@@ -1424,6 +1424,23 @@ pub fn run_turn<'a>(
                             callbacks.emit_event(serde_json::json!({
                                 "type": "compaction.cancelled",
                             }));
+                            // v2 `compaction_failed`: the summarizer call
+                            // failed outright, which is a different event
+                            // from a compaction that merely produced nothing
+                            // (that one is a no-op, handled below).
+                            //
+                            // Built here rather than through
+                            // `telemetry_payload`: that helper interpolates
+                            // the host-injected `TelemetryContext`, which the
+                            // wrappers own and `run_turn` does not receive.
+                            // The turn id and the reason are what a consumer
+                            // correlates on; the mode/provider fields are
+                            // already on `turn_started` for the same turn.
+                            callbacks.telemetry(serde_json::json!({
+                                "event": "compaction_failed",
+                                "turn_id": turn_id,
+                                "reason": error.to_string(),
+                            }));
                             return Err(Box::new(error) as Box<dyn std::error::Error + 'a>);
                         }
                     };

@@ -4519,7 +4519,7 @@ has_errors = state == "error"     // 两者不再互相矛盾
 | **wire 协议版本与迁移链** | **missing（本轮我亲自核实）** | `wire/migration/migration.ts:19,29-35`、`wire/record.ts:23-27,38-44` | v2 有 `WIRE_PROTOCOL_VERSION='1.5'` + 五级迁移（v1.0→v1.5）+ `isNewerWireVersion` 前向拒绝（`:37-39`）+ `metadata` 记录携带 `protocol_version`（`record.ts:25,41`）。**fork 的 `wire_events` 表（`session/sqlite_store.rs:439-443`）无版本列，全仓 `protocol_version` / `schema_version` / `WIRE_PROTOCOL_VERSION` 零命中，`native/event_store` 也不认 `metadata` 记录。**后果：旧版本会话被新引擎读到时**既不能迁移、也不能识别、也不能拒绝**，只能尽力解析 |
 | **`app/sessionExport/` 产物偏薄** | **partial（仅引擎 REST 路径，见 §10.30）** | `app/sessionExport/sessionExportService.ts:42-279`、`manifest.ts:28-51`、`wire-scan.ts` | fork 的 `build_session_export_zip`（`server/mod.rs:1680-1721`）只打包**两个成员**：`session.json` + `transcript.md`；v2 打整个会话目录 + `manifest.json`（16 字段：版本、协议版本、os、shellEnv、首末活动时间、installSource…）+ **四个日志文件** + wire 扫描。**而 `locales/en.json:2600` 正在叫用户出错时跑 `/export-debug-zip` 把文件交给诊断**——用户按提示交出的档案缺 manifest、缺日志、缺版本溯源。另 v2 导出前会 flush 活会话，fork 不做 |
 | **`IQueryStore` / minidb 读模型未接线** | **missing（最大单点）** | `persistence/interface/queryStore.ts:87-115`、`persistence/configSection.ts:12-43` | `packages/minidb/` 是完整的 44 文件实现（WAL + 快照 + trigram 全文索引 + 复合索引 + 压缩 + cluster），但**引擎侧零引用**（`minidb`/`read_model` 在 Rust 全仓零命中；仓内仅 `apps/kimi-code/src/native/minidb-worker.ts` 一条 smoke 路径）。`IQueryStore` 是 v2 `ISessionIndex`、其 projector、mirror、dirty-journal 与全局搜索 worker 的共同基底。连带 `[database]` config section 整个不存在（`config/mod.rs` 无 `database`/`MINIDB`） |
-| **遥测事件目录 ~10/60** | partial | `app/telemetry/events.ts:599-1359` | 缝隙本身可用（`callbacks.rs:199-207` 的 `telemetry`、`server/mod.rs:307-334` 的 `TelemetrySink`），缺的是目录。**最值得补的是解释故障的那批**：`api_error`、`compaction_failed`、`tool_call_dedup_detected`、`tool_call_repeat`、`permission_approval_result`、`session_load_failed`、`agent_create_failed`、`context_projection_repaired`。注意 fork 的 TS 宿主侧独立上报了其中若干（`model_switch`/`thinking_toggle`/`plugin_toggle`），所以缺的是**引擎侧**覆盖而非管道 |
+| **遥测事件目录 ~10/60** | **前三项本轮已补（§10.39）** | `app/telemetry/events.ts:599-1359` | 缝隙本身可用（`callbacks.rs:199-207` 的 `telemetry`、`server/mod.rs:307-334` 的 `TelemetrySink`），缺的是目录。**最值得补的是解释故障的那批**：`api_error`、`compaction_failed`、`tool_call_dedup_detected`、`tool_call_repeat`、`permission_approval_result`、`session_load_failed`、`agent_create_failed`、`context_projection_repaired`。注意 fork 的 TS 宿主侧独立上报了其中若干（`model_switch`/`thinking_toggle`/`plugin_toggle`），所以缺的是**引擎侧**覆盖而非管道 |
 | `app/workspaceAliases/` | missing | `workspaceAliasesService.ts:83-101` `resolveAliasIds` | 三树皆无。fork 只用 `encode_workdir_key` 作键，**同一目录的符号链接或大小写变体会变成两个 workspace**。清理原语 `delete_workspace`（`sqlite_store.rs:776`）也没留 `deletedIds` 墓碑，删除后可能在下次合并时回来 |
 | `human/store/` 分支文档存储 | **不建，只记录** | `store/types.ts:32-40`、`store.ts:60-75,104-190`、`internal/codec.ts` | 无对应物（三树皆无 `TreeStore`/`BranchHeader`/`journalFromBranch`）。但 fork 用「复制会话」而非「分支文档」实现 fork（`sqlite_store.rs:833-886`），**照搬会造出没有读取方的存储**——正是 6.40.5 规律二。只有 `verify`/`CorruptionReport` 这一条有独立价值 |
 | `human/eventStore/` 内部 | partial | `journal.ts:76-98`、`eventStore.ts:34-49,274-283` | v2 沿分支链重建历史、带显式 `Cause`（event/internal/reset/slice-joined）、fold 有 `drainLimit`。fork 的 `fold_wire_events`（`native/event_store/mod.rs:394-482`）是纯函数折叠，无事件轴、无 drain 上界。**但它建立在上面那个不打算建的 store 之上**，故不单独施工 |
@@ -4831,7 +4831,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 | 12 | `SessionOutcomeMirror` 不落库 | `last_turn_reason` 只发活事件；线形字段已在 `protocol/src/session.ts:112` 但无写入方 |
 | 13 | ~~`toolResultRender` 状态包装缺失~~ **已完成 2026-10-03**：见 §10.28 | `<system>ERROR:…</system>` 是模型判断工具成败的唯一信号；`locales/en.json:609` 的串全仓无人用 |
 | 14 | ~~`SessionHeartbeat` hook 缺失~~ **已撤销** | 它就是 P1-3 那 14 个未触发事件之一（`types.ts:17`），重复计数。唯一额外成本是需要 session 心跳定时器 |
-| 15 | 遥测事件 ~10/60 | 优先补解释故障的：`api_error`、`compaction_failed`、`tool_call_dedup_detected`、`session_load_failed` 等。**`api_error` 原与 P1-5 合并做，该理由已于 2026-10-02 推翻**（见 §10.25：v2 的 cache-miss 判据不读 usage，两者无共用结构），现为独立工单 |
+| 15 | ~~遥测事件 ~10/60~~ **解释故障的三个本轮已补（§10.39）**：`api_error` / `compaction_failed` / `session_load_failed`；余项各自落点需单独核实 | 优先补解释故障的：`api_error`、`compaction_failed`、`tool_call_dedup_detected`、`session_load_failed` 等。**`api_error` 原与 P1-5 合并做，该理由已于 2026-10-02 推翻**（见 §10.25：v2 的 cache-miss 判据不读 usage，两者无共用结构），现为独立工单 |
 | 16 | trust 披露服务（§6.23.6） | 消费者已写好但是死的：`trust-prompt.ts:89-97` 只在数组非空时渲染，`kimi-tui.ts:2689` 硬编码 `[]` |
 | 17 | `workspaceAliases` 缺失 | 同一目录的符号链接/大小写变体会变成两个 workspace；`delete_workspace` 无墓碑 |
 | 18 | stdio MCP 的 proxy env 继承 | v2 额外应用 `HTTP_PROXY`/`NO_PROXY`；实际影响低 |
@@ -7229,3 +7229,58 @@ fork 目前没有这两条消费链，先接一个无人读的字段只会是死
 就是同型先例），而 `--update` 保守地给了 `deferred`。**紧邻的同型条目 `"(retry-after {}s)"` 也记着
 `deferred`**——那是 `--seed` 的兜底残留（无规则命中），不是人为裁定，故一并改为 `format-scaffolding` 并
 标 `manual: true` 固化。`format-scaffolding` 计数 7 → 9。
+
+### 10.39 §6.45 P2-15 落地：三个解释故障的遥测事件（2026-10-03）
+
+§6.45 P2-15 的原表述是「遥测事件 ~10/60，优先补解释故障的：`api_error`、`compaction_failed`、
+`tool_call_dedup_detected`、`session_load_failed` 等」。管道确实早就可用（`callbacks.rs:216` 的
+`HostCallbacks::telemetry`、`server/mod.rs:325` 的 `emit_session_telemetry`），缺的是**目录**。
+本轮补了台账点名最靠前的三个。
+
+**`api_error`**（`turn_loop/turn_step.rs`）：发射点在**调用确定性结束**处，不是每次尝试——所以事件数
+等于用户实际看到的失败数，而不是尝试数。载荷带 `turn_id` / `step` / `attempts` / `status_code` /
+`trace_id` / `error_message`。
+
+**`compaction_failed`**（`turn_loop/run_turn.rs`）：强压失败（summarizer 调用直接失败）时发，与
+「压缩了但产出为空」区分开——后者是 no-op，另有分支处理。这里不经 `telemetry_payload`：那个助手要插值
+宿主注入的 `TelemetryContext`，而它由包装函数持有、`run_turn` 并不接收；`turn_id` 与 `reason` 才是消费者
+关联用的，mode/provider 已在同一回合的 `turn_started` 上。
+
+**`session_load_failed`**（`server/mod.rs`）：会话历史读不出来时会发，`stage: "history"`。两处相同的
+取历史失败分支都加了（同一失败模式：回合起不来，用户看到的是同一种「对话没了」），而此前只留一条 500 在
+访问日志里。
+
+**过程中修出的两个真实缺陷（都是同一条链路）**：
+
+1. **重试耗尽与不可重试两条路径都把类型化字段丢掉了**。它们用 `boxed_err(format!(...))` 把错误降级成
+   纯字符串，于是 `LlmError` 上的 `status_code` 与 `request_id` 全部丢失——而 `llm_http_status` 是**严格
+   前缀**解析（`strip_prefix("llm http status ")`），包了一层的文本解析不出状态码，`api_error` 于是报
+   `status_code: null`。修法是让这两条路径**保留类型化通道**（新增 `LlmError::attempts_exhausted`，并在
+   分支里带上 typed status / request id），发射处改为**类型优先、文本兜底**。这正是该模块自述的宗旨
+   （「restores the typed channel」）在失败路径上的补齐。
+2. **P2-19 的 `request_id` 因此第一次有了消费者**。§10.38 当时记「成功路径的 trace id 没有消费方」；
+   失败路径现在就是它的消费方——`api_error` 的 `trace_id` 字段。新增测试
+   `api_error_carries_the_provider_request_id` 用返回**真实 `LlmError`**（而非纯字符串）的假 LLM 钉死
+   这条链路：断言 `status_code == 503`、`trace_id == "trace-42"`、且消息含 `[trace trace-42]`。
+   若只测文本路径，这个字段是死是活看不出来。
+
+**两条既有测试需要改，而这是应当的**：`turn_step_retrying_carries_the_v2_error_fields` 断言
+「只有 1 个事件」，现在多一个 `api_error`；`turn_step_retrying_names_a_cancelled_failure` 断言「没有任何
+事件」，但它的**本意是「不重试」**——已改为断言「没有 `TurnStepRetrying`」，并明确「终态失败仍会自报」。
+
+**未做**：`tool_call_dedup_detected`、`tool_call_repeat`、`permission_approval_result`、`agent_create_failed`、
+`context_projection_repaired`。它们各自的落点需要单独核实，不与这三个同批。
+
+**验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -D warnings` ✅｜
+`cargo test --no-default-features --features cli` 全量 ✅｜`turn_loop::turn_step` 22 项（新增 1、改 2）✅｜15 道门禁 ✅。
+
+**全量测试抓出的一个真实回归（重点记下）**：我最初把**不可重试**路径也改成 `attempts_exhausted(1, …)`，
+于是消息被加上「LLM call failed after 1 attempts: 」前缀。全量 `cargo test` 立刻红了 3 项——
+`a_too_large_request_degrades_then_strips_and_retries`、`a_turn_resends_with_the_strict_projection_after_a_shape_rejection`、
+`an_image_format_rejection_strips_the_media_and_retries`，报错都是
+`LLM call failed after 1 attempts: llm http status 400: unsupported image format image/heic`。
+
+根因：**`run_turn` 的溢出/形状恢复路径是按原始消息文本匹配的**，前缀一加就匹配不上，恢复机制静默失效。
+修法是给 `LlmError` 增加一个**逐字保留消息**的 `typed()` 构造器，不可重试路径用它——只把类型化字段带上，
+**不动文本**；只有重试耗尽路径才保留原有的 `attempts_exhausted` 前缀（那是它改动前就有的措辞）。
+`turn_loop` 233 项随后全绿。这条记在这里是因为「保持渲染文本不变」不是洁癖：有别的模块靠它做检测。

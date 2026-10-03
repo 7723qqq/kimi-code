@@ -822,6 +822,11 @@
       "reason": "format-scaffolding",
       "manual": true
     },
+    "packages/kimi-agent/src/llm/error.rs:LLM call failed after {attempts} attempts: {message}": {
+      "file": "packages/kimi-agent/src/llm/error.rs",
+      "text": "LLM call failed after {attempts} attempts: {message}",
+      "reason": "deferred"
+    },
     "packages/kimi-agent/src/llm/error.rs:{} [trace {id}]": {
       "file": "packages/kimi-agent/src/llm/error.rs",
       "text": "{} [trace {id}]",
@@ -8773,11 +8778,6 @@
     "packages/kimi-agent/src/turn_loop/turn_step.rs:(retry-after": {
       "file": "packages/kimi-agent/src/turn_loop/turn_step.rs",
       "text": "(retry-after",
-      "reason": "deferred"
-    },
-    "packages/kimi-agent/src/turn_loop/turn_step.rs:LLM call failed after {attempt} attempts: {err_str}": {
-      "file": "packages/kimi-agent/src/turn_loop/turn_step.rs",
-      "text": "LLM call failed after {attempt} attempts: {err_str}",
       "reason": "deferred"
     },
     "packages/kimi-agent/src/turn_loop/turn_step.rs:Provider stop details: finishReason={reason}.": {
