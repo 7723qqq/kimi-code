@@ -1670,15 +1670,84 @@ fn project_wire_message(
     })
 }
 
+/// What this route may put in the archive.
+///
+/// This is the **web client's** exporter, not the CLI's: `/export-debug-zip`
+/// calls the host's `exportSession`, which walks the on-disk session directory
+/// (`session-meta.json`, `history.jsonl`, `agents/`, …) — a host-owned
+/// artifact this engine never sees. The two archives are therefore complementary
+/// rather than comparable: this one ships what SQLite holds, plus the same
+/// `export-manifest.json` head the host writes and, on request, the
+/// home-scoped global log.
+#[derive(Debug, Clone, Default)]
+pub struct SessionExportOptions {
+    /// Mirror the host's `includeGlobalLog`. Off unless asked for: the global
+    /// log and its rotations are home-scoped and can run to tens of megabytes,
+    /// which is why the host defaults to excluding them too.
+    pub include_global_log: bool,
+}
+
+/// The home-scoped global log and its `.N` rotations, under the member names
+/// the host's exporter and `apps/vis` both expect (`logs/kimi-code.log`, …).
+///
+/// Same selection the host makes (`readdir`, keep `kimi-code.log*`, sort
+/// lexicographically), so the two exporters agree on what "the global log" is.
+fn collect_global_log_members() -> Vec<(String, Vec<u8>)> {
+    let Some(home) = crate::workflow::kimi_home() else {
+        return Vec::new();
+    };
+    global_log_members_in(&home.join("logs"))
+}
+
+/// The same collection against an explicit directory, so the selection and the
+/// member naming are testable without an environment.
+fn global_log_members_in(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+    let entries = std::fs::read_dir(dir);
+    let Ok(entries) = entries else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("kimi-code.log"))
+        .collect();
+    names.sort();
+    names
+        .into_iter()
+        .filter_map(|name| {
+            std::fs::read(dir.join(&name))
+                .ok()
+                .map(|body| (format!("logs/{name}"), body))
+        })
+        .collect()
+}
+
 /// Pack a session export into the ZIP the Web client's `exportSession` asks for.
 ///
 /// The bundle posts to `…/export` through a bespoke transport that hard-fails
 /// unless the response is `application/zip`; answering JSON made the whole
-/// action report a parse error. Two members: `session.json` (the full export
-/// document) and `transcript.md` (a readable rendering), so the archive is
-/// useful to a human as well as to an importer.
+/// action report a parse error. `session.json` (the full export document) and
+/// `transcript.md` (a readable rendering) are this engine's own value; the
+/// `export-manifest.json` head and the optional log members are what the host's
+/// exporter sends, so a bundle from either path describes itself the same way.
 fn build_session_export_zip(
     export: &crate::session::sqlite_store::SessionExport,
+    options: &SessionExportOptions,
+) -> Result<Vec<u8>, String> {
+    let global_logs = if options.include_global_log {
+        collect_global_log_members()
+    } else {
+        Vec::new()
+    };
+    build_session_export_zip_with(export, global_logs)
+}
+
+/// The archive layout with the log members already resolved, so it can be
+/// tested without a home directory or an environment.
+fn build_session_export_zip_with(
+    export: &crate::session::sqlite_store::SessionExport,
+    global_logs: Vec<(String, Vec<u8>)>,
 ) -> Result<Vec<u8>, String> {
     use std::io::Write;
 
@@ -1700,21 +1769,49 @@ fn build_session_export_zip(
         markdown.push_str(&format!("## {heading}\n\n{content}\n\n"));
     }
 
+    let mut manifest = serde_json::Map::new();
+    manifest.insert("sessionId".into(), json!(export.session.session_id));
+    manifest.insert("exportedAt".into(), json!(export.exported_at));
+    manifest.insert("kimiCodeVersion".into(), json!(env!("CARGO_PKG_VERSION")));
+    manifest.insert("os".into(), json!(std::env::consts::OS));
+    // The host names the primary entry and omits the key entirely when the log
+    // is not bundled — its e2e pins that absence, so never write a null here.
+    if let Some(primary) = global_logs
+        .iter()
+        .map(|(name, _)| name.clone())
+        .find(|name| *name == "logs/kimi-code.log")
+        .or_else(|| global_logs.first().map(|(name, _)| name.clone()))
+    {
+        manifest.insert("globalLogPath".into(), json!(primary));
+    }
+    let manifest =
+        serde_json::to_vec_pretty(&Value::Object(manifest)).map_err(|e| e.to_string())?;
+
     let mut buffer = Vec::new();
     {
         let mut writer = zip::ZipWriter::new(std::io::Cursor::new(&mut buffer));
-        let options = zip::write::SimpleFileOptions::default()
+        let zip_options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated);
         writer
-            .start_file("session.json", options)
+            .start_file("export-manifest.json", zip_options)
+            .map_err(|e| e.to_string())?;
+        writer.write_all(&manifest).map_err(|e| e.to_string())?;
+        writer
+            .start_file("session.json", zip_options)
             .map_err(|e| e.to_string())?;
         writer.write_all(&document).map_err(|e| e.to_string())?;
         writer
-            .start_file("transcript.md", options)
+            .start_file("transcript.md", zip_options)
             .map_err(|e| e.to_string())?;
         writer
             .write_all(markdown.as_bytes())
             .map_err(|e| e.to_string())?;
+        for (name, body) in &global_logs {
+            writer
+                .start_file(name, zip_options)
+                .map_err(|e| e.to_string())?;
+            writer.write_all(body).map_err(|e| e.to_string())?;
+        }
         writer.finish().map_err(|e| e.to_string())?;
     }
     Ok(buffer)
@@ -5973,8 +6070,13 @@ impl HttpServer {
             // document as JSON over GET.
             ("POST", p) if extract_session_action(p, "export").is_some() => {
                 let session_id = extract_session_action(p, "export").unwrap();
+                let options = SessionExportOptions {
+                    include_global_log: req
+                        .query_param("includeGlobalLog")
+                        .is_some_and(|v| v == "true" || v == "1"),
+                };
                 match self.store.export_session(session_id) {
-                    Ok(Some(export)) => match build_session_export_zip(&export) {
+                    Ok(Some(export)) => match build_session_export_zip(&export, &options) {
                         Ok(archive) => HttpResponse::bytes(200, "application/zip", archive)
                             .with_header(
                                 "Content-Disposition",
@@ -14813,5 +14915,120 @@ max_context_size = 1000
             })
             .await;
         assert_ne!(res.status, 404, "single-colon fs:suggest is routed");
+    }
+
+    /// The engine's export must describe itself the way the host's exporter
+    /// does: a manifest head naming the session, and log members only when they
+    /// were asked for.
+    #[test]
+    fn session_export_archive_names_itself_and_gates_the_log_members() {
+        use std::io::Read as _;
+
+        let export = crate::session::sqlite_store::SessionExport {
+            session: crate::session::sqlite_store::SessionSummary {
+                session_id: "sess-manifest".into(),
+                title: Some("T".into()),
+                created_at: 1,
+                updated_at: 2,
+                workspace_id: None,
+                archived: false,
+                parent_session_id: None,
+            },
+            messages: Vec::new(),
+            turns_count: 0,
+            exported_at: "2026-10-03T00:00:00Z".into(),
+        };
+
+        let names_of = |bytes: Vec<u8>| -> (Vec<String>, Value) {
+            let mut archive =
+                zip::ZipArchive::new(std::io::Cursor::new(bytes)).expect("archive readable");
+            let names: Vec<String> = (0..archive.len())
+                .map(|i| archive.by_index(i).unwrap().name().to_string())
+                .collect();
+            let mut manifest = Vec::new();
+            archive
+                .by_name("export-manifest.json")
+                .expect("manifest present")
+                .read_to_end(&mut manifest)
+                .unwrap();
+            (names, serde_json::from_slice(&manifest).unwrap())
+        };
+
+        // Default: the manifest rides along, no logs, and the key that names the
+        // primary log is absent rather than null — the host's e2e pins that
+        // absence, so a null here would be a different document.
+        let (names, manifest) =
+            names_of(build_session_export_zip_with(&export, Vec::new()).unwrap());
+        assert_eq!(
+            names,
+            vec!["export-manifest.json", "session.json", "transcript.md"]
+        );
+        assert_eq!(manifest["sessionId"], "sess-manifest");
+        assert_eq!(manifest["exportedAt"], "2026-10-03T00:00:00Z");
+        assert_eq!(manifest["kimiCodeVersion"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(manifest["os"], std::env::consts::OS);
+        assert!(
+            manifest.get("globalLogPath").is_none(),
+            "omitted, not written as null"
+        );
+
+        // With logs resolved they ride along after the session members, and the
+        // manifest names the un-suffixed one as the primary entry.
+        let (names, manifest) = names_of(
+            build_session_export_zip_with(
+                &export,
+                vec![
+                    ("logs/kimi-code.log".into(), b"new".to_vec()),
+                    ("logs/kimi-code.log.1".into(), b"old".to_vec()),
+                ],
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            names,
+            vec![
+                "export-manifest.json",
+                "session.json",
+                "transcript.md",
+                "logs/kimi-code.log",
+                "logs/kimi-code.log.1"
+            ]
+        );
+        assert_eq!(manifest["globalLogPath"], "logs/kimi-code.log");
+    }
+
+    /// The log selection and member naming have to match the host exporter and
+    /// `apps/vis`: `kimi-code.log` plus its `.N` rotations, nothing else.
+    #[test]
+    fn global_log_members_take_the_rotations_and_nothing_else() {
+        let dir = std::env::temp_dir().join(format!(
+            "kimi-log-members-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("kimi-code.log"), b"newest").unwrap();
+        std::fs::write(dir.join("kimi-code.log.1"), b"older").unwrap();
+        std::fs::write(dir.join("kimi-code.log.2"), b"oldest").unwrap();
+        std::fs::write(dir.join("kimi-code-desktop.log"), b"other").unwrap();
+        std::fs::create_dir(dir.join("kimi-code.log.dir")).unwrap();
+
+        let members = global_log_members_in(&dir);
+        let names: Vec<&str> = members.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "logs/kimi-code.log",
+                "logs/kimi-code.log.1",
+                "logs/kimi-code.log.2"
+            ],
+            "sorted, logs/-prefixed, and neither the desktop log nor a directory"
+        );
+        assert_eq!(members[0].1, b"newest".to_vec());
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -4818,7 +4818,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 | 4 | **Anthropic 多发一个 `cache_control` 槽**（fork 4 / 上游 3）。stable-history 位是 **fork 自加**，此前被误登记为「非自加」 | 已核实（`anthropic.rs:184-192` 四处发射点 `:164/:192/:239/:254`；上游 `anthropic.ts:352-362` 无该分支） | **冗余但无害，降级**：stable 位在 `msgs.len()-3`，**每轮向前移动**，故永远不是同一前缀——两种缓存语义下都不带来命中收益，唯一效果是多写一条条目。详见 6.45.1 |
 | 5 | ~~**micro compaction 的 `detect()` 两个门禁**~~ **已完成 2026-10-02** | 已核实 | 见 **§10.25**。`compaction/micro.rs` 增 `detect_micro_compaction()` + `DetectOutcome`，配置面补 `cache_missed_threshold_ms` / `min_context_usage_ratio` 两个 v2 默认值；引擎侧增 per-session `last_assistant_at`，每轮 `save_turn` 后打戳（v2 `onDidFinishStep`）。**§6.29 曾把它标成「不得开工」，6.44.1 已推翻** |
 | 6 | **wire 协议无版本概念**：`wire_events` 表无版本列、无 `metadata` 记录、无迁移链（v2 有 v1.0→v1.5 五级 + 前向拒绝）。旧会话既不能迁移也不能识别 | 已核实 | `session/sqlite_store.rs:439` |
-| 7 | ~~**磁盘日志缺失 + 导出 ZIP 只有 2 个成员**~~ **按原样不存在，见 §10.30**：日志子系统已在宿主层 `node-sdk/src/logging.ts`（`~/.kimi-code/logs/kimi-code.log` 实测 5.8MB 且在写、`.1`–`.4` 归档）；`/export-debug-zip` 走宿主完整导出并有 e2e 钉住。**真正残余两项**：(a) 会话级日志无调用方（已另登记为 §6.40 的 `sessionLogService`），(b) **引擎 REST `/export`（Web 客户端）比宿主导出薄**（2 成员、无 manifest） | 已核实（文件系统 + e2e 实测） | `server/mod.rs:1680-1721`（Web 路径）、`node-sdk/src/logging.ts`、`tui/commands/session.ts:163` |
+| 7 | ~~**磁盘日志缺失 + 导出 ZIP 只有 2 个成员**~~ **按原样不存在，见 §10.30**；残余 (b) **已完成 2026-10-03**（§10.31）：日志子系统已在宿主层 `node-sdk/src/logging.ts`（`~/.kimi-code/logs/kimi-code.log` 实测 5.8MB 且在写、`.1`–`.4` 归档）；`/export-debug-zip` 走宿主完整导出并有 e2e 钉住。**真正残余两项**：(a) 会话级日志无调用方（已另登记为 §6.40 的 `sessionLogService`），(b) **引擎 REST `/export`（Web 客户端）比宿主导出薄**（2 成员、无 manifest） | 已核实（文件系统 + e2e 实测） | `server/mod.rs:1680-1721`（Web 路径）、`node-sdk/src/logging.ts`、`tui/commands/session.ts:163` |
 | 8 | ~~**POST /undo 不做 state 回滚**~~ **已完成 2026-10-01**（`ac180b4dbe`）：闭环记录见 §6.45.4 第 8 行。**本行此前未划线、与 §6.45.4 自相矛盾，2026-10-03 订正**——两表同源于 §6.40，而修正只落在了后者 | 已核实（grep 全仓确认） | `server/mod.rs:5511-5602` |
 
 #### P2 — 已核实，范围或影响需先界定
@@ -4897,7 +4897,7 @@ usage 累积 + detect() + 遥测  ← 三合一（见上表）
 | 2 | **分叉 turn_index** | `sqlite_store.rs:834-863` 加参数 + 按 v2 `forkTurnSlice.ts:80-99` 的 `origin.kind` 分类切边界 + promptId 配对（`:118-176`）；调用方两处（`server/mod.rs:5165` 解析 body 的 `turnIndex`、`acp/mod.rs:1015`）；**注意 fork 的历史按 `save_turn` 分行存储，切分要按 turn 而非按 message** | **3-4 人天** |
 | 5+15 | **micro `detect()` + 遥测 `api_error`** | 新增一个跨 step 的 usage 累积结构（`input_cache_read` / `input_cache_creation` / tokens），`server/engine.rs:1348` 前加判据，配置面加 2 个常量；遥测侧同源数据报 `api_error` | **2-3 人天** |
 | 6 | **wire 版本 + metadata + 迁移链** | 加 `protocol_version` 列与 `metadata` 记录类型（写侧 + 读侧兼容），再逐级实现 v1.0→v1.5 五个迁移。**前置约束**：必须早于任何新的 wire 记录类型 | **4-6 人天**（含迁移的向后兼容测试） |
-| 7 | ~~**磁盘日志 + 导出 ZIP**~~ **原描述不成立（§10.30）**：日志已由宿主层移植并实测在写，CLI 导出已完整且有 e2e。**残余只剩**：会话级日志接线（`resolveSessionLogPath` 无调用方）与**引擎 REST `/export` 对齐宿主导出能力** | 引擎侧 REST 导出补 manifest + 日志成员 + 遍历会话树，参照 `sdk-rpc-client-native.ts:3642-3698` | **0.5-1 人天** |
+| 7 | ~~**磁盘日志 + 导出 ZIP**~~ **原描述不成立（§10.30）**；引擎 REST 那半**已完成 2026-10-03**（§10.31）。日志已由宿主层移植并实测在写，CLI 导出已完整且有 e2e。**残余只剩**：会话级日志接线（`resolveSessionLogPath` 无调用方）与**引擎 REST `/export` 对齐宿主导出能力** | 引擎侧 REST 导出补 manifest + 日志成员 + 遍历会话树，参照 `sdk-rpc-client-native.ts:3642-3698` | **0.5-1 人天** |
 | 8 | ~~POST /undo 回滚接线~~ **已完成 2026-10-01** | 新增 `rollback_state_for_undo`（`server/mod.rs:7371`），接在 `undo` 路由 `:5594`。**台账原引三处「已有模式」全是假的**——`engine.rs` 中 `.rollback()` 零调用，唯一生产调用者是 `repl/mod.rs:782`；`engine.rs:1168` 是 `for_workspace` 的 `Err(_)` 臂、`:1197` 只是注释提到 `StateStoreCallbacks`。真实模式在 `callbacks.rs:1536-1554`。**核实后新增的要点**：checkpoint 是 LIFO 栈（`state_store.rs:175/244`），`count=N` 必须弹 N 次而非一次。失败如实上报而非静默——行已删除，静默分叉比可见错误更糟。两个测试：`undo_restores_state_domains_from_the_checkpoint_stack`（钉 LIFO 到最早锚点）与 `undo_succeeds_when_no_checkpoint_was_ever_taken`（钉空栈不算错）；前者已用环境变量探针反证——断开接线后 depth 停在 2，测试确实失败 | **已完成** |
 | 10 | ~~`len()/4` 一行修正~~ **已完成 2026-10-01** | `server/engine.rs:933` 改用 `compaction::estimate_tokens`。**实测纠正**：原估「对 CJK 低报约 4 倍」是错的——`len()` 是字节数，3 字节/汉字 → 低报 **25%**（300 字节报 75，实际 100 token）。附带修掉截断：43 ASCII 字符旧值报 10，现为 11。新增测试 `context_tokens_count_cjk_per_character_and_leave_ascii_alone`（ASCII 差异 ≤1 仅进位、CJK 100 字符 = 100 token、混合串按连续 ASCII 段一次进位）。副作用是状态栏与压缩触发器现在共用同一估算器，两者不会再对「有多满」产生分歧 | **已完成** |
 | 11 | **PermissionRuleScope + 审批留痕** | `permission/mod.rs:152` 的 `Vec<String>` 换成带 scope 与 result 的结构；`recordApprovalResult` 需 agent state 写入通道 | **2-3 人天** |
@@ -6880,3 +6880,45 @@ v2 的 `buildExportManifest`（`app/sessionExport/manifest.ts:15-51`）在**宿�
 **方法论备注**：这是本会话第三次遇到「台账表述与代码不符」（前两次是 §6.45 的 P1-8 行与 P1-7 的施工
 方案）。三次的共同点是**台账写了结论、没写复核方式**，而 `check:roadmap-refs` 只验引用存在性、
 不验结论为真。可复核的写法是把「文件在哪、跑什么命令能看到」一并记下——§10.29 与本节都按此写。
+
+### 10.31 §6.45 P1-7 残余（b）落地：引擎 REST `/export` 补 manifest 与日志成员（2026-10-03）
+
+§10.30 把 P1-7 收敛成两个残余。本节做掉 (b)：**引擎 REST `/export` 与宿主导出的能力不一致**——
+Web 客户端拿到的 bundle 没有 manifest、没有日志，而同一台机器上 CLI 拿到的有。
+
+**架构边界（决定了「对齐」不是对称的）**：宿主那条路遍历**磁盘上的会话目录**
+（`session-meta.json`、`history.jsonl`、`agents/`…），那是**宿主所有的产物**——`HttpServer` 结构体里
+既没有 home 也没有 session 目录字段（`:97-159`），只有 `Arc<SqliteSessionStore>`。所以引擎**无法**
+复刻会话树遍历；两条导出是**互补**而非等价：引擎侧出 `session.json` + `transcript.md`（SQLite 是真源），
+宿主侧出目录树。本次只把**引擎能做到的那半**补齐。
+
+**落地**：`build_session_export_zip` 增加 `SessionExportOptions { include_global_log }`，并新增 `export-manifest.json`
+作为**第一个成员**（与宿主同名同位置）：`sessionId` / `exportedAt` / `kimiCodeVersion`（`CARGO_PKG_VERSION`）/
+`os`（`std::env::consts::OS`，与 `process.platform` 同为 `"windows"` / `"linux"` / `"macos"`），
+以及**仅在带上日志时**才出现的 `globalLogPath`。日志成员由 `collect_global_log_members()` 从
+`kimi_home()/logs/` 选 `kimi-code.log*`（与宿主同样的 `readdir` + 前缀过滤 + 字典序排序），成员名写作
+`logs/<file>`，与宿主、`apps/vis` 的 `HOME_GLOBAL_LOG_REL` / 导入 bundle 的 `logs/global/…` 布局一致。
+
+**默认不带日志**，用 `?includeGlobalLog=true` 显式开启——与宿主的默认一致（`sdk-rpc-client-native.ts:3653`
+是 `input.includeGlobalLog === true` 才带上）。理由是全局日志及其轮转是 **home 级**的，实测已到
+5.8MB + 4 个归档（约 27MB），不该默认塞进每次会话导出。
+
+**一个容易写错的细节**：宿主在「不带日志」时是**省略** `globalLogPath` 键，而不是写 null
+（e2e `local-logging-exports.e2e.test.ts` 断言 `toBeUndefined()`）。故本实现用 `serde_json::Map` 条件插入，
+并在测试里钉住 `manifest.get("globalLogPath").is_none()`。
+
+**测试**：`server::tests` 新增 2 项——(1) 读回 ZIP 断言成员顺序与 manifest 字段（含「不带日志时键缺失而非 null」、
+带日志时 `globalLogPath` 指向未加后缀的那个）；(2) 按目录断言日志筛选：取 `kimi-code.log` / `.1` / `.2`，
+排除 `kimi-code-desktop.log` 与同名目录，并断言成员名带 `logs/` 前缀。
+为可测性把 IO 与纯逻辑拆开：`collect_global_log_members()`（读 `kimi_home()`）委托 `global_log_members_in(dir)`；
+`build_session_export_zip` 委托 `build_session_export_zip_with(export, global_logs)`——否则测日志成员就得改
+进程级环境变量，会与并行测试互相干扰。
+
+**变异验证**：把 `globalLogPath` 从「条件插入」改成「总是写（缺省为 null）」，
+`session_export_archive_names_itself_and_gates_the_log_members` 立刻失败。
+
+**验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -D warnings` ✅｜
+`cargo test --no-default-features --features cli` 全量 ✅（`server::tests` 97 → **99 passed**）｜15 道门禁 ✅。
+
+**仍未做**：会话级日志接线（`resolveSessionLogPath` 无调用方，见 §10.30 残余 (a)，已另有 `sessionLogService` 条目）；
+以及引擎侧**不可能**复刻的会话树遍历。
