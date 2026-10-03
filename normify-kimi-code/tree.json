@@ -9,7 +9,7 @@
         "repository": "https://github.com/7723qqq/kimi-code"
       }
     ],
-    "compiled_at": "2026-10-03T17:34:31.773Z",
+    "compiled_at": "2026-10-03T18:48:01.636Z",
     "stats": {
       "tree_count": 1,
       "module_count": 74,
@@ -1869,9 +1869,9 @@
           "path": "packages/kimi-agent/src/tools/skill.rs"
         }
       ],
-      "revision": "18c71cdd8583b337dd80efc94225c9033f341f42",
-      "updated_at": "2026-10-03T16:26:56.340Z",
-      "fingerprint": "af935de24a49ddd9540171322fd5ae1701e21a78069a09276a4811daea04dffe",
+      "revision": "3b8a123676274dcf7a0a80abf1db4c299bc9b136",
+      "updated_at": "2026-10-03T18:47:52.961Z",
+      "fingerprint": "1217b209295cbe0f8c7a8a2da0553c6b90f7be173f9c9838d2a260e621c69f70",
       "aggregate": {
         "descendant_count": 5,
         "own_api_count": 0,
