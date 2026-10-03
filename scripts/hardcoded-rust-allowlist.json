@@ -6646,11 +6646,6 @@
       "text": "{set_message} The goal has already reached this budget and will stop now.",
       "reason": "deferred"
     },
-    "packages/kimi-agent/src/tools/kaos.rs:cd \"{wd_str}\" && {command}": {
-      "file": "packages/kimi-agent/src/tools/kaos.rs",
-      "text": "cd \"{wd_str}\" && {command}",
-      "reason": "deferred"
-    },
     "packages/kimi-agent/src/tools/knowledge_tool.rs:Comma-separated tags for search or add.": {
       "file": "packages/kimi-agent/src/tools/knowledge_tool.rs",
       "text": "Comma-separated tags for search or add.",
