@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
 import type { KimiConfig, ModelAlias } from '#/config-local';
@@ -940,16 +941,35 @@ export function resolveBingApiService(config: {
   );
 }
 
+/** `where <name>` — the same PATH lookup `packages/kimi-agent/src/native/shell.rs` performs. */
+function whichOnPath(name: string): string | undefined {
+  const result = spawnSync('where', [name], { encoding: 'utf8', windowsHide: true });
+  if (result.status !== 0 || typeof result.stdout !== 'string') return undefined;
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+}
+
 export function probeShellPath(): string | undefined {
   const envShell = process.env['KIMI_SHELL_PATH'];
   if (envShell) {
     return envShell;
   }
   if (process.platform === 'win32') {
+    // Mirror the engine's order (pwsh → powershell → Git Bash → cmd): the
+    // engine only resolves on its own when this returns undefined, so a
+    // Git-Bash-first answer here would override it and the prompt's shell
+    // note would disagree with the shell the tool actually runs.
+    const pwsh = whichOnPath('pwsh.exe');
+    if (pwsh !== undefined) return pwsh;
+    const powershell = whichOnPath('powershell.exe');
+    if (powershell !== undefined) return powershell;
     const localAppData = process.env['LOCALAPPDATA'];
     const candidates = [
+      'C:\\msys64\\usr\\bin\\bash.exe',
       'C:\\Program Files\\Git\\bin\\bash.exe',
-      'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+      'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
       localAppData ? `${localAppData}\\Programs\\Git\\bin\\bash.exe` : undefined,
     ].filter(Boolean) as string[];
     for (const candidate of candidates) {

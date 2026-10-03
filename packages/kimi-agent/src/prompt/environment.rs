@@ -5,7 +5,30 @@
 
 use std::path::Path;
 
-pub const WINDOWS_NOTES: &str = "IMPORTANT: You are on Windows. The Bash tool runs through a POSIX shell (bash), not PowerShell or CMD, so use Unix shell syntax inside Bash commands — `/dev/null` not `NUL`, and forward slashes in paths. For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over Bash commands — they work reliably across all platforms.";
+/// Windows shell note. The syntax guidance follows the shell the Bash tool
+/// actually runs (`detect_shell`), so a pwsh host is told to write PowerShell
+/// rather than Unix syntax.
+pub fn windows_notes(shell_name: &str) -> String {
+    let shell_clause = match shell_name {
+        "pwsh" | "powershell" => format!("{shell_name}, not bash or CMD"),
+        "cmd" => "CMD, not bash or PowerShell".to_string(),
+        _ => "a POSIX shell (bash), not PowerShell or CMD".to_string(),
+    };
+    let syntax = match shell_name {
+        "pwsh" | "powershell" => {
+            "PowerShell syntax inside Bash commands — `$env:NAME` for environment variables, `Remove-Item` / `Get-ChildItem` instead of `rm` / `ls`, and the backtick as the escape character"
+        }
+        "cmd" => {
+            "CMD syntax inside Bash commands — `%NAME%` for environment variables and `/`-prefixed flags"
+        }
+        _ => {
+            "Unix shell syntax inside Bash commands — `/dev/null` not `NUL`, and forward slashes in paths"
+        }
+    };
+    format!(
+        "IMPORTANT: You are on Windows. The Bash tool runs through {shell_clause}, so use {syntax}. For file operations, always prefer the built-in tools (Read, Write, Edit, Glob, Grep) over Bash commands — they work reliably across all platforms."
+    )
+}
 
 /// Captured environment details for prompt interpolation.
 #[derive(Debug, Clone)]
@@ -171,23 +194,11 @@ pub fn detect_shell(override_shell: Option<&str>) -> (String, String) {
 
     #[cfg(target_os = "windows")]
     {
-        // Common Windows bash locations
-        let candidates = [
-            "C:\\msys64\\usr\\bin\\bash.exe",
-            "C:\\Program Files\\Git\\bin\\bash.exe",
-            "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
-        ];
-        for candidate in candidates {
-            if Path::new(candidate).exists() {
-                return ("bash".to_string(), candidate.to_string());
-            }
-        }
-        if let Ok(sh) = std::env::var("SHELL")
-            && !sh.is_empty()
-        {
-            return ("bash".to_string(), sh);
-        }
-        ("bash".to_string(), "bash".to_string())
+        // The Bash tool's own resolution (`native/shell.rs`): pwsh → powershell
+        // → Git Bash → cmd. The prompt must name the shell the tool actually
+        // runs, or the model writes commands that shell cannot parse.
+        let resolved = crate::native::shell::resolve_shell(None);
+        (shell_name_from_path(&resolved.program), resolved.program)
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -224,7 +235,7 @@ pub fn collect_environment(workspace_root: &Path, override_shell: Option<&str>) 
     let cwd = workspace_root.display().to_string().replace('\\', "/");
     let cwd_listing = generate_cwd_listing(workspace_root, true);
     let win_notes = if os == "Windows" {
-        format!("\n\n{}\n\n", WINDOWS_NOTES)
+        format!("\n\n{}\n\n", windows_notes(&shell_name))
     } else {
         String::new()
     };
@@ -314,12 +325,30 @@ mod tests {
         assert!(env.cwd_listing.contains("sample.txt"));
 
         if cfg!(target_os = "windows") {
-            assert_eq!(env.windows_notes, format!("\n\n{}\n\n", WINDOWS_NOTES));
+            assert_eq!(
+                env.windows_notes,
+                format!("\n\n{}\n\n", windows_notes("bash"))
+            );
             assert!(env.windows_notes.contains("POSIX shell (bash)"));
             assert!(env.windows_notes.contains("`/dev/null` not `NUL`"));
         } else {
             assert_eq!(env.windows_notes, "");
         }
+    }
+
+    #[test]
+    fn windows_notes_follow_the_shell() {
+        let pwsh = windows_notes("pwsh");
+        assert!(pwsh.contains("runs through pwsh, not bash or CMD"));
+        assert!(pwsh.contains("PowerShell syntax inside Bash commands"));
+        assert!(!pwsh.contains("POSIX shell"));
+
+        let cmd = windows_notes("cmd");
+        assert!(cmd.contains("runs through CMD, not bash or PowerShell"));
+
+        let bash = windows_notes("bash");
+        assert!(bash.contains("runs through a POSIX shell (bash), not PowerShell or CMD"));
+        assert!(bash.contains("Unix shell syntax inside Bash commands"));
     }
 
     #[test]
