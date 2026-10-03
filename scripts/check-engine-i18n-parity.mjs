@@ -28,6 +28,22 @@
  * `zh` coverage of every `en` key is covered by `catalog.rs`'s
  * `zh_covers_every_key_en_covers` test instead.
  *
+ * Key-taking helpers
+ * ------------------
+ * A few helpers take a locale key as a plain `&'static str` argument rather
+ * than constructing a `LocalizedText` inline — `tools::arg_error` and
+ * `tools::arg_error_text` in particular, which exist so that the repeated
+ * "Invalid <Tool> arguments: …" sentence collapses into six catalog keys
+ * instead of inlining the same four lines at every site. A key reaching the
+ * such a helper is just as real as one passed to `LocalizedText` directly, and
+ * rule 2 would otherwise report every one of them as an orphan.
+ *
+ * `KEY_SINKS` below declares those seams, and each entry also states the
+ * parameters its helper binds, so rule 3 still checks the placeholders. A
+ * helper added without a declaration here is not silently ignored: it would
+ * make its keys look orphaned, which is the loud failure this table exists to
+ * replace with a correct one.
+ *
  * Usage:
  *   bun scripts/check-engine-i18n-parity.mjs
  *
@@ -224,6 +240,24 @@ const enTree = JSON.parse(readFileSync(LOCALE_EN, 'utf8'));
 const enKeys = new Set(leafKeys(enTree));
 const engineKeysInCatalog = [...enKeys].filter((k) => k.startsWith(`${ENGINE_NAMESPACE}.`));
 
+/**
+ * Helpers that accept a locale key as a plain string argument.
+ *
+ * Each entry names the argument position holding the key and the parameters
+ * the helper binds through `i18n_params!`, so a key routed through a helper is
+ * checked by the same three rules as one passed to `LocalizedText` directly.
+ * `boundNames` is compared against the template's `{{placeholders}}` exactly
+ * like a real `with_params` site's.
+ */
+const KEY_SINKS = [
+  {
+    // tools::arg_error / arg_error_text(tool, field, message_key)
+    call: /\barg_error(?:_text)?\s*\(\s*"[^"]*"\s*,\s*"[^"]*"\s*,\s*"([^"]+)"/g,
+    boundNames: ['tool', 'field'],
+    parameterized: true,
+  },
+];
+
 /** Every locale key a `LocalizedText` names, mapped to its first location. */
 const used = new Map();
 /** `[key, boundNames, where]` for every `with_params` site. */
@@ -243,6 +277,17 @@ for (const file of walkRs(AGENT_SRC)) {
       const open = m.index + m[0].length - '('.length;
       const args = readCallArgs(src, open);
       if (args && args[1]) parameterized.push([key, boundParams(args[1]), where]);
+    }
+  }
+  // Keys reaching the catalog through a declared key-taking helper.
+  for (const sink of KEY_SINKS) {
+    for (const m of src.matchAll(sink.call)) {
+      if (inRanges(m.index, skip)) continue;
+      const key = m[1];
+      const line = src.slice(0, m.index).split('\n').length;
+      const where = `${relative(ROOT, file)}:${line}`;
+      if (!used.has(key)) used.set(key, where);
+      if (sink.parameterized) parameterized.push([key, sink.boundNames, where]);
     }
   }
 }

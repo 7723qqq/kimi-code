@@ -906,7 +906,13 @@
         "cannotReplace": "Cannot replace {{path}}: {{e}}"
       },
       "boolInvalid": "\"{{key}}\" must be a boolean, got {{value}}.",
-      "nonNegativeIntInvalid": "\"{{key}}\" must be a non-negative integer, got {{value}}."
+      "nonNegativeIntInvalid": "\"{{key}}\" must be a non-negative integer, got {{value}}.",
+      "argMustBeString": "Invalid {{tool}} arguments: `{{field}}` must be a string.",
+      "argMustBeBoolean": "Invalid {{tool}} arguments: `{{field}}` must be a boolean.",
+      "argMustBeNumber": "Invalid {{tool}} arguments: `{{field}}` must be a number.",
+      "argMustBeArray": "Invalid {{tool}} arguments: `{{field}}` must be an array.",
+      "argMustNotBeEmpty": "Invalid {{tool}} arguments: `{{field}}` must not be empty.",
+      "argRequired": "Invalid {{tool}} arguments: `{{field}}` is required."
     }
   },
   "startup": {

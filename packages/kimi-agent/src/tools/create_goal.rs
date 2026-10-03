@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::goal_tools::main_agent_only_refusal;
-use super::{err_result, ok_result};
+use super::{arg_error, err_result, ok_result};
 use crate::callbacks::HostCallbacks;
 use crate::rpc::types::StateWriteRequest;
 use crate::turn_loop::types::ExecutableToolResult;
@@ -86,10 +86,10 @@ pub async fn execute_create_goal(
         return refusal;
     }
     let Some(objective) = args.get("objective").and_then(|o| o.as_str()) else {
-        return err_result("Invalid CreateGoal arguments: `objective` must be a string.".into());
+        return arg_error("CreateGoal", "objective", "engine.tools.argMustBeString");
     };
     if objective.is_empty() {
-        return err_result("Invalid CreateGoal arguments: `objective` must not be empty.".into());
+        return arg_error("CreateGoal", "objective", "engine.tools.argMustNotBeEmpty");
     }
     // The wire contract carries no replace flag; a model that asks for it
     // must not get a silent no-op create.
@@ -104,8 +104,10 @@ pub async fn execute_create_goal(
         Some(value) => match value.as_str() {
             Some(criterion) => Some(criterion.to_string()),
             None => {
-                return err_result(
-                    "Invalid CreateGoal arguments: `completionCriterion` must be a string.".into(),
+                return arg_error(
+                    "CreateGoal",
+                    "completionCriterion",
+                    "engine.tools.argMustBeString",
                 );
             }
         },

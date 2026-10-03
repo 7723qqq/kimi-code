@@ -1079,6 +1079,19 @@ export const en = {
       },
       boolInvalid: '"{{key}}" must be a boolean, got {{value}}.',
       nonNegativeIntInvalid: '"{{key}}" must be a non-negative integer, got {{value}}.',
+      // Generic argument-validation shapes, shared by every tool that
+      // validates a field the same way. They carry the tool and the field as
+      // parameters rather than baking one in per site, so the repeated
+      // "Invalid <Tool> arguments: …" sentence collapses into six entries
+      // instead of one key per (tool, field) pair. Each is a
+      // complete sentence: the runtime only does flat {{name}} substitution,
+      // so composing a prefix key with a detail key is not expressible.
+      argMustBeString: 'Invalid {{tool}} arguments: `{{field}}` must be a string.',
+      argMustBeBoolean: 'Invalid {{tool}} arguments: `{{field}}` must be a boolean.',
+      argMustBeNumber: 'Invalid {{tool}} arguments: `{{field}}` must be a number.',
+      argMustBeArray: 'Invalid {{tool}} arguments: `{{field}}` must be an array.',
+      argMustNotBeEmpty: 'Invalid {{tool}} arguments: `{{field}}` must not be empty.',
+      argRequired: 'Invalid {{tool}} arguments: `{{field}}` is required.',
     },
   },
   startup: {

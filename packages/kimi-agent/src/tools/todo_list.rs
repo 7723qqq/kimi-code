@@ -9,7 +9,7 @@
 
 use serde_json::Value;
 
-use super::{err_result, ok_result};
+use super::{arg_error, arg_error_text, err_result, ok_result};
 use crate::callbacks::HostCallbacks;
 use crate::rpc::types::{StateReadRequest, StateWriteRequest};
 use crate::tools::todo_item::{read_todo_items, render_todo_list};
@@ -104,7 +104,7 @@ async fn update_todo_list(callbacks: &dyn HostCallbacks, args: &Value) -> Execut
         };
         if let Some(title) = obj.get("title").and_then(|v| v.as_str()) {
             if title.is_empty() {
-                return err_result("Invalid TodoList arguments: `title` must not be empty.".into());
+                return arg_error("TodoList", "title", "engine.tools.argMustNotBeEmpty");
             }
             target.title = title.to_string();
         }
@@ -120,9 +120,11 @@ async fn update_todo_list(callbacks: &dyn HostCallbacks, args: &Value) -> Execut
         }
         if let Some(progress) = obj.get("progress").and_then(|v| v.as_f64()) {
             if !progress.is_finite() {
-                return err_result(
-                    "Invalid TodoList arguments: `progress` must be a number.".into(),
-                );
+                return err_result(arg_error_text(
+                    "TodoList",
+                    "progress",
+                    "engine.tools.argMustBeNumber",
+                ));
             }
             target.progress = Some(progress.round().clamp(0.0, 100.0) as u32);
         }

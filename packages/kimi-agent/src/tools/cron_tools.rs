@@ -13,7 +13,7 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{err_result, ok_result};
+use super::{arg_error, arg_error_text, err_result, ok_result};
 use crate::callbacks::HostCallbacks;
 use crate::rpc::types::{StateReadRequest, StateWriteRequest};
 use crate::turn_loop::types::ExecutableToolResult;
@@ -132,22 +132,24 @@ pub async fn execute_cron_create(
     args: &Value,
 ) -> ExecutableToolResult {
     let Some(cron) = args.get("cron").and_then(|c| c.as_str()) else {
-        return err_result("Invalid CronCreate arguments: `cron` must be a string.".into());
+        return arg_error("CronCreate", "cron", "engine.tools.argMustBeString");
     };
     let Some(prompt) = args.get("prompt").and_then(|p| p.as_str()) else {
-        return err_result("Invalid CronCreate arguments: `prompt` must be a string.".into());
+        return arg_error("CronCreate", "prompt", "engine.tools.argMustBeString");
     };
     if prompt.is_empty() {
-        return err_result("Invalid CronCreate arguments: `prompt` must not be empty.".into());
+        return arg_error("CronCreate", "prompt", "engine.tools.argMustNotBeEmpty");
     }
     let recurring = match args.get("recurring") {
         None | Some(Value::Null) => true,
         Some(value) => match value.as_bool() {
             Some(recurring) => recurring,
             None => {
-                return err_result(
-                    "Invalid CronCreate arguments: `recurring` must be a boolean.".into(),
-                );
+                return err_result(arg_error_text(
+                    "CronCreate",
+                    "recurring",
+                    "engine.tools.argMustBeBoolean",
+                ));
             }
         },
     };
@@ -243,7 +245,7 @@ pub async fn execute_cron_delete(
     args: &Value,
 ) -> ExecutableToolResult {
     let Some(id) = args.get("id").and_then(|i| i.as_str()) else {
-        return err_result("Invalid CronDelete arguments: `id` must be a string.".into());
+        return arg_error("CronDelete", "id", "engine.tools.argMustBeString");
     };
     if !is_valid_cron_id(id) {
         return err_result(format!(

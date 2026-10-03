@@ -14,7 +14,7 @@
 use serde_json::Value;
 use std::time::Instant;
 
-use super::{err_result, ok_result};
+use super::{arg_error_text, err_result, ok_result};
 use crate::callbacks::HostCallbacks;
 use crate::rpc::types::{StateReadRequest, StateWriteRequest};
 use crate::storage::TaskWaitResult;
@@ -53,9 +53,11 @@ pub async fn execute_task_list(
         Some(value) => match value.as_bool() {
             Some(active_only) => active_only,
             None => {
-                return err_result(
-                    "Invalid TaskList arguments: `active_only` must be a boolean.".into(),
-                );
+                return err_result(arg_error_text(
+                    "TaskList",
+                    "active_only",
+                    "engine.tools.argMustBeBoolean",
+                ));
             }
         },
     };
@@ -644,7 +646,11 @@ fn parse_timeout(args: &Value) -> Result<u64, String> {
                 "Invalid TaskWait arguments: `timeout` must be an integer between 1 and {WAIT_FOR_MAX_TIMEOUT_S}."
             )),
         },
-        None => Err("Invalid TaskWait arguments: `timeout` is required.".into()),
+        None => Err(arg_error_text(
+            "TaskWait",
+            "timeout",
+            "engine.tools.argRequired",
+        )),
     }
 }
 

@@ -23,7 +23,7 @@ use std::path::Path;
 use base64::prelude::*;
 use serde_json::Value;
 
-use super::err_result;
+use super::{arg_error_text, err_result};
 use crate::i18n::{LocalizedText, i18n_params};
 use crate::native::file_type::{
     FileKind, MEDIA_SNIFF_BYTES, detect_file_type, resolve_mime, sniff_image_dimensions,
@@ -144,7 +144,7 @@ impl ReadMediaRequest {
         let full_resolution = match args.get("full_resolution") {
             None | Some(Value::Null) => false,
             Some(value) => value.as_bool().ok_or_else(|| {
-                "Invalid Read arguments: `full_resolution` must be a boolean.".to_string()
+                arg_error_text("Read", "full_resolution", "engine.tools.argMustBeBoolean")
             })?,
         };
         Ok(Self {

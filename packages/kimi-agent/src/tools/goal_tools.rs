@@ -10,7 +10,7 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{err_result, ok_result};
+use super::{arg_error, err_result, ok_result};
 use crate::callbacks::HostCallbacks;
 use crate::goal::{BudgetUnit, format_budget, format_elapsed, normalize_budget_input};
 use crate::rpc::types::StateWriteRequest;
@@ -75,7 +75,7 @@ pub async fn execute_update_goal(
         return refusal;
     }
     let Some(status) = args.get("status").and_then(|s| s.as_str()) else {
-        return err_result("Invalid UpdateGoal arguments: `status` must be a string.".into());
+        return arg_error("UpdateGoal", "status", "engine.tools.argMustBeString");
     };
     if !matches!(status, "active" | "complete" | "blocked") {
         return err_result("Invalid goal status. Use `active`, `complete`, or `blocked`.".into());
@@ -154,10 +154,10 @@ pub async fn execute_set_goal_budget(
         return refusal;
     }
     let Some(value) = args.get("value").and_then(|v| v.as_f64()) else {
-        return err_result("Invalid SetGoalBudget arguments: `value` must be a number.".into());
+        return arg_error("SetGoalBudget", "value", "engine.tools.argMustBeNumber");
     };
     let Some(unit_str) = args.get("unit").and_then(|u| u.as_str()) else {
-        return err_result("Invalid SetGoalBudget arguments: `unit` must be a string.".into());
+        return arg_error("SetGoalBudget", "unit", "engine.tools.argMustBeString");
     };
     let Some(unit) = BudgetUnit::parse_unit(unit_str) else {
         return err_result(

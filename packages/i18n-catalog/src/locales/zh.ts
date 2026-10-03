@@ -1001,6 +1001,12 @@ export const zh = {
       },
       boolInvalid: '"{{key}}" 必须是布尔值，当前值为 {{value}}。',
       nonNegativeIntInvalid: '"{{key}}" 必须是非负整数，当前值为 {{value}}。',
+      argMustBeString: '{{tool}} 参数无效：`{{field}}` 必须是字符串。',
+      argMustBeBoolean: '{{tool}} 参数无效：`{{field}}` 必须是布尔值。',
+      argMustBeNumber: '{{tool}} 参数无效：`{{field}}` 必须是数字。',
+      argMustBeArray: '{{tool}} 参数无效：`{{field}}` 必须是数组。',
+      argMustNotBeEmpty: '{{tool}} 参数无效：`{{field}}` 不能为空。',
+      argRequired: '{{tool}} 参数无效：缺少 `{{field}}`。',
     },
   },
   startup: {

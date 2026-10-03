@@ -4646,10 +4646,82 @@ fn err_result(content: String) -> ExecutableToolResult {
     }
 }
 
+/// The rendered text of an `Invalid <tool> arguments: …` message.
+///
+/// The validation message is the same sentence at every call site apart from
+/// the tool and the field name, so it is one key per *shape*
+/// (`argMustBeString`, `argMustNotBeEmpty`, …) with both interpolated rather
+/// than one key per (tool, field) pair: 20 call sites route through it, against
+/// the 23 generic-shape literals the tree carried before the change. Passing the
+/// key in also lets a tool that needs a tool-specific sentence opt out by naming
+/// its own key instead.
+///
+/// The key is a plain argument rather than derived from `tool`, because a key
+/// is a fact about the sentence's shape and must be greppable at the call site
+/// — `check:engine-i18n` resolves the catalog against every `LocalizedText`
+/// name, and a computed name would escape it.
+pub(crate) fn arg_error_text(tool: &str, field: &str, message_key: &'static str) -> String {
+    crate::i18n::LocalizedText::with_params(
+        message_key,
+        crate::i18n::i18n_params!["tool" => tool, "field" => field],
+    )
+    .render()
+}
+
+/// [`arg_error_text`] as a failed tool result, for the common case where the
+/// validation failure *is* the tool's answer.
+pub(crate) fn arg_error(
+    tool: &str,
+    field: &str,
+    message_key: &'static str,
+) -> ExecutableToolResult {
+    err_result(arg_error_text(tool, field, message_key))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// The generic argument-validation keys bind exactly `{{tool}}` and
+    /// `{{field}}`, and nothing else.
+    ///
+    /// `check:engine-i18n` already compares the helper's bound names against
+    /// each template's placeholders, but only for keys someone still names at a
+    /// call site. This pins the rendering itself — that the two substitutions
+    /// land and the braces do not survive — so a renamed placeholder shows up as
+    /// a failing assertion here rather than as a literal `{{field}}` in a user's
+    /// error message.
+    #[test]
+    fn arg_error_binds_the_tool_and_the_field() {
+        let out = arg_error_text("CronCreate", "cron", "engine.tools.argMustBeString");
+        assert_eq!(
+            out,
+            "Invalid CronCreate arguments: `cron` must be a string."
+        );
+
+        let zh = crate::i18n::EngineI18n {
+            active: crate::i18n::Locale::Zh,
+        };
+        let localized = crate::i18n::LocalizedText::with_params(
+            "engine.tools.argMustBeString",
+            crate::i18n::i18n_params!["tool" => "CronCreate", "field" => "cron"],
+        )
+        .render_with(&zh);
+        assert!(localized.contains("CronCreate") && localized.contains("cron"));
+        assert!(!localized.contains('{') && !localized.contains('}'));
+    }
+
+    /// An unknown key must render as the key, not as an empty message — the
+    /// helper is the one path where a typo in `message_key` reaches the catalog
+    /// from far away, so the failure mode is worth pinning.
+    #[test]
+    fn arg_error_surfaces_an_unknown_key_rather_than_blank_text() {
+        assert_eq!(
+            arg_error_text("Team", "topic", "engine.tools.noSuchKey"),
+            "engine.tools.noSuchKey"
+        );
+    }
 
     fn setup() -> (tempfile::TempDir, NativeToolset) {
         setup_with_shell(None)

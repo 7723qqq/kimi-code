@@ -91,7 +91,7 @@ const EDIT_DESCRIPTION: &str = r#"Perform exact replacements in existing files.
 - For mixed endings or lone carriage returns, Read shows carriage returns as \r; include actual \r escapes in those positions.
 "#;
 
-const BASH_DESCRIPTION: &str = r#"Execute a `bash` command. Use this for shell semantics — pipes, env, processes, git, package managers, build/test runners, anything genuinely interactive or multi-step.
+const BASH_DESCRIPTION: &str = r#"Execute a `${SHELL_NAME}` command. Use this for shell semantics — pipes, env, processes, git, package managers, build/test runners, anything genuinely interactive or multi-step.
 
 **Translate these to a dedicated tool instead:**
 - `cat` / `head` / `tail` (known path) → `Read`
@@ -165,6 +165,14 @@ fn glob_description() -> String {
     } else {
         GLOB_DESCRIPTION.to_string()
     }
+}
+
+/// The Bash tool's description with `${SHELL_NAME}` substituted — v2 rendered
+/// the same placeholder from its environment probe, so the tool names the
+/// shell it actually runs.
+fn bash_description() -> String {
+    let (shell_name, _) = crate::prompt::environment::detect_shell(None);
+    BASH_DESCRIPTION.replace("${SHELL_NAME}", &shell_name)
 }
 
 /// Tool definitions for the core native tools, so the model can discover
@@ -460,7 +468,7 @@ fn build_core_tool_defs() -> Vec<ToolInfo> {
         },
         ToolInfo {
             name: "Bash".into(),
-            description: BASH_DESCRIPTION.into(),
+            description: bash_description(),
             input_schema: json!({
                 "$schema": "http://json-schema.org/draft-07/schema#",
                 "type": "object",
@@ -941,7 +949,9 @@ mod tests {
         // Bash: ${SHELL_NAME} / ${DEFAULT_TIMEOUT_S} / ${MAX_TIMEOUT_S} /
         // ${DEFAULT_BACKGROUND_TIMEOUT_S} / ${MAX_BACKGROUND_TIMEOUT_S}.
         let bash = get("Bash");
-        assert!(bash.contains("Execute a `bash` command"));
+        let (shell_name, _) = crate::prompt::environment::detect_shell(None);
+        assert!(bash.contains(&format!("Execute a `{shell_name}` command")));
+        assert!(!bash.contains("${SHELL_NAME}"));
         assert!(bash.contains("Foreground commands default to 60s and allow up to 300s"));
         assert!(bash.contains("Background commands default to a 600s timeout"));
         assert!(bash.contains("`timeout` is capped at 86400s"));

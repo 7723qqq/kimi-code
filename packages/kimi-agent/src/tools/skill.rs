@@ -25,7 +25,7 @@ use std::sync::LazyLock;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::err_result;
+use super::{arg_error, err_result};
 use crate::callbacks::HostCallbacks;
 use crate::rpc::types::{ContentBlock, StateReadRequest, ToolDelivery};
 use crate::turn_loop::types::ExecutableToolResult;
@@ -538,10 +538,10 @@ pub async fn execute_skill_with_depth(
         .or_else(|| args.get("name"))
         .and_then(|s| s.as_str());
     let Some(name) = name else {
-        return err_result("Invalid Skill arguments: `skill` must be a string.".into());
+        return arg_error("Skill", "skill", "engine.tools.argMustBeString");
     };
     if name.is_empty() {
-        return err_result("Invalid Skill arguments: `skill` must not be empty.".into());
+        return arg_error("Skill", "skill", "engine.tools.argMustNotBeEmpty");
     }
     let raw_args = args.get("args").and_then(|a| a.as_str()).unwrap_or("");
     let session_id = args

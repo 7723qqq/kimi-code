@@ -22,7 +22,7 @@ use std::collections::HashSet;
 
 use serde_json::Value;
 
-use super::{err_result, ok_result};
+use super::{arg_error_text, err_result, ok_result};
 use crate::callbacks::HostCallbacks;
 use crate::permission::PermissionMode;
 use crate::rpc::types::{
@@ -360,7 +360,11 @@ fn parse_options(args: &Value) -> Result<Vec<ExitPlanModeOption>, String> {
         return Ok(Vec::new());
     };
     let Some(array) = options.as_array() else {
-        return Err("Invalid ExitPlanMode arguments: `options` must be an array.".into());
+        return Err(arg_error_text(
+            "ExitPlanMode",
+            "options",
+            "engine.tools.argMustBeArray",
+        ));
     };
     if array.is_empty() || array.len() > 3 {
         return Err("Invalid ExitPlanMode arguments: `options` must contain 1-3 items.".into());

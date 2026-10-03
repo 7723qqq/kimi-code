@@ -35,7 +35,7 @@ pub async fn execute_team(
             return ExecutableToolResult {
                 delivery: None,
                 stop_turn: false,
-                content: "Invalid Team arguments: `topic` is required.".into(),
+                content: super::arg_error_text("Team", "topic", "engine.tools.argRequired"),
                 is_error: true,
                 note: None,
                 display: None,
