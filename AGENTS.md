@@ -115,11 +115,21 @@ it from `packages/i18n-catalog/src/locales/en.ts` when you touch the catalog.
 - **Informational footers are still English** — "Total lines in file: N.",
   "Showing matches X–Y of Z.", "Continue with the same search arguments…".
   These live in the Rust engine (`tools/mod.rs` around the Read / Grep result
-  builders, beside `engine.tools.grep.noFilesMatched`, which *is* localized), and
-  **no gate can catch them**: `scan:hardcoded`'s modules are all TypeScript
-  trees, so `packages/kimi-agent` has zero hardcoded-string coverage. Do not "fix"
-  this by adding a Rust scan — that would also sweep in the model-input
-  scaffolding and wire tokens listed above. Two separable questions, and only the
+  builders, beside `engine.tools.grep.noFilesMatched`, which *is* localized).
+  **Superseded 2026-10-03: the engine now has its own hardcoded-string gate.**
+  This bullet used to read "no gate can catch them … Do not \"fix\" this by adding
+  a Rust scan — that would also sweep in the model-input scaffolding and wire
+  tokens listed above." The objection was sound, but it was an objection to
+  *path-based* Rust scanning: `src/prompt/` is model input and `src/tools/` is
+  not, and that guess is wrong in both directions (`tools/core_tool_defs.rs` is
+  the model's manual and must stay English, `tools/exit_plan_mode.rs` is a dialog
+  the user reads). `bun run scan:hardcoded:rust` asks about each literal's
+  *shape* instead, and requires every survivor to carry a `reason` from a fixed
+  vocabulary in `scripts/hardcoded-rust-allowlist.json` (`model-input`,
+  `tool-protocol`, `format-scaffolding`, `wire-token`, `dead-path`,
+  `diagnostic`, `workspace-artifact`, `dev-surface`, `deferred`). These
+  footers are filed there as `deferred` — the one category that is a real TODO —
+  so the debt is counted rather than merely described. Two separable questions, and only the
   first is settled: whether they are **UI or protocol** is a fork decision
   (see What not to translate), but the *unported-subsystem* framing is not a
   question at all — v2's `src/runtime/` capability layer that §6.8.2 needs is
@@ -369,7 +379,8 @@ scripts/
   check-nix-workspace.mjs       — Validate flake.nix vs workspace membership
   check-no-comments.mjs         — Enforce no-comment policy (transcript)
   check-t-call-coverage.mjs     — Check t() call coverage
-  scan-hardcoded[-v2].mjs       — Scan for hardcoded strings (i18n compliance)
+  scan-hardcoded[-v2].mjs       — Scan for hardcoded strings (i18n compliance, TypeScript trees)
+  scan-hardcoded-rust.mjs       — Rust engine hardcoded-prose ratchet (`hardcoded-rust-allowlist.json` holds the recorded debt)
   scan-parity.mjs               — Rust ↔ TS interface parity (REST / WS events / WS control / tool names / napi / config keys)
   check-engine-i18n-parity.mjs  — Engine key-set consistency (key exists, no `engine.*` orphan, `i18n_params!` names match the en template's `{{placeholders}}`)
   check-no-legacy-engine.mjs    — Fail if a retired engine package is still referenced
@@ -389,8 +400,10 @@ Two gates fail for environment reasons rather than code defects, and neither fai
 - `check:upstream-v2-delta` exits **2** when `refs/remotes/upstream/main` cannot be resolved (a clone without
   the upstream remote, or a stale ref). It refuses to pass on purpose — an unavailable upstream is
   indistinguishable from having no deltas. Fetch first: `git fetch upstream main:refs/remotes/upstream/main --force`.
-- `scan:hardcoded` scans only the six TypeScript trees in its `MODULES` list. `packages/kimi-agent` has no
-  hardcoded-string coverage, so a green run is not a statement about the Rust engine. The VS Code extension
+- The two hardcoded-string gates cover disjoint trees and neither speaks for the other: `scan:hardcoded`
+  reads only the six TypeScript trees in its `MODULES` list, `scan:hardcoded:rust` only
+  `packages/kimi-agent/src`. An allowlisted literal in the Rust gate is *recorded* debt, not a pass on its
+  merits. The VS Code extension
   is split across two entries — `vscode-webview` and `vscode-extension-host` — because the two halves keep
   **disjoint catalogs** (`webview-ui/src/i18n` vs `src/i18n`). The host detects its locale from
   `vscode.env.language` (the webview cannot reach the editor API); it resolves that through a lazy
@@ -520,7 +533,7 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job install
 3. **test-rust** — `cargo fmt --check` + `cargo clippy --all-targets --features cli -- -D warnings` (Ubuntu only), then `cargo test --no-default-features --features cli,workflow-js` on Ubuntu and Windows
 4. **test-windows** — the full vitest suite on `windows-latest` (napi addon built first), so Windows-only regressions are caught
 5. **test-pi-tui** — `pi-tui` suite (dispatches to `bun test` under Bun and `node --test` under Node; CI runs it via Bun)
-6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, `check:no-legacy-engine`, `check:nix-workspace`, two architecture gates (`check:architecture` = `architecture.json`; `check:normify` = `normify-kimi-code/`), the divergence-ledger citation gate (`check:roadmap-refs`), Rust ↔ TS interface parity (`check:parity`), no-comment policy (`check:no-comments`), `t()` coverage (`check:t-call-coverage`), engine i18n parity (`check:engine-i18n`), hardcoded-string scan (`scan:hardcoded`, TypeScript trees only), retired-package upstream delta ratchet (`check:upstream-v2-delta`), locale key parity (`check:locale-keys`), catalog-wide orphan ratchet (`check:locale-orphans`, both consumers — engine `LocalizedText` and host `t()` — with the accepted debt in `scripts/locale-orphan-allowlist.json`), locale placeholder validity (`check:locale-placeholders`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
+6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, `check:no-legacy-engine`, `check:nix-workspace`, two architecture gates (`check:architecture` = `architecture.json`; `check:normify` = `normify-kimi-code/`), the divergence-ledger citation gate (`check:roadmap-refs`), Rust ↔ TS interface parity (`check:parity`), no-comment policy (`check:no-comments`), `t()` coverage (`check:t-call-coverage`), engine i18n parity (`check:engine-i18n`), hardcoded-string scans (`scan:hardcoded` for the TypeScript trees, `scan:hardcoded:rust` for `packages/kimi-agent`), retired-package upstream delta ratchet (`check:upstream-v2-delta`), locale key parity (`check:locale-keys`), catalog-wide orphan ratchet (`check:locale-orphans`, both consumers — engine `LocalizedText` and host `t()` — with the accepted debt in `scripts/locale-orphan-allowlist.json`), locale placeholder validity (`check:locale-placeholders`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
 7. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
 8. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-agent && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test.
 9. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
@@ -596,8 +609,10 @@ Pushes to `main` run `release.yml`: the changesets action opens/updates a **"ci:
 - Supported locales: `en` (English), `zh` (Chinese).
 - Locale JSON must be regenerated after translation changes: `bun run generate:locale-json`. It reads `packages/i18n-catalog/src/locales/{en,zh}.ts` and writes `packages/kimi-agent/src/locales/{en,zh}.json`, which CI diffs for drift.
 - Run `bun run scan:hardcoded` to find hardcoded strings that should be localized.
-  It covers the six TypeScript trees in its `MODULES` list; the Rust engine is not
-  among them, so a green run says nothing about `packages/kimi-agent`.
+  It covers the six TypeScript trees in its `MODULES` list; the Rust engine has its own gate,
+  `bun run scan:hardcoded:rust`, whose per-literal `reason` separates an upstream-mandated exemption
+  (model input, tool protocol, wire token) from `deferred` debt. Both are two-way ratchets: `-- --update`
+  re-records, and an entry that is gone or now localized fails.
 - Run `bun run check:locale-placeholders` to validate placeholder consistency.
 
 ---

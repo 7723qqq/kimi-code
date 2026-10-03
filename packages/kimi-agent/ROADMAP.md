@@ -4920,6 +4920,119 @@ usage 累积 + detect() + 遥测  ← 三合一（见上表）
 2. **§1 板块 6 那句「已补回」的安全约束**：实为 fork 自加（上游 82 行 `system.md` 中不存在该句，只在 fork `prompt/system.md:108`）。保留为 fork 强化，还是按上游删掉以免两处提示词分叉？
 3. **P2-10 tokenCounting anchor**：值得做，还是只修 `server/engine.rs:933` 的 `len()/4` 一行（对 CJK 低报约 4 倍）？anchor 模型本身是**报告精度**改进，不影响正确性——压缩用的是 `compaction::estimate_*` 同一族。
 
+### 6.46 2026-10-03 Windows 提示词跟随实际 shell、通用参数校验文案入目录、引擎硬编码门禁
+
+本轮三件事共享一个前提：**引擎自己产生的文案，此前既没有分类，也没有门禁**。第 1 件是行为
+修正（提示词原先在说一个假前提），第 2 件是 i18n 收敛，第 3 件是给前两件补上能持续生效的机器检查。
+
+#### 6.46.1 Windows 提示词原先描述的是 v2 的假设，不是本引擎的实际行为（**本轮修正**）
+
+**症状**：`prompt/environment.rs` 的 Windows 备注是常量 `WINDOWS_NOTES`，写死 "the Bash tool
+runs through a POSIX shell (bash)"，并据此要求模型写 Unix 语法（`/dev/null` 而非 `NUL`）。
+但 Bash 工具实际走 `native/shell.rs` 的 `resolve_shell`，其 Windows 顺序是
+**pwsh → powershell → Git Bash → cmd**（`packages/kimi-agent/src/native/shell.rs:112-133`）。
+在装了 PowerShell 7 的机器上（本机即 `C:\Program Files\PowerShell\7\pwsh.exe`），该工具跑的是
+pwsh，提示词却在教模型写 Unix 语法——**提示词与工具的实际行为互斥**，模型据此写的命令必然语法错误。
+
+**修复**：`detect_shell` 改为委托 `resolve_shell(None)`（不再自己另列一份 Git Bash 候选目录），
+Windows 备注由常量变为 `windows_notes(shell_name)`，按 pwsh / powershell / cmd / 其它四种形态分别给出
+该 shell 的语法指引（`packages/kimi-agent/src/prompt/environment.rs`）。新增测试
+`windows_notes_follow_the_shell` 钉住四种形态；原 `WINDOWS_NOTES` 常量已无任何引用。
+
+**与 v2 的关系（登记为有意偏差）**：v2 把这句话写死为 "The Bash tool runs through Git Bash"
+（`profile-shared.ts:105`），且 `profile-shared.test.ts:95` 直接断言该措辞。fork 的 shell 解析顺序
+与 v2 不同（fork 优先 pwsh），沿用 v2 的措辞会让提示词继续失真，**故本轮有意让提示词描述本引擎真实的
+执行路径**，而不是 v2 的假设。若上游日后修正该假前提，此处应随之收回，而不是长期各自表述。
+
+#### 6.46.2 通用参数校验句式收敛到 6 个目录键
+
+**观察**：`Invalid <Tool> arguments: \`field\` must be a …` 这一句式在 `tools/` 下重复多次，只有工具名
+与字段名不同。它**不是 v2 的文案**——在 v2 全量检出里搜 `Invalid <Tool> arguments` 零命中（唯一相近的
+`Invalid tool arguments` 出自 `mcp.test.ts:705`，与工具参数校验无关），而是 Rust 引擎自己的校验产物，
+因此本地化它不构成对 v2 措辞的偏离。
+
+**修复**：新增 `tools/mod.rs` 的 `arg_error_text` / `arg_error` 两个辅助函数
+（`packages/kimi-agent/src/tools/mod.rs:4662`），把句式的可变部分做成 `{{tool}}` / `{{field}}` 参数，
+句式本身收敛为 6 个键：`engine.tools.argMustBe{String,Boolean,Number,Array}`、`argMustNotBeEmpty`、
+`argRequired`（`packages/i18n-catalog/src/locales/en.ts` 与 `zh.ts` 同步，占位符一致）。
+**实测 20 处调用点**改为按**句式**取键，而不是按（工具, 字段）组合生键，因此目录只增长 6 条。
+
+**为什么不与 §6.19 末段的裁定冲突**：§6.19 的「单一英文来源」约束的是**用户可见**的引擎文案，同一节
+另有一条明确边界——`goal_tools.rs` / `create_goal.rs` 里**模型可见**的**领域**文案（如
+`Invalid goal status. Use \`active\`…`）应与 v2 一致地保持英文。本轮只动了**通用参数句式**；
+v2 逐字存在的领域串（`updateGoalTool.ts:36` 的 `Invalid goal status…`）**原样保留为硬编码英文**。
+两者不冲突，故无需改判 §6.19。
+
+**残留**：仍有 87 条以 `Invalid ` 开头的**专用**句子保持硬编码（形如
+`Invalid SetGoalBudget arguments: \`value\` must be positive.`），由 §6.46.3 的门禁逐条登记为
+`deferred`，属已记账的债而非静默遗漏。
+
+#### 6.46.3 引擎硬编码文案首次有了门禁（`scan:hardcoded:rust`）
+
+**背景**：`scan:hardcoded` 只覆盖 6 个 TypeScript 树，`packages/kimi-agent`（21.8 万行）长期零覆盖，
+而 AGENTS.md 此前明确写着「**不要**通过新增 Rust 扫描来修这个盲区——那会连模型输入脚手架与 wire
+token 一起扫进来」。该反对意见针对的是**按路径**猜：`src/prompt/` 是模型输入、`src/tools/` 不是，
+而这个猜法两个方向都错——`tools/core_tool_defs.rs` 是模型的手册、必须保持英文，
+`tools/exit_plan_mode.rs` 是用户要读的对话框。
+
+**落地**：新增 `scripts/scan-hardcoded-rust.mjs`（`package.json` 的 `scan:hardcoded:rust` 与 CI lint
+job 同步），改为按**字面量形状**判定（≥2 个字母词、含真实空白、以句子标点为主，排除测试模块、注释、
+SQL/JSON/路径/格式串与已在 `LocalizedText` 接缝上的串），并要求每个幸存字面量在
+`scripts/hardcoded-rust-allowlist.json` 里带一个 `reason`，取值来自固定词表：`model-input`、
+`tool-protocol`、`format-scaffolding`、`wire-token`、`dead-path`、`diagnostic`、
+`workspace-artifact`、`dev-surface`、`deferred`——其中**只有 `deferred` 是真正的 TODO 债**。
+
+**双向棘轮**（与 `check:locale-orphans` 同构）：新出现的未登记字面量 → 失败；已登记但现在消失或已被
+本地化 → 也失败。两者用 `bun run scan:hardcoded:rust -- --update` 重录。**本轮实测**：扫 249 个 `.rs`，
+prose 字面量 2609（其中 555 落在 `LocalizedText` 接缝上被天然豁免），登记 1755，`new 0 / stale 0`。
+
+**首个被它记账的债**：AGENTS.md「Known gaps」里那条「信息性脚注仍是英文」
+（`Total lines in file: N.`、`Continue with the same search arguments…`）现在被逐条登记为
+`deferred`。**因此 AGENTS.md 中「没有门禁能抓到它们」与「不要加 Rust 扫描」两处表述已作废**，
+本轮同步改写了 AGENTS.md 的 Known gaps、Scripts 清单、CI pipeline 与 i18n Conventions 四处。
+
+#### 6.46.4 本轮修掉的一处 CI 红
+
+`bun run lint` 在本轮开始时是**红的**（`Found 4235 warnings and 1 error`），唯一的 error 在
+`scripts/scan-hardcoded-rust.mjs:570`：`for (const [k, f] of found)` 中的 `f` 从未使用
+（`eslint(no-unused-vars)`）。改为 `for (const [k] of found)` 后 lint 归零。**这条 error 是新增门禁
+自己带进来的**——新门禁落地时未跑 `bun run lint`，这正是「新增脚本要跑 lint」这条惯例存在的理由。
+
+#### 6.46.5 验证
+
+- **门禁 15 道全绿**：`check:architecture`、`check:normify`、`scan:hardcoded`、
+  `scan:hardcoded:rust`、`check:parity`、`check:engine-i18n`、`check:locale-{keys,orphans,placeholders}`、
+  `check:upstream-v2-delta`、`check:roadmap-refs`、`check:t-call-coverage`、`check:no-comments`、
+  `check:no-legacy-engine`、`check:nix-workspace`。
+- **指纹刷新按既定流程**：`check:architecture -- --update` 刷新 4 个模块（kimi-agent / node-sdk /
+  i18n-catalog / kimi-inspect）；normify 的 7 个 `fingerprint-drift` 用 `normify_module_refresh` 刷新
+  11 个模块（子模块与其父一起传，含 `engine.tools`、`tooling.build` 及其祖先），**未手改
+  `tree.json`**，随后 `normify_build` + `normify_render` 使 `tree.json` / `receipt.json` /
+  `normify.html` 一致。
+- **Rust**：`cargo fmt --check` 0；`cargo clippy --all-targets --features cli -- -D warnings` 0；
+  `cargo test --no-default-features --features cli` 全绿。
+- **TS**：`bun run typecheck` 0；`bun run lint` 0 error（4235 warnings，均为既有存量）；
+  `generate-locale-json.cjs` 重跑后 10 个产物无 diff（引擎 en/zh.json 哈希不变）。
+
+#### 6.46.6 遗留（**两条本轮已闭环**）
+
+1. ~~**`probeShellPath` 无测试覆盖**~~ **已补（2026-10-03）**：新增
+   `packages/node-sdk/test/shell-path-probe.test.ts`（6 例），钉住 KIMI_SHELL_PATH 优先、
+   pwsh 优先于 powershell、powershell 的探测顺序、`where` 多行结果取首个非空行、
+   非零退出不终止探测、以及非 Windows 走 `SHELL` / `/bin/bash`。它用
+   `vi.mock('node:child_process', { spy: true })` 只桩掉 `spawnSync`（不 mock `node:fs`，
+   避免误伤同图其它模块），并临时改写 `process.platform` 以进入 Windows 分支。
+   **做过变异验证**：把实现里的 pwsh / powershell 两块对调后，6 例中 3 例失败——即这条测试真的能
+   抓住顺序回退，不是装饰。仍**未**闭环的部分：两侧顺序依然是两份独立实现，
+   TS 测试管不到 Rust 侧；若日后要真正消除漂移，应把顺序收敛成一处定义（或进 `check:parity`）。
+2. ~~**源码注释里的「46」与实际不符**~~ **已按实测改写（2026-10-03）**：`tools/mod.rs`、
+   `locales/en.ts` 与 `check-engine-i18n-parity.mjs` 三处改为「`arg_error` 有 **20 处调用点**，
+   改动前树上有 **23 处**通用句式字面量」——两个数字都可复现。原「46」**三个口径都对不上**：
+   helper 调用点 20 处；`git grep -o -E "Invalid [A-Za-z]+ arguments:" HEAD -- packages/kimi-agent/src`
+   在改动前的 HEAD 上是 **53 处**（含测试与 locales 时 55）；HEAD 上符合六种通用句式的 **23 处**。
+   这正是 §6.45 末尾那条「派工前把每一行的数字都重新核一遍」的同类问题：
+   `check:roadmap-refs` 只验引用存在性，数字写错它不会吭声。
+
 ## 7. v1 / v3 协议面自创实现审计（2026-09-20，按铁律）
 
 > **v3 部分已作废**：上游 2.0.2 整体 revert 了 v3（`2502d2157`），fork 跟随撤销
