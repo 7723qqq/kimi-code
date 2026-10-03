@@ -7495,3 +7495,36 @@ REST 列表带该字段。
 **验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -D warnings` ✅｜
 `cargo test --lib "mcp::client"` 20 项 ✅｜`the_web_bundle_contract_...` ✅｜
 变异验证：#1 与 #2 各被且仅被预期测试抓住。#3/#4/#5 的变异证据见上表（872 项带变异全绿）。
+
+### 10.45 §10.44 的三处未覆盖：已全部补齐（2026-10-03）
+
+§10.44 结尾把 #3/#4/#5 记成「先记录不硬做」，理由是「需要尚不存在的测试基础设施」。**这个理由对 #4/#5 是错的**——
+我没找就下了结论。实际基础设施大多已经存在：
+
+- **#3 `compaction_failed`**：`run_turn.rs` 里已有 `AlwaysOverflowLlm` 与 `EventCapturingCallbacks`（后者把
+  `emit_event` 与 `telemetry` 收进**同一个** vec，前者带 `type`、后者带 `event`，正好可分辨）。新测试只需把
+  summarizer 从「返回空 summary」改成「返回 `Err`」，并把历史换成**有切分点**的形状（12 条交替 user/assistant）
+  让紧急压缩真的去问 summarizer。
+- **#4 `session_load_failed`**：需要的是**文件库**——`SqliteSessionStore::open(path)` 早就存在，于是可以用
+  **第二个连接** `DROP TABLE messages` 注入故障（`load_session_history` → `load_session_messages` 读的就是这张表）。
+  服务端也已有 `with_engine(engine_without_a_model(...))`、`with_telemetry_sink`，以及现成的 `prompt(&server, &sid)`
+  helper（`the_prompt_route_reaches_the_engine_and_reports_its_failure` 用的就是这条路由）。
+- **#5 `x-trace-id` 捕获**：`llm/http.rs` **本文件内**就有三处手写 `TcpListener` 测试（`:1752` / `:1815` / `:1848`），
+  还有 `spawn_fixed_200_server`、`sse_response`、`config()`、`chat_once()` 等 helper。**零新依赖**。
+
+**三条新测试与变异验证**（每条都改回去确认「只有它红」）：
+
+| 测试 | 断言的需求 | 变异 | 结果 |
+|---|---|---|---|
+| `a_failing_summarizer_reports_compaction_failed` | 压缩失败发 `compaction_failed`，带 `turn_id` 与原因，且终态 `compaction.cancelled` 仍发出 | 改事件名 | **红**（`left: 0, right: 1`） |
+| `an_unreadable_history_reports_session_load_failed` | 历史读不出时发 `session_load_failed`，带 `session_id` / `stage: history` / 原因 | 改事件名 | **红**（载荷证实 `no such table: messages`） |
+| `a_failed_call_keeps_the_provider_request_id` | 失败调用保留 provider 的 `x-trace-id`（类型化字段**与**渲染文本都要有） | 改 header 名 | **红** |
+
+**#4 顺带证明的一件事**：`captured` 载荷是 `reason: "no such table: messages"`——说明注入的故障确实走到了
+那条分支，而不是因为别的错误提前返回。这正是「测试不能靠碰巧通过」的检查方式。
+
+**方法论修正**：以后写「需要尚不存在的 X」之前**必须先搜**。这一轮我两次下这种结论，两次都错了——
+一次是 §10.44 的 #4/#5，一次是更早关于「没有 HTTP mock」，而 `http.rs` 自己就有三个。
+
+**验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -D warnings` ✅｜
+`llm::http` 38 项 ✅｜`turn_loop::run_turn` 78 项 ✅｜`server::` **404 项**（+1）✅｜三处变异各自被预期测试抓住 ✅。

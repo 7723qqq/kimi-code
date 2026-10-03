@@ -8233,6 +8233,141 @@ mod tests {
         );
     }
 
+    /// A summarizer that fails outright is a different event from one that
+    /// produces nothing, and until now nothing observed which one was emitted:
+    /// renaming the `compaction_failed` telemetry event left every test in this
+    /// module green. The event name is the whole payload a consumer routes on,
+    /// so an unobserved name is an unobserved event.
+    #[tokio::test]
+    async fn a_failing_summarizer_reports_compaction_failed() {
+        struct FailingSummarizerLlm {
+            summarizer_calls: AtomicU32,
+            step_calls: AtomicU32,
+        }
+        impl LLM for FailingSummarizerLlm {
+            fn system_prompt(&self) -> &str {
+                "sys"
+            }
+            fn model_name(&self) -> &str {
+                "failing-summarizer-model"
+            }
+            fn is_retryable_error(&self, _error: &str) -> bool {
+                false
+            }
+            fn transport(&self) -> &'static str {
+                "native-http"
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let is_summarizer = params
+                    .messages
+                    .first()
+                    .is_some_and(|message| message.content.contains("conversation summarizer"));
+                if is_summarizer {
+                    self.summarizer_calls.fetch_add(1, Ordering::SeqCst);
+                    // The failure the emergency path must report, as opposed to
+                    // an empty summary, which is a no-op with its own event.
+                    return Box::pin(async move {
+                        Err(Box::new(std::io::Error::other("summarizer exploded"))
+                            as Box<dyn std::error::Error + Send + Sync>)
+                    });
+                }
+                self.step_calls.fetch_add(1, Ordering::SeqCst);
+                let message =
+                    "llm http status 400 Bad Request: context_length_exceeded".to_string();
+                Box::pin(async move {
+                    Err(Box::new(std::io::Error::other(message))
+                        as Box<dyn std::error::Error + Send + Sync>)
+                })
+            }
+        }
+
+        let llm = FailingSummarizerLlm {
+            summarizer_calls: AtomicU32::new(0),
+            step_calls: AtomicU32::new(0),
+        };
+        let server = Arc::new(RpcServer::new());
+        let (capturing, events) = EventCapturingCallbacks::new(rpc_callbacks(server.clone()));
+        let callbacks: Arc<dyn HostCallbacks> = Arc::new(capturing);
+
+        // A history with a split point, so the emergency path actually asks the
+        // summarizer instead of flooring the count to zero.
+        let mut messages = vec![LLMMessage {
+            role: "system".into(),
+            content: "sys".into(),
+            ..Default::default()
+        }];
+        for index in 0..12 {
+            messages.push(LLMMessage {
+                role: if index % 2 == 0 { "user" } else { "assistant" }.into(),
+                content: format!("turn {index} with enough text to be worth compacting"),
+                ..Default::default()
+            });
+        }
+
+        let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
+            previous_turn_aborted: false,
+            turn_id: "test-compaction-failed".into(),
+            llm: &llm,
+            messages,
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: Some(100_000),
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+            toolset: None,
+        };
+
+        assert!(run_turn(input, &callbacks).await.is_err());
+        let asked = llm.summarizer_calls.load(Ordering::SeqCst);
+        assert!(
+            asked > 0,
+            "the summarizer must have been asked; it was not, so this is not the failure path"
+        );
+
+        let recorded = events.lock().unwrap().clone();
+        let failed: Vec<&serde_json::Value> = recorded
+            .iter()
+            .filter(|event| {
+                event.get("event").and_then(|name| name.as_str()) == Some("compaction_failed")
+            })
+            .collect();
+        assert_eq!(
+            failed.len(),
+            1,
+            "one compaction failed once; saw {recorded:?}"
+        );
+        assert_eq!(failed[0]["turn_id"], "test-compaction-failed");
+        // The reason is what tells a consumer whether the summarizer failed, was
+        // cancelled, or produced nothing — the three land on different events.
+        let reason = failed[0]["reason"].as_str().unwrap_or_default();
+        assert!(
+            reason.contains("summarizer exploded"),
+            "the reason must carry the failure: {reason}"
+        );
+
+        // The terminal card still goes out: the turn owes one once
+        // compaction.started has been emitted.
+        let terminal: Vec<String> = recorded
+            .iter()
+            .filter_map(|event| event.get("type").and_then(|kind| kind.as_str()))
+            .filter(|kind| kind.starts_with("compaction."))
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(terminal, ["compaction.started", "compaction.cancelled"]);
+    }
+
     /// v2 `nextProjectionPolicyForError`: a provider "request too large"
     /// degrades the older media and retries the step; a second rejection
     /// strips every media part. The step layer retries neither, so the

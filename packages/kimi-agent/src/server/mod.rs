@@ -8102,6 +8102,79 @@ mod tests {
         assert!(body.contains("rustSelfContained"), "{body}");
     }
 
+    /// A session whose stored history cannot be read is the failure a user
+    /// experiences as "my conversation is gone". It used to leave no event
+    /// behind — only a 500 in the access log — and renaming the telemetry event
+    /// left every test in this file green, so nothing observed that it fires.
+    #[tokio::test]
+    async fn an_unreadable_history_reports_session_load_failed() {
+        let dir = std::env::temp_dir().join(format!("kimi-sload-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = dir.join("sessions.db");
+
+        // File-backed, not in-memory: the failure has to be injected from a
+        // second connection, which an in-memory database cannot have.
+        let store = Arc::new(SqliteSessionStore::open(&db).unwrap());
+        let hub = Arc::new(EventHub::new());
+
+        let captured: Arc<std::sync::Mutex<Vec<(String, Value)>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&captured);
+        let server = HttpServer::with_hub(store.clone(), hub.clone()).with_telemetry_sink(
+            Arc::new(move |event: &str, payload: Value| {
+                sink.lock().unwrap().push((event.to_string(), payload));
+            }),
+        );
+
+        let created = server
+            .handle_request(&HttpRequest {
+                method: "POST".into(),
+                path: "/api/v1/sessions".into(),
+                query: None,
+                headers: HashMap::new(),
+                body: serde_json::to_vec(&json!({ "title": "unreadable" })).unwrap(),
+            })
+            .await;
+        let body: Value = serde_json::from_slice(&created.body).unwrap();
+        let sid = body["id"].as_str().unwrap().to_string();
+
+        let server = server.with_engine(engine_without_a_model(store, hub));
+
+        // Break the read the route depends on, leaving everything else the route
+        // checks first — the session row, the workspace — intact.
+        {
+            let conn = rusqlite::Connection::open(&db).unwrap();
+            conn.execute("DROP TABLE messages", []).unwrap();
+        }
+
+        let response = prompt(&server, &sid).await;
+        assert_eq!(response.status, 500, "a broken read is a server error");
+
+        let events = captured.lock().unwrap().clone();
+        let failed = events
+            .iter()
+            .find(|(event, _)| event == "session_load_failed");
+        assert!(
+            failed.is_some(),
+            "the failure must be reported, not only logged: {events:?}"
+        );
+        let payload = &failed.unwrap().1;
+        assert_eq!(payload["session_id"], sid.as_str());
+        // The stage names which read failed, so a consumer can tell an
+        // unreadable history from the other loads this event covers.
+        assert_eq!(payload["stage"], "history");
+        assert!(
+            payload["reason"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("messages"),
+            "the reason must name the failure: {payload}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[tokio::test]
     async fn an_unknown_session_gets_404_rather_than_a_turn() {
         let server = HttpServer::in_memory().unwrap();

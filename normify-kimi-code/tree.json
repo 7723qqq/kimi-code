@@ -9,7 +9,7 @@
         "repository": "https://github.com/7723qqq/kimi-code"
       }
     ],
-    "compiled_at": "2026-10-03T11:48:47.638Z",
+    "compiled_at": "2026-10-03T12:01:01.352Z",
     "stats": {
       "tree_count": 1,
       "module_count": 74,
@@ -583,8 +583,8 @@
           "path": "packages/kimi-agent/src/lib.rs"
         }
       ],
-      "revision": "9796b6da830de4efc4229058662f35dcb063a0b7",
-      "updated_at": "2026-10-03T11:48:47.396Z",
+      "revision": "0e767ce96dfc9cec2474c3dd50ecdf01c32fd52d",
+      "updated_at": "2026-10-03T12:01:01.064Z",
       "fingerprint": "f3bdc1d18ee20dcc0e6f1c18071ed862e5946cabf7864f99910b42f664af756a",
       "aggregate": {
         "descendant_count": 36,
@@ -619,9 +619,9 @@
           "path": "packages/kimi-agent/src/pipeline/mod.rs"
         }
       ],
-      "revision": "fa553a49ae2488ed6ba23dd9686812a0d73cbf5f",
-      "updated_at": "2026-10-03T10:56:40.681Z",
-      "fingerprint": "b8be29937ae34736f52ecf5c6df7d2a7ab5aae8efdc454c56fe36e9c9e459596",
+      "revision": "0e767ce96dfc9cec2474c3dd50ecdf01c32fd52d",
+      "updated_at": "2026-10-03T12:01:01.061Z",
+      "fingerprint": "f97a99968a62fcfb762e71f15ee6a322d4130fc38b77211450631f69bb4f7764",
       "deps": [
         {
           "kind": "call",
@@ -1029,9 +1029,9 @@
           "path": "packages/kimi-agent/src/turn_loop/retry.rs"
         }
       ],
-      "revision": "5d7ef5644a0810da5d401c2951b5e5cd2f441df9",
-      "updated_at": "2026-10-03T10:50:05.006Z",
-      "fingerprint": "a1bcdbbb3ba9e1fd6022666e16eca74b6b774777147838403ce76d008119bc50",
+      "revision": "0e767ce96dfc9cec2474c3dd50ecdf01c32fd52d",
+      "updated_at": "2026-10-03T12:01:01.060Z",
+      "fingerprint": "71f094012cf202db135a1995d78095bca515abb9ea55871194827a5e3057232c",
       "deps": [
         {
           "kind": "call",
@@ -1085,8 +1085,8 @@
           "path": "packages/kimi-agent/src/llm/google_genai.rs"
         }
       ],
-      "revision": "1d8d64b4b7b219e3da075845ca51342d829c58e9",
-      "updated_at": "2026-10-03T10:29:58.204Z",
+      "revision": "0e767ce96dfc9cec2474c3dd50ecdf01c32fd52d",
+      "updated_at": "2026-10-03T12:01:01.062Z",
       "fingerprint": "5d4514495e98ff15280e9a4c7d7a423d0c49c1b7720c8355d203a65ccfbed142",
       "aggregate": {
         "descendant_count": 4,
@@ -1187,9 +1187,9 @@
           "path": "packages/kimi-agent/src/llm/media_budget.rs"
         }
       ],
-      "revision": "1d8d64b4b7b219e3da075845ca51342d829c58e9",
-      "updated_at": "2026-10-03T10:29:58.204Z",
-      "fingerprint": "412292cd8c620dfbae99b5572d1b88b5aab7b4d032fc4609cc5c26f03902c10b",
+      "revision": "0e767ce96dfc9cec2474c3dd50ecdf01c32fd52d",
+      "updated_at": "2026-10-03T12:01:01.061Z",
+      "fingerprint": "9e97f5bf29e69b46895d53e6b706f83a50e64bcf460cd2ffdf8472fa6d0873bc",
       "aggregate": {
         "descendant_count": 0,
         "own_api_count": 0,
@@ -1677,9 +1677,9 @@
           "path": "packages/kimi-agent/src/server/hub.rs"
         }
       ],
-      "revision": "9796b6da830de4efc4229058662f35dcb063a0b7",
-      "updated_at": "2026-10-03T11:48:47.396Z",
-      "fingerprint": "6288450b0ec87f28b67f4e1a27417d25732fd0d4689d0196603abae990752e1a",
+      "revision": "0e767ce96dfc9cec2474c3dd50ecdf01c32fd52d",
+      "updated_at": "2026-10-03T12:01:01.063Z",
+      "fingerprint": "6431103f50206d58b0802335b41b5a4866bbd52c3ee87ff5294814989e92b37c",
       "deps": [
         {
           "kind": "dataflow",
@@ -1724,9 +1724,9 @@
           "path": "packages/kimi-agent/src/server/fs_routes.rs"
         }
       ],
-      "revision": "9796b6da830de4efc4229058662f35dcb063a0b7",
-      "updated_at": "2026-10-03T11:48:47.396Z",
-      "fingerprint": "8374b8ddb818bd425c97be91b5cec8bf48c9bb4337f2f458b7973bf4aff5b7cb",
+      "revision": "0e767ce96dfc9cec2474c3dd50ecdf01c32fd52d",
+      "updated_at": "2026-10-03T12:01:01.063Z",
+      "fingerprint": "af71607a1e71eadbf566d4ada15a5172aef9dabc6ab8879734eaed3e8e4e2b6e",
       "apis": [
         {
           "protocol": "http",

@@ -1880,6 +1880,71 @@ mod tests {
         .map_err(|e| e.to_string())
     }
 
+    /// A failed call keeps the provider's own request id.
+    ///
+    /// The id is the one string a user can quote to the provider's support, and
+    /// it arrives on the same response headers as `retry-after` — which this
+    /// path already read. Nothing observed the capture, though: renaming
+    /// `x-trace-id` in the header lookup left every test in this module green,
+    /// so in production `request_id()` could have been permanently `None`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_failed_call_keeps_the_provider_request_id() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                let _ = sock.read(&mut buf).await;
+                let body = "{\"error\":\"boom\"}";
+                // `x-trace-id` is what the provider sends so a caller can cite
+                // the failure; the transport must not lose it just because the
+                // call failed.
+                let response = format!(
+                    "HTTP/1.1 500 Internal Server Error\r\ncontent-type: application/json\r\nx-trace-id: trace-abc-123\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = sock.write_all(response.as_bytes()).await;
+                let _ = sock.shutdown().await;
+            }
+        });
+
+        let llm = NativeHttpLlm::new(
+            config("openai", &format!("http://{addr}/v1")),
+            String::new(),
+        );
+        let result = llm
+            .chat(LLMChatParams {
+                cancel: None,
+                messages: Arc::from(vec![crate::turn_loop::types::LLMMessage {
+                    role: "user".into(),
+                    content: "hi".into(),
+                    ..Default::default()
+                }]),
+                tools: Arc::from(Vec::new()),
+            })
+            .await;
+
+        let error = result.expect_err("a 500 must fail the call");
+        let typed = error
+            .downcast_ref::<crate::llm::LlmError>()
+            .expect("the transport must keep its typed error, not only its text");
+        assert_eq!(typed.status_code(), Some(500));
+        assert_eq!(
+            typed.request_id(),
+            Some("trace-abc-123"),
+            "the provider's request id must survive the failure"
+        );
+        // And it is in the rendered text, which is what a log and a bug report
+        // actually show.
+        assert!(
+            typed.to_string().contains("[trace trace-abc-123]"),
+            "{typed}"
+        );
+
+        server.abort();
+    }
+
     /// Google does not send a `Retry-After` header; the wait rides in the body
     /// as a `google.rpc.RetryInfo` detail, which the transport used to drop
     /// entirely. It must now reach the retry layer as a typed field — the whole
