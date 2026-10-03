@@ -258,6 +258,15 @@ jobs:
       # planner that lists which modules are stale. CI must not refresh on its own:
       # writing the model here would hide the very drift the step exists to report.
       - run: bun run check:normify
+      # Intra-crate module graph of the Rust engine, which neither gate above can
+      # see: `architecture.json` has one entry for the whole crate and its Check B
+      # reads `IMPORT_EXTENSIONS`, which does not include `.rs`; normify's tree has
+      # 37 `kimi-code.engine.*` concepts and 15 conceptual edges against 248 real
+      # `crate::` pairs. Two-way ratchet over scripts/rust-module-deps-baseline.json:
+      # a new cross-module dependency fails (and prints its evidence sites), and so
+      # does a recorded one that is gone, so the record cannot rot. Re-record with
+      # `bun run check:rust-module-deps:update` in the same commit as the change.
+      - run: bun scripts/check-rust-module-deps.mjs
       # Ledger gate (packages/kimi-agent/ROADMAP.md): every file and test the
       # divergence ledger cites must still exist. The ledger is the fork's only
       # record of what the Rust port did and did not take from the deleted
