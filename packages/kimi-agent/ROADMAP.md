@@ -4417,7 +4417,7 @@ has_errors = state == "error"     // 两者不再互相矛盾
 | usage 的 `byModel` 分组 + status 带 usage | **partial（真实）** | **`session/usage/usageAgentModel.ts:28-29,64-75`**、`usageEvents.ts:8-19` | 逐轮 usage 已落库（`sqlite_store.rs:1272`）、会话总计已累加并对外服务（`sdk-rpc-client-native.ts:5561-5567`、`:3229`）。缺两点：`AgentUsageMeta{by_model,current_turn,total}` 类型**已声明但从未构造**（`server/transcript/model.rs:687-694`，像半成品移植）；`status_payload`（`server/engine.rs:916-969`）无 `usage` 键，而 v2 里它是第一字段。cacheProbe 遥测缺（`cacheProbeService.ts:23` 仅对 fork 会话首轮）——属遥测非能力，**建议跳过** |
 | `agent/tokenCounting/` anchor 模型 | **missing（真实）** | `tokenCountingOps.ts:23-71`、`configSection.ts:12-19` | 四个 durable 事件（`token_counting.measured/truncated/rebased/turn_recorded`）全缺（`token_counting\.` 全仓零命中），config section 缺（fork 有完整的 config-section 框架可挂，如 `config/mod.rs:1396`），无 anchor 三元组。**已验证不是"雏形"**：provider 实测 usage 与估算**各算各的、永不相遇**。另注：`native/tokens.rs:87-92` 记明 anchor tracker 曾存在但作为未接线的重复实现被清理。`server/engine.rs:933` 的 `len()/4` 比 fork 自己的 `native::tokens::estimate_tokens` 更粗糙（对 CJK 低报约 4 倍），**这一行无论其余做不做都该单独修** |
 | `agent/userTool/` 持久注册 | **missing（真实）** | `userToolOps.ts:10,27,57`、`userToolService.ts:60` | `userToolKey` 是 `defineState(...).replayable(...)` 的 **durable** state（`:57`），配 `ToolsRegisterUserTool`/`ToolsUnregisterUserTool` 两个 durable 事件（`:24,40`）。fork 侧 `register_user_tool`/`UserToolRegistration`/`userToolKey`/`inheritUserTools` **全仓零命中** |
-| `toolResultRender` 状态包装 | **partial（真实）** | `toolResultRender.ts:32-49`（`renderStatus`）、`:51-68`、`:79-85` | fork 模型可见的 tool result（`run_turn.rs:1925`）只加 wall-time 前置；`tr.is_error` 只用于发事件（`:1907`），**从不包装模型可见内容**。i18n 串存在而无人用：`locales/en.json:609` 的 `"Tool output is empty."` 全仓只此一处。v2 侧每个请求的每条 `role:"tool"` 消息都过这个渲染（`projection.ts:342`），**这是模型判断工具成败的唯一信号**；且 `Read` 用渲染后字符数算截断预算（`readTool.ts:508-543`） |
+| `toolResultRender` 状态包装 | **本轮已补**（见 §10.28） | `toolResultRender.ts:32-49`（`renderStatus`）、`:51-68`、`:79-85` | fork 模型可见的 tool result（`run_turn.rs:1925`）只加 wall-time 前置；`tr.is_error` 只用于发事件（`:1907`），**从不包装模型可见内容**。i18n 串存在而无人用：`locales/en.json:609` 的 `"Tool output is empty."` 全仓只此一处。v2 侧每个请求的每条 `role:"tool"` 消息都过这个渲染（`projection.ts:342`），**这是模型判断工具成败的唯一信号**；且 `Read` 用渲染后字符数算截断预算（`readTool.ts:508-543`） |
 | `features/todo` 陈旧提醒 | **missing（真实）** | `todoListReminder.ts:7-8,21-33` | 阈值已核实：`TURNS_SINCE_WRITE=10` 且 `TURNS_BETWEEN_REMINDERS=10` **两者同时满足**才触发（`:25-30`）；计数**只数 assistant 消息**（`:43-61`），分别停在最后一个带 `TodoList` tool call 的 assistant（`:69-81`）与最后条 `origin.variant='todo_list_reminder'` 注入（`:83-88`）。fork 只有写入提醒（`todo_list.rs:20`），`injection/mod.rs:159-184` 的注册表里无此 variant |
 | `features/notify` nudge actor | **partial（真实，但价值最低）** | `notifyUserNudgeService.ts:34-62`、`notifyUserNudge.ts:6,67-88` | 两分支：连续 8 次 tool call 未 NotifyUser 的 streak nudge（阈值 `:6`）+ 中途文本回复提示（`:57-58`）；`notify_user_nudge` variant 未注册。**但它唯一效果就是往历史注入一条 system-reminder**，无状态、无 tool call、无协议事件；fork 的静态提示词指引（`prompt/builder.rs:75-76`）已覆盖意图。**可跳过** |
 
@@ -4819,7 +4819,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 | 5 | ~~**micro compaction 的 `detect()` 两个门禁**~~ **已完成 2026-10-02** | 已核实 | 见 **§10.25**。`compaction/micro.rs` 增 `detect_micro_compaction()` + `DetectOutcome`，配置面补 `cache_missed_threshold_ms` / `min_context_usage_ratio` 两个 v2 默认值；引擎侧增 per-session `last_assistant_at`，每轮 `save_turn` 后打戳（v2 `onDidFinishStep`）。**§6.29 曾把它标成「不得开工」，6.44.1 已推翻** |
 | 6 | **wire 协议无版本概念**：`wire_events` 表无版本列、无 `metadata` 记录、无迁移链（v2 有 v1.0→v1.5 五级 + 前向拒绝）。旧会话既不能迁移也不能识别 | 已核实 | `session/sqlite_store.rs:439` |
 | 7 | **磁盘日志缺失 + 导出 ZIP 只有 2 个成员**。而 `locales/en.json:2600` 正在叫用户出错时跑 `/export-debug-zip`；`apps/vis` 的 Logs 标签页是死的 | 已核实 | `napi_bindings.rs`、`server/mod.rs:1680-1721`、`vis/server/src/routes/logs.ts` |
-| 8 | **POST /undo 不做 state 回滚**：`StateStore::rollback` 生产代码里只有 REPL `/undo` 一个调用方。**是一次缺失的调用，不是缺失的模型** | 已核实（grep 全仓确认） | `server/mod.rs:5511-5602` |
+| 8 | ~~**POST /undo 不做 state 回滚**~~ **已完成 2026-10-01**（`ac180b4dbe`）：闭环记录见 §6.45.4 第 8 行。**本行此前未划线、与 §6.45.4 自相矛盾，2026-10-03 订正**——两表同源于 §6.40，而修正只落在了后者 | 已核实（grep 全仓确认） | `server/mod.rs:5511-5602` |
 
 #### P2 — 已核实，范围或影响需先界定
 
@@ -4829,7 +4829,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 | 10 | `tokenCounting` anchor 模型缺失 | **状态栏那部分已修**（见 6.45.4 第 10 行）；anchor 模型本身是报告精度改进，不影响正确性。**待裁决：值得做，还是就此停手** |
 | 11 | `PermissionRuleScope` 4 档 + `recordApprovalResult` 缺失 | `session_approvals: Vec<String>` 是扁平表，**谁批了什么决定不留痕** |
 | 12 | `SessionOutcomeMirror` 不落库 | `last_turn_reason` 只发活事件；线形字段已在 `protocol/src/session.ts:112` 但无写入方 |
-| 13 | `toolResultRender` 状态包装缺失 | `<system>ERROR:…</system>` 是模型判断工具成败的唯一信号；`locales/en.json:609` 的串全仓无人用 |
+| 13 | ~~`toolResultRender` 状态包装缺失~~ **已完成 2026-10-03**：见 §10.28 | `<system>ERROR:…</system>` 是模型判断工具成败的唯一信号；`locales/en.json:609` 的串全仓无人用 |
 | 14 | ~~`SessionHeartbeat` hook 缺失~~ **已撤销** | 它就是 P1-3 那 14 个未触发事件之一（`types.ts:17`），重复计数。唯一额外成本是需要 session 心跳定时器 |
 | 15 | 遥测事件 ~10/60 | 优先补解释故障的：`api_error`、`compaction_failed`、`tool_call_dedup_detected`、`session_load_failed` 等。**`api_error` 原与 P1-5 合并做，该理由已于 2026-10-02 推翻**（见 §10.25：v2 的 cache-miss 判据不读 usage，两者无共用结构），现为独立工单 |
 | 16 | trust 披露服务（§6.23.6） | 消费者已写好但是死的：`trust-prompt.ts:89-97` 只在数组非空时渲染，`kimi-tui.ts:2689` 硬编码 `[]` |
@@ -4902,7 +4902,7 @@ usage 累积 + detect() + 遥测  ← 三合一（见上表）
 | 10 | ~~`len()/4` 一行修正~~ **已完成 2026-10-01** | `server/engine.rs:933` 改用 `compaction::estimate_tokens`。**实测纠正**：原估「对 CJK 低报约 4 倍」是错的——`len()` 是字节数，3 字节/汉字 → 低报 **25%**（300 字节报 75，实际 100 token）。附带修掉截断：43 ASCII 字符旧值报 10，现为 11。新增测试 `context_tokens_count_cjk_per_character_and_leave_ascii_alone`（ASCII 差异 ≤1 仅进位、CJK 100 字符 = 100 token、混合串按连续 ASCII 段一次进位）。副作用是状态栏与压缩触发器现在共用同一估算器，两者不会再对「有多满」产生分歧 | **已完成** |
 | 11 | **PermissionRuleScope + 审批留痕** | `permission/mod.rs:152` 的 `Vec<String>` 换成带 scope 与 result 的结构；`recordApprovalResult` 需 agent state 写入通道 | **2-3 人天** |
 | 12 | `SessionOutcomeMirror` 落库 | **行号已重定位**：原写 `engine.rs:1697` **已漂移**（现指向一处 `.await;`）。真实链路：`engine.rs:832` `publish_work_changed` 只发活事件，其 `:844` 构造 payload；`events/types.rs:136` 声明字段；`server/transcript/project.rs:2296/2308` 是投影侧。落库点应在 `publish_work_changed` 调用方 | **0.5-1 人天** |
-| 13 | `toolResultRender` 状态包装 | `run_turn.rs:1925` 构建模型可见 tool result 处加 error 前缀与空输出替换；`locales` 已有串 | **1 人天**（若还要对齐 Read 的渲染后字符预算 +1） |
+| 13 | ~~`toolResultRender` 状态包装~~ **已完成 2026-10-03** | 新增 `turn_loop/tool_result_render.rs`，接在 `run_turn` 构建模型可见 tool result 处。**两处刻意不做**（详见 §10.28）：`note` 追加（本引擎把 `note` 兼作内部出处标签）与 Read 的渲染后字符预算 | **已完成** |
 | 17 | `workspaceAliases` | **已核实**：`delete_workspace` 在 `session/sqlite_store.rs:776`；全仓 `workspaceAliases` / `workspace_aliases` **零命中**，即 fork 确实无别名概念——同一目录的符号链接/大小写变体会算成两个 workspace，且删除后无墓碑 | **1-2 人天** |
 | 9 | minidb 读模型 | **待裁决后再估**（取决于是否需要全文检索；若只需 FTS5 则 2-3 人天，若需 minidb 全套则 10+ 人天） | — |
 | 16 | trust 披露 | 消费者已写好，主要是喂数据（读项目 `.mcp.json` + `local.toml` + instruction sources） | **2-3 人天** |
@@ -6734,4 +6734,49 @@ Interrupt 测不稳）。
 --features cli -D warnings` ✅｜`cargo test --lib session::` 89 passed｜
 `hooks_fire` 过滤 5 passed｜`cargo test --no-default-features --features cli`
 全量（见提交前记录）。`bun run check:roadmap-refs` ✅。
+
+### 10.28 §6.45 P2-13 落地：模型可见的 tool result 状态包装（2026-10-03）
+
+v2 的 `renderToolResultForModel`（`contextMemory/toolResultRender.ts`）对每条 `role:"tool"`
+消息做三步：状态包装（`renderStatus`）→ wall-time 头前置 → `note` 追加（`projection.ts:342`
+是调用点）。fork 此前只移植了中间一步（`wall_time::prepend_wall_time`，上游 #3966），
+`tr.is_error` 仅用于发事件、**从不进入模型可见内容**——于是「失败的调用」与「成功但无输出」
+的调用在模型看来都是空文本，而这是模型判断工具成败的唯一信号。
+
+**本轮移植第一步**：新增 `turn_loop/tool_result_render.rs`，逐字对齐 v2 `renderStatus`
+的四条输出（错误、错误且空、非错误且空、其余原样）。接线点仍是 `run_turn.rs` 构建模型
+可见 tool result 处，顺序与 v2 一致：**先状态包装、再前置 wall-time 头**，因此失败调用读作
+`Wall time: X.XXX seconds\n<system>ERROR: …</system>\n{content}`。
+
+两个非对称点照抄 v2，因为它们是有意为之而非疏漏：错误臂判的是**原始长度**
+（`content.is_empty()`），故错误且内容只有空白时，空白在标记之后原样保留；非错误臂则
+**先 trim**，并把 `TOOL_OUTPUT_EMPTY_TEXT`（`"Tool output is empty."`）本身也当作空。
+
+**这条顺带把 4 个新字面量交给 §6.46.3 的门禁**：3 个 `<system>…</system>` 标记由
+`seedReason` 既有的 `<system>` 规则归为 `format-scaffolding`，与清单里已有的
+`<system>No lines read from file. …</system>` 同型；第 4 个 `"Tool output is empty."` 是
+**被 `render_status` 匹配后替换掉**的哨兵串（显示文本由标记产出），落到 `deferred` 属错误
+归类，故手工定为 `wire-token` 并标 `manual: true` 固化（`--seed` 保留人工决定）。
+`--seed` 本次改动面为 **+20 行 / −0 行**（只有这 4 条），既有 1755 条零漂移。
+
+**刻意不做的两步（本轮界定，避免下次重复评估）**
+
+1. **不追加 `note`**。v2 第三步是无条件 `content + '\n' + note`，但本引擎把 `note`
+   **同时**用作模型可见散文与内部出处标签——`tools/mod.rs:1356` 的 `"tool_policy"`、
+   `:1386` 的 `"tool_select"`、`subagent_tools.rs` 的 `"native_subagent"` 都会被写进模型
+   上下文。照搬会泄内部标签；先把两种用途分开，才谈得上移植这一步。
+2. **不对齐 Read 的渲染后字符预算**（v2 `readTool.ts:508-543` 按渲染后字符数算截断预算）。
+   fork 的 Read 在返回前自行截断，状态标记是之后才加的，故差一个标记长度（≈44 字符）。
+   属报告精度而非正确性，且要动 Read 的截断口径，单独登记。
+
+**i18n 裁定**：标记保持英文常量，**不接** `locales/en.json:609` 的 `emptyOutput`。
+根因是 AGENTS.md 的「不翻译」清单把 `<system>{}</system>` 明列为**格式脚手架**，且 v2
+同样硬编码英文；把模型可见的协议标记搬进目录会同时违反该清单与 §6.19 的「模型可见文案
+跟随 v2」。那个键因此继续留在 `locale-orphan-allowlist` 的债里——它是这笔债的**成因
+说明**，不是本轮该消耗的目标。
+
+**验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -D warnings` ✅｜
+`cargo test --no-default-features --features cli` 全量 ✅（既有断言零回归——成功的非空结果
+内容逐字不变，只有失败/空结果受影响）｜新增 6 项单测（错误前缀、错误且空、错误保留空白、
+成功原样、空成功、哨兵串 trim 后判空）｜`scan:hardcoded:rust` 1759 条 / 0 new / 0 stale ✅。
 
