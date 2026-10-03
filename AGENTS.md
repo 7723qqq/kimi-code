@@ -133,12 +133,12 @@ it from `packages/i18n-catalog/src/locales/en.ts` when you touch the catalog.
   first is settled: whether they are **UI or protocol** is a fork decision
   (see What not to translate), but the *unported-subsystem* framing is not a
   question at all — v2's `src/runtime/` capability layer that §6.8.2 needs is
-  registered in `packages/kimi-agent/ROADMAP.md` §6.24, and the engine's
+  registered in `packages/kimi-agent/ROADMAP.md` §6.25, and the engine's
   missing runtime layer is upstream's to match, not a fork preference.
-  **Corrected 2026-10-01 (§6.42):** the *layer* is a real unported subsystem,
-  but it is **not** a prerequisite for the watcher. `RuntimeCapability` is
-  `'fs' | 'process' | 'terminal'` — there is no `watch` rung
-  (`runtime/runtime.ts:8`); upstream's watcher is a standalone service
+  **Corrected 2026-10-01 (§6.25's correction box, §6.43.1):** the *layer* is
+  a real unported subsystem, but it is **not** a prerequisite for the watcher.
+  `RuntimeCapability` is `'fs' | 'process' | 'terminal'` — there is no `watch`
+  rung (`runtime/runtime.ts:8`); upstream's watcher is a standalone service
   (`human/utils/watch.ts:473`, own `[watch]` config section). Schedule §6.8.2
   as its own subsystem.
 - **The Grep / Glob notices were the reverse case, and it is fixed (2026-10-01).**
@@ -386,14 +386,15 @@ scripts/
   check-no-legacy-engine.mjs    — Fail if a retired engine package is still referenced
   check-upstream-v2-delta.mjs   — Retired-package upstream delta ratchet (`upstream-v2-delta-allowlist.json`)
   check-architecture-drift.mjs  — Architecture drift vs `architecture.json` (layers, acyclicity, exemptions)
+  check-rust-module-deps.mjs    — Intra-crate module dependency graph of the Rust engine (two-way ratchet, `rust-module-deps-baseline.json`)
   check-roadmap-refs.mjs        — Divergence-ledger citation gate
   prompt-optimizer/             — Prompt benchmark and optimization tools
 ```
 
-Every gate above has a `package.json` entry (`check:*` / `scan:*`) and runs in CI; `check:architecture` and
-`check:normify` additionally gate on `architecture.json` and `normify-kimi-code/` respectively. When adding a
-gate script, add the `package.json` entry in the same commit — an ungated entry point is a gate a developer
-cannot run from the documented commands.
+Every gate above has a `package.json` entry (`check:*` / `scan:*`) and runs in CI; `check:architecture`,
+`check:normify`, and `check:rust-module-deps` additionally gate on `architecture.json`, `normify-kimi-code/`,
+and `rust-module-deps-baseline.json` respectively. When adding a gate script, add the `package.json` entry
+in the same commit — an ungated entry point is a gate a developer cannot run from the documented commands.
 
 Two gates fail for environment reasons rather than code defects, and neither failure is a green run:
 
@@ -533,7 +534,7 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job install
 3. **test-rust** — `cargo fmt --check` + `cargo clippy --all-targets --features cli -- -D warnings` (Ubuntu only), then `cargo test --no-default-features --features cli,workflow-js` on Ubuntu and Windows
 4. **test-windows** — the full vitest suite on `windows-latest` (napi addon built first), so Windows-only regressions are caught
 5. **test-pi-tui** — `pi-tui` suite (dispatches to `bun test` under Bun and `node --test` under Node; CI runs it via Bun)
-6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, `check:no-legacy-engine`, `check:nix-workspace`, two architecture gates (`check:architecture` = `architecture.json`; `check:normify` = `normify-kimi-code/`), the divergence-ledger citation gate (`check:roadmap-refs`), Rust ↔ TS interface parity (`check:parity`), no-comment policy (`check:no-comments`), `t()` coverage (`check:t-call-coverage`), engine i18n parity (`check:engine-i18n`), hardcoded-string scans (`scan:hardcoded` for the TypeScript trees, `scan:hardcoded:rust` for `packages/kimi-agent`), retired-package upstream delta ratchet (`check:upstream-v2-delta`), locale key parity (`check:locale-keys`), catalog-wide orphan ratchet (`check:locale-orphans`, both consumers — engine `LocalizedText` and host `t()` — with the accepted debt in `scripts/locale-orphan-allowlist.json`), locale placeholder validity (`check:locale-placeholders`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
+6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, `check:no-legacy-engine`, `check:nix-workspace`, three structural gates (`check:architecture` = `architecture.json`; `check:normify` = `normify-kimi-code/`; `check:rust-module-deps` = `rust-module-deps-baseline.json`), the divergence-ledger citation gate (`check:roadmap-refs`), Rust ↔ TS interface parity (`check:parity`), no-comment policy (`check:no-comments`), `t()` coverage (`check:t-call-coverage`), engine i18n parity (`check:engine-i18n`), hardcoded-string scans (`scan:hardcoded` for the TypeScript trees, `scan:hardcoded:rust` for `packages/kimi-agent`), retired-package upstream delta ratchet (`check:upstream-v2-delta`), locale key parity (`check:locale-keys`), catalog-wide orphan ratchet (`check:locale-orphans`, both consumers — engine `LocalizedText` and host `t()` — with the accepted debt in `scripts/locale-orphan-allowlist.json`), locale placeholder validity (`check:locale-placeholders`), locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
 7. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
 8. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-agent && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test.
 9. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
@@ -719,8 +720,8 @@ Standing rules for every `upstream` tag merge (decided 2026-09-03). Upstream is 
     directions before concluding a port is complete.
 
   Beware the naming traps when comparing: v2's `runtime/` (a capability-axis
-  execution layer, `fs`/`process`/`watch`/`terminal` + a six-state lifecycle,
-  ROADMAP §6.24) shares its name with v2's `app/capability/` (a plugin install
+  execution layer, `fs`/`process`/`terminal` + a six-state lifecycle,
+  ROADMAP §6.25) shares its name with v2's `app/capability/` (a plugin install
   service) while `agent/contextMemory/` is fork-covered under different names
   (`native/event_store/loop_fold.rs` + `packages/transcript/src/history/`). Judge
   by real external consumers on the v2 side and behavioural equivalence on the
@@ -729,7 +730,7 @@ Standing rules for every `upstream` tag merge (decided 2026-09-03). Upstream is 
 - **The retired-package delta ratchet is the mechanical half of this policy.** `bun run check:upstream-v2-delta` requires every upstream commit touching a deleted package since the merge base to carry a recorded verdict in `scripts/upstream-v2-delta-allowlist.json` (`ported` / `tracked` / `not-applicable`; `pending` or absent fails). It is wired into CI, but **fetch the ref first**: it reads `refs/remotes/upstream/main`, and a stale ref silently narrows the range and prints a green "all triaged" — `git fetch upstream main:refs/remotes/upstream/main --force`. Deleting those packages is exactly why the delta is invisible to `git log`; this gate exists because 21 behavior commits once piled up unnoticed (ROADMAP §6.0).
   **Its structural blind spot:** the ratchet is keyed on *upstream commits*. A v2
   subsystem that has existed since the export point and was never ported moves no
-  commit, so this gate can never report it — ROADMAP §6.24 (v2's `src/runtime/`
+  commit, so this gate can never report it — ROADMAP §6.25 (v2's `src/runtime/`
   capability layer) is exactly that case, and it was found by comparing subsystem
   trees, not by the ratchet. Treat a green run as "no *new commit* delta", never
   as "the port is complete".
