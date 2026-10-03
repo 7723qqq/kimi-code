@@ -1406,6 +1406,9 @@ pub fn run_turn<'a>(
                     // Same todo suffix as the threshold path (v2
                     // `postProcessSummary`), read at compaction time.
                     let todos = crate::compaction::read_todos_for_summary(callbacks.as_ref()).await;
+                    // v2's `compaction_failed` carries `duration_ms`: the time
+                    // until the failure, measured around the failing call.
+                    let compaction_started = std::time::Instant::now();
                     let compacted_report =
                         crate::compaction::force_compact_messages_with_summary_report(
                             &messages,
@@ -1429,17 +1432,25 @@ pub fn run_turn<'a>(
                             // from a compaction that merely produced nothing
                             // (that one is a no-op, handled below).
                             //
-                            // Built here rather than through
-                            // `telemetry_payload`: that helper interpolates
-                            // the host-injected `TelemetryContext`, which the
-                            // wrappers own and `run_turn` does not receive.
-                            // The turn id and the reason are what a consumer
-                            // correlates on; the mode/provider fields are
-                            // already on `turn_started` for the same turn.
+                            // The property names are v2's
+                            // (`CompactionFailedEvent`); `reason` was this
+                            // engine's invention and v2 has no such field.
+                            //
+                            // `thinking_effort` is required by v2's schema and is
+                            // deliberately absent: it lives on the
+                            // `TelemetryContext` the wrappers own, and `run_turn`
+                            // does not receive it. An empty string would claim an
+                            // effort that was never in effect, which is worse than
+                            // a missing property. Threading the context in is the
+                            // follow-up.
                             callbacks.telemetry(serde_json::json!({
                                 "event": "compaction_failed",
-                                "turn_id": turn_id,
-                                "reason": error.to_string(),
+                                "source": "auto",
+                                "tokens_before": crate::compaction::estimate_messages_tokens(&messages),
+                                "duration_ms": compaction_started.elapsed().as_millis() as u64,
+                                "round": consecutive_overflow_compactions,
+                                "retry_count": compaction_config.max_overflow_compaction_attempts,
+                                "error_type": format!("{error:?}"),
                             }));
                             return Err(Box::new(error) as Box<dyn std::error::Error + 'a>);
                         }
@@ -8463,14 +8474,24 @@ mod tests {
             1,
             "one compaction failed once; saw {recorded:?}"
         );
-        assert_eq!(failed[0]["turn_id"], "test-compaction-failed");
-        // The reason is what tells a consumer whether the summarizer failed, was
-        // cancelled, or produced nothing — the three land on different events.
-        let reason = failed[0]["reason"].as_str().unwrap_or_default();
+        // v2's `CompactionFailedEvent` property names and required set. `reason`
+        // and a string `turn_id` were this engine's invention: v2 has no
+        // `reason` field, its `turn_id` is a numeric per-agent turn index, and
+        // its `error_type` is the class name.
+        assert_eq!(failed[0]["source"], "auto");
+        assert!(failed[0]["tokens_before"].is_u64());
+        assert!(failed[0]["duration_ms"].is_u64());
+        assert_eq!(failed[0]["round"], 1, "the first overflow round");
+        // `retry_count` is the per-round budget the config allows, which is what
+        // v2 reports for the round that ran out of retries.
+        assert!(failed[0]["retry_count"].is_u64());
+        let error_type = failed[0]["error_type"].as_str().unwrap_or_default();
         assert!(
-            reason.contains("summarizer exploded"),
-            "the reason must carry the failure: {reason}"
+            !error_type.is_empty(),
+            "the failure class must be named: {failed:?}"
         );
+        assert!(failed[0].get("reason").is_none());
+        assert!(failed[0].get("turn_id").is_none());
 
         // The terminal card still goes out: the turn owes one once
         // compaction.started has been emitted.

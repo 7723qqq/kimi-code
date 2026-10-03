@@ -319,6 +319,9 @@ pub fn execute_loop_step_with_retry<'a>(
 
         let mut attempt: u32 = 0;
         let infinite_retry = crate::turn_loop::retry::infinite_retry_enabled();
+        // v2's `api_error` carries `duration_ms` — the wall-clock time the
+        // request spent failing, measured from before the first attempt.
+        let started = std::time::Instant::now();
         let response = loop {
             attempt += 1;
             // Match the chat result and extract only Send-safe values, so the
@@ -337,7 +340,9 @@ pub fn execute_loop_step_with_retry<'a>(
                     Some(empty) => {
                         let message = empty_response_message(&empty, &resp, llm);
                         if !infinite_retry && attempt >= retry_config.max_attempts {
-                            (None, Some(boxed_err(message)), None)
+                            // It reached the retry path before running out of
+                            // budget, so v2's `retryable` is true.
+                            (None, Some((boxed_err(message), true)), None)
                         } else {
                             (
                                 None,
@@ -353,46 +358,72 @@ pub fn execute_loop_step_with_retry<'a>(
                     }
                 },
                 Err(err) => {
+                    // v2's `retryable` classifies the *original* failure. Taken
+                    // here, before the terminal error is wrapped: the wrapper's
+                    // message does not start with `llm http status`, and every
+                    // classifier in this engine parses that prefix, so
+                    // re-deriving it from the wrapped text reports false for a
+                    // failure that was retried to exhaustion.
+                    let retryable = llm.is_retryable_error(&err.to_string());
                     match classify_llm_error(err, llm, attempt, &retry_config, infinite_retry) {
                         Ok(decision) => (None, None, Some(decision)),
-                        Err(e) => (None, Some(e), None),
+                        Err(e) => (None, Some((e, retryable)), None),
                     }
                 }
             };
             if let Some(resp) = break_resp {
                 break resp;
             }
-            if let Some(e) = return_err {
-                // v2 `api_error`: the event that explains a failed provider
-                // call. It fires where the call is definitively over rather
-                // than on every attempt, so the count matches the failures a
-                // user actually saw.
+            if let Some((e, retryable)) = return_err {
+                // v2 `api_error` (`app/telemetry/events.ts`), fired where the
+                // call is definitively over rather than on every attempt, so the
+                // count matches the failures a user actually saw.
                 //
-                // The provider's own request id rides along when it sent one:
-                // the transport keeps it on the typed error (P2-19) and this
-                // is its first consumer. Without it a support ticket has only
-                // the message text to go on.
+                // The property names are v2's, not this engine's invention.
+                // `ApiErrorEvent` requires `error_type`, `model`, `retryable`
+                // and `duration_ms`; `status_code` and `trace_id` are optional
+                // and are omitted rather than nulled, because the schema types
+                // them as numbers/strings.
+                //
+                // Deliberately NOT a property: the provider's message. v2 has no
+                // field for it — `error_type` is the classified category — and a
+                // free-text property is what a consumer cannot group on.
                 if let Some(telemetry) = telemetry {
                     let text = e.to_string();
-                    telemetry(serde_json::json!({
+                    let typed = e.downcast_ref::<crate::llm::LlmError>();
+                    // Typed first: the retry-exhausted path wraps the message
+                    // and `llm_http_status` only parses a leading
+                    // `llm http status`, so the text alone loses the status.
+                    let status_code = typed
+                        .and_then(crate::llm::LlmError::status_code)
+                        .or_else(|| crate::llm::http::llm_http_status(&text));
+                    // v2 `error_type`: the classified category. The mapping is
+                    // the retry classifier's, so both layers group failures the
+                    // same way.
+                    let error_type = if crate::llm::http::is_cancelled_error(&text) {
+                        "AbortError"
+                    } else if status_code.is_some() {
+                        "APIStatusError"
+                    } else if text.starts_with("llm transport error ") {
+                        "TransportError"
+                    } else {
+                        "Error"
+                    };
+                    let mut payload = serde_json::json!({
                         "event": "api_error",
-                        "turn_id": turn_id,
-                        "step": step,
-                        "attempts": attempt,
-                        // Typed fields first: the retry-exhausted path wraps
-                        // the message, and `llm_http_status` only parses a
-                        // leading `llm http status`, so the text alone loses
-                        // the status there. The typed read is the same one the
-                        // retry classifier uses.
-                        "status_code": e
-                            .downcast_ref::<crate::llm::LlmError>()
-                            .and_then(crate::llm::LlmError::status_code)
-                            .or_else(|| crate::llm::http::llm_http_status(&text)),
-                        "trace_id": e
-                            .downcast_ref::<crate::llm::LlmError>()
-                            .and_then(crate::llm::LlmError::request_id),
-                        "error_message": text,
-                    }));
+                        "error_type": error_type,
+                        "model": llm.model_name(),
+                        "retryable": retryable,
+                        "duration_ms": started.elapsed().as_millis() as u64,
+                        "step_no": step,
+                    });
+                    if let Some(code) = status_code {
+                        payload["status_code"] = serde_json::json!(code);
+                    }
+                    if let Some(id) = typed.and_then(crate::llm::LlmError::request_id) {
+                        payload["trace_id"] = serde_json::json!(id);
+                    }
+                    telemetry(payload);
                 }
                 return Err(e);
             }
@@ -703,10 +734,25 @@ mod tests {
         // status`, and this message is wrapped.
         let api_error = &recorded[1];
         assert_eq!(api_error["event"], "api_error");
-        assert_eq!(api_error["step"], 3);
-        assert_eq!(api_error["attempts"], 2);
+        // v2's `ApiErrorEvent` property names. `attempts` and a bare `step`
+        // were this engine's invention and are asserted absent below: a
+        // consumer written against v2 looks for `step_no`, and v2 has no
+        // field for the attempt count.
+        assert_eq!(api_error["step_no"], 3);
         assert_eq!(api_error["status_code"], 429);
-        assert!(api_error["trace_id"].is_null());
+        assert_eq!(api_error["error_type"], "APIStatusError");
+        assert_eq!(api_error["model"], "status");
+        // It retried before giving up, so v2's `retryable` is true.
+        assert_eq!(api_error["retryable"], true);
+        assert!(api_error["duration_ms"].is_u64());
+        // No `x-trace-id` was sent, and v2 types the property as an optional
+        // string: a null would be a type error, so it must be absent.
+        assert!(api_error.get("trace_id").is_none());
+        assert!(api_error.get("attempts").is_none());
+        assert!(api_error.get("step").is_none());
+        // v2 has no property for the provider's message; the classified
+        // category is `error_type`.
+        assert!(api_error.get("error_message").is_none());
         assert!(
             event["error_message"]
                 .as_str()
@@ -1400,12 +1446,13 @@ mod tests {
         assert_eq!(recorded[0]["event"], "api_error");
         assert_eq!(recorded[0]["status_code"], 503);
         assert_eq!(recorded[0]["trace_id"], "trace-42");
-        assert_eq!(recorded[0]["attempts"], 1);
-        assert!(
-            recorded[0]["error_message"]
-                .as_str()
-                .unwrap()
-                .contains("[trace trace-42]")
-        );
+        // v2's required set, all four present.
+        assert_eq!(recorded[0]["error_type"], "APIStatusError");
+        assert_eq!(recorded[0]["model"], "typed");
+        assert_eq!(recorded[0]["retryable"], false);
+        assert!(recorded[0]["duration_ms"].is_u64());
+        // The message itself is not a v2 property — the classified category is
+        // what a consumer groups on.
+        assert!(recorded[0].get("error_message").is_none());
     }
 }

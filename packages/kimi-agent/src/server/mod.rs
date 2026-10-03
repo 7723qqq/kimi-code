@@ -4866,11 +4866,15 @@ impl HttpServer {
                         // event behind — only a 500 in the access log. Both
                         // sites here are the same failure mode: a turn cannot
                         // start, so the user sees the same nothing.
+                        //
+                        // v2's `SessionLoadFailedEvent` declares exactly one
+                        // property, `reason`. `session_id` and `stage` were this
+                        // engine's own invention: a consumer written against v2
+                        // would not look for them, and a strict one would reject
+                        // them.
                         self.emit_session_telemetry(
                             "session_load_failed",
                             serde_json::json!({
-                                "session_id": session_id,
-                                "stage": "history",
                                 "reason": error.to_string(),
                             }),
                         );
@@ -7322,11 +7326,15 @@ impl HttpServer {
                         // event behind — only a 500 in the access log. Both
                         // sites here are the same failure mode: a turn cannot
                         // start, so the user sees the same nothing.
+                        //
+                        // v2's `SessionLoadFailedEvent` declares exactly one
+                        // property, `reason`. `session_id` and `stage` were this
+                        // engine's own invention: a consumer written against v2
+                        // would not look for them, and a strict one would reject
+                        // them.
                         self.emit_session_telemetry(
                             "session_load_failed",
                             serde_json::json!({
-                                "session_id": session_id,
-                                "stage": "history",
                                 "reason": error.to_string(),
                             }),
                         );
@@ -8160,10 +8168,10 @@ mod tests {
             "the failure must be reported, not only logged: {events:?}"
         );
         let payload = &failed.unwrap().1;
-        assert_eq!(payload["session_id"], sid.as_str());
-        // The stage names which read failed, so a consumer can tell an
-        // unreadable history from the other loads this event covers.
-        assert_eq!(payload["stage"], "history");
+        // v2's `SessionLoadFailedEvent` declares exactly one property.
+        // `session_id` and `stage` were this engine's invention.
+        assert!(payload.get("session_id").is_none());
+        assert!(payload.get("stage").is_none());
         assert!(
             payload["reason"]
                 .as_str()

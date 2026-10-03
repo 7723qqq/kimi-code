@@ -7559,3 +7559,51 @@ REST 列表带该字段。
 
 **验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -D warnings` ✅｜
 `turn_loop::run_turn` **79 项**（+1）✅｜`server::engine` 24 项 ✅（既有测试内加断言）｜两处变异各自被预期测试抓住 ✅。
+
+### 10.47 拿 v2 源码核 P2-15 的载荷：名字对，载荷全错（2026-10-03）
+
+质疑是「你确定是 v2 有的」。方法：**逐条对 v2 源码**（`app/telemetry/events.ts`），不信台账描述。
+
+**结论一：事件名确实在 v2 里。** `api_error`（`:685`）、`compaction_failed`（`:884`）、
+`session_load_failed`（`:1222`）三处都在。
+
+**结论二：我发的载荷不是 v2 的形状。** 这是真缺陷，而**我的测试抓不到**——因为测试断言的是
+**我自己编的字段名**。v2 的必填与我的实际输出对比：
+
+| 事件 | v2 必填 | 我实际发的 |
+|---|---|---|
+| `api_error` | `error_type`, `model`, `retryable`, `duration_ms` | **四个全缺**；发的是 `error_message`/`attempts`（**v2 没有**）、`step`（v2 叫 `step_no`）、字符串 `turn_id`（v2 是数字索引） |
+| `compaction_failed` | `source`, `tokens_before`, `duration_ms`, `round`, `retry_count`, `thinking_effort`, `error_type` | **七个全缺**；只发了 `turn_id` + `reason`（**v2 没有 `reason`**） |
+| `session_load_failed` | `reason` | `reason` 有，但多发 `session_id`/`stage`（**v2 没有**） |
+
+**已按 v2 对齐**（三个载荷全部改用 v2 属性名；拿不到的可选字段**省略而非填 null**——v2 把
+`status_code`/`trace_id` 标为可选且类型是 number/string，发 null 对严格消费者就是类型错）：
+
+- `api_error`：`error_type`（复用重试层的分类映射）/`model`/`retryable`/`duration_ms`（新增 `Instant` 计时）
+  + 可选 `status_code`/`trace_id`/`step_no`；**去掉** `error_message` 与 `attempts`。
+- `compaction_failed`：`source`（自动溢出路径）/`tokens_before`/`duration_ms`/`round`（溢出轮次）/
+  `retry_count`（每轮预算）/`error_type`；**去掉** `reason`。
+- `session_load_failed`：只剩 `reason`。
+
+**对齐过程中测试抓出一个真实行为缺陷（值得单记）**：我原本用 `llm.is_retryable_error(&text)` 现算
+`retryable`，但 `text` 是**包装后**的（`LLM call failed after N attempts: …`），而引擎里所有分类器都用
+**严格前缀**解析（`llm_http_status` 只认开头的 `llm http status`）。后果：**一个真的可重试（重试到耗尽）
+的失败会被报成 `retryable: false`**。改为在**包装之前**取分类结果并随错误一起传下去；
+`classify_llm_error` 签名不变，故 3 个既有测试不受影响。
+
+**仍未对齐的一处（已记录，未硬填）**：`compaction_failed` 的 `thinking_effort` 是 v2 **必填**，但它只存在于
+`TelemetryContext`，而 `run_turn` 不接收该上下文。填空串等于声明一个从未生效的档位，不如缺席。
+把它穿进 `run_turn` 是后续（`RunTurnInput` 的构造点有十几处，属扇出改动）。
+
+**顺带按同一把尺子核了 P2-13**：v2 `agent-core-v2/src/agent/contextMemory/toolResultRender.ts` 的四个常量
+**逐字相同**；我的字符串分支**忠实**（含「错误分支按原始长度判空、不 trim」这个不对称）；v2 的
+`ContentPart[]` 分支在 fork 里**无对应**（turn loop 给工具消息的 `blocks` 恒为空），故字符串化是可辩护的
+范围决定。
+
+**一处新发现的偏离（记为待确认）**：v2 的 `renderToolResultForModel` 会把 `note` **追加进模型可见内容**，
+而 fork 的 turn loop 里 `tr.note` 只出现在事件载荷里（`run_turn.rs:1954`），工具消息不加它。
+而**生产工具确实会设置 note**（`rpc/types.rs:1811` 的 `<system>1 line read.</system>`、`tools/mod.rs:2661`、
+`read_media.rs`、`ask_user_question.rs` 等）。**有证据但未穷尽所有拼装点**，故记为待确认而非断言为 bug。
+
+**验证**：`cargo fmt --check` 通过｜`cargo clippy --all-targets --features cli -D warnings` 通过｜
+`turn_loop::` **235 项**｜`server::` **404 项**｜4 条既有测试按 v2 属性名改写后全绿。
