@@ -4885,7 +4885,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 | 合并项 | 原编号 | 理由 |
 |---|---|---|
 | **`SessionHeartbeat` 不单列** | P2-14 撤销 | 它**就是**那 14 个未触发 hook 事件之一（`types.ts:17`），与 P1-3 重复计数。唯一额外成本是需要 session 心跳定时器，属实现细节不是独立工单 |
-| ~~**micro compaction 门禁 + 遥测补 `api_error` 一起做**~~ **合并理由不成立，已拆开（2026-10-02）** | P1-5 + P2-15 合并 | ❌ **原判断被推翻**：v2 的 cache-miss 判据是**距上次 assistant 输出的空闲时长**（`microCompactionService.ts:94-95`），**完全不读 usage**，故与 `api_error` 无共用数据结构。P1-5 已单独完成（§10.25）；`api_error` 留在 P2-15 独立做 |
+| ~~**micro compaction 门禁 + 遥测补 `api_error` 一起做**~~ **合并理由不成立，已拆开（2026-10-02）** | P1-5 + P2-15 合并 | ❌ **原判断被推翻**：cache-miss 判据是**距上次 assistant 输出的空闲时长**，**完全不读 usage**，故与 `api_error` 无共用数据结构。P1-5 已单独完成（§10.25）；`api_error` 留在 P2-15 独立做。**（2026-10-04 出处订正）** 原文引 `microCompactionService.ts:94-95` 时未标出处；该文件**不在上游**（`git ls-tree -r upstream/main \| grep -i microcompaction` 为空，`git grep microCompaction upstream/main -- packages/agent-core-v2/src` 亦为空），只在退役副本 `.tmp/v2-ref/…/agent/microCompaction/` 里——判据在退役副本的 `microCompactionService.ts:94-95`（`cacheAgeMs >= config.cacheMissedThresholdMs`）。§1 的「上下文智能压缩」行已裁定 micro compaction **无上游对应物**，本节引用须按退役副本标注，见下 |
 | **fork 自创三件的出处补齐一起做** | 裁决项 5 | `workflow` / `lsp_tool` / `thinking_guard` 只是加模块头说明 + 台账登记，**无代码改动**，应作为一次文档提交而非三个待办 |
 
 **真实的依赖链**（除此之外均可并行）：
@@ -4907,10 +4907,10 @@ usage 累积 + detect() + 遥测  ← 三合一（见上表）
 
 | # | 项 | 规模依据 | 估 |
 |---|---|---|---|
-| 3 | **14 个 hook 事件** | 模板 `notify_pre_compact`（`external_hooks.rs:303-318`）是 15 行；`notify_session_lifecycle`（`:326`）已支持任意事件名 + 三个参数，**14 个事件里 11 个可用它实现**（各加一个 8-15 行包装）。另 3 个需新方法：`SessionHeartbeat`（要 session 心跳定时器，+30 行）、`SubagentStart/Stop`（挂在 `subagent/manager.rs` 生命周期上）。插桩点已现成：`permission/mod.rs:483` `evaluate`（覆盖 Permission 两个）、`run_turn.rs:1218` `emit_step_begin_event`（覆盖 TurnStarted）、`tool_scheduler` 工具完成处（覆盖 TaskStarted）。**无否决风险**：上游 `agentExternalHooksService.ts:118-132` 的 `fireAndForget` 丢弃返回值并 `catch {}`，纯观察。**（2026-10-04 行号重定位：原引 `:298-313`/`:321`/`:475`/`:1203` 均已漂移——该项本身已于 2026-10-03 完成，见 §10.27）** | **2-3 人天** |
+| 3 | **14 个 hook 事件** | 模板 `notify_pre_compact`（`external_hooks.rs:303-318`）是 16 行（原写「`:298-313` 是 15 行」——行号已漂移，且该区间的真实行数是 16 不是 15）；`notify_session_lifecycle`（`:326`）已支持任意事件名 + 三个参数，**14 个事件里 11 个可用它实现**（各加一个 8-15 行包装）。另 3 个需新方法：`SessionHeartbeat`（要 session 心跳定时器，+30 行）、`SubagentStart/Stop`（挂在 `subagent/manager.rs` 生命周期上）。插桩点已现成：`permission/mod.rs:483` `evaluate`（覆盖 Permission 两个）、`run_turn.rs:1218` `emit_step_begin_event`（覆盖 TurnStarted）、`tool_scheduler` 工具完成处（覆盖 TaskStarted）。**无否决风险**：上游 `agentExternalHooksService.ts:118-132` 的 `fireAndForget` 丢弃返回值并 `catch {}`，纯观察。**（2026-10-04 行号重定位：原引 `:298-313`/`:321`/`:475`/`:1203` 均已漂移——该项本身已于 2026-10-03 完成，见 §10.27）** | **2-3 人天** |
 | 1 | **frontmatter 真 YAML** | 引入 `serde_yaml`，替换 `skills/mod.rs:98-172`（约 75 行）与 `tower/frontmatter.rs:19-48`（30 行）两处手写解析；需保留现有 9 项 skills 测试行为并补 4 条失败用例的回归。**风险点**：`scopes` 当前的块列表解析（`skills/mod.rs:188+`）与 `_` 别名拼写（`:129-146`）不能被 YAML 库的行为覆盖。**（2026-10-04 行号重定位：该项已于 2026-10-02 完成，见 §10.24——两处手写解析已换成 `frontmatter.rs` 的 `parse_frontmatter`（`skills/mod.rs:136` 与 `tower/frontmatter.rs:56-73` 都委托它）；`scopes` 现由 `parse_scopes_value`（`skills/mod.rs:54-83`）从真 YAML 的 `Value` 读，`_`/`-` 两种拼写在 `:154-164` 手工比对——即「风险点」两条都由 YAML 库承担了，不再是风险）** | **2-3 人天** |
 | 2 | **分叉 turn_index** | `sqlite_store.rs:834-863` 加参数 + 按 v2 `forkTurnSlice.ts:80-99` 的 `origin.kind` 分类切边界 + promptId 配对（`:118-176`）；调用方两处（`src/server/mod.rs:5165` 解析 body 的 `turnIndex`、`acp/mod.rs:1015`）；**注意 fork 的历史按 `save_turn` 分行存储，切分要按 turn 而非按 message**。**（2026-10-04 行号重定位：该项已于 2026-10-02 完成，见 §10.23——`fork_session` 现在 `sqlite_store.rs:1042`；REST 解析在 `server/mod.rs:5292`；ACP 调用在 `acp/mod.rs:1020`。v2 侧 `origin.kind` 分类的真实位置是 `forkTurnSlice.ts:86-103` 的 `isUserVisibleTurnRecord`、promptId 配对在 `:185-190`；原引的 `:80-99`/`:118-176` 已漂移）** | **3-4 人天** |
-| 5+15 | **micro `detect()` + 遥测 `api_error`** | 新增一个跨 step 的 usage 累积结构（`input_cache_read` / `input_cache_creation` / tokens），`server/engine.rs:1348` 前加判据，配置面加 2 个常量；遥测侧同源数据报 `api_error`。**（2026-10-04 状态与行号）** 两项都已完成：P1-5 见 §10.25（`compaction/micro.rs` 的 `detect_micro_compaction`，调用点 `server/engine.rs:1416-1429`），`api_error` 见 §10.39。**原估的「新增跨 step 的 usage 累积结构」被证伪**——v2 的 cache-miss 判据读的是「距上次 assistant 输出的空闲时长」而非 usage（`microCompactionService.ts:94-95`），故本行后半的合并理由不成立（§6.45.2 已记）。`server/engine.rs:1348` 现在是注释块中部，与判据无关 | **2-3 人天**（已完成） |
+| 5+15 | **micro `detect()` + 遥测 `api_error`** | 新增一个跨 step 的 usage 累积结构（`input_cache_read` / `input_cache_creation` / tokens），`server/engine.rs:1348` 前加判据，配置面加 2 个常量；遥测侧同源数据报 `api_error`。**（2026-10-04 状态与行号）** 两项都已完成：P1-5 见 §10.25（`compaction/micro.rs:132-155` 的 `detect_micro_compaction`，调用点 `server/engine.rs:1416-1429`），`api_error` 见 §10.39。**原估的「新增跨 step 的 usage 累积结构」被证伪**——cache-miss 判据读的是「距上次 assistant 输出的空闲时长」而非 usage（判据在**退役副本** `.tmp/v2-ref/…/agent/microCompaction/microCompactionService.ts:94-95`；**上游无该模块**，见 §1 「上下文智能压缩」行的裁定与 §6.44.1），故本行后半的合并理由不成立（§6.45.2 已记）。`server/engine.rs:1348` 现在是注释块中部，与判据无关 | **2-3 人天**（已完成） |
 | 6 | ~~**wire 版本 + metadata + 迁移链**~~ **已完成 2026-10-03**（§10.34） | 版本列 + 打戳 + 前向拒绝已落地；**五个迁移经证据核验无物可迁**（见 §10.34 三条理由），故不建空迁移链 | **已完成**（原 4-6 人天为五个迁移定价，那些迁移不适用） |
 | 7 | ~~**磁盘日志 + 导出 ZIP**~~ **原描述不成立（§10.30）**；两半残余**均已完成 2026-10-03**：引擎 REST 导出见 §10.31，会话级日志接线见 §10.33 | 引擎侧 REST 导出补 manifest + 日志成员 + 遍历会话树，参照 `packages/node-sdk/src/native/sdk-rpc-client-native.ts` 的 `exportSession`（现 `:3717-3818`，manifest 构造在 `:3759`、会话树遍历在 `:3779-3797`）。**（2026-10-04 状态与行号重定位：原引 `:3642-3698` 已漂移——那现在是 fork 的 turnIndex 越界检查，与导出无关；本行原列的「残余只剩」两项都已在 §10.31/§10.33 落地）** | **已完成** |
 | 8 | ~~POST /undo 回滚接线~~ **已完成 2026-10-01** | 新增 `rollback_state_for_undo`（`src/server/mod.rs:7544`），接在 `undo` 路由 `:5742`。**台账原引三处「已有模式」全是假的**——`engine.rs` 中 `.rollback()` 零调用，唯一生产调用者是 `repl/mod.rs:784`；`engine.rs:1226` 是 `for_workspace` 的 `Err(_)` 臂、`:1256` 只是注释提到 `StateStoreCallbacks`。真实模式在 `callbacks.rs:1608-1626`（`checkpoint` 的 host/local 合并）。**核实后新增的要点**：checkpoint 是 LIFO 栈（`state_store.rs:175/210` 的 `checkpoint`/`rollback`），`count=N` 必须弹 N 次而非一次。失败如实上报而非静默——行已删除，静默分叉比可见错误更糟。两个测试：`undo_restores_state_domains_from_the_checkpoint_stack`（钉 LIFO 到最早锚点）与 `undo_succeeds_when_no_checkpoint_was_ever_taken`（钉空栈不算错）；前者已用环境变量探针反证——断开接线后 depth 停在 2，测试确实失败。**（2026-10-04 行号重定位：原引 `:7371`/`:5594`/`:782`/`:1168`/`:1197`/`:1536-1554`/`:244` 均已漂移；`state_store.rs:244` 现在是 `checkpoint_depth` 而非栈本身）** | **已完成** |
@@ -6602,10 +6602,11 @@ YAML**（第二个 `: ` 被读作嵌套映射），`js-yaml`（v2 所用，实�
 
 ### 10.26 v2 对齐复核：fork 可见性判据与描述兜底（2026-10-02）
 
-§10.23–§10.25 落地后做了一轮**独立复核**，参考仍为 `.tmp/v2-ref-upstream` @
-`21406fb4c8`（已刷新，日期未变，故前几节引用继续成立）。逐条核对三块改动的
-上游依据，结论：fork 与 micro compaction 的每条引用**均为真**（含行号与语义）；
-frontmatter 侧有**两处偏离**，本节处理其中可取的一处，并记录另一处为何不改。
+§10.23–§10.25 落地后做了一轮**独立复核**，参考为 `.tmp/v2-ref-upstream` @
+`21406fb4c8`（已刷新，日期未变，故前几节引用继续成立）与退役副本 `.tmp/v2-ref`。逐条核对三块改动的
+依据，结论：fork 与 micro compaction 的每条引用**均为真**（含行号与语义）；但那几条引的
+`microCompactionService.ts` **出自退役副本而非上游**（`git ls-tree -r upstream/main | grep -i microcompaction`
+为空），故本表中该行的「依据」列已按此标注；frontmatter 侧有**两处偏离**，本节处理其中可取的一处，并记录另一处为何不改。
 
 **核对结果**
 
@@ -6613,7 +6614,7 @@ frontmatter 侧有**两处偏离**，本节处理其中可取的一处，并记�
 |---|---|---|
 | `turnIndex` 校验 | `assertForkTurnIndex`（`forkTurnSlice.ts:22-30`） | ✅ 逐条一致 |
 | 切片含当轮 | `slice(0, turnStarts[turnIndex + 1])` | ✅ 一致 |
-| 微压缩两门 + 顺序 | `detect()`（`microCompactionService.ts:89-107`） | ✅ 逐条一致 |
+| 微压缩两门 + 顺序 | `detect()`（`microCompactionService.ts:89-107`，**退役副本**；上游无该模块） | ✅ 逐条一致 |
 | 五个默认阈值 | `DEFAULT_MICRO_COMPACTION_CONFIG`（`:17-23`） | ✅ 逐项一致 |
 | tower frontmatter 解析 | `features/tower/protocol/frontmatter.ts` | ⚠️ **v2 刻意不用 YAML**，见§10.24 |
 | skill 描述兜底 | `descriptionFromBody`（`catalog/parser.ts:143-150`） | ⚠️ 缺 240 截断，**本节已补** |
