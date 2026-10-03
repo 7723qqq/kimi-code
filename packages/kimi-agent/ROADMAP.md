@@ -7528,3 +7528,34 @@ REST 列表带该字段。
 
 **验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -D warnings` ✅｜
 `llm::http` 38 项 ✅｜`turn_loop::run_turn` 78 项 ✅｜`server::` **404 项**（+1）✅｜三处变异各自被预期测试抓住 ✅。
+
+### 10.46 同尺子回到更早的交付：又两处「逻辑被测、接线没测」（2026-10-03）
+
+§10.44/§10.45 之后把同一把变异尺子用回**更早的交付**（用户质疑的本意显然不限于最近几项），又查出两处：
+
+| # | 改动点 | 删掉后仍全绿的测试 | 处置 |
+|---|---|---|---|
+| 6 | `run_turn.rs:1969` 应用 `render_status`（P2-13） | `turn_loop::run_turn` **78** + `server::` **404** + e2e **2** | **已修** |
+| 7 | `engine.rs:1669/1677` 把回合结果落盘（P2-12 引擎侧） | `turn_loop::run_turn` 78 + `server::` 404 + e2e 2 | **已修** |
+
+**#6（P2-13）**：`tool_result_render` 自己的单元测试很全，但**没有一条观察回合循环是否调用它**。把
+`let rendered = tool_result_render::render_status(...)` 换成 `tr.content.clone()`，整个功能的用户可见行为
+（模型读到 `Wall time: …\n<system>ERROR: …` 而非裸文本）**被关掉而无人发现**。
+新增 `a_failed_tool_result_reaches_the_model_wrapped`：用既有的 `RecordingLlm` 范式（把 `params.messages`
+存下来）驱动一次**失败的工具调用**，断言模型看到的工具消息是
+`<system>ERROR: Tool execution failed.</system>\nboom`。变异后 `left: "boom"` / `right: "<system>…"` **红**。
+
+**#7（P2-12 引擎侧）**：这条更典型——§10.42 我测了 store 存取、测了 wire 输出，**唯独没测引擎是否真的去写**。
+值得记的是，**测试基础设施全都在**：`engine.rs` 里既有 `ScriptedLlm`，也有 `run_turn_on(...)`，而且
+`a_turn_publishes_work_changed_busy_then_idle` **已经真的跑完了一个回合**——只是它只断言了**活事件**的
+`last_turn_reason`，没断言 **store 行**。把 `Some(reason)` 改成 `None` 后它照样绿。
+故不新建测试，只在原测试末尾补一条对 `engine.store().last_turn_reason("sess-wc")` 的断言。变异后**红**。
+
+**这一轮的元教训（第三次同型错误）**：我又一次先想「需要新建基础设施」，而实际上**两个用例的现成设施都在原处**
+——`render_status` 的调用点就在 `run_turn.rs`，驱动回合的测试就在 `engine.rs`。
+「先搜，再判断需不需要造东西」这一条，本轮已连续三次成立。
+
+**审计累计**：7 处（#1–#5 见 §10.44/§10.45，#6/#7 见本节），**全部已闭合且全部有变异证据**。
+
+**验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -D warnings` ✅｜
+`turn_loop::run_turn` **79 项**（+1）✅｜`server::engine` 24 项 ✅（既有测试内加断言）｜两处变异各自被预期测试抓住 ✅。

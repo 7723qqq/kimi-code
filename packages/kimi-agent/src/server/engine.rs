@@ -2642,6 +2642,17 @@ model = "gpt-x"
         };
         assert!(!busy);
         assert_eq!(last_turn_reason.as_deref(), Some("completed"));
+
+        // The mirror also lands on the session row. The live event asserted
+        // above is not enough: it is gone once the turn is over, so a client
+        // that attaches later — or after a restart — reads the outcome from
+        // here. Replacing the persisted value with `None` left this whole file
+        // green, because only the event was ever asserted.
+        assert_eq!(
+            engine.store().last_turn_reason("sess-wc").as_deref(),
+            Some("completed"),
+            "the turn outcome must be persisted, not only published"
+        );
     }
 
     #[tokio::test]

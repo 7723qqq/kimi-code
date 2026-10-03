@@ -4779,6 +4779,121 @@ mod tests {
         );
     }
 
+    /// A failed tool result reaches the model wrapped in v2's status sentinel.
+    ///
+    /// The wrapper's own unit tests only exercise `render_status`; nothing
+    /// observed that the turn loop applies it. Replacing the call with the raw
+    /// content left this whole module, `server::` and both e2e tests green — the
+    /// feature could be switched off entirely without a red test.
+    #[tokio::test]
+    async fn a_failed_tool_result_reaches_the_model_wrapped() {
+        struct OneToolLlm {
+            call: AtomicU32,
+            requests: std::sync::Mutex<Vec<Vec<LLMMessage>>>,
+        }
+        impl LLM for OneToolLlm {
+            fn system_prompt(&self) -> &str {
+                "test"
+            }
+            fn model_name(&self) -> &str {
+                "one-tool-llm"
+            }
+            fn is_retryable_error(&self, _: &str) -> bool {
+                false
+            }
+            fn chat(
+                &self,
+                params: LLMChatParams,
+            ) -> BoxFuture<'_, Result<LLMChatResponse, Box<dyn std::error::Error + Send + Sync>>>
+            {
+                let call = self.call.fetch_add(1, Ordering::SeqCst);
+                self.requests.lock().unwrap().push(params.messages.to_vec());
+                Box::pin(async move {
+                    if call == 0 {
+                        Ok(LLMChatResponse {
+                            content: String::new(),
+                            thinking: vec![],
+                            tool_calls: vec![ToolCall {
+                                id: "tc-err".into(),
+                                name: "read".into(),
+                                arguments: serde_json::json!({"path": "/a.txt"}),
+                                extras: None,
+                            }],
+                            finish_reason: Some("tool_calls".into()),
+                            usage: TokenUsage::default(),
+                            timing: None,
+                        })
+                    } else {
+                        Ok(LLMChatResponse {
+                            content: String::new(),
+                            thinking: vec![],
+                            tool_calls: vec![],
+                            finish_reason: Some("stop".into()),
+                            usage: TokenUsage::default(),
+                            timing: None,
+                        })
+                    }
+                })
+            }
+        }
+
+        let llm = OneToolLlm {
+            call: AtomicU32::new(0),
+            requests: std::sync::Mutex::new(Vec::new()),
+        };
+        let server = Arc::new(RpcServer::new());
+        // A tool that fails. `is_error` is what selects the error arm.
+        RpcServer::register_arc(&server, types::methods::HOST_EXECUTE_TOOL, |_params| {
+            Box::pin(async move {
+                let resp = ToolExecuteResponse {
+                    delivery: None,
+                    stop_turn: false,
+                    content: "boom".into(),
+                    is_error: true,
+                    note: None,
+                };
+                serde_json::to_value(&resp).map_err(|e| JsonRpcError::internal_error(e.to_string()))
+            })
+        });
+        let callbacks = rpc_callbacks(server.clone());
+        let input = RunTurnInput {
+            agent_id: crate::callbacks::MAIN_AGENT_ID.to_string(),
+            previous_turn_aborted: false,
+            turn_id: "test-tool-error-wrapper".into(),
+            llm: &llm,
+            messages: vec![LLMMessage {
+                role: "user".into(),
+                content: "read it".into(),
+                ..Default::default()
+            }],
+            tools: &[],
+            tool_defs: vec![],
+            max_steps: 5,
+            max_attempts: None,
+            max_context_tokens: None,
+            compaction_max_attempts: None,
+            permission_mode: None,
+            goal: None,
+            cancellation: None,
+            hook_guard: None,
+            media: None,
+            media_dropped: None,
+            toolset: None,
+        };
+        run_turn(input, &callbacks).await.unwrap();
+
+        let requests = llm.requests.lock().unwrap();
+        let second = &requests[1];
+        let tool_message = second
+            .iter()
+            .find(|m| m.role == "tool" && m.tool_call_id.as_deref() == Some("tc-err"))
+            .expect("the tool result must reach the model");
+        assert_eq!(
+            tool_message.content, "<system>ERROR: Tool execution failed.</system>\nboom",
+            "a failed result must carry the status sentinel the model reads"
+        );
+    }
+
     /// Upstream #3966: the persisted (model-facing) tool result of a
     /// wall-time tool (Bash here) opens with a `Wall time: X.XXX seconds`
     /// header; the `read` case above (outside the set) keeps the bare
