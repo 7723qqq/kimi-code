@@ -998,6 +998,21 @@ interface NativeSessionMeta {
   /** User-layer session metadata (v2 `session.custom`), merged by updateSessionMetadata. */
   custom: Record<string, unknown>;
   /**
+   * User-configured ask rules the user approved "for this session".
+   *
+   * v2 keeps the same list as `sessionApprovalRulePatterns` and promotes a
+   * pattern into it only when the approval response says `scope: session`
+   * (permissionRulesOps.ts). Approving one of these remembers *that rule* — a
+   * pattern the user already wrote — rather than the whole tool: a session-wide
+   * "allow Bash" would permit every later Bash call, including the dangerous
+   * ones the rule was written to catch.
+   *
+   * In memory only, like `promptMetadata`: the patterns describe decisions made
+   * in this session, and re-deriving them from a config file that may have
+   * changed would attribute a decision the user never made.
+   */
+  sessionApprovals: string[];
+  /**
    * Workspace-level additional directories added via addAdditionalDir, or passed
    * by the host at create/resume. These are the caller's own choices, so they
    * are persisted with the session.
@@ -1463,6 +1478,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
       busy: false,
       messageCount: 0,
       promptMetadata: [],
+      sessionApprovals: [],
       custom: input.metadata !== undefined ? { ...input.metadata } : {},
       additionalDirs: explicit,
       projectAdditionalDirs: project,
@@ -2119,7 +2135,25 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
             action?: string;
             display?: ToolInputDisplay;
             reason?: string;
+            /** The user's own ask rule that fired, when one did. */
+            session_approval_rule?: string;
           };
+          // The engine names the ask rule that fired, when one did. If the user
+          // already approved that rule for this session, answering again would
+          // re-ask a question they have answered — the whole point of the
+          // "for this session" choice.
+          const approvalRule =
+            typeof parsed.session_approval_rule === 'string' &&
+            parsed.session_approval_rule.length > 0
+              ? parsed.session_approval_rule
+              : undefined;
+          const sessionMeta = this.liveSessions.get(sessionId);
+          if (
+            approvalRule !== undefined &&
+            sessionMeta?.sessionApprovals.includes(approvalRule) === true
+          ) {
+            return JSON.stringify({ decision: 'allow' });
+          }
           const res = await this.requestApproval({
             sessionId,
             agentId: 'main',
@@ -2135,6 +2169,16 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
               : {}),
           });
           if (res.decision === 'approved') {
+            // v2 promotes the pattern only for `scope: session`; any other scope
+            // is a one-shot answer and must not be remembered.
+            if (
+              approvalRule !== undefined &&
+              res.scope === 'session' &&
+              sessionMeta !== undefined &&
+              !sessionMeta.sessionApprovals.includes(approvalRule)
+            ) {
+              sessionMeta.sessionApprovals.push(approvalRule);
+            }
             return JSON.stringify({ decision: 'allow' });
           }
           return JSON.stringify({ decision: 'deny', reason: res.feedback ?? 'User rejected' });
@@ -2317,6 +2361,12 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
     // mode asked for every Bash command — a plan-mode toggle or any handle
     // rebuild (setThinking / setModel / additionalDirs) turned yolo off.
     policySnapshot.mode = meta.permissionMode;
+    // Rules the user approved for this session. `buildPolicySnapshot` derives the
+    // three decision lists from config and cannot see them: the approvals are a
+    // record of decisions made in this session, not of what the config says.
+    // Re-sending them on a rebuild is what keeps the engine's own
+    // `SessionApprovalHistory` policy in step with the host's memory.
+    policySnapshot.session_approvals = [...meta.sessionApprovals];
     // A headless session (upstream `nonInteractive`) drops the engine's
     // dangerous-command ask policy — there is no human to answer it.
     if (meta.nonInteractive) {
@@ -2514,6 +2564,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
         messageCount: 0,
         currentTurnId: 0,
         promptMetadata: [],
+        sessionApprovals: [],
         custom: persisted?.custom ?? {},
         additionalDirs: explicit,
         projectAdditionalDirs: project,

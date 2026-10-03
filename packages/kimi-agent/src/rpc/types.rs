@@ -251,6 +251,18 @@ pub struct PermissionCheckRequest {
     /// it simply never sees a reason, exactly as before.
     #[serde(default)]
     pub reason: Option<String>,
+    /// The user-configured ask rule that produced this request, when one did.
+    ///
+    /// Approving it for the session remembers *this rule*, not the whole tool:
+    /// it is a pattern the user already wrote in their own config, so nothing
+    /// is inferred and nothing is widened. v2 carries the same value as
+    /// `sessionApprovalRule` and promotes it only when the response says
+    /// `scope: session` (permissionRulesOps.ts).
+    ///
+    /// `#[serde(default)]` keeps a host built before this field wire-compatible:
+    /// it simply never sees a session approval rule, exactly as before.
+    #[serde(default)]
+    pub session_approval_rule: Option<String>,
 }
 
 /// The host's permission verdict for a [`PermissionCheckRequest`].
@@ -1544,6 +1556,7 @@ mod tests {
             turn_id: "turn-1".into(),
             arguments: serde_json::json!({"path": "a"}),
             reason: None,
+            session_approval_rule: None,
         };
         assert_eq!(serde_json::to_value(&perm).unwrap()["tool_name"], "Write");
         // A producer that carries no turn id still deserializes; the approval

@@ -211,3 +211,32 @@ written. Anything asserted about **what the model receives** (message part order
 composition) cannot be pinned in that suite — it needs a fixture that really runs a model call.
 Metadata-level facts (session title / lastPrompt in `session-meta.json`, SDK events) *are*
 observable and are asserted there.
+
+## 验证粒度：`--lib` 会给你假信心，但「每改一行跑全量」也不是答案
+
+一次会话里被同一个坑绊了三次，值得记下来。
+
+**坑**：`cargo check --lib` **不编译 `tests/` 与 `#[cfg(test)]`**。给一个被广泛构造的结构体加字段时，
+它只报 `src/` 里的构造点，集成测试目录（`packages/kimi-agent/tests/`）里的构造点要等 `cargo test` 才炸。
+同一次里 `#[cfg(test)]` 模块里的构造点也是同样情况。两次都是「本地看着绿、全量红」。
+
+**但代价也要算**：全量 Rust 套件是分钟级；改完一句断言、一个注释再跑一遍全是纯浪费。同一状态重复跑
+更是浪费——**跑之前先确认源码相对上一次绿有没有变过**（`git status` 就够）。
+
+**分级**（按代价递增，按需止步）：
+
+| 阶段 | 命令 | 抓什么 |
+|---|---|---|
+| 迭代 | `cargo check --all-targets` | **跨目标扇出**——这是 `--lib` 假信心的正解，一次编译就够 |
+| 迭代 | `cargo test --lib <改动模块> <已知消费方模块>` | 改动的逻辑与其消费方 |
+| 提交边界 | 一次 `cargo test`（全量） | 未知耦合兜底 |
+
+**「已知消费方」这一步不能省，也不能瞎猜**：一次改 `turn_step` 的遥测，定向跑 `turn_step` 22 项全绿，
+全量才红——因为断言在 `run_turn` 里。改动的模块**不是**该跑的模块集合的全部。
+
+**另外两条操作教训**：
+
+- 后台任务的退出码是 **shell** 的，不是 cargo 的（`... ; "EXIT=$LASTEXITCODE"` 这种写法让 shell 总是 0）。
+  必须看**输出里的** `TEST_EXIT`，否则会把红读成绿，那一次跑就白费了。
+- PowerShell 里按**行号**做插入时，若同一脚本里先在该文件插过别的内容，行号已经位移——
+  这一次就是因此把字段插进了 `assert_eq!` 里。要么分两步，要么改用锚点。

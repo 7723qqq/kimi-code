@@ -827,6 +827,11 @@ impl HostCallbacks for NativeToolCallbacks {
                         this.inner
                             .check_permission(PermissionCheckRequest {
                                 tool_name: request.tool_name.clone(),
+                                // The rule that matched is what a session approval
+                                // would remember. Without it the host can only offer
+                                // to allow the whole tool for the session, which
+                                // grants far more than the rule the user wrote.
+                                session_approval_rule: verdict.session_approval_rule.clone(),
                                 tool_call_id: request.tool_call_id.clone(),
                                 turn_id: request.turn_id.clone(),
                                 arguments: request.arguments.clone(),
@@ -857,6 +862,7 @@ impl HostCallbacks for NativeToolCallbacks {
                 this.inner
                     .check_permission(PermissionCheckRequest {
                         tool_name: request.tool_name.clone(),
+                        session_approval_rule: None,
                         tool_call_id: request.tool_call_id.clone(),
                         turn_id: request.turn_id.clone(),
                         arguments: request.arguments.clone(),

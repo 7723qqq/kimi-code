@@ -557,6 +557,7 @@ mod tests {
         ));
         let request = PermissionCheckRequest {
             tool_name: "Write".into(),
+            session_approval_rule: None,
             tool_call_id: "call_1".into(),
             turn_id: "turn-1".into(),
             arguments: json!({ "path": "a.txt" }),
@@ -623,6 +624,7 @@ mod tests {
         ));
         let request = PermissionCheckRequest {
             tool_name: "Bash".into(),
+            session_approval_rule: None,
             tool_call_id: "call_2".into(),
             turn_id: "turn-1".into(),
             arguments: json!({ "command": "rm -rf /" }),

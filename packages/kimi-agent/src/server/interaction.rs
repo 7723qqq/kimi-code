@@ -464,6 +464,12 @@ impl InteractionManager {
         if let Some(reason) = &req.reason {
             payload["reason"] = json!(reason);
         }
+        // The candidate for "approve for this session": the user's own ask rule
+        // that fired. Absent whenever no such rule did, so a client can tell
+        // "remembering this is possible" from "there is nothing to remember".
+        if let Some(rule) = &req.session_approval_rule {
+            payload["session_approval_rule"] = json!(rule);
+        }
         self.publish_event(session_id, crate::events::EngineEvent::Custom(payload));
         self.publish_event(
             session_id,
@@ -701,6 +707,7 @@ mod tests {
             "sess-sig",
             PermissionCheckRequest {
                 tool_name: "Bash".into(),
+                session_approval_rule: None,
                 tool_call_id: "call_bash_sig".into(),
                 turn_id: "turn-sig".into(),
                 arguments: serde_json::json!({ "command": "ls" }),
@@ -762,6 +769,7 @@ mod tests {
             "sess-1",
             PermissionCheckRequest {
                 tool_name: "Bash".into(),
+                session_approval_rule: None,
                 tool_call_id: "call_bash_kind".into(),
                 turn_id: "turn-kind".into(),
                 arguments: serde_json::json!({ "command": "ls" }),
@@ -830,6 +838,7 @@ mod tests {
         // 1. Approval: allowed = true
         let req_allow = PermissionCheckRequest {
             tool_name: "Read".into(),
+            session_approval_rule: None,
             tool_call_id: "call_read_1".into(),
             turn_id: "turn-appr".into(),
             arguments: json!({ "path": "/tmp/safe.txt" }),
@@ -852,6 +861,7 @@ mod tests {
         // 2. Approval: allowed = false (deny with reason)
         let req_deny = PermissionCheckRequest {
             tool_name: "Bash".into(),
+            session_approval_rule: None,
             tool_call_id: "call_cmd".into(),
             turn_id: "turn-appr".into(),
             arguments: json!({ "command": "rm -rf /tmp/foo" }),
@@ -889,6 +899,7 @@ mod tests {
 
         let appr_a = PermissionCheckRequest {
             tool_name: "Bash".into(),
+            session_approval_rule: None,
             tool_call_id: "c_appr_a".into(),
             turn_id: "turn-a".into(),
             arguments: json!({}),
@@ -909,6 +920,7 @@ mod tests {
 
         let appr_b = PermissionCheckRequest {
             tool_name: "Bash".into(),
+            session_approval_rule: None,
             tool_call_id: "c_appr_b".into(),
             turn_id: "turn-b".into(),
             arguments: json!({}),

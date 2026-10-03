@@ -2416,6 +2416,7 @@ model = "gpt-x"
         let verdict = host
             .check_permission(PermissionCheckRequest {
                 tool_name: "Bash".into(),
+                session_approval_rule: None,
                 tool_call_id: "c".into(),
                 turn_id: "turn-1".into(),
                 arguments: serde_json::json!({}),

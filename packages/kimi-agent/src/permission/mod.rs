@@ -217,6 +217,14 @@ pub struct LocalPermissionVerdict {
     pub decision: VerdictDecision,
     pub policy_name: String,
     pub reason: Option<String>,
+    /// The user-configured ask rule that produced this verdict, when one did.
+    ///
+    /// This is the candidate for a session approval: approving it for the
+    /// session remembers *this rule*, not the whole tool. v2 carries the same
+    /// value as `sessionApprovalRule` on its approval record, and the rule is
+    /// only a pattern the user already wrote in their own config — nothing is
+    /// inferred here.
+    pub session_approval_rule: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -484,6 +492,7 @@ impl PermissionEngine {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Deny,
                 policy_name: "AutoModeAskUserQuestionDeny".into(),
+                session_approval_rule: None,
                 reason: Some(LocalizedText::new("engine.permission.autoModeCannotAsk").render()),
             };
         }
@@ -495,6 +504,7 @@ impl PermissionEngine {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Deny,
                 policy_name: "UserConfiguredDeny".into(),
+                session_approval_rule: None,
                 // A declared reason explains the refusal (v2 `reason`).
                 reason: Some(
                     match self
@@ -544,6 +554,7 @@ impl PermissionEngine {
                     return LocalPermissionVerdict {
                         decision: VerdictDecision::Ask,
                         policy_name: "DangerousCommandAsk".into(),
+                        session_approval_rule: None,
                         reason: Some(
                             LocalizedText::new("engine.permission.highRiskShellCommand").render(),
                         ),
@@ -553,6 +564,7 @@ impl PermissionEngine {
                     return LocalPermissionVerdict {
                         decision: VerdictDecision::Ask,
                         policy_name: "DangerousCommandAsk".into(),
+                        session_approval_rule: None,
                         reason: Some(
                             LocalizedText::new("engine.permission.shellCommandUnanalyzable")
                                 .render(),
@@ -568,6 +580,7 @@ impl PermissionEngine {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Allow,
                 policy_name: "AutoModeApprove".into(),
+                session_approval_rule: None,
                 reason: None,
             };
         }
@@ -581,6 +594,7 @@ impl PermissionEngine {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Allow,
                 policy_name: "SessionApprovalHistory".into(),
+                session_approval_rule: None,
                 reason: Some(
                     LocalizedText::with_params(
                         "engine.permission.approvedBySessionHistory",
@@ -598,6 +612,11 @@ impl PermissionEngine {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Ask,
                 policy_name: "UserConfiguredAsk".into(),
+                // The rule that matched is what a session approval would
+                // remember, so carry it: without it the host can only offer
+                // to allow the whole tool for the session, which grants far
+                // more than the rule the user wrote.
+                session_approval_rule: Some(rule.to_string()),
                 reason: Some(
                     LocalizedText::with_params(
                         "engine.permission.approvalRequiredByUserRule",
@@ -615,6 +634,7 @@ impl PermissionEngine {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Allow,
                 policy_name: "UserConfiguredAllow".into(),
+                session_approval_rule: None,
                 reason: Some(
                     LocalizedText::with_params(
                         "engine.permission.allowedByUserRule",
@@ -633,6 +653,7 @@ impl PermissionEngine {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Ask,
                 policy_name: "SensitiveFileAccessAsk".into(),
+                session_approval_rule: None,
                 reason: Some(
                     LocalizedText::with_params(
                         "engine.permission.sensitiveFileAccess",
@@ -648,6 +669,7 @@ impl PermissionEngine {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Ask,
                 policy_name: "GitControlPathAccessAsk".into(),
+                session_approval_rule: None,
                 reason: Some(
                     LocalizedText::with_params(
                         "engine.permission.gitControlPathAccess",
@@ -663,6 +685,7 @@ impl PermissionEngine {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Allow,
                 policy_name: "YoloModeApprove".into(),
+                session_approval_rule: None,
                 reason: None,
             };
         }
@@ -681,6 +704,7 @@ impl PermissionEngine {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Allow,
                 policy_name: "DefaultToolApprove".into(),
+                session_approval_rule: None,
                 reason: None,
             };
         }
@@ -714,6 +738,7 @@ impl PermissionEngine {
             return LocalPermissionVerdict {
                 decision: VerdictDecision::Allow,
                 policy_name: "GitCwdWriteApprove".into(),
+                session_approval_rule: None,
                 reason: None,
             };
         }
@@ -722,6 +747,7 @@ impl PermissionEngine {
         LocalPermissionVerdict {
             decision: VerdictDecision::Ask,
             policy_name: "FallbackAsk".into(),
+            session_approval_rule: None,
             reason: Some(
                 LocalizedText::with_params(
                     "engine.permission.toolExecutionRequiresApproval",
@@ -1091,6 +1117,11 @@ mod tests {
                 "{tool} should declare a file access"
             );
             assert_eq!(verdict.policy_name, "SensitiveFileAccessAsk");
+            // A policy ask carries no session-approval candidate: there is no
+            // user-written rule to remember. Offering to remember "this" would
+            // have to invent a pattern, and an invented one is how a single
+            // approval turns into a tool-wide grant.
+            assert_eq!(verdict.session_approval_rule, None);
         }
 
         let verdict = engine.evaluate(
@@ -1542,6 +1573,14 @@ mod tests {
             Some("Approval required by user rule: Write(config/*)".into())
         );
         assert!(!verdict.is_allow());
+        // The rule also rides as a field, which is what the approval request
+        // carries: a session approval remembers *this pattern*, so the host must
+        // be told it. Reading it back out of the rendered reason would couple
+        // the approval path to a locale-dependent string.
+        assert_eq!(
+            verdict.session_approval_rule.as_deref(),
+            Some("Write(config/*)")
+        );
 
         let verdict_bash = engine.evaluate("Bash", &json!({ "command": "deploy prod" }));
         assert_eq!(verdict_bash.decision, VerdictDecision::Ask);
@@ -2399,6 +2438,7 @@ mod tests {
         let allow_verdict = LocalPermissionVerdict {
             decision: VerdictDecision::Allow,
             policy_name: "TestPolicy".into(),
+            session_approval_rule: None,
             reason: None,
         };
         assert!(allow_verdict.is_allow());
@@ -2406,6 +2446,7 @@ mod tests {
         let deny_verdict = LocalPermissionVerdict {
             decision: VerdictDecision::Deny,
             policy_name: "TestPolicy".into(),
+            session_approval_rule: None,
             reason: Some("reason".into()),
         };
         assert!(!deny_verdict.is_allow());
@@ -2413,6 +2454,7 @@ mod tests {
         let ask_verdict = LocalPermissionVerdict {
             decision: VerdictDecision::Ask,
             policy_name: "TestPolicy".into(),
+            session_approval_rule: None,
             reason: Some("reason".into()),
         };
         assert!(!ask_verdict.is_allow());

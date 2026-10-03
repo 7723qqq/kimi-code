@@ -11786,6 +11786,7 @@ max_context_size = 1000
         // 3. Approvals: Register and allow
         let appr_req = crate::rpc::types::PermissionCheckRequest {
             tool_name: "Bash".into(),
+            session_approval_rule: None,
             tool_call_id: "call_bash_1".into(),
             turn_id: "turn-inter".into(),
             arguments: json!({ "command": "cargo build" }),
@@ -11826,6 +11827,7 @@ max_context_size = 1000
         // 4. Approvals: Reject / Deny
         let appr_req_deny = crate::rpc::types::PermissionCheckRequest {
             tool_name: "Write".into(),
+            session_approval_rule: None,
             tool_call_id: "call_write_1".into(),
             turn_id: "turn-inter".into(),
             arguments: json!({ "path": "/root/important.conf" }),
@@ -11870,6 +11872,7 @@ max_context_size = 1000
         let inter_mgr = server.interaction_manager();
         let appr_req = crate::rpc::types::PermissionCheckRequest {
             tool_name: "Bash".into(),
+            session_approval_rule: None,
             tool_call_id: "call_fc".into(),
             turn_id: "turn-fc".into(),
             arguments: json!({ "command": "rm -rf /" }),

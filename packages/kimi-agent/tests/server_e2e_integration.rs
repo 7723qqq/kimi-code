@@ -212,11 +212,34 @@ async fn server_e2e_http_rest_full_roundtrip() {
         turn_id: "turn-e2e".into(),
         arguments: json!({ "command": "npm test" }),
         reason: None,
+        // The user's own ask rule, which "approve for this session" would
+        // remember. It must reach the wire: without it the client can only
+        // offer to allow the whole tool for the session, which grants far more
+        // than the rule the user wrote.
+        session_approval_rule: Some("Bash(npm test)".into()),
     };
     let (approval_id, rx_a) =
         server
             .interaction_manager()
             .register_approval(&session_id, appr_req, "Run test command");
+
+    // The candidate rule rides the `event.approval.requested` payload. Without
+    // this the field could be dropped anywhere between the engine's policy
+    // evaluation and the client and nothing would notice.
+    {
+        let res = client
+            .get(format!("{base_url}/api/v1/sessions/{session_id}/events"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 200);
+        let body: Value = res.json().await.unwrap();
+        let serialized = body.to_string();
+        assert!(
+            serialized.contains("session_approval_rule") && serialized.contains("Bash(npm test)"),
+            "the approval event must carry the session rule: {serialized}"
+        );
+    }
 
     let res = client
         .get(format!("{base_url}/api/v1/sessions/{session_id}/approvals"))
