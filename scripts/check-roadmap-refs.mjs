@@ -209,7 +209,20 @@ const RESOLUTION_ROOTS = [ROOT, CRATE, join(ROOT, 'packages')];
 const UPSTREAM_REF = 'upstream/main';
 const RETIRED_REF = 'ecad4136d9^';
 
-const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+const git = (...args) =>
+  execFileSync('git', args, {
+    cwd: ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    // This helper reads whole files out of git (`show <ref>:<path>`), and the
+    // manifest's upstream/retired entries can point at any tracked object —
+    // upstream's largest is ~7.8 MB (a bundled font). Node's default 1 MB cap
+    // would make `git show` die with ENOBUFS, and `readGitObject`'s catch would
+    // then report a CORRECT citation as `anchor-missing-target`: a false
+    // failure on the strongest check the gate has. Sized like
+    // check-architecture-drift.mjs's own git helper.
+    maxBuffer: 64 * 1024 * 1024,
+  });
 
 /**
  * Every `path:line` / `path:line-line` citation in the ledger, plus every bare
