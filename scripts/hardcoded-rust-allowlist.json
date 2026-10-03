@@ -819,7 +819,14 @@
     "packages/kimi-agent/src/llm/error.rs:(retry-after {}s)": {
       "file": "packages/kimi-agent/src/llm/error.rs",
       "text": "(retry-after {}s)",
-      "reason": "deferred"
+      "reason": "format-scaffolding",
+      "manual": true
+    },
+    "packages/kimi-agent/src/llm/error.rs:{} [trace {id}]": {
+      "file": "packages/kimi-agent/src/llm/error.rs",
+      "text": "{} [trace {id}]",
+      "reason": "format-scaffolding",
+      "manual": true
     },
     "packages/kimi-agent/src/llm/files_upload.rs:Content-Disposition: form-data; name=\"purpose\"\\r \\r": {
       "file": "packages/kimi-agent/src/llm/files_upload.rs",

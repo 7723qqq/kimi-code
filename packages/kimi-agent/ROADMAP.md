@@ -4614,7 +4614,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 | `isImageFormatError` | `llm/media_budget.rs:219` | ported |
 | `isRecoverableRequestStructureError` / `isToolExchangeAdjacencyError` | `llm/request_structure.rs:132-140` / `:88-126` | ported（6.40.3 本轮所补） |
 | `credential-recovery`（401/403 → 强制刷新 → 重试一次） | `llm/http.rs:396-402` | ported |
-| **`requestId` / `traceId`** | `llm/error.rs:23-30` 两字段都没有 | **missing** |
+| **`requestId` / `traceId`** | **失败路径本轮已补（§10.38）** | `request_id` 字段 + `[trace …]` 后缀已在 `llm/error.rs`；成功路径的 trace id 仍无消费方，留待有消费者再接 |
 
 唯一的实质缺口是 `requestId`/`traceId`：v2 从响应头解析 `x-trace-id`（`errors.ts:302-311`）并带进 `details` 供支持诊断，**每个 OpenAI 兼容 provider 都发这个头**。只影响可诊断性，不影响控制流，故排末位。
 
@@ -4835,7 +4835,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 | 16 | trust 披露服务（§6.23.6） | 消费者已写好但是死的：`trust-prompt.ts:89-97` 只在数组非空时渲染，`kimi-tui.ts:2689` 硬编码 `[]` |
 | 17 | `workspaceAliases` 缺失 | 同一目录的符号链接/大小写变体会变成两个 workspace；`delete_workspace` 无墓碑 |
 | 18 | stdio MCP 的 proxy env 继承 | v2 额外应用 `HTTP_PROXY`/`NO_PROXY`；实际影响低 |
-| 19 | `requestId`/`traceId` 丢失 | 每个 OpenAI 兼容 provider 都发 `x-trace-id`；纯可诊断性 |
+| 19 | ~~`requestId`/`traceId` 丢失~~ **失败路径已完成（§10.38）** | `x-trace-id` 是 provider 在**响应**里发、v2 从响应头捕获；fork 的 `LlmError` 原先只恢复了 `retry_after`/`status_code`。**方向已更正**：不是「引擎外发」 |
 | 20 | POSIX shell 探测 | fork 硬编码 `/bin/bash` 无 `/bin/sh` 回落；Windows 链可落到 `pwsh`/`cmd` 而 v2 要求 Git Bash 否则抛错 |
 
 #### 明确不做（已逐条核实，勿重复评估）
@@ -4906,7 +4906,7 @@ usage 累积 + detect() + 遥测  ← 三合一（见上表）
 | 17 | `workspaceAliases` | **已核实**：`delete_workspace` 在 `session/sqlite_store.rs:776`；全仓 `workspaceAliases` / `workspace_aliases` **零命中**，即 fork 确实无别名概念——同一目录的符号链接/大小写变体会算成两个 workspace，且删除后无墓碑 | **1-2 人天** |
 | 9 | minidb 读模型 | **待裁决后再估**（取决于是否需要全文检索；若只需 FTS5 则 2-3 人天，若需 minidb 全套则 10+ 人天） | — |
 | 16 | trust 披露 | 消费者已写好，主要是喂数据（读项目 `.mcp.json` + `local.toml` + instruction sources） | **2-3 人天** |
-| 18-20 | ~~proxy env~~ **已完成（§10.37）** / `x-trace-id` / shell 探测 | 各 0.5-1 人天的局部改动 | **各 < 1 人天** |
+| 18-20 | ~~proxy env~~ **已完成（§10.37）** / ~~`x-trace-id`~~（失败路径已完成，§10.38） / shell 探测 | 各 0.5-1 人天的局部改动 | **各 < 1 人天** |
 
 **合计（不含待裁决项）**：约 **21-30 人天**（原 22-32；第 8、10 项已实做各扣 0.5-1）。P0+P1 剩余约 **14-20 人天**。
 
@@ -7192,3 +7192,40 @@ env → 代理块 → no_proxy 覆盖）。四个辅助函数逐条对齐 v2，�
 
 **验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -D warnings` ✅｜
 `cargo test --no-default-features --features cli` 全量 ✅｜15 道门禁 ✅。
+
+### 10.38 §6.45 P2-19 落地：失败调用保留 provider 的 `x-trace-id`（2026-10-03）
+
+§6.42.5 的原表述是「`requestId`/`traceId` 丢失 | 每个 OpenAI 兼容 provider 都发 `x-trace-id`；
+纯可诊断性」。核验后**方向需要说清**：`x-trace-id` 是 **provider 在响应里发给引擎**的，v2 从**响应头**
+把它捕获（`human/kimi/trace.ts:11-31` 的 `capture(headers)`，接线在 `llm.streaming.headers` 与
+`llm.failed.remote` 两个事件上），而不是引擎往外发。
+
+**fork 侧的精确缺口**：`llm/error.rs:1-10` 的模块注释本就把 v2 的契约写全了——
+「`statusCode`, `retryAfterMs`, `requestId`, `headers`」——但它明说自己**只恢复了重试层需要的那两个**
+（`retry_after` 与 `status_code`）。于是：`http.rs:415-427` 的错误路径从响应头读 `retry-after`、
+却对同一个 header 块里的 `x-trace-id` 视而不见；provider 请求 id 在**调用失败时被丢掉**——
+而那恰好是用户唯一能拿去问 provider 支持的标识。
+
+**落地**（本轮取边界最紧的一步，只做错误路径）：
+
+- `LlmError` 增加 `request_id: Option<String>`（v2 `requestId`）与 `request_id()` getter；
+  构造函数签名不变（既有调用方零改动），新字段走 `with_request_id(Option<&str>)` builder。
+- **id 存在时**在渲染消息尾部追加 ` [trace {id}]`：字段是代码读的，后缀是日志与报障里看的。
+- **id 不存在时消息逐字不变**——这是该模块对 `Display` 的既有契约（「byte-identical to the string
+  this replaced」），而最常见的情况正是 provider 不发这个头。三个用例钉住（`None` / 空串 / 纯空白），
+  并有一条断言在追加后缀后 `llm_http_status` 仍能解析出状态码。
+- id 先 trim，避免带空白的头把空白带进标记里。
+
+**刻意没做**：成功路径的 trace id 没有消费方。v2 把它放进 `ModelRequestEvent` 的 `finish` 变体
+（`model-requester.ts:42,54` 的 `traceId` / `onTraceId`）供**压缩归因**（`summarize.ts:57`）与遥测读取；
+fork 目前没有这两条消费链，先接一个无人读的字段只会是死代码。等真有消费者（例如把 trace id 写进
+压缩摘要的元数据）再接成功侧。
+
+**验证**：`cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -D warnings` ✅｜
+`cargo test --no-default-features --features cli` 全量 ✅｜`llm::error` 6 项（新增 3 项）✅｜15 道门禁 ✅。
+
+**门禁又拦下一处，并顺带订正了同型条目**：新字面量 `"{} [trace {id}]"` 被 `scan:hardcoded:rust` 报为未登记。
+按词汇表它是 **`format-scaffolding`**（「Structural wrapper with no prose of its own」，清单里 `"{}\t{}"`
+就是同型先例），而 `--update` 保守地给了 `deferred`。**紧邻的同型条目 `"(retry-after {}s)"` 也记着
+`deferred`**——那是 `--seed` 的兜底残留（无规则命中），不是人为裁定，故一并改为 `format-scaffolding` 并
+标 `manual: true` 固化。`format-scaffolding` 计数 7 → 9。

@@ -418,13 +418,22 @@ impl NativeHttpLlm {
                 .and_then(|v| v.to_str().ok())
                 .and_then(|v| v.trim().parse::<u64>().ok())
                 .map(Duration::from_secs);
+            // v2 captures the provider's request id from the same header block
+            // (`human/kimi/trace.ts` reads `x-trace-id` on both the streaming
+            // and the failed path) and keeps it on the typed error. It is the
+            // only identifier the provider's support can search on, so it must
+            // not be dropped just because the call failed.
+            let request_id = response
+                .headers()
+                .get("x-trace-id")
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_owned);
             let (brief, body_retry_after) = read_error_body(response).await;
             let retry_after = header_retry_after.or(body_retry_after);
-            return Err(Box::new(crate::llm::LlmError::http(
-                status.as_u16(),
-                &brief,
-                retry_after,
-            )));
+            return Err(Box::new(
+                crate::llm::LlmError::http(status.as_u16(), &brief, retry_after)
+                    .with_request_id(request_id.as_deref()),
+            ));
         }
 
         let mut acc = if is_anthropic {
