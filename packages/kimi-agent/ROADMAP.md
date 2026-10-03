@@ -4831,7 +4831,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 |---|---|---|---|
 | 3 | ~~**14 个 hook 事件未触发**~~ **已完成 2026-10-03**（v2 有 20 种，fork 原只 6 种）。全部只观察、从不否决 | 已核实（20 种事件名逐条确认） | 见 **§10.27**。`tools/external_hooks.rs` 新增 12 个 `notify_*` + `has_hooks_for`，接线落在 session / turn_loop / callbacks / task_runner / agent_tool / swarm 六处 |
 | 4 | **Anthropic 多发一个 `cache_control` 槽**（fork 4 / 上游 3）。stable-history 位是 **fork 自加**，此前被误登记为「非自加」 | 已核实（`anthropic.rs:184-192` 四处发射点 `:164/:192/:239/:254`；上游 `anthropic.ts:352-362` 无该分支） | **冗余但无害，降级**：stable 位在 `msgs.len()-3`，**每轮向前移动**，故永远不是同一前缀——两种缓存语义下都不带来命中收益，唯一效果是多写一条条目。详见 6.45.1 |
-| 5 | ~~**micro compaction 的 `detect()` 两个门禁**~~ **已完成 2026-10-02** | 已核实 | 见 **§10.25**。`compaction/micro.rs` 增 `detect_micro_compaction()` + `DetectOutcome`，配置面补 `cache_missed_threshold_ms` / `min_context_usage_ratio` 两个 v2 默认值；引擎侧增 per-session `last_assistant_at`，每轮 `save_turn` 后打戳（v2 `onDidFinishStep`）。**§6.29 曾把它标成「不得开工」，6.44.1 已推翻** |
+| 5 | ~~**micro compaction 的 `detect()` 两个门禁**~~ **已完成 2026-10-02** | 已核实 | 见 **§10.25**。`compaction/micro.rs` 增 `detect_micro_compaction()` + `DetectOutcome`，配置面补 `cache_missed_threshold_ms` / `min_context_usage_ratio` 两个默认值（**2026-10-04 出处订正**：原写「v2 默认值」，但这两个默认值出自退役副本的 `microCompaction.ts:17-23`，上游无该模块）；引擎侧增 per-session `last_assistant_at`，每轮 `save_turn` 后打戳（`onDidFinishStep` 本身是上游 hook，注册方 `micro-compaction` 只在退役副本）。**§6.29 曾把它标成「不得开工」，6.44.1 已推翻** |
 | 6 | ~~**wire 协议无版本概念**~~ **已完成 2026-10-03**（§10.34）：`protocol_version` 列 + 写入打戳 + 读取侧对更新版本**拒绝**。**五个迁移经核验无物可迁**（v2 是 JSONL 记录字段重写；最大的 v1.3→v1.4 全是 `goal.*`，fork 零命中；表从未被 ALTER 过） | 已核实 | `native/event_store/mod.rs`、`session/sqlite_store.rs:558` |
 | 7 | ~~**磁盘日志缺失 + 导出 ZIP 只有 2 个成员**~~ **按原样不存在，见 §10.30**；残余 (b) **已完成 2026-10-03**（§10.31）：日志子系统已在宿主层 `node-sdk/src/logging.ts`（`~/.kimi-code/logs/kimi-code.log` 实测 5.8MB 且在写、`.1`–`.4` 归档）；`/export-debug-zip` 走宿主完整导出并有 e2e 钉住。**真正残余两项**：(a) 会话级日志无调用方（已另登记为 §6.40 的 `sessionLogService`），(b) **引擎 REST `/export`（Web 客户端）比宿主导出薄**（2 成员、无 manifest） | 已核实（文件系统 + e2e 实测） | `src/server/mod.rs:1680-1721`（Web 路径）、`node-sdk/src/logging.ts`、`tui/commands/session.ts:163` |
 | 8 | ~~**POST /undo 不做 state 回滚**~~ **已完成 2026-10-01**（`ac180b4dbe`）：闭环记录见 §6.45.4 第 8 行。**本行此前未划线、与 §6.45.4 自相矛盾，2026-10-03 订正**——两表同源于 §6.40，而修正只落在了后者 | 已核实（grep 全仓确认） | `src/server/mod.rs:5511-5602` |
@@ -6571,7 +6571,7 @@ usage**——`:94-95` 是 `Date.now() - lastAssistantAt >= cacheMissedThresholdM
 |---|---|
 | `compaction/micro.rs` | 配置面补 `cache_missed_threshold_ms`（默认 `60*60*1000`）与 `min_context_usage_ratio`（默认 `0.5`），与 `microCompaction.ts:17-23` 逐值对齐；新增纯函数 `detect_micro_compaction()` 与 `DetectOutcome` |
 | `server/engine.rs` | 增 per-session `last_assistant_at`；`save_turn` 成功后 `stamp_last_assistant_at()`（对应 v2 `onDidFinishStep`）；调用点先过门禁再 `apply_micro_compaction` |
-| 同上 | `model_context_window()` 从 config 的 model alias 读 `max_context_size`；读不到时返回 `None`，门禁按「窗口未知 = 满」处理（v2 `:102-103` 以 ratio 1 代入） |
+| 同上 | `model_context_window()` 从 config 的 model alias 读 `max_context_size`；读不到时返回 `None`，门禁按「窗口未知 = 满」处理（退役副本同文件 `:102-103` 以 ratio 1 代入；**2026-10-04 出处订正**：原写「v2 `:102-103`」，但该行只存在于退役副本，上游无此模块） |
 
 **与 v2 的两处刻意差异**（均为 fork 机制所迫，非自创）：
 1. v2 在 `onWillBeginStep`（**每 step**）跑 `detect()`；fork 的
@@ -6610,12 +6610,12 @@ YAML**（第二个 `: ` 被读作嵌套映射），`js-yaml`（v2 所用，实�
 
 **核对结果**
 
-| 改动 | v2 依据 | 判定 |
+| 改动 | 依据（上游，或按行标注的退役副本） | 判定 |
 |---|---|---|
 | `turnIndex` 校验 | `assertForkTurnIndex`（`forkTurnSlice.ts:22-30`） | ✅ 逐条一致 |
 | 切片含当轮 | `slice(0, turnStarts[turnIndex + 1])` | ✅ 一致 |
 | 微压缩两门 + 顺序 | `detect()`（`microCompactionService.ts:89-107`，**退役副本**；上游无该模块） | ✅ 逐条一致 |
-| 五个默认阈值 | `DEFAULT_MICRO_COMPACTION_CONFIG`（`:17-23`） | ✅ 逐项一致 |
+| 五个默认阈值 | `DEFAULT_MICRO_COMPACTION_CONFIG`（同副本 `:17-23`） | ✅ 逐项一致 |
 | tower frontmatter 解析 | `features/tower/protocol/frontmatter.ts` | ⚠️ **v2 刻意不用 YAML**，见§10.24 |
 | skill 描述兜底 | `descriptionFromBody`（`catalog/parser.ts:143-150`） | ⚠️ 缺 240 截断，**本节已补** |
 
