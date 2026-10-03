@@ -1122,12 +1122,13 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
 
 20. ~~**#3840 Windows 8.3 短路径的 watch 归一化（未移植）**~~ **不适用（2026-09-17 复核）**。
     上游的缺陷是 libuv 专属的：变更通知按长路径到达，而 watch root 以 8.3 形式注册，于是 libuv
-    `fs-event.c` 断言 `!_wcsnicmp(filename, dir, dirlen)` 直接终止进程。fork 的
-    `packages/kimi-agent/src/server/fs_watch.rs` 是**定时轮询** `tokio::fs::metadata`，没有 OS watcher、
-    没有 libuv，该断言不可达。上游修复的两个行为面 fork 本就满足：事件按注册时的路径原样回显
-    （正是上游要映射回去的结果），且 8.3 路径解析到同一文件——本机实测
-    `C:/Users/ADMINI~1/.kimi-code/mcp.json` 与 `C:/Users/Administrator/.kimi-code/mcp.json` 的 inode
-    （281474977003976）与 mtime（1789609827）完全一致，轮询两种写法看到同一个 mtime。
+    `fs-event.c` 断言 `!_wcsnicmp(filename, dir, dirlen)` 直接终止进程。**（2026-10-03 订正本条的论据）**
+    原文称「fork 的 `packages/kimi-agent/src/server/fs_watch.rs` 是**定时轮询** `tokio::fs::metadata`」——
+    **该文件不存在**：它由 `adc794635c` 删除（见 §7.3），而 §6.1-32（2026-09-22）早已写明引擎侧
+    「**没有任何文件监视**」。两处对同一事实的相反陈述，正是本条论据失效的原因；原文附的 inode / mtime 实测
+    （`C:/Users/ADMINI~1/.kimi-code/mcp.json` 与 `C:/Users/Administrator/.kimi-code/mcp.json` 同 inode）
+    **已无法复核**——被测量的那个轮询实现不存在了。**结论不变、且更强**：没有 watcher 的引擎不可能触发
+    libuv 的 `fs-event.c` 断言；上游修复的两个行为面（事件按注册路径回显、8.3 解析到同一文件）也无需主张。
     该提交的后续修复（`..cache` 这类以两点开头的子项算作 root 内）同样不适用：fork 不比较相对路径。
     allowlist `9c5e9b4863` 由 `tracked` 改判 `not-applicable`。
 
@@ -1226,8 +1227,8 @@ git log -1 --format='%h %cs %s' refs/remotes/upstream/main
     capability。`ReadMediaFile` 指针变体不适用。（allowlist: `f233f9de04`）
 
     另：2026-09-19 批量 triage 后确认两条 not-applicable 无需动作——#3892（洪水根目录观察
-    崩溃）依赖 v2 的 OS 目录 watcher，fork 的 fs_watch 是注册路径的 mtime 轮询，无此失败
-    模式；#3887（会话删除挂死）的三处无界等待都在 v2 生命周期链内部，fork 的 delete 路由
+    崩溃）依赖 v2 的 OS 目录 watcher，**fork 侧没有任何 watcher**（2026-10-03 订正：原文写「fork 的
+    fs_watch 是注册路径的 mtime 轮询」，见 §6.1-20 的订正），无此失败模式；
     无 settle await 可卡，且压缩取消后 apply 前的取消检查 `summarize_with_llm` 已有；
     #3889（大工作区 resume 性能）优化的 wire-restore/immer/kap-server 缓存层 fork 不存在，
     恢复是直连 SQLite 读（allowlist: `a80fe31cff`、`e3f48a225b`、`5108cad9b6`）。
@@ -1800,7 +1801,7 @@ docs / release / changelog：`a1e4c13d41`、`f67e6398fb`、`be7d5f5fea`）。两
 
 | 加固层次 | 上游 2.1.1（回退后） | **fork 执行后** | 落地方式 |
 |---|---|---|---|
-| 静态 `-c`（hooksPath / gpg / editor / fsmonitor / submodule / 签名） | ❌ | ❌ | 删 `src/git.rs`（v2 `utils/git/git-args.ts` 的对位），`tools/tower/git.rs`、`server/fs_routes.rs` 的 `CONFIG_ARGS` / `DIFF_ARGS` 接线全部撤除 |
+| 静态 `-c`（hooksPath / gpg / editor / fsmonitor / submodule / 签名） | ❌ | ❌ | **（2026-10-03 订正）** Rust 侧**无可撤除**：`CONFIG_ARGS` / `DIFF_ARGS` 在 `packages/kimi-agent/src` 的全历史零命中，`src/git.rs` 也从未存在（`git log --all --` 无 add / delete / touch）。原文声称的「删 `src/git.rs` + 撤除 `tools/tower/git.rs`、`server/fs_routes.rs` 的接线」不成立；真正的对位是下行 TS 侧的 `utils/git/git-args.ts` |
 | 动态探测 repo 定义的 filter / merge driver / textconv | ❌ | ❌ | fork 本就没移植 `app/git/hardening.ts`，无需改动 |
 | 符号链接重解析（写目标落点判定） | ❌ | ❌ | 删 `native/path_access.rs::is_project_local_config_path`、`tools/mod.rs::symlink_lands_on_project_local_config` 及 Write/Edit 两处调用点、`permission/mod.rs` 策略 12 的 opt-out |
 | `local.toml` 信任门控 | ❌ | ❌ | `server/engine.rs::project_local_roots` 不再查 `is_workspace_trusted`（**功能保留**：文件照读、目录照并入 `extra_roots` 并写进 `${additional_dirs_section}`） |
@@ -2554,7 +2555,7 @@ TUI `turn.cancel` 3 ✅｜node-sdk `session-cancel` 6 ✅｜kimi-web 投影器 2
 （本轮 +7 个测试）｜`check:parity` ✅（napi 102 → **103**：新增 `sessionSkills`，门禁已核对其与
 `napi-contract.d.ts` 声明一致）｜`check:engine-i18n` 146 keys ✅｜node-sdk / kimi-agent `typecheck` ✅｜
 `oxlint` 0 error｜**addon 已重建**（`napi build --release`，3m32s，产物 `kimi_agent.win32-x64-msvc.node`
-21,867,520 B @ 20:29，含新导出）→ 端到端 `packages/node-sdk/test/list-skills.test.ts` **1 passed**
+21,867,520 B @ 20:29，含新导出）→ 端到端技能目录测试 **1 passed**（**2026-10-03 订正**：原记的文件名从未进入版本库——`git rev-list --all --objects` 零命中，该字符串只出现在本台账自身；现等价文件为 `packages/node-sdk/test/session-skills.test.ts`）
 （真实引擎会话）：`listSkills()` 返回 `update-config`、`import-from-cc-codex`（user-only）、
 `sub-skill`（无 `isSubSkill`）、`sub-skill.review` / `sub-skill.consolidate`（`isSubSkill: true`
 + user-only），以及工作区技能与 `bundle.child`（`isSubSkill: true`）。
@@ -3623,7 +3624,7 @@ provider 的 `FakeRegistry`，而它们测的本来就是 provider 而非 regist
 | --- | --- | --- | --- |
 | §6.23.1 | `1f6f0b1fa2` #4059 | **ported** | `KIMI_CODE_TRUST_WORKSPACE` env 短路，落在 `node-sdk`（2026-09-29 已实现） |
 | §6.23.2 | `4fbe065442` #4054 | tracked | NotifyUser 需要"宿主有更新面板"的能力位，Rust 无此概念 |
-| §6.23.3 | `a940f2ff04` #4057 | tracked | 权限模式要发 `agent.status.updated`，引擎无该事件、无 `permission` 字段 |
+| §6.23.3 | `a940f2ff04` #4057 | **ported**（2026-10-03 改判） | 引擎早已发 `agent.status.updated` **且带 `permission` 字段**（`server/engine.rs:1003-1026`，2026-09-12 `21403bf956` 落地，早于本条记录 19 天），profile 写入后还会刷新该事实（`server/mod.rs:6234-6240`）。原判「引擎无该事件、无 `permission` 字段」与代码相反。余项仅时序：走会话配置路由改模式要等下一轮开始才重新发布。见 §11 |
 | §6.23.4 | `09af3b483f` #3998 | tracked | tower 六簇加固 + wake 打断，全部是新面；仅 tmp+rename 判不适用 |
 | §6.23.5 | `e3bf50c083` #4076 | tracked | undo 需按 prompt 归属撤销；fork 的 undo 只按轮数 |
 | §6.23.6 | `395d537237` #4056 | tracked | workspace trust 披露服务**部分**接线（§10.41）；`gatedMcpServers` 不再是空的，但 v2 还有 `additionalDirs`/`warnings`/`instructionSources` 三类未做，且项目 `.mcp.json` 的取路径不对——见 §10.49 |
@@ -4519,7 +4520,7 @@ has_errors = state == "error"     // 两者不再互相矛盾
 | **wire 协议版本与迁移链** | **missing（本轮我亲自核实）** | `wire/migration/migration.ts:19,29-35`、`wire/record.ts:23-27,38-44` | v2 有 `WIRE_PROTOCOL_VERSION='1.5'` + 五级迁移（v1.0→v1.5）+ `isNewerWireVersion` 前向拒绝（`:37-39`）+ `metadata` 记录携带 `protocol_version`（`record.ts:25,41`）。**fork 的 `wire_events` 表（`session/sqlite_store.rs:439-443`）无版本列，全仓 `protocol_version` / `schema_version` / `WIRE_PROTOCOL_VERSION` 零命中，`native/event_store` 也不认 `metadata` 记录。**后果：旧版本会话被新引擎读到时**既不能迁移、也不能识别、也不能拒绝**，只能尽力解析 |
 | **`app/sessionExport/` 产物偏薄** | **partial（仅引擎 REST 路径，见 §10.30）** | `app/sessionExport/sessionExportService.ts:42-279`、`manifest.ts:28-51`、`wire-scan.ts` | fork 的 `build_session_export_zip`（`server/mod.rs:1680-1721`）只打包**两个成员**：`session.json` + `transcript.md`；v2 打整个会话目录 + `manifest.json`（16 字段：版本、协议版本、os、shellEnv、首末活动时间、installSource…）+ **四个日志文件** + wire 扫描。**而 `locales/en.json:2600` 正在叫用户出错时跑 `/export-debug-zip` 把文件交给诊断**——用户按提示交出的档案缺 manifest、缺日志、缺版本溯源。另 v2 导出前会 flush 活会话，fork 不做 |
 | **`IQueryStore` / minidb 读模型未接线** | **missing（最大单点）** | `persistence/interface/queryStore.ts:87-115`、`persistence/configSection.ts:12-43` | `packages/minidb/` 是完整的 44 文件实现（WAL + 快照 + trigram 全文索引 + 复合索引 + 压缩 + cluster），但**引擎侧零引用**（`minidb`/`read_model` 在 Rust 全仓零命中；仓内仅 `apps/kimi-code/src/native/minidb-worker.ts` 一条 smoke 路径）。`IQueryStore` 是 v2 `ISessionIndex`、其 projector、mirror、dirty-journal 与全局搜索 worker 的共同基底。连带 `[database]` config section 整个不存在（`config/mod.rs` 无 `database`/`MINIDB`） |
-| **遥测事件目录 ~10/60** | **前三项本轮已补（§10.39）** | `app/telemetry/events.ts:599-1359` | 缝隙本身可用（`callbacks.rs:199-207` 的 `telemetry`、`server/mod.rs:307-334` 的 `TelemetrySink`），缺的是目录。**最值得补的是解释故障的那批**：`api_error`、`compaction_failed`、`tool_call_dedup_detected`、`tool_call_repeat`、`permission_approval_result`、`session_load_failed`、`agent_create_failed`、`context_projection_repaired`。注意 fork 的 TS 宿主侧独立上报了其中若干（`model_switch`/`thinking_toggle`/`plugin_toggle`），所以缺的是**引擎侧**覆盖而非管道 |
+| **遥测事件目录 ~10/60 → 13/79（引擎侧；含宿主 22/79）** | **前三项本轮已补（§10.39）；分母与分子已于 2026-10-03 订正，见 §11** | `app/telemetry/events.ts:599-1359` | 缝隙本身可用（`callbacks.rs:199-207` 的 `telemetry`、`server/mod.rs:307-334` 的 `TelemetrySink`），缺的是目录。**最值得补的是解释故障的那批**：`api_error`、`compaction_failed`、`tool_call_dedup_detected`、`tool_call_repeat`、`permission_approval_result`、`session_load_failed`、`agent_create_failed`、`context_projection_repaired`。注意 fork 的 TS 宿主侧独立上报了其中若干（`model_switch`/`thinking_toggle`/`plugin_toggle`），所以缺的是**引擎侧**覆盖而非管道 |
 | `app/workspaceAliases/` | **别名半边本轮已补（§10.40）** | `workspaceAliasesService.ts:83-101` `resolveAliasIds` | `create_workspace` 现在先按 `workspace_root_key`（canonicalize + Windows 小写 + 缺路径兜底）复用已有 id，同目录的不同拼写不再是两个 workspace。**墓碑半边判为 n-a**：引擎无任何 workspace 合并/同步，没有读取方 |
 | `human/store/` 分支文档存储 | **不建，只记录** | `store/types.ts:32-40`、`store.ts:60-75,104-190`、`internal/codec.ts` | 无对应物（三树皆无 `TreeStore`/`BranchHeader`/`journalFromBranch`）。但 fork 用「复制会话」而非「分支文档」实现 fork（`sqlite_store.rs:833-886`），**照搬会造出没有读取方的存储**——正是 6.40.5 规律二。只有 `verify`/`CorruptionReport` 这一条有独立价值 |
 | `human/eventStore/` 内部 | partial | `journal.ts:76-98`、`eventStore.ts:34-49,274-283` | v2 沿分支链重建历史、带显式 `Cause`（event/internal/reset/slice-joined）、fold 有 `drainLimit`。fork 的 `fold_wire_events`（`native/event_store/mod.rs:394-482`）是纯函数折叠，无事件轴、无 drain 上界。**但它建立在上面那个不打算建的 store 之上**，故不单独施工 |
@@ -4628,7 +4629,7 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 | `fs` 错误分类未在失败点应用 | partial | `workspaceFs/internal/errors.ts:4-15`（10 个码） | 分类表在 `packages/protocol/src/error-codes.ts:170-211` 完整存在（且数值与 v2 线表逐条一致，另多两个 v2 没有的），但 Rust 侧只定义了 `FS_PATH_NOT_FOUND`（`server/envelope.rs:29`）**且仅被自己的单测引用**（`:289`）；实际处理器返回字符串错误（`server/fs_routes.rs:920,924`、`tools/list_directory.rs:74,87`）。**低价值**：v2 自身消费者也不多 |
 | stdio MCP 的 proxy env 继承 | **本轮已补（§10.37）** | `mcpCore/client-stdio.ts:292-304` `mergeStdioEnv` | v2 做三件事：继承 `process.env`、叠加 config env、**再应用 proxy env**（`proxyEnvForChild` + `reconcileChildNoProxy`）。**症状已按 §10.37 更正**：父环境本来就能通过 `Command` 隐式继承，`HTTP_PROXY` 是传得到的。真正缺的是 v2 额外计算的 `proxyEnvForChild`——**`NODE_USE_ENV_PROXY=1`**（Node 只在该变量设置后才读代理变量，这才是「继承不够」的原因）、`NO_PROXY` 归一化（补回环）、socks 排除、以及子进程 `no_proxy` 覆盖。已逐条落地（`mcp/client.rs`），6 项测试。实际影响仍低（本地 npm 包通常不走代理） |
 | `workspaceMcp` 与 `workspaceMcpConfig` 的边界 | partial | `workspaceMcp.ts:15-28`（运行时 + 每会话 overlay）、`workspaceMcpConfig.ts:17-27`（配置映射 + tunables + `onDidChange`） | fork 把两者融进一个 `McpClient` + 可变 `tool_timeout`（`mcp/client.rs:114`），tunables 在但**没有 `onDidChange` 边界**，也没有每会话 overlay |
-| POSIX shell 探测 | partial | `environmentProbe.ts:68-117`（探 `/bin/bash`→`/usr/bin/bash`→`/usr/local/bin/bash`，回落 `/bin/sh`）、`:119-182`（Windows 先查 `KIMI_SHELL_PATH`） | `KIMI_SHELL_PATH` 在 Windows 上确实优先（`native/shell.rs:98-104`），但 POSIX 侧**硬编码 `/bin/bash`、无探测、无 `/bin/sh` 回落**（`:88-95`）；且 Windows 链可合法落到 `pwsh`/`cmd`，而 v2 **要求** Git Bash 否则抛 `ProbeShellNotFoundError`（`environmentProbe.ts:178-181`）。`loginShellPath.ts` **不缺**——已落 `packages/kaos/src/login-shell-path.ts:46-127`（宿主 TS 进程，非引擎） |
+| POSIX shell 探测 | **POSIX 半边已修（§12）**；Windows 链的分歧仍在 | `environmentProbe.ts:68-117`（探 `/bin/bash`→`/usr/bin/bash`→`/usr/local/bin/bash`，回落 `/bin/sh`）、`:119-182`（Windows 先查 `KIMI_SHELL_PATH`） | `KIMI_SHELL_PATH` 在 Windows 上确实优先（`native/shell.rs:98-104`），POSIX 侧原本**硬编码 `/bin/bash`、无探测、无 `/bin/sh` 回落**（`:88-95`）——**已于 2026-10-03 按 v2 候选链修好，见 §12**；且 Windows 链可合法落到 `pwsh`/`cmd`，而 v2 **要求** Git Bash 否则抛 `ProbeShellNotFoundError`（`environmentProbe.ts:178-181`）。`loginShellPath.ts` **不缺**——已落 `packages/kaos/src/login-shell-path.ts:46-127`（宿主 TS 进程，非引擎） |
 
 #### 6.42.6 refuted / n-a（本轮核实，不必做）
 
@@ -4831,12 +4832,12 @@ fork 已处理 YAML 较易的部分（块列表 `skills/mod.rs:188+`、`-`/`_` �
 | 12 | `SessionOutcomeMirror` 不落库 | `last_turn_reason` 只发活事件；线形字段已在 `protocol/src/session.ts:112` 但无写入方 |
 | 13 | ~~`toolResultRender` 状态包装缺失 + `note` 未到模型~~ **已完成 2026-10-03**：包装见 §10.28，**`note` 追加见 §10.50** | `<system>ERROR:…</system>` 是模型判断工具成败的唯一信号；`locales/en.json:609` 的串全仓无人用 |
 | 14 | ~~`SessionHeartbeat` hook 缺失~~ **已撤销** | 它就是 P1-3 那 14 个未触发事件之一（`types.ts:17`），重复计数。唯一额外成本是需要 session 心跳定时器 |
-| 15 | ~~遥测事件 ~10/60~~ **解释故障的三个本轮已补（§10.39）**：`api_error` / `compaction_failed` / `session_load_failed`；余项各自落点需单独核实 | 优先补解释故障的：`api_error`、`compaction_failed`、`tool_call_dedup_detected`、`session_load_failed` 等。**`api_error` 原与 P1-5 合并做，该理由已于 2026-10-02 推翻**（见 §10.25：v2 的 cache-miss 判据不读 usage，两者无共用结构），现为独立工单 |
+| 15 | ~~遥测事件 ~10/60~~ **分母与分子已于 2026-10-03 核实订正（见 §11）：上游 `app/telemetry/events.ts` 注册表实测 79 条（退役副本为 74，两个快照都与 60 不符），引擎侧实发 13 条、含 TS 宿主侧 22 条** **解释故障的三个本轮已补（§10.39）**：`api_error` / `compaction_failed` / `session_load_failed`；余项各自落点需单独核实 | 优先补解释故障的：`api_error`、`compaction_failed`、`tool_call_dedup_detected`、`session_load_failed` 等。**`api_error` 原与 P1-5 合并做，该理由已于 2026-10-02 推翻**（见 §10.25：v2 的 cache-miss 判据不读 usage，两者无共用结构），现为独立工单 |
 | 16 | trust 披露服务（§6.23.6） | 消费者已写好但是死的：`trust-prompt.ts:89-97` 只在数组非空时渲染，`kimi-tui.ts:2689` 硬编码 `[]` |
 | 17 | `workspaceAliases` 缺失 | 同一目录的符号链接/大小写变体会变成两个 workspace；`delete_workspace` 无墓碑 |
 | 18 | stdio MCP 的 proxy env 继承 | v2 额外应用 `HTTP_PROXY`/`NO_PROXY`；实际影响低 |
 | 19 | ~~`requestId`/`traceId` 丢失~~ **失败路径已完成（§10.38）** | `x-trace-id` 是 provider 在**响应**里发、v2 从响应头捕获；fork 的 `LlmError` 原先只恢复了 `retry_after`/`status_code`。**方向已更正**：不是「引擎外发」 |
-| 20 | POSIX shell 探测 | fork 硬编码 `/bin/bash` 无 `/bin/sh` 回落；Windows 链可落到 `pwsh`/`cmd` 而 v2 要求 Git Bash 否则抛错 |
+| 20 | ~~POSIX shell 探测~~ **已完成 2026-10-03（§12）** | POSIX 侧已按 v2 候选链实现（`/bin/bash` → `/usr/bin/bash` → `/usr/local/bin/bash`，回落 `/bin/sh`），提示词同步跟随工具实际 shell。**仍存的分歧**：Windows 链可落到 `pwsh`/`cmd` 而 v2 要求 Git Bash 否则抛错——这一半有意未动 |
 
 #### 明确不做（已逐条核实，勿重复评估）
 
@@ -6194,8 +6195,9 @@ oauth-托管两道门禁，并连带 `remove_model_aliases_of` 清别名（不�
 **④ 一次自我推翻（记录在案，因为它正是 Verification Standard 的做法）**：
 本轮一度认定 `native/goal/{state,accounting}.rs`（734 行 + 21 测试）是死代码——
 `rg 'goal::state|goal::accounting'` 只命中 `steering`，且 `napi_bindings.rs`
-的 `use` 看似未使用。**结论是错的**：真正的调用方是 `src/native/napi_bindings.rs`
-（15 处 `state::` / `accounting::` 调用，提供 `native_goal_*` addon 函数），
+    的 `use` 看似未使用。**结论是错的**：真正的调用方是 `src/native/native_tool_bindings.rs`
+    （**2026-10-03 订正路径**：下面 ⑤ 记录该文件原名 `napi_bindings.rs`、已由 `git mv` 改名为
+    `native_tool_bindings.rs`；此处原引旧名）（15 处 `state::` / `accounting::` 调用，提供 `native_goal_*` addon 函数），
 我先前的检索范围漏了整个 `src/native/` 下的 `napi_bindings.rs`（顶层还有一个
 同名的 `src/napi_bindings.rs`，两个文件都叫 `napi_bindings.rs`）。**已
 `git checkout` 恢复两个文件并重写 `mod.rs` 头部**，改为如实说明这是 addon 层、
@@ -6208,7 +6210,7 @@ oauth-托管两道门禁，并连带 `remove_model_aliases_of` 清别名（不�
 `cargo test --no-default-features --features cli` **2888 passed / 0 failed / 1 ignored**
 （与 10.13 持平：本轮为命名与文档重整，测试数不变）。
 
-**⑤ `src/native/napi_bindings.rs` → `src/native/native_tool_bindings.rs`**（`git mv`）。
+**⑤ `src/native/napi_bindings.rs` 改名为 `src/native/native_tool_bindings.rs`**（`git mv`）。
 仓里有**两个都叫 `napi_bindings.rs`** 的文件：顶层 `src/napi_bindings.rs`（3656 行，
 宿主/会话面）与 `src/native/napi_bindings.rs`（1799 行，本目录工具的 `#[napi]` 面）。
 ④ 里的误判正是它造成的——文本检索 `napi_bindings` 会静默漏掉其中一个。改名后
@@ -7232,7 +7234,7 @@ fork 目前没有这两条消费链，先接一个无人读的字段只会是死
 
 ### 10.39 §6.45 P2-15 落地：三个解释故障的遥测事件（2026-10-03）
 
-§6.45 P2-15 的原表述是「遥测事件 ~10/60，优先补解释故障的：`api_error`、`compaction_failed`、
+§6.45 P2-15 的原表述是「遥测事件 ~10/60（**2026-10-03 订正：见 §11——上游注册表实为 79 条、引擎侧实发 13 条、含宿主 22 条**），优先补解释故障的：`api_error`、`compaction_failed`、
 `tool_call_dedup_detected`、`session_load_failed` 等」。管道确实早就可用（`callbacks.rs:216` 的
 `HostCallbacks::telemetry`、`server/mod.rs:325` 的 `emit_session_telemetry`），缺的是**目录**。
 本轮补了台账点名最靠前的三个。
@@ -7738,3 +7740,234 @@ fork 只把这些放进了 `note`，而 `note` 只出现在**事件载荷**里�
 **验证**：`cargo fmt --check` 通过｜`cargo clippy --all-targets --features cli -D warnings` 通过｜
 `turn_loop::run_turn` **80 项**（+1）｜`mcp::client` 21 项｜`bun run test scripts` 102 项通过｜
 `note` 追加经变异验证（含回退后的绿色复验）。
+
+## 11. 台账核查轮（2026-10-03）：门禁的覆盖漏洞、死引用与一处误判
+
+本节是一次对**台账自身**的核查，不是对引擎的核查。触发点是上一轮交付后的一句追问：那份「只验存在性、
+不验坐标」的门禁，**它自己的覆盖率是多少**。答案是：字面承诺与实测差 2.7 倍，而三处真实死引用正好落在差额里。
+
+方法：复现门禁的逻辑并分别计数（不是读它的摘要行）、逐条 grep + 打开文件取证、
+必要时以 `git log -S` / `git rev-list --all --objects` 定年与定性。**凡本节写下的断言都附复现命令（见 §11.10）。**
+
+### 11.1 结论摘要
+
+| # | 发现 | 证据强度 |
+|---|---|---|
+| 1 | **门禁有三处覆盖漏洞**：只抽 `:line` 形态（235 条裸路径从不进检查器）、±2000 字符的「历史块」豁免过宽、测试检查只认「像测试函数」的标识符 | 实证（复现逻辑并计数） |
+| 2 | **3 处真实死引用 + 1 处幻影文件**被上述漏洞放过，其中 `server/fs_watch.rs` 一处**与 §6.1-32 自相矛盾** | 实证（文件系统 + git 历史） |
+| 3 | **allowlist 的 `roadmap` 反向指针 12 条错 9 条** | 实证（与 §6.23 / §6.24 表逐条对照） |
+| 4 | **1 条 `tracked` 属误判**：#4057 的「引擎无该事件、无 `permission` 字段」与**早于记录 19 天**的代码相反 | 实证（`git log -S` 定年 2026-09-12） |
+| 5 | **§6.45 P2-15 的分母「60」不可复现**：上游注册表实测 **79** 条 | 实证（可复现计数） |
+| 6 | 抽查 4 条「已完成」条目，**4/4 成立** —— 台账的**完成记录可信**，腐烂集中在**从未复检的 `tracked` 清单** | 抽样（n=4） |
+| 7 | 上游 ref **是新鲜的**（§6.8 记过「本地 ref 过期导致假绿灯」的坑），本轮专门用 `git ls-remote` 复核 | 实证 |
+
+**一句话**：台账不缺纪律，缺的是**对「未完成项」的定期复检**——门禁只保证引用「曾经存在」，
+不保证「现在成立」，而 `tracked` 清单自写下之后就没有任何机器再看过它。
+
+### 11.2 门禁的覆盖漏洞（本轮已修）
+
+修前门禁自称 `90 file citation(s) ... all resolve`。复现其逻辑后，真实覆盖率是：
+
+| 引用形态 | 总数 | 上游 / 历史块豁免 | **真正被检查** |
+|---|---:|---:|---:|
+| `path:line`（唯一会被抽取的形态） | 90 | 34 | **56** |
+| **裸路径**（无 `:line`，**从不被抽取**） | 235 | 115 | **0** |
+
+三处洞：
+
+1. **正则强制要求 `:line`**（原 `check-roadmap-refs.mjs` 的 `citedPaths`）。这份台账里裸路径引用
+   **比带行号的还多**（235 vs 90）。
+2. **历史块窗口过宽**：取引用前后各 2000 字符，命中 `订正 / 已作废 / 撤销前 / 已退役 / 重写为 …` 任一即整条豁免。
+   而这份台账**到处都在「订正」**，于是接近一半的引用被豁免。`删除 / 移除` 反而不在词表里——方向是反的。
+3. **只认「长得像测试函数」的反引号标识符**，因此**幻影测试文件**不在其检查范围——而它的文件头
+   恰恰把「citation to test functions that do not exist」列为要抓的两类症状之一。
+
+**修复**（本轮落地）：`citedPaths` 现在同时抽取裸路径；摘要行**打印真实分母**
+（`153 checked, 11 exempt, 143 historical, 19 upstream`）而不是把豁免算进「全部解析」；
+对有正当理由「没有本地文件」的两类引用改为**显式声明**：`UPSTREAM_RELATIVE_ROOTS`（上游测试树
+按包根相对书写）与 `EXEMPT_PATHS`（每条带 `reason`，且是**双向棘轮**——条目不再被引用时门禁报
+`stale-exemption`，所以这张表只会缩小不会腐烂）。
+
+效果：被检查的引用从 **56 条升到 153 条**（同一个台账、同一次运行）。
+
+### 11.3 死引用与幻影证据（逐条）
+
+| # | 引用 | 处 | 判定 | 证据 |
+|---|---|---|---|---|
+| 1 | `packages/kimi-agent/src/server/fs_watch.rs` | §6.1-20（两处） | **真缺陷，且自相矛盾** | 该文件由 `adc794635c` 删除（`git log --diff-filter=D` 有且仅有这一条）；全仓 `*watch*` / `notify` / `inotify` 零命中。**而 §6.1-32（2026-09-22）早已写明**「fork 当时把 `fs_watch` 整批移除（§7.3）⋯⋯ 引擎侧**没有任何文件监视**」——两处对同一事实的相反陈述，2026-09-17 的那条从未被 09-22 的结论回填 |
+| 2 | `src/native/` 下的 `napi_bindings.rs` | §10.14（3 处） | **真缺陷：路径漂移** | 实际路径是 `packages/kimi-agent/src/native/native_tool_bindings.rs`（`git ls-files` 可见），由 §10.15 ⑤ 的 `git mv` 改名而来。讽刺的是这段文字**目的就是订正一个路径错误**（「真正的调用方是 ⋯」） |
+| 3 | `list-skills.test.ts` | §10.11 | **真缺陷：幻影文件** | 该路径**在任何可达提交中都不存在**：`git rev-list --all --objects` 零命中、`--diff-filter=A` 零命中、`git ls-files` 零命中；字符串只出现在 `290fa53200` 的 diff 里，而那正是**这段台账文本自己**。现等价文件是 `packages/node-sdk/test/session-skills.test.ts` |
+| 4 | `src/git.rs`（+ `CONFIG_ARGS` / `DIFF_ARGS`） | §6.40 执行记录表 | **真缺陷：记录了一次从未发生的删除** | `git log --all --` 对该路径**无 add、无 delete、无 touch**；`CONFIG_ARGS` / `DIFF_ARGS` 在 `packages/kimi-agent/src` 的**全历史零命中**（这两个符号今天只存在于**台账与 allowlist 的正文里**）。真正的对位是 TS 侧 `utils/git/git-args.ts`（`6451f1e056` 加入、`e12eda6bfe` 删除）。同表的下一行写着「fork 本就没移植 ⋯，无需改动」——**那才是正确的措辞** |
+| 5 | `test/agent/agentsMdReminder/agentsMdReminder.test.ts` | §1 板块 5 | 非缺陷（分类问题） | 上游测试规格，按包根相对书写；门禁此前对它无能为力（一旦带上 `:line` 会**误报**），已由 `UPSTREAM_RELATIVE_ROOTS` 正确归类 |
+| 6 | `src/protocol/rest-terminal.ts` | §1 板块 7 | 非缺陷（分类问题） | 上游 `kap-server` 文件的缩写形式（包前缀被省略），该包已删除，本地永远无法解析；已登记进 `EXEMPT_PATHS` 并写明理由 |
+| 7 | `packages/protocol/src/v3.ts`、`src/git.rs`（退役陈述） | §1 / §6.40 | 非缺陷（陈述正确） | 两处都是**正确的退役陈述**（v3 协议随 §8.11 撤销），只是原词表里没有 `删除 / 移除`，所以「正确的历史陈述」反而得不到豁免——这两个路径已按 §11.2 的方式显式登记 |
+
+### 11.4 allowlist 的 `roadmap` 反向指针：12 条错 9 条
+
+权威对照是 §6.23.1–§6.23.7 与 §6.24.1–§6.24.2 两张表。修正明细：
+
+| 条目 | 提交 | 原指针 | 应为 | 性质 |
+|---|---|---|---|---|
+| `1f6f0b1fa2` | #4059 | `§6.22.1` | `§6.23.1` | 一次 `6.22→6.23` 重编号未回填（下列 7 条同源） |
+| `4fbe065442` | #4054 | `§6.22.2` | `§6.23.2` | 同上 |
+| `a940f2ff04` | #4057 | `§6.22.3` | `§6.23.3` | 同上 |
+| `09af3b483f` | #3998 | `§6.22.4` | `§6.23.4` | 同上 |
+| `e3bf50c083` | #4076 | `§6.22.5` | `§6.23.5` | 同上 |
+| `395d537237` | #4056 | `§6.22.6` | `§6.23.6` | 同上 |
+| `06ebfc821e` | #4081 | `§6.22.7` | `§6.23.7` | 同上（且 `§6.22.7` **根本不存在**：§6.22 只到 `.6`） |
+| `f409caa21e` | #4083 | `§6.23.1` | `§6.24.1` | 指向了**别的提交**的小节（`§6.23.1` 是 #4059 的工作区信任） |
+| `20a2cea72f` | #4061 | `§6.23.2` | `§6.24.2` | 同上（`§6.23` 表里没有 #4061；`§6.24.2` 是它的裁决行，逐项复核在 §6.28） |
+
+而未错的 3 条是 `21406fb4c8 → §6.26`、`c7dd84124a → §6.8.2`、`929403b6db → §6.8.1`。
+**注意 `§6.22.x` 与 `§6.23.x` 是两件事**：前者是 v2 步数记账与重试计费（`§6.22.1`–`§6.22.5`）与注入层收敛（`§6.22.6`），
+后者才是这批上游提交的逐条裁决——按旧指针读「工作区信任披露」，读到的是步数记账。
+
+### 11.5 #4057 误判：记录写下时就与代码相反
+
+台账两处都断言引擎没有这个面：allowlist note（「`events/types.rs` declares no `AgentStatus` / `agent_status`
+variant and no `permission` field on any event ⋯⋯ **no wire representation at all**」）与 §6.23.3 表行。
+
+代码事实（本轮逐条打开）：
+
+1. `packages/kimi-agent/src/server/engine.rs:1003-1010` 构造 `{"type": "agent.status.updated", "model": …, "contextTokens": …}`；
+2. 同文件 `:1020-1026` 从 `agent_config.permission_mode`（或 `metadata.permission_mode`）取值并
+   **`object.insert("permission", …)`**；
+3. `packages/kimi-agent/src/server/mod.rs:6234-6240` 在 profile 写入后**显式刷新该状态事实**，注释即为
+   「The profile write may have changed model / thinking / **permission mode** / plan mode」；
+4. **定年**：`git log -S 'object.insert("permission"' -- packages/kimi-agent/src/server/engine.rs` 指向
+   **`21403bf956`，2026-09-12**——**早于 allowlist 的 `recordedAt: 2026-10-01` 十九天**。
+
+所以这不是「后来补上了所以记录过时」，而是**记录写下时就是错的**。allowlist 已改判 `ported`。
+**残留只是一处时序**：从会话配置 / 元数据路由（同文件 `:1181-1186`）改权限模式时，该处理器自身不调
+`publish_status_updated`（全仓 4 个调用点：`engine.rs` 三处 + `mod.rs:6239`），客户端要到下一轮开始才看到——
+比「完全没有 wire 表示」小一个数量级，登记为独立小项而非维持 `tracked`。
+
+### 11.6 其余 7 条 `tracked` 欠债的真实状态
+
+| 条目 | 台账 | 本轮核实 | 关键证据 |
+|---|---|---|---|
+| `20a2cea72f` #4061 WaitFor | tracked | **部分**（上限已落地） | `WAIT_FOR_MAX_TIMEOUT_S`=90、`1..=90` 校验、schema `maximum:90`、steer 中断均在；**余 3 项**：`collect_extras` / `[completed_during_wait]` 在生产代码零命中（只有 `packages/kimi-agent/src/tools/task_tools.rs:846,849,1925,1952` 的注释）、重复等待告警零命中、子代理描述变体零命中 |
+| `06ebfc821e` #4081 hook 折叠 | tracked | **仍 tracked** | `packages/kimi-agent/src/tools/external_hooks.rs:271-293` 只有观察路径，`:275-276` 自陈「Known partial parity」；`ContentBlock` 无 `meta`（`packages/kimi-agent/src/rpc/types.rs` 零命中） |
+| `395d537237` #4056 trust 披露 | tracked | **部分（≈1/5）** | `gatedMcpServers` 已通；`additionalDirSources` / `instructionSources` / `describeGatedActivation` 在引擎与 `packages/node-sdk/src` **均零命中** |
+| `e3bf50c083` #4076 undo 移除提醒 | tracked | **仍 tracked** | `owner_prompt_id` / `isUndoAnchor` 零命中；提醒只在 `packages/kimi-agent/src/session/mod.rs:1146,1843` 记录，undo 路径不清理 |
+| `a940f2ff04` #4057 | tracked | ❌ **误判 → 已改判 `ported`** | 见 §11.5 |
+| `4fbe065442` #4054 NotifyUser 门禁 | tracked | **仍 tracked** | `notifyUserAvailable` / `update_panel` 零命中（宿主能力位不存在） |
+| `09af3b483f` #3998 tower 硬化 | tracked | **仍 tracked（6 簇全缺）** | 独立只读审计逐簇核实并给出上游对照；本轮抽验其关键断言：`packages/kimi-agent/src/tools/tower/mod.rs:728,740` 只吃 `force:bool`、schema `:1300` 只有 `force`；`packages/kimi-agent/src/tools/tower/store.rs:403` 的 `mark_agent_dead(agent_id)` 单参；`packages/kimi-agent/src/tools/tower/types.rs:37,39` 的 `death_status`/`death_reason` 只有 `None` 初始化；`last_inbox_read_at` 零命中；锁是进程内 `store.rs:28-43` |
+| `c7dd84124a` #4015 fs watch 默认开 | tracked | **仍 tracked，但性质特殊** | 引擎无任何 watcher（见 §11.3 第 1 条）。**但 §6.1-32 已论证** fork 每回合重建系统提示词、**没有可失效的缓存**——这是**有依据的设计分歧**，不是静默缺口。真正的问题在别处：文档宣传了 `[watch] enabled` / `KIMI_CODE_WATCH` 而代码没有（§6.8.2 已记） |
+
+### 11.7 §6.45 遗留项复核
+
+| 项 | 台账说 | 本轮核实 |
+|---|---|---|
+| **P1-4** Anthropic `cache_control` 4 vs 上游 3 | 冗余但无害 | **成立**。生产发射点确为 4 处：`packages/kimi-agent/src/llm/anthropic.rs:164`（尾块）、`:192`（stable）、`:239`（system 字面量键）、`:254`（末工具） |
+| **P2-9** minidb 读模型 | 引擎侧零引用 | **成立**。`packages/kimi-agent/src` 下搜 `minidb` / `MiniDb` 在 `.rs` 中 **0 命中**（只在引擎 locales 里有文案键） |
+| **P2-10** tokenCounting anchor | 状态栏那半已修 | **成立**。`packages/kimi-agent/src/server/engine.rs:1000,1421,1972` 已改用 `compaction::estimate_tokens` |
+| **P2-15** 遥测「~10/**60**」 | 待补 | ❌ **分母不可复现，本轮订正**：上游注册表（`app/telemetry/events.ts` 的 `telemetryEventDefinitions`）实测 **79** 条；退役副本 `.tmp/v2-ref` 为 **74** 条——**两个可用快照都不等于 60**。fork 实际发射且能在上游表里对上名的：**引擎侧 13**（`turn_started`/`turn_ended`/`turn_interrupted`/`tool_call`/`api_error`/`compaction_failed`/`session_load_failed`/`swarm_mode_entered`/`swarm_mode_exited`/`remote_control_toggle`/`plugin_toggle`/`skill_invoked`/`external_hook_resolved`），含 TS 宿主侧 **22**。**分子也变了**：`§10.39` 之前引擎侧恰为 10（`api_error`/`compaction_failed`/`session_load_failed` 三条当时 ABSENT），所以「~10」在写下时是准确的，现已为 13 |
+| **P2-16** trust 披露 | 部分完成 | **成立，完成度 ≈1/5**（见 §11.6 第三行） |
+| **P2-20** POSIX shell 探测 | 硬编码 `/bin/bash` | **成立**（**已于 2026-10-03 修复，见 §12**）。`packages/kimi-agent/src/native/shell.rs:88-95` 的 `#[cfg(not(windows))]` 分支直接返回 `program: "/bin/bash"`，`let _ = preference;` 丢掉配置，无 `/bin/sh` 回落 |
+
+**P2-15 差集里 13 个是「解释故障」类**（`mcp_failed` / `web_fetch_fallback` / `media_resolve_fallback` /
+`llm_request_projection_fallback` / `workspace_trust_read_failed` / `auth_ensure_ready_failed` /
+`agent_create_failed` / `tool_call_dedup_detected` / `tool_call_repeat` / `permission_approval_result` /
+`context_projection_repaired` / `session_index_degraded` / `session_index_mirror_give_up`），
+但其中一部分属**已删除子系统**（`session_index_*` 依赖未决的 P2-9；`*_rg_fallback` / `fs_*_node_fallback`
+在 fork 是进程内原生实现、无 shell-out）——**应逐条判 `n/a` 而非直接计入欠债**。
+
+### 11.8 「已完成」条目的可靠度抽样（n=4）
+
+方法：抽 4 条 `§10.x` 标「已完成/已落地」的记录，**打开它声称的落点**看是否真在。
+
+| 抽查项 | 声称落点 | 结果 |
+|---|---|---|
+| §10.33 会话级日志接线 | `resolveSessionLogPath` 有调用方 | ✅ `packages/node-sdk/src/logging.ts` 有 `sessionLogId` 全套 |
+| §10.42 会话级批准 | 协议声明 `session_approval_rule` | ✅ `packages/protocol/src/approval.ts:36` 存在 |
+| §10.34 wire 版本 | `protocol_version` 列 | ✅ `packages/kimi-agent/src/native/event_store/mod.rs:206` 有该列 |
+| §10.28 tool result 包装 | 新增 `tool_result_render.rs` | ✅ `packages/kimi-agent/src/turn_loop/tool_result_render.rs` 存在 |
+
+**4/4 成立。** 与 §11.6 的 `tracked` 清单（8 条里 1 条误判、2 条部分过时）形成**明显不对称**：
+**写下时被逐项验证的记录是可靠的；写下后从未复检的 `tracked` 清单是腐烂的。**
+这与门禁文件头自述的病灶是同一件事，只是发生在**判决**而非引用上。
+
+### 11.9 本轮落地的改动
+
+1. **门禁** `scripts/check-roadmap-refs.mjs`：抽出裸路径、摘要打印真实分母、新增
+   `UPSTREAM_RELATIVE_ROOTS` 与带 `reason` 的双向棘轮 `EXEMPT_PATHS`；被检查引用 56 → 153。
+2. **门禁自测** `scripts/check-roadmap-refs.test.mjs`（**17 项**，本仓此前没有这个文件的测试）：
+   覆盖「裸死路径要被抓」「上游/历史/豁免要被放过」「豁免不再被引用要报 `stale-exemption`」
+   「`tsx` 不得被 `ts` 前缀误匹配」，并把**松窗口的代价**钉成一条显式用例（邻近退役注释的活引用会被豁免）。
+3. **台账订正**（§11.3–§11.7 的 10 处 + 5 处数字/指针）：
+   §6.1-20 两处 `fs_watch` 论据、§6.40 的 `src/git.rs` 声明、§10.11 的幻影文件名、§10.14 的路径、
+   §10.15 ⑤ 补 `改名为` 标记、§6.23.3 改判、§6.45 P2-15 与 §6.3 的遥测数字、§10.39 引文的数字。
+4. **allowlist** `scripts/upstream-v2-delta-allowlist.json`：9 条 `roadmap` 指针修正，
+   `a940f2ff04` 由 `tracked` 改判 `ported`（`ported=4 | not-applicable=1 | tracked=7`），
+   并在两条 note 内就地写明订正。
+
+**未改动**：没有任何引擎代码被改动；本节只动台账、门禁与其自测。
+
+### 11.10 复现方式
+
+| 结论 | 命令 |
+|---|---|
+| 门禁覆盖率（修前 56/90、裸路径 0/235） | 复现其逻辑分别计数（`citedPaths` 去掉 `:line` 强制后分组统计） |
+| `fs_watch.rs` 已删除 | `git log --oneline --diff-filter=D -- packages/kimi-agent/src/server/fs_watch.rs` |
+| `src/git.rs` 从未存在 | `git log --all --oneline -- packages/kimi-agent/src/git.rs`（空）；`git log --all -S 'CONFIG_ARGS' -- 'packages/kimi-agent/src/**/*.rs'`（空） |
+| `list-skills.test.ts` 从未入库 | `git rev-list --all --objects \| Select-String list-skills`（空） |
+| `napi_bindings.rs` 被改名 | `git ls-files '*native_tool_bindings*'` |
+| #4057 字段早于记录 | `git log -S 'object.insert("permission"' -- packages/kimi-agent/src/server/engine.rs` |
+| 上游遥测 79 条 | `Select-String -Path .tmp/v2-ref-upstream/packages/agent-core-v2/src/app/telemetry/events.ts -Pattern "^  [a-z_]+: define(Agent)?TelemetryEvent<"` |
+| 上游 ref 新鲜 | `git ls-remote upstream refs/heads/main`（= 本地 `upstream/main` @ `21406fb4c8`） |
+
+## 12. 2026-10-03 P2-20 落地：POSIX shell 解析由写死的 `/bin/bash` 改回 v2 的候选链
+
+§11.7 记下 P2-20「成立」之后直接开工。这一条是**用户可见且会失效**的：不是降级，是**不可用**。
+
+### 12.1 缺陷（两处，耦合）
+
+| # | 位置 | 症状 |
+|---|---|---|
+| 1 | `src/native/shell.rs` 的 `#[cfg(not(windows))]` 分支 | 直接返回 `program: "/bin/bash"`，`let _ = preference;` 丢掉配置，**无探测、无 `/bin/sh` 回落**。在没有 bash 的宿主（Alpine、slim 容器）上 Bash 工具指向一个不存在的程序。v2 `probeHostEnvironment` 的 POSIX 臂（`_base/execEnv/environmentProbe.ts:89-116`）是 `/bin/bash` → `/usr/bin/bash` → `/usr/local/bin/bash`，全部不存在则回落 `/bin/sh` |
+| 2 | `src/prompt/environment.rs` 的 POSIX 分支 | `$SHELL` 缺席时写死 `("bash", "/bin/bash")`。而同文件的 Windows 分支**刻意**委托 `resolve_shell`，注释写明「The prompt must name the shell the tool actually runs, or the model writes commands that shell cannot parse」（`:197-199`）。即提示词可以声称一个工具并不运行的 shell——**§6.46.1 为 Windows 修过同一类缺陷，POSIX 侧漏了** |
+
+### 12.2 落地
+
+- `src/native/shell.rs` 新增 `pub fn posix_shell(exists: &dyn Fn(&str) -> bool) -> ResolvedShell`：候选链的
+  **纯函数**形态。v2 的 `isFile` 是 `access(F_OK)` 存在性检查（`environmentProbe.ts:261-268`），故用
+  `exists` 而非 `is_file`；`/bin/sh` 按 `Bash` 分类——它同样吃 `-c`，且下游不按两者分支。
+  POSIX 分支改为 `posix_shell(&|candidate| std::path::Path::new(candidate).exists())`。
+- `src/prompt/environment.rs`：`$SHELL` **仍优先**（该优先级是另一个未决问题，见 §6.46.6，本轮不动）；
+  `$SHELL` 缺席时改为取 `resolve_shell(None).program`，与 Windows 分支同一策略。
+
+### 12.3 为什么 `posix_shell` 做成 `pub`
+
+本机只装了 `x86_64-pc-windows-msvc`，而 POSIX 分支靠 `#[cfg(not(windows))]` 编译掉——
+若把候选链写成私有 helper，**它唯一的单元测试就会在唯一能编译本 crate 的宿主上被跳过**。
+做成 `pub`（`native` 与 `shell` 两个模块本来就是 `pub`，故无 dead-code 警告）之后：
+
+- 候选链本身在**所有平台**可测：先命中的候选胜出、三个位置按序、全不存在回落 `/bin/sh`；
+- 另加 `the_posix_arm_predicate_typechecks_and_probes_the_filesystem`：用**与 POSIX 分支同一个闭包**
+  （`|candidate: &str| std::path::Path::new(candidate).exists()`）调用它。POSIX 分支里的类型错误因此
+  **无法藏在 `cfg` 后面**——这一轮 `rustup target add x86_64-unknown-linux-gnu` 装不上（无 linux std），
+  交叉 `cargo check --target` 走不通，这是可用的替代证据，**不是等价于真的编了 linux**。
+
+### 12.4 残留（明确不做，附理由）
+
+1. **`$SHELL` 与工具真实 shell 的分歧**：`$SHELL=/bin/zsh` 时提示词仍说 zsh，而 Bash 工具跑的是
+   bash/sh。这是 §6.46.6 登记的**产品裁决**（宿主的 `probeShellPath` 是否让位给引擎），本轮不代决。
+   本轮只保证 `$SHELL` 缺席时不再凭空声称 `/bin/bash`。
+2. **`[shell].preference` 在 POSIX 仍被忽略**：它没有 v2 对位，照搬等于自创表面（触犯铁律）。
+3. **Windows 链仍可落到 `pwsh`/`cmd`**，而 v2 **要求** Git Bash、否则抛 `ProbeShellNotFoundError`。
+   这一半是**有意保留的既有分歧**（§6.46.1 的 Windows 提示词跟随实际 shell 依赖它），本轮未动。
+
+### 12.5 验证
+
+- `cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -- -D warnings` ✅
+- `cargo test --no-default-features --features cli --lib native::shell` **15 项通过**（+5）
+- `cargo test --no-default-features --features cli --lib prompt::environment` **9 项通过**（+1，其中新增那条
+  是 `#[cfg(not(target_os = "windows"))]`，本机跳过）
+- `cargo test --no-default-features --features cli --lib` **3205 passed / 0 failed / 0 ignored**
+- 全量 `cargo test --no-default-features --features cli`（含集成与 doctest）**exit 0**
+- `check:parity` ✅——`rustShellOrder` 只读 `resolve_shell` 的 **Windows** 分支，提取器仍读到
+  `pwsh > powershell > bash`，本次改动未扰动它（这是改之前特意确认过的）
+- `check:architecture` 指纹随之刷新：`kimi-agent` `67f08048e88d1ad0` → `7c2aac365ae8fd31`
+- `check:normify` **0 error / 60 warning**（无 fingerprint-drift）
+- `check:no-comments` / `scan:hardcoded:rust` / `check:engine-i18n` / `check:roadmap-refs` ✅

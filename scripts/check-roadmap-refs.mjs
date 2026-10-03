@@ -28,6 +28,35 @@
  * conclusion. Flagging every drifted line would bury the two failures that
  * matter under hundreds of warnings, which is how a gate gets ignored.
  *
+ * ── 2026-10-03: two holes closed after a ledger audit ────────────────────
+ *
+ * The audit measured this gate's coverage instead of trusting its summary line,
+ * and found the coverage far narrower than "N file citation(s) ... all resolve"
+ * suggests:
+ *
+ *   3. Only `path:line` citations were extracted. The ledger's BARE paths —
+ *      235 of them, more than the 90 that carry a line — never reached the
+ *      checker. `packages/kimi-agent/src/server/fs_watch.rs` sat in §6.1
+ *      asserting a tokio polling watcher for a file deleted weeks earlier, and
+ *      contradicted §6.1-32 four hundred lines below, silently.
+ *   4. The summary counted citations that had been *exempted*, so "90 resolve"
+ *      described 56 checked. It now prints the split.
+ *
+ * Both are fixed. The price of checking bare paths is that the legitimate
+ * reasons to name a path with no local file must now be explicit rather than
+ * inferred:
+ *
+ *   - `UPSTREAM_RELATIVE_ROOTS` — upstream trees cited without their package
+ *     prefix (`test/agent/…` means `agent-core-v2/test/agent/…`).
+ *   - `EXEMPT_PATHS` — a specific path that is absent by design, each entry
+ *     carrying a `reason`. Two-way ratchet: an entry that stops being cited is
+ *     reported as `stale-exemption`, so the list cannot rot.
+ *
+ * What is still NOT checked, on purpose: line drift, and whether a citation
+ * sits in a "live" sentence. The ≥2000-character historical window below is
+ * deliberately loose for the reason the original author gave — this ledger's
+ * entries are long prose blocks whose retirement note sits at one end.
+ *
  * Usage:
  *   bun scripts/check-roadmap-refs.mjs          # check (exit 1 on findings)
  *   bun scripts/check-roadmap-refs.mjs --json   # machine-readable
@@ -43,84 +72,138 @@ const CRATE = join(ROOT, 'packages/kimi-agent');
 
 /** Repo-relative prefixes a citation may point into. */
 /** Upstream-only trees: a citation into these is a v2 reference, not a local file. */
-const UPSTREAM_PREFIXES = ['packages/agent-core-v2/', 'packages/kap-server/', 'packages/klient/', 'packages/acp-server/'];
+const UPSTREAM_PREFIXES = [
+  'packages/agent-core-v2/',
+  'packages/kap-server/',
+  'packages/klient/',
+  'packages/acp-server/',
+];
+
+/**
+ * Upstream trees the ledger cites WITHOUT their package prefix.
+ *
+ * The ledger's "上游测试规格映射" tables name upstream specs relative to the
+ * package root (`test/agent/agentsMdReminder/agentsMdReminder.test.ts` is
+ * `packages/agent-core-v2/test/…`). Those trees are deleted in this fork, so no
+ * amount of local resolution can find them; treating `test/` as upstream is
+ * what keeps the four such citations from being reported as dead local files.
+ * The fork keeps its own tests inside each package's `test/` directory, never at
+ * the repository root.
+ */
+export const UPSTREAM_RELATIVE_ROOTS = ['test/'];
+
+/**
+ * Paths the ledger may legitimately cite although no local file exists there.
+ * Every entry states why; the check is a two-way ratchet (an entry that is no
+ * longer cited anywhere fails the gate as `stale-exemption`).
+ */
+export const EXEMPT_PATHS = [
+  {
+    path: 'packages/kimi-agent/src/server/fs_watch.rs',
+    reason:
+      'deleted in adc794635c (§7.3); §6.1-20 and §6.1-32 cite it to record that the engine has no watcher at all',
+  },
+  {
+    path: 'packages/protocol/src/v3.ts',
+    reason: 'deleted in 86f30ecc2c when the v3 flat-entity protocol was reverted (§8.11)',
+  },
+  {
+    path: 'src/git.rs',
+    reason:
+      'never existed in this repository (no add, delete or touch in any commit); cited by §6.40 and §11 as the phantom path an older record named',
+  },
+  {
+    path: 'packages/kimi-agent/src/git.rs',
+    reason:
+      'the crate-relative src/git.rs written the long way (same never-existed file); §11.10 cites it inside the repro command',
+  },
+  {
+    path: 'src/protocol/rest-terminal.ts',
+    reason:
+      'upstream kap-server file cited in abbreviated form; the package it lives in is deleted, so nothing local can ever resolve',
+  },
+];
+
+/** Markers the ledger uses to retire a claim in place. */
+const HISTORICAL_MARKERS = [
+  '订正',
+  '已作废',
+  '撤销前',
+  '撤销前的历史记录',
+  '仅存历史价值',
+  '不代表现存代码',
+  '重写为',
+  '改名为',
+  '已退役',
+];
+
+const RESOLUTION_ROOTS = [ROOT, CRATE, join(ROOT, 'packages')];
 
 const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' });
 
-/** Every `path:line` / `path:line-line` citation in the ledger. */
-function citedPaths(text) {
+/**
+ * Every `path:line` / `path:line-line` citation in the ledger, plus every bare
+ * path. The line suffix is optional here: requiring it is what let 235 bare
+ * citations go unchecked (see the 2026-10-03 note above).
+ */
+export function citedPaths(text) {
   const out = [];
-  // `src/foo.rs:12`, src/foo.rs:12-20, （`src/foo.rs:12`）
-  const re = /(?<![\w/])((?:src|packages|apps|scripts|test)\/[\w./-]+\.(?:rs|ts|mjs|tsx|json|yml|nix|md)):(\d+)(?:-(\d+))?/g;
+  const re =
+    /(?<![\w/])((?:src|packages|apps|scripts|test)\/[\w./-]+\.(?:rs|ts|mjs|tsx|json|yml|nix|md))(?!\w)(?::(\d+)(?:-(\d+))?)?/g;
   for (const m of text.matchAll(re)) {
-    out.push({ path: m[1], line: Number(m[2]), index: m.index });
+    out.push({ path: m[1], line: m[2] === undefined ? undefined : Number(m[2]), hasLine: m[2] !== undefined, index: m.index });
   }
   return out;
 }
 
 /** Backticked identifiers that look like a Rust test function. */
-function citedTests(text) {
+export function citedTests(text) {
   const out = [];
   const re = /`([A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*)`/g;
   for (const m of text.matchAll(re)) {
     const name = m[1];
-    // A test fn in this codebase is snake_case and reads like a sentence;
-    // module paths are matched separately below.
     if (!/^[a-z0-9_]+$/.test(name.split('::').pop() ?? '')) continue;
-    if (!/^(test_|a_|an_|the_|.*_is_.*|.*_does_.*|.*_has_.*|.*_keeps_.*|.*_returns_.*|.*_reports_.*|.*_fails_.*|.*_survives_.*|.*_matches_.*|.*_rejects_.*|.*_falls_.*|.*_carries_.*|.*_replays_.*|.*_orders_.*|.*_declines_.*|.*_clamp.*|.*_parse.*|.*_round.*)/.test(name)) continue;
+    if (
+      !/^(test_|a_|an_|the_|.*_is_.*|.*_does_.*|.*_has_.*|.*_keeps_.*|.*_returns_.*|.*_reports_.*|.*_fails_.*|.*_survives_.*|.*_matches_.*|.*_rejects_.*|.*_falls_.*|.*_carries_.*|.*_replays_.*|.*_orders_.*|.*_declines_.*|.*_clamp.*|.*_parse.*|.*_round.*)/.test(
+        name,
+      )
+    )
+      continue;
     out.push({ name, index: m.index });
   }
   return out;
 }
 
-function lineOf(text, index) {
+export function lineOf(text, index) {
   let line = 1;
   for (let i = 0; i < index && i < text.length; i++) if (text.charCodeAt(i) === 10) line++;
   return line;
 }
 
-/**
- * Where a citation can legitimately resolve from.
- *
- * The ledger writes crate-internal files both ways: `src/mcp/client.rs` when
- * talking about the engine, and `packages/kimi-agent/src/...` when tying a
- * claim to a specific package. Both are real references to the same file, so
- * resolution tries the repo root, the crate root, and `packages/` before
- * calling anything missing — otherwise this gate is ~90% false positives and
- * gets switched off within a day.
- */
-const RESOLUTION_ROOTS = [ROOT, CRATE, join(ROOT, 'packages')];
+export function isUpstreamPath(p) {
+  return (
+    UPSTREAM_PREFIXES.some((prefix) => p.startsWith(prefix)) ||
+    UPSTREAM_RELATIVE_ROOTS.some((root) => p.startsWith(root))
+  );
+}
 
 /**
  * Markers the ledger uses to retire a claim in place. A citation sitting inside
  * such a block is *supposed* to name something that no longer exists — that is
  * the whole point of the correction — so quoting it must not be reported.
  */
-const HISTORICAL_MARKERS = ['订正', '已作废', '撤销前', '撤销前的历史记录', '仅存历史价值', '不代表现存代码', '重写为', '改名为', '已退役'];
-
-function isInsideHistoricalBlock(text, index) {
-  // Symmetric window: a retirement note is as likely to sit *after* the
-  // citation it retires ("重写为 X"、"（旧 `foo` 钉的就是这个形状）") as before it.
-  // The window is wide because this ledger's entries are long prose blocks —
-  // a single item (e.g. the reverted v3 protocol) runs for a hundred-plus lines,
-  // and its retirement note sits at one end of the block rather than next to
-  // every citation inside it.
+export function isInsideHistoricalBlock(text, index) {
   const WINDOW = 2000;
   const around = text.slice(Math.max(0, index - WINDOW), index + WINDOW);
-  // Deliberately loose. The cost is that a live citation placed near a
-  // retirement note goes unreported; the benefit is that the gate never fires
-  // on a correction that is quoting the very thing it corrects. For a gate
-  // people must not learn to ignore, that trade is the right way round.
   return HISTORICAL_MARKERS.some((m) => around.includes(m));
 }
 
-function resolvesSomewhere(p) {
+export function resolvesSomewhere(p) {
   if (RESOLUTION_ROOTS.some((base) => existsSync(join(base, p)))) return true;
   // Path abbreviation: the ledger writes `src/contract/schema.ts` for what is
   // really `packages/transcript/src/contract/schema.ts`. Accept it when exactly
   // one package-relative file ends with that path, so a genuinely deleted file
   // is still reported.
-  const suffix = `/${p}`;
   let matches = 0;
   for (const pkg of ['packages', 'apps']) {
     const base = join(ROOT, pkg);
@@ -130,8 +213,104 @@ function resolvesSomewhere(p) {
       if (existsSync(join(base, entry.name, p))) matches++;
     }
   }
-  void suffix;
   return matches === 1;
+}
+
+/**
+ * The whole file check, as a pure function of the ledger text.
+ *
+ * `resolves` is injectable so a test can exercise the classification without
+ * building a filesystem that reproduces this repository.
+ */
+export function analyzeLedger(text, { exempt = EXEMPT_PATHS, resolves = resolvesSomewhere } = {}) {
+  const citations = citedPaths(text);
+  const byPath = new Map(exempt.map((entry) => [entry.path, entry]));
+  const usedExempt = new Set();
+
+  const counts = {
+    citations: citations.length,
+    withLine: 0,
+    bare: 0,
+    upstream: 0,
+    historical: 0,
+    exempt: 0,
+    checked: 0,
+    missing: 0,
+    staleExemptions: 0,
+  };
+  const missingFiles = new Map();
+
+  for (const c of citations) {
+    if (c.hasLine) counts.withLine++;
+    else counts.bare++;
+    if (isUpstreamPath(c.path)) {
+      counts.upstream++;
+      continue;
+    }
+    if (byPath.has(c.path)) {
+      counts.exempt++;
+      usedExempt.add(c.path);
+      continue;
+    }
+    if (isInsideHistoricalBlock(text, c.index)) {
+      counts.historical++;
+      continue;
+    }
+    counts.checked++;
+    if (resolves(c.path)) continue;
+    counts.missing++;
+    if (!missingFiles.has(c.path)) missingFiles.set(c.path, []);
+    missingFiles.get(c.path).push(lineOf(text, c.index));
+  }
+
+  // Two-way ratchet: an exemption nobody needs any more is itself a failure,
+  // otherwise the list only ever grows and eventually exempts the real thing.
+  const staleExemptions = [];
+  for (const entry of exempt) {
+    if (usedExempt.has(entry.path)) continue;
+    counts.staleExemptions++;
+    staleExemptions.push({ path: entry.path, reason: entry.reason });
+  }
+
+  return {
+    counts,
+    missingFiles: [...missingFiles]
+      .map(([path, lines]) => ({ path, lines: [...new Set(lines)] }))
+      .toSorted((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
+    staleExemptions,
+  };
+}
+
+/** Cited test names that appear in neither corpus. Pure, so the test can feed a corpus. */
+export function findMissingTests(text, { fnNames, testNames }) {
+  const missing = new Map();
+  for (const { name, index } of citedTests(text)) {
+    if (isInsideHistoricalBlock(text, index)) continue;
+    const bare = name.split('::').pop();
+    if (fnNames.has(bare) || testNames.has(bare)) continue;
+    if (!missing.has(bare)) missing.set(bare, lineOf(text, index));
+  }
+  return [...missing].map(([name, line]) => ({ name, line })).toSorted((a, b) => (a.name < b.name ? -1 : 1));
+}
+
+function corpus() {
+  let rustCorpus = '';
+  try {
+    rustCorpus = git('grep', '-h', '-E', '(#\\[(tokio::)?test\\]|fn )', '--', 'packages/kimi-agent/src', 'packages/kimi-agent/tests');
+  } catch {
+    rustCorpus = '';
+  }
+  const fnNames = new Set();
+  for (const m of rustCorpus.matchAll(/\bfn\s+([A-Za-z_][A-Za-z0-9_]*)/g)) fnNames.add(m[1]);
+
+  const testNames = new Set();
+  try {
+    const ts = git('grep', '-h', '-E', '(it|test|describe)\\s*\\(', '--', 'packages/kimi-agent', 'packages/node-sdk');
+    for (const m of ts.matchAll(/(?:it|test)\s*\(\s*['"`]([^'"`]+)['"`]/g)) testNames.add(m[1]);
+  } catch {
+    /* no TS tests matched */
+  }
+  return { fnNames, testNames };
 }
 
 function main() {
@@ -140,92 +319,49 @@ function main() {
     process.exit(2);
   }
   const text = readFileSync(LEDGER, 'utf8');
+  const { counts, missingFiles, staleExemptions } = analyzeLedger(text);
+  const missingTests = findMissingTests(text, corpus());
 
-  const problems = [];
-
-  // ── 1. Cited files that do not exist ──────────────────────────────────────
-  const missingPaths = new Map();
-  for (const { path, index } of citedPaths(text)) {
-    if (UPSTREAM_PREFIXES.some((p) => path.startsWith(p))) continue; // v2 reference
-    // A retired block may legitimately cite a file that the retirement deleted
-    // — that is how the reader learns the file used to exist.
-    if (isInsideHistoricalBlock(text, index)) continue;
-    if (resolvesSomewhere(path)) continue;
-    const key = path;
-    if (!missingPaths.has(key)) missingPaths.set(key, []);
-    missingPaths.get(key).push(lineOf(text, index));
-  }
-  for (const [path, sites] of [...missingPaths].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))) {
-    // `sites` holds LEDGER line numbers (not the cited file's line number) —
-    // reporting the latter sends the reader to the wrong place entirely.
-    const shown = [...new Set(sites)].slice(0, 5).join(', ');
-    const more = sites.length > 5 ? ` (+${sites.length - 5} more)` : '';
-    problems.push({
-      kind: 'missing-file',
-      detail: `${path} — cited at ledger line(s) ${shown}${more}`,
-    });
-  }
-
-  // ── 2. Cited test functions that do not exist ─────────────────────────────
-  let rustCorpus = '';
-  try {
-    rustCorpus = git('grep', '-h', '-E', '(#\\[(tokio::)?test\\]|fn )', '--', 'packages/kimi-agent/src', 'packages/kimi-agent/tests');
-  } catch {
-    // git grep exits 1 when nothing matches; fall back to an empty corpus so
-    // the test check reports "unknown" rather than pretending to pass.
-    rustCorpus = '';
-  }
-  const rustFnNames = new Set();
-  for (const m of rustCorpus.matchAll(/\bfn\s+([A-Za-z_][A-Za-z0-9_]*)/g)) rustFnNames.add(m[1]);
-  const tsTestNames = new Set();
-  try {
-    const ts = git('grep', '-h', '-E', '(it|test|describe)\\s*\\(', '--', 'packages/kimi-agent', 'packages/node-sdk');
-    for (const m of ts.matchAll(/(?:it|test)\s*\(\s*['"`]([^'"`]+)['"`]/g)) tsTestNames.add(m[1]);
-  } catch {
-    /* no TS tests matched */
-  }
-
-  const missingTests = new Map();
-  for (const { name, index } of citedTests(text)) {
-    if (isInsideHistoricalBlock(text, index)) continue;
-    const bare = name.split('::').pop();
-    if (rustFnNames.has(bare) || tsTestNames.has(bare)) continue;
-    if (!missingTests.has(bare)) missingTests.set(bare, lineOf(text, index));
-  }
-  for (const [name, line] of [...missingTests].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))) {
-    problems.push({
-      kind: 'missing-test',
-      detail: `${name} — cited at ledger line ${line}`,
-    });
-  }
+  const header =
+    `check-roadmap-refs: ${counts.citations} file citation(s) (` +
+    `${counts.withLine} with a line, ${counts.bare} bare) and ` +
+    `${citedTests(text).length} test name(s).`;
 
   if (process.argv.includes('--json')) {
-    console.log(JSON.stringify({ checked: { citations: citedPaths(text).length, testNames: citedTests(text).length }, problems }, null, 2));
-    process.exit(problems.length > 0 ? 1 : 0);
+    console.log(JSON.stringify({ checked: counts, missingFiles, missingTests, staleExemptions }, null, 2));
+    process.exit(missingFiles.length + missingTests.length + staleExemptions.length > 0 ? 1 : 0);
   }
 
-  const citations = citedPaths(text).length;
-  const testNames = citedTests(text).length;
-  if (problems.length === 0) {
+  const findings = missingFiles.length + missingTests.length + staleExemptions.length;
+  if (findings === 0) {
     console.log(
-      `check-roadmap-refs: ${citations} file citation(s) and ${testNames} test name(s) in the ledger all resolve.`,
+      `${header} ${counts.checked} checked, ${counts.exempt} exempt by EXEMPT_PATHS, ` +
+        `${counts.historical} historical, ${counts.upstream} upstream — all resolve.`,
     );
     process.exit(0);
   }
 
-  const files = problems.filter((p) => p.kind === 'missing-file');
-  const tests = problems.filter((p) => p.kind === 'missing-test');
   console.error(
-    `check-roadmap-refs: ${problems.length} ledger citation(s) no longer resolve ` +
-      `(${files.length} file(s), ${tests.length} test name(s)).\n`,
+    `check-roadmap-refs: ${findings} ledger citation(s) no longer resolve ` +
+      `(${missingFiles.length} file(s), ${missingTests.length} test name(s), ` +
+      `${staleExemptions.length} stale exemption(s)).\n`,
   );
-  for (const p of files) console.error(`  [missing-file] ${p.detail}`);
-  for (const p of tests) console.error(`  [missing-test] ${p.detail}`);
+  for (const { path, lines } of missingFiles) {
+    const shown = lines.slice(0, 5).join(', ');
+    const more = lines.length > 5 ? ` (+${lines.length - 5} more)` : '';
+    console.error(`  [missing-file] ${path} — cited at ledger line(s) ${shown}${more}`);
+  }
+  for (const { name, line } of missingTests) console.error(`  [missing-test] ${name} — cited at ledger line ${line}`);
+  for (const { path, reason } of staleExemptions) {
+    console.error(`  [stale-exemption] ${path} is exempted but no longer cited — drop it (was: ${reason})`);
+  }
   console.error(
     '\n  A citation that no longer resolves is worse than no citation: a reader auditing\n' +
       '  against the ledger concludes from code that does not exist. Either the ledger is\n' +
-      '  stale (mark the entry as historical, or delete it) or the file is genuinely\n' +
+      '  stale (fix the path, or mark the entry as historical) or the file is genuinely\n' +
       '  missing (that is a real gap — report it, do not paper over it here).\n' +
+      '\n  Add an EXEMPT_PATHS entry only when the path is absent BY DESIGN, and say why\n' +
+      '  in the `reason`: the ratchet fails the gate once the entry stops being cited.\n' +
       '\n  Line-number drift is intentionally NOT reported; see the header for why.\n' +
       '  For a "measured output" figure with no test behind it, add the test name —\n' +
       '  see ROADMAP §6.17.3.',
@@ -233,4 +369,6 @@ function main() {
   process.exit(1);
 }
 
-main();
+if (import.meta.main) {
+  main();
+}
