@@ -9,7 +9,7 @@
         "repository": "https://github.com/7723qqq/kimi-code"
       }
     ],
-    "compiled_at": "2026-10-03T09:08:02.062Z",
+    "compiled_at": "2026-10-03T09:26:43.685Z",
     "stats": {
       "tree_count": 1,
       "module_count": 74,
@@ -583,8 +583,8 @@
           "path": "packages/kimi-agent/src/lib.rs"
         }
       ],
-      "revision": "b067d168c0ff8fd2b70789daa5b060307453e25b",
-      "updated_at": "2026-10-03T08:51:30.992Z",
+      "revision": "98161435eacca9f4e07723903de997d8d4715c4c",
+      "updated_at": "2026-10-03T09:26:43.460Z",
       "fingerprint": "f3bdc1d18ee20dcc0e6f1c18071ed862e5946cabf7864f99910b42f664af756a",
       "aggregate": {
         "descendant_count": 36,
@@ -619,8 +619,8 @@
           "path": "packages/kimi-agent/src/pipeline/mod.rs"
         }
       ],
-      "revision": "71b8b2333357cbc1b2dad100399da38d1b7fb8ec",
-      "updated_at": "2026-10-03T08:25:20.449Z",
+      "revision": "98161435eacca9f4e07723903de997d8d4715c4c",
+      "updated_at": "2026-10-03T09:26:43.459Z",
       "fingerprint": "46e1b582b55f53a7d995d45b27eab290ab6fc1a528a3efe17465163cb09beed9",
       "deps": [
         {
@@ -872,9 +872,9 @@
           "path": "packages/kimi-agent/src/session/patch.rs"
         }
       ],
-      "revision": "eda504886764c81ed141c5d77c765d4abda32bcf",
-      "updated_at": "2026-10-02T17:32:01.685Z",
-      "fingerprint": "ee509fad344322fc0814900067544277558b67722adc865d25cd7cadcb80ff09",
+      "revision": "98161435eacca9f4e07723903de997d8d4715c4c",
+      "updated_at": "2026-10-03T09:26:43.458Z",
+      "fingerprint": "34c54a53f1c42a30fb6b66a81ffd271314791cefd5bd2fc0444b6ca8c29988b4",
       "deps": [
         {
           "kind": "dataflow",
@@ -916,9 +916,9 @@
           "path": "packages/kimi-agent/src/session/patch.rs"
         }
       ],
-      "revision": "dc564cfd4f7045437b3c0368cfe8b95ae10b2326",
-      "updated_at": "2026-10-02T14:00:48.407Z",
-      "fingerprint": "1caa81ed09eaac33186658201c42a37c2e5f5fa9d5ca10ea489c66db071da9fe",
+      "revision": "98161435eacca9f4e07723903de997d8d4715c4c",
+      "updated_at": "2026-10-03T09:26:43.458Z",
+      "fingerprint": "155e2c5ecadce732b51a6cca0ad369dfd2e3ffb2a356e9fb107221ddb1d4d156",
       "aggregate": {
         "descendant_count": 0,
         "own_api_count": 0,

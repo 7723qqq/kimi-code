@@ -10,9 +10,9 @@ description:
   en: >
       Session persistence: the SQLite store, JSON patch application and storage paths.
       
-revision: dc564cfd4f7045437b3c0368cfe8b95ae10b2326
-updated_at: "2026-10-02T14:00:48.407Z"
-fingerprint: 1caa81ed09eaac33186658201c42a37c2e5f5fa9d5ca10ea489c66db071da9fe
+revision: 98161435eacca9f4e07723903de997d8d4715c4c
+updated_at: "2026-10-03T09:26:43.458Z"
+fingerprint: 155e2c5ecadce732b51a6cca0ad369dfd2e3ffb2a356e9fb107221ddb1d4d156
 source:
   - path: "packages/kimi-agent/src/session/sqlite_store.rs"
   - path: "packages/kimi-agent/src/session/patch.rs"
