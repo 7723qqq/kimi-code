@@ -6554,9 +6554,9 @@ skill 文件里若有未加引号且含 `: ` 的值，现在会退化（描述�
 `.tmp/v2-ref-upstream` → `21406fb4c8`（**与上一轮相同**，故 §10.23 / §10.24 的
 引用依然成立，无需改）。
 
-**参考**：`.tmp/v2-ref/…/agent/microCompaction/`
+**参考**：`.tmp/v2-ref/…/agent/microCompaction/`（**退役副本，非上游**——该模块无上游对应物，见 §1「上下文智能压缩」行的裁定）
 `microCompaction.ts:4-23`（配置与五个默认值）、`microCompactionService.ts:89-107`
-（`detect()` 全文）、`:60-70`（两个 hook 的挂点）。
+（`detect()` 全文）、`:60-70`（两个 hook 的挂点）。**（2026-10-04 补注出处）** 下文三行的文件引用都落在退役副本：`git ls-tree -r upstream/main | grep -i microcompaction` 为空。本节上一段「刷新参考 `.tmp/v2-ref-upstream`」说的是权威树的刷新，与这三行的出处是两件事，行内已按退役副本标注。
 
 **核心事实（此前 §6.45.2 把它与遥测 `api_error` 合并的理由是错的）**：台账说
 「两者都要跨 step 累积 usage」，**不成立**。v2 的 cache-miss 判据**根本不看
