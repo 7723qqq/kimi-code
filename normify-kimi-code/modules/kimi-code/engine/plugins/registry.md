@@ -10,8 +10,8 @@ description:
   en: >
       The plugin registry: SQLite-backed install state, skill dirs, MCP configs, commands and the node-runner rewrite.
       
-revision: 7f51dbe916b917d5243c352efa2daf0c94bcb921
-updated_at: "2026-10-01T17:30:46.019Z"
+revision: 67ba21094b198c6b3276a9e9650565e17f1d9d40
+updated_at: "2026-10-03T15:32:22.794Z"
 fingerprint: 476306017c3ba89ec856be3a581b08b37a5911c5ec0563fb750f3543afa4dde7
 source:
   - path: "packages/kimi-agent/src/server/plugins.rs"

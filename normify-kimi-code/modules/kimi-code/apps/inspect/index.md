@@ -10,8 +10,8 @@ description:
   en: >
       Session inspector web app (React): activity, audit and channel panels over the engine transcript.
       
-revision: 3a6f654c041ebcb672ebd8119ee4e32a86c77a5a
-updated_at: "2026-10-03T07:45:36.862Z"
+revision: 67ba21094b198c6b3276a9e9650565e17f1d9d40
+updated_at: "2026-10-03T15:32:22.777Z"
 fingerprint: 6212f11d5605b291e9a86ba99155063bb3af8a88e54c00783e95204103a11dc2
 source:
   - path: "apps/kimi-inspect/src/main.tsx"

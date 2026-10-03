@@ -184,3 +184,37 @@ describe('A4 不变量：布尔位都吃字符串写法', () => {
         }
     });
 });
+
+/** 指纹必须与检出时的行尾无关。 */
+describe('A6 不变量：指纹与检出时的行尾无关', () => {
+    let fx: ProjectFixture;
+    let base: string;
+
+    beforeEach(async () => {
+        fx = await makeWorkspace();
+        base = join(fx.root, '..');
+    });
+
+    afterEach(async () => {
+        await removeWorkspace(base);
+    });
+
+    it('同一文件在 LF 与 CRLF 两种行尾下得到同一个指纹', async () => {
+        // `.gitattributes` 保证工作树是 LF，但 `git add` 只归一化它入库的内容：已经带 CRLF
+        // 的检出在文件被重写前一直保留那些字节，而 `git status` 仍报干净。指纹若依赖它们，
+        // 在 CRLF 检出上刷新出来的值就永远匹配不了干净的 CI 检出（kimi-inspect 模块就是这样
+        // 本地绿、CI 红）。latin1 对 0x00–0xFF 是恒等映射，所以只有含 CRLF 的内容会移动。
+        const { mkdir, writeFile } = await import('node:fs/promises');
+        await mkdir(join(fx.root, 'src'), { recursive: true });
+        const lf = 'export const order = 1;\nexport const other = 2;\n';
+
+        await writeFile(join(fx.root, 'src', 'order.ts'), lf, 'utf8');
+        const fromLf = await fingerprintOf(fx.root, [{ path: 'src/order.ts' }]);
+
+        await writeFile(join(fx.root, 'src', 'order.ts'), lf.replaceAll('\n', '\r\n'), 'utf8');
+        const fromCrlf = await fingerprintOf(fx.root, [{ path: 'src/order.ts' }]);
+
+        expect(fromLf.hash).not.toBeNull();
+        expect(fromCrlf.hash).toBe(fromLf.hash);
+    });
+});

@@ -315,6 +315,24 @@ function fingerprintFiles(sourceDir, rootDir) {
 }
 
 /**
+ * A source file's bytes with CRLF normalized to LF.
+ *
+ * `.gitattributes` promises `eol=lf` in the working tree, but `git add` only
+ * normalizes what it stages: a checkout that already held CRLF keeps those bytes
+ * until the file is rewritten, and `git status` still reports clean (the index
+ * matches HEAD; only the working tree differs). Hashing raw bytes therefore makes
+ * the fingerprint depend on the checkout, and a value refreshed on such a checkout
+ * can never match a clean one — which is how `kimi-inspect` passed locally and
+ * failed in CI (ROADMAP §14).
+ *
+ * `latin1` round-trips every byte 0x00-0xFF unchanged, so a file without CRLF
+ * hashes exactly as it did before this normalization; only CRLF content moves.
+ */
+function normalizedBytes(file) {
+  return readFileSync(file).toString('latin1').replaceAll('\r\n', '\n');
+}
+
+/**
  * SHA-256 (16 hex chars) of a module's sorted path+content fingerprint, plus
  * the input-set files that are absent from the working tree.
  *
@@ -343,7 +361,7 @@ function fingerprintOf(sourceDir, rootDir) {
       continue;
     }
     hash.update(rel);
-    hash.update(readFileSync(file));
+    hash.update(normalizedBytes(file), 'latin1');
   }
   return { hash: hash.digest('hex').slice(0, 16), missing };
 }

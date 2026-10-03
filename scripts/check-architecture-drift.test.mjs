@@ -84,7 +84,8 @@ function fingerprintOfFiles(src, names) {
   // order the same two names differently on a different machine.
   for (const name of names.toSorted((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
     hash.update(name);
-    hash.update(readFileSync(join(src, name)));
+    // Mirrors the checker's line-ending normalization (its `normalizedBytes`).
+    hash.update(readFileSync(join(src, name)).toString('latin1').replaceAll('\r\n', '\n'), 'latin1');
   }
   return hash.digest('hex').slice(0, 16);
 }
@@ -174,6 +175,30 @@ test('an untracked source file is part of the fingerprint set', async () => {
   };
   const diags = await checkArchitecture(model, dir);
   expect(withCode(diags, 'drift/fingerprint')).toHaveLength(0);
+});
+
+test('a CRLF working tree hashes exactly like LF, so a clean checkout cannot drift', async () => {
+  // The fingerprint must describe the content, not the checkout. A working tree that
+  // still holds CRLF (`.gitattributes` normalizes what `git add` stages, never the
+  // bytes already on disk) used to hash differently from a clean LF checkout — which
+  // is how an untouched module went red in CI while passing locally.
+  const lf = 'const a = 1;\nconst b = 2;\n';
+  const lfOnly = createHash('sha256').update('a.ts').update(lf, 'utf8').digest('hex').slice(0, 16);
+
+  for (const [label, contents] of [
+    ['lf', lf],
+    ['crlf', lf.replaceAll('\n', '\r\n')],
+  ]) {
+    const dir = makeGitWorkspace({ files: { 'apps/x/src/a.ts': contents }, staged: ['apps/x/src/a.ts'] });
+    const model = {
+      ...baseModel,
+      modules: [
+        { id: 'app', source: join(dir, 'apps/x/src'), layer: 'app', deps: [], fingerprint: lfOnly },
+      ],
+    };
+    const diags = await checkArchitecture(model, dir);
+    expect(withCode(diags, 'drift/fingerprint'), label).toHaveLength(0);
+  }
 });
 
 test('a fingerprint-set file missing from the working tree is reported, not thrown', async () => {

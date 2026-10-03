@@ -393,7 +393,11 @@ export async function fingerprintOf(repoRoot: string, sources: SourceRef[]): Pro
             const buf = await readFile(join(repoRoot, p));
             hash.update(p);
             hash.update('\0');
-            hash.update(buf);
+            // 行尾无关：`git add` 只归一化它入库的内容，已经带 CRLF 的检出在文件被重写前一直
+            // 保留那些字节（`git status` 仍干净）。指纹若依赖它们，在 CRLF 检出上刷新出来的值
+            // 就永远匹配不了干净的 CI 检出。latin1 对 0x00–0xFF 是恒等映射，所以不含 CRLF 的
+            // 文件哈希与归一化前完全一致。
+            hash.update(buf.toString('latin1').replaceAll('\r\n', '\n'), 'latin1');
         }
         catch {
             missing.push(p);

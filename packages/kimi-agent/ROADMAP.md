@@ -8051,3 +8051,97 @@ fork 的注入**没有任何归属标签**，落库后就是一条普通消息�
 | 基线扫描读历史 | `src/turn_loop/run_turn.rs:717-738` |
 | v2 的归属判据 | `.tmp/v2-ref-upstream` 的 `interruptionReminder/interruptionReminderService.ts:44`、`contextMemory/conversationTime.ts:31-41` |
 | undo 不重算 turn 结果 | `src/session/sqlite_store.rs:1276-1303` |
+
+## 14. 2026-10-03 指纹是行尾敏感的：CI 红而本地绿的根因
+
+§11 的核查轮挖的是台账门禁；这一节是同一轮里对**另一个门禁**的追查：`check:architecture-drift`
+在 CI 上红、本地绿，而报的是我**从未改动过**的模块。
+
+### 14.1 矛盾的两半
+
+CI（`67ba21094b`）lint job 的 step 10：
+
+```
+✗ [drift/fingerprint] Module "kimi-inspect" source changed but architecture model fingerprint is stale
+    subject: kimi-inspect  evidence: stored=c8af3f08c699dcd5 current=242013f58d89f2c9
+```
+
+而本地 `bun run check:architecture` 通过。我的 `architecture.json` diff 只有一行（`kimi-agent` 指纹），
+`apps/kimi-inspect` 一个字节没动。
+
+### 14.2 复现：两个哈希都算出来
+
+按 `fingerprintOf` 的算法（按 code unit 排序、`update(rel)` + `update(bytes)`、sha256 取前 16 hex）
+分别对**工作树内容**与**HEAD 提交内容**求值：
+
+```
+stored hash   : c8af3f08c699dcd5
+worktree hash : c8af3f08c699dcd5   (== stored)   ← 本地为什么绿
+committed hash: 242013f58d89f2c9   (== CI 报的)  ← CI 为什么红
+worktree == committed ? false
+```
+
+差异来自 `apps/kimi-inspect/src` 下 4 个文件**工作树字节比 blob 多**（每个多 1–3 个 CR）：
+
+| 文件 | 工作树 | blob |
+|---|---:|---:|
+| `App.tsx` | 6606 | 6605 |
+| `components/ChatView.tsx` | 45605 | 45602 |
+| `components/FsSuggestView.tsx` | 11121 | 11119 |
+| `components/audit/AuditPanel.tsx` | 7507 | 7506 |
+
+`git ls-files --eol` 对这四个报 **`w/mixed`**，而 index 是 `i/lf`。
+
+**机制**：`.gitattributes` 的 `* text=auto eol=lf` 让 `git add` 把 CRLF 归一化后再入库，但它**不会回头
+改写工作树里已有的 CR 字节**——于是 `git status` 干净、blob 是 LF、工作树仍是 CRLF。而 `fingerprintOf`
+哈希的是 `readFileSync(file)`（**原始工作树字节**）。
+
+**结论**：该指纹**行尾敏感**。在带 CRLF 工作树的检出上刷新的哈希，**永远不可能**匹配干净的 LF 检出。
+（追这条线时我先怀疑过 `skip-worktree`/`assume-unchanged` 掩盖了本地改动，`git ls-files -v` 全是 `H`
+——正常条目——于是排除。）
+
+### 14.3 它为什么是间歇的
+
+同一个未改动的模块：`3a6f654c04` 通过、`eda5048867` 失败（那次落在 `check:normify`）、
+`67ba21094b` 失败——取决于**最后刷新哈希的那个人的工作树里恰好有哪些文件带 CRLF**。
+normify 侧是同一个类：它的算法是 `update(UTF-8(path)) + update(0x00) + update(file bytes)`
+（`packages/normify/src/engine/store.ts`），**同样是原始字节**。
+
+### 14.4 修复
+
+两处都在哈希前做 **CRLF → LF** 归一化。用 `latin1` 往返（对 0x00–0xFF 恒等映射）而不是 UTF-8 解码，
+因此**不含 CRLF 的文件哈希与归一化前逐字节一致**——只有受 CRLF 影响的内容会移动。刷新结果直接印证：
+`architecture.json` 只有 `kimi-inspect` 移动（`c8af3f08… → 242013f5…`，**正是 CI 报的那个值**），
+其余 16 个模块一字未动。
+
+- `scripts/check-architecture-drift.mjs`：新增 `normalizedBytes(file)`
+- `packages/normify/src/engine/store.ts`：同一处归一化
+- 回归测试：`scripts/check-architecture-drift.test.mjs` 新增「a CRLF working tree hashes exactly like LF」；
+  `packages/normify/test/invariants.test.ts` 新增 A6「同一文件在 LF 与 CRLF 两种行尾下得到同一个指纹」。
+  两条都钉**「指纹 == 该模块 LF 归一化内容的哈希」**，而**不是**「测试助手与实现互相一致」——后者在修之前
+  也会通过，等于没测。
+
+**变异验证**（把归一化那一行改回去）：两条测试各自变红，且**只有**它们变红
+（scripts 27 passed / 1 failed；normify 10 passed / 1 failed）。恢复后 56 / 11 全绿。
+
+### 14.5 一条会再踩的操作经验
+
+`normify_module_refresh` 这个工具跑的是**预构建的插件 bundle**，而 `bun run check:normify` 跑的是
+**TypeScript 源码**。改了 normify 引擎自身（本例是 `store.ts`）之后，用工具刷新会按**旧算法**写指纹，
+再用源码校验又按**新算法**取值，于是"刷新完"反而报 `evidence/fingerprint-drift`
+（`kimi-code.apps.inspect.shell`）。正解是走源码 CLI：
+
+```sh
+bun packages/normify/src/cli.ts normify_module_refresh '{"all":true,"project":"kimi-code","repoRoot":"."}'
+bun packages/normify/src/cli.ts normify_build          '{"project":"kimi-code","repoRoot":"."}'
+```
+
+（或先 `bun run build:plugin` 重建 bundle。）
+
+### 14.6 验证
+
+- `check:architecture` / `check:normify` **均 0 error**（正是 CI 上红的那两道）
+- 15 道门禁全部 PASS；`bun run lint` **0 error**（4234 warnings，低于 4235 基线）
+- `bunx vitest run --project scripts` **56 项**；`packages/normify/test/invariants.test.ts` **11 项**
+- `normify-kimi-code/` 的 73 个模块文件只有 `revision`/`updated_at` 移动（指纹未变）；
+  另有 **3 个模块的指纹确实移动**——normify 侧也存在 CRLF 源，这一修同样是实的
