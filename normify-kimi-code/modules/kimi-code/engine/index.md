@@ -10,8 +10,8 @@ description:
   en: >
       The kimi-agent crate: turn loop, sessions, tools, MCP, LLM transports, server and the plugin registry, compiled as a napi addon.
       
-revision: 71b8b2333357cbc1b2dad100399da38d1b7fb8ec
-updated_at: "2026-10-03T08:25:20.449Z"
+revision: b067d168c0ff8fd2b70789daa5b060307453e25b
+updated_at: "2026-10-03T08:51:30.992Z"
 fingerprint: f3bdc1d18ee20dcc0e6f1c18071ed862e5946cabf7864f99910b42f664af756a
 source:
   - path: "packages/kimi-agent/src/lib.rs"
