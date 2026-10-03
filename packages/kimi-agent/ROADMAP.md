@@ -3773,7 +3773,6 @@ through sendNormalUserInput queue while busy"），只有 `Ctrl-S` 会 steer
 | 消费点 | 用的能力 |
 |---|---|
 | `features/fileHistory/fileHistoryService.ts:469` | `lease.runtime.fs` |
-| `features/staleGuard/staleGuardService.ts:130`（**仅退役副本**） | `lease.runtime.fs!.stat` |
 | `workspace/workspaceFs/fsService.ts:680` | `lease.runtime.process!.spawn`（rg 二进制） |
 | `workspace/workspaceFs/fsService.ts:901` | `lease.runtime.process!.spawn`（rgPath） |
 | `workspace/workspaceFs/fsService.ts:1084` | `lease.runtime.process!`（exec，`runCommand`） |
@@ -3782,6 +3781,8 @@ through sendNormalUserInput queue while busy"），只有 `Ctrl-S` 会 steer
 | `session/terminal/terminalService.ts:83` | `lease.runtime.environment.shellPath` |
 | `mcpCore/client-stdio.ts:186-187` | `lease.runtime.path.resolve` / `environment.homeDir` |
 | `mcpCore/client-stdio.ts:188` | `lease.runtime.process!.spawn` |
+
+**本表 2026-10-04 的重定位记录**：原表 8 行里有 6 行的行号已漂移（`fileHistoryService.ts:475`→`:469`；`fsService.ts:666`→`:680`、`:1055`→`:901` 与 `:1084` 两处；`gitService.ts:154`→`:149`；`client-stdio.ts:192-193`→`:186-187`，另补 `:188` 的 `process.spawn`）。**另一行已从表中移除**：原表有一行 `features/staleGuard/staleGuardService.ts:130`，**该文件在 `upstream/main` 不存在**（`git cat-file -e` 失败；`features/` 目录下无 `staleGuard/`），只在退役副本 `.tmp/v2-ref` 里有——退役副本的那份 `:130` 确实是 `lease.runtime.fs!.stat`。按 §6.26 的裁定（该特性已被上游 `a020946916` #3517 移除，fork 的 `stale_guard.rs` 移植的是 fork 自己的快照），它不能算上游消费点，故不作为本表行列出。**漂移不能归因于读错副本**：`runtimeRegistry.ts` 在两侧逐字节相同（见上文），本表其余各行引的都是上游活文件。
 
 **fork 侧的对应事实**（全部实测，非推断）：
 
