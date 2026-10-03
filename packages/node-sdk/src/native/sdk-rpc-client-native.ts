@@ -181,6 +181,11 @@ import type {
 } from '#/types';
 
 import {
+  isApprovedForSession,
+  rememberSessionApproval,
+} from './session-approvals';
+
+import {
   resolveNativeLlm,
   resolveNativeLlmForAlias,
   lookupModelAlias,
@@ -2148,10 +2153,7 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
               ? parsed.session_approval_rule
               : undefined;
           const sessionMeta = this.liveSessions.get(sessionId);
-          if (
-            approvalRule !== undefined &&
-            sessionMeta?.sessionApprovals.includes(approvalRule) === true
-          ) {
+          if (isApprovedForSession(approvalRule, sessionMeta?.sessionApprovals ?? [])) {
             return JSON.stringify({ decision: 'allow' });
           }
           const res = await this.requestApproval({
@@ -2169,15 +2171,18 @@ export class SDKRpcClientNative extends SDKRpcClientBase {
               : {}),
           });
           if (res.decision === 'approved') {
-            // v2 promotes the pattern only for `scope: session`; any other scope
-            // is a one-shot answer and must not be remembered.
-            if (
-              approvalRule !== undefined &&
-              res.scope === 'session' &&
-              sessionMeta !== undefined &&
-              !sessionMeta.sessionApprovals.includes(approvalRule)
-            ) {
-              sessionMeta.sessionApprovals.push(approvalRule);
+            // The promotion rule lives in `session-approvals.ts` so it is tested
+            // directly: an inline copy would be covered by nothing, and the two
+            // directions that matter (a rejection must never be remembered, a
+            // different rule must still ask) are exactly what a plumbing test
+            // would miss.
+            if (sessionMeta !== undefined) {
+              const remembered = rememberSessionApproval(
+                approvalRule,
+                { decision: res.decision, scope: res.scope },
+                sessionMeta.sessionApprovals,
+              );
+              sessionMeta.sessionApprovals = [...remembered];
             }
             return JSON.stringify({ decision: 'allow' });
           }

@@ -63,6 +63,20 @@ describe('approvalRequestSchema (SCHEMAS §6.1)', () => {
     expect(parsed.turn_id).toBe(42);
   });
 
+  it('carries the session approval rule through instead of stripping it', () => {
+    // zod drops unknown keys. A field the engine sends but this schema omits
+    // would therefore reach no consumer at all, silently — so the field being
+    // declared is the assertion, not an implementation detail.
+    const parsed = approvalRequestSchema.parse({
+      ...base,
+      session_approval_rule: 'Bash(npm test)',
+    });
+    expect(parsed.session_approval_rule).toBe('Bash(npm test)');
+    // Absent when the engine had no rule, which is how a client tells
+    // "remembering is possible" from "there is nothing to remember".
+    expect(approvalRequestSchema.parse(base).session_approval_rule).toBeUndefined();
+  });
+
   it('normalizes timestamps', () => {
     const parsed = approvalRequestSchema.parse({
       ...base,

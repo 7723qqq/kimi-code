@@ -35,6 +35,11 @@ struct ActiveApproval {
     /// client listing pending approvals sees the same text the original
     /// `event.approval.requested` carried.
     reason: Option<String>,
+    /// The user's own ask rule that fired, when one did. Kept for the same
+    /// reason as `reason`: without it a client that reconnects and lists
+    /// pending approvals cannot offer "for this session" on that approval,
+    /// because it never learns what would be remembered.
+    session_approval_rule: Option<String>,
     created_at_iso: String,
     tx: oneshot::Sender<PermissionDecision>,
 }
@@ -429,6 +434,7 @@ impl InteractionManager {
             arguments: req.arguments.clone(),
             action: action.to_string(),
             reason: req.reason.clone(),
+            session_approval_rule: req.session_approval_rule.clone(),
             created_at_iso: now_iso.clone(),
             tx,
         };
@@ -513,6 +519,10 @@ impl InteractionManager {
                 // carried, and nothing extra when there was none.
                 if let Some(reason) = &a.reason {
                     item["reason"] = json!(reason);
+                }
+                // Mirrored like `reason`, and for the same late-joiner reason.
+                if let Some(rule) = &a.session_approval_rule {
+                    item["session_approval_rule"] = json!(rule);
                 }
                 items.push(item);
             }

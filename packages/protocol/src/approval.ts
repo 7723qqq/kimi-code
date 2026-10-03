@@ -24,6 +24,16 @@ export const approvalRequestSchema = z.object({
    * describes the call from `tool_input_display` as before.
    */
   reason: z.string().optional(),
+  /**
+   * The user's own ask rule that fired, when one did — what "approve for this
+   * session" would remember. Absent when no such rule did, so a client can tell
+   * "remembering is possible" from "there is nothing to remember".
+   *
+   * Declared here rather than left to pass through: zod strips unknown keys, so
+   * a field absent from this schema is silently dropped for every consumer that
+   * parses through it.
+   */
+  session_approval_rule: z.string().optional(),
   created_at: isoDateTimeSchema,
   expires_at: isoDateTimeSchema,
 });

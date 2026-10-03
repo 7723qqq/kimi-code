@@ -7406,3 +7406,52 @@ transport、stdio 的 `command`/`args`/`cwd`，断言 `env` **键不存在**（�
 **测试**：verdict 两侧（用户规则 / 策略 ask）各一条断言；e2e 里给 `PermissionCheckRequest` 一个真实规则并断言
 `/events` 返回的载荷含 `session_approval_rule` 与 `Bash(npm test)`。**变异验证**：把 wire 那一行去掉，
 e2e 断言立刻失败——它不是空过。
+
+### 10.43 §10.42 的补正：两个漏掉的消费方，与一批方向写错的测试（2026-10-03）
+
+§10.42 提交后按「测试是否按**需求**方向写的」自查，查出三件事。前两件是**真缺口**，第三件是方法问题。
+
+**缺口一：协议 schema 没声明新字段。** 引擎把 `session_approval_rule` 放上了
+`event.approval.requested`，但 `packages/protocol/src/approval.ts` 的 `approvalRequestSchema` 没有它。
+该 schema 是 REST 待批准列表与快照的契约（`rest/approval.ts:27`、`rest/snapshot.ts:96`），而 **zod 默认
+strip 未知键**——凡是走该 schema 解析的消费者，这个字段会被**静默丢弃**。已声明，并加了一条测试**断言它
+不被 strip**（zod 的 strip 行为正是「字段在不在」比「值对不对」更需要钉住的地方）。
+
+**缺口二：快照/重连路径没镜像该字段。** `list_approvals`（`interaction.rs:493`）把 `reason` 按条件镜像给
+**晚加入的客户端**，我漏了同样的处理。后果是：重连后拉快照的客户端看得到这条待批准，却**看不到候选规则**，
+因此无法对它提供「本会话内批准」。已补 `ActiveApproval.session_approval_rule` + 条件镜像，并在 e2e 里断言
+REST 列表带该字段。
+
+**方法问题：我的测试写的是「我希望的方向」，不是「需要的方向」。** 原测试只有两条——verdict 带规则（实现
+形状）、e2e 里 payload `contains("session_approval_rule")`（**弱子串断言**）。**如果功能根本没生效**
+（例如 `scope` 永不出现），这两条**全都会绿**。
+
+已把决策逻辑抽成 `packages/node-sdk/src/native/session-approvals.ts`（两个纯函数），**并让客户端改为调用它**——
+这一步是关键：否则测试测的是**死代码**。8 条测试按需求写：
+
+| 需求 | 断言 |
+|---|---|
+| 已批准的规则不再询问 | `isApprovedForSession(rule, [rule]) === true` |
+| **不同规则仍须询问**（否则一次批准变成工具级授权） | `isApprovedForSession('Bash(rm -rf /)', [rule]) === false` |
+| **不带规则的请求永不自动放行** | `undefined` / `''` 均为 false |
+| 仅 `scope:'session'` 才记住 | 无 scope → 列表不变 |
+| **拒绝绝不记住**（含 `scope:'session'`） | `rejected` / `cancelled` → 列表不变 |
+| 请求无规则时不记 | `undefined` / `''` → 列表不变 |
+| 重复批准幂等、且不原地修改调用方的数组 | 长度不变；原数组不被改 |
+
+**变异验证（三个方向，全部被预期的测试抓住）**：
+
+1. `isApprovedForSession` 改成「只要有记录就放行」→ `still asks for a different rule` **红**；
+2. `rememberSessionApproval` 去掉 `decision !== 'approved'` 守卫 → `never remembers a rejection` **红**；
+3. `list_approvals` 不再镜像 → e2e 的 `the listing must carry the session rule` **红**。
+
+**顺带核实的一个前提**（原先没查就动手）：TUI 的 `ApprovalController.autoResolveFor` 已有会话级批准逻辑，
+但它只作用于 `base-controller.ts:83-94` 的 **`drainAutoResolved` → `this.queue`**，即**并发/排队**请求；
+顺序场景（第 1 回合批准、第 5 回合再问）在那次 resolve 时请求**尚未到达**，不在队列里。所以顺序重复询问
+的缺陷**真实存在**，本改动与 TUI 机制**不重叠**。触发链路也已逐环核实：`adapter.ts:15` 的
+`approved_for_session` → `adaptPanelResponse:189` 产出 `{decision:'approved', scope:'session'}`。
+
+**验证（按代价分级，不是每步全量）**：`cargo check --all-targets --features cli` ✅｜`cargo fmt --check` ✅｜
+`cargo clippy --all-targets --features cli -D warnings` ✅｜`cargo test --lib server::` **403 项** ✅｜
+`cargo test --test server_e2e_integration` ✅｜`packages/protocol` **544 项** ✅｜`bun run typecheck` ✅｜
+`bun run lint` 0 error（4235 基线）✅｜`packages/node-sdk` **41 文件 / 387**（+8）✅｜15 道门禁 ✅。

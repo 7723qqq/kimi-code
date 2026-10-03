@@ -248,12 +248,17 @@ async fn server_e2e_http_rest_full_roundtrip() {
         .unwrap();
     assert_eq!(res.status(), 200);
     let app_list: Value = res.json().await.unwrap();
-    assert!(
-        data(&app_list)["items"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|a| a["approval_id"] == approval_id)
+    let listed = data(&app_list)["items"].as_array().unwrap();
+    let entry = listed
+        .iter()
+        .find(|a| a["approval_id"] == approval_id)
+        .expect("the pending approval is listed");
+    // A client that reconnects and lists pending approvals — rather than seeing
+    // the original event — must still learn the candidate rule, or it cannot
+    // offer "for this session" on a request it can otherwise render fully.
+    assert_eq!(
+        entry["session_approval_rule"], "Bash(npm test)",
+        "the listing must carry the session rule: {entry}"
     );
 
     let res = client
