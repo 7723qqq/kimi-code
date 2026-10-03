@@ -8,7 +8,10 @@ import {
   analyzeLedger,
   citedPaths,
   findMissingTests,
+  readGitObject,
+  readWorktreeFile,
   resolvesSomewhere,
+  verifyAnchors,
 } from './check-roadmap-refs.mjs';
 
 /**
@@ -157,5 +160,162 @@ describe('EXEMPT_PATHS', () => {
     const text = readFileSync(join(import.meta.dirname, '..', 'packages/kimi-agent/ROADMAP.md'), 'utf8');
     const { staleExemptions } = analyzeLedger(text, { resolves: () => false });
     expect(staleExemptions).toEqual([]);
+  });
+});
+
+/**
+ * The anchor layer. Readers are injected, so these cases describe the
+ * mechanism rather than this repository's current file list.
+ */
+const readerFor = (contents) => (anchor) => contents[`${anchor.origin}:${anchor.path}`];
+
+const anchor = (over = {}) => ({
+  cited: 'thing.rs:10',
+  origin: 'worktree',
+  path: 'pkgs/thing/src/thing.rs',
+  line: 10,
+  expect: 'fn do_the_thing(',
+  note: 'test anchor',
+  ...over,
+});
+
+describe('verifyAnchors', () => {
+  const body = (lines) => lines.join('\n');
+
+  it('verifies an anchor whose symbol is at the cited coordinate — green', () => {
+    const text = 'prose citing `thing.rs:10` here';
+    const contents = { 'worktree:pkgs/thing/src/thing.rs': body([...Array(9).fill('// filler'), 'fn do_the_thing() {}']) };
+    const r = verifyAnchors(text, { anchors: [anchor()] }, readerFor(contents));
+    expect(r.counts).toMatchObject({ anchors: 1, verified: 1, drift: 0, stale: 0, missingTarget: 0 });
+    expect(r.drift).toEqual([]);
+  });
+
+  it('fails when the line drifted onto another symbol, naming expected and actual', () => {
+    // The §6.44.5 failure shape: the number still resolves inside the file,
+    // but now points at a different function.
+    const text = 'prose citing `thing.rs:10` here';
+    const lines = [...Array(20).fill('// filler')];
+    lines[9] = 'fn do_the_other_thing(';
+    const contents = { 'worktree:pkgs/thing/src/thing.rs': body(lines) };
+    const r = verifyAnchors(text, { anchors: [anchor()] }, readerFor(contents));
+    expect(r.counts.drift).toBe(1);
+    expect(r.drift[0]).toMatchObject({
+      cited: 'thing.rs:10',
+      expect: 'fn do_the_thing(',
+      actual: 'fn do_the_other_thing(',
+    });
+  });
+
+  it('tolerates drift within one symbol (±3) but not a structural move', () => {
+    const text = 'prose citing `thing.rs:10` here';
+    const near = [...Array(20).fill('// filler')];
+    near[12] = 'fn do_the_thing() {}';
+    expect(verifyAnchors(text, { anchors: [anchor()] }, readerFor({ 'worktree:pkgs/thing/src/thing.rs': body(near) })).counts.verified).toBe(1);
+
+    const far = [...Array(20).fill('// filler')];
+    far[5] = 'fn do_the_thing() {}';
+    expect(verifyAnchors(text, { anchors: [anchor()] }, readerFor({ 'worktree:pkgs/thing/src/thing.rs': body(far) })).counts.drift).toBe(1);
+  });
+
+  it('fails an anchor whose target is absent from its declared tree', () => {
+    const r = verifyAnchors('cite `thing.rs:10`', { anchors: [anchor()] }, readerFor({}));
+    expect(r.counts.missingTarget).toBe(1);
+    expect(r.missingTargets[0]).toMatchObject({ origin: 'worktree', path: 'pkgs/thing/src/thing.rs' });
+  });
+
+  it('never fails on an unavailable tree — it counts the anchor as unchecked instead', () => {
+    const r = verifyAnchors('cite `thing.rs:10`', { anchors: [anchor()] }, () => null);
+    expect(r.counts).toMatchObject({ unchecked: 1, verified: 0, missingTarget: 0, drift: 0 });
+    expect(r.unchecked[0].reason).toContain('unavailable');
+  });
+
+  it('fails an anchor the ledger no longer cites — the manifest must not only grow', () => {
+    const r = verifyAnchors('the prose dropped the pointer', { anchors: [anchor()] }, () => 'fn do_the_thing() {}');
+    expect(r.counts.stale).toBe(1);
+    expect(r.staleAnchors[0]).toMatchObject({ cited: 'thing.rs:10' });
+  });
+
+  it('counts an unanchored citation without failing it — the extractor sees it, the manifest does not claim it', () => {
+    const text = 'cite `src/other.rs:5` which has no anchor';
+    expect(citedPaths(text)).toHaveLength(1);
+    const r = verifyAnchors(text, { anchors: [anchor()] }, () => undefined);
+    expect(r.counts.stale).toBe(1);
+    expect(r.counts.missingTarget).toBe(0);
+  });
+
+  it('verifies each of the four blind-spot shapes the extractor cannot see', () => {
+    const text = [
+      'crate-relative `kimi-agent/src/tools/kaos.rs`',
+      'bare basename `forkTurnSlice.ts:86-103`',
+      'upstream sub-path `runtime/runtime.ts:8`',
+      'fully-qualified upstream `packages/agent-core-v2/src/agent/gone/gone.ts:3`',
+    ].join('\n');
+    const anchors = [
+      anchor({ cited: 'kimi-agent/src/tools/kaos.rs', origin: 'worktree', path: 'packages/kimi-agent/src/tools/kaos.rs', line: 1, expect: 'mod kaos;' }),
+      anchor({ cited: 'forkTurnSlice.ts:86-103', origin: 'upstream', path: 'packages/agent-core-v2/src/workspace/forkTurnSlice.ts', line: 86, endLine: 103, expect: 'function isUserVisibleTurnRecord(' }),
+      anchor({ cited: 'runtime/runtime.ts:8', origin: 'upstream', path: 'packages/agent-core-v2/src/runtime/runtime.ts', line: 8, expect: 'export type RuntimeCapability' }),
+      anchor({ cited: 'packages/agent-core-v2/src/agent/gone/gone.ts:3', origin: 'upstream', path: 'packages/agent-core-v2/src/agent/gone/gone.ts', line: 3, expect: 'anything' }),
+    ];
+    // The extractor sees only the fully-qualified shape (1 of 4); the first
+    // three are invisible by construction, and the visible one is never
+    // existence-tested because `analyzeLedger` classifies it `upstream` and
+    // `continue`s before `checked++` — which is exactly why the anchor layer
+    // must ask the git object instead.
+    const seen = citedPaths(text);
+    expect(seen.map((c) => c.path)).toEqual(['packages/agent-core-v2/src/agent/gone/gone.ts']);
+    const { counts } = analyzeLedger(text, { resolves: () => false, exempt: [] });
+    expect(counts.upstream).toBe(1);
+    expect(counts.checked).toBe(0);
+    const contents = {
+      'worktree:packages/kimi-agent/src/tools/kaos.rs': 'mod kaos;\n',
+      'upstream:packages/agent-core-v2/src/workspace/forkTurnSlice.ts': [...Array(85).fill('// x'), 'function isUserVisibleTurnRecord(record: WireRecord): boolean {'].join('\n'),
+      'upstream:packages/agent-core-v2/src/runtime/runtime.ts': [...Array(7).fill('// x'), 'export type RuntimeCapability = ...'].join('\n'),
+      'upstream:packages/agent-core-v2/src/agent/gone/gone.ts': undefined,
+    };
+    const r = verifyAnchors(text, { anchors }, readerFor(contents));
+    expect(r.counts).toMatchObject({ anchors: 4, verified: 3, missingTarget: 1, drift: 0, stale: 0 });
+  });
+
+  it('resolves git objects, distinguishing an unavailable ref (null) from a missing path (undefined)', () => {
+    // A ref that cannot be resolved: `rev-parse` throws.
+    const noRef = () => {
+      throw new Error('unknown ref');
+    };
+    expect(readGitObject('upstream/main', 'x', noRef)).toBeNull();
+    // A ref that resolves but has no such path: `show` throws.
+    const refOnly = (cmd) => {
+      if (cmd === 'rev-parse') return 'abc123';
+      throw new Error('path not in tree');
+    };
+    expect(readGitObject('upstream/main', 'gone', refOnly)).toBeUndefined();
+    expect(readGitObject('upstream/main', 'here', (cmd) => (cmd === 'rev-parse' ? 'abc' : 'body'))).toBe('body');
+  });
+
+  it('reads the worktree through the filesystem, absent files as undefined', () => {
+    expect(readWorktreeFile(join(import.meta.dirname, 'check-roadmap-refs.mjs'))).toContain('verifyAnchors');
+    expect(readWorktreeFile(join(import.meta.dirname, 'no-such-file-here.mjs'))).toBeUndefined();
+  });
+});
+
+describe('the shipped manifest', () => {
+  const manifest = JSON.parse(readFileSync(join(import.meta.dirname, 'roadmap-citation-anchors.json'), 'utf8'));
+
+  it('gives every anchor the fields the validator requires, and a note saying why', () => {
+    expect(manifest.anchors.length).toBeGreaterThan(0);
+    expect(manifest.anchors.length).toBeLessThanOrEqual(25);
+    for (const a of manifest.anchors) {
+      for (const field of ['cited', 'origin', 'path', 'line', 'expect', 'note']) {
+        expect(a[field], `${a.cited} is missing ${field}`).toBeDefined();
+      }
+      expect(['worktree', 'upstream', 'retired'], a.cited).toContain(a.origin);
+      expect(a.note.length, a.cited).toBeGreaterThan(20);
+    }
+  });
+
+  it('is satisfied by the real ledger and the real trees', () => {
+    const text = readFileSync(join(import.meta.dirname, '..', 'packages/kimi-agent/ROADMAP.md'), 'utf8');
+    const { counts, drift, staleAnchors, missingTargets } = verifyAnchors(text, manifest);
+    expect({ drift, staleAnchors, missingTargets }).toEqual({ drift: [], staleAnchors: [], missingTargets: [] });
+    expect(counts.verified + counts.unchecked).toBe(manifest.anchors.length);
   });
 });
