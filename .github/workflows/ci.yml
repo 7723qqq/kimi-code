@@ -291,6 +291,12 @@ jobs:
       - run: bun scripts/check-engine-i18n-parity.mjs
       # Hardcoded user-facing strings that duplicate an existing locale value.
       - run: bun scripts/scan-hardcoded-v2.mjs
+      # Hardcoded prose in the Rust engine, which scan-hardcoded-v2 does not
+      # cover at all — it scans six TypeScript trees and packages/kimi-agent is
+      # 21.8万行 with none. A two-way ratchet: a new unrecorded literal fails,
+      # and so does a recorded one that has been localized or deleted, so the
+      # record cannot rot.
+      - run: bun scripts/scan-hardcoded-rust.mjs
       # Retired-package delta ratchet: this fork deleted packages/agent-core-v2,
       # kap-server, klient and acp-server, so upstream commits touching them merge
       # silently and their behavior is never ported. Every such commit since the

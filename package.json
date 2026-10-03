@@ -52,6 +52,7 @@
     "check:t-call-coverage": "bun scripts/check-t-call-coverage.mjs",
     "check:no-comments": "bun scripts/check-no-comments.mjs",
     "scan:hardcoded": "bun scripts/scan-hardcoded-v2.mjs",
+    "scan:hardcoded:rust": "bun scripts/scan-hardcoded-rust.mjs",
     "check:no-legacy-engine": "bun scripts/check-no-legacy-engine.mjs",
     "check:parity": "bun scripts/scan-parity.mjs",
     "check:nix-workspace": "bun scripts/check-nix-workspace.mjs",
