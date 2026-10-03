@@ -10,9 +10,9 @@ description:
   en: >
       Shared HTTP plumbing: transport, proxy, wire types, timing, media budget/resolver and thinking guard.
       
-revision: 779fa7ba58daaeed4dd885c941bf1c29d2fe902e
-updated_at: "2026-09-29T11:43:38.993Z"
-fingerprint: aaa2350cb64bd809f0384e2cc82a1a1b214007abb7dc01d360fc7192f9d62787
+revision: 1d8d64b4b7b219e3da075845ca51342d829c58e9
+updated_at: "2026-10-03T10:29:58.204Z"
+fingerprint: 412292cd8c620dfbae99b5572d1b88b5aab7b4d032fc4609cc5c26f03902c10b
 source:
   - path: "packages/kimi-agent/src/llm/http.rs"
   - path: "packages/kimi-agent/src/llm/proxy.rs"
