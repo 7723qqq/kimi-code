@@ -200,20 +200,21 @@
       "note": "§10.42 — the contract wording 'signalled' the dispose note cites"
     },
     {
-      "cited": "packages/kimi-agent/src/llm/anthropic.rs:164",
-      "origin": "worktree",
-      "path": "packages/kimi-agent/src/llm/anthropic.rs",
-      "line": 164,
-      "expect": "last_block[\"cache_control\"] = json!({ \"type\": \"ephemeral\" });",
-      "note": "§10.31 P1-4 — one of the four cache_control emission points"
-    },
-    {
       "cited": "packages/kimi-agent/src/tools/mod.rs:4662",
       "origin": "worktree",
       "path": "packages/kimi-agent/src/tools/mod.rs",
       "line": 4662,
       "expect": "pub(crate) fn arg_error_text(",
       "note": "§10 — the {{tool}}/{{field}} parameterized arg-error helper"
+    },
+    {
+      "cited": ":3717-3818",
+      "origin": "worktree",
+      "path": "packages/node-sdk/src/native/sdk-rpc-client-native.ts",
+      "line": 3717,
+      "endLine": 3818,
+      "expect": "override async exportSession(input: ExportSessionInput): Promise<ExportSessionResult> {",
+      "note": "§10.25 — the corrected host-side export range M1 recorded (`现 :3717-3818`), re-pointed from :3642-3698. The same stale pointer is still live at L6878; see the filed finding."
     }
   ]
 }
