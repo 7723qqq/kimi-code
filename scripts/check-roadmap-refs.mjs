@@ -92,7 +92,8 @@
  *      verification runs *outside* `analyzeLedger` — the upstream
  *      short-circuit cannot skip an anchored citation.
  *
- * Failure semantics (the anchor layer fails on exactly two classes):
+ * Failure semantics (the anchor layer fails on exactly three classes; the
+ * fourth is a reporting state, not a finding):
  *
  *   - `citation-drift` — the anchored symbol is not within ±3 lines of the
  *     cited coordinate. Fails, and prints expected vs actual, because a reader
@@ -107,9 +108,9 @@
  *     in the retired copy" class).
  *   - An *unavailable ref* (a clone without `upstream/main`, or CI, where this
  *     gate runs BEFORE the workflow's "Fetch upstream" step) is counted as
- *     `unchecked` and never fails: the ref's absence is a property of the
- *     environment, not of the citation. The count is printed so the blind spot
- *     is visible, not silent.
+ *     `unchecked` and reported, never failing: the ref's absence is a property
+ *     of the environment, not of the citation. The count is printed so that
+ *     blind spot is visible rather than silent.
  *
  * `expect` is a single-line substring taken from the real file; the window is
  * ±3 lines so that trivial line movement inside one symbol does not fail while
