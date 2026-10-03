@@ -133,12 +133,12 @@ it from `packages/i18n-catalog/src/locales/en.ts` when you touch the catalog.
   first is settled: whether they are **UI or protocol** is a fork decision
   (see What not to translate), but the *unported-subsystem* framing is not a
   question at all — v2's `src/runtime/` capability layer that §6.8.2 needs is
-  registered in `packages/kimi-agent/ROADMAP.md` §6.24, and the engine's
+  registered in `packages/kimi-agent/ROADMAP.md` §6.25, and the engine's
   missing runtime layer is upstream's to match, not a fork preference.
-  **Corrected 2026-10-01 (§6.42):** the *layer* is a real unported subsystem,
-  but it is **not** a prerequisite for the watcher. `RuntimeCapability` is
-  `'fs' | 'process' | 'terminal'` — there is no `watch` rung
-  (`runtime/runtime.ts:8`); upstream's watcher is a standalone service
+  **Corrected 2026-10-01 (§6.25's correction box, §6.43.1):** the *layer* is
+  a real unported subsystem, but it is **not** a prerequisite for the watcher.
+  `RuntimeCapability` is `'fs' | 'process' | 'terminal'` — there is no `watch`
+  rung (`runtime/runtime.ts:8`); upstream's watcher is a standalone service
   (`human/utils/watch.ts:473`, own `[watch]` config section). Schedule §6.8.2
   as its own subsystem.
 - **The Grep / Glob notices were the reverse case, and it is fixed (2026-10-01).**
@@ -719,8 +719,8 @@ Standing rules for every `upstream` tag merge (decided 2026-09-03). Upstream is 
     directions before concluding a port is complete.
 
   Beware the naming traps when comparing: v2's `runtime/` (a capability-axis
-  execution layer, `fs`/`process`/`watch`/`terminal` + a six-state lifecycle,
-  ROADMAP §6.24) shares its name with v2's `app/capability/` (a plugin install
+  execution layer, `fs`/`process`/`terminal` + a six-state lifecycle,
+  ROADMAP §6.25) shares its name with v2's `app/capability/` (a plugin install
   service) while `agent/contextMemory/` is fork-covered under different names
   (`native/event_store/loop_fold.rs` + `packages/transcript/src/history/`). Judge
   by real external consumers on the v2 side and behavioural equivalence on the
@@ -729,7 +729,7 @@ Standing rules for every `upstream` tag merge (decided 2026-09-03). Upstream is 
 - **The retired-package delta ratchet is the mechanical half of this policy.** `bun run check:upstream-v2-delta` requires every upstream commit touching a deleted package since the merge base to carry a recorded verdict in `scripts/upstream-v2-delta-allowlist.json` (`ported` / `tracked` / `not-applicable`; `pending` or absent fails). It is wired into CI, but **fetch the ref first**: it reads `refs/remotes/upstream/main`, and a stale ref silently narrows the range and prints a green "all triaged" — `git fetch upstream main:refs/remotes/upstream/main --force`. Deleting those packages is exactly why the delta is invisible to `git log`; this gate exists because 21 behavior commits once piled up unnoticed (ROADMAP §6.0).
   **Its structural blind spot:** the ratchet is keyed on *upstream commits*. A v2
   subsystem that has existed since the export point and was never ported moves no
-  commit, so this gate can never report it — ROADMAP §6.24 (v2's `src/runtime/`
+  commit, so this gate can never report it — ROADMAP §6.25 (v2's `src/runtime/`
   capability layer) is exactly that case, and it was found by comparing subsystem
   trees, not by the ratchet. Treat a green run as "no *new commit* delta", never
   as "the port is complete".
