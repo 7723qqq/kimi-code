@@ -1,6 +1,6 @@
 # apps/kimi-code Development Guide
 
-This file only contains rules local to `apps/kimi-code`. For cross-repo rules, see the root `AGENTS.md`.
+This file only contains rules local to `apps/kimi-code`. For cross-repo rules, see the root `DEVELOP.md`.
 
 > **Writing or modifying the TUI?** Use the `write-tui` skill (`.agents/skills/write-tui/SKILL.md`). It covers the architecture orientation, where new features go, test placement, theme mechanics, and the dialog interaction/visual spec (`DESIGN.md`). This file keeps only the map, boundaries, and hard constraints.
 

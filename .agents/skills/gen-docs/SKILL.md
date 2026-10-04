@@ -18,7 +18,7 @@ For a **full pre-release audit** of all pages (detecting hallucinations and cove
 This skill depends on the following being in place. If any are missing, stop and report to the user before continuing:
 
 - `docs/` directory with `docs/zh/`, `docs/en/`, and `docs/.vitepress/config.ts` set up (VitePress site).
-- `docs/AGENTS.md` style guide — defines source-of-truth rules, terminology table, typography, and writing style.
+- `docs/DEVELOP.md` style guide — defines source-of-truth rules, terminology table, typography, and writing style.
 - `docs/scripts/sync-changelog.mjs` — auto-syncs root `CHANGELOG.md` to `docs/en/release-notes/changelog.md`.
 - `translate-docs` skill in `.agents/skills/` — handles bilingual synchronization.
 
@@ -53,7 +53,7 @@ This skill depends on the following being in place. If any are missing, stop and
 
 4. **Update user docs**
 
-   Following the rules in `docs/AGENTS.md`, edit the affected pages in whichever locale you are working in, then sync the mirror. Match terminology with the term table in `docs/AGENTS.md` and the existing wording in surrounding pages.
+   Following the rules in `docs/DEVELOP.md`, edit the affected pages in whichever locale you are working in, then sync the mirror. Match terminology with the term table in `docs/DEVELOP.md` and the existing wording in surrounding pages.
 
    Cover all relevant sections:
 
@@ -73,7 +73,7 @@ This skill depends on the following being in place. If any are missing, stop and
 ## Rules and conventions
 
 - **Locale sync**: Non-changelog pages stay mirrored between `docs/en/` and `docs/zh/`. Changelog flows English → Chinese.
-- **Terminology**: Use the term table in `docs/AGENTS.md` exactly. Do not invent new translations or use synonyms.
+- **Terminology**: Use the term table in `docs/DEVELOP.md` exactly. Do not invent new translations or use synonyms.
 - **Scope discipline**: Only update sections affected by the recent changes. Do not opportunistically rewrite unrelated docs.
 - **Public examples**: Never write real internal endpoints, key names, account names, or service names into docs. Use neutral placeholders such as `https://api.example.com/v1`, `https://registry.example.com/v1/models/api.json`, `example.test`, and `YOUR_API_KEY`.
 - **Breaking changes**: If any change is breaking, also update `docs/en/release-notes/breaking-changes.md` (under `## Unreleased`) with `**Affected**` + `**Migration**` subsections, and mirror it in `docs/zh/release-notes/breaking-changes.md`.
@@ -85,5 +85,5 @@ This skill depends on the following being in place. If any are missing, stop and
 - Adding a new section heading per feature instead of weaving the change into existing prose.
 - Updating only one locale and leaving its mirror stale.
 - Editing only the mirror to fix wording that should be corrected in the locale you changed first.
-- Inventing new terminology that drifts from the `docs/AGENTS.md` term table.
+- Inventing new terminology that drifts from the `docs/DEVELOP.md` term table.
 - Using real internal values in examples instead of neutral `example` placeholders.

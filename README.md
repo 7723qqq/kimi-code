@@ -18,7 +18,7 @@ Compared to upstream, this fork adds:
 - **🥖 Bun as the sole packaging engine.** Release binaries are single-file builds via `bun build --compile`, produced by the CI six-platform matrix (linux/darwin/win32 × x64/arm64). The former default Node.js SEA pipeline has been retired: pi-tui helpers load from the packaged-asset cache, URL-fetch SSRF semantics are identical across runtimes (bundled undici), self-update is engine-aware and still recognizes legacy SEA installs, and `/status` shows a Runtime row.
 - Various other fixes and QoL improvements.
 
-For a deeper, contributor-facing breakdown of these additions and how they integrate with the rest of the project, see `AGENTS.md` → "Fork-specific additions vs upstream".
+For a deeper, contributor-facing breakdown of these additions and how they integrate with the rest of the project, see `DEVELOP.md` → "Fork-specific additions vs upstream".
 
 ## What is Kimi Code CLI
 

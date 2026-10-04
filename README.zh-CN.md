@@ -20,7 +20,7 @@
 - **🥖 Bun 唯一打包引擎**:发布二进制通过 `bun build --compile` 产出单文件构建,由 CI 六平台矩阵(linux/darwin/win32 × x64/arm64)生成。原默认的 Node.js SEA 流水线已退役:pi-tui helper 由打包资产缓存加载、URL-fetch SSRF 语义跨运行时一致(统一捆绑 undici)、自更新感知引擎且仍识别旧 SEA 安装、`/status` 显示 Runtime 行。
 - 其他多项修复和体验优化。
 
-如需了解面向贡献者的更深入说明与集成细节，请参见根目录 `AGENTS.md` → "Fork-specific additions vs upstream"（中文语境参见对应章节）。
+如需了解面向贡献者的更深入说明与集成细节，请参见根目录 `DEVELOP.md` → "Fork-specific additions vs upstream"（中文语境参见对应章节）。
 
 ## 什么是 Kimi Code CLI
 

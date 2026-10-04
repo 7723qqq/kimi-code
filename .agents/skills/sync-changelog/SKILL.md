@@ -260,7 +260,7 @@ Chinese page requirements:
 - The Chinese page must mirror the English page 1:1 for versions, sections, section order, entry order, and entry counts.
 - Keep the classification and entry order from the English page. Do not reclassify or reorder while translating.
 - Translate only entry body text. Do not add entries that are not present in English.
-- Follow `docs/AGENTS.md` for Chinese typography: full-width punctuation, spaces between Chinese and English, and the glossary.
+- Follow `docs/DEVELOP.md` for Chinese typography: full-width punctuation, spaces between Chinese and English, and the glossary.
 
 #### Chinese wording style
 
@@ -473,7 +473,7 @@ Return the PR URL to the user when done.
 | Creating a changeset for docs sync | Do not create one |
 | Committing or pushing directly on `main` | Create `docs/changelog-sync-<version>`, commit there, then open a PR |
 | Committing or opening a PR before the user skips review or confirms review is done | Wait at the human review checkpoint |
-| Using curly quotes or half-width Chinese punctuation | Follow `docs/AGENTS.md` |
+| Using curly quotes or half-width Chinese punctuation | Follow `docs/DEVELOP.md` |
 | Omitting the release date from a version heading, or guessing it | Add ` (YYYY-MM-DD)` (full-width `（）` in Chinese) taken from the published tag |
 
 ## Stop Signals
@@ -483,6 +483,6 @@ Return the PR URL to the user when done.
 - You are about to add docs sync to a changeset.
 - English and Chinese versions, entry counts, or section sets do not match.
 - A section is empty.
-- A Chinese term is uncertain and `docs/AGENTS.md` does not answer it.
+- A Chinese term is uncertain and `docs/DEVELOP.md` does not answer it.
 - A `docs/changelog-sync-*` branch already exists for the same version and you cannot confirm whether it is stale.
 - The user asked to review but has not yet confirmed review is complete.

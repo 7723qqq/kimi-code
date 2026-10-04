@@ -33,7 +33,7 @@ Kimi Code 对 CLI/TUI 行为、agent 工作流和公开 API 已有自己的主�
 - `packages/klient`、`kap-server`、`protocol`、`transcript`、`kosong`、`kaos`、`oauth`、`telemetry` — 内部引擎包
 - `docs/` — VitePress 双语文档站
 
-完整项目地图见 [AGENTS.md](AGENTS.md)。
+完整项目地图见 [DEVELOP.md](DEVELOP.md)。
 
 ## 开发环境
 

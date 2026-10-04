@@ -5,7 +5,7 @@ description: Use when writing or modifying the kimi-code terminal UI in apps/kim
 
 # Write TUI (apps/kimi-code)
 
-The terminal UI lives in `apps/kimi-code/src/tui`. Before writing TUI code, read `apps/kimi-code/AGENTS.md` for the always-on **map, module boundaries, and hard constraints** (printable-key decoding, no chalk named colors, etc.). This skill is the **how-to**: architecture orientation, feature routing, test placement, theme mechanics, and the dialog spec.
+The terminal UI lives in `apps/kimi-code/src/tui`. Before writing TUI code, read `apps/kimi-code/DEVELOP.md` for the always-on **map, module boundaries, and hard constraints** (printable-key decoding, no chalk named colors, etc.). This skill is the **how-to**: architecture orientation, feature routing, test placement, theme mechanics, and the dialog spec.
 
 For any list dialog, selector, input box, or status/toggle list, the interaction and visual rules are normative — see **[DESIGN.md](./DESIGN.md)** in this folder and follow its self-check list before submitting.
 
@@ -80,7 +80,7 @@ Apply / switch flow:
 - The real apply step is `KimiTUI.applyTheme`: it updates `state.theme`, `state.appState.theme`, and notifies components to refresh their palette.
 - Persist the choice through `saveTuiConfig` — a component must not write the config file itself.
 
-> The **hard color rules** (no chalk named colors, contrast ratios, no module-top-level cached styled functions, add a `ColorPalette` token before inventing a color) are normative and guard-enforced — they live in `apps/kimi-code/AGENTS.md`. This skill only covers the mechanics.
+> The **hard color rules** (no chalk named colors, contrast ratios, no module-top-level cached styled functions, add a `ColorPalette` token before inventing a color) are normative and guard-enforced — they live in `apps/kimi-code/DEVELOP.md`. This skill only covers the mechanics.
 
 ## Before you submit
 

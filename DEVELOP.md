@@ -482,15 +482,15 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 
 ## Where to Update Instructions
 
-- Hard rules that affect almost every task: update the root `AGENTS.md`.
-- Rules that only affect a specific directory: update the nearest sub-directory `AGENTS.md`.
+- Hard rules that affect almost every task: update the root `DEVELOP.md`.
+- Rules that only affect a specific directory: update the nearest sub-directory `DEVELOP.md`.
 - Keep instruction updates focused and supported by code facts.
 
 ## Working Principles
 
 - Think from first principles. Start from real requirements, code facts, and verification results; if the goal is unclear, discuss it with the user first.
 - Treat code, not documentation, as the source of truth. Unless the user explicitly says otherwise, do not read ordinary Markdown just to understand the implementation.
-- Before making code changes, read the relevant code and the most recent constraints, and follow the nearest `AGENTS.md` in the directory tree.
+- Before making code changes, read the relevant code and the most recent constraints, and follow the nearest `DEVELOP.md` in the directory tree.
 - Keep changes focused. Do not slip in unrelated refactors along the way.
 - When committing, do not add any co-author attribution, and do not reveal the identity of the agent in commit messages, PR descriptions, or any explanatory text.
 - Push every commit to `origin` immediately after `git commit`. Never let local and remote diverge — applies to feature, fix, and experimental branches alike, so local work is never lost and the remote does not fall behind.

@@ -68,7 +68,7 @@ There is no domain-layer numbering — a domain may import any other domain, gui
 
 ## Comment convention
 
-`packages/agent-core-v2/AGENTS.md` bans comments entirely: no file headers, no section banners, no statement-level narration, no JSDoc (not even on exported symbols) — the code is the source of truth. The only exception is a load-bearing lint-suppression directive (`oxlint-disable` / `eslint-disable`) for a deliberate pattern; other tooling directives (`@ts-expect-error`, …) are banned: fix the underlying lint/type problem instead, and put negative type-safety cases in compiler-asserted fixtures. Scope is carried by the filename: `workspace*.ts` = Workspace, `session*.ts` = Session, `agent*.ts` = Agent, no prefix = App (see service-authoring.md).
+`packages/agent-core-v2/DEVELOP.md` bans comments entirely: no file headers, no section banners, no statement-level narration, no JSDoc (not even on exported symbols) — the code is the source of truth. The only exception is a load-bearing lint-suppression directive (`oxlint-disable` / `eslint-disable`) for a deliberate pattern; other tooling directives (`@ts-expect-error`, …) are banned: fix the underlying lint/type problem instead, and put negative type-safety cases in compiler-asserted fixtures. Scope is carried by the filename: `workspace*.ts` = Workspace, `session*.ts` = Session, `agent*.ts` = Agent, no prefix = App (see service-authoring.md).
 
 ## Red lines (this stage)
 
