@@ -20,5 +20,6 @@
       "shared/*": ["../shared/*"]
     }
   },
-  "include": ["src", "../test/settings-store.test.ts", "../test/app-init.test.ts", "../test/webview"]
+  "include": ["src", "../test/settings-store.test.ts", "../test/app-init.test.ts", "../test/webview"],
+  "exclude": ["../test/webview/jsdom-environment.ts"]
 }

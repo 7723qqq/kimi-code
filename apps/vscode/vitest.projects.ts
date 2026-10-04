@@ -41,7 +41,7 @@ export const vscodeProjects = [
     test: {
       name: 'webview',
       include: ['test/webview/**/*.test.{ts,tsx}'],
-      environment: 'jsdom',
+      environment: './test/webview/jsdom-environment.ts',
       setupFiles: ['./test/webview/setup.ts'],
       // Under the Bun runtime, vitest trips over zod's CJS-getter exports unless zod is inlined.
       server: {
