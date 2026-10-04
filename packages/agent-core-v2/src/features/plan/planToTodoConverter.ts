@@ -1,5 +1,5 @@
 import type { AgentContext } from '../../agent/agentContext/agentContext';
-import type { TodoRuntime } from '../todo/todoAgentRuntime';
+import type { IAgentTodoService } from '../todo/todoService';
 import type { PlanData } from './plan';
 import { parsePlanToTodos } from './parsePlanToTodos';
 
@@ -9,7 +9,7 @@ export type PlanToTodoOutcome =
 
 export async function tryConvertPlanToTodos(
   planData: PlanData,
-  todo: TodoRuntime,
+  todo: IAgentTodoService,
   agent: AgentContext | undefined,
 ): Promise<PlanToTodoOutcome> {
   if (agent === undefined) return { kind: 'skipped', reason: 'no-agent' };

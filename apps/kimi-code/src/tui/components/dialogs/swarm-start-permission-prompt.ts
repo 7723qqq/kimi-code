@@ -1,5 +1,3 @@
-import { t } from '#/i18n';
-
 import {
   StartPermissionPromptComponent,
   type StartPermissionOption,
@@ -12,40 +10,39 @@ export interface SwarmStartPermissionPromptOptions {
   readonly onCancel: () => void;
 }
 
-function swarmOptions(): readonly StartPermissionOption<SwarmStartPermissionChoice>[] {
-  return [
-    {
-      value: 'auto',
-      label: t('tui.dialogs.swarmStartPermissionPrompt.optionAutoLabel'),
-      description: t('tui.dialogs.swarmStartPermissionPrompt.optionAutoDesc'),
-    },
-    {
-      value: 'yolo',
-      label: t('tui.dialogs.swarmStartPermissionPrompt.optionYoloLabel'),
-      description: t('tui.dialogs.swarmStartPermissionPrompt.optionYoloDesc'),
-    },
-    {
-      value: 'manual',
-      label: t('tui.dialogs.swarmStartPermissionPrompt.optionManualLabel'),
-      description: t('tui.dialogs.swarmStartPermissionPrompt.optionManualDesc'),
-    },
-  ];
-}
+const OPTIONS: readonly StartPermissionOption<SwarmStartPermissionChoice>[] = [
+  {
+    value: 'auto',
+    label: 'Switch to Never Ask and start',
+    description:
+      'Best for swarm tasks. Tools are approved automatically, and questions are skipped.',
+  },
+  {
+    value: 'yolo',
+    label: 'Switch to Ask When Needed and start',
+    description:
+      'Tools and plan changes are approved automatically. Kimi Code may still ask you questions.',
+  },
+  {
+    value: 'manual',
+    label: 'Start in Always Ask',
+    description:
+      'Keep approvals on. Kimi Code may stop and wait for you during the swarm task.',
+  },
+];
 
-function getNoticeLines() {
-  return [
-    t('tui.dialogs.swarmStartPermissionPrompt.notice1'),
-    t('tui.dialogs.swarmStartPermissionPrompt.notice2'),
-    t('tui.dialogs.swarmStartPermissionPrompt.notice3'),
-  ] as const;
-}
+const NOTICE_LINES = [
+  'Always Ask mode asks you before Kimi Code runs commands, edits files, or takes other risky actions.',
+  'Always Ask mode can block swarm work while agents are running.',
+  'You can go back without losing your command.',
+] as const;
 
 export class SwarmStartPermissionPromptComponent extends StartPermissionPromptComponent<SwarmStartPermissionChoice> {
   constructor(opts: SwarmStartPermissionPromptOptions) {
     super({
-      title: t('tui.dialogs.swarmStartPermissionPrompt.title'),
-      noticeLines: getNoticeLines(),
-      options: swarmOptions(),
+      title: 'Start a swarm task with approvals on?',
+      noticeLines: NOTICE_LINES,
+      options: OPTIONS,
       onSelect: opts.onSelect,
       onCancel: opts.onCancel,
     });

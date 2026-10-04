@@ -1,6 +1,7 @@
 import type { PermissionMode } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
+import { PERMISSION_MODE_DISPLAY_NAMES } from '#/tui/utils/permission-mode';
 
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
@@ -8,18 +9,19 @@ function permissionOptions(): readonly ChoiceOption[] {
   return [
     {
       value: 'manual',
-      label: t('tui.dialogs.permissionSelector.manual'),
-      description: t('tui.dialogs.permissionSelector.manualDesc'),
+      label: PERMISSION_MODE_DISPLAY_NAMES.manual,
+      description: 'Auto-read only; everything else needs your approval first.',
     },
     {
       value: 'yolo',
-      label: t('tui.dialogs.permissionSelector.yolo'),
-      description: t('tui.dialogs.permissionSelector.yoloDesc'),
+      label: PERMISSION_MODE_DISPLAY_NAMES.yolo,
+      description:
+        'Routine edits and commands run automatically; risky actions, questions, and plans still ask.',
     },
     {
       value: 'auto',
-      label: t('tui.dialogs.permissionSelector.auto'),
-      description: t('tui.dialogs.permissionSelector.autoDesc'),
+      label: PERMISSION_MODE_DISPLAY_NAMES.auto,
+      description: 'Never interrupts you; everything runs and is decided automatically.',
     },
   ];
 }

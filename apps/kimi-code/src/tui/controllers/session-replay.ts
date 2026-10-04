@@ -29,6 +29,7 @@ import { formatBackgroundAgentTranscript } from '../utils/background-agent-statu
 import { formatBackgroundTaskTranscript } from '../utils/background-task-status';
 import { formatErrorMessage, normalizeTodoItems } from '../utils/event-payload';
 import { buildGoalCompletionMessage } from '../utils/goal-completion';
+import { PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
 import { nextTranscriptId } from '../utils/transcript-id';
 import {
   appStateFromResumeAgent,
@@ -697,8 +698,8 @@ export class SessionReplayRenderer {
   private renderPermissionUpdate(context: ReplayRenderContext, mode: PermissionMode): void {
     if (mode === 'yolo') {
       this.host.appendTranscriptEntry(
-        replayEntry(context, 'status', t('tui.statusMessages.replayYoloModeOn'), 'notice', {
-          detail: t('tui.statusMessages.replayYoloModeOnSub'),
+        replayEntry(context, 'status', 'Ask When Needed mode: ON', 'notice', {
+          detail: 'Routine edits and commands run automatically; risky actions, questions, and plans still ask.',
         }),
       );
       return;
@@ -708,8 +709,8 @@ export class SessionReplayRenderer {
         context,
         'status',
         mode === 'manual'
-          ? t('tui.statusMessages.replayYoloModeOff')
-          : t('tui.statusMessages.replayPermissionMode', { mode }),
+          ? 'Ask When Needed mode: OFF'
+          : `Permission mode: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}`,
         'notice',
       ),
     );

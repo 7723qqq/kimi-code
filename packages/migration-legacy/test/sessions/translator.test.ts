@@ -9,6 +9,7 @@ import {
   translateContextLines,
   containsUsableMessage,
   analyzeContextContent,
+  extractLastUsageTokenCount,
 } from '../../src/sessions/translator.js';
 
 const FIXTURES = fileURLToPath(new URL('../fixtures', import.meta.url));
@@ -185,5 +186,32 @@ describe('analyzeContextContent', () => {
     expect(
       analyzeContextContent(['not-json', '{broken', '{"role":"_system_prompt","content":"x"}']),
     ).toBe('empty');
+  });
+});
+
+describe('extractLastUsageTokenCount', () => {
+  it('returns the token_count of the last _usage row', () => {
+    expect(
+      extractLastUsageTokenCount([
+        '{"role":"_usage","token_count":100}',
+        '{"role":"user","content":"hi"}',
+        '{"role":"_usage","token_count":9133}',
+      ]),
+    ).toBe(9133);
+  });
+
+  it('returns undefined when no _usage row exists', () => {
+    expect(extractLastUsageTokenCount(['{"role":"user","content":"hi"}'])).toBeUndefined();
+  });
+
+  it('ignores malformed lines and non-numeric token_count values', () => {
+    expect(
+      extractLastUsageTokenCount([
+        'not-json',
+        '{"role":"_usage","token_count":"many"}',
+        '{"role":"_usage","token_count":-5}',
+        '{"role":"_usage"}',
+      ]),
+    ).toBeUndefined();
   });
 });

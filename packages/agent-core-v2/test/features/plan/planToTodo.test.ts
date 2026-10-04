@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { TodoRuntime } from '#/features/todo/todoAgentRuntime';
+import type { IAgentTodoService } from '#/features/todo/todoService';
 import type { TodoItem } from '#/features/todo/todoItem';
 import type { PlanData } from '#/features/plan/plan';
 import { tryConvertPlanToTodos } from '#/features/plan/planToTodoConverter';
@@ -103,7 +103,7 @@ describe('parsePlanToTodos', () => {
 });
 
 function makeTodoRuntime(initial: readonly TodoItem[] = []): {
-  runtime: TodoRuntime;
+  runtime: IAgentTodoService;
   setCalls: TodoItem[][];
 } {
   let todos = [...initial];
@@ -118,7 +118,7 @@ function makeTodoRuntime(initial: readonly TodoItem[] = []): {
       todos = [];
     },
     onDidChange: () => ({ dispose: () => {} }),
-  } as unknown as TodoRuntime;
+  } as unknown as IAgentTodoService;
   return { runtime, setCalls };
 }
 
@@ -202,7 +202,7 @@ describe('tryConvertPlanToTodos', () => {
       }),
       clear: async () => {},
       onDidChange: () => ({ dispose: () => {} }),
-    } as unknown as TodoRuntime;
+    } as unknown as IAgentTodoService;
     await expect(tryConvertPlanToTodos(PLAN, service, FAKE_AGENT)).rejects.toThrow('boom');
   });
 });

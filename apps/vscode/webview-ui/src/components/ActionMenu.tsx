@@ -179,7 +179,7 @@ export function ActionMenu({ className, onAuthAction }: ActionMenuProps) {
               <IconLogin className="size-4 text-muted-foreground" />
             )}
             <span className="flex-1">
-              {loading ? 'Processing...' : isLoggedIn ? 'Sign out' : 'Sign in'}
+              {loading ? 'Processing…' : isLoggedIn ? 'Sign out' : 'Sign in'}
             </span>
           </MenuItem>
         </MenuSection>

@@ -26,11 +26,10 @@ export function CompactionRibbon({ message }: CompactionRibbonProps) {
       </div>
       {stats ? (
         <div className="text-center font-mono text-[10.5px] text-fg-3">
-          {t('context.compactStats', {
-            count: stats.compactedCount,
-            before: stats.tokensBefore.toLocaleString(),
-            after: stats.tokensAfter.toLocaleString(),
-          })}
+          {stats.compactedCount} msgs
+          {stats.tokensBefore !== undefined && stats.tokensAfter !== undefined
+            ? ` · ${stats.tokensBefore.toLocaleString()}→${stats.tokensAfter.toLocaleString()} tok`
+            : ''}
         </div>
       ) : null}
       {summary.length > 0 ? (

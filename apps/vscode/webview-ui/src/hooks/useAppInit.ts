@@ -68,7 +68,6 @@ export function useAppInit(): AppInitState {
   const {
     initModels,
     setExtensionConfig,
-    setMCPServers,
     setWireSlashCommands,
     setIsLoggedIn,
     setWorkspaceRoot,
@@ -105,9 +104,8 @@ export function useAppInit(): AppInitState {
 
         setWorkspaceRoot(workspace.workspaceRoot ?? workspace.path ?? null);
 
-        const [extensionConfig, mcpServers, slashCommands] = await Promise.all([
+        const [extensionConfig, slashCommands] = await Promise.all([
           bridge.getExtensionConfig(),
-          bridge.getMCPServers(),
           bridge.getSlashCommands(),
         ]);
         if (cancelled) {
@@ -115,7 +113,6 @@ export function useAppInit(): AppInitState {
         }
 
         setExtensionConfig(extensionConfig);
-        setMCPServers(mcpServers);
         setWireSlashCommands(slashCommands);
 
         const [loginStatus, kimiConfig] = await Promise.all([
@@ -175,7 +172,7 @@ export function useAppInit(): AppInitState {
     return () => {
       cancelled = true;
     };
-  }, [initKey, initModels, setExtensionConfig, setMCPServers, setWireSlashCommands, setIsLoggedIn]);
+  }, [initKey, initModels, setExtensionConfig, setWireSlashCommands, setIsLoggedIn]);
 
   return { ...state, refresh };
 }

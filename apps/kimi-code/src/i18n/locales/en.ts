@@ -226,6 +226,10 @@ export default {
     slashCommands: {
       yolo: 'Toggle YOLO mode: AI auto-approves safe actions, asks for approval on risky ones.',
       auto: 'Toggle Auto mode: run all actions automatically, including risky ones.',
+      askWhenNeeded:
+        'Toggle Ask When Needed mode: routine edits and commands run automatically; risky actions, questions, and plans still ask.',
+      neverAsk:
+        'Toggle Never Ask mode: never interrupts you; everything runs and is decided automatically.',
       permission: 'Select permission mode',
       settings: 'Open TUI settings',
       plan: 'Toggle plan mode',

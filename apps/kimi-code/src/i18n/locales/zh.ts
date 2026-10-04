@@ -221,6 +221,8 @@ export default {
     slashCommands: {
       yolo: '切换 YOLO 模式：AI 自动批准安全操作，有风险的操作需你确认。',
       auto: '切换 Auto 模式：自动运行所有操作，包括有风险的操作。',
+      askWhenNeeded: '切换「必要时询问」模式：日常编辑与命令自动执行；有风险的操作、提问和计划仍会询问。',
+      neverAsk: '切换「完全自动」模式：不再打断你；所有操作自动运行并自动决策。',
       permission: '选择权限模式',
       settings: '打开 TUI 设置',
       plan: '切换计划模式',

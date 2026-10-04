@@ -193,14 +193,16 @@ export async function hashFileSha256(filePath: string): Promise<string | null> {
 /**
  * Whether a `.staging/` entry is an updater-owned artifact: a staged
  * executable (`kimi-<version>[.<pid>.<epoch-ms>.<n>][.exe]`) or a download
- * intermediate (the same plus `.part`). Ownership derives from the
- * semver/file-name contract (prerelease and build metadata included), so
- * foreign files in the directory are never matched.
+ * intermediate (the same plus `.part`, optionally with a `.zst` infix).
+ * Ownership derives from the semver/file-name contract (prerelease and
+ * build metadata included), so foreign files in the directory are never
+ * matched.
  */
 function isUpdaterOwnedStagingFile(entry: string): boolean {
   if (!entry.startsWith('kimi-')) return false;
   let name = entry.slice('kimi-'.length);
   if (name.endsWith('.part')) name = name.slice(0, -'.part'.length);
+  if (name.endsWith('.zst')) name = name.slice(0, -'.zst'.length);
   if (name.endsWith('.exe')) name = name.slice(0, -'.exe'.length);
   // Published artifacts may carry a unique per-worker infix after the
   // version (.<pid>.<epoch-ms>.<n>, or the older .<pid>.<n>) — try with and

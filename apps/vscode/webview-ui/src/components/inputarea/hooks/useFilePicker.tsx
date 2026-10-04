@@ -1,5 +1,8 @@
-import { useRequest } from 'ahooks';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useMemo, useState, useEffect, useCallback } from 'react';
+import type { ProjectFile } from 'shared/types';
+
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 
 import { bridge } from '@/services';
 import { MEDIA_CONFIG } from '@/services/config';
@@ -18,6 +21,8 @@ interface ActiveToken {
   start: number;
   query: string;
 }
+
+const NO_FILES: ProjectFile[] = [];
 
 interface UseFilePickerResult {
   showFileMenu: boolean;
@@ -51,28 +56,23 @@ export function useFilePicker(
   const showFileMenu = activeToken?.trigger === '@';
   const query = activeToken?.query || '';
 
-  // 搜索文件 - query 变化时重新搜索
-  const { data: searchResults = [], loading: isSearchLoading } = useRequest(
-    () => bridge.getProjectFiles({ query: query || undefined }),
-    {
-      refreshDeps: [query],
-      debounceWait: 100,
-      ready: showFileMenu && filePickerMode === 'search',
-    },
-  );
+  const debouncedQuery = useDebouncedValue(query, 100);
+  const searchQuery = useQuery({
+    queryKey: ['projectFiles', 'search', debouncedQuery],
+    queryFn: () => bridge.getProjectFiles({ query: debouncedQuery || undefined }),
+    enabled: showFileMenu && filePickerMode === 'search',
+    placeholderData: keepPreviousData,
+  });
+  const searchResults = searchQuery.data ?? NO_FILES;
+  const isSearchLoading = searchQuery.isLoading;
 
-  // 文件夹浏览
-  const {
-    data: folderItems = [],
-    loading: isFolderLoading,
-    run: loadFolder,
-  } = useRequest((dir: string) => bridge.getProjectFiles({ directory: dir }), { manual: true });
-
-  useEffect(() => {
-    if (showFileMenu && filePickerMode === 'folder') {
-      loadFolder(folderPath || '.');
-    }
-  }, [showFileMenu, filePickerMode, folderPath, loadFolder]);
+  const folderQuery = useQuery({
+    queryKey: ['projectFiles', 'folder', folderPath || '.'],
+    queryFn: () => bridge.getProjectFiles({ directory: folderPath || '.' }),
+    enabled: showFileMenu && filePickerMode === 'folder',
+  });
+  const folderItems = folderQuery.data ?? NO_FILES;
+  const isFolderLoading = folderQuery.isLoading;
 
   useEffect(() => {
     if (!showFileMenu) {

@@ -116,7 +116,7 @@ export class ActivityPaneController {
         break;
       }
       case 'composing': {
-        const spinner = this.ensureActivitySpinner('braille', 'working...', (s) =>
+        const spinner = this.ensureActivitySpinner('braille', 'working…', (s) =>
           currentTheme.fg('primary', s),
         );
         this.syncAgentSwarmActivitySpinner(undefined);

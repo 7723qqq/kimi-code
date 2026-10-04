@@ -36,7 +36,7 @@ interface FilePickerMenuProps {
 
 function truncateMiddle(str: string, maxLen: number): string {
   if (str.length <= maxLen) return str;
-  const ellipsis = '...';
+  const ellipsis = '…';
   const charsToShow = maxLen - ellipsis.length;
   const frontChars = Math.ceil(charsToShow / 2);
   const backChars = Math.floor(charsToShow / 2);
@@ -94,7 +94,7 @@ export function FilePickerMenu({
               )}
             >
               <IconPhoto className="size-3.5 text-muted-foreground" />
-              <span className="text-xs">Select images or videos...</span>
+              <span className="text-xs">Select images or videos…</span>
             </button>
           )}
           <button
@@ -108,7 +108,7 @@ export function FilePickerMenu({
             )}
           >
             <IconFolderOpen className="size-3.5 text-muted-foreground" />
-            <span className="text-xs">Browse folders...</span>
+            <span className="text-xs">Browse folders…</span>
           </button>
         </>
       ) : (
@@ -148,7 +148,7 @@ export function FilePickerMenu({
       )}
       <div className="max-h-64 overflow-y-auto">
         {isLoading ? (
-          <div className="px-2 py-4 text-center text-xs text-muted-foreground">Loading...</div>
+          <div className="px-2 py-4 text-center text-xs text-muted-foreground">Loading…</div>
         ) : items.length === 0 ? (
           <div className="px-2 py-4 text-center text-xs text-muted-foreground">
             {mode === 'search' ? 'No files found' : 'Empty folder'}

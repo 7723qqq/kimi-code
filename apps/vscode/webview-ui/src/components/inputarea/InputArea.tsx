@@ -1,6 +1,5 @@
 import { IconSend, IconPlayerStop, IconChevronDown, IconPlus } from '@tabler/icons-react';
-import { useMemoizedFn } from 'ahooks';
-import { Fragment, useRef, useMemo, useState, useEffect, useCallback } from 'react';
+import { Fragment, useRef, useMemo, useState, useEffect } from 'react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -48,6 +47,12 @@ interface InputAreaProps {
 
 const SWITCH_CACHE_NOTE =
   'Note: Switching models or thinking effort invalidates the existing prompt cache. Start a new conversation to avoid extra token costs.';
+
+function adjustHeight(textarea: HTMLTextAreaElement | null) {
+  if (!textarea) return;
+  textarea.style.height = "auto";
+  textarea.style.height = `${Math.min(textarea.scrollHeight, 140)}px`;
+}
 
 export function InputArea({ onAuthAction }: InputAreaProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -158,7 +163,7 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
       setText(textContent);
       setTimeout(() => {
         textareaRef.current?.focus();
-        adjustHeight();
+        adjustHeight(textareaRef.current);
       }, 0);
     }
   }, [pendingInput, isStreaming]);
@@ -167,13 +172,6 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
 
   const { handlePaste, handlePickMedia } = useMediaUpload();
 
-  const adjustHeight = useMemoizedFn(() => {
-    const ta = textareaRef.current;
-    if (ta) {
-      ta.style.height = 'auto';
-      ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`;
-    }
-  });
 
   const {
     handleKey: handleHistoryKey,
@@ -182,16 +180,16 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
   } = useInputHistory({
     text,
     setText,
-    onHeightChange: () => setTimeout(adjustHeight, 0),
+    onHeightChange: () => setTimeout(() => { adjustHeight(textareaRef.current); }, 0),
   });
 
-  const clearInput = useMemoizedFn(() => {
+  function clearInput() {
     setText('');
     setCursorPos(0);
-    setTimeout(adjustHeight, 0);
-  });
+    setTimeout(() => { adjustHeight(textareaRef.current); }, 0);
+  }
 
-  const removeActiveToken = useMemoizedFn(() => {
+  function removeActiveToken() {
     if (!activeToken) return;
     const newText = text.slice(0, activeToken.start) + text.slice(cursorPos);
     const newCursorPos = activeToken.start;
@@ -199,11 +197,11 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     setCursorPos(newCursorPos);
     setTimeout(() => {
       textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos);
-      adjustHeight();
+      adjustHeight(textareaRef.current);
     }, 0);
-  });
+  }
 
-  const handleSend = useMemoizedFn(() => {
+  function handleSend() {
     if (isProcessing || (!text.trim() && draftMedia.length === 0)) {
       return;
     }
@@ -211,14 +209,14 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     addToHistory(text);
     sendMessage(text);
     clearInput();
-  });
+  }
 
-  const handleSlashCommand = useMemoizedFn((name: string) => {
+  function handleSlashCommand(name: string) {
     sendMessage(`/${name}`);
     clearInput();
-  });
+  }
 
-  const applyMention = useMemoizedFn((filePath: string) => {
+  function applyMention(filePath: string) {
     const { newText, newCursorPos } = computeMentionInsert({
       text,
       cursorPos,
@@ -232,9 +230,9 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     setTimeout(() => {
       textareaRef.current?.setSelectionRange(newCursorPos, newCursorPos);
       textareaRef.current?.focus();
-      adjustHeight();
+      adjustHeight(textareaRef.current);
     }, 0);
-  });
+  }
 
   const {
     showSlashMenu,
@@ -267,11 +265,11 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     removeActiveToken,
   );
 
-  const closeMenus = useCallback(() => {
+  const closeMenus = () => {
     if (showSlashMenu || showFileMenu) {
       removeActiveToken();
     }
-  }, [showSlashMenu, showFileMenu, removeActiveToken]);
+  };
 
   useClickOutside([textareaRef, menuRef], showSlashMenu || showFileMenu, closeMenus);
 
@@ -291,14 +289,14 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
 
       setTimeout(() => {
         textareaRef.current?.focus();
-        adjustHeight();
+        adjustHeight(textareaRef.current);
       }, 0);
     });
 
     return unsub;
-  }, [adjustHeight]);
+  }, []);
 
-  const handleKeyDown = useMemoizedFn((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.nativeEvent.isComposing) {
       return;
     }
@@ -326,29 +324,29 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
         handleSend();
       }
     }
-  });
+  }
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setText(e.target.value);
     setCursorPos(e.target.selectionStart);
     resetHistoryIndex();
-    setTimeout(adjustHeight, 0);
+    setTimeout(() => { adjustHeight(textareaRef.current); }, 0);
   };
 
   const handleSelect = () => {
     setCursorPos(textareaRef.current?.selectionStart ?? 0);
   };
 
-  const handleAddButtonClick = useMemoizedFn(() => {
+  function handleAddButtonClick() {
     const newText = text + '@';
     setText(newText);
     setCursorPos(newText.length);
     setTimeout(() => {
       textareaRef.current?.focus();
       textareaRef.current?.setSelectionRange(newText.length, newText.length);
-      adjustHeight();
+      adjustHeight(textareaRef.current);
     }, 0);
-  });
+  }
 
   const hasModels = availableModels.length > 0;
   const canSend = (text.trim() || draftMedia.length > 0) && !isProcessing;
@@ -440,8 +438,8 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
             onPaste={handlePaste}
             placeholder={
               isStreaming
-                ? 'Add a follow-up...'
-                : 'Ask Kimi Code... (/ commands · @ files · Alt+K code)'
+                ? 'Add a follow-up…'
+                : 'Ask Kimi Code… (/ commands · @ files · Alt+K code)'
             }
             className={cn(
               'w-full min-h-12 max-h-35 px-2.5 py-1.5 text-xs leading-relaxed',

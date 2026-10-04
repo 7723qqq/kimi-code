@@ -39,6 +39,7 @@ import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-
 import { DEFAULT_TUI_CONFIG, saveTuiConfig, type TuiConfig } from '../config';
 import { getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
+import { PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
 import type { SlashCommandHost } from './dispatch';
 import { setExperimentalFeatures } from './experimental-flags';
@@ -165,23 +166,23 @@ export async function handleYoloCommand(host: SlashCommandHost, args: string): P
 
   if (subcmd === 'on') {
     if (currentMode === 'yolo') {
-      host.showNotice(t('tui.statusMessages.yoloModeAlreadyOn'));
+      host.showNotice('Ask When Needed mode is already on');
       return;
     }
     await session?.setPermission('yolo');
     host.setAppState({ permissionMode: 'yolo' });
-    host.showNotice(t('tui.statusMessages.yoloModeOn'), t('tui.statusMessages.yoloModeOnSub'));
+    host.showNotice('Ask When Needed mode: ON', 'Routine edits and commands run automatically; risky actions, questions, and plans still ask.');
     return;
   }
 
   if (subcmd === 'off') {
     if (currentMode !== 'yolo') {
-      host.showNotice(t('tui.statusMessages.yoloModeAlreadyOff'));
+      host.showNotice('Ask When Needed mode is already off');
       return;
     }
     await session?.setPermission('manual');
     host.setAppState({ permissionMode: 'manual' });
-    host.showNotice(t('tui.statusMessages.yoloModeOff'));
+    host.showNotice('Ask When Needed mode: OFF');
     return;
   }
 
@@ -189,11 +190,11 @@ export async function handleYoloCommand(host: SlashCommandHost, args: string): P
   if (currentMode === 'yolo') {
     await session?.setPermission('manual');
     host.setAppState({ permissionMode: 'manual' });
-    host.showNotice(t('tui.statusMessages.yoloModeOff'));
+    host.showNotice('Ask When Needed mode: OFF');
   } else {
     await session?.setPermission('yolo');
     host.setAppState({ permissionMode: 'yolo' });
-    host.showNotice(t('tui.statusMessages.yoloModeOn'), t('tui.statusMessages.yoloModeOnSub'));
+    host.showNotice('Ask When Needed mode: ON', 'Routine edits and commands run automatically; risky actions, questions, and plans still ask.');
   }
 }
 
@@ -207,23 +208,23 @@ export async function handleAutoCommand(host: SlashCommandHost, args: string): P
 
   if (subcmd === 'on') {
     if (currentMode === 'auto') {
-      host.showNotice(t('tui.statusMessages.autoModeAlreadyOn'));
+      host.showNotice('Never Ask mode is already on');
       return;
     }
     await session?.setPermission('auto');
     host.setAppState({ permissionMode: 'auto' });
-    host.showNotice(t('tui.statusMessages.autoModeOn'), t('tui.statusMessages.autoModeOnSub'));
+    host.showNotice('Never Ask mode: ON', 'Never interrupts you; everything runs and is decided automatically.');
     return;
   }
 
   if (subcmd === 'off') {
     if (currentMode !== 'auto') {
-      host.showNotice(t('tui.statusMessages.autoModeAlreadyOff'));
+      host.showNotice('Never Ask mode is already off');
       return;
     }
     await session?.setPermission('manual');
     host.setAppState({ permissionMode: 'manual' });
-    host.showNotice(t('tui.statusMessages.autoModeOff'));
+    host.showNotice('Never Ask mode: OFF');
     return;
   }
 
@@ -231,11 +232,11 @@ export async function handleAutoCommand(host: SlashCommandHost, args: string): P
   if (currentMode === 'auto') {
     await session?.setPermission('manual');
     host.setAppState({ permissionMode: 'manual' });
-    host.showNotice(t('tui.statusMessages.autoModeOff'));
+    host.showNotice('Never Ask mode: OFF');
   } else {
     await session?.setPermission('auto');
     host.setAppState({ permissionMode: 'auto' });
-    host.showNotice(t('tui.statusMessages.autoModeOn'), t('tui.statusMessages.autoModeOnSub'));
+    host.showNotice('Never Ask mode: ON', 'Never interrupts you; everything runs and is decided automatically.');
   }
 }
 
@@ -969,7 +970,14 @@ export async function applyExperimentalFeatureChanges(
       // them; only the mode machinery (enter/injection/guards) reacts live.
       host.showNotice('Tower mode takes effect after restarting Kimi Code.');
     }
-    host.track('experimental_features_apply', { changed: changes.length });
+    host.track('experimental_features_apply', {
+      changed: changes.length,
+      flags: features
+        .filter((feature) => feature.enabled)
+        .map((feature) => feature.id)
+        .toSorted()
+        .join(','),
+    });
   } catch (error) {
     host.showError(
       t('tui.statusMessages.updateExperimentsFailed', { error: formatErrorMessage(error) }),
@@ -1048,7 +1056,7 @@ export async function applyUpdatePreferenceChoice(
 
 async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMode): Promise<void> {
   if (mode === host.state.appState.permissionMode) {
-    host.showStatus(t('tui.messages.configPermissionUnchanged', { mode }));
+    host.showStatus(`Permission mode unchanged: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}.`);
     return;
   }
 
@@ -1065,7 +1073,7 @@ async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMod
   }
 
   host.setAppState({ permissionMode: mode });
-  host.showNotice(t('tui.messages.configPermissionMode', { mode }));
+  host.showNotice(`Permission mode: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}`);
 }
 
 export function showSettingsSelector(host: SlashCommandHost): void {
