@@ -81,10 +81,20 @@ async function readWireEvents(homeDir: string, sessionId: string): Promise<reado
 
   try {
     const raw = await readFile(join(sessionDir, 'agents', 'main', 'wire.jsonl'), 'utf-8');
-    return raw
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as unknown);
+    const lines = raw.split('\n').filter(Boolean);
+    const events: unknown[] = [];
+    for (const [index, line] of lines.entries()) {
+      try {
+        events.push(JSON.parse(line) as unknown);
+      } catch (error) {
+        // A concurrent append can leave the trailing line half-written; this
+        // helper is polled, so a torn tail is skipped and retried on the next
+        // read. Any other unparsable line still fails loudly.
+        if (index === lines.length - 1) continue;
+        throw error;
+      }
+    }
+    return events;
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') return [];

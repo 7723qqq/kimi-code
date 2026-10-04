@@ -95,6 +95,32 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
     for (const count of seen.values()) expect(count).toBe(1);
   });
 
+  it('archives a debris session dir (never deletes it) and reports the archived path', async () => {
+    // First run migrates cleanly.
+    await migrateSessionsStep({ sourceHome: FIXTURE_KIMI, targetHome });
+    const indexPath = targetSessionIndex(targetHome);
+    const firstLine = (await readFile(indexPath, 'utf-8')).split('\n').find((l) => l.length > 0)!;
+    const { sessionDir } = JSON.parse(firstLine) as { sessionDir: string };
+    // A crash before state.json was written leaves a debris dir; the sentinel
+    // simulates recoverable data from that prior run.
+    await rm(join(sessionDir, 'state.json'));
+    await writeFile(join(sessionDir, 'sentinel.txt'), 'prior-run-data', 'utf-8');
+
+    const report = await migrateSessionsStep({ sourceHome: FIXTURE_KIMI, targetHome });
+
+    expect(report.sessionsMigrated).toBe(1);
+    expect(report.sessionsAlreadyMigrated).toBe(1);
+    expect(report.sessionsDebrisArchived).toHaveLength(1);
+    const archived = report.sessionsDebrisArchived[0]!;
+    expect(archived.targetPath).toBe(sessionDir);
+    expect(archived.archivedPath.startsWith(`${sessionDir}.debris-`)).toBe(true);
+    expect(await readFile(join(archived.archivedPath, 'sentinel.txt'), 'utf-8')).toBe(
+      'prior-run-data',
+    );
+    const state = JSON.parse(await readFile(join(sessionDir, 'state.json'), 'utf-8'));
+    expect(state.custom.imported_from_kimi_cli).toBe(true);
+  });
+
   it('emits per-session progress (done, total) for each migrated session', async () => {
     const events: Array<{ done: number; total: number }> = [];
     await migrateSessionsStep({

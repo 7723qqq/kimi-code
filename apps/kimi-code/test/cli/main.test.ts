@@ -348,7 +348,9 @@ describe('main entry command handling', () => {
       expect(exitSpy).not.toHaveBeenCalled();
     } finally {
       exitSpy.mockRestore();
-      process.exitCode = originalExitCode;
+      // Bun's `process.exitCode` is a non-configurable accessor that ignores
+      // assigning `undefined`, so restore the effective "unset" state with 0.
+      process.exitCode = originalExitCode ?? 0;
     }
   });
 
@@ -395,20 +397,17 @@ describe('main entry command handling', () => {
   it('does not require Bun when imported as a module', async () => {
     // The entrypoint's Bun fast-fail is gated on `import.meta.main`. A module
     // import (this test, the ACP host, embedders) must not exit the host
-    // process even if `globalThis.Bun` happens to be absent.
-    const originalBun = (globalThis as { Bun?: unknown }).Bun;
-    try {
-      delete (globalThis as { Bun?: unknown }).Bun;
-      main();
+    // process. `globalThis.Bun` is left untouched on purpose: under Bun it is
+    // a non-configurable, non-writable global (deleting or reassigning it
+    // throws), and under Node it is already absent — the non-Bun case this
+    // test simulates is covered by the Node run and untestable under Bun.
+    main();
 
-      const programArgs = await waitForProgramCall();
-      expect(programArgs).toBeDefined();
-      expect(process.exitCode).toBeUndefined();
-    } finally {
-      if (originalBun !== undefined) {
-        (globalThis as { Bun?: unknown }).Bun = originalBun;
-      }
-    }
+    const programArgs = await waitForProgramCall();
+    expect(programArgs).toBeDefined();
+    // Node leaves the unset code as `undefined`; Bun's accessor reports 0.
+    // Either way `main()` must not arm a failure exit code.
+    expect(process.exitCode ?? 0).toBe(0);
   });
 
   it('exits early when update preflight requests process exit', async () => {

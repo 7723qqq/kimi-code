@@ -4,7 +4,7 @@ export default {
     cancel: 'Cancel',
     close: 'Close',
     submit: 'Submit',
-    loading: 'Loading...',
+    loading: 'Loading…',
   },
   cli: {
     program: {
@@ -313,7 +313,7 @@ export default {
           '{{label}} installation did not complete. Check the logs and install again from /plugins.',
         installed: '{{label}} is installed.',
         installCancelledLabel: 'Install cancelled: {{label}}.',
-        installingFromMarketplace: 'Installing or updating {{label}} from marketplace...',
+        installingFromMarketplace: 'Installing or updating {{label}} from marketplace…',
         mcpDisabledHint:
           ' Some MCP servers are disabled; re-enable with /plugins mcp enable {{id}} <server>.',
         toggled: '{{action}} {{id}}. Run /reload or /new to apply.{{mcpHint}}',
@@ -439,7 +439,7 @@ export default {
         page: 'Page {{page}}/{{pageCount}}',
       },
       compaction: {
-        compacting: 'Compacting context...',
+        compacting: 'Compacting context…',
         complete: 'Compaction complete',
         cancelled: 'Compaction cancelled',
         detailTokens: '({{before}} → {{after}} tokens)',
@@ -717,7 +717,7 @@ export default {
       sessionPicker: {
         titleCwd: 'Sessions',
         titleAll: 'All sessions',
-        loading: 'Loading sessions...',
+        loading: 'Loading sessions…',
         empty: 'No sessions found.',
         scopeHintAll: 'Ctrl+A all',
         scopeHintCwd: 'Ctrl+A current cwd',
@@ -868,7 +868,7 @@ export default {
         submitTab: 'Submit',
         title: ' question',
         typeAnswerHint: 'Type your answer, then press Enter to save.',
-        moreLines: '... {{count}} more lines',
+        moreLines: '… {{count}} more lines',
         showing: 'showing {{from}}-{{to}} of {{total}}',
         questionPrefix: 'Q{{number}}',
         hintEdit: {
@@ -1025,8 +1025,8 @@ export default {
         hintAfterTask: '  ↑ to edit · will send after current task',
       },
       btwPanel: {
-        readyForSideQuestion: 'Ready for a side question...',
-        waitingForAnswer: 'Waiting for answer...',
+        readyForSideQuestion: 'Ready for a side question…',
+        waitingForAnswer: 'Waiting for answer…',
         title: ' BTW ',
         closeHint: 'Esc close ',
         scrollHint: 'Esc close · ↑↓ scroll ',
@@ -1228,7 +1228,7 @@ export default {
       pluginsInstallingFrom: 'Installing plugin from {{source}}…',
       pluginsInstallFinished: 'Install finished — see details below.',
       pluginsInstallFailed: 'Install failed: {{error}}',
-      pluginsInstallingOrUpdating: 'Installing or updating {{label}} from marketplace...',
+      pluginsInstallingOrUpdating: 'Installing or updating {{label}} from marketplace…',
       pluginsFailedToInstall: 'Failed to install {{label}}: {{error}}',
       pluginsMcpEnabled: 'Enabled MCP server {{server}} for {{id}}. Run /reload or /new to apply.',
       pluginsMcpDisabled:
@@ -1332,7 +1332,7 @@ export default {
       loginOpeningBrowser: 'Opening browser for Kimi device login: {{url}}',
       loginPasteUrl: 'If the browser did not open, paste the URL above and enter code: {{code}}',
       loginCodeExpires: 'Code expires in {{seconds}}s.',
-      loginWaiting: 'Waiting for authorization to complete...',
+      loginWaiting: 'Waiting for authorization to complete…',
       loginSuccess: 'Logged in to {{provider}}.',
       loginFailedMsg: 'Login failed: {{message}}',
       // sub/provider.ts
@@ -1465,9 +1465,9 @@ export default {
       chipNoResults: 'no results',
       chipWebResult: 'web result',
       // tool-renderers/truncated.ts — truncated output hints
-      truncatedEarlierLines: '... ({{remaining}} earlier lines)',
-      truncatedMoreLines: '... ({{remaining}} more lines)',
-      truncatedMoreLinesExpandable: '... ({{remaining}} more lines, ctrl+o to expand)',
+      truncatedEarlierLines: '… ({{remaining}} earlier lines)',
+      truncatedMoreLines: '… ({{remaining}} more lines)',
+      truncatedMoreLinesExpandable: '… ({{remaining}} more lines, ctrl+o to expand)',
       // controllers/btw-panel.ts
       btwBusyNotice: 'Wait for /btw to finish before sending another question.',
       btwInterrupted: 'Interrupted by user',
@@ -1537,20 +1537,20 @@ export default {
       },
       agentSwarmProgress: {
         title: 'Agent Swarm',
-        orchestrating: 'Orchestrating...',
-        prompting: 'Prompting...',
-        working: 'Working...',
+        orchestrating: 'Orchestrating…',
+        prompting: 'Prompting…',
+        working: 'Working…',
         completed: 'Completed.',
         failed: 'Failed.',
         aborted: 'Aborted.',
         cancelled: 'Cancelled.',
-        queued: 'Queued...',
-        rateLimited: 'Rate limited...',
+        queued: 'Queued…',
+        rateLimited: 'Rate limited…',
         resumed: '(resumed)',
         phase: {
-          pending: 'Queued...',
-          queued: 'Queued...',
-          suspended: 'Rate limited...',
+          pending: 'Queued…',
+          queued: 'Queued…',
+          suspended: 'Rate limited…',
           running: 'Running',
           completed: 'Completed',
           failed: 'Failed',
@@ -1663,8 +1663,8 @@ export default {
         toolCount_other: '{{count}} tools',
         singleSubagentCompleted: 'Completed{{description}}{{stats}}',
         argumentsTruncated: 'Tool call arguments truncated by max_tokens — call never executed.',
-        moreLinesHint: '... ({{remaining}} more lines, {{total}} total, ctrl+o to expand)',
-        preparingChanges: 'Preparing changes{{target}}... {{size}} · {{elapsed}} elapsed',
+        moreLinesHint: '… ({{remaining}} more lines, {{total}} total, ctrl+o to expand)',
+        preparingChanges: 'Preparing changes{{target}}… {{size}} · {{elapsed}} elapsed',
         preparingChangesTarget: ' for {{filePath}}',
         truncatedMarker: '[...truncated]',
         agentSwarmLabel: 'Agent swarm: ',
@@ -1680,7 +1680,7 @@ export default {
         verbUsed: 'Used',
         verbTruncated: 'Truncated',
         verbUsing: 'Using',
-        hiddenSubCall: '{{n}} more tool call(s) ...',
+        hiddenSubCall: '{{n}} more tool call(s) …',
         singleSubagent: {
           completed: 'Completed',
           failed: 'Failed',
@@ -1794,8 +1794,8 @@ export default {
         ended: 'Swarm ended',
       },
       thinking: {
-        liveLabel: 'thinking...',
-        expandHint: '... ({{count}} more lines, ctrl+o to expand)',
+        liveLabel: 'thinking…',
+        expandHint: '… ({{count}} more lines, ctrl+o to expand)',
       },
       usagePanel: {
         title: ' Usage ',

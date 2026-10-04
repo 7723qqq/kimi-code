@@ -16,8 +16,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 // Windows cold starts routinely exceed vitest's 5s default.
 vi.setConfig({ testTimeout: 30_000 });
 
-import { createKimiHarness } from '#/index';
-import type { KimiError, KimiHarness } from '#/index';
+import { createKimiHarness, KimiHarness } from '#/index';
+import type { KimiError } from '#/index';
 import { SDKRpcClientBase } from '#/rpc';
 import type { ResumeSessionInput, ResumedSessionSummary } from '#/types';
 
@@ -29,6 +29,13 @@ import { TEST_IDENTITY } from './test-identity';
 // in path assertions so they hold on Windows, where node:path produces
 // backslashes.
 const toPosix = (p: string): string => p.replaceAll('\\', '/');
+
+// The v2 engine merges its exposed experimental flags into every harness-side
+// `session_started` row (see SDKRpcClientV2.enabledExperimentalFlags), so the
+// clean-env expectation carries the default-enabled set next to the
+// attribution / canonical fields.
+const DEFAULT_EXPERIMENTAL_FLAGS =
+  'auto_session_title,persistence_minidb_readmodel,secondary-model,tool_select';
 
 const tempDirs: string[] = [];
 
@@ -152,6 +159,7 @@ describe('KimiHarness.createSession transport link', () => {
           client_id: null,
           client_name: 'kimi-code-cli',
           client_version: '0.0.0-test',
+          experimental_flags: DEFAULT_EXPERIMENTAL_FLAGS,
           ui_mode: 'shell',
           resumed: false,
         },
@@ -191,6 +199,7 @@ describe('KimiHarness.createSession transport link', () => {
           client_id: null,
           client_name: 'kimi-code-cli',
           client_version: '0.0.0-test',
+          experimental_flags: DEFAULT_EXPERIMENTAL_FLAGS,
           ui_mode: 'shell',
           resumed: true,
         },
@@ -229,6 +238,7 @@ describe('KimiHarness.createSession transport link', () => {
           client_id: null,
           client_name: 'kimi-code-cli',
           client_version: '0.0.0-test',
+          experimental_flags: DEFAULT_EXPERIMENTAL_FLAGS,
           ui_mode: 'print',
           resumed: false,
         },
@@ -262,6 +272,7 @@ describe('KimiHarness.createSession transport link', () => {
           client_id: null,
           client_name: 'kimi-code-cli',
           client_version: '0.0.0-test',
+          experimental_flags: DEFAULT_EXPERIMENTAL_FLAGS,
           ui_mode: 'shell',
           resumed: false,
           yolo: true,
@@ -298,6 +309,7 @@ describe('KimiHarness.createSession transport link', () => {
           client_id: null,
           client_name: 'kimi-code-cli',
           client_version: '0.0.0-test',
+          experimental_flags: DEFAULT_EXPERIMENTAL_FLAGS,
           ui_mode: 'shell',
           resumed: false,
           mode: 'new',
@@ -318,6 +330,7 @@ describe('KimiHarness.createSession transport link', () => {
           client_id: null,
           client_name: 'kimi-code-cli',
           client_version: '0.0.0-test',
+          experimental_flags: DEFAULT_EXPERIMENTAL_FLAGS,
           ui_mode: 'shell',
           resumed: true,
           mode: 'load',
@@ -359,6 +372,7 @@ describe('KimiHarness.createSession transport link', () => {
           client_id: null,
           client_name: 'kimi-code-cli',
           client_version: '0.0.0-test',
+          experimental_flags: DEFAULT_EXPERIMENTAL_FLAGS,
           ui_mode: 'shell',
           resumed: false,
           extra: 'kept',
@@ -437,6 +451,7 @@ describe('KimiHarness.createSession transport link', () => {
           client_id: null,
           client_name: 'kimi-code-cli',
           client_version: '0.0.0-test',
+          experimental_flags: DEFAULT_EXPERIMENTAL_FLAGS,
           ui_mode: 'shell',
           resumed: true,
         },

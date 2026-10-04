@@ -1364,7 +1364,9 @@ describe('SDKRpcClientV2 engine telemetry', () => {
       for (const record of started) {
         const flags = String(record.properties?.['experimental_flags'] ?? '').split(',');
         expect(flags).toContain('subagent_fork');
-        expect(flags).toContain('wait_for');
+        // `wait_for` graduated out of the flag registry (its gate was removed);
+        // `secondary-model` is the current default-enabled flag.
+        expect(flags).toContain('secondary-model');
       }
       const distinct = new Set(started.map((record) => record.properties?.['experimental_flags']));
       expect(distinct.size).toBe(1);

@@ -38,7 +38,7 @@ describe('ThinkingComponent', () => {
     component.setExpanded(true);
     const out = strip(component.render(80).join('\n'));
 
-    expect(out).toContain('⠋ thinking...');
+    expect(out).toContain('⠋ thinking…');
     expect(out).toContain('line1');
     expect(out).toContain('line2');
     expect(out).toContain('line3');

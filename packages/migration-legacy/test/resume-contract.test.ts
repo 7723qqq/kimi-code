@@ -25,11 +25,11 @@ import { fileURLToPath } from 'node:url';
  * Re-introduce a real-engine resume check against agent-core-v2 once it has a
  * session-resume surface.
  */
+import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { migrateOneSession, type MigrateOneResult } from '../src/sessions/migrate-one.js';
 import { computeWorkdirBucket } from '../src/sessions/workdir-bucket.js';
-import { encodeWorkDirKey, normalizeWorkDir } from '../src/v1-compat.js';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url));
 const WORK_DIR = '/Users/example/proj';
@@ -57,17 +57,20 @@ function pickerSessionDir(oldSessionUuid: string): string {
 }
 
 describe('migrated session lands in the picker-visible layout', () => {
-  it('computeWorkdirBucket stays byte-identical to the local encodeWorkDirKey', () => {
-    // Both sides are the local v1-compat copy; this guards against a future
-    // edit re-diverging computeWorkdirBucket from encodeWorkDirKey (the
-    // picker's lookup is `readdir(encodeWorkDirKey(workDir))`).
-    expect(computeWorkdirBucket(WORK_DIR)).toBe(encodeWorkDirKey(normalizeWorkDir(WORK_DIR)));
+  it('computeWorkdirBucket stays byte-identical to the picker encodeWorkDirKey', () => {
+    // `computeWorkdirBucket` aliases agent-core-v2's encodeWorkDirKey; this
+    // guards against a future edit re-diverging it from the picker's lookup
+    // (`readdir(encodeWorkDirKey(workDir))`).
+    expect(computeWorkdirBucket(WORK_DIR)).toBe(encodeWorkDirKey(WORK_DIR));
   });
 
   it('migrated session is visible under the same workDir bucket', async () => {
     const result = await migrateOneSession({
-      sourceSessionDir: join(FIXTURES, 'with-tool-calls'),
-      oldSessionUuid: 'integ-uuid',
+      source: {
+        uuid: 'integ-uuid',
+        sessionDir: join(FIXTURES, 'with-tool-calls'),
+        contextPath: join(FIXTURES, 'with-tool-calls', 'context.jsonl'),
+      },
       workdirPath: WORK_DIR,
       targetHome,
     });
@@ -89,8 +92,11 @@ describe('migrated session lands in the picker-visible layout', () => {
 
   it('migrated wire history is non-empty', async () => {
     const result = await migrateOneSession({
-      sourceSessionDir: join(FIXTURES, 'tiny-hello-world'),
-      oldSessionUuid: 'tiny-resume',
+      source: {
+        uuid: 'tiny-resume',
+        sessionDir: join(FIXTURES, 'tiny-hello-world'),
+        contextPath: join(FIXTURES, 'tiny-hello-world', 'context.jsonl'),
+      },
       workdirPath: WORK_DIR,
       targetHome,
     });
@@ -105,8 +111,11 @@ describe('migrated session lands in the picker-visible layout', () => {
 
   it('agents.main.homedir points at the replayed wire history', async () => {
     const result = await migrateOneSession({
-      sourceSessionDir: join(FIXTURES, 'tiny-hello-world'),
-      oldSessionUuid: 'tiny-resume',
+      source: {
+        uuid: 'tiny-resume',
+        sessionDir: join(FIXTURES, 'tiny-hello-world'),
+        contextPath: join(FIXTURES, 'tiny-hello-world', 'context.jsonl'),
+      },
       workdirPath: WORK_DIR,
       targetHome,
     });
@@ -141,8 +150,11 @@ describe('migrated session lands in the picker-visible layout', () => {
 
   it('wire replay preserves a legacy todo display', async () => {
     const result = await migrateOneSession({
-      sourceSessionDir: join(FIXTURES, 'large-100msgs'),
-      oldSessionUuid: 'todo-display',
+      source: {
+        uuid: 'todo-display',
+        sessionDir: join(FIXTURES, 'large-100msgs'),
+        contextPath: join(FIXTURES, 'large-100msgs', 'context.jsonl'),
+      },
       workdirPath: WORK_DIR,
       targetHome,
     });

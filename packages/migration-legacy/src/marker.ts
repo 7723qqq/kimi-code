@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve, win32 } from 'node:path';
-
 import { migratedMarker, skipMarker } from './paths.js';
 
 export interface MarkerRun {
@@ -125,9 +124,7 @@ function markerTargetPaths(marker: {
   readonly target_paths?: unknown;
 }): string[] {
   const targetPaths = Array.isArray(marker.target_paths)
-    ? marker.target_paths.filter(
-        (targetPath): targetPath is string => typeof targetPath === 'string',
-      )
+    ? marker.target_paths.filter((targetPath): targetPath is string => typeof targetPath === 'string')
     : [];
   if (typeof marker.target_path === 'string') {
     return appendTargetPath(targetPaths, marker.target_path);

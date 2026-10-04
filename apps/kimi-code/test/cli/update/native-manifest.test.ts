@@ -71,7 +71,7 @@ describe('fetchNativeReleaseManifest', () => {
       },
     });
     const manifest = await fetchNativeReleaseManifest(VERSION, mockFetch({ ok: true, status: 200, body }));
-    expect(manifest.platforms['linux-x64']?.compressed).toEqual({
+    expect(manifest.platforms?.['linux-x64']?.compressed).toEqual({
       filename: 'kimi-code-linux-x64.zst',
       checksum: 'b'.repeat(64),
     });

@@ -35,6 +35,8 @@ describe('writeReport', () => {
           wroteTuiSibling: false,
           migratedHooks: 0,
           droppedHooks: 0,
+          sourceUnreadable: false,
+          deviceIdCopied: false,
           siblingContents: { providers: [], models: [], hooks: 0 },
         },
         mcp: {
@@ -42,9 +44,15 @@ describe('writeReport', () => {
           keptNewForConflicts: [],
           droppedServers: [],
           wroteSiblingDueToConflict: false,
+          sourceUnreadable: false,
         },
-        userHistory: { copied: 0, skippedExisting: 0, failures: [] },
+        userHistory: {
+          copied: 0,
+          skippedExisting: 0,
+          failures: [{ sourcePath: '/x/bad-history.jsonl', reason: 'EACCES' }],
+        },
         skills: { copied: 0, skippedExisting: 0, failures: [] },
+        plans: { copied: 0, skippedExisting: 0 },
         sessions: {
           scope: 'all',
           bucketsScanned: 0,
@@ -53,12 +61,15 @@ describe('writeReport', () => {
           sessionsAttempted: 0,
           sessionsMigrated: 0,
           sessionsAlreadyMigrated: 0,
+          sessionsRepaired: 0,
           sessionsSkippedPlaceholder: 0,
           sessionsSkippedEmpty: 0,
           sessionsSkippedMalformed: 0,
           sessionsFailed: [],
           sessionsConflicts: [],
-          sessionsDebrisArchived: [],
+          sessionsDebrisArchived: [
+            { targetPath: '/t/ses_x', archivedPath: '/t/ses_x.debris-2026-01-01T00-00-00-000Z' },
+          ],
         },
       },
       notices: {
@@ -67,11 +78,20 @@ describe('writeReport', () => {
         detectedPlugins: [],
         configConflictNotice: null,
         tuiConflictNotice: null,
+        plansCopiedNotice: null,
       },
     };
     await writeReport(tgt, report);
     const text = await readFile(join(tgt, 'migration-report.json'), 'utf-8');
-    const parsed: unknown = JSON.parse(text);
-    expect((parsed as { migratorVersion: string }).migratorVersion).toBe('0.1.1');
+    const parsed = JSON.parse(text) as MigrationReport;
+    expect(parsed.migratorVersion).toBe('0.1.1');
+    // Per-item failures and archived debris survive the report round-trip —
+    // the result screen / logs need them to point users at the recoverable copy.
+    expect(parsed.summary.userHistory.failures).toEqual([
+      { sourcePath: '/x/bad-history.jsonl', reason: 'EACCES' },
+    ]);
+    expect(parsed.summary.sessions.sessionsDebrisArchived).toEqual([
+      { targetPath: '/t/ses_x', archivedPath: '/t/ses_x.debris-2026-01-01T00-00-00-000Z' },
+    ]);
   });
 });

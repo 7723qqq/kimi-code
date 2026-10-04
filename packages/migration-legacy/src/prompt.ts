@@ -29,7 +29,9 @@ export interface MigrationPromptResult {
  * Map the user's prompt choices into a migration decision + scope. Pure;
  * production logic (not a simulation).
  */
-export function resolveMigrationScope(choices: readonly AnyChoice[]): MigrationPromptResult {
+export function resolveMigrationScope(
+  choices: readonly AnyChoice[],
+): MigrationPromptResult {
   const [c1, c2] = choices;
   if (c1 === 'later') return { decision: 'later' };
   if (c1 === 'never') return { decision: 'never' };

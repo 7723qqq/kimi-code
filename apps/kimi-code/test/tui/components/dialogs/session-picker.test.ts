@@ -9,7 +9,7 @@ vi.mock('#/i18n', () => ({
       'tui.migration.badgeImported': '[imported]',
       'tui.dialogs.sessionPicker.titleCwd': 'Sessions',
       'tui.dialogs.sessionPicker.titleAll': 'All sessions',
-      'tui.dialogs.sessionPicker.loading': 'Loading sessions...',
+      'tui.dialogs.sessionPicker.loading': 'Loading sessions…',
       'tui.dialogs.sessionPicker.empty': 'No sessions found.',
       'tui.dialogs.sessionPicker.scopeHintAll': 'Ctrl+A all',
       'tui.dialogs.sessionPicker.scopeHintCwd': 'Ctrl+A current cwd',

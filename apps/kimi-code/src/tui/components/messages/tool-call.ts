@@ -2132,7 +2132,7 @@ export class ToolCallComponent extends Container {
       const elapsedSeconds =
         startedAtMs === undefined ? 0 : Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000));
       const target = filePath.length > 0 ? ` for ${filePath}` : '';
-      const progress = `Preparing changes${target}... ${formatByteSize(bytes)} · ${formatElapsed(
+      const progress = `Preparing changes${target}… ${formatByteSize(bytes)} · ${formatElapsed(
         elapsedSeconds,
       )} elapsed`;
       this.addChild(new Text(currentTheme.dim(progress), 2, 0));

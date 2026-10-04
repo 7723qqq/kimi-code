@@ -66,9 +66,9 @@ vi.mock('#/i18n', () => {
     'tui.messages.toolCall.argumentsTruncated':
       'Tool call arguments truncated by max_tokens — call never executed.',
     'tui.messages.toolCall.moreLinesHint':
-      '... ({{remaining}} more lines, {{total}} total, ctrl+o to expand)',
+      '… ({{remaining}} more lines, {{total}} total, ctrl+o to expand)',
     'tui.messages.toolCall.preparingChanges':
-      'Preparing changes{{target}}... {{size}} · {{elapsed}} elapsed',
+      'Preparing changes{{target}}… {{size}} · {{elapsed}} elapsed',
     'tui.messages.toolCall.preparingChangesTarget': ' for {{filePath}}',
     'tui.messages.toolCall.truncatedMarker': '[...truncated]',
     'tui.messages.toolCall.agentSwarmLabel': 'Agent swarm: ',
@@ -82,7 +82,7 @@ vi.mock('#/i18n', () => {
     'tui.messages.toolCall.verbUsed': 'Used',
     'tui.messages.toolCall.verbTruncated': 'Truncated',
     'tui.messages.toolCall.verbUsing': 'Using',
-    'tui.messages.toolCall.hiddenSubCall': '{{n}} more tool call(s) ...',
+    'tui.messages.toolCall.hiddenSubCall': '{{n}} more tool call(s) …',
     // ── goal.ts (tool-renderers/goal.ts) ──
     'tui.messages.goalToolNoGoal': '  No current goal.',
     'tui.messages.goalToolStatus': 'Goal {{status}}: {{objective}}',
@@ -105,10 +105,10 @@ vi.mock('#/i18n', () => {
     'tui.statusMessages.chipNoResults': 'no results',
     'tui.statusMessages.chipWebResult': 'web result',
     // ── truncated.ts ──
-    'tui.statusMessages.truncatedEarlierLines': '... ({{remaining}} earlier lines)',
-    'tui.statusMessages.truncatedMoreLines': '... ({{remaining}} more lines)',
+    'tui.statusMessages.truncatedEarlierLines': '… ({{remaining}} earlier lines)',
+    'tui.statusMessages.truncatedMoreLines': '… ({{remaining}} more lines)',
     'tui.statusMessages.truncatedMoreLinesExpandable':
-      '... ({{remaining}} more lines, ctrl+o to expand)',
+      '… ({{remaining}} more lines, ctrl+o to expand)',
     // ── plan-box.ts ──
     'tui.messages.planBox.fallback': ' plan ',
     'tui.messages.planBox.titlePrefix': ' plan: ',
@@ -1809,7 +1809,7 @@ describe('ToolCallComponent', () => {
     const out = strip(component.render(100).join('\n'));
     expect(out).toContain('Using Edit');
     expect(out).toContain('foo.ts');
-    expect(out).toContain('Preparing changes for foo.ts...');
+    expect(out).toContain('Preparing changes for foo.ts…');
     expect(out).toContain('4s elapsed');
     expect(out).toMatch(/\d+(?:\.\d+)? (?:B|KB|MB)/);
     expect(out).not.toContain('old20');

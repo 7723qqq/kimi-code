@@ -136,8 +136,8 @@ describe('writeMainAgentWire', () => {
         { role: 'assistant', content: [{ type: 'text', text: 'hello' }], toolCalls: [] },
       ],
       todoItems: [
-        { title: 'task one', status: 'done' },
-        { title: 'task two', status: 'pending' },
+        { id: 'T1', parentId: null, kind: 'task', title: 'task one', status: 'done' },
+        { id: 'T2', parentId: null, kind: 'task', title: 'task two', status: 'pending' },
       ],
     });
     const records = await readWireRecords();

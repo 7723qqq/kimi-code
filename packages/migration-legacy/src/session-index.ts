@@ -1,6 +1,5 @@
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-
 import { targetSessionIndex } from './paths.js';
 
 export interface SessionIndexEntry {

@@ -1,9 +1,13 @@
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 
+import {
+  migrateWireRecord,
+  resolveWireMigrations,
+  type WireMigration,
+} from '@moonshot-ai/agent-core-v2/wire/migration/migration';
 
 import type { AgentRecord, WireEntry } from './agent-record-types';
-import { migrateWireRecord, resolveWireMigrations, type WireMigration } from './v1-compat';
 
 export interface WireReadResult {
   metadata: { protocolVersion: string; createdAt: number };

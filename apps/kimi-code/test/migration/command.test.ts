@@ -9,7 +9,7 @@ describe('registerMigrateCommand', () => {
     registerMigrateCommand(program, () => {});
     const sub = program.commands.find((c) => c.name() === 'migrate');
     expect(sub).toBeDefined();
-    expect(sub!.description()).toContain('Migrate');
+    expect(sub!.description()).toMatch(/[Mm]igration|[Mm]igrate/);
     const flags = sub!.options.map((o) => o.long);
     expect(flags).toEqual(['--run', '--config-only']);
   });

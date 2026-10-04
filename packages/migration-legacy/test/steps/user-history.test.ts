@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, readFile, rm, chmod } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -85,6 +85,7 @@ describe('migrateUserHistoryStep', () => {
       await expect(migrateUserHistoryStep({ sourceHome: src, targetHome: tgt })).rejects.toThrow(
         /all 2 entries under .* failed to migrate/,
       );
+      expect(await readdir(join(tgt, 'user-history')).catch(() => [])).toEqual([]);
     } finally {
       await chmod(a, 0o600);
       await chmod(b, 0o600);

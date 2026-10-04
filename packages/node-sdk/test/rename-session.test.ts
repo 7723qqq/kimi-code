@@ -9,7 +9,7 @@
  * tested the deleted v1 `agent-core` store internals; the v2 engine storage is
  * restructured, so those are no longer covered here.
  */
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -20,6 +20,7 @@ import { drainQueryStoreDisposals, drainSessionIndexMirror } from '@moonshot-ai/
 import type { KimiError } from '#/index';
 import { createKimiHarness, type Event } from '#/index';
 
+import { removeTempDirs } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];
@@ -29,9 +30,9 @@ afterEach(async () => {
   // the shared teardown removes the temp home.
   await drainSessionIndexMirror();
   await drainQueryStoreDisposals();
-  for (const dir of tempDirs.splice(0)) {
-    await rm(dir, { recursive: true, force: true });
-  }
+  // Background writers can recreate files between the drain and the removal;
+  // removeTempDirs retries the transient ENOTEMPTY/EBUSY/EPERM failures.
+  await removeTempDirs(tempDirs);
 });
 
 async function makeTempDir(): Promise<string> {

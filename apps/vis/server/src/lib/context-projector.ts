@@ -1,22 +1,22 @@
-
-import type {
-  ContentPart,
-  ContextMessage,
-  PermissionMode,
-  TokenUsage,
-  WireEntry,
-} from './agent-record-types';
 import {
   COMPACT_USER_MESSAGE_MAX_TOKENS,
   COMPACTION_ELISION_VARIANT,
   buildCompactionElisionText,
   collectCompactableUserMessages,
-  estimateTokens as agentCoreEstimateTokens,
   isRealUserInput,
-  renderToolResultForModel,
   selectCompactionUserMessages,
   selectRecentUserMessages,
-} from './v1-compat';
+} from '@moonshot-ai/agent-core-v2/agent/contextMemory/compactionHandoff';
+import { estimateTokensForMessages } from '@moonshot-ai/agent-core-v2/kosong/contract/tokens';
+import { renderToolResultForModel } from '@moonshot-ai/agent-core-v2/agent/contextMemory/toolResultRender';
+import type {
+  ContentPart,
+  ContextMessage,
+  PermissionMode,
+  TokenUsage,
+  ToolCall,
+  WireEntry,
+} from './agent-record-types';
 
 export interface ProjectedMessage {
   lineNo: number;
@@ -160,7 +160,7 @@ export function projectContext(
         } else if (ev.type === 'content.part') {
           const projected = openSteps.get(ev.stepUuid);
           if (projected !== undefined) {
-            projected.message.content.push(ev.part);
+            (projected.message.content as ContentPart[]).push(ev.part);
           }
         } else if (ev.type === 'tool.call') {
           const projected = openSteps.get(ev.stepUuid);
@@ -171,7 +171,7 @@ export function projectContext(
                 : ev.args === undefined
                   ? null
                   : JSON.stringify(ev.args);
-            projected.message.toolCalls.push({
+            (projected.message.toolCalls as ToolCall[]).push({
               type: 'function',
               id: ev.toolCallId,
               name: ev.name,
@@ -222,7 +222,7 @@ export function projectContext(
         contextTokens = rec.tokenCount;
         break;
       case 'context.replace_tool_result': {
-        // In-place replacement (Rust engine prediction fast-path): the
+        // Fork-only durable record (Rust engine prediction fast-path): the
         // precise result overwrites the recorded prediction content.
         for (let i = messages.length - 1; i >= 0; i--) {
           const candidate = messages[i];
@@ -270,16 +270,16 @@ export function projectContext(
         break;
       case 'context.apply_compaction': {
         openSteps = new Map();
-        // Mirror agent-core-v2's `applyCompaction`
-        // (`packages/agent-core-v2/src/agent/contextMemory/compactionHandoff.ts`): the live history
+        // Mirror the engine's applyCompaction
+        // (`packages/agent-core-v2/src/agent/contextMemory/`): the live history
         // becomes the kept real user messages (verbatim, within a token budget
         // — the oldest head plus the most recent tail, separated by an elision
         // marker when the pool overflowed) followed by a single user-role
         // summary tagged `origin.kind = 'compaction_summary'`. Assistant
         // messages, tool calls, and tool results are dropped. The selection
         // rules (`selectCompactionUserMessages` / `selectRecentUserMessages` /
-        // `collectCompactableUserMessages`) are the same helpers agent-core-v2's
-        // `ContextMemory` and the web transcript reducer apply, so all three
+        // `collectCompactableUserMessages`) are the same helpers the engine's
+        // context memory and the web transcript reducer apply, so all three
         // views stay in sync.
         //
         // The v2 payload is a union of three variants: current records carry
@@ -378,7 +378,9 @@ export function projectContext(
             const realUserEntries = historyEntries.filter(
               (pm) => collectCompactableUserMessages([pm.message]).length === 1,
             );
-            const selection = selectCompactionUserMessages(realUserEntries.map((pm) => pm.message));
+            const selection = selectCompactionUserMessages(
+              realUserEntries.map((pm) => pm.message),
+            );
             const tailStart = realUserEntries.length - selection.tail.length;
             const headEntries: ProjectedMessage[] = selection.head.map((message, i) => {
               const original = i < tailStart ? realUserEntries[i]! : realUserEntries[tailStart]!;
@@ -441,7 +443,7 @@ export function projectContext(
         // contextTokens; byScope/byModel are for the cumulative breakdown only.
         const scope = (rec.usageScope ?? 'session') as 'session' | 'turn';
         addUsage(usage.byScope[scope], rec.usage);
-        usage.byModel[rec.model] ??= { ...ZERO };
+        if (!usage.byModel[rec.model]) usage.byModel[rec.model] = { ...ZERO };
         addUsage(usage.byModel[rec.model]!, rec.usage);
         break;
       }
@@ -473,14 +475,10 @@ export function projectContext(
         permissionMode = rec.mode;
         break;
       case 'plan_mode.enter':
-        planActive = true;
-        planId = rec.id;
-        break;
+        planActive = true; planId = rec.id; break;
       case 'plan_mode.cancel':
       case 'plan_mode.exit':
-        planActive = false;
-        planId = undefined;
-        break;
+        planActive = false; planId = undefined; break;
       case 'context.undo': {
         // Mirror the engine's `undo`
         // (`packages/agent-core-v2/src/agent/contextMemory/`): walk from the
@@ -673,24 +671,34 @@ export function projectContext(
 }
 
 function addUsage(into: TokenUsage, src: TokenUsage): void {
-  into.inputOther += src.inputOther;
-  into.output += src.output;
-  into.inputCacheRead += src.inputCacheRead;
-  into.inputCacheCreation += src.inputCacheCreation;
+  (into as any).inputOther += src.inputOther;
+  (into as any).output += src.output;
+  (into as any).inputCacheRead += src.inputCacheRead;
+  (into as any).inputCacheCreation += src.inputCacheCreation;
 }
 
 const MICRO_TRUNCATED_MARKER = '[Old tool result content cleared]';
 const MICRO_MIN_CONTENT_TOKENS = 100;
 
-/** Delegates to the local v1-compat copy of agent-core-v2's `estimateTokens` to
- *  avoid logic duplication. The copy (`src/lib/v1-compat.ts`, mirrored from
- *  `packages/agent-core-v2/src/kosong/contract/tokens.ts`) sums per-part estimates, each
+/** Replicates the engine's per-char token weighting exactly, over the same
+ *  `text` + `think` parts its gate counts. The engine
+ *  (`packages/agent-core-v2/src/kosong/contract/tokens.ts`) sums per-part
+ *  estimates, each
  *  `estimateTokens(s) = Math.ceil(asciiCount / 4) + nonAsciiCount` (ASCII ~4
  *  chars/token, every non-ASCII/CJK code point a full token); other part types
  *  contribute 0. Matching it ensures Chinese-heavy tool results blank at the
  *  same gate as the agent. */
 function estimateTokens(text: string): number {
-  return agentCoreEstimateTokens(text);
+  let asciiCount = 0;
+  let nonAsciiCount = 0;
+  for (const char of text) {
+    if (char.codePointAt(0)! <= 127) {
+      asciiCount++;
+    } else {
+      nonAsciiCount++;
+    }
+  }
+  return Math.ceil(asciiCount / 4) + nonAsciiCount;
 }
 
 function estimateContentTokens(content: readonly ContentPart[]): number {

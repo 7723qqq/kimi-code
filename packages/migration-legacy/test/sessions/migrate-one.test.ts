@@ -141,8 +141,11 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
     await writeFile(join(targetDir, 'sentinel.txt'), 'prior-run-data', 'utf-8');
 
     const result = await migrateOneSession({
-      sourceSessionDir: join(FIXTURES, 'tiny-hello-world'),
-      oldSessionUuid: 'tiny-uuid',
+      source: {
+        uuid: 'tiny-uuid',
+        sessionDir: join(FIXTURES, 'tiny-hello-world'),
+        contextPath: join(FIXTURES, 'tiny-hello-world', 'context.jsonl'),
+      },
       workdirPath,
       targetHome,
     });
@@ -162,6 +165,7 @@ describe('migrateOneSession (tiny-hello-world fixture)', () => {
 
     const siblings = await readdir(bucketDir);
     expect(siblings.filter((s) => s.includes('.debris-'))).toHaveLength(1);
+    expect(siblings).toContain('ses_tiny-uuid');
   });
 
   it('stamps written artifacts with the original wire_mtime', async () => {
@@ -467,8 +471,8 @@ describe('migrateOneSession repair of message-only imports', () => {
     const todoRecord = JSON.parse(lines[5]!);
     // Invalid entries are filtered out; order is preserved.
     expect(todoRecord.value).toEqual([
-      { title: '创建 f1.txt', status: 'done' },
-      { title: '创建 f2.txt', status: 'in_progress' },
+      { id: 'T1', parentId: null, kind: 'task', title: '创建 f1.txt', status: 'done' },
+      { id: 'T2', parentId: null, kind: 'task', title: '创建 f2.txt', status: 'in_progress' },
     ]);
     expect(todoRecord.time).toBe(1700000000000);
     expect(lines[6]).toBe(liveSuffix[0]);
