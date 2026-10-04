@@ -4,6 +4,7 @@ import {
   IAgentProfileService,
   IAgentConversationUndoService,
   IAgentFullCompactionService,
+  IAgentLifecycleService,
   IAgentLoopService,
   IAuthSummaryService,
   ISessionActivityView,
@@ -26,6 +27,7 @@ import {
   Error2,
   type ContextMessage,
   type IAgentScopeHandle,
+  type ISessionScopeHandle,
   type Scope,
   type SessionSummary,
 } from '@moonshot-ai/agent-core-v2';
@@ -63,7 +65,8 @@ import { z } from 'zod';
 import { errEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
-import { ensureMainAgent } from '../transport/mainAgent';
+import { readLegacyStatus } from '../services/legacyStatus/legacyStatus';
+import { ensureMainAgent, MAIN_AGENT_ID } from '../transport/mainAgent';
 import { type ActionTable, dispatchAction } from './action-dispatch';
 import { applySessionAgentConfig } from './sessionAgentConfig';
 import { updateSessionProfile } from './sessionProfile';
@@ -957,7 +960,9 @@ async function btwSessionAction(ctx: SessionActionCtx): Promise<void> {
   if (session === undefined) {
     throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${id} does not exist`);
   }
-  await core.accessor.get(IAuthSummaryService).ensureReady();
+  const agent = await ensureMainAgent(session);
+  const sessionModel = agent.accessor.get(IAgentProfileService).getModel();
+  await core.accessor.get(IAuthSummaryService).ensureReady(sessionModel || undefined);
   const agentId = await session.accessor.get(ISessionBtwService).start();
   reply.send(okEnvelope({ agent_id: agentId }, req.id));
 }
@@ -1024,7 +1029,7 @@ export function toWireSession(
     archived: fields.archived,
     last_prompt: fields.lastPrompt,
     metadata: buildWireMetadata(fields.custom, cwd),
-    agent_config: { model: '' },
+    agent_config: { model: facts.model ?? '' },
     usage: emptySessionUsage(),
     permission_rules: [],
     message_count: 0,
@@ -1038,6 +1043,7 @@ export interface SessionFacts {
   readonly pendingInteraction: SessionPendingInteraction;
   readonly lastTurnReason?: 'completed' | 'cancelled' | 'failed';
   readonly live?: boolean;
+  readonly model?: string;
 }
 
 export function resolveSessionFacts(core: Scope, sessionId: string): SessionFacts {
@@ -1050,7 +1056,17 @@ export function resolveSessionFacts(core: Scope, sessionId: string): SessionFact
       live: false,
     };
   }
-  return { ...handle.accessor.get(ISessionActivityView).state(), live: true };
+  return {
+    ...handle.accessor.get(ISessionActivityView).state(),
+    live: true,
+    model: readLiveSessionModel(handle),
+  };
+}
+
+function readLiveSessionModel(session: ISessionScopeHandle): string | undefined {
+  const main = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
+  if (main === undefined) return undefined;
+  return readLegacyStatus(main)?.model;
 }
 
 async function resolveMainAgent(core: Scope, sessionId: string): Promise<IAgentScopeHandle> {
