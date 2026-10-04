@@ -300,7 +300,15 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
           );
         }
         sanitizePendingUndo(ctx, attachment.meta);
-        this.commitParticipant(attachment, ctx, event, next, patches, inversePatches);
+        this.commitState(
+          this.holderForAttachment(attachment),
+          attachment.meta,
+          ctx,
+          event,
+          next,
+          patches,
+          inversePatches,
+        );
       }
       this.attachParticipant(attachment);
       this.drainQueue();

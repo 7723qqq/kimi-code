@@ -16,6 +16,7 @@ import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { AgentSwarmService } from '#/features/swarm/agent/swarmService';
 import { ISessionSwarmService } from '#/features/swarm/session/sessionSwarm';
@@ -24,14 +25,13 @@ import { InMemoryStorageService } from '#/persistence/backends/memory/inMemorySt
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 
 import { stubContextMemory } from '../../agent/contextMemory/stubs';
 import {
   stubToolExecutorEvents,
   type ToolExecutorEventStubs,
 } from '../../agent/toolExecutor/stubs';
-import { createReminderStub, lifecycleWithReminder } from '../reminder/stubs';
+import { createReminderStub } from '../reminder/stubs';
 import { registerTestAgentWire, registerTestEventDispatcher, testWireScope } from '../../wire/stubs';
 
 const signal = new AbortController().signal;
@@ -89,7 +89,7 @@ describe('AgentSwarmService —Agent tool veto in swarm mode', () => {
       status: () => ({ state: 'idle', pendingTurnIds: [], hasPendingRequests: false }),
     });
     ix.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
-    ix.stub(IAgentLifecycleService, lifecycleWithReminder(createReminderStub()));
+    ix.stub(IAgentReminderService, createReminderStub());
     ix.stub(ISessionSwarmService, {
       getSwarmItem: async () => {},
       run: async () => [],

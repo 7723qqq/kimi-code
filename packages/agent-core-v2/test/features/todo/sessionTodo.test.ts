@@ -17,6 +17,10 @@ import {
   type TestAgentContext,
 } from '../../harness';
 
+function todoItem(id: string, title: string, status: TodoItem['status']): TodoItem {
+  return { id, parentId: null, kind: 'task', title, status };
+}
+
 function reminderInjected(ctx: TestAgentContext): boolean {
   return ctx.context.get().some(
     (message) =>
@@ -52,12 +56,12 @@ describe('AgentTodoService', () => {
     expect(todo.get()).toEqual([]);
 
     await todo.replace([
-      { title: 'first', status: 'pending' },
-      { title: 'second', status: 'in_progress' },
+      todoItem('T1', 'first', 'pending'),
+      todoItem('T2', 'second', 'in_progress'),
     ]);
     expect(todo.get()).toEqual([
-      { title: 'first', status: 'pending' },
-      { title: 'second', status: 'in_progress' },
+      todoItem('T1', 'first', 'pending'),
+      todoItem('T2', 'second', 'in_progress'),
     ]);
 
     await todo.clear();
@@ -69,18 +73,18 @@ describe('AgentTodoService', () => {
     const seen: TodoItem[][] = [];
     const subscription = todo.onDidChange((todos) => { seen.push([...todos]); });
 
-    await todo.replace([{ title: 'a', status: 'pending' }]);
+    await todo.replace([todoItem('T1', 'a', 'pending')]);
     await todo.replace([
-      { title: 'a', status: 'pending' },
-      { title: 'b', status: 'done' },
+      todoItem('T1', 'a', 'pending'),
+      todoItem('T2', 'b', 'done'),
     ]);
     await todo.clear();
 
     expect(seen).toEqual([
-      [{ title: 'a', status: 'pending' }],
+      [todoItem('T1', 'a', 'pending')],
       [
-        { title: 'a', status: 'pending' },
-        { title: 'b', status: 'done' },
+        todoItem('T1', 'a', 'pending'),
+        todoItem('T2', 'b', 'done'),
       ],
       [],
     ]);
@@ -89,14 +93,14 @@ describe('AgentTodoService', () => {
 
   it('appends todos through the existing tools.update_store wire record', async () => {
     const todo = ctx.get(IAgentTodoService);
-    await todo.replace([{ title: 'persist me', status: 'in_progress' }]);
+    await todo.replace([todoItem('T1', 'persist me', 'in_progress')]);
 
     const records = await ctx.persistedWireRecords();
     expect(records.filter((record) => record.type === 'tools.update_store')).toEqual([{
       type: 'tools.update_store',
       agentId: 'main',
       key: 'todo',
-      value: [{ title: 'persist me', status: 'in_progress' }],
+      value: [todoItem('T1', 'persist me', 'in_progress')],
       time: expect.any(Number),
     }]);
   });
@@ -107,11 +111,11 @@ describe('AgentTodoService', () => {
     const mainTodo = ctx.get(IAgentTodoService);
     const subTodo = lifecycle.handleOf(sub.agentId)!.accessor.get(IAgentTodoService);
 
-    await mainTodo.replace([{ title: 'main todo', status: 'pending' }]);
-    await subTodo.replace([{ title: 'sub todo', status: 'done' }]);
+    await mainTodo.replace([todoItem('T1', 'main todo', 'pending')]);
+    await subTodo.replace([todoItem('T1', 'sub todo', 'done')]);
 
-    expect(mainTodo.get()).toEqual([{ title: 'main todo', status: 'pending' }]);
-    expect(subTodo.get()).toEqual([{ title: 'sub todo', status: 'done' }]);
+    expect(mainTodo.get()).toEqual([todoItem('T1', 'main todo', 'pending')]);
+    expect(subTodo.get()).toEqual([todoItem('T1', 'sub todo', 'done')]);
     await lifecycle.remove(sub);
   });
 
@@ -119,14 +123,14 @@ describe('AgentTodoService', () => {
     const persistence = new InMemoryWireRecordPersistence();
     const first = createTestAgent({ persistence, autoConfigure: false });
     await first.restorePersisted();
-    await first.get(IAgentTodoService).replace([{ title: 'kept', status: 'in_progress' }]);
+    await first.get(IAgentTodoService).replace([todoItem('T1', 'kept', 'in_progress')]);
     await first.dispose();
 
     const restarted = createTestAgent({ persistence, autoConfigure: false });
     try {
       await restarted.restorePersisted();
       expect(restarted.get(IAgentTodoService).get()).toEqual([
-        { title: 'kept', status: 'in_progress' },
+        todoItem('T1', 'kept', 'in_progress'),
       ]);
     } finally {
       await restarted.dispose();
@@ -134,7 +138,7 @@ describe('AgentTodoService', () => {
   });
 
   it('restores todos and resumes operations when the feature is re-provided after restore', async () => {
-    await ctx.get(IAgentTodoService).replace([{ title: 'kept', status: 'in_progress' }]);
+    await ctx.get(IAgentTodoService).replace([todoItem('T1', 'kept', 'in_progress')]);
 
     await ctx.get(IFeatureManager).unprovideUnit('todo');
     expect(() => ctx.get(IAgentTodoService)).toThrow("unknown service 'agentTodoService'");
@@ -143,16 +147,16 @@ describe('AgentTodoService', () => {
 
     const revived = await vi.waitFor(() => {
       const service = ctx.get(IAgentTodoService);
-      expect(service.get()).toEqual([{ title: 'kept', status: 'in_progress' }]);
+      expect(service.get()).toEqual([todoItem('T1', 'kept', 'in_progress')]);
       return service;
     });
     await revived.replace([
-      { title: 'kept', status: 'done' },
-      { title: 'added', status: 'pending' },
+      todoItem('T1', 'kept', 'done'),
+      todoItem('T2', 'added', 'pending'),
     ]);
     expect(revived.get()).toEqual([
-      { title: 'kept', status: 'done' },
-      { title: 'added', status: 'pending' },
+      todoItem('T1', 'kept', 'done'),
+      todoItem('T2', 'added', 'pending'),
     ]);
   });
 
@@ -172,7 +176,7 @@ describe('AgentTodoService', () => {
       } as unknown as WireRecord);
       await seeded.restorePersisted();
 
-      expect(seeded.get(IAgentTodoService).get()).toEqual([{ title: 'valid', status: 'done' }]);
+      expect(seeded.get(IAgentTodoService).get()).toEqual([todoItem('T1', 'valid', 'done')]);
     } finally {
       await seeded.dispose();
     }
@@ -187,7 +191,7 @@ describe('AgentTodoService', () => {
     await reminder.reconcileWhenIdle(TODO_LIST_REMINDER_VARIANT);
     expect(reminderInjected(ctx)).toBe(false);
 
-    await todo.replace([{ title: 'track me', status: 'pending' }]);
+    await todo.replace([todoItem('T1', 'track me', 'pending')]);
     appendAssistantTurns(ctx.context, 10);
     await reminder.reconcileWhenIdle(TODO_LIST_REMINDER_VARIANT);
     expect(reminderInjected(ctx)).toBe(true);
@@ -196,7 +200,7 @@ describe('AgentTodoService', () => {
     const subTodo = lifecycle.handleOf(sub.agentId)!.accessor.get(IAgentTodoService);
     const subReminder = lifecycle.handleOf(sub.agentId)!.accessor.get(IAgentReminderService);
     const subMemory = lifecycle.handleOf(sub.agentId)!.accessor.get(IAgentContextMemoryService);
-    await subTodo.replace([{ title: 'sub task', status: 'pending' }]);
+    await subTodo.replace([todoItem('T1', 'sub task', 'pending')]);
     appendAssistantTurns(subMemory, 10);
     await subReminder.reconcileWhenIdle(TODO_LIST_REMINDER_VARIANT);
     expect(

@@ -194,7 +194,7 @@ describe('wire.jsonl round-trip', () => {
 
     expect(legacy.agentState.get(compatCounterKey)).toEqual({ value: 7 });
     expect(legacy.todo.get()).toEqual([
-      { title: 'legacy todo', status: 'pending' },
+      { id: 'T1', parentId: null, kind: 'task', title: 'legacy todo', status: 'pending' },
     ]);
 
     expect(await collect(makeReader(storage), 'legacy')).toEqual([

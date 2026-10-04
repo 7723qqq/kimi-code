@@ -265,7 +265,7 @@ describe('v1 wire vocabulary', () => {
     await restoreTestEventDispatcher(fresh, log2, SCOPE, records);
 
     expect(todo.get()).toEqual([
-      { title: 'restore me', status: 'in_progress' },
+      { id: 'T1', parentId: null, kind: 'task', title: 'restore me', status: 'in_progress' },
     ]);
   });
 });

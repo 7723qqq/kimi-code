@@ -148,7 +148,7 @@ export class AgentTodoService extends AgentActorService<TodoState> implements IA
     return this.actor.dispatch(new ToolsUpdateStore({
       agentId: this.actor.agent.agentId,
       key: 'todo',
-      value: todos.map((todo) => ({ title: todo.title, status: todo.status })),
+      value: todos,
     }));
   }
 

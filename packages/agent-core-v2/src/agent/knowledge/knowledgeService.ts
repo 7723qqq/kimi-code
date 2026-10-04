@@ -6,7 +6,7 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 
 import {
   IAgentKnowledgeService,
@@ -63,9 +63,9 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
   constructor(
     @IBootstrapService private readonly bootstrap: IBootstrapService,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
-    @IAgentLifecycleService lifecycle: IAgentLifecycleService,
     @IEventBus eventBus: IEventBus,
     @IAgentContextMemoryService contextMemory: IAgentContextMemoryService,
+    @IAgentReminderService private readonly reminders: IAgentReminderService,
     @ILogService private readonly log: ILogService,
   ) {
     super();
@@ -75,9 +75,7 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
     this.initDatabase();
     if (this.scopeContext.agentId === 'main') {
       this._register(new KnowledgeLearner(this, eventBus, contextMemory));
-      this._register(
-        new KnowledgeInjection(this, this.scopeContext, lifecycle, contextMemory),
-      );
+      this._register(new KnowledgeInjection(this, this.reminders, contextMemory));
     }
   }
 

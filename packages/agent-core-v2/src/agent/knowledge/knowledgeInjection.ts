@@ -1,8 +1,6 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { AgentReminder } from '#/features/reminder/reminderAgentRuntime';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 
 import { IAgentKnowledgeService, type KnowledgeSearchResult } from './knowledge';
 
@@ -12,15 +10,14 @@ const MAX_ENTRIES = 5;
 export class KnowledgeInjection extends Disposable {
   constructor(
     @IAgentKnowledgeService private readonly knowledge: IAgentKnowledgeService,
-    @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
-    @IAgentLifecycleService lifecycle: IAgentLifecycleService,
+    @IAgentReminderService private readonly reminders: IAgentReminderService,
     @IAgentContextMemoryService private readonly contextMemory: IAgentContextMemoryService,
   ) {
     super();
     this._register(
-      lifecycle
-        .resolve(this.scopeContext.agentContext, AgentReminder)
-        .register('knowledge', ({ isNewTurn }) => (isNewTurn ? this.getInjection() : undefined)),
+      this.reminders.register('knowledge', ({ isNewTurn }) =>
+        isNewTurn ? this.getInjection() : undefined,
+      ),
     );
   }
 

@@ -41,7 +41,7 @@ import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentTodoService } from '#/features/todo/todoService';
 import { IAgentGoalService } from '#/features/goal/goalService';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
 
 type GenerateFn = NonNullable<TestAgentOptions['generate']>;
 
@@ -297,7 +297,7 @@ describe('FullCompaction', () => {
       properties: expect.objectContaining({
         agent_id: 'main',
         source: 'manual',
-        tokens_before: 6_162,
+        tokens_before: 6_618,
         tokens_after: expect.any(Number),
         duration_ms: expect.any(Number),
         compacted_count: 6,
@@ -571,7 +571,7 @@ describe('FullCompaction', () => {
       session_id: 'test-session',
       cwd: dir,
       trigger: 'auto',
-      token_count: 6_162,
+      token_count: 6_618,
     });
     expect(post).toMatchObject({
       hook_event_name: 'PostCompact',
@@ -657,7 +657,7 @@ describe('FullCompaction', () => {
       event: 'compaction_finished',
       properties: expect.objectContaining({
         source: 'manual',
-        tokens_before: 17_895,
+        tokens_before: 18_708,
         retry_count: 1,
         trace_id: 'trace-compact-1',
       }),
@@ -1124,7 +1124,7 @@ describe('FullCompaction', () => {
       properties: expect.objectContaining({
         agent_id: 'main',
         source: 'manual',
-        tokens_before: 17_895,
+        tokens_before: 18_708,
         duration_ms: expect.any(Number),
         round: 1,
         retry_count: 0,
@@ -1349,7 +1349,7 @@ describe('FullCompaction', () => {
       event: 'compaction_failed',
       properties: expect.objectContaining({
         source: 'manual',
-        tokens_before: 17_895,
+        tokens_before: 18_708,
         duration_ms: expect.any(Number),
         retry_count: 4,
         error_type: 'APIConnectionError',
@@ -1550,6 +1550,7 @@ describe('FullCompaction', () => {
     const ctx = testAgent();
     ctx.configure({
       provider: CATALOGUED_PROVIDER,
+      tools: SNAPSHOT_VISIBLE_TOOLS,
       modelCapabilities: {
         ...CATALOGUED_MODEL_CAPABILITIES,
         max_context_tokens: maxContextTokens,
@@ -1722,8 +1723,8 @@ describe('FullCompaction', () => {
       event: 'compaction_finished',
       properties: expect.objectContaining({
         source: 'auto',
-        tokens_before: 6_169,
-        tokens_after: 6_153,
+        tokens_before: 6_625,
+        tokens_after: 6_609,
         compacted_count: 7,
         retry_count: 0,
       }),
@@ -2984,8 +2985,14 @@ describe('FullCompaction', () => {
 
   it('appends the todo list to the compaction summary', async () => {
     const todos = [
-      { title: 'Fix the auth bug', status: 'in_progress' },
-      { title: 'Add tests', status: 'pending' },
+      {
+        id: 'T1',
+        parentId: null,
+        kind: 'task',
+        title: 'Fix the auth bug',
+        status: 'in_progress',
+      },
+      { id: 'T2', parentId: null, kind: 'task', title: 'Add tests', status: 'pending' },
     ] as const;
     const ctx = testAgent();
     ctx.configure({
@@ -3021,7 +3028,7 @@ describe('FullCompaction', () => {
     expect(history[2]).toMatchObject({
       role: 'user',
       text: expect.stringContaining(
-        'Compacted summary.\n\n## TODO List\n  [in_progress] Fix the auth bug\n  [pending] Add tests',
+        'Compacted summary.\n\n## TODO List (overall 0/2 · 0%)\n  [in_progress] T1: Fix the auth bug\n  [pending] T2: Add tests',
       ),
     });
     expect(ctx.context.get().at(-1)?.content[0]).toMatchObject({

@@ -217,8 +217,12 @@ describe('FlagService', () => {
       isExposed: () => false,
     });
 
-    expect(flags.enabledIds().toSorted()).toEqual(['assembled_only', 'example_flag']);
-    expect(flags.exposedIds()).toEqual(['example_flag']);
+    expect(flags.enabledIds().toSorted()).toEqual([
+      'assembled_only',
+      'example_flag',
+      PERSISTENCE_MINIDB_READMODEL_FLAG_ID,
+    ]);
+    expect(flags.exposedIds()).toEqual([PERSISTENCE_MINIDB_READMODEL_FLAG_ID, 'example_flag']);
   });
 
   it('treats truthy env values case-insensitively', () => {

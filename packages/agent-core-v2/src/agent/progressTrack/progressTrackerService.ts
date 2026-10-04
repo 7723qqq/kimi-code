@@ -1,13 +1,11 @@
 import { createDecorator } from '#/_base/di/instantiation';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
 import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
-import { AgentReminder, type ReminderRuntime } from '#/features/reminder/reminderAgentRuntime';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 
 import { ProgressTracker, type ToolReceipt } from './progressTracker';
 
@@ -34,17 +32,14 @@ export class ProgressTrackerService extends Service implements IProgressTrackerS
   declare readonly _serviceBrand: undefined;
 
   private readonly tracker = new ProgressTracker();
-  private readonly reminders: ReminderRuntime;
   private ebmInjectedThisTurn = false;
 
   constructor(
     @IAgentToolExecutorService toolExecutor: IAgentToolExecutorService,
-    @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
-    @IAgentLifecycleService lifecycle: IAgentLifecycleService,
+    @IAgentReminderService private readonly reminders: IAgentReminderService,
     @IEventBus eventBus: IEventBus,
   ) {
     super();
-    this.reminders = lifecycle.resolve(this.scopeContext.agentContext, AgentReminder);
     this._register(
       toolExecutor.hooks.onDidExecuteTool.register('progress-track', async (ctx, next) => {
         this.observeToolRound(ctx);

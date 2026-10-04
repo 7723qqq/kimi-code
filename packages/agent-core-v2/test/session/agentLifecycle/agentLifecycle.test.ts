@@ -95,7 +95,6 @@ import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionT
 import { _clearAgentToolContributionsForTests } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import '#/agent/toolActivation/toolActivationService';
-import { IAgentMediaToolsRegistrar } from '#/agent/media/mediaTools';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { ScopeUnits, type Fiber } from '#/_base/di/fiber';
@@ -298,9 +297,6 @@ describe('AgentLifecycleService', () => {
       resolve: () => undefined,
       list: () => [],
     } as unknown as IAgentToolRegistryService);
-    ix.stub(IAgentMediaToolsRegistrar, {
-      _serviceBrand: undefined,
-    } as IAgentMediaToolsRegistrar);
     beforeExecuteListeners = 0;
     didExecuteHookIds = [];
     ix.stub(IAgentToolExecutorService, {
@@ -977,7 +973,7 @@ describe('AgentLifecycleService', () => {
     const main = await svc.create({ agentId: 'main' });
 
     expect(svc.handleOf('main')!.accessor.get(IAgentTodoService).get()).toEqual([
-      { title: 'bridged', status: 'pending' },
+      { id: 'T1', parentId: null, kind: 'task', title: 'bridged', status: 'pending' },
     ]);
     expect(svc.handleOf('main')!.accessor.get(IAgentCronService).list()).toEqual([
       { id: 'cron-1', cron: '0 9 * * *', prompt: 'ping', recurring: true, createdAt: 1, lastFiredAt: undefined },
@@ -1077,9 +1073,9 @@ describe('AgentLifecycleService', () => {
       [
         expect.stringMatching(/^credentials\/mcp\/linear-[a-f0-9]{24}-tokens\.json$/),
         {
-          access_token: 'session-token',
-          token_type: 'Bearer',
-          obtained_at: expect.any(Number),
+          data: expect.any(String),
+          iv: expect.any(String),
+          tag: expect.any(String),
         },
       ],
     ]);

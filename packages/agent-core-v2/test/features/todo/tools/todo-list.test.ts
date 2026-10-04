@@ -12,6 +12,10 @@ import { createTestAgent, type TestAgentContext } from '../../../harness';
 
 const signal = new AbortController().signal;
 
+function todoItem(id: string, title: string, status: TodoItem['status']): TodoItem {
+  return { id, parentId: null, kind: 'task', title, status };
+}
+
 describe('TodoListTool', () => {
   let ctx: TestAgentContext;
 
@@ -52,7 +56,7 @@ describe('TodoListTool', () => {
   });
 
   it('query mode renders the current list without mutating it', async () => {
-    await seed([{ title: 'existing', status: 'in_progress' }]);
+    await seed([todoItem('T1', 'existing', 'in_progress')]);
     const tool = ctx.get(ITodoListTool);
 
     const result = await executeTool(tool, {
@@ -64,13 +68,13 @@ describe('TodoListTool', () => {
 
     expect(result).toMatchObject({ isError: false });
     expect(result.output).toContain('Current todo list');
-    expect(result.output).toContain('[in_progress] existing');
-    expect(todos()).toEqual([{ title: 'existing', status: 'in_progress' }]);
+    expect(result.output).toContain('[in_progress] T1: existing');
+    expect(todos()).toEqual([todoItem('T1', 'existing', 'in_progress')]);
   });
 
   it('write mode replaces the list and defensively copies todos', async () => {
     const tool = ctx.get(ITodoListTool);
-    const input: TodoItem[] = [
+    const input: Array<{ title: string; status: TodoItem['status'] }> = [
       { title: 'first', status: 'pending' },
       { title: 'second', status: 'in_progress' },
     ];
@@ -85,20 +89,20 @@ describe('TodoListTool', () => {
 
     expect(result).toMatchObject({ isError: false });
     expect(result.output).toContain('Todo list updated');
-    expect(result.output).toContain('[pending] first');
-    expect(result.output).toContain('[in_progress] second');
+    expect(result.output).toContain('[pending] T1: first');
+    expect(result.output).toContain('[in_progress] T2: second');
     expect(result.output).toContain(
       'Ensure that you continue to use the todo list to track progress.',
     );
     expect(result.output).toContain('exactly one task in_progress');
     expect(todos()).toEqual([
-      { title: 'first', status: 'pending' },
-      { title: 'second', status: 'in_progress' },
+      todoItem('T1', 'first', 'pending'),
+      todoItem('T2', 'second', 'in_progress'),
     ]);
   });
 
   it('renders a done todo with a marker matching the status enum value', async () => {
-    await seed([{ title: 'shipped', status: 'done' }]);
+    await seed([todoItem('T1', 'shipped', 'done')]);
     const tool = ctx.get(ITodoListTool);
 
     const result = await executeTool(tool, {
@@ -109,12 +113,12 @@ describe('TodoListTool', () => {
     });
 
     expect(result).toMatchObject({ isError: false });
-    expect(result.output).toContain('[done] shipped');
+    expect(result.output).toContain('[done] T1: shipped');
     expect(result.output).not.toContain('[completed]');
   });
 
   it('clear mode empties the list without adding the progress-tracking reminder', async () => {
-    await seed([{ title: 'x', status: 'pending' }]);
+    await seed([todoItem('T1', 'x', 'pending')]);
     const tool = ctx.get(ITodoListTool);
 
     const result = await executeTool(tool, {

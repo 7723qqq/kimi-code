@@ -251,7 +251,9 @@ describe('AgentConversationUndoService', () => {
 
     await undo.undo(1);
 
-    expect(ctx.get(IAgentTodoService).get()).toEqual([{ title: 'kept', status: 'pending' }]);
+    expect(ctx.get(IAgentTodoService).get()).toEqual([
+      { id: 'T1', parentId: null, kind: 'task', title: 'kept', status: 'pending' },
+    ]);
   });
 
   it('restores plan mode and its telemetry mirror to their pre-turn value', async () => {
