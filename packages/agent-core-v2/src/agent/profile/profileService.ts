@@ -595,6 +595,26 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     );
   }
 
+  async refreshActiveTools(): Promise<void> {
+    if (this.activeToolNamesOverlay !== undefined) return;
+    const name = this.profileName;
+    if (name === undefined) return;
+    await this.catalog.ready;
+    const profile = this.catalog.get(name);
+    if (profile === undefined) return;
+    const tools = profile.tools;
+    if (tools === undefined) return;
+    const current = this.states.get(profileActiveToolsKey) as ActiveToolsState;
+    if (
+      current !== undefined &&
+      current.length === tools.length &&
+      current.every((toolName, index) => toolName === tools[index])
+    ) {
+      return;
+    }
+    this.setActiveTools(tools);
+  }
+
   private emitStatusUpdated(includeThinkingEffort = false): void {
     const custom = this.optionsValue.emitStatusUpdated;
     if (custom !== undefined) {

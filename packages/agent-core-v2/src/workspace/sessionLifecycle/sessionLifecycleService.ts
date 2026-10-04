@@ -11,6 +11,8 @@ import {
 import { unwrapErrorCause } from '#/_base/errors/errors';
 import { AsyncEmitter, Emitter, type Event, type IWaitUntil } from '#/_base/event';
 import { drainLogCloses } from '#/_base/log/logService';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
 import { DEFAULT_PLAN_MODE_SECTION } from '#/features/plan/configSection';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { LifecycleScope } from '#/app/scopes';
@@ -360,6 +362,11 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       const agents = handle.accessor.get(IAgentLifecycleService);
       if (agents.get(MAIN_AGENT_ID) === undefined) {
         await agents.create({ agentId: MAIN_AGENT_ID });
+        const mainHandle = agents.handleOf(MAIN_AGENT_ID);
+        if (mainHandle !== undefined) {
+          await mainHandle.accessor.get(IAgentProfileService).refreshActiveTools();
+          await mainHandle.accessor.get(IAgentToolActivationService).activate();
+        }
       }
       await this.announceCreated({ sessionId, handle, source: 'resume' });
     } catch (error) {

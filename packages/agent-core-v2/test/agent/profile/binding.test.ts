@@ -1196,3 +1196,76 @@ describe('agentsMdReminder seeding', () => {
     expect(seedInjected).not.toHaveBeenCalled();
   });
 });
+
+describe('refreshActiveTools', () => {
+  let ctx: TestAgentContext;
+  let homeDir: string;
+  let catalogTools: readonly string[] | undefined;
+
+  const refreshableProfile = (): Record<string, unknown> => ({
+    name: 'refreshable',
+    tools: catalogTools,
+    systemPrompt: () => '',
+    renderSystemPrompt: () => ({ text: '', environment: undefined }),
+  });
+
+  beforeEach(async () => {
+    homeDir = await mkdtemp(join(tmpdir(), 'kimi-refresh-home-'));
+    catalogTools = ['Read', 'Bash'];
+    ctx = createTestAgent(
+      hostEnvironmentServices(homeDir),
+      sessionService(ISessionAgentProfileCatalog, {
+        _serviceBrand: undefined,
+        ready: Promise.resolve(),
+        onDidChange: Event.None as Event<string>,
+        get: (name: string) => (name === 'refreshable' ? refreshableProfile() : undefined),
+        getDefault: () => ({ ...refreshableProfile(), name: DEFAULT_AGENT_PROFILE_NAME }),
+        list: () => [refreshableProfile()],
+        load: async () => {},
+        reload: async () => {},
+      } as unknown as ISessionAgentProfileCatalog),
+    );
+  });
+
+  afterEach(async () => {
+    await ctx?.dispose();
+    await rm(homeDir, { recursive: true, force: true });
+  });
+
+  function profileService(): IAgentProfileService {
+    return ctx.get(IAgentProfileService);
+  }
+
+  it('reconciles a stale persisted allowlist with the current catalog', async () => {
+    const svc = profileService();
+    await svc.bind({ profile: 'refreshable', model: MOCK_MODEL });
+    await vi.waitFor(() => expect(svc.getActiveToolNames()).toEqual(['Read', 'Bash']));
+
+    catalogTools = ['Read', 'Bash', 'Grep'];
+    await svc.refreshActiveTools();
+
+    await vi.waitFor(() => expect(svc.getActiveToolNames()).toEqual(['Read', 'Bash', 'Grep']));
+  });
+
+  it('keeps user tool selections when an overlay exists', async () => {
+    const svc = profileService();
+    await svc.bind({ profile: 'refreshable', model: MOCK_MODEL });
+    svc.addActiveTool('Custom');
+    await vi.waitFor(() => expect(svc.getActiveToolNames()).toEqual(['Read', 'Bash', 'Custom']));
+
+    catalogTools = ['Read', 'Bash', 'Grep'];
+    await svc.refreshActiveTools();
+
+    expect(svc.getActiveToolNames()).toEqual(['Read', 'Bash', 'Custom']);
+  });
+
+  it('is a no-op when the catalog list already matches', async () => {
+    const svc = profileService();
+    await svc.bind({ profile: 'refreshable', model: MOCK_MODEL });
+    await vi.waitFor(() => expect(svc.getActiveToolNames()).toEqual(['Read', 'Bash']));
+
+    await svc.refreshActiveTools();
+
+    expect(svc.getActiveToolNames()).toEqual(['Read', 'Bash']);
+  });
+});
