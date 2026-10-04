@@ -1,5 +1,4 @@
 [install]
-# Bun >= 1.2 defaults new projects to the isolated linker. This repo's tooling
-# (simple-git-hooks' postinstall, scripts/fix-node-pty-perms.mjs) assumes an
-# npm-style hoisted layout, so pin hoisted explicitly.
+# Bun >= 1.2 defaults new projects to the isolated linker. simple-git-hooks'
+# postinstall assumes an npm-style hoisted layout, so pin hoisted explicitly.
 linker = "hoisted"

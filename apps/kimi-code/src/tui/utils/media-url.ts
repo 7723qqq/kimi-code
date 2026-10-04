@@ -1,3 +1,4 @@
+import { hyperlink } from '@moonshot-ai/pi-tui';
 import { isDaemonFileUrl } from '@moonshot-ai/kimi-code-sdk';
 
 export type MediaUrlKind = 'audio' | 'image' | 'video';
@@ -12,7 +13,10 @@ export function mediaUrlPartToText(kind: MediaUrlKind, url: string): string {
   // its wire form: the scheme resolves nowhere for the user and the query
   // carries the materialization path. Render the bare placeholder instead.
   if (isDaemonFileUrl(url)) return `[${kind}]`;
-  return `<${kind} url="${escapeAttribute(url)}">`;
+  const text = `<${kind} url="${escapeAttribute(url)}">`;
+  // Remote URLs become clickable OSC 8 links on hyperlink-capable terminals.
+  if (/^https?:\/\//i.test(url)) return hyperlink(text, url);
+  return text;
 }
 
 export function summarizeDataUrl(url: string): { mime: string; bytes?: number } | undefined {

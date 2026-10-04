@@ -21,6 +21,11 @@ const PKG = join(import.meta.dirname, '..');
 const SRC = join(PKG, 'src');
 export const MANIFEST_PATH = join(PKG, 'docs', 'config-manifest.toml');
 
+/** Owner paths in the generated manifest are always POSIX (forward slashes), even on Windows. */
+function posixRelPath(from: string, to: string): string {
+  return relative(from, to).replaceAll('\\', '/');
+}
+
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     const p = join(dir, entry);
@@ -43,7 +48,7 @@ function scanSectionOwners(): Map<string, string> {
     for (const match of source.matchAll(/registerConfigSection\(\s*(?:'([^']+)'|([A-Za-z0-9_$]+))/g)) {
       const ident = match[2];
       const domain = match[1] ?? (ident === undefined ? undefined : constStringValue(source, ident));
-      if (domain !== undefined) owners.set(domain, relative(PKG, file));
+      if (domain !== undefined) owners.set(domain, posixRelPath(PKG, file));
     }
   }
   return owners;
@@ -57,7 +62,7 @@ function scanOverlayOwners(): Map<string, string> {
     if (!source.includes('registerConfigOverlay(')) continue;
     for (const match of source.matchAll(/registerConfigOverlay\(\s*([A-Za-z0-9_$]+)/g)) {
       const ident = match[1];
-      if (ident !== undefined) owners.set(ident, relative(PKG, file));
+      if (ident !== undefined) owners.set(ident, posixRelPath(PKG, file));
     }
   }
   return owners;

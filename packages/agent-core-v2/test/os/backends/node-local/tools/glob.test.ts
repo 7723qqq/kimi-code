@@ -5,7 +5,7 @@ import { Readable, type Writable } from 'node:stream';
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ensureRgPath, type RgProbe } from '#/os/backends/node-local/tools/rgLocator';
+import { ensureRgPath, type RgProbe } from '#/os/backends/host/tools/rgLocator';
 import { PathSecurityError, type PathClass } from '#/tool/path-access';
 import { noopTelemetryService } from '#/app/telemetry/telemetry';
 import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
@@ -22,13 +22,13 @@ import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSyste
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { probeHostEnvironmentFromNode } from '#/_base/execEnv/environmentProbe';
 import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 
-vi.mock('#/os/backends/node-local/tools/rgLocator', () => ({
+vi.mock('#/os/backends/host/tools/rgLocator', () => ({
   ensureRgPath: vi.fn(async (): Promise<{ path: string; source: string }> => ({
     path: 'rg',
     source: 'system-path',
@@ -822,8 +822,8 @@ describe('GlobTool integration (real ripgrep)', () => {
 
   beforeAll(async () => {
     try {
-      const actual = await vi.importActual<typeof import('#/os/backends/node-local/tools/rgLocator')>(
-        '#/os/backends/node-local/tools/rgLocator',
+      const actual = await vi.importActual<typeof import('#/os/backends/host/tools/rgLocator')>(
+        '#/os/backends/host/tools/rgLocator',
       );
       const probeProcessService = new HostProcessService();
       const resolution = await actual.ensureRgPath(createRealRgProbe(probeProcessService), {

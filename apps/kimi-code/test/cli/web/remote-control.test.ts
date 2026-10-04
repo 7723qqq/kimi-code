@@ -45,6 +45,8 @@ const TOKEN: TokenInfo = {
 
 const cleanups: Array<() => Promise<void> | void> = [];
 
+const REJECTION_BODY = '{"error":{"message":"relay unavailable","type":"service_unavailable_error"}}';
+
 afterEach(async () => {
   vi.unstubAllEnvs();
   while (cleanups.length > 0) await cleanups.pop()!();
@@ -285,6 +287,7 @@ describe('Remote Control tunnel', () => {
   it('keeps the initial start pending through transient failures and recovers', async () => {
     const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
     const relay = await startAuthRelay({ rejectUpgrades: 2 });
+    const errors: string[] = [];
     let handle: RemoteControlHandle | undefined;
     cleanups.push(async () => handle?.close());
 
@@ -293,11 +296,19 @@ describe('Remote Control tunnel', () => {
       localOrigin: 'http://127.0.0.1:1',
       localServerToken: 'local-server-token',
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
-      stderr: { write: () => true },
+      stderr: {
+        write: (chunk: string | Uint8Array) => {
+          errors.push(String(chunk));
+          return true;
+        },
+      },
     });
 
     expect(relay.requests.length).toBeGreaterThanOrEqual(4);
     expect(handle.url).toContain('?rc=1&from=kimi_code_cli');
+    expect(errors.join('')).toContain(
+      `Remote Control disconnected: WebSocket handshake rejected (HTTP 503): ${REJECTION_BODY}`,
+    );
   }, 6000);
 
   it('reconnects when management closes during the HTTP tunnel handshake', async () => {
@@ -490,6 +501,61 @@ describe('Remote Control tunnel', () => {
       ),
     );
   });
+
+  it('reconnects when the relay goes silent without closing the sockets', async () => {
+    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
+    const relay = await startAuthRelay();
+    let handle: RemoteControlHandle | undefined;
+    cleanups.push(async () => handle?.close());
+    let logs = '';
+
+    handle = await startRemoteControl({
+      homeDir,
+      localOrigin: 'http://127.0.0.1:1',
+      localServerToken: 'local-server-token',
+      relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
+      stderr: { write: (text) => ((logs += String(text)), true) },
+      pingIntervalMs: 50,
+      silenceTimeoutMs: 300,
+    });
+
+    expect(relay.registrations).toHaveLength(1);
+    relay.managementSockets[0]!.pause();
+    relay.httpSockets[0]!.pause();
+
+    await waitFor(() => relay.registrations.length === 2, 10_000);
+    expect(logs).toContain('silent');
+    relay.managementSockets[0]!.terminate();
+    relay.httpSockets[0]!.terminate();
+  }, 15_000);
+
+  it('retries when registration is rejected after a reconnect', async () => {
+    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
+    const relay = await startAuthRelay({ nakRegistrationsAfterFirst: 1 });
+    let handle: RemoteControlHandle | undefined;
+    cleanups.push(async () => handle?.close());
+    let logs = '';
+
+    handle = await startRemoteControl({
+      homeDir,
+      localOrigin: 'http://127.0.0.1:1',
+      localServerToken: 'local-server-token',
+      relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
+      stderr: { write: (text) => ((logs += String(text)), true) },
+    });
+
+    expect(relay.registrations).toHaveLength(1);
+    relay.managementSockets[0]!.terminate();
+    relay.httpSockets[0]!.terminate();
+
+    await waitFor(() => relay.registrations.length >= 3, 10_000);
+    await waitFor(
+      () => relay.managementSockets.some((socket) => socket.readyState === 1) &&
+        relay.httpSockets.some((socket) => socket.readyState === 1),
+    );
+    expect(logs).toContain('DEPLOYING');
+    expect(handle.url).toContain('?rc=1&from=kimi_code_cli');
+  }, 15_000);
 });
 
 describe('Remote Control single-instance lock', () => {
@@ -625,25 +691,49 @@ async function startAuthRelay(
     echoProtocol?: boolean;
     rejectUpgrades?: number;
     closeManagementDuringFirstHttpHandshake?: boolean;
+    nakRegistrationsAfterFirst?: number;
   } = {},
 ): Promise<{
   port: number;
   requests: Array<{ authorization?: string; protocol?: string }>;
+  registrations: unknown[];
+  managementSockets: WebSocket[];
+  httpSockets: WebSocket[];
 }> {
   const handleProtocols = options.echoProtocol === false ? (): false => false : undefined;
   const managementServer = new WebSocketServer({ noServer: true, handleProtocols });
   const httpTunnelServer = new WebSocketServer({ noServer: true, handleProtocols });
   const relayServer = createServer();
   const requests: Array<{ authorization?: string; protocol?: string }> = [];
+  const registrations: unknown[] = [];
+  const managementSockets: WebSocket[] = [];
+  const httpSockets: WebSocket[] = [];
   let remainingRejections = options.rejectUpgrades ?? 0;
   let closeManagement = options.closeManagementDuringFirstHttpHandshake === true;
   let delayHttpUpgrade = closeManagement;
+  let pendingNaks = options.nakRegistrationsAfterFirst ?? 0;
 
   managementServer.on('connection', (ws) => {
+    managementSockets.push(ws);
     ws.on('error', () => {});
     ws.on('message', (data) => {
       const message = JSON.parse(rawDataText(data)) as { type?: string };
       if (message.type === 'register') {
+        const isReconnectRegistration = registrations.length > 0;
+        registrations.push(message);
+        if (isReconnectRegistration && pendingNaks > 0) {
+          pendingNaks -= 1;
+          ws.send(
+            JSON.stringify({
+              type: 'register_nak',
+              payload: {
+                error_code: 'DEPLOYING',
+                error_message: 'relay is restarting',
+              },
+            }),
+          );
+          return;
+        }
         ws.send(JSON.stringify({ type: 'register_ack', payload: { success: true } }));
         if (closeManagement) {
           closeManagement = false;
@@ -652,7 +742,10 @@ async function startAuthRelay(
       }
     });
   });
-  httpTunnelServer.on('connection', (ws) => ws.on('error', () => {}));
+  httpTunnelServer.on('connection', (ws) => {
+    httpSockets.push(ws);
+    ws.on('error', () => {});
+  });
   relayServer.on('upgrade', (request, socket, head) => {
     const authorization = request.headers.authorization;
     const protocol = request.headers['sec-websocket-protocol'];
@@ -663,7 +756,7 @@ async function startAuthRelay(
     if (remainingRejections > 0) {
       remainingRejections -= 1;
       socket.end(
-        'HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n',
+        `HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: ${REJECTION_BODY.length}\r\n\r\n${REJECTION_BODY}`,
       );
       return;
     }
@@ -683,7 +776,7 @@ async function startAuthRelay(
   });
   const port = await listen(relayServer);
   cleanups.push(() => closeServer(relayServer));
-  return { port, requests };
+  return { port, requests, registrations, managementSockets, httpSockets };
 }
 
 function listen(server: ReturnType<typeof createServer>): Promise<number> {

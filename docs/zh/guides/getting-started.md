@@ -10,11 +10,11 @@ Kimi Code CLI 是一个运行在终端中的 AI Agent，帮助你完成软件开
 - **理解项目**：探索陌生的代码库，解答架构和实现层面的问题
 - **自动化任务**：批量处理文件、运行构建与测试、串联多个脚本
 
-整套 CLI 以 TypeScript 编写，通过 npm 分发，运行在 Node.js 之上。
+整套 CLI 以 TypeScript 编写，通过 npm 分发，运行在 Bun 之上。
 
 ## 安装
 
-提供两种安装方式：官方安装脚本（推荐，无需预装 Node.js）和 npm 全局安装。
+提供两种安装方式：官方安装脚本（推荐，无需预装任何运行时）和通过 npm 或 Bun 全局安装。
 
 ::: tip 安装之前
 Kimi Code CLI 为全交互式 TUI 应用，推荐在支持真彩色与连字的现代终端中运行以获得最佳体验，例如 [Kitty](https://sw.kovidgoyal.net/kitty/) 或 [Ghostty](https://ghostty.org/)。
@@ -22,56 +22,43 @@ Kimi Code CLI 为全交互式 TUI 应用，推荐在支持真彩色与连字的�
 
 ### 脚本安装（推荐）
 
-- **macOS / Linux**：
+::: code-group
 
-```sh
+```sh [macOS / Linux]
 curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
 ```
 
-- **Windows（PowerShell）**：
-
-```powershell
+```powershell [Windows (PowerShell)]
 irm https://code.kimi.com/kimi-code/install.ps1 | iex
 ```
+
+:::
 
 > Windows 上 CLI 内置 Shell 检测：优先 PowerShell 7，其次 Windows PowerShell，再次 Git Bash 或 MSYS2 bash（若已安装）。要固定某个 Shell（例如 `bash.exe`、`pwsh.exe` 或 `cmd.exe`），把 `KIMI_SHELL_PATH` 设为它的绝对路径。首次启动时若未检测到任何 bash，CLI 会提示安装 MSYS2（完整的 Linux 命令行环境）并自动切换。
 
 脚本会自动下载最新版本、校验 checksum，并把 `kimi` 可执行文件放到你的 `PATH` 中。
 
-### npm 安装
+### 包管理器安装
 
-需要 Node.js 22.19.0 或更高版本：
+需要 Bun 1.4.0 或更高版本：
 
 ```sh
-node --version
+bun --version
+```
+
+::: code-group
+
+```sh [npm]
 npm install -g @moonshot-ai/kimi-code
 ```
 
-或用 Bun：
-
-```sh
+```sh [Bun]
 bun add -g @moonshot-ai/kimi-code
 ```
 
-## 升级与卸载
+:::
 
-安装完成后，验证可执行文件是否就绪：
-
-```sh
-kimi --version
-```
-
-**升级**：运行 `kimi upgrade`，CLI 会检查最新版本并展示更新选项。选择 `Install update now` 后根据当前安装来源执行升级；也可以直接用包管理器：
-
-```sh
-npm install -g @moonshot-ai/kimi-code@latest
-```
-
-**卸载**：脚本安装的用户删除 `kimi` 可执行文件即可；npm 安装的用户：
-
-```sh
-npm uninstall -g @moonshot-ai/kimi-code
-```
+> CLI 本体运行在 Bun 上，而非 Node.js。用 npm 安装没有问题，但运行 `kimi` 时 `PATH` 中必须存在 Bun >= 1.4。尚未安装的请见 [bun.sh](https://bun.sh)。
 
 ## 第一次启动
 
@@ -162,6 +149,26 @@ Kimi Code CLI 会规划步骤、修改代码、运行测试，并在每一步告
 ## 数据存放在哪里
 
 Kimi Code CLI 的本地数据默认保存在 `~/.kimi-code/` 下，包含配置文件、会话记录、日志和更新缓存。如需迁移到别处，通过 `KIMI_CODE_HOME` 环境变量指定新路径。完整说明见[数据路径](../configuration/data-locations.md)和[环境变量](../configuration/env-vars.md)。
+
+## 升级与卸载
+
+安装完成后，验证可执行文件是否就绪：
+
+```sh
+kimi --version
+```
+
+**升级**：运行 `kimi upgrade`，CLI 会检查最新版本并展示更新选项。选择 `Install update now` 后根据当前安装来源执行升级；也可以直接用包管理器：
+
+```sh
+npm install -g @moonshot-ai/kimi-code@latest
+```
+
+**卸载**：脚本安装的用户删除 `kimi` 可执行文件即可；npm 安装的用户：
+
+```sh
+npm uninstall -g @moonshot-ai/kimi-code
+```
 
 ## 下一步
 

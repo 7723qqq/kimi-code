@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Copy web/dist/** into server/dist/public/ so the bundled server can serve
 // the SPA out of a single deploy artifact.
 

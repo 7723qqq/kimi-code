@@ -52,6 +52,19 @@ describe('mediaUrlPartToText', () => {
       '<image url="file:///tmp/a&lt;b&gt;c&amp;d&apos;.png">',
     );
   });
+
+  it('wraps http(s) URLs in an OSC 8 hyperlink', () => {
+    expect(mediaUrlPartToText('image', 'https://example.com/a.png')).toBe(
+      '\u001B]8;;https://example.com/a.png\u001B\\<image url="https://example.com/a.png">\u001B]8;;\u001B\\',
+    );
+    expect(mediaUrlPartToText('video', 'http://example.com/v.mp4')).toContain(
+      '\u001B]8;;http://example.com/v.mp4\u001B\\',
+    );
+  });
+
+  it('does not hyperlink non-http URLs', () => {
+    expect(mediaUrlPartToText('image', 'file:///tmp/a.png')).not.toContain('\u001B]8;');
+  });
 });
 
 describe('summarizeDataUrl', () => {

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { existsSync } from 'node:fs';
 
 import { runLocalCli } from './local-cli.mjs';

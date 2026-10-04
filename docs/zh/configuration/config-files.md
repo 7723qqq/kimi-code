@@ -220,6 +220,8 @@ default_model = "kimi-code/kimi-for-coding-highspeed"
 - `default_effort` 是节级设置：无论派生绑定到池中哪个条目（或 force 固定的模型）都生效。想按条目区分档位时不要设置它，改用下文的模型「变体」。
 - `primary` 是保留字（含义见下文），不能作为池中 key。
 
+池别名引用的是 `[models]` 表的当前内容：如果之后删除供应商、登出账号，或其刷新后的模型列表不再包含某个别名，会话启动时会报出指明失效别名的配置错误，修正或移除对应条目即可恢复。系统不会自动改写 `[secondary_model]` 节。
+
 在交互式 TUI 中，也可以用 [`/secondary-model`](../reference/slash-commands.md) 命令（别名 `/subagent-model`）打开模型选择器：选择后写入 `default_model`（已有 models 表而所选别名不在其中时，会一并补一条空描述条目），之后派生的 subagent 立即按新默认值绑定，无需重启会话。
 
 配置了模型池（显式的 `models` 表或隐式的单条目池）即启用模型选择：`Agent` / `AgentSwarm` 工具会获得 `model` 参数，工具描述中列出模型池（默认模型标注 `[default]`），main agent 可按次派生选择模型。池 key 只能引用已配置的 [`[models]`](#models) 条目——下面的 `kimi-code/*` 别名由 `/login` 自动提供：
@@ -474,6 +476,27 @@ base_url = "https://api.moonshot.cn/v1/fetch"
 api_key = "sk-xxx"
 ```
 
+## `github`
+
+配置内置的 GitHub 工具——Agent 处理 GitHub 上的 PR、issue、提交和搜索时用的那组工具。只有配好 token，这组工具才会进入 Agent 的工具列表；没配就完全没有 `GitHub*` 工具，这一段也可以整段不写。
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `token` | `string` | — | 内置 GitHub 工具使用的 GitHub 个人访问令牌。未设置时回退到 `GITHUB_TOKEN`，再到 `GH_TOKEN` |
+| `base_url` | `string` | `https://api.github.com` | REST API 基地址。要连 GitHub 企业版（GitHub Enterprise Server）实例时改它，而不是用 GitHub 公网 API |
+
+```toml
+[github]
+token = "YOUR_GITHUB_TOKEN"
+base_url = "https://github.example.com/api/v3" # 可选 —— GitHub 企业版实例
+```
+
+写在这里的值始终优先于环境变量：`GITHUB_TOKEN`、`GH_TOKEN`、`GITHUB_API_URL` 只在配置文件没有给出对应字段时被当作回退读取，并且来自环境变量的值永远不会写回 `config.toml`——容器和 CI 里写配置文件不方便，这个行为正好用得上。详见[环境变量：GitHub 凭证](./env-vars.md#github-凭证)。
+
+token 是在工具激活时读取的，不是只在启动时读一次：在这里补上 `token`（或导出 `GITHUB_TOKEN`）之后，正在运行的那一轮的下一步就能用上这些工具，不需要重启。反过来撤掉 token，不会从已经激活这些工具的 Agent 手里收回它们——要彻底收回，请新开一个会话。
+
+工具清单和审批规则见[内置工具](../reference/tools.md#github)。
+
 ## `permission`
 
 `permission` 设置会话启动时自动加载的权限规则，控制 Agent 调用工具时是否需要用户确认。规则用 `[[permission.rules]]` 数组表写出，按顺序匹配，第一条命中即生效。
@@ -516,6 +539,7 @@ MCP server 的声明配置写在 `~/.kimi-code/mcp.json` 或项目内 `.kimi-cod
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `theme` | `string` | `auto` | 配色主题：`auto`（跟随终端）、`dark`、`light`，或[自定义主题](../customization/themes.md)的名字 |
+| `locale` | `string` | 自动探测 | 终端界面语言：`en` 或 `zh`，用 `/settings` 对话框即可切换并写入。未设置时，若 `KIMI_LANG` 或系统的 `LANG` / `LC_ALL` / `LC_MESSAGES` 表明是中文则取 `zh`，否则取 `en`；显式设置可固定为某一种语言 |
 | `render_latex` | `boolean` | `true` | 将 Markdown 消息中的 LaTeX 公式（`$…$`、`$$…$$`）渲染为 Unicode 文本；`false` 则保留原始源码 |
 | `disable_paste_burst` | `boolean` | `false` | 禁用非 bracketed paste 的粘贴突发兜底；默认开启，避免快速多行粘贴被逐行提交 |
 | `cache_expiry_hint` | `boolean` | `true` | resume 长时间未活动的会话、或长时间空闲后发送消息时，若上下文缓存可能已过期则弹出提醒，可选择先压缩或新建会话（仅 v2 引擎） |

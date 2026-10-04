@@ -591,7 +591,15 @@ function modelToToml(model: ModelAlias, rawModel: unknown): Record<string, unkno
   const out = cloneRecord(rawModel);
   for (const [key, value] of Object.entries(model)) {
     if (key === 'capabilities' && Array.isArray(value)) {
-      out[camelToSnake(key)] = [...value];
+      const onDisk = Array.isArray(out['capabilities']) ? out['capabilities'] : [];
+      const union = new Set<string>();
+      for (const c of onDisk) {
+        if (typeof c === 'string' && c.trim().length > 0) union.add(c.trim());
+      }
+      for (const c of value) {
+        if (typeof c === 'string' && c.trim().length > 0) union.add(c.trim());
+      }
+      out[camelToSnake(key)] = [...union];
     } else if (key === 'overrides' && isPlainObject(value)) {
       const rawOverrides = isPlainObject(rawModel) ? rawModel['overrides'] : undefined;
       out['overrides'] = modelOverridesToToml(value, rawOverrides);

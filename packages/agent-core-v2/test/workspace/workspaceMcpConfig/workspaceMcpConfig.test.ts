@@ -19,7 +19,7 @@ import {
 import { IPluginService } from '#/app/plugin/plugin';
 import type { PluginReloadEvent } from '#/app/plugin/types';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
   IHostFsWatchService,

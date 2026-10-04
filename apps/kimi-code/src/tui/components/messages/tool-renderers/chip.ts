@@ -11,6 +11,7 @@
 import { t } from '#/i18n';
 import { computeDiffLines } from '#/tui/components/media/diff-preview';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
+import { formatBytes } from '#/tui/utils/format-bytes';
 
 import { goalStatusChip } from './goal';
 import { readMediaChip } from './media';
@@ -31,12 +32,6 @@ function pluralize(n: number, singular: string, plural?: string): string {
     count: String(n),
     label: n === 1 ? singular : (plural ?? `${singular}s`),
   });
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${String(bytes)} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 export interface EditStats {
@@ -91,7 +86,8 @@ const writeChip: ChipProvider = (toolCall) => formatWriteChip(computeWriteStats(
 const readChip: ChipProvider = (_toolCall, result) =>
   pluralize(countNonEmptyLines(result.output), 'line');
 
-const readOutputChip: ChipProvider = (toolCall, result) => readMediaChip(toolCall, result) || readChip(toolCall, result);
+const readOutputChip: ChipProvider = (toolCall, result) =>
+  readMediaChip(toolCall, result) || readChip(toolCall, result);
 
 const grepChip: ChipProvider = (_toolCall, result) => {
   const matches = countNonEmptyLines(result.output);

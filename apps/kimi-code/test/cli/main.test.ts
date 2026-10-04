@@ -392,6 +392,25 @@ describe('main entry command handling', () => {
     }
   });
 
+  it('does not require Bun when imported as a module', async () => {
+    // The entrypoint's Bun fast-fail is gated on `import.meta.main`. A module
+    // import (this test, the ACP host, embedders) must not exit the host
+    // process even if `globalThis.Bun` happens to be absent.
+    const originalBun = (globalThis as { Bun?: unknown }).Bun;
+    try {
+      delete (globalThis as { Bun?: unknown }).Bun;
+      main();
+
+      const programArgs = await waitForProgramCall();
+      expect(programArgs).toBeDefined();
+      expect(process.exitCode).toBeUndefined();
+    } finally {
+      if (originalBun !== undefined) {
+        (globalThis as { Bun?: unknown }).Bun = originalBun;
+      }
+    }
+  });
+
   it('exits early when update preflight requests process exit', async () => {
     const opts = defaultOpts();
     mocks.validateOptions.mockReturnValue({ options: opts, uiMode: 'shell' });

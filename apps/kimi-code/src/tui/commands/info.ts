@@ -183,7 +183,7 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
     permissionMode: appState.permissionMode,
     planMode: appState.planMode,
     towerMode: appState.towerMode,
-    towerAvailable: host.engineV2 && isExperimentalFlagEnabled('tower'),
+    towerAvailable: isExperimentalFlagEnabled('tower'),
     contextUsage: appState.contextUsage,
     contextTokens: appState.contextTokens,
     maxContextTokens: appState.maxContextTokens,
@@ -207,12 +207,10 @@ export async function showMcpServers(host: SlashCommandHost): Promise<void> {
   try {
     if (host.session !== undefined) {
       servers = await host.session.listMcpServers();
-    } else if (host.engineV2) {
-      // v2 session-less: the MCP connection set is workspace-scoped, so it is
+    } else {
+      // Session-less: the MCP connection set is workspace-scoped, so it is
       // inspectable before the first session exists.
       servers = await host.harness.listWorkspaceMcpServers(host.state.appState.workDir);
-    } else {
-      servers = await host.requireSession().listMcpServers();
     }
   } catch (error) {
     host.showError(`Failed to load MCP servers: ${formatErrorMessage(error)}`);

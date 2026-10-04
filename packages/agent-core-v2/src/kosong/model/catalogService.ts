@@ -5,6 +5,7 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
 import { LifecycleScope } from '#/app/scopes';
 import type { ModelCapability } from '#/kosong/contract/capability';
+import { isUnknownCapability, markUnknownCapability } from '#/kosong/contract/capability';
 import { CONFIG_INVALID_ERROR_CODE } from '#/kosong/contract/errors';
 import type { ProviderRequestAuth } from '#/kosong/contract/provider';
 import type { TokenUsage } from '#/kosong/contract/usage';
@@ -530,7 +531,7 @@ function resolveModelCapabilities(
   maxInputSize: number | undefined,
 ): ModelCapability {
   const declared = new Set((declaredCapabilities ?? []).map((c) => c.trim().toLowerCase()));
-  return {
+  const capabilities: ModelCapability = {
     image_in: declared.has('image_in') || detected.image_in,
     video_in: declared.has('video_in') || detected.video_in,
     audio_in: declared.has('audio_in') || detected.audio_in,
@@ -541,6 +542,20 @@ function resolveModelCapabilities(
     dynamically_loaded_tools:
       declared.has('dynamically_loaded_tools') || detected.dynamically_loaded_tools === true,
   };
+  // The detected capability may be UNKNOWN (model id missing from every
+  // static table). Declaring e.g. `thinking` alone must not turn that into a
+  // confirmed "no image input" — media gates treat a known capability set as
+  // authoritative, so keep the unknown marker unless the declaration itself
+  // speaks about media input.
+  if (
+    isUnknownCapability(detected) &&
+    !declared.has('image_in') &&
+    !declared.has('video_in') &&
+    !declared.has('audio_in')
+  ) {
+    return markUnknownCapability(capabilities);
+  }
+  return capabilities;
 }
 
 function stripTrailingV1(baseUrl: string): string {

@@ -760,9 +760,11 @@ describe('refreshAllProviderModels', () => {
     });
 
     expect(result.failed).toEqual([]);
-    expect(host.current().models?.['kimi-code/kimi-deep-coder']?.capabilities).toEqual([
-      'thinking',
+    // Capability order is not meaningful (the refresh merge unions existing
+    // entries first), so assert as a sorted set.
+    expect(host.current().models?.['kimi-code/kimi-deep-coder']?.capabilities?.toSorted()).toEqual([
       'always_thinking',
+      'thinking',
       'tool_use',
     ]);
     expect(host.current().defaultModel).toBe('kimi-code/kimi-deep-coder');
@@ -846,7 +848,7 @@ describe('refreshAllProviderModels', () => {
     });
     // Upstream-owned fields merge; the dropped model disappears; the new one appears.
     expect(host.current().models?.['my-kimi/kimi-for-coding']?.displayName).toBe('Fresh Kimi');
-    expect(host.current().models?.['my-kimi/kimi-for-coding']?.capabilities).toEqual([
+    expect(host.current().models?.['my-kimi/kimi-for-coding']?.capabilities?.toSorted()).toEqual([
       'thinking',
       'tool_use',
     ]);

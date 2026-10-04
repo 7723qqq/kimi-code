@@ -181,11 +181,6 @@ export default {
         statusInProgress: '进行中',
         statusPending: '待处理',
       },
-      workflowPanel: {
-        header: '工作流',
-        running: '运行中',
-        moreRuns: '+{{count}} 个',
-      },
       activityPane: {
         tipPrefix: ' · 提示：{{tip}}',
       },
@@ -195,6 +190,7 @@ export default {
         llmNotSet: 'LLM 未设置，发送 "/login" 登录',
         noActiveSession: '没有活动会话。发送 /login 登录。',
         oauthLoginExpired: 'OAuth 登录已过期。发送 /login 登录。',
+        sessionlessStartup: '还没有会话——发送第一条消息时自动创建。',
       },
       tips: {
         ctrlSAddGuidance: 'ctrl-s 可在本轮结束前追加指导',
@@ -274,8 +270,111 @@ export default {
       exportDebugZip: '将会话导出为调试 ZIP 归档',
       copy: '复制最后一条助手消息到剪贴板',
       web: '在 Web UI 中打开当前会话并退出终端',
+      remoteControl: '通过 Kimi Remote Control 打开当前会话（实验性）',
+      tower: '查看 tower 状态、切换 tower 模式或设置 tower 目标',
       exit: '退出应用程序',
       version: '显示版本信息',
+    },
+    commands: {
+      plugins: {
+        installUsage: '用法：/plugins install <local-path-or-zip-url>',
+        installCancelled: '已取消安装。',
+        installingFrom: '正在从 {{source}} 安装插件…',
+        installFinished: '安装完成 — 详情见下方。',
+        installFailed: '安装失败：{{error}}',
+        mcpUsage: '用法：/plugins mcp enable|disable <id> <server>',
+        enabled: '已启用',
+        disabled: '已禁用',
+        mcpToggled: '{{action}} {{id}} 的 MCP server {{server}}。运行 /reload 或 /new 以生效。',
+        removeUsage: '用法：/plugins remove <id>',
+        removeCancelled: '已取消移除：{{id}}。',
+        unknownAction: '未知的 /plugins 操作：{{action}}。运行 /plugins 进行交互式选择。',
+        commandFailed: '/plugins {{sub}} 执行失败：{{error}}',
+        loadFailed: '插件加载失败：{{error}}',
+        panelFailed: '/plugins 失败：{{error}}',
+        mcpLoadFailed: '插件 MCP server 加载失败：{{error}}',
+        mcpPanelFailed: '/plugins mcp 失败：{{error}}',
+        installFailedLabel: '安装 {{label}} 失败：{{error}}',
+        installStillRunning: '{{label}} 的安装仍在后台进行。',
+        installFailedWithError: '{{label}} 安装失败：{{error}}',
+        fixErrorAndRetry: '请修复上述错误，然后从 /plugins 重新安装。',
+        grantPermissions: '请在系统设置 → 隐私与安全性中授予辅助功能和屏幕录制权限。',
+        installIncomplete: '{{label}} 安装未完成。请查看日志，然后从 /plugins 重新安装。',
+        installed: '{{label}} 已安装。',
+        installCancelledLabel: '已取消安装：{{label}}。',
+        installingFromMarketplace: '正在从 marketplace 安装或更新 {{label}}...',
+        mcpDisabledHint:
+          ' 部分 MCP server 已禁用；可运行 /plugins mcp enable {{id}} <server> 重新启用。',
+        toggled: '{{action}} {{id}}。运行 /reload 或 /new 以生效。{{mcpHint}}',
+        inlineMcpDisabled: ' · MCP server 已禁用',
+        openingInBrowser: '正在用浏览器打开 {{label}} 页面…',
+        visitUrl: '如果未能打开，请访问 {{url}}',
+        removed: '已移除 {{id}}。',
+        capabilityRemoveNote:
+          '注意：运行时二进制文件未被改动，但 Kimi Code 已为新会话禁用该插件的接入。请先重启 Kimi Code，再从 Official 标签页重新安装。',
+        listTitle: ' 插件 ({{count}}) ',
+        reloadHint: '运行 /new 或 /reload 以应用插件更改。',
+        webbridgeIntro: '*使用 Kimi WebBridge 还需两步：*',
+        webbridgeStep1: '1. 安装浏览器扩展',
+        webbridgeChromeLink:
+          '   - [Chrome Web Store](https://chromewebstore.google.com/detail/kimi-webbridge/fldmhceldgbpfpkbgopacenieobmligc)',
+        webbridgeEdgeLink:
+          '   - [Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/kimi-webbridge/bnlffdbcfnanfbknnlaflhlhkocccckg)',
+        webbridgeManualLink:
+          '   - [手动安装指南](https://www.kimi.com/code/docs/kimi-code-cli/customization/plugins.html#install-the-browser-extension)',
+        webbridgeStep2: '2. 运行 `/reload` 或 `/new` 以应用。',
+        quotaNote: '注意：此插件会消耗你的配额。',
+        mcpDeclaredOne: ' 声明 {{count}} 个 MCP server；默认启用，可在 /plugins 中配置。',
+        mcpDeclaredMany: ' 声明 {{count}} 个 MCP server；默认启用，可在 /plugins 中配置。',
+        installedAction: '已安装 {{label}}{{versions}}（{{source}}）',
+        migratedAction: '已迁移 {{label}}：{{previous}} → {{current}}{{versions}}',
+        updatedAction: '已更新 {{label}}{{versions}}（{{source}}）',
+        fromSource: '来自 {{source}}',
+        reloadSummary: '重新加载：+{{added}} -{{removed}}',
+        reloadErrors: '（{{count}} 个错误）',
+        inlineChangeHint: '运行 /reload 或 /new 以应用',
+      },
+      auth: {
+        loggedIn: '登录成功。',
+        loginCancelled: '已取消登录。',
+        loginFailedLabel: '登录失败。',
+        loginFailed: '登录失败：{{error}}',
+        alreadyLoggedIn: '已登录。模型配置已刷新。',
+        refreshConfigFailed: '登录成功，但刷新配置失败：{{error}}',
+        savedTo: '保存至',
+        verifyApiKeyFailed: 'API key 验证失败：{{error}}',
+        apiKeyHint: '提示：如果 API key 来自 Kimi Code，请改为选择 "Kimi Code"。',
+        noModelsAvailable: '该平台没有可用模型。',
+        setupComplete: '设置完成：{{name}} · {{model}}',
+        oauthLogin: 'OAuth 登录',
+        nothingToLogout: '没有可登出的提供商。',
+        loggedOutFrom: '已登出 {{provider}}。',
+      },
+      provider: {
+        addTitle: '添加提供商',
+        addFailed: '添加提供商失败：{{error}}',
+        removeFailed: '移除提供商失败：{{error}}',
+        deleteFailed: '删除提供商 {{id}} 失败：{{error}}',
+        fetchingCatalog: '正在从 {{url}} 获取目录',
+        aborted: '已中止。',
+        fetchCatalogFailed: '获取目录失败：{{error}}',
+        fetchCatalogFailedWithStatus: '获取目录失败（HTTP {{status}}）：{{error}}',
+        noUsableModels: '提供商 "{{id}}" 在此目录中没有可用模型。',
+        unsupportedProtocol:
+          '提供商 "{{id}}" 在目录中声明了 "{{type}}" 协议，当前客户端版本不支持。',
+        proprietarySdk:
+          '提供商 "{{id}}" 使用了当前客户端无法对接的专有 SDK（如 Amazon Bedrock 或 Cohere），无法从目录导入。',
+        added: '已添加提供商：{{name}}',
+        protocolGuessed:
+          '已将 {{id}} 的协议猜测为 "openai" — 如果请求失败，请编辑 config.toml 中的 "type"。',
+        setDefaultModelFailed: '设置默认模型失败：{{error}}',
+        defaultModelSet: '默认模型已设为 {{model}}，思考：{{effort}}。',
+        importRegistryFailed: '导入注册表失败：{{error}}',
+        applyRegistryFailed: '应用注册表失败：{{error}}',
+        registryEmpty: '注册表中没有提供商。',
+        importedOne: '已从注册表导入 1 个提供商。',
+        importedMany: '已从注册表导入 {{count}} 个提供商。',
+      },
     },
     approvalLabels: {
       approve: '批准',
@@ -352,6 +451,9 @@ export default {
         neovim: 'Neovim',
         nano: 'Nano',
         autoDetect: '自动检测（$VISUAL / $EDITOR）',
+      },
+      wrappingSelectList: {
+        noMatchingCommands: '没有匹配的命令',
       },
       feedbackInput: {
         title: '向 Kimi Code 发送反馈',
@@ -480,6 +582,7 @@ export default {
         notConfigured: '尚未配置讯飞 — 请先 /login 登录',
         temperatureOutOfRange: 'Temperature 必须在 0-2 之间',
         maxTokensOutOfRange: 'Max Tokens 必须大于 0',
+        invalidNumber: '不是有效的数字',
       },
       permissionSelector: {
         title: '选择权限模式',
@@ -540,10 +643,63 @@ export default {
         lockedBy: '被 {{env}} 锁定',
         lockedByMasterEnv: '被 KIMI_CODE_EXPERIMENTAL_FLAG 锁定',
         features: {
+          auto_session_title: {
+            title: 'AI 会话标题',
+            description:
+              '通过托管的 chat_title 工具从对话内容生成简洁的会话标题：客户端在第一轮结束后自动生成，并在重命名输入框中提供按需重新生成。',
+          },
+          lsp: {
+            title: 'LSP 工具',
+            description:
+              '暴露 lsp 工具，通过 [lsp] 配置段中配置的语言服务器执行跳转到定义、查找引用、查找实现和悬停查询。',
+          },
+          micro_compaction: {
+            title: '微压缩（缓存未命中时截断工具结果）',
+            description:
+              '在 prompt 缓存未命中后，将请求中过大的旧工具结果替换为占位标记，使重建的前缀保持精简。',
+          },
+          persistence_minidb_readmodel: {
+            title: 'minidb 读模型',
+            description: '使用基于 minidb 的 IQueryStore 作为派生读模型，用于会话索引和 wire 回放。',
+          },
+          'remote-control': {
+            title: '远程控制',
+            description:
+              '通过 Kimi 远程控制暴露本机 Web UI（`kimi web --remote-control`、`/remote-control`）。',
+          },
+          search_worker: {
+            title: '搜索 worker 隔离',
+            description:
+              '在独立的 worker 线程中运行全局搜索索引 MiniDB（打开、WAL 回放、同步、查询），而不是在服务器主线程中运行。',
+          },
+          'secondary-model': {
+            title: '子代理副模型',
+            description:
+              '让新启动的子代理默认使用单独配置的副模型，并可显式指定 primary 模型以应对质量敏感的任务。',
+          },
+          subagent_backends: {
+            title: '外部子代理后端',
+            description:
+              '为 Agent 工具启用 claude-code / codex / acp 后端，改为启动外部 agent CLI 而非进程内子代理。',
+          },
+          subagent_fork: {
+            title: '子代理上下文分叉',
+            description:
+              '让 Agent 和 AgentSwarm 工具通过 fork 参数，以调用方对话历史的快照来启动子代理。',
+          },
           tool_select: {
             title: '工具选择（渐进式工具披露）',
             description:
               '将 MCP 工具架构从不可变的顶层 tools[] 中移出；模型通过 select_tools 工具按需加载。仅在模型能力目录声明了动态加载工具时生效。',
+          },
+          tower: {
+            title: 'Tower 模式',
+            description: '启用 tower 模式：让多个 agent 围绕同一目标协同工作，通过 /tower 命令切换。',
+          },
+          xunfei_coding_plan: {
+            title: 'Astron（讯飞编程套餐）',
+            description:
+              '在 /settings 中显示 Astron provider 设置并启用 Astron 登录流程。无论此开关如何，[providers] 下的 astron 条目都保持可用。',
           },
         },
       },
@@ -978,6 +1134,7 @@ export default {
       taskAlreadyFinished_other: '任务已完成。',
       movedOneTaskToBackground: '已将 1 个任务移至后台。',
       failedToApplyStartupFlags: '应用启动标志失败：{{message}}',
+      startupSessionNotInit: '启动会话尚未初始化。',
       compactionCancelled: '压缩已取消',
       compactionComplete: '压缩完成',
       goalSet: '目标已设置',
@@ -1107,6 +1264,9 @@ export default {
       serverDangerAuthDisabled: '⚠ 危险：认证已禁用（--dangerous-bypass-auth）。',
       serverDangerAnyoneAccess:
         '任何能访问此端口的人都将获得完全访问权限。仅在了解风险的情况下继续。',
+      unableToReadServerToken: '无法读取本地服务器令牌。',
+      rcRequiresLocalServerAuth: 'Remote Control 需要本地服务器认证。',
+      rcRequiresKimiLogin: 'Remote Control 需要 Kimi 登录。请先运行 `kimi login`。',
       // sub/server/kill.ts
       serverKillFailedPermissions: '停止旧版 Kimi 服务器（PID {{pid}}）失败；权限不足？',
       // sub/server/daemon.ts
@@ -1286,6 +1446,8 @@ export default {
       noClipboardCommandAvailable: '没有可用的剪贴板命令。',
       // utils/process/fd-detect.ts
       fdDownloadEmptyResponse: '下载 fd 失败：响应体为空',
+      // main.ts
+      bunRuntimeRequired: '@moonshot-ai/kimi-code 需要 Bun >= 1.4。请前往 https://bun.sh 安装',
     },
     messages: {
       agentGroup: {
@@ -1771,6 +1933,10 @@ export default {
       registrySwarmOn: '开启集群模式',
       registrySwarmOff: '关闭集群模式',
       registryAddDirShow: '显示已配置的额外工作目录',
+      registryTowerStatus: '查看 tower 状态',
+      registryTowerTeardown: '拆解 tower',
+      registryTowerOn: '开启 tower 模式',
+      registryTowerOff: '关闭 tower 模式',
       // tui/commands/team.ts
       teamUsage: '用法：/team [--debate] <话题> with <角色1>[:立场],<角色2>[:立场],...',
       teamNeedTopic: '请提供讨论话题。',

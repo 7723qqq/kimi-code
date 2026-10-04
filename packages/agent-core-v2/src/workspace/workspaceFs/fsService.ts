@@ -653,6 +653,65 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     return { items, truncated: capped || all.length > req.limit };
   }
 
+  private async runRg(
+    args: readonly string[],
+    rgBinary: string,
+    signal: AbortSignal,
+    onLine: (line: string, kill: () => void) => void,
+  ): Promise<{ exitCode: number; killed: boolean }> {
+    const lease = this.resolver.acquire(
+      { workspaceId: this.workspaceId, runtimeId: this.runtimeId },
+      ['process'],
+    );
+    const proc = await lease.runtime.process!.spawn(rgBinary, args, { cwd: this.workDir });
+    let killed = false;
+    const kill = (): void => {
+      if (killed) return;
+      killed = true;
+      void proc.kill('SIGKILL');
+    };
+    const onAbort = (): void => kill();
+    if (signal.aborted) kill();
+    else signal.addEventListener('abort', onAbort, { once: true });
+
+    let stdoutBuf = '';
+    const drainStdout = async (): Promise<void> => {
+      proc.stdout.setEncoding('utf-8');
+      try {
+        for await (const chunk of proc.stdout) {
+          stdoutBuf += chunk as string;
+          let nl = stdoutBuf.indexOf('\n');
+          while (nl >= 0) {
+            const line = stdoutBuf.slice(0, nl);
+            stdoutBuf = stdoutBuf.slice(nl + 1);
+            if (line.length > 0) onLine(line, kill);
+            nl = stdoutBuf.indexOf('\n');
+          }
+        }
+        if (stdoutBuf.length > 0) onLine(stdoutBuf, kill);
+      } catch (error) {
+        if (!(killed && isPrematureCloseError(error))) throw error;
+      }
+    };
+
+    let exitCode: number;
+    try {
+      [, , exitCode] = await Promise.all([
+        drainStdout(),
+        readStream(proc.stderr),
+        proc.wait().catch(() => -1),
+      ]);
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+      try {
+        void proc.dispose();
+      } catch {
+      }
+      lease.dispose();
+    }
+    return { exitCode, killed };
+  }
+
   private async suggestWithRg(
     query: SuggestQuery,
     cap: number,
@@ -673,25 +732,10 @@ export class WorkspaceFsService implements IWorkspaceFsService {
       for (const root of roots) args.push(root.dir);
     }
 
-    const lease = this.resolver.acquire(
-      { workspaceId: this.workspaceId, runtimeId: this.runtimeId },
-      ['process'],
-    );
-    const proc = await lease.runtime.process!.spawn(rgBinary, args, { cwd: this.workDir });
-
     const top = new SuggestTopHeap(cap);
     const seenDirs = new Set<string>();
     const seenPaths = new Set<string>();
     let matched = 0;
-    let killed = false;
-    const kill = (): void => {
-      if (killed) return;
-      killed = true;
-      void proc.kill('SIGKILL');
-    };
-    const onAbort = (): void => kill();
-    if (signal.aborted) kill();
-    else signal.addEventListener('abort', onAbort, { once: true });
 
     const sep = this.path.separator;
     const rootMatchers = roots.map((root) => {
@@ -748,40 +792,9 @@ export class WorkspaceFsService implements IWorkspaceFsService {
       }
     };
 
-    let stdoutBuf = '';
-    const drainStdout = async (): Promise<void> => {
-      proc.stdout.setEncoding('utf-8');
-      try {
-        for await (const chunk of proc.stdout) {
-          stdoutBuf += chunk as string;
-          let nl = stdoutBuf.indexOf('\n');
-          while (nl >= 0) {
-            handleLine(stdoutBuf.slice(0, nl));
-            stdoutBuf = stdoutBuf.slice(nl + 1);
-            nl = stdoutBuf.indexOf('\n');
-          }
-        }
-        if (stdoutBuf.length > 0) handleLine(stdoutBuf);
-      } catch (error) {
-        if (!(killed && isPrematureCloseError(error))) throw error;
-      }
-    };
-
-    let exitCode: number;
-    try {
-      [, , exitCode] = await Promise.all([
-        drainStdout(),
-        readStream(proc.stderr),
-        proc.wait().catch(() => -1),
-      ]);
-    } finally {
-      signal.removeEventListener('abort', onAbort);
-      try {
-        void proc.dispose();
-      } catch {
-      }
-      lease.dispose();
-    }
+    const { exitCode, killed } = await this.runRg(args, rgBinary, signal, (line) =>
+      handleLine(line),
+    );
 
     if (!killed && exitCode !== 0 && exitCode !== 1) {
       throw new Error(`rg --files exited with code ${exitCode}`);
@@ -897,53 +910,11 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     args.push(req.pattern);
     args.push('.');
 
-    const lease = this.resolver.acquire({ workspaceId: this.workspaceId, runtimeId: this.runtimeId }, ['process']);
-    const proc = await lease.runtime.process!.spawn(rgPath, args, { cwd: this.workDir });
-
     const acc = new RgJsonAccumulator(req);
-    let killed = false;
-    const kill = (): void => {
-      if (killed) return;
-      killed = true;
-      void proc.kill('SIGKILL');
-    };
-    const onAbort = (): void => kill();
-    if (signal.aborted) kill();
-    else signal.addEventListener('abort', onAbort, { once: true });
-
-    let stdoutBuf = '';
-    const drainStdout = async (): Promise<void> => {
-      proc.stdout.setEncoding('utf-8');
-      try {
-        for await (const chunk of proc.stdout) {
-          stdoutBuf += chunk as string;
-          let nl = stdoutBuf.indexOf('\n');
-          while (nl >= 0) {
-            const line = stdoutBuf.slice(0, nl);
-            stdoutBuf = stdoutBuf.slice(nl + 1);
-            if (line.length > 0) {
-              acc.feed(line);
-              if (acc.capped) kill();
-            }
-            nl = stdoutBuf.indexOf('\n');
-          }
-        }
-        if (stdoutBuf.length > 0) acc.feed(stdoutBuf);
-      } catch (error) {
-        if (!(killed && isPrematureCloseError(error))) throw error;
-      }
-    };
-
-    try {
-      await Promise.all([drainStdout(), readStream(proc.stderr), proc.wait().catch(() => -1)]);
-    } finally {
-      signal.removeEventListener('abort', onAbort);
-      try {
-        void proc.dispose();
-      } catch {
-      }
-      lease.dispose();
-    }
+    await this.runRg(args, rgPath, signal, (line, kill) => {
+      acc.feed(line);
+      if (acc.capped) kill();
+    });
 
     return acc.finish(signal.aborted, Date.now() - startedAt);
   }
@@ -1302,8 +1273,9 @@ function sortChildren(
     },
     name_asc: (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name),
     name_desc: (a: { name: string }, b: { name: string }) => b.name.localeCompare(a.name),
-    mtime_desc: (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name),
-    size_desc: (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name),
+    mtime_desc: (a: { stat: HostFileStat }, b: { stat: HostFileStat }) =>
+      (b.stat.mtimeMs ?? 0) - (a.stat.mtimeMs ?? 0),
+    size_desc: (a: { stat: HostFileStat }, b: { stat: HostFileStat }) => b.stat.size - a.stat.size,
   }[sort];
   children.sort(cmp);
 }

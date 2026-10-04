@@ -26,6 +26,27 @@ import { WrappingSelectList } from './wrapping-select-list';
 const ANSI_SGR = /\u001B\[[0-9;]*m/g;
 
 const PASTE_MARKER_RE = /\[paste #(\d+)(?: (?:\+\d+ lines|\d+ chars))?\]/g;
+
+/** Image extensions accepted for drag & drop attachment (case-insensitive). */
+const DROP_IMAGE_EXT_RE = /\.(?:png|jpe?g|gif|webp|bmp)$/i;
+
+/**
+ * When terminal input is exactly one image file path (drag & drop inserts
+ * the path as a single chunk; a pasted path arrives the same way), return
+ * the path. Quoted paths (`"C:\a\b.png"`) and bare paths without spaces
+ * (`C:\a\b.png`, `/a/b.png`) are recognized; anything else — multi-token
+ * text, relative names, or a path that is not an image — returns undefined.
+ */
+function extractSingleImagePath(input: string): string | undefined {
+  const trimmed = input.trim();
+  if (trimmed.length === 0) return undefined;
+  const quoted = /^"([^"\n]+)"$/.exec(trimmed);
+  const candidate = quoted?.[1] ?? trimmed;
+  if (!/[\\/]/.test(candidate)) return undefined;
+  if (!DROP_IMAGE_EXT_RE.test(candidate)) return undefined;
+  if (quoted === null && /\s/.test(candidate)) return undefined;
+  return candidate;
+}
 const BRACKET_PASTE_START = '\u001B[200~';
 const BRACKET_PASTE_END = '\u001B[201~';
 
@@ -160,6 +181,13 @@ export class CustomEditor extends Editor {
    * it settles before dispatching them.
    */
   public onPasteImage?: () => Promise<boolean>;
+  /**
+   * Called when a single image file path arrives as terminal input (drag &
+   * drop into the terminal, or a pasted path). Return `true` to consume the
+   * input (the path was attached as an image); return `false` to fall
+   * through so the path is inserted as plain text.
+   */
+  public onPasteImagePath?: (path: string) => boolean;
 
   private consumingPaste = false;
   private consumeBuffer = '';
@@ -547,6 +575,19 @@ export class CustomEditor extends Editor {
     }
 
     const emptyPromptBeforeInput = this.inputMode === 'prompt' && this.getText().length === 0;
+
+    // Drag & drop (and pasted paths): terminals insert the dropped file's
+    // path as a single chunk of input. When that chunk is exactly one image
+    // path, attach the image immediately (placeholder in the editor) instead
+    // of leaving a bare path that only converts on submit. Falls through to
+    // plain text when the path is not a readable image.
+    if (this.onPasteImagePath !== undefined) {
+      const imagePath = extractSingleImagePath(normalized);
+      if (imagePath !== undefined && this.onPasteImagePath(imagePath)) {
+        return;
+      }
+    }
+
     super.handleInput(normalized);
 
     // Enter bash mode when `!...` is pasted into an empty prompt. The typed path

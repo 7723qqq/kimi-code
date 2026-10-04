@@ -1,64 +1,79 @@
 import { readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, join, relative, resolve } from 'pathe';
 
 import type { AutocompleteItem } from '@moonshot-ai/pi-tui';
+import { basename, dirname, join, relative, resolve } from 'pathe';
+
+import { t } from '#/i18n';
 
 import { completeLeadingArg, type ArgCompletionSpec } from './complete-args';
 import type { KimiSlashCommand, SlashCommandAvailability } from './types';
 
-/** Subcommands offered when autocompleting `/goal <…>`. */
-const GOAL_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'status', description: 'Show the current goal' },
-  { value: 'pause', description: 'Pause the active goal' },
-  { value: 'resume', description: 'Resume a paused goal' },
-  { value: 'cancel', description: 'Cancel and remove the current goal' },
-  { value: 'replace', description: 'Replace the current goal with a new objective' },
-  { value: 'next', description: 'Queue an upcoming goal' },
-];
+/**
+ * Subcommands offered when autocompleting `/goal <…>`.
+ *
+ * These are lazy getters, not module-level constants: the i18n singleton picks
+ * an env-detected locale at import time and the real one from `tui.toml` lands
+ * later via `setLocale()`, so a translation evaluated at module load would stay
+ * English forever. `test/i18n/module-level-guard.test.ts` enforces this.
+ */
+function goalArgCompletions(): readonly ArgCompletionSpec[] {
+  return [
+    { value: 'status', description: t('tui.messages.registryGoalShow') },
+    { value: 'pause', description: t('tui.messages.registryGoalPause') },
+    { value: 'resume', description: t('tui.messages.registryGoalResume') },
+    { value: 'cancel', description: t('tui.messages.registryGoalCancel') },
+    { value: 'replace', description: t('tui.messages.registryGoalReplace') },
+    { value: 'next', description: t('tui.messages.registryGoalNext') },
+  ];
+}
 
-const GOAL_NEXT_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'manage', description: 'Manage upcoming goals' },
-];
+function goalNextArgCompletions(): readonly ArgCompletionSpec[] {
+  return [{ value: 'manage', description: t('tui.messages.registryGoalManage') }];
+}
 
-const SWARM_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'on', description: 'Turn swarm mode on' },
-  { value: 'off', description: 'Turn swarm mode off' },
-];
+function swarmArgCompletions(): readonly ArgCompletionSpec[] {
+  return [
+    { value: 'on', description: t('tui.messages.registrySwarmOn') },
+    { value: 'off', description: t('tui.messages.registrySwarmOff') },
+  ];
+}
 
-const TOWER_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'status', description: 'Report tower status' },
-  { value: 'teardown', description: 'Tear down the tower' },
-  { value: 'on', description: 'Turn tower mode on' },
-  { value: 'off', description: 'Turn tower mode off' },
-];
+function towerArgCompletions(): readonly ArgCompletionSpec[] {
+  return [
+    { value: 'status', description: t('tui.messages.registryTowerStatus') },
+    { value: 'teardown', description: t('tui.messages.registryTowerTeardown') },
+    { value: 'on', description: t('tui.messages.registryTowerOn') },
+    { value: 'off', description: t('tui.messages.registryTowerOff') },
+  ];
+}
 
-const ADD_DIR_ARG_COMPLETIONS: readonly ArgCompletionSpec[] = [
-  { value: 'list', description: 'Show configured additional workspace directories' },
-];
+function addDirArgCompletions(): readonly ArgCompletionSpec[] {
+  return [{ value: 'list', description: t('tui.messages.registryAddDirShow') }];
+}
 
 /** Argument autocompletion for the `/goal` command (subcommands). */
 export function goalArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
   const nextMatch = argumentPrefix.match(/^next\s+(\S*)$/i);
   if (nextMatch !== null) {
     return (
-      completeLeadingArg(GOAL_NEXT_ARG_COMPLETIONS, nextMatch[1] ?? '')?.map((item) => ({
+      completeLeadingArg(goalNextArgCompletions(), nextMatch[1] ?? '')?.map((item) => ({
         ...item,
         value: `next ${item.value}`,
       })) ?? null
     );
   }
-  return completeLeadingArg(GOAL_ARG_COMPLETIONS, argumentPrefix);
+  return completeLeadingArg(goalArgCompletions(), argumentPrefix);
 }
 
 /** Argument autocompletion for the `/swarm` command (subcommands). */
 export function swarmArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
-  return completeLeadingArg(SWARM_ARG_COMPLETIONS, argumentPrefix);
+  return completeLeadingArg(swarmArgCompletions(), argumentPrefix);
 }
 
 /** Argument autocompletion for the `/tower` command (subcommands). */
 export function towerArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
-  return completeLeadingArg(TOWER_ARG_COMPLETIONS, argumentPrefix);
+  return completeLeadingArg(towerArgCompletions(), argumentPrefix);
 }
 
 /** Argument autocompletion for the `/add-dir` command. */
@@ -66,11 +81,20 @@ export function addDirArgumentCompletions(argumentPrefix: string): AutocompleteI
   if (isPathLikeAddDirArgument(argumentPrefix)) {
     return completeAddDirPath(argumentPrefix);
   }
-  return completeLeadingArg(ADD_DIR_ARG_COMPLETIONS, argumentPrefix);
+  return completeLeadingArg(addDirArgCompletions(), argumentPrefix);
 }
 
 function isPathLikeAddDirArgument(argumentPrefix: string): boolean {
-  return argumentPrefix === '.' || argumentPrefix === '..' || argumentPrefix.startsWith('./') || argumentPrefix.startsWith('../') || argumentPrefix.startsWith('/') || argumentPrefix.startsWith('~');
+  return (
+    argumentPrefix === '.' ||
+    argumentPrefix === '..' ||
+    argumentPrefix.startsWith('./') ||
+    argumentPrefix.startsWith('../') ||
+    argumentPrefix.startsWith('/') ||
+    argumentPrefix.startsWith('~') ||
+    // Windows drive-letter paths: `C:/dir`, `C:\dir`.
+    /^[a-zA-Z]:[/\\]/.test(argumentPrefix)
+  );
 }
 
 function completeAddDirPath(argumentPrefix: string): AutocompleteItem[] | null {
@@ -89,7 +113,8 @@ function completeAddDirPath(argumentPrefix: string): AutocompleteItem[] | null {
   const items: AutocompleteItem[] = [];
   for (const entry of entries) {
     if (entry.name === '.' || entry.name === '..' || entry.name.startsWith('.')) continue;
-    if (partialName.length > 0 && !entry.name.toLowerCase().startsWith(partialName.toLowerCase())) continue;
+    if (partialName.length > 0 && !entry.name.toLowerCase().startsWith(partialName.toLowerCase()))
+      continue;
     const absolutePath = join(parentDir, entry.name);
     if (!isDirectoryPath(absolutePath, entry.isDirectory(), entry.isSymbolicLink())) continue;
     const value = formatDirectoryCompletionValue(normalizedPrefix, parentInput, entry.name);
@@ -132,67 +157,102 @@ function isDirectoryPath(path: string, isDirectory: boolean, isSymlink: boolean)
   }
 }
 
-function formatDirectoryCompletionValue(argumentPrefix: string, parentInput: string, entryName: string): string {
+function formatDirectoryCompletionValue(
+  argumentPrefix: string,
+  parentInput: string,
+  entryName: string,
+): string {
   if (argumentPrefix.startsWith('~/')) {
     const home = homedir();
     const homeRelative = relative(home, parentInput);
     return `~${homeRelative.length > 0 ? `/${homeRelative}` : ''}/${entryName}/`;
   }
-  if (argumentPrefix.startsWith('/')) {
-    return `${join(parentInput, entryName)}/`;
-  }
-  return `${join(parentInput, entryName)}/`;
+  return `${join(parentInput, entryName).replaceAll('\\', '/')}/`;
 }
 
 export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'yolo',
     aliases: ['yes'],
-    description: 'Toggle YOLO mode: auto-approve tool actions, but the agent may still ask questions.',
+    get description() {
+      return t('tui.slashCommands.yolo');
+    },
     priority: 101,
     availability: 'always',
   },
   {
     name: 'auto',
     aliases: [],
-    description: 'Toggle Auto mode: fully autonomous, agent decides everything without asking.',
+    get description() {
+      return t('tui.slashCommands.auto');
+    },
     priority: 99,
     availability: 'always',
   },
   {
     name: 'permission',
     aliases: [],
-    description: 'Select permission mode',
+    get description() {
+      return t('tui.slashCommands.permission');
+    },
     priority: 100,
     availability: 'always',
   },
   {
     name: 'settings',
     aliases: ['config'],
-    description: 'Open TUI settings',
+    get description() {
+      return t('tui.slashCommands.settings');
+    },
     priority: 100,
     availability: 'always',
   },
   {
     name: 'plan',
     aliases: [],
-    description: 'Toggle plan mode',
+    get description() {
+      return t('tui.slashCommands.plan');
+    },
     priority: 100,
     availability: (args) => (args.trim().toLowerCase() === 'clear' ? 'idle-only' : 'always'),
   },
   {
     name: 'swarm',
     aliases: [],
-    description: 'Toggle swarm mode or run one task in swarm mode',
+    get description() {
+      return t('tui.slashCommands.swarm');
+    },
     priority: 100,
     argumentHint: '[on|off] | <task>',
     completeArgs: swarmArgumentCompletions,
     availability: 'idle-only',
   },
   {
+    name: 'team',
+    aliases: [],
+    get description() {
+      return t('tui.slashCommands.team');
+    },
+    priority: 95,
+    argumentHint: '<topic>',
+    availability: 'idle-only',
+  },
+  {
+    name: 'workflow',
+    aliases: [],
+    get description() {
+      return t('tui.slashCommands.workflow');
+    },
+    priority: 80,
+    argumentHint: '<name> [args...] | list | status <runId> | cancel <runId>',
+    availability: 'always',
+  },
+  {
     name: 'tower',
     aliases: [],
-    description: 'Report tower status, toggle tower mode, or set the tower objective',
+    get description() {
+      return t('tui.slashCommands.tower');
+    },
     priority: 100,
     argumentHint: '[status|teardown|on|off] | <objective>',
     completeArgs: towerArgumentCompletions,
@@ -201,19 +261,22 @@ export const BUILTIN_SLASH_COMMANDS = [
     // commands never wait for the previous one to finish.
     availability: 'always',
     experimentalFlag: 'tower',
-    requiresEngineV2: true,
   },
   {
     name: 'model',
     aliases: [],
-    description: 'Switch LLM model',
+    get description() {
+      return t('tui.slashCommands.model');
+    },
     priority: 100,
     availability: 'always',
   },
   {
     name: 'secondary-model',
     aliases: ['subagent-model'],
-    description: 'Configure the secondary model for subagents',
+    get description() {
+      return t('tui.slashCommands.secondaryModel');
+    },
     priority: 90,
     availability: 'always',
     experimentalFlag: 'secondary-model',
@@ -221,68 +284,88 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'effort',
     aliases: ['thinking'],
-    description: 'Switch thinking effort',
+    get description() {
+      return t('tui.slashCommands.effort');
+    },
     priority: 95,
     availability: 'always',
   },
   {
     name: 'provider',
     aliases: ['providers'],
-    description: 'Manage AI providers (add / delete / refresh)',
+    get description() {
+      return t('tui.slashCommands.provider');
+    },
     priority: 95,
     availability: 'always',
   },
   {
     name: 'btw',
     aliases: [],
-    description: 'Ask a forked side agent a question',
+    get description() {
+      return t('tui.slashCommands.btw');
+    },
     priority: 90,
     availability: 'always',
   },
   {
     name: 'help',
     aliases: ['h', '?'],
-    description: 'Show available commands and shortcuts',
+    get description() {
+      return t('tui.slashCommands.help');
+    },
     priority: 80,
     availability: 'always',
   },
   {
     name: 'new',
     aliases: ['clear'],
-    description: 'Start a fresh session in the current workspace',
+    get description() {
+      return t('tui.slashCommands.new');
+    },
     priority: 80,
   },
   {
     name: 'sessions',
     aliases: ['resume'],
-    description: 'Browse and resume sessions',
+    get description() {
+      return t('tui.slashCommands.sessions');
+    },
     priority: 80,
   },
   {
     name: 'tasks',
     aliases: ['task'],
-    description: 'Browse background tasks',
+    get description() {
+      return t('tui.slashCommands.tasks');
+    },
     priority: 80,
     availability: 'always',
   },
   {
     name: 'mcp',
     aliases: [],
-    description: 'Show MCP server status',
+    get description() {
+      return t('tui.slashCommands.mcp');
+    },
     priority: 60,
     availability: 'always',
   },
   {
     name: 'plugins',
     aliases: [],
-    description: 'Manage plugins',
+    get description() {
+      return t('tui.slashCommands.plugins');
+    },
     priority: 60,
     availability: 'always',
   },
   {
     name: 'add-dir',
     aliases: [],
-    description: 'Add or list an additional workspace directory',
+    get description() {
+      return t('tui.slashCommands.addDir');
+    },
     priority: 60,
     availability: 'idle-only',
     argumentHint: '[list] | <path>',
@@ -291,35 +374,45 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'experiments',
     aliases: ['experimental'],
-    description: 'Manage experimental features',
+    get description() {
+      return t('tui.slashCommands.experiments');
+    },
     priority: 60,
     availability: 'idle-only',
   },
   {
     name: 'reload',
     aliases: [],
-    description: 'Reload session and apply config.toml settings plus tui.toml UI preferences',
+    get description() {
+      return t('tui.slashCommands.reload');
+    },
     priority: 60,
     availability: 'idle-only',
   },
   {
     name: 'reload-tui',
     aliases: [],
-    description: 'Reload only tui.toml UI preferences',
+    get description() {
+      return t('tui.slashCommands.reloadTui');
+    },
     priority: 60,
     availability: 'always',
   },
   {
     name: 'compact',
     aliases: [],
-    description: 'Compact the conversation context',
+    get description() {
+      return t('tui.slashCommands.compact');
+    },
     priority: 80,
     argumentHint: '<instruction>',
   },
   {
     name: 'goal',
     aliases: [],
-    description: 'Start or manage an autonomous goal',
+    get description() {
+      return t('tui.slashCommands.goal');
+    },
     priority: 80,
     argumentHint: '[status|pause|resume|cancel|replace|next] | <objective>',
     completeArgs: goalArgumentCompletions,
@@ -336,18 +429,24 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'init',
     aliases: [],
-    description: 'Analyze the codebase and generate AGENTS.md',
+    get description() {
+      return t('tui.slashCommands.init');
+    },
   },
   {
     name: 'fork',
     aliases: [],
-    description: 'Fork the current session into a copy without switching to it',
+    get description() {
+      return t('tui.slashCommands.fork');
+    },
     priority: 80,
   },
   {
     name: 'title',
     aliases: ['rename'],
-    description: 'Set or show session title',
+    get description() {
+      return t('tui.slashCommands.title');
+    },
     priority: 60,
     argumentHint: '<title>',
     availability: 'always',
@@ -355,86 +454,112 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'usage',
     aliases: [],
-    description: 'Show session tokens + context window + plan quotas',
+    get description() {
+      return t('tui.slashCommands.usage');
+    },
     priority: 60,
     availability: 'always',
   },
   {
     name: 'status',
     aliases: [],
-    description: 'Show current session and runtime status',
+    get description() {
+      return t('tui.slashCommands.status');
+    },
     priority: 60,
     availability: 'always',
   },
   {
     name: 'feedback',
     aliases: ['bug'],
-    description: 'Send feedback to make Kimi Code better',
+    get description() {
+      return t('tui.slashCommands.feedback');
+    },
     priority: 60,
     availability: 'always',
   },
   {
     name: 'undo',
     aliases: [],
-    description: 'Withdraw the last prompt from the transcript',
+    get description() {
+      return t('tui.slashCommands.undo');
+    },
     priority: 80,
     availability: 'idle-only',
   },
   {
     name: 'editor',
     aliases: [],
-    description: 'Set the external editor for Ctrl-G',
+    get description() {
+      return t('tui.slashCommands.editor');
+    },
     priority: 60,
     availability: 'always',
   },
   {
     name: 'theme',
     aliases: [],
-    description: 'Set the terminal UI theme',
+    get description() {
+      return t('tui.slashCommands.theme');
+    },
     priority: 60,
     availability: 'always',
   },
   {
     name: 'logout',
     aliases: ['disconnect'],
-    description: 'Log out of a configured provider',
+    get description() {
+      return t('tui.slashCommands.logout');
+    },
     priority: 40,
   },
   {
     name: 'login',
     aliases: [],
-    description: 'Select a platform and authenticate',
+    get description() {
+      return t('tui.slashCommands.login');
+    },
     priority: 40,
   },
   {
     name: 'export-md',
     aliases: ['export'],
-    description: 'Export current session as a Markdown file',
+    get description() {
+      return t('tui.slashCommands.exportMd');
+    },
     priority: 40,
   },
   {
     name: 'export-debug-zip',
     aliases: [],
-    description: 'Export current session as a debug ZIP archive',
+    get description() {
+      return t('tui.slashCommands.exportDebugZip');
+    },
     priority: 40,
   },
   {
     name: 'copy',
     aliases: [],
-    description: 'Copy the last assistant message to the clipboard',
+    get description() {
+      return t('tui.slashCommands.copy');
+    },
     priority: 40,
   },
   {
     name: 'web',
     aliases: [],
-    description: 'Open the current session in the Web UI by starting a new server',
+    get description() {
+      return t('tui.slashCommands.web');
+    },
     priority: 40,
     availability: 'always',
   },
   {
     name: 'remote-control',
     aliases: ['rc'],
-    description: 'Open the current session through Kimi Remote Control (experimental)',
+    get description() {
+      return t('tui.slashCommands.remoteControl');
+    },
     priority: 40,
     availability: 'always',
     experimentalFlag: 'remote-control',
@@ -442,13 +567,17 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'exit',
     aliases: ['quit', 'q'],
-    description: 'Exit the application',
+    get description() {
+      return t('tui.slashCommands.exit');
+    },
     priority: 20,
   },
   {
     name: 'version',
     aliases: [],
-    description: 'Show version information',
+    get description() {
+      return t('tui.slashCommands.version');
+    },
     priority: 20,
     availability: 'always',
   },

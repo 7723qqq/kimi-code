@@ -17,6 +17,7 @@ import chalk from 'chalk';
 import { type Command, Option } from 'commander';
 
 import { CLI_SHUTDOWN_TIMEOUT_MS, WEB_USER_AGENT_SUFFIX } from '#/constant/app';
+import { t } from '#/i18n';
 import { getNativeWebAssetsDir } from '#/native/web-assets';
 import { darkColors } from '#/tui/theme/colors';
 import { openUrl as defaultOpenUrl } from '#/utils/open-url';
@@ -24,11 +25,7 @@ import { getDataDir } from '#/utils/paths';
 import { generateRemoteControlQr } from '#/utils/remote-control-qr';
 
 import { initializeServerTelemetry } from '../../telemetry';
-import {
-  createKimiCodeHostIdentity,
-  getHostPackageRoot,
-  getVersion,
-} from '../../version';
+import { createKimiCodeHostIdentity, getHostPackageRoot, getVersion } from '../../version';
 import {
   accessUrlLines,
   buildOpenableUrl,
@@ -138,11 +135,7 @@ export function buildWebCommand(
       '--allowed-host <host...>',
       'Extra Host header value to allow through the DNS-rebinding check. Repeat or comma-separate; a leading dot matches a domain suffix (e.g. .example.com).',
     )
-    .option(
-      '--insecure-no-tls',
-      'Allow a non-loopback bind without a TLS-terminating reverse proxy. Defaults to true; only relevant for non-loopback binds.',
-      true,
-    )
+    .option('--insecure-no-tls', t('cli.optionDescriptions.serverRunOptionInsecureNoTls'), true)
     .option(
       '--allow-remote-shutdown',
       'On a non-loopback bind, keep POST /api/v1/shutdown enabled (default: route is disabled → 404).',
@@ -177,12 +170,10 @@ export function buildWebCommand(
     );
   }
   return withServerOptions
-    .option('--no-open', 'Do not open the web UI in the default browser.', true)
+    .option('--no-open', t('cli.optionDescriptions.serverRunOptionNoOpen'), true)
     .action(async (opts: WebCliOptions) => {
       try {
-        await handleWebCommand(
-          forceRemoteControl ? { ...opts, remoteControl: true } : opts,
-        );
+        await handleWebCommand(forceRemoteControl ? { ...opts, remoteControl: true } : opts);
       } catch (error) {
         process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
         process.exit(1);
@@ -219,7 +210,7 @@ export async function handleWebCommand(
       // meaningless and is intentionally NOT shown or carried in the URL.
       const token = parsed.dangerousBypassAuth ? undefined : deps.resolveToken?.();
       if (opts.remoteControl === true) {
-        if (token === undefined) throw new Error('Unable to read the local server token.');
+        if (token === undefined) throw new Error(t('tui.statusMessages.unableToReadServerToken'));
         const dataDir = getDataDir();
         let outputReady = false;
         const pendingStatuses: string[] = [];
@@ -274,9 +265,7 @@ function formatReadyLine(
   token: string | undefined,
   dangerousBypassAuth = false,
 ): string {
-  const notice = dangerousBypassAuth
-    ? `${formatDangerNoticeLines().join('\n')}\n`
-    : '';
+  const notice = dangerousBypassAuth ? `${formatDangerNoticeLines().join('\n')}\n` : '';
   return `${notice}Kimi server: ${buildOpenableUrl(origin, token)}\n`;
 }
 
@@ -289,8 +278,8 @@ function formatDangerNoticeLines(): string[] {
   const danger = (text: string): string => chalk.hex(darkColors.error)(text);
   const dangerBold = (text: string): string => chalk.bold.hex(darkColors.error)(text);
   return [
-    `  ${dangerBold('⚠ DANGER: authentication is DISABLED (--dangerous-bypass-auth).')}`,
-    `  ${danger('Anyone who can reach this port gets full access. Only continue if you understand the risk.')}`,
+    `  ${dangerBold(t('tui.statusMessages.serverDangerAuthDisabled'))}`,
+    `  ${danger(t('tui.statusMessages.serverDangerAnyoneAccess'))}`,
     `  ${danger('If you are unsure, stop this process now with ')}${dangerBold('Ctrl+C')}${danger('.')}`,
   ];
 }
@@ -353,9 +342,7 @@ async function runServerInProcess(
   const logger = createServerLogger({ level: options.logLevel });
   const webAssetsDir = serverWebAssetsDir();
   if (webAssetsDir === undefined) {
-    logger.info(
-      'dev mode: web assets not built; starting the API server without the web UI',
-    );
+    logger.info('dev mode: web assets not built; starting the API server without the web UI');
   }
   const v2 = await startServer({
     host: options.host,
@@ -479,8 +466,8 @@ export function formatReadyBanner(
   const logo = ['▐█▛█▛█▌', '▐█████▌'] as const;
   const lines: string[] = [
     '',
-    `  ${primary(logo[0])}  ${title('Kimi server ready')}  ${dim(getVersion())}`,
-    `  ${primary(logo[1])}  ${dim('Local web UI is available from this machine.')}`,
+    `  ${primary(logo[0])}  ${title(t('tui.statusMessages.serverReadyBanner'))}  ${dim(getVersion())}`,
+    `  ${primary(logo[1])}  ${dim(t('tui.statusMessages.serverReadyLocalUi'))}`,
     '',
   ];
 

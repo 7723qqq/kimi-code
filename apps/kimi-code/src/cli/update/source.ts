@@ -44,7 +44,6 @@ export function detectNativeInstall(
 }
 
 // Path heuristic markers (compared in lowercase; both forward and backward slashes accepted).
-const PNPM_PATH_SEGMENT = 'pnpm/global/';
 const YARN_PATH_SEGMENTS = ['.config/yarn/global/', '/.yarn/global/'];
 const BUN_PATH_SEGMENT = '.bun/install/global/';
 // Homebrew installs formulae under its Cellar directory. Avoid matching the
@@ -63,7 +62,6 @@ function normalizeForHeuristic(filePath: string): string {
  */
 export function classifyByPathHeuristic(packageRoot: string): InstallSource | null {
   const normalized = normalizeForHeuristic(packageRoot);
-  if (normalized.includes(PNPM_PATH_SEGMENT)) return 'pnpm-global';
   for (const seg of YARN_PATH_SEGMENTS) {
     if (normalized.includes(seg)) return 'yarn-global';
   }

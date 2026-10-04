@@ -63,6 +63,16 @@ IConfig resolves each field by `env > config.toml > default` automatically. This
 keeps every domain's config in one registry and keeps Bootstrap free of upstream
 knowledge.
 
+`EnvBinding` expresses exactly one canonical name plus one `deprecatedEnv`, so a
+field whose value may come from **two names of equal precedence** cannot be
+declared with `envBindings` — the second name would be mislabeled as deprecated.
+Such a section keeps a `envOverlay.ts` beside its `configSection.ts` and registers
+a single-section `ConfigEffectiveOverlay` through module-level
+`registerConfigOverlay`, filling only the fields the file left unset and
+implementing `strip` so an env-sourced value is never written back. Precedent:
+`src/agent/tools/github/envOverlay.ts` (`GITHUB_TOKEN` / `GH_TOKEN`) and the
+`servicesCredentialEnvOverlay` in `src/app/auth/configSection.ts`.
+
 Operational env overrides and per-run intent live *inside* Config as layers over
 the same persistable key: `model` can be set in `config.toml`, via `KIMI_MODEL_*`,
 or via CLI `--model`. They are not separate abstractions — see "Reads vs writes"

@@ -49,6 +49,20 @@ handover.md
 参考目录/
 graphify-out/
 
+# Workbuddy session scratch (agent working memory)
+.workbuddy/
+
+# napi-rs build leftovers
+packages/kimi-native-tools/.*.tmp.*
+packages/kimi-native-tools/.*.rollback.tmp
+packages/kimi-native-tools/.napi-rs-swp-bak-*
+packages/kimi-agent/.*.tmp.*
+packages/kimi-agent/.*.rollback.tmp
+packages/.kimi-*-napi-stage-*/
+
+# Debug session bundles dumped at the repo root
+/kimi-debug-ses_*.zip
+
 # Secrets and logs - never commit
 .env*
 !.env.example

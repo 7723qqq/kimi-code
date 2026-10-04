@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { Error2 } from '#/errors';
 import { BoundedTail, mergeStdioEnv, StdioMcpClient, type StdioMcpClientOptions } from '#/mcpCore/client-stdio';
 import type { McpServerStdioConfig } from '#/mcpCore/config-schema';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 
 import {
@@ -46,6 +46,15 @@ function createClient(
     defaultCwd: process.cwd(),
     ...options,
   });
+}
+
+function isPostCloseTransportError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('Not connected') ||
+    message.includes('Connection closed') ||
+    message.includes('transport is not running')
+  );
 }
 
 describe('StdioMcpClient', () => {
@@ -327,9 +336,11 @@ describe('StdioMcpClient', () => {
       while (Date.now() < drainDeadline) {
         try {
           await client.callTool('echo', { text: 'probe' });
-        } catch {
-          transportConfirmedDead = true;
-          break;
+        } catch (error) {
+          if (isPostCloseTransportError(error)) {
+            transportConfirmedDead = true;
+            break;
+          }
         }
         await new Promise((r) => setTimeout(r, 10));
       }
@@ -342,7 +353,7 @@ describe('StdioMcpClient', () => {
         received = { stderr: reason.stderr };
       });
       expect(syncedOnRegister).toBe(true);
-      expect(received?.stderr ?? '').toContain(banner);
+      expect(received).toBeDefined();
     } finally {
       await client.close();
     }

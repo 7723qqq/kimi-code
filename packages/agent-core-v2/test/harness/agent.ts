@@ -24,7 +24,7 @@ import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { AgentBlobServiceImpl } from '#/agent/blob/agentBlobServiceImpl';
 import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import '#/features/reminder/reminderFeature';
 import { BUILTIN_REPLAYABLE_STATE_KEYS } from '../state/builtinReplayableKeys';
 import type { ContextMessage } from '#/agent/contextMemory/types';
@@ -2865,29 +2865,41 @@ async function generateBackedResponse(
   options?: GenerateOptions,
 ): Promise<StreamedMessage> {
   const parts: StreamedMessagePart[] = [];
-  const result = await generateFn(
-    provider,
-    systemPrompt,
-    tools,
-    history,
-    {
-      onMessagePart: (part) => {
-        parts.push(structuredClone(part));
+  let result: Awaited<ReturnType<GenerateFn>>;
+  try {
+    result = await generateFn(
+      provider,
+      systemPrompt,
+      tools,
+      history,
+      {
+        onMessagePart: (part) => {
+          parts.push(structuredClone(part));
+        },
       },
-    },
-    {
-      signal: options?.signal,
-      auth: options?.auth,
-      cacheKey: options?.cacheKey,
-      sampling: options?.sampling,
-      thinking: options?.thinking,
-      maxCompletionTokens: options?.maxCompletionTokens,
-      usedContextTokens: options?.usedContextTokens,
-      maxContextTokens: options?.maxContextTokens,
-      responseFormat: options?.responseFormat,
-      onTraceId: options?.onTraceId,
-    },
-  );
+      {
+        signal: options?.signal,
+        auth: options?.auth,
+        cacheKey: options?.cacheKey,
+        sampling: options?.sampling,
+        thinking: options?.thinking,
+        maxCompletionTokens: options?.maxCompletionTokens,
+        usedContextTokens: options?.usedContextTokens,
+        maxContextTokens: options?.maxContextTokens,
+        responseFormat: options?.responseFormat,
+        onTraceId: options?.onTraceId,
+      },
+    );
+  } catch (error) {
+    if (parts.length === 0) throw error;
+    return createStreamedMessage(normalizeProviderStreamParts(parts), {
+      id: null,
+      usage: null,
+      finishReason: null,
+      rawFinishReason: null,
+      error: error instanceof Error ? error : new Error('generateBackedResponse failed'),
+    });
+  }
   return createStreamedMessage(
     parts.length > 0
       ? normalizeProviderStreamParts(parts)
@@ -2950,19 +2962,21 @@ function createStreamedMessage(
   parts: readonly StreamedMessagePart[],
   meta: Pick<
     Awaited<ReturnType<GenerateFn>>,
-    'id' | 'usage' | 'finishReason' | 'rawFinishReason' | 'traceId'
-  >,
+    'id' | 'usage' | 'finishReason' | 'rawFinishReason'
+  > &
+    Partial<Pick<Awaited<ReturnType<GenerateFn>>, 'traceId'>> & { error?: Error },
 ): StreamedMessage {
   return {
     id: meta.id,
     usage: meta.usage,
     finishReason: meta.finishReason ?? null,
     rawFinishReason: meta.rawFinishReason ?? null,
-    traceId: meta.traceId ?? null,
+    traceId: meta.traceId,
     async *[Symbol.asyncIterator]() {
       for (const part of parts) {
         yield structuredClone(part);
       }
+      if (meta.error !== undefined) throw meta.error;
     },
   };
 }

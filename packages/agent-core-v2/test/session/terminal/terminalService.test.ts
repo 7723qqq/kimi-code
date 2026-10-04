@@ -1,6 +1,5 @@
 import { resolve } from 'node:path';
 
-import type { IPty } from 'node-pty';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
@@ -15,7 +14,7 @@ import {
   type TerminalSpawnOptions,
   IHostTerminalService,
 } from '#/os/interface/terminal';
-import { HostTerminalService } from '#/os/backends/node-local/hostTerminalService';
+import { HostTerminalService } from '#/os/backends/host/hostTerminalService';
 import {
   ISessionTerminalService,
   SessionTerminalService,
@@ -24,10 +23,6 @@ import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceCo
 import type { RuntimeLease } from '#/runtime/runtime';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { IRuntimeResolver, type IRuntimeResolver as RuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
-
-vi.mock('node-pty', () => ({
-  spawn: vi.fn(),
-}));
 
 class FakeTerminalProcess implements TerminalProcess {
   private readonly dataEmitter = new Emitter<string>();
@@ -330,75 +325,6 @@ describe('SessionTerminalService', () => {
   });
 });
 
-describe('HostTerminalService (App scope)', () => {
-  let disposables: DisposableStore;
-  let ix: TestInstantiationService;
-
-  beforeEach(() => {
-    disposables = new DisposableStore();
-    ix = createServices(disposables, {
-      additionalServices: (reg) => {
-        reg.define(IHostTerminalService, HostTerminalService);
-      },
-    });
-  });
-  afterEach(() => disposables.dispose());
-
-  it('spawns a PTY through node-pty and forwards events', async () => {
-    const { spawn } = await import('node-pty');
-    const dataListeners = new Set<(data: string) => void>();
-    const exitListeners = new Set<(event: { exitCode: number }) => void>();
-    const mockPty = {
-      onData: (listener: (data: string) => void) => {
-        dataListeners.add(listener);
-        return toDisposable(() => dataListeners.delete(listener));
-      },
-      onExit: (listener: (event: { exitCode: number }) => void) => {
-        exitListeners.add(listener);
-        return toDisposable(() => exitListeners.delete(listener));
-      },
-      write: vi.fn(),
-      resize: vi.fn(),
-      kill: vi.fn(),
-    };
-    vi.mocked(spawn).mockReturnValue(mockPty as unknown as IPty);
-
-    const svc = ix.get(IHostTerminalService);
-    const proc = await svc.spawn({ cwd: '/ws', shell: '/bin/sh', cols: 80, rows: 24 }, null);
-
-    expect(spawn).toHaveBeenCalledWith('/bin/sh', [], {
-      name: 'xterm-256color',
-      cwd: '/ws',
-      cols: 80,
-      rows: 24,
-      env: process.env,
-    });
-
-    let receivedData = '';
-    proc.onProcessData((data) => {
-      receivedData += data;
-    });
-    for (const listener of dataListeners) listener('hello');
-    expect(receivedData).toBe('hello');
-
-    let receivedExit: { exitCode: number | null } | undefined;
-    proc.onProcessExit((event) => {
-      receivedExit = event;
-    });
-    for (const listener of exitListeners) listener({ exitCode: 5 });
-    expect(receivedExit).toEqual({ exitCode: 5 });
-
-    proc.write('ls\n');
-    expect(mockPty.write).toHaveBeenCalledWith('ls\n');
-
-    proc.resize(120, 50);
-    expect(mockPty.resize).toHaveBeenCalledWith(120, 50);
-
-    proc.kill();
-    expect(mockPty.kill).toHaveBeenCalled();
-  });
-});
-
 interface FakeBunSpawnOptions {
   cwd?: string;
   env?: Record<string, string | undefined>;
@@ -416,7 +342,7 @@ interface FakeBunTerminalHandle {
   close: ReturnType<typeof vi.fn<() => void>>;
 }
 
-describe('HostTerminalService bun runtime', () => {
+describe('HostTerminalService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
 
@@ -468,24 +394,6 @@ describe('HostTerminalService bun runtime', () => {
     expect(handle.write).toHaveBeenCalledWith('ls\n');
     expect(handle.resize).toHaveBeenCalledWith(120, 40);
     expect(handle.close).toHaveBeenCalled();
-  });
-
-  it('falls back to node-pty when Bun exists but lacks Bun.Terminal', async () => {
-    const bunSpawn = vi.fn();
-    const { spawn } = await import('node-pty');
-    vi.mocked(spawn).mockReturnValue({} as unknown as IPty);
-
-    const svc = ix.get(IHostTerminalService);
-    await svc.spawn({ cwd: '/ws', shell: '/bin/sh', cols: 80, rows: 24 }, { spawn: bunSpawn });
-
-    expect(bunSpawn).not.toHaveBeenCalled();
-    expect(spawn).toHaveBeenCalledWith('/bin/sh', [], {
-      name: 'xterm-256color',
-      cwd: '/ws',
-      cols: 80,
-      rows: 24,
-      env: process.env,
-    });
   });
 
   it('flushes a trailing truncated sequence before the exit event', async () => {

@@ -3,10 +3,10 @@ import type { ModelCapability } from '#/kosong/contract/capability';
 import type { OAuthRef } from '../provider/provider';
 
 export interface ModelOverrides {
-  readonly temperature?: number;
-  readonly topP?: number;
-  readonly thinkingKeep?: string;
-  readonly maxCompletionTokens?: number;
+  temperature?: number;
+  topP?: number;
+  thinkingKeep?: string;
+  maxCompletionTokens?: number;
 }
 
 export interface CompletionBudgetConfig {

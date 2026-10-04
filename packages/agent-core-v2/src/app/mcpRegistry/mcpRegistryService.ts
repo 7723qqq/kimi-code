@@ -1,6 +1,6 @@
 import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { canonicalWorkspaceRoot } from '#/_base/utils/paths';
+import { canonicalPath, canonicalWorkspaceRoot } from '#/_base/utils/paths';
 
 import { ErrorCodes, Error2 } from '#/errors';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -60,7 +60,7 @@ export class McpRegistryService implements IMcpRegistryService {
       } else {
         const detailed = await loadMcpServersDetailed({
           fs: this.fs,
-          cwd,
+          cwd: canonicalPath(query.cwd),
           homeDir: this.bootstrap.homeDir,
         });
         for (const [name, config] of Object.entries(detailed.servers)) {

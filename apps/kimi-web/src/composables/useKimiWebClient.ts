@@ -8,23 +8,29 @@ import { getKimiWebApi } from '../api';
 import { isDaemonApiError, isDaemonNetworkError } from '../api/errors';
 import { traceClientEvent, traceKeyEvent } from '../debug/trace';
 import { i18n } from '../i18n';
+import { buildApprovalBlock, toUiQuestion } from '../lib/approvalView';
 import { mergeWorkspaces } from '../lib/mergeWorkspaces';
 import { workspaceRootKey } from '../lib/rootKey';
 import { mergeSnapshotMessages } from '../lib/snapshotMessages';
 import { createCoalescedAsyncRunner } from '../lib/snapshotSync';
 import {
+  loadHiddenWorkspaces,
+  loadModeMap,
   loadUnread,
   loadWorkspaceOrder,
   loadWorkspaceSort,
   safeGetString,
   safeRemove,
   safeSetString,
+  saveHiddenWorkspaces,
+  saveModeMap,
   saveUnread,
   saveWorkspaceOrder,
   saveWorkspaceSort,
   STORAGE_KEYS,
 } from '../lib/storage';
 import { mergeSnapshotSubagents } from '../lib/taskMerge';
+import { createWsSubscriptionLru } from '../lib/wsSubscriptionLru';
 import {
   reconcileWorkspaceOrder,
   sortByWorkspaceOrder,
@@ -83,6 +89,7 @@ import type {
   KimiEventConnection,
   KimiEventMeta,
   ThinkingLevel,
+  PromptAttachment,
 } from '../api/types';
 import type { SessionStats } from '../lib/sessionStats';
 import {
@@ -99,7 +106,6 @@ import type {
   ChatTurn,
   ConnectionState,
   ConversationStatus,
-  DiffLine,
   DiffViewLine,
   PermissionMode,
   QueuedPromptView,
@@ -169,44 +175,16 @@ function savePermissionToStorage(mode: PermissionMode): void {
 // 'true'/'false' string) is not an object and parses to an empty map, so it is
 // discarded on first load rather than misapplied to every session.
 
-function loadModeMapFromStorage(key: string): Record<string, boolean> {
-  const raw = safeGetString(key);
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-    const out: Record<string, boolean> = {};
-    for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (value === true) out[id] = true;
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
-function saveModeMapToStorage(key: string, map: Record<string, boolean>): void {
-  try {
-    const out: Record<string, true> = {};
-    for (const [id, value] of Object.entries(map)) {
-      if (value) out[id] = true;
-    }
-    safeSetString(key, JSON.stringify(out));
-  } catch {
-    // storage unavailable (private mode, quota, etc.) — ignore
-  }
-}
-
 function savePlanModeToStorage(): void {
-  saveModeMapToStorage(PLAN_MODE_STORAGE_KEY, rawState.planModeBySession);
+  saveModeMap(PLAN_MODE_STORAGE_KEY, rawState.planModeBySession);
 }
 
 function saveSwarmModeToStorage(): void {
-  saveModeMapToStorage(SWARM_MODE_STORAGE_KEY, rawState.swarmModeBySession);
+  saveModeMap(SWARM_MODE_STORAGE_KEY, rawState.swarmModeBySession);
 }
 
 function saveGoalModeToStorage(): void {
-  saveModeMapToStorage(GOAL_MODE_STORAGE_KEY, rawState.goalModeBySession);
+  saveModeMap(GOAL_MODE_STORAGE_KEY, rawState.goalModeBySession);
 }
 
 function loadActiveWorkspaceFromStorage(): string | null {
@@ -214,32 +192,6 @@ function loadActiveWorkspaceFromStorage(): string | null {
     return safeGetString(ACTIVE_WORKSPACE_KEY);
   } catch {
     return null;
-  }
-}
-
-// Roots the user removed from the sidebar. "Remove workspace" must hide a
-// workspace even when it still has sessions (the daemon DELETE is registry-only
-// and mergedWorkspaces would otherwise re-derive it from those sessions' cwds).
-// History is untouched — only the sidebar entry is hidden — so this is persisted
-// per browser, keyed by root path.
-const HIDDEN_WORKSPACES_KEY = STORAGE_KEYS.hiddenWorkspaces;
-
-function loadHiddenWorkspacesFromStorage(): string[] {
-  try {
-    const v = safeGetString(HIDDEN_WORKSPACES_KEY);
-    if (!v) return [];
-    const parsed = JSON.parse(v);
-    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveHiddenWorkspacesToStorage(roots: string[]): void {
-  try {
-    safeSetString(HIDDEN_WORKSPACES_KEY, JSON.stringify(roots));
-  } catch {
-    // ignore
   }
 }
 
@@ -273,18 +225,7 @@ interface GitStatusEntry {
   pullRequest: { number: number; state: string; url: string } | null;
 }
 
-/** An uploaded attachment to send with a prompt. `kind` drives the content-block
-    type: images/videos become media parts; any other kind becomes a file part
-    the server materializes and hands to the model as a path reference.
-    name/mediaType/size feed the wire file shape (the server's file-store meta
-    stays authoritative, so a chip reloaded from history may omit them). */
-export type PromptAttachment = {
-  fileId: string;
-  kind: 'image' | 'video' | 'file';
-  name?: string;
-  mediaType?: string;
-  size?: number;
-};
+export type { PromptAttachment } from '../api/types';
 
 /** A prompt waiting for the session to go idle. Keeps the uploaded
     fileIds so attachments survive queueing (not just the text). The id keys
@@ -408,9 +349,9 @@ const rawState: ExtendedState = reactive({
   // map below starts empty and is fed by /status folds.
   thinking: undefined,
   thinkingBySession: {},
-  planModeBySession: loadModeMapFromStorage(PLAN_MODE_STORAGE_KEY),
-  swarmModeBySession: loadModeMapFromStorage(SWARM_MODE_STORAGE_KEY),
-  goalModeBySession: loadModeMapFromStorage(GOAL_MODE_STORAGE_KEY),
+  planModeBySession: loadModeMap(PLAN_MODE_STORAGE_KEY),
+  swarmModeBySession: loadModeMap(SWARM_MODE_STORAGE_KEY),
+  goalModeBySession: loadModeMap(GOAL_MODE_STORAGE_KEY),
   loading: false,
   sessionLoading: false,
   queuedBySession: {},
@@ -425,7 +366,7 @@ const rawState: ExtendedState = reactive({
   activeWorkspaceId: loadActiveWorkspaceFromStorage(),
   fsHome: null,
   recentRoots: [],
-  hiddenWorkspaceRoots: loadHiddenWorkspacesFromStorage(),
+  hiddenWorkspaceRoots: loadHiddenWorkspaces(),
   availableOpenInApps: [],
   config: null,
   sideChatMessagesByAgent: {},
@@ -1549,7 +1490,7 @@ async function syncSessionFromSnapshot(sessionId: string): Promise<SyncSessionRe
       // before live deltas (aligned by wire offset) start appending to it.
       eventConn.seedSnapshot(sessionId, snap);
       eventConn.subscribe(sessionId, { seq: snap.asOfSeq, epoch: snap.epoch });
-      retainWsSubscription(sessionId);
+      wsSubscriptions.retain(sessionId);
     }
     sessionsWithStaleCursor.delete(sessionId);
     // The snapshot carries placeholder usage, so a preserved cached value may
@@ -1585,14 +1526,9 @@ function hasLoadedMessages(sessionId: string): boolean {
 // ---------------------------------------------------------------------------
 //
 // Every opened session subscribes to its WS event stream, and the socket keeps
-// subscriptions across reconnects (re-sending them in `client_hello`). Without
-// a cap, a user who has opened hundreds of sessions stays subscribed to all of
-// them: every background session's status/meta/usage event then flows through
-// the reducer and dirties the sidebar computeds — the root cause of "the UI
-// gets sluggish once I have a lot of sessions".
-//
-// Keep only the most-recently-opened sessions subscribed (MRU order, index 0 =
-// newest). The active session is always retained.
+// subscriptions across reconnects (re-sending them in `client_hello`). The
+// MRU cap (see createWsSubscriptionLru) keeps only the most-recently-opened
+// sessions subscribed; the active session is always retained.
 //
 // Eviction drops the live WS subscription but keeps the session's cursor so a
 // quick re-open can resume cheaply. However, a cursor kept across an eviction
@@ -1605,37 +1541,16 @@ function hasLoadedMessages(sessionId: string): boolean {
 // when one is re-opened we rebuild from a snapshot (see `reopenSession`) rather
 // than resume from a cursor that may have skipped events.
 const MAX_WS_SUBSCRIPTIONS = 4;
-const wsSubscriptionOrder: string[] = [];
 const sessionsWithStaleCursor = new Set<string>();
-
-function retainWsSubscription(sessionId: string): void {
-  const idx = wsSubscriptionOrder.indexOf(sessionId);
-  if (idx !== -1) wsSubscriptionOrder.splice(idx, 1);
-  wsSubscriptionOrder.unshift(sessionId);
-  // Evict the oldest entries past the cap, skipping the active session. The
-  // active session is NOT guaranteed to sit at the front: first-time opens only
-  // retain after an awaited snapshot, so rapid clicks can complete out of order
-  // and leave the active session at the tail. Skipping it (rather than breaking
-  // when the tail is active) keeps the cap effective.
-  while (wsSubscriptionOrder.length > MAX_WS_SUBSCRIPTIONS) {
-    let victimIdx = -1;
-    for (let i = wsSubscriptionOrder.length - 1; i >= 0; i--) {
-      if (wsSubscriptionOrder[i] !== rawState.activeSessionId) {
-        victimIdx = i;
-        break;
-      }
-    }
-    if (victimIdx === -1) break;
-    const [victim] = wsSubscriptionOrder.splice(victimIdx, 1);
-    if (victim === undefined) break;
-    eventConn?.unsubscribe(victim);
-    sessionsWithStaleCursor.add(victim);
-  }
-}
+const wsSubscriptions = createWsSubscriptionLru({
+  max: MAX_WS_SUBSCRIPTIONS,
+  isActive: (sessionId) => sessionId === rawState.activeSessionId,
+  unsubscribe: (sessionId) => eventConn?.unsubscribe(sessionId),
+  onEvict: (sessionId) => sessionsWithStaleCursor.add(sessionId),
+});
 
 function dropWsSubscription(sessionId: string): void {
-  const idx = wsSubscriptionOrder.indexOf(sessionId);
-  if (idx !== -1) wsSubscriptionOrder.splice(idx, 1);
+  wsSubscriptions.drop(sessionId);
   sessionsWithStaleCursor.delete(sessionId);
 }
 
@@ -1720,141 +1635,6 @@ if (import.meta.hot) {
   });
 }
 
-/** Build DiffLine[] from old_text/new_text strings */
-function buildDiffLines(oldText: string, newText: string): DiffLine[] {
-  const removed = oldText.split('\n');
-  const added = newText.split('\n');
-  const lines: DiffLine[] = [];
-  removed.forEach((text, i) => {
-    lines.push({ kind: 'rem', gutter: String(i + 1), text: `- ${text}` });
-  });
-  added.forEach((text, i) => {
-    lines.push({ kind: 'add', gutter: String(i + 1), text: `+ ${text}` });
-  });
-  return lines;
-}
-
-/** Build ApprovalBlock from AppApprovalRequest (discriminated union) */
-function buildApprovalBlock(a: AppApprovalRequest): ApprovalBlock {
-  // Cast display to a loose dict for defensive reading
-  const d = (a.display ?? {}) as Record<string, unknown>;
-  const kind = typeof d.kind === 'string' ? d.kind : '';
-
-  // diff
-  if (kind === 'diff') {
-    const path = typeof d.path === 'string' ? d.path : '';
-    if (Array.isArray(d.diff)) {
-      return { kind: 'diff', path, diff: d.diff as DiffLine[] };
-    }
-    if (typeof d.old_text === 'string' && typeof d.new_text === 'string') {
-      return { kind: 'diff', path, diff: buildDiffLines(d.old_text, d.new_text) };
-    }
-    return { kind: 'diff', path, diff: [] };
-  }
-
-  // shell / command
-  if (kind === 'shell' || kind === 'command') {
-    const command = typeof d.command === 'string' ? d.command : a.action;
-    const cwd = typeof d.cwd === 'string' ? d.cwd : undefined;
-    const danger = typeof d.danger === 'string' ? d.danger : undefined;
-    return { kind: 'shell', command, cwd, danger };
-  }
-
-  // file_content / file
-  if (kind === 'file_content' || kind === 'file') {
-    const path = typeof d.path === 'string' ? d.path : '';
-    const content = typeof d.content === 'string' ? d.content : '';
-    const language = typeof d.language === 'string' ? d.language : undefined;
-    return { kind: 'file', path, content, language };
-  }
-
-  // file_op / fileop
-  if (kind === 'file_op' || kind === 'fileop') {
-    const op =
-      typeof d.operation === 'string' ? d.operation : typeof d.op === 'string' ? d.op : kind;
-    const path = typeof d.path === 'string' ? d.path : '';
-    const detail = typeof d.detail === 'string' ? d.detail : undefined;
-    return { kind: 'fileop', op, path, detail };
-  }
-
-  // url_fetch / url
-  if (kind === 'url_fetch' || kind === 'url') {
-    const url = typeof d.url === 'string' ? d.url : a.action;
-    const method = typeof d.method === 'string' ? d.method : undefined;
-    return { kind: 'url', method, url };
-  }
-
-  // search
-  if (kind === 'search') {
-    const query = typeof d.query === 'string' ? d.query : a.action;
-    const scope = typeof d.scope === 'string' ? d.scope : undefined;
-    return { kind: 'search', query, scope };
-  }
-
-  // invocation / agent_call / skill_call
-  if (kind === 'invocation' || kind === 'agent_call' || kind === 'skill_call') {
-    const kind2 = typeof d.kind === 'string' ? d.kind : kind;
-    const name = typeof d.name === 'string' ? d.name : a.toolName;
-    const description = typeof d.description === 'string' ? d.description : undefined;
-    return { kind: 'invocation', kind2, name, description };
-  }
-
-  // todo / todo_list
-  if (kind === 'todo' || kind === 'todo_list') {
-    const rawItems = Array.isArray(d.items) ? d.items : [];
-    const items = rawItems.map((item: unknown) => {
-      const it = (item ?? {}) as Record<string, unknown>;
-      return {
-        title: typeof it.title === 'string' ? it.title : '',
-        status: typeof it.status === 'string' ? it.status : 'pending',
-      };
-    });
-    return { kind: 'todo', items };
-  }
-
-  // plan_review — finalised plan presented at plan-mode exit
-  if (kind === 'plan_review') {
-    const plan = typeof d.plan === 'string' ? d.plan : '';
-    const path = typeof d.path === 'string' ? d.path : undefined;
-    const rawOptions = Array.isArray(d.options) ? d.options : [];
-    const options = rawOptions
-      .map((item: unknown): { label: string; description?: string } | null => {
-        const it = (item ?? {}) as Record<string, unknown>;
-        const label = typeof it.label === 'string' ? it.label : '';
-        if (!label) return null;
-        const description = typeof it.description === 'string' ? it.description : undefined;
-        return { label, description };
-      })
-      .filter((o): o is { label: string; description?: string } => o !== null);
-    return { kind: 'plan_review', plan, path, options: options.length > 0 ? options : undefined };
-  }
-
-  // Unknown daemon display.kind → 'generic' with summary = action
-  return { kind: 'generic', summary: a.action };
-}
-
-/** Map AppQuestionRequest to UIQuestion */
-function toUiQuestion(q: AppQuestionRequest): UIQuestion {
-  return {
-    questionId: q.questionId,
-    sessionId: q.sessionId,
-    questions: q.questions.map((qi) => ({
-      id: qi.id,
-      question: qi.question,
-      header: qi.header,
-      body: qi.body,
-      options: qi.options.map((o) => ({
-        id: o.id,
-        label: o.label,
-        description: o.description,
-        recommended: o.recommended,
-      })),
-      multiSelect: qi.multiSelect,
-      allowOther: qi.allowOther,
-      otherLabel: qi.otherLabel,
-    })),
-  };
-}
 
 // messagesToTurns is imported from ./messagesToTurns (extracted module that
 // groups consecutive assistant messages by promptId into a single turn).
@@ -2738,7 +2518,7 @@ const workspaceState = useWorkspaceState(rawState, {
   draftModes,
   saveUnread,
   saveActiveWorkspaceToStorage,
-  saveHiddenWorkspacesToStorage,
+  saveHiddenWorkspaces,
   goalErrorMessage,
   resetFastMoon: appearance.resetFastMoon,
   initialized,

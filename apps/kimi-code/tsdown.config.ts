@@ -16,7 +16,7 @@ export default defineConfig({
   hash: false,
   banner: {
     js: [
-      '#!/usr/bin/env node',
+      '#!/usr/bin/env bun',
       "import { fileURLToPath as __cjsShimFileURLToPath } from 'node:url';",
       "import { dirname as __cjsShimDirname } from 'node:path';",
       'const __filename = __cjsShimFileURLToPath(import.meta.url);',

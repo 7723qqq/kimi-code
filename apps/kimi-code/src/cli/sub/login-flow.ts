@@ -9,6 +9,7 @@ import {
   applyGoogleGeminiConfig,
   GOOGLE_GEMINI_DEFAULT_MODEL_ID,
   GoogleOAuthManager,
+  OAuthAccessDeniedError,
   type DeviceAuthorization,
   type KimiRegion,
   type ManagedKimiConfigShape,
@@ -105,6 +106,9 @@ export async function runLoginFlow(
   } catch (error) {
     if (controller.signal.aborted) {
       process.stderr.write('Login cancelled.\n');
+    } else if (error instanceof OAuthAccessDeniedError) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`Login cancelled: ${message}\n`);
     } else {
       const message = error instanceof Error ? error.message : String(error);
       process.stderr.write(`Login failed: ${message}\n`);

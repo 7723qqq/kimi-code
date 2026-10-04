@@ -82,20 +82,22 @@ export class AstronSettingsComponent extends Container implements Focusable {
       if (matchesKey(data, Key.enter) || matchesKey(data, Key.escape)) {
         if (matchesKey(data, Key.enter) && this.editBuffer.length > 0) {
           const val = Number(this.editBuffer);
-          if (Number.isFinite(val)) {
-            if (item.name === 'temperature') {
-              if (val < ASTRON_TEMPERATURE_RANGE.min || val > ASTRON_TEMPERATURE_RANGE.max) {
-                this.errorMessage = `Value must be between ${ASTRON_TEMPERATURE_RANGE.min} and ${ASTRON_TEMPERATURE_RANGE.max}`;
-                return;
-              }
-            } else if (item.name === 'maxTokens') {
-              if (val < ASTRON_MAX_TOKENS_MIN) {
-                this.errorMessage = `Value must be at least ${ASTRON_MAX_TOKENS_MIN}`;
-                return;
-              }
-            }
-            this.setField(item.name, val);
+          if (!Number.isFinite(val)) {
+            this.errorMessage = t('tui.dialogs.astronSettings.invalidNumber');
+            return;
           }
+          if (item.name === 'temperature') {
+            if (val < ASTRON_TEMPERATURE_RANGE.min || val > ASTRON_TEMPERATURE_RANGE.max) {
+              this.errorMessage = t('tui.dialogs.astronSettings.temperatureOutOfRange');
+              return;
+            }
+          } else if (item.name === 'maxTokens') {
+            if (val < ASTRON_MAX_TOKENS_MIN) {
+              this.errorMessage = t('tui.dialogs.astronSettings.maxTokensOutOfRange');
+              return;
+            }
+          }
+          this.setField(item.name, val);
         }
         this.editing = false;
         this.editBuffer = '';
@@ -106,9 +108,8 @@ export class AstronSettingsComponent extends Container implements Focusable {
         return;
       }
       const ch = printableChar(data);
-      if (ch !== undefined && /[0-9.]/.test(ch)) {
+      if (/[0-9.]/.test(ch)) {
         this.editBuffer += ch;
-        return;
       }
       return;
     }

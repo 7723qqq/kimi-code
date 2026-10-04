@@ -272,11 +272,7 @@ export class ApprovalPanelComponent extends Container implements Focusable {
   }
 
   handleInput(data: string): void {
-    if (
-      matchesKey(data, Key.escape) ||
-      matchesKey(data, Key.ctrl('c')) ||
-      matchesKey(data, Key.ctrl('d'))
-    ) {
+    if (matchesKey(data, Key.ctrl('c')) || matchesKey(data, Key.ctrl('d'))) {
       this.onResponse({ response: 'rejected' });
       return;
     }
@@ -305,7 +301,14 @@ export class ApprovalPanelComponent extends Container implements Focusable {
         this.selectedIndex = (this.selectedIndex + 1) % this.choiceCount();
         return;
       }
+      // Esc reaches feedbackInput.handleInput, whose onEscape exits feedback
+      // mode — Esc must not reject the whole approval from inside the input.
       this.feedbackInput.handleInput(data);
+      return;
+    }
+
+    if (matchesKey(data, Key.escape)) {
+      this.onResponse({ response: 'rejected' });
       return;
     }
 

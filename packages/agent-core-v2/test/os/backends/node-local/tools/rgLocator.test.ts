@@ -15,7 +15,7 @@ import {
   rgUnavailableMessage,
   verifyArchiveChecksum,
   type RgProbe,
-} from '#/os/backends/node-local/tools/rgLocator';
+} from '#/os/backends/host/tools/rgLocator';
 
 vi.mock('tar', () => ({ extract: vi.fn() }));
 

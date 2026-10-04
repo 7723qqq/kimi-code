@@ -14,8 +14,11 @@ import {
 	type RgbColor,
 	type TerminalColorScheme,
 } from "./terminal-colors.ts";
-import { getCapabilities, isImageLine, setCellDimensions } from "./terminal-image.ts";
+import { getCapabilities, isCapabilitiesExplicitlySet, isImageLine, parseImageCapabilityResponse, setCapabilities, setCellDimensions } from "./terminal-image.ts";
 import { extractSegments, normalizeTerminalOutput, sliceByColumn, sliceWithWidth, visibleWidth } from "./utils.ts";
+
+/** How long to wait for the startup image-capability query replies. */
+const IMAGE_CAPABILITY_QUERY_TIMEOUT_MS = 1000;
 
 /**
  * Component interface - all components must implement this
@@ -352,6 +355,9 @@ export abstract class TuiBase extends Container implements TUI {
 	private pendingOsc11BackgroundQueries: PendingOsc11BackgroundQuery[] = [];
 	private terminalColorSchemeListeners = new Set<(scheme: TerminalColorScheme) => void>();
 	private terminalColorSchemeNotificationsEnabled = false;
+	/** Image-capability query in flight (Kitty graphics + DA1), awaiting a reply. */
+	private imageCapabilityQueryPending = false;
+	private imageCapabilityQueryTimer: NodeJS.Timeout | undefined;
 	protected readonly logDirectory: string;
 
 	// Overlay stack for modal components rendered on top of base content
@@ -704,6 +710,7 @@ export abstract class TuiBase extends Container implements TUI {
 			this.terminal.write("\x1b[?2031h");
 		}
 		this.queryCellSize();
+		this.queryImageCapabilities();
 		this.requestRender();
 	}
 
@@ -745,9 +752,45 @@ export abstract class TuiBase extends Container implements TUI {
 		this.terminal.write("\x1b[16t");
 	}
 
+	/**
+	 * Probe the terminal for image protocols when static detection found
+	 * none. Sends the Kitty graphics query and DA1 (sixel) query; replies
+	 * are consumed by {@link consumeImageCapabilityResponse}. Skipped inside
+	 * multiplexers (tmux/screen) and Termux, which do not forward replies.
+	 */
+	private queryImageCapabilities(): void {
+		if (this.imageCapabilityQueryPending) {
+			return;
+		}
+		// Skip when a protocol is already known, or when the cache was pinned
+		// explicitly (tests, TuiAltScreen's temporary iTerm2 override) — a
+		// probe there would emit a stray Kitty query into the alt screen.
+		if (getCapabilities().images || isCapabilitiesExplicitlySet()) {
+			return;
+		}
+		const term = process.env['TERM']?.toLowerCase() || "";
+		if (process.env['TMUX'] || term.startsWith("tmux") || term.startsWith("screen") || process.env['TERMUX_VERSION']) {
+			return;
+		}
+		this.imageCapabilityQueryPending = true;
+		// Kitty graphics query: reply is `ESC _ G i=1 ; OK ESC \` when supported.
+		this.terminal.write("\x1b_Gi=1,a=q,s=1\x1b\\");
+		// DA1: reply is `ESC [ ? <params> c`; param 62 means sixel graphics.
+		this.terminal.write("\x1b[c");
+		this.imageCapabilityQueryTimer = setTimeout(() => {
+			this.imageCapabilityQueryPending = false;
+			this.imageCapabilityQueryTimer = undefined;
+		}, IMAGE_CAPABILITY_QUERY_TIMEOUT_MS);
+	}
+
 	stop(options: TuiStopOptions = {}): void {
 		this.stopped = true;
 		this.cancelRenderTimer();
+		if (this.imageCapabilityQueryTimer) {
+			clearTimeout(this.imageCapabilityQueryTimer);
+			this.imageCapabilityQueryTimer = undefined;
+			this.imageCapabilityQueryPending = false;
+		}
 		if (this.terminalColorSchemeNotificationsEnabled) {
 			this.terminal.write("\x1b[?2031l");
 		}
@@ -824,6 +867,9 @@ export abstract class TuiBase extends Container implements TUI {
 			return;
 		}
 		if (this.consumeTerminalColorSchemeReport(data)) {
+			return;
+		}
+		if (this.consumeImageCapabilityResponse(data)) {
 			return;
 		}
 
@@ -950,6 +996,32 @@ export abstract class TuiBase extends Container implements TUI {
 		// Invalidate all components so images re-render with correct dimensions.
 		this.invalidate();
 		this.requestRender();
+		return true;
+	}
+
+	private consumeImageCapabilityResponse(data: string): boolean {
+		if (!this.imageCapabilityQueryPending) {
+			return false;
+		}
+		const response = parseImageCapabilityResponse(data);
+		if (response === null) {
+			return false;
+		}
+		this.imageCapabilityQueryPending = false;
+		if (this.imageCapabilityQueryTimer) {
+			clearTimeout(this.imageCapabilityQueryTimer);
+			this.imageCapabilityQueryTimer = undefined;
+		}
+		if (response.kind === "detected") {
+			const current = getCapabilities();
+			if (current.images !== response.protocol) {
+				setCapabilities({ ...current, images: response.protocol });
+				// Invalidate all components so images re-render with the
+				// newly detected protocol.
+				this.invalidate();
+				this.requestRender();
+			}
+		}
 		return true;
 	}
 

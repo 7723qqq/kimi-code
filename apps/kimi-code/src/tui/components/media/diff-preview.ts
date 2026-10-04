@@ -48,6 +48,44 @@ export function computeDiffLines(
 ): DiffLine[] {
   const oldLines = oldText ? oldText.split('\n') : [];
   const newLines = newText ? newText.split('\n') : [];
+
+  // The LCS table is O(m*n) in time and memory, and both sides come from
+  // model-generated tool input. Past the cell budget, fall back to a linear
+  // prefix/suffix diff so a whole-file rewrite cannot freeze the UI.
+  const result =
+    oldLines.length * newLines.length > MAX_DIFF_DP_CELLS
+      ? computePrefixSuffixDiffLines(oldLines, newLines, oldStart, newStart)
+      : computeLcsDiffLines(oldLines, newLines, oldStart, newStart);
+
+  // While the text is still streaming, suppress trailing delete lines.
+  // They are likely artefacts of newText not having arrived yet rather
+  // than genuine deletions.
+  if (isIncomplete && result.length > 0) {
+    let lastNonDelete = result.length - 1;
+    while (lastNonDelete >= 0 && result[lastNonDelete]!.kind === 'delete') {
+      lastNonDelete--;
+    }
+    if (lastNonDelete >= 0) {
+      result.length = lastNonDelete + 1;
+    } else {
+      // Every line would be shown as deleted; suppress them all so the
+      // UI doesn't flash a wall of red before newText starts arriving.
+      result.length = 0;
+    }
+  }
+
+  return result;
+}
+
+/** LCS cell-count budget: ~2e6 cells ≈ a 1400×1400 line diff. */
+const MAX_DIFF_DP_CELLS = 2_000_000;
+
+function computeLcsDiffLines(
+  oldLines: string[],
+  newLines: string[],
+  oldStart: number,
+  newStart: number,
+): DiffLine[] {
   const m = oldLines.length;
   const n = newLines.length;
 
@@ -85,24 +123,46 @@ export function computeDiffLines(
   for (let k = reversed.length - 1; k >= 0; k--) {
     result.push(reversed[k]!);
   }
+  return result;
+}
 
-  // While the text is still streaming, suppress trailing delete lines.
-  // They are likely artefacts of newText not having arrived yet rather
-  // than genuine deletions.
-  if (isIncomplete && result.length > 0) {
-    let lastNonDelete = result.length - 1;
-    while (lastNonDelete >= 0 && result[lastNonDelete]!.kind === 'delete') {
-      lastNonDelete--;
-    }
-    if (lastNonDelete >= 0) {
-      result.length = lastNonDelete + 1;
-    } else {
-      // Every line would be shown as deleted; suppress them all so the
-      // UI doesn't flash a wall of red before newText starts arriving.
-      result.length = 0;
-    }
+function computePrefixSuffixDiffLines(
+  oldLines: string[],
+  newLines: string[],
+  oldStart: number,
+  newStart: number,
+): DiffLine[] {
+  const maxCommon = Math.min(oldLines.length, newLines.length);
+  let prefix = 0;
+  while (prefix < maxCommon && oldLines[prefix] === newLines[prefix]) {
+    prefix++;
+  }
+  let suffix = 0;
+  while (
+    suffix < maxCommon - prefix &&
+    oldLines[oldLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]
+  ) {
+    suffix++;
   }
 
+  const result: DiffLine[] = [];
+  for (let i = 0; i < prefix; i++) {
+    result.push({ kind: 'context', lineNum: newStart + i, code: newLines[i]! });
+  }
+  for (let i = prefix; i < oldLines.length - suffix; i++) {
+    result.push({ kind: 'delete', lineNum: oldStart + i, code: oldLines[i]! });
+  }
+  for (let j = prefix; j < newLines.length - suffix; j++) {
+    result.push({ kind: 'add', lineNum: newStart + j, code: newLines[j]! });
+  }
+  const newTail = newLines.length - suffix;
+  for (let k = 0; k < suffix; k++) {
+    result.push({
+      kind: 'context',
+      lineNum: newStart + newTail + k,
+      code: newLines[newTail + k]!,
+    });
+  }
   return result;
 }
 

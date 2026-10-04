@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { ErrorCodes, Error2 } from '#/errors';
 import { loadMcpServers, resolveMcpJsonPaths } from '#/app/mcpConfig/configLoader';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
 
 const fs = new HostFileSystem();
 

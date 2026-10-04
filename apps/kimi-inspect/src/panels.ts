@@ -20,20 +20,22 @@ import { IAgentActivityView } from '@moonshot-ai/agent-core-v2/agent/activityVie
 import { IAgentMcpService } from '@moonshot-ai/agent-core-v2/agent/mcp/mcp';
 import { IAgentPermissionModeService } from '@moonshot-ai/agent-core-v2/agent/permissionMode/permissionMode';
 import { IAgentPermissionRulesService } from '@moonshot-ai/agent-core-v2/agent/permissionRules/permissionRules';
-import { IAgentPlanService } from '@moonshot-ai/agent-core-v2/features/plan/plan';
 import { IAgentProfileService } from '@moonshot-ai/agent-core-v2/agent/profile/profile';
-import { IAgentSwarmService } from '@moonshot-ai/agent-core-v2/features/swarm/agent/swarm';
 import { IAgentTaskService } from '@moonshot-ai/agent-core-v2/agent/task/task';
 import { IAgentToolRegistryService } from '@moonshot-ai/agent-core-v2/agent/toolRegistry/toolRegistry';
 import { IAuthSummaryService } from '@moonshot-ai/agent-core-v2/app/auth/auth';
 import { IConfigService } from '@moonshot-ai/agent-core-v2/app/config/config';
 import { IFlagService } from '@moonshot-ai/agent-core-v2/app/flag/flag';
+import { IAgentPlanService } from '@moonshot-ai/agent-core-v2/features/plan/plan';
+import { ISessionInitService } from '@moonshot-ai/agent-core-v2/features/sessionInit/sessionInit';
+import { IAgentSwarmService } from '@moonshot-ai/agent-core-v2/features/swarm/agent/swarm';
 import { IProviderService } from '@moonshot-ai/agent-core-v2/kosong/provider/provider';
 import { ISessionApprovalService } from '@moonshot-ai/agent-core-v2/session/approval/approval';
 import { ISessionQuestionService } from '@moonshot-ai/agent-core-v2/session/question/question';
-import { ISessionInitService } from '@moonshot-ai/agent-core-v2/features/sessionInit/sessionInit';
 import { ISessionMetadata } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';
 import { ISessionWorkspaceContext } from '@moonshot-ai/agent-core-v2/session/workspaceContext/workspaceContext';
+
+import { t } from '../i18n';
 
 /** Loosely-typed view of a scoped service proxy (every member is a remote call). */
 export type AnyService = Record<string, (...args: unknown[]) => Promise<unknown>>;
@@ -218,8 +220,8 @@ export const AGENT_PANELS: readonly ServicePanelDef[] = [
     fetch: (svc) => call(svc, 'list'),
     actions: [
       {
-        label: 'Reconnect server',
-        input: 'Server name',
+        label: t('panels.reconnectServer'),
+        input: t('panels.serverName'),
         run: (svc, name) => call(svc, 'reconnect', name),
       },
     ],
@@ -230,7 +232,7 @@ export const AGENT_PANELS: readonly ServicePanelDef[] = [
     scope: 'agent',
     fetch: (svc) => call(svc, 'isActive'),
     actions: [
-      { label: 'enter (manual)', run: (svc) => call(svc, 'enter', 'manual') },
+      { label: t('panels.enterManual'), run: (svc) => call(svc, 'enter', 'manual') },
       { label: 'exit', run: (svc) => call(svc, 'exit') },
     ],
   },

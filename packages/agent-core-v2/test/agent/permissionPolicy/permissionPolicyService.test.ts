@@ -29,7 +29,7 @@ import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { IGitService } from '#/app/git/git';
 import { findGitWorkTree } from '#/app/git/workTree';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { ToolAccesses, type ToolAccesses as ToolAccessList } from '#/tool/toolContract';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 

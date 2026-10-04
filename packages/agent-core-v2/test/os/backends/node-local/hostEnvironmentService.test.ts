@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { ProbeShellNotFoundError } from '#/_base/execEnv/environmentProbe';
-import { HostEnvironmentService } from '#/os/backends/node-local/hostEnvironmentService';
+import { HostEnvironmentService } from '#/os/backends/host/hostEnvironmentService';
 import { HostProcessError, OsProcessErrors } from '#/os/interface/hostProcess';
 
 vi.mock('#/_base/execEnv/environmentProbe', async (importOriginal) => {

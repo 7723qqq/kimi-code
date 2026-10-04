@@ -5,7 +5,7 @@ import type { IPluginService } from '#/app/plugin/plugin';
 import { ExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunnerService';
 import { HOOKS_SECTION } from '#/features/externalHooks/configSection';
 import type { HookDef } from '#/features/externalHooks/internal/types';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
 
 export function makeHookRunner(
   hooks: readonly HookDef[],

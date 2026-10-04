@@ -49,9 +49,9 @@ describe('ExperimentsSelectorComponent', () => {
 
     expect(out).toContain(' Experimental features  (type to search)');
     expect(out).toContain(' ↑↓ navigate · Space toggle · Enter apply · Esc cancel');
-    expect(out).toContain('  ❯ Micro compaction  enabled');
+    expect(out).toContain('  ❯ Micro compaction (cache-miss tool-result truncation)  enabled');
     expect(out).toContain('    id micro_compaction · config · KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION');
-    expect(out).toContain('    Trim older tool results.');
+    expect(out).toContain('    After a prompt-cache miss');
     expect(out).toContain(' [ Apply changes and reload ]  no changes');
   });
 
@@ -67,7 +67,7 @@ describe('ExperimentsSelectorComponent', () => {
     selector.handleInput(' ');
 
     expect(onApply).not.toHaveBeenCalled();
-    expect(text(selector)).toContain('  ❯ Micro compaction  disabled');
+    expect(text(selector)).toContain('  ❯ Micro compaction (cache-miss tool-result truncation)  disabled');
     expect(text(selector)).toContain(
       '    id micro_compaction · default · KIMI_CODE_EXPERIMENTAL_MICRO_COMPACTION · modified',
     );
@@ -96,7 +96,7 @@ describe('ExperimentsSelectorComponent', () => {
     selector.handleInput(' ');
     selector.handleInput(ENTER);
 
-    expect(text(selector)).toContain('  ❯ Micro compaction  enabled');
+    expect(text(selector)).toContain('  ❯ Micro compaction (cache-miss tool-result truncation)  enabled');
     expect(text(selector)).toContain(' [ Apply changes and reload ]  no changes');
     expect(onApply).not.toHaveBeenCalled();
   });

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { Project } from 'ts-morph';
 import path from 'node:path';
 import fs from 'node:fs';

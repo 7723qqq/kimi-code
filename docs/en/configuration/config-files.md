@@ -220,6 +220,8 @@ Constraints between the fields:
 - `default_effort` is section-wide: every spawn binds it regardless of the chosen pool entry (or the forced model). For per-entry efforts, leave it unset and use model variants (see below).
 - `primary` is a reserved alias (see below) and cannot be a pool key.
 
+Pool aliases reference the current `[models]` table: if a provider is later deleted or logged out, or its refreshed model list no longer contains an alias, session startup fails with a configuration error naming the broken alias — fix or remove the entry to recover. The `[secondary_model]` section itself is never rewritten automatically.
+
 In the interactive TUI, the [`/secondary-model`](../reference/slash-commands.md) command (alias `/subagent-model`) opens a model selector: the choice is written to `default_model` (when a models table exists and the picked alias is not in it, an entry with an empty description is added), and newly spawned subagents pick up the new default immediately — no session restart needed.
 
 A configured pool — an explicit `models` table or a lone `default_model` — enables model selection: the `Agent` / `AgentSwarm` tools gain a `model` parameter, and the tool description lists the pool (the default marked `[default]`) so the main agent can choose per spawn. Pool keys can only reference configured [`[models]`](#models) entries — the `kimi-code/*` aliases below are provisioned by `/login`:
@@ -475,6 +477,27 @@ base_url = "https://api.moonshot.cn/v1/fetch"
 api_key = "sk-xxx"
 ```
 
+## `github`
+
+Configures the built-in GitHub tools — the PR, issue, commit, and search tools the agent uses for GitHub-hosted work. The tools stay out of the agent's tool list until a token is available, so with nothing configured here you have no `GitHub*` tools and can leave this section out entirely.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `token` | `string` | — | GitHub personal access token used by the built-in GitHub tools. Falls back to `GITHUB_TOKEN`, then `GH_TOKEN` |
+| `base_url` | `string` | `https://api.github.com` | REST API base URL. Set it to point the tools at a GitHub Enterprise Server instance instead of GitHub's public API |
+
+```toml
+[github]
+token = "YOUR_GITHUB_TOKEN"
+base_url = "https://github.example.com/api/v3" # optional — GitHub Enterprise Server
+```
+
+A value written here always wins over the environment: `GITHUB_TOKEN`, `GH_TOKEN`, and `GITHUB_API_URL` are read only as a fallback for a field the file leaves unset, and an env-sourced value is never written back to `config.toml` — convenient for containers and CI, where writing a config file is awkward. See [Environment variables](./env-vars.md#github-credentials).
+
+The token is read when the tools activate, not only at startup: adding `token` here (or exporting `GITHUB_TOKEN`) makes the tools available from the next step of a running turn, with no restart. Removing it does not take tools away from an agent that already activated them — start a new session for that.
+
+For the tool list itself and which entries need approval, see [Built-in Tools](../reference/tools.md#github).
+
 ## `permission`
 
 `permission` sets permission rules that are automatically loaded when a session starts, controlling whether the Agent needs user confirmation before calling a tool. Rules are written as a `[[permission.rules]]` array of tables, matched in order — the first matching rule takes effect.
@@ -517,6 +540,7 @@ Alongside `config.toml`, the CLI keeps terminal-UI and client preferences in a c
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `theme` | `string` | `auto` | Color theme: `auto` (follow the terminal), `dark`, `light`, or the name of a [custom theme](../customization/themes.md) |
+| `locale` | `string` | auto-detected | UI language for the terminal: `en` or `zh`. The `/settings` dialog writes it for you. Unset, the CLI picks `zh` when `KIMI_LANG` or the system `LANG` / `LC_ALL` / `LC_MESSAGES` says Chinese, and `en` otherwise; set it explicitly to pin one language |
 | `render_latex` | `boolean` | `true` | Render LaTeX math expressions (`$…$`, `$$…$$`) in Markdown messages as Unicode text; `false` keeps the raw source |
 | `disable_paste_burst` | `boolean` | `false` | Disable the non-bracketed paste-burst fallback that keeps rapid multi-line pastes from submitting line by line |
 | `cache_expiry_hint` | `boolean` | `true` | Show a dialog when resuming a long-idle session or submitting after a long idle stretch, warning that the context cache has likely expired and offering to compact or start a new session (v2 engine only) |

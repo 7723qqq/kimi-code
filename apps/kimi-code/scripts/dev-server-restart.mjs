@@ -1,7 +1,8 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Press-Enter-to-restart wrapper for the local server. No file watcher.
 //
-// Spawns `tsx ./src/main.ts web --no-open …extraArgs` once, then on each
+// Spawns `bun --import ../../build/register-raw-text-loader.mjs ./src/main.ts web --no-open …extraArgs`
+// once, then on each
 // newline read from stdin SIGTERMs the child and respawns after it has
 // cleanly exited. SIGTERM triggers the server's own `shutdown()` handler
 // (apps/kimi-code/src/cli/sub/web/run.ts) which releases the instance
@@ -20,14 +21,12 @@ import { fileURLToPath } from 'node:url';
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = resolve(SCRIPT_DIR, '..');
 
-const tsxBin = process.platform === 'win32' ? 'tsx.cmd' : 'tsx';
+const bunBin = process.platform === 'win32' ? 'bun.exe' : 'bun';
 
 const cliArgs = process.argv.slice(2);
 if (cliArgs[0] === '--') cliArgs.shift();
 
-const tsxArgs = [
-  '--tsconfig',
-  './tsconfig.dev.json',
+const serverArgs = [
   '--import',
   '../../build/register-raw-text-loader.mjs',
   './src/main.ts',
@@ -43,7 +42,7 @@ let killTimer = null;
 
 function start() {
   console.error('[dev:server:restart] starting server…');
-  child = spawn(tsxBin, tsxArgs, {
+  child = spawn(bunBin, serverArgs, {
     cwd: APP_ROOT,
     env: { ...process.env, KIMI_CODE_DEV_SERVER: '1' },
     // Server does not read stdin; keep ours free for the Enter trigger.

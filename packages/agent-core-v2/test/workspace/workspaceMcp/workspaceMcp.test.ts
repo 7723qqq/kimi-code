@@ -24,7 +24,7 @@ import {
   type McpServerStatus,
 } from '#/mcpCore/connection-manager';
 import { McpOAuthService, type McpOAuthEvent } from '#/mcpCore/oauth/service';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { ISessionEphemeralMcpServers } from '#/session/mcp/ephemeralMcpServers';
 import { MergedMcpConnectionView } from '#/session/mcp/mergedConnectionView';
@@ -138,7 +138,10 @@ describe('WorkspaceMcpService', () => {
         const runtime = Object.assign(
           new FakeRuntime(
             { workspaceId: 'test-workspace', runtimeId: 'local', generation: 'test-generation' },
-            { capabilities: ['process'] },
+            {
+              capabilities: ['process'],
+              pathClass: process.platform === 'win32' ? 'win32' : 'posix',
+            },
           ),
           { process: new HostProcessService() },
         );

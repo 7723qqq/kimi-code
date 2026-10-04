@@ -76,10 +76,18 @@ async function startSwarmWithPermission(
   prompt: string,
   choice: SwarmStartPermissionChoice,
 ): Promise<void> {
-  if (choice === 'auto' || choice === 'yolo') {
+  const previousMode = host.state.appState.permissionMode;
+  const switched = choice !== previousMode && (choice === 'auto' || choice === 'yolo');
+  if (switched) {
     if (!(await setPermissionForSwarm(host, choice))) return;
   }
-  await startSwarmTask(host, prompt);
+  const started = await startSwarmTask(host, prompt);
+  // The permission switch only exists to run this swarm task. If the task
+  // never starts (e.g. setSwarmMode failed), restore the previous mode so
+  // the session is not left more permissive than before.
+  if (!started && switched) {
+    await setPermissionForSwarm(host, previousMode);
+  }
 }
 
 async function setPermissionForSwarm(
@@ -96,12 +104,13 @@ async function setPermissionForSwarm(
   return true;
 }
 
-async function startSwarmTask(host: SlashCommandHost, prompt: string): Promise<void> {
+async function startSwarmTask(host: SlashCommandHost, prompt: string): Promise<boolean> {
   if (!host.state.appState.swarmMode && !(await setSwarmMode(host, true, 'task'))) {
-    return;
+    return false;
   }
   renderSwarmModeMarker(host, 'active');
   host.sendNormalUserInput(prompt);
+  return true;
 }
 
 async function applySwarmMode(

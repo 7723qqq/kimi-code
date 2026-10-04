@@ -43,6 +43,7 @@ import {
   type ExecutableToolContext,
   type ExecutableToolResult,
 } from '#/tool/toolContract';
+import { stubToolResultTruncationService } from '../../toolResultTruncation/stubs';
 
 const WORKSPACE: WorkspaceConfig = { workspaceDir: '/workspace', additionalDirs: [] };
 
@@ -227,6 +228,7 @@ function makeReadTool(fs: IHostFileSystem, mediaCtx: MediaReadContext): ReadTool
     } as ISessionWorkspaceContext,
     { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
     { getMediaReadContext: () => mediaCtx } as IMediaReadContext,
+    stubToolResultTruncationService(),
   );
 }
 

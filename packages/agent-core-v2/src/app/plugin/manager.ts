@@ -524,7 +524,8 @@ async function assertManagedPluginRoot(root: string, kimiHomeDir: string): Promi
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
     throw error;
   }
-  if (!rootReal.startsWith(`${managedDir}${path.sep}`)) {
+  const managedReal = await realpath(managedDir).catch(() => managedDir);
+  if (!rootReal.startsWith(`${managedReal}${path.sep}`)) {
     throw new BugIndicatingError(
       `Refusing to remove plugin root outside the managed directory: ${rootReal}`,
     );

@@ -205,6 +205,7 @@ describe('conversation-time checkpoint registration', () => {
   const CHECKPOINT_EXEMPT_STATES: ReadonlySet<string> = new Set([
     'goalForkNotice',
     'microCompaction',
+    'turn',
   ]);
   const CONTEXT_OWNER_STATE = 'contextMemory';
   const CONTEXT_EVENTS: readonly Event2Class[] = [

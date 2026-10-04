@@ -74,8 +74,6 @@ export function installCommandFor(
   switch (source) {
     case 'npm-global':
       return `npm install -g ${NPM_PACKAGE_NAME}@${version}`;
-    case 'pnpm-global':
-      return `pnpm add -g ${NPM_PACKAGE_NAME}@${version}`;
     case 'yarn-global':
       return `yarn global add ${NPM_PACKAGE_NAME}@${version}`;
     case 'bun-global':
@@ -92,7 +90,6 @@ export function installCommandFor(
 export function canAutoInstall(source: InstallSource, _platform: NodeJS.Platform): boolean {
   switch (source) {
     case 'npm-global':
-    case 'pnpm-global':
     case 'yarn-global':
     case 'bun-global':
       return true;
@@ -121,8 +118,6 @@ export function spawnForSource(
   switch (source) {
     case 'npm-global':
       return { cmd: withCmdSuffix('npm', platform), args: ['install', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
-    case 'pnpm-global':
-      return { cmd: withCmdSuffix('pnpm', platform), args: ['add', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
     case 'yarn-global':
       return { cmd: withCmdSuffix('yarn', platform), args: ['global', 'add', `${NPM_PACKAGE_NAME}@${version}`] };
     case 'bun-global':
@@ -202,7 +197,6 @@ export function renderManualUpdateMessage(
   let sourceDesc: string;
   switch (source) {
     case 'npm-global':
-    case 'pnpm-global':
     case 'yarn-global':
     case 'bun-global':
       sourceDesc = source;
@@ -597,7 +591,7 @@ export async function installUpdate(
     );
   }
   await new Promise<void>((resolve, reject) => {
-    // Windows package managers (npm/pnpm/yarn) are .cmd shims. Since the
+    // Windows package managers (npm/yarn) are .cmd shims. Since the
     // CVE-2024-27980 fix, Node throws EINVAL when spawning a .cmd/.bat without
     // a shell, so run through the shell on win32. The version is a validated
     // semver and the package name is a constant, so args are shell-safe. The

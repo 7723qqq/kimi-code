@@ -15,6 +15,7 @@ import {
   transformPlainObject,
 } from '#/app/config/toml';
 import { type AssertExact, type Equal } from '#/_base/utils/typeEquality';
+import type { ModelOverrides } from '#/kosong/model/model.types';
 import type { ModelOverride, ModelRecord, ModelsSection } from '#/kosong/model/model';
 import type { ThinkingConfig } from '#/kosong/model/thinking';
 import type { OAuthRef, ProviderConfig, ProvidersSection } from '#/kosong/provider/provider';
@@ -224,7 +225,15 @@ export const modelsToToml = (value: unknown, rawSnake: unknown): unknown => {
     const merged = cloneRecord(rawSub[id]);
     for (const [key, field] of Object.entries(entry)) {
       if (key === 'capabilities' && Array.isArray(field)) {
-        merged[camelToSnake(key)] = [...field];
+        const onDisk = Array.isArray(merged['capabilities']) ? merged['capabilities'] : [];
+        const union = new Set<string>();
+        for (const c of onDisk) {
+          if (typeof c === 'string' && c.trim().length > 0) union.add(c.trim());
+        }
+        for (const c of field) {
+          if (typeof c === 'string' && c.trim().length > 0) union.add(c.trim());
+        }
+        merged[camelToSnake(key)] = [...union];
       } else if (key === 'overrides' && isPlainObject(field)) {
         merged['overrides'] = modelOverridesToToml(field, merged['overrides']);
       } else {
@@ -255,6 +264,23 @@ registerConfigSection(MODELS_SECTION, ModelsSectionSchema, {
   defaultValue: {},
   fromToml: modelsFromToml,
   toToml: modelsToToml,
+});
+
+export const MODEL_OVERRIDES_SECTION = 'modelOverrides';
+
+export const ModelOverridesSchema = z.object({
+  temperature: z.number().optional(),
+  topP: z.number().optional(),
+  thinkingKeep: z.string().optional(),
+  maxCompletionTokens: z.number().int().min(1).optional(),
+});
+
+type _AssertModelOverrides = AssertExact<
+  Equal<z.infer<typeof ModelOverridesSchema>, ModelOverrides>
+>;
+
+registerConfigSection(MODEL_OVERRIDES_SECTION, ModelOverridesSchema, {
+  defaultValue: {},
 });
 
 export const THINKING_SECTION = 'thinking';

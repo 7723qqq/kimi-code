@@ -537,7 +537,7 @@ export interface NativeBashExit {
 /**
  * Spawn a shell command via Rust and stream its output to `onEvent`.
  * Stdin is closed at spawn. Returns `undefined` when the native module is
- * unavailable (the caller falls back to the node-local spawn).
+ * unavailable (the caller falls back to the host spawn).
  */
 export function tryNativeBashSpawn(
   config: NativeBashSpawnConfig,

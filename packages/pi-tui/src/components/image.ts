@@ -1,5 +1,7 @@
 import {
 	allocateImageId,
+	calculateImageCellSize,
+	encodeSixel,
 	getCapabilities,
 	getCellDimensions,
 	getImageDimensions,
@@ -20,6 +22,16 @@ export interface ImageOptions {
 	filename?: string;
 	/** Kitty image ID. If provided, reuses this ID (for animations/updates). */
 	imageId?: number;
+	/**
+	 * Pre-decoded RGBA8888 pixels, required for sixel rendering (pi-tui has
+	 * no image decoder; the caller decodes and passes the buffer here).
+	 * Ignored for kitty / iTerm2 protocols.
+	 */
+	pixels?: Uint8Array;
+	/** Pixel width of {@link pixels}. */
+	pixelWidth?: number;
+	/** Pixel height of {@link pixels}. */
+	pixelHeight?: number;
 }
 
 export class Image implements Component {
@@ -72,47 +84,73 @@ export class Image implements Component {
 		let lines: string[];
 
 		if (caps.images) {
-			if (caps.images === "kitty" && this.imageId === undefined) {
-				this.imageId = allocateImageId();
-			}
-			const result = renderImage(this.base64Data, this.dimensions, {
-				maxWidthCells: maxWidth,
-				maxHeightCells: maxHeight,
-				imageId: this.imageId,
-				moveCursor: false,
-			});
-
-			if (result) {
-				// Store the image ID for later cleanup
-				if (result.imageId) {
-					this.imageId = result.imageId;
-				}
-
-				if (caps.images === "kitty") {
-					// For Kitty: C=1 prevents cursor movement.
-					// Don't need the cursor movement.
-					lines = [result.sequence];
-
-					// Return `rows` lines so TUI accounts for image height.
-					for (let i = 0; i < result.rows - 1; i++) {
-						lines.push("");
-					}
-				} else {
-					// Return `rows` lines so TUI accounts for image height.
-					// First (rows-1) lines are empty and cleared before the image is drawn.
-					// Last line: move cursor back up, draw the image, then move back down
-					// so TUI cursor accounting stays inside the scroll area.
+			if (caps.images === "sixel") {
+				const pixels = this.options.pixels;
+				const pixelWidth = this.options.pixelWidth;
+				const pixelHeight = this.options.pixelHeight;
+				if (pixels && pixelWidth && pixelHeight) {
+					const size = calculateImageCellSize(this.dimensions, maxWidth, maxHeight, getCellDimensions());
+					const sequence = encodeSixel(pixels, pixelWidth, pixelHeight, {
+						maxWidthCells: maxWidth,
+						maxHeightCells: maxHeight,
+					});
+					// Same layout as iTerm2: (rows-1) empty lines, then move the
+					// cursor back up and draw the image so TUI cursor accounting
+					// stays inside the scroll area.
 					lines = [];
-					for (let i = 0; i < result.rows - 1; i++) {
+					for (let i = 0; i < size.rows - 1; i++) {
 						lines.push("");
 					}
-					const rowOffset = result.rows - 1;
+					const rowOffset = size.rows - 1;
 					const moveUp = rowOffset > 0 ? `\x1b[${rowOffset}A` : "";
-					lines.push(moveUp + result.sequence);
+					lines.push(moveUp + sequence);
+				} else {
+					const fallback = imageFallback(this.mimeType, this.dimensions, this.options.filename);
+					lines = [truncateToWidth(this.theme.fallbackColor(fallback), width)];
 				}
 			} else {
-				const fallback = imageFallback(this.mimeType, this.dimensions, this.options.filename);
-				lines = [truncateToWidth(this.theme.fallbackColor(fallback), width)];
+				if (caps.images === "kitty" && this.imageId === undefined) {
+					this.imageId = allocateImageId();
+				}
+				const result = renderImage(this.base64Data, this.dimensions, {
+					maxWidthCells: maxWidth,
+					maxHeightCells: maxHeight,
+					imageId: this.imageId,
+					moveCursor: false,
+				});
+
+				if (result) {
+					// Store the image ID for later cleanup
+					if (result.imageId) {
+						this.imageId = result.imageId;
+					}
+
+					if (caps.images === "kitty") {
+						// For Kitty: C=1 prevents cursor movement.
+						// Don't need the cursor movement.
+						lines = [result.sequence];
+
+						// Return `rows` lines so TUI accounts for image height.
+						for (let i = 0; i < result.rows - 1; i++) {
+							lines.push("");
+						}
+					} else {
+						// Return `rows` lines so TUI accounts for image height.
+						// First (rows-1) lines are empty and cleared before the image is drawn.
+						// Last line: move cursor back up, draw the image, then move back down
+						// so TUI cursor accounting stays inside the scroll area.
+						lines = [];
+						for (let i = 0; i < result.rows - 1; i++) {
+							lines.push("");
+						}
+						const rowOffset = result.rows - 1;
+						const moveUp = rowOffset > 0 ? `\x1b[${rowOffset}A` : "";
+						lines.push(moveUp + result.sequence);
+					}
+				} else {
+					const fallback = imageFallback(this.mimeType, this.dimensions, this.options.filename);
+					lines = [truncateToWidth(this.theme.fallbackColor(fallback), width)];
+				}
 			}
 		} else {
 			const fallback = imageFallback(this.mimeType, this.dimensions, this.options.filename);

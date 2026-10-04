@@ -180,7 +180,7 @@ function makeSelector(
   const inner: ModelSelectorOptions = {
     models: subset,
     currentValue: opts.currentValue,
-    ...(selectedValue !== undefined ? { selectedValue } : {}),
+    selectedValue,
     currentThinkingEffort: opts.currentThinkingEffort,
     title: opts.title,
     searchable: true,

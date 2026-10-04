@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Recursively resolve workspace dependencies starting from apps/kimi-code
  * and verify they are all present in flake.nix workspacePaths.

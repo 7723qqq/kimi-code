@@ -20,8 +20,8 @@ import { IConfigService } from '#/app/config/config';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { PluginReloadEvent } from '#/app/plugin/types';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import {
   IHostFsWatchService,
@@ -87,7 +87,13 @@ describe('Workspace MCP initialization', () => {
         reg.defineInstance(ILogService, stubLog());
         reg.defineInstance(ITelemetryService, noopTelemetryService);
         const runtime = Object.assign(
-          new FakeRuntime({ workspaceId: 'test-workspace', runtimeId: 'local', generation: 'test-generation' }, { capabilities: ['process'] }),
+          new FakeRuntime(
+            { workspaceId: 'test-workspace', runtimeId: 'local', generation: 'test-generation' },
+            {
+              capabilities: ['process'],
+              pathClass: process.platform === 'win32' ? 'win32' : 'posix',
+            },
+          ),
           { process: new HostProcessService() },
         );
         reg.defineInstance(IRuntimeResolver, { _serviceBrand: undefined, inspect: () => runtime, acquire: () => ({ runtime, track: (resource) => resource, dispose: () => {} }) });

@@ -355,18 +355,26 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
 async function makeDriver(
   session = makeSession(),
   harnessOverrides: Record<string, unknown> = {},
-  startupInput: KimiTUIStartupInput = makeStartupInput(),
+  startupInput?: KimiTUIStartupInput,
 ): Promise<{
   driver: MessageDriver;
   session: ReturnType<typeof makeSession>;
   harness: ReturnType<typeof makeHarness>;
 }> {
   const harness = makeHarness(session, harnessOverrides);
-  const driver = new KimiTUI(harness as never, startupInput) as unknown as MessageDriver;
+  const driver = new KimiTUI(harness as never, startupInput ?? makeStartupInput()) as unknown as MessageDriver;
   vi.spyOn(driver.state.ui, 'requestRender').mockImplementation(() => {});
   vi.spyOn(driver.state.terminal, 'setProgress').mockImplementation(() => {});
   driver.persistInputHistory = vi.fn(async () => {});
   await driver.init();
+  if (startupInput === undefined) {
+    // Tests that did not opt into session-less startup keep a session-ready
+    // driver: materialize the session through the lazy-creation path, with
+    // the model the session's runtime status reports (what the eager-create
+    // startup path used to provide).
+    if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
+    await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
+  }
   return { driver, session, harness };
 }
 
@@ -545,7 +553,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(session, {}, startupInput);
@@ -575,7 +582,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(session, {}, startupInput);
@@ -595,7 +601,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy', activateSkill: vi.fn(async () => {}) });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(
@@ -633,7 +638,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -670,7 +674,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -706,7 +709,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -735,7 +737,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -776,7 +777,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -812,7 +812,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -837,27 +836,6 @@ describe('KimiTUI message flow', () => {
     expect(session.prompt).not.toHaveBeenCalled();
   });
 
-  it('keeps inline skill tokens as plain text on the legacy engine', async () => {
-    const session = makeSession({ id: 'ses-1' });
-    const { driver } = await makeDriver(session, {
-      listSkills: undefined,
-      listPluginCommands: vi.fn(async () => []),
-    });
-    (driver as unknown as { skillCommandMap: Map<string, string> }).skillCommandMap.set(
-      'skill:review',
-      'review',
-    );
-
-    driver.handleUserInput('please /skill:review this');
-
-    await vi.waitFor(() => {
-      expect(session.prompt).toHaveBeenCalledWith('please /skill:review this', {
-        promptId: undefined,
-      });
-    });
-    expect(session.promptWithSkills).not.toHaveBeenCalled();
-  });
-
   it('queues an inline-skill prompt while a goal is active (v2 engine)', async () => {
     const session = makeSession({
       id: 'ses-lazy',
@@ -867,7 +845,6 @@ describe('KimiTUI message flow', () => {
     });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -904,7 +881,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -952,7 +928,6 @@ describe('KimiTUI message flow', () => {
     });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -983,7 +958,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(session, {}, startupInput);
@@ -1108,7 +1082,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(session, {}, startupInput);
@@ -1209,7 +1182,6 @@ describe('KimiTUI message flow', () => {
     });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -1263,7 +1235,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(session, {}, startupInput);
@@ -1293,7 +1264,6 @@ describe('KimiTUI message flow', () => {
     const newSession = makeSession({ id: 'ses-new' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(lazySession, {}, startupInput);
@@ -1333,7 +1303,6 @@ describe('KimiTUI message flow', () => {
     const lazySession = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(lazySession, {}, startupInput);
@@ -1384,7 +1353,6 @@ describe('KimiTUI message flow', () => {
     const lazySession = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(
@@ -1423,7 +1391,6 @@ describe('KimiTUI message flow', () => {
     const lazySession = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(
@@ -1466,7 +1433,6 @@ describe('KimiTUI message flow', () => {
     const lazySession = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(
@@ -1515,7 +1481,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(session, {}, startupInput);
@@ -1542,7 +1507,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(
@@ -1576,7 +1540,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2', plan: true },
     };
     const { driver, harness } = await makeDriver(session, {}, startupInput);
@@ -1594,7 +1557,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy', runShellCommand });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(session, {}, startupInput);
@@ -1620,7 +1582,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       // No model configured: /settings must still open so the user can fix
       // local editor/theme/update settings before picking a model.
       cliOptions: { ...makeStartupInput().cliOptions },
@@ -1637,7 +1598,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy', activateSkill: vi.fn(async () => {}) });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(
@@ -1675,7 +1635,6 @@ describe('KimiTUI message flow', () => {
     const listPlugins = vi.fn(async () => []);
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       // No model configured: /plugins must still work via the app-global API.
       cliOptions: { ...makeStartupInput().cliOptions },
     };
@@ -1694,7 +1653,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       // No model configured: the read-only form must still work.
       cliOptions: { ...makeStartupInput().cliOptions },
     };
@@ -1710,7 +1668,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(session, {}, startupInput);
@@ -1727,7 +1684,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       additionalDirs: ['/tmp/extra'],
       cliOptions: { ...makeStartupInput().cliOptions },
     };
@@ -1758,7 +1714,6 @@ describe('KimiTUI message flow', () => {
     const reloadPlugins = vi.fn(async () => ({ added: [], removed: [], errors: [] }));
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions },
     };
     const { driver, harness } = await makeDriver(
@@ -1789,7 +1744,6 @@ describe('KimiTUI message flow', () => {
     );
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions },
     };
     const { driver, harness } = await makeDriver(session, { getConfig }, startupInput);
@@ -1821,7 +1775,6 @@ describe('KimiTUI message flow', () => {
     );
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions },
     };
     const { driver } = await makeDriver(session, { getConfig }, startupInput);
@@ -1856,7 +1809,6 @@ describe('KimiTUI message flow', () => {
     });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(
@@ -1899,7 +1851,6 @@ describe('KimiTUI message flow', () => {
     );
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions },
     };
     const { driver } = await makeDriver(session, { getConfig }, startupInput);
@@ -1934,7 +1885,6 @@ describe('KimiTUI message flow', () => {
     });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2', plan: true },
     };
     const { driver, harness } = await makeDriver(
@@ -1966,7 +1916,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       // No model configured: read-only views must still open.
       cliOptions: { ...makeStartupInput().cliOptions },
     };
@@ -1985,7 +1934,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(session, {}, startupInput);
@@ -2012,7 +1960,6 @@ describe('KimiTUI message flow', () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(session, {}, startupInput);
@@ -2056,7 +2003,6 @@ describe('KimiTUI message flow', () => {
     ]);
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions },
     };
     const { driver, harness } = await makeDriver(
@@ -2271,15 +2217,21 @@ command = "vim"
       settled = true;
     });
 
-    await vi.waitFor(() => {
-      expect(harness.exportSession).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'ses-1',
-          includeGlobalLog: true,
-          version: '0.0.0-test',
-        }),
-      );
-    });
+    await vi.waitFor(
+      () => {
+        expect(harness.exportSession).toHaveBeenCalledWith(
+          expect.objectContaining({
+            id: 'ses-1',
+            includeGlobalLog: true,
+            version: '0.0.0-test',
+          }),
+        );
+      },
+      // The command performs real fs work (archive path creation, install
+      // detection) before reaching exportSession; the default 1s window is
+      // too tight under full-suite parallel load.
+      { timeout: 10_000 },
+    );
     expect(harness.auth.submitFeedback).toHaveBeenCalledWith(
       expect.objectContaining({ content: 'useful feedback' }),
     );
@@ -2341,9 +2293,12 @@ command = "vim"
       settled = true;
     });
 
-    await vi.waitFor(() => {
-      expect(uploadArchive).toHaveBeenCalledTimes(2);
-    });
+    await vi.waitFor(
+      () => {
+        expect(uploadArchive).toHaveBeenCalledTimes(2);
+      },
+      { timeout: 10_000 },
+    );
     expect(settled).toBe(false);
 
     resolveCodebaseUpload();
@@ -3389,7 +3344,6 @@ command = "vim"
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver, harness } = await makeDriver(session, {}, startupInput);
@@ -4850,7 +4804,6 @@ command = "vim"
     });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -4890,7 +4843,6 @@ command = "vim"
     });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -4924,7 +4876,6 @@ command = "vim"
     });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -4959,7 +4910,6 @@ command = "vim"
     });
     const startupInput: KimiTUIStartupInput = {
       ...makeStartupInput(),
-      engineV2: true,
       cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
     };
     const { driver } = await makeDriver(
@@ -5575,6 +5525,89 @@ command = "vim"
 
     expect(session.startBtw).not.toHaveBeenCalled();
     expect(stripSgr(renderTranscript(driver))).toContain('LLM not set');
+  });
+
+  it('recomputes contextUsage when a status update carries contextTokens without it', async () => {
+    const { driver } = await makeDriver();
+    driver.state.appState.contextTokens = 0;
+    driver.state.appState.maxContextTokens = 1_000_000;
+    driver.state.appState.contextUsage = 0.74;
+
+    // v2 token-counting events carry contextTokens only; the ratio must be
+    // recomputed or the footer and /usage bar keep showing the stale value.
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'agent.status.updated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        contextTokens: 180_000,
+      } as Event,
+      vi.fn(),
+    );
+
+    expect(driver.state.appState.contextTokens).toBe(180_000);
+    expect(driver.state.appState.contextUsage).toBeCloseTo(0.18);
+  });
+
+  it('recomputes contextUsage when a status update carries maxContextTokens without it', async () => {
+    const { driver } = await makeDriver();
+    driver.state.appState.contextTokens = 180_000;
+    driver.state.appState.maxContextTokens = 256_000;
+    driver.state.appState.contextUsage = 180_000 / 256_000;
+
+    // v2 profile events carry maxContextTokens only (e.g. a model switch).
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'agent.status.updated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        maxContextTokens: 1_000_000,
+      } as Event,
+      vi.fn(),
+    );
+
+    expect(driver.state.appState.maxContextTokens).toBe(1_000_000);
+    expect(driver.state.appState.contextUsage).toBeCloseTo(0.18);
+  });
+
+  it('keeps an explicit contextUsage from status updates instead of recomputing', async () => {
+    const { driver } = await makeDriver();
+    driver.state.appState.contextTokens = 100;
+    driver.state.appState.maxContextTokens = 1_000_000;
+    driver.state.appState.contextUsage = 0;
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'agent.status.updated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        contextTokens: 180_000,
+        maxContextTokens: 1_000_000,
+        contextUsage: 0.42,
+      } as Event,
+      vi.fn(),
+    );
+
+    expect(driver.state.appState.contextUsage).toBe(0.42);
+  });
+
+  it('zeroes contextUsage when a recomputation has no known context window', async () => {
+    const { driver } = await makeDriver();
+    driver.state.appState.contextTokens = 180_000;
+    driver.state.appState.maxContextTokens = 0;
+    driver.state.appState.contextUsage = 0.74;
+
+    driver.sessionEventHandler.handleEvent(
+      {
+        type: 'agent.status.updated',
+        agentId: 'main',
+        sessionId: 'ses-1',
+        contextTokens: 190_000,
+      } as Event,
+      vi.fn(),
+    );
+
+    expect(driver.state.appState.contextUsage).toBe(0);
   });
 
   it('applies the effective thinking effort from status updates', async () => {
@@ -7884,6 +7917,11 @@ command = "vim"
     }
   });
 
+  const expectedForkResumeCommand =
+    process.platform === 'win32'
+      ? 'pushd "/tmp/proj-a" && kimi --resume "ses-fork"'
+      : "cd '/tmp/proj-a' && kimi --resume 'ses-fork'";
+
   it('forks the active session and stays in the source session', async () => {
     const originalTitle = process.title;
     const source = makeSession({
@@ -7911,12 +7949,10 @@ command = "vim"
           'Session forked (ses-fork). Still in the original session; switch to the fork via /sessions.',
         );
       });
-      expect(copyTextToClipboard).toHaveBeenCalledWith(
-        "cd '/tmp/proj-a' && kimi --resume 'ses-fork'",
-      );
+      expect(copyTextToClipboard).toHaveBeenCalledWith(expectedForkResumeCommand);
       const transcript = driver.state.transcriptContainer.render(120).join('\n');
       expect(transcript).toContain(
-        "To enter the fork in a new process, run: cd '/tmp/proj-a' && kimi --resume 'ses-fork'",
+        `To enter the fork in a new process, run: ${expectedForkResumeCommand}`,
       );
       expect(transcript).toContain('Command copied to clipboard');
       expect(driver.getCurrentSessionId()).toBe('ses-source');
@@ -7943,7 +7979,7 @@ command = "vim"
     await vi.waitFor(() => {
       const transcript = driver.state.transcriptContainer.render(120).join('\n');
       expect(transcript).toContain(
-        "To enter the fork in a new process, run: cd '/tmp/proj-a' && kimi --resume 'ses-fork'",
+        `To enter the fork in a new process, run: ${expectedForkResumeCommand}`,
       );
       expect(transcript).toContain('Failed to copy command to clipboard');
     });
@@ -7982,6 +8018,10 @@ command = "vim"
           workDir: 'D:\\proj',
         },
       );
+      // Materialize the session through the lazy-creation path (fresh startup
+      // no longer creates one during init).
+      if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
+      await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
 
       driver.handleUserInput('/fork');
 

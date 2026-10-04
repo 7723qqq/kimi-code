@@ -15,7 +15,6 @@ export interface BtwPanelHost {
   state: TUIState;
   session: Session | undefined;
   readonly harness: KimiHarness;
-  readonly engineV2?: boolean;
   readonly skillCommandMap?: ReadonlyMap<string, string>;
 
   showError(msg: string): void;
@@ -168,7 +167,7 @@ export class BtwPanelController {
       return;
     }
     const skills =
-      this.host.engineV2 && this.host.skillCommandMap !== undefined
+      this.host.skillCommandMap !== undefined
         ? extractInlineSkillActivations(prompt, this.host.skillCommandMap, {
             includeLeading: true,
           })

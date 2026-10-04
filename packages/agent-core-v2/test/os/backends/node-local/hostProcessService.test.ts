@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import {
   HostProcessError,
   HostProcessErrorCode,

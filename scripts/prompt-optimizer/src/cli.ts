@@ -2,10 +2,10 @@
  * Prompt Optimizer — CLI entry point.
  *
  * Usage:
- *   tsx src/cli.ts bench [--model <model>] [--variant <name>] [--dry-run]
- *   tsx src/cli.ts prune [--model <model>] [--dry-run]
- *   tsx src/cli.ts ab    [--model <model>] [--experiment <file>] [--dry-run]
- *   tsx src/cli.ts probe [--model <model>] [--reps <n>] [--dry-run]
+ *   bun src/cli.ts bench [--model <model>] [--variant <name>] [--dry-run]
+ *   bun src/cli.ts prune [--model <model>] [--dry-run]
+ *   bun src/cli.ts ab    [--model <model>] [--experiment <file>] [--dry-run]
+ *   bun src/cli.ts probe [--model <model>] [--reps <n>] [--dry-run]
  */
 
 import { writeFileSync, mkdirSync } from 'node:fs';

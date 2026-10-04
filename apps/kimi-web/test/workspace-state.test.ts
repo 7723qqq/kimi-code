@@ -153,7 +153,7 @@ function createDeps(): UseWorkspaceStateDeps {
     draftModes: { planMode: false, swarmMode: false, goalMode: false },
     saveUnread: vi.fn(),
     saveActiveWorkspaceToStorage: vi.fn(),
-    saveHiddenWorkspacesToStorage: vi.fn(),
+    saveHiddenWorkspaces: vi.fn(),
     goalErrorMessage: vi.fn(),
     basename: (path: string) => path.split('/').at(-1) ?? path,
     resetFastMoon: vi.fn(),
@@ -1340,8 +1340,8 @@ describe('useWorkspaceState — session list loading', () => {
       workspace('wd_current', '/workspace', 'Workspace'),
       workspace('wd_legacy', '/workspace', 'Workspace'),
     ]);
-    apiMock.listSessions.mockImplementation(async ({ workspaceId }: { workspaceId?: string }) => {
-      if (workspaceId === 'wd_current') return { items: [fresh], hasMore: false };
+    apiMock.listSessions.mockImplementation(({ workspaceId }: { workspaceId?: string }) => {
+      if (workspaceId === 'wd_current') return Promise.resolve({ items: [fresh], hasMore: false });
       throw error;
     });
     const { state, deps, workspaceState } = createSessionLoadRig([cached, staleCurrent]);
@@ -1374,9 +1374,9 @@ describe('useWorkspaceState — session list loading', () => {
       workspace('wd_current', '/workspace', 'Workspace'),
       workspace('wd_other', '/other-workspace', 'Other'),
     ]);
-    apiMock.listSessions.mockImplementation(async ({ workspaceId }: { workspaceId?: string }) => {
+    apiMock.listSessions.mockImplementation(({ workspaceId }: { workspaceId?: string }) => {
       if (workspaceId === 'wd_current') throw error;
-      return { items: [fresh], hasMore: false };
+      return Promise.resolve({ items: [fresh], hasMore: false });
     });
     const { state, deps, workspaceState } = createSessionLoadRig([cached]);
 
@@ -1472,7 +1472,7 @@ describe('useWorkspaceState — session list loading', () => {
       workspace('wd_a', '/workspace-a', 'A'),
       workspace('wd_b', '/workspace-b', 'B'),
     ]);
-    apiMock.listSessions.mockImplementation(async ({ workspaceId }: { workspaceId?: string }) => {
+    apiMock.listSessions.mockImplementation(({ workspaceId }: { workspaceId?: string }) => {
       if (workspaceId === 'wd_a') throw firstError;
       throw new Error('workspace B unavailable');
     });

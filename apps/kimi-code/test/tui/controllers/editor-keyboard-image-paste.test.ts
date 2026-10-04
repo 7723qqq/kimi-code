@@ -41,6 +41,7 @@ interface PasteHarness {
   readonly store: ImageAttachmentStore;
   readonly track: ReturnType<typeof vi.fn>;
   readonly controller: EditorKeyboardController;
+  readonly editor: Record<string, ((...args: never[]) => unknown) | undefined>;
   pasteImage(): Promise<void>;
 }
 
@@ -49,6 +50,7 @@ function createPasteHarness(
 ): PasteHarness {
   const editor: Record<string, ((...args: never[]) => unknown) | undefined> = {
     setHistoryFilter: vi.fn() as unknown as (...args: never[]) => unknown,
+    insertTextAtCursor: vi.fn() as unknown as (...args: never[]) => unknown,
   };
   const store = new ImageAttachmentStore();
   const track = vi.fn();
@@ -83,6 +85,7 @@ function createPasteHarness(
     store,
     track,
     controller,
+    editor,
     async pasteImage() {
       const handler = editor['onPasteImage'];
       if (handler === undefined) throw new Error('onPasteImage handler not installed');
@@ -424,6 +427,82 @@ describe('path-attached image ingestion', () => {
       expect(att.height).toBe(80);
       expect(new Uint8Array(att.bytes)).toEqual(small);
       expect(att.original).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('drag & drop image path attachment', () => {
+  it('attaches a dropped image file immediately and inserts its placeholder', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'kimi-drop-img-'));
+    try {
+      const small = await solidPng(80, 80);
+      const file = join(dir, 'drop.png');
+      await writeFile(file, small);
+
+      const harness = createPasteHarness();
+      const editor = harness.editor as unknown as {
+        insertTextAtCursor: ReturnType<typeof vi.fn>;
+      };
+      const handler = harness.editor['onPasteImagePath'] as (path: string) => boolean;
+      if (handler === undefined) throw new Error('onPasteImagePath handler not installed');
+
+      const handled = handler(file);
+      expect(handled).toBe(true);
+
+      const att = harness.store.get(1);
+      if (att?.kind !== 'image') throw new Error('expected image attachment');
+      expect(att.width).toBe(80);
+      expect(att.height).toBe(80);
+      expect(editor.insertTextAtCursor).toHaveBeenCalledWith(`${att.placeholder} `);
+      if (att.pending !== undefined) await att.pending;
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns false for a non-image file so the path stays as text', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'kimi-drop-img-'));
+    try {
+      const file = join(dir, 'note.txt');
+      await writeFile(file, 'hello');
+
+      const harness = createPasteHarness();
+      const handler = harness.editor['onPasteImagePath'] as (path: string) => boolean;
+      if (handler === undefined) throw new Error('onPasteImagePath handler not installed');
+
+      expect(handler(file)).toBe(false);
+      expect(harness.store.size()).toBe(0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns false for a missing file', () => {
+    const harness = createPasteHarness();
+    const handler = harness.editor['onPasteImagePath'] as (path: string) => boolean;
+    if (handler === undefined) throw new Error('onPasteImagePath handler not installed');
+
+    expect(handler(join(tmpdir(), 'does-not-exist.png'))).toBe(false);
+    expect(harness.store.size()).toBe(0);
+  });
+
+  it('refuses to attach in bash mode', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'kimi-drop-img-'));
+    try {
+      const small = await solidPng(80, 80);
+      const file = join(dir, 'drop.png');
+      await writeFile(file, small);
+
+      const harness = createPasteHarness();
+      const editor = harness.editor as unknown as { inputMode: 'prompt' | 'bash' };
+      editor.inputMode = 'bash';
+      const handler = harness.editor['onPasteImagePath'] as (path: string) => boolean;
+      if (handler === undefined) throw new Error('onPasteImagePath handler not installed');
+
+      expect(handler(file)).toBe(false);
+      expect(harness.store.size()).toBe(0);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

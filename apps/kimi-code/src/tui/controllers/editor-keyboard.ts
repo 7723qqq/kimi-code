@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 
 import type {
@@ -22,7 +23,6 @@ import {
   getCtrlCHint,
   getCtrlDHint,
   getLlmNotSetMessage,
-  getNoActiveSessionMessage,
 } from '../constant/kimi-tui';
 import { MEDIA_STAGING_TTL_SECONDS } from '../constant/media';
 import { formatErrorMessage } from '../utils/event-payload';
@@ -40,13 +40,6 @@ import type { BtwPanelController } from './btw-panel';
 export interface EditorKeyboardHost {
   state: TUIState;
   session: Session | undefined;
-  /**
-   * True when the TUI runs on the agent-core-v2 engine (startup-selected).
-   * Gates the paste-time upload to the daemon file store; the v1 engine has
-   * no file store, so images keep the submit-time inline base64 form and
-   * videos cannot be submitted at all.
-   */
-  readonly engineV2: boolean;
   cancelInFlight: (() => void) | undefined;
   /**
    * The host's harness (KimiTUI always has one). Its `imageLimits` drives
@@ -266,11 +259,7 @@ export class EditorKeyboardController {
         host.handlePlanToggle(next);
       };
       if (host.session === undefined) {
-        if (!host.engineV2) {
-          host.showError(getNoActiveSessionMessage());
-          return;
-        }
-        // v2 session-less: lazy-create the session, then toggle — the same
+        // Session-less: lazy-create the session, then toggle — the same
         // path /plan takes.
         void host.ensureSession().then((session) => {
           if (session !== undefined) togglePlan();
@@ -352,6 +341,8 @@ export class EditorKeyboardController {
     editor.onDownArrowEmpty = () => host.btwPanelController.scroll('down');
 
     editor.onPasteImage = async () => this.handleClipboardImagePaste();
+
+    editor.onPasteImagePath = (path: string) => this.handlePastedImagePath(path);
   }
 
   /**
@@ -524,6 +515,38 @@ export class EditorKeyboardController {
     });
   }
 
+  /**
+   * Drag & drop / pasted image path: attach the file immediately (same
+   * ingestion as clipboard paste) and put its placeholder in the editor.
+   * Returns false when the path is not a readable image, so the caller
+   * falls through to plain-text insertion.
+   */
+  private handlePastedImagePath(path: string): boolean {
+    if (this.host.state.editor.inputMode === 'bash') return false;
+    let bytes: Uint8Array;
+    try {
+      bytes = readFileSync(path);
+    } catch {
+      return false;
+    }
+    if (bytes.length === 0) return false;
+    const meta = parseImageMeta(bytes);
+    if (meta === null) return false;
+
+    const attachment = this.imageStore.addImage(bytes, meta.mime, meta.width, meta.height);
+    this.host.state.editor.insertTextAtCursor?.(`${attachment.placeholder} `);
+    this.host.state.ui.requestRender();
+    this.host.track('shortcut_paste', { kind: 'image' });
+    attachment.pending = this.prepareImageAttachment(
+      attachment,
+      bytes,
+      meta.mime,
+      meta.width,
+      meta.height,
+    );
+    return true;
+  }
+
   private async handleClipboardImagePaste(): Promise<boolean> {
     let media;
     try {
@@ -674,17 +697,15 @@ export class EditorKeyboardController {
 
   /**
    * Paste-time upload of the final image bytes to the engine's daemon file
-   * store (agent-core-v2 only), run as part of the background ingestion —
-   * typing never waits on it, and submit only gives it the bounded
-   * `pendingImageIngestions` wait. Best effort: any failure returns undefined,
-   * so the attachment keeps no `fileId` and submit-time expansion falls back
-   * to the inline base64 form.
+   * store, run as part of the background ingestion — typing never waits on
+   * it, and submit only gives it the bounded `pendingImageIngestions` wait.
+   * Best effort: any failure returns undefined, so the attachment keeps no
+   * `fileId` and submit-time expansion falls back to the inline base64 form.
    */
   private async uploadImageToDaemonFileStore(
     bytes: Uint8Array,
     mime: string,
   ): Promise<FileMeta | undefined> {
-    if (!this.host.engineV2) return undefined;
     const harness = this.host.harness;
     if (harness === undefined) return undefined;
     try {
@@ -701,15 +722,14 @@ export class EditorKeyboardController {
 
   /**
    * Paste-time upload of the video's source file to the engine's daemon file
-   * store (agent-core-v2 only), run as background ingestion exactly like the
-   * image upload above. Best effort: any failure returns undefined, leaving
-   * the attachment without a `fileId` — submit-time expansion then refuses
-   * the submission, since a video has no inline fallback form.
+   * store, run as background ingestion exactly like the image upload above.
+   * Best effort: any failure returns undefined, leaving the attachment
+   * without a `fileId` — submit-time expansion then refuses the submission,
+   * since a video has no inline fallback form.
    */
   private async uploadVideoToDaemonFileStore(
     media: ClipboardVideo,
   ): Promise<FileMeta | undefined> {
-    if (!this.host.engineV2) return undefined;
     const harness = this.host.harness;
     if (harness === undefined) return undefined;
     let bytes: Uint8Array;

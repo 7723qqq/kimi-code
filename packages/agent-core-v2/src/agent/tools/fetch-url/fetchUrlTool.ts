@@ -6,7 +6,7 @@ import {
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
-import { ToolResultBuilder } from '#/tool/result-builder';
+import { ToolOutputAccumulator } from '#/tool/output-accumulator';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { isProxyConfigured } from '#/_base/utils/proxy';
 
@@ -58,7 +58,7 @@ export class FetchURLTool implements IFetchURLTool {
         };
       }
 
-      const builder = new ToolResultBuilder({ maxLineLength: null });
+      const builder = new ToolOutputAccumulator();
       const note =
         kind === 'passthrough'
           ? 'The returned content is the full response body, returned verbatim.'

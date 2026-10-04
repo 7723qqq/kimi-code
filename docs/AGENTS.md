@@ -173,7 +173,7 @@ Outline prompt:
 
 ```
 * Install and upgrade
-  * System requirements: Node.js 24.15.0+, recommend npm
+  * System requirements: Bun 1.4.0+, recommend bun
   * Install, upgrade, uninstall steps
 ```
 
@@ -184,8 +184,8 @@ Outline prompt:
 
 ### System requirements
 
-- Node.js 24.15.0+
-- Recommend npm
+- Bun 1.4.0+
+- Recommend bun
 
 ### Install
 
@@ -201,9 +201,9 @@ Outline prompt:
 ```markdown
 ## Install and upgrade
 
-Kimi Code CLI requires Node.js 24.15.0 or later. We recommend using npm for installation and management.
+Kimi Code CLI requires Bun 1.4.0 or later. We recommend using Bun for installation and management.
 
-If you haven't installed npm yet, please refer to the npm installation docs first. Install Kimi Code CLI:
+If you haven't installed Bun yet, please refer to the Bun installation docs first. Install Kimi Code CLI:
 
 (code block)
 

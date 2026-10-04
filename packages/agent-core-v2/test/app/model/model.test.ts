@@ -277,6 +277,36 @@ describe('models TOML transforms', () => {
       },
     });
   });
+
+  it('unions on-disk capabilities with memory capabilities in modelsToToml', () => {
+    expect(
+      modelsToToml(
+        {
+          kimi: {
+            provider: 'p',
+            model: 'm',
+            maxContextSize: 1000,
+            capabilities: ['thinking'],
+          },
+        },
+        {
+          kimi: {
+            provider: 'p',
+            model: 'm',
+            max_context_size: 1000,
+            capabilities: ['thinking', 'tool_use', 'image_in'],
+          },
+        },
+      ),
+    ).toEqual({
+      kimi: {
+        provider: 'p',
+        model: 'm',
+        max_context_size: 1000,
+        capabilities: ['thinking', 'tool_use', 'image_in'],
+      },
+    });
+  });
 });
 
 type EnvMap = Readonly<Record<string, string | undefined>>;

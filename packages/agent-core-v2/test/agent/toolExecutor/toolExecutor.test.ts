@@ -1,25 +1,15 @@
+import { readFileSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+
+import { join } from 'pathe';
+import type { ToolCall } from '#/kosong/contract/message';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
-import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import { makeAgentScopeContext, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import type {
-  ToolCallStarted,
-  ToolProgress,
-  ToolResultEvent,
-} from '#/agent/toolExecutor/toolExecutorEvents';
-import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
-import type { BeforeToolExecuteEvent, ToolExecutionOutcome } from '#/agent/toolExecutor/toolHooks';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
-import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
-import { IEventBus } from '#/app/event/eventBus';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { ToolCall } from '#/kosong/contract/message';
-import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
-import { parseToolCallArguments } from '#/tool/tool-args-parse';
+import { createServices, TestInstantiationService } from '#/_base/di/test';
 import {
   ToolAccesses,
   type ExecutableTool,
@@ -29,18 +19,38 @@ import {
   type ToolResult,
   type ToolUpdate,
 } from '#/tool/toolContract';
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-
+import { ToolOutputAccumulator } from '#/tool/output-accumulator';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import type {
+  BeforeToolExecuteEvent,
+  ToolExecutionOutcome,
+} from '#/agent/toolExecutor/toolHooks';
+import {
+  ToolCallStarted,
+  ToolProgress,
+  ToolResultEvent,
+} from '#/agent/toolExecutor/toolExecutorEvents';
+import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
+import { parseToolCallArguments } from '#/tool/tool-args-parse';
+import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+import { ToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncationService';
+import { makeAgentScopeContext, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
+import { IEventBus } from '#/app/event/eventBus';
+import type { LLMRequestTrace } from '#/kosong/contract/requestTrace';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { registerLogServices } from '../../_base/log/stubs';
+import { stubBootstrap } from '../../app/bootstrap/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { registerStateServices } from '../../state/stubs';
 import { registerTestAgentWireServices } from '../../wire/stubs';
 
-type ToolExecutorEvent = {
-  readonly type: 'tool.result';
-  readonly toolCallId: string;
-  readonly result: ToolResult;
-};
+type ToolExecutorEvent =
+  | { readonly type: 'tool.result'; readonly toolCallId: string; readonly result: ToolResult };
 
 type ProtocolEvent = ToolCallStarted | ToolProgress | ToolResultEvent;
 
@@ -65,14 +75,12 @@ beforeEach(() => {
       registerTestAgentWireServices(reg, 'wire/tool-executor');
       reg.define(IAgentToolRegistryService, AgentToolRegistryService);
       reg.define(IAgentToolExecutorService, AgentToolExecutorService);
-      reg.defineInstance(
-        IAgentScopeContext,
-        makeAgentScopeContext({ agentId: 'main', agentScope: '' }),
-      );
+      reg.defineInstance(IAgentScopeContext, makeAgentScopeContext({ agentId: 'main', agentScope: '' }));
       reg.defineInstance(ITelemetryService, recordingTelemetry(telemetryEvents));
       reg.defineInstance(IAgentToolResultTruncationService, {
         _serviceBrand: undefined,
         truncateForModel: (input) => truncateForModel(input),
+        isSpillFilePath: () => false,
       });
       reg.defineInstance(IEventBus, {
         publish: (event: ProtocolEvent) => {
@@ -181,9 +189,11 @@ describe('AgentToolExecutorService', () => {
     const tool = new TestTool('echo');
     registry.register(tool);
 
-    await execute([toolCall('call_traced', 'echo', { text: 'hi' })], undefined, {
-      traceId: 'trace-tool-1',
-    });
+    await execute(
+      [toolCall('call_traced', 'echo', { text: 'hi' })],
+      undefined,
+      { traceId: 'trace-tool-1' },
+    );
 
     expect(telemetryEvents).toContainEqual({
       event: 'tool_call',
@@ -349,7 +359,9 @@ describe('AgentToolExecutorService', () => {
       required: ['value'],
       additionalProperties: false,
     };
-    const accepted = await execute([toolCall('call_open', 'dynamic', { value: 1, model: 'fast' })]);
+    const accepted = await execute([
+      toolCall('call_open', 'dynamic', { value: 1, model: 'fast' }),
+    ]);
 
     expect(accepted).toEqual([expect.objectContaining({ stopTurn: false })]);
     expect(inner.calls).toHaveLength(1);
@@ -422,7 +434,7 @@ describe('AgentToolExecutorService', () => {
     });
   });
 
-  it("preserves an unknown tool's valid args in the tool.call.started event", async () => {
+  it('preserves an unknown tool\'s valid args in the tool.call.started event', async () => {
     const results = await execute([toolCall('call_unknown', 'missing', { x: 1 })]);
 
     expect(results).toEqual([
@@ -490,15 +502,13 @@ describe('AgentToolExecutorService', () => {
     ]);
 
     expect(results).toHaveLength(2);
-    expect(results).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ output: 'first result', stopBatchAfterThis: true }),
-        expect.objectContaining({
-          output: 'Tool skipped because a previous tool call stopped the turn.',
-          isError: true,
-        }),
-      ]),
-    );
+    expect(results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ output: 'first result', stopBatchAfterThis: true }),
+      expect.objectContaining({
+        output: 'Tool skipped because a previous tool call stopped the turn.',
+        isError: true,
+      }),
+    ]));
     expect(first.calls).toHaveLength(1);
     expect(second.calls).toEqual([]);
   });
@@ -531,7 +541,10 @@ describe('AgentToolExecutorService', () => {
     const yielded: string[] = [];
     const execution = (async () => {
       for await (const item of executor.execute(
-        [toolCall('call_slow', 'slow', {}), toolCall('call_fast', 'fast', {})],
+        [
+          toolCall('call_slow', 'slow', {}),
+          toolCall('call_fast', 'fast', {}),
+        ],
         { turnId: 0, signal: new AbortController().signal },
       )) {
         const output = item.result.output;
@@ -907,7 +920,9 @@ describe('onBeforeExecuteTool veto semantics', () => {
     const results = await execute([toolCall('call_echo', 'echo', { text: 'hi' })]);
 
     expect(fulfilled).toEqual(['first', 'second']);
-    expect(results).toEqual([expect.objectContaining({ output: 'second-denied', isError: true })]);
+    expect(results).toEqual([
+      expect.objectContaining({ output: 'second-denied', isError: true }),
+    ]);
     expect(tool.calls).toEqual([]);
   });
 
@@ -1010,6 +1025,157 @@ describe('parseToolCallArguments', () => {
   });
 });
 
+describe('truncation pipeline', () => {
+  let homeDir: string;
+
+  beforeEach(async () => {
+    homeDir = await mkdtemp(join(tmpdir(), 'tool-executor-truncation-'));
+    const truncationContainer = disposables.add(new TestInstantiationService());
+    truncationContainer.stub(IBootstrapService, stubBootstrap(homeDir));
+    truncationContainer.stub(
+      IAgentScopeContext,
+      makeAgentScopeContext({
+        agentId: 'main',
+        agentScope: 'sessions/workspace/session/agents/main',
+      }),
+    );
+    truncationContainer.stub(IFileSystemStorageService, new FileStorageService(homeDir));
+    truncationContainer.set(
+      IAgentToolResultTruncationService,
+      new SyncDescriptor(ToolResultTruncationService),
+    );
+    const truncation = truncationContainer.get(IAgentToolResultTruncationService);
+    truncateForModel = (input) => truncation.truncateForModel(input);
+  });
+
+  afterEach(async () => {
+    await rm(homeDir, { recursive: true, force: true });
+  });
+
+  it('spills oversized output to disk and renders a pointer for the model', async () => {
+    const line = `${'x'.repeat(100)}\n`;
+    const fullOutput = `HEAD_MARKER\n${line.repeat(300)}MIDDLE_MARKER\n${line.repeat(
+      300,
+    )}TAIL_MARKER\n`;
+    const tool = new TestTool('noisy', {
+      execute: async () => {
+        const builder = new ToolOutputAccumulator();
+        builder.write(fullOutput);
+        return builder.ok();
+      },
+    });
+    registry.register(tool);
+
+    const [result] = await execute([toolCall('call_noisy', 'noisy', {})]);
+
+    expect(result?.truncated).toBe(true);
+    expect(result).not.toHaveProperty('spill');
+    const rendered = result?.output;
+    expect(typeof rendered).toBe('string');
+    if (typeof rendered !== 'string') throw new Error('expected string output');
+    expect(rendered).toContain('Tool output exceeded 50000 characters');
+    expect(rendered).toContain('tool_name: noisy');
+    expect(rendered).toContain('tool_call_id: call_noisy');
+    expect(rendered).toContain('HEAD_MARKER');
+    expect(rendered).toContain('TAIL_MARKER');
+    expect(rendered).not.toContain('MIDDLE_MARKER');
+    expect(rendered).toMatch(/\[elided: chars \[4096, \d+\)\]/);
+
+    const outputPath = renderedOutputPath(rendered);
+    expect(outputPath).toContain(
+      join(homeDir, 'sessions/workspace/session/agents/main/tool-results/noisy-call_noisy-'),
+    );
+    expect(readFileSync(outputPath, 'utf8')).toBe(fullOutput);
+  });
+
+  it('keeps the builder completion message after spilling an error result', async () => {
+    const fullOutput = `${'x'.repeat(50_001)}tail`;
+    const tool = new TestTool('failing-noisy', {
+      execute: async () => {
+        const builder = new ToolOutputAccumulator();
+        builder.write(fullOutput);
+        return builder.error('Command failed with exit code: 1.');
+      },
+    });
+    registry.register(tool);
+
+    const [result] = await execute([toolCall('call_failing_noisy', 'failing-noisy', {})]);
+
+    expect(result?.isError).toBe(true);
+    const rendered = result?.output;
+    expect(typeof rendered).toBe('string');
+    if (typeof rendered !== 'string') throw new Error('expected string output');
+    expect(rendered).toContain('Command failed with exit code: 1.');
+    expect(readFileSync(renderedOutputPath(rendered), 'utf8')).toBe(
+      `${fullOutput}\nCommand failed with exit code: 1.`,
+    );
+  });
+
+  it('keeps the builder completion message after spilling a successful result', async () => {
+    const fullOutput = 'x'.repeat(50_001);
+    const tool = new TestTool('successful-noisy', {
+      execute: async () => {
+        const builder = new ToolOutputAccumulator();
+        builder.write(fullOutput);
+        return builder.ok('Command executed successfully.');
+      },
+    });
+    registry.register(tool);
+
+    const [result] = await execute([toolCall('call_successful_noisy', 'successful-noisy', {})]);
+
+    expect(result?.isError).not.toBe(true);
+    const rendered = result?.output;
+    expect(typeof rendered).toBe('string');
+    if (typeof rendered !== 'string') throw new Error('expected string output');
+    expect(rendered).toContain('Command executed successfully.');
+    expect(readFileSync(renderedOutputPath(rendered), 'utf8')).toBe(fullOutput);
+  });
+
+  it('appends a spill pointer for per-line truncation without replacing the output', async () => {
+    const longLine = 'x'.repeat(60_000);
+    const fullOutput = `short line\n${longLine}\n`;
+    const tool = new TestTool('long-line', {
+      execute: async () => {
+        const builder = new ToolOutputAccumulator();
+        builder.write(fullOutput);
+        return builder.ok();
+      },
+    });
+    registry.register(tool);
+
+    const [result] = await execute([toolCall('call_long_line', 'long-line', {})]);
+
+    expect(result?.truncated).toBe(true);
+    expect(result).not.toHaveProperty('spill');
+    const rendered = result?.output;
+    expect(typeof rendered).toBe('string');
+    if (typeof rendered !== 'string') throw new Error('expected string output');
+    expect(rendered).toContain('short line');
+    expect(rendered).toContain('[...truncated]');
+    expect(rendered).toContain(
+      'Per-line truncation occurred; the complete output was saved to a file.',
+    );
+    expect(readFileSync(renderedOutputPath(rendered), 'utf8')).toBe(fullOutput);
+  });
+
+  it('passes spill-exempt results through the truncation pipeline unchanged', async () => {
+    const output = `SPILL_CHUNK\n${`${'y'.repeat(100)}\n`.repeat(600)}`;
+    registry.register(new TestTool('reader', { result: { output, spillExempt: true } }));
+
+    const [result] = await execute([toolCall('call_reader', 'reader', {})]);
+
+    expect(result?.output).toBe(output);
+    expect(result?.truncated).toBeUndefined();
+  });
+});
+
+function renderedOutputPath(output: string): string {
+  const match = /^output_path: (.+)$/m.exec(output);
+  if (match === null) throw new Error('expected tool output to include output_path');
+  return match[1]!;
+}
+
 async function execute(
   calls: ToolCall[],
   signal?: AbortSignal,
@@ -1047,10 +1213,16 @@ function protocolEventTypes(): string[] {
 function pairedToolCallIds(): { readonly calls: string[]; readonly results: string[] } {
   return {
     calls: protocolEvents
-      .filter((event): event is ToolCallStarted => event.type === 'tool.call.started')
+      .filter(
+        (event): event is ToolCallStarted =>
+          event.type === 'tool.call.started',
+      )
       .map((event) => event.toolCallId),
     results: protocolEvents
-      .filter((event): event is ToolResultEvent => event.type === 'tool.result')
+      .filter(
+        (event): event is ToolResultEvent =>
+          event.type === 'tool.result',
+      )
       .map((event) => event.toolCallId),
   };
 }
@@ -1104,11 +1276,9 @@ class TestTool implements ExecutableTool<Record<string, unknown>> {
         if (this.options.execute !== undefined) {
           return this.options.execute(ctx, args);
         }
-        return (
-          this.options.result ?? {
-            output: typeof args['text'] === 'string' ? args['text'] : `${this.name} result`,
-          }
-        );
+        return this.options.result ?? {
+          output: typeof args['text'] === 'string' ? args['text'] : `${this.name} result`,
+        };
       },
     };
   }

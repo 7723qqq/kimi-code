@@ -5,12 +5,10 @@
   "description": "Data-driven prompt optimization toolchain for kimi-code system prompts",
   "type": "module",
   "scripts": {
-    "bench": "tsx src/cli.ts bench",
-    "prune": "tsx src/cli.ts prune",
-    "ab": "tsx src/cli.ts ab",
-    "probe": "tsx src/cli.ts probe"
+    "bench": "bun src/cli.ts bench",
+    "prune": "bun src/cli.ts prune",
+    "ab": "bun src/cli.ts ab",
+    "probe": "bun src/cli.ts probe"
   },
-  "dependencies": {
-    "tsx": "^4.21.0"
-  }
+  "dependencies": {}
 }

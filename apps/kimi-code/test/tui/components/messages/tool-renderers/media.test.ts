@@ -59,6 +59,21 @@ describe('parseReadMediaOutput', () => {
     expect(m?.bytes).toBeGreaterThan(0);
   });
 
+  it('carries the inline base64 payload for image data URLs', () => {
+    const m = parseReadMediaOutput(imageOutput('/tmp/a.png'));
+    expect(m?.base64).toBe(PNG_B64);
+  });
+
+  it('does not carry base64 for videos or remote URLs', () => {
+    expect(parseReadMediaOutput(videoOutput('/tmp/a.mp4'))?.base64).toBeUndefined();
+    const remote = JSON.stringify([
+      { type: 'text', text: `<image path="/tmp/a.png">` },
+      { type: 'image_url', imageUrl: { url: 'https://cdn.example/i/abc' } },
+      { type: 'text', text: '</image>' },
+    ]);
+    expect(parseReadMediaOutput(remote)?.base64).toBeUndefined();
+  });
+
   it('extracts video kind and mime', () => {
     const m = parseReadMediaOutput(videoOutput('/tmp/a.mp4'));
     expect(m?.kind).toBe('video');

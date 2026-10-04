@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Postinstall hook for @moonshot-ai/kimi-code.
  *

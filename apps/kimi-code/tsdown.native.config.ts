@@ -16,10 +16,6 @@ const builtins = new Set([...builtinModules, ...builtinModules.map((name) => `no
 const optionalNativeDependencies = new Set([
   'cpu-features',
   '@moonshot-ai/kimi-native-tools',
-  // PTY support: kept external so packaged builds load the copy extracted
-  // into the native-asset cache (its bindings resolve relative to its own
-  // package, which cannot work from inside a bundle).
-  'node-pty',
 ]);
 
 function shouldAlwaysBundle(id: string): boolean {
@@ -45,7 +41,7 @@ export default defineConfig({
   hash: false,
   platform: 'node',
   target: 'node24',
-  banner: { js: '#!/usr/bin/env node' },
+  banner: { js: '#!/usr/bin/env bun' },
   plugins: [rawTextPlugin()],
   alias: {
     '@': resolve(appRoot, 'src'),

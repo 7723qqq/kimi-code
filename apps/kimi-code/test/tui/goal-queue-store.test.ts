@@ -1,8 +1,9 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
 import { ErrorCodes, KimiError } from '@moonshot-ai/kimi-code-sdk';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   appendGoalQueueItem,
@@ -132,17 +133,49 @@ describe('goal queue store', () => {
     await expect(appendGoalQueueItem(session(), { objective: '  ' })).rejects.toMatchObject({
       code: ErrorCodes.GOAL_OBJECTIVE_EMPTY,
     });
-    await expect(appendGoalQueueItem(session(), { objective: 'x'.repeat(4001) })).rejects.toMatchObject({
+    await expect(
+      appendGoalQueueItem(session(), { objective: 'x'.repeat(4001) }),
+    ).rejects.toMatchObject({
       code: ErrorCodes.GOAL_OBJECTIVE_TOO_LONG,
     });
   });
 
-  it('normalizes malformed queue files to an empty queue', async () => {
+  it('drops malformed entries and keeps valid ones without rewriting the file', async () => {
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, QUEUE_FILE), JSON.stringify({ version: 1, goals: [{ bad: true }] }), 'utf-8');
+    const raw = JSON.stringify({
+      version: 1,
+      goals: [
+        { bad: true },
+        {
+          id: 'g1',
+          objective: 'Keep',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ],
+    });
+    await writeFile(join(dir, QUEUE_FILE), raw, 'utf-8');
 
-    await expect(readGoalQueue(session())).resolves.toEqual({ goals: [] });
-    await expect(readQueueFile()).resolves.toEqual({ version: 1, goals: [] });
+    await expect(readGoalQueue(session())).resolves.toEqual({
+      goals: [
+        {
+          id: 'g1',
+          objective: 'Keep',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ],
+    });
+    await expect(readFile(join(dir, QUEUE_FILE), 'utf-8')).resolves.toBe(raw);
+  });
+
+  it('rejects queue files with an unsupported version without touching them', async () => {
+    await mkdir(dir, { recursive: true });
+    const raw = JSON.stringify({ version: 999, goals: [] });
+    await writeFile(join(dir, QUEUE_FILE), raw, 'utf-8');
+
+    await expect(readGoalQueue(session())).rejects.toThrow('Unsupported goal queue version 999');
+    await expect(readFile(join(dir, QUEUE_FILE), 'utf-8')).resolves.toBe(raw);
   });
 
   it('does not clear the queue file when JSON cannot be parsed', async () => {

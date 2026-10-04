@@ -53,7 +53,7 @@
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node scripts/test.mjs",
+    "test": "bun scripts/test.mjs",
     "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\""
   },
   "dependencies": {
@@ -65,6 +65,6 @@
     "chalk": "^5.4.1"
   },
   "engines": {
-    "node": ">=22.19.0"
+    "bun": ">=1.4.0"
   }
 }

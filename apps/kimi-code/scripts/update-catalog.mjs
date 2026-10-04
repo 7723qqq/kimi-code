@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Fetches models.dev/api.json, strips fields not needed by kimi-code, and
  * writes the result as raw JSON for release builds to inline.

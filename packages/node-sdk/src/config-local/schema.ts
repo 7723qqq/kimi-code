@@ -323,6 +323,7 @@ export type ServicesConfig = z.infer<typeof ServicesConfigSchema>;
 
 export const GithubConfigSchema = z.object({
   token: z.string().optional(),
+  baseUrl: z.string().optional(),
 });
 
 export type GithubConfig = z.infer<typeof GithubConfigSchema>;

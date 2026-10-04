@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { createReadStream } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';

@@ -41,7 +41,7 @@ import { IAgentLoopService } from '#/agent/loop/loop';
 import { AgentTodo } from '#/features/todo/todoAgentRuntime';
 import { AgentGoal } from '#/features/goal/goalAgentRuntime';
 import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
 
 type GenerateFn = NonNullable<TestAgentOptions['generate']>;
 
@@ -658,7 +658,7 @@ describe('FullCompaction', () => {
       event: 'compaction_finished',
       properties: expect.objectContaining({
         source: 'manual',
-        tokens_before: 24_121,
+        tokens_before: 24_144,
         retry_count: 1,
         trace_id: 'trace-compact-1',
       }),
@@ -1125,7 +1125,7 @@ describe('FullCompaction', () => {
       properties: expect.objectContaining({
         agent_id: 'main',
         source: 'manual',
-        tokens_before: 24_121,
+        tokens_before: 24_144,
         duration_ms: expect.any(Number),
         round: 1,
         retry_count: 0,
@@ -1350,7 +1350,7 @@ describe('FullCompaction', () => {
       event: 'compaction_failed',
       properties: expect.objectContaining({
         source: 'manual',
-        tokens_before: 24_121,
+        tokens_before: 24_144,
         duration_ms: expect.any(Number),
         retry_count: 4,
         error_type: 'APIConnectionError',

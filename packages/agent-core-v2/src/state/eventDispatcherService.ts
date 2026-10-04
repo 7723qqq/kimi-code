@@ -70,6 +70,12 @@ interface StateMeta {
   nextPatchId: number;
 }
 
+interface StateHolder {
+  get(): any;
+  set(next: any): void;
+  readonly keepsCheckpoints: boolean;
+}
+
 interface QueuedEvent {
   readonly event: Event2<any>;
   readonly resolve: () => void;
@@ -440,7 +446,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
         `undo patch id ${patchId} has been trimmed from the history of state '${key.name}'`,
       );
     }
-    this.rollback(key, meta, patchId - 1);
+    this.rollbackState(this.holderForKey(key), meta, patchId - 1);
     meta.checkpoints = meta.checkpoints.filter((id) => id < patchId);
   }
 
@@ -551,10 +557,26 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       }
     }
     for (const p of prepared) {
-      this.commit(p.key, p.meta, p.ctx, event, p.next, p.patches, p.inversePatches);
+      this.commitState(
+        this.holderForKey(p.key),
+        p.meta,
+        p.ctx,
+        event,
+        p.next,
+        p.patches,
+        p.inversePatches,
+      );
     }
     for (const p of preparedParticipants) {
-      this.commitParticipant(p.attachment, p.ctx, event, p.next, p.patches, p.inversePatches);
+      this.commitState(
+        this.holderForAttachment(p.attachment),
+        p.attachment.meta,
+        p.ctx,
+        event,
+        p.next,
+        p.patches,
+        p.inversePatches,
+      );
     }
     if (silent) return;
     const cls = event.constructor as Event2Class;
@@ -574,8 +596,24 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     super.dispose();
   }
 
-  private commit(
-    key: ReplayableStateKey<any>,
+  private holderForKey(key: ReplayableStateKey<any>): StateHolder {
+    return {
+      get: () => this.agentState.get(key),
+      set: (next) => this.agentState.set(key, next),
+      keepsCheckpoints: keepsUndoCheckpoints(key),
+    };
+  }
+
+  private holderForAttachment(attachment: ParticipantAttachment): StateHolder {
+    return {
+      get: () => attachment.getState(),
+      set: (next) => attachment.commit(next),
+      keepsCheckpoints: attachment.keepsCheckpoints,
+    };
+  }
+
+  private commitState(
+    holder: StateHolder,
     meta: StateMeta,
     ctx: FoldContextImpl,
     event: Event2<any>,
@@ -586,49 +624,11 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     if (ctx.pendingUndo !== undefined) {
       const targetIndex = meta.checkpoints.length - ctx.pendingUndo;
       const targetId = meta.checkpoints[targetIndex]!;
-      this.rollback(key, meta, targetId);
+      this.rollbackState(holder, meta, targetId);
       meta.checkpoints = meta.checkpoints.slice(0, targetIndex);
       return;
     }
-    this.agentState.set(key, next);
-    if (ctx.pendingClear) {
-      meta.history = [];
-      meta.checkpoints = [];
-    }
-    let markerId = meta.history.at(-1)?.id ?? 0;
-    if (patches.length > 0 || inversePatches.length > 0) {
-      const entry: PatchEntry = {
-        id: meta.nextPatchId++,
-        eventType: event.type,
-        patches,
-        inversePatches,
-      };
-      meta.history.push(entry);
-      markerId = entry.id;
-    }
-    if (ctx.pendingCheckpoint) {
-      meta.checkpoints.push(markerId);
-    }
-    this.trimHistory(key, meta);
-  }
-
-  private commitParticipant(
-    attachment: ParticipantAttachment,
-    ctx: FoldContextImpl,
-    event: Event2<any>,
-    next: any,
-    patches: PatchEntry['patches'],
-    inversePatches: PatchEntry['inversePatches'],
-  ): void {
-    const meta = attachment.meta;
-    if (ctx.pendingUndo !== undefined) {
-      const targetIndex = meta.checkpoints.length - ctx.pendingUndo;
-      const targetId = meta.checkpoints[targetIndex]!;
-      this.rollbackParticipant(attachment, targetId);
-      meta.checkpoints = meta.checkpoints.slice(0, targetIndex);
-      return;
-    }
-    attachment.commit(next);
+    holder.set(next);
     if (ctx.pendingClear) {
       meta.history = [];
       meta.checkpoints = [];
@@ -645,58 +645,28 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       markerId = entry.id;
     }
     if (ctx.pendingCheckpoint) meta.checkpoints.push(markerId);
-    this.trimParticipantHistory(attachment);
+    this.trimState(holder, meta);
   }
 
-  private rollback(key: ReplayableStateKey<any>, meta: StateMeta, targetEntryId: number): void {
+  private rollbackState(holder: StateHolder, meta: StateMeta, targetEntryId: number): void {
     let i = meta.history.length - 1;
-    let current = this.agentState.get(key);
+    let current = holder.get();
     while (i >= 0 && meta.history[i]!.id > targetEntryId) {
       current = applyPatches(current, [...meta.history[i]!.inversePatches]);
       i--;
     }
-    this.agentState.set(key, current);
+    holder.set(current);
     meta.history = meta.history.slice(0, i + 1);
   }
 
-  private rollbackParticipant(
-    attachment: ParticipantAttachment,
-    targetEntryId: number,
-  ): void {
-    const meta = attachment.meta;
-    let i = meta.history.length - 1;
-    let current = attachment.getState();
-    while (i >= 0 && meta.history[i]!.id > targetEntryId) {
-      current = applyPatches(current, [...meta.history[i]!.inversePatches]);
-      i--;
-    }
-    attachment.commit(current);
-    meta.history = meta.history.slice(0, i + 1);
-  }
-
-  private trimHistory(key: ReplayableStateKey<any>, meta: StateMeta): void {
-    const oldest = meta.checkpoints[0];
-    if (oldest !== undefined) {
-      const firstRetained = meta.history.findIndex((entry) => entry.id >= oldest);
-      if (firstRetained > 0) {
-        meta.history.splice(0, firstRetained);
-      }
-      return;
-    }
-    if (!keepsUndoCheckpoints(key) && meta.history.length > HISTORY_TAIL) {
-      meta.history.splice(0, meta.history.length - HISTORY_TAIL);
-    }
-  }
-
-  private trimParticipantHistory(attachment: ParticipantAttachment): void {
-    const meta = attachment.meta;
+  private trimState(holder: StateHolder, meta: StateMeta): void {
     const oldest = meta.checkpoints[0];
     if (oldest !== undefined) {
       const firstRetained = meta.history.findIndex((entry) => entry.id >= oldest);
       if (firstRetained > 0) meta.history.splice(0, firstRetained);
       return;
     }
-    if (!attachment.keepsCheckpoints && meta.history.length > HISTORY_TAIL) {
+    if (!holder.keepsCheckpoints && meta.history.length > HISTORY_TAIL) {
       meta.history.splice(0, meta.history.length - HISTORY_TAIL);
     }
   }

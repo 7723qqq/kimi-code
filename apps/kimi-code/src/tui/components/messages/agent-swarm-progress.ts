@@ -33,6 +33,9 @@ const ACTIVITY_SPINNER_PLACEHOLDER = '  ';
 const AGENT_SWARM_LEFT_INDENT = ' ';
 const AGENT_SWARM_RIGHT_GAP = 1;
 const AGENT_SWARM_NON_GRID_LINES = 6;
+// How far past the current member count a result index may extend before it
+// is treated as a hallucinated tool output and dropped.
+const AGENT_SWARM_MAX_PENDING_MEMBERS = 16;
 const COMPACT_TERMINAL_MARK_WIDTH = 1;
 const CANCELLED_LABEL_DARKEN_FACTOR = 0.72;
 const AGENT_SWARM_TITLE_ACCENT_BIAS = 1.3;
@@ -422,6 +425,9 @@ export class AgentSwarmProgressComponent implements Component {
     this.aborted = false;
     const nowMs = Date.now();
     for (const entry of statuses) {
+      // `index` comes from model-generated tool output; a hallucinated huge
+      // index must not allocate millions of member objects.
+      if (entry.index > this.members.length + AGENT_SWARM_MAX_PENDING_MEMBERS) continue;
       this.ensureMemberCount(entry.index);
       const member = this.members[entry.index - 1];
       if (member === undefined) continue;

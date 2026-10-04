@@ -42,3 +42,10 @@ export function isUnknownCapability(capability: ModelCapability): boolean {
     capability.max_context_tokens === 0
   );
 }
+
+export function markUnknownCapability(capability: ModelCapability): ModelCapability {
+  if (isUnknownCapability(capability)) return capability;
+  return Object.freeze(
+    Object.defineProperty({ ...capability }, UNKNOWN_CAPABILITY_MARKER, { value: true }),
+  );
+}

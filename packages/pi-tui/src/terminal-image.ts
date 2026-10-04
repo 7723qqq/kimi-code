@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { isAbsolute } from "node:path";
 import { pathToFileURL } from "node:url";
 
-export type ImageProtocol = "kitty" | "iterm2" | null;
+export type ImageProtocol = "kitty" | "iterm2" | "sixel" | null;
 
 export interface TerminalCapabilities {
 	images: ImageProtocol;
@@ -32,6 +32,8 @@ export interface ImageRenderOptions {
 }
 
 let cachedCapabilities: TerminalCapabilities | null = null;
+/** True when the cache was set explicitly (setCapabilities), not derived from the environment. */
+let capabilitiesExplicitlySet = false;
 
 // Default cell dimensions - updated by TUI when terminal responds to query
 let cellDimensions: CellDimensions = { widthPx: 9, heightPx: 18 };
@@ -106,7 +108,10 @@ export function detectCapabilities(tmuxForwardsHyperlink: () => boolean = probeT
 	}
 
 	if (process.env['WT_SESSION']) {
-		return { images: null, trueColor: true, hyperlinks: true };
+		// Windows Terminal 1.22+ renders sixel and its ConPTY passes the DCS
+		// through from client applications. Older terminals on Windows fall
+		// through to the platform default below.
+		return { images: "sixel", trueColor: true, hyperlinks: true };
 	}
 
 	if (termProgram === "vscode") {
@@ -114,7 +119,20 @@ export function detectCapabilities(tmuxForwardsHyperlink: () => boolean = probeT
 	}
 
 	if (termProgram === "alacritty") {
-		return { images: null, trueColor: true, hyperlinks: true };
+		// Alacritty 0.13+ enables the sixel graphics protocol by default.
+		return { images: "sixel", trueColor: true, hyperlinks: true };
+	}
+
+	// Sixel-capable terminals that identify themselves through TERM.
+	if (
+		term.startsWith("foot") ||
+		term.startsWith("mlterm") ||
+		term.startsWith("yaft") ||
+		term.startsWith("contour") ||
+		term.startsWith("rio") ||
+		process.env['MLTERM']
+	) {
+		return { images: "sixel", trueColor: true, hyperlinks: true };
 	}
 
 	if (terminalEmulator === "jetbrains-jediterm") {
@@ -142,25 +160,76 @@ export function getCapabilities(): TerminalCapabilities {
 	return cachedCapabilities;
 }
 
+export type ImageCapabilityResponse =
+	| { kind: "detected"; protocol: ImageProtocol }
+	| { kind: "unsupported" };
+
+/**
+ * Parse a terminal reply to the image-capability queries sent at startup
+ * (Kitty graphics query `\x1b_Gi=1,a=q,s=1\x1b\\` and DA1 `\x1b[c`).
+ * Returns `{ kind: "detected" }` when the reply proves a protocol,
+ * `{ kind: "unsupported" }` when the reply explicitly reports no support,
+ * and null when the data is not a capability response at all.
+ */
+export function parseImageCapabilityResponse(data: string): ImageCapabilityResponse | null {
+	// Kitty graphics query reply: ESC _ G i=1 ; OK ESC \ (supported) or
+	// ESC _ G i=1 ; ENOENT ESC \ (unsupported).
+	const kittyMatch = /^\x1b_Gi=1;([A-Z]+)\x1b\\$/.exec(data);
+	if (kittyMatch) {
+		return kittyMatch[1] === "OK"
+			? { kind: "detected", protocol: "kitty" }
+			: { kind: "unsupported" };
+	}
+	// DA1 reply: ESC [ ? <params> c, where param 62 means sixel graphics.
+	const da1Match = /^\x1b\[\?([0-9;]*)c$/.exec(data);
+	if (da1Match) {
+		const params = da1Match[1]!.split(";");
+		return params.includes("62")
+			? { kind: "detected", protocol: "sixel" }
+			: { kind: "unsupported" };
+	}
+	return null;
+}
+
 export function resetCapabilitiesCache(): void {
 	cachedCapabilities = null;
+	capabilitiesExplicitlySet = false;
 }
 
 /** Override the cached capabilities. Useful in tests to exercise both code paths. */
 export function setCapabilities(caps: TerminalCapabilities): void {
 	cachedCapabilities = caps;
+	capabilitiesExplicitlySet = true;
+}
+
+/**
+ * True when the capabilities cache was set explicitly via
+ * {@link setCapabilities} (tests, alt-screen temporary overrides) rather
+ * than derived from the environment. Callers that probe the terminal
+ * dynamically (the startup image-capability query) must skip the probe when
+ * the cache was explicitly pinned.
+ */
+export function isCapabilitiesExplicitlySet(): boolean {
+	return capabilitiesExplicitlySet;
 }
 
 const KITTY_PREFIX = "\x1b_G";
 const ITERM2_PREFIX = "\x1b]1337;File=";
+const SIXEL_DCS = "\x1bPq";
 
 export function isImageLine(line: string): boolean {
 	// Fast path: sequence at line start (single-row images)
-	if (line.startsWith(KITTY_PREFIX) || line.startsWith(ITERM2_PREFIX)) {
+	if (
+		line.startsWith(KITTY_PREFIX) ||
+		line.startsWith(ITERM2_PREFIX) ||
+		line.startsWith(SIXEL_DCS)
+	) {
 		return true;
 	}
 	// Slow path: sequence elsewhere (multi-row images have cursor-up prefix)
-	return line.includes(KITTY_PREFIX) || line.includes(ITERM2_PREFIX);
+	return (
+		line.includes(KITTY_PREFIX) || line.includes(ITERM2_PREFIX) || line.includes(SIXEL_DCS)
+	);
 }
 
 /**
@@ -566,6 +635,134 @@ export function getImageDimensions(base64Data: string, mimeType: string): ImageD
 		return getWebpDimensions(base64Data);
 	}
 	return null;
+}
+
+export interface SixelEncodeOptions {
+	maxWidthCells?: number;
+	maxHeightCells?: number;
+}
+
+const SIXEL_CUBE_STEP = 51;
+const SIXEL_GRAY_BASE = 8;
+const SIXEL_GRAY_STEP = 10;
+
+/**
+ * Quantize an RGB triple to the fixed 240-color sixel palette
+ * (6x6x6 RGB cube + 24-step grayscale ramp), returning the palette index.
+ */
+function quantizeSixelColor(r: number, g: number, b: number): number {
+	const ri = Math.min(5, Math.round((r / 255) * 5));
+	const gi = Math.min(5, Math.round((g / 255) * 5));
+	const bi = Math.min(5, Math.round((b / 255) * 5));
+	const cubeIndex = 36 * ri + 6 * gi + bi;
+	const cubeR = ri * SIXEL_CUBE_STEP;
+	const cubeG = gi * SIXEL_CUBE_STEP;
+	const cubeB = bi * SIXEL_CUBE_STEP;
+	const cubeDist = (r - cubeR) ** 2 + (g - cubeG) ** 2 + (b - cubeB) ** 2;
+
+	const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+	const grayStep = Math.max(0, Math.min(23, Math.round((lum - SIXEL_GRAY_BASE) / SIXEL_GRAY_STEP)));
+	const gray = SIXEL_GRAY_BASE + grayStep * SIXEL_GRAY_STEP;
+	const grayDist = (r - gray) ** 2 + (g - gray) ** 2 + (b - gray) ** 2;
+
+	return grayDist < cubeDist ? 216 + grayStep : cubeIndex;
+}
+
+/** Sixel palette color values are 0-100 percentages, not 0-255. */
+function sixelPercent(value: number): number {
+	return Math.round((value / 255) * 100);
+}
+
+/** Build the `#<i>;2;<r>;<g>;<b>` palette definition for the fixed 240 colors. */
+function buildSixelPalette(): string {
+	let out = "";
+	for (let r = 0; r < 6; r++) {
+		for (let g = 0; g < 6; g++) {
+			for (let b = 0; b < 6; b++) {
+				const idx = 36 * r + 6 * g + b;
+				// (channel * 51 / 255) * 100 == channel * 20
+				out += `#${idx};2;${r * 20};${g * 20};${b * 20}`;
+			}
+		}
+	}
+	for (let i = 0; i < 24; i++) {
+		const idx = 216 + i;
+		const v = sixelPercent(SIXEL_GRAY_BASE + i * SIXEL_GRAY_STEP);
+		out += `#${idx};2;${v};${v};${v}`;
+	}
+	return out;
+}
+
+/**
+ * Encode RGBA8888 pixels as a sixel graphics sequence.
+ *
+ * The image is downscaled (nearest-neighbor) to fit `maxWidthCells` /
+ * `maxHeightCells` terminal cells using the current cell dimensions, then
+ * quantized to the fixed 240-color palette. The caller is responsible for
+ * decoding the image to pixels (pi-tui itself has no decoder); pass the
+ * decoded buffer through `ImageOptions.pixels` when the terminal speaks
+ * sixel.
+ */
+export function encodeSixel(
+	pixels: Uint8Array,
+	widthPx: number,
+	heightPx: number,
+	options: SixelEncodeOptions = {},
+): string {
+	const cell = getCellDimensions();
+	const size = calculateImageCellSize(
+		{ widthPx, heightPx },
+		options.maxWidthCells ?? 80,
+		options.maxHeightCells,
+		cell,
+	);
+	const targetW = Math.max(1, size.columns * cell.widthPx);
+	const targetH = Math.max(1, size.rows * cell.heightPx);
+	const bands = Math.ceil(targetH / 6);
+
+	const parts: string[] = ["\x1bPq", buildSixelPalette()];
+	for (let band = 0; band < bands; band++) {
+		if (band > 0) parts.push("-");
+		// Sample the band: one quantized color per (column, row-in-band).
+		// Row colors are stored column-major so the emit pass below can read
+		// a full pixel column contiguously.
+		const colors: number[] = [];
+		const colorsPresent = new Set<number>();
+		for (let tx = 0; tx < targetW; tx++) {
+			const sx = Math.min(widthPx - 1, Math.floor((tx * widthPx) / targetW));
+			for (let bit = 0; bit < 6; bit++) {
+				const ty = band * 6 + bit;
+				if (ty >= targetH) {
+					colors.push(-1);
+					continue;
+				}
+				const sy = Math.min(heightPx - 1, Math.floor((ty * heightPx) / targetH));
+				const offset = (sy * widthPx + sx) * 4;
+				const color = quantizeSixelColor(
+					pixels[offset] ?? 0,
+					pixels[offset + 1] ?? 0,
+					pixels[offset + 2] ?? 0,
+				);
+				colors.push(color);
+				colorsPresent.add(color);
+			}
+		}
+		// One sixel char paints one pixel column across the band's 6 rows in
+		// the currently selected color (bit 0 = topmost row), so emit one
+		// `#<color>` run over all columns per color present in the band.
+		for (const color of colorsPresent) {
+			parts.push(`#${color}`);
+			for (let tx = 0; tx < targetW; tx++) {
+				let bits = 0;
+				for (let bit = 0; bit < 6; bit++) {
+					if (colors[tx * 6 + bit] === color) bits |= 1 << bit;
+				}
+				parts.push(String.fromCharCode(63 + bits));
+			}
+		}
+	}
+	parts.push("\x1b\\");
+	return parts.join("");
 }
 
 export function renderImage(

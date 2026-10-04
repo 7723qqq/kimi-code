@@ -31,8 +31,8 @@ import { IPluginService } from '#/app/plugin/plugin';
 import type { PluginMcpServerEntry } from '#/app/plugin/types';
 import { ErrorCodes, Error2 } from '#/errors';
 import { McpOAuthService, type McpOAuthEvent } from '#/mcpCore/oauth/service';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
-import { HostProcessService } from '#/os/backends/node-local/hostProcessService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
+import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
@@ -103,7 +103,10 @@ describe('McpManagementService', () => {
     const runtime = Object.assign(
       new FakeRuntime(
         { workspaceId: 'test-workspace', runtimeId: 'local', generation: 'test-generation' },
-        { capabilities: ['process'] },
+        {
+          capabilities: ['process'],
+          pathClass: process.platform === 'win32' ? 'win32' : 'posix',
+        },
       ),
       { process: hostProcess },
     );
@@ -126,7 +129,7 @@ describe('McpManagementService', () => {
           osVersion: 'test',
           shellName: 'bash',
           shellPath: '/bin/bash',
-          pathClass: 'posix',
+          pathClass: process.platform === 'win32' ? 'win32' : 'posix',
           homeDir: home,
           ready: Promise.resolve(),
         });

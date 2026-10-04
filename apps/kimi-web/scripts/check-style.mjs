@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // check-style.mjs — design-system §06 anti-pattern guard for apps/kimi-web.
 //
 // Scans src/** for the rules in the design system (§06 of the DesignSystemView spec):

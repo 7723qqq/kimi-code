@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { Emitter, Event } from '#/_base/event';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import type { Runtime, RuntimeCapability, RuntimeStatus } from '#/runtime/runtime';

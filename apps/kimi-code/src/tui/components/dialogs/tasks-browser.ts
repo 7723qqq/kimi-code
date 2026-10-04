@@ -256,6 +256,7 @@ export class TasksBrowserApp extends Container implements Focusable {
     }
 
     if (matchesKey(data, Key.escape) || k === 'q' || k === 'Q') {
+      this.clearPendingStop();
       this.props.onCancel();
       return;
     }

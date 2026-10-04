@@ -2,7 +2,6 @@ import type { Session } from '@moonshot-ai/kimi-code-sdk';
 
 import {
   getLlmNotSetMessage,
-  getNoActiveSessionMessage,
   TOWER_STATUS_PROMPT,
   TOWER_TEARDOWN_PROMPT,
 } from '../constant/kimi-tui';
@@ -93,11 +92,7 @@ async function setTowerMode(host: SlashCommandHost, enabled: boolean): Promise<b
 
 async function requireSessionEnsured(host: SlashCommandHost): Promise<Session | undefined> {
   if (host.session !== undefined) return host.session;
-  if (!host.engineV2) {
-    host.showError(getNoActiveSessionMessage());
-    return undefined;
-  }
-  // v2 session-less: lazy-create the session, then toggle — the same path
-  // the first prompt takes.
+  // Session-less: lazy-create the session, then toggle — the same path the
+  // first prompt takes.
   return host.ensureSession();
 }

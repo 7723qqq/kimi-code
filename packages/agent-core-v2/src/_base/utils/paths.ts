@@ -22,10 +22,16 @@ export function resolvePath(base: string, value: string): string {
   return isAbsolute(value) ? normalize(value) : resolve(base, value);
 }
 
+export function canonicalPath(cwd: string): string {
+  if (isWindowsAbsolutePath(cwd)) {
+    return nodePath.win32.resolve(cwd).replaceAll('\\', '/');
+  }
+  if (isAbsolute(cwd)) return resolve(cwd);
+  return nodePath.resolve(cwd).replaceAll('\\', '/');
+}
+
 export function canonicalWorkspaceRoot(cwd: string): string {
-  const resolved = isWindowsAbsolutePath(cwd)
-    ? nodePath.win32.resolve(cwd).replaceAll('\\', '/')
-    : resolve(cwd);
+  const resolved = canonicalPath(cwd);
   return workspaceRootKey(resolved) || resolved;
 }
 

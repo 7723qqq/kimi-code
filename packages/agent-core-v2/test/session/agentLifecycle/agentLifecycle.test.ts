@@ -77,6 +77,8 @@ import { IAgentPluginService } from '#/agent/plugin/agentPlugin';
 import { ILogService } from '#/_base/log/log';
 import { IPluginService } from '#/app/plugin/plugin';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
@@ -144,25 +146,37 @@ function recordingAppendLog(initial: readonly WireRecord[] = []): {
   readonly store: IAppendLogStore;
   rewritten?: readonly WireRecord[];
 } {
-  const records = [...initial];
+  const buckets = new Map<string, WireRecord[]>();
+  const bucketKey = (scope: string, key: string): string => `${scope}\u0000${key}`;
+  const bucketOf = (scope: string, key: string): WireRecord[] => {
+    const id = bucketKey(scope, key);
+    let bucket = buckets.get(id);
+    if (bucket === undefined) {
+      bucket = [];
+      buckets.set(id, bucket);
+    }
+    return bucket;
+  };
   const appended: WireRecord[] = [];
   const state: { rewritten?: readonly WireRecord[] } = {};
   const store: IAppendLogStore = {
     _serviceBrand: undefined,
-    append: <R>(_scope: string, _key: string, record: R) => {
+    append: <R>(scope: string, key: string, record: R) => {
       const persisted = record as unknown as WireRecord;
-      records.push(persisted);
+      bucketOf(scope, key).push(persisted);
       appended.push(persisted);
     },
-    read: async function* <R>(): AsyncIterable<R> {
-      for (const record of records) {
+    read: async function* <R>(scope: string, key: string): AsyncIterable<R> {
+      const source = buckets.get(bucketKey(scope, key)) ?? initial;
+      for (const record of [...source]) {
         yield record as R;
       }
     },
-    rewrite: <R>(_scope: string, _key: string, next: readonly R[]) => {
+    rewrite: <R>(scope: string, key: string, next: readonly R[]) => {
       const persisted = next as readonly WireRecord[];
       state.rewritten = persisted;
-      records.splice(0, records.length, ...persisted);
+      const target = bucketOf(scope, key);
+      target.splice(0, target.length, ...persisted);
       return Promise.resolve();
     },
     flush: () => Promise.resolve(),
@@ -213,6 +227,7 @@ describe('AgentLifecycleService', () => {
     ix.get(IAgentStateService).contributeState(permissionModeKey);
     ix.get(IAgentStateService).contributeState(permissionModeConfiguredKey);
     ix.stub(IAppendLogStore, recordingAppendLog().store);
+    ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     stubBlobPassThrough(ix);
     registerAgent = vi.fn<ISessionMetadata['registerAgent']>().mockResolvedValue(undefined);
     atomicDocs = new Map();

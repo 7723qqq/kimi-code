@@ -7,7 +7,6 @@ import { emptyUpdateInstallState, type InstallSource, type UpdateInstallState } 
 
 const InstallSourceSchema: z.ZodType<InstallSource> = z.enum([
   'npm-global',
-  'pnpm-global',
   'yarn-global',
   'bun-global',
   'homebrew',

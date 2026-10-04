@@ -22,6 +22,7 @@ import type { ColorPalette } from '#/tui/theme/colors';
 import { formatPluginSourceLabel, pluginTrustLabel } from '#/tui/utils/plugin-source-label';
 import { printableChar } from '#/tui/utils/printable-key';
 import { renderTabStrip } from '#/tui/utils/tab-strip';
+import { wrapText as wrapOverviewDescription } from '#/tui/utils/wrap-text';
 import { computeUpdateStatus, type PluginMarketplaceEntry } from '#/utils/plugin-marketplace';
 
 import { ChoicePickerComponent } from './choice-picker';
@@ -1091,27 +1092,4 @@ function mutedHintLine(text: string, colors?: ColorPalette): string {
     return chalk.hex(colors.textMuted)(text);
   }
   return currentTheme.fg('textMuted', text);
-}
-
-function wrapOverviewDescription(text: string, width: number): string[] {
-  const maxWidth = Math.max(1, width);
-  const words = text
-    .trim()
-    .split(/\s+/)
-    .filter((word) => word.length > 0);
-  const lines: string[] = [];
-  let current = '';
-
-  for (const word of words) {
-    const candidate = current.length === 0 ? word : `${current} ${word}`;
-    if (visibleWidth(candidate) <= maxWidth) {
-      current = candidate;
-      continue;
-    }
-    if (current.length > 0) lines.push(current);
-    current = visibleWidth(word) <= maxWidth ? word : truncateToWidth(word, maxWidth, ELLIPSIS);
-  }
-
-  if (current.length > 0) lines.push(current);
-  return lines;
 }

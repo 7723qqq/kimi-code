@@ -1185,10 +1185,11 @@ export interface AgentStateSnapshot {
   'loop.lastRequestTraceId': string | undefined;
   'loop.nextReservedTurnId': number | undefined;
   // src/agent/loop/turnOps.ts
-  // replayable · durable — folds: ContextAppendLoopEvent, TurnPrompt, TurnSteer, TurnCancel, TurnEnded
+  // replayable · durable — folds: ContextAppendLoopEvent, TurnPrompt, TurnSteer, ContextUndo, ContextApplyCompaction, ContextClear, TurnCancel, TurnEnded
   'turn': /* TurnModelState — packages/agent-core-v2/src/agent/loop/turnOps.ts */ {
     readonly nextTurnId: number;
     readonly cancelledTurnIds: readonly number[];
+    readonly anchorTurnIds: readonly number[];
     readonly lastEnded?: {
       readonly turnId: number;
       readonly reason: 'completed' | 'cancelled' | 'failed' | 'blocked';
@@ -1350,6 +1351,7 @@ export interface AgentStateSnapshot {
     readonly command: string;
     readonly pid: number;
     readonly exitCode: number | null;
+    readonly parentToolCallId?: string;
     readonly taskId: string;
     readonly description: string;
     readonly status: /* AgentTaskStatus — packages/agent-core-v2/src/agent/task/types.ts */ 'completed' | 'failed' | 'running' | 'timed_out' | 'killed' | 'lost';
@@ -1397,6 +1399,7 @@ export interface AgentStateSnapshot {
     readonly command: string;
     readonly pid: number;
     readonly exitCode: number | null;
+    readonly parentToolCallId?: string;
     readonly taskId: string;
     readonly description: string;
     readonly status: /* AgentTaskStatus — packages/agent-core-v2/src/agent/task/types.ts */ 'completed' | 'failed' | 'running' | 'timed_out' | 'killed' | 'lost';

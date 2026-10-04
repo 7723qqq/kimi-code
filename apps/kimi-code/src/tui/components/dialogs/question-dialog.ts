@@ -439,10 +439,12 @@ export class QuestionDialogComponent extends Container implements Focusable {
   }
 
   private emitAnswers(method: QuestionSubmissionMethod): void {
+    // Dense array: unanswered slots become '' (the consumer skips empty
+    // strings) so no sparse holes can misalign positional consumers.
     const out: string[] = [];
     for (let i = 0; i < this.answers.length; i++) {
       const answer = this.answers[i];
-      if (answer !== undefined && answer.length > 0) out[i] = answer;
+      out[i] = answer !== undefined && answer.length > 0 ? answer : '';
     }
     this.onAnswer({ answers: out, method: this.lastAnswerMethod ?? method });
   }

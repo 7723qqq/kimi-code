@@ -8,20 +8,14 @@
  * `onCancel`, and the host tears it down.
  */
 
-import {
-  Container,
-  matchesKey,
-  Key,
-  truncateToWidth,
-  visibleWidth,
-  type Focusable,
-} from '@moonshot-ai/pi-tui';
+import { Container, matchesKey, Key, truncateToWidth, type Focusable } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { getCurrentMark, SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme, type ColorToken } from '#/tui/theme';
 import { printableChar } from '#/tui/utils/printable-key';
 import { SearchableList } from '#/tui/utils/searchable-list';
+import { wrapText as wrapDescription } from '#/tui/utils/wrap-text';
 
 export interface ChoiceOption {
   /** Value passed to onSelect (e.g. the actual editor command string). */
@@ -55,29 +49,6 @@ export interface ChoicePickerOptions {
    * onSelect — used to apply the choice to the current session only. */
   readonly onSessionOnlySelect?: (value: string) => void;
   readonly onCancel: () => void;
-}
-
-function wrapDescription(text: string, width: number): string[] {
-  const maxWidth = Math.max(1, width);
-  const words = text
-    .trim()
-    .split(/\s+/)
-    .filter((word) => word.length > 0);
-  const lines: string[] = [];
-  let current = '';
-
-  for (const word of words) {
-    const candidate = current.length === 0 ? word : `${current} ${word}`;
-    if (visibleWidth(candidate) <= maxWidth) {
-      current = candidate;
-      continue;
-    }
-    if (current.length > 0) lines.push(current);
-    current = visibleWidth(word) <= maxWidth ? word : truncateToWidth(word, maxWidth, '…');
-  }
-
-  if (current.length > 0) lines.push(current);
-  return lines;
 }
 
 export class ChoicePickerComponent extends Container implements Focusable {

@@ -13,7 +13,7 @@ import {
   SYSTEM_MD_FILENAME,
   loadSystemMdProfile,
 } from '#/workspace/workspaceAgentProfileLoader/internal/systemFile';
-import { HostFileSystem } from '#/os/backends/node-local/hostFsService';
+import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 

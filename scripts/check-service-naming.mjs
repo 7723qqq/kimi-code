@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Enforce the VS Code-style service naming convention finalized in
  * Phase 5 of the 2026.06.07 services-alignment plan:

@@ -1,4 +1,4 @@
-import type { QuestionHandler, QuestionRequest, QuestionResult } from '@moonshot-ai/kimi-code-sdk';
+import { log, type QuestionHandler, type QuestionRequest, type QuestionResult } from '@moonshot-ai/kimi-code-sdk';
 
 import type { QuestionPanelData, QuestionPanelResponse } from '#/tui/reverse-rpc/types';
 
@@ -9,7 +9,8 @@ export function createQuestionAskHandler(controller: QuestionController): Questi
     try {
       const answers = await controller.show(adaptQuestionRequest(event));
       return adaptQuestionAnswers(event, answers);
-    } catch {
+    } catch (error) {
+      log.warn('failed to show question dialog', { error: String(error) });
       return null;
     }
   };

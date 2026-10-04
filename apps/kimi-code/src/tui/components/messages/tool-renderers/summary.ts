@@ -12,9 +12,9 @@
 
 import type { Component } from '@moonshot-ai/pi-tui';
 import { Text } from '@moonshot-ai/pi-tui';
-import chalk from 'chalk';
 
 import { t } from '#/i18n';
+import { currentTheme } from '#/tui/theme';
 
 import { renderTruncated } from './truncated';
 import type { ResultRenderer } from './types';
@@ -34,11 +34,11 @@ function withGlance(glance: GlanceFn | null): ResultRenderer {
     if (glance !== null) {
       const line = glance(toolCall, result);
       if (line.length > 0) {
-        out.push(new Text(`  ${chalk.dim(line)}`, 0, 0));
+        out.push(new Text(`  ${currentTheme.fg('textDim', line)}`, 0, 0));
       }
     }
     if (ctx.expanded && result.output.length > 0) {
-      out.push(new Text(chalk.dim(result.output), 4, 0));
+      out.push(new Text(currentTheme.fg('textDim', result.output), 4, 0));
     }
     return out;
   };
