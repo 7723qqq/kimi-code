@@ -1521,12 +1521,20 @@ export declare function sessionClearHistory(sessionId: string): void
 export declare function sessionCompact(sessionId: string, instruction?: string | undefined | null): object
 
 /**
- * Drop the session handle: the pump task is signalled to stop and the
- * conversation it owns is released with it. Pending outcome receivers are
- * dropped too, so a JS `session_turn_outcome` awaiting one rejects instead of
- * hanging on a pump that will never run again.
+ * Drop the session handle: the pump task is signalled to stop, its
+ * background tasks are stopped, and the conversation it owns is released —
+ * and this resolves only once that has actually happened, so a host that
+ * deletes the session's directory after awaiting it is not racing the
+ * engine (ROADMAP §15 D1, v2 `disposeAsync`). Pending outcome receivers are
+ * dropped too, so a JS `session_turn_outcome` awaiting one rejects instead
+ * of hanging on a pump that will never run again.
+ *
+ * The signature changed from `()` to a promise: an addon that predates the
+ * export returns `undefined`, which `await` accepts — that host keeps the old
+ * "signalled, not released" semantics rather than getting a stronger promise
+ * than the engine keeps.
  */
-export declare function sessionDispose(sessionId: string): void
+export declare function sessionDispose(sessionId: string): object
 
 /**
  * Enqueue a prompt. The turn id is assigned synchronously (monotonic, never

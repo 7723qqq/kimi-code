@@ -9,7 +9,7 @@
         "repository": "https://github.com/7723qqq/kimi-code"
       }
     ],
-    "compiled_at": "2026-10-03T18:48:01.636Z",
+    "compiled_at": "2026-10-04T09:09:19.532Z",
     "stats": {
       "tree_count": 1,
       "module_count": 74,
@@ -583,8 +583,8 @@
           "path": "packages/kimi-agent/src/lib.rs"
         }
       ],
-      "revision": "18c71cdd8583b337dd80efc94225c9033f341f42",
-      "updated_at": "2026-10-03T16:26:56.322Z",
+      "revision": "50b922733b1fa9ebbaeb783d689f3f4bc68d98bb",
+      "updated_at": "2026-10-04T09:09:15.225Z",
       "fingerprint": "f3bdc1d18ee20dcc0e6f1c18071ed862e5946cabf7864f99910b42f664af756a",
       "aggregate": {
         "descendant_count": 36,
@@ -619,9 +619,9 @@
           "path": "packages/kimi-agent/src/pipeline/mod.rs"
         }
       ],
-      "revision": "18c71cdd8583b337dd80efc94225c9033f341f42",
-      "updated_at": "2026-10-03T16:26:56.316Z",
-      "fingerprint": "e8fbdc2d83e2797425a1302cef3ba91ab57d93aebaf930d14fd6985bfcfa437d",
+      "revision": "50b922733b1fa9ebbaeb783d689f3f4bc68d98bb",
+      "updated_at": "2026-10-04T09:09:15.223Z",
+      "fingerprint": "a2e25c16d7615a1d33ac7da41e2509f484e7707423d583e4da2c5e12763a5809",
       "deps": [
         {
           "kind": "call",
@@ -872,9 +872,9 @@
           "path": "packages/kimi-agent/src/session/patch.rs"
         }
       ],
-      "revision": "18c71cdd8583b337dd80efc94225c9033f341f42",
-      "updated_at": "2026-10-03T16:26:56.319Z",
-      "fingerprint": "9cc5927e2745d26be156129fa4589dff9e59cfb19bcd31ccc75526ab644e76bb",
+      "revision": "50b922733b1fa9ebbaeb783d689f3f4bc68d98bb",
+      "updated_at": "2026-10-04T09:09:15.222Z",
+      "fingerprint": "20fb9499fbb558b8cc7bdfa29f0da044d201e31f03b53b2cdcac14889e4671e6",
       "deps": [
         {
           "kind": "dataflow",
@@ -1372,9 +1372,9 @@
           "path": "packages/kimi-agent/index.native.d.ts"
         }
       ],
-      "revision": "18c71cdd8583b337dd80efc94225c9033f341f42",
-      "updated_at": "2026-10-03T16:26:56.330Z",
-      "fingerprint": "db08c41166396156a2625fd2f94dd158ecb6256834ba8c6e2d65ea6c304f8feb",
+      "revision": "50b922733b1fa9ebbaeb783d689f3f4bc68d98bb",
+      "updated_at": "2026-10-04T09:09:15.225Z",
+      "fingerprint": "e24e1aa0bd6292dbf45a871604d47b1dfb65ea4ce470759776456328209bcaae",
       "deps": [
         {
           "kind": "call",
@@ -1431,9 +1431,9 @@
           "path": "packages/kimi-agent/src/napi_bindings.rs"
         }
       ],
-      "revision": "18c71cdd8583b337dd80efc94225c9033f341f42",
-      "updated_at": "2026-10-03T16:26:56.329Z",
-      "fingerprint": "04fdde8b3c1ffb42aa336ad6d9b02681d369f961974c37b272e75177d564de13",
+      "revision": "50b922733b1fa9ebbaeb783d689f3f4bc68d98bb",
+      "updated_at": "2026-10-04T09:09:15.224Z",
+      "fingerprint": "e761f269816cf22e549c1ecd5c3fa2a3417b69362c6448e90ef4c75e975d90d2",
       "apis": [
         {
           "protocol": "rpc",
@@ -1509,9 +1509,9 @@
           "path": "packages/kimi-agent/index.native.cjs"
         }
       ],
-      "revision": "18c71cdd8583b337dd80efc94225c9033f341f42",
-      "updated_at": "2026-10-03T16:26:56.330Z",
-      "fingerprint": "0f57e474449eb231e11acac0bf574dd647d3dc6e6059de1762721c52bb288aa5",
+      "revision": "50b922733b1fa9ebbaeb783d689f3f4bc68d98bb",
+      "updated_at": "2026-10-04T09:09:15.224Z",
+      "fingerprint": "701ec3416796ed1a0f01ef3a55d63eafe5b52c96a799f9596f9148c808e0e7d7",
       "deps": [
         {
           "kind": "reference",

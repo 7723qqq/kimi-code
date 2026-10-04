@@ -2151,7 +2151,7 @@ describe.skipIf(!nativeEntry)('napi engine session handle (M1d)', () => {
     expect(mod.sessionIsSettled(sessionId)).toBe(true);
     await mod.sessionSettled(sessionId);
 
-    mod.sessionDispose(sessionId);
+    await mod.sessionDispose(sessionId);
   });
 
   // v2 #3832: a prompt origin nested on the enqueued prompt (the
@@ -2227,7 +2227,7 @@ describe.skipIf(!nativeEntry)('napi engine session handle (M1d)', () => {
     const plainStarted = turnEvents.filter((event) => event['type'] === 'turn.started').at(-1);
     expect(plainStarted?.['origin']).toEqual({ kind: 'user' });
 
-    mod.sessionDispose(sessionId);
+    await mod.sessionDispose(sessionId);
   });
 
   it('cancels a queued turn before it starts and keeps the active turn running', async () => {
@@ -2284,7 +2284,7 @@ describe.skipIf(!nativeEntry)('napi engine session handle (M1d)', () => {
     };
     expect(activeOutcome.status).toBe('ran');
     await mod.sessionSettled(sessionId);
-    mod.sessionDispose(sessionId);
+    await mod.sessionDispose(sessionId);
   });
 });
 
@@ -2377,6 +2377,93 @@ describe.skipIf(!nativeEntry)('EngineSessionHandle (M1d wrapper)', () => {
     expect((await handle.turnOutcome(activeId)).status).toBe('ran');
     await handle.settled();
     await handle.dispose();
+  });
+});
+
+describe.skipIf(!nativeEntry)('EngineSessionHandle — dispose waits for release (D1)', () => {
+  /** A handle whose first turn is parked in `llmChat` until `release()`. */
+  async function handleWithParkedTurn() {
+    const { EngineSessionHandle } = await import('./session-handle');
+    let release: (() => void) | undefined;
+    const handle = await EngineSessionHandle.create(
+      {
+        turnId: 'ignored',
+        systemPrompt: 'test',
+        modelName: 'm',
+        messages: [],
+        tools: [],
+        maxSteps: 5,
+      },
+      {
+        llmChat: async () =>
+          new Promise<string>((resolve) => {
+            release = () =>
+              resolve(
+                JSON.stringify({
+                  content: 'done',
+                  tool_calls: [],
+                  finish_reason: 'stop',
+                  usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+                }),
+              );
+          }),
+        executeTool: async () => JSON.stringify({ content: 'ok', is_error: false }),
+      },
+    );
+    return { handle, release: () => release?.() };
+  }
+
+  it('does not resolve while an in-flight turn still owns the conversation', async () => {
+    const { handle, release } = await handleWithParkedTurn();
+    const turnId = await handle.enqueueTurn({ role: 'user', content: 'gated' }, 'newTurn');
+    for (let i = 0; i < 100 && (await handle.status()).activeTurnId !== turnId; i += 1) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect((await handle.status()).activeTurnId).toBe(turnId);
+
+    let disposed = false;
+    const disposing = handle.dispose().then(() => {
+      disposed = true;
+    });
+    // The turn is still parked in the provider call, so the pump has not
+    // exited; a dispose that resolves here is the old "signalled, not
+    // released" lie (ROADMAP §15 D1).
+    await new Promise((r) => setTimeout(r, 100));
+    expect(disposed).toBe(false);
+
+    release();
+    await Promise.race([
+      disposing,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('dispose() never resolved after the turn ended')), 5000),
+      ),
+    ]);
+    expect(disposed).toBe(true);
+  });
+
+  it('makes every concurrent dispose call wait for the same release', async () => {
+    const { handle, release } = await handleWithParkedTurn();
+    const turnId = await handle.enqueueTurn({ role: 'user', content: 'gated' }, 'newTurn');
+    for (let i = 0; i < 100 && (await handle.status()).activeTurnId !== turnId; i += 1) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    const resolutions: number[] = [];
+    const first = handle.dispose().then(() => resolutions.push(1));
+    const second = handle.dispose().then(() => resolutions.push(2));
+    await new Promise((r) => setTimeout(r, 100));
+    // Neither may resolve early — the second call must not "succeed" against
+    // an already-empty registry while the first is still waiting.
+    expect(resolutions).toEqual([]);
+
+    release();
+    await Promise.race([
+      Promise.all([first, second]),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('a concurrent dispose() never resolved')), 5000),
+      ),
+    ]);
+    expect(resolutions.sort()).toEqual([1, 2]);
   });
 });
 

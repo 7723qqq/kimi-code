@@ -8253,9 +8253,13 @@ EngineSessionHandle.dispose()          session-handle.ts:486-488   → Promise<v
   （内部 oneshot/watch），TS 的 `NapiSessionTransport.dispose` 改为 await 它。
   **不得在持注册表锁时等待**（pump 也要拿锁 → 死锁）；`session_dispose` 现在是**同步** napi 函数
   （`guard_sync_panic`），要么改异步 napi，要么做"发信号 + 返回可等待句柄"两段式。
+  **~~已落地（2026-10-04）~~**：走的是"改异步 napi"这条，见 **§17**；同步段与 `await` 的锁边界
+  已在结构上分开（同步闭包持锁、future 在闭包外 await）。
 - **S2（对齐必需，D2）**：`TaskRunner::stop_session(session_id)`——任务本就带 `session_id`（drain 路径已在用），
   **数据齐备**；在 dispose 里 await 它。停的语义需先定：取消还是等自然结束（v2 是 `stopAllOnExit` 带 reason）。
+  **已落地（2026-10-03）**：见 **§16**。
 - **S3（收尾）**：先静默 → 再 flush 在飞写入 → 最后才对外宣告 closed，并**上报** stop 错误。
+  **仍未做**（§17.3 记）。
 
 **优先做的理由**：D2 独立于 D1 就是缺陷（关会话不停任务），且它是 v2 明确有、fork 明确无的一步；
 D1 是契约问题，会让每个"close 之后删数据目录"的宿主动作都变成竞速。
@@ -8314,8 +8318,129 @@ D1 是契约问题，会让每个"close 之后删数据目录"的宿主动作都
 `Core` 之后发一个可等待的确认，napi 侧暴露该确认、TS 侧 await 它。
 （本条不改 `napi-contract.d.ts`，因此 `check:parity` 不受影响。）
 
+**~~已做（2026-10-04，见 §17）~~**：S1 已按本节描述的形态落地——pump 的 `ReleaseGuard` 在退出时置位并唤醒等待者，
+`session_dispose` 改为异步并在锁外 await，TS 侧 `dispose()` 真正等待。
+
 ### 16.4 验证
 
 - `cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -- -D warnings` ✅
 - `cargo test --no-default-features --features cli --lib` **3209 passed / 0 failed**（+4）
 - 指纹随之刷新（`kimi-agent` 模块）
+
+## 17. 2026-10-04 §15 D1 / §15.8 S1 落地：`dispose()` 现在等到会话真正释放
+
+§16 落了 D2（关闭会话停后台任务）并把 D1 留在这里。本节落 **S1**——让"会话已释放"可等待，
+并顺手修掉 stdio 侧的同一契约缺陷。
+
+### 17.1 落地内容
+
+**Rust（`src/session/mod.rs`）**
+
+- `Core` 增 `released: bool` + `release_waiters: Vec<oneshot::Sender<()>>`——与既有的
+  `settle_waiters` 同构，但语义不同：`settled` 说"空闲"，`released` 说"**pump 没了**"。
+- `EngineSession::is_released()` / `released()`：前者非阻塞探测，后者注册 oneshot 并 await
+  （已释放则立即返回）。镜像 `is_settled` / `settled`（`:827`/`:835`）的形状。
+- `ReleaseGuard`：pump 函数体头部持有，`Drop` 里置位并 drain 全部等待者。**用 Drop 而不是在
+  `return` 前写一行**——覆盖正常返回、将来新增的提前返回、以及 panic unwind（crate 未设
+  `panic = "abort"`，见 `guard_async_panic` 的注释）。在某一出口手写一次，一旦多出第二条出口就会
+  静默地对所有调用方撒谎。
+
+**napi（`src/napi_bindings.rs`）**
+
+- `session_dispose` 由同步 `-> napi::Result<()>` 改为异步（`Env` + `execute_tokio_future`，
+  与同文件 `session_settled` 同构）。**同步段（含注册表锁）留在 `guard_sync_panic` 闭包内，
+  `await` 在闭包外的 future 里**——§15.8 S1 的死锁约束（pump 也要拿同一把锁）由此结构性满足。
+- 新增 `RELEASE_PENDING`（`HashMap<String, Arc<EngineSession>>`）+ `PendingReleaseCleanup`：
+  注册表条目在 dispose 一开始就被移除，此后第二次 `dispose()` 会找不到会话并**立即 resolve**，
+  而第一次仍在等待——那仍是同一个谎。pending 表让并发的 dispose 共享同一次 `released` 等待，
+  cleanup guard 在 future 结束（含被 drop）时清条目。
+- doc 注释更新（契约文案的源头）：旧文案写的是 "the pump task is **signalled** to stop"，现已改为
+  "resolves only once that has actually happened"，并写明旧 addon 的降级语义。
+
+**TS（`packages/kimi-agent/session-handle.ts`）**
+
+- `SessionNativeModule.sessionDispose`：`void` → `Promise<void>`，注释写明旧 addon 返回
+  `undefined`、`await` 无害但只表示"已信号"——**不假装比引擎更强**。
+- `NapiSessionTransport.dispose` 改为 `await this.mod.sessionDispose(sessionId)`。
+  `EngineSessionHandle.dispose()` 与 `SessionTransport.dispose` 签名不变（本来就是 `Promise<void>`）。
+- 3 处测试直调 `mod.sessionDispose(sessionId)` 补 `await`。
+
+**stdio（`src/main.rs`）**——同一契约的**第三处**缺陷
+
+`session/dispose` 的 RPC handler 只 `remove()` 注册表条目，**连 `shutdown()` 都没调**：pump 永远
+park 在 wakeup 上，会话历史活到进程结束。这与 §15 记的 D1 不同（D1 是"发了信号但要等"，这里是
+"根本没发信号"），是逐行读这条链时发现的。加一行 `entry.session.shutdown()`。
+**stdio 的"可等待"半边不做**：把那侧改成可等待需要 RPC 回包形状变更，属独立工单；注释已写明这一半
+仍是 fire-and-forget。
+
+### 17.2 测试与变异验证
+
+Rust（`session::tests`，全部用 `tokio::time::timeout` 包住——断言失败而不是挂死）：
+
+- `released_resolves_only_after_the_pump_exits`：pump 存活时 `released()` **不 resolve**（spawn 后
+  断言 `!is_finished()`），`shutdown()` 后 resolve，且 `Arc::strong_count(&core) == 1`。
+- `released_resolves_immediately_once_already_released`：已释放后再次 `released()` 立即返回
+  （对应第二次 dispose）。
+- `released_wakes_every_registered_waiter`：两个并发等待者都被唤醒（对应并发 dispose）。
+
+**变异验证**：删掉 pump 头部的 `ReleaseGuard` → 三项测试**全红**，且以
+`Elapsed(())`（超时）失败而非挂死；恢复后（`touch` 刷 mtime 避开 MEMORY 记的陈旧构建坑）**三次全绿**。
+
+JS（`napi-integration.test.ts`，新增 `EngineSessionHandle — dispose waits for release (D1)`）：
+
+- 主测试：`llmChat` 挂住一个 in-flight turn，断言 `dispose()` 在 turn 释放前**不 resolve**
+  （100ms 观察窗），释放后 resolve（5s 上限 `Promise.race`，防挂死）。
+- 并发测试：两个 `dispose()` 同时挂起，释放前**都不 resolve**，之后都 resolve。
+
+这两条是**判别性**的：旧实现（同步 dispose + 不 await）下主测试的 `disposed` 会在 100ms 观察窗内
+变 true，测试失败。它测的是"等待这件事发生了"，不是"调用没报错"。
+
+### 17.3 未做（明确留白）
+
+- **S3**：先静默（`tryAcquireQuiescence` 轮询到 idle）→ flush 在飞写入 → 最后才对外宣告 closed，
+  以及 stop 错误的**上报**（v2 `:627-632,648`；fork 仍是 `guard_sync_panic` + TS `.catch(() => {})`）。
+- **stdio 的 awaitable dispose**：RPC 形状变更，需裁决。
+- **`released` 与任务停止的先后**：D2 的 `stop_session` 在 pump 退出**前**执行，`ReleaseGuard` 的
+  Drop 在其后，故 `released` 蕴含"任务已停止"——顺序依赖靠 pump 内的代码顺序保证，没有单独的断言钉住。
+
+### 17.4 验证
+
+- `cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -- -D warnings` ✅
+- `cargo test --lib session::` **98 passed / 0 failed**（+3）｜`storage::task_runner` **46 passed**
+- `cargo test --no-default-features --features cli` 全绿（见 §17.5 的实际数字）
+- `bun run test:js`、`bun run typecheck`、门禁与指纹刷新见 §17.5
+
+### 17.5 交付验证（本轮实际输出）
+
+- `cargo fmt --check` ✅｜`cargo clippy --all-targets --features cli -- -D warnings` ✅
+- `cargo test --lib session::` **98 passed / 0 failed**（+3）｜`storage::task_runner` 46 passed
+- `bun run vitest run napi-integration.test.ts` **71 passed**（含 2 条新 D1 测试）
+- `bun run typecheck` ✅｜`bun run lint` **0 error**（4286 warnings，均既有存量）
+- `bun run test scripts` **135 passed**（门禁自测）
+- 门禁：`check:parity`、`check:roadmap-refs`（582 引用 / 25 anchor 全解析）、`check:architecture`
+  （指纹刷新后过）、`check:normify`（6 模块指纹刷新 + build + render 后 0 error）及其余 10 道全绿
+- 指纹刷新：`architecture.json` 的 `kimi-agent` 模块 + normify 的 `engine.core{,.session}` /
+  `engine.napi{,.bindings,.contract}` 及祖先
+
+**一条环境干扰，如实记录**：本轮 `cargo test --no-default-features --features cli --lib` 全量跑出
+**44–62 个失败**，全部集中在会启动子进程的测试（`tools::external_hooks`、`tools::tower::git`、
+`server::terminal`、`native::bash_spawn`），报错形如
+`Permission hook failed to spawn: 拒绝访问。 (os error 5)`、`failed to create psuedo console:
+HRESULT -2147024891`、以及由它们级联的 `assertion left == right failed`。
+
+**判定为环境问题，不是本次改动**，三条证据：
+
+1. **纯净对照也失败**：在 `50b922733b`（未含本次任何改动）的独立 worktree 上跑同一命令，同样
+   **62 failed**——失败集形态一致。
+2. **子集全绿**：`cargo test --lib tools::` **775 passed / 0 failed**、`--lib mcp::` **116/0**、
+   `--lib session::` **98/0**；把同一个测试**单独**跑（`cargo test --lib <name>`）全部通过。
+3. **首轮全量当时是绿的**：本次改动刚落地时（17:04）同一命令只有 1 个失败，且那一个
+   （`mcp::manager::tests::test_unexpected_close_marks_failed_and_emits`）是 §6.x 已登记的
+   Windows 负载敏感 flake。
+
+失败数与机器上遗留进程正相关：清掉本轮冒烟测试留下的两个孤儿 `free-search-mcp` 进程后，
+失败数从 60–62 降到 44，说明瓶颈在**进程创建**（`CreateProcess` / ConPTY 返回 ACCESS_DENIED），
+而非用例逻辑。**未查明的部分**：为什么在 383 个进程、460 GB 空闲、39 GB 空闲提交的机器上
+`CreateProcess` 会被拒——已排除磁盘、桌面堆（`SharedSection=1024,20480,768`）、Job Object
+（本进程不在任何 job 里）与杀软事件日志，剩余怀疑是 Windows 会话/句柄表层面的限制。
+留给后续：下次全量复跑若在重启后恢复绿，即坐实环境性。

@@ -2476,6 +2476,15 @@ type SessionOutcomeMap = HashMap<(String, u64), oneshot::Receiver<Result<TurnOut
 static SESSION_OUTCOMES: LazyLock<Mutex<SessionOutcomeMap>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Sessions whose `session_dispose` is still waiting for the pump to exit.
+/// The registry entry is gone by then, so a second `dispose()` would find no
+/// session and resolve instantly — while the first is still waiting. That is
+/// the same lie the async dispose exists to remove, so the pending wait is
+/// remembered here and both callers await the same `released`. Entries are
+/// removed as each dispose future ends.
+static RELEASE_PENDING: LazyLock<Mutex<HashMap<String, Arc<EngineSession>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 static SESSION_NEXT_ID: AtomicU32 = AtomicU32::new(1);
 
 #[derive(Clone)]
@@ -3170,26 +3179,79 @@ pub fn session_get_history(session_id: String) -> napi::Result<String> {
     })
 }
 
-/// Drop the session handle: the pump task is signalled to stop and the
-/// conversation it owns is released with it. Pending outcome receivers are
-/// dropped too, so a JS `session_turn_outcome` awaiting one rejects instead of
-/// hanging on a pump that will never run again.
+/// Drop the session handle: the pump task is signalled to stop, its
+/// background tasks are stopped, and the conversation it owns is released —
+/// and this resolves only once that has actually happened, so a host that
+/// deletes the session's directory after awaiting it is not racing the
+/// engine (ROADMAP §15 D1, v2 `disposeAsync`). Pending outcome receivers are
+/// dropped too, so a JS `session_turn_outcome` awaiting one rejects instead
+/// of hanging on a pump that will never run again.
+///
+/// The signature changed from `()` to a promise: an addon that predates the
+/// export returns `undefined`, which `await` accepts — that host keeps the old
+/// "signalled, not released" semantics rather than getting a stronger promise
+/// than the engine keeps.
 #[napi]
-pub fn session_dispose(session_id: String) -> napi::Result<()> {
-    guard_sync_panic(|| {
+pub fn session_dispose(env: Env, session_id: String) -> napi::Result<JsObject> {
+    // Synchronous section: everything here runs under the registry lock, and
+    // nothing here awaits. Waiting while holding the lock would deadlock —
+    // the pump takes the same lock on its way out.
+    let session = guard_sync_panic(|| {
         let entry = SESSION_REGISTRY
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(&session_id);
-        if let Some(entry) = entry {
-            entry.session.shutdown();
-        }
+        let session = match entry {
+            Some(entry) => {
+                entry.session.shutdown();
+                // Remember the wait, so a second dispose for this id shares it
+                // rather than resolving against an already-empty registry.
+                RELEASE_PENDING
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(session_id.clone(), entry.session.clone());
+                Some(entry.session)
+            }
+            // Already being disposed: join that wait instead of pretending
+            // the session is gone.
+            None => RELEASE_PENDING
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&session_id)
+                .cloned(),
+        };
         SESSION_OUTCOMES
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .retain(|(session, _), _| session != &session_id);
-        Ok(())
-    })
+        Ok(session)
+    })?;
+    let wait_id = session_id.clone();
+    env.execute_tokio_future(
+        async move {
+            // Cleanup first, so the entry goes even if the wait below is
+            // dropped mid-flight (a runtime shutdown aborts the task).
+            let _cleanup = PendingReleaseCleanup(wait_id);
+            if let Some(session) = session {
+                session.released().await;
+            }
+            Ok(())
+        },
+        |env, ()| env.get_undefined(),
+    )
+}
+
+/// Removes a [`RELEASE_PENDING`] entry when a dispose future ends, however it
+/// ends.
+struct PendingReleaseCleanup(String);
+
+impl Drop for PendingReleaseCleanup {
+    fn drop(&mut self) {
+        RELEASE_PENDING
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.0);
+    }
 }
 
 /// Try to acquire quiescence (M1c): an exclusive window in which enqueued

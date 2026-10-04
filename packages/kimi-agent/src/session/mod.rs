@@ -361,6 +361,13 @@ struct Core {
     /// Waiters resolved by [`EngineSession::settled`] once nothing is
     /// active, pending, or held.
     settle_waiters: Vec<oneshot::Sender<()>>,
+    /// Set when the pump task has exited and dropped its `Arc<Mutex<Core>>` —
+    /// the fact `EngineSession::released` waits on. `settled` says "idle";
+    /// this says "the pump is gone", which is what a host about to delete the
+    /// session's directory actually needs (ROADMAP §15 D1).
+    released: bool,
+    /// Waiters resolved by the pump's [`ReleaseGuard`] drop.
+    release_waiters: Vec<oneshot::Sender<()>>,
     /// P56 (G-5): execution-path summary of the last completed turn.
     last_engine: Option<crate::rpc::types::EngineExecSummary>,
 }
@@ -379,6 +386,34 @@ struct HeldTurn {
 fn maybe_settle_locked(core: &mut Core) {
     if core.active_turn_id.is_none() && core.pending.is_empty() && core.held.is_empty() {
         for tx in std::mem::take(&mut core.settle_waiters) {
+            let _ = tx.send(());
+        }
+    }
+}
+
+/// Publishes "the pump is gone" when the pump task ends, by any path.
+///
+/// Held for the whole pump body, so its `Drop` runs on the normal `return`,
+/// on an early `return`, and on a panic unwind (the crate sets no
+/// `panic = "abort"`). That is the fact `dispose()` promises: the conversation
+/// has been dropped and the session's background tasks are stopped. Marking it
+/// at one exit path by hand would silently mislead every caller if a second
+/// exit path were ever added.
+struct ReleaseGuard {
+    core: Arc<Mutex<Core>>,
+}
+
+impl ReleaseGuard {
+    fn new(core: Arc<Mutex<Core>>) -> Self {
+        Self { core }
+    }
+}
+
+impl Drop for ReleaseGuard {
+    fn drop(&mut self) {
+        let mut core = self.core.lock().unwrap_or_else(|e| e.into_inner());
+        core.released = true;
+        for tx in std::mem::take(&mut core.release_waiters) {
             let _ = tx.send(());
         }
     }
@@ -470,6 +505,8 @@ impl EngineSession {
             quiescence_depth: 0,
             held: Vec::new(),
             settle_waiters: Vec::new(),
+            released: false,
+            release_waiters: Vec::new(),
             last_engine: None,
         }));
         let steer_queue = Arc::new(Mutex::new(Vec::new()));
@@ -845,6 +882,31 @@ impl EngineSession {
         let _ = rx.await;
     }
 
+    /// Whether the pump has exited and dropped the conversation — the
+    /// non-blocking probe behind [`EngineSession::released`].
+    pub fn is_released(&self) -> bool {
+        self.core.lock().unwrap_or_else(|e| e.into_inner()).released
+    }
+
+    /// Resolves once the pump task has exited and its `Arc<Mutex<Core>>` is
+    /// the caller's alone: the conversation history is freed and the session's
+    /// background tasks have been stopped. This is what `dispose()` promises
+    /// (v2's `disposeAsync` / `waitFor(status==='done')` sequence,
+    /// `agentLifecycleService.ts:638-641`) — unlike [`Self::settled`], which
+    /// only says the session is idle. Resolves immediately once released.
+    pub async fn released(&self) {
+        let rx = {
+            let mut core = self.core.lock().unwrap_or_else(|e| e.into_inner());
+            if core.released {
+                return;
+            }
+            let (tx, rx) = oneshot::channel();
+            core.release_waiters.push(tx);
+            rx
+        };
+        let _ = rx.await;
+    }
+
     /// Replace the session's cross-turn history. The next enqueued turn
     /// starts from `history` (with the new prompt appended). Used by the
     /// REPL's `/resume` and `/clear` slash commands between turns.
@@ -1000,6 +1062,10 @@ async fn pump(
     wakeup: Arc<Notify>,
     shutdown: Arc<AtomicBool>,
 ) {
+    // Held for the pump's whole body: on any exit — the `return` below, an
+    // early return added later, or a panic unwind — its `Drop` publishes
+    // "released" and wakes `EngineSession::released` waiters.
+    let _release = ReleaseGuard::new(core.clone());
     loop {
         // A disposed session's pump must not outlive it: parked on `wakeup` it
         // held `core` — the whole conversation — for the life of the process.
@@ -2280,6 +2346,95 @@ mod tests {
             1,
             "history stays readable until drop"
         );
+    }
+
+    /// `released()` — the fact `dispose()` promises: it must not resolve
+    /// while the pump still holds the conversation, and must resolve once the
+    /// pump has exited (ROADMAP §15 D1 / §15.8 S1).
+    #[tokio::test]
+    async fn released_resolves_only_after_the_pump_exits() {
+        let server = Arc::new(RpcServer::new());
+        let session = make_session(
+            Arc::new(ScriptedLlm::simple(Vec::new())),
+            rpc_callbacks(server),
+        )
+        .await;
+        assert!(
+            !session.is_released(),
+            "a live session is not released before anything closed it"
+        );
+
+        let waiter = session.clone();
+        let waiting = tokio::spawn(async move { waiter.released().await });
+        // Park the waiter on the oneshot: it is registered but must still be
+        // pending — resolving here would mean the future short-circuited.
+        tokio::task::yield_now().await;
+        assert!(
+            !waiting.is_finished(),
+            "released() resolved before the pump exited"
+        );
+
+        session.shutdown();
+        tokio::time::timeout(std::time::Duration::from_secs(5), waiting)
+            .await
+            .expect("released() never resolved after shutdown")
+            .expect("the waiting task panicked");
+        assert!(session.is_released());
+        assert_eq!(
+            Arc::strong_count(&session.core),
+            1,
+            "the pump's reference is gone once released"
+        );
+    }
+
+    /// `released()` is not a one-shot notification: a late waiter (a second
+    /// `dispose()`) must still resolve, and must resolve promptly.
+    #[tokio::test]
+    async fn released_resolves_immediately_once_already_released() {
+        let server = Arc::new(RpcServer::new());
+        let session = make_session(
+            Arc::new(ScriptedLlm::simple(Vec::new())),
+            rpc_callbacks(server),
+        )
+        .await;
+
+        session.shutdown();
+        tokio::time::timeout(std::time::Duration::from_secs(5), session.released())
+            .await
+            .expect("the first released() never resolved");
+        tokio::time::timeout(std::time::Duration::from_secs(5), session.released())
+            .await
+            .expect("a later released() never resolved");
+    }
+
+    /// Every waiter registered before the pump exits is woken by the guard —
+    /// two concurrent `dispose()` calls must not strand one of them.
+    #[tokio::test]
+    async fn released_wakes_every_registered_waiter() {
+        let server = Arc::new(RpcServer::new());
+        let session = make_session(
+            Arc::new(ScriptedLlm::simple(Vec::new())),
+            rpc_callbacks(server),
+        )
+        .await;
+
+        let first = tokio::spawn({
+            let s = session.clone();
+            async move { s.released().await }
+        });
+        let second = tokio::spawn({
+            let s = session.clone();
+            async move { s.released().await }
+        });
+        tokio::task::yield_now().await;
+
+        session.shutdown();
+        for waiter in [first, second] {
+            tokio::time::timeout(std::time::Duration::from_secs(5), waiter)
+                .await
+                .expect("a waiter was left behind after the pump exited")
+                .expect("a waiting task panicked");
+        }
     }
 
     /// The pump's teardown also stops the session's background work: v2 does

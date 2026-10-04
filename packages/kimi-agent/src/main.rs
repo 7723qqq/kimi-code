@@ -775,10 +775,17 @@ async fn main() -> anyhow::Result<()> {
         Box::pin(async move {
             let input: SessionIdParams = serde_json::from_value(params)
                 .map_err(|e| types::JsonRpcError::internal_error(format!("Invalid params: {e}")))?;
-            SESSION_REGISTRY
+            // Removing the registry entry only makes the session
+            // unreachable — the pump (and the conversation it holds) parks on
+            // its wakeup forever unless it is told to stop, which is what the
+            // napi export does (see `session_dispose` in napi_bindings.rs).
+            let entry = SESSION_REGISTRY
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&input.session_id);
+            if let Some(entry) = entry {
+                entry.session.shutdown();
+            }
             Ok(serde_json::Value::Null)
         })
     });
@@ -1604,8 +1611,9 @@ fn parse_admission(value: &str) -> Result<Admission, types::JsonRpcError> {
 
 /// Live sessions keyed by id. One CLI process runs one session today; the
 /// registry keeps the surface uniform for tests and future multi-session
-/// hosts. A disposed session's pump task parks forever on its wakeup channel
-/// (bounded: one session per process) — teardown joins it in M2.
+/// hosts. `session/dispose` stops the pump, which releases the conversation it
+/// holds; the RPC stays fire-and-forget (making it awaitable would change the
+/// wire shape), unlike the napi export.
 #[derive(Clone)]
 struct SessionEntry {
     session: Arc<EngineSession>,

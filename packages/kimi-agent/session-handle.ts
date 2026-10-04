@@ -187,7 +187,13 @@ export interface SessionNativeModule {
   sessionExtendHistory(sessionId: string, historyJson: string): void;
   sessionHistoryLen(sessionId: string): number;
   sessionGetHistory(sessionId: string): string;
-  sessionDispose(sessionId: string): void;
+  /**
+   * Dispose the session and resolve once the engine has released it: the
+   * pump has exited, the conversation is dropped, and the session's
+   * background tasks are stopped. An addon that predates the async form
+   * returns `undefined`, which `await` accepts — it only signals.
+   */
+  sessionDispose(sessionId: string): Promise<void>;
   sessionStartBtw(sessionId: string): Promise<string>;
   sessionBtwPrompt(
     sessionId: string,
@@ -727,7 +733,7 @@ class NapiSessionTransport implements SessionTransport {
   }
 
   async dispose(sessionId: string): Promise<void> {
-    this.mod.sessionDispose(sessionId);
+    await this.mod.sessionDispose(sessionId);
   }
 
   async startBtw(sessionId: string): Promise<string> {
