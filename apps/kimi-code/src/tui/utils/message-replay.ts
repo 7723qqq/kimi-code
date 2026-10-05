@@ -243,6 +243,39 @@ export function backgroundOrigin(
   return origin?.kind === 'task' ? origin : undefined;
 }
 
+export function bundledSkillsFromOrigin(
+  origin: PromptOrigin | undefined,
+): readonly SkillActivationProjection[] {
+  if (origin?.kind !== 'user') return [];
+  const activations = (
+    origin as {
+      readonly skillActivations?: readonly {
+        readonly activationId: string;
+        readonly skillName: string;
+        readonly skillArgs?: string;
+      }[];
+    }
+  ).skillActivations;
+  if (activations === undefined) return [];
+  return activations.map((activation) => ({
+    activationId: activation.activationId,
+    skillName: activation.skillName,
+    skillArgs: activation.skillArgs,
+    trigger: 'user-slash' as const,
+    bundled: true,
+  }));
+}
+
+/**
+ * Content parts the caller actually typed: the engine prepends one rendered
+ * text part per bundled skill, so the caller's own parts start right after
+ * them.
+ */
+export function stripBundledSkillParts(message: ContextMessage): readonly ContentPart[] {
+  const bundledCount = bundledSkillsFromOrigin(message.origin).length;
+  return bundledCount === 0 ? message.content : message.content.slice(bundledCount);
+}
+
 export function skillActivationFromOrigin(
   origin: PromptOrigin | undefined,
 ): SkillActivationProjection | undefined {

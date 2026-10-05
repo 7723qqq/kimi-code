@@ -106,11 +106,21 @@ export interface ContextUpdateTokenCountRecord {
   readonly time?: number;
 }
 
-/** v1-only durable record: v2 has no micro-compaction, but old wires still
- *  contain it. */
+/** Fork durable record: micro-compaction truncates the context prefix. Emitted
+ *  by the v2 engine
+ *  (`agent-core-v2/src/agent/microCompaction/microCompactionOps.ts`). */
 export interface MicroCompactionApplyRecord {
   readonly type: 'micro_compaction.apply';
   readonly cutoff: number;
+  readonly time?: number;
+}
+
+/** Fork durable record: micro-compaction clamped its cutoff to the model
+ *  window. Emitted by the v2 engine
+ *  (`agent-core-v2/src/agent/microCompaction/microCompactionOps.ts`). */
+export interface MicroCompactionClampRecord {
+  readonly type: 'micro_compaction.clamp';
+  readonly maxCutoff: number;
   readonly time?: number;
 }
 
@@ -226,6 +236,7 @@ export type AgentRecord =
   | WireRecordOf<'usage.record', UsageRecord>
   | ContextUpdateTokenCountRecord
   | MicroCompactionApplyRecord
+  | MicroCompactionClampRecord
   | ContextReplaceToolResultRecord
   | StaleGuardRecordedRecord
   | StaleGuardClearedRecord;

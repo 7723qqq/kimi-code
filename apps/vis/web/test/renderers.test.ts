@@ -51,9 +51,11 @@ function compactionRecord(overrides: Record<string, unknown> = {}): CompactionRe
 const HISTORICAL_OR_HEADER_TYPES = new Set([
   'metadata',
   'context.update_token_count',
-  'micro_compaction.apply',
   'staleGuard.recorded',
   'staleGuard.cleared',
+  // Fork-only record: the Rust engine's prediction fast-path writes it, but
+  // agent-core-v2 (and therefore the wire manifest) does not declare it.
+  'context.replace_tool_result',
 ]);
 
 describe('wire renderers', () => {

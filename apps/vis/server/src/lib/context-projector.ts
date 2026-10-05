@@ -510,6 +510,10 @@ export function projectContext(
         // which runs over the full history at projection time).
         microCutoff = rec.cutoff;
         break;
+      case 'micro_compaction.clamp':
+        // Mirrors the engine: a clamp never grows the cutoff.
+        microCutoff = Math.min(microCutoff, rec.maxCutoff);
+        break;
       case 'goal.create':
         goal = {
           goalId: rec.goalId,

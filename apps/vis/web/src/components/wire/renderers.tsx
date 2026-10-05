@@ -927,6 +927,21 @@ export const WIRE_RENDERERS: RendererMap = {
     }),
   },
 
+  'micro_compaction.clamp': {
+    tone: 'compaction',
+    label: 'µcompact',
+    headline: (r) => ({
+      main: (
+        <span className="flex items-center gap-2 min-w-0">
+          <Pill tone="compaction" variant="soft">
+            {t('wireRenderer.micro')}
+          </Pill>
+          <Dim>max cutoff {r.maxCutoff}</Dim>
+        </span>
+      ),
+    }),
+  },
+
   'plan_mode.enter': {
     tone: 'lifecycle',
     label: 'plan↻',

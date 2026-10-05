@@ -35,6 +35,7 @@ import {
   appStateFromResumeAgent,
   backgroundOrigin,
   collectReplayMessageContent,
+  bundledSkillsFromOrigin,
   contentPartsToText,
   countActiveBackgroundTasks,
   createReplayRenderContext,
@@ -59,6 +60,26 @@ import type { SessionEventHandler } from './session-event-handler';
 import type { StreamingUIController } from './streaming-ui';
 
 type GoalReplayRecord = Extract<AgentReplayRecord, { type: 'goal_updated' }>;
+
+function preserveBundleHookResults(
+  replay: readonly AgentReplayRecord[],
+  maxTurns: number,
+): readonly AgentReplayRecord[] {
+  const limited = limitReplayRecordsByTurn(replay, maxTurns);
+  const first = limited[0];
+  if (first?.type !== 'message' || bundledSkillsFromOrigin(first.message.origin).length === 0) {
+    return limited;
+  }
+  const firstIndex = replay.indexOf(first);
+  if (firstIndex < 0) return limited;
+  let start = firstIndex;
+  for (;;) {
+    const candidate = replay[start - 1];
+    if (candidate?.type !== 'message' || candidate.message.origin?.kind !== 'hook_result') break;
+    start -= 1;
+  }
+  return start === firstIndex ? limited : [...replay.slice(start, firstIndex), ...limited];
+}
 type CompactionReplayRecord = Extract<AgentReplayRecord, { type: 'compaction' }>;
 type GoalReplayLifecycleChange = GoalChange & { readonly kind: 'lifecycle' };
 
@@ -205,7 +226,7 @@ export class SessionReplayRenderer {
 
   private renderRecords(agent: ResumedAgentState): void {
     const context = createReplayRenderContext();
-    const records = limitReplayRecordsByTurn(agent.replay, REPLAY_TURN_LIMIT);
+    const records = preserveBundleHookResults(agent.replay, REPLAY_TURN_LIMIT);
     for (let i = 0; i < records.length; i++) {
       const record = records[i]!;
       const nextRecord = i + 1 < records.length ? records[i + 1] : undefined;
