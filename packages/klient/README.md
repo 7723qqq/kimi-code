@@ -84,7 +84,7 @@ folded in here):
   surface has no in-memory equivalent, so these stay live-server-only).
 
 The docker e2e runner (`bun run docker:e2e` from packages/klient) runs this whole vitest suite inside
-a container against a container-local server. See `AGENTS.md` for the testing
+a container against a container-local server. See `DEVELOP.md` for the testing
 rules.
 
 ## Scope

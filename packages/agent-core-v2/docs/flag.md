@@ -107,4 +107,4 @@ if (!this.flags.enabled('my_feature')) return;
 - `packages/agent-core-v2/test/flag/flag.test.ts` — precedence + config subscription tests.
 - `packages/agent-core/src/flags/` — v1 source this was ported from (the v1 engine has been removed from the repository — see git history).
 - `packages/agent-core-v2/GAP_ANALYSIS.md` §2.1 — gap closure note.
-- Root `AGENTS.md` — experimental-feature gating rule.
+- Root `DEVELOP.md` — experimental-feature gating rule.

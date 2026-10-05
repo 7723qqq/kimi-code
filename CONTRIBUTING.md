@@ -33,7 +33,7 @@ This is a Bun monorepo. The most relevant entry points are:
 - `packages/klient`, `kap-server`, `protocol`, `transcript`, `kosong`, `kaos`, `oauth`, `telemetry` — internal engine packages
 - `docs/` — VitePress bilingual docs site
 
-For the full project map, see [AGENTS.md](AGENTS.md).
+For the full project map, see [DEVELOP.md](DEVELOP.md).
 
 ## Development Setup
 

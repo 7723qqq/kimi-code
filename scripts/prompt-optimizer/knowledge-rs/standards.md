@@ -168,7 +168,7 @@ scope:
 tags: principle, read-first
 scope: 
 
-修改代码前，先读相关代码和最近的约束，遵循目录树中最近的 `AGENTS.md`。
+修改代码前，先读相关代码和最近的约束，遵循目录树中最近的 `DEVELOP.md`。
 
 ---
 
