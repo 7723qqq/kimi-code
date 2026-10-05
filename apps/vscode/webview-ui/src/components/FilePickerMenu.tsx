@@ -5,8 +5,9 @@ import {
   IconFolderOpen,
   IconPhoto,
 } from '@tabler/icons-react';
-import { useEffect, useRef } from 'react';
+import { Fragment, useEffect, useRef } from 'react';
 
+import { mentionMatchSpans, type MentionMatchSpan } from '@/lib/mention-match';
 import { cn } from '@/lib/utils';
 
 export type FilePickerMode = 'search' | 'folder';
@@ -15,22 +16,23 @@ export interface FileItem {
   name: string;
   path: string;
   isDirectory: boolean;
-  highlightedName?: React.ReactNode;
+  matchPositions?: number[];
 }
 
 interface FilePickerMenuProps {
-  mode: FilePickerMode;
   items: FileItem[];
-  currentPath: string;
   selectedIndex: number;
   isLoading?: boolean;
+  isStale?: boolean;
   showMediaOption?: boolean;
+  mode?: FilePickerMode;
+  currentPath?: string;
   onSelectMedia?: () => void;
-  onSwitchToFolder: () => void;
-  onSwitchToSearch: () => void;
   onSelectItem: (item: FileItem) => void;
-  onNavigateUp: () => void;
-  onNavigateInto: (item: FileItem) => void;
+  onSwitchToFolder?: () => void;
+  onSwitchToSearch?: () => void;
+  onNavigateUp?: () => void;
+  onNavigateInto?: (item: FileItem) => void;
   onHover: (index: number) => void;
 }
 
@@ -43,36 +45,79 @@ function truncateMiddle(str: string, maxLen: number): string {
   return str.slice(0, frontChars) + ellipsis + str.slice(-backChars);
 }
 
+function parentDir(path: string): string {
+  const trimmed = path.endsWith('/') ? path.slice(0, -1) : path;
+  const idx = trimmed.lastIndexOf('/');
+  return idx === -1 ? '' : trimmed.slice(0, idx);
+}
+
+function nameSpans(item: FileItem): MentionMatchSpan[] {
+  const path = item.path.endsWith('/') ? item.path.slice(0, -1) : item.path;
+  return mentionMatchSpans(
+    item.name,
+    item.matchPositions,
+    Math.max(0, path.length - item.name.length),
+  );
+}
+
+function dirSpans(item: FileItem): MentionMatchSpan[] {
+  return mentionMatchSpans(parentDir(item.path), item.matchPositions, 0);
+}
+
+function renderSpans(spans: MentionMatchSpan[], hitClassName: string) {
+  return spans.map((span, spanIdx) =>
+    span.hit ? (
+      <span key={spanIdx} className={hitClassName}>
+        {span.text}
+      </span>
+    ) : (
+      <Fragment key={spanIdx}>{span.text}</Fragment>
+    ),
+  );
+}
+
 export function FilePickerMenu({
-  mode,
   items,
-  currentPath,
   selectedIndex,
   isLoading,
+  isStale = false,
   showMediaOption = true,
+  mode = 'search',
+  currentPath = '',
   onSelectMedia,
+  onSelectItem,
   onSwitchToFolder,
   onSwitchToSearch,
-  onSelectItem,
   onNavigateUp,
   onNavigateInto,
   onHover,
 }: FilePickerMenuProps) {
   const selectedRef = useRef<HTMLButtonElement>(null);
+  const hoverSelectionRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (hoverSelectionRef.current === selectedIndex) {
+      hoverSelectionRef.current = null;
+      return;
+    }
+    hoverSelectionRef.current = null;
     selectedRef.current?.scrollIntoView({ block: 'nearest' });
   }, [selectedIndex]);
 
   const preventFocus = (e: React.MouseEvent) => e.preventDefault();
 
-  // Calculate header count based on mode and options
+  const handleHover = (index: number) => {
+    if (isStale) return;
+    hoverSelectionRef.current = index;
+    onHover(index);
+  };
+
+  // Header rows above the item list: search mode shows media/select + "browse
+  // folders"; folder mode shows "back to search" + an optional ".." parent row.
   const getHeaderCount = () => {
     if (mode === 'search') {
-      // Select media (if shown) + Browse folders
       return showMediaOption ? 2 : 1;
     }
-    // Back to search + optional parent nav
     return currentPath ? 2 : 1;
   };
 
@@ -87,7 +132,7 @@ export function FilePickerMenu({
               ref={selectedIndex === 0 ? selectedRef : null}
               onMouseDown={preventFocus}
               onClick={onSelectMedia}
-              onMouseEnter={() => onHover(0)}
+              onMouseMove={() => handleHover(0)}
               className={cn(
                 'w-full px-2 py-1.5 text-left flex items-center gap-2 border-b border-border',
                 selectedIndex === 0 ? 'bg-accent' : 'hover:bg-accent/50',
@@ -101,7 +146,7 @@ export function FilePickerMenu({
             ref={selectedIndex === (showMediaOption ? 1 : 0) ? selectedRef : null}
             onMouseDown={preventFocus}
             onClick={onSwitchToFolder}
-            onMouseEnter={() => onHover(showMediaOption ? 1 : 0)}
+            onMouseMove={() => handleHover(showMediaOption ? 1 : 0)}
             className={cn(
               'w-full px-2 py-1.5 text-left flex items-center gap-2 border-b border-border',
               selectedIndex === (showMediaOption ? 1 : 0) ? 'bg-accent' : 'hover:bg-accent/50',
@@ -117,7 +162,7 @@ export function FilePickerMenu({
             ref={selectedIndex === 0 ? selectedRef : null}
             onMouseDown={preventFocus}
             onClick={onSwitchToSearch}
-            onMouseEnter={() => onHover(0)}
+            onMouseMove={() => handleHover(0)}
             className={cn(
               'w-full px-2 py-1.5 text-left flex items-center gap-2 border-b border-border',
               selectedIndex === 0 ? 'bg-accent' : 'hover:bg-accent/50',
@@ -131,7 +176,7 @@ export function FilePickerMenu({
               ref={selectedIndex === 1 ? selectedRef : null}
               onMouseDown={preventFocus}
               onClick={onNavigateUp}
-              onMouseEnter={() => onHover(1)}
+              onMouseMove={() => handleHover(1)}
               className={cn(
                 'w-full px-2 py-1.5 text-left flex items-center gap-2 border-b border-border/50',
                 selectedIndex === 1 ? 'bg-accent' : 'hover:bg-accent/50',
@@ -146,7 +191,7 @@ export function FilePickerMenu({
           )}
         </>
       )}
-      <div className="max-h-64 overflow-y-auto">
+      <div className={cn('max-h-64 overflow-y-auto', isStale && 'opacity-60')}>
         {isLoading ? (
           <div className="px-2 py-4 text-center text-xs text-muted-foreground">Loading…</div>
         ) : items.length === 0 ? (
@@ -156,19 +201,21 @@ export function FilePickerMenu({
         ) : (
           items.map((item, idx) => {
             const itemIndex = idx + headerCount;
+            const dir = parentDir(item.path);
+            const isSearchMode = mode === 'search';
             return (
               <button
                 key={item.path}
                 ref={itemIndex === selectedIndex ? selectedRef : null}
                 onMouseDown={preventFocus}
                 onClick={() => {
-                  if (item.isDirectory && mode === 'search') {
-                    onNavigateInto(item);
+                  if (isSearchMode && item.isDirectory) {
+                    onNavigateInto?.(item);
                   } else {
                     onSelectItem(item);
                   }
                 }}
-                onMouseEnter={() => onHover(itemIndex)}
+                onMouseMove={() => handleHover(itemIndex)}
                 className={cn(
                   'w-full px-2 py-1.5 text-left flex items-center justify-between gap-3',
                   itemIndex === selectedIndex ? 'bg-accent' : 'hover:bg-accent/50',
@@ -181,15 +228,25 @@ export function FilePickerMenu({
                     <IconFile className="size-3 text-muted-foreground" />
                   )}
                   <span className={cn(item.isDirectory && 'font-medium')}>
-                    {mode === 'folder' ? item.name : item.highlightedName || item.name}
+                    {isSearchMode
+                      ? renderSpans(nameSpans(item), 'text-foreground font-semibold')
+                      : item.name}
                     {item.isDirectory && '/'}
                   </span>
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-muted-foreground truncate max-w-32">
-                    {truncateMiddle(item.path, 25)}
-                  </span>
-                  {item.isDirectory && mode === 'folder' && (
+                  {isSearchMode ? (
+                    dir && (
+                      <span className="text-[10px] text-muted-foreground truncate max-w-32">
+                        {renderSpans(dirSpans(item), 'text-foreground')}
+                      </span>
+                    )
+                  ) : (
+                    <span className="text-[10px] text-muted-foreground truncate max-w-32">
+                      {dir ? truncateMiddle(dir, 25) : ''}
+                    </span>
+                  )}
+                  {item.isDirectory && !isSearchMode && (
                     <span className="text-[10px] text-muted-foreground">→</span>
                   )}
                 </span>

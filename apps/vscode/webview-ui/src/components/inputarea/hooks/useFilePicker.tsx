@@ -3,7 +3,6 @@ import { useMemo, useState, useEffect, useCallback } from 'react';
 import type { ProjectFile } from 'shared/types';
 
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
-
 import { bridge } from '@/services';
 import { MEDIA_CONFIG } from '@/services/config';
 import { useChatStore } from '@/stores';
@@ -14,6 +13,7 @@ export interface FileItem {
   name: string;
   path: string;
   isDirectory: boolean;
+  matchPositions?: number[];
 }
 
 interface ActiveToken {
@@ -26,17 +26,21 @@ const NO_FILES: ProjectFile[] = [];
 
 interface UseFilePickerResult {
   showFileMenu: boolean;
-  filePickerMode: FilePickerMode;
-  folderPath: string;
   fileItems: FileItem[];
   selectedIndex: number;
   isLoading: boolean;
+  isStale: boolean;
   showMediaOption: boolean;
   fileMenuHeaderCount: number;
+  filePickerMode: FilePickerMode;
+  folderPath: string;
   setSelectedIndex: (index: number) => void;
-  setFilePickerMode: (mode: FilePickerMode) => void;
-  setFolderPath: (path: string) => void;
+  handleSelectItem: (item: FileItem | undefined) => void;
   handleFileMenuKey: (e: React.KeyboardEvent) => boolean;
+  handleBrowseInto: (item: FileItem) => void;
+  handleBrowseUp: () => void;
+  handleBrowseToSearch: () => void;
+  handleBrowseToFolder: () => void;
   resetFilePicker: () => void;
 }
 
@@ -74,6 +78,9 @@ export function useFilePicker(
   const folderItems = folderQuery.data ?? NO_FILES;
   const isFolderLoading = folderQuery.isLoading;
 
+  const isStale =
+    filePickerMode === 'search' && (debouncedQuery !== query || searchQuery.isPlaceholderData);
+
   useEffect(() => {
     if (!showFileMenu) {
       setFilePickerMode('search');
@@ -83,7 +90,7 @@ export function useFilePicker(
 
   useEffect(() => {
     setSelectedIndex(0);
-  }, [query, filePickerMode, folderPath]);
+  }, [query]);
 
   const fileItems = useMemo((): FileItem[] => {
     if (filePickerMode === 'folder') {
@@ -91,19 +98,25 @@ export function useFilePicker(
         name: f.name,
         path: f.path,
         isDirectory: f.isDirectory,
+        matchPositions: f.matchPositions,
       }));
     }
     return searchResults.slice(0, 50).map((f) => ({
       name: f.name,
       path: f.path,
       isDirectory: f.isDirectory,
+      matchPositions: f.matchPositions,
     }));
   }, [filePickerMode, folderItems, searchResults]);
 
   const isLoading = filePickerMode === 'search' ? isSearchLoading : isFolderLoading;
-  const showMediaOption = filePickerMode === 'search' && canAddMedia;
+  const showMediaOption = filePickerMode === 'search' && canAddMedia && query === '';
   const fileMenuHeaderCount =
     filePickerMode === 'search' ? (showMediaOption ? 2 : 1) : folderPath ? 2 : 1;
+
+  useEffect(() => {
+    setSelectedIndex((i) => Math.min(i, Math.max(0, fileMenuHeaderCount + fileItems.length - 1)));
+  }, [fileMenuHeaderCount, fileItems.length]);
 
   const resetFilePicker = useCallback(() => {
     setSelectedIndex(0);
@@ -111,7 +124,43 @@ export function useFilePicker(
     setFolderPath('');
   }, []);
 
+  const handleSelectItem = useCallback(
+    (item: FileItem | undefined) => {
+      if (isStale) return;
+      if (!item) return;
+      onInsertFile(item.path);
+    },
+    [isStale, onInsertFile],
+  );
+
+  const handleBrowseInto = useCallback((item: FileItem) => {
+    setFilePickerMode('folder');
+    setFolderPath(item.path);
+    setSelectedIndex(0);
+  }, []);
+
+  const handleBrowseUp = useCallback(() => {
+    setFolderPath((path) => path.split('/').slice(0, -1).join('/'));
+    setSelectedIndex(0);
+  }, []);
+
+  const handleBrowseToSearch = useCallback(() => {
+    setFilePickerMode('search');
+    setFolderPath('');
+    setSelectedIndex(0);
+  }, []);
+
+  const handleBrowseToFolder = useCallback(() => {
+    setFilePickerMode('folder');
+    setFolderPath('');
+    setSelectedIndex(0);
+  }, []);
+
   const handleFileMenuConfirm = useCallback(() => {
+    // Results for the current query are not in yet: ignore the confirmation
+    // entirely, including the header rows.
+    if (isStale) return;
+
     if (filePickerMode === 'search') {
       if (showMediaOption && selectedIndex === 0) {
         onPickMedia();
@@ -120,53 +169,50 @@ export function useFilePicker(
 
       const browseIndex = showMediaOption ? 1 : 0;
       if (selectedIndex === browseIndex) {
-        setFilePickerMode('folder');
-        setFolderPath('');
-        setSelectedIndex(0);
+        handleBrowseToFolder();
         return;
       }
     }
 
     if (filePickerMode === 'folder' && selectedIndex === 0) {
-      setFilePickerMode('search');
-      setFolderPath('');
-      setSelectedIndex(0);
+      handleBrowseToSearch();
       return;
     }
 
     if (filePickerMode === 'folder' && selectedIndex === 1 && folderPath) {
-      setFolderPath(folderPath.split('/').slice(0, -1).join('/'));
-      setSelectedIndex(0);
+      handleBrowseUp();
       return;
     }
 
-    const itemIndex = selectedIndex - fileMenuHeaderCount;
-    const item = fileItems[itemIndex];
+    const item = fileItems[selectedIndex - fileMenuHeaderCount];
     if (!item) return;
 
     if (filePickerMode === 'search' && item.isDirectory) {
-      setFilePickerMode('folder');
-      setFolderPath(item.path);
-      setSelectedIndex(0);
+      handleBrowseInto(item);
     } else {
       onInsertFile(item.path);
     }
   }, [
     filePickerMode,
+    folderPath,
     selectedIndex,
     showMediaOption,
-    folderPath,
+    isStale,
     fileMenuHeaderCount,
     fileItems,
     onPickMedia,
     onInsertFile,
+    handleBrowseToFolder,
+    handleBrowseToSearch,
+    handleBrowseUp,
+    handleBrowseInto,
   ]);
 
   const handleFileMenuKey = useCallback(
     (e: React.KeyboardEvent): boolean => {
       if (!showFileMenu) return false;
 
-      const maxIdx = fileMenuHeaderCount + fileItems.length - 1;
+      const maxIdx = Math.max(0, fileMenuHeaderCount + fileItems.length - 1);
 
       switch (e.key) {
         case 'ArrowDown':
@@ -181,36 +227,32 @@ export function useFilePicker(
           if (filePickerMode !== 'folder') return false;
           e.preventDefault();
           if (folderPath) {
-            setFolderPath(folderPath.split('/').slice(0, -1).join('/'));
+            handleBrowseUp();
           } else {
-            setFilePickerMode('search');
+            handleBrowseToSearch();
           }
-          setSelectedIndex(0);
           return true;
         case 'ArrowRight': {
           if (filePickerMode !== 'folder') return false;
-          e.preventDefault();
           const itemForRight = fileItems[selectedIndex - fileMenuHeaderCount];
-          if (itemForRight?.isDirectory) {
-            setFolderPath(itemForRight.path);
-            setSelectedIndex(0);
-          }
+          if (!itemForRight?.isDirectory) return false;
+          e.preventDefault();
+          handleBrowseInto(itemForRight);
           return true;
         }
         case 'Tab':
         case 'Enter':
+          if (fileMenuHeaderCount + fileItems.length === 0) return false;
           e.preventDefault();
           handleFileMenuConfirm();
           return true;
         case 'Escape':
           e.preventDefault();
           if (filePickerMode === 'folder') {
-            setFilePickerMode('search');
-            setFolderPath('');
-            setSelectedIndex(0);
-          } else {
-            onCancel();
+            handleBrowseToSearch();
+            return true;
           }
+          onCancel();
           return true;
         default:
           return false;
@@ -224,23 +266,30 @@ export function useFilePicker(
       folderPath,
       selectedIndex,
       handleFileMenuConfirm,
+      handleBrowseUp,
+      handleBrowseToSearch,
+      handleBrowseInto,
       onCancel,
     ],
   );
 
   return {
     showFileMenu,
-    filePickerMode,
-    folderPath,
     fileItems,
     selectedIndex,
     isLoading,
+    isStale,
     showMediaOption,
     fileMenuHeaderCount,
+    filePickerMode,
+    folderPath,
     setSelectedIndex,
-    setFilePickerMode,
-    setFolderPath,
+    handleSelectItem,
     handleFileMenuKey,
+    handleBrowseInto,
+    handleBrowseUp,
+    handleBrowseToSearch,
+    handleBrowseToFolder,
     resetFilePicker,
   };
 }

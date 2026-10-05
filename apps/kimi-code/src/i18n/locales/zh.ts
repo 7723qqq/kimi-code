@@ -1981,6 +1981,7 @@ export default {
       skipped: '  无需迁移。',
       oldDataKept: ' 旧数据保留在 ~/.kimi/ —— kimi-cli 仍可使用。',
       sessionsMigrated: '  ✓ {{count}} 个会话已迁移',
+      plansMigrated: '  ✓ {{count}} 个计划文件已复制',
       kindsMigrated: '  ✓ {{kinds}}',
       pluginsNotSupported: '  ⚠ {{count}} 个 kimi-cli 插件 —— 暂不支持迁移',
       hooksDropped: '  ⚠ {{count}} 个 hook 已丢弃（不兼容）',

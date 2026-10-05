@@ -8,7 +8,6 @@ import {
 
 import { atomicWrite } from '../atomic-write.js';
 import type { OldSessionState } from '../kimi-cli-schema.js';
-import { IMPORT_FORMAT_VERSION } from './turn-structure.js';
 
 export interface StateWriteInput {
   readonly oldState: Partial<OldSessionState>;
@@ -89,7 +88,6 @@ export async function writeSessionState(sessionDir: string, input: StateWriteInp
     },
     custom: {
       imported_from_kimi_cli: true,
-      import_format_version: IMPORT_FORMAT_VERSION,
       kimi_cli_source_path: input.sourcePath,
       kimi_cli_session_id: input.oldSessionUuid,
       kimi_cli_wire_protocol: input.wireProtocolFromOld,

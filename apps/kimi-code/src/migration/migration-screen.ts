@@ -313,6 +313,13 @@ export class MigrationScreenComponent extends Container implements Focusable {
           ),
         );
       }
+      if (sum.plans.copied > 0) {
+        lines.push(
+          chalk.hex(colors.success)(
+            t('tui.migration.plansMigrated', { count: String(sum.plans.copied) }),
+          ),
+        );
+      }
       // Only claim a data class was migrated when the summary says it was —
       // a skipped/failed step (e.g. malformed config.toml) must not show ✓.
       const migratedKinds: string[] = [];
@@ -328,7 +335,11 @@ export class MigrationScreenComponent extends Container implements Focusable {
           ),
         );
       }
-      if (sum.sessions.sessionsMigrated === 0 && migratedKinds.length === 0) {
+      if (
+        sum.sessions.sessionsMigrated === 0 &&
+        sum.plans.copied === 0 &&
+        migratedKinds.length === 0
+      ) {
         lines.push(chalk.hex(colors.textMuted)(t('tui.migration.skipped')));
       }
       if (r.notices.detectedPlugins.length > 0) {

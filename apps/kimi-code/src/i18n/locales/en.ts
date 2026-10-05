@@ -2037,6 +2037,7 @@ export default {
       skipped: '  Nothing needed migrating.',
       oldDataKept: ' Old data kept at ~/.kimi/ — kimi-cli still works.',
       sessionsMigrated: '  ✓ {{count}} sessions migrated',
+      plansMigrated: '  ✓ {{count}} plan files copied',
       kindsMigrated: '  ✓ {{kinds}}',
       pluginsNotSupported: '  ⚠ {{count}} kimi-cli plugins — not yet supported for migration',
       hooksDropped: '  ⚠ {{count}} hooks dropped (incompatible)',

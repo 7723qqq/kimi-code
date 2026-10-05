@@ -30,7 +30,9 @@ vi.mock('#/i18n', () => ({
       'tui.migration.stepLabelReplHistory': 'REPL history',
       'tui.migration.stepLabelSessions': 'Sessions',
       'tui.migration.complete': ' Migration complete',
+      'tui.migration.skipped': '  Nothing needed migrating.',
       'tui.migration.sessionsMigrated': '  ✓ {{count}} sessions migrated',
+      'tui.migration.plansMigrated': '  ✓ {{count}} plan files copied',
       'tui.migration.kindsMigrated': '  ✓ {{kinds}}',
       'tui.migration.pluginsNotSupported':
         '  ⚠ {{count}} kimi-cli plugins — not yet supported for migration',
@@ -339,7 +341,6 @@ function makeReport(
         sessionsAttempted: 50,
         sessionsMigrated: 50,
         sessionsAlreadyMigrated: 0,
-        sessionsRepaired: 0,
         sessionsSkippedPlaceholder: 0,
         sessionsSkippedEmpty: 0,
         sessionsSkippedMalformed: 0,
@@ -375,6 +376,40 @@ describe('MigrationScreenComponent — result phase', () => {
     expect(out).toContain('Migration complete');
     expect(out).toContain('50 sessions migrated');
     expect(out).toContain('2 kimi-cli plugins');
+  });
+
+  it('renders nothing-needed-migrating when every counter is zero', () => {
+    const c = new MigrationScreenComponent({
+      plan: makePlan(),
+      sourceHome: '/x/.kimi',
+      targetHome: '/y/.kimi-code',
+      onComplete: () => {},
+    });
+    c._testShowResult(
+      makeReport(
+        { sessionsAttempted: 0, sessionsMigrated: 0 },
+        {
+          config: {
+            migrated: false,
+            tuiExtracted: false,
+            droppedProviders: [],
+            droppedModels: [],
+            droppedKeys: [],
+            configConflicts: [],
+            wroteSiblingDueToConflict: false,
+            wroteTuiSibling: false,
+            migratedHooks: 0,
+            droppedHooks: 0,
+            sourceUnreadable: false,
+            deviceIdCopied: false,
+            siblingContents: { providers: [], models: [], hooks: 0 },
+          },
+          userHistory: { copied: 0, skippedExisting: 0, failures: [] },
+        },
+      ),
+    );
+    const out = c.render(80).join('\n');
+    expect(out).toContain('Nothing needed migrating');
   });
 
   it('renders migrated hooks in the ✓ line and dropped hooks as a warning', () => {

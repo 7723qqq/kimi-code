@@ -50,7 +50,7 @@ const SWITCH_CACHE_NOTE =
 
 function adjustHeight(textarea: HTMLTextAreaElement | null) {
   if (!textarea) return;
-  textarea.style.height = "auto";
+  textarea.style.height = 'auto';
   textarea.style.height = `${Math.min(textarea.scrollHeight, 140)}px`;
 }
 
@@ -172,7 +172,6 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
 
   const { handlePaste, handlePickMedia } = useMediaUpload();
 
-
   const {
     handleKey: handleHistoryKey,
     add: addToHistory,
@@ -180,13 +179,18 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
   } = useInputHistory({
     text,
     setText,
-    onHeightChange: () => setTimeout(() => { adjustHeight(textareaRef.current); }, 0),
+    onHeightChange: () =>
+      setTimeout(() => {
+        adjustHeight(textareaRef.current);
+      }, 0),
   });
 
   function clearInput() {
     setText('');
     setCursorPos(0);
-    setTimeout(() => { adjustHeight(textareaRef.current); }, 0);
+    setTimeout(() => {
+      adjustHeight(textareaRef.current);
+    }, 0);
   }
 
   function removeActiveToken() {
@@ -245,16 +249,20 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
 
   const {
     showFileMenu,
-    filePickerMode,
-    folderPath,
     fileItems,
     selectedIndex: fileSelectedIndex,
     isLoading: isFileLoading,
+    isStale: isFileStale,
     showMediaOption,
+    filePickerMode,
+    folderPath,
     setSelectedIndex: setFileSelectedIndex,
-    setFilePickerMode,
-    setFolderPath,
+    handleSelectItem: handleSelectFileItem,
     handleFileMenuKey,
+    handleBrowseInto,
+    handleBrowseUp,
+    handleBrowseToSearch,
+    handleBrowseToFolder,
     resetFilePicker,
   } = useFilePicker(
     activeToken,
@@ -330,7 +338,9 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
     setText(e.target.value);
     setCursorPos(e.target.selectionStart);
     resetHistoryIndex();
-    setTimeout(() => { adjustHeight(textareaRef.current); }, 0);
+    setTimeout(() => {
+      adjustHeight(textareaRef.current);
+    }, 0);
   };
 
   const handleSelect = () => {
@@ -370,37 +380,21 @@ export function InputArea({ onAuthAction }: InputAreaProps) {
         {showFileMenu && (
           <div ref={menuRef} className="absolute bottom-full left-0 right-0 mb-2 z-10">
             <FilePickerMenu
-              mode={filePickerMode}
               items={fileItems}
-              currentPath={folderPath}
               selectedIndex={fileSelectedIndex}
               isLoading={isFileLoading}
+              isStale={isFileStale}
               showMediaOption={showMediaOption}
               onSelectMedia={() => {
                 void handlePickMedia();
               }}
-              onSwitchToFolder={() => {
-                setFilePickerMode('folder');
-                setFolderPath('');
-                setFileSelectedIndex(0);
-              }}
-              onSwitchToSearch={() => {
-                setFilePickerMode('search');
-                setFolderPath('');
-                setFileSelectedIndex(0);
-              }}
-              onSelectItem={(item) => {
-                applyMention(item.path);
-              }}
-              onNavigateUp={() => {
-                setFolderPath(folderPath.split('/').slice(0, -1).join('/'));
-                setFileSelectedIndex(0);
-              }}
-              onNavigateInto={(item) => {
-                setFilePickerMode('folder');
-                setFolderPath(item.path);
-                setFileSelectedIndex(0);
-              }}
+              onSelectItem={handleSelectFileItem}
+              mode={filePickerMode}
+              currentPath={folderPath}
+              onSwitchToFolder={handleBrowseToFolder}
+              onSwitchToSearch={handleBrowseToSearch}
+              onNavigateUp={handleBrowseUp}
+              onNavigateInto={handleBrowseInto}
               onHover={setFileSelectedIndex}
             />
           </div>
