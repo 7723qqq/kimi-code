@@ -560,10 +560,10 @@ async function handleBuiltInSlashCommand(
     case 'title':
       await handleTitleCommand(host, args);
       return;
-    case 'ask-when-needed':
+    case 'yolo':
       showPermissionPicker(host, 'yolo');
       return;
-    case 'never-ask':
+    case 'auto':
       showPermissionPicker(host, 'auto');
       return;
     case 'plan':

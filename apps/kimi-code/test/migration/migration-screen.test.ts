@@ -36,7 +36,7 @@ vi.mock('#/i18n', () => ({
       'tui.migration.kindsMigrated': '  ✓ {{kinds}}',
       'tui.migration.pluginsNotSupported':
         '  ⚠ {{count}} kimi-cli plugins — not yet supported for migration',
-      'tui.migration.oldDataKept': ' Old data kept at ~/.kimi/ — kimi-cli still works.',
+      'tui.migration.oldDataKept': ' Old data kept at {{path}} — kimi-cli still works.',
       'tui.migration.continueHint': ' ⏎ continue to kimi-code',
       'tui.migration.hooksDropped': '  ⚠ {{count}} hooks dropped (incompatible)',
       'tui.migration.configParseError':
@@ -101,6 +101,21 @@ describe('MigrationScreenComponent — ask phase', () => {
     expect(out).toContain('Migrate now');
     expect(out).toContain('Ask me later');
     expect(out).toContain('Never ask again');
+  });
+
+  it('ask1 summary lists skills and unreadable sessions from the plan', () => {
+    const c = new MigrationScreenComponent({
+      plan: makePlan({
+        hasSkills: true,
+        sessionScanFailures: [{ sourcePath: '/x/.kimi/sessions/a', reason: 'unreadable' }],
+      }),
+      sourceHome: '/x/.kimi',
+      targetHome: '/y/.kimi-code',
+      onComplete: () => {},
+    });
+    const out = render(c);
+    expect(out).toContain('skills');
+    expect(out).toContain('1 unreadable');
   });
 
   it('ask1 summary does not mention kimi-cli login (oauth is not a migrated kind)', async () => {
@@ -376,6 +391,20 @@ describe('MigrationScreenComponent — result phase', () => {
     expect(out).toContain('Migration complete');
     expect(out).toContain('50 sessions migrated');
     expect(out).toContain('2 kimi-cli plugins');
+  });
+
+  it('renders the plans-copied notice when the report carries one', () => {
+    const c = new MigrationScreenComponent({
+      plan: makePlan(),
+      sourceHome: '/x/.kimi',
+      targetHome: '/y/.kimi-code',
+      onComplete: () => {},
+    });
+    c._testShowResult(
+      makeReport({}, {}, { plansCopiedNotice: '3 plan files copied to ~/.kimi-code/plans' }),
+    );
+    const out = c.render(80).join('\n');
+    expect(out).toContain('3 plan files copied to ~/.kimi-code/plans');
   });
 
   it('renders nothing-needed-migrating when every counter is zero', () => {

@@ -159,90 +159,6 @@ async function applyPlanMode(
   }
 }
 
-export async function handleYoloCommand(host: SlashCommandHost, args: string): Promise<void> {
-  const session = host.session;
-  // Session-less: the chosen mode is recorded in appState and passed to the
-  // lazy-created session; apply the runtime permission only when one exists.
-
-  const subcmd = args.trim().toLowerCase();
-  const currentMode = host.state.appState.permissionMode;
-
-  if (subcmd === 'on') {
-    if (currentMode === 'yolo') {
-      host.showNotice('Ask When Needed mode is already on');
-      return;
-    }
-    await session?.setPermission('yolo');
-    host.setAppState({ permissionMode: 'yolo' });
-    host.showNotice('Ask When Needed mode: ON', 'Routine edits and commands run automatically; risky actions, questions, and plans still ask.');
-    return;
-  }
-
-  if (subcmd === 'off') {
-    if (currentMode !== 'yolo') {
-      host.showNotice('Ask When Needed mode is already off');
-      return;
-    }
-    await session?.setPermission('manual');
-    host.setAppState({ permissionMode: 'manual' });
-    host.showNotice('Ask When Needed mode: OFF');
-    return;
-  }
-
-  // toggle
-  if (currentMode === 'yolo') {
-    await session?.setPermission('manual');
-    host.setAppState({ permissionMode: 'manual' });
-    host.showNotice('Ask When Needed mode: OFF');
-  } else {
-    await session?.setPermission('yolo');
-    host.setAppState({ permissionMode: 'yolo' });
-    host.showNotice('Ask When Needed mode: ON', 'Routine edits and commands run automatically; risky actions, questions, and plans still ask.');
-  }
-}
-
-export async function handleAutoCommand(host: SlashCommandHost, args: string): Promise<void> {
-  const session = host.session;
-  // Session-less: the chosen mode is recorded in appState and passed to the
-  // lazy-created session; apply the runtime permission only when one exists.
-
-  const subcmd = args.trim().toLowerCase();
-  const currentMode = host.state.appState.permissionMode;
-
-  if (subcmd === 'on') {
-    if (currentMode === 'auto') {
-      host.showNotice('Never Ask mode is already on');
-      return;
-    }
-    await session?.setPermission('auto');
-    host.setAppState({ permissionMode: 'auto' });
-    host.showNotice('Never Ask mode: ON', 'Never interrupts you; everything runs and is decided automatically.');
-    return;
-  }
-
-  if (subcmd === 'off') {
-    if (currentMode !== 'auto') {
-      host.showNotice('Never Ask mode is already off');
-      return;
-    }
-    await session?.setPermission('manual');
-    host.setAppState({ permissionMode: 'manual' });
-    host.showNotice('Never Ask mode: OFF');
-    return;
-  }
-
-  // toggle
-  if (currentMode === 'auto') {
-    await session?.setPermission('manual');
-    host.setAppState({ permissionMode: 'manual' });
-    host.showNotice('Never Ask mode: OFF');
-  } else {
-    await session?.setPermission('auto');
-    host.setAppState({ permissionMode: 'auto' });
-    host.showNotice('Never Ask mode: ON', 'Never interrupts you; everything runs and is decided automatically.');
-  }
-}
-
 export async function handleCompactCommand(host: SlashCommandHost, args: string): Promise<void> {
   const session = host.session;
   if (session === undefined) {
@@ -962,7 +878,7 @@ export async function applyExperimentalFeatureChanges(
     if (host.session !== undefined && changes.some((change) => change.id !== 'notify_user')) {
       const reloadedSession = await host.harness.reloadSession({ id: host.session.id });
       await host.reloadCurrentSessionView(
-        host.session,
+        reloadedSession,
         t('tui.statusMessages.experimentalUpdatedSessionReloaded'),
       );
     } else {

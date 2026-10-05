@@ -210,11 +210,13 @@ function mediaContext(
   videoUploader?: VideoUploader,
   telemetry?: ITelemetryService,
   inlineVideoSupported?: boolean,
+  providerType?: string,
 ): MediaReadContext {
   return {
     capabilities: caps,
     videoUploader,
     inlineVideoSupported: inlineVideoSupported ?? false,
+    providerType,
     telemetry,
   };
 }
@@ -239,10 +241,11 @@ function makeTool(
   videoUploader?: VideoUploader,
   telemetry?: ITelemetryService,
   inlineVideoSupported?: boolean,
+  providerType?: string,
 ): ReadTool {
   return makeReadTool(
     createTestFs(files),
-    mediaContext(caps, videoUploader, telemetry, inlineVideoSupported),
+    mediaContext(caps, videoUploader, telemetry, inlineVideoSupported, providerType),
   );
 }
 
@@ -1049,5 +1052,46 @@ describe('createVideoUploader', () => {
     expect(result.output).toContain('/workspace/photo.jpg');
     expect(result.output).toMatch(/sips -s format jpeg|magick/);
     expect(result.output).not.toContain('heif-convert');
+  });
+
+  function kimiTool(files: Record<string, FakeFile>): ReadTool {
+    return makeTool(files, capabilities(), undefined, undefined, undefined, 'kimi');
+  }
+
+  it('sends HEIC untouched when the provider is kimi', async () => {
+    const result = await execute(kimiTool({ '/workspace/photo.heic': { data: heicBytes() } }), {
+      path: '/workspace/photo.heic',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const parts = outputParts(result);
+    expect(parts[1]).toEqual({
+      type: 'image_url',
+      imageUrl: { url: `data:image/heic;base64,${heicBytes().toString('base64')}` },
+    });
+    expect(noteText(result)).toContain('Mime type: image/heic.');
+  });
+
+  it('passes a HEIC above the read budget through inline up to the kimi limit', async () => {
+    const heic = Buffer.concat([heicBytes(), Buffer.alloc(4 * 1024 * 1024, 1)]);
+    const result = await execute(kimiTool({ '/workspace/photo.heic': { data: heic } }), {
+      path: '/workspace/photo.heic',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const url = (outputParts(result)[1] as { imageUrl: { url: string } }).imageUrl.url;
+    expect(url).toBe(`data:image/heic;base64,${heic.toString('base64')}`);
+  });
+
+  it('refuses a HEIC above the kimi inline limit with a conversion command', async () => {
+    const heic = Buffer.concat([heicBytes(), Buffer.alloc(6 * 1024 * 1024, 1)]);
+    const result = await execute(kimiTool({ '/workspace/photo.heic': { data: heic } }), {
+      path: '/workspace/photo.heic',
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('image/heic');
+    expect(result.output).toContain('Convert it to JPEG first');
+    expect(result.output).toContain('/workspace/photo.jpg');
   });
 });

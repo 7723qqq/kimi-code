@@ -166,6 +166,7 @@ kimi
 | `KIMI_CODE_IDENTITY_NAME` | Agent 在系统提示词中的自称，优先级高于 `config.toml` 的 `[identity] name`，不写回配置文件 | 任意非空字符串；空值视为未设置 |
 | `KIMI_CODE_IDENTITY_SLUG` | 协议标识（`User-Agent` 产品名、MCP 客户端名），优先级高于 `[identity] slug`；未设置时由名称派生 | 任意非空字符串；会转小写并将连续非字母数字字符折叠为 `-` |
 | `KIMI_CODE_BUILTIN_PRODUCT_SKILLS` | 是否向模型提供介绍 Kimi Code 自身的内置 Skills，优先级高于 `config.toml` 的 `builtin_product_skills` | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+| `KIMI_CODE_PERMISSION_MODE_REMINDER` | 是否向模型上下文注入自动权限模式提醒；设为 `0` 后不再注入 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_TUI_FULL_SCREEN` | 启用实验性的 fullscreen 界面：可滚动 transcript、鼠标选择、可点击链接、Ctrl-Shift-F 搜索 | `1` 开启；其他值保持常规内联界面 |
 | `KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK` | 在 `Agent`/`AgentSwarm` 上启用实验性 `fork` 参数：以调用方对话历史快照而非空上下文启动 subagent | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_TOOL_SELECT` | 启用实验性按需加载工具：标记 `deferred: true` 的 MCP server 工具不进入顶层工具列表，由模型经 `select_tools` 按需加载；还需模型声明 `dynamically_loaded_tools` 能力，详见 [MCP](../customization/mcp.md#按需加载工具) | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
@@ -191,7 +192,7 @@ kimi
 | `KIMI_CODE_NO_AUTO_UPDATE` | 完全禁用更新预检：不检查、不后台安装、不提示。同时兼容旧名 `KIMI_CLI_NO_AUTO_UPDATE` | 真值：`1`/`true`/`yes`/`on` |
 | `KIMI_DISABLE_CRON` | 禁用定时任务工具（`CronCreate` 拒绝新计划，已有任务不触发） | `1` 表示禁用 |
 
-`KIMI_CODE_INFINITE_RETRY`、`KIMI_CODE_IDENTITY_*` 和 `KIMI_CODE_BUILTIN_PRODUCT_SKILLS` 这几个变量由 `agent-core-v2` 引擎读取。
+`KIMI_CODE_INFINITE_RETRY`、`KIMI_CODE_IDENTITY_*`、`KIMI_CODE_BUILTIN_PRODUCT_SKILLS` 和 `KIMI_CODE_PERMISSION_MODE_REMINDER` 这几个变量由 `agent-core-v2` 引擎读取。
 
 ## 诊断日志
 

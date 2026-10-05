@@ -1310,6 +1310,7 @@ export class SessionEventHandler {
     // is expected). Cancellations do neither: the context was not cut.
     this.host.recordSessionActivity();
     this.host.noteCompactionFinished();
+    this.host.surveyController.notifyCompactionFinished();
     this.finishCompaction(sendQueued);
   }
 

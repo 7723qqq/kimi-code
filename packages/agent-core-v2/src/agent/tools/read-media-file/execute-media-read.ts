@@ -1,16 +1,17 @@
 import { detectFileType, sniffImageDimensions } from '#/agent/media/file-type';
 import {
-  IMAGE_BYTE_BUDGET,
   MAX_IMAGE_DECODE_BYTES,
   compressImageForModel,
   cropImageForModel,
   formatByteSize,
+  isRecodableImage,
   resolveMaxImageEdgePx,
   resolveReadImageByteBudget,
   type ImageCropRegion,
 } from '#/agent/media/image-compress';
 import {
   buildImageConversionGuidance,
+  buildOversizedImageConversionGuidance,
   isModelAcceptedImageMime,
 } from '#/agent/media/image-format-policy';
 import { inlineVideoPart, isVideoUploadAuthError } from '#/agent/media/videoUpload';
@@ -21,6 +22,7 @@ import {
   type ModelCapability,
 } from '#/llm-adapter/contract/capability';
 import { VideoUploadUnsupportedError } from '#/llm-adapter/contract/errors';
+import { providerImagePolicy } from '#human/llm/media/image-formats';
 import type { ContentPart } from '#human/llm/message';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -45,6 +47,7 @@ export interface MediaReadContext {
   readonly capabilities: ModelCapability;
   readonly videoUploader?: VideoUploader;
   readonly inlineVideoSupported: boolean;
+  readonly providerType?: string;
   readonly telemetry?: ITelemetryService;
 }
 
@@ -136,10 +139,14 @@ function buildImageDecodeLimitError(finalBytes: number): string {
   );
 }
 
-function buildFullResolutionLimitError(path: string, finalBytes: number): string {
+function buildFullResolutionLimitError(
+  path: string,
+  finalBytes: number,
+  inlineByteBudget: number,
+): string {
   return (
     `"${path}" is ${String(finalBytes)} bytes (${formatByteSize(finalBytes)}), ` +
-    `over the ${String(IMAGE_BYTE_BUDGET)}-byte (${formatByteSize(IMAGE_BYTE_BUDGET)}) ` +
+    `over the ${String(inlineByteBudget)}-byte (${formatByteSize(inlineByteBudget)}) ` +
     'per-image limit, so full_resolution cannot be honored. ' +
     'Use region to view a crop at full fidelity instead.'
   );
@@ -179,6 +186,7 @@ export async function executeMediaRead(
 ): Promise<ExecutableToolResult> {
   const telemetry = ctx.telemetry;
   const telemetrySource = 'read_media';
+  const inlineImageByteBudget = providerImagePolicy(ctx.providerType).inlineByteBudget;
   const safePath = source.name;
   const fs: Pick<IHostFileSystem, 'stat' | 'readBytes'> = {
     stat: () => source.stat(),
@@ -216,7 +224,10 @@ export async function executeMediaRead(
           'Tell the user to use a model with image input capability.',
       };
     }
-    if (fileType.kind === 'image' && !isModelAcceptedImageMime(fileType.mimeType)) {
+    if (
+      fileType.kind === 'image' &&
+      !isModelAcceptedImageMime(fileType.mimeType, ctx.providerType)
+    ) {
       return {
         isError: true,
         output: buildImageConversionGuidance(args.path, fileType.mimeType, env?.osKind),
@@ -266,11 +277,11 @@ export async function executeMediaRead(
       fileType.kind === 'image' &&
       args.region === undefined &&
       args.full_resolution === true &&
-      stat.size > IMAGE_BYTE_BUDGET
+      stat.size > inlineImageByteBudget
     ) {
       return {
         isError: true,
-        output: buildFullResolutionLimitError(args.path, stat.size),
+        output: buildFullResolutionLimitError(args.path, stat.size, inlineImageByteBudget),
       };
     }
 
@@ -327,10 +338,10 @@ export async function executeMediaRead(
         };
         dimensions = { width: outcome.originalWidth, height: outcome.originalHeight };
       } else if (args.full_resolution === true) {
-        if (data.length > IMAGE_BYTE_BUDGET) {
+        if (data.length > inlineImageByteBudget) {
           return {
             isError: true,
-            output: buildFullResolutionLimitError(args.path, data.length),
+            output: buildFullResolutionLimitError(args.path, data.length, inlineImageByteBudget),
           };
         }
         const base64 = data.toString('base64');
@@ -347,13 +358,28 @@ export async function executeMediaRead(
         };
       } else {
         const { readByteBudget, maxEdge } = imageDeliveryLimits;
+        const inlineOnly = !isRecodableImage(data, fileType.mimeType);
         const compressed = await compressImageForModel(data, fileType.mimeType, {
           byteBudget: readByteBudget,
           maxEdge,
           telemetry,
           telemetrySource,
         });
-        if (
+        if (inlineOnly) {
+          const inlineLimit = Math.max(readByteBudget, inlineImageByteBudget);
+          if (compressed.finalByteLength > inlineLimit) {
+            return {
+              isError: true,
+              output: buildOversizedImageConversionGuidance(
+                args.path,
+                fileType.mimeType,
+                env?.osKind ?? '',
+                compressed.finalByteLength,
+                inlineLimit,
+              ),
+            };
+          }
+        } else if (
           compressed.finalByteLength > readByteBudget ||
           Math.max(compressed.width, compressed.height) > maxEdge
         ) {

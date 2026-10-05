@@ -2774,7 +2774,7 @@ command = "vim"
     expect(stripSgr(renderTranscript(driver))).toContain(
       'Routine edits and commands run automatically; risky actions, questions, and plans still ask.',
     );
-    expect(harness.track).toHaveBeenCalledWith('input_command', { command: 'ask-when-needed' });
+    expect(harness.track).toHaveBeenCalledWith('input_command', { command: 'yolo' });
     expect(harness.track).not.toHaveBeenCalledWith('yolo_toggle', expect.anything());
   });
 

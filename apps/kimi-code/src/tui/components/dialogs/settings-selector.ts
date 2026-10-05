@@ -44,6 +44,11 @@ function getSettingsOptions(): readonly ChoiceOption[] {
       description: t('tui.dialogs.settingsSelector.editorDesc'),
     },
     {
+      value: 'survey',
+      label: t('tui.dialogs.settingsSelector.survey'),
+      description: t('tui.dialogs.settingsSelector.surveyDesc'),
+    },
+    {
       value: 'experiments',
       label: t('tui.dialogs.settingsSelector.experiments'),
       description: t('tui.dialogs.settingsSelector.experimentsDesc'),

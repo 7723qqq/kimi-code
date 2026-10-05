@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { zstdCompressSync } from 'node:zlib';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -94,10 +95,17 @@ interface MockCdnOptions {
   readonly checksum?: string;
   /** When set, the manifest carries a bun section serving this payload. */
   readonly bun?: { readonly payload: Buffer };
+  /**
+   * When set, the bun entry additionally carries a `zstd` pointer and the CDN
+   * serves the compressed bytes; `payload` stays the decompressed binary the
+   * checksum must verify against.
+   */
+  readonly zstd?: { readonly compressed: Buffer };
 }
 
 function mockCdnFetch(options: MockCdnOptions): typeof fetch {
   const version = options.version ?? VERSION;
+  const zstdFile = `${BUN_BINARY_FILENAME}.zst`;
   const manifestBody = JSON.stringify({
     version,
     tag: `v${version}`,
@@ -108,6 +116,9 @@ function mockCdnFetch(options: MockCdnOptions): typeof fetch {
           options.bun === undefined
             ? (options.checksum ?? sha256Hex(options.payload))
             : sha256Hex(options.bun.payload),
+        ...(options.zstd === undefined
+          ? {}
+          : { zstd: { file: zstdFile, sha256: sha256Hex(options.zstd.compressed) } }),
       },
     },
   });
@@ -121,6 +132,9 @@ function mockCdnFetch(options: MockCdnOptions): typeof fetch {
     }
     if (options.bun !== undefined && url === nativeBinaryUrl(version, BUN_BINARY_FILENAME)) {
       return binaryResponse(options.bun.payload);
+    }
+    if (options.zstd !== undefined && url === nativeBinaryUrl(version, zstdFile)) {
+      return binaryResponse(options.zstd.compressed);
     }
     return { ok: false, status: 404, text: async () => '', body: null };
   }) as unknown as typeof fetch;
@@ -184,6 +198,51 @@ describe('stageNativeUpdate', () => {
       entry.endsWith('.part'),
     );
     expect(leftovers).toEqual([]);
+  });
+
+  it('prefers the zstd artifact and verifies the decompressed bytes', async () => {
+    const compressed = zstdCompressSync(BUN_PAYLOAD);
+    const result = await stageNativeUpdate({
+      version: VERSION,
+      exePath,
+      platform: 'linux',
+      arch: 'x64',
+      fetchImpl: mockCdnFetch({
+        payload: PAYLOAD,
+        bun: { payload: BUN_PAYLOAD },
+        zstd: { compressed },
+      }),
+    });
+
+    expect(result.status).toBe('staged');
+    expect(result.staged.sha256).toBe(sha256Hex(BUN_PAYLOAD));
+    expect(result.staged.exeSize).toBe(BUN_PAYLOAD.length);
+    const exeBytes = await readFile(stagedExePath(exePath, result.staged));
+    expect(exeBytes.equals(BUN_PAYLOAD)).toBe(true);
+    // Neither the .part nor the .zst.part intermediate survives.
+    const leftovers = (await readdir(getNativeStagingDir(exePath))).filter((entry) =>
+      entry.endsWith('.part'),
+    );
+    expect(leftovers).toEqual([]);
+  });
+
+  it('falls back to the bare download when the compressed artifact is corrupt', async () => {
+    const result = await stageNativeUpdate({
+      version: VERSION,
+      exePath,
+      platform: 'linux',
+      arch: 'x64',
+      fetchImpl: mockCdnFetch({
+        payload: PAYLOAD,
+        bun: { payload: BUN_PAYLOAD },
+        zstd: { compressed: Buffer.from('not-a-zstd-frame') },
+      }),
+    });
+
+    expect(result.status).toBe('staged');
+    expect(result.staged.sha256).toBe(sha256Hex(BUN_PAYLOAD));
+    const exeBytes = await readFile(stagedExePath(exePath, result.staged));
+    expect(exeBytes.equals(BUN_PAYLOAD)).toBe(true);
   });
 
   // chmod has no effect on the Windows permission model — the mode bits stay

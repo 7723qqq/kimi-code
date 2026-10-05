@@ -98,6 +98,7 @@ export class MediaReadContextService extends Service implements IMediaReadContex
       capabilities: this.profile.getModelCapabilities(),
       videoUploader,
       inlineVideoSupported: model?.protocol !== 'openai' && model?.protocol !== 'openai_responses',
+      providerType: model?.providerType,
       telemetry: this.telemetry,
     };
   }

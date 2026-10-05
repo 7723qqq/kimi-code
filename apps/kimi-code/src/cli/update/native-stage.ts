@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { chmod, mkdir, open, readFile, readdir, rename, rm, rmdir, stat, unlink } from 'node:fs/promises';
 import { basename, join } from 'node:path';
+import { createZstdDecompress } from 'node:zlib';
 
 import { valid } from 'semver';
 import { z } from 'zod';
@@ -381,6 +382,44 @@ async function downloadAndHash(
 }
 
 /**
+ * Inflate a zstd-compressed artifact into `destPath`, hashing the decompressed
+ * bytes so the result is verified against the manifest's bare-binary checksum.
+ */
+async function decompressAndHash(
+  zstPath: string,
+  destPath: string,
+  expectedSha256: string,
+): Promise<number> {
+  const hash = createHash('sha256');
+  let size = 0;
+  const file = await open(destPath, 'w');
+  try {
+    for await (const chunk of createReadStream(zstPath).pipe(createZstdDecompress())) {
+      hash.update(chunk as Buffer);
+      size += (chunk as Buffer).length;
+      // Same short-write loop as downloadAndHash: FileHandle.write may
+      // persist fewer bytes than requested, so loop until the chunk is
+      // fully on disk.
+      let offset = 0;
+      while (offset < (chunk as Buffer).length) {
+        const { bytesWritten } = await file.write(chunk as Buffer, offset);
+        if (bytesWritten === 0) {
+          throw new Error('failed to write the native binary to disk (disk full?)');
+        }
+        offset += bytesWritten;
+      }
+    }
+  } finally {
+    await file.close();
+  }
+  const digest = hash.digest('hex');
+  if (digest !== expectedSha256) {
+    throw new Error(`sha256 mismatch: expected ${expectedSha256}, got ${digest}`);
+  }
+  return size;
+}
+
+/**
  * Download + verify `version` next to the running executable.
  *
  * Short-circuits with `already-staged` when the same version is ready on
@@ -462,7 +501,36 @@ export async function stageNativeUpdate(
   try {
     const manifest = await fetchNativeReleaseManifest(options.version, fetchImpl);
     const entry = selectBunPlatformEntry(manifest, platform, arch);
-    const size = await downloadAndHash(
+    const compressed =
+      entry.zstd === undefined
+        ? entry.compressed
+        : { filename: entry.zstd.file, checksum: entry.zstd.sha256 };
+    // Prefer the zstd-compressed artifact when the manifest carries one and
+    // the runtime can inflate it (~4x smaller than the bare binary). Any
+    // failure in the compressed path falls back to the bare download below.
+    let size: number | undefined;
+    if (compressed !== undefined && typeof createZstdDecompress === 'function') {
+      const zstPartPath = join(stagingDir, `${exeFileName}.zst.part`);
+      try {
+        await downloadAndHash(
+          nativeBinaryUrl(options.version, compressed.filename),
+          zstPartPath,
+          compressed.checksum,
+          fetchImpl,
+          options.onProgress,
+          options.idleTimeoutMs,
+        );
+        size = await decompressAndHash(zstPartPath, partPath, entry.checksum);
+        await rm(zstPartPath, { force: true });
+      } catch (error) {
+        console.warn(
+          `[update] compressed artifact unavailable, falling back to uncompressed download: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        await rm(zstPartPath, { force: true }).catch(() => {});
+        await rm(partPath, { force: true }).catch(() => {});
+      }
+    }
+    size ??= await downloadAndHash(
       nativeBinaryUrl(options.version, entry.filename),
       partPath,
       entry.checksum,

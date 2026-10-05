@@ -199,7 +199,6 @@ export default {
         ctrlSAddGuidance: 'ctrl-s to add guidance without waiting for the turn to finish',
         tasksCheckProgress: '/tasks to check progress and status for background tasks',
         initGenerateAgents: '/init: generate AGENTS.md',
-        tryDance: 'Try /dance for a hidden Easter egg',
         pluginsKimiDatasource:
           '/plugins: manage plugins — try the "Kimi Datasource" for reliable financial, economic, and academic data',
         scheduleTasks: 'Ask Kimi to schedule tasks, e.g. "remind me at 5pm"',
@@ -224,12 +223,8 @@ export default {
       },
     },
     slashCommands: {
-      yolo: 'Toggle YOLO mode: AI auto-approves safe actions, asks for approval on risky ones.',
-      auto: 'Toggle Auto mode: run all actions automatically, including risky ones.',
-      askWhenNeeded:
-        'Toggle Ask When Needed mode: routine edits and commands run automatically; risky actions, questions, and plans still ask.',
-      neverAsk:
-        'Toggle Never Ask mode: never interrupts you; everything runs and is decided automatically.',
+      yolo: 'Ask When Needed mode: routine edits and commands run automatically; risky actions, questions, and plans still ask.',
+      auto: 'Never Ask mode: never interrupts you; everything runs and is decided automatically.',
       permission: 'Select permission mode',
       settings: 'Open TUI settings',
       plan: 'Toggle plan mode',
@@ -574,6 +569,8 @@ export default {
         languageDesc: 'Change the interface language (restart required).',
         editor: 'Editor',
         editorDesc: 'Set the external editor command.',
+        survey: 'Feedback survey',
+        surveyDesc: 'Turn the occasional session rating prompt on or off.',
         experiments: 'Experiments',
         experimentsDesc: 'Turn experimental features on or off.',
         upgrade: 'Automatic updates',
@@ -733,25 +730,25 @@ export default {
         footerLoadedSessions: '{{loaded}} loaded / {{total}} sessions',
       },
       goalStartPermissionPrompt: {
-        titleYolo: 'Start a goal in YOLO mode?',
+        titleYolo: 'Start a goal in Ask When Needed mode?',
         titleManual: 'Start a goal with approvals on?',
         notice1:
-          'Manual mode asks you before Kimi Code runs commands, edits files, or takes other risky actions.',
-        notice2: 'Manual mode is not suitable for unattended goal work.',
+          'Always Ask mode asks you before Kimi Code runs commands, edits files, or takes other risky actions.',
+        notice2: 'Always Ask mode is not suitable for unattended goal work.',
         notice3: 'You can go back without losing your command.',
-        yoloNotice1: 'YOLO mode approves tools and plan changes automatically.',
-        yoloNotice2: 'YOLO mode can still stop for questions.',
-        yoloNotice3: 'Switch to Auto if you want questions skipped during goal work.',
-        optionAutoLabel: 'Switch to Auto and start',
+        yoloNotice1: 'Ask When Needed mode approves tools and plan changes automatically.',
+        yoloNotice2: 'Ask When Needed mode can still stop for questions.',
+        yoloNotice3: 'Switch to Never Ask if you want questions skipped during goal work.',
+        optionAutoLabel: 'Switch to Never Ask and start',
         optionAutoDesc:
           'Best if you want Kimi Code to keep working while you are away. Tools are approved automatically, and questions are skipped.',
-        optionYoloLabel: 'Switch to YOLO and start',
+        optionYoloLabel: 'Switch to Ask When Needed and start',
         optionYoloDesc:
           'Tools and plan changes are approved automatically. Kimi Code may still ask you questions.',
-        optionYoloKeepLabel: 'Keep YOLO and start',
+        optionYoloKeepLabel: 'Keep Ask When Needed and start',
         optionYoloKeepDesc:
           'Tools and plan changes stay approved automatically. Kimi Code may still ask you questions.',
-        optionManualLabel: 'Start in Manual',
+        optionManualLabel: 'Start in Always Ask',
         optionManualDesc:
           'Keep approvals on. Kimi Code will ask before risky actions, so the goal may stop and wait for you.',
         optionCancelLabel: 'Do not start',
@@ -760,16 +757,16 @@ export default {
       swarmStartPermissionPrompt: {
         title: 'Start a swarm task with approvals on?',
         notice1:
-          'Manual mode asks you before Kimi Code runs commands, edits files, or takes other risky actions.',
-        notice2: 'Manual mode can block swarm work while agents are running.',
+          'Always Ask mode asks you before Kimi Code runs commands, edits files, or takes other risky actions.',
+        notice2: 'Always Ask mode can block swarm work while agents are running.',
         notice3: 'You can go back without losing your command.',
-        optionAutoLabel: 'Switch to Auto and start',
+        optionAutoLabel: 'Switch to Never Ask and start',
         optionAutoDesc:
           'Best for swarm tasks. Tools are approved automatically, and questions are skipped.',
-        optionYoloLabel: 'Switch to YOLO and start',
+        optionYoloLabel: 'Switch to Ask When Needed and start',
         optionYoloDesc:
           'Tools and plan changes are approved automatically. Kimi Code may still ask you questions.',
-        optionManualLabel: 'Start in Manual',
+        optionManualLabel: 'Start in Always Ask',
         optionManualDesc:
           'Keep approvals on. Kimi Code may stop and wait for you during the swarm task.',
       },
@@ -1129,11 +1126,6 @@ export default {
       planModeOn: 'Plan mode: ON',
       planModeOff: 'Plan mode: OFF',
       failedToSetPlanMode: 'Failed to set plan mode: {{msg}}',
-      yoloModeAlreadyOn: 'YOLO mode is already on',
-      yoloModeOn: 'YOLO mode: ON',
-      yoloModeOnSub: 'AI auto-approves safe actions, asks for approval on risky ones.',
-      yoloModeAlreadyOff: 'YOLO mode is already off',
-      yoloModeOff: 'YOLO mode: OFF',
       noModelSelected: 'No model selected. Run /model to select one first.',
       unknownTheme: 'Unknown theme: {{theme}}',
       unsupportedEffort:
@@ -1191,9 +1183,6 @@ export default {
       replayFailed: 'Failed to replay session history: {{message}}',
       replayPlanModeOn: 'Plan mode: ON',
       replayPlanModeOff: 'Plan mode: OFF',
-      replayYoloModeOn: 'YOLO mode: ON',
-      replayYoloModeOnSub: 'All actions will be approved automatically. Use with caution.',
-      replayYoloModeOff: 'YOLO mode: OFF',
       replayPermissionMode: 'Permission mode: {{mode}}',
       replaySkillActivated: 'Activated skill: {{skillName}}',
       replayFeedback: 'Feedback: {{feedback}}',
@@ -2037,7 +2026,7 @@ export default {
       continueHint: ' ⏎ continue to kimi-code',
       complete: ' Migration complete',
       skipped: '  Nothing needed migrating.',
-      oldDataKept: ' Old data kept at ~/.kimi/ — kimi-cli still works.',
+      oldDataKept: ' Old data kept at {{path}} — kimi-cli still works.',
       sessionsMigrated: '  ✓ {{count}} sessions migrated',
       plansMigrated: '  ✓ {{count}} plan files copied',
       kindsMigrated: '  ✓ {{kinds}}',

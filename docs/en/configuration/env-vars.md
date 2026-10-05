@@ -166,6 +166,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_CODE_IDENTITY_NAME` | Display name the agent calls itself in the system prompt; takes higher priority than `[identity] name` in `config.toml` and is never written back to it | Any non-empty string; blank values read as unset |
 | `KIMI_CODE_IDENTITY_SLUG` | Protocol identifier for the `User-Agent` product token sent to third-party providers and the MCP client name; takes higher priority than `[identity] slug`. Derived from the name when unset | Any non-empty string; normalized to lowercase with non-alphanumeric runs folded to `-` |
 | `KIMI_CODE_BUILTIN_PRODUCT_SKILLS` | Whether the built-in skills documenting Kimi Code itself are offered to the model; takes higher priority than `builtin_product_skills` in `config.toml` (default enabled) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
+| `KIMI_CODE_PERMISSION_MODE_REMINDER` | Whether the auto permission-mode reminders are injected into the model context; set to `0` to stop injecting them | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `KIMI_CODE_TUI_FULL_SCREEN` | Enable the experimental fullscreen alternate-screen UI: scrollable transcript viewport, mouse text selection, clickable links, and Ctrl-Shift-F transcript search | `1` enables it; anything else keeps the regular inline UI |
 | `KIMI_CODE_EXPERIMENTAL_SUBAGENT_FORK` | Enable the experimental `fork` parameter on the `Agent` and `AgentSwarm` tools, letting the model start a subagent with a snapshot of the calling agent's conversation history instead of an empty context; the master `KIMI_CODE_EXPERIMENTAL_FLAG=1` also enables it | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `KIMI_CODE_EXPERIMENTAL_TOOL_SELECT` | Experimental on-demand tool loading: tools of MCP servers marked `deferred: true` stay out of the top-level tool list and are loaded via `select_tools`; also requires the model to declare the `dynamically_loaded_tools` capability — see [MCP](../customization/mcp.md#loading-tools-on-demand) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
@@ -191,7 +192,7 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_CODE_NO_AUTO_UPDATE` | Fully disable the update preflight: no check, background install, or prompt. Legacy alias `KIMI_CLI_NO_AUTO_UPDATE` also honored | Truthy: `1`/`true`/`yes`/`on` |
 | `KIMI_DISABLE_CRON` | Disable the scheduled-task tool (`CronCreate` rejects new schedules; existing tasks do not fire) | `1` to disable |
 
-The `KIMI_CODE_INFINITE_RETRY`, `KIMI_CODE_IDENTITY_*`, and `KIMI_CODE_BUILTIN_PRODUCT_SKILLS` variables are read by the `agent-core-v2` engine.
+The `KIMI_CODE_INFINITE_RETRY`, `KIMI_CODE_IDENTITY_*`, `KIMI_CODE_BUILTIN_PRODUCT_SKILLS`, and `KIMI_CODE_PERMISSION_MODE_REMINDER` variables are read by the `agent-core-v2` engine.
 
 ## Diagnostic logs
 

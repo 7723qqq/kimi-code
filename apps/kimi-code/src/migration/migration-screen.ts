@@ -351,6 +351,9 @@ export class MigrationScreenComponent extends Container implements Focusable {
           ),
         );
       }
+      if (r.notices.plansCopiedNotice !== null) {
+        lines.push(chalk.hex(colors.textMuted)(`  ⓘ ${r.notices.plansCopiedNotice}`));
+      }
       if (sum.config.droppedHooks > 0) {
         lines.push(
           chalk.hex(colors.warning)(
@@ -432,7 +435,9 @@ export class MigrationScreenComponent extends Container implements Focusable {
         );
       }
       lines.push('');
-      lines.push(chalk.hex(colors.textMuted)(t('tui.migration.oldDataKept')));
+      lines.push(
+        chalk.hex(colors.textMuted)(t('tui.migration.oldDataKept', { path: this.opts.sourceHome })),
+      );
     }
     lines.push('');
     lines.push(chalk.hex(colors.textMuted)(t('tui.migration.continueHint')));
@@ -553,6 +558,9 @@ function summarizePlan(plan: MigrationPlan): string {
   if (plan.hasConfig) parts.push('config.toml');
   if (plan.hasMcp) parts.push('mcp.json');
   if (plan.hasUserHistory) parts.push(t('tui.migration.stepLabelReplHistory'));
+  if (plan.hasSkills) parts.push('skills');
+  const scanFailures = plan.sessionScanFailures?.length ?? 0;
+  if (scanFailures > 0) parts.push(`${scanFailures} unreadable`);
   return parts.join(' · ');
 }
 
