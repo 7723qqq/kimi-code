@@ -107,7 +107,12 @@ describe('ChoicePickerComponent', () => {
     const settingsOutput = settings.render(120).map(strip);
     expect(settingsOutput).toContain('  ❯ Model');
     expect(settingsOutput).toContain('    Switch the active model and thinking mode.');
-    expect(settingsOutput).toContain('    Turn automatic CLI updates on or off.');
+    // The fork's settings list carries more entries than upstream's (language,
+    // GitHub token), so with the 8-row page size the mermaid entry is the last
+    // new one still visible on page 1; `upgrade` now sits on page 2.
+    expect(settingsOutput).toContain(
+      '    Draw mermaid code blocks as diagrams, or keep them as source.',
+    );
 
     const upgradePreference = new UpdatePreferenceSelectorComponent({
       currentValue: true,

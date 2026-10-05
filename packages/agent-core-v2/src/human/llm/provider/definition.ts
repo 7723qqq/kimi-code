@@ -10,7 +10,7 @@ import type { OpenAIResponsesTrait } from '#/llm/requester/bases/openai-response
 import type { OpenAITrait } from '#/llm/requester/bases/openai/trait';
 import type { LlmErrorClassifier, LlmRequester } from '#/llm/requester/requester';
 
-export interface ProtocolTraitMap {
+interface ProtocolTraitsByName {
   readonly openai: OpenAITrait;
   readonly openai_responses: OpenAIResponsesTrait;
   readonly anthropic: AnthropicTrait;
@@ -18,13 +18,13 @@ export interface ProtocolTraitMap {
   readonly antigravity: AntigravityTrait;
 }
 
-export type AnyProtocolTrait = ProtocolTraitMap[ProtocolName];
+export type ProtocolTraitFor<N extends ProtocolName> = ProtocolTraitsByName[N];
 
-export interface ProtocolVariant<N extends ProtocolName = ProtocolName> {
-  readonly base: ProtocolBase<ProtocolTraitMap[N]>;
-  readonly trait?: ProtocolTraitMap[N];
+export interface ProtocolBinding<N extends ProtocolName = ProtocolName> {
+  readonly base: ProtocolBase<ProtocolTraitFor<N>>;
+  readonly trait?: ProtocolTraitFor<N>;
   readonly connection?: ProviderConnection;
-  readonly convertError?: LlmErrorClassifier;
+  readonly classifyError?: LlmErrorClassifier;
   readonly capability?: (modelName: string) => ModelCapability | undefined;
 }
 
@@ -40,7 +40,7 @@ export type ProviderModelSource = () => Promise<readonly LlmModelSeed[]>;
 
 export interface ProviderDefinition {
   readonly id: string;
-  readonly protocols: Readonly<{ [N in ProtocolName]?: ProtocolVariant<N> }>;
+  readonly protocols: Readonly<{ [N in ProtocolName]?: ProtocolBinding<N> }>;
   readonly media?: ProviderMediaContribution;
   readonly models?: ProviderModelSource;
 }
@@ -59,21 +59,21 @@ export interface Provider {
 }
 
 export function createProvider(definition: ProviderDefinition): Provider {
-  const entries = new Map<ProtocolName, ProtocolVariant>();
+  const entries = new Map<ProtocolName, ProtocolBinding>();
   for (const name of Object.keys(definition.protocols) as ProtocolName[]) {
     const protocol = definition.protocols[name];
     if (protocol !== undefined) {
       entries.set(name, protocol);
     }
   }
-  const defaultVariant = entries.values().next().value;
-  if (defaultVariant === undefined) {
+  const defaultBinding = entries.values().next().value;
+  if (defaultBinding === undefined) {
     throw new Error(`provider '${definition.id}' declares no protocols`);
   }
 
-  const variantFor = (name: ProtocolName | undefined): ProtocolVariant => {
+  const bindingFor = (name: ProtocolName | undefined): ProtocolBinding => {
     if (name === undefined) {
-      return defaultVariant;
+      return defaultBinding;
     }
     const found = entries.get(name);
     if (found === undefined) {
@@ -84,8 +84,8 @@ export function createProvider(definition: ProviderDefinition): Provider {
     return found;
   };
 
-  const detectCapability = (variant: ProtocolVariant, modelName: string): ModelCapability =>
-    variant.capability?.(modelName) ?? variant.base.capability?.(modelName) ?? UNKNOWN_CAPABILITY;
+  const detectCapability = (binding: ProtocolBinding, modelName: string): ModelCapability =>
+    binding.capability?.(modelName) ?? binding.base.capability?.(modelName) ?? UNKNOWN_CAPABILITY;
 
   return {
     id: definition.id,
@@ -100,9 +100,9 @@ export function createProvider(definition: ProviderDefinition): Provider {
         provider: definition.id,
         model: seed.model,
         capability:
-          defaultVariant.capability?.(seed.model) ??
+          defaultBinding.capability?.(seed.model) ??
           seed.capability ??
-          defaultVariant.base.capability?.(seed.model) ??
+          defaultBinding.base.capability?.(seed.model) ??
           UNKNOWN_CAPABILITY,
         maxContextSize: seed.maxContextSize,
         maxInputSize: seed.maxInputSize,
@@ -112,7 +112,7 @@ export function createProvider(definition: ProviderDefinition): Provider {
     resolveModel: (model, options = {}) => ({
       provider: definition.id,
       model,
-      capability: detectCapability(variantFor(options.protocol), model),
+      capability: detectCapability(bindingFor(options.protocol), model),
       baseUrl: options.baseUrl,
       apiKey: options.apiKey,
       defaultHeaders: options.defaultHeaders,
@@ -120,11 +120,11 @@ export function createProvider(definition: ProviderDefinition): Provider {
       vertexai: options.vertexai,
     }),
     createRequester: (protocol) => {
-      const variant = variantFor(protocol);
-      return variant.base.createRequester({
-        connection: variant.connection,
-        trait: variant.trait,
-        convertError: variant.convertError,
+      const binding = bindingFor(protocol);
+      return binding.base.createRequester({
+        connection: binding.connection,
+        trait: binding.trait,
+        classifyError: binding.classifyError,
       });
     },
   };

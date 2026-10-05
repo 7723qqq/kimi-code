@@ -27,7 +27,7 @@
     },
     "apps/kimi-code": {
       "name": "@moonshot-ai/kimi-code",
-      "version": "0.43.1",
+      "version": "2.0.0",
       "bin": {
         "kimi": "dist/main.mjs",
       },
@@ -58,6 +58,7 @@
         "cli-highlight": "^2.1.11",
         "commander": "^13.1.0",
         "jimp": "^1.6.1",
+        "lovely-mermaid": "0.3.3",
         "pathe": "^2.0.3",
         "semver": "^7.7.4",
         "smol-toml": "^1.6.1",
@@ -2853,6 +2854,8 @@
     "longest-streak": ["longest-streak@3.1.0", "https://registry.npmmirror.com/longest-streak/-/longest-streak-3.1.0.tgz", {}, "sha512-9Ri+o0JYgehTaVBBDoMqIl8GXtbWg711O3srftcHhZ0dqnETqLaoIK0x17fUw9rFSlK/0NlsKe0Ahhyl5pXE2g=="],
 
     "loose-envify": ["loose-envify@1.4.0", "https://registry.npmmirror.com/loose-envify/-/loose-envify-1.4.0.tgz", { "dependencies": { "js-tokens": "4.0.0" }, "bin": { "loose-envify": "cli.js" } }, "sha512-lyuxPGr/Wfhrlem2CL/UcnUc1zcqKAImBDzukY7Y5F/yQiNdko6+fRLevlw1HgMySw7f611UIY408EtxRSoK3Q=="],
+
+    "lovely-mermaid": ["lovely-mermaid@0.3.3", "https://registry.npmmirror.com/lovely-mermaid/-/lovely-mermaid-0.3.3.tgz", {}, "sha512-EMLJS934qwt2MLO/a5o+T/89HGbuXZPwmCpHIhHO+DVrm+y5tHlEHgpZzlC2o4yW/rFPHRFO9xSMafzqH4wH5A=="],
 
     "lowlight": ["lowlight@1.20.0", "https://registry.npmmirror.com/lowlight/-/lowlight-1.20.0.tgz", { "dependencies": { "fault": "1.0.4", "highlight.js": "10.7.3" } }, "sha512-8Ktj+prEb1RoCPkEOrPMYUN/nCggB7qAWe3a7OpMjWQkh3l2RD5wKRQ+o8Q8YuI9RG/xs95waaI/E6ym/7NsTw=="],
 

@@ -278,6 +278,7 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
         await mainAgent.accessor.get(IAgentSkillService).activate({
           name: parsed.id,
           args: req.body.args,
+          clientMetadata: req.body.metadata === undefined ? undefined : [structuredClone(req.body.metadata)],
           content: attachmentParts,
           attachments: promptAttachments,
         });
@@ -367,6 +368,7 @@ function toProtocolSkill(skill: SkillElement): SkillDescriptor {
     ...(disableModelInvocation !== undefined
       ? { disable_model_invocation: disableModelInvocation }
       : {}),
+    scopes: skill.scopes === undefined ? undefined : [...skill.scopes],
   };
 }
 

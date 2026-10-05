@@ -17,6 +17,8 @@ export function skillSourceRank(source: SkillSource): number {
   return SKILL_SOURCE_RANK[source];
 }
 
+export type SkillScope = 'tui' | 'web';
+
 export interface SkillMetadata {
   readonly name?: string | undefined;
   readonly description?: string | undefined;
@@ -41,6 +43,7 @@ export interface SkillDefinition {
   readonly mermaid?: string | undefined;
   readonly d2?: string;
   readonly productSpecific?: boolean;
+  readonly scopes?: readonly SkillScope[];
   readonly experimentalFlag?: string;
 }
 
@@ -52,6 +55,7 @@ export interface SkillSummary {
   readonly type?: string | undefined;
   readonly disableModelInvocation?: boolean | undefined;
   readonly isSubSkill?: boolean | undefined;
+  readonly scopes?: readonly SkillScope[];
 }
 
 export interface SkillRoot {
@@ -112,5 +116,6 @@ export function summarizeSkill(skill: SkillDefinition): SkillSummary {
     type: skill.metadata.type,
     disableModelInvocation: skill.metadata.disableModelInvocation,
     isSubSkill: skill.metadata.isSubSkill,
+    scopes: skill.scopes,
   };
 }

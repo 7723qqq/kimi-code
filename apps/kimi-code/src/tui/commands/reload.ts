@@ -1,10 +1,10 @@
 import type { KimiConfig } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
-import { currentTheme } from '#/tui/theme';
+import { currentTheme, lightColors } from '#/tui/theme';
 
-import { loadTuiConfig, type TuiConfig } from '../config';
-import { setMarkdownRenderLatex } from '../utils/markdown-options';
+import { DEFAULT_MARKDOWN_CONFIG, loadTuiConfig, type TuiConfig } from '../config';
+import { setMarkdownMermaidMode, setMarkdownRenderLatex } from '../utils/markdown-options';
 import type { SlashCommandHost } from './dispatch';
 import { setExperimentalFeatures } from './experimental-flags';
 
@@ -59,7 +59,10 @@ export async function applyReloadedTuiConfig(
   // transcript components, which rebuild their Markdown children and copy the
   // options at construction — so the new value must be live by then.
   setMarkdownRenderLatex(config.renderLatex ?? true);
-  const resolved = config.theme === 'auto' ? (currentTheme.isLight ? 'light' : 'dark') : undefined;
+  setMarkdownMermaidMode(config.markdown?.mermaid ?? DEFAULT_MARKDOWN_CONFIG.mermaid);
+  const resolved = config.theme === 'auto'
+    ? (currentTheme.palette === lightColors ? 'light' : 'dark')
+    : undefined;
   await host.applyTheme(config.theme, resolved);
   host.refreshTerminalThemeTracking();
   host.setAppState({
@@ -71,6 +74,7 @@ export async function applyReloadedTuiConfig(
     notifications: config.notifications,
     upgrade: config.upgrade,
     statusLine: config.statusLine,
+    markdown: config.markdown,
   });
   host.state.editor.setDisablePasteBurst(config.disablePasteBurst);
 }

@@ -39,6 +39,7 @@ import {
   showSettingsSelector,
 } from './config';
 import { handleCopyCommand } from './copy';
+import { handleDesktopCommand } from './desktop';
 import { handleGoalCommand } from './goal';
 import { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 import { parseSlashInput } from './parse';
@@ -78,6 +79,7 @@ import { handleWorkflowCommand } from './workflow';
 export { handleLoginCommand, handleLogoutCommand } from './auth';
 export { handleBtwCommand } from './btw';
 export { handleCopyCommand } from './copy';
+export { handleDesktopCommand } from './desktop';
 export { handleAddDirCommand } from './add-dir';
 export {
   handleCompactCommand,
@@ -613,6 +615,9 @@ async function handleBuiltInSlashCommand(
       return;
     case 'web':
       await handleWebCommand(host);
+      return;
+    case 'desktop':
+      await handleDesktopCommand(host);
       return;
     case 'remote-control':
       await handleRemoteControlCommand(host);

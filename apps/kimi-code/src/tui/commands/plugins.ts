@@ -8,7 +8,9 @@ import {
   type PluginSummary,
   type Session,
 } from '@moonshot-ai/kimi-code-sdk';
-import { Markdown, Spacer } from '@moonshot-ai/pi-tui';
+import { Spacer } from '@moonshot-ai/pi-tui';
+
+import { Markdown } from '#/tui/components/markdown/markdown';
 
 import { KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV, QUOTA_CONSUMING_PLUGIN_IDS } from '#/constant/app';
 import { t } from '#/i18n';
@@ -619,7 +621,7 @@ async function installCapabilityFromPanel(
         0,
         createMarkdownTheme(),
         undefined,
-        createMarkdownOptions(),
+        { ...createMarkdownOptions(), copySource: true },
       ),
     );
     host.state.ui.requestRender();

@@ -1,5 +1,5 @@
 import type { ProtocolBase } from '#human/llm/protocol/base';
-import type { AnyProtocolTrait } from '#human/llm/provider/definition';
+import type { ProtocolTraitFor } from '#human/llm/provider/definition';
 import { anthropicBase } from '#human/llm/requester/bases/anthropic/requester';
 import { antigravityBase } from '#human/llm/requester/bases/antigravity/requester';
 import { googleGenAIBase } from '#human/llm/requester/bases/google-genai/requester';
@@ -12,12 +12,12 @@ export type ProtocolBaseId = Protocol;
 
 export interface ProtocolBaseDefinition {
   readonly id: ProtocolBaseId;
-  readonly base: ProtocolBase<AnyProtocolTrait>;
+  readonly base: ProtocolBase<ProtocolTraitFor<Protocol>>;
 }
 
 export interface ResolvedAdapterIdentity {
   readonly baseId: ProtocolBaseId;
-  readonly trait?: AnyProtocolTrait;
+  readonly trait?: ProtocolTraitFor<Protocol>;
 }
 
 const PROTOCOL_BASES: readonly ProtocolBaseDefinition[] = [

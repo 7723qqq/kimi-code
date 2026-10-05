@@ -7,7 +7,7 @@ import type { ProviderMediaContribution } from '#human/llm/media/upload';
 import type { LlmModel } from '#human/llm/model';
 import type { ProtocolBase } from '#human/llm/protocol/base';
 import type { ProviderConnection } from '#human/llm/protocol/connection';
-import type { AnyProtocolTrait } from '#human/llm/provider/definition';
+import type { ProtocolTraitFor } from '#human/llm/provider/definition';
 import type { LlmErrorClassifier } from '#human/llm/requester/requester';
 import { anthropicBase, anthropicBetaBase } from '#human/llm/requester/bases/anthropic/requester';
 import { antigravityBase } from '#human/llm/requester/bases/antigravity/requester';
@@ -18,8 +18,7 @@ import {
 import type { OpenAITrait } from '#human/llm/requester/bases/openai/trait';
 import { openAIBase } from '#human/llm/requester/bases/openai/requester';
 import { openAIResponsesBase } from '#human/llm/requester/bases/openai-responses/requester';
-import { KimiFiles } from '#human/llm-kimi/files';
-import { KIMI_DEFAULT_BASE_URL } from '#human/llm-kimi/trait';
+import { KimiFiles, kimiFilesBaseUrl } from '#human/llm-kimi/files';
 
 import type { Model } from '../model/catalog';
 import type { ResolvedLlmModel } from '../model/model-requester-impl';
@@ -40,16 +39,22 @@ const kimiMedia: ProviderMediaContribution = {
   uploadVideo: (video, { model, signal }) =>
     new KimiFiles({
       apiKey: model.apiKey,
-      baseUrl: model.baseUrl ?? KIMI_DEFAULT_BASE_URL,
+      baseUrl: kimiFilesBaseUrl(model),
       defaultHeaders: model.defaultHeaders === undefined ? undefined : { ...model.defaultHeaders },
     }).uploadVideo(video, { signal }),
+  uploadImage: (image, { model, signal }) =>
+    new KimiFiles({
+      apiKey: model.apiKey,
+      baseUrl: kimiFilesBaseUrl(model),
+      defaultHeaders: model.defaultHeaders === undefined ? undefined : { ...model.defaultHeaders },
+    }).uploadImage(image, { signal }),
 };
 
 interface AdapterRoute {
-  readonly base: ProtocolBase<AnyProtocolTrait>;
-  readonly trait?: AnyProtocolTrait;
+  readonly base: ProtocolBase<ProtocolTraitFor<Protocol>>;
+  readonly trait?: ProtocolTraitFor<Protocol>;
   readonly connection?: ProviderConnection;
-  readonly convertError?: LlmErrorClassifier;
+  readonly classifyError?: LlmErrorClassifier;
   readonly providerId: string;
   readonly media?: ProviderMediaContribution;
 }
@@ -69,7 +74,7 @@ function routeFor(model: Model): AdapterRoute {
     definition !== undefined &&
     (definition.trait !== undefined ||
       definition.connection !== undefined ||
-      definition.convertError !== undefined)
+      definition.classifyError !== undefined)
       ? definition
       : undefined;
   switch (model.protocol) {
@@ -79,7 +84,7 @@ function routeFor(model: Model): AdapterRoute {
             base: openAIBase,
             trait: custom.trait,
             connection: custom.connection,
-            convertError: custom.convertError,
+            classifyError: custom.classifyError,
             providerId: 'openai',
             media: routeMedia,
           }
@@ -95,7 +100,7 @@ function routeFor(model: Model): AdapterRoute {
             base: openAIResponsesBase,
             trait: custom.trait,
             connection: custom.connection,
-            convertError: custom.convertError,
+            classifyError: custom.classifyError,
             providerId: 'openai-responses',
             media: routeMedia,
           }
@@ -111,7 +116,7 @@ function routeFor(model: Model): AdapterRoute {
             base,
             trait: custom.trait,
             connection: custom.connection,
-            convertError: custom.convertError,
+            classifyError: custom.classifyError,
             providerId: 'anthropic',
             media: routeMedia,
           }
@@ -174,7 +179,7 @@ export class ProtocolAdapterRegistry implements IProtocolAdapterRegistry {
     const requester = route.base.createRequester({
       connection: route.connection,
       trait: route.trait,
-      convertError: route.convertError,
+      classifyError: route.classifyError,
     });
     const llmModel: LlmModel & ModelThinkingMetadata = {
       provider: route.providerId,

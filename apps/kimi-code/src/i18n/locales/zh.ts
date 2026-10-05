@@ -313,7 +313,7 @@ export default {
           '注意：运行时二进制文件未被改动，但 Kimi Code 已为新会话禁用该插件的接入。请先重启 Kimi Code，再从 Official 标签页重新安装。',
         listTitle: ' 插件 ({{count}}) ',
         reloadHint: '运行 /new 或 /reload 以应用插件更改。',
-        webbridgeIntro: '*使用 Kimi WebBridge 还需两步：*',
+        webbridgeIntro: '*使用 Kimi Browser Extension 还需两步：*',
         webbridgeStep1: '1. 安装浏览器扩展',
         webbridgeChromeLink:
           '   - [Chrome Web Store](https://chromewebstore.google.com/detail/kimi-webbridge/fldmhceldgbpfpkbgopacenieobmligc)',
@@ -553,6 +553,8 @@ export default {
         permissionDesc: '选择工具操作的审批方式。',
         theme: '主题',
         themeDesc: '更改终端 UI 主题。',
+        mermaid: 'Mermaid 图表',
+        mermaidDesc: '将 mermaid 代码块绘制为图表，或保留源码。',
         language: '语言',
         languageDesc: '更改界面语言（需要重启）。',
         editor: '编辑器',

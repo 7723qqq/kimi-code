@@ -7,16 +7,11 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import {
-  Markdown,
-  truncateToWidth,
-  visibleWidth,
-  type Component,
-  type MarkdownTheme,
-} from '@moonshot-ai/pi-tui';
+import { truncateToWidth, visibleWidth, type Component, type MarkdownTheme } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
 import { t } from '#/i18n';
+import { Markdown } from '#/tui/components/markdown/markdown';
 import { createMarkdownOptions } from '#/tui/utils/markdown-options';
 import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
 

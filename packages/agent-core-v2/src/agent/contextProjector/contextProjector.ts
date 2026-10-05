@@ -25,6 +25,7 @@ export interface IAgentContextProjectorService {
   project(
     messages: readonly ContextMessage[],
     policy?: ProjectionPolicy,
+    mediaPaths?: ReadonlyMap<string, string>,
   ): readonly Message[];
   captureMediaStripSnapshot(messages: readonly ContextMessage[]): MediaStripSnapshot;
 }

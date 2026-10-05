@@ -14,7 +14,7 @@ import {
   buildOversizedImageConversionGuidance,
   isModelAcceptedImageMime,
 } from '#/agent/media/image-format-policy';
-import { inlineVideoPart, isVideoUploadAuthError } from '#/agent/media/videoUpload';
+import { inlineVideoPart, isMediaUploadAuthError } from '#/agent/media/videoUpload';
 import type { FileReadSource } from '#/agent/tools/fileReadSource';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import {
@@ -154,7 +154,7 @@ function buildFullResolutionLimitError(
 
 function shouldSurfaceVideoUploadError(error: unknown, inlineVideoSupported: boolean): boolean {
   if (error instanceof VideoUploadUnsupportedError) return !inlineVideoSupported;
-  return isVideoUploadAuthError(error);
+  return isMediaUploadAuthError(error);
 }
 
 async function videoContentPart(

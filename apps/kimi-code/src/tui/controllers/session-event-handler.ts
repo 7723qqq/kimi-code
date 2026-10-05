@@ -33,7 +33,10 @@ type ToolResultEvent = Extract<Event, { type: 'tool.result' }>;
 type CompactionStartedEvent = Extract<Event, { type: 'compaction.started' }>;
 type CompactionCompletedEvent = Extract<Event, { type: 'compaction.completed' }>;
 type CompactionCancelledEvent = Extract<Event, { type: 'compaction.cancelled' }>;
-type BackgroundTaskEvent = Extract<Event, { type: 'task.started' | 'task.terminated' }>;
+type BackgroundTaskEvent = Extract<
+  Event,
+  { type: 'background.task.started' | 'background.task.terminated' }
+>;
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
@@ -397,10 +400,11 @@ export class SessionEventHandler {
       case 'subagent.suspended':
       case 'subagent.completed':
       case 'subagent.failed':
+      case 'subagent.cancelled':
         this.subAgentEventHandler.handleLifecycleEvent(event);
         break;
-      case 'task.started':
-      case 'task.terminated':
+      case 'background.task.started':
+      case 'background.task.terminated':
         this.handleBackgroundTaskEvent(event);
         break;
       case 'cron.fired':
@@ -1367,7 +1371,7 @@ export class SessionEventHandler {
       info.status === 'killed' ||
       info.status === 'lost';
 
-    if (event.type === 'task.started') {
+    if (event.type === 'background.task.started') {
       if (info.kind === 'agent') {
         // A foreground subagent detached via Ctrl+B: flip its card to
         // `◐ backgrounded` so it doesn't look like it completed.
@@ -1382,7 +1386,7 @@ export class SessionEventHandler {
       return;
     }
 
-    if (event.type === 'task.terminated' && isTerminal) {
+    if (event.type === 'background.task.terminated' && isTerminal) {
       if (info.kind === 'agent') {
         // The Agent tool's spawn-success ToolResult is not an error, so the
         // parent toolCall card would otherwise render `✓ Completed` for any

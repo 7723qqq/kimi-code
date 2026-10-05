@@ -36,7 +36,7 @@ import {
   defaultAnthropicTool,
   encodeAnthropicMaxTokens,
   encodeAnthropicRequest,
-  lowerAnthropicRequest,
+  lowerAnthropicMessages,
   type AnthropicFormatOptions,
   type AnthropicRequestParams,
   convertAnthropicError,
@@ -101,14 +101,14 @@ function createClient(model: LlmModel, headers: Record<string, string> | undefin
   });
 }
 
-export interface AnthropicRequestPlanOptions {
+export interface AnthropicRequestPreparationOptions {
   readonly trait?: AnthropicTrait;
   readonly betaApi?: boolean;
 }
 
-export function planAnthropicRequest(
+export function prepareAnthropicRequest(
   input: FormatRequestInput,
-  options?: AnthropicRequestPlanOptions,
+  options?: AnthropicRequestPreparationOptions,
 ): AnthropicRequestParams {
   const trait = options?.trait;
   const ctx: TraitContext = { model: input.model };
@@ -126,7 +126,7 @@ export function planAnthropicRequest(
     const capped = resolveDefaultMaxTokens(ctx.model.model, cap);
     kwargs = {
       ...kwargs,
-      ...(trait?.maxCompletionTokens?.(capped, ctx) ?? encodeAnthropicMaxTokens(capped)),
+      ...(trait?.encodeMaxCompletionTokens?.(capped, ctx) ?? encodeAnthropicMaxTokens(capped)),
     };
   }
   kwargs = assign(kwargs, input.extraParams?.anthropic ?? {});
@@ -137,7 +137,7 @@ export function planAnthropicRequest(
 
   const acceptedMimes =
     trait?.acceptedImageMimes?.(ctx) ?? providerImagePolicy().acceptedMimes;
-  const lowered = lowerAnthropicRequest(input, acceptedMimes);
+  const lowered = lowerAnthropicMessages(input, acceptedMimes);
   const converted = lowered
     .flatMap(({ source, message }) => {
       if (trait?.convertMessage === undefined) {
@@ -170,7 +170,7 @@ interface AnthropicTransport {
   readonly onEvent?: (event: LlmRequestEvent) => void;
 }
 
-async function internalGenerate(
+async function executeAnthropicRequest(
   request: AnthropicRequestParams,
   transport: AnthropicTransport,
 ): Promise<void> {
@@ -217,7 +217,7 @@ async function internalGenerate(
 export function createAnthropicRequester(options?: AnthropicRequesterOptions): LlmRequester {
   const connection = options?.connection;
   const trait = options?.trait;
-  const convertError = options?.convertError;
+  const classifyError = options?.classifyError;
   const format = createAnthropicFormat();
   const resolveClient =
     options?.clientFactory ??
@@ -236,7 +236,7 @@ export function createAnthropicRequester(options?: AnthropicRequesterOptions): L
       let request: AnthropicRequestParams;
       try {
         const policy = trait?.toolCallIdPolicy ?? ANTHROPIC_TOOL_CALL_ID_POLICY;
-        request = planAnthropicRequest(
+        request = prepareAnthropicRequest(
           {
             ...config,
             model,
@@ -251,7 +251,7 @@ export function createAnthropicRequester(options?: AnthropicRequesterOptions): L
         return;
       }
       try {
-        await internalGenerate(request, {
+        await executeAnthropicRequest(request, {
           connection,
           ctx,
           format,
@@ -262,7 +262,7 @@ export function createAnthropicRequester(options?: AnthropicRequesterOptions): L
       } catch (error) {
         onEvent?.({
           type: 'llm.failed.remote',
-          error: convertAnthropicError(error, (e) => convertError?.(e)),
+          error: convertAnthropicError(error, (e) => classifyError?.(e)),
         });
       }
     },

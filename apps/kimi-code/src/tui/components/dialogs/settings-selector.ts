@@ -6,6 +6,7 @@ import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 export type SettingsSelection =
   | 'model'
   | 'theme'
+  | 'mermaid'
   | 'editor'
   | 'language'
   | 'permission'
@@ -32,6 +33,11 @@ function getSettingsOptions(): readonly ChoiceOption[] {
       value: 'theme',
       label: t('tui.dialogs.settingsSelector.theme'),
       description: t('tui.dialogs.settingsSelector.themeDesc'),
+    },
+    {
+      value: 'mermaid',
+      label: t('tui.dialogs.settingsSelector.mermaid'),
+      description: t('tui.dialogs.settingsSelector.mermaidDesc'),
     },
     {
       value: 'language',
@@ -85,6 +91,7 @@ function isSettingsSelection(value: string): value is SettingsSelection {
   return (
     value === 'model' ||
     value === 'theme' ||
+    value === 'mermaid' ||
     value === 'language' ||
     value === 'editor' ||
     value === 'permission' ||
