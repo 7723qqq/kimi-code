@@ -30,7 +30,6 @@ import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { IConfigService } from '#/app/config/config';
 import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
-import { checkRealPathWithinWorkspace } from '#/tool/realpath-access';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { resolvePathAccessPath, type WorkspaceConfig } from '#/tool/path-access';
 import {
@@ -261,10 +260,6 @@ export class ReadTool implements IReadTool {
               isError: true,
               output: 'Runtime changed before execution. Retry the tool call.',
             };
-          }
-          const accessError = await checkRealPathWithinWorkspace(lease.runtime.fs!, path, workspace, env.pathClass);
-          if (accessError !== undefined) {
-            return { isError: true, output: accessError.message };
           }
           const eventLog = this.resultTruncation.isWireJournalPath(path);
           const result = await this.execution(

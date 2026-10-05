@@ -1,5 +1,4 @@
 import type { ILogger } from '#/_base/log/log';
-import type { IGitService } from '#/app/git/git';
 import type { JsRuntimeInfo } from '#/os/interface/hostEnvironment';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 
@@ -9,7 +8,6 @@ export interface AgentProfilePromptPrefixContext {
   readonly cwd: string;
   readonly process: IHostProcessService;
   readonly log?: ILogger;
-  readonly git?: IGitService;
 }
 
 export interface AgentProfileSummaryPolicy {

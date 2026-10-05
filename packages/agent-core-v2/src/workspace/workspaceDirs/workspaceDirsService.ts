@@ -3,15 +3,11 @@ import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { subtreeWatchFilter } from '#/_base/utils/paths';
 import { TimeoutTimer } from '#/_base/utils/timer';
-import {
-  IProjectLocalConfigService,
-  type ProjectAdditionalDirsLoadResult,
-} from '#/app/projectLocalConfig/projectLocalConfig';
+import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
 import type { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
 import { defineState } from '#/state/state';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
-import { IWorkspaceTrust } from '#/workspace/workspaceTrust/workspaceTrust';
 import { watchCandidates } from '#human/utils/watch';
 
 import type { IWorkspaceDirs } from './workspaceDirs';
@@ -44,7 +40,6 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     @IProjectLocalConfigService private readonly localConfig: IProjectLocalConfigService,
     @ILogService private readonly log: ILogService,
     @IWorkspaceStateService private readonly states: IWorkspaceStateService,
-    @IWorkspaceTrust private readonly trust: IWorkspaceTrust,
   ) {
     super();
     this.states.contributeState(workspaceDirsFileDirsKey);
@@ -53,16 +48,6 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     this.configPath = '';
     this.ready = this.enqueue(() => this.reloadFromDisk());
     void this.ready.then(() => this.watchLocalToml());
-    this._register(
-      this.trust.onDidChange(() => {
-        if (!this.trust.isTrusted() && this.setFileDirs([])) {
-          this.onDidChangeEmitter.fire();
-        }
-        void this.enqueue(() => this.reloadFromDisk()).catch((error) => {
-          this.log.warn(`local.toml trust reload failed: ${String(error)}`);
-        });
-      }),
-    );
   }
 
   private get fileDirs(): readonly string[] {
@@ -118,15 +103,7 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
       const persisted = await this.localConfig.appendAdditionalDir(this.workspace.cwd, input.path);
       this.projectRoot = persisted.projectRoot;
       this.configPath = persisted.configPath;
-      let changed: boolean;
-      if (this.trust.isTrusted()) {
-        changed = this.setFileDirs(persisted.additionalDirs);
-      } else {
-        const explicit = await this.localConfig.resolveAdditionalDirs(this.workspace.cwd, [
-          input.path,
-        ]);
-        changed = this.unionEphemeral(explicit);
-      }
+      const changed = this.setFileDirs(persisted.additionalDirs);
       if (changed) {
         this.onDidChangeEmitter.fire();
       }
@@ -155,13 +132,7 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
   }
 
   private async reloadFromDisk(): Promise<void> {
-    await this.trust.ready;
-    const onDisk: ProjectAdditionalDirsLoadResult = this.trust.isTrusted()
-      ? await this.localConfig.readAdditionalDirs(this.workspace.cwd)
-      : {
-          ...(await this.localConfig.locateAdditionalDirsConfig(this.workspace.cwd)),
-          additionalDirs: [],
-        };
+    const onDisk = await this.localConfig.readAdditionalDirs(this.workspace.cwd);
     this.projectRoot = onDisk.projectRoot;
     this.configPath = onDisk.configPath;
     if (this.setFileDirs(onDisk.additionalDirs)) {
