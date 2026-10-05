@@ -9,6 +9,7 @@ export type SettingsSelection =
   | 'editor'
   | 'language'
   | 'permission'
+  | 'survey'
   | 'experiments'
   | 'upgrade'
   | 'usage'
@@ -82,6 +83,7 @@ function isSettingsSelection(value: string): value is SettingsSelection {
     value === 'language' ||
     value === 'editor' ||
     value === 'permission' ||
+    value === 'survey' ||
     value === 'experiments' ||
     value === 'upgrade' ||
     value === 'usage' ||

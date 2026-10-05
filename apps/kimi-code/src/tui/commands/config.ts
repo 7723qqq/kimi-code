@@ -33,13 +33,14 @@ import {
   SettingsSelectorComponent,
   type SettingsSelection,
 } from '../components/dialogs/settings-selector';
+import { SurveyPreferenceSelectorComponent } from '../components/dialogs/survey-preference-selector';
 import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
 import { ThemeSelectorComponent } from '../components/dialogs/theme-selector';
 import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-preference-selector';
 import { DEFAULT_TUI_CONFIG, saveTuiConfig, type TuiConfig } from '../config';
 import { getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
-import { PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
+import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
 import type { SlashCommandHost } from './dispatch';
 import { setExperimentalFeatures } from './experimental-flags';
@@ -83,6 +84,8 @@ export function currentTuiConfig(host: Pick<SlashCommandHost, 'state'>): TuiConf
       host.state.appState.disablePasteBurst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
     renderLatex: host.state.appState.renderLatex ?? DEFAULT_TUI_CONFIG.renderLatex ?? true,
     cacheExpiryHint: host.state.appState.cacheExpiryHint ?? DEFAULT_TUI_CONFIG.cacheExpiryHint,
+    disableFeedbackSurvey:
+      host.state.appState.disableFeedbackSurvey ?? DEFAULT_TUI_CONFIG.disableFeedbackSurvey,
     notifications: host.state.appState.notifications,
     upgrade: host.state.appState.upgrade,
     statusLine: host.state.appState.statusLine ?? DEFAULT_TUI_CONFIG.statusLine,
@@ -822,10 +825,11 @@ async function applyLocaleChoice(host: SlashCommandHost, locale: Locale): Promis
   host.showStatus(t('tui.messages.configLanguageSet', { locale }));
 }
 
-export function showPermissionPicker(host: SlashCommandHost): void {
+export function showPermissionPicker(host: SlashCommandHost, initialMode?: PermissionMode): void {
   host.mountEditorReplacement(
     new PermissionSelectorComponent({
       currentValue: host.state.appState.permissionMode,
+      initialValue: initialMode,
       onSelect: (value) => {
         host.restoreEditor();
         void applyPermissionChoice(host, value);
@@ -956,7 +960,7 @@ export async function applyExperimentalFeatureChanges(
     host.refreshSlashCommandAutocomplete();
     host.restoreEditor();
     if (host.session !== undefined) {
-      await host.session.reloadSession();
+      const reloadedSession = await host.harness.reloadSession({ id: host.session.id });
       await host.reloadCurrentSessionView(
         host.session,
         t('tui.statusMessages.experimentalUpdatedSessionReloaded'),
@@ -1074,6 +1078,64 @@ async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMod
 
   host.setAppState({ permissionMode: mode });
   host.showNotice(`Permission mode: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}`);
+  if (mode !== 'manual') {
+    host.showStatus(PERMISSION_MODE_DESCRIPTIONS[mode], 'warning');
+  }
+}
+
+export function showSurveyPreferencePicker(host: SlashCommandHost): void {
+  host.mountEditorReplacement(
+    new SurveyPreferenceSelectorComponent({
+      currentValue: host.state.appState.disableFeedbackSurvey !== true,
+      onSelect: (value) => {
+        host.restoreEditor();
+        void applySurveyPreferenceChoice(host, value);
+      },
+      onCancel: () => {
+        host.restoreEditor();
+      },
+    }),
+  );
+}
+
+type SurveyPreferenceHost = {
+  readonly state: {
+    readonly appState: Pick<
+      SlashCommandHost['state']['appState'],
+      'theme' | 'editorCommand' | 'notifications' | 'upgrade' | 'disableFeedbackSurvey'
+    >;
+  };
+  setAppState(
+    patch: Pick<SlashCommandHost['state']['appState'], 'disableFeedbackSurvey'>,
+  ): void;
+  showStatus(msg: string, color?: string): void;
+};
+
+export async function applySurveyPreferenceChoice(
+  host: SurveyPreferenceHost,
+  enabled: boolean,
+): Promise<void> {
+  const disableFeedbackSurvey = !enabled;
+  if (disableFeedbackSurvey === (host.state.appState.disableFeedbackSurvey === true)) {
+    host.showStatus(`Feedback survey already ${enabled ? 'enabled' : 'disabled'}.`);
+    return;
+  }
+
+  try {
+    await saveTuiConfig({
+      ...currentTuiConfig(host as unknown as SlashCommandHost),
+      disableFeedbackSurvey,
+    });
+  } catch (error) {
+    host.showStatus(
+      `Failed to save session rating setting: ${formatErrorMessage(error)}`,
+      'error',
+    );
+    return;
+  }
+
+  host.setAppState({ disableFeedbackSurvey });
+  host.showStatus(`Feedback survey ${enabled ? 'enabled' : 'disabled'}.`);
 }
 
 export function showSettingsSelector(host: SlashCommandHost): void {
@@ -1121,6 +1183,9 @@ function handleSettingsSelection(host: SlashCommandHost, value: SettingsSelectio
       return;
     case 'astron':
       void showAstronSettingsPanel(host);
+      return;
+    case 'survey':
+      showSurveyPreferencePicker(host);
       return;
   }
 }

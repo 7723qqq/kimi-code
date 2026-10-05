@@ -27,6 +27,7 @@ import {
   type GoalQueueSnapshot,
 } from '../goal-queue-store';
 import { formatErrorMessage } from '../utils/event-payload';
+import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
 import { canRestoreSubmittedInput } from './resolve';
 import type { SlashCommandHost } from './dispatch';
 
@@ -39,6 +40,7 @@ type GoalCommandHost = Pick<
   | 'requireSession'
   | 'setAppState'
   | 'showError'
+  | 'showNotice'
   | 'showStatus'
   | 'track'
   | 'mountEditorReplacement'
@@ -408,6 +410,18 @@ async function startGoalWithPermission(
   // previous mode so the session is not left more permissive than before.
   if (!started && switched) {
     await setPermissionForGoal(host, previousMode);
+    return;
+  }
+  // Only announce the switch once the goal really started: a failed creation
+  // would leave a stale permissive-mode notice in the transcript even though
+  // the rollback above restored the previous mode.
+  if (switched) {
+    host.showNotice(
+      t('tui.statusMessages.permissionModeChanged', {
+        mode: PERMISSION_MODE_DISPLAY_NAMES[choice],
+      }),
+    );
+    host.showStatus(PERMISSION_MODE_DESCRIPTIONS[choice], 'warning');
   }
 }
 

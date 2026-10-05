@@ -73,6 +73,7 @@ export const TuiConfigFileSchema = z.object({
   disable_paste_burst: z.boolean().optional(),
   locale: z.enum(['en', 'zh']).optional(),
   cache_expiry_hint: z.boolean().optional(),
+  disable_feedback_survey: z.boolean().optional(),
   editor: z
     .object({
       command: z.string().optional(),
@@ -110,6 +111,7 @@ export const TuiConfigSchema = z.object({
   /** Present in every normalized config; optional only so hand-built test
    * fixtures from before this field existed still typecheck. */
   cacheExpiryHint: z.boolean().optional(),
+  disableFeedbackSurvey: z.boolean().optional(),
   editorCommand: z.string().nullable(),
   notifications: NotificationsConfigSchema,
   upgrade: UpgradePreferencesSchema,
@@ -140,6 +142,7 @@ export const DEFAULT_TUI_CONFIG: TuiConfig = TuiConfigSchema.parse({
   disablePasteBurst: false,
   locale: 'en',
   cacheExpiryHint: true,
+  disableFeedbackSurvey: false,
   editorCommand: null,
   notifications: DEFAULT_NOTIFICATIONS_CONFIG,
   upgrade: DEFAULT_UPGRADE_PREFERENCES,
@@ -226,6 +229,8 @@ export function normalizeTuiConfig(
     disablePasteBurst: config.disable_paste_burst ?? DEFAULT_TUI_CONFIG.disablePasteBurst,
     locale: config.locale ?? DEFAULT_TUI_CONFIG.locale,
     cacheExpiryHint: config.cache_expiry_hint ?? DEFAULT_TUI_CONFIG.cacheExpiryHint,
+    disableFeedbackSurvey:
+      config.disable_feedback_survey ?? DEFAULT_TUI_CONFIG.disableFeedbackSurvey,
     editorCommand: command === undefined || command.length === 0 ? null : command,
     notifications: {
       enabled: config.notifications?.enabled ?? DEFAULT_NOTIFICATIONS_CONFIG.enabled,
@@ -284,6 +289,7 @@ render_latex = ${String(config.renderLatex !== false)} # false keeps LaTeX math 
 disable_paste_burst = ${String(config.disablePasteBurst)} # true disables non-bracketed paste-burst fallback
 locale = "${config.locale}" # "en" | "zh"
 cache_expiry_hint = ${String(config.cacheExpiryHint !== false)} # false disables the "cache expired" dialog on resume / idle submit
+disable_feedback_survey = ${String(config.disableFeedbackSurvey === true)} # true hides the occasional session rating prompt
 
 [editor]
 command = "${escapeTomlBasicString(config.editorCommand ?? '')}" # Empty uses $VISUAL / $EDITOR

@@ -61,6 +61,7 @@ import {
   type UpcomingGoal,
 } from '../goal-queue-store';
 import type { TUIState } from '../tui-state';
+import { sumTokenUsage } from '../types';
 import type {
   AppState,
   LivePaneState,
@@ -92,6 +93,7 @@ import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
 import { isPluginMcpToolName, PluginUpdateNotifier } from './plugin-update-notifier';
 import type { StreamingUIController } from './streaming-ui';
+import type { SurveyController } from './survey-controller';
 import { SubAgentEventHandler } from './subagent-event-handler';
 import type { TasksBrowserController } from './tasks-browser';
 
@@ -101,6 +103,7 @@ export interface SessionEventHost {
   aborted: boolean;
   sessionEventUnsubscribe: (() => void) | undefined;
   readonly streamingUI: StreamingUIController;
+  readonly surveyController: SurveyController;
 
   requireSession(): Session;
   setAppState(patch: Partial<AppState>): void;
@@ -736,6 +739,7 @@ export class SessionEventHandler {
 
   private handleToolCall(event: ToolCallStartedEvent): void {
     const { streamingUI } = this.host;
+    this.host.surveyController.notifyToolCallStarted();
     streamingUI.flushNow();
     this.toolStartTimes.set(event.toolCallId, Date.now());
     const { turnId, step } = streamingUI.getTurnContext();
@@ -861,6 +865,9 @@ export class SessionEventHandler {
     }
     if (event.model !== undefined) patch.model = event.model;
     if (event.thinkingEffort !== undefined) patch.thinkingEffort = event.thinkingEffort;
+    if (event.usage?.total !== undefined) {
+      patch.cumulativeTokens = sumTokenUsage(event.usage.total);
+    }
     if (Object.keys(patch).length > 0) this.host.setAppState(patch);
     if (event.swarmMode === false) {
       this.host.state.swarmModeEntry = undefined;

@@ -1159,6 +1159,8 @@ export default {
       shellCommandFailed: 'Shell command failed: {{message}}',
       modelNoImageInput: 'Current model does not support image input.',
       modelNoVideoInput: 'Current model does not support video input.',
+      permissionModeChanged: 'Permission mode: {{mode}}',
+      skillFailed: 'Skill "{{name}}" failed: {{error}}',
       failedToPrepareMediaAttachment: 'Failed to prepare media attachment: {{error}}',
       alreadyOnSession: 'Already on this session.',
       cannotSwitchWhileStreaming:

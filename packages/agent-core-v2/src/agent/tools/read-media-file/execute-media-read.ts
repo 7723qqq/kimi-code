@@ -7,7 +7,6 @@ import {
   formatByteSize,
   resolveMaxImageEdgePx,
   resolveReadImageByteBudget,
-  type ImageCompressionTelemetry,
   type ImageCropRegion,
 } from '#/agent/media/image-compress';
 import {
@@ -178,9 +177,8 @@ export async function executeMediaRead(
   env: HostEnvironmentInfo,
   header: Uint8Array,
 ): Promise<ExecutableToolResult> {
-  const compressTelemetry: ImageCompressionTelemetry | undefined = ctx.telemetry
-    ? { client: ctx.telemetry, source: 'read_media' }
-    : undefined;
+  const telemetry = ctx.telemetry;
+  const telemetrySource = 'read_media';
 
   try {
     const fileType = detectFileType(safePath, header, 'media');
@@ -299,7 +297,8 @@ export async function executeMediaRead(
       if (args.region !== undefined) {
         const outcome = await cropImageForModel(data, fileType.mimeType, args.region, {
           skipResize: args.full_resolution === true,
-          telemetry: compressTelemetry,
+          telemetry,
+          telemetrySource,
         });
         if (!outcome.ok) {
           return {
@@ -346,7 +345,8 @@ export async function executeMediaRead(
         const compressed = await compressImageForModel(data, fileType.mimeType, {
           byteBudget: readByteBudget,
           maxEdge,
-          telemetry: compressTelemetry,
+          telemetry,
+          telemetrySource,
         });
         if (
           compressed.finalByteLength > readByteBudget ||

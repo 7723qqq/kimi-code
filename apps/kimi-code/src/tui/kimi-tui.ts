@@ -16,6 +16,7 @@ import type {
   TokenUsage,
   WorkspaceTrustInfo,
 } from '@moonshot-ai/kimi-code-sdk';
+import { isTelemetryDisabledByEnv } from '@moonshot-ai/kimi-telemetry';
 import type { MigrationPlan } from '@moonshot-ai/migration-legacy';
 import {
   type Component,
@@ -100,6 +101,7 @@ import { SessionEventHandler } from './controllers/session-event-handler';
 import { SessionReplayRenderer } from './controllers/session-replay';
 import { StagingLeaseTracker } from './controllers/staging-leases';
 import { StreamingUIController } from './controllers/streaming-ui';
+import { SurveyController } from './controllers/survey-controller';
 import { TasksBrowserController } from './controllers/tasks-browser';
 import { TranscriptRendererController } from './controllers/transcript-renderer';
 import { installRainbowDance } from './easter-eggs/dance';
@@ -113,6 +115,7 @@ import type { ColorToken, ResolvedTheme, ThemeName } from './theme';
 import { createTUIState, type TUIState } from './tui-state';
 import {
   INITIAL_LIVE_PANE,
+  sumTokenUsage,
   type AppState,
   type InlineSkillActivation,
   type KimiTUIOptions,
@@ -172,6 +175,9 @@ export interface KimiTUIStartupInput {
   readonly migrationPlan?: MigrationPlan | null;
   /** When true, run only the migration screen, then exit (the `kimi migrate` command). */
   readonly migrateOnly?: boolean;
+  /** agent-core-v2 engine; enables the startup workspace-trust prompt. */
+  readonly engineV2?: boolean;
+  readonly telemetryDisabled?: boolean;
 }
 
 type TurnStartedEvent = Extract<Event, { type: 'turn.started' }>;
@@ -212,6 +218,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     sessionStats: createEmptySessionStats(),
     outputTokens: 0,
     locale: getLocale(),
+    cumulativeTokens: 0,
     isCompacting: false,
     isReplaying: false,
     streamingPhase: 'idle',
@@ -223,6 +230,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     disablePasteBurst: input.tuiConfig.disablePasteBurst,
     renderLatex: input.tuiConfig.renderLatex,
     cacheExpiryHint: input.tuiConfig.cacheExpiryHint,
+    disableFeedbackSurvey: input.tuiConfig.disableFeedbackSurvey,
     notifications: input.tuiConfig.notifications,
     upgrade: input.tuiConfig.upgrade,
     statusLine: input.tuiConfig.statusLine,
@@ -237,6 +245,21 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
 
 /** How long the one-shot "moved to background" footer hint stays visible. */
 const DETACH_HINT_DISPLAY_MS = 4_000;
+
+function isUserSubmittedTurnOrigin(origin: TurnStartedEvent['origin'] | undefined): boolean {
+  if (origin === undefined) return false;
+  switch (origin.kind) {
+    case 'user':
+      return true;
+    case 'skill_activation':
+    case 'plugin_command':
+      return origin.trigger === 'user-slash';
+    case 'shell_command':
+      return origin.phase === 'input';
+    default:
+      return false;
+  }
+}
 
 export class KimiTUI {
   readonly harness: KimiHarness;
@@ -275,6 +298,9 @@ export class KimiTUI {
   private backgroundRefreshPromise: Promise<void> | undefined;
   private readonly migrationPlan: MigrationPlan | null;
   private readonly migrateOnly: boolean;
+  private readonly telemetryDisabled: boolean;
+  /** Whether the harness runs on the agent-core-v2 engine (lazy session creation). */
+  readonly engineV2: boolean;
   private startupNotice: string | undefined;
   private lastHistoryContent: string | undefined;
   // Live `!` shell output entries, keyed by commandId so concurrent commands
@@ -291,6 +317,7 @@ export class KimiTUI {
   readonly sessionEventHandler: SessionEventHandler;
   readonly sessionReplay: SessionReplayRenderer;
   readonly tasksBrowserController: TasksBrowserController;
+  readonly surveyController: SurveyController;
   readonly editorKeyboard: EditorKeyboardController;
   readonly messageDispatch: MessageDispatchController;
   readonly transcriptRenderer: TranscriptRendererController;
@@ -353,6 +380,8 @@ export class KimiTUI {
     this.options = tuiOptions;
     this.migrationPlan = startupInput.migrationPlan ?? null;
     this.migrateOnly = startupInput.migrateOnly ?? false;
+    this.telemetryDisabled = startupInput.telemetryDisabled ?? false;
+    this.engineV2 = startupInput.engineV2 ?? false;
     this.startupNotice = startupInput.startupNotice;
     this.state = createTUIState(tuiOptions);
     this.uninstallRainbowDance = installRainbowDance(() => {
@@ -381,6 +410,10 @@ export class KimiTUI {
     this.sessionEventHandler = new SessionEventHandler(this);
     this.sessionReplay = new SessionReplayRenderer(this);
     this.tasksBrowserController = new TasksBrowserController(this);
+    this.surveyController = new SurveyController(this, {
+      accessToken: () => this.harness.auth.getCachedAccessToken(),
+      telemetryDisabled: () => isTelemetryDisabledByEnv() || this.telemetryDisabled,
+    });
     this.editorKeyboard = new EditorKeyboardController(this, this.imageStore);
     this.editorKeyboard.install();
     this.messageDispatch = new MessageDispatchController(this, this.staging, this.imageStore);
@@ -907,6 +940,7 @@ export class KimiTUI {
     this.streamingUI.resetToolUi();
     this.transcriptRenderer.disposeTranscriptChildren();
     this.editorKeyboard.dispose();
+    this.surveyController.dispose();
     this.state.footer.dispose();
     for (const dispose of this.reverseRpcDisposers) {
       dispose();
@@ -1027,6 +1061,7 @@ export class KimiTUI {
     ui.addChild(this.state.todoPanelContainer);
     ui.addChild(this.state.queueContainer);
     ui.addChild(this.state.btwPanelContainer);
+    ui.addChild(this.state.surveyContainer);
     ui.addChild(this.state.editorContainer);
     // Footer is mounted later (mountFooter), not here.
   }
@@ -1066,6 +1101,7 @@ export class KimiTUI {
     main.addChild(this.state.todoPanelContainer);
     main.addChild(this.state.queueContainer);
     main.addChild(this.state.btwPanelContainer);
+    main.addChild(this.state.surveyContainer);
     main.addChild(this.state.editorContainer);
     const footerWrap = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
     footerWrap.addChild(this.state.footer);
@@ -1086,6 +1122,7 @@ export class KimiTUI {
 
   handleInputModeChange(mode: 'prompt' | 'bash'): void {
     this.setAppState({ inputMode: mode });
+    this.surveyController.notifyInputModeChanged(mode);
     this.updateEditorBorderHighlight();
   }
 
@@ -1339,12 +1376,25 @@ export class KimiTUI {
     this.messageDispatch.steerMessage(session, input);
   }
 
+  steerSkillActivation(session: Session, skillName: string, skillArgs: string): void {
+    // Ctrl-S on a queued slash-skill item: the activation fires into the
+    // running turn (the engine steers it there, never the literal text). No
+    // beginSessionRequest — the live pane belongs to the running turn.
+    void session.activateSkill(skillName, skillArgs).catch((error: unknown) => {
+      this.showError(
+        t('tui.statusMessages.skillFailed', { name: skillName, error: formatErrorMessage(error) }),
+      );
+    });
+  }
+
   handleTurnStarted(event: TurnStartedEvent): void {
     this.staging.handleTurnStarted(event);
+    this.surveyController.notifyTurnStarted(isUserSubmittedTurnOrigin(event.origin));
   }
 
   handleTurnEnded(event: TurnEndedEvent): void {
     this.staging.handleTurnEnded(event);
+    this.surveyController.notifyTurnEnded();
   }
 
   releaseStagingMedia(mediaAttachmentIds: readonly number[]): void {
@@ -1678,6 +1728,8 @@ export class KimiTUI {
       contextTokens: status.contextTokens,
       maxContextTokens: status.maxContextTokens,
       contextUsage: status.contextUsage,
+      cumulativeTokens:
+        status.usage?.total === undefined ? 0 : sumTokenUsage(status.usage.total),
       sessionTitle: session.summary?.title ?? null,
       goal: goalResult.goal,
     });
@@ -1876,6 +1928,7 @@ export class KimiTUI {
   resetSessionRuntime(): void {
     this.aborted = false;
     this.cacheHint.resetRuntime();
+    this.surveyController.reset();
     this.streamingUI.discardPending();
     this.clearQueuedMessages();
     this.state.swarmModeEntry = undefined;
@@ -2363,6 +2416,7 @@ export class KimiTUI {
   // =========================================================================
 
   mountEditorReplacement(panel: Component & Focusable): void {
+    this.surveyController.closeSilently();
     this.dialogController.mountEditorReplacement(panel);
   }
 

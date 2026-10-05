@@ -27,6 +27,14 @@ export function subagentLabels(
   return labels;
 }
 
+export function withSubagentProfile(
+  labels: Readonly<Record<string, string>> | undefined,
+  profileName: string | undefined,
+): Readonly<Record<string, string>> | undefined {
+  if (profileName === undefined || profileName.length === 0) return labels;
+  return { ...labels, profileName };
+}
+
 export function labelsFromAgentMeta(
   meta: AgentMeta,
 ): Readonly<Record<string, string>> | undefined {
@@ -90,6 +98,11 @@ export function assertSubagentDepthAllowed(meta: AgentMeta | undefined): number 
     );
   }
   return callerDepth + 1;
+}
+
+export function subagentProfileName(meta: AgentMeta | undefined): string | undefined {
+  if (meta === undefined) return undefined;
+  return firstNonEmpty(meta.labels?.['profileName']);
 }
 
 function firstNonEmpty(...values: readonly (string | undefined)[]): string | undefined {

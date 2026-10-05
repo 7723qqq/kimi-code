@@ -6,6 +6,7 @@ import type {
   ProviderConfig,
   PromptPart,
   ThinkingEffort,
+  TokenUsage,
   ToolInputDisplay,
 } from '@moonshot-ai/kimi-code-sdk';
 
@@ -74,6 +75,7 @@ export interface AppState {
   tokenSpeed: number;
   /** 会话级累计统计（轮次/步数/耗时/token），footer 第二行展示；TUI 生命周期内有效。 */
   sessionStats: SessionStats;
+  cumulativeTokens?: number;
   isCompacting: boolean;
   isReplaying: boolean;
   streamingPhase: 'idle' | 'waiting' | 'thinking' | 'composing' | 'shell';
@@ -91,6 +93,7 @@ export interface AppState {
   renderLatex?: boolean;
   /** Mirrors the TUI config toggle; defaults to true when absent from older fixtures. */
   cacheExpiryHint?: boolean;
+  disableFeedbackSurvey?: boolean;
   notifications: NotificationsConfig;
   upgrade: UpgradePreferences;
   /** Footer status line customization from tui.toml; absent means the default layout. */
@@ -125,6 +128,10 @@ export interface SessionStats {
   inputTokens: number;
   /** 累计输出 token（usage.output 精确值）。 */
   outputTokens: number;
+}
+
+export function sumTokenUsage(total: TokenUsage): number {
+  return total.inputOther + total.output + total.inputCacheRead + total.inputCacheCreation;
 }
 
 export interface StepRetryState {

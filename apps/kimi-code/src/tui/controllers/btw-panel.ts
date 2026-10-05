@@ -47,6 +47,10 @@ export class BtwPanelController {
     panel.submit(initialPrompt);
   }
 
+  isActive(): boolean {
+    return this.active !== undefined;
+  }
+
   clear(): void {
     const active = this.active;
     if (active !== undefined && this.shouldCancelOnUnmount(active.panel)) {

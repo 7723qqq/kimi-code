@@ -258,21 +258,25 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
   ): Promise<AgentLLMRequestFinish> {
     signal?.throwIfAborted();
     const startedAt = Date.now();
-    trace.set(undefined);
+    const setTrace = (traceId: string | undefined): void => {
+      trace.set(traceId);
+      if (overrides.source?.type === 'turn') {
+        this.telemetry.setContext({ trace_id: traceId });
+      }
+    };
+    setTrace(undefined);
     const sizeProbe: { bytes?: number } = {};
     try {
       return await this.runRequest(
         this.resolveRequest(overrides),
         onPart,
         signal,
-        (traceId) => {
-          trace.set(traceId);
-        },
+        setTrace,
         sizeProbe,
       );
     } catch (error) {
       this.logRequestFailure(error, overrides, signal, sizeProbe.bytes);
-      trace.set(
+      setTrace(
         this.trackApiError(error, startedAt, signal, overrides.source, trace.traceId, sizeProbe.bytes),
       );
       throw error;

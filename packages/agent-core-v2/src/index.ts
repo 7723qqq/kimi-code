@@ -63,10 +63,9 @@ export * from '#/wire/record';
 export * from '#/wire/migration/migration';
 export * from '#/session/sessionLog/sessionLogService';
 export * from '#/app/telemetry/telemetry';
+export * from '#/app/telemetry/context';
 export * from '#/app/telemetry/events';
 export * from '#/app/telemetry/telemetryService';
-export * from '#/app/telemetry/agentTelemetryContext';
-export * from '#/app/telemetry/agentTelemetryContextService';
 export * from '#/app/telemetry/consoleAppender';
 export * from '#/app/telemetry/cloudAppender';
 export * from '#/app/bootstrap/bootstrap';
@@ -336,7 +335,6 @@ import '#/features/plan/planFeature';
 export * from '#/features/fileHistory/fileHistory';
 export * from '#/features/fileHistory/fileHistoryOps';
 export * from '#/features/fileHistory/fileHistoryService';
-export * from '#/features/fileHistory/flag';
 import '#/features/fileHistory/fileHistoryFeature';
 export * from '#/features/externalHooks/configSection';
 export * from '#/features/externalHooks/app/externalHooksRunner';
@@ -371,7 +369,6 @@ export * from '#/features/goal/goalService';
 export * from '#/features/goal/goalOps';
 export * from '#/features/goal/types';
 import '#/features/goal/goalFeature';
-import '#/features/staleGuard/staleGuardFeature';
 export * from '#/features/tower/flag';
 export * from '#/features/tower/tower';
 export * from '#/features/tower/towerFeature';
@@ -588,7 +585,6 @@ export {
   READ_IMAGE_BYTE_BUDGET,
   resolveMaxImageEdgePx,
   resolveReadImageByteBudget,
-  type ImageCompressionTelemetry,
 } from '#/agent/media/image-compress';
 export {
   MODEL_ACCEPTED_IMAGE_MIMES,
@@ -657,6 +653,11 @@ export * from '#/agent/microCompaction/microCompaction';
 export * from '#/agent/microCompaction/microCompactionOps';
 export * from '#/agent/microCompaction/microCompactionService';
 export * from '#/agent/checkpoint/checkpointService';
+export * from '#/agent/fullCompaction/contextRecovery';
+export * from '#/agent/fullCompaction/compactionInstruction';
+export * from '#/features/contextBudget/contextBudgetReminder';
+export * from '#/features/contextBudget/contextBudgetService';
+import '#/features/contextBudget/contextBudgetFeature';
 export * from '#/agent/llmRequester/llmRequester';
 export * from '#/agent/llmRequester/llmRequesterService';
 export * from '#/agent/llmRequester/llmRequestOps';
@@ -669,6 +670,7 @@ export * from '#/agent/loop/loop';
 export * from '#/agent/loop/loopService';
 export * from '#/agent/loop/loopContinuation';
 export * from '#/agent/loop/loopContinuationService';
+export * from '#/agent/loop/handoffStep';
 export * from '#/agent/interruptionReminder/interruptionReminder';
 export * from '#/agent/interruptionReminder/interruptionReminderService';
 export * from '#/agent/interruptionReminder/interruptionReminderOps';

@@ -85,10 +85,6 @@ import type { PermissionRecordApprovalResult } from '@moonshot-ai/agent-core-v2/
 import type { RuntimeSetBinding } from '@moonshot-ai/agent-core-v2/agent/runtimeBinding/runtimeBindingOps';
 import type { SwarmModeEnter, SwarmModeExit } from '@moonshot-ai/agent-core-v2/features/swarm/swarmOps';
 import type { TowerModeEnter, TowerModeExit } from '@moonshot-ai/agent-core-v2/features/tower/towerOps';
-import type {
-  StaleGuardCleared,
-  StaleGuardRecorded,
-} from '@moonshot-ai/agent-core-v2/features/staleGuard/staleGuardOps';
 import type { ToolsUpdateStore } from '@moonshot-ai/agent-core-v2/features/todo/todoOps';
 
 /** A wire record with v2's literal `type` discriminant restored. v2 declares
@@ -127,6 +123,21 @@ export interface ContextReplaceToolResultRecord {
     readonly isError?: boolean;
     readonly note?: string;
   };
+}
+
+/** v2-dropped durable record: removed with the staleGuard feature, but old
+ *  wires still contain it. */
+export interface StaleGuardRecordedRecord {
+  readonly type: 'staleGuard.recorded';
+  readonly path: string;
+  readonly mtimeMs: number;
+  readonly time?: number;
+}
+
+/** v2-dropped durable record: removed with the staleGuard feature, but old
+ *  wires still contain it. */
+export interface StaleGuardClearedRecord {
+  readonly type: 'staleGuard.cleared';
   readonly time?: number;
 }
 
@@ -185,8 +196,6 @@ export type AgentRecord =
   | WireRecordOf<'prompt.completed', PromptCompleted>
   | WireRecordOf<'prompt.steered', PromptSteered>
   | WireRecordOf<'runtime.set_binding', RuntimeSetBinding>
-  | WireRecordOf<'staleGuard.cleared', StaleGuardCleared>
-  | WireRecordOf<'staleGuard.recorded', StaleGuardRecorded>
   | WireRecordOf<'swarm_mode.enter', SwarmModeEnter>
   | WireRecordOf<'swarm_mode.exit', SwarmModeExit>
   | WireRecordOf<'task.started', TaskStarted>
@@ -212,7 +221,9 @@ export type AgentRecord =
   | WireRecordOf<'usage.record', UsageRecord>
   | ContextUpdateTokenCountRecord
   | MicroCompactionApplyRecord
-  | ContextReplaceToolResultRecord;
+  | ContextReplaceToolResultRecord
+  | StaleGuardRecordedRecord
+  | StaleGuardClearedRecord;
 
 /** Extract one record kind from the union. */
 export type AgentRecordOf<K extends AgentRecord['type']> = Extract<

@@ -1124,8 +1124,8 @@ key = "${titleOAuthRef.key}"
       };
 
       await client.setTowerMode({ sessionId: 'ses_tower', enabled: true });
-      // The tower feature is flag-gated engine-side, so enter() may be a
-      // no-op; the wire must always mirror the engine truth.
+      // A refused enter() rejects with a typed reason, so a resolved call
+      // means the engine activated tower mode; the wire mirrors it.
       expect((await client.getStatus({ sessionId: 'ses_tower' })).towerMode).toBe(
         mainTower().isActive,
       );
@@ -1144,6 +1144,7 @@ key = "${titleOAuthRef.key}"
   });
 
   it('rejects setTowerMode when the tower feature is unavailable', async () => {
+    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_TOWER', '0');
     vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
     tempDirs.push(homeDir);
@@ -1154,7 +1155,10 @@ key = "${titleOAuthRef.key}"
       await client.createSession({ id: 'ses_tower_off', workDir });
 
       await expect(client.setTowerMode({ sessionId: 'ses_tower_off', enabled: true }))
-        .rejects.toMatchObject({ code: 'session.tower_mode_invalid' });
+        .rejects.toMatchObject({
+          code: 'session.tower_mode_invalid',
+          message: expect.stringContaining('the tower experiment is disabled'),
+        });
       expect((await client.getStatus({ sessionId: 'ses_tower_off' })).towerMode).toBe(false);
 
       await client.setTowerMode({ sessionId: 'ses_tower_off', enabled: false });
@@ -1384,7 +1388,7 @@ describe('SDKRpcClientV2 engine telemetry', () => {
     }
   });
 
-  it('reports the same enabled experimental flags on every session_started row', async () => {
+  it('emits session_started once per open, with the harness schema and enabled experimental flags', async () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-tel-flags-'));
     tempDirs.push(homeDir);
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-tel-flags-work-'));
@@ -1398,8 +1402,19 @@ describe('SDKRpcClientV2 engine telemetry', () => {
     });
     try {
       const session = await harness.createSession({ workDir });
+      // The harness row is the sole producer: the forwarding appender drops
+      // the engine's own session_started, or every open would double-count.
       const started = records.filter((record) => record.event === 'session_started');
-      expect(started.length).toBeGreaterThanOrEqual(2);
+      expect(started).toHaveLength(1);
+      expect(started[0]).toMatchObject({
+        sessionId: session.id,
+        properties: {
+          client_name: 'kimi-code-cli',
+          client_version: '0.0.0-test',
+          ui_mode: 'shell',
+          resumed: false,
+        },
+      });
       for (const record of started) {
         const flags = String(record.properties?.['experimental_flags'] ?? '').split(',');
         expect(flags).toContain('subagent_fork');
@@ -1407,11 +1422,46 @@ describe('SDKRpcClientV2 engine telemetry', () => {
         // `secondary-model` is the current default-enabled flag.
         expect(flags).toContain('secondary-model');
       }
-      const distinct = new Set(started.map((record) => record.properties?.['experimental_flags']));
-      expect(distinct.size).toBe(1);
       await session.close();
+      await harness.resumeSession({ id: session.id });
+      const afterResume = records.filter((record) => record.event === 'session_started');
+      expect(afterResume).toHaveLength(2);
+      expect(afterResume[1]).toMatchObject({
+        sessionId: session.id,
+        properties: { resumed: true },
+      });
+      const distinct = new Set(afterResume.map((record) => record.properties?.['experimental_flags']));
+      expect(distinct.size).toBe(1);
     } finally {
       await harness.close();
+    }
+  });
+
+  it('keeps forwarding the engine session_started to a direct SDKRpcClientV2 consumer', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-tel-direct-'));
+    tempDirs.push(homeDir);
+    const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-tel-direct-work-'));
+    tempDirs.push(workDir);
+    const records: TelemetryRecord[] = [];
+    const client = new SDKRpcClientV2({
+      homeDir,
+      identity: TEST_IDENTITY,
+      telemetry: recordingTelemetry(records),
+    });
+    try {
+      // No harness wraps this client, so nothing else emits session_started —
+      // the engine's own row must survive forwarding.
+      const summary = await client.createSession({ workDir });
+      const started = records.filter((record) => record.event === 'session_started');
+      expect(started).toHaveLength(1);
+      expect(started[0]).toMatchObject({ properties: { resumed: false } });
+      await client.closeSession({ sessionId: summary.id });
+      await client.resumeSession({ id: summary.id });
+      const afterResume = records.filter((record) => record.event === 'session_started');
+      expect(afterResume).toHaveLength(2);
+      expect(afterResume[1]).toMatchObject({ properties: { resumed: true } });
+    } finally {
+      await client.close();
     }
   });
 });

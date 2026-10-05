@@ -127,7 +127,6 @@ export {
   MAX_IMAGE_EDGE_PX,
 } from '@moonshot-ai/agent-core-v2';
 export type {
-  ImageCompressionTelemetry,
   StrictPropertyCheck,
   TelemetryEventName,
   TelemetryEventPayload,

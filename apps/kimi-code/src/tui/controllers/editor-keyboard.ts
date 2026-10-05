@@ -7,6 +7,7 @@ import type {
   Session,
 } from '@moonshot-ai/kimi-code-sdk';
 import { compressImageForModel } from '@moonshot-ai/kimi-code-sdk';
+import { Key, matchesKey } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import {
@@ -23,6 +24,7 @@ import {
   getCtrlCHint,
   getCtrlDHint,
   getLlmNotSetMessage,
+  getNoActiveSessionMessage,
 } from '../constant/kimi-tui';
 import { MEDIA_STAGING_TTL_SECONDS } from '../constant/media';
 import { formatErrorMessage } from '../utils/event-payload';
@@ -33,13 +35,22 @@ import type {
 } from '../utils/image-attachment-store';
 import { extractMediaAttachments, imageExtensionForMime } from '../utils/image-placeholder';
 import type { ExtractionResult } from '../utils/image-placeholder';
+import { extractInlineSkillActivations } from '../utils/inline-skill-tokens';
 import type { PendingExit, QueuedMessage, SteerInputItem } from '../types';
 import type { TUIState } from '../tui-state';
 import type { BtwPanelController } from './btw-panel';
+import type { SurveyController } from './survey-controller';
 
 export interface EditorKeyboardHost {
   state: TUIState;
   session: Session | undefined;
+  /**
+   * True when the TUI runs on the agent-core-v2 engine (startup-selected).
+   * Gates the paste-time upload to the daemon file store; the v1 engine has
+   * no file store, so images keep the submit-time inline base64 form and
+   * videos cannot be submitted at all.
+   */
+  readonly engineV2: boolean;
   cancelInFlight: (() => void) | undefined;
   /**
    * The host's harness (KimiTUI always has one). Its `imageLimits` drives
@@ -50,7 +61,10 @@ export interface EditorKeyboardHost {
 
   handleUserInput(text: string): void;
   readonly btwPanelController: BtwPanelController;
+  readonly surveyController: SurveyController;
+  readonly skillCommandMap: Map<string, string>;
   steerMessage(session: Session, input: readonly SteerInputItem[]): void;
+  steerSkillActivation(session: Session, skillName: string, skillArgs: string): void;
   validateMediaCapabilities(extraction: {
     hasMedia: boolean;
     imageAttachmentIds: readonly number[];
@@ -93,11 +107,13 @@ export class EditorKeyboardController {
     const editor = host.state.editor;
 
     editor.onSubmit = (text: string) => {
+      if (host.surveyController.handleSubmit(text)) return;
       host.handleUserInput(text);
     };
 
     editor.onChange = (text: string) => {
       if (this.pendingExit) this.clearPendingExit();
+      host.surveyController.handleEditorChange(text);
       host.updateEditorBorderHighlight(text);
       // Expanding paste markers costs a full-text pass, and only `/goal`
       // input can trip the objective length limit — so skip the expansion
@@ -158,6 +174,13 @@ export class EditorKeyboardController {
 
     editor.onNonEscapeInput = () => {
       this.clearPendingUndoEsc();
+    };
+
+    editor.onPreInput = (data: string) => {
+      if (matchesKey(data, Key.escape)) this.clearPendingExit();
+      const consumed = host.surveyController.handlePreInput(data);
+      if (consumed) this.clearPendingUndoEsc();
+      return consumed;
     };
 
     editor.onCtrlC = () => {
@@ -259,7 +282,11 @@ export class EditorKeyboardController {
         host.handlePlanToggle(next);
       };
       if (host.session === undefined) {
-        // Session-less: lazy-create the session, then toggle — the same
+        if (!host.engineV2) {
+          host.showError(getNoActiveSessionMessage());
+          return;
+        }
+        // v2 session-less: lazy-create the session, then toggle — the same
         // path /plan takes.
         void host.ensureSession().then((session) => {
           if (session !== undefined) togglePlan();
@@ -274,6 +301,7 @@ export class EditorKeyboardController {
     };
 
     editor.onOpenExternalEditor = () => {
+      host.surveyController.closeSilently();
       host.track('shortcut_editor');
       void this.openExternalEditor();
     };
@@ -364,16 +392,43 @@ export class EditorKeyboardController {
 
     // Bash commands (`! …`) are not steerable: keep them queued so they run
     // after the current task instead of being injected into the turn as text.
+    // A message carrying inline-skill activations also stays queued (and
+    // everything after it keeps FIFO order): its grouped submission must not
+    // be spliced around. Everything else steers in queue order — plain text as
+    // a steered message, slash-skill items as activations fired into the
+    // running turn (never as literal text).
     const queued = host.state.queuedMessages;
-    const steerable = queued.filter((m) => m.mode !== 'bash');
+    const firstBundle = queued.findIndex((m) => m.inlineSkillActivations !== undefined);
+    const windowBeforeFirstBundle = firstBundle === -1 ? queued : queued.slice(0, firstBundle);
+    const steerable = windowBeforeFirstBundle.filter((m) => m.mode !== 'bash');
+    const editorHasInlineSkills =
+      !editorIsBash &&
+      text.length > 0 &&
+      host.engineV2 &&
+      extractInlineSkillActivations(text, host.skillCommandMap).length > 0;
 
-    const items: SteerInputItem[] = [];
+    type SteerRun =
+      | { readonly kind: 'text'; readonly items: SteerInputItem[] }
+      | { readonly kind: 'skill'; readonly skillName: string; readonly skillArgs: string };
+    const runs: SteerRun[] = [];
+    let textRun: SteerInputItem[] = [];
+    const flushTextRun = (): void => {
+      if (textRun.length > 0) {
+        runs.push({ kind: 'text', items: textRun });
+        textRun = [];
+      }
+    };
     for (const m of steerable) {
+      if (m.mode === 'skill' && m.skillName !== undefined) {
+        flushTextRun();
+        runs.push({ kind: 'skill', skillName: m.skillName, skillArgs: m.skillArgs ?? '' });
+        continue;
+      }
       const trimmed = m.text.trim();
       if (trimmed.length > 0) {
         // Queued items carry the parts extracted when they were submitted
         // (and were already capability-validated then).
-        items.push({
+        textRun.push({
           text: trimmed,
           parts: m.parts,
           imageAttachmentIds: m.imageAttachmentIds,
@@ -382,7 +437,7 @@ export class EditorKeyboardController {
       }
     }
     let editorExtraction: ExtractionResult | undefined;
-    if (!editorIsBash && text.length > 0) {
+    if (!editorIsBash && text.length > 0 && !editorHasInlineSkills && firstBundle === -1) {
       try {
         editorExtraction = await extractMediaAttachments(
           text,
@@ -400,7 +455,7 @@ export class EditorKeyboardController {
         );
         return;
       }
-      items.push({
+      textRun.push({
         text,
         parts: editorExtraction.hasMedia ? editorExtraction.parts : undefined,
         imageAttachmentIds:
@@ -413,8 +468,9 @@ export class EditorKeyboardController {
             : undefined,
       });
     }
+    flushTextRun();
 
-    if (items.length > 0) {
+    if (runs.length > 0) {
       // The editor draft is fresh input: gate it on the model's media
       // capabilities before splicing the queue, so a rejection leaves the
       // queue and the draft untouched.
@@ -425,6 +481,9 @@ export class EditorKeyboardController {
         ]);
         return;
       }
+    }
+
+    if (runs.length > 0) {
       const session = host.session;
       if (host.state.appState.model.trim().length === 0 || session === undefined) {
         host.releaseStagingMedia([
@@ -432,13 +491,22 @@ export class EditorKeyboardController {
           ...(editorExtraction?.videoAttachmentIds ?? []),
         ]);
         host.showError(getLlmNotSetMessage());
-      } else {
-        // Mutate the queue/editor only after the guard passes, so an
-        // early-return here never drops the user's queued non-bash items or
-        // the draft text.
-        host.state.queuedMessages = queued.filter((m) => m.mode === 'bash');
-        if (!editorIsBash) editor.setText('');
-        host.steerMessage(session, items);
+        return;
+      }
+      // Mutate the queue/editor only after the guard passes, so an
+      // early-return here never drops the user's queued non-bash items or
+      // the draft text. Bash items and everything from the first inline-skill
+      // bundle onward stay queued.
+      host.state.queuedMessages = queued.filter(
+        (m, index) => m.mode === 'bash' || (firstBundle !== -1 && index >= firstBundle),
+      );
+      if (!editorIsBash && !editorHasInlineSkills && firstBundle === -1) editor.setText('');
+      for (const run of runs) {
+        if (run.kind === 'text') {
+          host.steerMessage(session, run.items);
+        } else {
+          host.steerSkillActivation(session, run.skillName, run.skillArgs);
+        }
       }
     }
     host.updateQueueDisplay();
@@ -646,13 +714,12 @@ export class EditorKeyboardController {
       const compressed = await compressImageForModel(originalBytes, originalMime, {
         maxEdge: this.host.harness?.imageLimits?.maxEdgePx(),
         telemetry: {
-          client: {
-            track: (event: string, properties?: Readonly<Record<string, unknown>>) => {
-              this.host.track(event, properties as Record<string, unknown> | undefined);
-            },
+          _serviceBrand: undefined,
+          track2: (event: string, properties?: Readonly<Record<string, unknown>>) => {
+            this.host.track(event, properties as Record<string, unknown> | undefined);
           },
-          source: 'tui_paste',
-        },
+        } as unknown as NonNullable<Parameters<typeof compressImageForModel>[2]>['telemetry'],
+        telemetrySource: 'tui_paste',
       });
       // Dimensions come from the compression result, not parseImageMeta: the
       // compressor reports display space (EXIF orientation applied) — the space

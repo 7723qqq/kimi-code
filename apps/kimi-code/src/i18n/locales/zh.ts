@@ -1122,6 +1122,8 @@ export default {
       shellCommandFailed: 'Shell 命令失败：{{message}}',
       modelNoImageInput: '当前模型不支持图片输入。',
       modelNoVideoInput: '当前模型不支持视频输入。',
+      permissionModeChanged: '权限模式：{{mode}}',
+      skillFailed: '技能 "{{name}}" 执行失败：{{error}}',
       failedToPrepareMediaAttachment: '准备媒体附件失败：{{error}}',
       alreadyOnSession: '已在此会话上。',
       cannotSwitchWhileStreaming: '无法在流式传输时切换会话——请先按 Esc 或 Ctrl-C。',

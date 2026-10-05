@@ -85,7 +85,6 @@ import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentTelemetryContextService } from '#/app/telemetry/agentTelemetryContext';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
@@ -345,11 +344,13 @@ describe('AgentLifecycleService', () => {
       }),
       cancel: loopCancel,
       settled: loopSettled,
+      tryAcquireQuiescence: vi.fn(() => ({ dispose: vi.fn() })),
     } as unknown as IAgentLoopService);
     promptDrain = vi.fn<IAgentPromptService['drain']>(async () => {});
     ix.stub(IAgentPromptService, {
       _serviceBrand: undefined,
       drain: promptDrain,
+      list: () => ({ launching: false, active: undefined, pending: [] }),
     } as unknown as IAgentPromptService);
     ix.stub(ITelemetryService, {
       _serviceBrand: undefined,
@@ -359,11 +360,6 @@ describe('AgentLifecycleService', () => {
         track2: () => {},
       }) as unknown as ITelemetryService,
     } as unknown as ITelemetryService);
-    ix.stub(IAgentTelemetryContextService, {
-      _serviceBrand: undefined,
-      get: () => ({ mode: 'agent' }),
-      set: () => {},
-    });
     ix.stub(IHostEnvironment, { _serviceBrand: undefined } as IHostEnvironment);
     ix.stub(IHostFileSystem, { _serviceBrand: undefined } as IHostFileSystem);
     ix.stub(IHostClock, { _serviceBrand: undefined } as IHostClock);
@@ -509,6 +505,15 @@ describe('AgentLifecycleService', () => {
     await svc.remove(main);
     expect(svc.get('main')).toBeUndefined();
     expect(svc.handleOf('main')).toBeUndefined();
+  });
+
+  it('remove flushes the agent wire journal before disposal', async () => {
+    const svc = ix.get(IAgentLifecycleService);
+    await svc.create({ agentId: 'main' });
+    const dispatcher = svc.handleOf('main')!.accessor.get(IEventDispatcher);
+    const flush = vi.spyOn(dispatcher, 'flush');
+    await svc.remove(svc.get('main')!);
+    expect(flush).toHaveBeenCalled();
   });
 
   it('remove keeps the lifecycle context active through async scope teardown', async () => {
@@ -823,11 +828,11 @@ describe('AgentLifecycleService', () => {
 
     expect(records).toContainEqual({
       event: 'yolo_toggle',
-      properties: { agent_id: 'main', enabled: true },
+      properties: { agent_id: 'main', enabled: true, mode: 'agent' },
     });
     expect(records).toContainEqual({
       event: 'yolo_toggle',
-      properties: { agent_id: sub.agentId, enabled: false },
+      properties: { agent_id: sub.agentId, enabled: false, mode: 'agent' },
     });
   });
 
@@ -1256,6 +1261,56 @@ describe('AgentLifecycleService', () => {
     expect(registerAgent).toHaveBeenCalledWith(
       'forked',
       expect.objectContaining({ forkedFrom: 'main', labels: { parentAgentId: 'main' } }),
+    );
+  });
+
+  it('records the bound profile in the subagent metadata at registration', async () => {
+    const svc = ix.get(IAgentLifecycleService);
+
+    await svc
+      .create({
+        agentId: 'child',
+        binding: { profile: 'coder', model: 'kimi-test' },
+        labels: { parentAgentId: 'main' },
+      })
+      .catch(() => undefined);
+
+    expect(registerAgent).toHaveBeenCalledWith(
+      'child',
+      expect.objectContaining({
+        type: 'sub',
+        labels: { parentAgentId: 'main', profileName: 'coder' },
+      }),
+    );
+  });
+
+  it('fork records the inherited profile in the subagent metadata', async () => {
+    const svc = ix.get(IAgentLifecycleService);
+    const source = await svc.create({ agentId: 'main' });
+    svc.handleOf('main')!.accessor.get(IAgentProfileService).applyBindingSnapshot({
+      profileName: 'coder',
+      thinkingLevel: 'off',
+      systemPrompt: 'coder prompt',
+      activeToolNames: ['Read'],
+      disallowedTools: [],
+      subagents: undefined,
+    });
+
+    await svc.fork(agentContextOf(svc.handleOf(source.agentId)!), {
+      agentId: 'forked',
+      labels: { parentAgentId: 'main' },
+    });
+
+    expect(registerAgent).toHaveBeenCalledWith(
+      'forked',
+      expect.objectContaining({
+        forkedFrom: 'main',
+        labels: { parentAgentId: 'main', profileName: 'coder' },
+      }),
+    );
+    expect(registerAgent).toHaveBeenCalledWith(
+      'main',
+      expect.objectContaining({ type: 'main', labels: undefined }),
     );
   });
 

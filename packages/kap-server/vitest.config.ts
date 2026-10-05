@@ -10,6 +10,8 @@ export default defineConfig({
     name: 'kap-server',
     include: ['test/**/*.{test,e2e}.ts'],
     setupFiles: ['test/setup.ts'],
+    globalSetup: ['test/globalSetup.ts'],
+    testTimeout: 15_000,
     // Under the Bun runtime, vitest trips over zod's CJS-getter exports unless zod is inlined.
     server: {
       deps: {

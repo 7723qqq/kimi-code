@@ -52,10 +52,10 @@ export interface AgentProfile {
   readonly tools?: readonly string[];
   readonly disallowedTools?: readonly string[];
   readonly subagents?: readonly string[];
+  readonly summaryPolicy?: AgentProfileSummaryPolicy;
   readonly systemPrompt: (context: AgentProfileContext) => string;
   readonly renderSystemPrompt: (context: AgentProfileContext) => SystemPromptRenderResult;
   readonly promptPrefix?: (ctx: AgentProfilePromptPrefixContext) => Promise<string>;
-  readonly summaryPolicy?: AgentProfileSummaryPolicy;
 }
 
 export type AgentProfileInput = Omit<AgentProfile, 'systemPrompt' | 'renderSystemPrompt'> &

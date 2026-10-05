@@ -140,6 +140,9 @@ export async function runShell(
     startupNotice: configWarning,
     migrationPlan,
     migrateOnly: runOptions.migrateOnly,
+    // The fork runs agent-core-v2 only, so this is always the v2 engine.
+    engineV2: true,
+    telemetryDisabled: config.telemetry === false,
   });
 
   initializeCliTelemetry({

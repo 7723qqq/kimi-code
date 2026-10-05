@@ -26,7 +26,6 @@ import { handleAddDirCommand } from './add-dir';
 import { handleLoginCommand, handleLogoutCommand } from './auth';
 import { handleBtwCommand } from './btw';
 import {
-  handleAutoCommand,
   handleCompactCommand,
   handleEditorCommand,
   handleEffortCommand,
@@ -34,7 +33,6 @@ import {
   handlePlanCommand,
   handleSecondaryModelCommand,
   handleThemeCommand,
-  handleYoloCommand,
   showExperimentsPanel,
   showModelPicker,
   showPermissionPicker,
@@ -82,7 +80,6 @@ export { handleBtwCommand } from './btw';
 export { handleCopyCommand } from './copy';
 export { handleAddDirCommand } from './add-dir';
 export {
-  handleAutoCommand,
   handleCompactCommand,
   handleEditorCommand,
   handleEffortCommand,
@@ -90,7 +87,6 @@ export {
   handlePlanCommand,
   handleSecondaryModelCommand,
   handleThemeCommand,
-  handleYoloCommand,
   showModelPicker,
   showExperimentsPanel,
   showPermissionPicker,
@@ -120,6 +116,8 @@ export interface SlashCommandHost {
   state: TUIState;
   session: Session | undefined;
   readonly harness: KimiHarness;
+  /** True when the TUI runs on the agent-core-v2 engine (startup-selected). */
+  readonly engineV2: boolean;
   cancelInFlight: (() => void) | undefined;
   deferUserMessages: boolean;
 
@@ -565,10 +563,10 @@ async function handleBuiltInSlashCommand(
       await handleTitleCommand(host, args);
       return;
     case 'ask-when-needed':
-      await handleYoloCommand(host, args);
+      showPermissionPicker(host, 'yolo');
       return;
     case 'never-ask':
-      await handleAutoCommand(host, args);
+      showPermissionPicker(host, 'auto');
       return;
     case 'plan':
       await handlePlanCommand(host, args);

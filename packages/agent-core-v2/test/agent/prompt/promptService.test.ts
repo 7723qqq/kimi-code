@@ -108,7 +108,7 @@ function harness(loopOptions: StubLoopOptions = { pendingTurnResult: true }) {
       reg.define(IEventBus, EventBusService);
       reg.defineInstance(IAgentReminderService, reminder);
       reg.define(IAgentPromptService, AgentPromptService);
-      reg.definePartialInstance(ITelemetryService, { track: () => {}, track2: () => {} });
+      reg.definePartialInstance(ITelemetryService, { track2: () => {} });
       reg.definePartialInstance(ISessionMetadata, {
         read: async () => ({ id: 'test-session', createdAt: 0, updatedAt: 0, archived: false }),
         update: async () => {},
@@ -245,7 +245,7 @@ describe('AgentPromptService', () => {
   it('keeps injections outside the prompt queue', async () => {
     const { prompt } = harness();
     await prompt.inject({ ...message('system'), origin: { kind: 'injection', variant: 'test' } });
-    expect(prompt.list()).toEqual({ active: undefined, pending: [] });
+    expect(prompt.list()).toEqual({ active: undefined, pending: [], launching: false });
   });
 
   it('settles blocked prompts', async () => {
@@ -256,6 +256,26 @@ describe('AgentPromptService', () => {
     const handle = await prompt.enqueue({ message: message('blocked') });
     await expect(handle.completion).resolves.toMatchObject({ state: 'blocked' });
     expect(completed.map((event) => [event.promptId, event.reason])).toEqual([[handle.id, 'blocked']]);
+  });
+
+  it('marks the launch window as busy in the queue snapshot', async () => {
+    const { prompt } = harness();
+    let releaseHook!: () => void;
+    prompt.hooks.onBeforeSubmitPrompt.register('gate', async (_ctx, next) => {
+      await new Promise<void>((resolve) => {
+        releaseHook = resolve;
+      });
+      await next();
+    });
+    const enqueued = prompt.enqueue({ message: message('launching') });
+    await vi.waitFor(() => {
+      expect(prompt.list().launching).toBe(true);
+    });
+    expect(prompt.list().active).toBeUndefined();
+    expect(prompt.list().pending).toEqual([]);
+    releaseHook();
+    await enqueued;
+    expect(prompt.list().launching).toBe(false);
   });
 
   it('delivers a blocked prompt’s compression captions right after their host message', async () => {
@@ -294,7 +314,7 @@ describe('AgentPromptService', () => {
     expect(handle.state).toBe('failed');
     await expect(handle.launched).resolves.toBeUndefined();
     await expect(handle.completion).resolves.toMatchObject({ state: 'failed', result: undefined });
-    expect(prompt.list()).toEqual({ active: undefined, pending: [] });
+    expect(prompt.list()).toEqual({ active: undefined, pending: [], launching: false });
   });
 
   it('replaces an unsupported prompt image with a text notice at the history funnel', async () => {

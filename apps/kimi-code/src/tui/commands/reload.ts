@@ -23,8 +23,11 @@ export async function handleReloadCommand(host: SlashCommandHost): Promise<void>
   const session = host.session;
 
   if (session !== undefined) {
-    await session.reloadSession({ forcePluginSessionStartReminder: true });
-    await host.reloadCurrentSessionView(session, t('tui.statusMessages.reloadSession'));
+    const reloadedSession = await host.harness.reloadSession({
+      id: session.id,
+      forcePluginSessionStartReminder: true,
+    });
+    await host.reloadCurrentSessionView(reloadedSession, t('tui.statusMessages.reloadSession'));
   }
 
   const config = await host.harness.getConfig({ reload: true });
@@ -67,6 +70,7 @@ export async function applyReloadedTuiConfig(
     disablePasteBurst: config.disablePasteBurst,
     renderLatex: config.renderLatex,
     cacheExpiryHint: config.cacheExpiryHint,
+    disableFeedbackSurvey: config.disableFeedbackSurvey,
     notifications: config.notifications,
     upgrade: config.upgrade,
     statusLine: config.statusLine,

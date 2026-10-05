@@ -220,6 +220,24 @@ export interface CompactionFinishedEvent {
   input_cache_read?: number;
   input_cache_creation?: number;
   trace_id?: string;
+  ahead_reminder_delivered: boolean;
+  ahead_steps_count?: number;
+  ahead_write_calls_count?: number;
+  ahead_bash_calls_count?: number;
+  ahead_todo_calls_count?: number;
+}
+
+export interface ContextBudgetReminderEvent {
+  bucket: 'half' | 'three_quarters';
+  used_tokens: number;
+  trigger_tokens: number;
+  max_tokens: number;
+}
+
+export interface CompactionAheadReminderEvent {
+  used_tokens: number;
+  trigger_tokens: number;
+  lead_tokens: number;
 }
 
 export interface MicroCompactionFinishedEvent {
@@ -363,6 +381,11 @@ export interface ToolCallTurnRepeatEvent {
   turn_repeat_count: number;
   args_hash: string;
   trace_id?: string;
+}
+
+export interface ToolCallRepeatHandoffEvent {
+  turn_id?: number;
+  outcome: 'text' | 'vetoed';
 }
 
 export interface AgentsMdReminderShownEvent {
@@ -811,6 +834,31 @@ export const telemetryEventDefinitions = {
       input_cache_creation: 'Cache-creation input tokens',
       trace_id:
         'Trace id of the final compaction request round; absent for non-Kimi protocols',
+      ahead_reminder_delivered:
+        'Whether the compaction-ahead reminder had been delivered in the compacted window',
+      ahead_steps_count: 'Assistant steps taken between the compaction-ahead reminder and compaction',
+      ahead_write_calls_count: 'Write/Edit tool calls made after the compaction-ahead reminder',
+      ahead_bash_calls_count: 'Bash tool calls made after the compaction-ahead reminder',
+      ahead_todo_calls_count: 'Todo tool calls made after the compaction-ahead reminder',
+    },
+  }),
+  context_budget_reminder: defineAgentTelemetryEvent<ContextBudgetReminderEvent>({
+    owner: 'kimi-code',
+    comment: 'The model is told how much of its context budget is used, once per bucket.',
+    properties: {
+      bucket: 'Share of the compaction trigger reached: half or three_quarters',
+      used_tokens: 'Context tokens in use when the reminder was injected',
+      trigger_tokens: 'Token count at which automatic compaction triggers',
+      max_tokens: 'Effective context window size in tokens',
+    },
+  }),
+  compaction_ahead_reminder: defineAgentTelemetryEvent<CompactionAheadReminderEvent>({
+    owner: 'kimi-code',
+    comment: 'The model is warned once per window that automatic compaction is imminent.',
+    properties: {
+      used_tokens: 'Context tokens in use when the reminder was injected',
+      trigger_tokens: 'Token count at which automatic compaction triggers',
+      lead_tokens: 'Tokens between the reminder threshold and the compaction trigger',
     },
   }),
   micro_compaction_finished: defineAgentTelemetryEvent<MicroCompactionFinishedEvent>({
@@ -1007,6 +1055,14 @@ export const telemetryEventDefinitions = {
       args_hash: 'Hash of the tool call arguments',
       trace_id:
         'Trace id of the LLM request that produced the repeated tool call; absent for non-Kimi protocols',
+    },
+  }),
+  tool_call_repeat_handoff: defineAgentTelemetryEvent<ToolCallRepeatHandoffEvent>({
+    owner: 'kimi-code',
+    comment: 'The text-only handoff step that follows a repeat-breaker force stop finished.',
+    properties: {
+      turn_id: 'Per-agent turn index (main or subagent); pair with agent_id to locate a turn within a session; omitted when no turn is active',
+      outcome: 'Whether the model answered in text or its tool calls were vetoed',
     },
   }),
   agents_md_reminder_shown: defineAgentTelemetryEvent<AgentsMdReminderShownEvent>({

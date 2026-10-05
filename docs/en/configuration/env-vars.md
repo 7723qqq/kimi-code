@@ -1,11 +1,11 @@
 # Environment variables
 
-Kimi Code CLI uses environment variables to control a small number of runtime behaviors — relocating the data directory, turning off telemetry, and temporarily switching models without touching the config file.
+Kimi Code CLI uses environment variables to control a small number of runtime behaviors: relocating the data directory, turning off telemetry, and temporarily switching models without touching the config file.
 
 ::: warning Important: API keys are not configured here
-Credential variables such as `KIMI_API_KEY`, `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY` are **not** read automatically from shell environment variables. Running `export KIMI_API_KEY=xxx` in the terminal does not give any provider its key — they must be written in `config.toml` under `[providers.<name>]` or the `[providers.<name>.env]` sub-table.
+Credential variables such as `KIMI_API_KEY`, `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY` are **not** read automatically from shell environment variables. Running `export KIMI_API_KEY=xxx` in the terminal does not give any provider its key. They must be written in `config.toml` under `[providers.<name>]` or the `[providers.<name>.env]` sub-table.
 
-The only exception is the `KIMI_MODEL_*` family, which is an explicit channel that *does* read credentials from the shell — see [Define a model from environment variables](#define-a-model-from-environment-variables-kimi-model).
+The only exception is the `KIMI_MODEL_*` family, an explicit channel that *does* read credentials from the shell. See [Define a model from environment variables](#define-a-model-from-environment-variables-kimi_model_).
 
 For background, see [Config overrides: provider credentials](./overrides.md#provider-credentials).
 :::
@@ -34,11 +34,15 @@ export KIMI_DISABLE_TELEMETRY=1
 
 ### `KIMI_MODEL_*` family
 
-Switch models temporarily without modifying `config.toml` — when `KIMI_MODEL_NAME` is set, the CLI synthesizes a temporary provider in memory; the change does not persist after restart. See [Define a model from environment variables](#define-a-model-from-environment-variables-kimi-model).
+Switch models temporarily without modifying `config.toml`: when `KIMI_MODEL_NAME` is set, the CLI synthesizes a temporary provider in memory, and the change does not persist after restart. See [Define a model from environment variables](#define-a-model-from-environment-variables-kimi_model_).
 
 ### `KIMI_CODE_CUSTOM_HEADERS`
 
-Attaches custom HTTP headers to every outbound model request — both LLM chat requests (across all provider protocols) and `/models` listing requests. Useful when a gateway routes by header, for example to pin a specific cluster:
+::: info Added
+Added in 0.20.2.
+:::
+
+Attaches custom HTTP headers to every outbound model request: both LLM chat requests (across all provider protocols) and `/models` listing requests carry them. Useful when a gateway routes by header, for example to pin a specific cluster:
 
 ```sh
 export KIMI_CODE_CUSTOM_HEADERS=$'X-Gateway-Cluster: my-cluster\nX-Custom-Tag: debug'
@@ -46,15 +50,11 @@ export KIMI_CODE_CUSTOM_HEADERS=$'X-Gateway-Cluster: my-cluster\nX-Custom-Tag: d
 
 The format mirrors `ANTHROPIC_CUSTOM_HEADERS`: newline-separated `Name: Value` lines. Names and values are trimmed, and lines without a colon are ignored.
 
-::: info Added
-Added in 0.20.2.
-:::
-
-> Precedence: the Kimi identity headers (`User-Agent`, `X-Msh-*`) and a provider's `custom_headers` in `config.toml` (see [Config files](./config-files.md#providers)) override same-named entries here. Authentication is protocol-dependent: on the `kimi`, `openai`, and `openai_responses` protocols an exact `Authorization` entry replaces the generated bearer token, while `/models` listing requests keep their own authentication. A case variant such as `authorization` is never treated as the same name — it is combined with the real header, which can break requests. Do not use this variable for authentication or other reserved headers. Use `custom_headers` when headers need to differ per provider.
+> Precedence: the Kimi identity headers (`User-Agent`, `X-Msh-*`) and a provider's `custom_headers` in `config.toml` (see [Config files](./config-files.md#providers)) override same-named entries here. Authentication is protocol-dependent: on the `kimi`, `openai`, and `openai_responses` protocols an exact `Authorization` entry replaces the generated bearer token, while `/models` listing requests keep their own authentication. A case variant such as `authorization` is never treated as the same name. It merges with the real header, which can break requests. Do not use this variable for authentication or other reserved headers. Use `custom_headers` when headers need to differ per provider.
 
 ## Provider credential key names (written in config.toml)
 
-The key names below are not read directly from the shell — they are key names written inside the `[providers.<name>.env]` sub-table of `config.toml`, serving as fallback values for `api_key` / `base_url`. The CLI reads only from the config file, not from `process.env`.
+The key names below are not read directly from the shell. They are key names written inside the `[providers.<name>.env]` sub-table of `config.toml`, serving as fallback values for `api_key` / `base_url`. The CLI reads only from the config file, not from `process.env`.
 
 This design lets you keep familiar key name conventions while centralizing secret management in the config file:
 
@@ -80,7 +80,7 @@ Key names per provider:
 | `GOOGLE_CLOUD_LOCATION` | Vertex AI | None |
 
 ::: warning
-`GOOGLE_APPLICATION_CREDENTIALS` (path to a service account JSON file) is the only exception that goes through the system environment variable mechanism — it is read by the Google SDK directly via the standard ADC flow, and the CLI does not participate. All other key names must be placed in the `[providers.<name>.env]` sub-table to take effect.
+`GOOGLE_APPLICATION_CREDENTIALS` (path to a service account JSON file) is the only exception that goes through the system environment variable mechanism. It is read by the Google SDK directly via the standard ADC flow; the CLI does not participate. All other key names must be placed in the `[providers.<name>.env]` sub-table to take effect.
 :::
 
 For the full provider type and field reference, see [Providers and models](./providers.md).
@@ -113,7 +113,7 @@ A `token` or `base_url` written in the `[github]` section of `config.toml` alway
 
 ## Define a model from environment variables (`KIMI_MODEL_*`)
 
-Want to switch models for testing without touching `config.toml`? When `KIMI_MODEL_NAME` is set, the CLI synthesizes a temporary provider and model alias from the `KIMI_MODEL_*` variables in memory — nothing is written back to the config file. These variables take priority over `default_model` in `config.toml`, but the `-m <alias>` option at startup still has the highest priority.
+Want to switch models for testing without touching `config.toml`? When `KIMI_MODEL_NAME` is set, the CLI synthesizes a temporary provider and model alias from the `KIMI_MODEL_*` variables in memory; nothing is written back to the config file. These variables take priority over `default_model` in `config.toml`, but the `-m <alias>` option at startup still has the highest priority.
 
 ```sh
 export KIMI_MODEL_NAME="kimi-for-coding"
@@ -179,11 +179,11 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_CODE_LEGACY_FLAG` | Use the legacy `agent-core` engine for `kimi`, `kimi -p`, `kimi doctor`, `kimi export`, and `kimi provider`; these commands use `agent-core-v2` by default | `1`, `true`, `yes`, `on` |
 | `KIMI_SHELL_PATH` | Override the Git Bash path on Windows (used when auto-detection fails) | Absolute path |
 | `KIMI_MODEL_MAX_COMPLETION_TOKENS` | Hard cap on `max_completion_tokens` per LLM step; applies to the `kimi` provider only | Positive integer; `0` or negative disables clamping |
-| `KIMI_MODEL_TEMPERATURE` | Sampling temperature for every request; applies to the `kimi` provider only (global — independent of `KIMI_MODEL_NAME`) | Number, e.g. `0.3` |
-| `KIMI_MODEL_TOP_P` | Nucleus-sampling `top_p` for every request; applies to the `kimi` provider only (global) | Number, e.g. `0.95` |
-| `KIMI_MODEL_THINKING_EFFORT` | Force a specific thinking effort on the wire (`thinking.effort`), bypassing the model's declared `support_efforts`; applies to the `kimi` provider only, and only while Thinking is on | An effort value, e.g. `max` |
-| `KIMI_MODEL_THINKING_KEEP` | Preserved-thinking passthrough; on `kimi` sent as `thinking.keep`, on `anthropic` (Claude and Kimi's Anthropic-compatible mode) sent as a `context_management` `clear_thinking_20251015` edit (enabling keep routes Anthropic requests to the beta Messages API); overrides `[thinking] keep` (which defaults to `"all"`); only injected while Thinking is on | A value the API accepts, e.g. `all`; an off-value (`false`/`0`/`no`/`off`/`none`/`null`) disables it |
-| `KIMI_CODE_NO_AUTO_UPDATE` | Fully disable the update preflight — no check, background install, or prompt. Legacy alias `KIMI_CLI_NO_AUTO_UPDATE` is also honored | Truthy: `1`/`true`/`yes`/`on` |
+| `KIMI_MODEL_TEMPERATURE` | Sampling temperature for every request; `kimi` provider only (global, independent of `KIMI_MODEL_NAME`) | Number, e.g. `0.3` |
+| `KIMI_MODEL_TOP_P` | Nucleus-sampling `top_p` for every request; `kimi` provider only (global) | Number, e.g. `0.95` |
+| `KIMI_MODEL_THINKING_EFFORT` | Force a thinking effort (`thinking.effort`), bypassing the model's declared `support_efforts`; `kimi` provider only | An effort value, e.g. `max` |
+| `KIMI_MODEL_THINKING_KEEP` | Preserved-thinking passthrough: `thinking.keep` on `kimi`, a `clear_thinking_20251015` edit on `anthropic`; overrides `[thinking] keep` | A value the API accepts, e.g. `all`; an off-value (`false`/`0`/`no`/`off`/`none`/`null`) disables it |
+| `KIMI_CODE_NO_AUTO_UPDATE` | Fully disable the update preflight: no check, background install, or prompt. Legacy alias `KIMI_CLI_NO_AUTO_UPDATE` also honored | Truthy: `1`/`true`/`yes`/`on` |
 | `KIMI_DISABLE_CRON` | Disable the scheduled-task tool (`CronCreate` rejects new schedules; existing tasks do not fire) | `1` to disable |
 
 The `KIMI_CODE_INFINITE_RETRY`, `KIMI_CODE_IDENTITY_*`, and `KIMI_CODE_BUILTIN_PRODUCT_SKILLS` variables are read by the default `agent-core-v2` engine. The legacy `kimi` / `kimi -p` path selected with `KIMI_CODE_LEGACY_FLAG=1` ignores them.
@@ -216,16 +216,22 @@ The CLI also reads several standard system variables to detect the runtime envir
 
 ## HTTP proxy
 
-Kimi Code honors the standard proxy environment variables for all outbound traffic — model API calls, MCP servers, web tools, telemetry, sign-in, and update checks:
+Kimi Code honors the standard proxy environment variables for all outbound traffic: model API calls, MCP servers, web tools, telemetry, sign-in, and update checks:
 
 - `HTTP_PROXY` / `http_proxy`: proxy for `http://` requests
 - `HTTPS_PROXY` / `https_proxy`: proxy for `https://` requests
 - `ALL_PROXY` / `all_proxy`: fallback proxy used when the scheme-specific variable is unset; this is where a SOCKS proxy is usually set
 - `NO_PROXY` / `no_proxy`: comma-separated hosts that bypass the proxy
 
-Both HTTP(S) and SOCKS proxies are supported. A SOCKS proxy is recognized by its scheme — `socks5://`, `socks5h://`, `socks4://`, or `socks://` (an alias for `socks5://`) — and is typically set via `ALL_PROXY` (the form used by tools like Clash and V2RayN). An HTTP(S) proxy takes precedence over `ALL_PROXY` for HTTP/HTTPS traffic.
+### Proxy types and precedence
 
-The proxy is applied only when one of these variables is set; otherwise connections are made directly. Loopback hosts (`localhost`, `127.0.0.1`, `::1`) always bypass the proxy, so a local server such as a localhost MCP server keeps working when a proxy is configured — add your own internal hosts to `NO_PROXY` to exempt them too.
+Both HTTP(S) and SOCKS proxies are supported. A SOCKS proxy is recognized by its scheme: `socks5://`, `socks5h://`, `socks4://`, or `socks://` (an alias for `socks5://`). It is typically set via `ALL_PROXY` (the form used by tools like Clash and V2RayN). An HTTP(S) proxy takes precedence over `ALL_PROXY` for HTTP/HTTPS traffic.
+
+### Activation conditions and loopback addresses
+
+The proxy is applied only when one of these variables is set; otherwise connections are made directly. Loopback hosts (`localhost`, `127.0.0.1`, `::1`) always bypass the proxy, so a local server such as a localhost MCP server keeps working when a proxy is configured. Add your own internal hosts to `NO_PROXY` to exempt them too.
+
+### MCP child processes
 
 Stdio MCP servers that run as Node child processes honor `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` automatically when the child's Node version supports `NODE_USE_ENV_PROXY` (Node ≥ 22.21 or ≥ 24.5); SOCKS proxying applies to Kimi Code's own traffic only.
 

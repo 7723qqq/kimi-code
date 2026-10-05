@@ -2,7 +2,7 @@
 
 内置工具是 Kimi Code CLI 随核心引擎提供的工具集，无需安装 MCP server 即可使用。Agent 在每次对话中会根据任务需要自动选择并调用这些工具；用户可以通过权限审批界面查看每次工具调用的细节。
 
-与 MCP 工具相比，内置工具由运行时直接管理，生命周期与会话绑定，无需外部进程。两者都遵循统一的审批机制：**只读类工具**（如 `Read`、`Grep`、`Glob`）默认自动放行，**写入与执行类工具**（如 `Write`、`Edit`、`Bash`）默认需要用户审批。「必要时询问」模式下普通工具调用的审批会被跳过，但 Plan 模式下的退出审批不受影响。
+与 MCP 工具相比，内置工具由运行时直接管理，生命周期与会话绑定，无需外部进程。两者都遵循统一的审批机制：**只读类工具**（如 `Read`、`Grep`、`Glob`）默认自动放行，**写入与执行类工具**（如 `Write`、`Edit`、`Bash`）默认需要用户审批。"Ask When Needed" 模式下普通工具调用的审批会被跳过，但 Plan 模式下的退出审批不受影响。
 
 ## 文件类
 
@@ -95,13 +95,13 @@ Plan 模式是一种受约束的工作状态：进入后 `Write` 与 `Edit` 只�
 
 **`Team`** 召集多个 Agent 进行圆桌讨论（`mode` 为 `discussion`，默认）或结构化辩论（`mode` 为 `debate`），适合需要多视角分析、交叉评审或达成共识的场景。传入 `topic`（讨论话题）与 `participants` 数组——每项含 `profileName`（Agent profile，默认 `coder`）、`roleDescription`（角色描述）与辩论专用的 `assignedStance`（立场）。`maxRounds` 控制轮数；`summaryPrompt` 可选，提供时生成总结或共识报告；`enableVoting` 可为辩论启用投票。每个参与者都能看到完整讨论记录并轮流发言，结果包含完整记录、总结与 token 用量。`Team` 与 `AgentSwarm` 一样属于排他工具——一次模型响应中必须单独调用。在 `manual` 权限模式下，未处于 swarm mode 时调用 `Team` 会触发审批；swarm mode 已开启时自动放行。也可以使用 `/team <topic> with <role1>,<role2>` 命令直接发起。
 
-**`AskUserQuestion`** 以结构化多选题的形式向用户提问，适用于需要消歧或选择方案的场景。`questions` 参数接受 1–4 道题，每道题需提供 `question`（以 `?` 结尾）、`options`（2–4 个选项，每项含 `label` 和 `description`）以及可选的 `header`（最多 12 字符）和 `multi_select`（默认 false）。系统自动附加"其他"选项。`background` 为 true 时启动后台问题任务并立即返回任务 ID。宿主未实现交互式提问能力时返回失败提示，Agent 应改为在文本回复中直接提问。
+**`AskUserQuestion`** 以结构化多选题的形式向用户提问，适用于需要消歧或选择方案的场景。`questions` 参数接受 1–4 道题，每道题需提供 `question`（以 `?` 结尾）、`options`（2–4 个选项，每项含 `label` 和 `description`）以及可选的 `header`（最多 12 字符）和 `multi_select`（默认 false）。系统自动附加"其他"选项。`background` 为 true 时启动后台问题任务并立即返回任务 ID；问题在本轮结束后仍保持待答，用户作答后答案会以通知形式直接送回 Agent。宿主未实现交互式提问能力时返回失败提示，Agent 应改为在文本回复中直接提问。
 
 **`Skill`** 允许 Agent 主动调用已注册的 inline 类型 Skill。接受 `skill`（Skill 名称）和可选的 `args`（附加参数文本）。只有 `type = "inline"` 的 Skill 能通过此工具调用；`disableModelInvocation: true` 的 Skill 会被拒绝。嵌套调用深度上限 3 层。Skill 体系细节见 [Agent Skills](../customization/skills.md)。
 
 ## 后台任务
 
-后台任务工具用于管理通过 `Bash`、`Agent` 或 `AskUserQuestion` 启动的后台任务。任务进入终止状态时会自动把状态和已保存的输出路径送回 Agent；如需提前检查进度，使用 `TaskOutput`；如果下一步必须等待某个任务的结果，使用 `WaitFor` 在当前轮次内等待。
+后台任务工具用于管理通过 `Bash`、`Agent` 或 `AskUserQuestion` 启动的后台任务。任务进入终止状态时会自动把状态和已保存的输出路径（问题任务则直接送回答案）送回 Agent；如需提前检查进度，使用 `TaskOutput`；如果下一步必须等待某个任务的结果，使用 `WaitFor` 在当前轮次内等待。
 
 | 工具 | 默认审批 | 说明 |
 | --- | --- | --- |

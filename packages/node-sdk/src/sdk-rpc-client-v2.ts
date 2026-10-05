@@ -237,6 +237,7 @@ import {
   resolveLoggingConfig,
   resolvePrintBackgroundMode,
   summarizeSkill,
+  towerEnterFailureMessage,
   type IAgentScopeHandle,
   type IDisposable,
   type ISessionScopeHandle,
@@ -544,19 +545,45 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * Forward engine telemetry to the host-supplied client. Without this the
    * client only served `KimiHarness`-level events and every engine-side event
    * (`track2` facts from agent/session scopes) was dropped on the v2 route.
-   * The `ITelemetryAppender` shape is a structural superset of the v1
-   * `TelemetryClient`, so the client installs directly. The `telemetry`
-   * config section gates engine events the same way the v2 print runner
-   * gates them; the host keeps owning the client's lifecycle (flush /
-   * shutdown stay with the host, matching the v1 core's arrangement).
+   * The v1 `TelemetryClient` is wrapped into the engine appender record shape
+   * (event + ambient context + final properties). The `telemetry` config
+   * section gates engine events the same way the v2 print runner gates them;
+   * the host keeps owning the client's lifecycle (flush / shutdown stay with
+   * the host, matching the v1 core's arrangement).
+   *
+   * The engine's own `session_started` is forwarded unless
+   * {@link suppressEngineSessionStarted} was called — see its doc for why the
+   * harness-assembled client drops that row.
    */
   private installEngineTelemetry(client: TelemetryClient | undefined): void {
     if (client === undefined) return;
     const telemetry = this.app.accessor.get(ITelemetryService);
-    telemetry.setAppender(client);
+    telemetry.addAppender({
+      track: (record) => {
+        if (this.engineSessionStartedSuppressed && record.event === 'session_started') return;
+        client.track(record.event, record.properties);
+      },
+    });
     void this.configReady.then(() => {
       telemetry.setEnabled(this.engineAccessor.get(IConfigService).get('telemetry') !== false);
     });
+  }
+
+  private engineSessionStartedSuppressed = false;
+
+  /**
+   * Drop the engine's own `session_started` from telemetry forwarding. Called
+   * by `createKimiHarnessV2` at assembly time: the harness emits that event
+   * for every session it opens (create / resume / reload / fork) with the
+   * richer client-attribution schema, so the engine's
+   * `{resumed, experimental_flags}` copy would double-count every open.
+   * Direct `SDKRpcClientV2` consumers never call this and keep the engine row
+   * — it is their only `session_started` producer. Hosts without a harness
+   * (run-v2-print, kap-server) wire their own appenders and are unaffected
+   * either way.
+   */
+  suppressEngineSessionStarted(): void {
+    this.engineSessionStartedSuppressed = true;
   }
 
   /**
@@ -2143,11 +2170,11 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     const agent = await this.agentScope(input.sessionId);
     const tower = agent.accessor.get(IAgentTowerService);
     if (input.enabled) {
-      await tower.enter(input.base);
-      if (!tower.isActive) {
+      const result = await tower.enter(input.base);
+      if (!result.entered) {
         throw new V2Error2(
           V2ErrorCodes.SESSION_TOWER_MODE_INVALID,
-          'tower mode could not be enabled — another live session owns the workspace tower',
+          towerEnterFailureMessage(result),
         );
       }
     } else {
@@ -2721,6 +2748,11 @@ function resolveImageLimits(configPath: string, injected?: ImageLimits): ImageLi
 
 export function createKimiHarnessV2(options: KimiHarnessOptions): KimiHarness {
   const rpc = new SDKRpcClientV2(options);
+  // The harness below emits session_started for every session it opens with
+  // the richer client-attribution schema; drop the engine's thinner copy from
+  // forwarding so each open is counted once. Direct SDKRpcClientV2 consumers
+  // keep the engine row.
+  rpc.suppressEngineSessionStarted();
   return new KimiHarness(rpc, {
     identity: rpc.identity,
     uiMode: options.uiMode,
