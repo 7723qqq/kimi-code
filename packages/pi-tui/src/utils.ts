@@ -724,6 +724,10 @@ class AnsiCodeTracker {
 		return result;
 	}
 
+	getActiveBackgroundCode(): string {
+		return this.bgColor ? `\x1b[${this.bgColor}m` : "";
+	}
+
 	hasActiveCodes(): boolean {
 		return (
 			this.bold ||
@@ -769,6 +773,13 @@ function updateTrackerFromText(text: string, tracker: AnsiCodeTracker): void {
 			i++;
 		}
 	}
+}
+
+/** Return only the background color active at the end of an ANSI-styled string. */
+export function getActiveBackgroundAnsi(text: string): string {
+	const tracker = new AnsiCodeTracker();
+	updateTrackerFromText(text, tracker);
+	return tracker.getActiveBackgroundCode();
 }
 
 /**

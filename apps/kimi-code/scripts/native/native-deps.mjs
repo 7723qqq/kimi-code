@@ -29,16 +29,17 @@ const clipboardSubpackageByTarget = Object.freeze({
 
 export const PI_TUI_PACKAGE_NAME = '@moonshot-ai/pi-tui';
 
-// pi-tui ships platform-specific native helpers (no Linux build):
-// - darwin: Shift-modifier detection for Terminal.app Shift+Enter
-// - win32: enable ENABLE_VIRTUAL_TERMINAL_INPUT so Shift+Tab is distinguishable
+// pi-tui ships platform-specific native helpers:
+// - darwin: clipboard + Shift-modifier detection for Terminal.app Shift+Enter
+// - linux: X11 clipboard
+// - win32: clipboard + enable ENABLE_VIRTUAL_TERMINAL_INPUT so Shift+Tab is distinguishable
 const piTuiNativeFileByTarget = Object.freeze({
-  'darwin-arm64': ['native/darwin/prebuilds/darwin-arm64/darwin-modifiers.node'],
-  'darwin-x64': ['native/darwin/prebuilds/darwin-x64/darwin-modifiers.node'],
-  'linux-arm64': [],
-  'linux-x64': [],
-  'win32-arm64': ['native/win32/prebuilds/win32-arm64/win32-console-mode.node'],
-  'win32-x64': ['native/win32/prebuilds/win32-x64/win32-console-mode.node'],
+  'darwin-arm64': ['native/darwin/prebuilds/darwin-arm64/darwin-platform.node'],
+  'darwin-x64': ['native/darwin/prebuilds/darwin-x64/darwin-platform.node'],
+  'linux-arm64': ['native/linux/prebuilds/linux-arm64/linux-platform-x11.node'],
+  'linux-x64': ['native/linux/prebuilds/linux-x64/linux-platform-x11.node'],
+  'win32-arm64': ['native/win32/prebuilds/win32-arm64/win32-platform.node'],
+  'win32-x64': ['native/win32/prebuilds/win32-x64/win32-platform.node'],
 });
 
 export function isSupportedTarget(target) {
@@ -81,7 +82,7 @@ export const nativeDeps = Object.freeze([
     // pi-tui's JS is bundled into main.cjs, so only the platform-specific
     // native helper (.node under native/) ships alongside the binary — its
     // dist/ JS is intentionally NOT collected (it stays in the bundle). This
-    // keeps the embedded native-asset payload small. Linux has no native helper.
+    // keeps the embedded native-asset payload small.
     collect: 'native-file-only',
     parent: null,
     nativeFileRelatives: (target) => piTuiNativeFileByTarget[target] ?? [],

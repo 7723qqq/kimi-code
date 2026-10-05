@@ -41,7 +41,7 @@ import {
   fetchManagedUsage,
   kimiCodeUsageUrl,
   type FetchManagedUsageError,
-  type ParsedManagedUsage,
+  type ManagedQuota,
 } from './managed-usage';
 import { OAuthManager, type LoginOptions, type OAuthManagerOptions } from './oauth-manager';
 import { FileTokenStorage, type TokenStorage } from './storage';
@@ -101,9 +101,7 @@ export interface KimiOAuthLogoutResult {
 export type AuthManagedUsageResult =
   | {
       readonly kind: 'ok';
-      readonly summary: ParsedManagedUsage['summary'];
-      readonly limits: ParsedManagedUsage['limits'];
-      readonly extraUsage: ParsedManagedUsage['extraUsage'];
+      readonly quota: ManagedQuota;
     }
   | FetchManagedUsageError;
 
@@ -331,12 +329,7 @@ export class KimiOAuthToolkit<TConfig = unknown> {
       });
       const result = await fetchManagedUsage(managedUsageUrl(options.baseUrl), accessToken);
       if (result.kind === 'error') return result;
-      return {
-        kind: 'ok',
-        summary: result.parsed.summary,
-        limits: result.parsed.limits,
-        extraUsage: result.parsed.extraUsage,
-      };
+      return { kind: 'ok', quota: result.quota };
     } catch (error) {
       return {
         kind: 'error',

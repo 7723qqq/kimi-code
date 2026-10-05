@@ -1,4 +1,4 @@
-import type { Component } from '@moonshot-ai/pi-tui';
+import type { Component, TuiMouseEvent } from '@moonshot-ai/pi-tui';
 import { describe, expect, it, vi } from 'vitest';
 
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
@@ -11,6 +11,31 @@ class FakeChild implements Component {
   render(width: number): string[] {
     return this.lines(width);
   }
+}
+
+class MouseChild extends FakeChild {
+  readonly events: TuiMouseEvent[] = [];
+  handleMouse(event: TuiMouseEvent) {
+    this.events.push(event);
+    return { handled: true as const };
+  }
+}
+
+function clickAt(x: number, y: number, width: number, height: number): TuiMouseEvent {
+  return {
+    type: 'click',
+    button: 'left',
+    x,
+    y,
+    screenX: x,
+    screenY: y,
+    width,
+    height,
+    shift: false,
+    alt: false,
+    ctrl: false,
+    clickCount: 1,
+  };
 }
 
 describe('GutterContainer', () => {
@@ -64,5 +89,29 @@ describe('GutterContainer', () => {
       `\x1B]133;A\x07  content`,
       `\x1B]133;B\x07\x1B]133;C\x07  last`,
     ]);
+  });
+
+  it('translates mouse events into the inner coordinate frame', () => {
+    const child = new MouseChild(() => ['x']);
+    const c = new GutterContainer(2, 3);
+    c.addChild(child);
+
+    c.handleMouse(clickAt(5, 0, 20, 1));
+    expect(child.events).toHaveLength(1);
+    expect(child.events[0]).toMatchObject({ x: 3, width: 15 });
+  });
+
+  it('measures child heights at the inner width when hit-testing', () => {
+    const first = new MouseChild((w) => (w >= 19 ? ['a'] : ['a', 'a']));
+    const second = new MouseChild(() => ['b']);
+    const c = new GutterContainer(1, 1);
+    c.addChild(first);
+    c.addChild(second);
+
+    // Inner width is 17, where the first child wraps to two rows.
+    c.handleMouse(clickAt(3, 1, 19, 3));
+    expect(first.events).toHaveLength(1);
+    expect(first.events[0]).toMatchObject({ y: 1 });
+    expect(second.events).toHaveLength(0);
   });
 });

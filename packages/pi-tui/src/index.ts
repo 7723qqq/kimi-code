@@ -18,6 +18,7 @@ export { Image, type ImageOptions, type ImageTheme } from "./components/image.ts
 export { Input } from "./components/input.ts";
 export { Loader, type LoaderIndicatorOptions } from "./components/loader.ts";
 export { type DefaultTextStyle, Markdown, type MarkdownOptions, type MarkdownTheme } from "./components/markdown.ts";
+export { MouseRegion, type MouseRegionHandler } from "./components/mouse-region.ts";
 export {
 	ScrollView,
 	type ScrollViewOptions,
@@ -74,6 +75,8 @@ export {
 } from "./keys.ts";
 // LaTeX rendering
 export { type RenderLatexOptions, renderLatex } from "./latex.ts";
+// Native platform integration
+export { getNativeClipboard, type NativeClipboard } from "./native-platform.ts";
 // Input buffering for batch splitting
 export { StdinBuffer, type StdinBufferEventMap, type StdinBufferOptions } from "./stdin-buffer.ts";
 // Terminal interface and implementations
@@ -115,6 +118,7 @@ export {
 	renderImage,
 	resetCapabilitiesCache,
 	setCapabilities,
+	setCapabilityOverrides,
 	setCellDimensions,
 	type SixelEncodeOptions,
 	type TerminalCapabilities,
@@ -128,6 +132,7 @@ export {
 	isFocusable,
 	isViewportTUI,
 	type OverlayAnchor,
+	type OverlayBounds,
 	type OverlayHandle,
 	type OverlayMargin,
 	type OverlayOptions,
@@ -137,6 +142,11 @@ export {
 	type TuiInputListener,
 	type TuiInputListenerResult,
 	type TuiMode,
+	type TuiMouseButton,
+	type TuiMouseDispatchResult,
+	type TuiMouseEvent,
+	type TuiMouseEventResult,
+	type TuiMouseEventType,
 	type TuiStopOptions,
 	type ViewportTUI,
 } from "./tui.ts";
