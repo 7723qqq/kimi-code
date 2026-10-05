@@ -7,12 +7,9 @@ import { ulid } from 'ulid';
 
 import { okEnvelope } from '../envelope';
 import type { MetaFeature } from '../protocol/rest-meta';
-import type { IGuiStoreService } from '../services/guiStore/guiStore';
-import type { TranscriptService } from '../services/transcript/transcriptService';
-import { registerDebugRoutes } from '../transport/registerDebugRoutes';
 import { type IConnectionRegistry } from '../transport/ws/connectionRegistry';
 import { type SessionEventBroadcaster } from '../transport/ws/v1/sessionEventBroadcaster';
-import type { ProjectionService } from '../services/projection';
+import type { TranscriptService } from '../services/transcript/transcriptService';
 import { registerApprovalsRoutes } from './approvals';
 import { registerAuthRoute } from './auth';
 import { registerCapabilitiesRoutes } from './capabilities';
@@ -23,9 +20,10 @@ import { registerFileHistoryRoutes } from './fileHistory';
 import { registerFilesRoutes } from './files';
 import { registerFsRoutes } from './fs';
 import { registerGuiStoreRoutes } from './guiStore';
-import { registerHistoryRoutes } from './history';
 import { registerMcpRoutes } from './mcp';
 import { registerMessagesRoutes } from './messages';
+import type { IGuiStoreService } from '../services/guiStore/guiStore';
+import { registerDebugRoutes } from '../transport/registerDebugRoutes';
 import { registerMetaRoute } from './meta';
 import { registerModelCatalogRoutes } from './modelCatalog';
 import { registerOAuthRoutes } from './oauth';
@@ -35,12 +33,12 @@ import { registerQuestionsRoutes } from './questions';
 import { registerRemoteControlRoutes, type RemoteControlRouteOptions } from './remoteControl';
 import { registerRuntimeRoutes } from './runtime';
 import { registerSearchRoutes } from './search';
-import { registerSessionExportRoute } from './sessionExport';
 import { registerSessionMediaRoutes } from './sessionMedia';
+import { registerSessionExportRoute } from './sessionExport';
 import { registerSessionsRoutes } from './sessions';
 import { registerShutdownRoutes } from './shutdown';
-import { registerSkillsRoutes } from './skills';
 import { registerSnapshotRoutes } from './snapshot';
+import { registerSkillsRoutes } from './skills';
 import { registerTasksRoutes } from './tasks';
 import { registerTerminalsRoutes } from './terminals';
 import { registerToolsRoutes } from './tools';
@@ -74,8 +72,6 @@ export interface RegisterApiV1RoutesOptions {
   readonly connectionRegistry: IConnectionRegistry;
   readonly broadcaster: SessionEventBroadcaster;
   readonly transcriptService: TranscriptService;
-  readonly homeDir: string;
-  readonly projectionService: ProjectionService;
   readonly pluginMarketplaceUrl: () => string;
   readonly pluginMarketplaceIsDefault: boolean;
   readonly pluginMarketplaceHomeDir?: string;
@@ -151,11 +147,6 @@ export async function registerApiV1Routes(
         apiV1 as unknown as Parameters<typeof registerMessagesRoutes>[0],
         core,
       );
-      registerHistoryRoutes(apiV1 as unknown as Parameters<typeof registerHistoryRoutes>[0], {
-        core,
-        homeDir: opts.homeDir,
-        projection: opts.projectionService,
-      });
       registerSearchRoutes(apiV1 as unknown as Parameters<typeof registerSearchRoutes>[0], core);
       registerTasksRoutes(apiV1 as unknown as Parameters<typeof registerTasksRoutes>[0], core);
       registerApprovalsRoutes(
@@ -166,7 +157,10 @@ export async function registerApiV1Routes(
         apiV1 as unknown as Parameters<typeof registerQuestionsRoutes>[0],
         core,
       );
-      registerPromptsRoutes(apiV1 as unknown as Parameters<typeof registerPromptsRoutes>[0], core);
+      registerPromptsRoutes(
+        apiV1 as unknown as Parameters<typeof registerPromptsRoutes>[0],
+        core,
+      );
       registerRemoteControlRoutes(
         apiV1 as unknown as Parameters<typeof registerRemoteControlRoutes>[0],
         { ...opts.remoteControl, telemetry: core.accessor.get(ITelemetryService) },
@@ -185,10 +179,7 @@ export async function registerApiV1Routes(
         core,
       );
       registerFsRoutes(apiV1 as unknown as Parameters<typeof registerFsRoutes>[0], core);
-      registerGuiStoreRoutes(
-        apiV1 as unknown as Parameters<typeof registerGuiStoreRoutes>[0],
-        opts.guiStore,
-      );
+      registerGuiStoreRoutes(apiV1 as unknown as Parameters<typeof registerGuiStoreRoutes>[0], opts.guiStore);
       registerToolsRoutes(apiV1 as unknown as Parameters<typeof registerToolsRoutes>[0], core);
       registerFileHistoryRoutes(
         apiV1 as unknown as Parameters<typeof registerFileHistoryRoutes>[0],
