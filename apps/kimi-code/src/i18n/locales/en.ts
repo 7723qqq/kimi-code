@@ -195,6 +195,7 @@ export default {
         noActiveSession: 'No active session. Send /login to login.',
         oauthLoginExpired: 'OAuth login expired. Send /login to login.',
         sessionlessStartup: 'No session yet — one will be created on your first message.',
+        tuiModeRestart: 'TUI mode takes effect after restarting Kimi Code.',
       },
       tips: {
         ctrlSAddGuidance: 'ctrl-s to add guidance without waiting for the turn to finish',
@@ -566,6 +567,8 @@ export default {
         permissionDesc: 'Choose how tool actions are approved.',
         theme: 'Theme',
         themeDesc: 'Change the terminal UI theme.',
+        tuiMode: 'TUI mode',
+        tuiModeDesc: 'Choose the regular or fullscreen layout.',
         mermaid: 'Mermaid diagrams',
         mermaidDesc: 'Draw mermaid code blocks as diagrams, or keep them as source.',
         language: 'Language',
@@ -584,6 +587,13 @@ export default {
         githubTokenDesc: 'Set the GitHub personal access token for built-in GitHub tools.',
         astron: 'Xunfei Coding Plan',
         astronDesc: 'Configure Stream, Temperature, Max tokens, and web search for Astron.',
+      },
+      tuiModeSelector: {
+        title: 'TUI mode',
+        regular: 'Regular',
+        regularDesc: 'Render into the terminal\'s native scrollback.',
+        fullscreen: 'Fullscreen (experimental)',
+        fullscreenDesc: 'Alternate screen with in-app scrolling, selection, and transcript search.',
       },
       astronSettings: {
         title: 'Astron Settings',

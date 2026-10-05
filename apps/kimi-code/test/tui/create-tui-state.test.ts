@@ -1,5 +1,6 @@
+import { describe, it, expect } from 'vitest';
+
 import { TuiAltScreen, TuiMainScreen } from '@moonshot-ai/pi-tui';
-import { describe, it, expect, vi } from 'vitest';
 
 import { createTUIState, type KimiTUIOptions } from '#/tui/kimi-tui';
 import type { AppState } from '#/tui/types';
@@ -115,9 +116,8 @@ describe('createTUIState', () => {
   });
 
   it('builds an alternate-screen renderer with a docked layout in fullscreen mode', () => {
-    vi.stubEnv('KIMI_CODE_TUI_FULL_SCREEN', '1');
     const state = createTUIState({
-      initialAppState: fakeInitialAppState(),
+      initialAppState: { ...fakeInitialAppState(), tuiMode: 'fullscreen' },
       startup: {
         continueLast: false,
         yolo: false,
@@ -125,7 +125,6 @@ describe('createTUIState', () => {
         plan: false,
       },
     });
-    vi.unstubAllEnvs();
 
     expect(state.ui).toBeInstanceOf(TuiAltScreen);
     expect(state.ui.mode).toBe('fullscreen');

@@ -31,6 +31,7 @@ export class TowerMissionTool implements ITowerMissionTool {
       args.blocker !== undefined ||
       args.clear_blockers !== undefined ||
       args.task_done !== undefined ||
+      args.task_drop !== undefined ||
       args.scope !== undefined;
     return {
       description: hasPatch
@@ -59,11 +60,15 @@ export class TowerMissionTool implements ITowerMissionTool {
             blocker: args.blocker,
             clearBlockers: args.clear_blockers,
             taskDone: args.task_done,
+            taskDrop:
+              args.task_drop === undefined
+                ? undefined
+                : { text: args.task_drop, reason: args.task_drop_reason },
             scope: args.scope,
           });
           return {
             output: [
-              `mission ${mission.id} updated — status: ${mission.status}, open tasks: ${String(mission.tasks.filter((t) => !t.done).length)}, blockers: ${String(mission.blockers.length)}`,
+              `mission ${mission.id} updated — status: ${mission.status}, open tasks: ${String(mission.tasks.filter((t) => !t.done && t.dropped !== true).length)}, blockers: ${String(mission.blockers.length)}`,
               '',
               await renderMission(store, mission),
             ].join('\n'),

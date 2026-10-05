@@ -240,7 +240,7 @@ describe('TowerSpawnTool', () => {
     taskInfoLookup = () => ({
       taskId: 'task-1',
       kind: 'agent',
-      description: 'tower worker agent-build: Build gemm',
+      description: 'M1 agent-build: Build gemm',
       status: 'failed',
       stopReason: 'provider blew up',
       startedAt: 1,
@@ -343,6 +343,14 @@ describe('TowerSpawnTool', () => {
     await vi.waitFor(() => {
       expect(release).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('describes the worker task with the mission id, name, and title', async () => {
+    const result = await execute(WORKER_ARGS);
+
+    expect(result.isError).toBeUndefined();
+    const task = registerTask.mock.calls[0]?.[0] as SubagentTask;
+    expect(task.description).toBe('M1 agent-build: Build gemm');
   });
 
   it('honors the configured [subagent].timeout_ms for the registered task', async () => {
@@ -532,6 +540,30 @@ describe('TowerSpawnTool', () => {
       reviewMissionId: 'M1',
     });
     expect(entry?.worktree).toBeUndefined();
+  });
+
+  it('describes the reviewer task with the review mission id when the branch resolves to a mission', async () => {
+    const result = await execute({
+      name: 'reviewer-a',
+      kind: 'reviewer',
+      review_target: 'feat/build-gemm',
+    });
+
+    expect(result.isError).toBeUndefined();
+    const task = registerTask.mock.calls[0]?.[0] as SubagentTask;
+    expect(task.description).toBe('M1 review: feat/build-gemm');
+  });
+
+  it('describes the reviewer task with the reviewer name when the branch owns no mission', async () => {
+    const result = await execute({
+      name: 'reviewer-b',
+      kind: 'reviewer',
+      review_target: 'feat/orphan-branch',
+    });
+
+    expect(result.isError).toBeUndefined();
+    const task = registerTask.mock.calls[0]?.[0] as SubagentTask;
+    expect(task.description).toBe('review reviewer-b: feat/orphan-branch');
   });
 
   it('refuses a duplicate name and points at a background resume', async () => {
@@ -746,5 +778,115 @@ describe('TowerSpawnTool', () => {
     expect(prompt).toContain('# Mission M2: Build gemm respin');
     expect(prompt).toContain('- [ ] redo the kernel');
     expect(prompt).not.toContain('# Mission M1: Build gemm');
+  });
+
+  it('briefs a respawned worker with the latest review round and the predecessor review-request', async () => {
+    const first = await execute(WORKER_ARGS);
+    expect(first.isError).toBeUndefined();
+    await store.send('agent-build', {
+      to: 'tower',
+      subject: 'review-request',
+      body: 'Built the kernel; all tasks ticked.',
+    });
+    await store.registerAgent({
+      name: 'rev',
+      kind: 'reviewer',
+      agentId: 'agent-rev',
+      reviewTarget: 'feat/build-gemm',
+      reviewMissionId: 'M1',
+      spawnedAt: new Date().toISOString(),
+    });
+    await store.submitReview('rev', {
+      target: 'feat/build-gemm',
+      status: 'p1-2items',
+      merge: 'fix-then-merge',
+      findings: 'the kernel leaks memory',
+      decision: 'fix the leak first',
+    });
+
+    const result = await execute({ name: 'agent-build-2', kind: 'worker', mission_id: 'M1' });
+
+    expect(result.isError).toBeUndefined();
+    const prompt = (runAgent.mock.calls.at(-1)?.[1] as { prompt: string }).prompt;
+    expect(prompt).toContain('# Previous work on this branch');
+    expect(prompt).toContain('Latest review — round 1 by rev: p1-2items, merge verdict "fix-then-merge"');
+    expect(prompt).toContain('the kernel leaks memory');
+    expect(prompt).toContain('fix the leak first');
+    expect(prompt).toContain("The previous worker's review-request to the tower");
+    expect(prompt).toContain('Built the kernel; all tasks ticked.');
+  });
+
+  it('briefs a respawned worker with the predecessor review-request even before any review landed', async () => {
+    const first = await execute(WORKER_ARGS);
+    expect(first.isError).toBeUndefined();
+    await store.send('agent-build', {
+      to: 'tower',
+      subject: 'review-request',
+      body: 'Built the kernel; all tasks ticked.',
+    });
+
+    const result = await execute({ name: 'agent-build-2', kind: 'worker', mission_id: 'M1' });
+
+    expect(result.isError).toBeUndefined();
+    const prompt = (runAgent.mock.calls.at(-1)?.[1] as { prompt: string }).prompt;
+    expect(prompt).toContain('# Previous work on this branch');
+    expect(prompt).toContain('Built the kernel; all tasks ticked.');
+    expect(prompt).not.toContain('Latest review');
+  });
+
+  it('omits the history section for a first-time worker spawn', async () => {
+    const result = await execute(WORKER_ARGS);
+
+    expect(result.isError).toBeUndefined();
+    const prompt = (runAgent.mock.calls.at(-1)?.[1] as { prompt: string }).prompt;
+    expect(prompt).not.toContain('# Previous work on this branch');
+  });
+
+  it('briefs the reviewer with the branch review history', async () => {
+    const worker = await execute(WORKER_ARGS);
+    expect(worker.isError).toBeUndefined();
+    await store.registerAgent({
+      name: 'rev-1',
+      kind: 'reviewer',
+      agentId: 'agent-rev-1',
+      reviewTarget: 'feat/build-gemm',
+      reviewMissionId: 'M1',
+      spawnedAt: new Date().toISOString(),
+    });
+    await store.submitReview('rev-1', {
+      target: 'feat/build-gemm',
+      status: 'p2-1items',
+      merge: 'fix-then-merge',
+      findings: 'rename the helper',
+      decision: 'small fix needed',
+    });
+
+    const result = await execute({
+      name: 'reviewer-a',
+      kind: 'reviewer',
+      review_target: 'feat/build-gemm',
+    });
+
+    expect(result.isError).toBeUndefined();
+    const prompt = (runAgent.mock.calls.at(-1)?.[1] as { prompt: string }).prompt;
+    expect(prompt).toContain('# Review history on this branch');
+    expect(prompt).toContain('Round 1 by rev-1: p2-1items, merge verdict "fix-then-merge"');
+    expect(prompt).toContain('rename the helper');
+    expect(prompt).toContain('small fix needed');
+  });
+
+  it('omits the review history section for the first review round', async () => {
+    const worker = await execute(WORKER_ARGS);
+    expect(worker.isError).toBeUndefined();
+
+    const result = await execute({
+      name: 'reviewer-a',
+      kind: 'reviewer',
+      review_target: 'feat/build-gemm',
+    });
+
+    expect(result.isError).toBeUndefined();
+    const prompt = (runAgent.mock.calls.at(-1)?.[1] as { prompt: string }).prompt;
+    expect(prompt).not.toContain('# Review history on this branch');
   });
 });

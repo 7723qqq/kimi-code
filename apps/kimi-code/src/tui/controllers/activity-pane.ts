@@ -10,11 +10,11 @@ import { formatStepRetryDetail, formatStepRetryLabel } from '../utils/step-retry
 import type { SessionEventHandler } from './session-event-handler';
 
 type EffectiveActivityPaneMode = ActivityPaneMode | 'idle' | 'session';
-type LoadingTipKind = 'moon' | 'composing';
+type LoadingTipKind = 'moon' | 'braille';
 
 function loadingTipKind(mode: EffectiveActivityPaneMode): LoadingTipKind | undefined {
   if (mode === 'waiting' || mode === 'tool') return 'moon';
-  if (mode === 'composing') return 'composing';
+  if (mode === 'composing' || mode === 'thinking') return 'braille';
   return undefined;
 }
 
@@ -47,10 +47,10 @@ export class ActivityPaneController {
     const state = this.host.state;
     const effectiveMode = this.resolveActivityPaneMode();
     const tipKind = loadingTipKind(effectiveMode);
-    // Pick a fresh loading tip when the loading kind changes. The same kind
-    // covers waiting/tool (both moon spinners) and any intermediate thinking
-    // phase, so a continuous burst of tool calls does not flip tips. Clear the
-    // cache only when there is no loading UI at all.
+    // Pick a fresh loading tip when the loading kind changes: waiting/tool
+    // share the moon kind and thinking/composing share the braille kind, so a
+    // burst of tool calls or thinking/composing alternation does not flip
+    // tips. Clear the cache only when there is no loading UI at all.
     if (effectiveMode === 'idle' || effectiveMode === 'session' || effectiveMode === 'hidden') {
       this.currentLoadingTip = undefined;
     } else if (
@@ -75,10 +75,7 @@ export class ActivityPaneController {
 
     if (
       activityModeKey === this.lastActivityMode &&
-      (effectiveMode === 'waiting' ||
-        effectiveMode === 'thinking' ||
-        effectiveMode === 'composing' ||
-        effectiveMode === 'tool')
+      (effectiveMode === 'waiting' || effectiveMode === 'thinking' || effectiveMode === 'tool')
     ) {
       if (placeSpinnerInAgentSwarm) {
         this.syncAgentSwarmActivitySpinner(state.activitySpinner?.instance);
@@ -111,12 +108,21 @@ export class ActivityPaneController {
         break;
       }
       case 'thinking': {
-        this.stopActivitySpinner();
+        const spinner = this.ensureActivitySpinner('braille', 'Thinking…', (s) =>
+          currentTheme.fg('primary', s),
+        );
         this.syncAgentSwarmActivitySpinner(undefined);
+        state.activityContainer.addChild(
+          new ActivityPaneComponent({
+            mode: 'thinking',
+            spinner,
+            tip: this.currentLoadingTip?.tip,
+          }),
+        );
         break;
       }
       case 'composing': {
-        const spinner = this.ensureActivitySpinner('braille', 'working…', (s) =>
+        const spinner = this.ensureActivitySpinner('braille', 'Working…', (s) =>
           currentTheme.fg('primary', s),
         );
         this.syncAgentSwarmActivitySpinner(undefined);

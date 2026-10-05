@@ -2,8 +2,6 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import type { Session } from '@moonshot-ai/kimi-code-sdk';
-
 import { detectInstallSource } from '#/cli/update/source';
 import { t } from '#/i18n';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
@@ -60,12 +58,8 @@ export async function handleForkCommand(host: SlashCommandHost, args: string): P
     return;
   }
 
-  const sourceTitle = forkSourceTitle(host, session);
   try {
-    const forked = await host.harness.forkSession({
-      id: session.id,
-      title: `Fork: ${sourceTitle}`,
-    });
+    const forked = await host.harness.forkSession({ id: session.id });
     const forkId = forked.id;
     try {
       await forked.close();
@@ -103,13 +97,14 @@ export async function handleForkCommand(host: SlashCommandHost, args: string): P
   }
 }
 
-function forkSourceTitle(host: SlashCommandHost, session: Session): string {
-  const currentTitle = host.state.appState.sessionTitle?.trim();
-  if (currentTitle !== undefined && currentTitle.length > 0) return currentTitle;
-
-  const summaryTitle =
-    typeof session.summary?.title === 'string' ? session.summary.title.trim() : '';
-  return summaryTitle.length > 0 ? summaryTitle : session.id;
+function forkResumeCommand(workDir: string, forkId: string): string {
+  const dir = quoteShellArg(workDir);
+  // cmd.exe's `cd` only updates the given drive's remembered directory — a
+  // terminal on a different drive stays put, and the resume then runs in the
+  // wrong working directory. `pushd` switches drive + directory in both
+  // cmd.exe and PowerShell (`cd /d` would break PowerShell).
+  const changeDir = process.platform === 'win32' ? `pushd ${dir}` : `cd ${dir}`;
+  return `${changeDir} && kimi --resume ${quoteShellArg(forkId)}`;
 }
 
 export async function handleExportMdCommand(host: SlashCommandHost, args: string): Promise<void> {
@@ -212,14 +207,4 @@ export async function handleInitCommand(host: SlashCommandHost): Promise<void> {
   } finally {
     host.deferUserMessages = false;
   }
-}
-
-function forkResumeCommand(workDir: string, forkId: string): string {
-  const dir = quoteShellArg(workDir);
-  // cmd.exe's `cd` only updates the given drive's remembered directory — a
-  // terminal on a different drive stays put, and the resume then runs in the
-  // wrong working directory. `pushd` switches drive + directory in both
-  // cmd.exe and PowerShell (`cd /d` would break PowerShell).
-  const changeDir = process.platform === 'win32' ? `pushd ${dir}` : `cd ${dir}`;
-  return `${changeDir} && kimi --resume ${quoteShellArg(forkId)}`;
 }

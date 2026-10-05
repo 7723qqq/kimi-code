@@ -23,6 +23,9 @@ export const MAIN_AGENT_ID = 'main';
 export function getOauthLoginRequiredStartupNotice(): string {
   return t('tui.chrome.hints.oauthLoginExpired');
 }
+export function getTuiModeRestartNotice(): string {
+  return t('tui.chrome.hints.tuiModeRestart');
+}
 export function getSessionlessStartupNotice(): string {
   return t('tui.chrome.hints.sessionlessStartup');
 }

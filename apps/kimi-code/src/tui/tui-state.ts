@@ -1,4 +1,3 @@
-import { log } from '@moonshot-ai/kimi-code-sdk';
 import type { Container } from '@moonshot-ai/pi-tui';
 import {
   ProcessTerminal,
@@ -43,7 +42,7 @@ import { createTerminalState, type TerminalState } from './utils/terminal-state'
 export interface TUIState {
   ui: TUI;
   terminal: ProcessTerminal;
-  transcriptContainer: Container;
+  transcriptContainer: GutterContainer;
   activityContainer: Container;
   todoPanelContainer: Container;
   todoPanel: TodoPanelComponent;
@@ -103,32 +102,32 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
   const terminal = new ProcessTerminal();
   setMarkdownRenderLatex(initialAppState.renderLatex ?? DEFAULT_TUI_CONFIG.renderLatex ?? true);
   setMarkdownMermaidMode(initialAppState.markdown?.mermaid ?? DEFAULT_MARKDOWN_CONFIG.mermaid);
-  // Fullscreen is experimental and env-gated for now: KIMI_CODE_TUI_FULL_SCREEN=1.
-  const fullscreen = process.env['KIMI_CODE_TUI_FULL_SCREEN'] === '1';
-  const ui = fullscreen
-    ? new TuiAltScreen(terminal, undefined, undefined, {
-        // Mouse capture takes over the terminal's native link activation, so
-        // route OSC 8 clicks through our own opener.
-        openUrl,
-        // Likewise, on Windows the terminal's native right-click paste is
-        // intercepted; feed the clipboard to the focused component as a
-        // bracketed paste instead (renderer only calls this on win32).
-        onRightClickPaste: () => {
-          const target = ui.getFocusedComponent();
-          if (!target?.handleInput || clipboard?.getText === undefined) return;
-          void clipboard
-            .getText()
-            .then((text) => {
-              if (!text || ui.getFocusedComponent() !== target) return;
-              target.handleInput?.(`\u001B[200~${text}\u001B[201~`);
-              ui.requestRender();
-            })
-            .catch((error: unknown) => {
-              log.warn('right-click clipboard paste failed', { error: String(error) });
-            });
-        },
-      })
-    : new TuiMainScreen(terminal);
+  const ui =
+    initialAppState.tuiMode === 'fullscreen'
+      ? new TuiAltScreen(terminal, undefined, undefined, {
+          // Mouse capture takes over the terminal's native link activation, so
+          // route OSC 8 clicks through our own opener.
+          openUrl,
+          // Likewise, on Windows the terminal's native right-click paste is
+          // intercepted; feed the clipboard to the focused component as a
+          // bracketed paste instead (renderer only calls this on win32).
+          onRightClickPaste: () => {
+            const target = ui.getFocusedComponent();
+            if (!target?.handleInput || clipboard?.getText === undefined) return;
+            void clipboard
+              .getText()
+              .then((text) => {
+                if (!text || ui.getFocusedComponent() !== target) return;
+                target.handleInput?.(`\u001B[200~${text}\u001B[201~`);
+                ui.requestRender();
+              })
+              .catch(() => {});
+          },
+          // Clickable pill centered on the transcript's last row while it is
+          // scrolled away from the end.
+          scrollToEndIndicator: () => currentTheme.fg('primary', ' ↓ Jump to bottom '),
+        })
+      : new TuiMainScreen(terminal);
 
   setMarkdownAltScreenActive(ui instanceof TuiAltScreen);
   setMarkdownRenderRequester(() => {

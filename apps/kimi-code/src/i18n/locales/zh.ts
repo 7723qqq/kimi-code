@@ -191,6 +191,7 @@ export default {
         noActiveSession: '没有活动会话。发送 /login 登录。',
         oauthLoginExpired: 'OAuth 登录已过期。发送 /login 登录。',
         sessionlessStartup: '还没有会话——发送第一条消息时自动创建。',
+        tuiModeRestart: 'TUI 模式将在重启 Kimi Code 后生效。',
       },
       tips: {
         ctrlSAddGuidance: 'ctrl-s 可在本轮结束前追加指导',
@@ -553,6 +554,8 @@ export default {
         permissionDesc: '选择工具操作的审批方式。',
         theme: '主题',
         themeDesc: '更改终端 UI 主题。',
+        tuiMode: 'TUI 模式',
+        tuiModeDesc: '选择常规或全屏布局。',
         mermaid: 'Mermaid 图表',
         mermaidDesc: '将 mermaid 代码块绘制为图表，或保留源码。',
         language: '语言',
@@ -571,6 +574,13 @@ export default {
         githubTokenDesc: '设置内置 GitHub 工具的 Personal Access Token。',
         astron: '讯飞 Coding Plan',
         astronDesc: '配置 Astron 的 Stream、Temperature、Max tokens 和搜索。',
+      },
+      tuiModeSelector: {
+        title: 'TUI 模式',
+        regular: '常规',
+        regularDesc: '渲染到终端原生回滚缓冲区。',
+        fullscreen: '全屏（实验性）',
+        fullscreenDesc: '备用屏幕，支持应用内滚动、选择和会话记录搜索。',
       },
       astronSettings: {
         title: '讯飞 Coding Plan 设置',

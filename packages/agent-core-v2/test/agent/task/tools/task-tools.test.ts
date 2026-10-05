@@ -323,6 +323,8 @@ describe('TaskListTool', () => {
     expect(output).toContain('task_id: bash-running1');
     expect(output).toContain('command: sleep 60');
     expect(output).toContain('description: running list');
+    expect(output).toMatch(/Wall time: \d+\.\d{3} seconds/);
+    expect(output).not.toMatch(/^started_at:/m);
   });
 
   it(
@@ -508,6 +510,10 @@ describe('TaskOutputTool', () => {
     expect(output).toContain('kind: agent');
     expect(output).toContain('agent_id: agent-child');
     expect(output).toContain('subagent_type: coder');
+    expect(output).toContain('Wall time: 1.000 seconds');
+    expect(output.indexOf('Wall time:')).toBeLessThan(output.indexOf('status: completed'));
+    expect(output).not.toMatch(/^started_at:/m);
+    expect(output).not.toMatch(/^ended_at:/m);
     expect(output).toContain('[output]\nSUBAGENT-FINAL-SUMMARY');
     expect(output).not.toMatch(/^pid:/m);
     expect(output).not.toMatch(/^command:/m);
@@ -680,6 +686,7 @@ describe('TaskStopTool', () => {
     const output = outputString(result);
 
     expect(result.isError ?? false).toBe(false);
+    expect(output.split('\n')[0]).toBe('Wall time: 2.000 seconds');
     expect(output).toContain('task_id: bash-stop0001');
     expect(output).toContain('status: killed');
     expect(output).toContain('reason: custom stop reason');
@@ -729,6 +736,7 @@ describe('TaskStopTool', () => {
 
     expect(result.isError ?? false).toBe(false);
     expect(outputString(result).trim().split('\n')).toEqual([
+      'Wall time: 1.000 seconds',
       `task_id: ${taskId}`,
       'status: completed',
       'reason: Task already in terminal state',
@@ -754,7 +762,7 @@ describe('TaskStopTool', () => {
     );
 
     expect(result.isError ?? false).toBe(false);
-    expect(outputString(result).trim().split('\n')[2]).toBe(
+    expect(outputString(result).trim().split('\n')[3]).toBe(
       'reason: Task already in terminal state',
     );
   });

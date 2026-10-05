@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
@@ -7,9 +7,12 @@ import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  MAX_REVIEW_ROUNDS,
   STATE_FILE,
   TowerProtocolError,
   TowerStore,
+  commitPaths,
+  isWorktreeDirty,
   parseFrontmatter,
   worktreeAddNewBranch,
 } from '../../../src/features/tower/protocol';
@@ -314,6 +317,96 @@ describe('init', () => {
   });
 });
 
+describe('git invocation hardening', () => {
+  it.skipIf(process.platform === 'win32')(
+    'does not run repo-configured hooks when committing',
+    async () => {
+      const hooksDir = join(repo, 'evil-hooks');
+      await mkdir(hooksDir, { recursive: true });
+      const marker = join(repo, 'hook-ran');
+      await writeFile(join(hooksDir, 'pre-commit'), `#!/bin/sh\ntouch "${marker}"\n`);
+      await chmod(join(hooksDir, 'pre-commit'), 0o755);
+      await git(repo, 'config', 'core.hooksPath', hooksDir);
+      await writeFile(join(repo, 'x.txt'), 'x\n');
+
+      await commitPaths(repo, ['x.txt'], 'commit x');
+
+      expect(await git(repo, 'log', '-1', '--format=%s')).toBe('commit x');
+      await expect(stat(marker)).rejects.toThrow();
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'does not run a repo-configured fsmonitor command on status',
+    async () => {
+      const outside = await mkdtemp(join(tmpdir(), 'tower-fsm-'));
+      try {
+        const marker = join(outside, 'fsm-ran');
+        const helper = join(outside, 'helper.sh');
+        await writeFile(helper, `#!/bin/sh\ntouch "${marker}"\n`);
+        await chmod(helper, 0o755);
+        await git(repo, 'config', 'core.fsmonitor', helper);
+
+        expect(await isWorktreeDirty(repo)).toBe(false);
+        await expect(stat(marker)).rejects.toThrow();
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'does not run repo-configured clean filters on status and add',
+    async () => {
+      const outside = await mkdtemp(join(tmpdir(), 'tower-filter-'));
+      try {
+        const marker = join(outside, 'filter-ran');
+        await writeFile(join(repo, '.gitattributes'), '*.txt filter=evil\n');
+        await writeFile(join(repo, 'f.txt'), 'aaaa\n');
+        await git(repo, 'add', '-A');
+        await git(repo, 'commit', '-m', 'add f');
+        await git(repo, 'config', 'filter.evil.clean', `touch "${marker}"`);
+        await git(repo, 'config', 'filter.evil.smudge', 'cat');
+
+        await writeFile(join(repo, 'f.txt'), 'bbbb\n');
+        await git(repo, 'status', '--porcelain');
+        await stat(marker);
+        await rm(marker);
+
+        expect(await isWorktreeDirty(repo)).toBe(true);
+        await expect(stat(marker)).rejects.toThrow();
+
+        await commitPaths(repo, ['f.txt'], 'commit f');
+        expect(await git(repo, 'log', '-1', '--format=%s')).toBe('commit f');
+        await expect(stat(marker)).rejects.toThrow();
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('falls back to the tower identity when the repository has no committer identity', async () => {
+    await git(repo, 'config', '--unset', 'user.name');
+    await git(repo, 'config', '--unset', 'user.email');
+    const previousGlobal = process.env['GIT_CONFIG_GLOBAL'];
+    const previousNosystem = process.env['GIT_CONFIG_NOSYSTEM'];
+    process.env['GIT_CONFIG_GLOBAL'] = '/dev/null';
+    process.env['GIT_CONFIG_NOSYSTEM'] = '1';
+    try {
+      await writeFile(join(repo, 'y.txt'), 'y\n');
+      await commitPaths(repo, ['y.txt'], 'commit y');
+    } finally {
+      if (previousGlobal === undefined) delete process.env['GIT_CONFIG_GLOBAL'];
+      else process.env['GIT_CONFIG_GLOBAL'] = previousGlobal;
+      if (previousNosystem === undefined) delete process.env['GIT_CONFIG_NOSYSTEM'];
+      else process.env['GIT_CONFIG_NOSYSTEM'] = previousNosystem;
+    }
+
+    expect(await git(repo, 'log', '-1', '--format=%an')).toBe('Kimi Tower');
+    expect(await git(repo, 'log', '-1', '--format=%ae')).toBe('kimi-tower@localhost');
+  });
+});
+
 describe('release', () => {
   it('clears the recorded owner and logs the release when the session matches', async () => {
     await store.init('session-a');
@@ -594,6 +687,42 @@ describe('plan', () => {
     );
     expect((await store.load()).missions).toHaveLength(0);
   });
+
+  it('rejects titles containing non-ASCII characters and names the first offender', async () => {
+    await expect(
+      store.plan([{ title: '航运市场B010100迁移', scope: ['src/x/**'] }]),
+    ).rejects.toThrow(/contains non-ASCII characters \(first: "航"\)/);
+    expect((await store.load()).missions).toHaveLength(0);
+  });
+
+  it('rejects a batch when any title contains non-ASCII characters, even mixed with ASCII ones', async () => {
+    await expect(
+      store.plan([
+        { title: 'Build engine', scope: ['src/engine/**'] },
+        { title: '金融市场B010400迁移', scope: ['src/finance/**'] },
+      ]),
+    ).rejects.toThrow(/contains non-ASCII characters/);
+    expect((await store.load()).missions).toHaveLength(0);
+  });
+
+  it('rejects Russian and Korean titles — they slug to the same generic word as CJK', async () => {
+    await expect(
+      store.plan([{ title: 'Исправить ошибку входа', scope: ['src/x/**'] }]),
+    ).rejects.toThrow(/contains non-ASCII characters \(first: "И"\)/);
+    await expect(
+      store.plan([{ title: '한글 제목', scope: ['src/x/**'] }]),
+    ).rejects.toThrow(/contains non-ASCII characters \(first: "한"\)/);
+    expect((await store.load()).missions).toHaveLength(0);
+  });
+
+  it('accepts titles with printable ASCII punctuation — dashes, underscores, spaces, plus signs', async () => {
+    const missions = await store.plan([
+      { title: 'fix login_error + retry-logic', scope: ['src/x/**'] },
+    ]);
+
+    expect(missions[0]?.title).toBe('fix login_error + retry-logic');
+    expect(missions[0]?.branch).toBe('feat/fix-login-error-retry-logic');
+  });
 });
 
 describe('inbox send', () => {
@@ -641,6 +770,33 @@ describe('inbox send', () => {
     const ref = /ref=(\S+)/.exec(sendLine ?? '')?.[1];
     expect(ref).toBe(rel);
     expect((await stat(join(repo, ref!))).isFile()).toBe(true);
+  });
+
+  it('stamps the sender token count into the frontmatter and the activity log', async () => {
+    const rel = await store.send('tower', {
+      to: 'w1',
+      subject: 'get started',
+      body: 'please start on M1',
+      tokens: 12345,
+    });
+
+    const { fields } = parseFrontmatter(await readFile(join(repo, rel), 'utf8'));
+    expect(fields['tokens']).toBe('12345');
+
+    const log = await readFile(join(repo, '.tower/comms/log/activity.log'), 'utf8');
+    const sendLine = log.split('\n').find((line) => line.includes('inbox.send'));
+    expect(sendLine).toContain('tokens=12345');
+  });
+
+  it('records tokens as -1 when the sender usage is unavailable', async () => {
+    const rel = await store.send('tower', {
+      to: 'w1',
+      subject: 'get started',
+      body: 'please start on M1',
+    });
+
+    const { fields } = parseFrontmatter(await readFile(join(repo, rel), 'utf8'));
+    expect(fields['tokens']).toBe('-1');
   });
 });
 
@@ -707,6 +863,29 @@ describe('findings', () => {
     expect(text).toContain('**Agent**: w1');
     expect(text).toContain('**Type**: bug');
     expect(text).toContain('**Severity**: high');
+  });
+
+  it('stamps the reporter token count into the finding and defaults to -1', async () => {
+    const rel = await store.fileFinding('w1', {
+      type: 'bug',
+      title: 'leaky cache',
+      summary: 'the cache never invalidates',
+      details: 'no eviction path exists',
+      suggestedFix: 'add a ttl',
+      tokens: 4321,
+    });
+    const withTokens = await readFile(join(repo, rel), 'utf8');
+    expect(withTokens).toContain('**Tokens**: 4321');
+
+    const relDefault = await store.fileFinding('w1', {
+      type: 'improve',
+      title: 'second finding',
+      summary: 's',
+      details: 'd',
+      suggestedFix: 'f',
+    });
+    const withoutTokens = await readFile(join(repo, relDefault), 'utf8');
+    expect(withoutTokens).toContain('**Tokens**: -1');
   });
 });
 
@@ -833,6 +1012,43 @@ describe('merge gate', () => {
     await expect(store.submitReview('rev', { ...input, target: 'feat/other' })).rejects.toThrow(
       /not an assigned reviewer/,
     );
+  });
+
+  it('stamps the reviewer token count into the review frontmatter and defaults to -1', async () => {
+    const mission = await setupMission({
+      title: 'feature x',
+      scope: 'src/x/**',
+      file: 'src/x/x.ts',
+      content: 'x\n',
+    });
+    await store.registerAgent(
+      rosterEntry({ name: 'rev', kind: 'reviewer', reviewTarget: mission.branch }),
+    );
+
+    await store.submitReview('rev', {
+      target: mission.branch,
+      status: 'clean',
+      merge: 'merge',
+      findings: 'none',
+      decision: 'ok',
+      tokens: 777,
+    });
+    const withTokens = await store.latestReview(mission.branch);
+    expect(
+      parseFrontmatter(await readFile(join(repo, withTokens!.file), 'utf8')).fields['tokens'],
+    ).toBe('777');
+
+    await store.submitReview('rev', {
+      target: mission.branch,
+      status: 'clean',
+      merge: 'merge',
+      findings: 'none',
+      decision: 'ok again',
+    });
+    const withoutTokens = await store.latestReview(mission.branch);
+    expect(
+      parseFrontmatter(await readFile(join(repo, withoutTokens!.file), 'utf8')).fields['tokens'],
+    ).toBe('-1');
   });
 
   it('refuses to merge while dependency missions are unmerged', async () => {
@@ -1400,6 +1616,142 @@ describe('merge gate', () => {
   });
 });
 
+describe('rework loop closure', () => {
+  beforeEach(async () => {
+    await store.init();
+  });
+
+  async function missionIn(
+    status: 'planned' | 'active' | 'completed' | 'blocked' | 'paused',
+    title = 'feature x',
+  ) {
+    const mission = await setupMission({
+      title,
+      scope: `src/${title.replaceAll(' ', '-')}/**`,
+      file: `src/${title.replaceAll(' ', '-')}/x.ts`,
+      content: 'x\n',
+    });
+    if (status === 'blocked') {
+      await store.updateMission('tower', mission.id, { blocker: 'waiting on an answer' });
+    } else if (status !== 'planned') {
+      await store.updateMission('tower', mission.id, { status });
+    }
+    await store.registerAgent(
+      rosterEntry({ name: 'rev', kind: 'reviewer', reviewTarget: mission.branch, reviewMissionId: mission.id }),
+    );
+    return mission;
+  }
+
+  async function nonCleanReview(target: string): Promise<void> {
+    await store.submitReview('rev', {
+      target,
+      status: 'p1-1items',
+      merge: 'fix-then-merge',
+      findings: 'one real problem',
+      decision: 'send it back',
+    });
+  }
+
+  it('flips a completed mission back to active when a non-clean verdict lands', async () => {
+    const mission = await missionIn('completed');
+
+    await nonCleanReview(mission.branch);
+
+    expect((await store.load()).missions.find((m) => m.id === mission.id)?.status).toBe('active');
+    const review = await store.latestReview(mission.branch);
+    expect(review?.mission).toBe(mission.id);
+    expect(review?.status).toBe('p1-1items');
+    const missionFile = await readFile(
+      join(repo, '.tower/comms/missions', `${mission.id}-feature-x.md`),
+      'utf8',
+    );
+    expect(missionFile).toContain('🔵');
+    expect(missionFile).not.toContain('🟢');
+    const index = await readFile(join(repo, '.tower/comms/MISSIONS.md'), 'utf8');
+    expect(index).toContain('🔵');
+    const log = await readFile(join(repo, '.tower/comms/log/activity.log'), 'utf8');
+    expect(log).toContain('mission.rework');
+  });
+
+  it('keeps a completed mission completed on a clean verdict', async () => {
+    const mission = await missionIn('completed');
+
+    await cleanReview('rev', mission.branch);
+
+    expect((await store.load()).missions.find((m) => m.id === mission.id)?.status).toBe(
+      'completed',
+    );
+  });
+
+  it('never flips a merged mission', async () => {
+    const mission = await missionIn('completed');
+    await cleanReview('rev', mission.branch);
+    await store.merge(mission.branch);
+    expect((await store.load()).missions.find((m) => m.id === mission.id)?.status).toBe('merged');
+
+    await nonCleanReview(mission.branch);
+
+    expect((await store.load()).missions.find((m) => m.id === mission.id)?.status).toBe('merged');
+  });
+
+  it('leaves blocked and paused missions alone', async () => {
+    const blocked = await missionIn('blocked');
+    await nonCleanReview(blocked.branch);
+    expect((await store.load()).missions.find((m) => m.id === blocked.id)?.status).toBe('blocked');
+
+    const paused = await missionIn('paused', 'feature y');
+    await store.registerAgent(
+      rosterEntry({ name: 'rev-2', kind: 'reviewer', reviewTarget: paused.branch, reviewMissionId: paused.id }),
+    );
+    await store.submitReview('rev-2', {
+      target: paused.branch,
+      status: 'p2-2items',
+      merge: 'fix-then-merge',
+      findings: 'two nits',
+      decision: 'send it back',
+    });
+    expect((await store.load()).missions.find((m) => m.id === paused.id)?.status).toBe('paused');
+  });
+
+  it('leaves active and planned missions alone', async () => {
+    const active = await missionIn('active');
+    await nonCleanReview(active.branch);
+    expect((await store.load()).missions.find((m) => m.id === active.id)?.status).toBe('active');
+
+    const planned = await setupMission({
+      title: 'feature y',
+      scope: 'src/y/**',
+      file: 'src/y/y.ts',
+      content: 'y\n',
+    });
+    await store.registerAgent(
+      rosterEntry({ name: 'rev-y', kind: 'reviewer', reviewTarget: planned.branch }),
+    );
+    await store.submitReview('rev-y', {
+      target: planned.branch,
+      status: 'p2-1items',
+      merge: 'fix-then-merge',
+      findings: 'one nit',
+      decision: 'send it back',
+    });
+    expect((await store.load()).missions.find((m) => m.id === planned.id)?.status).toBe('planned');
+  });
+
+  it('flips a completed mission resolved by branch when the tower submits the verdict', async () => {
+    const mission = await missionIn('completed');
+
+    await store.submitReview('tower', {
+      target: mission.branch,
+      status: 'p1-1items',
+      merge: 'hold',
+      findings: 'a real problem',
+      decision: 'do not merge',
+    });
+
+    expect((await store.load()).missions.find((m) => m.id === mission.id)?.status).toBe('active');
+  });
+});
+
 describe('dirty base checkout', () => {
   beforeEach(async () => {
     await store.init();
@@ -1706,6 +2058,273 @@ describe('updateMission', () => {
 
     const patched = await store.updateMission('tower', 'M2', { scope: ['src/alpha/**'] });
     expect(patched.scope).toEqual(['src/alpha/**']);
+  });
+});
+
+describe('completion invariants', () => {
+  beforeEach(async () => {
+    await store.init();
+  });
+
+  async function seedMission(
+    title: string,
+    options: {
+      tasks?: string[];
+      kind?: 'build' | 'survey';
+      withWorktree?: boolean;
+      withCommit?: boolean;
+    } = {},
+  ): Promise<TowerMission> {
+    const slug = title.replaceAll(' ', '-');
+    const [mission] = await store.plan([
+      { title, scope: [`src/${slug}/**`], tasks: options.tasks, kind: options.kind },
+    ]);
+    if (options.withWorktree === true || options.withCommit === true) {
+      const state = await store.load();
+      await store.addWorktree(mission!.worktree, mission!.branch, state.base);
+    }
+    if (options.withCommit === true) {
+      await commitFile(worktreeOf(mission!), `src/${slug}/x.ts`, 'x\n', `work on ${mission!.id}`);
+    }
+    return mission!;
+  }
+
+  it('refuses completed while tasks are open and lists them in the error', async () => {
+    const mission = await seedMission('feature x', {
+      tasks: ['scaffold', 'implement'],
+      withCommit: true,
+    });
+
+    await expect(
+      store.updateMission('tower', mission.id, { status: 'completed' }),
+    ).rejects.toThrow(/cannot transition to completed — 2 open task\(s\): "scaffold", "implement"/);
+    await store.updateMission('tower', mission.id, { taskDone: 'scaffold' });
+    await expect(
+      store.updateMission('tower', mission.id, { status: 'completed' }),
+    ).rejects.toThrow(/1 open task\(s\): "implement"/);
+
+    expect((await store.load()).missions.find((m) => m.id === mission.id)?.status).toBe('planned');
+  });
+
+  it('lets a mission complete once every task is done or dropped', async () => {
+    const mission = await seedMission('feature x', {
+      tasks: ['scaffold', 'implement'],
+      withCommit: true,
+    });
+
+    await store.updateMission('tower', mission.id, { taskDone: 'scaffold' });
+    await store.updateMission('tower', mission.id, {
+      taskDrop: { text: 'implement', reason: 'covered by another mission' },
+    });
+
+    const completed = await store.updateMission('tower', mission.id, { status: 'completed' });
+    expect(completed.status).toBe('completed');
+  });
+
+  it('applies same-call task mutations before the completed gate', async () => {
+    const mission = await seedMission('feature x', {
+      tasks: ['scaffold', 'implement'],
+      withCommit: true,
+    });
+
+    const completed = await store.updateMission('tower', mission.id, {
+      taskDone: 'scaffold',
+      taskDrop: { text: 'implement', reason: 'descoped, covered by M9' },
+      status: 'completed',
+    });
+
+    expect(completed.status).toBe('completed');
+    expect(completed.tasks.find((t) => t.text === 'scaffold')?.done).toBe(true);
+    expect(completed.tasks.find((t) => t.text === 'implement')?.dropped).toBe(true);
+  });
+
+  it('refuses a combined patch that still leaves a task open, persisting nothing', async () => {
+    const mission = await seedMission('feature x', {
+      tasks: ['scaffold', 'implement'],
+      withCommit: true,
+    });
+
+    await expect(
+      store.updateMission('tower', mission.id, {
+        taskDone: 'scaffold',
+        status: 'completed',
+      }),
+    ).rejects.toThrow(/1 open task\(s\): "implement"/);
+
+    const reloaded = (await store.load()).missions.find((m) => m.id === mission.id);
+    expect(reloaded?.status).toBe('planned');
+    expect(reloaded?.tasks.find((t) => t.text === 'scaffold')?.done).toBe(false);
+  });
+
+  it('gates a worker completing its own mission the same way', async () => {
+    const mission = await seedMission('feature x', { tasks: ['scaffold'], withCommit: true });
+    await store.registerAgent(
+      rosterEntry({
+        name: 'w1',
+        kind: 'worker',
+        missionId: mission.id,
+        worktree: mission.worktree,
+        branch: mission.branch,
+      }),
+    );
+
+    await expect(store.updateMission('w1', mission.id, { status: 'completed' })).rejects.toThrow(
+      /1 open task\(s\): "scaffold"/,
+    );
+    await store.updateMission('w1', mission.id, { taskDone: 'scaffold' });
+    expect((await store.updateMission('w1', mission.id, { status: 'completed' })).status).toBe(
+      'completed',
+    );
+  });
+
+  it('requires a reason to drop a task and records the drop in notes and the activity log', async () => {
+    const mission = await seedMission('feature x', {
+      tasks: ['scaffold', 'implement'],
+      withCommit: true,
+    });
+
+    await expect(
+      store.updateMission('tower', mission.id, { taskDrop: { text: 'implement' } }),
+    ).rejects.toThrow(/requires a reason/);
+    await expect(
+      store.updateMission('tower', mission.id, { taskDrop: { text: 'implement', reason: '  ' } }),
+    ).rejects.toThrow(/requires a reason/);
+
+    const updated = await store.updateMission('tower', mission.id, {
+      taskDrop: { text: 'implement', reason: 'descoped, covered by M9' },
+    });
+    const dropped = updated.tasks.find((t) => t.text === 'implement');
+    expect(dropped?.dropped).toBe(true);
+    expect(dropped?.done).toBe(false);
+    expect(updated.notes).toContain('dropped task "implement": descoped, covered by M9');
+    const log = (await store.recentLog(10)).join('\n');
+    expect(log).toContain('task_drop=dropped task "implement": descoped, covered by M9');
+    const file = await readFile(
+      join(repo, '.tower/comms/missions', `${mission.id}-feature-x.md`),
+      'utf8',
+    );
+    expect(file).toContain('- [-] implement (dropped)');
+  });
+
+  it('does not match dropped tasks for task_done or a second drop', async () => {
+    const mission = await seedMission('feature x', { tasks: ['implement'], withCommit: true });
+    await store.updateMission('tower', mission.id, {
+      taskDrop: { text: 'implement', reason: 'descoped' },
+    });
+
+    await expect(store.updateMission('tower', mission.id, { taskDone: 'implement' })).rejects.toThrow(
+      /no open task matching "implement"/,
+    );
+    await expect(
+      store.updateMission('tower', mission.id, {
+        taskDrop: { text: 'implement', reason: 'again' },
+      }),
+    ).rejects.toThrow(/no open task matching "implement"/);
+  });
+
+  it('refuses completed for a build mission whose branch has no diff vs its base', async () => {
+    const mission = await seedMission('feature x', { withWorktree: true });
+
+    await expect(
+      store.updateMission('tower', mission.id, { status: 'completed' }),
+    ).rejects.toThrow(/has no changes vs "main"/);
+
+    await commitFile(worktreeOf(mission), 'src/feature-x/x.ts', 'x\n', `work on ${mission.id}`);
+    const completed = await store.updateMission('tower', mission.id, { status: 'completed' });
+    expect(completed.status).toBe('completed');
+  });
+
+  it('refuses completed for a build mission whose branch does not exist', async () => {
+    const mission = await seedMission('feature x');
+
+    await expect(
+      store.updateMission('tower', mission.id, { status: 'completed' }),
+    ).rejects.toThrow(/does not exist, so no work has landed/);
+  });
+
+  it('lets a survey mission complete with no branch and no diff', async () => {
+    const mission = await seedMission('scan layer', { kind: 'survey' });
+
+    const completed = await store.updateMission('tower', mission.id, { status: 'completed' });
+    expect(completed.status).toBe('completed');
+  });
+
+  it('still refuses a survey mission with open tasks', async () => {
+    const mission = await seedMission('scan layer', { kind: 'survey', tasks: ['read the code'] });
+
+    await expect(
+      store.updateMission('tower', mission.id, { status: 'completed' }),
+    ).rejects.toThrow(/1 open task\(s\): "read the code"/);
+  });
+});
+
+describe('review round cap', () => {
+  beforeEach(async () => {
+    await store.init();
+  });
+
+  async function seedReviewedMission() {
+    const mission = await setupMission({
+      title: 'feature x',
+      scope: 'src/x/**',
+      file: 'src/x/x.ts',
+      content: 'x\n',
+    });
+    await store.registerAgent(
+      rosterEntry({
+        name: 'rev',
+        kind: 'reviewer',
+        reviewTarget: mission.branch,
+        reviewMissionId: mission.id,
+      }),
+    );
+    return mission;
+  }
+
+  async function nonCleanRound(reviewer: string, target: string, findings: string): Promise<void> {
+    await store.submitReview(reviewer, {
+      target,
+      status: 'p1-1items',
+      merge: 'fix-then-merge',
+      findings,
+      decision: 'send it back',
+    });
+  }
+
+  it('refuses a review beyond the round cap from the same reviewer and points at redirect', async () => {
+    const mission = await seedReviewedMission();
+    for (let i = 0; i < MAX_REVIEW_ROUNDS; i++) {
+      await nonCleanRound('rev', mission.branch, `problem ${String(i)}`);
+    }
+
+    await expect(nonCleanRound('rev', mission.branch, 'still broken')).rejects.toThrow(
+      /5 review rounds by "rev".*redirect instead: reassign/s,
+    );
+
+    const reviews = await store.reviewsFor(mission.branch);
+    expect(reviews.map((r) => r.round)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('lets a fresh reviewer start at round 1 on a capped branch', async () => {
+    const mission = await seedReviewedMission();
+    for (let i = 0; i < MAX_REVIEW_ROUNDS; i++) {
+      await nonCleanRound('rev', mission.branch, `problem ${String(i)}`);
+    }
+    await store.registerAgent(
+      rosterEntry({
+        name: 'rev-2',
+        kind: 'reviewer',
+        reviewTarget: mission.branch,
+        reviewMissionId: mission.id,
+      }),
+    );
+
+    await nonCleanRound('rev-2', mission.branch, 'fresh eyes');
+
+    const reviews = await store.reviewsFor(mission.branch);
+    expect(reviews).toHaveLength(MAX_REVIEW_ROUNDS + 1);
+    expect(reviews.at(-1)?.reviewer).toBe('rev-2');
+    expect(reviews.at(-1)?.round).toBe(1);
   });
 });
 
