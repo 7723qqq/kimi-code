@@ -1,3 +1,4 @@
+import type { ToolCall } from '#human/llm/message';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
@@ -7,7 +8,6 @@ import type { IAgentPlanService, PlanData } from '#/features/plan/plan';
 import { EnterPlanModeTool } from '#/features/plan/tools/enter-plan-mode/enterPlanModeTool';
 import { type ExitPlanModeInput } from '#/features/plan/tools/exit-plan-mode/exit-plan-mode';
 import { ExitPlanModeTool } from '#/features/plan/tools/exit-plan-mode/exitPlanModeTool';
-import type { ToolCall } from '#/kosong/contract/message';
 import type { ToolResult } from '#/tool/toolContract';
 
 import {

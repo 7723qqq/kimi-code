@@ -27,10 +27,6 @@
   ],
   "type": "module",
   "imports": {
-    "#/legacy": "./src/legacy/index.ts",
-    "#/legacy/*": "./src/legacy/*.ts",
-    "#/config-local": "./src/config-local/index.ts",
-    "#/config-local/*": "./src/config-local/*.ts",
     "#/*": "./src/*.ts"
   },
   "exports": {
@@ -69,7 +65,6 @@
     "@moonshot-ai/kimi-i18n": "workspace:^",
     "@moonshot-ai/klient": "workspace:^",
     "@moonshot-ai/kosong": "workspace:^",
-    "@moonshot-ai/protocol": "workspace:^",
     "@types/yazl": "^2.4.6",
     "jimp": "^1.6.1"
   }

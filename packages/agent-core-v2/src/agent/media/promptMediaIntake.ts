@@ -1,6 +1,6 @@
-import { abortable } from '#/_base/utils/abort';
 import type { IFileService } from '#/app/file/fileService';
-import type { ContentPart } from '#/kosong/contract/message';
+import { abortable } from '#/_base/utils/abort';
+import type { ContentPart } from '#human/llm/message';
 
 import { daemonFileRefFromPart } from './mediaRef';
 import type { ISessionMediaStore } from './sessionMediaStore';

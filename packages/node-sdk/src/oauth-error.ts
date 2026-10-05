@@ -1,10 +1,9 @@
+import { ErrorCodes, KimiError } from '#/errors';
 import {
   OAuthConnectionError,
   OAuthUnauthorizedError,
   RetryableRefreshError,
 } from '@moonshot-ai/kimi-code-oauth';
-
-import { ErrorCodes, KimiError } from '#/legacy';
 
 /**
  * Classify an OAuth token-fetch failure into the public {@link KimiError}

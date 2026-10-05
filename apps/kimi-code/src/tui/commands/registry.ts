@@ -279,7 +279,6 @@ export const BUILTIN_SLASH_COMMANDS = [
     },
     priority: 90,
     availability: 'always',
-    experimentalFlag: 'secondary-model',
   },
   {
     name: 'effort',
@@ -562,7 +561,6 @@ export const BUILTIN_SLASH_COMMANDS = [
     },
     priority: 40,
     availability: 'always',
-    experimentalFlag: 'remote-control',
   },
   {
     name: 'exit',

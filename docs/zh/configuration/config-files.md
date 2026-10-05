@@ -192,7 +192,7 @@ subagent 默认继承 main agent 正在运行的模型。`[secondary_model]` 节
 
 ### subagent 模型池
 
-该功能默认开启，无需配置即可使用。设置 `KIMI_CODE_EXPERIMENTAL_SECONDARY_MODEL=0` 可关闭：关闭后模型池配置不生效，subagent 继承调用方模型，会话启动也会跳过池校验。
+模型池始终可用，无需任何开启动作；未配置 `[secondary_model]` 时，subagent 继承调用方模型。
 
 最小配置只有一行：单独写下的 `default_model` 就是只含一个条目的模型池：
 
@@ -354,7 +354,7 @@ k3-max = "同一模型的 max Thinking 档位。适合最难的子任务。"
 | `print_wait_ceiling_s` | `integer` | `2147483` | 等待/steer 循环的墙钟上限（秒），非 print 模式或 `"exit"` 时无效 |
 | `print_max_turns` | `integer` | `100000` | steer 模式下后台任务触发新 turn 的数量上限，防止 steer 循环失控 |
 
-`keep_alive_on_exit` 可被环境变量 `KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT` 覆盖，`max_running_tasks` 可被 `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` 覆盖，优先级均高于配置文件。
+`keep_alive_on_exit` 可被环境变量 `KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT` 覆盖，`max_running_tasks` 可被 `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` 覆盖，`bash_task_timeout_s` 可被 `KIMI_CODE_BACKGROUND_BASH_TASK_TIMEOUT_S` 覆盖，`print_background_mode`、`print_wait_ceiling_s`、`print_max_turns` 可分别被 `KIMI_CODE_BACKGROUND_PRINT_BACKGROUND_MODE`、`KIMI_CODE_BACKGROUND_PRINT_WAIT_CEILING_S`、`KIMI_CODE_BACKGROUND_PRINT_MAX_TURNS` 覆盖，优先级均高于配置文件。
 
 在 print 模式（`kimi -p "<prompt>"`）下，只要还有未决的后台任务，Kimi Code 在 main agent 的 turn 结束后不会退出：每个任务完成都会以合成 user 消息回馈给 main agent，steer 出新的 turn（默认 `print_background_mode = "steer"`），直到某 turn 结束时没有任何未决任务才退出。该循环受 `print_wait_ceiling_s` 与 `print_max_turns` 约束，默认值都近似不设限。print 模式下后台工作也不会被墙钟超时杀掉：后台 `Bash` 任务默认无超时（`bash_task_timeout_s = 0`），subagent 默认无超时（`[subagent] timeout_ms` 与 `[swarm] timeout_ms` 未显式设置时均为 `0`），只有模型自己能停止任务。将 `print_background_mode` 设为 `"drain"` 可等待任务结束但不回馈结果，设为 `"exit"` 则在 main agent 结束后立即退出。
 
@@ -408,7 +408,7 @@ slug = "acme-dev"        # 可选
 
 身份在启动时解析一次，进程生命周期内保持不变：建立连接时它已宣告给 MCP 服务器和 provider，中途无法更换。修改本节配置在下次启动时对新会话生效；resume 的会话保留录制时的系统提示词，因为其历史轮次本就以原身份自称。同理，已完成的 MCP OAuth 授权保留其授予时的客户端注册；重置该服务器的认证即可在新身份下重新注册。
 
-本节由默认的 `agent-core-v2` 引擎读取。设置 `KIMI_CODE_LEGACY_FLAG=1` 后，旧版 `kimi` / `kimi -p` 路径会忽略此配置；`kimi web` 始终使用 `agent-core-v2`。
+本节由 `agent-core-v2` 引擎读取，Kimi Code 的所有界面都运行在该引擎上。
 
 ## `tools`
 
@@ -430,6 +430,23 @@ disabled = ["EnterPlanMode", "ExitPlanMode", "mcp__github__*"]
 与 Agent 文件中的 `tools` / `disallowedTools` 一样，本节不仅决定模型能"看到"哪些工具，还会在执行前再次强制检查。[权限规则](#permission)仍是独立的控制层，用于决定哪些操作需要审批。
 :::
 
+## `read`
+
+`read` 控制 [`Read` 工具](../reference/tools.md) 的字符额度，包含文件正文、行号和状态信息，不额外叠加行数或 UTF-8 字节数上限。
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `default_max_chars` | `integer` | `100000` | 工具调用未指定 `max_chars` 时的字符额度 |
+| `max_chars` | `integer` | `500000` | 单次工具调用可申请的最大字符额度 |
+
+```toml
+[read]
+default_max_chars = 100000
+max_chars = 500000
+```
+
+两个值都必须是正整数。调用中的 `max_chars` 覆盖默认值，但不会超过配置的最大值；结果会说明实际生效的额度。如果配置的默认值超过最大值，默认读取也会按最大值执行。如果希望较大的文档默认就能一次返回，无需 Agent 主动申请更大额度，可以提高 `default_max_chars`。
+
 ## `image`
 
 `image` 控制图片发送给模型前的压缩行为，对所有图片入口生效（粘贴图片、`ReadMediaFile` 读图、MCP 工具结果里的图片等）。
@@ -440,6 +457,17 @@ disabled = ["EnterPlanMode", "ExitPlanMode", "mcp__github__*"]
 | `read_byte_budget` | `integer` | `262144`（256 KB） | 模型自行读取图片的单图字节预算（`ReadMediaFile` 默认读取）；`region` 与 `full_resolution` 回读不受此限制 |
 
 `max_edge_px` 可被环境变量 `KIMI_IMAGE_MAX_EDGE_PX` 覆盖，`read_byte_budget` 可被 `KIMI_IMAGE_READ_BYTE_BUDGET` 覆盖，优先级均高于配置文件。
+
+## `database`
+
+`database` 控制会话索引和全局搜索背后的嵌入式存储引擎。两个字段默认值都是 `true`，设为 `false` 时回退到旧有行为。
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `base` | `boolean` | `true` | 会话索引使用基于 minidb 的读模型；`false` 回退为直接读取会话元数据 |
+| `search` | `boolean` | `true` | 在独立 worker 线程中运行全局搜索索引；`false` 在服务器进程内运行 |
+
+`base` 可被环境变量 `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` 覆盖，`search` 可被 `KIMI_CODE_SEARCH_WORKER` 覆盖，优先级均高于配置文件。
 
 <!--
 ## `experimental`

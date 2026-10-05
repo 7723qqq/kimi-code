@@ -21,9 +21,8 @@ import {
   IAgentLoopService,
   type AfterStepContext,
   type BeforeStepContext,
-  type EnqueueReceipt,
+  type Turn,
 } from '#/agent/loop/loop';
-import { ContinuationStepRequest, MessageStepRequest } from '#/agent/loop/stepRequest';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded } from '#/agent/loop/turnOps';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
@@ -32,6 +31,8 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { BeforeToolExecuteEvent } from '#/agent/toolExecutor/toolHooks';
+import { IFlagService } from '#/app/flag/flag';
+import { WAIT_FOR_FLAG_ID } from '#/agent/tools/task/task-wait/flag';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { type UsageRecordedContext } from '#/agent/usage/usage';
@@ -175,7 +176,7 @@ export interface GoalRuntimeState {
 }
 
 interface PendingContinuation {
-  readonly receipt: EnqueueReceipt;
+  readonly turn: Turn;
   readonly goalId: string;
   turnId?: number;
 }
@@ -600,7 +601,7 @@ function enqueueGoalOutcomeContinuation(context: GoalOperationContext, ctx: Afte
   context.effects.goalOutcomeContinuationTurns.add(ctx.turnId);
   const maxSteps = context.runtime.get(IConfigService).get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
   if (!hasStepBudgetRemaining(maxSteps, ctx.step)) return;
-  context.runtime.get(IAgentLoopService).enqueue(new ContinuationStepRequest());
+  context.runtime.get(IAgentLoopService).notify();
 }
 
 async function handleTurnEnded(context: GoalOperationContext,
@@ -700,6 +701,7 @@ async function settleGoalAfterContinuationFailure(context: GoalOperationContext,
 
 function isWaitForAvailable(context: GoalOperationContext): boolean {
   return (
+    context.runtime.get(IFlagService).enabled(WAIT_FOR_FLAG_ID) &&
     context.runtime.get(IAgentToolRegistryService).resolve('WaitFor') !== undefined &&
     context.runtime.get(IAgentToolPolicyService).isToolActive('WaitFor')
   );
@@ -722,25 +724,17 @@ function launchContinuationTurn(context: GoalOperationContext, goalId: string, s
     toolCalls: [],
     origin: GOAL_CONTINUATION_ORIGIN,
   };
-  const request = new MessageStepRequest(message, {
-    kind: 'goal_continuation',
-    admission: 'newTurn',
-  });
-  const receipt = context.runtime.get(IAgentLoopService).enqueue(request);
-  const pending: PendingContinuation = { receipt, goalId };
+  const { turn } = context.runtime.get(IAgentLoopService).submit({ message });
+  const pending: PendingContinuation = { turn, goalId };
   context.effects.pendingContinuation = pending;
-  void receipt.assigned
-    .then(({ turn }) => {
-      pending.turnId = turn.id;
-      if (!context.effects.goalDrivenTurns.has(turn.id)) {
-        context.effects.pendingContinuationGoals.set(turn.id, pending.goalId);
-      }
-      return turn.result;
-    })
-    .finally(() => {
-      if (pending.turnId !== undefined) context.effects.pendingContinuationGoals.delete(pending.turnId);
-      if (context.effects.pendingContinuation === pending) context.effects.pendingContinuation = undefined;
-    });
+  pending.turnId = turn.id;
+  if (!context.effects.goalDrivenTurns.has(turn.id)) {
+    context.effects.pendingContinuationGoals.set(turn.id, pending.goalId);
+  }
+  void turn.result.finally(() => {
+    if (pending.turnId !== undefined) context.effects.pendingContinuationGoals.delete(pending.turnId);
+    if (context.effects.pendingContinuation === pending) context.effects.pendingContinuation = undefined;
+  });
 }
 
 function canLaunchContinuation(context: GoalOperationContext): boolean {
@@ -774,8 +768,8 @@ function cancelPendingContinuation(context: GoalOperationContext,
   if (preserveLiveContinuation && pending?.turnId === context.effects.liveTurnId) return;
   context.effects.pendingContinuation = undefined;
   const cancellation = reason ?? abortError('Goal continuation cancelled');
-  const aborted = pending?.receipt.abort(cancellation);
-  if (pending !== undefined && !aborted && pending.turnId !== undefined) {
+  const cancelled = pending?.turn.cancel(cancellation) ?? false;
+  if (pending !== undefined && !cancelled && pending.turnId !== undefined) {
     context.runtime.get(IAgentLoopService).cancel(pending.turnId, cancellation);
   }
 }

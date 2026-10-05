@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import type { Message, ToolCall } from '#/kosong/contract/message';
+import type { Message, ToolCall } from '#human/llm/message';
 import type { ExecutableTool } from '#/tool/toolContract';
 
 import { permissionModeServices, createTestAgent } from '../../harness/agent';

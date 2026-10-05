@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { DiscussionContext } from '#/agent/team/context';
 import { TeamCoordinator } from '#/agent/team/coordinator';
 import { StructuredDebateCoordinator } from '#/agent/team/debate-coordinator';
-import type { TokenUsage } from '#/kosong/contract/usage';
+import type { TokenUsage } from '#human/llm/usage';
 import type {
   PersistentSubagentHost,
   PersistentSubagentSpawnOptions,

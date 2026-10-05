@@ -1,2 +1,2 @@
-export type { TokenUsage } from '#/kosong/contract/usage';
-export { inputTotal } from '#/kosong/contract/usage';
+export type { TokenUsage } from '#human/llm/usage';
+export { inputTotal } from '#human/llm/usage';

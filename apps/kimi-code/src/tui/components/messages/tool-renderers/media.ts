@@ -138,7 +138,7 @@ export const readMediaSummary: ResultRenderer = (toolCall, result, ctx) => {
   if (summary === null) return renderTruncated(toolCall, result, ctx);
   if (!ctx.expanded) return [];
 
-  const dim = (text: string) => currentTheme.fg('textDim', text);
+  const dim = (text: string): string => currentTheme.dim(text);
   const out: Component[] = [];
   if (summary.kind === 'image' && summary.base64 !== undefined) {
     out.push(

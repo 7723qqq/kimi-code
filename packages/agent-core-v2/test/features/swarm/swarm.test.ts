@@ -9,7 +9,7 @@ import { TestInstantiationService } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { Error2, ErrorCodes } from '#/errors';
-import { IModelCatalog, type Model } from '#/kosong/model/catalog';
+import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import { stubLog } from '../../_base/log/stubs';
 import { stubFlag } from '../../app/flag/stubs';
 import { stubAgentContext } from '../../agent/agentContext/stubs';
@@ -46,7 +46,7 @@ import type {
   BeforeExecuteDecision,
   ResolvedToolExecutionHookContext,
 } from '#/agent/toolExecutor/toolHooks';
-import type { ToolCall } from '#/kosong/contract/message';
+import type { ToolCall } from '#human/llm/message';
 import type { ExecutableToolContext } from '#/tool/toolContract';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
@@ -267,7 +267,6 @@ function realSubagents(
     agentLifecycle,
     catalog,
     config,
-    stubFlag(true),
     modelCatalog,
     sessionContext,
     stubLog(),
@@ -1255,10 +1254,9 @@ describe('AgentSwarmTool', () => {
     const host = mockSwarmHost();
     const configured = new AgentSwarmTool(host.swarmService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockSwarmMode(), stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap', 'main-model': 'the main model' } }), stubFlag(true), realSubagents(stubSwarmCatalog(), stubConfig({ defaultModel: 'provider/fast', models: { 'provider/fast': 'fast and cheap', 'main-model': 'the main model' } }), stubCallerProfile({ modelAlias: 'main-model' })), stubCallerProfile({ modelAlias: 'main-model' }));
 
-    expect(configured.description).toContain('Available models');
-    expect(configured.description).toContain('- provider/fast [default]: fast and cheap');
-    expect(configured.description).toContain('- main-model [main model]: the main model');
-    expect(configured.description).toContain('- primary (main-model)');
+    expect(configured.description).toContain(
+      'Available models (pass via model): provider/fast [default], main-model, primary (your current model and thinking level).',
+    );
 
     const unconfigured = new AgentSwarmTool(host.swarmService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockSwarmMode(), stubConfig(), stubFlag(true), realSubagents(stubSwarmCatalog(), stubConfig(), stubCallerProfile({ modelAlias: 'main-model' })), stubCallerProfile({ modelAlias: 'main-model' }));
 

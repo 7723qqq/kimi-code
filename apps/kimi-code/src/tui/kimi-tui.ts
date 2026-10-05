@@ -41,6 +41,8 @@ import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { appendInputHistory, loadInputHistory } from '#/utils/history/input-history';
 import { openUrl } from '#/utils/open-url';
 import { getInputHistoryFile } from '#/utils/paths';
+import { applyRecommendedEffort } from '#/utils/recommended-effort';
+import { getRecommendedEffortConfig } from '#/utils/recommended-effort-config';
 import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { quoteShellArg } from '#/utils/shell-quote';
 import { startupTrace } from '#/utils/startup-trace';
@@ -127,7 +129,7 @@ import {
   type TUIStartupOptions,
   type TUIStartupState,
 } from './types';
-import { isExpandable } from './utils/component-capabilities';
+import { hasHiddenContent, isExpandable, isExpandedComponent } from './utils/component-capabilities';
 import { isDeadTerminalError } from './utils/dead-terminal';
 import { formatErrorMessage } from './utils/event-payload';
 import { pickForegroundTasks } from './utils/foreground-task';
@@ -152,7 +154,7 @@ import { detectTmuxKeyboardWarning } from './utils/tmux-keyboard';
 import { computeSmoothedTokenSpeed, pickDecodeMs } from './utils/token-speed';
 import { markTranscriptComponent } from './utils/transcript-component-metadata';
 import { nextTranscriptId } from './utils/transcript-id';
-import { TRANSCRIPT_EXPAND_TURNS } from './utils/transcript-window';
+import { expandCutoffIndex, TRANSCRIPT_EXPAND_TURNS } from './utils/transcript-window';
 
 export type { TUIState } from './tui-state';
 export { createTUIState } from './tui-state';
@@ -175,8 +177,6 @@ export interface KimiTUIStartupInput {
   readonly migrationPlan?: MigrationPlan | null;
   /** When true, run only the migration screen, then exit (the `kimi migrate` command). */
   readonly migrateOnly?: boolean;
-  /** agent-core-v2 engine; enables the startup workspace-trust prompt. */
-  readonly engineV2?: boolean;
   readonly telemetryDisabled?: boolean;
 }
 
@@ -299,8 +299,6 @@ export class KimiTUI {
   private readonly migrationPlan: MigrationPlan | null;
   private readonly migrateOnly: boolean;
   private readonly telemetryDisabled: boolean;
-  /** Whether the harness runs on the agent-core-v2 engine (lazy session creation). */
-  readonly engineV2: boolean;
   private startupNotice: string | undefined;
   private lastHistoryContent: string | undefined;
   // Live `!` shell output entries, keyed by commandId so concurrent commands
@@ -381,9 +379,9 @@ export class KimiTUI {
     this.migrationPlan = startupInput.migrationPlan ?? null;
     this.migrateOnly = startupInput.migrateOnly ?? false;
     this.telemetryDisabled = startupInput.telemetryDisabled ?? false;
-    this.engineV2 = startupInput.engineV2 ?? false;
     this.startupNotice = startupInput.startupNotice;
     this.state = createTUIState(tuiOptions);
+    this.state.footer.setExpandHintProvider(() => this.toolOutputExpandHint());
     this.uninstallRainbowDance = installRainbowDance(() => {
       this.state.ui.requestRender();
     });
@@ -474,6 +472,7 @@ export class KimiTUI {
   }
 
   refreshSlashCommandAutocomplete(): void {
+    this.sessionEventHandler.notifications.setEnabled(isExperimentalFlagEnabled('notify_user'));
     this.setupAutocomplete();
   }
 
@@ -681,6 +680,7 @@ export class KimiTUI {
     this.state.editorContainer.clear();
     this.state.editorContainer.addChild(this.state.editor);
     this.state.ui.setFocus(this.state.editor);
+    this.applyRecommendedEffortInBackground();
     return shouldReplayHistory;
   }
 
@@ -725,6 +725,22 @@ export class KimiTUI {
       .catch(() => {
         // Best-effort background bootstrap: autocomplete keeps using the filesystem fallback.
       });
+  }
+
+  private applyRecommendedEffortInBackground(): void {
+    void this.backgroundRefreshPromise?.then(async () => {
+      await applyRecommendedEffort({
+        fetchConfig: async () =>
+          getRecommendedEffortConfig({
+            accessToken: await this.harness.auth.getCachedAccessToken(),
+          }),
+        getConfig: () => this.harness.getConfig(),
+        setConfig: (patch) => this.harness.setConfig(patch),
+        track: (event, properties) => {
+          this.track(event, properties);
+        },
+      });
+    });
   }
 
   private async refreshProviderModelsInBackground(): Promise<void> {
@@ -800,6 +816,7 @@ export class KimiTUI {
 
   private async init(): Promise<boolean> {
     setExperimentalFeatures(await this.harness.getExperimentalFeatures());
+    this.sessionEventHandler.notifications.setEnabled(isExperimentalFlagEnabled('notify_user'));
     await this.authFlow.refreshAvailableModels();
     this.backgroundRefreshPromise = this.refreshProviderModelsInBackground();
 
@@ -1059,6 +1076,7 @@ export class KimiTUI {
     ui.addChild(this.state.transcriptContainer);
     ui.addChild(this.state.activityContainer);
     ui.addChild(this.state.todoPanelContainer);
+    ui.addChild(this.state.notifyPanelContainer);
     ui.addChild(this.state.queueContainer);
     ui.addChild(this.state.btwPanelContainer);
     ui.addChild(this.state.surveyContainer);
@@ -1099,6 +1117,7 @@ export class KimiTUI {
     main.addChild(this.state.transcriptContainer);
     main.addChild(this.state.activityContainer);
     main.addChild(this.state.todoPanelContainer);
+    main.addChild(this.state.notifyPanelContainer);
     main.addChild(this.state.queueContainer);
     main.addChild(this.state.btwPanelContainer);
     main.addChild(this.state.surveyContainer);
@@ -1590,10 +1609,10 @@ export class KimiTUI {
       throw new Error(getLlmNotSetMessage());
     }
     // With an active session, carry the live plan state. Session-less (lazy
-    // creation / `/new` before the first session), pass only the explicit CLI
-    // --plan intent — and only when the engine is not already applying
-    // `defaultPlanMode` at create time (sessionLifecycleService), since
-    // re-entering an active plan mode throws.
+    // creation / `/new` before the first session) on v2, pass only the
+    // explicit CLI --plan intent — and only when the engine is not already
+    // applying `defaultPlanMode` at create time (sessionLifecycleService),
+    // since re-entering an active plan mode throws.
     const explicitPlanMode =
       this.session !== undefined
         ? this.state.appState.planMode
@@ -1939,6 +1958,7 @@ export class KimiTUI {
     this.btwPanelController.clear();
     this.state.footer.setBackgroundCounts({ bashTasks: 0, agentTasks: 0 });
     this.streamingUI.setTodoList([]);
+    this.sessionEventHandler.notifications.clear();
     this.streamingUI.setTurnId(undefined);
     this.setAppState({ mcpServersSummary: null });
     this.streamingUI.setStep(0);
@@ -2198,24 +2218,49 @@ export class KimiTUI {
     );
   }
 
-  toggleToolOutputExpansion(): void {
-    this.state.toolOutputExpanded = !this.state.toolOutputExpanded;
-    const children = this.state.transcriptContainer.children;
-
-    // A component is expandable only if it sits at or after the start of the
-    // (totalTurns - expandTurns)-th turn — i.e. it belongs to one of the most
-    // recent `expandTurns` turns. Position-based so it also covers streaming
-    // components that have no entry in the metadata map.
+  /**
+   * Index of the first transcript child ctrl+o may expand: a component is
+   * expandable only if it sits at or after the start of the
+   * (totalTurns - expandTurns)-th turn, i.e. it belongs to one of the most
+   * recent `expandTurns` turns. Position-based so it also covers streaming
+   * components that have no entry in the metadata map.
+   */
+  private expandCutoff(children: readonly Component[]): number {
     const boundaries: number[] = [];
     for (let i = 0; i < children.length; i++) {
       if (this.transcriptRenderer.isTurnBoundaryComponent(children[i]!)) boundaries.push(i);
     }
-    const expandCutoff =
-      TRANSCRIPT_EXPAND_TURNS <= 0
-        ? children.length
-        : boundaries.length > TRANSCRIPT_EXPAND_TURNS
-          ? boundaries[boundaries.length - TRANSCRIPT_EXPAND_TURNS]!
-          : 0;
+    return expandCutoffIndex(children.length, boundaries, TRANSCRIPT_EXPAND_TURNS);
+  }
+
+  /**
+   * What the footer's ctrl+o hint should offer: `expand` while a card in the
+   * expandable window keeps content out of its collapsed form, `collapse`
+   * once the toggle shows it, `null` when ctrl+o would change nothing.
+   */
+  private toolOutputExpandHint(): 'expand' | 'collapse' | null {
+    const children = this.state.transcriptContainer.children;
+    if (this.state.toolOutputExpanded) {
+      // Toggling off collapses every expanded card, including one that slid
+      // out of the expansion window since it was expanded, so any expanded
+      // card with hidden content keeps the collapse hint on.
+      for (let i = children.length - 1; i >= 0; i--) {
+        const child = children[i];
+        if (isExpandedComponent(child) && hasHiddenContent(child)) return 'collapse';
+      }
+      return null;
+    }
+    const cutoff = this.expandCutoff(children);
+    for (let i = children.length - 1; i >= cutoff; i--) {
+      if (hasHiddenContent(children[i])) return 'expand';
+    }
+    return null;
+  }
+
+  toggleToolOutputExpansion(): void {
+    this.state.toolOutputExpanded = !this.state.toolOutputExpanded;
+    const children = this.state.transcriptContainer.children;
+    const expandCutoff = this.expandCutoff(children);
 
     for (let i = 0; i < children.length; i++) {
       const child = children[i]!;
@@ -2231,6 +2276,14 @@ export class KimiTUI {
   toggleTodoPanelExpansion(): void {
     this.state.todoPanel.toggleExpanded();
     this.state.ui.requestRender();
+  }
+
+  toggleNotifyPanelFocus(): boolean {
+    return this.sessionEventHandler.notifications.toggleFocus();
+  }
+
+  handleNotifyPanelKey(key: 'left' | 'right' | 'up' | 'down' | 'escape'): boolean {
+    return this.sessionEventHandler.notifications.handlePanelKey(key);
   }
 
   private async detachRunningShellCommand(): Promise<void> {
@@ -2263,7 +2316,7 @@ export class KimiTUI {
     stream.component.finishBackgrounded();
     stream.entry.content = t('tui.messages.shellRun.backgrounded');
     this.shellOutputStreams.delete(commandId);
-    // The backgrounded command's notification turn (started by agent-core via
+    // The backgrounded command's notification turn (started by the engine via
     // appendSystemReminderAndNotify) owns the streaming phase and drains the
     // queue when it completes, so we intentionally leave both untouched here.
     this.showDetachHint('Moved to background. /tasks to view.');

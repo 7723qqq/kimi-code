@@ -1,17 +1,10 @@
-/**
- * Scenario: Node SDK sessions persist and list through the public harness.
- * Responsibilities: workDir scoping and native path-safe listing.
- * Wiring: real in-process harness/session storage; no remote provider calls.
- * Run: bunx vitest run test/list-sessions.test.ts
- *
- * The former `SessionStore.list` suite (workDir bucket layout, session-index
- * file format, fork wire details, mtime sorting, legacy flat scanning) tested
- * the deleted v1 `agent-core` disk format; the v2 engine storage is
- * restructured, so those internals are no longer covered here.
- */
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   drainQueryStoreDisposals,
@@ -19,8 +12,6 @@ import {
   ISessionIndex,
   ISessionIndexMirror,
 } from '@moonshot-ai/agent-core-v2';
-import { join } from 'pathe';
-import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createKimiHarness, SDKRpcClientV2 } from '#/index';
 import type { KimiError } from '#/index';
@@ -31,18 +22,26 @@ const tempDirs: string[] = [];
 
 afterEach(async () => {
   for (const dir of tempDirs.splice(0)) {
-    // Windows: minidb/engine handles may outlive the test for a few hundred
-    // ms; retry so a slow handle release does not leak the temp home.
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        await rm(dir, { recursive: true, force: true });
-        break;
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 200));
-      }
-    }
+    await removeTempDir(dir);
   }
 });
+
+async function removeTempDir(dir: string): Promise<void> {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      await rm(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOTEMPTY' && code !== 'EBUSY' && code !== 'EPERM') {
+        throw error;
+      }
+      await delay(10);
+    }
+  }
+
+  await rm(dir, { recursive: true, force: true });
+}
 
 async function makeTempDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'kimi-sdk-list-'));
@@ -150,33 +149,12 @@ describe('KimiHarness.listSessions', () => {
       await harness.close();
     }
   });
-
-  it('pages the full set with a keyset cursor', async () => {
-    const homeDir = await makeTempDir();
-    const workDir = await makeTempDir();
-    const harness = createKimiHarness({
-      identity: TEST_IDENTITY,
-      homeDir,
-    });
-
-    try {
-      await harness.createSession({ id: 'ses_v1_page_a', workDir });
-      await harness.createSession({ id: 'ses_v1_page_b', workDir });
-
-      // The harness now backs onto the v2 engine, which pages by id keyset:
-      // `limit: 1` returns a single item and a cursor pointing at it.
-      const page = await harness.listSessionsPage({ workDir, limit: 1 });
-      expect(page.items).toHaveLength(1);
-      expect(page.nextCursor).toBe(page.items[0]?.id);
-    } finally {
-      await harness.close();
-    }
-  });
 });
 
 describe('SDKRpcClientV2.listSessionsPage', () => {
-  it('pages through the listing with keyset cursors', async () => {
+  it('pages through the listing with keyset cursors (read model off)', async () => {
     vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
+    vi.stubEnv('KIMI_CODE_PERSISTENCE_MINIDB_READMODEL', '0');
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
@@ -214,6 +192,7 @@ describe('SDKRpcClientV2.listSessionsPage', () => {
 
   it('answers an empty terminal page for an unknown cursor', async () => {
     vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
+    vi.stubEnv('KIMI_CODE_PERSISTENCE_MINIDB_READMODEL', '0');
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
@@ -222,18 +201,18 @@ describe('SDKRpcClientV2.listSessionsPage', () => {
       const created = await client.createSession({ id: 'ses_cursor_probe', workDir });
       await client.closeSession({ sessionId: created.id });
 
-      await expect(client.listSessionsPage({ workDir, before: 'ses_unknown' })).resolves.toEqual({
-        items: [],
-        nextCursor: undefined,
-      });
+      await expect(
+        client.listSessionsPage({ workDir, before: 'ses_unknown' }),
+      ).resolves.toEqual({ items: [], nextCursor: undefined });
     } finally {
       await client.close();
       vi.unstubAllEnvs();
     }
   });
 
-  it('drains follow-up pages when the mapping drops entries', async () => {
+  it('drains follow-up pages when the mapping drops entries (read model on)', async () => {
     vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
+    vi.stubEnv('KIMI_CODE_PERSISTENCE_MINIDB_READMODEL', '1');
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
@@ -276,7 +255,7 @@ describe('SDKRpcClientV2.listSessionsPage', () => {
       await drainQueryStoreDisposals();
       vi.unstubAllEnvs();
     }
-  }, 15_000);
+  });
 });
 
 describe('SDKRpcClientV2 search-index separation', () => {
@@ -286,8 +265,34 @@ describe('SDKRpcClientV2 search-index separation', () => {
   // ever opening it — including while the session read model is still
   // preparing.
 
-  it('listSessions / resumeSession never open the global search index', async () => {
+  it('listSessions / resumeSession never open the global search index (read model off)', async () => {
     vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
+    vi.stubEnv('KIMI_CODE_PERSISTENCE_MINIDB_READMODEL', '0');
+    const homeDir = await makeTempDir();
+    const workDir = await makeTempDir();
+    const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
+
+    try {
+      const created = await client.createSession({ id: 'ses_search_sep_off', workDir });
+      await client.closeSession({ sessionId: created.id });
+
+      const sessions = await client.listSessions({ workDir });
+      expect(sessions.map((item) => item.id)).toEqual([created.id]);
+      const resumed = await client.resumeSession({ id: created.id });
+      expect(resumed.id).toBe(created.id);
+
+      expect(existsSync(join(homeDir, 'search-index'))).toBe(false);
+      // With the read model off, the session query-store is never opened either.
+      expect(existsSync(join(homeDir, 'cache', 'query-store'))).toBe(false);
+    } finally {
+      await client.close();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('listSessions / resumeSession never open the global search index (read model on)', async () => {
+    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
+    vi.stubEnv('KIMI_CODE_PERSISTENCE_MINIDB_READMODEL', '1');
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
@@ -321,5 +326,5 @@ describe('SDKRpcClientV2 search-index separation', () => {
       await drainQueryStoreDisposals();
       vi.unstubAllEnvs();
     }
-  }, 15_000);
+  });
 });

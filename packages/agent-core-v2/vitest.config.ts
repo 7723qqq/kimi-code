@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     name: 'agent-core-v2',
-    include: ['test/**/*.{test,e2e,integration}.ts'],
+    include: ['test/**/*.{test,e2e,integration}.ts', 'src/human/test/**/*.test.ts'],
     setupFiles: ['test/setup.ts'],
     // Under the Bun runtime, vitest trips over zod's CJS-getter exports unless zod is inlined.
     server: {
@@ -11,5 +11,6 @@ export default defineConfig({
         inline: [/zod/],
       },
     },
+    testTimeout: 30_000,
   },
 });

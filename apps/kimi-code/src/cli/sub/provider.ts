@@ -23,7 +23,7 @@ import {
   applyCatalogProvider,
   catalogProviderModels,
   CatalogFetchError,
-  createKimiHarnessV2,
+  createKimiHarness,
   DEFAULT_CATALOG_URL,
   resolveCatalogImport,
   type Catalog,
@@ -421,7 +421,7 @@ export async function handleCatalogAdd(
 
   // Always restore `[thinking]` from what was there before — including
   // `undefined`. Persisting `enabled: false` when the user never set it would
-  // make `resolveThinkingEffortForModel` (agent-core-v2/src/kosong/model/thinking.ts) treat
+  // make `resolveThinkingEffortForModel` (agent-core-v2/src/llm-adapter/model/thinking.ts) treat
   // it as an explicit "off" request and silently disable thinking, even for
   // thinking-capable models.
   config.thinking = previousThinking;
@@ -583,9 +583,7 @@ function resolveDeps(overrides: Partial<ProviderDeps> = {}): ResolvedProviderDep
     getHarness:
       overrides.getHarness ??
       (() => {
-        // Same engine as the TUI's `/provider` flow: the SDK's v2-backed
-        // harness — the agent-core-v2 engine is the only engine.
-        harness ??= createKimiHarnessV2({ identity });
+        harness ??= createKimiHarness({ identity });
         return harness;
       }),
     stdout: overrides.stdout ?? process.stdout,

@@ -1,7 +1,7 @@
 import { ErrorCodes, Error2 } from '#/errors';
 import type { McpServerConfig } from './config-schema';
 import type { ILogger as Logger } from '#/_base/log/log';
-import type { Tool } from '#/kosong/contract/tool';
+import type { ToolDescription as Tool } from '#human/llm/message';
 import { HostProcessError, HostProcessErrorCode } from '#/os/interface/hostProcess';
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import type { IRuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';

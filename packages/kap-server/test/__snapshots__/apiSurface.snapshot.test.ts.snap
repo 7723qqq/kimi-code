@@ -178,6 +178,10 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     ],
     [
       "GET",
+      "/api/v1/remote-control",
+    ],
+    [
+      "GET",
       "/api/v1/sessions",
     ],
     [
@@ -422,6 +426,10 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     ],
     [
       "POST",
+      "/api/v1/remote-control",
+    ],
+    [
+      "POST",
       "/api/v1/search",
     ],
     [
@@ -431,6 +439,10 @@ exports[`API surface snapshot > matches the documented v2 route table and meta e
     [
       "POST",
       "/api/v1/sessions/{session_id}:archive",
+    ],
+    [
+      "POST",
+      "/api/v1/sessions/{session_id}:delete",
     ],
     [
       "POST",

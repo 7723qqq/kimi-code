@@ -1,8 +1,5 @@
-import type { ModelCapability } from '#/kosong/contract/capability';
-import type { ToolCall } from '#/kosong/contract/message';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'pathe';
+import type { ModelCapability } from '#/llm-adapter/contract/capability';
+import type { ToolCall } from '#human/llm/message';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
@@ -24,7 +21,6 @@ import { createDecorator, type ProvideHandle } from '#/_base/di/instantiation';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import { TestInstantiationService } from '#/_base/di/test';
-import { Event } from '#/_base/event';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import {
   type ConfigSchema,
@@ -46,6 +42,7 @@ import '#/agent/permissionMode/configSection';
 import { DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
 import '#/agent/media/configSection';
 import { IMAGE_SECTION, type ImageConfig } from '#/agent/media/configSection';
+import { READ_SECTION } from '#/agent/tools/os/read/configSection';
 import '#/agent/tokenCounting/configSection';
 import {
   TOKEN_COUNTING_SECTION,
@@ -67,14 +64,17 @@ import {
   THINKING_SECTION,
 } from '#/app/kosongConfig/configSection';
 import '#/app/kosongConfig/envOverlay';
-import '#/kosong/provider/providers/kimi/kimi.contrib';
 import { IOAuthService } from '#/app/auth/auth';
 import { IAuthLegacyService } from '#/app/authLegacy/authLegacy';
 import { AuthLegacyService } from '#/app/authLegacy/authLegacyService';
-import { type ThinkingConfig } from '#/kosong/model/thinking';
+import { type ThinkingConfig } from '#/llm-adapter/model/thinking';
 import {
+  BASH_TASK_TIMEOUT_S_ENV,
   KEEP_ALIVE_ON_EXIT_ENV,
   MAX_RUNNING_TASKS_ENV,
+  PRINT_BACKGROUND_MODE_ENV,
+  PRINT_MAX_TURNS_ENV,
+  PRINT_WAIT_CEILING_S_ENV,
   resolveAgentTaskConfig,
   resolvePrintBackgroundMode,
   type AgentTaskConfig,
@@ -83,7 +83,7 @@ import { applyPrintModeConfigDefaults } from '#/agent/task/printDefaults';
 import '#/session/subagent/configSection';
 import {
   DEFAULT_SUBAGENT_TIMEOUT_MS,
-  resolveSubagentBinding as resolveSubagentBindingWithFlags,
+  resolveSubagentBinding,
   resolveSubagentModelPool,
   resolveSubagentTimeoutMs,
   SECONDARY_MODEL_SECTION,
@@ -93,7 +93,6 @@ import {
   type SubagentConfig,
   wrapSubagentModelError,
 } from '#/session/subagent/configSection';
-import { SECONDARY_MODEL_FLAG_ID } from '#/session/subagent/flag';
 import {
   DEFAULT_SWARM_TIMEOUT_MS,
   resolveSwarmTimeoutMs,
@@ -124,19 +123,6 @@ import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocument
 import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubLog } from '../../_base/log/stubs';
-import { stubFlag } from '../flag/stubs';
-
-function secondaryModelFlags(enabled = true) {
-  return stubFlag((id) => enabled && id === SECONDARY_MODEL_FLAG_ID);
-}
-
-function resolveSubagentBinding(
-  config: IConfigService,
-  own: { modelAlias: string; thinkingLevel: string },
-  requested?: string,
-) {
-  return resolveSubagentBindingWithFlags(config, secondaryModelFlags(), own, requested);
-}
 
 const TEST_OS_ENV = {
   osKind: 'Linux',
@@ -347,19 +333,20 @@ describe('Agent config', () => {
       [emit] turn.step.started               { "time": "<time>", "agentId": "main", "turnId": 0, "step": 1, "stepId": "<uuid-1>" }
       [emit] agent.activity.updated          { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "running", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
       [wire] context.append_loop_event       { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-1>", "turnId": "0", "step": 1 }, "time": "<time>" }
-      [wire] llm.tools_snapshot              { "agentId": "main", "hash": "3bfeb22e61431247933e79f6ab94e7ca14a127f899bc87e7bbd22594ba9cdb66", "tools": [ { "name": "Lookup", "description": "Look up a short test value.", "parameters": { "type": "object", "properties": { "query": { "type": "string" } }, "required": [ "query" ], "additionalProperties": false } } ], "time": "<time>" }
-      [wire] llm.request                     { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "3bfeb22e61431247933e79f6ab94e7ca14a127f899bc87e7bbd22594ba9cdb66", "messageCount": 1, "turnStep": "0.1", "time": "<time>" }
       [emit] assistant.delta                 { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "I will look it up." }
       [emit] agent.activity.updated          { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "streaming", "stream": "assistant", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
+      [wire] llm.tools_snapshot              { "agentId": "main", "hash": "3bfeb22e61431247933e79f6ab94e7ca14a127f899bc87e7bbd22594ba9cdb66", "tools": [ { "name": "Lookup", "description": "Look up a short test value.", "parameters": { "type": "object", "properties": { "query": { "type": "string" } }, "required": [ "query" ], "additionalProperties": false } } ], "time": "<time>" }
       [emit] tool.call.delta                 { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "argumentsPart": "{\\"query\\":\\"original\\"}" }
       [emit] agent.activity.updated          { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "streaming", "stream": "tool_call", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
-      [wire] usage.record                    { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [wire] llm.request                     { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "toolsHash": "3bfeb22e61431247933e79f6ab94e7ca14a127f899bc87e7bbd22594ba9cdb66", "messageCount": 1, "turnStep": "0.1", "time": "<time>" }
       [emit] agent.status.updated            { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] token_counting.measured         { "agentId": "main", "length": 2, "tokens": 26, "time": "<time>" }
       [emit] agent.status.updated            { "time": "<time>", "agentId": "main", "contextTokens": 26 }
+      [wire] usage.record                    { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 9, "output": 17, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [wire] token_counting.measured         { "agentId": "main", "length": 2, "tokens": 26, "time": "<time>" }
       [wire] context.append_loop_event       { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "text", "text": "I will look it up." } }, "time": "<time>" }
       [emit] permission.approval.requested   { "time": "<time>", "id": "<approval-1>", "sessionId": "test-session", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "action": "Approve Lookup", "display": { "kind": "generic", "summary": "Approve Lookup", "detail": { "query": "original" } }, "toolInput": { "query": "original" } }
       [emit] agent.activity.updated          { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "streaming", "stream": "tool_call", "step": 1, "ending": false, "pendingApprovals": [ { "approvalId": "<approval-1>", "toolCallId": "call_lookup", "since": "<time>" } ], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
+      [wire] interaction.request             { "agentId": "main", "id": "<approval-1>", "kind": "approval", "toolCallId": "call_lookup", "request": { "id": "<approval-1>", "sessionId": "test-session", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "action": "Approve Lookup", "display": { "kind": "generic", "summary": "Approve Lookup", "detail": { "query": "original" } } }, "time": "<time>" }
       [emit] requestApproval                 { "id": "<approval-1>", "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "action": "Approve Lookup", "display": { "kind": "generic", "summary": "Approve Lookup", "detail": { "query": "original" } } }
     `);
     expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
@@ -398,16 +385,16 @@ describe('Agent config', () => {
       [emit] turn.step.started           { "time": "<time>", "agentId": "main", "turnId": 0, "step": 2, "stepId": "<uuid-4>" }
       [emit] agent.activity.updated      { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "running", "step": 2, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
       [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-4>", "turnId": "0", "step": 2 }, "time": "<time>" }
-      [wire] llm.tools_snapshot          { "agentId": "main", "hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "tools": [], "time": "<time>" }
-      [wire] llm.request                 { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "systemPrompt": "You are a deterministic test agent.", "toolsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "messageCount": 4, "turnStep": "0.2", "time": "<time>" }
       [emit] assistant.delta             { "time": "<time>", "agentId": "main", "turnId": 0, "delta": "Still using the original turn config." }
       [emit] agent.activity.updated      { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "streaming", "stream": "assistant", "step": 2, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
-      [wire] usage.record                { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 89, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
+      [wire] llm.tools_snapshot          { "agentId": "main", "hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "tools": [], "time": "<time>" }
+      [wire] llm.request                 { "agentId": "main", "kind": "loop", "provider": "openai", "model": "mock-model", "modelAlias": "mock-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "ec9c34379c88babbc468ef2f3e0e08cd2f422c8c4a910664fb8bb394d703a575", "systemPrompt": "You are a deterministic test agent.", "toolsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "messageCount": 4, "turnStep": "0.2", "time": "<time>" }
       [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 98, "output": 30, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 98, "output": 30, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 98, "output": 30, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
-      [wire] token_counting.measured     { "agentId": "main", "length": 5, "tokens": 102, "time": "<time>" }
       [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "contextTokens": 102 }
+      [wire] usage.record                { "agentId": "main", "model": "mock-model", "usage": { "inputOther": 89, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
       [emit] turn.step.completed         { "time": "<time>", "agentId": "main", "turnId": 0, "step": 2, "stepId": "<uuid-4>", "usage": { "inputOther": 89, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finishReason": "end_turn", "providerFinishReason": "completed", "rawFinishReason": "stop" }
       [emit] agent.activity.updated      { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "running", "step": 2, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
+      [wire] token_counting.measured     { "agentId": "main", "length": 5, "tokens": 102, "time": "<time>" }
       [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-5>", "turnId": "0", "step": 2, "stepUuid": "<uuid-4>", "part": { "type": "text", "text": "Still using the original turn config." } }, "time": "<time>" }
       [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "step.end", "uuid": "<uuid-4>", "turnId": "0", "step": 2, "finishReason": "end_turn", "usage": { "inputOther": 89, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 }, "messageId": "mock-2", "providerFinishReason": "completed", "rawFinishReason": "stop" }, "time": "<time>" }
       [wire] turn.ended                  { "agentId": "main", "turnId": 0, "reason": "completed", "time": "<time>" }
@@ -443,9 +430,9 @@ describe('Agent config', () => {
       [emit] turn.step.started              { "time": "<time>", "agentId": "main", "turnId": 1, "step": 1, "stepId": "<uuid-6>" }
       [emit] agent.activity.updated         { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 1, "origin": { "kind": "user" }, "phase": "running", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
       [wire] context.append_loop_event      { "agentId": "main", "event": { "type": "step.begin", "uuid": "<uuid-6>", "turnId": "1", "step": 1 }, "time": "<time>" }
-      [wire] llm.request                    { "agentId": "main", "kind": "loop", "provider": "openai", "model": "changed-model", "modelAlias": "changed-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "7617cb8b42659214c397a1d7505fce204b673b078a10de8bcccc697d88dcda56", "toolsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "messageCount": 6, "turnStep": "1.1", "time": "<time>" }
       [emit] assistant.delta                { "time": "<time>", "agentId": "main", "turnId": 1, "delta": "Now the changed config is active." }
       [emit] agent.activity.updated         { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 1, "origin": { "kind": "user" }, "phase": "streaming", "stream": "assistant", "step": 1, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
+      [wire] llm.request                    { "agentId": "main", "kind": "loop", "provider": "openai", "model": "changed-model", "modelAlias": "changed-model", "thinkingEffort": "off", "maxTokens": 1000000, "toolSelect": false, "systemPromptHash": "7617cb8b42659214c397a1d7505fce204b673b078a10de8bcccc697d88dcda56", "toolsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", "messageCount": 6, "turnStep": "1.1", "time": "<time>" }
       [wire] usage.record                   { "agentId": "main", "model": "changed-model", "usage": { "inputOther": 108, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "usageScope": "turn", "time": "<time>" }
       [emit] agent.status.updated           { "time": "<time>", "agentId": "main", "usage": { "byModel": { "mock-model": { "inputOther": 98, "output": 30, "inputCacheRead": 0, "inputCacheCreation": 0 }, "changed-model": { "inputOther": 108, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 } }, "total": { "inputOther": 206, "output": 42, "inputCacheRead": 0, "inputCacheCreation": 0 }, "currentTurn": { "inputOther": 108, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 } } }
       [wire] token_counting.measured        { "agentId": "main", "length": 7, "tokens": 120, "time": "<time>" }
@@ -804,6 +791,20 @@ describe('defaultPermissionMode config section', () => {
     expect(() => registry.validate(DEFAULT_PERMISSION_MODE_SECTION, 'bogus')).toThrow();
 
     expect(registry.getSection('yolo')).toBeUndefined();
+  });
+});
+
+describe('Read config section', () => {
+  it('accepts positive character budgets and rejects invalid limits', () => {
+    const registry = new ConfigRegistry();
+
+    expect(registry.validate(READ_SECTION, { defaultMaxChars: 200_000, maxChars: 750_000 }))
+      .toEqual({ defaultMaxChars: 200_000, maxChars: 750_000 });
+    expect(registry.validate(READ_SECTION, { maxChars: 1_000 })).toEqual({ maxChars: 1_000 });
+    expect(() => registry.validate(READ_SECTION, { defaultMaxChars: 0 })).toThrow();
+    expect(() => registry.validate(READ_SECTION, { maxChars: -1 })).toThrow();
+    expect(() => registry.validate(READ_SECTION, { maxChars: 1.5 })).toThrow();
+    expect(() => registry.validate(READ_SECTION, { maxChars: Infinity })).toThrow();
   });
 });
 
@@ -1587,6 +1588,82 @@ describe('task config section', () => {
 
     disposables.dispose();
   });
+
+  it('applies the bashTaskTimeoutS env binding, accepting 0 as no timeout', async () => {
+    const env: Record<string, string> = {};
+    const { config, disposables } = await createTaskConfig(env);
+
+    expect(config.get<AgentTaskConfig>('task')?.bashTaskTimeoutS).toBeUndefined();
+
+    env[BASH_TASK_TIMEOUT_S_ENV] = 'abc';
+    expect(config.get<AgentTaskConfig>('task')?.bashTaskTimeoutS).toBeUndefined();
+    env[BASH_TASK_TIMEOUT_S_ENV] = '-5';
+    expect(config.get<AgentTaskConfig>('task')?.bashTaskTimeoutS).toBeUndefined();
+
+    env[BASH_TASK_TIMEOUT_S_ENV] = '0';
+    expect(config.get<AgentTaskConfig>('task')?.bashTaskTimeoutS).toBe(0);
+    expect(config.get<AgentTaskConfig>('background')?.bashTaskTimeoutS).toBe(0);
+
+    env[BASH_TASK_TIMEOUT_S_ENV] = '30';
+    expect(config.get<AgentTaskConfig>('task')?.bashTaskTimeoutS).toBe(30);
+
+    disposables.dispose();
+  });
+
+  it('applies the print policy env bindings and ignores invalid values', async () => {
+    const env: Record<string, string> = {};
+    const { config, disposables } = await createTaskConfig(env);
+
+    env[PRINT_WAIT_CEILING_S_ENV] = '0';
+    expect(config.get<AgentTaskConfig>('task')?.printWaitCeilingS).toBeUndefined();
+    env[PRINT_WAIT_CEILING_S_ENV] = '3600';
+    expect(config.get<AgentTaskConfig>('task')?.printWaitCeilingS).toBe(3600);
+
+    env[PRINT_MAX_TURNS_ENV] = 'abc';
+    expect(config.get<AgentTaskConfig>('task')?.printMaxTurns).toBeUndefined();
+    env[PRINT_MAX_TURNS_ENV] = '7';
+    expect(config.get<AgentTaskConfig>('task')?.printMaxTurns).toBe(7);
+
+    env[PRINT_BACKGROUND_MODE_ENV] = 'wait';
+    expect(resolvePrintBackgroundMode(config)).toBe('steer');
+    env[PRINT_BACKGROUND_MODE_ENV] = 'exit';
+    expect(resolvePrintBackgroundMode(config)).toBe('exit');
+    env[PRINT_BACKGROUND_MODE_ENV] = ' drain ';
+    expect(resolvePrintBackgroundMode(config)).toBe('drain');
+
+    disposables.dispose();
+  });
+
+  it('lets the print policy env bindings override the config values', async () => {
+    const env: Record<string, string> = {
+      [PRINT_BACKGROUND_MODE_ENV]: 'exit',
+      [PRINT_WAIT_CEILING_S_ENV]: '3600',
+    };
+    const { config, disposables } = await createTaskConfig(
+      env,
+      '[task]\nprint_background_mode = "drain"\nprint_wait_ceiling_s = 60\n',
+    );
+
+    expect(resolvePrintBackgroundMode(config)).toBe('exit');
+    expect(resolveAgentTaskConfig(config)?.printWaitCeilingS).toBe(3600);
+
+    disposables.dispose();
+  });
+
+  it('ignores unsafe integers without discarding sibling env bindings', async () => {
+    const env: Record<string, string> = {
+      [BASH_TASK_TIMEOUT_S_ENV]: '9007199254740992',
+      [PRINT_WAIT_CEILING_S_ENV]: '9007199254740992',
+      [PRINT_BACKGROUND_MODE_ENV]: 'exit',
+    };
+    const { config, disposables } = await createTaskConfig(env);
+
+    expect(config.get<AgentTaskConfig>('task')?.bashTaskTimeoutS).toBeUndefined();
+    expect(config.get<AgentTaskConfig>('task')?.printWaitCeilingS).toBeUndefined();
+    expect(resolvePrintBackgroundMode(config)).toBe('exit');
+
+    disposables.dispose();
+  });
 });
 
 describe('applyPrintModeConfigDefaults', () => {
@@ -1659,6 +1736,19 @@ describe('applyPrintModeConfigDefaults', () => {
     await applyPrintModeConfigDefaults(config);
 
     expect(resolveAgentTaskConfig(config)?.bashTaskTimeoutS).toBe(15);
+
+    disposables.dispose();
+  });
+
+  it('does not override keys set via env bindings', async () => {
+    const { config, disposables } = await createConfig({
+      [BASH_TASK_TIMEOUT_S_ENV]: '30',
+    });
+
+    await applyPrintModeConfigDefaults(config);
+
+    expect(resolveAgentTaskConfig(config)?.bashTaskTimeoutS).toBe(30);
+    expect(config.inspect('task').memoryValue).toBeUndefined();
 
     disposables.dispose();
   });
@@ -1915,25 +2005,6 @@ describe('subagent config section', () => {
       modelSource: 'primary_override',
     });
     pool.disposables.dispose();
-  });
-
-  it('keeps the configured pool inert when secondary-model is disabled', async () => {
-    const own = { modelAlias: 'provider/main', thinkingLevel: 'medium' };
-    const { config, disposables } = await createConfig(
-      {},
-      '[secondary_model]\ndefault_model = "provider/fast"\nforce = true\n\n[secondary_model.models]\n"provider/fast" = "fast and cheap"\n',
-    );
-
-    expect(resolveSubagentBindingWithFlags(config, secondaryModelFlags(false), own)).toEqual({
-      model: 'provider/main',
-      thinking: 'medium',
-      modelSource: 'inherited',
-    });
-    expect(() =>
-      resolveSubagentBindingWithFlags(config, secondaryModelFlags(false), own, 'provider/fast'),
-    ).toThrow(/no \[secondary_model\.models\] pool is configured/);
-
-    disposables.dispose();
   });
 
   it('treats a pool-less default_model as an implicit single-entry pool', async () => {
@@ -2559,76 +2630,6 @@ function toolNames(value: unknown): string[] {
     .filter((name): name is string => name !== null);
 }
 
-describe('ConfigService thinking effort max migration', () => {
-  let homeDir: string;
-
-  beforeEach(() => {
-    homeDir = mkdtempSync(join(tmpdir(), 'kimi-v2-cfg-migrate-'));
-  });
-
-  afterEach(() => {
-    rmSync(homeDir, { recursive: true, force: true });
-  });
-
-  async function createMigratingConfig(toml: string) {
-    const disposables = new DisposableStore();
-    const ix = disposables.add(new TestInstantiationService());
-    const storage = new InMemoryStorageService();
-    await storage.write('', 'config.toml', new TextEncoder().encode(toml));
-    ix.stub(ILogService, stubLog());
-    ix.stub(IBootstrapService, stubBootstrap(homeDir));
-    ix.stub(IFileSystemStorageService, storage);
-    ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
-    ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
-    ix.set(IConfigService, new SyncDescriptor(ConfigService));
-    const config = ix.get(IConfigService);
-    await config.ready;
-    return { config, disposables };
-  }
-
-  function readMarkers(): Record<string, string> {
-    return JSON.parse(readFileSync(join(homeDir, 'migrations-effort.json'), 'utf-8')) as Record<
-      string,
-      string
-    >;
-  }
-
-  it('rewrites a persisted max to high on first load and records the marker', async () => {
-    const { config, disposables } = await createMigratingConfig(
-      '[thinking]\nenabled = true\neffort = "max"\n',
-    );
-
-    expect(config.get<ThinkingConfig>(THINKING_SECTION)).toEqual({
-      enabled: true,
-      effort: 'high',
-    });
-    expect(readMarkers()['thinking-effort-max-to-high']).toBeDefined();
-
-    disposables.dispose();
-  });
-
-  it('honors a hand-set max once the marker exists', async () => {
-    writeFileSync(
-      join(homeDir, 'migrations-effort.json'),
-      JSON.stringify({ 'thinking-effort-max-to-high': new Date().toISOString() }),
-    );
-    const { config, disposables } = await createMigratingConfig('[thinking]\neffort = "max"\n');
-
-    expect(config.get<ThinkingConfig>(THINKING_SECTION)).toEqual({ effort: 'max' });
-
-    disposables.dispose();
-  });
-
-  it('records the marker even when nothing needs migrating', async () => {
-    const { config, disposables } = await createMigratingConfig('[thinking]\neffort = "low"\n');
-
-    expect(config.get<ThinkingConfig>(THINKING_SECTION)).toEqual({ effort: 'low' });
-    expect(readMarkers()['thinking-effort-max-to-high']).toBeDefined();
-
-    disposables.dispose();
-  });
-});
-
 describe('ConfigService replaceSections', () => {
   const SEED_TOML = [
     'default_model = "acme/m1"',
@@ -2795,16 +2796,10 @@ describe('ConfigService replaceSections', () => {
 });
 
 describe('ConfigService persistence guards', () => {
-  class SilentStorage extends InMemoryStorageService {
-    override watch(): Event<void> {
-      return Event.None as Event<void>;
-    }
-  }
-
   async function createGuardedConfig(toml: string, env: NodeJS.ProcessEnv = {}) {
     const disposables = new DisposableStore();
     const ix = disposables.add(new TestInstantiationService());
-    const storage = new SilentStorage();
+    const storage = new InMemoryStorageService();
     await storage.write('', 'config.toml', new TextEncoder().encode(toml));
     ix.stub(ILogService, stubLog());
     ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg-guards', env));

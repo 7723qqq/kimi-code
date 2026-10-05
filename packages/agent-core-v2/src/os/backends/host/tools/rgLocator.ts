@@ -75,13 +75,11 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
   }
 }
 
-export function ensureRgPath(
+export async function ensureRgPath(
   probe: RgProbe,
   options: EnsureRgPathOptions = {},
 ): Promise<RgResolution> {
-  if (options.signal?.aborted === true) {
-    return Promise.reject(new DOMException('Aborted', 'AbortError'));
-  }
+  throwIfAborted(options.signal);
   const shareDir = options.shareDir ?? getShareDir();
   const resolution = resolveRgPath(probe, shareDir, options);
   return options.signal === undefined ? resolution : abortable(resolution, options.signal);
@@ -124,7 +122,7 @@ export async function findExistingRg(
 }
 
 let downloadPromise: Promise<RgResolution> | undefined;
-function downloadRgWithLock(probe: RgProbe, shareDir: string): Promise<RgResolution> {
+async function downloadRgWithLock(probe: RgProbe, shareDir: string): Promise<RgResolution> {
   if (downloadPromise !== undefined) return downloadPromise;
   downloadPromise = (async () => {
     try {

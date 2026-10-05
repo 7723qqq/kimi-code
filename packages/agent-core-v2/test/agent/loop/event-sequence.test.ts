@@ -46,7 +46,7 @@ describe('Agent loop — event sequences', () => {
     );
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('run')).assigned).turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('run') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
     ctx.llmInputs();
 
@@ -85,7 +85,7 @@ describe('Agent loop — event sequences', () => {
   it('emits only step events for a turn with no tool calls', async () => {
     ctx.mockNextResponse({ type: 'text', text: 'just text' });
 
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('text')).assigned).turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('text') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     expect(rpcEvents(ctx, 'tool.call.started')).toHaveLength(0);
@@ -108,7 +108,7 @@ describe('Agent loop — event sequences', () => {
     });
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('run')).assigned).turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('run') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     const started = rpcEvents(ctx, 'tool.call.started')[0];
@@ -125,7 +125,7 @@ describe('Agent loop — event sequences', () => {
   it('records the provider response id on step.end transcript records', async () => {
     ctx.mockNextResponse({ type: 'text', text: 'ok' });
 
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('run')).assigned).turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('run') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     const stepEndRecord = ctx.allEvents.find(

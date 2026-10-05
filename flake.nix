@@ -115,7 +115,7 @@
         ./packages/node-sdk
         ./packages/oauth
         ./packages/pi-tui
-        ./packages/protocol
+        ./packages/remote-control
         ./packages/telemetry
         ./packages/transcript
         ./packages/tree-sitter-bash

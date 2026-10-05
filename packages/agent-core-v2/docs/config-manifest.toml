@@ -8,10 +8,11 @@
 # commented "# field: type" lines describe the remaining schema fields.
 # Values resolve as: default -> config.toml -> env overlay -> memory.
 
-# Index (29 sections · 3 overlay(s))
+# Index (31 sections · 3 overlay(s))
 #   background               src/agent/task/configSection.ts
 #   builtinProductSkills     src/features/skill/catalog/configSection.ts
 #   cron                     src/features/cron/configSection.ts
+#   database                 src/persistence/configSection.ts
 #   defaultPermissionMode    src/agent/permissionMode/configSection.ts
 #   defaultPlanMode          src/features/plan/configSection.ts
 #   experimental             src/app/flag/flag.ts
@@ -30,6 +31,7 @@
 #   models                   src/app/kosongConfig/configSection.ts
 #   permission               src/agent/permissionRules/configSection.ts
 #   providers                src/app/kosongConfig/configSection.ts
+#   read                     src/agent/tools/os/read/configSection.ts
 #   secondaryModel           src/session/subagent/configSection.ts
 #   services                 src/app/auth/configSection.ts
 #   subagent                 src/session/subagent/configSection.ts
@@ -50,6 +52,10 @@
 #   env:
 #     keep_alive_on_exit <- KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT (custom parse)
 #     max_running_tasks <- KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS (custom parse)
+#     bash_task_timeout_s <- KIMI_CODE_BACKGROUND_BASH_TASK_TIMEOUT_S (custom parse)
+#     print_wait_ceiling_s <- KIMI_CODE_BACKGROUND_PRINT_WAIT_CEILING_S (custom parse)
+#     print_background_mode <- KIMI_CODE_BACKGROUND_PRINT_BACKGROUND_MODE (custom parse)
+#     print_max_turns <- KIMI_CODE_BACKGROUND_PRINT_MAX_TURNS (custom parse)
 # ##########################################################################
 
 [background]
@@ -95,6 +101,20 @@ no_jitter = false
 no_stale = false
 disabled = false
 manual_tick = false
+
+# ##########################################################################
+# database
+#   owner: src/persistence/configSection.ts
+#   scope: core
+#   hooks: stripEnv
+#   env:
+#     base <- KIMI_CODE_PERSISTENCE_MINIDB_READMODEL (custom parse)
+#     search <- KIMI_CODE_SEARCH_WORKER (custom parse)
+# ##########################################################################
+
+[database]
+# base: boolean
+# search: boolean
 
 # ##########################################################################
 # defaultPermissionMode (config.toml: default_permission_mode)
@@ -358,6 +378,16 @@ merge_all_available_skills = true
   # source: record<string, any>
 
 # ##########################################################################
+# read
+#   owner: src/agent/tools/os/read/configSection.ts
+#   scope: core
+# ##########################################################################
+
+[read]
+# default_max_chars: integer
+# max_chars: integer
+
+# ##########################################################################
 # secondaryModel (config.toml: secondary_model)
 #   owner: src/session/subagent/configSection.ts
 #   scope: core
@@ -443,6 +473,10 @@ timeout_ms = 7200000
 #   env:
 #     keep_alive_on_exit <- KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT (custom parse)
 #     max_running_tasks <- KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS (custom parse)
+#     bash_task_timeout_s <- KIMI_CODE_BACKGROUND_BASH_TASK_TIMEOUT_S (custom parse)
+#     print_wait_ceiling_s <- KIMI_CODE_BACKGROUND_PRINT_WAIT_CEILING_S (custom parse)
+#     print_background_mode <- KIMI_CODE_BACKGROUND_PRINT_BACKGROUND_MODE (custom parse)
+#     print_max_turns <- KIMI_CODE_BACKGROUND_PRINT_MAX_TURNS (custom parse)
 # ##########################################################################
 
 [task]

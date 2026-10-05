@@ -3,13 +3,17 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import type { generate as kosongGenerate } from '#/kosong/contract/generate';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
 
-import { permissionModeServices, type TestAgentContext } from '../../harness';
+import {
+  permissionModeServices,
+  requesterFromGenerateFn,
+  type LegacyGenerateFn,
+  type TestAgentContext,
+} from '../../harness';
 import { createLoopTestAgent, makeEchoTool, nextTurnMessage } from './helpers';
 
-type GenerateFn = typeof kosongGenerate;
+type GenerateFn = LegacyGenerateFn;
 
 function stepEvents(ctx: TestAgentContext, event: string): Array<Record<string, unknown>> {
   return ctx.allEvents
@@ -145,7 +149,7 @@ describe('Agent loop — turn lifecycle', () => {
     ctx.mockNextResponse({ type: 'function', id: 'b', name: 'echo', arguments: '{"text":"2"}' });
 
     const turnEnded = ctx.untilTurnEnd();
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('go')).assigned).turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('go') });
     await expect(turn.result).resolves.toMatchObject({ type: 'failed', steps: 2 });
     await turnEnded;
 
@@ -170,7 +174,7 @@ describe('Agent loop — turn lifecycle', () => {
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
     const turnEnded = ctx.untilTurnEnd();
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('go')).assigned).turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('go') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed', steps: 3 });
     await turnEnded;
     expect(echo.calls.map((call) => call.id)).toEqual(['a', 'b']);
@@ -210,13 +214,15 @@ describe('Agent loop — turn lifecycle', () => {
     };
 
     const echo = makeEchoTool();
-    ctx = createLoopTestAgent({ generate }, permissionModeServices('yolo'));
+    ctx = createLoopTestAgent(
+      { generate: requesterFromGenerateFn(generate) },
+      permissionModeServices('yolo'),
+    );
     ctx.get(IAgentToolRegistryService).register(echo);
     ctx.get(IAgentProfileService).update({ activeToolNames: ['echo'] });
 
     const turnEnded = ctx.untilTurnEnd();
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('aggregate')).assigned)
-      .turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('aggregate') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed', steps: 2 });
     await turnEnded;
 

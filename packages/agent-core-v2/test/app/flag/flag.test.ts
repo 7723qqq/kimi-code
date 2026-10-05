@@ -14,7 +14,6 @@ import { IFlagRegistry, type FlagDefinitionInput } from '#/app/flag/flagRegistry
 import { FlagRegistryService } from '#/app/flag/flagRegistryService';
 import { FlagService, MASTER_ENV } from '#/app/flag/flagService';
 import { ILogService } from '#/_base/log/log';
-import { PERSISTENCE_MINIDB_READMODEL_FLAG_ID } from '#/persistence/backends/minidb/flag';
 import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { TomlAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
@@ -36,10 +35,7 @@ describe('FlagRegistryService', () => {
   it('registers and resolves by id', () => {
     const reg = new FlagRegistryService();
     reg.register(exampleFlag);
-    expect(reg.list().map((d) => d.id)).toEqual([
-      PERSISTENCE_MINIDB_READMODEL_FLAG_ID,
-      'example_flag',
-    ]);
+    expect(reg.list().map((d) => d.id)).toEqual(['example_flag']);
     expect(reg.get('example_flag')?.env).toBe('KIMI_CODE_EXPERIMENTAL_EXAMPLE_FLAG');
   });
 
@@ -194,15 +190,9 @@ describe('FlagService', () => {
 
   it('exposes snapshot / enabledIds / explainAll', () => {
     const { flags } = makeFlags();
-    expect(flags.snapshot()).toEqual({
-      [PERSISTENCE_MINIDB_READMODEL_FLAG_ID]: true,
-      example_flag: true,
-    });
-    expect(flags.enabledIds()).toEqual([PERSISTENCE_MINIDB_READMODEL_FLAG_ID, 'example_flag']);
-    expect(flags.explainAll().map((s) => s.id)).toEqual([
-      PERSISTENCE_MINIDB_READMODEL_FLAG_ID,
-      'example_flag',
-    ]);
+    expect(flags.snapshot()).toEqual({ example_flag: true });
+    expect(flags.enabledIds()).toEqual(['example_flag']);
+    expect(flags.explainAll().map((s) => s.id)).toEqual(['example_flag']);
   });
 
   it('filters enabled flags out of exposedIds when their isExposed predicate fails', () => {
@@ -217,12 +207,8 @@ describe('FlagService', () => {
       isExposed: () => false,
     });
 
-    expect(flags.enabledIds().toSorted()).toEqual([
-      'assembled_only',
-      'example_flag',
-      PERSISTENCE_MINIDB_READMODEL_FLAG_ID,
-    ]);
-    expect(flags.exposedIds()).toEqual([PERSISTENCE_MINIDB_READMODEL_FLAG_ID, 'example_flag']);
+    expect(flags.enabledIds().toSorted()).toEqual(['assembled_only', 'example_flag']);
+    expect(flags.exposedIds()).toEqual(['example_flag']);
   });
 
   it('treats truthy env values case-insensitively', () => {
@@ -253,7 +239,6 @@ describe('FlagService', () => {
     });
 
     expect(flags.snapshot()).toEqual({
-      [PERSISTENCE_MINIDB_READMODEL_FLAG_ID]: true,
       example_flag: false,
     });
     expect(flags.explain('obsolete_flag')).toBeUndefined();

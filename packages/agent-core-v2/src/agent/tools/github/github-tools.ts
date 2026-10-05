@@ -4,7 +4,7 @@ import { createDecorator } from '#/_base/di/instantiation';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IConfigService } from '#/app/config/config';
 import { toInputJsonSchema } from '#/tool/input-schema';
-import { ToolResultBuilder } from '#/tool/result-builder';
+import { ToolOutputAccumulator } from '#/tool/output-accumulator';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
   ToolAccesses,
@@ -91,7 +91,7 @@ export abstract class GitHubToolBase implements IGitHubTool {
         output: `${res.error ?? 'GitHub request failed'}${status}${detail}`,
       };
     }
-    const builder = new ToolResultBuilder({ maxLineLength: null });
+    const builder = new ToolOutputAccumulator();
     const rate =
       typeof res.rateRemaining === 'number'
         ? `\n\n(GitHub rate limit remaining: ${String(res.rateRemaining)})`

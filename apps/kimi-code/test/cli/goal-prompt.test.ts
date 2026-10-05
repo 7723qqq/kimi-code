@@ -27,7 +27,6 @@ describe('goalExitCode', () => {
     expect(goalExitCode('blocked')).toBe(GOAL_EXIT_CODES.blocked);
     expect(goalExitCode('paused')).toBe(GOAL_EXIT_CODES.paused);
     expect(goalExitCode(undefined)).toBe(0);
-    // Folded-away statuses map to success (treated as complete/absent).
     expect(goalExitCode('impossible')).toBe(0);
     // The distinct codes are unique across the statuses.
     expect(new Set(Object.values(GOAL_EXIT_CODES)).size).toBe(

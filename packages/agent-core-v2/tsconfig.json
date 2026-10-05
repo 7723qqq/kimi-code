@@ -3,8 +3,9 @@
   "compilerOptions": {
     "experimentalDecorators": true,
     "paths": {
-      "#/*": ["./src/*.ts"]
+      "#/*": ["./src/*.ts", "./src/human/*.ts"]
     }
   },
-  "include": ["src", "test"]
+  "include": ["src", "test"],
+  "exclude": ["src/human/test"]
 }

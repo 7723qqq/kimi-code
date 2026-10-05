@@ -9,10 +9,7 @@ import {
 
 import { createKimiCodeUserAgent } from '#/cli/version';
 
-import type { SkillListSession } from '../commands';
 import { getOauthLoginRequiredStartupNotice } from '../constant/kimi-tui';
-import type { TUIState } from '../tui-state';
-import type { AppState, KimiTUIOptions } from '../types';
 import {
   refreshAllProviderModels,
   type RefreshProviderHost,
@@ -20,28 +17,18 @@ import {
   type RefreshResult,
 } from '../utils/refresh-providers';
 import { thinkingEffortFromConfig } from '../utils/thinking-config';
-import type { SessionEventHandler } from './session-event-handler';
+import type { AppState, KimiTUIOptions } from '../types';
 
 export interface AuthFlowHost {
-  state: TUIState;
   session: Session | undefined;
   readonly harness: KimiHarness;
   readonly options: KimiTUIOptions;
-  /** True when the TUI runs on the agent-core-v2 engine (startup-selected). */
-  readonly engineV2: boolean;
 
   setAppState(patch: Partial<AppState>): void;
   setStartupReady(): void;
   resetSessionRuntime(): void;
-  setSession(session: Session): Promise<void>;
-  syncRuntimeState(session?: Session): Promise<void>;
   appendStartupNotice(extra: string): void;
   hydrateLazyConfigDefaults(): Promise<void>;
-  readonly sessionEventHandler: SessionEventHandler;
-  fetchSessions(): Promise<void>;
-  updateTerminalTitle(): void;
-  refreshSkillCommands(session?: SkillListSession): Promise<void>;
-  refreshPluginCommands(session?: Session): Promise<void>;
 }
 
 export class AuthFlowController {
@@ -74,12 +61,11 @@ export class AuthFlowController {
    * Apply a model pick to the runtime. Returns whether the activation made
    * the engine emit `model_switch` — it reached an already-live session AND
    * changed the bound alias (both engines track the event only on an actual
-   * alias change). `false` when no live session existed (v2 defers creation
-   * to the first prompt; v1 binds the model at creation without an event) or
-   * the alias was already bound, so callers mirroring the engine's telemetry
-   * must stay the producer for exactly those paths. Thinking-effort changes
-   * are orthogonal: the engine's `thinking_toggle` fires from `setThinking`
-   * regardless of this flag.
+   * alias change). `false` when no live session existed (session creation is
+   * deferred to the first prompt) or the alias was already bound, so callers
+   * mirroring the engine's telemetry must stay the producer for exactly
+   * those paths. Thinking-effort changes are orthogonal: the engine's
+   * `thinking_toggle` fires from `setThinking` regardless of this flag.
    */
   async activateModelAfterLogin(model: string, effort?: string): Promise<boolean> {
     const { host } = this;
@@ -93,10 +79,10 @@ export class AuthFlowController {
       return modelChanged;
     }
 
-    // Lazy session creation: configure the model only; the session is created
-    // on the first message. The effort is carried as the first session's
-    // thinking override so a session-only choice (Alt+S) made before any
-    // session exists is applied on creation.
+    // Lazy session creation (v2 engine): configure the model only; the
+    // session is created on the first message. The effort is carried as the
+    // first session's thinking override so a session-only choice (Alt+S)
+    // made before any session exists is applied on creation.
     const patch: Partial<AppState> = { model };
     if (effort !== undefined) {
       patch.thinkingEffort = effort as ThinkingEffort;
@@ -121,7 +107,7 @@ export class AuthFlowController {
 
     if (defaultModel === undefined || selected === undefined) {
       if (host.session === undefined) {
-        // Session-less: hydrate permission/plan defaults even without a
+        // Session-less v2: hydrate permission/plan defaults even without a
         // default model.
         await host.hydrateLazyConfigDefaults();
       }
@@ -133,7 +119,7 @@ export class AuthFlowController {
       defaultModel,
       thinkingEffortFromConfig(config.thinking),
     );
-    if (host.session === undefined && host.engineV2) {
+    if (host.session === undefined) {
       // Session-less v2: also hydrate permission/plan defaults from the
       // refreshed config, same as startup.
       await host.hydrateLazyConfigDefaults();

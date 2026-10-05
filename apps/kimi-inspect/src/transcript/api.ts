@@ -27,6 +27,8 @@ import {
   type TranscriptTodo,
 } from '@moonshot-ai/transcript';
 
+import { toModelMeta, toModelOperation } from './normalize';
+
 type StoredAttachmentSource = Extract<AttachmentSource, { kind: 'file' | 'session_media' }>;
 
 export interface FetchTranscriptAttachmentOptions {
@@ -133,7 +135,7 @@ export async function fetchTranscriptPage(
     interactions,
     attachments,
     todos,
-    meta: parsed.data.meta,
+    meta: toModelMeta(parsed.data.meta),
     pendingInteractions: parsed.data.pending_interactions,
     seq: parsed.data.seq,
   };
@@ -195,7 +197,10 @@ export async function fetchTranscriptOps(
     throw new Error('transcript ops: unexpected response shape');
   }
   return {
-    batches: parsed.data.batches,
+    batches: parsed.data.batches.map((batch) => ({
+      ...batch,
+      ops: batch.ops.map(toModelOperation),
+    })),
     latestSeq: parsed.data.latest_seq,
     complete: parsed.data.complete,
   };

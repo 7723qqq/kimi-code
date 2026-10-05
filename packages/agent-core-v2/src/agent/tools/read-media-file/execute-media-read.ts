@@ -18,9 +18,9 @@ import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import {
   isUnknownCapability,
   type ModelCapability,
-} from '#/kosong/contract/capability';
-import { VideoUploadUnsupportedError } from '#/kosong/contract/errors';
-import type { ContentPart } from '#/kosong/contract/message';
+} from '#/llm-adapter/contract/capability';
+import { VideoUploadUnsupportedError } from '#/llm-adapter/contract/errors';
+import type { ContentPart } from '#human/llm/message';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { ExecutableToolResult } from '#/tool/toolContract';

@@ -8,7 +8,7 @@ import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/tool
 import { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
-import type { Message } from '#/kosong/contract/message';
+import type { Message } from '#/llm-adapter/contract/message';
 
 export const GUARDIAN_REVIEW_MAX_TOKENS = 256;
 export const GUARDIAN_CIRCUIT_CONSECUTIVE_DENIALS = 3;

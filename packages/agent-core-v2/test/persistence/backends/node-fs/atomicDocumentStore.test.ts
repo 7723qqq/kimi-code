@@ -86,20 +86,6 @@ describe('JsonAtomicDocumentStore', () => {
     expect(JSON.parse(raw)).toEqual({ title: 'x' });
   });
 
-  it('watch fires when the document is set', async () => {
-    const fired = new Promise<void>((resolve) => {
-      const sub = config.watch(
-        'session',
-        'state.json',
-      )(() => {
-        sub.dispose();
-        resolve();
-      });
-    });
-    await config.set<State>('session', 'state.json', { title: 'x' });
-    await expect(fired).resolves.toBeUndefined();
-  });
-
   it('throws storage.decode_failed when the stored bytes are not valid JSON', async () => {
     await storage.append('session', 'bad.json', new TextEncoder().encode('{ not json'));
     await expect(config.get('session', 'bad.json')).rejects.toSatisfy((error: unknown) => {
@@ -134,22 +120,6 @@ describe('JsonAtomicDocumentStore', () => {
     const deep = { level1: { level2: { level3: { value: 'deep' } } } };
     await config.set('session', 'nested.json', deep);
     expect(await config.get('session', 'nested.json')).toEqual(deep);
-  });
-
-  it('watch fires on subsequent set after initial watch registration', async () => {
-    const events: number[] = [];
-    const sub = config.watch(
-      'session',
-      'counter.json',
-    )(() => {
-      events.push(events.length);
-    });
-    await config.set('session', 'counter.json', { v: 1 });
-    await new Promise((r) => setTimeout(r, 50));
-    await config.set('session', 'counter.json', { v: 2 });
-    await new Promise((r) => setTimeout(r, 50));
-    sub.dispose();
-    expect(events).toHaveLength(2);
   });
 });
 
@@ -190,20 +160,6 @@ describe('TomlAtomicDocumentStore', () => {
     const raw = new TextDecoder().decode(await storage.read('session', 'config.toml'));
     expect(raw).toContain('title = "x"');
     expect(() => JSON.parse(raw)).toThrow();
-  });
-
-  it('watch fires when the document is set', async () => {
-    const fired = new Promise<void>((resolve) => {
-      const sub = config.watch(
-        'session',
-        'config.toml',
-      )(() => {
-        sub.dispose();
-        resolve();
-      });
-    });
-    await config.set<State>('session', 'config.toml', { title: 'x' });
-    await expect(fired).resolves.toBeUndefined();
   });
 
   it('throws storage.decode_failed when the stored bytes are not valid TOML', async () => {

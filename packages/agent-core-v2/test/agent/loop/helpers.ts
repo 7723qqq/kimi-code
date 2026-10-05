@@ -1,4 +1,4 @@
-import { MessageStepRequest } from '#/agent/loop/stepRequest';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentProfileService } from '#/index';
 import type { ExecutableTool, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
@@ -23,17 +23,14 @@ export function deferred<T = void>(): Deferred<T> {
   return { promise, resolve };
 }
 
-/** A user-text turn request with `admission: 'newTurn'`, like `rpc.prompt`. */
-export function nextTurnMessage(text: string): MessageStepRequest {
-  return new MessageStepRequest(
-    {
-      role: 'user',
-      content: [{ type: 'text', text }],
-      toolCalls: [],
-      origin: { kind: 'user' },
-    },
-    { admission: 'newTurn' },
-  );
+/** A user-text turn message for `loop.submit`, like `rpc.prompt`. */
+export function nextTurnMessage(text: string): ContextMessage {
+  return {
+    role: 'user',
+    content: [{ type: 'text', text }],
+    toolCalls: [],
+    origin: { kind: 'user' },
+  };
 }
 
 export interface EchoCall {

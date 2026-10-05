@@ -8,7 +8,7 @@
 
 import { setTelemetryContext, track, withTelemetryContext } from '@moonshot-ai/kimi-telemetry';
 import {
-  createKimiHarnessV2,
+  createKimiHarness,
   type KimiHarness,
   type ListSessionsOptions,
   type SessionSummary,
@@ -103,7 +103,7 @@ function createDefaultSessionListDeps(
     setContext: setTelemetryContext,
   };
   const getHarness = (): KimiHarness => {
-    harness ??= createKimiHarnessV2({
+    harness ??= createKimiHarness({
       homeDir: createCliTelemetryBootstrap().homeDir,
       identity,
       telemetry: telemetryClient,

@@ -1,3 +1,5 @@
+import { rm } from 'node:fs/promises';
+
 import type {
   AgentActivityState,
   ApprovalResponse,
@@ -15,13 +17,15 @@ import {
   IAgentLifecycleService,
   IEventBus,
   IEventService,
+  INTERACTION_TAG_AGENT_ID,
+  INTERACTION_TAG_SESSION_ID,
   ISessionActivityView,
   ISessionIndex,
+  ISessionManager,
   MAIN_AGENT_ID,
   getLiveSessionById,
-  listSessionPendingInteractions,
-  onSessionInteractionDidChangePending,
-  onSessionInteractionDidResolve,
+  interactions,
+  toDisposable,
 } from '@moonshot-ai/agent-core-v2';
 import type {
   ConfigWarningItem,
@@ -140,6 +144,7 @@ export class SessionEventBroadcaster {
   private readonly pendingStates = new Map<string, Promise<SessionState | undefined>>();
   private readonly maxBufferSize: number;
   private readonly coreEventSubscription: IDisposable;
+  private readonly deletionSubscription: IDisposable | undefined;
   private closed = false;
 
   constructor(
@@ -152,6 +157,11 @@ export class SessionEventBroadcaster {
     },
   ) {
     this.maxBufferSize = opts.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE;
+    this.deletionSubscription = opts.core.accessor.get(ISessionManager).onWillDeleteSession?.(
+      (event) => {
+        event.waitUntil(this.purgeSession(event.sessionId));
+      },
+    );
     this.coreEventSubscription = opts.core.accessor
       .get(IEventService)
       .subscribe((event) => this.onCoreEvent(event));
@@ -510,11 +520,27 @@ export class SessionEventBroadcaster {
     if (this.closed) return;
     this.closed = true;
     this.coreEventSubscription.dispose();
+    this.deletionSubscription?.dispose();
+    await Promise.all(
+      [...this.pendingStates.values()].map((pending) => pending.catch(() => undefined)),
+    );
     for (const [sessionId, state] of this.sessions) {
       await disposeSessionState(state);
       this.opts.transcriptService?.dropSession(sessionId);
     }
     this.sessions.clear();
+  }
+
+  private async purgeSession(sessionId: string): Promise<void> {
+    await this.pendingStates.get(sessionId);
+    const state = this.sessions.get(sessionId);
+    if (state !== undefined) {
+      this.sessions.delete(sessionId);
+      state.targets.clear();
+      await disposeSessionState(state);
+    }
+    this.opts.transcriptService?.dropSession(sessionId);
+    await rm(sessionJournalPath(this.opts.eventsDir, sessionId), { force: true });
   }
 
   private ensureState(sessionId: string): Promise<SessionState | undefined> {
@@ -543,7 +569,7 @@ export class SessionEventBroadcaster {
       sessionJournalPath(this.opts.eventsDir, sessionId),
       this.opts.logger,
     );
-    if (this.closed) {
+    if (this.closed || getLiveSessionById(this.opts.core.accessor, sessionId) !== session) {
       await journal.close();
       return undefined;
     }
@@ -565,7 +591,7 @@ export class SessionEventBroadcaster {
     try {
       this.attachWorkView(session, state);
       this.attachAgents(sessionId, session, state);
-      this.attachInteractions(sessionId, session, state);
+      this.attachInteractions(sessionId, state);
     } catch (error) {
       this.sessions.delete(sessionId);
       await disposeSessionState(state);
@@ -575,7 +601,8 @@ export class SessionEventBroadcaster {
     return state;
   }
 
-  private ensureGlobalState(): Promise<SessionState> {
+  private ensureGlobalState(): Promise<SessionState | undefined> {
+    if (this.closed) return Promise.resolve(undefined);
     const existing = this.sessions.get(GLOBAL_SESSION_ID);
     if (existing !== undefined) return Promise.resolve(existing);
     let pending = this.pendingStates.get(GLOBAL_SESSION_ID);
@@ -587,14 +614,18 @@ export class SessionEventBroadcaster {
       });
       this.pendingStates.set(GLOBAL_SESSION_ID, pending);
     }
-    return pending as Promise<SessionState>;
+    return pending;
   }
 
-  private async createGlobalState(): Promise<SessionState> {
+  private async createGlobalState(): Promise<SessionState | undefined> {
     const journal = await SessionEventJournal.open(
       sessionJournalPath(this.opts.eventsDir, GLOBAL_SESSION_ID),
       this.opts.logger,
     );
+    if (this.closed) {
+      await journal.close();
+      return undefined;
+    }
     const state: SessionState = {
       sessionId: GLOBAL_SESSION_ID,
       journal,
@@ -638,6 +669,19 @@ export class SessionEventBroadcaster {
         sessionId: payload.sessionId,
       } as Event).catch((error: unknown) =>
         this.logDispatchError(GLOBAL_SESSION_ID, 'event.session.archived', error),
+      );
+      return;
+    }
+    if (event.type === 'event.session.deleted') {
+      const payload = sessionDeletedPayload(corePayload);
+      if (payload === undefined) return;
+      void this.dispatchGlobal({
+        type: 'event.session.deleted',
+        workspace_id: payload.workspaceId,
+        agentId: 'main',
+        sessionId: payload.sessionId,
+      } as Event).catch((error: unknown) =>
+        this.logDispatchError(GLOBAL_SESSION_ID, 'event.session.deleted', error),
       );
       return;
     }
@@ -767,6 +811,7 @@ export class SessionEventBroadcaster {
 
   private async dispatchGlobal(event: Event): Promise<void> {
     const state = await this.ensureGlobalState();
+    if (state === undefined) return;
     state.queue = state.queue
       .then(() => this.dispatch(state, event, isVolatileEventType(event.type)))
       .catch((error: unknown) => this.logDispatchDropped(state.sessionId, event.type, error));
@@ -943,36 +988,43 @@ export class SessionEventBroadcaster {
 
   private attachInteractions(
     sessionId: string,
-    session: ISessionScopeHandle,
     state: SessionState,
   ): void {
-    const agents = session.accessor.get(IAgentLifecycleService);
-    for (const i of listSessionPendingInteractions(agents)) {
-      state.knownInteractions.set(i.id, { kind: i.kind, agentId: i.origin.agentId ?? 'main' });
+    const pendingOfSession = (): readonly Interaction[] =>
+      interactions.findAll({
+        resolved: false,
+        tags: { [INTERACTION_TAG_SESSION_ID]: sessionId },
+      });
+    for (const i of pendingOfSession()) {
+      state.knownInteractions.set(i.id, { kind: i.kind, agentId: interactionAgentId(i) });
     }
     state.lifecycleDisposables.push(
-      onSessionInteractionDidChangePending(agents, () => {
-        for (const i of listSessionPendingInteractions(agents)) {
-          if (state.knownInteractions.has(i.id)) continue;
-          state.knownInteractions.set(i.id, {
-            kind: i.kind,
-            agentId: i.origin.agentId ?? 'main',
-          });
-          const event = interactionRequestedEvent(i, sessionId);
+      toDisposable(
+        interactions.onDidChangePending(() => {
+          for (const i of pendingOfSession()) {
+            if (state.knownInteractions.has(i.id)) continue;
+            state.knownInteractions.set(i.id, {
+              kind: i.kind,
+              agentId: interactionAgentId(i),
+            });
+            const event = interactionRequestedEvent(i, sessionId);
+            if (event !== undefined) {
+              this.enqueueDurable(state, event);
+            }
+          }
+        }),
+      ),
+      toDisposable(
+        interactions.onDidResolve(({ id, response }) => {
+          const known = state.knownInteractions.get(id);
+          if (known === undefined) return;
+          state.knownInteractions.delete(id);
+          const event = interactionResolvedEvent(known.kind, id, response, sessionId, known.agentId);
           if (event !== undefined) {
             this.enqueueDurable(state, event);
           }
-        }
-      }),
-      onSessionInteractionDidResolve(agents, ({ id, response }) => {
-        const known = state.knownInteractions.get(id);
-        if (known === undefined) return;
-        state.knownInteractions.delete(id);
-        const event = interactionResolvedEvent(known.kind, id, response, sessionId, known.agentId);
-        if (event !== undefined) {
-          this.enqueueDurable(state, event);
-        }
-      }),
+        }),
+      ),
     );
   }
 
@@ -1214,8 +1266,13 @@ function suppressedByTranscript(
   return TRANSCRIPT_PROJECTED_EVENT_TYPES.has(envelope.type);
 }
 
+function interactionAgentId(interaction: Interaction): string {
+  const tag = interaction.tags[INTERACTION_TAG_AGENT_ID];
+  return typeof tag === 'string' ? tag : MAIN_AGENT_ID;
+}
+
 function interactionRequestedEvent(interaction: Interaction, sessionId: string): Event | undefined {
-  const agentId = interaction.origin.agentId ?? 'main';
+  const agentId = interactionAgentId(interaction);
   switch (interaction.kind) {
     case 'question':
       return {
@@ -1352,6 +1409,20 @@ function sessionCreatedPayload(
 }
 
 function sessionArchivedPayload(
+  payload: unknown,
+): { sessionId: string; workspaceId: string } | undefined {
+  if (typeof payload !== 'object' || payload === null) return undefined;
+  const candidate = payload as { sessionId?: unknown; workspaceId?: unknown };
+  if (typeof candidate.sessionId !== 'string' || candidate.sessionId.length === 0) {
+    return undefined;
+  }
+  if (typeof candidate.workspaceId !== 'string' || candidate.workspaceId.length === 0) {
+    return undefined;
+  }
+  return { sessionId: candidate.sessionId, workspaceId: candidate.workspaceId };
+}
+
+function sessionDeletedPayload(
   payload: unknown,
 ): { sessionId: string; workspaceId: string } | undefined {
   if (typeof payload !== 'object' || payload === null) return undefined;

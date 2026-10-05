@@ -3,9 +3,8 @@
  * types they mirror. Plain `.ts` (not `.test.ts`) — vitest must not pick it
  * up; `tsc -p tsconfig.json --noEmit` is the check.
  *
- * Wire shapes the engine imports from `@moonshot-ai/protocol` are reached
- * through indexed access on the engine service interfaces, since klient does
- * not depend on the protocol package directly.
+ * Wire shapes are reached through indexed access on the engine service
+ * interfaces, so klient needs no direct dependency for most of them.
  */
 
 import type { z } from 'zod';
@@ -30,7 +29,7 @@ import type { IAgentProfileService } from '@moonshot-ai/agent-core-v2/agent/prof
 import type { IAgentPromptService } from '@moonshot-ai/agent-core-v2/agent/prompt/prompt';
 import type { IAgentShellCommandService } from '@moonshot-ai/agent-core-v2/agent/shellCommand/shellCommand';
 import type { IAgentSkillService } from '@moonshot-ai/agent-core-v2/features/skill/skillService';
-import type { ContentPart } from '@moonshot-ai/agent-core-v2/kosong/contract/message';
+import type { ContentPart } from '@moonshot-ai/agent-core-v2/human/llm/message';
 import type { PlanData } from '@moonshot-ai/agent-core-v2/features/plan/plan';
 import type { UsageStatus } from '@moonshot-ai/agent-core-v2/agent/usage/usage';
 import type { SkillSummary } from '@moonshot-ai/agent-core-v2/features/skill/catalog/types';
@@ -66,11 +65,11 @@ import type {
 import type {
   ApprovalRequest,
   ApprovalResponse,
-} from '@moonshot-ai/agent-core-v2/session/approval/approval';
+} from '@moonshot-ai/agent-core-v2/agent/interaction/approval';
 import type {
   Interaction,
   InteractionResolution,
-} from '@moonshot-ai/agent-core-v2/features/interaction/interaction';
+} from '@moonshot-ai/agent-core-v2/human/interaction/interaction';
 import type {
   QuestionAnswers,
   QuestionItem,
@@ -78,7 +77,7 @@ import type {
   QuestionRequest,
   QuestionResponse,
   QuestionResult,
-} from '@moonshot-ai/agent-core-v2/session/question/question';
+} from '@moonshot-ai/agent-core-v2/agent/interaction/question';
 import type {
   AgentMeta,
   SessionMeta,
@@ -110,8 +109,8 @@ import type {
   FsBrowseResponse,
   FsHomeResponse,
 } from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
-import type { ModelRecord } from '@moonshot-ai/agent-core-v2/kosong/model/model';
-import type { IModelCatalog } from '@moonshot-ai/agent-core-v2/kosong/model/catalog';
+import type { ModelRecord } from '@moonshot-ai/agent-core-v2/llm-adapter/model/model';
+import type { IModelCatalog } from '@moonshot-ai/agent-core-v2/llm-adapter/model/catalog';
 import type { IProviderDiscoveryService } from '@moonshot-ai/agent-core-v2/app/kosongConfig/discovery';
 import type {
   GetPluginInfoInput,
@@ -131,7 +130,7 @@ import type {
   PluginUpdateStatus,
   ReloadSummary,
 } from '@moonshot-ai/agent-core-v2/app/plugin/types';
-import type { ProviderConfig } from '@moonshot-ai/agent-core-v2/kosong/provider/provider';
+import type { ProviderConfig } from '@moonshot-ai/agent-core-v2/llm-adapter/provider/provider';
 import type {
   SessionListQuery,
   SessionSummary,
@@ -140,26 +139,32 @@ import type {
   Workspace,
   WorkspaceUpdate,
 } from '@moonshot-ai/agent-core-v2/app/workspace/workspace';
-// Test-only: `@moonshot-ai/protocol` is a devDependency; importing its types
-// here (never in `src/`) strengthens parity for the agent event stream.
+// Test-only: the v1 wire event types now live in agent-core-v2; importing
+// them here (never in `src/`) strengthens parity for the agent event stream.
+import type { ToolResultEvent } from '@moonshot-ai/agent-core-v2/events';
 import type {
-  AssistantDeltaEvent,
   CompactionBlockedEvent,
   CompactionCancelledEvent,
   CompactionCompletedEvent,
   CompactionStartedEvent,
+} from '@moonshot-ai/agent-core-v2/agent/fullCompaction/compactionOps';
+import type {
+  AssistantDeltaEvent,
+  ThinkingDeltaEvent,
+  TurnStartedEvent,
+} from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import type { TurnEndedEvent } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+import type {
   PromptAbortedEvent,
   PromptCompletedEvent,
-  TaskInfo,
-  ThinkingDeltaEvent,
+} from '@moonshot-ai/agent-core-v2/agent/prompt/promptService';
+import type { TaskInfo } from '@moonshot-ai/agent-core-v2/agent/task/types';
+import type {
   ToolCallDeltaEvent,
   ToolCallStartedEvent,
   ToolProgressEvent,
-  ToolResultEvent,
-  TurnEndedEvent,
-  TurnStartedEvent,
-  WarningEvent,
-} from '@moonshot-ai/protocol';
+} from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
+import type { WarningEvent } from '@moonshot-ai/agent-core-v2/errors';
 
 import {
   activityLastTurnStateSchema,
@@ -353,8 +358,7 @@ type AssertWireToEngine<TSchema extends z.ZodType, TEngine> = [z.infer<TSchema>]
   ? true
   : never;
 
-// Protocol wire shapes, derived from the engine interfaces (no direct
-// `@moonshot-ai/protocol` dependency in klient).
+// Wire shapes, derived from the engine interfaces.
 type OAuthFlowStart = Awaited<ReturnType<IOAuthService['startLogin']>>;
 type OAuthFlowSnapshot = NonNullable<ReturnType<IOAuthService['getFlow']>>;
 type OAuthLoginCancelResponse = Awaited<ReturnType<IOAuthService['cancelLogin']>>;

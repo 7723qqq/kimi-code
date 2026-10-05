@@ -2,7 +2,7 @@ import { memo, useCallback } from 'react';
 
 import { t } from '../../i18n';
 import type { WireEntry } from '../../types';
-import { formatDuration, formatWallClock } from '../../util/time';
+import { formatDuration, formatWallClock, recordTime } from '../../util/time';
 import { TypeBadge } from './TypeBadge';
 import { renderHeadline } from './WireHeadline';
 import { WireRowDetail } from './WireRowDetail';
@@ -44,8 +44,9 @@ export const WireRow = memo(function WireRow({
   onHoverPair,
 }: WireRowProps) {
   const record = entry.data;
+  const time = recordTime(record);
   const h = renderHeadline(record);
-  const timeTitle = formatTimeTitle(record.time);
+  const timeTitle = formatTimeTitle(time);
 
   const handleEnter = useCallback(() => {
     if (pair !== undefined && onHoverPair !== undefined) {
@@ -83,7 +84,7 @@ export const WireRow = memo(function WireRow({
             className="font-mono text-[11px] text-fg-3 tabular w-[68px] shrink-0"
             title={timeTitle}
           >
-            {record.time !== undefined ? formatWallClock(record.time) : t('wireRow.noTime')}
+            {time !== undefined ? formatWallClock(time) : t('wireRow.noTime')}
           </span>
           <span className="shrink-0">
             <TypeBadge type={record.type} />

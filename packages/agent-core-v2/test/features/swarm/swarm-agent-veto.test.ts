@@ -20,7 +20,7 @@ import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { AgentSwarmService } from '#/features/swarm/agent/swarmService';
 import { ISessionSwarmService } from '#/features/swarm/session/sessionSwarm';
-import type { ToolCall } from '#/kosong/contract/message';
+import type { ToolCall } from '#human/llm/message';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';

@@ -9,10 +9,10 @@ import type { ServiceIdentifier } from '@moonshot-ai/agent-core-v2/_base/di/inst
 import { ISessionIndex } from '@moonshot-ai/agent-core-v2/app/sessionIndex/sessionIndex';
 import { IWorkspaceService } from '@moonshot-ai/agent-core-v2/app/workspace/workspace';
 import { IConfigService } from '@moonshot-ai/agent-core-v2/app/config/config';
-import { IModelService } from '@moonshot-ai/agent-core-v2/kosong/model/model';
-import { IModelCatalog } from '@moonshot-ai/agent-core-v2/kosong/model/catalog';
+import { IModelService } from '@moonshot-ai/agent-core-v2/llm-adapter/model/model';
+import { IModelCatalog } from '@moonshot-ai/agent-core-v2/llm-adapter/model/catalog';
 import { IProviderDiscoveryService } from '@moonshot-ai/agent-core-v2/app/kosongConfig/discovery';
-import { IProviderService } from '@moonshot-ai/agent-core-v2/kosong/provider/provider';
+import { IProviderService } from '@moonshot-ai/agent-core-v2/llm-adapter/provider/provider';
 import {
   IAuthSummaryService,
   IOAuthService,
@@ -27,8 +27,6 @@ import { IHostFolderBrowser } from '@moonshot-ai/agent-core-v2/app/hostFolderBro
 import { IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2/workspace/workspaceInstance/workspaceInstanceManager';
 import { ISessionManager } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionManager';
 import { ISessionMetadata } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';
-import { ISessionApprovalService } from '@moonshot-ai/agent-core-v2/session/approval/approval';
-import { ISessionQuestionService } from '@moonshot-ai/agent-core-v2/session/question/question';
 import { ISessionSkillCatalog } from '@moonshot-ai/agent-core-v2/features/skill/session/skillCatalog';
 import { ISessionTitleService } from '@moonshot-ai/agent-core-v2/session/sessionTitle/sessionTitle';
 import { IAgentPromptService } from '@moonshot-ai/agent-core-v2/agent/prompt/prompt';
@@ -68,8 +66,6 @@ export const serviceTokens: Readonly<Record<string, ServiceIdentifier<unknown>>>
   workspaceInstanceManager: IWorkspaceInstanceManager,
   sessionManager: ISessionManager,
   sessionMetadata: ISessionMetadata,
-  sessionApprovalService: ISessionApprovalService,
-  sessionQuestionService: ISessionQuestionService,
   sessionSkillCatalog: ISessionSkillCatalog,
   sessionTitleService: ISessionTitleService,
   agentPromptService: IAgentPromptService,

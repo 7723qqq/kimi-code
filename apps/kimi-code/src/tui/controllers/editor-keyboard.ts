@@ -24,7 +24,6 @@ import {
   getCtrlCHint,
   getCtrlDHint,
   getLlmNotSetMessage,
-  getNoActiveSessionMessage,
 } from '../constant/kimi-tui';
 import { MEDIA_STAGING_TTL_SECONDS } from '../constant/media';
 import { formatErrorMessage } from '../utils/event-payload';
@@ -44,13 +43,6 @@ import type { SurveyController } from './survey-controller';
 export interface EditorKeyboardHost {
   state: TUIState;
   session: Session | undefined;
-  /**
-   * True when the TUI runs on the agent-core-v2 engine (startup-selected).
-   * Gates the paste-time upload to the daemon file store; the v1 engine has
-   * no file store, so images keep the submit-time inline base64 form and
-   * videos cannot be submitted at all.
-   */
-  readonly engineV2: boolean;
   cancelInFlight: (() => void) | undefined;
   /**
    * The host's harness (KimiTUI always has one). Its `imageLimits` drives
@@ -80,6 +72,9 @@ export interface EditorKeyboardHost {
   updateQueueDisplay(): void;
   toggleToolOutputExpansion(): void;
   toggleTodoPanelExpansion(): void;
+  /** Returns true when the Updates panel grabbed or released focus. */
+  toggleNotifyPanelFocus(): boolean;
+  handleNotifyPanelKey(key: 'left' | 'right' | 'up' | 'down' | 'escape'): boolean;
   detachCurrentForegroundTask(): void;
   cancelRunningShellCommand(): void;
   hideSessionPicker(): void;
@@ -282,10 +277,6 @@ export class EditorKeyboardController {
         host.handlePlanToggle(next);
       };
       if (host.session === undefined) {
-        if (!host.engineV2) {
-          host.showError(getNoActiveSessionMessage());
-          return;
-        }
         // v2 session-less: lazy-create the session, then toggle — the same
         // path /plan takes.
         void host.ensureSession().then((session) => {
@@ -320,6 +311,15 @@ export class EditorKeyboardController {
       host.toggleTodoPanelExpansion();
       return true;
     };
+
+    editor.onPageNotify = (): boolean => {
+      if (!host.toggleNotifyPanelFocus()) return false;
+      this.clearPendingExit();
+      host.track('shortcut_notify_page');
+      return true;
+    };
+
+    editor.onNotifyPanelKey = (key) => host.handleNotifyPanelKey(key);
 
     editor.onCtrlS = (): void => {
       void this.steerWithEditorDraft();
@@ -404,7 +404,6 @@ export class EditorKeyboardController {
     const editorHasInlineSkills =
       !editorIsBash &&
       text.length > 0 &&
-      host.engineV2 &&
       extractInlineSkillActivations(text, host.skillCommandMap).length > 0;
 
     type SteerRun =
@@ -714,12 +713,13 @@ export class EditorKeyboardController {
       const compressed = await compressImageForModel(originalBytes, originalMime, {
         maxEdge: this.host.harness?.imageLimits?.maxEdgePx(),
         telemetry: {
-          _serviceBrand: undefined,
-          track2: (event: string, properties?: Readonly<Record<string, unknown>>) => {
-            this.host.track(event, properties as Record<string, unknown> | undefined);
+          client: {
+            track: (event: string, properties?: Readonly<Record<string, unknown>>) => {
+              this.host.track(event, properties as Record<string, unknown> | undefined);
+            },
           },
-        } as unknown as NonNullable<Parameters<typeof compressImageForModel>[2]>['telemetry'],
-        telemetrySource: 'tui_paste',
+          source: 'tui_paste',
+        },
       });
       // Dimensions come from the compression result, not parseImageMeta: the
       // compressor reports display space (EXIF orientation applied) — the space

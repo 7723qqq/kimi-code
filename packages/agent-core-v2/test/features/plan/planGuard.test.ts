@@ -12,6 +12,8 @@ import type {
   PermissionPolicyResolution,
   PermissionPolicyResult,
 } from '#/agent/permissionPolicy/types';
+import { IAgentPlanService } from '#/features/plan/plan';
+import { AgentPlanService } from '#/features/plan/planService';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
@@ -21,9 +23,7 @@ import type {
   ResolvedToolExecutionHookContext,
 } from '#/agent/toolExecutor/toolHooks';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentPlanService } from '#/features/plan/plan';
-import { AgentPlanService } from '#/features/plan/planService';
-import type { ToolCall } from '#/kosong/contract/message';
+import type { ToolCall } from '#human/llm/message';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ToolAccesses } from '#/tool/toolContract';

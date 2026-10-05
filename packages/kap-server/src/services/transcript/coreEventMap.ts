@@ -36,7 +36,7 @@ import type {
   ShellStarted,
 } from '@moonshot-ai/agent-core-v2/agent/shellCommand/shellCommandService';
 import type { SkillActivated } from '@moonshot-ai/agent-core-v2/features/skill/skillOps';
-import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/agent/stepRetry/stepRetryService';
+import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
 import type {
   TaskNotified,
   TaskStarted,
@@ -89,7 +89,6 @@ export interface ProjectorInteraction {
   readonly id: string;
   readonly kind: 'approval' | 'question';
   readonly payload: unknown;
-  readonly origin: { readonly agentId?: string; readonly turnId?: number };
   readonly createdAt: number;
 }
 
@@ -366,7 +365,7 @@ export class AgentTranscriptProjector {
     origin: unknown;
     prompt?: string;
     promptAttachments?: readonly (
-      | { kind: 'image' | 'video' | 'audio'; fileId: string }
+      | { kind: 'image' | 'video' | 'audio'; fileId: string; name?: string }
       | { kind: 'file'; name: string; mediaType: string; size: number; path: string }
     )[];
   }): TranscriptOperation[] {
@@ -386,6 +385,7 @@ export class AgentTranscriptProjector {
           : {
               attachmentId: `${turnId}.att${attachmentIds.length + 1}`,
               mediaType: `${input.kind}/*`,
+              name: input.name,
               source: { kind: 'session_media', fileId: input.fileId },
             };
       ops.push({ op: 'attachment.upsert', attachment });
@@ -558,6 +558,7 @@ export class AgentTranscriptProjector {
     llmServerFirstTokenMs?: number;
     llmServerDecodeMs?: number;
     llmClientConsumeMs?: number;
+    llmClientBlockedMs?: number;
   }): TranscriptOperation[] {
     const ops: TranscriptOperation[] = [];
     this.flushOpenFrames(ops);
@@ -586,6 +587,7 @@ export class AgentTranscriptProjector {
         llmServerFirstTokenMs: event.llmServerFirstTokenMs,
         llmServerDecodeMs: event.llmServerDecodeMs,
         llmClientConsumeMs: event.llmClientConsumeMs,
+        llmClientBlockedMs: event.llmClientBlockedMs,
       },
     };
     ops.push({ op: 'step.upsert', turnId, step: this.currentStep });
@@ -1490,6 +1492,12 @@ export class AgentTranscriptProjector {
       const attachment: TranscriptAttachment = {
         attachmentId: `${stepId}.att${++this.attachmentOrdinal}`,
         mediaType: `${ref.kind}/*`,
+        name:
+          part.type === 'image_url'
+            ? part.imageUrl.name
+            : part.type === 'video_url'
+              ? part.videoUrl.name
+              : undefined,
         source: { kind: 'session_media', fileId: ref.ref.fileId },
       };
       ops.push({ op: 'attachment.upsert', attachment });

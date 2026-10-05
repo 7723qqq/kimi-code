@@ -61,7 +61,7 @@ flowchart LR
   UI["React Webview<br/>browser sandbox"]
   Host["VS Code Extension Host<br/>Node process"]
   SDK["@moonshot-ai/kimi-code-sdk<br/>KimiHarness and Session"]
-  Core["v1 agent-core"]
+  Core["agent-core-v2"]
   Home["Kimi Code home<br/>config, auth, MCP, sessions"]
 
   UI <-->|"postMessage RPC and events"| Host
@@ -93,7 +93,7 @@ into runtime code or packaging scripts.
 ### Package boundaries
 
 - `apps/vscode` depends on `@moonshot-ai/kimi-code-sdk`.
-- `apps/vscode` must not depend directly on `@moonshot-ai/agent-core`.
+- `apps/vscode` must not depend directly on engine packages.
 - Core capabilities needed by released clients are exposed through the Node SDK
   and tested at that public boundary.
 - The Webview communicates only through the typed bridge in
@@ -386,7 +386,7 @@ Future changes must preserve these boundaries unless a new design explicitly
 replaces them:
 
 1. The Webview never imports the Node SDK or gains direct Node/file/auth access.
-2. `apps/vscode` never imports v1 agent-core directly.
+2. `apps/vscode` never imports engine packages directly.
 3. Shared config and sessions live in the SDK-resolved Kimi Code home; editor
    preferences and baselines remain VS Code-owned.
 4. Legacy migration translation stays in `packages/migration-legacy`.

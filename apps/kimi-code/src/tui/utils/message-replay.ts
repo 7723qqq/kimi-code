@@ -63,7 +63,7 @@ export function appStateFromResumeAgent(agent: ResumedAgentState): Partial<AppSt
   const contextTokens = agent.context.tokenCount;
   const contextUsage = maxContextTokens > 0 ? contextTokens / maxContextTokens : 0;
   return {
-    model: agent.config.modelAlias ?? agent.config.provider?.defaultModel ?? '',
+    model: agent.config.modelAlias ?? agent.config.provider?.model ?? '',
     contextTokens,
     maxContextTokens,
     contextUsage,
@@ -151,8 +151,8 @@ export function limitReplayRecordsByTurn(
   maxTurns: number,
 ): readonly AgentReplayRecord[] {
   // Defensive slice — the core already trims the replay when the caller passes
-  // `replayTurnLimit` on resume; the boundary predicate lives in agent-core
-  // (`limitAgentReplayByTurns`) and is re-exported through the SDK.
+  // `replayTurnLimit` on resume; the boundary predicate lives in the SDK
+  // (`limitAgentReplayByTurns`).
   return limitAgentReplayByTurns(records, maxTurns);
 }
 

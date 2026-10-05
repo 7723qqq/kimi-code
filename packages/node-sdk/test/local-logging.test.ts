@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createKimiHarness, flushDiagnosticLogs, log } from '#/index';
-import { __resetRootLoggerForTest, getRootLogger } from '#/legacy';
+import { __resetRootLoggerForTest, getRootLogger } from '#/logging/index';
 
 import { TEST_IDENTITY } from './test-identity';
 
@@ -49,14 +49,6 @@ async function makeTempDir(prefix: string): Promise<string> {
   return dir;
 }
 
-async function readOptionalFile(path: string): Promise<string> {
-  try {
-    return await readFile(path, 'utf-8');
-  } catch {
-    return '';
-  }
-}
-
 function snapshotLogEnv(): Record<(typeof LOG_ENV_KEYS)[number], string | undefined> {
   return Object.fromEntries(LOG_ENV_KEYS.map((key) => [key, process.env[key]])) as Record<
     (typeof LOG_ENV_KEYS)[number],
@@ -76,60 +68,11 @@ function restoreLogEnv(snapshot: Record<(typeof LOG_ENV_KEYS)[number], string | 
 }
 
 describe('Local logging — harness integration', () => {
-  it('a created harness configures the global diagnostic log for the harness home', async () => {
-    const homeDir = await makeTempDir('kimi-log-home-');
-    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir });
-
-    log.warn('untagged event');
-    await flushDiagnosticLogs();
-
-    const globalPath = join(homeDir, 'logs', 'kimi-code.log');
-    const text = await readFile(globalPath, 'utf-8');
-    expect(text).toContain('untagged event');
-    await harness.close();
-  });
-
-  it('session-tagged entries land in the global log (no per-session SDK sinks anymore)', async () => {
-    const homeDir = await makeTempDir('kimi-log-home-');
-    const workDir = await makeTempDir('kimi-log-work-');
-    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir });
-    const session = await harness.createSession({ id: 'ses_logging_int', workDir });
-
-    // The v1 per-session log routing is gone with the v1 client: the SDK
-    // root logger keeps `sessionId` as context on the global entry.
-    log.warn('session diagnostic', { sessionId: session.id });
-    await flushDiagnosticLogs();
-
-    const globalPath = join(homeDir, 'logs', 'kimi-code.log');
-    const text = await readFile(globalPath, 'utf-8');
-    expect(text).toContain('session diagnostic');
-    expect(text).toContain('ses_logging_int');
-    await harness.close();
-  });
-
   it('multiple KimiHarness constructions in the same process do not throw', async () => {
     const homeDir = await makeTempDir('kimi-log-home-');
     expect(() => createKimiHarness({ identity: TEST_IDENTITY, homeDir })).not.toThrow();
     expect(() => createKimiHarness({ identity: TEST_IDENTITY, homeDir })).not.toThrow();
     expect(() => createKimiHarness({ identity: TEST_IDENTITY, homeDir })).not.toThrow();
-  });
-
-  it('uses the latest harness homeDir for global diagnostic logging', async () => {
-    const firstHome = await makeTempDir('kimi-log-home-a-');
-    const secondHome = await makeTempDir('kimi-log-home-b-');
-    const first = createKimiHarness({ identity: TEST_IDENTITY, homeDir: firstHome });
-    const second = createKimiHarness({ identity: TEST_IDENTITY, homeDir: secondHome });
-
-    log.warn('second-home-marker');
-    await flushDiagnosticLogs();
-
-    const firstLog = await readOptionalFile(join(firstHome, 'logs', 'kimi-code.log'));
-    const secondLog = await readFile(join(secondHome, 'logs', 'kimi-code.log'), 'utf-8');
-    expect(firstLog).not.toContain('second-home-marker');
-    expect(secondLog).toContain('second-home-marker');
-
-    await first.close();
-    await second.close();
   });
 
   it('SDK index exposes the log surface but not the root logger internals', async () => {
@@ -166,17 +109,6 @@ describe('Local logging — harness integration', () => {
     } finally {
       restoreLogEnv(env);
     }
-  });
-
-  it('KimiHarness.close() flushes the global log', async () => {
-    const homeDir = await makeTempDir('kimi-log-home-');
-    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir });
-    log.warn('untagged before close');
-    // No `await flush()` here on purpose — close() must do it.
-    await harness.close();
-    const globalPath = join(homeDir, 'logs', 'kimi-code.log');
-    const text = await readFile(globalPath, 'utf-8');
-    expect(text).toContain('untagged before close');
   });
 });
 

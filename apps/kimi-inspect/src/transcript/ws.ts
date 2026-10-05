@@ -36,6 +36,7 @@ import {
 } from '@moonshot-ai/transcript';
 
 import type { WsLike, WsLikeCtor } from '../channel/wsLike';
+import { toModelOperation, toModelSnapshot } from './normalize';
 
 /** Envelope/payload metadata carried alongside a transcript frame (for auditing + seq tracking). */
 export interface TranscriptFrameMeta {
@@ -218,7 +219,7 @@ export class TranscriptWs {
       case 'transcript.ops': {
         const parsed = transcriptOpsEventSchema.safeParse(frame.payload);
         if (!parsed.success) return;
-        this.handlers.onOps(parsed.data.agent_id, parsed.data.ops, {
+        this.handlers.onOps(parsed.data.agent_id, parsed.data.ops.map(toModelOperation), {
           at: frame.timestamp,
           seq: parsed.data.seq,
         });
@@ -232,7 +233,7 @@ export class TranscriptWs {
         if (!parsed.success) return;
         this.handlers.onReset(
           parsed.data.agent_id,
-          parsed.data.snapshot,
+          toModelSnapshot(parsed.data.snapshot),
           parsed.data.has_more_older,
           { at: frame.timestamp, seq: parsed.data.seq },
         );

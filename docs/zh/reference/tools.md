@@ -16,7 +16,11 @@
 | `Grep` | 自动放行 | 基于 ripgrep 的全文搜索 |
 | `Glob` | 自动放行 | 按 glob 模式查找文件 |
 
-**`Read`** 接受文件路径（`path`）。文本文件按行号返回，单次最多 1000 行或 100 KB，超出部分会附带截断提示；同时支持可选的 `line_offset`（起始行号，支持负数从末尾倒数）和 `n_lines`（读取行数上限）。
+**`Read`** 接受文件路径（`path`）以及可选的 `line_offset`（起始行号，支持负数从末尾倒数）、`column_offset`（正向读取时，起始行内从 0 开始的位置）、`n_lines`（请求读取的源文件行数）和 `max_chars`（结果的字符上限，包含行号和状态信息）。省略 `n_lines` 时向文件末尾读取。默认上限为 100,000 字符，调用可申请到 500,000 字符；两个值都可通过 [`read` 配置](../configuration/config-files.md#read) 修改。字符数和列偏移按显示文本的 JavaScript 字符串长度计算，列偏移不包含行号前缀：常见字母和汉字各计 1，许多 emoji 计 2。
+
+`Read` 优先返回完整行，结果不会再被通用工具输出限制缩短。如果单独一行也无法在一页中容纳，工具会返回片段，并在状态中说明列范围及 `Next Read` 参数，无需提高额度即可继续读取。拼接同一行的片段时不要额外插入换行。一行只返回部分内容时，仍会计入剩余的 `n_lines` 范围，直到行尾返回为止。非法列偏移会明确报错，不会跳过内容。
+
+尾读优先返回请求范围中较新的完整行。如果连一条完整行都无法容纳，结果会给出未读范围的正向 `Next Read` 参数；`column_offset` 不能与负数 `line_offset` 同时使用。续读位置针对文件的当前内容，文件变化后应重新读取。如果尾读提示读取期间文件发生变化，请基于更新后的文件重试。10 MiB 以内的 UTF-16 LE/BE 文件会先尝试严格解码；失败后，`Read` 会将损坏序列替换为 `�` 并返回可读文本，同时在每一页提示发生了有损解码、文本可能与原文不同。告警也计入字符额度；有效文件中原本就有的 `�` 不会触发告警。
 
 图片与视频文件会以多模态内容发送给模型（上限 100 MB），需要当前模型具备对应的视觉能力（`image_in` / `video_in`）。默认读图会按配置的模型限制压缩；`region` 可按原图坐标全保真查看局部区域，`full_resolution` 在文件不超过单图字节预算时跳过降采样。如果自动压缩无法安全满足限制，工具会返回错误且不发送原图，并提示模型先创建更小的副本再读取。
 
@@ -26,7 +30,9 @@
 
 **`Grep`** 调用 ripgrep 搜索文件内容，支持正则表达式（`pattern`）、搜索路径（`path`）、文件类型过滤（`type`，如 `ts`、`py`）、glob 过滤（`glob`）和输出模式（`output_mode`：`files_with_matches` / `content` / `count_matches`，默认 `files_with_matches`）。`content` 模式支持上下文行（`-A`、`-B`、`-C`）、忽略大小写（`-i`）、行号（`-n`，默认 true）、跨行匹配（`multiline`）。所有模式支持 `offset` + `head_limit` 分页，`head_limit` 默认 250、传 0 表示不限。`.env`、私钥等敏感文件会被自动过滤；`include_ignored=true` 可搜索被 `.gitignore` 忽略的文件，但敏感文件仍保持过滤。
 
-**`Glob`** 按 glob 模式（`pattern`）在指定目录（`path`，默认工作目录）中匹配文件，结果按修改时间倒序排列，最多返回 100 条。默认尊重 `.gitignore`、`.ignore` 和 `.rgignore`；设置 `include_ignored=true` 可包含构建产物等被忽略的文件，但敏感文件仍会被过滤。支持 `*.{ts,tsx}` 这类花括号模式，也允许宽泛通配符模式，但通常会在匹配上限处截断。
+**`Glob`** 按 glob 模式（`pattern`）在指定目录（`path`，默认工作目录）中匹配文件，结果按修改时间倒序排列，默认返回 100 条。默认尊重 `.gitignore`、`.ignore` 和 `.rgignore`；设置 `include_ignored=true` 可包含构建产物等被忽略的文件，但敏感文件仍会被过滤。支持 `*.{ts,tsx}` 这类花括号模式，也允许宽泛通配符模式。
+
+使用 `offset`（默认 0）和 `head_limit`（默认 100）对匹配路径分页；有更多结果时，工具会给出下一页的 offset。设置 `head_limit: 0` 可取消条数限制，但字符上限仍然有效：达到上限时，页面会在完整路径处结束，并给出下一页的 offset。较大的页面会保存到文件，Agent 可用 `Read` 读取。每次调用都会重新搜索当前文件系统，因此文件变化可能导致跨页结果移动。超时、目录无法读取或输出采集上限仍可能造成搜索不完整；结果会提示这些情况，增加 offset 无法恢复尚未收集的路径。
 
 ## Shell
 
@@ -87,6 +93,7 @@ Plan 模式是一种受约束的工作状态：进入后 `Write` 与 `Edit` 只�
 | `AgentSwarm` | swarm mode 中自动放行，否则需审批 | 启动基于 item 的 subagent，或恢复已有 subagent |
 | `Team` | swarm mode 中自动放行，否则需审批 | 召集多个 Agent 进行圆桌讨论或结构化辩论 |
 | `AskUserQuestion` | 自动放行 | 向用户提问以获取结构化输入 |
+| `NotifyUser` | 自动放行 | 在轮次进行中向用户展示一条简短的进展更新 |
 | `Skill` | 自动放行 | 调用已注册的 inline Skill |
 
 **`Agent`** 将子任务委托给 subagent 执行。必填参数：`prompt`（完整任务描述）和 `description`（3–5 个词的简短说明）。可选参数：`subagent_type`（默认 `coder`）、`resume`（恢复已有 Agent 的 ID，与 `subagent_type` 互斥）、`run_in_background`（默认 false）和 `model`（在配置 [subagent 模型池](../configuration/config-files.md#subagent-模型池) 后可用——`[secondary_model.models]` 表或仅一行 `default_model`：池中别名，或 `"primary"` 表示调用方自己运行的模型；resume 时无效）。未传入时 subagent 绑定池的 `default_model`；未配置模型池时，subagent 一律继承调用方模型。Agent 任务默认 2 小时超时，可通过 `config.toml` 的 `[subagent] timeout_ms`（`0` = 无超时，或 `KIMI_SUBAGENT_TIMEOUT_MS` 环境变量）配置，且在 print 模式（`kimi -p`）下默认无超时。前台模式下父 Agent 等待 subagent 完成再继续；后台模式立即返回任务 ID，完成时通过合成 User 消息自动回到 main agent。多个前台 `Agent` 调用在同一步运行时，TUI 会合并展示，并为每个 subagent 显示运行、等待、完成或失败状态以及已耗时长。subagent 体系细节见 [Agent 与 subagent](../customization/agents.md)。
@@ -96,6 +103,16 @@ Plan 模式是一种受约束的工作状态：进入后 `Write` 与 `Edit` 只�
 **`Team`** 召集多个 Agent 进行圆桌讨论（`mode` 为 `discussion`，默认）或结构化辩论（`mode` 为 `debate`），适合需要多视角分析、交叉评审或达成共识的场景。传入 `topic`（讨论话题）与 `participants` 数组——每项含 `profileName`（Agent profile，默认 `coder`）、`roleDescription`（角色描述）与辩论专用的 `assignedStance`（立场）。`maxRounds` 控制轮数；`summaryPrompt` 可选，提供时生成总结或共识报告；`enableVoting` 可为辩论启用投票。每个参与者都能看到完整讨论记录并轮流发言，结果包含完整记录、总结与 token 用量。`Team` 与 `AgentSwarm` 一样属于排他工具——一次模型响应中必须单独调用。在 `manual` 权限模式下，未处于 swarm mode 时调用 `Team` 会触发审批；swarm mode 已开启时自动放行。也可以使用 `/team <topic> with <role1>,<role2>` 命令直接发起。
 
 **`AskUserQuestion`** 以结构化多选题的形式向用户提问，适用于需要消歧或选择方案的场景。`questions` 参数接受 1–4 道题，每道题需提供 `question`（以 `?` 结尾）、`options`（2–4 个选项，每项含 `label` 和 `description`）以及可选的 `header`（最多 12 字符）和 `multi_select`（默认 false）。系统自动附加"其他"选项。`background` 为 true 时启动后台问题任务并立即返回任务 ID；问题在本轮结束后仍保持待答，用户作答后答案会以通知形式直接送回 Agent。宿主未实现交互式提问能力时返回失败提示，Agent 应改为在文本回复中直接提问。
+
+**`NotifyUser`** 让 main agent 和 subagent 发送简短进展更新，唯一参数 `message` 接受轻量 Markdown。TUI 的 `Updates` 面板会按顺序保留每条更新，同一来源的多条消息也不会互相覆盖。subagent 的消息使用已有的 agent ID（如 `[agent-7]`）作为同一行的来源标签；main agent 的消息不加前缀。完整消息通过分页阅读，不会被替换为一行摘要。
+
+面板默认显示最新页，从末尾向前将渲染后的正文分组，每页最多八行。例如，十条单行更新会分为第一页两条、最后一页八条；不足八行的页面按实际内容占用空间。按 `Ctrl-P` 查看上一页，按 `Ctrl-N` 查看下一页。翻页直接在原面板中进行，不切换输入焦点、不改变草稿；到达第一页或最后一页时停止，不循环跳转。阅读旧页时，新追加的更新保持已有分页边界，并提示新增数量；回到最新页后，重新从末尾填满页面，并恢复跟随新更新。只有一页时，这两个按键保持原有编辑器行为。
+
+轮次结束后，消息和当前页继续保留显示；下一次 main agent 轮次开始时才清空，subagent 自己的轮次不会清空面板。新会话、`/clear` 和重新打开会话时，面板从空白开始。只有工具成功返回并确认展示后，消息才会进入面板；等待审批时不会展示参数片段。失败、中断或被关闭开关抑制的通知不会进入面板，对话中的工具调用记录会保留实际展示结果。重要发现仍须写入最终回复或 subagent 的最终汇报。
+
+整个功能都是默认关闭的实验特性。请在创建 TUI 会话前，通过 `KIMI_CODE_EXPERIMENTAL_NOTIFY_USER=1`、`config.toml` 中的 `[experimental] notify_user = true` 或 `/experiments` 启用。关闭状态下创建的会话不会提供该工具，也不会包含相关提示词指导。
+
+已有会话的通知工具可用性和提示词保持不变，重新打开会话后也一样。关闭功能会隐藏面板并停用翻页快捷键；已有的 `NotifyUser` 调用仍正常结束，并返回更新未展示的说明。重新开启后，已具有该工具的会话恢复展示；如果会话是在关闭状态下创建的，需要新建会话才能使用 Updates。在 `/experiments` 中仅修改这个开关不会重载会话。
 
 **`Skill`** 允许 Agent 主动调用已注册的 inline 类型 Skill。接受 `skill`（Skill 名称）和可选的 `args`（附加参数文本）。只有 `type = "inline"` 的 Skill 能通过此工具调用；`disableModelInvocation: true` 的 Skill 会被拒绝。嵌套调用深度上限 3 层。Skill 体系细节见 [Agent Skills](../customization/skills.md)。
 

@@ -139,12 +139,11 @@ describe('kimi acp', () => {
       const actual = await importOriginal();
       return {
         ...actual,
-        // The fork's login flow boots the v2 harness (`createKimiHarnessV2`);
-        // `createKimiHarness` is only kept as the same-runtime alias.
-        createKimiHarnessV2: () =>
+        // The login flow boots the v2-backed SDK harness (`createKimiHarness`).
+        createKimiHarness: () =>
           ({
             auth: { login: loginStub },
-          }) as unknown as ReturnType<typeof actual.createKimiHarnessV2>,
+          }) as unknown as ReturnType<typeof actual.createKimiHarness>,
       };
     });
     vi.resetModules();

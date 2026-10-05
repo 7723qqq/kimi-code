@@ -27,11 +27,11 @@ import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/tel
 import {
   UNKNOWN_CAPABILITY,
   type ModelCapability,
-} from '#/kosong/contract/capability';
-import { VideoUploadUnsupportedError } from '#/kosong/contract/errors';
-import type { ContentPart } from '#/kosong/contract/message';
-import type { IModelCatalog } from '#/kosong/model/catalog';
-import type { ModelRequester } from '#/kosong/model/modelRequester';
+} from '#/llm-adapter/contract/capability';
+import { VideoUploadUnsupportedError } from '#/llm-adapter/contract/errors';
+import type { ContentPart } from '#human/llm/message';
+import type { IModelCatalog } from '#/llm-adapter/model/catalog';
+import type { ModelRequester } from '#/llm-adapter/model/model-requester';
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { Runtime } from '#/runtime/runtime';
@@ -43,6 +43,7 @@ import {
   type ExecutableToolContext,
   type ExecutableToolResult,
 } from '#/tool/toolContract';
+import { stubConfigService } from '../../../app/config/stubs';
 import { stubToolResultTruncationService } from '../../toolResultTruncation/stubs';
 
 const WORKSPACE: WorkspaceConfig = { workspaceDir: '/workspace', additionalDirs: [] };
@@ -228,6 +229,7 @@ function makeReadTool(fs: IHostFileSystem, mediaCtx: MediaReadContext): ReadTool
     { catalog: { getSkillRoots: () => [] } } as unknown as ISessionSkillCatalog,
     { getMediaReadContext: () => mediaCtx } as IMediaReadContext,
     stubToolResultTruncationService(),
+    stubConfigService(),
   );
 }
 
@@ -409,6 +411,7 @@ describe('Read tool media reads', () => {
 
     expect(result).toEqual({
       isError: true,
+      spillExempt: true,
       output:
         'Image is too large to send safely after compression (262168 bytes; limit 262144 bytes and 2000px on the longest edge). ' +
         'The original image was not sent to the model. Do not retry the same file unchanged. ' +
@@ -425,6 +428,7 @@ describe('Read tool media reads', () => {
 
     expect(result).toEqual({
       isError: true,
+      spillExempt: true,
       output:
         'Image is too large to send safely after compression (24 bytes; limit 262144 bytes and 2000px on the longest edge). ' +
         'The original image was not sent to the model. Do not retry the same file unchanged. ' +
@@ -443,6 +447,7 @@ describe('Read tool media reads', () => {
 
     expect(result).toEqual({
       isError: true,
+      spillExempt: true,
       output:
         'Image is too large to send safely after compression (67108865 bytes; limit 262144 bytes and 2000px on the longest edge). ' +
         'The original image was not sent to the model. Do not retry the same file unchanged. ' +
@@ -480,6 +485,7 @@ describe('Read tool media reads', () => {
 
     expect(result).toEqual({
       isError: true,
+      spillExempt: true,
       output:
         'Image is too large to process safely for region or full_resolution (67108865 bytes; safe decode limit 67108864 bytes). ' +
         'The original image was not sent to the model. Do not retry the same file unchanged. ' +
@@ -565,6 +571,7 @@ describe('Read tool media reads', () => {
     });
     expect(result).toEqual({
       isError: true,
+      spillExempt: true,
       output:
         '"/workspace/huge.png" is 4194328 bytes (4.0 MB), over the 3932160-byte (3.8 MB) ' +
         'per-image limit, so full_resolution cannot be honored. ' +
@@ -587,6 +594,7 @@ describe('Read tool media reads', () => {
 
     expect(result).toEqual({
       isError: true,
+      spillExempt: true,
       output:
         'Image is too large to process safely for region or full_resolution (67108865 bytes; safe decode limit 67108864 bytes). ' +
         'The original image was not sent to the model. Do not retry the same file unchanged. ' +

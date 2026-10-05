@@ -1,8 +1,9 @@
 import type { Kaos } from '@moonshot-ai/kaos';
-import type { ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
 
-import { ErrorCodes, KimiError, log, withTelemetryContext } from '#/legacy';
-import { ImageLimits } from '#/image-limits';
+import { ErrorCodes, KimiError } from '#/errors';
+import type { ExperimentalFeatureState } from '#/flag';
+import type { ImageLimits } from '#/image';
+import { withTelemetryContext } from '#/telemetry';
 
 import { capabilityRpc, Session } from '#/session';
 import type { KimiAuthFacade } from '#/auth';
@@ -67,12 +68,6 @@ export interface KimiHarnessRuntimeOptions {
    * session-scoped properties, and lose only to the canonical harness fields.
    */
   readonly sessionStartedDynamicProperties?: () => TelemetryProperties;
-  /**
-   * Owner-scoped [image] limits for prompt-ingestion compression in the
-   * client process (paste-time, ACP prompt conversion). In-process cores
-   * (SDKRpcClient) hand over their core's instance; daemon-client hosts
-   * leave it undefined and ingestion falls back to env/built-in defaults.
-   */
   readonly imageLimits?: ImageLimits | undefined;
 }
 
@@ -85,8 +80,6 @@ export class KimiHarness {
   private readonly uiMode: string;
   private readonly telemetry: TelemetryClient;
   private readonly activeSessions = new Map<string, Session>();
-  /** Guards {@link close}: the second call returns immediately. */
-  private closed = false;
   private readonly resumeInflight = new Map<string, Promise<Session>>();
   private readonly ensureConfigFileImpl: () => Promise<void>;
   private readonly closeImpl: () => void | Promise<void>;
@@ -628,20 +621,7 @@ export class KimiHarness {
   }
 
   async close(): Promise<void> {
-    if (this.closed) return;
-    this.closed = true;
-    // Best-effort session teardown: a session close failure must not block
-    // the engine teardown below (the host's onClose may remove homeDir).
-    const results = await Promise.allSettled(
-      Array.from(this.activeSessions.values(), (session) => session.close()),
-    );
-    for (const result of results) {
-      if (result.status === 'rejected') {
-        log.error('A session close failed during harness shutdown; continuing teardown', {
-          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-        });
-      }
-    }
+    await Promise.all(Array.from(this.activeSessions.values(), (session) => session.close()));
     await this.closeImpl();
   }
 
@@ -660,13 +640,12 @@ export class KimiHarness {
       ...this.sessionStartedDynamicProperties?.(),
       // Canonical fields are owned by the harness and must win over any
       // caller-supplied sessionStartedProperties that happen to share a key.
-      // `client_id` is always null here: a single-process host has no
-      // per-connection client id (that concept only exists for daemon clients,
-      // see core-impl.ts). Kept as an explicit key so this row carries the
-      // same client-attribution shape as the daemon-client producer there.
-      client_id: null,
-      client_name: this.identity?.productName ?? null,
-      client_version: this.identity?.version ?? null,
+      // A single-process host has no per-connection client id, so `client_id`
+      // stays empty; empty strings (unlike null) survive payload flattening,
+      // keeping the client-attribution keys present on every row.
+      client_id: '',
+      client_name: this.identity?.productName ?? '',
+      client_version: this.identity?.version ?? '',
       ui_mode: this.uiMode,
       resumed,
     });

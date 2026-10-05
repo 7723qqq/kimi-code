@@ -29,7 +29,6 @@ type CreateKimiDeviceId = typeof createKimiDeviceIdFn;
 
 const mocks = vi.hoisted(() => ({
   kimiHarnessConstructor: vi.fn(),
-  kimiHarnessV2Constructor: vi.fn(),
   harnessEnsureConfigFile: vi.fn(),
   harnessGetConfig: vi.fn(async () => ({
     providers: {},
@@ -73,11 +72,7 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
     ...actual,
     resolveKimiHome: mocks.resolveKimiHome,
     createKimiHarness: (...args: unknown[]) => {
-      mocks.kimiHarnessV2Constructor(...args);
-      return createFakeHarness(args[0] as { readonly homeDir?: string } | undefined);
-    },
-    createKimiHarnessV2: (...args: unknown[]) => {
-      mocks.kimiHarnessV2Constructor(...args);
+      mocks.kimiHarnessConstructor(...args);
       return createFakeHarness(args[0] as { readonly homeDir?: string } | undefined);
     },
   };
@@ -405,7 +400,7 @@ describe('kimi export', () => {
       from: 'node',
     });
 
-    expect(mocks.kimiHarnessV2Constructor).toHaveBeenCalledWith(
+    expect(mocks.kimiHarnessConstructor).toHaveBeenCalledWith(
       expect.objectContaining({
         telemetry: {
           track: mocks.telemetryTrack,
@@ -431,6 +426,7 @@ describe('kimi export', () => {
       sessionId: undefined,
       endpoint: expect.any(Function),
       getAccessToken: expect.any(Function),
+      onUnexpectedError: expect.any(Function),
     });
     // The endpoint resolver defers to the active region profile at flush time.
     const telemetryOptions = mocks.initializeTelemetry.mock.calls[0]![0] as {
@@ -527,9 +523,9 @@ describe('kimi export', () => {
       expect.objectContaining({ onFirstLaunch: expect.any(Function) }),
     );
     expect(mocks.createKimiDeviceId.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.kimiHarnessV2Constructor.mock.invocationCallOrder[0]!,
+      mocks.kimiHarnessConstructor.mock.invocationCallOrder[0]!,
     );
-    expect(mocks.kimiHarnessV2Constructor).toHaveBeenCalledWith(
+    expect(mocks.kimiHarnessConstructor).toHaveBeenCalledWith(
       expect.objectContaining({ homeDir: '/tmp/kimi-export-home' }),
     );
     expect(mocks.harnessTrack).toHaveBeenCalledWith('first_launch');
@@ -538,10 +534,10 @@ describe('kimi export', () => {
     );
   });
 
-  it('builds the v2 harness', async () => {
+  it('builds the harness through the SDK factory', async () => {
     const program = new Command('kimi');
-    const output = join(tmp, 'v2-engine.zip');
-    mocks.harnessExportSession.mockResolvedValue(makeResult('ses_v2_engine', output));
+    const output = join(tmp, 'engine.zip');
+    mocks.harnessExportSession.mockResolvedValue(makeResult('ses_engine', output));
 
     registerExportCommand(program, {
       cwd: () => tmp,
@@ -556,14 +552,13 @@ describe('kimi export', () => {
       }) as ExportDeps['exit'],
     });
 
-    await program.parseAsync(['node', 'kimi', 'export', 'ses_v2_engine', '--output', output], {
+    await program.parseAsync(['node', 'kimi', 'export', 'ses_engine', '--output', output], {
       from: 'node',
     });
 
-    expect(mocks.kimiHarnessV2Constructor).toHaveBeenCalledTimes(1);
-    expect(mocks.kimiHarnessConstructor).not.toHaveBeenCalled();
+    expect(mocks.kimiHarnessConstructor).toHaveBeenCalledTimes(1);
     expect(mocks.harnessExportSession).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'ses_v2_engine', outputPath: output }),
+      expect.objectContaining({ id: 'ses_engine', outputPath: output }),
     );
   });
 });

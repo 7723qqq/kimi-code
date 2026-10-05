@@ -72,8 +72,7 @@ describe('Agent loop — tool-call behaviour', () => {
     );
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('echo hi')).assigned)
-      .turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('echo hi') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed', steps: 2 });
 
     expect(echo.calls).toHaveLength(1);
@@ -102,8 +101,7 @@ describe('Agent loop — tool-call behaviour', () => {
     ctx.mockNextResponse({ type: 'function', id: 'tc-1', name: 'ghost', arguments: '{"x":1}' });
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('run ghost')).assigned)
-      .turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('run ghost') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     const results = rpcEvents(ctx, 'tool.result');
@@ -136,8 +134,7 @@ describe('Agent loop — tool-call behaviour', () => {
     });
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('strict call')).assigned)
-      .turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('strict call') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     expect(executed).toBe(false);
@@ -158,8 +155,7 @@ describe('Agent loop — tool-call behaviour', () => {
     ctx.mockNextResponse({ type: 'function', id: 'tc-1', name: 'fail', arguments: '{}' });
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('fail call')).assigned)
-      .turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('fail call') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     const results = rpcEvents(ctx, 'tool.result');
@@ -176,8 +172,7 @@ describe('Agent loop — tool-call behaviour', () => {
     ctx.mockNextResponse({ type: 'function', id: 'tc-U', name: 'undef', arguments: '{}' });
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('undef call')).assigned)
-      .turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('undef call') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     const results = rpcEvents(ctx, 'tool.result');
@@ -203,8 +198,7 @@ describe('Agent loop — tool-call behaviour', () => {
       { type: 'function', id: 'tc-echo', name: 'echo', arguments: '{"text":"must not run"}' },
     );
 
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('stop now')).assigned)
-      .turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('stop now') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed', steps: 1 });
     ctx.llmInputs();
 
@@ -240,8 +234,7 @@ describe('Agent loop — tool-call behaviour', () => {
     );
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('parallel')).assigned)
-      .turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('parallel') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     const callIds = rpcEvents(ctx, 'tool.call.started')
@@ -271,8 +264,7 @@ describe('Agent loop — tool-call behaviour', () => {
     ctx.mockNextResponse({ type: 'function', id: 'tc-1', name: 'progress', arguments: '{}' });
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('progress')).assigned)
-      .turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('progress') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     const progressEvents = rpcEvents(ctx, 'tool.progress');
@@ -299,8 +291,7 @@ describe('Agent loop — tool-call behaviour', () => {
     });
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('truncated')).assigned)
-      .turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('truncated') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed', steps: 2 });
 
     expect(echo.calls).toHaveLength(1);

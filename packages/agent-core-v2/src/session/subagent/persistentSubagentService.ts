@@ -9,7 +9,7 @@ import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import { LifecycleScope } from '#/app/scopes';
 import { Error2, ErrorCodes } from '#/errors';
-import type { TokenUsage } from '#/kosong/contract/usage';
+import type { TokenUsage } from '#human/llm/usage';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import {
   assertSubagentDepthAllowed,

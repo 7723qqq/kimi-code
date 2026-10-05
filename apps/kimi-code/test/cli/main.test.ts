@@ -48,7 +48,7 @@ const mocks = vi.hoisted(() => {
       track: vi.fn(),
     },
     KimiHarness: vi.fn(),
-    createKimiHarnessV2: vi.fn(),
+    createKimiHarness: vi.fn(),
   };
 });
 
@@ -77,8 +77,8 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async () => {
   }
   return {
     ...actual,
-    createKimiHarnessV2: (...args: unknown[]) => {
-      mocks.createKimiHarnessV2(...args);
+    createKimiHarness: (...args: unknown[]) => {
+      mocks.createKimiHarness(...args);
       return mocks.harness;
     },
     flushDiagnosticLogs: mocks.flushDiagnosticLogs,
@@ -427,7 +427,7 @@ describe('main entry command handling', () => {
 
     expect(exitCode).toBe(0);
     expect(mocks.createCliTelemetryBootstrap).toHaveBeenCalledTimes(1);
-    expect(mocks.createKimiHarnessV2).toHaveBeenCalledWith(
+    expect(mocks.createKimiHarness).toHaveBeenCalledWith(
       expect.objectContaining({
         homeDir: '/tmp/kimi-home',
         telemetry: {

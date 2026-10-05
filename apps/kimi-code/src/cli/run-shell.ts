@@ -2,10 +2,9 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 
 import {
-  createKimiHarnessV2,
+  createKimiHarness,
   flushDiagnosticLogsSync,
   log,
-  setLocale as setAgentCoreLocale,
   type KimiHarness,
   type KimiHarnessOptions,
   type TelemetryClient,
@@ -18,7 +17,7 @@ import {
   withTelemetryContext,
 } from '@moonshot-ai/kimi-telemetry';
 
-import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
+import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, TUI_HOST_UI_CAPABILITIES } from '#/constant/app';
 import { setLocale, t } from '#/i18n';
 import { detectPendingMigration, resolveLegacySourceHome, sameLegacyPath } from '#/migration/index';
 import type { TuiConfig } from '#/tui/config';
@@ -68,6 +67,9 @@ export async function runShell(
     homeDir: telemetryBootstrap.homeDir,
     identity: createKimiCodeHostIdentity(version),
     skillDirs: opts.skillsDirs,
+    // The TUI renders the mid-turn update panel; declaring it here is what
+    // makes the engine offer NotifyUser to this process and to no other host.
+    uiCapabilities: TUI_HOST_UI_CAPABILITIES,
     telemetry: telemetryClient,
     onOAuthRefresh: (outcome) => {
       if (outcome.success) {
@@ -84,7 +86,7 @@ export async function runShell(
   // The agent-core-v2 route is the only engine (same engine as `kimi -p`):
   // the harness is the SDK's v2-backed client, so the whole TUI runs on the
   // agent-core-v2 engine.
-  const harness = createKimiHarnessV2(harnessOptions);
+  const harness = createKimiHarness(harnessOptions);
   startupTrace('harness:created');
   log.info('kimi-code starting', {
     version,
@@ -123,9 +125,8 @@ export async function runShell(
   // by the TUI itself at `finishStartup` via `showConfigWarningsIfAny` —
   // folded into the dim startup notice they were too easy to miss.
   const configMs = Date.now() - configStartedAt;
-  // Propagate locale from tui.toml to i18n engine and agent-core
+  // Propagate locale from tui.toml to the CLI i18n engine.
   setLocale(tuiConfig.locale);
-  setAgentCoreLocale(tuiConfig.locale);
 
   // Resolve --agent/--agent-file once for the startup session; validateOptions
   // has already rejected them alongside --session/--continue.
@@ -140,8 +141,6 @@ export async function runShell(
     startupNotice: configWarning,
     migrationPlan,
     migrateOnly: runOptions.migrateOnly,
-    // The fork runs agent-core-v2 only, so this is always the v2 engine.
-    engineV2: true,
     telemetryDisabled: config.telemetry === false,
   });
 

@@ -16,6 +16,10 @@
     "./search-worker-runtime": {
       "types": "./src/search/worker/runtime.ts",
       "default": "./src/search/worker/runtime.ts"
+    },
+    "./protocol/*": {
+      "types": "./src/protocol/*.ts",
+      "default": "./src/protocol/*.ts"
     }
   },
   "scripts": {
@@ -32,6 +36,7 @@
     "@moonshot-ai/kimi-code-oauth": "workspace:^",
     "@moonshot-ai/kimi-i18n": "workspace:^",
     "@moonshot-ai/minidb": "workspace:*",
+    "@moonshot-ai/remote-control": "workspace:^",
     "@moonshot-ai/transcript": "workspace:^",
     "bcryptjs": "^2.4.3",
     "fastify": "^5.1.0",

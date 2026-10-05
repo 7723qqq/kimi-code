@@ -5,7 +5,7 @@ import {
   SNIPPED_TOOL_RESULT_MARKER,
   snipLargeToolResults,
 } from '#/agent/fullCompaction/compactionUtils';
-import { createToolMessage } from '#/kosong/contract/message';
+import { createToolMessage } from '#/llm-adapter/contract/message';
 
 function toolMessage(text: string): ContextMessage {
   return createToolMessage('call_1', text);

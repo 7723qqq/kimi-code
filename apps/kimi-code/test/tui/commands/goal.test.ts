@@ -742,6 +742,98 @@ describe('dispatchInput /goal integration', () => {
     expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
     expect(host.sendNormalUserInput).not.toHaveBeenCalledWith('/goal Ship feature X');
   });
+
+  it('restores the input when /goal is rejected by the busy gate while streaming', async () => {
+    const { host, session } = makeHost({ streaming: true });
+
+    dispatchInput(host, '/goal Ship feature X');
+
+    await vi.waitFor(() => {
+      expect(host.showError).toHaveBeenCalledWith(
+        'Cannot /goal while streaming — press Esc or Ctrl-C first.',
+      );
+    });
+    expect(session.createGoal).not.toHaveBeenCalled();
+    expect(host.restoreInputText).toHaveBeenCalledWith('/goal Ship feature X');
+  });
+
+  it('restores the input when the post-creation busy re-check rejects /goal', async () => {
+    const { host, session } = makeHost({ hasSession: false });
+    Object.assign(host, {
+      // A first prompt starts a turn while the lazy session creation awaits.
+      ensureSession: vi.fn(async () => {
+        host.state.appState.streamingPhase = 'thinking';
+        return session;
+      }),
+    });
+
+    dispatchInput(host, '/goal Ship feature X');
+
+    await vi.waitFor(() => {
+      expect(host.showError).toHaveBeenCalledWith(
+        'Cannot /goal while streaming — press Esc or Ctrl-C first.',
+      );
+    });
+    expect(session.createGoal).not.toHaveBeenCalled();
+    expect(host.restoreInputText).toHaveBeenCalledWith('/goal Ship feature X');
+  });
+
+  it('does not restore over a draft typed while lazy session creation was pending', async () => {
+    const { host, session } = makeHost({ hasSession: false });
+    Object.assign(host, {
+      ensureSession: vi.fn(async () => {
+        host.state.appState.streamingPhase = 'thinking';
+        // The user kept typing after submitting /goal.
+        vi.mocked(host.state.editor.getText).mockReturnValue('a newer draft');
+        return session;
+      }),
+    });
+
+    dispatchInput(host, '/goal Ship feature X');
+
+    await vi.waitFor(() => {
+      expect(host.showError).toHaveBeenCalledWith(
+        'Cannot /goal while streaming — press Esc or Ctrl-C first.',
+      );
+    });
+    expect(session.createGoal).not.toHaveBeenCalled();
+    expect(host.restoreInputText).not.toHaveBeenCalled();
+  });
+
+  it('restores the input when lazy session creation fails before /goal runs', async () => {
+    const { host, session } = makeHost({ hasSession: false });
+    Object.assign(host, {
+      ensureSession: vi.fn(async () => undefined),
+    });
+
+    dispatchInput(host, '/goal Ship feature X');
+
+    await vi.waitFor(() => {
+      expect(host.restoreInputText).toHaveBeenCalledWith('/goal Ship feature X');
+    });
+    expect(session.createGoal).not.toHaveBeenCalled();
+  });
+
+  it('does not restore when an editor-replacement panel opened during creation', async () => {
+    const { host, session } = makeHost({ hasSession: false });
+    Object.assign(host, {
+      ensureSession: vi.fn(async () => {
+        // The user opened a panel (e.g. /help) while creation was pending.
+        Object.assign(host.state, { editorReplacementMounted: true });
+        return undefined;
+      }),
+    });
+
+    dispatchInput(host, '/goal Ship feature X');
+
+    await vi.waitFor(() => {
+      expect(host.state.editorReplacementMounted).toBe(true);
+    });
+    // Allow the post-creation branch to run before asserting.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(session.createGoal).not.toHaveBeenCalled();
+    expect(host.restoreInputText).not.toHaveBeenCalled();
+  });
 });
 
 describe('goalArgumentCompletions', () => {

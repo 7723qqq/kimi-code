@@ -116,8 +116,6 @@ export interface SlashCommandHost {
   state: TUIState;
   session: Session | undefined;
   readonly harness: KimiHarness;
-  /** True when the TUI runs on the agent-core-v2 engine (startup-selected). */
-  readonly engineV2: boolean;
   cancelInFlight: (() => void) | undefined;
   deferUserMessages: boolean;
 
@@ -233,14 +231,14 @@ export interface SlashCommandHost {
 export function dispatchInput(host: SlashCommandHost, text: string): void {
   if (parseSlashInput(text) !== null) {
     // A leading skill command combined with further inline skill tokens
-    // (`/skill:a args /skill:b`) is one grouped submission.
+    // (`/skill:a args /skill:b`) is one grouped submission on the v2 engine.
     if (dispatchInlineSkillCombo(host, text)) {
       return;
     }
     void executeSlashCommand(host, text);
     return;
   }
-  // Inline skill tokens anywhere in a plain prompt.
+  // Inline skill tokens anywhere in a plain prompt activate the skills.
   const activations = extractInlineSkillActivations(text, host.skillCommandMap);
   if (activations.length > 0) {
     void host.sendInlineSkillUserInput(text, activations);
@@ -405,9 +403,9 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
 }
 
 /**
- * Lazy-create the session for a slash command that needs one. A missing
- * session means the TUI started session-less, so commands create it on first
- * use. Returns undefined (error already shown) when creation fails.
+ * Lazy-create the session for a slash command that needs one (v2 engine). A
+ * missing session means the TUI started session-less, so commands create it
+ * on first use. Returns undefined (error already shown) when creation fails.
  */
 async function ensureSessionForCommand(host: SlashCommandHost): Promise<Session | undefined> {
   return host.ensureSession();

@@ -230,9 +230,9 @@ export async function handlePluginsCommand(host: SlashCommandHost, rawArgs: stri
 
 /**
  * Resolve the capability API. Like plugin state, capability state is
- * app-global, so a session-less startup still gets readiness and installs
- * through the harness's global facade; with a live session the session's own
- * API is used.
+ * app-global on the v2 engine, so a session-less startup still gets
+ * readiness and installs through the harness's global facade; with a live
+ * session the session's own API is used.
  */
 type CapabilityApi = Pick<Session, 'listCapabilities' | 'getCapability' | 'installCapability'>;
 
@@ -489,10 +489,10 @@ async function confirmInstallTrust(
 const CAPABILITY_POLL_INTERVAL_MS = 700;
 const CAPABILITY_POLL_ATTEMPTS = 260; // ~3 minutes of runtime setup budget
 
-/** Client-injected capability entries install their runtime and plugin together.
+/** Client-injected v2 entries install their runtime and plugin together.
  * Trust keys on the parser-proof `builtIn` flag — the `capability:<id>`
  * source string stays purely diagnostic. */
-function isCapabilityEntry(host: SlashCommandHost, entry: PluginMarketplaceEntry): boolean {
+function isCapabilityEntry(entry: PluginMarketplaceEntry): boolean {
   return entry.builtIn === true;
 }
 
@@ -501,7 +501,7 @@ function isCapabilityEntry(host: SlashCommandHost, entry: PluginMarketplaceEntry
  * is answering membership by running `listCapabilities()`, which fires every
  * entry's detector (seconds of probes) just to print one hint line.
  */
-function isCapabilityPluginId(host: SlashCommandHost, id: string): boolean {
+function isCapabilityPluginId(id: string): boolean {
   return id === 'kimi-cu' || id === 'kimi-cu-win' || id === 'kimi-webbridge';
 }
 
@@ -738,7 +738,7 @@ async function handlePluginsPanelSelection(
       await showPluginsPicker(host, { initialTab: 'installed' });
       return;
     case 'install':
-      if (isCapabilityEntry(host, selection.entry)) {
+      if (isCapabilityEntry(selection.entry)) {
         await installCapabilityFromPanel(host, panel, selection.entry);
         return;
       }
@@ -797,7 +797,7 @@ async function handlePluginMcpSelection(
 async function removePlugin(host: SlashCommandHost, id: string): Promise<void> {
   await (await resolvePluginApi(host)).removePlugin(id);
   host.showStatus(t('tui.commands.plugins.removed', { id }));
-  if (isCapabilityPluginId(host, id)) {
+  if (isCapabilityPluginId(id)) {
     host.showStatus(t('tui.commands.plugins.capabilityRemoveNote'));
     return;
   }

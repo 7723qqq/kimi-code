@@ -1,4 +1,4 @@
-import { isKimiError, resolveErrorTitle } from '@moonshot-ai/kimi-code-sdk';
+import { isKimiError, KIMI_ERROR_INFO, type KimiErrorCode, type KimiErrorInfo } from '@moonshot-ai/kimi-code-sdk';
 import { chalkStderr } from 'chalk';
 
 import { STARTUP_ERROR_COLOR } from '#/constant/startup-error';
@@ -29,14 +29,12 @@ export function formatStartupError(
     )}\n`;
   }
 
+  // `isKimiError` above guarantees a code; a code this build does not know
+  // (errors crossing a process or engine generation) falls back to the raw code.
+  const code = (error as { readonly code: KimiErrorCode }).code;
+  const info: KimiErrorInfo | undefined = KIMI_ERROR_INFO[code];
   const lines = [
-    errorStyle(
-      t('startup.error.title', {
-        title: resolveErrorTitle(
-          (error as { readonly code: Parameters<typeof resolveErrorTitle>[0] }).code,
-        ),
-      }),
-    ),
+    errorStyle(t('startup.error.title', { title: info?.title ?? code })),
     '',
     errorStyle(t('startup.error.messageLabel')),
     errorStyle((error as { readonly message: string }).message),

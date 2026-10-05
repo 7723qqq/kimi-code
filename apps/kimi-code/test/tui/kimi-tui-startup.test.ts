@@ -53,6 +53,8 @@ interface StartupDriver {
   handleLoginCommand(): Promise<void>;
   handleLogoutCommand(): Promise<void>;
   stop(exitCode?: number): Promise<void>;
+  setSession(session: unknown): Promise<void>;
+  syncRuntimeState(session?: unknown): Promise<void>;
 }
 
 interface RuntimeStateDriver extends StartupDriver {
@@ -307,7 +309,7 @@ describe('KimiTUI startup', () => {
   it('mounts the docked fullscreen layout when KIMI_CODE_TUI_FULL_SCREEN=1', async () => {
     const harness = makeHarness(makeSession());
     vi.stubEnv('KIMI_CODE_TUI_FULL_SCREEN', '1');
-    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+    const driver = makeDriver(harness, { ...makeStartupInput() });
     vi.unstubAllEnvs();
 
     expect(driver.state.ui.mode).toBe('fullscreen');
@@ -316,12 +318,13 @@ describe('KimiTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
     (driver as unknown as { mountFooter(): void }).mountFooter();
 
-    expect(driver.state.dockContainer?.children).toHaveLength(7);
+    // Dock = 7 chrome containers + footer wrap, below the transcript viewport.
+    expect(driver.state.dockContainer?.children).toHaveLength(8);
   });
 
   it('shows a session-less notice on v2 startup', async () => {
     const harness = makeHarness(makeSession());
-    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+    const driver = makeDriver(harness, { ...makeStartupInput() });
 
     await expect(driver.init()).resolves.toBe(false);
     await (
@@ -344,7 +347,7 @@ describe('KimiTUI startup', () => {
         thinking: { enabled: true, effort: 'high' },
       })),
     });
-    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+    const driver = makeDriver(harness, { ...makeStartupInput() });
 
     await expect(driver.init()).resolves.toBe(false);
 
@@ -375,7 +378,7 @@ describe('KimiTUI startup', () => {
         thinking: { enabled: true },
       })),
     });
-    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+    const driver = makeDriver(harness, { ...makeStartupInput() });
 
     await expect(driver.init()).resolves.toBe(false);
 
@@ -397,7 +400,7 @@ describe('KimiTUI startup', () => {
         defaultModel: 'k2',
       })),
     });
-    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+    const driver = makeDriver(harness, { ...makeStartupInput() });
 
     await expect(driver.init()).resolves.toBe(false);
 
@@ -426,7 +429,7 @@ describe('KimiTUI startup', () => {
         getManagedUsage: vi.fn(),
       },
     });
-    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+    const driver = makeDriver(harness, { ...makeStartupInput() });
 
     await expect(driver.init()).resolves.toBe(false);
     expect(driver.state.appState).toMatchObject({
@@ -469,7 +472,7 @@ describe('KimiTUI startup', () => {
         getManagedUsage: vi.fn(),
       },
     });
-    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+    const driver = makeDriver(harness, { ...makeStartupInput() });
 
     await expect(driver.init()).resolves.toBe(false);
 
@@ -774,6 +777,8 @@ describe('KimiTUI startup', () => {
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
+    await driver.setSession(session);
+    await driver.syncRuntimeState(session);
 
     // Materialize the startup session through the lazy-creation path (fresh
     // startup no longer creates one during init).
@@ -795,12 +800,13 @@ describe('KimiTUI startup', () => {
     const driver = makeDriver(harness, makeStartupInput()) as unknown as RuntimeStateDriver;
 
     await expect(driver.init()).resolves.toBe(false);
+await driver.setSession(session);
+await driver.syncRuntimeState(session);
 
-    // Materialize the startup session through the lazy-creation path (fresh
-    // startup no longer creates one during init).
-    if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
-    await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
-
+// Materialize the startup session through the lazy-creation path (fresh
+// startup no longer creates one during init).
+if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
+await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
     expect(driver.state.appState.goal).toEqual(goal);
 
     await driver.closeSession('test close');
@@ -1621,6 +1627,55 @@ describe('KimiTUI startup', () => {
     }
   });
 
+  it('preserves fresh startup yolo and plan intent after OAuth login', async () => {
+    const session = makeSession({
+      getStatus: vi.fn(async () => ({
+        model: 'k2',
+        thinkingEffort: 'off',
+        permission: 'yolo',
+        planMode: true,
+        contextTokens: 10,
+        maxContextTokens: 100,
+        contextUsage: 0.1,
+      })),
+    });
+    const createSession = vi
+      .fn()
+      .mockRejectedValueOnce(loginRequiredError())
+      .mockResolvedValueOnce(session);
+    const harness = makeHarness(session, {
+      getConfig: vi.fn(async () => ({
+        defaultModel: 'k2',
+        thinking: { enabled: false },
+        models: {
+          k2: { model: 'moonshot-v1', maxContextSize: 100 },
+        },
+      })),
+      createSession,
+    });
+    const driver = makeDriver(harness, makeStartupInput({ yolo: true, plan: true }));
+
+    await expect(driver.init()).resolves.toBe(false);
+
+    expect(driver.state.appState).toMatchObject({
+      sessionId: '',
+      model: 'k2',
+      permissionMode: 'yolo',
+      planMode: true,
+    });
+
+    vi.mocked(promptPlatformSelection).mockResolvedValue('kimi-code');
+    await handleLoginCommand(driver as any);
+
+    expect(createSession).not.toHaveBeenCalled();
+    expect(driver.state.appState).toMatchObject({
+      sessionId: '',
+      model: 'k2',
+      permissionMode: 'yolo',
+      planMode: true,
+    });
+  });
+
   it('does not override active session thinking when configured thinking is enabled after OAuth login', async () => {
     const session = makeSession();
     const harness = makeHarness(session, {
@@ -1635,11 +1690,13 @@ describe('KimiTUI startup', () => {
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
+await driver.setSession(session);
+await driver.syncRuntimeState(session);
 
-    // Materialize the startup session through the lazy-creation path (fresh
-    // startup no longer creates one during init).
-    if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
-    await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
+// Materialize the startup session through the lazy-creation path (fresh
+// startup no longer creates one during init).
+if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
+await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
     expect(driver.state.appState.thinkingEffort).toBe('off');
 
     vi.mocked(promptPlatformSelection).mockResolvedValue('kimi-code');
@@ -1711,6 +1768,8 @@ describe('KimiTUI startup', () => {
 
     try {
       await expect(driver.init()).resolves.toBe(false);
+      await driver.setSession(session);
+      await driver.syncRuntimeState(session);
 
       // Materialize the startup session through the lazy-creation path (fresh
       // startup no longer creates one during init).
@@ -1776,11 +1835,13 @@ describe('KimiTUI startup', () => {
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
+await driver.setSession(session);
+await driver.syncRuntimeState(session);
 
-    // Materialize the startup session through the lazy-creation path (fresh
-    // startup no longer creates one during init).
-    if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
-    await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
+// Materialize the startup session through the lazy-creation path (fresh
+// startup no longer creates one during init).
+if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
+await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
     harness.track.mockClear();
 
     vi.mocked(promptLogoutProviderSelection).mockResolvedValue('managed:kimi-code');
@@ -1830,7 +1891,7 @@ describe('KimiTUI startup', () => {
         getManagedUsage: vi.fn(),
       },
     });
-    const driver = makeDriver(harness, { ...makeStartupInput(), engineV2: true });
+    const driver = makeDriver(harness, { ...makeStartupInput() });
 
     await expect(driver.init()).resolves.toBe(false);
     expect(driver.state.appState.model).toBe('k2');
@@ -1875,11 +1936,13 @@ describe('KimiTUI startup', () => {
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
+await driver.setSession(session);
+await driver.syncRuntimeState(session);
 
-    // Materialize the startup session through the lazy-creation path (fresh
-    // startup no longer creates one during init).
-    if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
-    await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
+// Materialize the startup session through the lazy-creation path (fresh
+// startup no longer creates one during init).
+if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
+await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
     harness.track.mockClear();
 
     vi.mocked(promptLogoutProviderSelection).mockResolvedValue('openai');

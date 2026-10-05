@@ -34,6 +34,7 @@ import {
   type SkillDefinition,
   type ExtraSkillDirsConfig,
   type MergeAllAvailableSkillsConfig,
+  IAgentProfileService,
 } from '@moonshot-ai/agent-core-v2';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -42,10 +43,10 @@ import { errEnvelope, okEnvelope } from '../envelope';
 import {
   assertPromptFileRefs,
   assertPromptPathRefs,
-  assertPromptSessionMediaRefs,
   contentHasPathRefs,
   contentToCoreParts,
   resolvePromptMediaFiles,
+  resolvePromptSessionMediaRefs,
   type PromptMediaPreparation,
 } from '../lib/promptMedia';
 import { requestLog } from '../lib/requestLog';
@@ -248,18 +249,21 @@ export function registerSkillsRoutes(app: SkillsRouteHost, core: Scope): void {
           }
           await assertPromptFileRefs(attachments, core.accessor.get(IFileService));
           await assertPromptPathRefs(attachments);
-          await assertPromptSessionMediaRefs(
+          const resolvedSessionMedia = await resolvePromptSessionMediaRefs(
             attachments,
             resolved.handle.accessor.get(ISessionMediaStore),
           );
           const telemetry = core.accessor.get(ITelemetryService).withContext({ session_id });
           const sessionDir = resolved.handle.accessor.get(ISessionContext).sessionDir;
           preparedMedia = await resolvePromptMediaFiles(
-            attachments,
+            resolvedSessionMedia,
             core.accessor.get(IFileService),
             core.accessor.get(IBootstrapService).cacheDir,
             {
               telemetry,
+              providerType: (await ensureMainAgentHandle(resolved.handle)).accessor
+                .get(IAgentProfileService)
+                .getModelProviderType(),
               resolveOriginalsDir: async () => sessionMediaOriginalsDir(sessionDir),
               resolveAttachmentsDir: async () => join(sessionDir, 'attachments'),
             },

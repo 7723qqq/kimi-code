@@ -18,11 +18,11 @@ import {
   type ProviderDeps,
 } from '#/cli/sub/provider';
 
-// Spy on the SDK harness factories so the default-deps engine routing can be
+// Spy on the SDK harness factory so the default-deps construction can be
 // asserted without booting a real engine. The real implementations stay in
 // place for everything else the handlers use.
 const harnessRouting = vi.hoisted(() => ({
-  kimiHarnessV2Constructor: vi.fn(),
+  kimiHarnessConstructor: vi.fn(),
   harness: undefined as unknown,
 }));
 
@@ -30,8 +30,8 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@moonshot-ai/kimi-code-sdk')>();
   return {
     ...actual,
-    createKimiHarnessV2: (...args: unknown[]) => {
-      harnessRouting.kimiHarnessV2Constructor(...args);
+    createKimiHarness: (...args: unknown[]) => {
+      harnessRouting.kimiHarnessConstructor(...args);
       return harnessRouting.harness;
     },
   };
@@ -59,7 +59,8 @@ function makeHarness(initial: KimiConfig): {
 } {
   // `persisted` simulates the on-disk config; the real RPC's `removeProvider`
   // reads from / writes to disk on every call (see
-  // `packages/agent-core-v2/src/kosong/provider/providerService.ts` `ProviderService.delete`). Tests must
+  // `packages/agent-core-v2/src/llm-adapter/provider/provider-service.ts`
+  // `ProviderService.delete`). Tests must
   // model this: anything the handler builds up in its in-memory `config`
   // object disappears unless it is flushed via `setConfig` BEFORE the next
   // `removeProvider`.
@@ -1106,7 +1107,7 @@ describe('kimi provider catalog add', () => {
 
 describe('kimi provider engine routing', () => {
   beforeEach(() => {
-    harnessRouting.kimiHarnessV2Constructor.mockClear();
+    harnessRouting.kimiHarnessConstructor.mockClear();
     harnessRouting.harness = makeHarness({ providers: {} } as KimiConfig).harness;
   });
 
@@ -1121,12 +1122,12 @@ describe('kimi provider engine routing', () => {
     });
   }
 
-  it('builds the v2 harness', async () => {
+  it('builds the harness through the SDK factory', async () => {
     const program = new Command('kimi');
     registerWithDefaultHarness(program);
 
     await program.parseAsync(['node', 'kimi', 'provider', 'list'], { from: 'node' });
 
-    expect(harnessRouting.kimiHarnessV2Constructor).toHaveBeenCalledTimes(1);
+    expect(harnessRouting.kimiHarnessConstructor).toHaveBeenCalledTimes(1);
   });
 });

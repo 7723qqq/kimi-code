@@ -8,10 +8,11 @@ import { Event } from '#/_base/event';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import type { ContentPart } from '#/kosong/contract/message';
+import type { ContentPart } from '#human/llm/message';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { TurnSteer } from '#/agent/loop/turnOps';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPromptService } from '#/agent/prompt/prompt';
 import { AgentPromptService, PromptAborted, PromptCompleted, PromptQueued, PromptStarted, PromptSteered, PromptSubmitted } from '#/agent/prompt/promptService';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -37,7 +38,6 @@ import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { stubContextMemory } from '../contextMemory/stubs';
 import { stubLoopWithHooks, stubToolExecutor, stubWire, type StubLoopOptions } from '../loop/stubs';
 import { registerStateServices } from '../../state/stubs';
-import { SteerStepRequest } from '#/agent/prompt/promptStepRequests';
 
 function message(text: string): ContextMessage {
   return { role: 'user', content: [{ type: 'text', text }], toolCalls: [], origin: { kind: 'user' } };
@@ -59,7 +59,10 @@ const noopBlob: IAgentBlobService = {
   isBlobRef: () => false,
 };
 
-function harness(loopOptions: StubLoopOptions = { pendingTurnResult: true }) {
+function harness(
+  loopOptions: StubLoopOptions = { pendingTurnResult: true },
+  providerType?: string,
+) {
   const disposables = new DisposableStore();
   onTestFinished(() => disposables.dispose());
   const context = stubContextMemory();
@@ -109,6 +112,9 @@ function harness(loopOptions: StubLoopOptions = { pendingTurnResult: true }) {
       reg.defineInstance(IAgentReminderService, reminder);
       reg.define(IAgentPromptService, AgentPromptService);
       reg.definePartialInstance(ITelemetryService, { track2: () => {} });
+      reg.definePartialInstance(IAgentProfileService, {
+        getModelProviderType: () => providerType,
+      });
       reg.definePartialInstance(ISessionMetadata, {
         read: async () => ({ id: 'test-session', createdAt: 0, updatedAt: 0, archived: false }),
         update: async () => {},
@@ -307,7 +313,7 @@ describe('AgentPromptService', () => {
 
   it('settles the prompt as failed when the loop throws on launch', async () => {
     const { prompt, loop } = harness();
-    vi.spyOn(loop, 'enqueue').mockImplementation(() => {
+    vi.spyOn(loop, 'submit').mockImplementation(() => {
       throw new Error2(ErrorCodes.TURN_AGENT_BUSY, 'Cannot launch a new turn while another turn is active');
     });
     const handle = await prompt.enqueue({ id: 'prompt-x', message: message('hello') });
@@ -338,6 +344,27 @@ describe('AgentPromptService', () => {
     expect(parts.some((part) => part.type === 'image_url')).toBe(false);
     expect(parts[0]).toMatchObject({ type: 'text' });
     expect((parts[0] as { text: string }).text).toContain('image/avif');
+  });
+
+  it('keeps a prompt image whose format the bound provider accepts', async () => {
+    const { prompt, context, loop } = harness({ pendingTurnResult: true }, 'kimi');
+    const heicUrl = `data:image/heic;base64,${Buffer.from([
+      0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63,
+    ]).toString('base64')}`;
+    const handle = await prompt.enqueue({
+      id: 'prompt-heic',
+      message: {
+        role: 'user',
+        content: [{ type: 'image_url', imageUrl: { url: heicUrl } }],
+        toolCalls: [],
+        origin: { kind: 'user' },
+      },
+    });
+    await handle.launched;
+    loop.drainNextBatch(context);
+
+    const parts = context.get()[0]!.content;
+    expect(parts).toEqual([{ type: 'image_url', imageUrl: { url: heicUrl } }]);
   });
 
   it('gates steered prompt images too', async () => {
@@ -412,7 +439,7 @@ describe('AgentPromptService', () => {
     await prompt.enqueue({ id: 'a', message: message('a') });
     await prompt.enqueue({ id: 'b', message: message('b') });
     await prompt.enqueue({ id: 'c', message: message('c') });
-    vi.spyOn(loop, 'enqueue').mockImplementation(() => {
+    vi.spyOn(loop, 'steer').mockImplementation(() => {
       throw new Error('boom');
     });
 
@@ -546,68 +573,36 @@ describe('AgentPromptService', () => {
     const enqueued = new Promise<void>((resolve) => {
       steerEnqueued = resolve;
     });
-    let rejectSteer!: (reason?: unknown) => void;
-    const original = loop.enqueue.bind(loop);
-    vi.spyOn(loop, 'enqueue').mockImplementation((request, options) => {
-      if (request instanceof SteerStepRequest) {
-        return {
-          assigned: new Promise<never>((_, reject) => {
-            rejectSteer = reject;
-            steerEnqueued();
-          }),
-          abort: () => true,
-        };
-      }
-      return original(request, options);
+    vi.spyOn(loop, 'steer').mockImplementation(() => {
+      steerEnqueued();
+      throw new Error('held');
     });
 
     const steerPromise = prompt.steer([queued.id]);
     await enqueued;
     loop.settleActive();
-    rejectSteer(new Error('held'));
 
     await expect(steerPromise).rejects.toMatchObject({ code: 'prompt.not_found' });
     await expect(queued.launched).resolves.toBeDefined();
     expect(prompt.list().active?.id).toBe('queued');
   });
 
-  it('does not advance the queue while a steer assignment is in flight', async () => {
+  it('restores the original queue order when a steer assignment fails', async () => {
     const { prompt, loop } = harness({ manualTurnResult: true });
     const active = await prompt.enqueue({ message: message('active') });
     await active.launched;
     const a = await prompt.enqueue({ id: 'a', message: message('a') });
     await prompt.enqueue({ id: 'b', message: message('b') });
-    let steerEnqueued!: () => void;
-    const enqueued = new Promise<void>((resolve) => {
-      steerEnqueued = resolve;
-    });
-    let rejectSteer!: (reason?: unknown) => void;
-    const original = loop.enqueue.bind(loop);
-    vi.spyOn(loop, 'enqueue').mockImplementation((request, options) => {
-      if (request instanceof SteerStepRequest) {
-        return {
-          assigned: new Promise<never>((_, reject) => {
-            rejectSteer = reject;
-            steerEnqueued();
-          }),
-          abort: () => true,
-        };
-      }
-      return original(request, options);
+    vi.spyOn(loop, 'steer').mockImplementation(() => {
+      throw new Error('held');
     });
 
-    const steerPromise = prompt.steer([a.id]);
-    await enqueued;
+    await expect(prompt.steer([a.id])).rejects.toMatchObject({ code: 'prompt.not_found' });
     loop.settleActive();
-    await new Promise<void>((resolve) => {
-      setImmediate(resolve);
-    });
-    expect(loop.launches).toHaveLength(1);
-    rejectSteer(new Error('held'));
 
-    await expect(steerPromise).rejects.toMatchObject({ code: 'prompt.not_found' });
     await expect(a.launched).resolves.toBeDefined();
     expect(prompt.list().active?.id).toBe('a');
     expect(prompt.list().pending.map((item) => item.id)).toEqual(['b']);
+    expect(loop.launches).toHaveLength(2);
   });
 });

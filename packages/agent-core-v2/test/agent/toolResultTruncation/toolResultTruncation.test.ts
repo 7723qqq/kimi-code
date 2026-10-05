@@ -10,7 +10,7 @@ import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/
 import type { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
 import { ToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncationService';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import type { ContentPart } from '#/kosong/contract/message';
+import type { ContentPart } from '#human/llm/message';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import type { ExecutableToolResult } from '#/tool/toolContract';

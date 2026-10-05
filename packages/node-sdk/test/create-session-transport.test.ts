@@ -35,7 +35,7 @@ const toPosix = (p: string): string => p.replaceAll('\\', '/');
 // clean-env expectation carries the default-enabled set next to the
 // attribution / canonical fields.
 const DEFAULT_EXPERIMENTAL_FLAGS =
-  'auto_session_title,persistence_minidb_readmodel,secondary-model,tool_select';
+  'auto_session_title,tool_select,wait_for';
 
 const tempDirs: string[] = [];
 
@@ -96,12 +96,14 @@ async function writeReviewerAgent(workDir: string): Promise<void> {
   );
 }
 
-class StubRpc extends SDKRpcClientBase {
-  protected override async getRpc(): Promise<never> {
-    throw new Error('not used');
-  }
-
-  override async createSession(input: { id?: string; workDir: string }) {
+/**
+ * Minimal RPC stand-in for the harness paths exercised here. The base class
+ * is abstract, so tests implement only the members they use and hand the
+ * instance to the harness through {@link StubRpc.asRpc} (see
+ * session-approval-handler.test.ts for the same pattern).
+ */
+class StubRpc {
+  async createSession(input: { id?: string; workDir: string }) {
     return {
       id: input.id ?? 'ses_stub',
       workDir: input.workDir,
@@ -111,7 +113,7 @@ class StubRpc extends SDKRpcClientBase {
     };
   }
 
-  override async resumeSession(input: {
+  async resumeSession(input: {
     id: string;
     workDir?: string;
   }): Promise<ResumedSessionSummary> {
@@ -131,6 +133,10 @@ class StubRpc extends SDKRpcClientBase {
       },
       agents: {},
     };
+  }
+
+  asRpc(): SDKRpcClientBase {
+    return this as unknown as SDKRpcClientBase;
   }
 }
 
@@ -156,7 +162,7 @@ describe('KimiHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
-          client_id: null,
+          client_id: '',
           client_name: 'kimi-code-cli',
           client_version: '0.0.0-test',
           experimental_flags: DEFAULT_EXPERIMENTAL_FLAGS,
@@ -196,7 +202,7 @@ describe('KimiHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
-          client_id: null,
+          client_id: '',
           client_name: 'kimi-code-cli',
           client_version: '0.0.0-test',
           experimental_flags: DEFAULT_EXPERIMENTAL_FLAGS,
@@ -235,7 +241,7 @@ describe('KimiHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
-          client_id: null,
+          client_id: '',
           client_name: 'kimi-code-cli',
           client_version: '0.0.0-test',
           experimental_flags: DEFAULT_EXPERIMENTAL_FLAGS,
@@ -269,7 +275,7 @@ describe('KimiHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
-          client_id: null,
+          client_id: '',
           client_name: 'kimi-code-cli',
           client_version: '0.0.0-test',
           experimental_flags: DEFAULT_EXPERIMENTAL_FLAGS,
@@ -306,7 +312,7 @@ describe('KimiHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
-          client_id: null,
+          client_id: '',
           client_name: 'kimi-code-cli',
           client_version: '0.0.0-test',
           experimental_flags: DEFAULT_EXPERIMENTAL_FLAGS,
@@ -327,7 +333,7 @@ describe('KimiHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
-          client_id: null,
+          client_id: '',
           client_name: 'kimi-code-cli',
           client_version: '0.0.0-test',
           experimental_flags: DEFAULT_EXPERIMENTAL_FLAGS,
@@ -369,7 +375,7 @@ describe('KimiHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: session.id,
         properties: {
-          client_id: null,
+          client_id: '',
           client_name: 'kimi-code-cli',
           client_version: '0.0.0-test',
           experimental_flags: DEFAULT_EXPERIMENTAL_FLAGS,
@@ -385,7 +391,7 @@ describe('KimiHarness.createSession transport link', () => {
 
   it('evaluates sessionStartedDynamicProperties at every session_started emission', async () => {
     const records: TelemetryRecord[] = [];
-    const rpc = new StubRpc();
+    const rpc = new StubRpc().asRpc();
     let flags = 'tower';
     const harness = new KimiHarness(rpc, {
       homeDir: '/tmp/home',
@@ -448,7 +454,7 @@ describe('KimiHarness.createSession transport link', () => {
         event: 'session_started',
         sessionId: forked.id,
         properties: {
-          client_id: null,
+          client_id: '',
           client_name: 'kimi-code-cli',
           client_version: '0.0.0-test',
           experimental_flags: DEFAULT_EXPERIMENTAL_FLAGS,

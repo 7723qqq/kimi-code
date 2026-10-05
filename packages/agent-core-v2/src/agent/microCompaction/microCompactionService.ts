@@ -12,7 +12,7 @@ import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
 import type { MicroCompactionFinishedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { estimateTokensForContentParts, estimateTokensForMessages } from '#/kosong/contract/tokens';
+import { estimateTokensForContentParts, estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 

@@ -1,13 +1,10 @@
 # @moonshot-ai/kosong
 
-## 0.6.0
+## 0.5.6
 
 ### Patch Changes
 
-- [9b136d91](https://github.com/7723qqq/kimi-code/commit/9b136d915) - Split Anthropic/OpenAI cache-creation tokens so the cache hit rate is not stuck at 100%, and harden cache correctness / prompt-cache prefix stability.
-- [25f6530f](https://github.com/7723qqq/kimi-code/commit/25f6530fe) - Support DeepSeek prompt-cache accounting and drop the cache-breaking tool injection.
-- [1cf24442](https://github.com/7723qqq/kimi-code/commit/1cf244427) - Extract anthropic cache-breakpoint injection into a shared kosong module.
-- [cdbd33c1](https://github.com/7723qqq/kimi-code/commit/cdbd33c13) - Fail fast on quota-exhausted 429 responses instead of retrying.
+- [#3003](https://github.com/MoonshotAI/kimi-code/pull/3003) [`ed1dc72`](https://github.com/MoonshotAI/kimi-code/commit/ed1dc720e2c134866854f6a67ae05fde023e1c33) Thanks [@silentiris](https://github.com/silentiris)! - Fix a crash when a model config entry lacks the `model` field (e.g. from a malformed TOML key like `[models.kimi-k2.7-code]`): the Anthropic profile matchers now tolerate `undefined` model names and return no profile instead of throwing `TypeError: Cannot read properties of undefined (reading 'toLowerCase')`.
 
 ## 0.5.5
 

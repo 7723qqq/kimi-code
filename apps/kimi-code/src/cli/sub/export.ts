@@ -8,7 +8,7 @@
 import { createInterface } from 'node:readline/promises';
 
 import {
-  createKimiHarnessV2,
+  createKimiHarness,
   type ExportSessionInput,
   type ExportSessionResult,
   type KimiHarness,
@@ -152,9 +152,7 @@ function createDefaultExportDeps(overrides: Partial<ExportDeps> = {}): ExportDep
   };
   const getHarness = (): KimiHarness => {
     const currentTelemetryBootstrap = getTelemetryBootstrap();
-    // Same engine as `kimi -p` / the TUI: the SDK's v2-backed harness — the
-    // agent-core-v2 engine is the only engine.
-    harness ??= createKimiHarnessV2({
+    harness ??= createKimiHarness({
       homeDir: currentTelemetryBootstrap.homeDir,
       identity,
       telemetry: telemetryClient,

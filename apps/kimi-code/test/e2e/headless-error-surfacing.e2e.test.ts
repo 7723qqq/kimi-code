@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createKimiHarnessV2, type KimiHarness } from '@moonshot-ai/kimi-code-sdk';
+import { createKimiHarness, type KimiHarness } from '@moonshot-ai/kimi-code-sdk';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createKimiCodeHostIdentity } from '#/cli/version';
@@ -44,7 +44,7 @@ async function writeConfig(modelBody: string): Promise<void> {
 describe.skipIf(!ENABLED)('headless prompt error surfacing e2e', () => {
   it('surfaces the real model configuration error instead of a teardown crash', async () => {
     await writeConfig('');
-    harness = createKimiHarnessV2({
+    harness = createKimiHarness({
       homeDir,
       identity: createKimiCodeHostIdentity('0.0.0-e2e'),
     });
@@ -62,7 +62,7 @@ describe.skipIf(!ENABLED)('headless prompt error surfacing e2e', () => {
 
   it('accepts a complete model config and reaches the provider endpoint', async () => {
     await writeConfig('max_context_size = 100000');
-    harness = createKimiHarnessV2({
+    harness = createKimiHarness({
       homeDir,
       identity: createKimiCodeHostIdentity('0.0.0-e2e'),
     });

@@ -6,7 +6,7 @@
  */
 
 import {
-  createKimiHarnessV2,
+  createKimiHarness,
   flushDiagnosticLogs,
   installGlobalProxyDispatcher,
   log,
@@ -122,7 +122,7 @@ export async function handleUpgradeCommand(version: string): Promise<void> {
     withContext: withTelemetryContext,
     setContext: setTelemetryContext,
   };
-  const harness = createKimiHarnessV2({
+  const harness = createKimiHarness({
     homeDir: telemetryBootstrap.homeDir,
     identity: createKimiCodeHostIdentity(version),
     telemetry: telemetryClient,
@@ -205,7 +205,7 @@ function bootstrap(): void {
   );
   // Same pattern for the global-search worker: extracted from the embedded assets so
   // the search index runs off the main thread; a failure leaves the search
-  // surface degraded.
+  // surface degraded ([database] search = false restores the inline host).
   const searchWorkerInstall = installKapSearchWorker();
   startupTrace(
     searchWorkerInstall.status === 'installed'

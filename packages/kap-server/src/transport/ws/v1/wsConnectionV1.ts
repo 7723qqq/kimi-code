@@ -13,7 +13,6 @@ import {
 } from '../../../protocol/ws-control';
 import type { CredentialValidator } from '../../../services/auth/credentials';
 import type { IConnectionRegistry } from '../connectionRegistry';
-import type { FsWatchBridge } from './fsWatchBridge';
 import { buildAck, buildPing, buildResyncRequired, buildServerHello } from './protocol';
 import {
   type AgentFilter,
@@ -47,7 +46,6 @@ interface InboundFrame {
 export interface WsConnectionV1Options {
   readonly socket: WebSocket;
   readonly broadcaster: SessionEventBroadcaster;
-  readonly fsWatchBridge?: FsWatchBridge;
   readonly connectionRegistry: IConnectionRegistry;
   readonly validateCredential?: CredentialValidator;
   readonly remoteAddress: string | null;
@@ -68,7 +66,6 @@ export class WsConnectionV1 implements BroadcastTarget {
 
   private readonly socket: WebSocket;
   private readonly broadcaster: SessionEventBroadcaster;
-  private readonly fsWatchBridge?: FsWatchBridge;
   private readonly validateCredential?: CredentialValidator;
   private readonly maxBufferSize: number;
   private readonly flushIntervalMs: number;
@@ -97,7 +94,6 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.userAgent = opts.userAgent;
     this.socket = opts.socket;
     this.broadcaster = opts.broadcaster;
-    this.fsWatchBridge = opts.fsWatchBridge;
     this.validateCredential = opts.validateCredential;
     this.logger = opts.logger;
     this.maxBufferSize = opts.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE;
@@ -168,12 +164,6 @@ export class WsConnectionV1 implements BroadcastTarget {
         return;
       case 'unsubscribe':
         this.enqueueControl(() => this.onUnsubscribe(frame));
-        return;
-      case 'watch_fs_add':
-        this.enqueueControl(() => this.onWatchFs(frame, true));
-        return;
-      case 'watch_fs_remove':
-        this.enqueueControl(() => this.onWatchFs(frame, false));
         return;
       default:
         return;
@@ -331,40 +321,6 @@ export class WsConnectionV1 implements BroadcastTarget {
         accepted: [],
         not_found: [],
         resync_required: [],
-      }),
-    );
-  }
-
-  private async onWatchFs(frame: InboundFrame, isAdd: boolean): Promise<void> {
-    const payload = frame.payload ?? {};
-    const sessionId = typeof payload['session_id'] === 'string' ? payload['session_id'] : '';
-    const runtimeId =
-      typeof payload['runtime_id'] === 'string' && payload['runtime_id'].length > 0
-        ? payload['runtime_id']
-        : 'local';
-    const paths = asStringArray(payload['paths']);
-    const bridge = this.fsWatchBridge;
-    if (bridge === undefined) {
-      this.sendImmediateFrame(buildAck(frame.id ?? '', 1, 'fs watch unavailable', {}));
-      return;
-    }
-    let result;
-    try {
-      result = isAdd
-        ? await bridge.addWatch(this, sessionId, paths, runtimeId)
-        : await bridge.removeWatch(this, sessionId, paths, runtimeId);
-    } catch (error) {
-      this.sendImmediateFrame(
-        buildAck(frame.id ?? '', 1, 'internal error', {
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      );
-      return;
-    }
-    this.sendImmediateFrame(
-      buildAck(frame.id ?? '', result.code, result.msg, {
-        watched_paths: result.watched_paths ?? [],
-        current_count: result.current_count ?? 0,
       }),
     );
   }
@@ -530,7 +486,6 @@ export class WsConnectionV1 implements BroadcastTarget {
     this.outbound = [];
     this.broadcaster.removeGlobalTarget(this);
     for (const sid of this.subscriptions.keys()) this.broadcaster.unsubscribe(sid, this);
-    this.fsWatchBridge?.detachConnection(this);
   }
 }
 

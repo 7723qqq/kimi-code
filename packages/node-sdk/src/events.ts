@@ -1,95 +1,98 @@
-import type { Event2 } from '@moonshot-ai/agent-core-v2';
-import type { ContentPart } from '@moonshot-ai/kosong';
-import type { Event as ProtocolEvent, ToolInputDisplay } from '@moonshot-ai/protocol';
+import type {
+  ApprovalRequest,
+  ApprovalResponse,
+  QuestionRequest,
+  QuestionResult,
+} from '#/interaction';
 
-export type { ToolInputDisplay } from '@moonshot-ai/protocol';
-export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '@moonshot-ai/protocol';
+export type { KimiErrorPayload } from '#/errors';
 
-// The SDK event stream carries the v1-protocol event shapes: the protocol
-// package's `AgentEvent` discriminated union stamped with the owning
-// session/agent ids (`Event`). The v2 engine's per-agent bus does not stamp
-// events (the bus is per-agent, so the consumer knows both), so the v2 client
-// re-adds that stamping on top when it forwards engine events into the SDK
-// stream — consumers rely on `event.sessionId` / `event.agentId` for session
-// filtering and subagent routing.
-export type Event = ProtocolEvent;
+export type { Event, ToolResultEvent } from '@moonshot-ai/agent-core-v2/events';
 
-// Engine-side event shape (agent-core-v2's `Event2` instances as forwarded by
-// the v2 client). Kept separate from the SDK `Event` stream: engine events are
-// class instances whose payload fields are only known at runtime.
-export type DomainEvent = Event2<Record<string, unknown>>;
+export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '@moonshot-ai/agent-core-v2/tool/toolContract';
 
-export type { SessionMetaUpdatedEvent } from '@moonshot-ai/protocol';
+export type { AgentStatusUpdatedEvent } from '@moonshot-ai/agent-core-v2/agent/usage/usageEvents';
+export type { SessionMetaUpdatedEvent } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetaEvents';
+export type { GoalUpdatedEvent } from '@moonshot-ai/agent-core-v2/features/goal/goalOps';
+export type { SkillActivatedEvent } from '@moonshot-ai/agent-core-v2/features/skill/skillOps';
+export type { PluginCommandActivatedEvent } from '@moonshot-ai/agent-core-v2/agent/pluginCommand/pluginCommand';
+export type { ErrorEvent, WarningEvent } from '@moonshot-ai/agent-core-v2/errors';
+export type { UsageStatus } from '@moonshot-ai/agent-core-v2/agent/usage/usage';
 
-// Approval / question reverse-RPC payloads. These keep the legacy wire shapes
-// the SDK exposes to hosts through `setApprovalHandler` / `setQuestionHandler`
-// (the v2 engine parks approvals in its interaction kernel; the SDK bridges
-// them to these shapes). Localized copies of the v1 definitions so the SDK
-// does not import `agent-core`.
-export type ApprovalDecision = 'approved' | 'rejected' | 'cancelled';
-export type ApprovalScope = 'session';
+export type {
+  TurnStartedEvent,
+  TurnStepStartedEvent,
+  TurnStepCompletedEvent,
+  TurnStepRetryingEvent,
+  TurnStepInterruptedEvent,
+  TurnEndReason,
+} from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+export type { TurnEndedEvent } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 
-export interface ApprovalResponse {
-  readonly decision: ApprovalDecision;
-  readonly scope?: ApprovalScope | undefined;
-  readonly feedback?: string | undefined;
-  readonly selectedLabel?: string | undefined;
-}
+export type {
+  AssistantDeltaEvent,
+  ThinkingDeltaEvent,
+} from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
 
-export interface ApprovalRequest {
-  readonly turnId?: number | undefined;
-  readonly toolCallId: string;
-  readonly toolName: string;
-  readonly action: string;
-  readonly display: ToolInputDisplay;
-}
+export type { HookResultEvent } from '@moonshot-ai/agent-core-v2/features/externalHooks/agent/agentExternalHooksService';
 
-export interface QuestionOption {
-  readonly label: string;
-  readonly description?: string;
-}
+export type {
+  ToolCallStartedEvent,
+  ToolCallDeltaEvent,
+  ToolProgressEvent,
+} from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
 
-export interface QuestionItem {
-  readonly question: string;
-  readonly header?: string;
-  readonly body?: string;
-  readonly options: readonly QuestionOption[];
-  readonly multiSelect?: boolean;
-  readonly otherLabel?: string;
-  readonly otherDescription?: string;
-}
+export type { ToolUpdate } from '@moonshot-ai/agent-core-v2/tool/toolContract';
+export type { McpOAuthAuthorizationUrlUpdateData } from '@moonshot-ai/agent-core-v2/agent/mcp/tools/auth';
 
-export type QuestionAnswerMethod = 'enter' | 'space' | 'number_key';
-/**
- * Flattened answers keyed by question text; values are the chosen option
- * label(s) (comma-joined for multi-select) or free-form "Other" text.
- * `true` marks a question as answered without echoing a concrete value.
- */
-export type QuestionAnswers = Record<string, string | true>;
+export type { ToolCallRequest, ToolCallResponse } from '#/interaction';
 
-export interface QuestionResponse {
-  readonly answers: QuestionAnswers;
-  readonly method?: QuestionAnswerMethod | undefined;
-}
+export type {
+  ToolListUpdatedEvent,
+  McpServerStatusEvent,
+} from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
+export type {
+  ToolListUpdatedReason,
+  McpServerStatusPayload,
+} from '@moonshot-ai/agent-core-v2/agent/mcp/mcpEvents';
 
-export type QuestionResult = null | QuestionAnswers | QuestionResponse;
+export type { ApprovalRequest, ApprovalScope } from '#/interaction';
+export type { ApprovalDecision, ApprovalResponse } from '#/interaction';
 
-export interface QuestionRequest {
-  readonly turnId?: number;
-  readonly toolCallId?: string;
-  readonly questions: readonly QuestionItem[];
-}
+export type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/tool/toolInputDisplay';
 
-export interface ToolCallRequest {
-  readonly turnId?: number | undefined;
-  readonly toolCallId: string;
-  readonly args: unknown;
-}
+export type {
+  QuestionRequest,
+  QuestionItem,
+  QuestionOption,
+  QuestionAnswerMethod,
+  QuestionAnswers,
+  QuestionResponse,
+  QuestionResult,
+} from '#/interaction';
 
-export interface ToolCallResponse {
-  readonly output: string | ContentPart[];
-  readonly isError?: boolean | undefined;
-}
+export type {
+  SubagentSpawnedEvent,
+  SubagentStartedEvent,
+  SubagentCompletedEvent,
+  SubagentFailedEvent,
+} from '@moonshot-ai/agent-core-v2/session/subagent/mirrorAgentRun';
+export type { SubagentSuspendedEvent } from '@moonshot-ai/agent-core-v2/features/swarm/session/sessionSwarmService';
+
+export type {
+  CompactionStartedEvent,
+  CompactionBlockedEvent,
+  CompactionCancelledEvent,
+  CompactionCompletedEvent,
+} from '@moonshot-ai/agent-core-v2/agent/fullCompaction/compactionOps';
+export type { CompactionResult } from '@moonshot-ai/agent-core-v2/agent/fullCompaction/types';
+
+export type {
+  BackgroundTaskStartedEvent,
+  BackgroundTaskTerminatedEvent,
+} from '@moonshot-ai/agent-core-v2/agent/task/types';
+
+export type { CronFiredEvent } from '@moonshot-ai/agent-core-v2/features/cron/cronOps';
 
 export type MaybePromise<T> = T | Promise<T>;
 

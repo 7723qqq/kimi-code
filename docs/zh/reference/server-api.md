@@ -751,7 +751,7 @@ schema 还接受 `agent_config` 内的 `system_prompt`、`tools`、`mcp_servers`
 
 #### `POST /api/v1/sessions/{session_id}:btw`
 
-开启一个 `"by the way"` 旁路对话：把 main agent fork 成一个禁用工具调用的子 Agent，让快速的临时问题在隔离环境中运行，不触碰工作上下文。需要可用的模型配置。
+开启一个 `"by the way"` 旁路对话：把 main agent fork 成一个仅可使用只读工具（`Read`、`Grep`、`Glob`）的子 Agent，让快速的临时问题在隔离环境中运行，不触碰工作上下文。需要可用的模型配置。
 
 成功时，`data` 为 `{ agent_id }`——新子 Agent 的 id。
 
@@ -2365,7 +2365,6 @@ locator 寻址的目录（脱敏配置），外加对每个 OAuth 候选的批�
 | `unsubscribe` | `{ session_ids }` | 取消会话订阅 |
 | `subscribe_v2` | `{ session_id, transcript, transcript_since? }` | 订阅转录流（唯一的转录订阅通道），`transcript` 按 agent 指定粒度 |
 | `unsubscribe_v2` | `{ session_id, agent_ids? }` | 退订转录流；省略 `agent_ids` 表示整个会话 |
-| `watch_fs_add` / `watch_fs_remove` | `{ session_id, paths, recursive? }` | 订阅 / 取消文件变更通知（`event.fs.changed`） |
 | `client_hello` | `{ client_id }` | 握手帧，其余字段为遗留兼容 |
 
 ### 事件

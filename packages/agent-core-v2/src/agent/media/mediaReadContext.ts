@@ -8,8 +8,8 @@ import type { VideoUploader } from '#/agent/tools/read-media-file/read-media-fil
 import { LifecycleScope } from '#/app/scopes';
 import type { VideoUploadEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IModelCatalog, type Model } from '#/kosong/model/catalog';
-import type { ModelRequester } from '#/kosong/model/modelRequester';
+import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
+import type { ModelRequester } from '#/llm-adapter/model/model-requester';
 
 export interface VideoUploadTelemetry {
   readonly client: ITelemetryService;

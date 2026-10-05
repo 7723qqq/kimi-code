@@ -1,5 +1,5 @@
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
-import type { TokenUsage } from '#/kosong/contract/usage';
+import type { TokenUsage } from '#human/llm/usage';
 import { Error2, ErrorCodes } from '#/errors';
 import { linkAbortSignal } from '#/_base/utils/abort';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
@@ -44,6 +44,10 @@ export class SubagentSuspended extends Event2<SubagentSuspendedPayload> {
   static override readonly observable = true;
 }
 export interface SubagentSuspended extends SubagentSuspendedPayload {}
+
+export interface SubagentSuspendedEvent extends SubagentSuspendedPayload {
+  readonly type: 'subagent.suspended';
+}
 
 const RESUMED_PROFILE_FALLBACK = 'subagent';
 

@@ -1,2 +1,2 @@
-export type { ContentPart, Message } from '#/kosong/contract/message';
-export { createUserMessage, extractText } from '#/kosong/contract/message';
+export type { ContentPart, Message } from '#/llm-adapter/contract/message';
+export { createUserMessage, extractText } from '#/llm-adapter/contract/message';

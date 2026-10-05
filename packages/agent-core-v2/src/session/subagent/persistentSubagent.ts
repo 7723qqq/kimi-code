@@ -1,5 +1,5 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { TokenUsage } from '#/kosong/contract/usage';
+import type { TokenUsage } from '#human/llm/usage';
 
 export interface PersistentSubagentSpawnOptions {
   /** Agent profile name, e.g. 'coder' or 'explore'. */

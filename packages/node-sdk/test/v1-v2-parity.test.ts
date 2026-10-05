@@ -1,6 +1,6 @@
 /**
  * Scenario: v2 contract gate — the SDK's v2 client (`SDKRpcClientV2` /
- * `createKimiHarnessV2`) must produce the SDK's public contract shapes on a
+ * `createKimiHarness`) must produce the SDK's public contract shapes on a
  * fixture home, deterministically across fresh homes. The v1 client is gone
  * (P3b), so the former v1 comparison slot now runs a second v2 engine on its
  * own temp home: the `v1` fields of the pair fixtures below are kept under
@@ -26,10 +26,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  IAgentLifecycleService,
-  ISessionApprovalService,
-  ISessionQuestionService,
   getLiveSessionById,
+  IAgentLifecycleService,
+  INTERACTION_TAG_AGENT_ID,
+  INTERACTION_TAG_SESSION_ID,
+  interactions,
 } from '@moonshot-ai/agent-core-v2';
 import { mcpOAuthStoreKey } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/store';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -59,7 +60,6 @@ async function writeOAuthToken(
 
 import {
   createKimiHarness,
-  createKimiHarnessV2,
   ErrorCodes,
   SDKRpcClientV2,
   type ApprovalRequest,
@@ -574,7 +574,7 @@ interface ParityFixture {
 async function makeParityPair(): Promise<ParityFixture> {
   const homeDir = await makeTempDir('kimi-sdk-parity-home-');
   const v1 = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
-  const v2 = createKimiHarnessV2({ homeDir, identity: TEST_IDENTITY });
+  const v2 = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
   return { v1, v2, homeDir };
 }
 
@@ -622,7 +622,7 @@ async function makeIsolatedParityPair(
   }
   return {
     v1: createKimiHarness({ homeDir: v1Home, identity: TEST_IDENTITY }),
-    v2: createKimiHarnessV2({ homeDir: v2Home, identity: TEST_IDENTITY }),
+    v2: createKimiHarness({ homeDir: v2Home, identity: TEST_IDENTITY }),
   };
 }
 
@@ -4507,9 +4507,9 @@ describe('v1↔v2 event & interaction parity', () => {
     try {
       await createOnBoth(pair, { id: 'session_parity_events_approval' });
       const sessionId = 'session_parity_events_approval';
-      // The engine's interaction services validate the agent runtime; a
-      // direct request needs the main agent materialized first (a real turn
-      // does this implicitly).
+      // Materialize the main agent on both engines (a real turn does this
+      // implicitly) so the bridged interaction has a live agent to attribute
+      // the request to.
       for (const engineAccessor of [pair.v1.engineAccessor, pair.v2.engineAccessor]) {
         const liveSession = getLiveSessionById(engineAccessor, sessionId);
         expect(liveSession).toBeDefined();
@@ -4517,13 +4517,16 @@ describe('v1↔v2 event & interaction parity', () => {
       }
       const v2Session = getLiveSessionById(pair.v2.engineAccessor, sessionId);
       expect(v2Session).toBeDefined();
-      const v2Approvals = v2Session!.accessor.get(ISessionApprovalService);
       const requestInput = {
         turnId: 1,
         toolCallId: 'tc-parity-approval',
         toolName: 'Bash',
         action: 'Run command',
         display: { kind: 'generic', summary: 'Run command', detail: { command: 'ls' } } as const,
+      };
+      const approvalTags = {
+        [INTERACTION_TAG_SESSION_ID]: sessionId,
+        [INTERACTION_TAG_AGENT_ID]: 'main',
       };
 
       // Handler approves: the engine-side request resolves with the handler's
@@ -4539,12 +4542,16 @@ describe('v1↔v2 event & interaction parity', () => {
       pair.v2.setApprovalHandler(sessionId, handler('v2'));
       const [v1Response, v2Response] = await Promise.all([
         pair.v1.requestApproval({ ...requestInput, sessionId, agentId: 'main' }),
-        v2Approvals.request({ ...requestInput, sessionId, agentId: 'main' }),
+        interactions.request({
+          kind: 'approval',
+          payload: requestInput,
+          tags: approvalTags,
+        }),
       ]);
       expect(v2Response).toEqual(v1Response);
       expect(v1Response).toEqual({ decision: 'approved', scope: 'session' });
       expect(observed.v2).toEqual(observed.v1);
-      expect(v2Approvals.listPending()).toEqual([]);
+      expect(interactions.findAll({ resolved: false, tags: approvalTags })).toEqual([]);
 
       // No handler: both cancel with the same decision and feedback.
       pair.v1.setApprovalHandler(sessionId, undefined);
@@ -4556,7 +4563,11 @@ describe('v1↔v2 event & interaction parity', () => {
           sessionId,
           agentId: 'main',
         }),
-        v2Approvals.request({ ...requestInput, toolCallId: 'tc-2', sessionId, agentId: 'main' }),
+        interactions.request({
+          kind: 'approval',
+          payload: { ...requestInput, toolCallId: 'tc-2' },
+          tags: approvalTags,
+        }),
       ]);
       expect(v2Unanswered).toEqual(v1Unanswered);
       expect(v1Unanswered).toEqual({
@@ -4582,16 +4593,25 @@ describe('v1↔v2 event & interaction parity', () => {
           sessionId,
           agentId: 'main',
         }),
-        v2Approvals.request({ ...requestInput, toolCallId: 'tc-3', sessionId, agentId: 'main' }),
+        interactions.request({
+          kind: 'approval',
+          payload: { ...requestInput, toolCallId: 'tc-3' },
+          tags: approvalTags,
+        }),
       ]);
       expect(v2Failed).toEqual(v1Failed);
       expect(v1Failed).toEqual({ decision: 'cancelled', feedback: 'Approval handler failed.' });
-      const v1Errors = projectEventStream(v1Events, sessionId);
-      const v2Errors = projectEventStream(v2Events, sessionId);
-      expect(v2Errors).toEqual(v1Errors);
-      expect(v1Errors).toEqual([
-        { type: 'error', code: 'session.approval_handler_error', message: 'handler boom' },
-      ]);
+      // The interaction kernel is process-global, so the facade request is
+      // bridged by BOTH pair engines' wirings, while the v1 side additionally
+      // emits for its direct SDK call above. Both streams must carry the
+      // handler-failure event.
+      const handlerError = {
+        type: 'error',
+        code: 'session.approval_handler_error',
+        message: 'handler boom',
+      };
+      expect(projectEventStream(v1Events, sessionId)).toContainEqual(handlerError);
+      expect(projectEventStream(v2Events, sessionId)).toContainEqual(handlerError);
     } finally {
       await closeSessionPair(pair);
       restoreEnv();
@@ -4604,17 +4624,14 @@ describe('v1↔v2 event & interaction parity', () => {
     try {
       await createOnBoth(pair, { id: 'session_parity_events_question' });
       const sessionId = 'session_parity_events_question';
-      // The engine's interaction services validate the agent runtime; a
-      // direct request needs the main agent materialized first (a real turn
-      // does this implicitly).
+      // Materialize the main agent on both engines (a real turn does this
+      // implicitly) so the bridged interaction has a live agent to attribute
+      // the request to.
       for (const engineAccessor of [pair.v1.engineAccessor, pair.v2.engineAccessor]) {
         const liveSession = getLiveSessionById(engineAccessor, sessionId);
         expect(liveSession).toBeDefined();
         await liveSession!.accessor.get(IAgentLifecycleService).create({ agentId: 'main' });
       }
-      const v2Session = getLiveSessionById(pair.v2.engineAccessor, sessionId);
-      expect(v2Session).toBeDefined();
-      const v2Questions = v2Session!.accessor.get(ISessionQuestionService);
       const requestInput = {
         turnId: 1,
         toolCallId: 'tc-parity-question',
@@ -4626,6 +4643,10 @@ describe('v1↔v2 event & interaction parity', () => {
             multiSelect: false,
           },
         ],
+      };
+      const questionTags = {
+        [INTERACTION_TAG_SESSION_ID]: sessionId,
+        [INTERACTION_TAG_AGENT_ID]: 'main',
       };
 
       // Handler answers: the engine-side request resolves with the handler's
@@ -4641,12 +4662,16 @@ describe('v1↔v2 event & interaction parity', () => {
       pair.v2.setQuestionHandler(sessionId, handler('v2'));
       const [v1Result, v2Result] = await Promise.all([
         pair.v1.requestQuestion({ ...requestInput, sessionId, agentId: 'main' }),
-        v2Questions.request({ ...requestInput }, { agentId: 'main' }),
+        interactions.request({
+          kind: 'question',
+          payload: requestInput,
+          tags: questionTags,
+        }),
       ]);
       expect(v2Result).toEqual(v1Result);
       expect(v1Result).toEqual({ answers: { 'Pick one': 'a' }, method: 'enter' });
       expect(observed.v2).toEqual(observed.v1);
-      expect(v2Questions.listPending()).toEqual([]);
+      expect(interactions.findAll({ resolved: false, tags: questionTags })).toEqual([]);
 
       // No handler: both answer null (the dismissed outcome on both engines).
       pair.v1.setQuestionHandler(sessionId, undefined);
@@ -4658,7 +4683,11 @@ describe('v1↔v2 event & interaction parity', () => {
           sessionId,
           agentId: 'main',
         }),
-        v2Questions.request({ ...requestInput, toolCallId: 'tc-2' }, { agentId: 'main' }),
+        interactions.request({
+          kind: 'question',
+          payload: { ...requestInput, toolCallId: 'tc-2' },
+          tags: questionTags,
+        }),
       ]);
       expect(v2Dismissed).toEqual(v1Dismissed);
       expect(v1Dismissed).toBeNull();
@@ -4680,16 +4709,23 @@ describe('v1↔v2 event & interaction parity', () => {
           sessionId,
           agentId: 'main',
         }),
-        v2Questions.request({ ...requestInput, toolCallId: 'tc-3' }, { agentId: 'main' }),
+        interactions.request({
+          kind: 'question',
+          payload: { ...requestInput, toolCallId: 'tc-3' },
+          tags: questionTags,
+        }),
       ]);
       expect(v2Failed).toEqual(v1Failed);
       expect(v1Failed).toBeNull();
-      const v1Errors = projectEventStream(v1Events, sessionId);
-      const v2Errors = projectEventStream(v2Events, sessionId);
-      expect(v2Errors).toEqual(v1Errors);
-      expect(v1Errors).toEqual([
-        { type: 'error', code: 'session.question_handler_error', message: 'question boom' },
-      ]);
+      // See the approval case: the global kernel bridges the facade request
+      // through both engines, and the v1 side also emits for its direct call.
+      const handlerError = {
+        type: 'error',
+        code: 'session.question_handler_error',
+        message: 'question boom',
+      };
+      expect(projectEventStream(v1Events, sessionId)).toContainEqual(handlerError);
+      expect(projectEventStream(v2Events, sessionId)).toContainEqual(handlerError);
     } finally {
       await closeSessionPair(pair);
       restoreEnv();
@@ -4743,11 +4779,13 @@ describe('v1↔v2 residual surface parity', () => {
         pair.v2.exportSession({ ...input, outputPath: join(outDir, 'v2.zip') }),
       ]);
       // The zip entry list IS part of the parity surface: both engines lay
-      // the session directory out as state.json + agents/main/wire.jsonl.
+      // the session directory out as state.json + agents/main/wire.jsonl +
+      // notify/state.json (the notification state added in 0.42.0).
       expect(normalize(v2Result.entries, '')).toEqual(normalize(v1Result.entries, ''));
       expect(normalize(v1Result.entries, '')).toEqual([
         'agents/main/wire.jsonl',
         'manifest.json',
+        'notify/state.json',
         'state.json',
       ]);
       const project = KNOWN_DIFFS.exportSession;

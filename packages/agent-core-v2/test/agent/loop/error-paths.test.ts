@@ -29,7 +29,7 @@ describe('Agent loop — error paths', () => {
   it('fails the turn on an LLM error with one turn.step.interrupted{reason:"error"}', async () => {
     const loop = ctx.get(IAgentLoopService);
 
-    const turn = (await loop.enqueue(nextTurnMessage('Hello')).assigned).turn;
+    const { turn } = loop.submit({ message: nextTurnMessage('Hello') });
     await expect(turn.result).resolves.toMatchObject({ type: 'failed' });
 
     expect(rpcEvents(ctx, 'turn.ended')[0]).toMatchObject({ reason: 'failed' });
@@ -40,7 +40,7 @@ describe('Agent loop — error paths', () => {
   });
 
   it('emits turn.step.interrupted exactly once per failure', async () => {
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('Hello')).assigned).turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('Hello') });
     await expect(turn.result).resolves.toMatchObject({ type: 'failed' });
 
     expect(interruptedReasons(ctx)).toEqual(['error']);
@@ -48,7 +48,7 @@ describe('Agent loop — error paths', () => {
 
   it('does not emit turn.step.interrupted for a normal end_turn', async () => {
     ctx.mockNextResponse({ type: 'text', text: 'ok' });
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('Hello')).assigned).turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('Hello') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     expect(interruptedReasons(ctx)).toEqual([]);
@@ -63,7 +63,7 @@ describe('Agent loop — error paths', () => {
       throw error;
     });
 
-    const turn = (await loop.enqueue(nextTurnMessage('Hello')).assigned).turn;
+    const { turn } = loop.submit({ message: nextTurnMessage('Hello') });
     await expect(turn.result).resolves.toMatchObject({ type: 'cancelled' });
 
     expect(ctx.llmCalls).toHaveLength(0);
@@ -79,7 +79,7 @@ describe('Agent loop — error paths', () => {
       throw new Error('hook crashed');
     });
 
-    const turn = (await loop.enqueue(nextTurnMessage('Hello')).assigned).turn;
+    const { turn } = loop.submit({ message: nextTurnMessage('Hello') });
     await expect(turn.result).resolves.toMatchObject({ type: 'failed' });
 
     expect(ctx.llmCalls).toHaveLength(0);
@@ -99,16 +99,14 @@ describe('Agent loop — error paths', () => {
         recoveries += 1;
         if (recoveries === 1) {
           ctx.mockNextResponse({ type: 'text', text: 'Recovered.' });
-          if (hookCtx.failedDriver !== undefined) {
-            hookCtx.retry(hookCtx.failedDriver, { at: 'head' });
-            return true;
-          }
+          hookCtx.retry();
+          return true;
         }
         return;
       },
     });
 
-    const turn = (await loop.enqueue(nextTurnMessage('Hello')).assigned).turn;
+    const { turn } = loop.submit({ message: nextTurnMessage('Hello') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     expect(recoveries).toBe(1);
@@ -127,7 +125,7 @@ describe('Agent loop — error paths', () => {
       },
     });
 
-    const turn = (await loop.enqueue(nextTurnMessage('Hello')).assigned).turn;
+    const { turn } = loop.submit({ message: nextTurnMessage('Hello') });
     await expect(turn.result).resolves.toMatchObject({ type: 'failed' });
   });
 });

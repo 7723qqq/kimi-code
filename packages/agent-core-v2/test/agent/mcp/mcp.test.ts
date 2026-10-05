@@ -1,5 +1,6 @@
-import { CallToolResultSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
+import type { ContentPart, ToolDescription as KosongTool } from '#human/llm/message';
 import { Jimp } from 'jimp';
+import { CallToolResultSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -23,8 +24,6 @@ import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/
 import type { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { ContentPart } from '#/kosong/contract/message';
-import type { Tool as KosongTool } from '#/kosong/contract/tool';
 import type { McpConnectionManager, McpServerEntry } from '#/mcpCore/connection-manager';
 import type { McpOAuthService } from '#/mcpCore/oauth/service';
 import type { MCPClient, MCPToolDefinition } from '#/mcpCore/types';
@@ -225,6 +224,7 @@ describe('AgentMcpService', () => {
     ix.stub(IAgentToolResultTruncationService, stubToolResultTruncationService());
     ix.stub(IAgentLoopService, stubLoopWithHooks());
     ix.set(IAgentStateService, new AgentStateService());
+    ix.stub(IAgentProfileService, { getModelProviderType: () => undefined });
     wire = registerTestAgentWire(ix, 'mcp-test', {
       eventBus: ix.get(IEventBus),
       log: recordingWireLog([], (record) => {

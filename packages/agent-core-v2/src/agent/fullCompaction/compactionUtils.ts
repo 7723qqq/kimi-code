@@ -4,7 +4,7 @@ import type { AgentLLMRequestFinish } from '#/agent/llmRequester/llmRequester';
 import { APIEmptyResponseError, APIStatusError } from '#/app/llmProtocol/errors';
 import type { Message } from '#/app/llmProtocol/message';
 import type { TokenUsage } from '#/app/llmProtocol/usage';
-import { estimateTokensForMessage, estimateTokensForMessages } from '#/kosong/contract/tokens';
+import { estimateTokensForMessage, estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
 
 export const COMPACTION_OVERFLOW_SHRINK_RATIOS = [0.7, 0.5, 0.35] as const;
 

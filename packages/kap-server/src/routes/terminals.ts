@@ -7,7 +7,6 @@ import {
   Error2,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import { createTerminalRequestSchema } from '@moonshot-ai/agent-core-v2/os/interface/terminal';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -16,6 +15,7 @@ import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   closeTerminalResponseSchema,
+  createTerminalRequestSchema,
   getTerminalResponseSchema,
   listTerminalsResponseSchema,
 } from '../protocol/rest-terminal';
@@ -112,7 +112,10 @@ export function registerTerminalsRoutes(app: TerminalsRouteHost, core: Scope): v
     async (req, reply) => {
       try {
         const { session_id } = req.params;
-        const terminal = await (await resolveTerminal(core, session_id)).create(req.body);
+        const terminal = await (await resolveTerminal(core, session_id)).create({
+          ...req.body,
+          runtime_id: req.body.runtime_id ?? 'local',
+        });
         requestLog(req)?.info({ session_id, terminal_id: terminal.id }, 'terminal created');
         reply.send(okEnvelope(terminal, req.id));
       } catch (error) {

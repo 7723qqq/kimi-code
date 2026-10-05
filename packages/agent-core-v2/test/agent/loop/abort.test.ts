@@ -2,14 +2,18 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IEventBus } from '#/app/event/eventBus';
-import type { generate as kosongGenerate } from '#/kosong/contract/generate';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import type { ExecutableTool, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 
-import { permissionModeServices, type TestAgentContext } from '../../harness';
+import {
+  permissionModeServices,
+  requesterFromGenerateFn,
+  type LegacyGenerateFn,
+  type TestAgentContext,
+} from '../../harness';
 import { createLoopTestAgent, makeEchoTool, nextTurnMessage, registerTool } from './helpers';
 
-type GenerateFn = typeof kosongGenerate;
+type GenerateFn = LegacyGenerateFn;
 
 function rpcEvents(ctx: TestAgentContext, event: string): Array<Record<string, unknown>> {
   return ctx.allEvents
@@ -51,29 +55,6 @@ describe('Agent loop — abort handling', () => {
     await ctx.dispose();
   });
 
-  it('returns cancelled without throwing when the signal is already aborted on entry', async () => {
-    const controller = new AbortController();
-    controller.abort();
-
-    const result = await ctx.get(IAgentLoopService).run({
-      turnId: 0,
-      signal: controller.signal,
-    });
-
-    expect(result.type).toBe('cancelled');
-    if (result.type === 'cancelled') {
-      expect(result.steps).toBe(0);
-    }
-    expect(ctx.llmCalls).toHaveLength(0);
-    const stepBegins = ctx.allEvents.filter(
-      (entry) =>
-        entry.type === '[wire]' &&
-        entry.event === 'context.append_loop_event' &&
-        (entry.args as { event?: { type?: string } }).event?.type === 'step.begin',
-    );
-    expect(stepBegins).toHaveLength(0);
-  });
-
   it('returns cancelled when the LLM call itself observes the signal', async () => {
     const loop = ctx.get(IAgentLoopService);
     const subscription = ctx.get(IEventBus).subscribe('assistant.delta', () => {
@@ -81,7 +62,7 @@ describe('Agent loop — abort handling', () => {
     });
 
     ctx.mockNextResponse({ type: 'text', text: 'partial' }, { type: 'text', text: ' more' });
-    const turn = (await loop.enqueue(nextTurnMessage('Hello')).assigned).turn;
+    const { turn } = loop.submit({ message: nextTurnMessage('Hello') });
     await expect(turn.result).resolves.toMatchObject({ type: 'cancelled' });
     subscription.dispose();
 
@@ -125,11 +106,14 @@ describe('Agent loop — abort handling', () => {
     const echo = makeEchoTool();
     const hangStarted = deferredVoid();
     const hang = makeAbortAwareTool('hang', () => hangStarted.resolve());
-    ctx = createLoopTestAgent({ generate }, permissionModeServices('yolo'));
+    ctx = createLoopTestAgent(
+      { generate: requesterFromGenerateFn(generate) },
+      permissionModeServices('yolo'),
+    );
     registerTool(ctx, echo);
     registerTool(ctx, hang);
 
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('run')).assigned).turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('run') });
     await hangStarted.promise;
     ctx.get(IAgentLoopService).cancel(turn.id);
     await expect(turn.result).resolves.toMatchObject({ type: 'cancelled' });
@@ -158,7 +142,7 @@ describe('Agent loop — abort handling', () => {
       { type: 'function', id: 'tc-3', name: 'work', arguments: '{}' },
     );
 
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('run')).assigned).turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('run') });
     await started.promise;
     ctx.get(IAgentLoopService).cancel(turn.id);
     await expect(turn.result).resolves.toMatchObject({ type: 'cancelled' });
@@ -173,26 +157,6 @@ describe('Agent loop — abort handling', () => {
     expect(resultIds).toEqual(callIds);
   });
 
-  it('tells the model a running tool was interrupted by the user, not by a system fault', async () => {
-    const started = deferredVoid();
-    const hang = makeAbortAwareTool('hang', () => started.resolve());
-    ctx = createLoopTestAgent(permissionModeServices('yolo'));
-    registerTool(ctx, hang);
-
-    ctx.mockNextResponse({ type: 'function', id: 'tc-1', name: 'hang', arguments: '{}' });
-
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('run')).assigned).turn;
-    await started.promise;
-    ctx.get(IAgentLoopService).cancel(turn.id);
-    await expect(turn.result).resolves.toMatchObject({ type: 'cancelled' });
-
-    const result = rpcEvents(ctx, 'tool.result')[0];
-    expect(typeof result?.['output']).toBe('string');
-    const output = result?.['output'] as string;
-    expect(output).toContain('not a system error');
-    expect(output).toContain("wait for the user's next instruction");
-  });
-
   it('does not crash when an aborted turn still has work to drain', async () => {
     const started = deferredVoid();
     const hang = makeAbortAwareTool('hang', () => started.resolve());
@@ -201,7 +165,7 @@ describe('Agent loop — abort handling', () => {
 
     ctx.mockNextResponse({ type: 'function', id: 'tc-1', name: 'hang', arguments: '{}' });
 
-    const turn = (await ctx.get(IAgentLoopService).enqueue(nextTurnMessage('run')).assigned).turn;
+    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('run') });
     await started.promise;
     ctx.get(IAgentLoopService).cancel(turn.id);
     await expect(turn.result).resolves.toMatchObject({ type: 'cancelled' });

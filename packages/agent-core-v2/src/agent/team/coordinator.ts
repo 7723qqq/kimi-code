@@ -1,4 +1,4 @@
-import { addUsage, type TokenUsage } from '#/kosong/contract/usage';
+import { addUsage, type TokenUsage } from '#human/llm/usage';
 import type { PersistentSubagentHost } from '#/session/subagent/persistentSubagent';
 
 import { DiscussionContext, type DiscussionEntry } from './context';

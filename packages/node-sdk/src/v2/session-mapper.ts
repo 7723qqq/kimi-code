@@ -1,5 +1,3 @@
-import { resolve, win32 } from 'node:path';
-
 /**
  * Pure mapping between the agent-core-v2 session shapes and the v1 SDK wire
  * shapes. Two gaps are bridged here:
@@ -17,14 +15,15 @@ import type {
   SessionSummary as V2SessionSummary,
 } from '@moonshot-ai/agent-core-v2';
 
-import type { AgentMeta, JsonObject, SessionMeta, SessionSummary } from '#/types';
+import { resolve, win32 } from 'node:path';
+
+import type { AgentMeta, SessionMeta } from '#/replay';
+import type { JsonObject, SessionSummary } from '#/types';
 
 /**
- * Mirror of v1's `normalizeWorkDir` (`agent-core/session/store/workdir-key`):
  * Windows-shaped paths resolve through `win32` and fold to forward slashes,
- * everything else resolves against the process cwd. Duplicated here because
- * the SDK test config aliases `@moonshot-ai/agent-core` to its index, which
- * blocks the deep import — keep it byte-identical to the v1 original.
+ * everything else resolves against the process cwd. Byte-identical with the
+ * legacy v1 `normalizeWorkDir` so stored workdir keys stay stable.
  */
 export function normalizeWorkDir(workDir: string): string {
   if (/^[A-Za-z]:[\\/]/.test(workDir) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(workDir)) {
@@ -83,14 +82,9 @@ function v2AgentsToV1(agents: Readonly<Record<string, V2AgentMeta>>): Record<str
   for (const [agentId, agent] of Object.entries(agents)) {
     mapped[agentId] = {
       homedir: agent.homedir,
-      // v2 registers every agent with a type (`independent` included — a
-      // v2-only kind); v1's meta only knows main/sub, so independent agents
-      // fold onto `sub`, and the fallbacks cover documents written before
-      // the type registration existed.
-      type:
-        agent.type === 'independent'
-          ? 'sub'
-          : (agent.type ?? (agentId === 'main' ? 'main' : 'sub')),
+      // v2 registers every agent with a type; the fallbacks only cover
+      // documents written before that registration existed.
+      type: agent.type ?? (agentId === 'main' ? 'main' : 'sub'),
       // v1 persists an explicit null for a parentless agent where v2 leaves
       // the field unset.
       parentAgentId: agent.parentAgentId ?? null,

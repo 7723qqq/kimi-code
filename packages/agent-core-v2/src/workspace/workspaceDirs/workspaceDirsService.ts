@@ -4,11 +4,11 @@ import { ILogService } from '#/_base/log/log';
 import { subtreeWatchFilter } from '#/_base/utils/paths';
 import { TimeoutTimer } from '#/_base/utils/timer';
 import { IProjectLocalConfigService } from '#/app/projectLocalConfig/projectLocalConfig';
-import { IHostFsWatchService } from '#/os/interface/hostFsWatch';
 import type { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
 import { defineState } from '#/state/state';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
+import { watch } from '#human/utils/watch';
 
 import type { IWorkspaceDirs } from './workspaceDirs';
 import { type WorkspaceAddDirInput, type WorkspaceAdditionalDirsResult } from './workspaceDirs';
@@ -38,7 +38,6 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
   constructor(
     @IWorkspaceContext private readonly workspace: IWorkspaceContext,
     @IProjectLocalConfigService private readonly localConfig: IProjectLocalConfigService,
-    @IHostFsWatchService private readonly fsWatch: IHostFsWatchService,
     @ILogService private readonly log: ILogService,
     @IWorkspaceStateService private readonly states: IWorkspaceStateService,
   ) {
@@ -155,7 +154,7 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
 
   private watchLocalToml(): void {
     try {
-      const handle = this.fsWatch.watch(this.projectRoot, {
+      const handle = watch(this.projectRoot, {
         recursive: true,
         ignored: subtreeWatchFilter(this.projectRoot, [this.configPath]),
       });

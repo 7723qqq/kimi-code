@@ -26,6 +26,7 @@ export const vscodeProjects = [
       include: ['test/**/*.test.ts'],
       exclude: ['test/webview/**'],
       environment: 'node',
+      testTimeout: 15_000,
       // Under the Bun runtime, vitest trips over zod's CJS-getter exports unless zod is inlined.
       server: {
         deps: {

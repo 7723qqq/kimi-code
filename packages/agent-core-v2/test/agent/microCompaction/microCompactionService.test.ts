@@ -35,9 +35,8 @@ import type { IEventBus } from '#/app/event/eventBus';
 import { IFlagService } from '#/app/flag/flag';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { createHooks } from '#/hooks';
-import type { ModelCapability } from '#/kosong/contract/capability';
-import type { Message } from '#/kosong/contract/message';
-import { emptyUsage } from '#/kosong/contract/usage';
+import type { ModelCapability } from '#/llm-adapter/contract/capability';
+import { emptyUsage } from '#human/llm/usage';
 import type { IEventDispatcher } from '#/state/eventDispatcher';
 import type { WireRecord } from '#/wire/record';
 import type { IWireService } from '#/wire/wire';
@@ -90,15 +89,15 @@ function toolExchange(index: number, output: string): ContextMessage[] {
   ];
 }
 
-function textOf(message: Message | undefined): string {
+function textOf(message: ContextMessage | undefined): string {
   return message?.content.map((part) => (part.type === 'text' ? part.text : '')).join('') ?? '';
 }
 
-function hasMarker(messages: readonly Message[]): boolean {
+function hasMarker(messages: readonly ContextMessage[]): boolean {
   return messages.some((message) => textOf(message) === DEFAULT_MARKER);
 }
 
-function toolTexts(messages: readonly Message[]): string[] {
+function toolTexts(messages: readonly ContextMessage[]): string[] {
   return messages.filter((message) => message.role === 'tool').map((message) => textOf(message));
 }
 

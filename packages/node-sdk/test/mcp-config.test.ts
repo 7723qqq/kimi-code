@@ -410,15 +410,15 @@ describe('MCP OAuth facade (host-controlled browser flow)', () => {
   });
 });
 
-class OAuthRpc extends SDKRpcClientBase {
+/**
+ * Minimal OAuth RPC stand-in: only the auth-flow members the harness calls.
+ * The base class is abstract, so the stub is cast on the way in.
+ */
+class OAuthRpc {
   readonly completedFlowIds: string[] = [];
   readonly cancelledFlowIds: string[] = [];
 
-  protected override async getRpc(): Promise<never> {
-    throw new Error('not used');
-  }
-
-  override async beginGlobalMcpServerAuth() {
+  async beginGlobalMcpServerAuth() {
     return {
       status: 'authorization-required' as const,
       flowId: 'flow_test',
@@ -426,7 +426,7 @@ class OAuthRpc extends SDKRpcClientBase {
     };
   }
 
-  override async completeGlobalMcpServerAuth(
+  async completeGlobalMcpServerAuth(
     input: { readonly flowId: string },
     signal?: AbortSignal,
   ): Promise<void> {
@@ -434,13 +434,17 @@ class OAuthRpc extends SDKRpcClientBase {
     this.completedFlowIds.push(input.flowId);
   }
 
-  override async cancelGlobalMcpServerAuth(flowId: string): Promise<void> {
+  async cancelGlobalMcpServerAuth(flowId: string): Promise<void> {
     this.cancelledFlowIds.push(flowId);
+  }
+
+  asRpc(): SDKRpcClientBase {
+    return this as unknown as SDKRpcClientBase;
   }
 }
 
 function oauthHarness(rpc: OAuthRpc): KimiHarness {
-  return new KimiHarness(rpc, {
+  return new KimiHarness(rpc.asRpc(), {
     homeDir: '/tmp/kimi-sdk-mcp-oauth-home',
     configPath: '/tmp/kimi-sdk-mcp-oauth-home/config.toml',
     auth: {} as never,

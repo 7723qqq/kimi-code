@@ -1,3 +1,4 @@
+import type { KimiConfig } from '#/index';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -9,7 +10,6 @@ import {
   loadBuiltInCatalog,
   type CatalogModel,
 } from '../src/catalog';
-import type { KimiConfig } from '../src/index';
 
 function catalogResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -34,9 +34,7 @@ const model: CatalogModel = {
 
 describe('fetchCatalog', () => {
   it('fetches and returns the catalog map', async () => {
-    const catalog = {
-      anthropic: { id: 'anthropic', models: { x: { id: 'x', limit: { context: 1000 } } } },
-    };
+    const catalog = { anthropic: { id: 'anthropic', models: { x: { id: 'x', limit: { context: 1000 } } } } };
     const fetchMock = vi.fn(async () => catalogResponse(catalog));
     const result = await fetchCatalog('https://x/api.json', {
       fetchImpl: fetchMock as unknown as typeof fetch,
@@ -61,10 +59,13 @@ describe('fetchCatalog', () => {
   it('sends the given User-Agent, and none by default', async () => {
     const fetchMock = vi.fn(async () => catalogResponse({}));
 
-    await fetchCatalog('https://x/api.json', {
-      fetchImpl: fetchMock as unknown as typeof fetch,
-      userAgent: 'kimi-code-cli/1.2.3',
-    });
+    await fetchCatalog(
+      'https://x/api.json',
+      {
+        fetchImpl: fetchMock as unknown as typeof fetch,
+        userAgent: 'kimi-code-cli/1.2.3',
+      },
+    );
     const withUa = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const withUaHeaders = withUa[1].headers as Record<string, string>;
     expect(withUaHeaders['User-Agent']).toBe('kimi-code-cli/1.2.3');
