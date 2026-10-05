@@ -16,6 +16,7 @@ import type {
   TranscriptEntry,
 } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
+import { hasDispose } from '../utils/component-capabilities';
 import type { ImageAttachmentStore } from '../utils/image-attachment-store';
 import {
   extractMediaAttachments,
@@ -27,6 +28,7 @@ import {
 } from '../utils/image-placeholder';
 import type { ExtractionResult } from '../utils/image-placeholder';
 import { combineSteerInput } from '../utils/steer-input';
+import { getTranscriptComponentEntry } from '../utils/transcript-component-metadata';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
 import type { CacheHintController } from './cache-hint-controller';
@@ -87,6 +89,7 @@ export class MessageDispatchController {
   private readonly host: MessageDispatchHost;
   private readonly staging: StagingLeaseTracker;
   private readonly imageStore: ImageAttachmentStore;
+  private readonly steeringQueuedMessages = new Set<QueuedMessage>();
 
   constructor(
     host: MessageDispatchHost,
@@ -124,15 +127,18 @@ export class MessageDispatchController {
       // in: the image store may already be cleared (e.g. after "Start a new
       // session"), so re-extracting from the text would lose the media.
       // Bare image paths attach during extraction; their paste-time
-      // ingestion (compression/daemon upload) is awaited inside it.
-      extraction =
+      // ingestion (compression/daemon upload) is awaited inside it. A
+      // media-free text extracts synchronously, so the submit path only
+      // yields when a path actually has to be read.
+      const extracted =
         preExtracted ??
-        (await extractMediaAttachments(
+        extractMediaAttachments(
           text,
           this.imageStore,
           (attachment, bytes, mime, width, height) =>
             this.host.editorKeyboard.prepareImageAttachment(attachment, bytes, mime, width, height),
-        ));
+        );
+      extraction = extracted instanceof Promise ? await extracted : extracted;
       if (preExtracted !== undefined) {
         const parts = refreshExpiringImageFileRefs(
           extraction.parts,
@@ -214,14 +220,15 @@ export class MessageDispatchController {
     }
     let extraction: ExtractionResult;
     try {
-      extraction =
+      const extracted =
         preExtracted ??
-        (await extractMediaAttachments(
+        extractMediaAttachments(
           text,
           this.imageStore,
           (attachment, bytes, mime, width, height) =>
             this.host.editorKeyboard.prepareImageAttachment(attachment, bytes, mime, width, height),
-        ));
+        );
+      extraction = extracted instanceof Promise ? await extracted : extracted;
     } catch (error) {
       this.host.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
       return;
@@ -343,6 +350,7 @@ export class MessageDispatchController {
   recallLastQueued(): QueuedMessage | undefined {
     if (this.host.state.queuedMessages.length === 0) return undefined;
     const last = this.host.state.queuedMessages.at(-1)!;
+    if (this.steeringQueuedMessages.has(last)) return undefined;
     this.host.state.queuedMessages = this.host.state.queuedMessages.slice(0, -1);
     // A recall restores the draft into the editor — it is not a discard:
     // consumes the retains only, keeping the staged daemon uploads alive
@@ -379,7 +387,18 @@ export class MessageDispatchController {
     },
     mode?: 'prompt' | 'bash',
   ): void {
-    this.host.state.queuedMessages.push({
+    this.host.state.queuedMessages.push(this.toQueuedMessage(text, options, mode));
+    this.host.track('input_queue');
+  }
+
+  private toQueuedMessage(
+    text: string,
+    options?: SendMessageOptions & {
+      readonly inlineSkillActivations?: readonly InlineSkillActivation[];
+    },
+    mode?: 'prompt' | 'bash',
+  ): QueuedMessage {
+    return {
       text,
       agentId: this.host.harness.interactiveAgentId,
       parts: options?.parts,
@@ -387,8 +406,7 @@ export class MessageDispatchController {
       videoAttachmentIds: nonEmptyIds(options?.videoAttachmentIds),
       mode,
       inlineSkillActivations: options?.inlineSkillActivations,
-    });
-    this.host.track('input_queue');
+    };
   }
 
   beginSessionRequest(): void {
@@ -650,53 +668,23 @@ export class MessageDispatchController {
   }
 
   private sendMessage(session: Session, input: string, options?: SendMessageOptions): void {
-    const phase = this.host.state.appState.streamingPhase;
-    // Tower mode keeps the main agent as a long-lived coordinator: while its
-    // turn is live, new input steers into that turn instead of queueing
-    // behind it, so consecutive /tower objectives are accepted immediately
-    // rather than serialized one turn at a time. A foreground shell command
-    // ('shell') has no turn to steer into and keeps queue semantics, as do
-    // input deferral and compaction.
-    const steerIntoCoordinator =
-      this.host.state.appState.towerMode &&
-      phase !== 'idle' &&
-      phase !== 'shell' &&
-      !this.host.deferUserMessages &&
-      !this.host.state.appState.isCompacting;
     // Submission order must survive a mid-turn compaction: objectives queued
     // while compacting stay queued when the turn outlives the compaction, so
     // steering this input ahead of them would reorder the conversation.
     // Prompt-only backlog rides along in the same steer batch, ahead of the
     // new input; a non-steerable backlog (bash, slash-skill, inline-skill
     // bundle) cannot, and then this input queues behind it instead.
-    const backlog = this.host.state.queuedMessages;
-    const backlogSteerable = backlog.every(
-      (m) => m.inlineSkillActivations === undefined && m.mode !== 'bash' && m.mode !== 'skill',
-    );
-    if (steerIntoCoordinator && backlogSteerable) {
+    if (
+      this.canSteerQueueIntoRunningTurn() &&
+      this.host.state.queuedMessages.every(isSteerableQueuedMessage)
+    ) {
       // Same lease hand-off as the queue path below: the pre-dispatch lease
-      // defers to the raw ids on the steer item, which re-leases inside
+      // defers to the raw ids on the queue item, which re-leases inside
       // steerMessage and binds to the running turn.
       this.staging.defer(options?.lease);
-      const items: SteerInputItem[] = [
-        ...backlog.map((m) => ({
-          text: m.text,
-          parts: m.parts,
-          imageAttachmentIds: m.imageAttachmentIds,
-          videoAttachmentIds: m.videoAttachmentIds,
-        })),
-        {
-          text: input,
-          parts: options?.parts,
-          imageAttachmentIds: options?.imageAttachmentIds,
-          videoAttachmentIds: options?.videoAttachmentIds,
-        },
-      ];
-      if (backlog.length > 0) {
-        this.host.state.queuedMessages = [];
-        this.host.updateQueueDisplay();
-      }
-      this.steerMessage(session, items);
+      this.host.state.queuedMessages.push(this.toQueuedMessage(input, options));
+      this.host.updateQueueDisplay();
+      this.steerQueuedMessagesIntoRunningTurn();
       return;
     }
     if (
@@ -713,7 +701,116 @@ export class MessageDispatchController {
     this.sendMessageInternal(session, input, options);
   }
 
-  steerMessage(session: Session, input: readonly SteerInputItem[]): void {
+  // Tower mode keeps the main agent as a long-lived coordinator: while its
+  // turn is live, input steers into that turn instead of queueing behind it,
+  // so consecutive /tower objectives are accepted immediately rather than
+  // serialized one turn at a time. A running WaitFor steers the same way: the
+  // steer ends the wait at once and the model reads the new input, instead of
+  // the input queueing until the wait times out. A foreground shell command
+  // ('shell') has no turn to steer into and keeps queue semantics, as do
+  // input deferral and compaction.
+  private canSteerQueueIntoRunningTurn(): boolean {
+    const phase = this.host.state.appState.streamingPhase;
+    return (
+      (this.host.state.appState.towerMode || this.host.streamingUI.isWaitForRunning()) &&
+      phase !== 'idle' &&
+      phase !== 'shell' &&
+      !this.host.deferUserMessages &&
+      !this.host.state.appState.isCompacting
+    );
+  }
+
+  /** Steers the whole queue into the running turn when it is prompt-only.
+   *  The steered items stay at the front of the queue while the steer is in
+   *  flight, and the queue holds (see `shiftQueuedMessage`) so nothing queued
+   *  behind them dispatches first: success removes them, failure leaves them
+   *  queued in place, and a queue left behind by an ended turn drains once
+   *  the steer settles. */
+  steerQueuedMessagesIntoRunningTurn(): void {
+    const session = this.host.session;
+    if (session === undefined || this.steeringQueuedMessages.size > 0) return;
+    if (!this.canSteerQueueIntoRunningTurn()) return;
+    const batch = [...this.host.state.queuedMessages];
+    if (batch.length === 0 || !batch.every(isSteerableQueuedMessage)) return;
+    for (const message of batch) this.steeringQueuedMessages.add(message);
+    this.host.updateQueueDisplay();
+    // Same expiring-upload refresh as the queue drain (`sendQueuedMessage`):
+    // an image whose daemon upload expired falls back to its retained bytes.
+    const items = batch.map((message) => {
+      const item = toSteerInputItem(message);
+      if (message.parts === undefined) return item;
+      return {
+        ...item,
+        parts: refreshExpiringImageFileRefs(
+          message.parts,
+          message.imageAttachmentIds ?? [],
+          this.imageStore,
+        ),
+      };
+    });
+    this.steerMessage(session, items, (steered) => {
+      for (const message of batch) this.steeringQueuedMessages.delete(message);
+      if (this.host.session !== session) return;
+      if (steered) {
+        const done = new Set(batch);
+        this.host.state.queuedMessages = this.host.state.queuedMessages.filter((m) => !done.has(m));
+      }
+      this.host.updateQueueDisplay();
+      if (steered && this.canSteerQueueIntoRunningTurn()) {
+        this.steerQueuedMessagesIntoRunningTurn();
+        return;
+      }
+      // A turn that ended while the steer was in flight could not drain the
+      // held queue. A prompt dispatched now while the engine still runs a
+      // turn launched by the steer is queued behind it by the engine, so the
+      // order holds either way.
+      this.drainQueueIfIdle();
+    });
+  }
+
+  isSteeringQueuedMessages(): boolean {
+    return this.steeringQueuedMessages.size > 0;
+  }
+
+  private drainQueueIfIdle(): void {
+    if (
+      this.host.state.appState.streamingPhase !== 'idle' ||
+      this.host.deferUserMessages ||
+      this.host.state.appState.isCompacting ||
+      this.host.state.queuedMessageDispatchPending
+    ) {
+      return;
+    }
+    this.drainOneQueuedMessage();
+  }
+
+  drainOneQueuedMessage(): void {
+    const session = this.host.session;
+    if (session === undefined) return;
+    const item = this.shiftQueuedMessage();
+    if (item === undefined) return;
+    if (item.mode === 'bash') {
+      this.staging.releaseQueued([item]);
+      void this.host.runShellCommandFromInput(item.text);
+    } else {
+      this.sendQueuedMessage(session, item);
+    }
+    this.host.updateQueueDisplay();
+  }
+
+  shiftQueuedMessage(): QueuedMessage | undefined {
+    if (this.host.state.queuedMessages.length === 0) return undefined;
+    const [first, ...rest] = this.host.state.queuedMessages;
+    if (this.steeringQueuedMessages.has(first!)) return undefined;
+    this.host.state.queuedMessages = rest;
+    return first;
+  }
+
+  steerMessage(
+    session: Session,
+    input: readonly SteerInputItem[],
+    onSettled?: (steered: boolean) => void,
+  ): void {
     if (this.host.deferUserMessages || this.host.state.appState.isCompacting) {
       for (const item of input) {
         this.enqueueMessage(item.text, item);
@@ -727,15 +824,18 @@ export class MessageDispatchController {
       return;
     }
 
+    const steeredEntries: TranscriptEntry[] = [];
     for (const item of input) {
-      this.host.appendTranscriptEntry({
+      const entry: TranscriptEntry = {
         id: nextTranscriptId(),
         kind: 'user',
         turnId: this.host.streamingUI.getTurnContext().turnId,
         renderMode: 'plain',
         content: item.text,
         imageAttachmentIds: nonEmptyIds(item.imageAttachmentIds),
-      });
+      };
+      steeredEntries.push(entry);
+      this.host.appendTranscriptEntry(entry);
     }
 
     // Dedupe per item, not across the batch: each queued message retained a
@@ -761,12 +861,59 @@ export class MessageDispatchController {
             ),
           },
     );
-    this.staging.trackDispatch(
-      stagingLease,
-      session.steer(combineSteerInput(resolvedInput)),
-      (error) => {
-        this.host.showError(`Failed to steer: ${formatErrorMessage(error)}`);
-      },
-    );
+    const request = session.steer(combineSteerInput(resolvedInput));
+    if (onSettled !== undefined) {
+      void request.then(
+        () => onSettled(true),
+        () => {},
+      );
+    }
+    this.staging.trackDispatch(stagingLease, request, (error) => {
+      if (onSettled !== undefined) {
+        if (this.host.session !== session) {
+          onSettled(false);
+          return;
+        }
+        this.staging.defer(stagingLease);
+        this.removeTranscriptEntries(steeredEntries);
+        onSettled(false);
+      }
+      this.host.showError(`Failed to steer: ${formatErrorMessage(error)}`);
+    });
   }
+
+  private removeTranscriptEntries(entries: readonly TranscriptEntry[]): void {
+    const doomed = new Set(entries);
+    const componentsToRemove = this.host.state.transcriptContainer.children.filter((child) => {
+      const entry = getTranscriptComponentEntry(child);
+      return entry !== undefined && doomed.has(entry);
+    });
+    for (const child of componentsToRemove) {
+      // pi-tui Container.removeChild (not a DOM node); `child.remove()` does not exist.
+      // oxlint-disable-next-line unicorn/prefer-dom-node-remove
+      this.host.state.transcriptContainer.removeChild(child);
+      if (hasDispose(child)) child.dispose();
+    }
+    this.host.state.transcriptEntries = this.host.state.transcriptEntries.filter(
+      (e) => !doomed.has(e),
+    );
+    this.host.state.ui.requestRender();
+  }
+}
+
+function isSteerableQueuedMessage(message: QueuedMessage): boolean {
+  return (
+    message.inlineSkillActivations === undefined &&
+    message.mode !== 'bash' &&
+    message.mode !== 'skill'
+  );
+}
+
+function toSteerInputItem(message: QueuedMessage): SteerInputItem {
+  return {
+    text: message.text,
+    parts: message.parts,
+    imageAttachmentIds: message.imageAttachmentIds,
+    videoAttachmentIds: message.videoAttachmentIds,
+  };
 }

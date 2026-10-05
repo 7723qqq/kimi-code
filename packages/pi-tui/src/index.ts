@@ -131,6 +131,7 @@ export {
 	type Focusable,
 	isFocusable,
 	isViewportTUI,
+	type LayoutEffect,
 	type OverlayAnchor,
 	type OverlayBounds,
 	type OverlayHandle,

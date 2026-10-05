@@ -34,12 +34,12 @@ import type {
   ExportSessionManifest,
   FileHistoryCheckpointed,
   FileHistoryTracked,
+  Forked,
   FullCompactionBegin,
   FullCompactionCancel,
   FullCompactionComplete,
   GoalClear,
   GoalCreate,
-  GoalForked,
   GoalUpdate,
   InteractionRequestEvent,
   InteractionResolvedEvent,
@@ -199,7 +199,7 @@ export type AgentRecord =
   | WireRecordOf<'cron.delete', CronDeletePayload>
   | WireRecordOf<'file_history.checkpoint', FileHistoryCheckpointed>
   | WireRecordOf<'file_history.tracked', FileHistoryTracked>
-  | WireRecordOf<'forked', GoalForked>
+  | WireRecordOf<'forked', Forked>
   | WireRecordOf<'full_compaction.begin', FullCompactionBegin>
   | WireRecordOf<'full_compaction.cancel', FullCompactionCancel>
   | WireRecordOf<'full_compaction.complete', FullCompactionComplete>

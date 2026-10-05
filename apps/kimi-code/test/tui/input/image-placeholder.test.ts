@@ -24,6 +24,15 @@ function storeWith(
   return { store, placeholder: att.placeholder };
 }
 
+/**
+ * `extractMediaAttachments` stays synchronous for text without an image file
+ * path, so a refusal surfaces as a synchronous throw there and as a rejected
+ * promise otherwise. Normalize both into a rejection for the assertions.
+ */
+function extractRejection(text: string, store: ImageAttachmentStore): Promise<unknown> {
+  return Promise.resolve().then(() => extractMediaAttachments(text, store));
+}
+
 /** Point `getCacheDir()` at a fresh temp home for the duration of a test. */
 function setupTempCache(): { cleanup: () => void } {
   const home = mkdtempSync(join(tmpdir(), 'kimi-home-'));
@@ -169,17 +178,13 @@ describe('extractMediaAttachments', () => {
     const store = new ImageAttachmentStore();
     const att = store.addVideo('video/mp4', '/tmp/sample.mp4');
     att.pending = new Promise<void>(() => undefined); // never settles
-    await expect(extractMediaAttachments(att.placeholder, store)).rejects.toThrow(
-      /still uploading/,
-    );
+    await expect(extractRejection(att.placeholder, store)).rejects.toThrow(/still uploading/);
   });
 
   it('refuses a video whose upload failed or is missing', async () => {
     const store = new ImageAttachmentStore();
     const att = store.addVideo('video/mp4', '/tmp/sample.mp4');
-    await expect(extractMediaAttachments(att.placeholder, store)).rejects.toThrow(
-      /could not be uploaded/,
-    );
+    await expect(extractRejection(att.placeholder, store)).rejects.toThrow(/could not be uploaded/);
   });
 
   it('inserts a compression caption before an image that was compressed at paste time', async () => {

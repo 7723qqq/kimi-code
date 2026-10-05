@@ -1318,18 +1318,8 @@ export class KimiTUI {
     }
   }
 
-  private drainOneQueuedMessage(): void {
-    const session = this.session;
-    if (session === undefined) return;
-    const item = this.shiftQueuedMessage();
-    if (item === undefined) return;
-    if (item.mode === 'bash') {
-      this.staging.releaseQueued([item]);
-      void this.runShellCommandFromInput(item.text);
-    } else {
-      this.sendQueuedMessage(session, item);
-    }
-    this.updateQueueDisplay();
+  drainOneQueuedMessage(): void {
+    this.messageDispatch.drainOneQueuedMessage();
   }
 
   private async loadPersistedInputHistory(): Promise<void> {
@@ -1450,6 +1440,14 @@ export class KimiTUI {
     this.sessionEventHandler.requestQueuedGoalPromotion();
   }
 
+  steerQueuedMessagesIntoRunningTurn(): void {
+    this.messageDispatch.steerQueuedMessagesIntoRunningTurn();
+  }
+
+  isSteeringQueuedMessages(): boolean {
+    return this.messageDispatch.isSteeringQueuedMessages();
+  }
+
   // =========================================================================
   // State & Accessors
   // =========================================================================
@@ -1465,10 +1463,7 @@ export class KimiTUI {
   }
 
   shiftQueuedMessage(): QueuedMessage | undefined {
-    if (this.state.queuedMessages.length === 0) return undefined;
-    const [first, ...rest] = this.state.queuedMessages;
-    this.state.queuedMessages = rest;
-    return first;
+    return this.messageDispatch.shiftQueuedMessage();
   }
 
   pushTranscriptEntry(entry: TranscriptEntry): void {
@@ -2241,7 +2236,7 @@ export class KimiTUI {
         messages: queued,
         isCompacting: this.state.appState.isCompacting,
         isStreaming: this.state.appState.streamingPhase !== 'idle',
-        canSteerImmediately: !this.deferUserMessages,
+        canSteerImmediately: !this.deferUserMessages && !this.isSteeringQueuedMessages(),
       }),
     );
   }
@@ -2712,7 +2707,14 @@ export class KimiTUI {
     try {
       info = await this.harness.getWorkspaceTrustInfo(workDir);
     } catch {
-      info = { trusted: false, gatedMcpServers: [] };
+      info = {
+        trusted: false,
+        gatedMcpServers: [],
+        gatedAdditionalDirs: [],
+        additionalDirSources: [],
+        warnings: ['Could not inspect project settings.'],
+        instructionSources: { agentsMdPaths: [], skills: [], agentProfiles: [], paths: [] },
+      };
     }
     if (info.trusted) {
       return false;
@@ -2723,7 +2725,9 @@ export class KimiTUI {
       this.mountEditorReplacement(
         new TrustPromptComponent({
           workDir,
-          gatedMcpServers: info.gatedMcpServers,
+          info,
+          getAvailableRows: () =>
+            this.state.terminal.rows - (this.state.ui instanceof TuiAltScreen ? 1 : 0),
           onSelect: (c) => {
             resolve(c);
           },

@@ -209,12 +209,7 @@ async function rewriteImageFilePaths(
   return out + text.slice(cursor);
 }
 
-export async function extractMediaAttachments(
-  text: string,
-  store: ImageAttachmentStore,
-  ingest?: PathImageIngester,
-): Promise<ExtractionResult> {
-  text = await rewriteImageFilePaths(text, store, ingest);
+function extractMediaAttachmentsSync(text: string, store: ImageAttachmentStore): ExtractionResult {
   const parts: PromptPart[] = [];
   const imageAttachmentIds: number[] = [];
   const videoAttachmentIds: number[] = [];
@@ -295,6 +290,33 @@ export async function extractMediaAttachments(
     videoAttachmentIds,
     imageSnapshots,
   };
+}
+
+async function extractMediaAttachmentsAsync(
+  text: string,
+  store: ImageAttachmentStore,
+  ingest?: PathImageIngester,
+): Promise<ExtractionResult> {
+  return extractMediaAttachmentsSync(await rewriteImageFilePaths(text, store, ingest), store);
+}
+
+/**
+ * Expand the media references in `text` into prompt parts.
+ *
+ * Stays synchronous when the text carries no image file path — the common
+ * case — so a media-free submit reaches dispatch without yielding; only a
+ * path that has to be read from disk (and possibly ingested) defers.
+ */
+export function extractMediaAttachments(
+  text: string,
+  store: ImageAttachmentStore,
+  ingest?: PathImageIngester,
+): ExtractionResult | Promise<ExtractionResult> {
+  IMAGE_PATH_REGEX.lastIndex = 0;
+  const hasImagePath = IMAGE_PATH_REGEX.test(text);
+  IMAGE_PATH_REGEX.lastIndex = 0;
+  if (!hasImagePath) return extractMediaAttachmentsSync(text, store);
+  return extractMediaAttachmentsAsync(text, store, ingest);
 }
 
 /**

@@ -148,6 +148,9 @@ export interface SessionEventHost {
   hasPendingBundledSkill?(name: string): boolean;
   /** Transcript entry id of the most recently dispatched user prompt (see KimiTUI). */
   readonly lastDispatchedUserEntryId?: string;
+  steerQueuedMessagesIntoRunningTurn(): void;
+  handleTurnStarted?(event: TurnStartedEvent): void;
+  handleTurnEnded?(event: TurnEndedEvent): void;
   readonly btwPanelController: BtwPanelController;
   readonly tasksBrowserController: TasksBrowserController;
 }
@@ -802,6 +805,11 @@ export class SessionEventHandler {
   }
 
   private handleToolProgress(event: ToolProgressEvent): void {
+    // Input queued before the wait began would otherwise sit until the wait
+    // returns; steering it now ends the wait so the model reads it first.
+    if (this.host.streamingUI.markWaitForRunning(event.toolCallId)) {
+      this.host.steerQueuedMessagesIntoRunningTurn();
+    }
     const text = event.update.text;
     if (text === undefined || text.length === 0) return;
     const tc = this.host.streamingUI.getToolComponent(event.toolCallId);

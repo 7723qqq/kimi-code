@@ -1,4 +1,3 @@
-import type { WorkspaceTrustMcpServerInfo } from '@moonshot-ai/kimi-code-sdk';
 import {
   Key,
   matchesKey,
@@ -7,45 +6,36 @@ import {
   type Component,
   type Focusable,
 } from '@moonshot-ai/pi-tui';
+import type { WorkspaceTrustInfo } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
+
 import { SELECT_POINTER } from '#/tui/constant/symbols';
-import { currentTheme } from '#/tui/theme';
+import { currentTheme, type ColorToken } from '#/tui/theme';
+import { pageView } from '#/tui/utils/paging';
 
 export type TrustPromptChoice = 'trust' | 'distrust';
 
 export interface TrustPromptOptions {
   readonly workDir: string;
-  /** Project-level MCP servers that trusting would enable; may be empty. */
-  readonly gatedMcpServers: readonly WorkspaceTrustMcpServerInfo[];
-  /** Esc resolves to 'distrust' as well. */
+  readonly info: WorkspaceTrustInfo;
+  readonly getAvailableRows?: () => number;
   readonly onSelect: (choice: TrustPromptChoice) => void;
 }
 
-interface TrustPromptOption {
-  readonly value: TrustPromptChoice;
-  readonly label: string;
-  readonly description: string;
-}
-
-function getOptions(): readonly TrustPromptOption[] {
+function getOptions(): readonly { value: TrustPromptChoice; label: string }[] {
   return [
-    {
-      value: 'trust',
-      label: t('tui.dialogs.trustPrompt.trustLabel'),
-      description: t('tui.dialogs.trustPrompt.trustDesc'),
-    },
-    {
-      value: 'distrust',
-      label: t('tui.dialogs.trustPrompt.distrustLabel'),
-      description: t('tui.dialogs.trustPrompt.distrustDesc'),
-    },
+    { value: 'trust', label: t('tui.dialogs.trustPrompt.trustLabel') },
+    { value: 'distrust', label: t('tui.dialogs.trustPrompt.distrustLabel') },
   ];
 }
 
 export class TrustPromptComponent implements Component, Focusable {
   focused = false;
   private selectedIndex = 0;
+  private disclosureIndex = 0;
+  private disclosurePageSize = 1;
+  private canConfirm = true;
 
   constructor(private readonly opts: TrustPromptOptions) {}
 
@@ -64,75 +54,187 @@ export class TrustPromptComponent implements Component, Focusable {
       this.selectedIndex = Math.min(getOptions().length - 1, this.selectedIndex + 1);
       return;
     }
-    if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
+    const previousPage = matchesKey(data, Key.left) || matchesKey(data, Key.pageUp);
+    const nextPage = matchesKey(data, Key.right) || matchesKey(data, Key.pageDown);
+    if (previousPage || nextPage) {
+      this.disclosureIndex = Math.max(
+        0,
+        this.disclosureIndex + (previousPage ? -1 : 1) * this.disclosurePageSize,
+      );
+      return;
+    }
+    if (this.canConfirm && (matchesKey(data, Key.enter) || matchesKey(data, Key.space))) {
       this.opts.onSelect(getOptions()[this.selectedIndex]!.value);
     }
   }
 
   render(width: number): string[] {
     const rule = currentTheme.fg('primary', '─'.repeat(width));
-    const lines = [
+    const availableRows = Math.max(0, Math.floor(this.opts.getAvailableRows?.() ?? Infinity));
+    const header = [
       rule,
       currentTheme.boldFg('primary', t('tui.dialogs.trustPrompt.title')),
       currentTheme.fg('textMuted', t('tui.dialogs.trustPrompt.navHint')),
       '',
-      ...wrapTextWithAnsi(this.opts.workDir, Math.max(20, width - 2)).map(
-        (line) => ` ${currentTheme.fg('textStrong', line)}`,
-      ),
-      '',
     ];
-
-    const notice = t('tui.dialogs.trustPrompt.notice');
-    for (const line of wrapTextWithAnsi(notice, Math.max(20, width - 2))) {
-      lines.push(` ${currentTheme.fg('textMuted', line)}`);
+    const body = [
+      ...wrap(this.opts.workDir, 1, width, 'textStrong'),
+      '',
+      ...this.renderDisclosure(width),
+    ];
+    const footer = [
+      ...wrap(t('tui.dialogs.trustPrompt.remembered'), 1, width, 'textMuted'),
+      ...wrap(t('tui.dialogs.trustPrompt.approvals'), 1, width, 'textMuted'),
+      '',
+      ...getOptions().map((option, i) => {
+        const selected = i === this.selectedIndex;
+        const pointer = selected ? SELECT_POINTER : ' ';
+        const label = selected
+          ? currentTheme.boldFg('primary', option.label)
+          : currentTheme.fg('text', option.label);
+        return currentTheme.fg(selected ? 'primary' : 'textDim', `  ${pointer} `) + label;
+      }),
+      rule,
+    ];
+    this.canConfirm = header.length + footer.length + 2 <= availableRows;
+    if (!this.canConfirm) {
+      return [header[1]!, ` ${t('tui.dialogs.trustPrompt.enlargeTerminal')}`]
+        .slice(0, availableRows)
+        .map((line) => truncateToWidth(line, width));
     }
-    if (this.opts.gatedMcpServers.length > 0) {
-      lines.push(` ${currentTheme.fg('warning', t('tui.dialogs.trustPrompt.projectMcpTargets'))}`);
-      for (const server of this.opts.gatedMcpServers) {
-        const details = formatMcpTarget(server);
-        for (const line of wrapTextWithAnsi(details, Math.max(20, width - 4))) {
-          lines.push(`   ${currentTheme.fg('warning', line)}`);
-        }
-      }
-    }
-    lines.push('');
+    const needsPaging = header.length + body.length + footer.length > availableRows;
+    this.disclosurePageSize = needsPaging
+      ? availableRows - header.length - footer.length - 1
+      : body.length;
+    const page = pageView(body.length, this.disclosureIndex, this.disclosurePageSize);
+    this.disclosureIndex = page.start;
+    const lines = [...header, ...body.slice(page.start, page.end)];
+    while (lines.length < header.length + this.disclosurePageSize) lines.push('');
+    if (page.pageCount > 1)
+      lines.push(
+        currentTheme.fg(
+          'textMuted',
+          t('tui.dialogs.trustPrompt.pageIndicator', {
+            page: page.page + 1,
+            total: page.pageCount,
+          }),
+        ),
+      );
+    lines.push(...footer);
+    return lines.map((line) => truncateToWidth(line, width));
+  }
 
-    const options = getOptions();
-    for (let i = 0; i < options.length; i += 1) {
-      const option = options[i]!;
-      const selected = i === this.selectedIndex;
-      const pointer = selected ? SELECT_POINTER : ' ';
-      const label = selected
-        ? currentTheme.boldFg('primary', option.label)
-        : currentTheme.fg('text', option.label);
-      lines.push(currentTheme.fg(selected ? 'primary' : 'textDim', `  ${pointer} `) + label);
-      for (const line of wrapTextWithAnsi(option.description, Math.max(20, width - 4))) {
-        lines.push(`    ${currentTheme.fg('textMuted', line)}`);
+  private renderDisclosure(width: number): string[] {
+    const {
+      gatedMcpServers,
+      gatedAdditionalDirs,
+      additionalDirSources,
+      instructionSources,
+      warnings,
+    } = this.opts.info;
+    const lines: string[] = [];
+    if (gatedMcpServers.length > 0) {
+      lines.push(
+        ...wrap(
+          t(
+            gatedMcpServers.length === 1
+              ? 'tui.dialogs.trustPrompt.startMcpServers_one'
+              : 'tui.dialogs.trustPrompt.startMcpServers_other',
+            { count: gatedMcpServers.length },
+          ),
+          1,
+          width,
+          'warning',
+        ),
+      );
+      const origins = [...new Set(gatedMcpServers.map((server) => server.origin))];
+      lines.push(
+        ...wrap(
+          t('tui.dialogs.trustPrompt.configSources', {
+            paths: origins.map((path) => relativize(this.opts.workDir, path)).join(', '),
+          }),
+          3,
+          width,
+          'textMuted',
+        ),
+        '',
+      );
+    }
+    if (gatedAdditionalDirs.length > 0) {
+      lines.push(
+        ...wrap(
+          t(
+            gatedAdditionalDirs.length === 1
+              ? 'tui.dialogs.trustPrompt.accessFolders_one'
+              : 'tui.dialogs.trustPrompt.accessFolders_other',
+            { count: gatedAdditionalDirs.length },
+          ),
+          1,
+          width,
+          'warning',
+        ),
+      );
+      if (additionalDirSources.length > 0) {
+        lines.push(
+          ...wrap(
+            t('tui.dialogs.trustPrompt.configSources', {
+              paths: additionalDirSources
+                .map((path) => relativize(this.opts.workDir, path))
+                .join(', '),
+            }),
+            3,
+            width,
+            'textMuted',
+          ),
+        );
       }
       lines.push('');
     }
-
-    lines.push(rule);
-    return lines.map((line) => truncateToWidth(line, width));
+    if (instructionSources.paths.length > 0) {
+      const hasInstructions =
+        instructionSources.agentsMdPaths.length > 0 || instructionSources.skills.length > 0;
+      const subject = hasInstructions
+        ? instructionSources.agentProfiles.length > 0
+          ? t('tui.dialogs.trustPrompt.subjectInstructionsAndProfiles')
+          : t('tui.dialogs.trustPrompt.subjectInstructions')
+        : t('tui.dialogs.trustPrompt.subjectAgentProfiles');
+      lines.push(
+        ...wrap(t('tui.dialogs.trustPrompt.loadProjectSources', { subject }), 1, width, 'text'),
+      );
+      lines.push(
+        ...wrap(
+          t('tui.dialogs.trustPrompt.checkSources', {
+            paths: instructionSources.paths
+              .map((path) => relativize(this.opts.workDir, path))
+              .join(' · '),
+          }),
+          3,
+          width,
+          'textMuted',
+        ),
+        '',
+      );
+    }
+    for (const warning of warnings) lines.push(...wrap(warning, 1, width, 'warning'));
+    if (lines.length === 0)
+      lines.push(...wrap(t('tui.dialogs.trustPrompt.noProjectSources'), 1, width, 'textMuted'), '');
+    return lines;
   }
 }
 
-function formatMcpTarget(server: WorkspaceTrustMcpServerInfo): string {
-  if (server.transport === 'stdio') {
-    const args = server.args === undefined ? '' : ` args=${JSON.stringify(server.args)}`;
-    const cwd = server.cwd === undefined ? '' : ` cwd=${server.cwd}`;
-    return sanitizeForDisplay(
-      `${server.name} (stdio): command=${server.command ?? ''}${args}${cwd}`,
-    );
-  }
-  return sanitizeForDisplay(`${server.name} (${server.transport}): url=${server.url ?? ''}`);
+function wrap(text: string, indent: number, width: number, color: ColorToken): string[] {
+  return wrapTextWithAnsi(sanitizeForDisplay(text), Math.max(1, width - indent)).map(
+    (line) => `${' '.repeat(indent)}${currentTheme.fg(color, line)}`,
+  );
 }
 
-/**
- * Drops C0/C1 control characters (including ESC) from workspace-supplied text:
- * the trust prompt renders before the workspace is trusted, so a planted
- * `.mcp.json` must not inject terminal control sequences into it.
- */
+function relativize(workDir: string, path: string): string {
+  const normalizedDir = workDir.replaceAll('\\', '/');
+  const normalizedPath = path.replaceAll('\\', '/');
+  const prefix = normalizedDir.endsWith('/') ? normalizedDir : `${normalizedDir}/`;
+  return normalizedPath.startsWith(prefix) ? normalizedPath.slice(prefix.length) : normalizedPath;
+}
+
 function sanitizeForDisplay(value: string): string {
   let result = '';
   for (const char of value) {

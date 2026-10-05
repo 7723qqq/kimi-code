@@ -192,3 +192,9 @@ Each card: **decision** and **why not in the app**. Status is `keep` or `absorbe
 **Decision:** Sixel-capable terminals render images through sixel — Alacritty, foot, mlterm, yaft, contour, rio, and Windows Terminal (`WT_SESSION`; its ConPTY passes the DCS through, and the startup probe cannot detect it because ConPTY mangles both the Kitty query and the DA1 reply). `ImageProtocol` gains `'sixel'`; `isImageLine` recognizes sixel DCS lines so frame truncation and normalization leave them intact; `encodeSixel` encodes RGBA8888 pixels with a fixed 240-color palette. When the capability cache was not set explicitly, `TuiBase.start()` probes unknown terminals with the Kitty graphics query plus DA1 (1s timeout; skipped under tmux/screen/Termux).
 
 **Why not in the app:** The protocol table, the startup probe, the DCS-aware line classification, and the encoder are all inside the library's render path; the host can only hand over pre-decoded pixels.
+
+### viewport-layout-effects — keep
+
+**Decision:** Fullscreen hosts can register synchronous `addLayoutEffect` callbacks after layout and search reveal, before terminal output. An effect's `requestRender` coalesces into another complete layout pass without invalidating component caches; only the settled frame is written. Search keeps its selected occurrence while effect-driven layout shifts rendered rows; selections retain their content when effects only add or remove leading empty rows. Effects must converge within ten passes or rendering throws. With no effects registered, the existing rendering path is preserved.
+
+**Why not in the app:** The settled scroll state and the opportunity to repeat layout before terminal output belong to the alternate-screen render path. Hosts cannot reach this point through component composition alone.
