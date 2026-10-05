@@ -1,7 +1,8 @@
-import type { ContextMessage } from '#/agent/contextMemory/types';
+import type { IAgentLoopService, Turn } from '#/agent/loop/loop';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentProfileService } from '#/index';
 import type { ExecutableTool, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import type { UserMessage } from '#human/llm/message';
 
 import {
   createTestAgent,
@@ -9,6 +10,7 @@ import {
   type TestAgentOptions,
   type TestAgentServiceOverride,
 } from '../../harness';
+import { submitPromptTurn } from './stubs';
 
 export interface Deferred<T = void> {
   readonly promise: Promise<T>;
@@ -23,14 +25,20 @@ export function deferred<T = void>(): Deferred<T> {
   return { promise, resolve };
 }
 
-/** A user-text turn message for `loop.submit`, like `rpc.prompt`. */
-export function nextTurnMessage(text: string): ContextMessage {
-  return {
-    role: 'user',
-    content: [{ type: 'text', text }],
-    toolCalls: [],
-    origin: { kind: 'user' },
-  };
+/** A user-text turn message for `submitTurn`, like `rpc.prompt`. */
+export function nextTurnMessage(text: string): UserMessage {
+  return { role: 'user', content: [{ type: 'text', text }] };
+}
+
+/** Submit a user-text prompt and return the launched turn handle. */
+export function submitTurn(
+  loop: IAgentLoopService,
+  input: { readonly message: UserMessage },
+): { readonly turn: Turn } {
+  return submitPromptTurn(loop, {
+    message: input.message,
+    meta: { origin: { kind: 'user' } },
+  });
 }
 
 export interface EchoCall {

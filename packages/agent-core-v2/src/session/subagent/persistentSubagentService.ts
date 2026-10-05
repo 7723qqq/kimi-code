@@ -117,7 +117,7 @@ export class PersistentSubagentService extends Service implements IPersistentSub
     }
     const caller = this.requireAgent(ownerAgentId, 'Caller agent');
     const child = this.requireAgent(agentId, 'Agent instance');
-    if (child.accessor.get(IAgentLoopService).status().state === 'running') {
+    if (child.accessor.get(IAgentLoopService).snapshot().state === 'running') {
       throw new Error2(
         ErrorCodes.AGENT_ALREADY_RUNNING,
         `Agent instance "${agentId}" is already running and cannot run concurrently`,

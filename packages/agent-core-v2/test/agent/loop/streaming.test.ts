@@ -3,7 +3,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { IAgentLoopService } from '#/agent/loop/loop';
 
 import { permissionModeServices, type TestAgentContext } from '../../harness';
-import { createLoopTestAgent, makeEchoTool, nextTurnMessage, registerTool } from './helpers';
+import {
+  createLoopTestAgent,
+  makeEchoTool,
+  nextTurnMessage,
+  registerTool,
+  submitTurn,
+} from './helpers';
 
 function rpcEvents(ctx: TestAgentContext, event: string): Array<Record<string, unknown>> {
   return ctx.allEvents
@@ -25,7 +31,7 @@ describe('Agent loop — streaming callbacks', () => {
   it('routes text parts into assistant.delta events', async () => {
     ctx.mockNextResponse({ type: 'text', text: 'hel' }, { type: 'text', text: 'lo' });
 
-    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('run') });
+    const { turn } = submitTurn(ctx.get(IAgentLoopService), { message: nextTurnMessage('run') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     const deltas = rpcEvents(ctx, 'assistant.delta').map((e) => e['delta']);
@@ -35,7 +41,7 @@ describe('Agent loop — streaming callbacks', () => {
   it('routes think parts into thinking.delta events', async () => {
     ctx.mockNextResponse({ type: 'think', think: 'ponder' }, { type: 'text', text: 'answer' });
 
-    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('run') });
+    const { turn } = submitTurn(ctx.get(IAgentLoopService), { message: nextTurnMessage('run') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     const thinks = rpcEvents(ctx, 'thinking.delta').map((e) => e['delta']);
@@ -54,7 +60,7 @@ describe('Agent loop — streaming callbacks', () => {
     });
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
-    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('run') });
+    const { turn } = submitTurn(ctx.get(IAgentLoopService), { message: nextTurnMessage('run') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     const deltas = rpcEvents(ctx, 'tool.call.delta');
@@ -73,7 +79,7 @@ describe('Agent loop — streaming callbacks', () => {
       { type: 'text', text: ' second' },
     );
 
-    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('run') });
+    const { turn } = submitTurn(ctx.get(IAgentLoopService), { message: nextTurnMessage('run') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     const history = ctx.contextData().history;

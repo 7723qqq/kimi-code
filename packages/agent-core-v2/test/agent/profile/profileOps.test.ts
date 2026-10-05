@@ -92,7 +92,6 @@ function createTestModel(
     alwaysThinking: false,
     providerType,
     providerName: 'kimi',
-    authProvider: { getAuth: async () => undefined },
   };
 }
 
@@ -107,7 +106,7 @@ function createModelCatalogStub(models: Readonly<Record<string, Model>> = {}): I
     getRequester: () => {
       throw new Error('not exercised');
     },
-    inspect: () => {
+    generate: () => {
       throw new Error('not exercised');
     },
     ping: () => {

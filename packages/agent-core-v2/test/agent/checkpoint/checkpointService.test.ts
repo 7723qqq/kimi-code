@@ -65,6 +65,7 @@ describe('file checkpoints', () => {
 
     ctx.mockNextResponse({ type: 'text', text: 'writing' }, writeCall('a.txt', 'modified'));
     ctx.mockNextResponse({ type: 'text', text: 'done' });
+    await ctx.restorePersisted();
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'modify a.txt' }] });
     await ctx.untilTurnEnd();
     expect(await readFile(join(workDir, 'a.txt'), 'utf8')).toBe('modified');
@@ -81,6 +82,7 @@ describe('file checkpoints', () => {
 
     ctx.mockNextResponse({ type: 'text', text: 'writing' }, writeCall('b.txt', 'modified'));
     ctx.mockNextResponse({ type: 'text', text: 'done' });
+    await ctx.restorePersisted();
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'modify b.txt' }] });
     await ctx.untilTurnEnd();
 
@@ -107,6 +109,7 @@ describe('file checkpoints', () => {
 
     ctx.mockNextResponse({ type: 'text', text: 'writing' }, writeCall('new.txt', 'created'));
     ctx.mockNextResponse({ type: 'text', text: 'done' });
+    await ctx.restorePersisted();
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'create new.txt' }] });
     await ctx.untilTurnEnd();
     expect(await readFile(join(workDir, 'new.txt'), 'utf8')).toBe('created');
@@ -146,6 +149,7 @@ describe('file checkpoints', () => {
     });
     ctx.mockNextResponse({ type: 'text', text: 'writing' }, writeCall('c.txt', 'modified'));
     ctx.mockNextResponse({ type: 'text', text: 'done' });
+    await ctx.restorePersisted();
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'modify c.txt' }] });
     await ctx.untilTurnEnd();
 

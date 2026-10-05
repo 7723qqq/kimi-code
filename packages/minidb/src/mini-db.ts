@@ -57,6 +57,7 @@ import { QueryEngine } from './query-engine.js';
 import { ReadPath } from './read-path.js';
 import { catchUpWalAsync } from './recovery.js';
 import type { RecoveryMode, RecoveryInfo, ValueMode, RecoveredOp } from './recovery.js';
+import { withWindowsEpermRetry } from './rename-replace.js';
 import { createSerializer } from './serialize.js';
 import type { RangeOptions } from './skiplist.js';
 import { createMiniDbStats } from './stats.js';
@@ -258,6 +259,7 @@ export class MiniDb<V = unknown> {
   genBuildKickFailureBackoffMs = 300_000;
   private lastGenBuildKickAt = 0;
   private lastGenBuildFailureAt = 0;
+  lastGenBuildError: unknown = null;
   /** Abort handle / mutation queue / single-flight guard / status of the
    *  generation build all live in the GenerationBuilder facet (declared
    *  below); these views keep the open / write / close paths' call sites
@@ -410,8 +412,12 @@ export class MiniDb<V = unknown> {
     ensureWritable: () => this.ensureWritable(),
     boundedTextBuild: (name, ti, def, checkpoint) =>
       this.boundedTextBuild(name, ti, def, checkpoint),
-    noteBuildFailure: () => {
+    noteBuildFailure: (err) => {
       this.lastGenBuildFailureAt = Date.now();
+      if (err !== undefined) this.lastGenBuildError = err;
+    },
+    noteBuildSuccess: () => {
+      this.lastGenBuildError = null;
     },
   });
 
@@ -1184,8 +1190,10 @@ export class MiniDb<V = unknown> {
       // offset belongs to the old file's coordinate system and truncating to
       // it would zero-extend the new file. The new file never carried the
       // un-acked tail, so skipping the truncate is the correct recovery.
-      const st = await fs.stat(this.walPath);
-      if (poison.failedAtOffset <= st.size) await fs.truncate(this.walPath, poison.failedAtOffset);
+      await withWindowsEpermRetry(async () => {
+        const st = await fs.stat(this.walPath);
+        if (poison.failedAtOffset <= st.size) await fs.truncate(this.walPath, poison.failedAtOffset);
+      });
     } catch (error) {
       this.writeDisabled = error;
       return;

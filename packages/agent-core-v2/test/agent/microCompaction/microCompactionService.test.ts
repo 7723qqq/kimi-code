@@ -10,11 +10,7 @@ import {
 } from '#/agent/contextMemory/contextEvents';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import {
-  IAgentLoopService,
-  type AfterStepContext,
-  type BeforeStepContext,
-} from '#/agent/loop/loop';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { MICRO_COMPACTION_FLAG_ENV } from '#/agent/microCompaction/flag';
 import {
   IAgentMicroCompactionService,
@@ -34,7 +30,6 @@ import { type Event2Class } from '#/app/event/event2';
 import type { IEventBus } from '#/app/event/eventBus';
 import { IFlagService } from '#/app/flag/flag';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { createHooks } from '#/hooks';
 import type { ModelCapability } from '#/llm-adapter/contract/capability';
 import { emptyUsage } from '#human/llm/usage';
 import type { IEventDispatcher } from '#/state/eventDispatcher';
@@ -43,6 +38,7 @@ import type { IWireService } from '#/wire/wire';
 
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { testAgent, type TestAgentContext } from '../../harness';
+import { stubLoopWithHooks } from '../loop/stubs';
 import {
   recordingWireLog,
   registerTestAgentWire,
@@ -101,14 +97,7 @@ function toolTexts(messages: readonly ContextMessage[]): string[] {
   return messages.filter((message) => message.role === 'tool').map((message) => textOf(message));
 }
 
-type MicroHooks = ReturnType<typeof createMicroHooks>;
-
-function createMicroHooks() {
-  return createHooks<
-    { onWillBeginStep: BeforeStepContext; onDidFinishStep: AfterStepContext },
-    'onWillBeginStep' | 'onDidFinishStep'
-  >(['onWillBeginStep', 'onDidFinishStep']);
-}
+type MicroHooks = IAgentLoopService['hooks'];
 
 interface UnitHarness {
   readonly svc: IAgentMicroCompactionService;
@@ -163,7 +152,8 @@ function createUnit(
       return toDisposable(() => listeners.delete(onEvent));
     }) as IEventBus['subscribe'],
   };
-  const hooks = createMicroHooks();
+  const loop = stubLoopWithHooks();
+  const hooks = loop.hooks;
 
   ix.stub(IFlagService, { enabled: () => flagEnabled });
   ix.stub(IAgentContextMemoryService, { get: () => history });
@@ -190,7 +180,7 @@ function createUnit(
       systemPrompt: '',
     }),
   });
-  ix.stub(IAgentLoopService, { hooks });
+  ix.stub(IAgentLoopService, loop);
   ix.stub(ITelemetryService, recordingTelemetry(telemetryRecords));
   const wire = registerTestAgentWire(ix, 'wire/micro-compaction', {
     log: recordingWireLog(records),
@@ -621,6 +611,7 @@ describe('MicroCompaction (integration)', () => {
   });
 
   it('clamps the cutoff when undo shortens the context', async () => {
+    await ctx.restorePersisted();
     ctx.mockNextResponse({ type: 'text', text: 'warm' });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'warm up' }] });
     await ctx.untilTurnEnd();
@@ -641,7 +632,7 @@ describe('MicroCompaction (integration)', () => {
     const cutoffAfterDetect = agentState.get(microCompactionKey).cutoff;
     expect(cutoffAfterDetect).toBeGreaterThan(0);
 
-    memory.undo(2);
+    await ctx.undoHistory(2);
     const newLength = memory.get().length;
     expect(agentState.get(microCompactionKey).cutoff).toBe(Math.min(cutoffAfterDetect, newLength));
   });

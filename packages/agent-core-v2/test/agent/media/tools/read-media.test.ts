@@ -247,7 +247,7 @@ function makeTool(
 }
 
 async function execute(tool: ReadTool, args: ReadInput): Promise<ExecutableToolResult> {
-  const execution = tool.resolveExecution(args);
+  const execution = await tool.resolveExecution(args);
   if (!('execute' in execution)) {
     return execution;
   }
@@ -271,7 +271,7 @@ function noteText(result: ExecutableToolResult): string {
 }
 
 describe('Read tool media reads', () => {
-  it('exposes media parameters on the Read schema and scopes read access', () => {
+  it('exposes media parameters on the Read schema and scopes read access', async () => {
     const tool = makeTool({ '/workspace/sample.png': { data: pngBuffer() } });
 
     expect(tool.name).toBe('Read');
@@ -305,7 +305,7 @@ describe('Read tool media reads', () => {
     );
     expect(tool.description).toContain('region');
 
-    const execution = tool.resolveExecution({ path: '/workspace/sample.png' });
+    const execution = await tool.resolveExecution({ path: '/workspace/sample.png' });
     if (!('accesses' in execution)) {
       throw new Error('expected executable execution');
     }
@@ -469,7 +469,7 @@ describe('Read tool media reads', () => {
 
     expect(result.isError).toBe(false);
     expect(vi.mocked(fs.readBytes)).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(fs.readBytes)).toHaveBeenLastCalledWith('/workspace/large.png');
+    expect(vi.mocked(fs.readBytes)).toHaveBeenLastCalledWith('/workspace/large.png', undefined);
   });
 
   it('returns external preprocessing guidance before loading an oversized region source', async () => {

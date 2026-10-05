@@ -3,7 +3,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { IAgentLoopService } from '#/agent/loop/loop';
 
 import { permissionModeServices, type TestAgentContext } from '../../harness';
-import { createLoopTestAgent, makeEchoTool, nextTurnMessage, registerTool } from './helpers';
+import {
+  createLoopTestAgent,
+  makeEchoTool,
+  nextTurnMessage,
+  registerTool,
+  submitTurn,
+} from './helpers';
 
 function rpcEvents(ctx: TestAgentContext, event: string): Array<Record<string, unknown>> {
   return ctx.allEvents
@@ -46,7 +52,7 @@ describe('Agent loop — event sequences', () => {
     );
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
-    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('run') });
+    const { turn } = submitTurn(ctx.get(IAgentLoopService), { message: nextTurnMessage('run') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
     ctx.llmInputs();
 
@@ -85,7 +91,7 @@ describe('Agent loop — event sequences', () => {
   it('emits only step events for a turn with no tool calls', async () => {
     ctx.mockNextResponse({ type: 'text', text: 'just text' });
 
-    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('text') });
+    const { turn } = submitTurn(ctx.get(IAgentLoopService), { message: nextTurnMessage('text') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     expect(rpcEvents(ctx, 'tool.call.started')).toHaveLength(0);
@@ -108,7 +114,7 @@ describe('Agent loop — event sequences', () => {
     });
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
-    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('run') });
+    const { turn } = submitTurn(ctx.get(IAgentLoopService), { message: nextTurnMessage('run') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     const started = rpcEvents(ctx, 'tool.call.started')[0];
@@ -125,7 +131,7 @@ describe('Agent loop — event sequences', () => {
   it('records the provider response id on step.end transcript records', async () => {
     ctx.mockNextResponse({ type: 'text', text: 'ok' });
 
-    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('run') });
+    const { turn } = submitTurn(ctx.get(IAgentLoopService), { message: nextTurnMessage('run') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed' });
 
     const stepEndRecord = ctx.allEvents.find(

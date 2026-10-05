@@ -11,7 +11,7 @@ import {
   type LegacyGenerateFn,
   type TestAgentContext,
 } from '../../harness';
-import { createLoopTestAgent, makeEchoTool, nextTurnMessage } from './helpers';
+import { createLoopTestAgent, makeEchoTool, nextTurnMessage, submitTurn } from './helpers';
 
 type GenerateFn = LegacyGenerateFn;
 
@@ -149,7 +149,7 @@ describe('Agent loop — turn lifecycle', () => {
     ctx.mockNextResponse({ type: 'function', id: 'b', name: 'echo', arguments: '{"text":"2"}' });
 
     const turnEnded = ctx.untilTurnEnd();
-    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('go') });
+    const { turn } = submitTurn(ctx.get(IAgentLoopService), { message: nextTurnMessage('go') });
     await expect(turn.result).resolves.toMatchObject({ type: 'failed', steps: 2 });
     await turnEnded;
 
@@ -174,7 +174,7 @@ describe('Agent loop — turn lifecycle', () => {
     ctx.mockNextResponse({ type: 'text', text: 'done' });
 
     const turnEnded = ctx.untilTurnEnd();
-    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('go') });
+    const { turn } = submitTurn(ctx.get(IAgentLoopService), { message: nextTurnMessage('go') });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed', steps: 3 });
     await turnEnded;
     expect(echo.calls.map((call) => call.id)).toEqual(['a', 'b']);
@@ -222,7 +222,9 @@ describe('Agent loop — turn lifecycle', () => {
     ctx.get(IAgentProfileService).update({ activeToolNames: ['echo'] });
 
     const turnEnded = ctx.untilTurnEnd();
-    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('aggregate') });
+    const { turn } = submitTurn(ctx.get(IAgentLoopService), {
+      message: nextTurnMessage('aggregate'),
+    });
     await expect(turn.result).resolves.toMatchObject({ type: 'completed', steps: 2 });
     await turnEnded;
 

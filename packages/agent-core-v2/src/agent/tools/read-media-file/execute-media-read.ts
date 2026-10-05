@@ -14,6 +14,7 @@ import {
   isModelAcceptedImageMime,
 } from '#/agent/media/image-format-policy';
 import { inlineVideoPart, isVideoUploadAuthError } from '#/agent/media/videoUpload';
+import type { FileReadSource } from '#/agent/tools/fileReadSource';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import {
   isUnknownCapability,
@@ -172,13 +173,17 @@ async function videoContentPart(
 export async function executeMediaRead(
   ctx: MediaReadContext,
   args: MediaReadArgs,
-  safePath: string,
-  fs: IHostFileSystem,
-  env: HostEnvironmentInfo,
+  source: FileReadSource,
+  env: HostEnvironmentInfo | undefined,
   header: Uint8Array,
 ): Promise<ExecutableToolResult> {
   const telemetry = ctx.telemetry;
   const telemetrySource = 'read_media';
+  const safePath = source.name;
+  const fs: Pick<IHostFileSystem, 'stat' | 'readBytes'> = {
+    stat: () => source.stat(),
+    readBytes: () => source.readBytes(),
+  };
 
   try {
     const fileType = detectFileType(safePath, header, 'media');
@@ -214,7 +219,7 @@ export async function executeMediaRead(
     if (fileType.kind === 'image' && !isModelAcceptedImageMime(fileType.mimeType)) {
       return {
         isError: true,
-        output: buildImageConversionGuidance(args.path, fileType.mimeType, env.osKind),
+        output: buildImageConversionGuidance(args.path, fileType.mimeType, env?.osKind),
       };
     }
     if (fileType.kind === 'video' && !ctx.capabilities.video_in && !capabilitiesUnknown) {

@@ -50,6 +50,7 @@ export interface DialogHost {
   applyStartupModesToResumedSession(session: Session): Promise<void>;
   applyStartupPermissionAndPlanToAppState(): void;
   showResumeOtherWorkDirHint(session: SessionRow): Promise<void>;
+  deleteSessionFromPicker(session: SessionRow): Promise<void>;
   showError(message: string): void;
   patchLivePane(patch: Partial<LivePaneState>): void;
   toggleToolOutputExpansion(): void;
@@ -169,23 +170,7 @@ export class DialogHostController {
   }): Promise<void> {
     this.sessionPickerOptions = options;
     await this.host.fetchSessions('cwd');
-    this.mountSessionPicker({
-      applyStartupModes: options.applyStartupModes,
-      onCancel: () => {
-        this.hideSessionPicker();
-        if (options.closeOnCancel) void this.host.stop();
-      },
-      onCtrlC: options.forwardEditorExit
-        ? () => {
-            this.host.state.editor.onCtrlC?.();
-          }
-        : undefined,
-      onCtrlD: options.forwardEditorExit
-        ? () => {
-            this.host.state.editor.onCtrlD?.();
-          }
-        : undefined,
-    });
+    this.remountSessionPicker();
   }
 
   private async toggleSessionPickerScope(selectedSessionId: string): Promise<void> {
@@ -194,8 +179,12 @@ export class DialogHostController {
     await this.host.fetchSessions(nextScope);
     if (requestToken !== this.sessionPickerScopeRequestToken) return;
     if (this.host.state.activeDialog !== 'session-picker') return;
+    this.remountSessionPicker(selectedSessionId);
+  }
+
+  remountSessionPicker(initialSelectedSessionId?: string): void {
     this.mountSessionPicker({
-      initialSelectedSessionId: selectedSessionId,
+      initialSelectedSessionId,
       applyStartupModes: this.sessionPickerOptions.applyStartupModes,
       onCancel: () => {
         this.hideSessionPicker();
@@ -212,6 +201,15 @@ export class DialogHostController {
           }
         : undefined,
     });
+  }
+
+  /**
+   * Discards in-flight picker work (page fetches, a pending scope-toggle
+   * remount) by superseding the request token. Used when the picker state is
+   * about to be rebuilt out from under those requests, e.g. by a delete.
+   */
+  invalidateSessionPickerRequests(): void {
+    this.sessionPickerScopeRequestToken += 1;
   }
 
   hideSessionPicker(): void {
@@ -248,19 +246,19 @@ export class DialogHostController {
       onSearchDrain: () => {
         void this.host.drainSessionsForSearch();
       },
-      onSelect: (session: SessionRow) => {
-        void this.handleSessionPickerSelect(session, options.applyStartupModes === true).catch(
+      onSelect: (session: SessionRow) =>
+        this.handleSessionPickerSelect(session, options.applyStartupModes === true).catch(
           (error) => {
             this.host.showError(`Failed to apply startup flags: ${formatErrorMessage(error)}`);
           },
-        );
-      },
+        ),
       onCancel: options.onCancel,
       onCtrlC: options.onCtrlC,
       onCtrlD: options.onCtrlD,
       onToggleScope: (selectedSessionId: string) => {
         void this.toggleSessionPickerScope(selectedSessionId);
       },
+      onDeleteRequest: (session: SessionRow) => this.host.deleteSessionFromPicker(session),
     });
     this.sessionPickerComponent = picker;
     this.mountEditorReplacement(picker);
@@ -270,6 +268,9 @@ export class DialogHostController {
     session: SessionRow,
     applyStartupModes: boolean,
   ): Promise<void> {
+    // Invalidate any pending scope-toggle remount: it would replace the picker
+    // and drop the selection lock.
+    this.sessionPickerScopeRequestToken += 1;
     if (resolve(session.work_dir) !== resolve(this.host.state.appState.workDir)) {
       await this.host.showResumeOtherWorkDirHint(session);
       if (applyStartupModes) await this.host.stop(0);

@@ -35,7 +35,7 @@ const toPosix = (p: string): string => p.replaceAll('\\', '/');
 // clean-env expectation carries the default-enabled set next to the
 // attribution / canonical fields.
 const DEFAULT_EXPERIMENTAL_FLAGS =
-  'auto_session_title,tool_select,wait_for';
+  'tool_select,wait_for';
 
 const tempDirs: string[] = [];
 

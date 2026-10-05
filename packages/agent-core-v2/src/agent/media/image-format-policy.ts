@@ -82,7 +82,7 @@ export function isModelAcceptedImageMime(mimeType: string, providerType?: string
 export function buildImageConversionGuidance(
   path: string,
   mimeType: string,
-  osKind: string,
+  osKind: string | undefined,
 ): string {
   const converted = path.replace(/\.[^./\\]+$/, '') + '.jpg';
   return (
@@ -122,7 +122,7 @@ export function buildOversizedImageConversionGuidance(
 function imageConversionCommand(
   path: string,
   converted: string,
-  osKind: string,
+  osKind: string | undefined,
   format: UnsupportedImageFormatInfo | undefined,
 ): string {
   const magick = `magick "${path}" "${converted}"`;

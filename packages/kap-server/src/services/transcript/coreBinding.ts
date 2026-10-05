@@ -1,8 +1,6 @@
 import {
   IAgentLifecycleService,
-  IAgentActivityView,
   IAgentLoopService,
-  IAgentPromptService,
   IAgentScopeContext,
   IAgentTaskService,
   IEventBus,
@@ -20,6 +18,7 @@ import {
 } from '@moonshot-ai/agent-core-v2';
 import type { AgentDescriptor, TranscriptChangeEvent, TranscriptStore } from '@moonshot-ai/transcript';
 
+import { legacyApprovalsOf } from '../legacyStatus/legacyActivity';
 import {
   AgentTranscriptProjector,
   type ProjectorBusEvent,
@@ -95,9 +94,14 @@ export function bindSessionTranscript(
         stepOrdinal: (turnId) => {
           const agentHandle = agents.handleOf(agentId);
           if (agentHandle === undefined) return undefined;
-          const view: IAgentActivityView | undefined = agentHandle.accessor.get(IAgentActivityView);
-          const turn = view?.state().turn;
+          const turn = agentHandle.accessor.get(IAgentLoopService)?.snapshot().turn;
           return turn === undefined || `t${turn.turnId}` !== turnId ? undefined : turn.step;
+        },
+        activitySnapshot: () =>
+          agents.handleOf(agentId)?.accessor.get(IAgentLoopService)?.snapshot() ?? {},
+        pendingApprovals: () => {
+          const agentHandle = agents.handleOf(agentId);
+          return agentHandle === undefined ? [] : legacyApprovalsOf(agentHandle);
         },
         turn: (turnId) => store.getAgent(agentId)?.getTurn(turnId),
         items: () => store.getAgent(agentId)?.getItems(),
@@ -137,9 +141,9 @@ export function bindSessionTranscript(
     const busD = bus.subscribe((event) =>
       applyOps(handle.id, projector.map(event as ProjectorBusEvent)),
     );
-    const loopStatus = handle.accessor.get(IAgentLoopService)?.status();
+    const loopStatus = handle.accessor.get(IAgentLoopService)?.snapshot();
     if (loopStatus?.state === 'running' && loopStatus.activeTurnId !== undefined) {
-      const promptId = handle.accessor.get(IAgentPromptService)?.list().active?.id;
+      const promptId = loopStatus.activePromptId;
       projector.seedActiveTurn({ turnId: loopStatus.activeTurnId, promptId });
     }
     const list = agentDisposables.get(handle.id) ?? [];

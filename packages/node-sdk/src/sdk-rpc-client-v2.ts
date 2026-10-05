@@ -149,7 +149,6 @@ import {
   ensureKimiHome,
   ensureMainAgent,
   agentContextOf,
-  IAgentActivityView,
   IAgentContextMemoryService,
   IAgentConversationUndoService,
   IAgentCronService,
@@ -1507,7 +1506,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   /**
    * v1's reload: refuse while a turn runs, re-read config + plugins, close
    * the live session, resume from disk. The v2 busy check reads each live
-   * agent's activity view (turn lane only — background tasks do not block,
+   * agent's loop status (turn lane only — background tasks do not block,
    * matching v1's `hasActiveTurn`). `forcePluginSessionStartReminder` has no
    * v2 channel (the engine owns plugin session-start injection), so reload
    * refreshes the durable guidance snapshot through the Agent service.
@@ -1521,7 +1520,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
         for (const agent of agentLifecycle.list()) {
           const agentHandle = agentLifecycle.handleOf(agent.agentId);
           if (agentHandle === undefined) continue;
-          if (agentHandle.accessor.get(IAgentActivityView).state().turn !== undefined) {
+          if (agentHandle.accessor.get(IAgentLoopService).snapshot().state === 'running') {
             throw new KimiError(
               ErrorCodes.TURN_AGENT_BUSY,
               `Session "${sessionId}" cannot be reloaded while a turn is running`,
@@ -1935,7 +1934,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   override async importContext(input: ImportContextRpcInput): Promise<void> {
     const agent = await this.agentScope(input.sessionId);
     if (
-      agent.accessor.get(IAgentLoopService).status().state === 'running' ||
+      agent.accessor.get(IAgentLoopService).snapshot().state === 'running' ||
       agent.accessor.get(IAgentFullCompactionService).compacting !== null
     ) {
       throw new KimiError(
@@ -1970,7 +1969,6 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     const agent = await this.agentFacade(input.sessionId);
     await agent.prompt({
       input: input.input,
-      disabledTools: input.disabledTools,
       promptId: input.promptId,
     });
   }

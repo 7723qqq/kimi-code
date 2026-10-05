@@ -11,7 +11,13 @@ import {
   type LegacyGenerateFn,
   type TestAgentContext,
 } from '../../harness';
-import { createLoopTestAgent, makeEchoTool, nextTurnMessage, registerTool } from './helpers';
+import {
+  createLoopTestAgent,
+  makeEchoTool,
+  nextTurnMessage,
+  registerTool,
+  submitTurn,
+} from './helpers';
 
 type GenerateFn = LegacyGenerateFn;
 
@@ -62,7 +68,7 @@ describe('Agent loop — abort handling', () => {
     });
 
     ctx.mockNextResponse({ type: 'text', text: 'partial' }, { type: 'text', text: ' more' });
-    const { turn } = loop.submit({ message: nextTurnMessage('Hello') });
+    const { turn } = submitTurn(loop, { message: nextTurnMessage('Hello') });
     await expect(turn.result).resolves.toMatchObject({ type: 'cancelled' });
     subscription.dispose();
 
@@ -113,9 +119,9 @@ describe('Agent loop — abort handling', () => {
     registerTool(ctx, echo);
     registerTool(ctx, hang);
 
-    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('run') });
+    const { turn } = submitTurn(ctx.get(IAgentLoopService), { message: nextTurnMessage('run') });
     await hangStarted.promise;
-    ctx.get(IAgentLoopService).cancel(turn.id);
+    turn.cancel();
     await expect(turn.result).resolves.toMatchObject({ type: 'cancelled' });
 
     expect(ctx.get(ISessionUsageService).status(ctx.agentContext).total).toEqual({
@@ -142,9 +148,9 @@ describe('Agent loop — abort handling', () => {
       { type: 'function', id: 'tc-3', name: 'work', arguments: '{}' },
     );
 
-    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('run') });
+    const { turn } = submitTurn(ctx.get(IAgentLoopService), { message: nextTurnMessage('run') });
     await started.promise;
-    ctx.get(IAgentLoopService).cancel(turn.id);
+    turn.cancel();
     await expect(turn.result).resolves.toMatchObject({ type: 'cancelled' });
 
     const callIds = rpcEvents(ctx, 'tool.call.started')
@@ -165,9 +171,9 @@ describe('Agent loop — abort handling', () => {
 
     ctx.mockNextResponse({ type: 'function', id: 'tc-1', name: 'hang', arguments: '{}' });
 
-    const { turn } = ctx.get(IAgentLoopService).submit({ message: nextTurnMessage('run') });
+    const { turn } = submitTurn(ctx.get(IAgentLoopService), { message: nextTurnMessage('run') });
     await started.promise;
-    ctx.get(IAgentLoopService).cancel(turn.id);
+    turn.cancel();
     await expect(turn.result).resolves.toMatchObject({ type: 'cancelled' });
 
     expect(rpcEvents(ctx, 'turn.ended')).toHaveLength(1);

@@ -25,6 +25,7 @@ import {
 import { readManifest, sweepGenerationTemps } from './generation-files.js';
 import { MaintenanceScheduler } from './maintenance.js';
 import { LockFile, LockError } from './lockfile.js';
+import { wipeStoreDir } from './wipe.js';
 import type { LifecycleTracker } from './lifecycle-status.js';
 import { ValueReader } from './value-reader.js';
 import { Store } from './store.js';
@@ -569,7 +570,8 @@ export async function openOrRebuildMiniDb<T>(
         { cause: error },
       );
     }
-    await fs.rm(opts.dir, { recursive: true, force: true });
+    const outcome = await wipeStoreDir({ dir: opts.dir });
+    if (outcome === 'locked') throw error;
     return open(opts);
   }
 }
