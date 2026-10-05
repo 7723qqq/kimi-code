@@ -16,6 +16,9 @@ import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender
 import { stubToolResultTruncationService } from '../../../../agent/toolResultTruncation/stubs';
 import { stubConfigService } from '../../../../app/config/stubs';
 import type { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
+import type { IAgentProfileService } from '#/agent/profile/profile';
+import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import type { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { RuntimeRegistry } from '#/runtime/runtimeRegistry';
@@ -66,6 +69,15 @@ function createTestEnv(home = '/home'): IHostEnvironment {
   };
 }
 
+function stubProfileService(capabilities: {
+  image_in: boolean;
+  video_in: boolean;
+}): IAgentProfileService {
+  return {
+    getModelCapabilities: () => capabilities,
+  } as unknown as IAgentProfileService;
+}
+
 function createReadTool(
   fs: IHostFileSystem,
   env: IHostEnvironment,
@@ -74,6 +86,9 @@ function createReadTool(
     catalog: { getSkillRoots: () => [] },
   } as unknown as ISessionSkillCatalog,
   truncation: IAgentToolResultTruncationService = stubToolResultTruncationService(),
+  profile: IAgentProfileService = stubProfileService({ image_in: true, video_in: true }),
+  toolPolicy: IAgentToolPolicyService = { isToolActive: () => true } as unknown as IAgentToolPolicyService,
+  toolRegistry: IAgentToolRegistryService = { resolve: () => ({}) } as unknown as IAgentToolRegistryService,
 ): ReadTool {
   const runtime = Object.assign(
     new FakeRuntime(
@@ -96,6 +111,9 @@ function createReadTool(
     { getMediaReadContext: () => undefined } as IMediaReadContext,
     truncation,
     stubConfigService(),
+    profile,
+    toolPolicy,
+    toolRegistry,
   );
 }
 
@@ -1376,6 +1394,9 @@ describe('ReadTool', () => {
       { getMediaReadContext: () => undefined } as IMediaReadContext,
       stubToolResultTruncationService(),
       stubConfigService(),
+      stubProfileService({ image_in: true, video_in: true }),
+      { isToolActive: () => true } as unknown as IAgentToolPolicyService,
+      { resolve: () => ({}) } as unknown as IAgentToolRegistryService,
     );
     const execution = await tool.resolveExecution({ path: '/workspace/a.txt' });
     expect('execute' in execution).toBe(true);

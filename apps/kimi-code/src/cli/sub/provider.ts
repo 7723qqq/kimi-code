@@ -13,16 +13,11 @@
  */
 
 import {
-  applyCustomRegistryProvider,
-  CustomRegistryApiError,
-  fetchCustomRegistry,
-  type CustomRegistrySource,
-  type ManagedKimiConfigShape,
-} from '@moonshot-ai/kimi-code-oauth';
-import {
   applyCatalogProvider,
   catalogProviderModels,
   CatalogFetchError,
+  RegistryImportError,
+  type ImportCustomRegistryResult,
   createKimiHarness,
   DEFAULT_CATALOG_URL,
   resolveCatalogImport,
@@ -76,10 +71,6 @@ export async function handleProviderAdd(
   opts: AddOptions,
 ): Promise<void> {
   const apiKey = resolveApiKey(opts.apiKey, deps.env);
-  if (apiKey === undefined) {
-    deps.stderr.write('Missing API key. Pass --api-key <key> or set KIMI_REGISTRY_API_KEY.\n');
-    deps.exit(1);
-  }
 
   const trimmedUrl = url.trim();
   if (trimmedUrl.length === 0) {
@@ -87,69 +78,49 @@ export async function handleProviderAdd(
     deps.exit(1);
   }
 
-  const source: CustomRegistrySource = {
-    kind: 'apiJson',
-    url: trimmedUrl,
-    apiKey,
-  };
-
   const harness = deps.getHarness();
   await harness.ensureConfigFile();
 
-  let entries: Awaited<ReturnType<typeof fetchCustomRegistry>>;
+  let result: ImportCustomRegistryResult;
   try {
-    entries = await fetchCustomRegistry(source, { userAgent: createKimiCodeUserAgent() });
+    result = await harness.importCustomRegistry({
+      url: trimmedUrl,
+      apiKey,
+      setDefaultWhenUnset: false,
+    });
   } catch (error) {
-    const suffix = error instanceof CustomRegistryApiError ? ` (HTTP ${String(error.status)})` : '';
+    if (!(error instanceof RegistryImportError) || error.phase === 'apply') throw error;
+    if (error.phase === 'empty') {
+      deps.stderr.write(t('tui.statusMessages.providerNoUsable', { url: trimmedUrl }) + '\n');
+      deps.exit(1);
+    }
+    const suffix = error.status === undefined ? '' : ` (HTTP ${String(error.status)})`;
     deps.stderr.write(
       t('tui.statusMessages.providerFetchFailed', { suffix, error: errorMessage(error) }) + '\n',
     );
+    if (apiKey === undefined && (error.status === 401 || error.status === 403)) {
+      deps.stderr.write(t('tui.statusMessages.providerAuthRequired') + '\n');
+    }
     deps.exit(1);
   }
 
-  const entryList = Object.values(entries);
-  if (entryList.length === 0) {
-    deps.stderr.write(t('tui.statusMessages.providerNoUsable', { url: trimmedUrl }) + '\n');
-    deps.exit(1);
-  }
-
-  // `harness.removeProvider` reloads the config from disk on each call (see
-  // `sdk-rpc-client-v2.ts SdkRpcClientV2.removeProvider`), so calling it inside the apply loop
-  // would discard providers we already applied in memory but have not yet
-  // persisted. Drop every stale id up front in a single batch instead, then
-  // apply against the resulting fresh config.
-  let config = await harness.getConfig();
-  const staleIds = entryList
-    .filter((entry) => config.providers[entry.id] !== undefined)
-    .map((entry) => entry.id);
-  for (const id of staleIds) {
-    config = await harness.removeProvider(id);
-  }
-
-  const addedProviderIds: string[] = [];
-  let modelCount = 0;
-  for (const entry of entryList) {
-    applyCustomRegistryProvider(asManaged(config), entry, source);
-    addedProviderIds.push(entry.id);
-    modelCount += Object.keys(entry.models).length;
-  }
-
-  await harness.setConfig({
-    providers: config.providers,
-    models: config.models,
-  });
-
+  const count = result.providers.length;
   deps.stdout.write(
     t('tui.statusMessages.providerMultipleImported', {
-      count: addedProviderIds.length,
-      plural: addedProviderIds.length === 1 ? '' : 's',
-      modelCount,
-      modelPlural: modelCount === 1 ? '' : 's',
+      count,
+      plural: count === 1 ? '' : 's',
+      modelCount: result.modelsImported,
+      modelPlural: result.modelsImported === 1 ? '' : 's',
       url: trimmedUrl,
     }) + '\n',
   );
-  for (const id of addedProviderIds) {
-    deps.stdout.write(`  - ${id}\n`);
+  for (const provider of result.providers) {
+    deps.stdout.write(`  - ${provider.id}\n`);
+  }
+  for (const [id, envName] of Object.entries(result.credentialEnv)) {
+    deps.stdout.write(
+      `provider "${id}" declares credential env var "${envName}" — set api_key_env in config.toml to use it\n`,
+    );
   }
 }
 
@@ -605,10 +576,6 @@ function resolveApiKey(flag: string | undefined, env: NodeJS.ProcessEnv): string
   return undefined;
 }
 
-function asManaged(config: KimiConfig): ManagedKimiConfigShape {
-  return config as unknown as ManagedKimiConfigShape;
-}
-
 /**
  * Copy the provider map for `--json` stdout output, stripping secrets so they
  * never leave the process: `apiKey` on each provider and the `apiKey` inside
@@ -633,7 +600,6 @@ function sanitizeProvidersForOutput(
   }
   return out;
 }
-
 function providerSourceLabel(provider: KimiConfig['providers'][string]): string {
   const source = provider.source;
   if (source !== undefined) {

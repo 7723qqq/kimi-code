@@ -10,7 +10,10 @@ import { MEDIA_SNIFF_BYTES, detectFileType } from '#/agent/media/file-type';
 import { isDaemonFileUrl } from '#/agent/media/mediaRef';
 import { IMediaReadContext } from '#/agent/media/mediaReadContext';
 import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import {
   attachmentFileSource,
@@ -87,7 +90,9 @@ function stripTrailingLf(line: string): string {
 }
 
 function splitsSurrogatePair(text: string, offset: number): boolean {
+  // oxlint-disable-next-line unicorn/prefer-code-point -- raw UTF-16 halves are the point here
   const previous = text.charCodeAt(offset - 1);
+  // oxlint-disable-next-line unicorn/prefer-code-point -- raw UTF-16 halves are the point here
   const next = text.charCodeAt(offset);
   return previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff;
 }
@@ -190,6 +195,9 @@ export class ReadTool implements IReadTool {
     @IMediaReadContext private readonly mediaRead: IMediaReadContext,
     @IAgentToolResultTruncationService private readonly resultTruncation: IAgentToolResultTruncationService,
     @IConfigService private readonly config: IConfigService,
+    @IAgentProfileService private readonly profile: IAgentProfileService,
+    @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
+    @IAgentToolRegistryService private readonly toolRegistry: IAgentToolRegistryService,
     @ISessionMediaStore private readonly attachmentStore?: ISessionMediaStore,
   ) {}
 

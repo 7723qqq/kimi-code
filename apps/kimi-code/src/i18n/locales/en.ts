@@ -79,7 +79,8 @@ export default {
       serverRunOptionDebugEndpoints:
         'Mount /api/v1/debug/* routes for test introspection. OFF by default; production callers leave this unset.',
       serverRunOptionNoOpen: 'Do not open the web UI in the default browser.',
-      providerApiKey: 'Registry API key. Falls back to KIMI_REGISTRY_API_KEY.',
+      providerApiKey:
+        'Registry API key. Falls back to KIMI_REGISTRY_API_KEY; omit both for public registries.',
       providerListJson: 'Emit the raw providers/models config as JSON.',
       providerCatalogFilter: 'Case-insensitive id/name substring filter.',
       providerCatalogJson: 'Emit the matching catalog slice as JSON.',
@@ -381,6 +382,7 @@ export default {
         importRegistryFailed: 'Failed to import registry: {{error}}',
         applyRegistryFailed: 'Failed to apply registry: {{error}}',
         registryEmpty: 'Registry contained no providers.',
+        registryAuthRequired: 'This registry requires authentication — paste its Bearer token.',
         importedOne: 'Imported 1 provider from registry.',
         importedMany: 'Imported {{count}} providers from registry.',
       },
@@ -445,13 +447,12 @@ export default {
       },
       customRegistryImport: {
         title: 'Import custom provider registry',
-        subtitleDefault: 'Paste an api.json URL and its Bearer token.',
+        subtitleDefault: 'Paste an api.json URL; the Bearer token is optional.',
         subtitleUrlEmpty: 'Registry URL cannot be empty.',
-        subtitleTokenEmpty: 'Bearer token cannot be empty.',
         footerNotLast: 'Tab / ↑↓ to switch  ·  Enter for next field  ·  Esc to cancel',
         footerLast: 'Tab / ↑↓ to switch  ·  Enter to submit  ·  Esc to cancel',
         urlLabel: 'Registry URL',
-        tokenLabel: 'Bearer token',
+        tokenLabel: 'Bearer token (optional)',
       },
       editorSelector: {
         title: 'Select external editor',
@@ -1331,6 +1332,8 @@ export default {
       // sub/provider.ts
       providerUrlRequired: 'Registry URL is required.',
       providerFetchFailed: 'Failed to fetch registry{{suffix}}: {{error}}',
+      providerAuthRequired:
+        'This registry requires authentication — pass --api-key <key> or set KIMI_REGISTRY_API_KEY.',
       providerNoUsable: 'Registry at {{url}} contained no usable providers.',
       providerNotFound: 'Provider "{{id}}" not found.',
       providerRemoved: 'Removed provider "{{id}}".',

@@ -139,7 +139,7 @@ function manager(
     { scope: () => 'sessions' },
     workspaces,
     { ready },
-    ...Array.from({ length: 22 }, () => undefined),
+    ...Array.from({ length: 23 }, () => undefined),
     new TestRuntimeUnitHostFactory(),
   ];
   args[18] = { entries: () => [] };
@@ -198,7 +198,7 @@ describe('WorkspaceInstanceManager', () => {
     await remote.dispose();
     expect(one.runtimes.current('remote')).toBeUndefined();
     expect(two.runtimes.current('remote')).toBeUndefined();
-    expect(events.filter((event) => event.startsWith('detach:remote-provider:')).sort()).toEqual([
+    expect(events.filter((event) => event.startsWith('detach:remote-provider:')).toSorted()).toEqual([
       'detach:remote-provider:one',
       'detach:remote-provider:two',
     ]);

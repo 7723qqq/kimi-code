@@ -6,11 +6,13 @@ import { ExternalHooksRunnerService } from '#/features/externalHooks/app/externa
 import { HOOKS_SECTION } from '#/features/externalHooks/configSection';
 import type { HookDef } from '#/features/externalHooks/internal/types';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
+import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
 
 export function makeHookRunner(
   hooks: readonly HookDef[],
   options: {
     cwd?: string;
+    telemetry?: ITelemetryService;
     onTriggered?: (event: string, target: string, count: number) => void;
     onResolved?: (
       event: string,
@@ -38,6 +40,7 @@ export function makeHookRunner(
       clientIdentity: { productName: 'test', version: '0.0.0-test', platform: 'test_platform' },
     } as unknown as IBootstrapService,
     new HostProcessService(),
+    options.telemetry ?? noopTelemetryService,
     { onTriggered: options.onTriggered, onResolved: options.onResolved },
   );
 }

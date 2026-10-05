@@ -15,6 +15,8 @@ import {
 } from '#/agent/media/mediaReadContext';
 import type { IAgentProfileService } from '#/agent/profile/profile';
 import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import type { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import type { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { ReadInputSchema, type ReadInput } from '#/agent/tools/os/read/read';
 import { ReadTool } from '#/agent/tools/os/read/readTool';
 import type { MediaReadContext } from '#/agent/tools/read-media-file/execute-media-read';
@@ -232,6 +234,11 @@ function makeReadTool(fs: IHostFileSystem, mediaCtx: MediaReadContext): ReadTool
     { getMediaReadContext: () => mediaCtx } as IMediaReadContext,
     stubToolResultTruncationService(),
     stubConfigService(),
+    {
+      getModelCapabilities: () => capabilities({ image_in: true, video_in: true }),
+    } as unknown as IAgentProfileService,
+    { isToolActive: () => true } as unknown as IAgentToolPolicyService,
+    { resolve: () => ({}) } as unknown as IAgentToolRegistryService,
   );
 }
 

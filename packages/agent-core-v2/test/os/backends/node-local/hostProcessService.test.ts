@@ -1,9 +1,10 @@
+import { EventEmitter } from 'node:events';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Readable } from 'node:stream';
+import { PassThrough, type Readable } from 'node:stream';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
@@ -158,5 +159,64 @@ describe.skipIf(process.platform !== 'win32')('HostProcessService (Windows)', ()
     const out = await collect(proc.stdout);
     expect(out.trim()).toBe('explicit-ok');
     expect(await proc.wait()).toBe(0);
+  });
+});
+
+describe('HostProcessService on Windows', () => {
+  let savedPlatform: string;
+  let spawnedCommands: string[];
+  let taskkills: Array<{ kill: ReturnType<typeof vi.fn>; unref: ReturnType<typeof vi.fn> }>;
+
+  beforeEach(() => {
+    savedPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    spawnedCommands = [];
+    taskkills = [];
+    vi.doMock('node:child_process', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('node:child_process')>()),
+      spawn: (command: string, args: readonly string[]) => {
+        spawnedCommands.push([command, ...args].join(' '));
+        const child = Object.assign(new EventEmitter(), {
+          pid: 4242,
+          stdin: new PassThrough(),
+          stdout: new PassThrough(),
+          stderr: new PassThrough(),
+          kill: vi.fn(() => true),
+          unref: vi.fn(),
+        });
+        if (command === 'taskkill') taskkills.push(child);
+        else queueMicrotask(() => child.emit('spawn'));
+        return child;
+      },
+    }));
+    vi.resetModules();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.doUnmock('node:child_process');
+    vi.resetModules();
+    Object.defineProperty(process, 'platform', { value: savedPlatform });
+  });
+
+  it('stops waiting for a taskkill that never exits and terminates it', async () => {
+    const { HostProcessService: WindowsHostProcessService } = await import(
+      '#/os/backends/host/hostProcessService'
+    );
+    const proc = await new WindowsHostProcessService().spawn('node', ['-e', 'setTimeout(() => {}, 30000)']);
+    let killed = false;
+    const kill = proc.kill('SIGTERM').then(() => {
+      killed = true;
+    });
+
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(spawnedCommands).toContain('taskkill /T /F /PID 4242');
+    expect(killed).toBe(true);
+    expect(taskkills).toHaveLength(1);
+    expect(taskkills[0]?.kill).toHaveBeenCalled();
+    expect(taskkills[0]?.unref).toHaveBeenCalled();
+    await kill;
   });
 });

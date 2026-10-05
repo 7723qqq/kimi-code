@@ -78,7 +78,7 @@ export default {
       serverRunOptionDebugEndpoints:
         '挂载 /api/v1/debug/* 路由用于测试自省。默认关闭；生产环境请勿启用。',
       serverRunOptionNoOpen: '不在默认浏览器中打开 Web UI。',
-      providerApiKey: '注册表 API 密钥。回退到 KIMI_REGISTRY_API_KEY。',
+      providerApiKey: '注册表 API 密钥。回退到 KIMI_REGISTRY_API_KEY；公开注册表可省略。',
       providerListJson: '以 JSON 格式输出原始提供商/模型配置。',
       providerCatalogFilter: '不区分大小写的 ID/名称子串过滤器。',
       providerCatalogJson: '以 JSON 格式输出匹配的目录片段。',
@@ -371,6 +371,7 @@ export default {
         importRegistryFailed: '导入注册表失败：{{error}}',
         applyRegistryFailed: '应用注册表失败：{{error}}',
         registryEmpty: '注册表中没有提供商。',
+        registryAuthRequired: '该注册表需要认证——请粘贴其 Bearer token。',
         importedOne: '已从注册表导入 1 个提供商。',
         importedMany: '已从注册表导入 {{count}} 个提供商。',
       },
@@ -435,13 +436,12 @@ export default {
       },
       customRegistryImport: {
         title: '导入自定义提供商注册表',
-        subtitleDefault: '粘贴 api.json URL 及其 Bearer token。',
+        subtitleDefault: '粘贴 api.json URL；Bearer token 可选。',
         subtitleUrlEmpty: '注册表 URL 不能为空。',
-        subtitleTokenEmpty: 'Bearer token 不能为空。',
         footerNotLast: 'Tab / ↑↓ 切换 · Enter 下一项 · Esc 取消',
         footerLast: 'Tab / ↑↓ 切换 · Enter 提交 · Esc 取消',
         urlLabel: '注册表 URL',
-        tokenLabel: 'Bearer token',
+        tokenLabel: 'Bearer token（可选）',
       },
       editorSelector: {
         title: '选择外部编辑器',
@@ -1289,6 +1289,7 @@ export default {
       // sub/provider.ts
       providerUrlRequired: '注册表 URL 不能为空。',
       providerFetchFailed: '获取注册表失败{{suffix}}：{{error}}',
+      providerAuthRequired: '该注册表需要认证——请传入 --api-key <key> 或设置 KIMI_REGISTRY_API_KEY。',
       providerNoUsable: '{{url}} 上的注册表不包含可用的提供商。',
       providerNotFound: '未找到提供商"{{id}}"。',
       providerRemoved: '已移除提供商"{{id}}"。',

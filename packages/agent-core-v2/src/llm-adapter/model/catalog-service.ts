@@ -1,4 +1,8 @@
 import { parseKimiCodeCustomHeaders } from '@moonshot-ai/kimi-code-oauth';
+import {
+  apiKeyEnvMissingMessage,
+  declaredProviderCredential,
+} from '@moonshot-ai/kimi-code-oauth/provider-credential';
 
 import { Disposable } from '#/_base/di/lifecycle';
 import { LifecycleScope } from '#/app/scopes';
@@ -288,9 +292,11 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     providerId: string,
     provider: CatalogProviderInfo,
   ): Promise<ProviderCredentialState> {
+    const declared = declaredProviderCredential(provider, providerId);
     return {
       hasApiKey: hasConfiguredApiKey(provider),
       hasOAuthToken: await this.hasCachedToken(providerId, provider),
+      hasCredentialConflict: declared.kind === 'conflict',
     };
   }
 
@@ -460,6 +466,21 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     if (auth.apiKey !== undefined) {
       return createStaticCredentialProvider(auth.apiKey);
     }
+    if (auth.apiKeyEnv !== undefined) {
+      const envName = auth.apiKeyEnv;
+      return {
+        resolve: () => {
+          const apiKey = nonEmpty(process.env[envName]);
+          if (apiKey === undefined) {
+            throw new Error2(
+              CONFIG_INVALID_ERROR_CODE,
+              apiKeyEnvMissingMessage(providerName, envName),
+            );
+          }
+          return { apiKey };
+        },
+      };
+    }
     if (auth.oauth !== undefined) {
       const oauthRef = auth.oauth;
       const providerKey = auth.oauthProviderKey ?? providerName;
@@ -619,6 +640,8 @@ function locationFromVertexAIBaseUrl(baseUrl: string | undefined): string | unde
 
 function hasConfiguredApiKey(provider: CatalogProviderInfo): boolean {
   if (nonEmpty(provider.apiKey) !== undefined) return true;
+  const apiKeyEnv = nonEmpty(provider.apiKeyEnv);
+  if (apiKeyEnv !== undefined) return nonEmpty(process.env[apiKeyEnv]) !== undefined;
   if (provider.type === undefined) return false;
   return resolveProviderEndpoint(provider.type, provider.env ?? {}).apiKey !== undefined;
 }

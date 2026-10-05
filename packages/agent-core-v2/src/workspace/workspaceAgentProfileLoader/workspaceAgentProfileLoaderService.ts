@@ -15,7 +15,7 @@ import {
 } from '#/workspace/workspaceAgentProfileLoader/internal/agentRoots';
 import { IUserAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoader';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
-import { watch } from '#human/utils/watch';
+import { watchCandidates } from '#human/utils/watch';
 
 import { profilesFromDiscovery } from './internal/agentProfileFromFile';
 import type { IWorkspaceAgentProfileLoader } from './workspaceAgentProfileLoader';
@@ -67,7 +67,7 @@ export class WorkspaceAgentProfileLoaderService
       this.workspace.cwd,
       (message) => this.log.warn(message),
     );
-    const handle = watch(projectRoot, {
+    const handle = watchCandidates(projectRoot, candidates, {
       ignored: subtreeWatchFilter(projectRoot, candidates),
     });
     this._register(handle);

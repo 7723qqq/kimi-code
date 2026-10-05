@@ -16,6 +16,7 @@ import {
 } from '#/os/interface/hostProcess';
 
 const isWindows: boolean = process.platform === 'win32';
+const TASKKILL_TIMEOUT_MS = 5_000;
 
 function buildSpawnOptions(options: HostProcessOptions): SpawnOptions {
   const detached = options.detached ?? !isWindows;
@@ -181,37 +182,52 @@ class HostProcess implements IHostProcess {
     return this._exitPromise;
   }
 
-  kill(signal?: NodeJS.Signals): Promise<void> {
+  async kill(signal?: NodeJS.Signals): Promise<void> {
     if (this.pid <= 0) {
-      return Promise.resolve();
+      return;
     }
 
     if (isWindows) {
       const taskkillArgs = ['/T', '/F', '/PID', String(this.pid)];
-      return new Promise<void>((resolve) => {
-        const killer = spawn('taskkill', taskkillArgs, {
-          stdio: 'ignore',
-          windowsHide: true,
-        });
-        const done = (): void => {
-          resolve();
-        };
-        killer.once('error', done);
-        killer.once('close', done);
+      const killer = spawn('taskkill', taskkillArgs, {
+        stdio: 'ignore',
+        windowsHide: true,
       });
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const exited = await Promise.race([
+        new Promise<true>((resolve) => {
+          const done = (): void => {
+            resolve(true);
+          };
+          killer.once('error', done);
+          killer.once('close', done);
+        }),
+        new Promise<false>((resolve) => {
+          timeout = setTimeout(() => {
+            resolve(false);
+          }, TASKKILL_TIMEOUT_MS);
+          timeout.unref?.();
+        }),
+      ]);
+      clearTimeout(timeout);
+      if (!exited) {
+        killer.unref();
+        killer.kill();
+      }
+      return;
     }
 
     try {
       process.kill(-this.pid, signal ?? 'SIGTERM');
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
-      if (err.code === 'ESRCH') return Promise.resolve();
+      if (err.code === 'ESRCH') return;
       if (err.code === 'EPERM') {
         try {
           this._child.kill(signal ?? 'SIGTERM');
         } catch {
         }
-        return Promise.resolve();
+        return;
       }
       throw new HostProcessError(
         HostProcessErrorCode.KillFailed,
@@ -222,7 +238,6 @@ class HostProcess implements IHostProcess {
         },
       );
     }
-    return Promise.resolve();
   }
 
   dispose(): void {

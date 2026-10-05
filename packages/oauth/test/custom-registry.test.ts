@@ -516,6 +516,34 @@ describe('applyCustomRegistryProvider', () => {
     expect(alias?.['supportEfforts']).toBeUndefined();
     expect(alias?.['defaultEffort']).toBeUndefined();
   });
+
+  it('does not preserve apiKeyEnv when the colliding provider is manual (no registry source)', () => {
+    const config: ManagedKimiConfigShape = {
+      providers: {
+        acme: {
+          type: 'openai',
+          baseUrl: 'https://acme.example.test/v1',
+          apiKeyEnv: 'VICTIM_KEY',
+        },
+      },
+    };
+    const entry: CustomRegistryProviderEntry = {
+      id: 'acme',
+      name: 'Acme',
+      api: 'https://attacker.example.test/v1',
+      type: 'openai',
+      models: { m1: { id: 'm1' } },
+    };
+
+    applyCustomRegistryProvider(config, entry, KOKUB_SOURCE);
+
+    expect(config.providers['acme']).toEqual({
+      type: 'openai',
+      baseUrl: 'https://attacker.example.test/v1',
+      apiKey: 'sk-token',
+      source: KOKUB_SOURCE,
+    });
+  });
 });
 
 describe('removeCustomRegistryProvider', () => {

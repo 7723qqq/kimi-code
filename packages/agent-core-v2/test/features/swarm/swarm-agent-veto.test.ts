@@ -15,6 +15,7 @@ import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { AgentSwarmService } from '#/features/swarm/agent/swarmService';
@@ -26,6 +27,7 @@ import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 import { stubContextMemory } from '../../agent/contextMemory/stubs';
+import { recordingTelemetry } from '../../app/telemetry/stubs';
 import {
   stubToolExecutorEvents,
   type ToolExecutorEventStubs,
@@ -86,6 +88,7 @@ describe('AgentSwarmService —Agent tool veto in swarm mode', () => {
     ix.set(IEventBus, new SyncDescriptor(EventBusService));
     ix.set(IAgentToolRegistryService, new SyncDescriptor(AgentToolRegistryService));
     ix.stub(IAgentReminderService, createReminderStub());
+    ix.stub(ITelemetryService, recordingTelemetry([]));
     ix.stub(ISessionSwarmService, {
       getSwarmItem: async () => {},
       run: async () => [],
