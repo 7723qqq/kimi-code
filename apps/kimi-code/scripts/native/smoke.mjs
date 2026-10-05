@@ -83,7 +83,7 @@ try {
     pluginEntry,
     'await Promise.resolve();\nconsole.log(`plugin entry ran ${process.argv.slice(2).join(" ")}`);\n',
   );
-  const pluginOutput = await runKimiWithEnv(['__plugin_run_node', pluginEntry, 'alpha', 'beta'], {
+  const pluginOutput = await runKimi(['__plugin_run_node', pluginEntry, 'alpha', 'beta'], {
     KIMI_CODE_HOME: smokeHome,
     KIMI_PLUGIN_ROOT: pluginRoot,
   });
