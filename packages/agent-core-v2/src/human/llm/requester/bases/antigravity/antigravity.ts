@@ -5,15 +5,15 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
 import type { ModelCapability } from '#/llm/capability';
-import type { FinishReason } from '#human/llm/finish-reason';
+import type { FinishReason } from '#/llm/finish-reason';
 import type {
   Message,
   StreamedMessagePart,
   ThinkPart,
   ToolDescription as Tool,
 } from '#human/llm/message';
-import type { ThinkingEffort } from '#human/llm/thinking';
-import type { TokenUsage } from '#human/llm/usage';
+import type { ThinkingEffort } from '#/llm/thinking';
+import type { TokenUsage } from '#/llm/usage';
 
 /** Request options the Antigravity bridge consumes from the requester layer. */
 export interface AntigravityGenerateOptions {

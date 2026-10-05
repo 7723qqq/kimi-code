@@ -235,14 +235,14 @@ export interface TaskNotificationOrigin {
 }
 
 export type BackgroundTaskNotificationOrigin =
-  | Extract<PromptOrigin, { kind: 'task' }>
+  | Extract<PromptOrigin, { kind: 'background_task' }>
   | TaskNotificationOrigin;
 
 export function backgroundOrigin(
   message: ContextMessage,
 ): BackgroundTaskNotificationOrigin | undefined {
   const origin = message.origin as BackgroundTaskNotificationOrigin | undefined;
-  return origin?.kind === 'task' ? origin : undefined;
+  return origin?.kind === 'background_task' || origin?.kind === 'task' ? origin : undefined;
 }
 
 export function bundledSkillsFromOrigin(

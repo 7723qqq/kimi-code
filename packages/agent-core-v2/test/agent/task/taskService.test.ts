@@ -12,6 +12,7 @@ import type {
   ContextInjectionProvider,
 } from '#/features/reminder/types';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { stubFlag } from '../../app/flag/stubs';
 import { createReminderStub } from '../../features/reminder/stubs';
 import {
   IAgentTaskService,
@@ -415,8 +416,8 @@ describe('AgentTaskService', () => {
     const bytes = new InMemoryStorageService();
     const mainSvc = buildAgentIx('main', docs, bytes).get(IAgentTaskService);
     const childSvc = buildAgentIx('child-1', docs, bytes).get(IAgentTaskService);
-    const mainTool = new WaitForTool(mainSvc, noopTelemetryService);
-    const childTool = new WaitForTool(childSvc, noopTelemetryService);
+    const mainTool = new WaitForTool(mainSvc, noopTelemetryService, stubFlag(true));
+    const childTool = new WaitForTool(childSvc, noopTelemetryService, stubFlag(true));
 
     const leaf = pendingSubagentTask('agent-grandchild', 'leaf work');
     const taskC = childSvc.registerTask(leaf.task);
@@ -465,8 +466,8 @@ describe('AgentTaskService', () => {
     const bytes = new InMemoryStorageService();
     const mainSvc = buildAgentIx('main', docs, bytes).get(IAgentTaskService);
     const childSvc = buildAgentIx('child-1', docs, bytes).get(IAgentTaskService);
-    const mainTool = new WaitForTool(mainSvc, noopTelemetryService);
-    const childTool = new WaitForTool(childSvc, noopTelemetryService);
+    const mainTool = new WaitForTool(mainSvc, noopTelemetryService, stubFlag(true));
+    const childTool = new WaitForTool(childSvc, noopTelemetryService, stubFlag(true));
 
     const parent = pendingSubagentTask('agent-parent', 'parent work');
     const taskM = mainSvc.registerTask(parent.task);
