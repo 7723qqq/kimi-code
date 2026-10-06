@@ -122,9 +122,13 @@ R6. **`plan` + `swarm` stays a valid combination.** `footer.ts:593-598` already 
     `swarm-plan` badge and `modeMutexService.ts` deliberately does not evict across that pair. This
     spec preserves that; it does not extend exclusivity to it.
 
-R7. **`Shift+Tab` uses the decided semantics**: leave the exclusive mode if one is active (evicting it
-    through the coordinator so the exit is durable), otherwise enter plan. It must never leave the
-    session in a stacked pair.
+R7. **`Shift+Tab` uses the decided semantics**: cycle Plan and Spec — with neither active enter plan,
+    otherwise advance one step (`plan → spec`, `spec → none`), evicting through the coordinator so each
+    transition is durable. It must never leave the session in a stacked pair, and it must not enter or
+    leave `swarm` or `tower` at all.
+    *Superseded:* this read "leave the exclusive mode if one is active, otherwise enter plan" until
+    2026-10-07. That rule made Spec → Plan take two presses, with the second appearing to undo the first.
+    See `tasks.md` T5 and `progress.md`.
 
 R8. **Indicators reflect the real state.** `/status` and the `status_line.command` payload expose the
     same mode set the footer does, so no viewer can claim `plan off` while spec is on.

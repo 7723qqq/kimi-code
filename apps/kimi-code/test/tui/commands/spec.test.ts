@@ -11,6 +11,8 @@ function makeHost(
     specMode?: boolean;
     /** The engine refuses to change mode, so status never reflects the request. */
     engineRefuses?: boolean;
+    /** The confirm read rejects, so the command cannot verify the switch. */
+    statusReadFails?: boolean;
   } = {},
 ) {
   let engineMode = overrides.specMode ?? false;
@@ -19,7 +21,10 @@ function makeHost(
       if (!overrides.engineRefuses) engineMode = enabled;
     }),
     getSpec: vi.fn(async () => (engineMode ? { dir: '/ws/specs/spec-1' } : null)),
-    getStatus: vi.fn(async () => ({ specMode: engineMode })),
+    getStatus: vi.fn(async () => {
+      if (overrides.statusReadFails) throw new Error('status unavailable');
+      return { specMode: engineMode };
+    }),
   };
   const hasSession = overrides.hasSession ?? true;
   const host = {
@@ -77,6 +82,27 @@ describe('handleSpecCommand — confirms the mode actually took', () => {
 
     expect(session.setSpecMode).toHaveBeenCalledWith(false);
     expect(host.setAppState).toHaveBeenCalledWith({ specMode: false });
+    expect(host.showError).not.toHaveBeenCalled();
+  });
+
+  it('leaves spec mode when the confirm read fails', async () => {
+    const { host, session } = makeHost({ specMode: true, statusReadFails: true });
+
+    await handleSpecCommand(host, 'off');
+
+    // A read we could not perform is not evidence that the engine refused, and
+    // it must not strand the UI on a mode the engine has already left.
+    expect(session.setSpecMode).toHaveBeenCalledWith(false);
+    expect(host.setAppState).toHaveBeenCalledWith({ specMode: false });
+    expect(host.showError).not.toHaveBeenCalled();
+  });
+
+  it('enters spec mode when the confirm read fails', async () => {
+    const { host } = makeHost({ statusReadFails: true });
+
+    await handleSpecCommand(host, 'on');
+
+    expect(host.setAppState).toHaveBeenCalledWith({ specMode: true });
     expect(host.showError).not.toHaveBeenCalled();
   });
 });

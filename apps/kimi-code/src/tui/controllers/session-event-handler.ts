@@ -881,6 +881,12 @@ export class SessionEventHandler {
     if (event.specMode !== undefined) patch.specMode = event.specMode;
     if (event.swarmMode !== undefined) patch.swarmMode = event.swarmMode;
     if (event.towerMode !== undefined) patch.towerMode = event.towerMode;
+    if (event.specMode === false) {
+      // Leaving spec mode invalidates the stage: the footer renders
+      // `spec:${stage}` and a stale value would label the next spec with the
+      // previous one's progress.
+      patch.specStage = undefined;
+    }
     if (event.permission !== undefined) {
       patch.permissionMode = event.permission;
     }

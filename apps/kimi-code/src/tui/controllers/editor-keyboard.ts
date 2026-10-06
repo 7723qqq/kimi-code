@@ -87,6 +87,8 @@ export interface EditorKeyboardHost {
   handlePlanToggle(next: boolean): void;
   /** Leave whichever exclusive review mode is active (spec/swarm/tower/plan). */
   handleExclusiveModeLeave(mode: ActiveExclusiveMode): void;
+  /** Enter an exclusive review mode from the Shift-Tab cycle. */
+  handleExclusiveModeSwitch(mode: ReviewCycleMode): void;
   handleInputModeChange(mode: 'prompt' | 'bash'): void;
   clearQueuedMessages(): void;
   setExternalEditorRunning(running: boolean): void;
@@ -275,20 +277,38 @@ export class EditorKeyboardController {
     };
 
     editor.onShiftTab = () => {
-      // Shift-Tab is the "review mode" toggle: when a session is already in one
-      // of the exclusive modes it leaves that mode, otherwise it enters plan.
-      // Leaving first is what keeps the modes from stacking.
-      const active = activeExclusiveMode(host.state.appState);
+      // Shift-Tab cycles plan and spec: none → plan → spec → none. A single
+      // press always lands on a stable endpoint, which is what makes it
+      // predictable — the previous "leave when active, else enter plan" rule
+      // needed two presses to get from spec to plan, so the second press
+      // appeared to undo the first.
+      //
+      // The cycle deliberately ignores swarm and tower. They are not on it, so
+      // this shortcut must neither derive a target from them nor act on them;
+      // `/swarm` and `/tower` own their entry and exit. The engine's conflict
+      // table is a separate concern — entering plan or spec may evict them.
+      const cycle = reviewCycleState(host.state.appState);
+      if (cycle === null) return;
       const apply = (): void => {
+        const target = nextReviewMode(cycle);
+        host.track('shortcut_mode_switch', { to_mode: target ?? 'agent' });
+        if (target === 'plan') {
+          host.track('shortcut_plan_toggle', { enabled: true });
+          host.handlePlanToggle(true);
+          return;
+        }
+        if (target === 'spec') {
+          // Entering spec goes through the same surface `/spec on` uses, so the
+          // engine (not this shortcut) decides whether the switch is allowed.
+          host.handleExclusiveModeSwitch('spec');
+          return;
+        }
+        // Back to no review mode: leave whichever of plan/spec is on.
+        const active = activeReviewMode(cycle);
         if (active !== null) {
           host.track('shortcut_mode_leave', { from_mode: active });
           host.handleExclusiveModeLeave(active);
-          return;
         }
-        const next = !host.state.appState.planMode;
-        host.track('shortcut_plan_toggle', { enabled: next });
-        host.track('shortcut_mode_switch', { to_mode: next ? 'plan' : 'agent' });
-        host.handlePlanToggle(next);
       };
       if (host.session === undefined) {
         // v2 session-less: lazy-create the session, then toggle — the same
@@ -904,24 +924,62 @@ function parseExpiry(meta: FileMeta | undefined): number | undefined {
   return Number.isFinite(value) ? value : undefined;
 }
 
-/** The review modes Shift-Tab can leave. Mirrors the SDK's exclusive-mode set. */
-export type ActiveExclusiveMode = 'swarm' | 'tower' | 'spec' | 'plan';
+/**
+ * The plan/spec half of the app state — the only fields the Shift-Tab cycle
+ * reads or writes. Swarm and tower are deliberately absent from this shape so
+ * the cycle cannot be coupled to them by construction.
+ */
+export interface ReviewCycleState {
+  readonly planMode: boolean;
+  readonly specMode: boolean;
+}
+
+/** The modes Shift-Tab's cycle can enter or leave. */
+export type ReviewCycleMode = 'plan' | 'spec';
 
 /**
- * The exclusive mode the session is in, or null. `plan` is checked last because
- * it is the one mode that may legally pair with another (swarm); when both are
- * set the narrower `swarm` is returned so Shift-Tab peels them apart one press
- * at a time instead of stranding the user in plan.
+ * The review modes Shift-Tab can leave through the cycle. Swarm and tower are
+ * excluded: they have their own commands and are never touched by this
+ * shortcut.
  */
-function activeExclusiveMode(appState: {
-  readonly specMode: boolean;
+export type ActiveExclusiveMode = 'plan' | 'spec';
+
+/**
+ * The Shift-Tab cycle's view of the session, or `null` when the cycle does not
+ * apply.
+ *
+ * It returns `null` while swarm or tower is active: those modes are not on the
+ * cycle, so a press must neither move away from them nor be interpreted as a
+ * request to change plan or spec while they are running. The user leaves them
+ * through `/swarm off` / `/tower off`, and the cycle resumes from whatever
+ * plan/spec state is then in effect.
+ */
+export function reviewCycleState(appState: {
   readonly swarmMode: boolean;
   readonly towerMode: boolean;
   readonly planMode: boolean;
-}): ActiveExclusiveMode | null {
-  if (appState.specMode) return 'spec';
-  if (appState.swarmMode) return 'swarm';
-  if (appState.towerMode) return 'tower';
-  if (appState.planMode) return 'plan';
+  readonly specMode: boolean;
+}): ReviewCycleState | null {
+  if (appState.swarmMode || appState.towerMode) return null;
+  return { planMode: appState.planMode, specMode: appState.specMode };
+}
+
+/**
+ * Where the next Shift-Tab lands within the plan/spec cycle: `plan`, `spec`, or
+ * `null` for no review mode. The cycle is `none → plan → spec → none`.
+ */
+export function nextReviewMode(state: ReviewCycleState): ReviewCycleMode | null {
+  if (state.planMode) return 'spec';
+  if (state.specMode) return null;
+  return 'plan';
+}
+
+/**
+ * Which of the two cycle modes is currently on, or `null`. Used only to pick the
+ * mode to leave when the cycle wraps back to "none".
+ */
+function activeReviewMode(state: ReviewCycleState): ReviewCycleMode | null {
+  if (state.specMode) return 'spec';
+  if (state.planMode) return 'plan';
   return null;
 }

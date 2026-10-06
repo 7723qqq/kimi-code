@@ -63,8 +63,21 @@ already implemented the rule for 3 of 6 flags and already had 6 passing tests.
       `setSpecMode`, `setSwarmMode`, `setTowerMode`, and the `AgentSwarm` tool. `modeEntryTools.test.ts`
       (6 tests) plus 2 new harness-backed cases in `packages/node-sdk/test/session-spec.test.ts`.
       Verified red: with the source stashed, both eviction tests fail.
-- [x] **T5** — `Shift+Tab` is mode-aware. Decided semantics: leave the active exclusive mode, else enter
-      plan; `swarm` is peeled before `plan` when both are set. 4 tests failed before, all 39 pass after.
+- [x] **T5** — `Shift+Tab` is mode-aware. **Semantics changed after this work (2026-10-07).** As
+      shipped here it was "leave the active exclusive mode, else enter plan; `swarm` is peeled before
+      `plan` when both are set" — 4 tests failed before, all 39 passed after. In use that proved
+      defective: leaving and entering were separate presses, so Spec → Plan took two presses and the
+      second *looked like it undid the first*. It is now a cycle, `none → plan → spec → none`, one
+      transition per press, implemented in `editor-keyboard.ts` by `nextReviewMode()` over a
+      `ReviewCycleState`. **Swarm and Tower are no longer part of the shortcut at all** — not entered,
+      not left, not peeled; their paths are `/swarm` and `/tower` only. That isolation is structural:
+      `ReviewCycleState` carries only `planMode`/`specMode`, `reviewCycleState()` returns `null` while
+      swarm or tower is active (the press is a no-op), and `ActiveExclusiveMode` is `'plan' | 'spec'`,
+      so the former `handleSwarmCommand('off')` / `handleTowerCommand('off')` branches no longer
+      compile (TS2678) and were removed. Tests now assert the resulting state rather than that a
+      handler was called — the original `expect(handleExclusiveModeLeave).toHaveBeenCalledWith('spec')`
+      passed even while the feature misbehaved. Isolation verified red: dropping the swarm/tower guard
+      from `reviewCycleState()` fails 5 cases.
 - [x] **T6** — indicators: spec/swarm rows in `/status`, `specMode`/`swarmMode`/`towerMode` in the
       `status_line.command` payload, and the border highlight for all four modes (plus the `setAppState`
       refresh fix). New: `status-panel.test.ts` +2, `editor-border-highlight.test.ts` (6),

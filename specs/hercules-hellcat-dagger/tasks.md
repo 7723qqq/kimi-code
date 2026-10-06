@@ -57,10 +57,15 @@ on a conflicting mode changes, update `enter-spec-mode.md` / `enter-plan-mode.md
 
 ## T4 — Make Shift+Tab mode-aware (R2)
 
+> **Superseded.** This task was never implemented from this design; the shortcut was reworked in
+> `archangel-quake-dagger`'s T5, and its semantics changed again on 2026-10-07 into a
+> `none → plan → spec → none` cycle that does not touch `swarm` or `tower`. Kept for provenance only —
+> do not implement the recommendation below.
+
 In `editor-keyboard.ts:275-291`, read `host.state.appState.specMode` and choose the target mode; route
 through the same path the coordinator exposes rather than `handlePlanCommand` alone
-(`kimi-tui.ts:1166-1168`). Recommended semantics: leave the exclusive mode when either is on, otherwise
-enter plan.
+(`kimi-tui.ts:1166-1168`). ~~Recommended semantics: leave the exclusive mode when either is on, otherwise
+enter plan.~~
 
 **Acceptance criteria**
 

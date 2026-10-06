@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DOUBLE_ESC_WINDOW_MS } from '#/tui/constant/kimi-tui';
 import {
   EditorKeyboardController,
+  nextReviewMode,
+  reviewCycleState,
   type EditorKeyboardHost,
 } from '#/tui/controllers/editor-keyboard';
 import type { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
@@ -318,7 +320,7 @@ describe('EditorKeyboardController shell history recall', () => {
   });
 });
 
-describe('EditorKeyboardController Shift-Tab plan toggle', () => {
+describe('EditorKeyboardController Shift-Tab plan/spec cycle', () => {
   function createShiftTabHarness(
     options: { sessionless?: boolean; appState?: Record<string, unknown> } = {},
   ) {
@@ -327,6 +329,7 @@ describe('EditorKeyboardController Shift-Tab plan toggle', () => {
     };
     const handlePlanToggle = vi.fn();
     const handleExclusiveModeLeave = vi.fn();
+    const handleExclusiveModeSwitch = vi.fn();
     const track = vi.fn();
     const showError = vi.fn();
     const ensureSession = vi.fn(async (): Promise<{ id: string } | undefined> => ({ id: 'ses-lazy' }));
@@ -350,6 +353,7 @@ describe('EditorKeyboardController Shift-Tab plan toggle', () => {
       ensureSession,
       handlePlanToggle,
       handleExclusiveModeLeave,
+      handleExclusiveModeSwitch,
       track,
       showError,
       btwPanelController: { cancelRunning: vi.fn(), closeOrCancel: vi.fn() },
@@ -357,7 +361,15 @@ describe('EditorKeyboardController Shift-Tab plan toggle', () => {
 
     new EditorKeyboardController(host, undefined as unknown as ImageAttachmentStore).install();
     const onShiftTab = editor['onShiftTab'] as unknown as () => void;
-    return { onShiftTab, handlePlanToggle, handleExclusiveModeLeave, track, showError, ensureSession };
+    return {
+      onShiftTab,
+      handlePlanToggle,
+      handleExclusiveModeLeave,
+      handleExclusiveModeSwitch,
+      track,
+      showError,
+      ensureSession,
+    };
   }
 
   it('toggles plan mode directly with an active session', () => {
@@ -396,57 +408,127 @@ describe('EditorKeyboardController Shift-Tab plan toggle', () => {
     expect(handlePlanToggle).not.toHaveBeenCalled();
   });
 
-  it('leaves spec mode instead of stacking plan on top of it', () => {
-    const { onShiftTab, handlePlanToggle, handleExclusiveModeLeave } = createShiftTabHarness({
-      appState: { specMode: true },
-    });
-
-    onShiftTab();
-
-    expect(handleExclusiveModeLeave).toHaveBeenCalledWith('spec');
-    expect(handlePlanToggle).not.toHaveBeenCalled();
-  });
-
-  it('leaves plan mode when plan is the active exclusive mode', () => {
-    const { onShiftTab, handlePlanToggle, handleExclusiveModeLeave } = createShiftTabHarness({
-      appState: { planMode: true },
-    });
-
-    onShiftTab();
-
-    expect(handleExclusiveModeLeave).toHaveBeenCalledWith('plan');
-    expect(handlePlanToggle).not.toHaveBeenCalled();
-  });
-
-  it('leaves swarm before plan when plan and swarm are both active', () => {
-    const { onShiftTab, handleExclusiveModeLeave } = createShiftTabHarness({
-      appState: { planMode: true, swarmMode: true },
-    });
-
-    onShiftTab();
-
-    // Swarm is the narrower half of the one legal pair, so it goes first.
-    expect(handleExclusiveModeLeave).toHaveBeenCalledWith('swarm');
-  });
-
-  it('leaves tower mode when tower is active', () => {
-    const { onShiftTab, handlePlanToggle, handleExclusiveModeLeave } = createShiftTabHarness({
-      appState: { towerMode: true },
-    });
-
-    onShiftTab();
-
-    expect(handleExclusiveModeLeave).toHaveBeenCalledWith('tower');
-    expect(handlePlanToggle).not.toHaveBeenCalled();
-  });
-
-  it('enters plan when no exclusive mode is active', () => {
+  it('enters plan from no mode', () => {
     const { onShiftTab, handlePlanToggle, handleExclusiveModeLeave } = createShiftTabHarness();
 
     onShiftTab();
 
     expect(handlePlanToggle).toHaveBeenCalledWith(true);
     expect(handleExclusiveModeLeave).not.toHaveBeenCalled();
+  });
+
+  it('enters spec from plan', () => {
+    const { onShiftTab, handlePlanToggle, handleExclusiveModeSwitch } = createShiftTabHarness({
+      appState: { planMode: true },
+    });
+
+    onShiftTab();
+
+    // One press reaches spec. The old rule left plan here and needed a second
+    // press to do anything else, which read as "the shortcut undid itself".
+    expect(handleExclusiveModeSwitch).toHaveBeenCalledWith('spec');
+    expect(handlePlanToggle).not.toHaveBeenCalled();
+  });
+
+  it('returns to no mode from spec', () => {
+    const { onShiftTab, handlePlanToggle, handleExclusiveModeLeave, handleExclusiveModeSwitch } =
+      createShiftTabHarness({ appState: { specMode: true } });
+
+    onShiftTab();
+
+    expect(handleExclusiveModeLeave).toHaveBeenCalledWith('spec');
+    expect(handleExclusiveModeSwitch).not.toHaveBeenCalled();
+    expect(handlePlanToggle).not.toHaveBeenCalled();
+  });
+
+  it('never leaves swarm mode', () => {
+    const { onShiftTab, handlePlanToggle, handleExclusiveModeLeave, handleExclusiveModeSwitch, track } =
+      createShiftTabHarness({ appState: { swarmMode: true } });
+
+    onShiftTab();
+
+    // Swarm is not on the plan/spec cycle: the shortcut must neither exit it nor
+    // enter anything from it. `/swarm off` owns leaving.
+    expect(handleExclusiveModeLeave).not.toHaveBeenCalled();
+    expect(handleExclusiveModeSwitch).not.toHaveBeenCalled();
+    expect(handlePlanToggle).not.toHaveBeenCalled();
+    expect(track).not.toHaveBeenCalled();
+  });
+
+  it('never leaves tower mode', () => {
+    const { onShiftTab, handlePlanToggle, handleExclusiveModeLeave, handleExclusiveModeSwitch, track } =
+      createShiftTabHarness({ appState: { towerMode: true } });
+
+    onShiftTab();
+
+    expect(handleExclusiveModeLeave).not.toHaveBeenCalled();
+    expect(handleExclusiveModeSwitch).not.toHaveBeenCalled();
+    expect(handlePlanToggle).not.toHaveBeenCalled();
+    expect(track).not.toHaveBeenCalled();
+  });
+
+  it('does not switch plan or spec while swarm is active', () => {
+    const { onShiftTab, handlePlanToggle, handleExclusiveModeLeave, handleExclusiveModeSwitch } =
+      createShiftTabHarness({ appState: { swarmMode: true, specMode: true } });
+
+    onShiftTab();
+
+    // A press while swarm runs must not be read as "leave spec".
+    expect(handleExclusiveModeLeave).not.toHaveBeenCalled();
+    expect(handleExclusiveModeSwitch).not.toHaveBeenCalled();
+    expect(handlePlanToggle).not.toHaveBeenCalled();
+  });
+
+  it('does not switch plan or spec while tower is active', () => {
+    const { onShiftTab, handlePlanToggle, handleExclusiveModeLeave, handleExclusiveModeSwitch } =
+      createShiftTabHarness({ appState: { towerMode: true, planMode: true } });
+
+    onShiftTab();
+
+    expect(handleExclusiveModeLeave).not.toHaveBeenCalled();
+    expect(handleExclusiveModeSwitch).not.toHaveBeenCalled();
+    expect(handlePlanToggle).not.toHaveBeenCalled();
+  });
+
+  it('resumes the cycle once swarm is left', () => {
+    const { onShiftTab, handlePlanToggle } = createShiftTabHarness({
+      appState: { swarmMode: false, planMode: false, specMode: false },
+    });
+
+    onShiftTab();
+
+    expect(handlePlanToggle).toHaveBeenCalledWith(true);
+  });
+});
+
+describe('Shift-Tab cycle derivation', () => {
+  function state(overrides: Partial<Record<string, boolean>> = {}) {
+    return {
+      planMode: false,
+      specMode: false,
+      swarmMode: false,
+      towerMode: false,
+      ...overrides,
+    };
+  }
+
+  it('cycles none → plan → spec → none', () => {
+    expect(nextReviewMode(reviewCycleState(state())!)).toBe('plan');
+    expect(nextReviewMode(reviewCycleState(state({ planMode: true }))!)).toBe('spec');
+    expect(nextReviewMode(reviewCycleState(state({ specMode: true }))!)).toBeNull();
+  });
+
+  it('does not apply while swarm or tower is active', () => {
+    expect(reviewCycleState(state({ swarmMode: true }))).toBeNull();
+    expect(reviewCycleState(state({ towerMode: true }))).toBeNull();
+    // Even with plan or spec also set, swarm/tower keep the cycle out of play.
+    expect(reviewCycleState(state({ swarmMode: true, specMode: true }))).toBeNull();
+    expect(reviewCycleState(state({ towerMode: true, planMode: true }))).toBeNull();
+  });
+
+  it('exposes only the plan and spec flags to the cycle', () => {
+    const cycle = reviewCycleState(state({ planMode: true, specMode: false }));
+    expect(cycle).toEqual({ planMode: true, specMode: false });
   });
 });
 

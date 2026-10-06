@@ -187,11 +187,16 @@ export async function handleSpecCommand(host: SlashCommandHost, args: string): P
     await session.setSpecMode(enabled);
     // The engine may refuse the switch (a conflicting mode it cannot leave, a
     // spec directory it cannot create), so confirm the mode actually took
-    // before claiming success — the same check `/tower` performs.
+    // before claiming success — the same check `/tower` performs. The read
+    // must not *gate* the state write: a failed read is not evidence of
+    // success, and reconciling to a value we could not read would strand the
+    // UI on a mode the engine may already have left.
     const status = await session.getStatus().catch(() => null);
-    const effective = status?.specMode ?? enabled;
-    if (effective !== enabled) {
-      host.setAppState({ specMode: effective });
+    // Only a *reported* disagreement is evidence the engine refused. A missing
+    // field means this view does not carry the flag, not that the mode is off.
+    const reported = status?.specMode;
+    if (reported !== undefined && reported !== enabled) {
+      host.setAppState({ specMode: reported });
       host.showError(
         enabled
           ? t('tui.statusMessages.failedToSetSpecMode', {

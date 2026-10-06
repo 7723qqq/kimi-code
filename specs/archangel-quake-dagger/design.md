@@ -97,7 +97,16 @@ slash command), not inside `swarmService.enter`.
 
 ## Shift+Tab (R7)
 
-Decided semantics: **leave the exclusive mode if one is active; otherwise enter plan.**
+> **Superseded 2026-10-07.** The pseudocode and ordering below describe the shape this spec approved and
+> that shipped first. It was replaced by a cycle; see `tasks.md` T5 and `progress.md`. The block is kept
+> because it explains why `activeExclusiveMode`-style derivation existed, and because the swarm/tower
+> handling it prescribes is now explicitly forbidden rather than merely reordered.
+
+Current semantics: **cycle Plan and Spec — with neither active enter plan, otherwise advance one step
+(`plan → spec`, `spec → none`).** `swarm` and `tower` are not on the cycle and the shortcut must not
+touch them.
+
+~~Decided semantics: leave the exclusive mode if one is active; otherwise enter plan.~~
 
 `editor-keyboard.ts:275-291` becomes mode-aware:
 
@@ -110,9 +119,13 @@ if (active !== null) host.handleExclusiveModeLeave(active);
 else host.handlePlanToggle(true);
 ```
 
-Ordering matters: `plan` is checked last because it is the one that may legitimately pair with `swarm`.
+~~Ordering matters: `plan` is checked last because it is the one that may legitimately pair with `swarm`.
 If a session is in `plan` + `swarm`, `Shift+Tab` leaves `swarm` first (the narrower mode), then the next
-press leaves `plan` — matching "leave the exclusive mode" rather than stranding the user.
+press leaves `plan` — matching "leave the exclusive mode" rather than stranding the user.~~
+
+The ordering rule above is void: `Shift+Tab` no longer reads or writes `swarm`/`tower` at all. Isolation
+is enforced by the type of the cycle's input (`ReviewCycleState` carries only the two flags) rather than
+by check order, so the compile step rejects any attempt to reintroduce it.
 
 The session-less path (`editor-keyboard.ts:282-289`) stays: lazily create the session, then apply.
 
@@ -140,6 +153,12 @@ new token is needed.
 after `setSpecMode`, re-read `session.getStatus()` and only report success if `status.specMode` matches
 the request; otherwise set `appState` from the status and show the error. Same for `/swarm`
 (`commands/swarm.ts:170`).
+
+> **Amended 2026-10-07.** As first implemented this let the confirm-read *gate* the state write, so a
+> read that disagreed — including one that merely failed — skipped the success write and could write a
+> stale value back. The shipped rule is now: only a **reported** disagreement counts as a refusal;
+> a missing field means the view does not carry the flag, and a failed read is not evidence of success.
+> See `progress.md` T7.
 
 ## Files touched
 

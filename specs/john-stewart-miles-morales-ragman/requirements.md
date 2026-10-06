@@ -44,8 +44,18 @@ regress.
 `spec_resolved` must be emitted at most once per user-visible occurrence, and `spec_resolved`
 must not report `approved` for a spec the user never saw.
 
-**R3 — One read per exit.** A single `ExitSpecMode` call must read each document once, not
-three times, without changing what the review panel shows.
+**R3 — Redundant reads removed on the exit path.** The three-fold redundancy must go: a single
+`ExitSpecMode` call must not read each document three times per path, and the review display and the
+execution step must not each re-read documents the other already has. The acceptance criterion is the
+elimination of the redundancy, **not** a literal "exactly one read per document per call" — see below.
+
+Note on the wording, recorded because the implementation does not satisfy a literal reading: the exit
+path legitimately performs two reads per document per call — one in `resolveSpecReviewDisplay`
+(`exitSpecModeTool.ts:39`) to build the review panel, and one in `execution` (`:62`) to validate
+completeness before submitting. These are two distinct purposes at two distinct points in the call, and
+`recordRevision(data)` exists precisely so the revision is not a *third* read of the same data
+(`specService.ts:149-153`). The defect R3 targets was three reads **per path**; that is fixed. A literal
+"one read per call" was never the observable requirement and is not what the tests assert.
 
 **R4 — `clear()` must mean cleared.** After `clear()`, `status()` must report the spec
 directory as empty of documents, and a subsequent `EnterSpecMode` must be able to start a

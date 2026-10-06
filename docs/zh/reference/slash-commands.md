@@ -60,7 +60,7 @@
 | `/workflow <name> [<args>...]` | — | 运行或管理工作流（列表、状态、取消或按名称运行） | 是 |
 | `/goal [...]` | — | 开始或管理目标模式 | 见下文 |
 
-Plan、Spec、Swarm、Tower 四种模式互斥：开启其中一种会退出当时处于开启状态的其他几种。Plan 与 Swarm 可以同时开启。`Shift-Tab` 会退出当前模式；若当前没有开启任何模式，则进入 Plan。
+Plan、Spec、Swarm、Tower 四种模式互斥：开启其中一种会退出当时处于开启状态的其他几种。Plan 与 Swarm 可以同时开启。`Shift-Tab` 在 Plan 与 Spec 之间循环：两者都未开启时进入 Plan，再按一次切到 Spec，再按一次关闭 Spec，如此往复。它不会进入或退出 Swarm、Tower，这两个模式请使用 `/swarm`、`/tower`。
 
 ::: warning 注意
 `/yolo` 会跳过普通工具调用的审批确认，使用前请确保了解可能的风险。Plan 模式的退出审批不会被 `/yolo` 跳过；Plan 模式下的 `Bash` 也按 `/yolo` 的普通放行规则处理。

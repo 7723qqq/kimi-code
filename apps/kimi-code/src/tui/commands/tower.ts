@@ -69,11 +69,15 @@ async function setTowerMode(
     await session.setTowerMode(enabled, base);
     // The engine may silently refuse entry (flag off, feature not assembled
     // until a restart, another session owning the workspace tower) — confirm
-    // the mode actually took before reporting success.
-    const status = await session.getStatus();
-    const effective = status.towerMode ?? false;
-    if (effective !== enabled) {
-      host.setAppState({ towerMode: effective });
+    // the mode actually took before reporting success. The read must not
+    // *gate* the state write: reconciling here is a correction to the engine's
+    // authoritative value, not the only thing that updates the local state.
+    const status = await session.getStatus().catch(() => null);
+    // Only a *reported* disagreement is evidence the engine refused. A missing
+    // field means this view does not carry the flag, not that the mode is off.
+    const reported = status?.towerMode;
+    if (reported !== undefined && reported !== enabled) {
+      host.setAppState({ towerMode: reported });
       host.showError(
         enabled
           ? 'Tower mode could not be enabled — another session owns this workspace tower, or the experiment is off / was just turned on and needs a restart.'

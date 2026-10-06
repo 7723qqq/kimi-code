@@ -160,12 +160,17 @@ async function setSwarmMode(
   try {
     await session.setSwarmMode(enabled, trigger);
     // The engine may refuse (a conflicting mode it cannot leave), so confirm
-    // the mode actually took before reporting success, like `/tower` does.
+    // the mode actually took before reporting success, like `/tower` does. The
+    // read must not *gate* the state write: a failed read is not evidence of
+    // success, and reconciling to a value we could not read would strand the
+    // UI on a mode the engine may already have left.
     const status = await session.getStatus().catch(() => null);
-    const effective = status?.swarmMode ?? enabled;
-    if (effective !== enabled) {
-      host.setAppState({ swarmMode: effective });
-      host.state.swarmModeEntry = effective ? trigger : undefined;
+    // Only a *reported* disagreement is evidence the engine refused. A missing
+    // field means this view does not carry the flag, not that the mode is off.
+    const reported = status?.swarmMode;
+    if (reported !== undefined && reported !== enabled) {
+      host.setAppState({ swarmMode: reported });
+      host.state.swarmModeEntry = reported ? trigger : undefined;
       host.showError(
         t('tui.messages.swarmToggleFailed', {
           action: enabled ? t('tui.messages.swarmEnable') : t('tui.messages.swarmDisable'),

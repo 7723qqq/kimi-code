@@ -68,23 +68,46 @@ RPCs (`sdk-rpc-client-v2.ts:1832-1851`), and the swarm callers (`AgentSwarm` too
 
 ## T5 — Make Shift+Tab mode-aware (R7, D4)
 
-Rewrite `editor-keyboard.ts:275-291` to pick the active exclusive mode and leave it, else enter plan
-(checking `plan` last, per design.md's ordering). Add the leave handler next to `handlePlanToggle`
-(`kimi-tui.ts:1166-1168`), routed through the same RPC surface the slash commands use.
+> **Superseded semantics (rewritten 2026-10-07).** This task originally specified "leave the active
+> exclusive mode, else enter plan", with `swarm` peeled before `plan`. That shape shipped and was then
+> found defective in use: leaving and entering were two separate presses, so getting from Spec to Plan
+> took two presses and the second one *appeared to undo the first* ("切出来个 plan，然后再切就没了").
+> The accepted replacement is a **cycle**, now implemented. The acceptance criteria below are the
+> current ones; the original list is preserved underneath for provenance.
 
-**Acceptance criteria**
+Rewrite `editor-keyboard.ts` to cycle Plan and Spec on each press: with neither active, enter Plan;
+then switch to Spec; then turn Spec off. Add the switch/leave handlers next to `handlePlanToggle`
+(`kimi-tui.ts`), routed through the same RPC surface the slash commands use.
 
-- With `appState.specMode === true`, `Shift+Tab` leaves both `specMode` and `planMode` false. On today's
-  code this same input sets `planMode` true while leaving `specMode` true — the test fails before.
-- With `appState.planMode === true` and swarm off, `Shift+Tab` leaves plan (both false). Today it
-  correctly toggles plan off, so pin it as a regression guard.
-- With both false, `Shift+Tab` enters plan (today's behaviour, unchanged).
-- With `plan`+`swarm` both active, the first press leaves swarm and the second leaves plan — an
-  explicit test, since this is the ordering decision design.md made.
+**Acceptance criteria (current)**
+
+- The cycle is `none → plan → spec → none`, one transition per press. Derived by `nextReviewMode()`
+  from a `ReviewCycleState` — a shape carrying **only** `planMode` and `specMode`.
+- From Spec, a press turns Spec off and does **not** enter Plan. (This is the behaviour the cycle
+  defines; it is deliberately different from the original "leave, else enter plan" rule, and users who
+  expect Spec → Plan directly should say so — changing it means redefining the cycle order.)
+- `Shift+Tab` never enters or leaves Swarm or Tower. Their paths remain `/swarm` and `/tower`
+  exclusively. Enforced structurally, not by a runtime check: `ReviewCycleState` cannot express those
+  flags, `reviewCycleState()` returns `null` while either is active (so the press is a no-op), and
+  `ActiveExclusiveMode` is `'plan' | 'spec'` so a leave call for either mode fails to compile.
 - The session-less path (`host.session === undefined`) still lazily creates a session and then applies
-  the toggle; existing coverage in `apps/kimi-code/test/tui/` must still pass.
+  the transition; routing through `reviewCycleState()` must not bypass it.
 - A user-initiated exit is **not** blocked by spec's `ExitSpecMode` approval gate
   (`specService.ts:220-225`): assert the leave path succeeds while permission mode is not `auto`.
+- Tests assert the **resulting state**, not merely that a handler was called — the original suite's
+  `expect(handleExclusiveModeLeave).toHaveBeenCalledWith('spec')` passed while the feature was broken,
+  because it never checked that Spec was actually off afterwards.
+- Isolation is pinned by tests that fail if the coupling returns: removing the swarm/tower guard from
+  `reviewCycleState()` must turn them red (verified — 5 cases fail).
+
+**Original acceptance criteria (superseded, kept for provenance)**
+
+- With `appState.specMode === true`, `Shift+Tab` leaves both `specMode` and `planMode` false.
+- With `appState.planMode === true` and swarm off, `Shift+Tab` leaves plan (both false).
+- With both false, `Shift+Tab` enters plan.
+- With `plan`+`swarm` both active, the first press leaves swarm and the second leaves plan.
+- The session-less path still lazily creates a session, then applies the toggle.
+- A user-initiated exit is not blocked by spec's `ExitSpecMode` approval gate.
 
 ## T6 — Indicators tell the truth (R8, D6)
 
@@ -146,11 +169,19 @@ Adopt the `/tower` re-read pattern (`commands/tower.ts:71-83`) in `handleSpecCom
   workspace — allow it the time).
 - `bun run test` passes.
 - `bun run lint` passes for the touched files.
-- `packages/agent-core-v2`'s `gen:state-manifest` / `gen:wire-manifest` produce **no diff** (this change
-  adds no state and no event class); record the command output in `progress.md`.
+- `packages/agent-core-v2`'s `gen:state-manifest` / `gen:wire-manifest`: the **wire** manifest must
+  produce no diff (this change adds no event class). The **state** manifest is expected to differ by the
+  two `lastTransition?: 'cancel' | 'exit'` lines on the `spec` and `plan` entries, which come from
+  earlier uncommitted work rather than from this change; regenerate it rather than hand-editing, and
+  confirm the diff is exactly those lines. Record the command output in `progress.md`.
+  > The original criterion said "no diff" for both, on the assumption that this change adds no state. It
+  > adds none, but the generated file was already stale before this work began, so a clean "no diff" was
+  > never achievable here. The observable requirement is the *content* of the diff, not its absence.
 - End-to-end manual check recorded in `progress.md`: start a session, `/plan`, then `/spec`, confirm one
   badge in the footer and that the spec directory **is** writable (the D1 deadlock is gone); then press
-  `Shift+Tab` and confirm it leaves spec rather than stacking.
+  `Shift+Tab` and confirm it leaves spec rather than stacking. Note: `Shift+Tab`'s semantics were
+  changed again after this work (see `progress.md`), so the shortcut no longer "leaves spec" as a
+  one-press rule — assert the mode set the current cycle defines.
 
 ## Suggested order
 

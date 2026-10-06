@@ -59,7 +59,7 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/workflow <name> [<args>...]` | — | Run or manage workflows (list, status, cancel, or run by name) | Yes |
 | `/goal [...]` | — | Start or manage an autonomous goal | See below |
 
-Plan, Spec, Swarm and Tower modes are mutually exclusive: turning one on leaves whichever of the others was active. Plan and Swarm may run together. `Shift-Tab` leaves the current mode, or enters Plan when none is active.
+Plan, Spec, Swarm and Tower modes are mutually exclusive: turning one on leaves whichever of the others was active. Plan and Swarm may run together. `Shift-Tab` cycles Plan and Spec: with neither active it enters Plan, then switches to Spec, then turns Spec off, and so on. It never enters or leaves Swarm or Tower; use `/swarm` and `/tower` for those.
 
 ::: warning
 `/yolo` skips approval for regular tool calls. Please make sure you understand the potential risks before enabling it. Plan mode exit approval is not bypassed by `/yolo`; `Bash` inside Plan mode is still subject to the regular `/yolo` allow rules.
