@@ -204,6 +204,8 @@ function describeApproval(display: ToolInputDisplay, action: string): string {
   switch (display.kind) {
     case 'plan_review':
       return '';
+    case 'spec_review':
+      return '';
     case 'goal_start':
       return t('tui.approvalDescriptions.startGoal');
     case 'generic':
@@ -370,6 +372,13 @@ function adaptDisplay(display: ToolInputDisplay): DisplayBlock[] {
       ];
     case 'plan_review':
       return [];
+    case 'spec_review':
+      return display.documents.map((document) => ({
+        type: 'file_content' as const,
+        path: document.name,
+        content: document.content,
+        language: 'markdown',
+      }));
     case 'goal_start': {
       const lines = [
         t('tui.approvalDescriptions.goalStartBrief', { objective: display.objective }),
@@ -401,11 +410,32 @@ function adaptChoices(toolName: string, display: ToolInputDisplay): ApprovalPane
   if (toolName === 'ExitPlanMode' || display.kind === 'plan_review') {
     return adaptPlanReviewChoices(display);
   }
+  if (toolName === 'ExitSpecMode' || display.kind === 'spec_review') {
+    return adaptSpecReviewChoices(display);
+  }
   if (display.kind === 'goal_start') {
     return adaptGoalStartChoices(display);
   }
 
   return getDefaultApprovalChoices().map((choice) => cloneChoice(choice));
+}
+
+function adaptSpecReviewChoices(display: ToolInputDisplay): ApprovalPanelChoice[] {
+  const optionChoices =
+    display.kind === 'spec_review' && display.options !== undefined && display.options.length >= 2
+      ? display.options.map((option) => ({
+          label: option.label,
+          response: 'approved' as const,
+          selected_label: option.label,
+        }))
+      : [
+          {
+            label: t('tui.approvalLabels.approve'),
+            response: 'approved' as const,
+            selected_label: t('tui.approvalLabels.approve'),
+          },
+        ];
+  return [...optionChoices, ...getPlanRejectChoices()].map((choice) => cloneChoice(choice));
 }
 
 function adaptGoalStartChoices(

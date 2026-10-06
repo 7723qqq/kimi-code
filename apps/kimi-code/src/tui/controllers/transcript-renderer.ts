@@ -187,6 +187,8 @@ export class TranscriptRendererController {
     if (
       request.toolName === 'ExitPlanMode' ||
       request.display.kind === 'plan_review' ||
+      request.toolName === 'ExitSpecMode' ||
+      request.display.kind === 'spec_review' ||
       request.display.kind === 'goal_start'
     )
       return;

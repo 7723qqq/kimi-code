@@ -225,6 +225,69 @@ describe('approval adapter', () => {
     ]);
   });
 
+  it('previews every spec document and offers the approval choices', () => {
+    const adapted = adaptApprovalRequest({
+      toolCallId: 'tc-spec',
+      toolName: 'ExitSpecMode',
+      action: 'Review spec',
+      display: {
+        kind: 'spec_review',
+        dir: '/ws/specs/brave-otter',
+        documents: [
+          { name: 'requirements.md', content: '# Requirements\n\n- Export CSV' },
+          { name: 'design.md', content: '# Design\n\n- Stream rows' },
+          { name: 'tasks.md', content: '# Tasks\n\n- Add route' },
+        ],
+      },
+    });
+
+    // Each document becomes a previewable content block named after its file.
+    expect(adapted.display).toEqual([
+      { type: 'file_content', path: 'requirements.md', content: '# Requirements\n\n- Export CSV', language: 'markdown' },
+      { type: 'file_content', path: 'design.md', content: '# Design\n\n- Stream rows', language: 'markdown' },
+      { type: 'file_content', path: 'tasks.md', content: '# Tasks\n\n- Add route', language: 'markdown' },
+    ]);
+    expect(adapted.choices).toEqual([
+      { label: 'Approve', response: 'approved', selected_label: 'Approve' },
+      { label: 'Reject', response: 'rejected', selected_label: 'Reject' },
+      {
+        label: 'Revise',
+        response: 'rejected',
+        selected_label: 'Revise',
+        requires_feedback: true,
+      },
+    ]);
+  });
+
+  it('renders multi-option spec review choices ahead of reject controls', () => {
+    const adapted = adaptApprovalRequest({
+      toolCallId: 'tc-spec-options',
+      toolName: 'ExitSpecMode',
+      action: 'Review spec and choose an option',
+      display: {
+        kind: 'spec_review',
+        dir: '/ws/specs/brave-otter',
+        documents: [{ name: 'design.md', content: '# Design' }],
+        options: [
+          { label: 'Approach A', description: 'Small change' },
+          { label: 'Approach B', description: 'Larger change' },
+        ],
+      },
+    });
+
+    expect(adapted.choices).toEqual([
+      { label: 'Approach A', response: 'approved', selected_label: 'Approach A' },
+      { label: 'Approach B', response: 'approved', selected_label: 'Approach B' },
+      { label: 'Reject', response: 'rejected', selected_label: 'Reject' },
+      {
+        label: 'Revise',
+        response: 'rejected',
+        selected_label: 'Revise',
+        requires_feedback: true,
+      },
+    ]);
+  });
+
   it('renders the /goal start menu for a CreateGoal approval in manual mode', () => {
     const adapted = adaptApprovalRequest({
       toolCallId: 'tc-goal',
