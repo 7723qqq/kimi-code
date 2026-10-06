@@ -7,4 +7,4 @@ Write a spec before implementing: `/spec` (or the `EnterSpecMode` tool) opens sp
 
 This differs from plan mode in what it leaves behind: a plan is a per-session scratch file that becomes a todo list and is then discarded, while a spec is a repository artifact. It is also stricter — spec mode refuses a spec whose documents are missing or empty, and it reads back a `getSpec()` snapshot so a resumed session shows the mode.
 
-The capability is behind the `spec_mode` experimental flag (off by default), toggled in `/settings` → Experiments, and reachable outside the TUI through `session.getSpec()` / `session.setSpecMode()` and the `spec` key on the session status. It is off by default because the prompts that drive document quality are still being tuned.
+Like plan mode, it is always available: `/spec` toggles it, and the tools are in the default and coder profiles. It is also reachable outside the TUI through `session.getSpec()` / `session.setSpecMode()` and the `spec` key on the session status.

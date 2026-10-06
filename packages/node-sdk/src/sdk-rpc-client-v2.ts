@@ -179,7 +179,6 @@ import {
   ISessionContext,
   ISessionPromptOptimizerService,
   IAgentSpecService,
-  SPEC_MODE_FLAG_ID,
   SPEC_REQUIRED_FILES,
   ISessionExportService,
   ISessionIndex,
@@ -1022,18 +1021,6 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   /**
-   * Spec mode is flag-gated, and the flag decides whether the feature
-   * contributes its service at all. Asking without the flag would otherwise
-   * fail inside the DI container with a message that names no cause.
-   */
-  private requireSpecFlag(): void {
-    if (this.engineAccessor.get(IFlagService).enabled(SPEC_MODE_FLAG_ID)) return;
-    throw new Error(
-      'Spec mode is disabled. Turn on the spec_mode experimental flag to use it.',
-    );
-  }
-
-  /**
    * v1's persist-add project guard ported to the workspace loader. This read
    * deliberately includes the project layer even while the workspace is
    * untrusted: a user-level write must not create a shadow that springs into
@@ -1853,7 +1840,6 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * without touching the documents, which stay in the repository for review.
    */
   override async setSpecMode(input: SetSessionSpecModeRpcInput): Promise<void> {
-    this.requireSpecFlag();
     const agent = await this.agentScope(input.sessionId);
     const service = agent.accessor.get(IAgentSpecService);
     const status = await service.status();
@@ -1870,7 +1856,6 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   override async getSpec(input: SessionIdRpcInput): Promise<SpecSnapshot | null> {
-    if (!this.engineAccessor.get(IFlagService).enabled(SPEC_MODE_FLAG_ID)) return null;
     const agent = await this.agentScope(input.sessionId);
     const service = agent.accessor.get(IAgentSpecService);
     const data = await service.status();
@@ -1951,9 +1936,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       facade.getPlan(),
       facade.getUsage(),
     ]);
-    const spec = this.engineAccessor.get(IFlagService).enabled(SPEC_MODE_FLAG_ID)
-      ? await agent.accessor.get(IAgentSpecService).status()
-      : null;
+    const spec = await agent.accessor.get(IAgentSpecService).status();
     const profile = agent.accessor.get(IAgentProfileService).data();
     const capability = profile.modelCapabilities;
     const maxContextTokens = capability.max_input_tokens ?? capability.max_context_tokens;

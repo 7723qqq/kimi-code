@@ -1,7 +1,5 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
-export const SPEC_MODE_FLAG_ID = 'spec_mode';
-
 export const SPEC_DIR_NAME = 'specs';
 
 export const SPEC_REQUIREMENTS_FILE = 'requirements.md';
