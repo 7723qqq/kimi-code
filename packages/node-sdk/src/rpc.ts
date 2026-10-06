@@ -58,6 +58,7 @@ import type {
   ReloadSummary,
   CompactOptions,
   SessionPlan,
+  SpecSnapshot,
   SessionStatus,
   SessionTodoItem,
   SessionUsage,
@@ -378,6 +379,8 @@ export abstract class SDKRpcClientBase {
   abstract setTowerMode(input: SetSessionTowerModeRpcInput): Promise<void>;
 
   abstract getPlan(input: SessionIdRpcInput): Promise<SessionPlan>;
+
+  abstract getSpec(input: SessionIdRpcInput): Promise<SpecSnapshot | null>;
 
   abstract clearPlan(input: SessionIdRpcInput): Promise<void>;
 

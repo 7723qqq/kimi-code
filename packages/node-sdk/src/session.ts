@@ -31,6 +31,7 @@ import type {
   ResumedSessionState,
   ResumedSessionSummary,
   SessionPlan,
+  SpecSnapshot,
   SessionStatus,
   SessionSummary,
   SessionTodoItem,
@@ -367,6 +368,11 @@ export class Session {
   async getPlan(): Promise<SessionPlan> {
     this.ensureOpen();
     return this.rpc.getPlan({ sessionId: this.id });
+  }
+
+  async getSpec(): Promise<SpecSnapshot | null> {
+    this.ensureOpen();
+    return this.rpc.getSpec({ sessionId: this.id });
   }
 
   async clearPlan(): Promise<void> {

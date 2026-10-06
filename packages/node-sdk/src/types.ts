@@ -397,6 +397,20 @@ export interface PlanInfo {
 
 export type SessionPlan = PlanInfo | null;
 
+export interface SpecDocument {
+  readonly name: string;
+  readonly content: string;
+}
+
+export interface SpecSnapshot {
+  readonly id: string;
+  readonly dir: string;
+  readonly documents: readonly SpecDocument[];
+  readonly missing: readonly string[];
+  readonly complete: boolean;
+  readonly stage: 'specify' | 'plan' | 'tasks' | 'implement';
+}
+
 export type SessionTodoStatus = 'pending' | 'in_progress' | 'done';
 
 export interface SessionTodoItem {

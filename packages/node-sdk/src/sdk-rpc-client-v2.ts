@@ -178,6 +178,8 @@ import {
   ISessionBtwService,
   ISessionContext,
   ISessionPromptOptimizerService,
+  IAgentSpecService,
+  SPEC_REQUIRED_FILES,
   ISessionExportService,
   ISessionIndex,
   ISessionIndexMirror,
@@ -309,6 +311,7 @@ import type {
   ResumedAgentState,
   ResumedSessionSummary,
   SessionPlan,
+  SpecSnapshot,
   SessionStatus,
   SessionSummary,
   SessionSummaryPage,
@@ -1834,6 +1837,24 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   override async getPlan(input: SessionIdRpcInput): Promise<SessionPlan> {
     const agent = await this.agentFacade(input.sessionId);
     return agent.getPlan();
+  }
+
+  override async getSpec(input: SessionIdRpcInput): Promise<SpecSnapshot | null> {
+    const session = this.requireLiveSession(input.sessionId);
+    const service = session.accessor.get(IAgentSpecService);
+    const data = await service.status();
+    if (data === null) return null;
+    return {
+      id: data.id,
+      dir: data.dir,
+      documents: SPEC_REQUIRED_FILES.map((name) => ({
+        name,
+        content: data.files[name] ?? '',
+      })),
+      missing: data.missing,
+      complete: data.complete,
+      stage: data.stage,
+    };
   }
 
   override async clearPlan(input: SessionIdRpcInput): Promise<void> {
