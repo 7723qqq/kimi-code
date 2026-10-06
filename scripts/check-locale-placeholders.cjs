@@ -78,6 +78,19 @@ function checkPlaceholders(filePath) {
           `({{ count: ${opens}, }} count: ${closes}) in "${value.slice(0, 60)}${value.length > 60 ? '...' : ''}"`,
       );
     }
+
+    // Single-brace placeholders ({name}) are never interpolated: the engine
+    // only replaces {{name}}, so the raw key reaches the user at runtime.
+    // Strip the well-formed {{name}} tokens first, then anything left that
+    // looks like a bare placeholder is a bug.
+    const stripped = value.replace(PLACEHOLDER_WELL_FORMED, '');
+    const singleBraced = stripped.match(/\{[A-Za-z_]\w*\}/g);
+    if (singleBraced !== null) {
+      errors.push(
+        `${filePath} → ${path}: single-brace placeholder (never interpolated, use {{name}}): ` +
+          `${[...new Set(singleBraced)].join(', ')}`,
+      );
+    }
   }
 
   return errors;

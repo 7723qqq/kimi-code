@@ -23,6 +23,8 @@ import { OsProcessErrors } from '#/os/interface/hostProcess';
 import { PluginErrors } from '#/app/plugin/errors';
 import { ProfileErrors } from '#/agent/profile/errors';
 import { PromptErrors } from '#/agent/prompt/errors';
+import { PromptOptimizerErrors } from '#/features/promptOptimizer/errors';
+import { SpecErrors } from '#/features/spec/errors';
 import { ModelsDevImportErrors } from '#/app/kosongConfig/errors';
 import { SessionExportErrors } from '#/app/sessionExport/errors';
 import { SessionErrors } from '#/session/errors';
@@ -62,6 +64,8 @@ export { OsProcessErrors } from '#/os/interface/hostProcess';
 export { PluginErrors } from '#/app/plugin/errors';
 export { ProfileErrors } from '#/agent/profile/errors';
 export { PromptErrors } from '#/agent/prompt/errors';
+export { PromptOptimizerErrors } from '#/features/promptOptimizer/errors';
+export { SpecErrors } from '#/features/spec/errors';
 export { ModelsDevImportErrors } from '#/app/kosongConfig/errors';
 export { SessionExportErrors } from '#/app/sessionExport/errors';
 export { SessionErrors } from '#/session/errors';
@@ -99,6 +103,8 @@ export const ErrorCodes = {
   ...PluginErrors.codes,
   ...ProfileErrors.codes,
   ...PromptErrors.codes,
+  ...PromptOptimizerErrors.codes,
+  ...SpecErrors.codes,
   ...ModelsDevImportErrors.codes,
   ...SessionExportErrors.codes,
   ...SessionErrors.codes,
@@ -201,6 +207,12 @@ export type KimiErrorCode =
   | 'request.prompt_input_empty'
   | 'prompt.id_conflict'
   | 'prompt.not_found'
+  | 'prompt_optimizer.disabled'
+  | 'prompt_optimizer.empty_draft'
+  | 'prompt_optimizer.no_output'
+  | 'spec.mode_invalid'
+  | 'spec.incomplete'
+  | 'spec.write_denied'
   | 'session.busy'
   | 'shell.git_bash_not_found'
   | 'workspace.not_found'
