@@ -2206,12 +2206,17 @@ describe('concurrent state writes', () => {
       await secondGate;
     });
 
+    // `tryAcquireStateLock` creates the file with `wx` and only then writes it,
+    // so a reader can catch it in the empty window between the two. Poll for the
+    // content, not merely for the file to exist.
     let heldContent = '';
-    for (;;) {
+    for (let attempt = 0; attempt < 200 && heldContent === ''; attempt += 1) {
       try {
         heldContent = await readFile(lockPath, 'utf8');
-        break;
       } catch {
+        heldContent = '';
+      }
+      if (heldContent === '') {
         await new Promise<void>((resolve) => {
           setTimeout(resolve, 10);
         });

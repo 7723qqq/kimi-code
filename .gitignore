@@ -73,3 +73,7 @@ logs/
 # may recreate these locally — never commit them.
 /pnpm-lock.yaml
 /pnpm-workspace.yaml
+
+# Zig build output for the structural review tool (tools/review).
+tools/review/zig-out/
+tools/review/.zig-cache/

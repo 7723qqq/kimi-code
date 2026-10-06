@@ -1,5 +1,5 @@
 /**
- * Transcript-side rendering of an image (pasted attachment or ReadMediaFile
+ * Transcript-side rendering of an image (pasted attachment or a media read
  * result).
  *
  * On terminals that speak the Kitty graphics protocol, iTerm2 inline image

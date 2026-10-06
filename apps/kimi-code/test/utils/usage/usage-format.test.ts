@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 import {
   formatTokenCount,
@@ -9,6 +9,21 @@ import {
   usagePercent,
   usagePercentFromRatio,
 } from '#/utils/usage/usage-format';
+
+// The real `t` goes through the native Rust engine, which is not loaded in
+// tests, so it would hand back raw keys. Stub the strings this file asserts on.
+vi.mock('#/i18n', () => ({
+  t: (key: string) =>
+    (
+      {
+        'tui.messages.usagePanel.limit5h': '5h limit',
+        'tui.messages.usagePanel.weeklyLimit': 'Weekly limit',
+        'tui.messages.usagePanel.monthlyLimit': 'Monthly limit',
+      } as Record<string, string>
+    )[key] ?? key,
+  setLocale: vi.fn(),
+  getLocale: () => 'en',
+}));
 
 describe('formatTokenCount', () => {
   it('passes small values through unchanged', () => {

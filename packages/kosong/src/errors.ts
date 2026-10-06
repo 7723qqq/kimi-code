@@ -622,7 +622,7 @@ function errorMessage(error: unknown): string {
 }
 
 /**
- * Stub: provider overloaded (e.g. 529 from upstream overload).
+ * Provider overloaded (e.g. 529 from upstream overload).
  */
 export class APIProviderOverloadedError extends ChatProviderError {
   constructor(message: string) {
@@ -632,7 +632,7 @@ export class APIProviderOverloadedError extends ChatProviderError {
 }
 
 /**
- * Stub: provider rejected video upload.
+ * Provider rejected video upload.
  */
 export class VideoUploadUnsupportedError extends ChatProviderError {
   constructor(message: string) {
@@ -642,7 +642,7 @@ export class VideoUploadUnsupportedError extends ChatProviderError {
 }
 
 /**
- * Stub: classify an API error by status code or message pattern.
+ * Classify an API error by status code or message pattern.
  */
 export function classifyApiError(error: unknown): ChatProviderError {
   if (error instanceof ChatProviderError) return error;
@@ -651,7 +651,7 @@ export function classifyApiError(error: unknown): ChatProviderError {
 }
 
 /**
- * Stub: detect provider-overload HTTP status.
+ * Detect a provider-overload HTTP status.
  */
 export function isProviderOverloadStatusError(statusCode: number, message: string): boolean {
   if (statusCode !== 529 && statusCode !== 503) return false;
@@ -659,13 +659,13 @@ export function isProviderOverloadStatusError(statusCode: number, message: strin
 }
 
 /**
- * Stub: sanitize provider status error message.
+ * Sanitize a provider status error message.
  */
 export function sanitizeStatusErrorMessage(message: string): string {
   return message.replace(/<[^>]*>/g, '').trim();
 }
 
 /**
- * Stub: provider API error code used as the error code for Error2.
+ * Provider API error code used as the error code for Error2.
  */
 export const PROVIDER_API_ERROR_CODE = 'PROVIDER_API_ERROR';

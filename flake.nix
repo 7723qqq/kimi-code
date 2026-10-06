@@ -92,6 +92,70 @@
           }
         );
 
+      # The structural review tool (tools/review) needs Zig 0.17; nixpkgs-25.11
+      # builds 0.15.x from source, so fetch the official prebuilt tarball
+      # instead. Hashes are the sha256 digests published in
+      # https://ziglang.org/download/index.json. The Linux binaries are
+      # statically linked, so no patchelf pass is needed.
+      zigVersion = "0.17.0";
+      zigSources = {
+        "aarch64-darwin" = {
+          file = "zig-aarch64-macos-${zigVersion}.tar.xz";
+          hash = "sha256-b607e9b9234790a008116ae5bdb71c6243b84b9fb42a53a9e70fde41c06c536a";
+        };
+        "x86_64-darwin" = {
+          file = "zig-x86_64-macos-${zigVersion}.tar.xz";
+          hash = "sha256-4f9a1c5269aa17ebda5e6d3c2b89d6cbf36f7d2b22a0306e9ab98f25f95529c6";
+        };
+        "aarch64-linux" = {
+          file = "zig-aarch64-linux-${zigVersion}.tar.xz";
+          hash = "sha256-9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8";
+        };
+        "x86_64-linux" = {
+          file = "zig-x86_64-linux-${zigVersion}.tar.xz";
+          hash = "sha256-1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026";
+        };
+      };
+
+      zigFor =
+        pkgs:
+        let
+          source = zigSources.${pkgs.stdenv.hostPlatform.system}
+            or (throw "Unsupported system for Zig: ${pkgs.stdenv.hostPlatform.system}");
+        in
+        pkgs.stdenv.mkDerivation {
+          pname = "zig";
+          version = zigVersion;
+
+          src = pkgs.fetchurl {
+            url = "https://ziglang.org/download/${zigVersion}/${source.file}";
+            inherit (source) hash;
+          };
+
+          # The tarball is a prebuilt toolchain: `zig` at the root with the
+          # standard library beside it in `lib/`. Zig locates that library
+          # relative to the executable, so the two must stay siblings under
+          # $out — hence bin/zig and lib/, not lib/zig/.
+          nativeBuildInputs = [ pkgs.xz ];
+          dontConfigure = true;
+          dontBuild = true;
+
+          installPhase = ''
+            runHook preInstall
+            install -Dm755 zig $out/bin/zig
+            cp -a lib $out/lib
+            runHook postInstall
+          '';
+
+          meta = {
+            description = "General-purpose programming language and toolchain";
+            homepage = "https://ziglang.org/";
+            license = lib.licenses.mit;
+            mainProgram = "zig";
+            platforms = systems;
+          };
+        };
+
       # Workspace members contributing files to the build src (kept in sync
       # with the "workspaces" field of the root package.json).
       #
@@ -358,11 +422,13 @@ EOF
         let
           nodejs = nodejsFor pkgs;
           bun = bunFor pkgs;
+          zig = zigFor pkgs;
         in
         pkgs.mkShell {
           packages = [
             nodejs
             bun
+            zig
             pkgs.ripgrep
             pkgs.fd
           ];

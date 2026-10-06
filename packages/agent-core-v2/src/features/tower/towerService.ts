@@ -454,7 +454,7 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
     await store.release(this.sessionCtx.sessionId).then(
       () => undefined,
       (error: unknown) => {
-        this.log.warn(
+        this.warn(
           `failed to release tower workspace ownership: ${error instanceof Error ? error.message : String(error)}`,
         );
       },
@@ -486,7 +486,11 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
       }
       return;
     }
-    void this.exit('foreign-reconcile');
+    void this.exit('foreign-reconcile').catch((error: unknown) => {
+      this.warn(
+        `failed to exit tower mode during foreign-session reconcile: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
   }
 
   private async resolveTowerOwner(): Promise<string | undefined> {
@@ -533,10 +537,16 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
       sessionId: this.sessionCtx.sessionId,
       pid: process.pid,
     });
-    await store.markAgentDied(info.agentId, info.status, info.stopReason, this.sessionCtx.sessionId).then(
-      () => undefined,
-      () => undefined,
-    );
+    await store
+      .markAgentDied(info.agentId, info.status, info.stopReason, this.sessionCtx.sessionId)
+      .then(
+        () => undefined,
+        (error: unknown) => {
+          this.warn(
+            `failed to mark tower roster agent died: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        },
+      );
   }
 
   private async clearTowerAgentDeath(agentId: string): Promise<void> {
@@ -561,7 +571,11 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
     });
     await store.clearAgentDied(agentId, this.sessionCtx.sessionId).then(
       () => undefined,
-      () => undefined,
+      (error: unknown) => {
+        this.warn(
+          `failed to clear tower roster agent death mark: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      },
     );
   }
 
@@ -651,6 +665,10 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
   }
 
   private lastPublished: boolean | undefined;
+
+  private readonly warn = (message: string): void => {
+    this.log.warn(message);
+  };
 
   private reconcileTowerProjection(): void {
     if (this.agentCtx.agentId !== 'main') return;

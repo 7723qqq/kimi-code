@@ -135,7 +135,7 @@ function valuePreview(value: unknown): string {
     const serialized = JSON.stringify(value);
     return serialized === undefined ? `[${typeof value}]` : truncate(serialized, 80);
   } catch {
-    return '[unserializable]';
+    return t('wirePart.unserializable');
   }
 }
 

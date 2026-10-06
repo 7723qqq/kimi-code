@@ -591,7 +591,7 @@ async function runNativeTurn(
     if (result.type === 'completed') {
       const skipTurnId = turn.id;
       if (skipTurnId === undefined) {
-        throw new Error('Prompt turn ended before it started');
+        throw new Error('prompt turn completed before it started');
       }
       const configService = app.accessor.get(IConfigService);
       const taskConfig = resolveAgentTaskConfig(configService);

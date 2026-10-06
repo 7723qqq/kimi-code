@@ -1,7 +1,30 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { MermaidPreferenceSelectorComponent } from '#/tui/components/dialogs/mermaid-preference-selector';
 import { SettingsSelectorComponent } from '#/tui/components/dialogs/settings-selector';
+
+// The real `t` goes through the native Rust engine, which is not loaded in
+// tests, so it would hand back raw keys. Stub the strings this file asserts on.
+vi.mock('#/i18n', () => ({
+  t: (key: string) =>
+    (
+      {
+        'tui.dialogs.mermaidPreferenceSelector.title': 'Mermaid diagrams',
+        'tui.dialogs.mermaidPreferenceSelector.on': 'On',
+        'tui.dialogs.mermaidPreferenceSelector.off': 'Off',
+        'tui.dialogs.mermaidPreferenceSelector.onDescription':
+          'Draw mermaid code blocks as diagrams in the terminal.',
+        'tui.dialogs.mermaidPreferenceSelector.offDescription':
+          'Keep mermaid code blocks as highlighted source.',
+        'tui.dialogs.settingsSelector.theme': 'Theme',
+        'tui.dialogs.settingsSelector.mermaid': 'Mermaid diagrams',
+        'tui.dialogs.settingsSelector.editor': 'Editor',
+        'tui.labels.current': '← current',
+      } as Record<string, string>
+    )[key] ?? key,
+  setLocale: vi.fn(),
+  getLocale: () => 'en',
+}));
 
 const ANSI = /\[[0-9;]*m/g;
 const strip = (s: string): string => s.replaceAll(ANSI, '');

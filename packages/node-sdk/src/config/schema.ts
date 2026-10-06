@@ -278,7 +278,7 @@ export const ImageConfigSchema = z.object({
    */
   maxEdgePx: z.number().int().min(1).optional(),
   /**
-   * Raw-byte budget for images the model reads for itself (ReadMediaFile's
+   * Raw-byte budget for images the model reads for itself (the Read tool's
    * default path). Overrides the built-in default; the
    * KIMI_IMAGE_READ_BYTE_BUDGET env var wins over this value. Explicit
    * region / full_resolution reads use the provider-scale per-image limit

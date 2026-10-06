@@ -22,11 +22,7 @@ import type { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistr
 import { ReadInputSchema, type ReadInput } from '#/agent/tools/os/read/read';
 import { ReadTool } from '#/agent/tools/os/read/readTool';
 import type { MediaReadContext } from '#/agent/tools/read-media-file/execute-media-read';
-import {
-  ReadMediaFileInputSchema,
-  type ReadMediaFileInput,
-  type VideoUploader,
-} from '#/agent/tools/read-media-file/read-media-file';
+import { type VideoUploader } from '#/agent/tools/read-media-file/read-media-file';
 import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
 import {
   UNKNOWN_CAPABILITY,
@@ -310,9 +306,6 @@ describe('Read tool media reads', () => {
         full_resolution: true,
       }).success,
     ).toBe(true);
-    expect(ReadMediaFileInputSchema.safeParse({ path: '/workspace/sample.png' }).success).toBe(
-      true,
-    );
     expect(tool.description).toContain('region');
 
     const execution = await tool.resolveExecution({ path: '/workspace/sample.png' });

@@ -791,6 +791,11 @@ function connectWebSocketAttempt(
       socket.off('open', onOpen);
       socket.off('error', onError);
       socket.off('close', onClose);
+      // A socket we have stopped waiting on can still fail — a late handshake
+      // error, or a close while it is still connecting. Without a listener that
+      // surfaces as an unhandled 'error' event and takes the process down, so
+      // keep a no-op one for the socket's remaining life.
+      socket.on('error', () => {});
     };
     const finish = (error?: Error): void => {
       if (settled) return;

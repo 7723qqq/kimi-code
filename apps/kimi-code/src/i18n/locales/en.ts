@@ -53,6 +53,11 @@ export default {
       exportOutput: 'Output ZIP path.',
       exportYes: 'Skip previous-session confirmation.',
       exportSessionId: 'Session id to export. Defaults to the most recent session.',
+      forkDescription: 'Fork a session into a new session.',
+      forkCwd:
+        'Working directory used to find the most recent session to fork. Defaults to the current directory.',
+      forkYes: 'Skip previous-session confirmation.',
+      forkSessionId: 'Session id to fork. Defaults to the most recent session.',
       exportNoIncludeGlobalLog:
         'Skip bundling the active global diagnostic log (~/.kimi-code/logs/kimi-code.log, not rotated .1 files). By default the global log is included.',
       acpLogin: 'Run the device-code login flow then exit (entry point for ACP terminal-auth).',
@@ -1059,6 +1064,20 @@ export default {
         onDescription: 'Install new versions in the background.',
         offDescription: 'Show the install prompt instead.',
       },
+      mermaidPreferenceSelector: {
+        title: 'Mermaid diagrams',
+        on: 'On',
+        off: 'Off',
+        onDescription: 'Draw mermaid code blocks as diagrams in the terminal.',
+        offDescription: 'Keep mermaid code blocks as highlighted source.',
+      },
+      surveyPreferenceSelector: {
+        title: 'Feedback survey',
+        on: 'On',
+        off: 'Off',
+        onDescription: 'Show the occasional rating prompt above the editor.',
+        offDescription: 'Never show the rating prompt.',
+      },
     },
     statusMessages: {
       failedToSyncMcp: 'Failed to sync MCP server status: {{message}}',
@@ -1823,6 +1842,8 @@ export default {
         noUsageData: 'No usage data available.',
         extraUsage: 'Extra Usage',
         usedThisMonth: 'Used this month',
+        limit5h: '5h limit',
+        weeklyLimit: 'Weekly limit',
         monthlyLimit: 'Monthly limit',
         unlimited: 'Unlimited',
         balance: 'Balance',

@@ -120,7 +120,10 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
     { label: t('tui.messages.statusPanel.planModeLabel'), value: planMode ? 'on' : 'off' },
   ];
   if (options.towerAvailable) {
-    rows.push({ label: 'Tower mode', value: towerMode ? 'on' : 'off' });
+    rows.push({
+      label: t('tui.dialogs.experimentsSelector.features.tower.title'),
+      value: towerMode ? 'on' : 'off',
+    });
   }
   rows.push({ label: 'Session', value: sessionId });
   const title = options.sessionTitle?.trim();

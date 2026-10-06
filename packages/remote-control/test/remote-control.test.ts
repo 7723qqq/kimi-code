@@ -215,9 +215,9 @@ describe('Remote Control tunnel', () => {
     );
   });
 
-  it('retries with only Authorization when the server does not echo the subprotocol', async () => {
+  it('retries with only Authorization when the relay rejects the subprotocol handshake', async () => {
     const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
-    const relay = await startAuthRelay({ echoProtocol: false });
+    const relay = await startAuthRelay({ rejectSubprotocol: true });
     let handle: RemoteControlHandle | undefined;
     cleanups.push(async () => handle?.close());
 
@@ -680,13 +680,15 @@ describe('Remote Control tunnel', () => {
       clientVersion: CLIENT_VERSION,
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: (text) => ((logs += String(text)), true) },
-      pingIntervalMs: 50,
+      // The relay only ever answers pings, and neither `ws`'s `autoPong` option
+      // nor pausing the underlying socket works under Bun, so keep the client
+      // from pinging at all: the relay then sends nothing and the silence
+      // timer is the only thing that can keep the connection alive.
+      pingIntervalMs: 10_000,
       silenceTimeoutMs: 300,
     });
 
     expect(relay.registrations).toHaveLength(1);
-    relay.managementSockets[0]!.pause();
-    relay.httpSockets[0]!.pause();
 
     await waitFor(() => relay.registrations.length === 2, 10_000);
     expect(logs).toContain('silent');
@@ -865,7 +867,7 @@ async function createRemoteControlHome(refreshToken: string): Promise<string> {
 
 async function startAuthRelay(
   options: {
-    echoProtocol?: boolean;
+    rejectSubprotocol?: boolean;
     rejectUpgrades?: number;
     closeManagementDuringFirstHttpHandshake?: boolean;
     nakRegistrationsAfterFirst?: number;
@@ -877,9 +879,8 @@ async function startAuthRelay(
   managementSockets: WebSocket[];
   httpSockets: WebSocket[];
 }> {
-  const handleProtocols = options.echoProtocol === false ? (): false => false : undefined;
-  const managementServer = new WebSocketServer({ noServer: true, handleProtocols });
-  const httpTunnelServer = new WebSocketServer({ noServer: true, handleProtocols });
+  const managementServer = new WebSocketServer({ noServer: true });
+  const httpTunnelServer = new WebSocketServer({ noServer: true });
   const relayServer = createServer();
   const requests: Array<{ authorization?: string; protocol?: string }> = [];
   const registrations: unknown[] = [];
@@ -935,6 +936,14 @@ async function startAuthRelay(
       socket.end(
         'HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n',
       );
+      return;
+    }
+    if (options.rejectSubprotocol === true && protocol !== undefined) {
+      // A relay that does not support subprotocol auth. `ws` aborts the client
+      // handshake when the server omits the subprotocol echo, but Bun's
+      // WebSocket shim accepts it, so reject the upgrade outright to put both
+      // runtimes on the same path: the client falls back to Authorization only.
+      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
       return;
     }
     const pathname = new URL(request.url!, 'http://relay.test').pathname;

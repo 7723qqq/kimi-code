@@ -7,6 +7,8 @@
 
 import { type ManagedQuota, type ManagedQuotaEntry } from '@moonshot-ai/kimi-code-oauth';
 
+import { t } from '#/i18n';
+
 /**
  * Format a token count in 1024-based units: context sizes are powers of
  * two, so 262144 reads as "256k", not "262.1k". k values at or above
@@ -100,9 +102,9 @@ export function quotaUsageRows(quota: ManagedQuota): QuotaUsageRow[] {
     if (entry === undefined) return;
     rows.push({ name, usedRatio: entry.usedRatio, resetAt: entry.resetAt, breakdown });
   };
-  push('5h limit', quota.usages.limit5h);
-  push('Weekly limit', quota.usages.limit7d);
-  push('Monthly limit', quota.usages.monthTotal, monthlyBreakdown(quota));
+  push(t('tui.messages.usagePanel.limit5h'), quota.usages.limit5h);
+  push(t('tui.messages.usagePanel.weeklyLimit'), quota.usages.limit7d);
+  push(t('tui.messages.usagePanel.monthlyLimit'), quota.usages.monthTotal, monthlyBreakdown(quota));
   return rows;
 }
 

@@ -8,6 +8,7 @@ import { Emitter, type Event } from '#/_base/event';
 import { TimeoutTimer } from '#/_base/utils/timer';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { watchCandidates } from '#human/utils/watch';
 
 import type { Workspace } from './workspace';
@@ -33,6 +34,7 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
   constructor(
     @IAtomicDocumentStore private readonly docs: IAtomicDocumentStore,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
+    @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
   ) {
     super();
     const catalogFile = join(this.bootstrap.homeDir, WORKSPACE_CATALOG_KEY);
@@ -99,6 +101,15 @@ export class FileWorkspacePersistence extends Disposable implements IWorkspacePe
     };
     await this.docs.set(WORKSPACE_CATALOG_SCOPE, WORKSPACE_CATALOG_KEY, file);
     this.changeEmitter.fire();
+  }
+
+  async stamp(): Promise<string | undefined> {
+    const [size, mtime] = await Promise.all([
+      this.storage.size(WORKSPACE_CATALOG_SCOPE, WORKSPACE_CATALOG_KEY),
+      this.storage.mtime(WORKSPACE_CATALOG_SCOPE, WORKSPACE_CATALOG_KEY),
+    ]);
+    if (size === undefined || mtime === undefined) return undefined;
+    return `${size}:${mtime}`;
   }
 }
 

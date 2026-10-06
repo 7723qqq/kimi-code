@@ -60,6 +60,32 @@ interface StreamDecodeStats {
   readonly clientBlockedMs?: number;
 }
 
+interface DecodeBlockingProbe {
+  begin(): void;
+  blockedMs(): number | undefined;
+}
+
+let eluUsable: boolean | undefined;
+
+function isEluUsable(): boolean {
+  eluUsable ??= typeof performance.eventLoopUtilization === 'function';
+  return eluUsable;
+}
+
+function decodeBlockingProbe(): DecodeBlockingProbe | undefined {
+  if (!isEluUsable()) return undefined;
+  let begun: EventLoopUtilization = performance.eventLoopUtilization();
+  return {
+    begin() {
+      begun = performance.eventLoopUtilization();
+    },
+    blockedMs() {
+      const { active, idle } = performance.eventLoopUtilization(begun);
+      return active > 0 || idle > 0 ? active : undefined;
+    },
+  };
+}
+
 export class ModelRequesterImpl implements ModelRequester {
   private cached: ResolvedLlmModel | undefined;
   private cachedRequester: LlmRequester | undefined;
@@ -146,8 +172,7 @@ export class ModelRequesterImpl implements ModelRequester {
     let serverDecodeMs = 0;
     let clientConsumeMs = 0;
     let lastResumeAt = 0;
-    let decodeEluStart: EventLoopUtilization | undefined;
-    let decodeEluEnd: EventLoopUtilization | undefined;
+    const decodeBlocking = decodeBlockingProbe();
 
     let accumulator = createMessageAccumulator();
     let usage: TokenUsage | undefined;
@@ -204,7 +229,7 @@ export class ModelRequesterImpl implements ModelRequester {
               const arrivedAt = Date.now();
               if (firstChunkAt === undefined) {
                 firstChunkAt = arrivedAt;
-                decodeEluStart = performance.eventLoopUtilization();
+                decodeBlocking?.begin();
               } else {
                 serverDecodeMs += arrivedAt - lastResumeAt;
               }
@@ -242,9 +267,6 @@ export class ModelRequesterImpl implements ModelRequester {
               streamEndedAt = Date.now();
               if (firstChunkAt !== undefined) {
                 serverDecodeMs += streamEndedAt - lastResumeAt;
-                if (decodeEluStart !== undefined) {
-                  decodeEluEnd = performance.eventLoopUtilization(decodeEluStart);
-                }
               }
               return;
             }
@@ -274,11 +296,6 @@ export class ModelRequesterImpl implements ModelRequester {
       traceId: traceId ?? undefined,
     });
     if (firstChunkAt !== undefined) {
-      const elu =
-        decodeEluEnd ??
-        (decodeEluStart === undefined
-          ? undefined
-          : performance.eventLoopUtilization(decodeEluStart));
       queue.push({
         type: 'timing',
         ...buildStreamTiming(
@@ -286,7 +303,7 @@ export class ModelRequesterImpl implements ModelRequester {
           requestSentAt,
           firstChunkAt,
           streamEndedAt,
-          finalizeDecodeStats(elu, {
+          finalizeDecodeStats(decodeBlocking?.blockedMs(), {
             serverDecodeMs,
             clientConsumeMs,
           }),
@@ -297,14 +314,14 @@ export class ModelRequesterImpl implements ModelRequester {
 }
 
 function finalizeDecodeStats(
-  elu: EventLoopUtilization | undefined,
+  blockedMs: number | undefined,
   raw: StreamDecodeStats,
 ): StreamDecodeStats {
-  if (elu === undefined) return raw;
+  if (blockedMs === undefined) return raw;
   return {
     serverDecodeMs: raw.serverDecodeMs,
     clientConsumeMs: raw.clientConsumeMs,
-    clientBlockedMs: Math.max(0, Math.round(elu.active) - raw.clientConsumeMs),
+    clientBlockedMs: Math.max(0, Math.round(blockedMs) - raw.clientConsumeMs),
   };
 }
 

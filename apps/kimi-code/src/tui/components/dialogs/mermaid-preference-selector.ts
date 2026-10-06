@@ -1,17 +1,21 @@
+import { t } from '#/i18n';
+
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
-const MERMAID_PREFERENCE_OPTIONS: readonly ChoiceOption[] = [
-  {
-    value: 'on',
-    label: 'On',
-    description: 'Draw mermaid code blocks as diagrams in the terminal.',
-  },
-  {
-    value: 'off',
-    label: 'Off',
-    description: 'Keep mermaid code blocks as highlighted source.',
-  },
-];
+function getMermaidPreferenceOptions(): readonly ChoiceOption[] {
+  return [
+    {
+      value: 'on',
+      label: t('tui.dialogs.mermaidPreferenceSelector.on'),
+      description: t('tui.dialogs.mermaidPreferenceSelector.onDescription'),
+    },
+    {
+      value: 'off',
+      label: t('tui.dialogs.mermaidPreferenceSelector.off'),
+      description: t('tui.dialogs.mermaidPreferenceSelector.offDescription'),
+    },
+  ];
+}
 
 export interface MermaidPreferenceSelectorOptions {
   readonly currentValue: boolean;
@@ -22,8 +26,8 @@ export interface MermaidPreferenceSelectorOptions {
 export class MermaidPreferenceSelectorComponent extends ChoicePickerComponent {
   constructor(opts: MermaidPreferenceSelectorOptions) {
     super({
-      title: 'Mermaid diagrams',
-      options: [...MERMAID_PREFERENCE_OPTIONS],
+      title: t('tui.dialogs.mermaidPreferenceSelector.title'),
+      options: [...getMermaidPreferenceOptions()],
       currentValue: opts.currentValue ? 'on' : 'off',
       onSelect: (value) => {
         opts.onSelect(value === 'on');

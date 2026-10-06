@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { open, readFile, readdir, rm, stat } from 'node:fs/promises';
+import fs from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 import {
@@ -84,7 +84,7 @@ function errorMessage(error: unknown): string {
 
 async function sessionDirectoryIdentity(dir: string): Promise<string | undefined> {
   try {
-    const info = await stat(dir, { bigint: true });
+    const info = await fs.stat(dir, { bigint: true });
     if (!info.isDirectory() || info.ino <= 0n || info.birthtimeNs <= 0n) return undefined;
     return `${info.dev}:${info.ino}:${info.birthtimeNs}`;
   } catch (error) {
@@ -102,16 +102,16 @@ interface SessionSourceProbe {
 
 async function statMtimeMs(path: string): Promise<number | undefined> {
   try {
-    return (await stat(path)).mtimeMs;
+    return (await fs.stat(path)).mtimeMs;
   } catch {
     return undefined;
   }
 }
 
 async function probeSessionSource(dir: string): Promise<SessionSourceProbe | undefined> {
-  let dirStat: Awaited<ReturnType<typeof stat>>;
+  let dirStat: Awaited<ReturnType<typeof fs.stat>>;
   try {
-    dirStat = await stat(dir);
+    dirStat = await fs.stat(dir);
   } catch {
     return undefined;
   }
@@ -129,9 +129,9 @@ function formatSessionSourceProbe(probe: SessionSourceProbe): string {
 
 async function wireFileUnchanged(meta: FileMetaDoc): Promise<boolean> {
   if (meta.mtimeMs === undefined) return false;
-  let st: Awaited<ReturnType<typeof stat>>;
+  let st: Awaited<ReturnType<typeof fs.stat>>;
   try {
-    st = await stat(meta.path);
+    st = await fs.stat(meta.path);
   } catch {
     return false;
   }
@@ -168,7 +168,7 @@ async function queryDirectoryIdentity(dir: string, deadlineAt: number, deadline:
 async function sessionDirectoryTitle(dir: string, log: SearchCoreLog): Promise<string> {
   for (const scope of ['', 'session-meta']) {
     try {
-      const meta: unknown = JSON.parse(await readFile(join(dir, scope, 'state.json'), 'utf8'));
+      const meta: unknown = JSON.parse(await fs.readFile(join(dir, scope, 'state.json'), 'utf8'));
       if (typeof meta === 'object' && meta !== null && 'title' in meta && typeof meta.title === 'string') {
         return meta.title;
       }
@@ -398,13 +398,13 @@ export class SearchIndexCore {
   }
 
   private async cleanInterruptedTextBuilds(): Promise<void> {
-    const entries = await readdir(this.indexDir, { withFileTypes: true }).catch(() => undefined);
+    const entries = await fs.readdir(this.indexDir, { withFileTypes: true }).catch(() => undefined);
     if (entries === undefined) return;
     for (const entry of entries) {
       if (!entry.isDirectory() || !entry.name.endsWith(TEXT_BUILD_TMP_SUFFIX)) continue;
       const path = join(this.indexDir, entry.name);
       try {
-        await rm(path, { recursive: true, force: true });
+        await fs.rm(path, { recursive: true, force: true });
         this.log.info('global search: removed an interrupted text-build leftover', { dir: path });
       } catch (error) {
         this.log.warn('global search: cannot remove an interrupted text-build leftover', {
@@ -458,7 +458,7 @@ export class SearchIndexCore {
 
   private async readLockToken(): Promise<string | undefined> {
     try {
-      const raw = await readFile(join(this.indexDir, 'db.lock'), 'utf8');
+      const raw = await fs.readFile(join(this.indexDir, 'db.lock'), 'utf8');
       const parsed = JSON.parse(raw) as { pid?: unknown; token?: unknown };
       if (parsed.pid !== process.pid || typeof parsed.token !== 'string') return undefined;
       return parsed.token;
@@ -519,7 +519,7 @@ export class SearchIndexCore {
     const parts: string[] = [];
     for (const name of ['db.wal', 'db.snapshot', 'db.textindexes.json']) {
       try {
-        const s = await stat(join(this.indexDir, name));
+        const s = await fs.stat(join(this.indexDir, name));
         parts.push(`${name}:${s.dev}:${s.ino}:${s.mtimeMs}:${s.size}`);
       } catch {
         parts.push(`${name}:-`);
@@ -861,7 +861,7 @@ export class SearchIndexCore {
   ): Promise<SessionSyncResult> {
     let st: { size: number; mtimeMs: number; ino: number };
     try {
-      st = await stat(file.path);
+      st = await fs.stat(file.path);
     } catch {
       return { truncated: false, failed: false };
     }
@@ -927,9 +927,9 @@ export class SearchIndexCore {
       return { truncated: false, failed: false };
     }
 
-    let handle: Awaited<ReturnType<typeof open>>;
+    let handle: Awaited<ReturnType<typeof fs.open>>;
     try {
-      handle = await open(file.path, 'r');
+      handle = await fs.open(file.path, 'r');
     } catch (error) {
       return { truncated: false, failed: true, error: errorMessage(error) };
     }
@@ -1379,12 +1379,12 @@ async function collectWireFiles(sessionDir: string): Promise<WireFileRef[]> {
   const files: WireFileRef[] = [];
   const root = join(sessionDir, WIRE_FILENAME);
   try {
-    if ((await stat(root)).isFile()) files.push({ path: root, agentId: 'main', source: 'root' });
+    if ((await fs.stat(root)).isFile()) files.push({ path: root, agentId: 'main', source: 'root' });
   } catch {
   }
   const agentsDir = join(sessionDir, 'agents');
   try {
-    const entries = await readdir(agentsDir, { recursive: true, withFileTypes: true });
+    const entries = await fs.readdir(agentsDir, { recursive: true, withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isFile() || entry.name !== WIRE_FILENAME) continue;
       const path = join(entry.parentPath, entry.name);

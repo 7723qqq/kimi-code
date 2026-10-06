@@ -28,6 +28,7 @@ export interface IWorkspacePersistence {
 
   load(): Promise<WorkspaceCatalog | undefined>;
   save(catalog: WorkspaceCatalog): Promise<void>;
+  stamp(): Promise<string | undefined>;
 }
 
 export const IWorkspacePersistence: ServiceIdentifier<IWorkspacePersistence> =

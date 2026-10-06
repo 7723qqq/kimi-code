@@ -49,6 +49,10 @@
       "exportOutput": "输出 ZIP 路径。",
       "exportYes": "跳过上一个会话的确认。",
       "exportSessionId": "要导出的会话 ID。默认为最近的会话。",
+      "forkDescription": "把会话复刻为一个新会话。",
+      "forkCwd": "用于查找最近会话的工作目录。默认为当前目录。",
+      "forkYes": "跳过上一个会话的确认。",
+      "forkSessionId": "要复刻的会话 ID。默认为最近的会话。",
       "exportNoIncludeGlobalLog": "跳过打包活动全局诊断日志（~/.kimi-code/logs/kimi-code.log，不包含轮转的 .1 文件）。默认包含全局日志。",
       "acpLogin": "运行设备码登录流程后退出（ACP 终端认证的入口点）。",
       "visPort": "绑定的端口。默认自动选择一个空闲端口。",
@@ -1001,6 +1005,20 @@
         "off": "关闭",
         "onDescription": "在后台安装新版本。",
         "offDescription": "显示安装提示。"
+      },
+      "mermaidPreferenceSelector": {
+        "title": "Mermaid 图表",
+        "on": "开启",
+        "off": "关闭",
+        "onDescription": "在终端中把 mermaid 代码块渲染为图表。",
+        "offDescription": "保留 mermaid 代码块的高亮源码。"
+      },
+      "surveyPreferenceSelector": {
+        "title": "反馈问卷",
+        "on": "开启",
+        "off": "关闭",
+        "onDescription": "偶尔在编辑器上方显示评分提示。",
+        "offDescription": "从不显示评分提示。"
       }
     },
     "statusMessages": {
@@ -1674,6 +1692,8 @@
         "noUsageData": "无可用用量数据。",
         "extraUsage": "额外用量",
         "usedThisMonth": "本月已用",
+        "limit5h": "5 小时上限",
+        "weeklyLimit": "每周上限",
         "monthlyLimit": "月度上限",
         "unlimited": "无限制",
         "balance": "余额",

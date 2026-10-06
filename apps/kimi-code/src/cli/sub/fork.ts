@@ -17,6 +17,7 @@ import type { Command } from 'commander';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from '#/cli/telemetry';
 import { createKimiCodeHostIdentity } from '#/cli/version';
+import { t } from '#/i18n';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -80,13 +81,10 @@ export async function handleFork(
 export function registerForkCommand(parent: Command, deps?: Partial<ForkDeps>): void {
   parent
     .command('fork')
-    .description('Fork a session into a new session.')
-    .option(
-      '--cwd <path>',
-      'Working directory used to find the most recent session to fork. Defaults to the current directory.',
-    )
-    .option('-y, --yes', 'Skip previous-session confirmation.')
-    .argument('[sessionId]', 'Session id to fork. Defaults to the most recent session.')
+    .description(t('cli.optionDescriptions.forkDescription'))
+    .option('--cwd <path>', t('cli.optionDescriptions.forkCwd'))
+    .option('-y, --yes', t('cli.optionDescriptions.forkYes'))
+    .argument('[sessionId]', t('cli.optionDescriptions.forkSessionId'))
     .action(async (sessionId: string | undefined, options: { cwd?: string; yes?: boolean }) => {
       const resolved = createDefaultForkDeps(deps);
       try {

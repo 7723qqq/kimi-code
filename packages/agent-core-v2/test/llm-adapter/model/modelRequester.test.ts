@@ -436,6 +436,10 @@ describe('ModelRequesterImpl request execution', () => {
     expect(timing).toBeDefined();
     if (timing?.type !== 'timing') return;
     expect(timing.serverDecodeMs).toBeGreaterThanOrEqual(140);
+    // A runtime whose `eventLoopUtilization` reports nothing (Bun exposes one
+    // that always returns zeros) cannot measure this, and the requester omits
+    // the field rather than reporting a misleading zero.
+    if (timing.clientBlockedMs === undefined) return;
     expect(timing.clientBlockedMs).toBeGreaterThanOrEqual(100);
   });
 });

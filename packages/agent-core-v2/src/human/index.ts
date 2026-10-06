@@ -58,7 +58,6 @@ export * from './tool/executor';
 export * from './tool/machine';
 export * from './tool/wait-for';
 export * from './tool/tool';
-export * from './media/tool';
 export * from './agent/errors';
 export * from './agent/machine';
 export * from './agent/wait-for';

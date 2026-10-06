@@ -18,6 +18,7 @@ import { IWorkspaceAliases } from './workspaceAliases';
 interface CatalogSnapshot {
   readonly byId: ReadonlyMap<string, Workspace>;
   readonly idsByRootKey: ReadonlyMap<string, readonly string[]>;
+  readonly stamp: string | undefined;
 }
 
 interface SessionIndexSnapshot {
@@ -101,7 +102,8 @@ export class WorkspaceAliasesService extends Disposable implements IWorkspaceAli
   }
 
   private async catalog(): Promise<CatalogSnapshot> {
-    if (this.catalogCache !== undefined) return this.catalogCache;
+    const cache = this.catalogCache;
+    if (cache !== undefined && (await this.store.stamp()) === cache.stamp) return cache;
     this.catalogPromise ??= this.loadCatalog();
     const { snapshot, generation } = await this.catalogPromise;
     if (generation !== this.invalidationGeneration) return this.catalog();
@@ -115,6 +117,7 @@ export class WorkspaceAliasesService extends Disposable implements IWorkspaceAli
         this.catalogMergePrimed = true;
       }
       const generation = this.invalidationGeneration;
+      const stamp = await this.store.stamp();
       const workspaces = (await this.store.load())?.workspaces ?? [];
       const snapshot: CatalogSnapshot = {
         byId: new Map(workspaces.map((ws) => [ws.id, ws] as const)),
@@ -123,6 +126,7 @@ export class WorkspaceAliasesService extends Disposable implements IWorkspaceAli
           (ws) => ws.root,
           (ws) => ws.id,
         ),
+        stamp,
       };
       if (generation === this.invalidationGeneration) {
         this.catalogCache = snapshot;

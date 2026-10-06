@@ -216,6 +216,50 @@ scripts/
   prompt-optimizer/             — Prompt benchmark and optimization tools
 ```
 
+### Structural review (`tools/review`)
+
+`tools/review` is a small Zig program that reads the repository itself rather than
+running the test suite. It answers questions a test cannot: whether a documented
+gate is actually wired up, whether a workspace member's tests ever run, whether a
+generated file drifted from its source. It runs in CI as the `review` job and takes
+about 1.5 s over the whole monorepo.
+
+```
+tools/review/
+  src/checks/                   — one file per check
+  orphan-exports-baseline.txt   — accepted findings, one per line
+  silent-catch-baseline.txt     — accepted findings, one per line
+  dangling-refs-baseline.txt    — accepted findings, one per line
+```
+
+```bash
+cd tools/review && zig build          # needs Zig 0.17 (the devShell provides it)
+./tools/review/zig-out/bin/review     # run every check; exits 1 on any error
+./tools/review/zig-out/bin/review --list
+./tools/review/zig-out/bin/review --check=orphan-exports
+./tools/review/zig-out/bin/review --json
+```
+
+| Check | Reports |
+| --- | --- |
+| `gate-wiring` | A doc claims a script runs under a runner that does not invoke it; a hook directory nothing executes |
+| `ci-coverage` | A workspace member whose tests or typecheck no CI job runs |
+| `stale-artifacts` | A committed generated file the generator rewrites |
+| `upstream-drift` | A file upstream carries that this branch dropped |
+| `orphan-exports` | An exported function only its own test calls |
+| `silent-catch` | A file with more bare `catch {}` blocks than its baseline allows |
+| `dangling-refs` | A tool name in a `*TOOLS` list that no tool registers |
+
+Findings at `error` severity fail the run; `warn` and `info` do not. The three
+baseline files are ledgers of findings someone has already looked at: a finding
+listed there is suppressed, and an entry that stops matching anything is reported
+so the ledger cannot rot. Regenerate one with `--check=<name> --json`.
+
+To add a check, drop a file in `src/checks/`, export `run(ctx: *check.Context)`,
+and register it in `src/checks.zig`. `zig build test` covers every module listed in
+the `test` block of `src/main.zig` — add the new file there too, or its tests will
+not run.
+
 ---
 
 ## Environment Requirements
@@ -300,7 +344,8 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job install
 4. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), and locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
 5. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
 6. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-native-tools && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test.
-7. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
+7. **review** — `zig build` in `tools/review` (Zig installed via `mlugg/setup-zig`), then the structural checks described under "Structural review" above.
+8. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
 
 Additional workflows: `_native-build.yml`, `codeql.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release.yml`.
 
@@ -352,7 +397,7 @@ Pushes to `main` run `release.yml`: the changesets action opens/updates a **"ci:
 
 ### General Coding Rules
 
-- `packages/agent-core-v2`, `packages/kap-server`, and `packages/transcript` are comment-free zones: no comments of any kind — no line/block comments, no JSDoc (not even on exported symbols); the only exception is load-bearing lint-suppression directives (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. Enforced by `scripts/check-no-comments.mjs` over `.ts`/`.tsx`/`.mts`/`.mjs` under `src/`/`test/`/`scripts/`, which runs as part of `bun run lint`.
+- `packages/agent-core-v2`, `packages/kap-server`, and `packages/transcript` are comment-free zones: no comments of any kind — no line/block comments, no JSDoc (not even on exported symbols); the only exception is load-bearing lint-suppression directives (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. `scripts/check-no-comments.mjs` reports violations over `.ts`/`.tsx`/`.mts`/`.mjs` under `src/`/`test/`/`scripts/`; run it directly — it is not wired into `bun run lint`.
 - For optional object properties, pass `undefined` directly instead of using conditional spread.
   - YES: `{ user }`
   - NO: `{ ...(user ? { user } : undefined) }`
