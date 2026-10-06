@@ -26,6 +26,8 @@ const TOWER_WORKER_TOOLS = [
   'Edit',
   'EnterPlanMode',
   'ExitPlanMode',
+  'EnterSpecMode',
+  'ExitSpecMode',
   'Glob',
   'Grep',
   'Read',
