@@ -33,6 +33,8 @@ export interface AppState {
   permissionMode: PermissionMode;
   planMode: boolean;
   specMode: boolean;
+  /** Which spec stage is in progress, mirrored from the session status. */
+  specStage?: 'specify' | 'plan' | 'tasks' | 'implement';
   /** Resolved profile name from --agent/--agent-file, carried to the
    * lazy-created first session when the TUI starts session-less. */
   agentProfile?: string;

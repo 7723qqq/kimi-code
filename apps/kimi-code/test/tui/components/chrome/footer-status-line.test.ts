@@ -37,7 +37,7 @@ const baseState: AppState = {
   streamingStartTime: 0,
   stepRetry: null,
   planMode: false,
-    specMode: false,
+  specMode: false,
   inputMode: 'prompt',
   swarmMode: false,
   towerMode: false,
@@ -58,6 +58,9 @@ const payload: StatusLinePayload = {
   gitBranch: 'main',
   permissionMode: 'manual',
   planMode: false,
+  specMode: false,
+  swarmMode: false,
+  towerMode: false,
   contextUsage: 12,
   contextTokens: 1024,
   maxContextTokens: 8192,
@@ -264,6 +267,31 @@ describe('FooterComponent status_line command', () => {
 });
 
 describe('StatusLineCommandRunner', () => {
+  it('passes every active review mode in the payload', async () => {
+    const dir = join(tmpdir(), `sl-modes-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(dir, { recursive: true });
+    try {
+      const outFile = join(dir, 'payload.json');
+      const scriptFile = join(dir, 'dump.mjs');
+      writeFileSync(
+        scriptFile,
+        `import { writeFileSync } from 'node:fs';\nlet d='';\nprocess.stdin.setEncoding('utf-8');\nprocess.stdin.on('data',(c)=>{d+=c});\nprocess.stdin.on('end',()=>{writeFileSync(process.argv[2],d);process.stdout.write('ok\\n')});\n`,
+      );
+      const runner = new StatusLineCommandRunner(nodeCommand(`${scriptFile} ${outFile}`), () => {});
+
+      runner.maybeRefresh({ ...payload, specMode: true, swarmMode: true, towerMode: true });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      // A user's custom status line must be able to see every mode the footer
+      // renders, not just plan.
+      const sent = JSON.parse(readFileSync(outFile, 'utf-8')) as Record<string, unknown>;
+      expect(sent).toMatchObject({ specMode: true, swarmMode: true, towerMode: true, planMode: false });
+      runner.dispose();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('caches the last good line and coalesces refreshes in the same interval', async () => {
     const runner = new StatusLineCommandRunner('echo x', () => {});
 

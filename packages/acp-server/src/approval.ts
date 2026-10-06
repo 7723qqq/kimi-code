@@ -55,6 +55,66 @@ function planOptOptionId(i: number): string {
 }
 
 /**
+ * `spec_review` optionId namespace, mirroring the `plan_*` one above.
+ *
+ * A spec review offers the same choice shape as a plan review — the agent may
+ * pass up to three alternative approaches — so it gets the same option set.
+ * Without this the spec falls through to {@link CANONICAL_OPTIONS}, which
+ * cannot express "Revise" and offers an "approve for this session" action the
+ * spec flow does not define.
+ */
+export const SPEC_APPROVE_OPTION_ID = 'spec_approve';
+export const SPEC_REVISE_OPTION_ID = 'spec_revise';
+export const SPEC_REJECT_AND_EXIT_OPTION_ID = 'spec_reject_and_exit';
+
+function specOptOptionId(i: number): string {
+  return `spec_opt_${i}`;
+}
+
+const REVIEW_OPTION_IDS = new Set([
+  PLAN_APPROVE_OPTION_ID,
+  PLAN_REVISE_OPTION_ID,
+  PLAN_REJECT_AND_EXIT_OPTION_ID,
+  SPEC_APPROVE_OPTION_ID,
+  SPEC_REVISE_OPTION_ID,
+  SPEC_REJECT_AND_EXIT_OPTION_ID,
+]);
+
+/**
+ * The review-style option list shared by `plan_review` and `spec_review`:
+ * one `allow_once` per offered approach, or a single approve fallback, plus the
+ * two `reject_once` exits. Each kind keeps its own optionId prefix so the
+ * response mapper can tell which flow produced it.
+ */
+function reviewOptions(
+  options: readonly { readonly label: string }[] | undefined,
+  ids: {
+    readonly opt: (i: number) => string;
+    readonly approve: string;
+    readonly revise: string;
+    readonly rejectAndExit: string;
+  },
+): readonly PermissionOption[] {
+  const approveOptions: PermissionOption[] =
+    options !== undefined && options.length >= 2
+      ? options.map((opt, i) => ({
+          optionId: ids.opt(i),
+          name: opt.label,
+          kind: 'allow_once' as const,
+        }))
+      : [{ optionId: ids.approve, name: 'Approve', kind: 'allow_once' as const }];
+  return [
+    ...approveOptions,
+    { optionId: ids.revise, name: 'Revise', kind: 'reject_once' as const },
+    {
+      optionId: ids.rejectAndExit,
+      name: 'Reject and Exit',
+      kind: 'reject_once' as const,
+    },
+  ];
+}
+
+/**
  * The three canonical permission options surfaced to the ACP client for a
  * non-`plan_review` approval prompt.
  *
@@ -86,27 +146,23 @@ const CANONICAL_OPTIONS: readonly PermissionOption[] = [
 export function approvalRequestToPermissionOptions(
   req: ApprovalRequest,
 ): readonly PermissionOption[] {
-  if (req.display.kind !== 'plan_review') {
-    return CANONICAL_OPTIONS;
+  if (req.display.kind === 'plan_review') {
+    return reviewOptions(req.display.options, {
+      opt: planOptOptionId,
+      approve: PLAN_APPROVE_OPTION_ID,
+      revise: PLAN_REVISE_OPTION_ID,
+      rejectAndExit: PLAN_REJECT_AND_EXIT_OPTION_ID,
+    });
   }
-  const display = req.display;
-  const approveOptions: PermissionOption[] =
-    display.options !== undefined && display.options.length >= 2
-      ? display.options.map((opt, i) => ({
-          optionId: planOptOptionId(i),
-          name: opt.label,
-          kind: 'allow_once' as const,
-        }))
-      : [{ optionId: PLAN_APPROVE_OPTION_ID, name: 'Approve', kind: 'allow_once' as const }];
-  return [
-    ...approveOptions,
-    { optionId: PLAN_REVISE_OPTION_ID, name: 'Revise', kind: 'reject_once' as const },
-    {
-      optionId: PLAN_REJECT_AND_EXIT_OPTION_ID,
-      name: 'Reject and Exit',
-      kind: 'reject_once' as const,
-    },
-  ];
+  if (req.display.kind === 'spec_review') {
+    return reviewOptions(req.display.options, {
+      opt: specOptOptionId,
+      approve: SPEC_APPROVE_OPTION_ID,
+      revise: SPEC_REVISE_OPTION_ID,
+      rejectAndExit: SPEC_REJECT_AND_EXIT_OPTION_ID,
+    });
+  }
+  return CANONICAL_OPTIONS;
 }
 
 /**
@@ -139,7 +195,20 @@ export function permissionResponseToApprovalResponse(
   }
   const optionId = response.outcome.optionId;
   if (req.display.kind === 'plan_review') {
-    return mapPlanReviewOptionId(req.display, optionId);
+    return mapReviewOptionId(req.display.options, optionId, {
+      opt: /^plan_opt_(\d+)$/,
+      approve: PLAN_APPROVE_OPTION_ID,
+      revise: PLAN_REVISE_OPTION_ID,
+      rejectAndExit: PLAN_REJECT_AND_EXIT_OPTION_ID,
+    });
+  }
+  if (req.display.kind === 'spec_review') {
+    return mapReviewOptionId(req.display.options, optionId, {
+      opt: /^spec_opt_(\d+)$/,
+      approve: SPEC_APPROVE_OPTION_ID,
+      revise: SPEC_REVISE_OPTION_ID,
+      rejectAndExit: SPEC_REJECT_AND_EXIT_OPTION_ID,
+    });
   }
   switch (optionId) {
     case APPROVE_ONCE_OPTION_ID:
@@ -162,25 +231,30 @@ export function permissionResponseToApprovalResponse(
   }
 }
 
-function mapPlanReviewOptionId(
-  display: Extract<ApprovalRequest['display'], { kind: 'plan_review' }>,
+function mapReviewOptionId(
+  options: readonly { readonly label: string }[] | undefined,
   optionId: string,
+  ids: {
+    readonly opt: RegExp;
+    readonly approve: string;
+    readonly revise: string;
+    readonly rejectAndExit: string;
+  },
 ): ApprovalResponse {
-  if (optionId === PLAN_APPROVE_OPTION_ID) {
+  if (optionId === ids.approve) {
     return { decision: 'approved' };
   }
-  if (optionId === PLAN_REVISE_OPTION_ID) {
+  if (optionId === ids.revise) {
     return { decision: 'rejected', selectedLabel: 'Revise' };
   }
-  if (optionId === PLAN_REJECT_AND_EXIT_OPTION_ID) {
+  if (optionId === ids.rejectAndExit) {
     return { decision: 'rejected', selectedLabel: 'Reject and Exit' };
   }
-  const match = /^plan_opt_(\d+)$/.exec(optionId);
+  const match = ids.opt.exec(optionId);
   if (match) {
     const i = Number(match[1]);
-    const opts = display.options;
-    if (opts !== undefined && Number.isInteger(i) && i >= 0 && i < opts.length) {
-      return { decision: 'approved', selectedLabel: opts[i]!.label };
+    if (options !== undefined && Number.isInteger(i) && i >= 0 && i < options.length) {
+      return { decision: 'approved', selectedLabel: options[i]!.label };
     }
     return { decision: 'rejected' };
   }
@@ -241,9 +315,8 @@ export function attachSelectedLabel(
   if (outcome.outcome !== 'selected') return approval;
   if (
     outcome.optionId.startsWith('plan_opt_') ||
-    outcome.optionId === PLAN_APPROVE_OPTION_ID ||
-    outcome.optionId === PLAN_REVISE_OPTION_ID ||
-    outcome.optionId === PLAN_REJECT_AND_EXIT_OPTION_ID
+    outcome.optionId.startsWith('spec_opt_') ||
+    REVIEW_OPTION_IDS.has(outcome.optionId)
   ) {
     return approval;
   }

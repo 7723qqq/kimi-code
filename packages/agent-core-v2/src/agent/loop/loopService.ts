@@ -48,6 +48,7 @@ import type {
   TurnInterruptedEvent,
   TurnStartedEvent as TurnStartedTelemetryEvent,
 } from '#/app/telemetry/events';
+import type { AgentTelemetryContext } from '#/app/telemetry/context';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { IWireService } from '#/wire/wire';
@@ -2263,7 +2264,7 @@ interface ActiveTurn {
   partials: ContentPart[];
   forceContentPartBoundary: boolean;
   readyResolved: boolean;
-  mode: 'agent' | 'plan' | undefined;
+  mode: AgentTelemetryContext['mode'] | undefined;
   providerType: string | undefined;
   protocol: string | undefined;
 }

@@ -15,6 +15,7 @@ export {
   handleEditorCommand,
   handleModelCommand,
   handlePlanCommand,
+  handleSpecCommand,
   handleThemeCommand,
   showExperimentsPanel,
   showModelPicker,

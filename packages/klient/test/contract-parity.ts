@@ -9,20 +9,20 @@
 
 import type { z } from 'zod';
 
-import type { AgentContextData } from '@moonshot-ai/agent-core-v2/agent/contextMemory/types';
-import type { IAgentCommandService } from '@moonshot-ai/agent-core-v2/agent/command/agentCommand';
-import type { IAgentRuntimeBindingService } from '@moonshot-ai/agent-core-v2/agent/runtimeBinding/runtimeBinding';
-import type { TurnEndReason } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
-import type { SessionActivityState } from '@moonshot-ai/agent-core-v2/session/sessionActivity/sessionActivity';
-import type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
-import type { IAgentProfileService } from '@moonshot-ai/agent-core-v2/agent/profile/profile';
-import type { PromptLaunchResult, PromptPayload, SteerPayload } from '@moonshot-ai/agent-core-v2/agent/loop/loop';
-import type { IAgentShellCommandService } from '@moonshot-ai/agent-core-v2/agent/shellCommand/shellCommand';
-import type { IAgentSkillService } from '@moonshot-ai/agent-core-v2/features/skill/skillService';
-import type { ContentPart } from '@moonshot-ai/agent-core-v2/human/llm/message';
-import type { PlanData } from '@moonshot-ai/agent-core-v2/features/plan/plan';
-import type { UsageStatus } from '@moonshot-ai/agent-core-v2/agent/usage/usage';
-import type { SkillSummary } from '@moonshot-ai/agent-core-v2/features/skill/catalog/types';
+import type { AgentContextData } from '@moonshot-ai/agent-core-v2';
+import type { IAgentCommandService } from '@moonshot-ai/agent-core-v2';
+import type { IAgentRuntimeBindingService } from '@moonshot-ai/agent-core-v2';
+import type { TurnEndReason } from '@moonshot-ai/agent-core-v2/contract';
+import type { SessionActivityState } from '@moonshot-ai/agent-core-v2';
+import type { PermissionMode } from '@moonshot-ai/agent-core-v2/contract';
+import type { IAgentProfileService } from '@moonshot-ai/agent-core-v2';
+import type { PromptLaunchResult, PromptPayload, SteerPayload } from '@moonshot-ai/agent-core-v2';
+import type { IAgentShellCommandService } from '@moonshot-ai/agent-core-v2';
+import type { IAgentSkillService } from '@moonshot-ai/agent-core-v2';
+import type { ContentPart } from '@moonshot-ai/agent-core-v2';
+import type { PlanData } from '@moonshot-ai/agent-core-v2';
+import type { UsageStatus } from '@moonshot-ai/agent-core-v2';
+import type { SkillSummary } from '@moonshot-ai/agent-core-v2';
 import type { McpServerEntry } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
 import type {
   GlobalMcpServerConfig,
@@ -36,30 +36,30 @@ import type {
   McpServerLocator,
   McpServerTestResult,
   McpServerTestTarget,
-} from '@moonshot-ai/agent-core-v2/app/mcpManagement/mcpManagement';
+} from '@moonshot-ai/agent-core-v2';
 import type {
   McpRegistryPluginOrigin,
   McpRegistryQuery,
   McpServerSource,
-} from '@moonshot-ai/agent-core-v2/app/mcpRegistry/mcpRegistry';
-import type { McpServerConfig } from '@moonshot-ai/agent-core-v2/mcpCore/config-schema';
+} from '@moonshot-ai/agent-core-v2';
+import type { McpServerConfig } from '@moonshot-ai/agent-core-v2';
 import type { McpServerConfigView } from '@moonshot-ai/agent-core-v2/mcpCore/configView';
-import type { FullCompactionInput } from '@moonshot-ai/agent-core-v2/agent/fullCompaction/fullCompaction';
-import type { ISessionScopeHandle } from '@moonshot-ai/agent-core-v2/_base/di/scope';
+import type { FullCompactionInput } from '@moonshot-ai/agent-core-v2';
+import type { ISessionScopeHandle } from '@moonshot-ai/agent-core-v2';
 import type {
   CreateChildSessionOptions,
   CreateSessionOptions,
   ForkSessionOptions,
   ResumeSessionOptions,
-} from '@moonshot-ai/agent-core-v2/workspace/sessionLifecycle/sessionLifecycle';
+} from '@moonshot-ai/agent-core-v2';
 import type {
   ApprovalRequest,
   ApprovalResponse,
-} from '@moonshot-ai/agent-core-v2/agent/interaction/approval';
+} from '@moonshot-ai/agent-core-v2/contract';
 import type {
   Interaction,
   InteractionResolution,
-} from '@moonshot-ai/agent-core-v2/human/interaction/interaction';
+} from '@moonshot-ai/agent-core-v2';
 import type {
   QuestionAnswers,
   QuestionItem,
@@ -67,45 +67,45 @@ import type {
   QuestionRequest,
   QuestionResponse,
   QuestionResult,
-} from '@moonshot-ai/agent-core-v2/agent/interaction/question';
+} from '@moonshot-ai/agent-core-v2/contract';
 import type {
   AgentMeta,
   SessionMeta,
   SessionMetadataChangedEvent,
   SessionMetaPatch,
-} from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';
-import type { ISessionTitleService } from '@moonshot-ai/agent-core-v2/session/sessionTitle/sessionTitle';
+} from '@moonshot-ai/agent-core-v2';
+import type { ISessionTitleService } from '@moonshot-ai/agent-core-v2';
 import type {
   AuthStatus,
   IOAuthService,
-} from '@moonshot-ai/agent-core-v2/app/auth/auth';
-import type { IBootstrapService } from '@moonshot-ai/agent-core-v2/app/bootstrap/bootstrap';
+} from '@moonshot-ai/agent-core-v2';
+import type { IBootstrapService } from '@moonshot-ai/agent-core-v2';
 import type {
   ConfigDiagnostic,
   ConfigInspectValue,
   ConfigTarget,
-} from '@moonshot-ai/agent-core-v2/app/config/config';
+} from '@moonshot-ai/agent-core-v2';
 import type {
   CapabilityInstallProgress,
   CapabilityStatus,
   CapabilityStep,
-} from '@moonshot-ai/agent-core-v2/app/capability/types';
-import type { ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2/app/flag/flag';
+} from '@moonshot-ai/agent-core-v2/contract';
+import type { ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
 import type {
   FileMeta,
   SaveOptions,
-} from '@moonshot-ai/agent-core-v2/app/file/fileService';
+} from '@moonshot-ai/agent-core-v2';
 import type {
   FsBrowseResponse,
   FsHomeResponse,
-} from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
-import type { ModelRecord } from '@moonshot-ai/agent-core-v2/llm-adapter/model/model';
-import type { IModelCatalog } from '@moonshot-ai/agent-core-v2/llm-adapter/model/catalog';
-import type { IProviderDiscoveryService } from '@moonshot-ai/agent-core-v2/app/kosongConfig/discovery';
+} from '@moonshot-ai/agent-core-v2';
+import type { ModelRecord } from '@moonshot-ai/agent-core-v2';
+import type { IModelCatalog } from '@moonshot-ai/agent-core-v2';
+import type { IProviderDiscoveryService } from '@moonshot-ai/agent-core-v2';
 import type {
   ImportCustomRegistryOptions,
   ImportCustomRegistryResult,
-} from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevImport';
+} from '@moonshot-ai/agent-core-v2';
 import {
   importCustomRegistryOptionsSchema,
   importCustomRegistryResultSchema,
@@ -116,7 +116,7 @@ import type {
   RemovePluginInput,
   SetPluginEnabledInput,
   SetPluginMcpServerEnabledInput,
-} from '@moonshot-ai/agent-core-v2/app/plugin/plugin';
+} from '@moonshot-ai/agent-core-v2';
 import type {
   PluginCommandDef,
   PluginDiagnostic,
@@ -127,42 +127,42 @@ import type {
   PluginSummary,
   PluginUpdateStatus,
   ReloadSummary,
-} from '@moonshot-ai/agent-core-v2/app/plugin/types';
-import type { ProviderConfig } from '@moonshot-ai/agent-core-v2/llm-adapter/provider/provider';
+} from '@moonshot-ai/agent-core-v2';
+import type { ProviderConfig } from '@moonshot-ai/agent-core-v2';
 import type {
   SessionListQuery,
   SessionSummary,
-} from '@moonshot-ai/agent-core-v2/app/sessionIndex/sessionIndex';
+} from '@moonshot-ai/agent-core-v2';
 import type {
   Workspace,
   WorkspaceUpdate,
-} from '@moonshot-ai/agent-core-v2/app/workspace/workspace';
+} from '@moonshot-ai/agent-core-v2';
 // Test-only: the v1 wire event types now live in agent-core-v2; importing
 // them here (never in `src/`) strengthens parity for the agent event stream.
-import type { ToolResultEvent } from '@moonshot-ai/agent-core-v2/events';
+import type { ToolResultEvent } from '@moonshot-ai/agent-core-v2/contract';
 import type {
   CompactionBlockedEvent,
   CompactionCancelledEvent,
   CompactionCompletedEvent,
   CompactionStartedEvent,
-} from '@moonshot-ai/agent-core-v2/agent/fullCompaction/compactionOps';
+} from '@moonshot-ai/agent-core-v2';
 import type {
   AssistantDeltaEvent,
   ThinkingDeltaEvent,
   TurnStartedEvent,
-} from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
-import type { TurnEndedEvent } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+} from '@moonshot-ai/agent-core-v2/contract';
+import type { TurnEndedEvent } from '@moonshot-ai/agent-core-v2/contract';
 import type {
   PromptAbortedEvent,
   PromptCompletedEvent,
-} from '@moonshot-ai/agent-core-v2/agent/prompt/promptEvents';
-import type { TaskInfo } from '@moonshot-ai/agent-core-v2/agent/task/types';
+} from '@moonshot-ai/agent-core-v2';
+import type { TaskInfo } from '@moonshot-ai/agent-core-v2/contract';
 import type {
   ToolCallDeltaEvent,
   ToolCallStartedEvent,
   ToolProgressEvent,
 } from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
-import type { WarningEvent } from '@moonshot-ai/agent-core-v2/errors';
+import type { WarningEvent } from '@moonshot-ai/agent-core-v2';
 
 import { sessionActivityStateSchema } from '../src/contract/session/activity.js';
 import {

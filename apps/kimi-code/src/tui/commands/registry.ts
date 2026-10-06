@@ -217,6 +217,15 @@ export const BUILTIN_SLASH_COMMANDS = [
     availability: (args) => (args.trim().toLowerCase() === 'clear' ? 'idle-only' : 'always'),
   },
   {
+    name: 'spec',
+    aliases: [],
+    get description() {
+      return t('tui.slashCommands.spec');
+    },
+    priority: 100,
+    availability: 'idle-only',
+  },
+  {
     name: 'swarm',
     aliases: [],
     get description() {

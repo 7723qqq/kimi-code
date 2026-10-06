@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
-import type { TurnEndReason } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import type { TurnEndReason } from '@moonshot-ai/agent-core-v2/contract';
 import type {
   BundledSkillActivation,
   CompactionSummaryOrigin,
@@ -17,15 +17,15 @@ import type {
   SystemTriggerOrigin,
   TaskOrigin,
   UserPromptOrigin,
-} from '@moonshot-ai/agent-core-v2/agent/contextMemory/types';
+} from '@moonshot-ai/agent-core-v2';
 import { messageContentSchema } from './message';
-import type { HookResultPayload } from '@moonshot-ai/agent-core-v2/features/externalHooks/agent/agentExternalHooksService';
+import type { HookResultPayload } from '@moonshot-ai/agent-core-v2';
 import type {
   CompactionBlockedPayload,
   CompactionCompletedPayload,
   CompactionStartedPayload,
-} from '@moonshot-ai/agent-core-v2/agent/fullCompaction/compactionOps';
-import type { CompactionResult } from '@moonshot-ai/agent-core-v2/agent/fullCompaction/types';
+} from '@moonshot-ai/agent-core-v2';
+import type { CompactionResult } from '@moonshot-ai/agent-core-v2/contract';
 import type {
   GoalActor,
   GoalBudgetLimits,
@@ -44,42 +44,42 @@ import type {
   TurnStepCompletedPayload,
   TurnStepInterruptedPayload,
   TurnStepStartedPayload,
-} from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+} from '@moonshot-ai/agent-core-v2/contract';
 import type {
   McpServerStatusEventPayload,
   McpServerStatusPayload,
   ToolListUpdatedPayload,
   ToolListUpdatedReason,
-} from '@moonshot-ai/agent-core-v2/agent/mcp/mcpEvents';
+} from '@moonshot-ai/agent-core-v2/contract';
 import type { McpOAuthAuthorizationUrlUpdateData } from '@moonshot-ai/agent-core-v2/agent/mcp/tools/auth';
-import type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
-import type { WarningEvent } from '@moonshot-ai/agent-core-v2/agent/profile/profileService';
-import type { PluginCommandActivatedPayload } from '@moonshot-ai/agent-core-v2/agent/pluginCommand/pluginCommand';
+import type { PermissionMode } from '@moonshot-ai/agent-core-v2/contract';
+import type { WarningEvent } from '@moonshot-ai/agent-core-v2';
+import type { PluginCommandActivatedPayload } from '@moonshot-ai/agent-core-v2';
 import type {
   ShellCompletedPayload,
   ShellOutputPayload,
   ShellStartedPayload,
-} from '@moonshot-ai/agent-core-v2/agent/shellCommand/shellCommandService';
+} from '@moonshot-ai/agent-core-v2';
 
-import type { TurnStepRetryingPayload } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
-import type { AgentTaskStatus } from '@moonshot-ai/agent-core-v2/agent/task/types';
+import type { TurnStepRetryingPayload } from '@moonshot-ai/agent-core-v2/contract';
+import type { AgentTaskStatus } from '@moonshot-ai/agent-core-v2/contract';
 import type {
   ToolCallStartedPayload,
   ToolProgressPayload,
   ToolResultEventPayload,
 } from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
-import type { UsageStatus } from '@moonshot-ai/agent-core-v2/agent/usage/usage';
-import type { FinishReason } from '@moonshot-ai/agent-core-v2/human/llm/finish-reason';
-import type { TokenUsage } from '@moonshot-ai/agent-core-v2/human/llm/usage';
+import type { UsageStatus } from '@moonshot-ai/agent-core-v2';
+import type { FinishReason } from '@moonshot-ai/agent-core-v2/contract';
+import type { TokenUsage } from '@moonshot-ai/agent-core-v2/contract';
 import type {
   SubagentCancelledPayload,
   SubagentCompletedPayload,
   SubagentFailedPayload,
   SubagentSpawnedPayload,
   SubagentStartedPayload,
-} from '@moonshot-ai/agent-core-v2/session/subagent/mirrorAgentRun';
-import type { SubagentSuspendedPayload } from '@moonshot-ai/agent-core-v2/features/swarm/session/sessionSwarmService';
-import type { ToolUpdate } from '@moonshot-ai/agent-core-v2/tool/toolContract';
+} from '@moonshot-ai/agent-core-v2';
+import type { SubagentSuspendedPayload } from '@moonshot-ai/agent-core-v2';
+import type { ToolUpdate } from '@moonshot-ai/agent-core-v2';
 
 import { ToolInputDisplaySchema } from './display';
 import { configResponseSchema } from './rest-config';

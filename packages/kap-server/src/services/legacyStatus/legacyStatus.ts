@@ -8,7 +8,7 @@ import {
   type IAgentScopeHandle,
   type UsageStatus,
 } from '@moonshot-ai/agent-core-v2';
-import type { TurnEndReason } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import type { TurnEndReason } from '@moonshot-ai/agent-core-v2/contract';
 
 export type AgentPhase =
   | { readonly kind: 'idle' }

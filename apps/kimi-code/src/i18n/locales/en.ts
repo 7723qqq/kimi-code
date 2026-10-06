@@ -1823,6 +1823,8 @@ export default {
         directoryLabel: 'Directory',
         permissionsLabel: 'Permissions',
         planModeLabel: 'Plan mode',
+        specModeLabel: 'Spec mode',
+        swarmModeLabel: 'Swarm mode',
         sessionLabel: 'Session',
         titleLabel: 'Title',
         warningLabel: 'Warning',

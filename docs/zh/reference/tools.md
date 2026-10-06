@@ -75,6 +75,31 @@ Plan 模式是一种受约束的工作状态：进入后 `Write` 与 `Edit` 只�
 
 **`ExitPlanMode`** 读取当前计划文件内容，将计划呈现给用户审批后退出 Plan 模式。可选参数 `options` 允许 Agent 提供 1–3 个备选方案（每项含 `label` 与 `description`，`label` 最长 80 字符），供用户在审批时选择；`label` 不能重复，也不能使用 `Approve`、`Reject`、`Reject and Exit`、`Revise` 等保留词。
 
+## Spec 模式
+
+| 工具 | 默认审批 | 说明 |
+| --- | --- | --- |
+| `EnterSpecMode` | 自动放行 | 进入 Spec 模式 |
+| `ExitSpecMode` | 自动放行（需用户确认规格） | 退出 Spec 模式并提交规格 |
+
+Spec 模式在动代码之前先就书面契约达成一致。它与 Plan 模式的差别在于留下的东西：plan 是每个会话的临时草稿，而 spec 是一组写进**你的仓库**里 `specs/<id>/` 的文档，会随代码一起提交，并被之后的会话和同事再次读到。
+
+Spec 模式是一种受约束的工作状态：进入后写入被限制在当前 spec 目录内，`TaskStop`、`CronCreate`、`CronDelete` 被完全拦截——因为它们会改动超出本次 spec 生命周期的任务。其余工具（包括 `Bash`）仍按当前权限规则处理。解析后落在 spec 目录之外的写入（包括通过软链接绕过）都会被拒绝。
+
+Spec 模式要求三份文档，任何一份缺失或为空时 `ExitSpecMode` 都会被拒绝：
+
+- `requirements.md` —— 做什么：目标、面向谁、边界，以及明确不在范围内的部分。
+- `design.md` —— 怎么做：具体方案、约束，以及被否决的替代方案。
+- `tasks.md` —— 怎么验证：拆分到可完成、可独立检查的粒度，每项带验收标准。
+
+第四份文件 `progress.md` 是记录实施进度的工作笔记。它可选，且**永远不会**阻塞 `ExitSpecMode`；它是留给下一个读这份 spec 的人的。
+
+**`EnterSpecMode`** 不接受任何参数，进入成功后返回工作流指引及 spec 目录路径。已在 Spec 模式时再次进入会被拒绝。
+
+**`ExitSpecMode`** 读取 spec 目录中的三份文档，将其呈现给用户审批后退出 Spec 模式。驳回审阅会保持 Spec 模式开启，让 Agent 继续修订；"Reject and Exit" 则在未获批准的情况下直接关闭 Spec 模式。可选参数 `options` 的用法与 `ExitPlanMode` 完全一致——1–3 个备选方案供用户选择，唯一性与保留词规则相同。被选中的方案会写进 Agent 的指令，确保只执行该方案。
+
+在「完全自动」模式下，spec 不会经过交互式审阅就直接提交；此时会明确告知 Agent：用户并未批准它。
+
 ## 状态管理
 
 | 工具 | 默认审批 | 说明 |

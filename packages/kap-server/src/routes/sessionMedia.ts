@@ -10,7 +10,7 @@ import {
   isFileError,
 } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 import { resumeSessionById } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionLookup';
-import type { Scope } from '@moonshot-ai/agent-core-v2/_base/di/scope';
+import type { Scope } from '@moonshot-ai/agent-core-v2';
 import { z } from 'zod';
 
 import { buildContentDisposition } from '../lib/contentDisposition';

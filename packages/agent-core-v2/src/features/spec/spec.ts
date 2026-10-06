@@ -23,6 +23,8 @@ export interface SpecData {
   readonly id: string;
   readonly dir: string;
   readonly files: Readonly<Record<string, string>>;
+  /** Contents of `progress.md`, or `''` when it has not been written yet. */
+  readonly progress: string;
   readonly missing: readonly SpecRequiredFile[];
   readonly complete: boolean;
   readonly stage: SpecStage;
@@ -35,7 +37,7 @@ export interface IAgentSpecService {
   cancel(id?: string): void;
   exit(id?: string): void;
   clear(): Promise<void>;
-  recordRevision(): Promise<void>;
+  recordRevision(data?: SpecData): Promise<void>;
   status(): Promise<SpecData | null>;
   activeSpecDir(): string | null;
 }

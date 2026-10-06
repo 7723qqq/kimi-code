@@ -25,7 +25,7 @@
   },
   "dependencies": {
     "@moonshot-ai/agent-core-v2": "workspace:^",
-    "smol-toml": "^1.6.1",
+    "smol-toml": "catalog:",
     "zod": "^4.3.6"
   }
 }

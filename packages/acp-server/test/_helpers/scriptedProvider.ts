@@ -29,7 +29,7 @@ import {
   type TokenUsage,
   type Tool,
 } from '@moonshot-ai/agent-core-v2';
-import type { FinishReason } from '@moonshot-ai/agent-core-v2/human/llm/finish-reason';
+import type { FinishReason } from '@moonshot-ai/agent-core-v2/contract';
 import { fromLlmMessage } from '@moonshot-ai/agent-core-v2/llm-adapter/contract/message';
 import type { LlmRequester } from '@moonshot-ai/agent-core-v2/human/llm/requester/requester';
 

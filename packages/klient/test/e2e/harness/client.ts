@@ -15,15 +15,15 @@
 import type {
   FsBrowseResponse,
   FsHomeResponse,
-} from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
-import type { AuthSummary } from '@moonshot-ai/agent-core-v2/app/authLegacy/authLegacy';
-import type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
+} from '@moonshot-ai/agent-core-v2';
+import type { AuthSummary } from '@moonshot-ai/agent-core-v2';
+import type { FileMeta } from '@moonshot-ai/agent-core-v2';
 import type { UpdateSessionProfileRequest as SessionUpdate } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
 import type {
   ProviderCatalogItem,
   SetDefaultModelResponse,
-} from '@moonshot-ai/agent-core-v2/llm-adapter/model/catalog';
-import type { Terminal } from '@moonshot-ai/agent-core-v2/os/interface/terminal';
+} from '@moonshot-ai/agent-core-v2';
+import type { Terminal } from '@moonshot-ai/agent-core-v2';
 import type {
   ApprovalRequest,
   ApprovalResponse,

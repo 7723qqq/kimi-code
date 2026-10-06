@@ -8,6 +8,7 @@ const orphan_exports = @import("checks/orphan_exports.zig");
 const silent_catch = @import("checks/silent_catch.zig");
 const dangling_refs = @import("checks/dangling_refs.zig");
 const workflow_triggers = @import("checks/workflow_triggers.zig");
+const scripts_wiring = @import("checks/scripts_wiring.zig");
 
 /// Every check the tool knows about, in report order.
 pub const all = [_]check.Check{
@@ -58,5 +59,11 @@ pub const all = [_]check.Check{
         .description = "Tool names a list mentions but nothing registers",
         .severity = .err,
         .run = dangling_refs.run,
+    },
+    .{
+        .name = "scripts-wiring",
+        .description = "Package scripts nothing invokes",
+        .severity = .warn,
+        .run = scripts_wiring.run,
     },
 };

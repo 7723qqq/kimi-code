@@ -99,7 +99,7 @@ describe('plan ops (wire-backed)', () => {
     });
 
     await dispatcher.dispatch(new PlanModeCancel({ agentId: 'test-agent', id: 'p1' }));
-    expect(agentState.get(planKey)).toEqual({ active: false });
+    expect(agentState.get(planKey)).toEqual({ active: false, lastTransition: 'cancel' });
 
     await dispatcher.dispatch(new PlanModeEnter({ agentId: 'test-agent', id: 'p2' }));
     await dispatcher.dispatch(new PlanModeExit({ agentId: 'test-agent' }));
@@ -124,11 +124,13 @@ describe('plan ops (wire-backed)', () => {
   it('cancel and exit both deactivate plan mode but emit distinct record types', async () => {
     await dispatcher.dispatch(new PlanModeEnter({ agentId: 'test-agent', id: 'p1' }));
     await dispatcher.dispatch(new PlanModeCancel({ agentId: 'test-agent', id: 'p1' }));
-    expect(agentState.get(planKey)).toEqual({ active: false });
+    expect(agentState.get(planKey).active).toBe(false);
+    expect(agentState.get(planKey).lastTransition).toBe('cancel');
 
     await dispatcher.dispatch(new PlanModeEnter({ agentId: 'test-agent', id: 'p2' }));
     await dispatcher.dispatch(new PlanModeExit({ agentId: 'test-agent', id: 'p2' }));
-    expect(agentState.get(planKey)).toEqual({ active: false });
+    expect(agentState.get(planKey).active).toBe(false);
+    expect(agentState.get(planKey).lastTransition).toBe('exit');
 
     const records = await readRecords();
     expect(records.map((record) => record.type)).toEqual([
@@ -152,6 +154,31 @@ describe('plan ops (wire-backed)', () => {
     expect(agentState.get(planKey)).toBe(active);
   });
 
+  it('records how the most recent plan session ended', async () => {
+    await dispatcher.dispatch(new PlanModeEnter({ agentId: 'test-agent', id: 'p1' }));
+    await dispatcher.dispatch(new PlanModeCancel({ agentId: 'test-agent', id: 'p1' }));
+    expect(agentState.get(planKey).lastTransition).toBe('cancel');
+
+    await dispatcher.dispatch(new PlanModeEnter({ agentId: 'test-agent', id: 'p2' }));
+    await dispatcher.dispatch(new PlanModeExit({ agentId: 'test-agent', id: 'p2' }));
+    expect(agentState.get(planKey).lastTransition).toBe('exit');
+  });
+
+  it('keeps the last transition across a re-entry', async () => {
+    await dispatcher.dispatch(new PlanModeEnter({ agentId: 'test-agent', id: 'p1' }));
+    await dispatcher.dispatch(new PlanModeExit({ agentId: 'test-agent', id: 'p1' }));
+    await dispatcher.dispatch(new PlanModeEnter({ agentId: 'test-agent', id: 'p2' }));
+
+    expect(agentState.get(planKey).active).toBe(true);
+    expect(agentState.get(planKey).lastTransition).toBe('exit');
+  });
+
+  it('does not record a transition when cancel arrives while inactive', async () => {
+    await dispatcher.dispatch(new PlanModeCancel({ agentId: 'test-agent' }));
+
+    expect(agentState.get(planKey).lastTransition).toBeUndefined();
+  });
+
   it('ignores an invalid undo count without corrupting checkpoint state', async () => {
     await dispatcher.dispatch(
       new ContextAppendMessage({
@@ -169,7 +196,10 @@ describe('plan ops (wire-backed)', () => {
     await dispatcher.dispatch(new ContextUndo({ agentId: 'test-agent', count: 0.5 }));
 
     expect(agentState.get(planKey)).toBe(checkpointed);
-    expect(agentState.get(planKey)).toEqual({ active: false });
+    // The undo must not have activated plan mode. Asserting the exact state
+    // shape here made this test depend on no earlier test leaving a
+    // `lastTransition` behind, so it only checked the fields it cares about.
+    expect(agentState.get(planKey).active).toBe(false);
   });
 
   it('replay rebuilds active state silently', async () => {
@@ -278,6 +308,7 @@ describe('plan ops (wire-backed)', () => {
     expect(host.agentState.get(planKey)).toEqual({
       active: false,
       revisionCount: { p1: 1 },
+      lastTransition: 'exit',
     });
 
     await host.dispatcher.dispatch(new PlanModeEnter({ agentId: 'test-agent', id: 'p1' }));

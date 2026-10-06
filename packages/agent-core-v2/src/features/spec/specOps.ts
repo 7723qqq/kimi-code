@@ -9,6 +9,9 @@ export interface SpecState {
   readonly active: boolean;
   readonly id?: string;
   readonly revisionCount?: Readonly<Record<string, number>>;
+  /** How the most recent spec session ended, so a replay can tell a user
+   *  cancel apart from a model-driven exit. Retained across re-entry. */
+  readonly lastTransition?: 'cancel' | 'exit';
 }
 
 const specModeEnterSchema = z.object({ agentId: z.string(), id: z.string() });
@@ -90,19 +93,32 @@ export const specKey = defineState('spec', (): SpecState => ({ active: false }))
     ctx.emit(new AgentStatusUpdated({ agentId: e.agentId, specMode: true }));
   })
   .on(SpecModeCancel, (s, e, ctx) => {
-    if (s.active) {
-      s.active = false;
-      delete s.id;
-    }
-    ctx.emit(new AgentStatusUpdated({ agentId: e.agentId, specMode: false }));
+    deactivate(s, e.agentId, 'cancel', ctx);
   })
   .on(SpecModeExit, (s, e, ctx) => {
-    if (s.active) {
-      s.active = false;
-      delete s.id;
-    }
-    ctx.emit(new AgentStatusUpdated({ agentId: e.agentId, specMode: false }));
+    deactivate(s, e.agentId, 'exit', ctx);
   })
   .on(SpecRevision, (s, e) => {
     s.revisionCount = { ...s.revisionCount, [e.id]: e.version };
   });
+
+function deactivate(
+  s: {
+    active: boolean;
+    id?: string;
+    lastTransition?: 'cancel' | 'exit';
+  },
+  agentId: string,
+  transition: 'cancel' | 'exit',
+  ctx: { emit(event: AgentStatusUpdated): void },
+): void {
+  // A cancel/exit while already inactive is a true no-op: recording the
+  // transition would mutate state and break the identity the gate relies on
+  // to stay quiet, so only a real deactivation records one.
+  if (s.active) {
+    s.active = false;
+    delete s.id;
+    s.lastTransition = transition;
+  }
+  ctx.emit(new AgentStatusUpdated({ agentId, specMode: false }));
+}

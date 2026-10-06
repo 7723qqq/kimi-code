@@ -1,4 +1,4 @@
-import type { UserPromptOrigin } from '@moonshot-ai/agent-core-v2/agent/contextMemory/types';
+import type { UserPromptOrigin } from '@moonshot-ai/agent-core-v2';
 import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
 

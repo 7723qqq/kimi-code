@@ -20,6 +20,9 @@ export interface StatusLinePayload {
   gitBranch: string | null;
   permissionMode: string;
   planMode: boolean;
+  specMode: boolean;
+  swarmMode: boolean;
+  towerMode: boolean;
   contextUsage: number;
   contextTokens: number;
   maxContextTokens: number;

@@ -23,8 +23,8 @@
  *   The kernel's `respond` no-ops on an id that is no longer
  *   pending, so a late answer after a turn cancellation is safe.
  */
-import type { Event } from '@moonshot-ai/agent-core-v2/events';
-import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/tool/toolInputDisplay';
+import type { Event } from '@moonshot-ai/agent-core-v2/contract';
+import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/contract';
 import {
   agentContextOf,
   INTERACTION_TAG_AGENT_ID,

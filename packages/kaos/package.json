@@ -45,7 +45,7 @@
     "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\""
   },
   "dependencies": {
-    "pathe": "^2.0.3",
+    "pathe": "catalog:",
     "ssh2": "^1.17.0"
   },
   "devDependencies": {

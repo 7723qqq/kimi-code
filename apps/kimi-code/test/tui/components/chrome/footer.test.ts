@@ -178,6 +178,34 @@ describe('FooterComponent', () => {
     const off = new FooterComponent(appState);
     expect(off.render(120).join('\n')).not.toContain('tower');
   });
+
+  it('shows the spec stage only while spec mode is on', () => {
+    const on = new FooterComponent({ ...appState, specMode: true, specStage: 'tasks' });
+    expect(on.render(120).join('\n')).toContain('spec:tasks');
+
+    const off = new FooterComponent({ ...appState, specMode: false, specStage: 'tasks' });
+    expect(off.render(120).join('\n')).not.toContain('spec');
+  });
+
+  it('falls back to a bare spec chip when the stage is unknown', () => {
+    const footer = new FooterComponent({ ...appState, specMode: true });
+
+    expect(footer.render(120).join('\n')).toContain('spec');
+    expect(footer.render(120).join('\n')).not.toContain('spec:');
+  });
+
+  it('renders spec mode alongside plan mode', () => {
+    const footer = new FooterComponent({
+      ...appState,
+      planMode: true,
+      specMode: true,
+      specStage: 'plan',
+    });
+
+    const rendered = footer.render(120).join('\n');
+    expect(rendered).toContain('plan');
+    expect(rendered).toContain('spec');
+  });
 });
 
 describe('FooterComponent overrides', () => {

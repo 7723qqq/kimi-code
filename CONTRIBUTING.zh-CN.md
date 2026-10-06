@@ -60,7 +60,9 @@ bun install
 
 - `bun run dev:cli` — 开发模式运行 CLI
 - `bun run test` — 运行测试（vitest）
-- `bun run typecheck` — TypeScript 检查（注意：会先构建各包）
+- `bun --bun run test` — 运行测试（vitest）。**这是规范命令，也是 CI 使用的命令**（`.github/workflows/ci.yml`）。`--bun` 让 vitest 跑在 Bun 运行时而非 Node 上，两者结果会不同：实测出现过 `bunx vitest` 通过、而 `bun --bun run test` 在同一份代码上失败的情况。判断测试是否变绿时请一律使用 `bun --bun run test`。
+- `bun run typecheck` — TypeScript 检查（注意：会先构建各包）。覆盖 `packages/*` 与 `kimi-code`、`kimi-inspect`、`vscode`、`vis/server`、`vis/web`、`kimi-web` 六个 app；**不覆盖** `docs/`（VitePress 内容）以及 `packages/kimi-agent`、`packages/kimi-native-tools`（Rust/原生，无 tsconfig）。
+- `bun run build:docs` — 构建用户文档。VitePress 遇到失效的内部链接会直接失败，因此改动 `docs/` 下任何内容后请运行它。
 - `bun run lint` — oxlint
 - `bun run lint:fix` — oxlint 自动修复
 - `bun run build` — 构建全部包

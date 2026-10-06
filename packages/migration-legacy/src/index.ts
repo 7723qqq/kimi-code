@@ -2,7 +2,7 @@
 
 // The task-kind declaration merges live in agent-core-v2's tool modules, which
 // a subpath-only import graph may not reach; pull all three in for the checker.
-import type {} from '@moonshot-ai/agent-core-v2/agent/tools/agent/subagent-task';
+import type {} from '@moonshot-ai/agent-core-v2';
 import type {} from '@moonshot-ai/agent-core-v2/agent/tools/ask-user-question/question-background-task';
 import type {} from '@moonshot-ai/agent-core-v2/agent/tools/os/bash/process-task';
 

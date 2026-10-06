@@ -5,12 +5,9 @@
  * `providerService`/`modelService` wire formats.
  */
 
-import type { Message } from '@moonshot-ai/agent-core-v2/llm-adapter/contract/message';
-import type {
-  StreamedMessagePart,
-  ToolDescription as Tool,
-} from '@moonshot-ai/agent-core-v2/human/llm/message';
-import type { TokenUsage } from '@moonshot-ai/agent-core-v2/human/llm/usage';
+import type { Message } from '@moonshot-ai/agent-core-v2/contract';
+import type { StreamedMessagePart, Tool } from '@moonshot-ai/agent-core-v2';
+import type { TokenUsage } from '@moonshot-ai/agent-core-v2/contract';
 import type { ResponseFormat } from '@moonshot-ai/agent-core-v2/human/llm/response-format';
 
 // ---------------------------------------------------------------------------

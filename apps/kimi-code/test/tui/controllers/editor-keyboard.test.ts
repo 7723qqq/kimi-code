@@ -319,11 +319,14 @@ describe('EditorKeyboardController shell history recall', () => {
 });
 
 describe('EditorKeyboardController Shift-Tab plan toggle', () => {
-  function createShiftTabHarness(options: { sessionless?: boolean } = {}) {
+  function createShiftTabHarness(
+    options: { sessionless?: boolean; appState?: Record<string, unknown> } = {},
+  ) {
     const editor: Record<string, ((...args: never[]) => unknown) | undefined> = {
       setHistoryFilter: vi.fn() as unknown as (...args: never[]) => unknown,
     };
     const handlePlanToggle = vi.fn();
+    const handleExclusiveModeLeave = vi.fn();
     const track = vi.fn();
     const showError = vi.fn();
     const ensureSession = vi.fn(async (): Promise<{ id: string } | undefined> => ({ id: 'ses-lazy' }));
@@ -331,13 +334,22 @@ describe('EditorKeyboardController Shift-Tab plan toggle', () => {
       state: {
         editor,
         activeDialog: null,
-        appState: { streamingPhase: 'idle', isCompacting: false, planMode: false },
+        appState: {
+          streamingPhase: 'idle',
+          isCompacting: false,
+          planMode: false,
+          specMode: false,
+          swarmMode: false,
+          towerMode: false,
+          ...options.appState,
+        },
         footer: { setTransientHint: vi.fn() },
         ui: { requestRender: vi.fn() },
       },
       session: options.sessionless ? undefined : { cancel: vi.fn(async () => {}) },
       ensureSession,
       handlePlanToggle,
+      handleExclusiveModeLeave,
       track,
       showError,
       btwPanelController: { cancelRunning: vi.fn(), closeOrCancel: vi.fn() },
@@ -345,7 +357,7 @@ describe('EditorKeyboardController Shift-Tab plan toggle', () => {
 
     new EditorKeyboardController(host, undefined as unknown as ImageAttachmentStore).install();
     const onShiftTab = editor['onShiftTab'] as unknown as () => void;
-    return { onShiftTab, handlePlanToggle, track, showError, ensureSession };
+    return { onShiftTab, handlePlanToggle, handleExclusiveModeLeave, track, showError, ensureSession };
   }
 
   it('toggles plan mode directly with an active session', () => {
@@ -382,6 +394,59 @@ describe('EditorKeyboardController Shift-Tab plan toggle', () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(handlePlanToggle).not.toHaveBeenCalled();
+  });
+
+  it('leaves spec mode instead of stacking plan on top of it', () => {
+    const { onShiftTab, handlePlanToggle, handleExclusiveModeLeave } = createShiftTabHarness({
+      appState: { specMode: true },
+    });
+
+    onShiftTab();
+
+    expect(handleExclusiveModeLeave).toHaveBeenCalledWith('spec');
+    expect(handlePlanToggle).not.toHaveBeenCalled();
+  });
+
+  it('leaves plan mode when plan is the active exclusive mode', () => {
+    const { onShiftTab, handlePlanToggle, handleExclusiveModeLeave } = createShiftTabHarness({
+      appState: { planMode: true },
+    });
+
+    onShiftTab();
+
+    expect(handleExclusiveModeLeave).toHaveBeenCalledWith('plan');
+    expect(handlePlanToggle).not.toHaveBeenCalled();
+  });
+
+  it('leaves swarm before plan when plan and swarm are both active', () => {
+    const { onShiftTab, handleExclusiveModeLeave } = createShiftTabHarness({
+      appState: { planMode: true, swarmMode: true },
+    });
+
+    onShiftTab();
+
+    // Swarm is the narrower half of the one legal pair, so it goes first.
+    expect(handleExclusiveModeLeave).toHaveBeenCalledWith('swarm');
+  });
+
+  it('leaves tower mode when tower is active', () => {
+    const { onShiftTab, handlePlanToggle, handleExclusiveModeLeave } = createShiftTabHarness({
+      appState: { towerMode: true },
+    });
+
+    onShiftTab();
+
+    expect(handleExclusiveModeLeave).toHaveBeenCalledWith('tower');
+    expect(handlePlanToggle).not.toHaveBeenCalled();
+  });
+
+  it('enters plan when no exclusive mode is active', () => {
+    const { onShiftTab, handlePlanToggle, handleExclusiveModeLeave } = createShiftTabHarness();
+
+    onShiftTab();
+
+    expect(handlePlanToggle).toHaveBeenCalledWith(true);
+    expect(handleExclusiveModeLeave).not.toHaveBeenCalled();
   });
 });
 

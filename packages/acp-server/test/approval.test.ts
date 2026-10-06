@@ -11,11 +11,14 @@ import {
   PLAN_REJECT_AND_EXIT_OPTION_ID,
   PLAN_REVISE_OPTION_ID,
   REJECT_OPTION_ID,
+  SPEC_APPROVE_OPTION_ID,
+  SPEC_REJECT_AND_EXIT_OPTION_ID,
+  SPEC_REVISE_OPTION_ID,
 } from '../src/approval';
 
 import type { PermissionOption, RequestPermissionResponse } from '@agentclientprotocol/sdk';
 import type { SessionApprovalRequest } from '@moonshot-ai/agent-core-v2';
-import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/tool/toolInputDisplay';
+import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/contract';
 
 function selected(optionId: string): RequestPermissionResponse {
   return { outcome: { outcome: 'selected', optionId } };
@@ -72,6 +75,41 @@ describe('approvalRequestToPermissionOptions', () => {
     } as unknown as ToolInputDisplay;
     const options = approvalRequestToPermissionOptions(makeRequest(display));
     expect(options[0]?.optionId).toBe(PLAN_APPROVE_OPTION_ID);
+  });
+
+  it('expands spec_review into per-option allows plus revise/reject-and-exit', () => {
+    const display: ToolInputDisplay = {
+      kind: 'spec_review',
+      dir: '/ws/specs/spec-1',
+      documents: [{ name: 'requirements.md', content: '# Requirements' }],
+      options: [{ label: 'Approach A' }, { label: 'Approach B' }],
+    } as unknown as ToolInputDisplay;
+    const options = approvalRequestToPermissionOptions(makeRequest(display));
+
+    expect(options.map((o) => o.optionId)).toEqual([
+      'spec_opt_0',
+      'spec_opt_1',
+      SPEC_REVISE_OPTION_ID,
+      SPEC_REJECT_AND_EXIT_OPTION_ID,
+    ]);
+    expect(options[0]).toMatchObject({ name: 'Approach A', kind: 'allow_once' });
+  });
+
+  it('uses its own namespace so a spec response cannot be read as a plan one', () => {
+    const display: ToolInputDisplay = {
+      kind: 'spec_review',
+      dir: '/ws/specs/spec-1',
+      documents: [],
+    } as unknown as ToolInputDisplay;
+    const options = approvalRequestToPermissionOptions(makeRequest(display));
+
+    expect(options[0]?.optionId).toBe(SPEC_APPROVE_OPTION_ID);
+    expect(options.map((o) => o.optionId)).not.toContain(PLAN_APPROVE_OPTION_ID);
+  });
+
+  it('keeps a non-review request on the canonical options', () => {
+    const options = approvalRequestToPermissionOptions(makeRequest(commandDisplay));
+    expect(options.map((o) => o.optionId)).not.toContain(SPEC_APPROVE_OPTION_ID);
   });
 });
 
@@ -152,6 +190,52 @@ describe('permissionResponseToApprovalResponse', () => {
         selected(PLAN_REJECT_AND_EXIT_OPTION_ID),
       ),
     ).toEqual({ decision: 'rejected', selectedLabel: 'Reject and Exit' });
+  });
+
+  it('maps spec_opt_<i> to approved with the option label as selectedLabel', () => {
+    const display: ToolInputDisplay = {
+      kind: 'spec_review',
+      dir: '/ws/specs/spec-1',
+      documents: [],
+      options: [{ label: 'Approach A' }, { label: 'Approach B' }],
+    } as unknown as ToolInputDisplay;
+    expect(
+      permissionResponseToApprovalResponse(makeRequest(display), selected('spec_opt_1')),
+    ).toEqual({ decision: 'approved', selectedLabel: 'Approach B' });
+  });
+
+  it('maps spec_revise to a rejected decision carrying revise feedback', () => {
+    const display: ToolInputDisplay = {
+      kind: 'spec_review',
+      dir: '/ws/specs/spec-1',
+      documents: [],
+      options: [{ label: 'A' }, { label: 'B' }],
+    } as unknown as ToolInputDisplay;
+
+    // Without the spec branch this fell through to the canonical switch and
+    // produced a plain reject, losing the revise signal the review flow needs.
+    expect(
+      permissionResponseToApprovalResponse(makeRequest(display), selected(SPEC_REVISE_OPTION_ID)),
+    ).toEqual({ decision: 'rejected', selectedLabel: 'Revise' });
+    expect(
+      permissionResponseToApprovalResponse(
+        makeRequest(display),
+        selected(SPEC_REJECT_AND_EXIT_OPTION_ID),
+      ),
+    ).toEqual({ decision: 'rejected', selectedLabel: 'Reject and Exit' });
+  });
+
+  it('does not accept a plan optionId for a spec review', () => {
+    const display: ToolInputDisplay = {
+      kind: 'spec_review',
+      dir: '/ws/specs/spec-1',
+      documents: [],
+      options: [{ label: 'A' }, { label: 'B' }],
+    } as unknown as ToolInputDisplay;
+
+    expect(
+      permissionResponseToApprovalResponse(makeRequest(display), selected('plan_opt_0')),
+    ).toEqual({ decision: 'rejected' });
   });
 });
 

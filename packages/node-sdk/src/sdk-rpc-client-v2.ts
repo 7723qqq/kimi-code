@@ -179,6 +179,7 @@ import {
   ISessionContext,
   ISessionPromptOptimizerService,
   IAgentSpecService,
+  IAgentModeMutexService,
   SPEC_REQUIRED_FILES,
   ISessionExportService,
   ISessionIndex,
@@ -1828,26 +1829,27 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return agent.setPermission(input.mode);
   }
 
-  /** v1 maps the toggle onto two RPCs (`enterPlan` / `cancelPlan`); so does v2. */
+  /**
+   * v1 maps the toggle onto two RPCs (`enterPlan` / `cancelPlan`); so does v2.
+   * Routed through the mode mutex so entering plan evicts spec/tower first.
+   */
   override async setPlanMode(input: SetSessionPlanModeRpcInput): Promise<void> {
-    const agent = await this.agentFacade(input.sessionId);
-    if (!input.enabled) return agent.cancelPlan();
-    return agent.enterPlan();
+    const agent = await this.agentScope(input.sessionId);
+    const mutex = agent.accessor.get(IAgentModeMutexService);
+    if (!input.enabled) return mutex.leave('plan');
+    return mutex.switchTo('plan');
   }
 
   /**
    * Entering spec mode creates the spec directory; leaving it ends the mode
    * without touching the documents, which stay in the repository for review.
+   * Routed through the mode mutex so entering spec evicts plan/swarm/tower.
    */
   override async setSpecMode(input: SetSessionSpecModeRpcInput): Promise<void> {
     const agent = await this.agentScope(input.sessionId);
-    const service = agent.accessor.get(IAgentSpecService);
-    const status = await service.status();
-    if (status === null) {
-      if (input.enabled) await service.enter();
-      return;
-    }
-    if (!input.enabled) service.exit();
+    const mutex = agent.accessor.get(IAgentModeMutexService);
+    if (!input.enabled) return mutex.leave('spec');
+    return mutex.switchTo('spec');
   }
 
   override async getPlan(input: SessionIdRpcInput): Promise<SessionPlan> {
@@ -1867,6 +1869,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
         name,
         content: data.files[name] ?? '',
       })),
+      progress: data.progress,
       missing: data.missing,
       complete: data.complete,
       stage: data.stage,
@@ -1952,6 +1955,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       permission: agent.accessor.get(IAgentPermissionModeService).mode,
       planMode: plan !== null,
       specMode: spec !== null,
+      specStage: spec?.stage,
       swarmMode: agent.accessor.get(IAgentSwarmService).isActive,
       towerMode: agent.accessor.get(IAgentTowerService).isActive,
       contextTokens,
@@ -2268,8 +2272,10 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   override async setSwarmMode(input: SetSessionSwarmModeRpcInput): Promise<void> {
     const agent = await this.agentScope(input.sessionId);
     const swarm = agent.accessor.get(IAgentSwarmService);
+    const mutex = agent.accessor.get(IAgentModeMutexService);
     if (input.enabled) {
-      swarm.enter(input.trigger);
+      // Evict spec/tower before entering; plan+swarm is the one legal pair.
+      await mutex.switchTo('swarm');
     } else {
       swarm.exit();
     }
@@ -2286,7 +2292,14 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   override async setTowerMode(input: SetSessionTowerModeRpcInput): Promise<void> {
     const agent = await this.agentScope(input.sessionId);
     const tower = agent.accessor.get(IAgentTowerService);
+    const mutex = agent.accessor.get(IAgentModeMutexService);
     if (input.enabled) {
+      // Evict plan/spec/swarm before entering. `tower.enter` returns a result
+      // rather than throwing, so the mutex cannot drive it directly: this
+      // leaves the conflicting modes first and only then reports the failure.
+      for (const conflicting of ['plan', 'spec', 'swarm'] as const) {
+        if (mutex.activeMode() === conflicting) await mutex.leave(conflicting);
+      }
       const result = await tower.enter(input.base);
       if (!result.entered) {
         throw new V2Error2(

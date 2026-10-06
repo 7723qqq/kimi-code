@@ -1,5 +1,6 @@
 import type { Container } from '@moonshot-ai/pi-tui';
 import {
+  HStack,
   ProcessTerminal,
   TuiAltScreen,
   TuiMainScreen,
@@ -48,6 +49,8 @@ export interface TUIState {
   todoPanel: TodoPanelComponent;
   notifyPanelContainer: Container;
   notifyPanel: NotifyPanelComponent;
+  /** The shared row holding the todo list (left) and the updates (right). */
+  panelsRow: HStack;
   queueContainer: Container;
   btwPanelContainer: Container;
   surveyContainer: Container;
@@ -147,6 +150,33 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
   const todoPanel = new TodoPanelComponent();
   const notifyPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const notifyPanel = new NotifyPanelComponent();
+  // The todo list and the mid-turn updates share one row: the todo list on the
+  // left, the updates on the right taking roughly twice the width. They used to
+  // stack, which cost the transcript two panel heights whenever both were
+  // visible.
+  //
+  // The split comes from the `grow` weights, not `basis`: `basis` is an
+  // absolute size (a small number here would pin the panel to that many
+  // columns), and `grow` weights divide the row. The allocator hands each child
+  // a share of what is still unclaimed, so 1:2 lands near 43%/57% rather than
+  // exactly a third and two thirds — close enough to read as the intended
+  // proportion. Each container drops out of the row while its panel is empty,
+  // so a lone panel takes the full width instead of leaving a dead gap.
+  const panelsRow = new HStack();
+  panelsRow.addChild(todoPanelContainer, {
+    basis: 0,
+    grow: 1,
+    shrink: 1,
+    minSize: 0,
+    visible: () => !todoPanel.isEmpty(),
+  });
+  panelsRow.addChild(notifyPanelContainer, {
+    basis: 0,
+    grow: 2,
+    shrink: 1,
+    minSize: 0,
+    visible: () => !notifyPanel.isEmpty(),
+  });
   const queueContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const btwPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const surveyContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
@@ -170,8 +200,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     const transcriptView = new TranscriptView(transcriptContainer);
     dockContainer = new VStack();
     dockContainer.addChild(activityContainer, { shrink: 1, minSize: 0 });
-    dockContainer.addChild(todoPanelContainer, { shrink: 1, minSize: 0 });
-    dockContainer.addChild(notifyPanelContainer, { shrink: 1, minSize: 0 });
+    dockContainer.addChild(panelsRow, { shrink: 1, minSize: 0 });
     dockContainer.addChild(queueContainer, { shrink: 1, minSize: 0 });
     dockContainer.addChild(btwPanelContainer, { shrink: 1, minSize: 0 });
     dockContainer.addChild(surveyContainer, { shrink: 0, minSize: 0 });
@@ -194,6 +223,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     todoPanel,
     notifyPanelContainer,
     notifyPanel,
+    panelsRow,
     queueContainer,
     btwPanelContainer,
     surveyContainer,

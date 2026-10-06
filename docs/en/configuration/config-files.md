@@ -597,7 +597,7 @@ Alongside `config.toml`, the CLI keeps terminal-UI and client preferences in a c
 <details>
 <summary>Fields in the stdin JSON snapshot</summary>
 
-Model, cwd, git branch, permission mode, plan mode, context usage, session id, version.
+Model, cwd, git branch, permission mode, plan mode, spec mode, swarm mode, tower mode, context usage, session id, version.
 
 </details>
 

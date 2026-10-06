@@ -11,7 +11,7 @@ import {
   type TerminalSpawnOptions,
 } from '@moonshot-ai/agent-core-v2';
 import { ErrorCode } from '../src/protocol/error-codes';
-import type { Terminal } from '@moonshot-ai/agent-core-v2/os/interface/terminal';
+import type { Terminal } from '@moonshot-ai/agent-core-v2';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';

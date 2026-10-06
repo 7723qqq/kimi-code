@@ -28,6 +28,7 @@ test {
     _ = @import("checks/stale_artifacts.zig");
     _ = @import("checks/upstream_drift.zig");
     _ = @import("checks/workflow_triggers.zig");
+    _ = @import("checks/scripts_wiring.zig");
 }
 
 pub const VERSION = "0.1.0";

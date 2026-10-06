@@ -63,17 +63,14 @@ import {
   createOAuthCredentialProvider,
   createStaticCredentialProvider,
 } from '@moonshot-ai/agent-core-v2/human/credentials/credentials';
-import type {
-  ToolCall,
-  ToolDescription as Tool,
-} from '@moonshot-ai/agent-core-v2/human/llm/message';
+import type { Tool, ToolCall } from '@moonshot-ai/agent-core-v2';
 import type { LlmCredentialProvider } from '@moonshot-ai/agent-core-v2/human/llm/requester/requester';
-import type { Model } from '@moonshot-ai/agent-core-v2/llm-adapter/model/catalog';
+import type { Model } from '@moonshot-ai/agent-core-v2';
 import { IModelCatalog } from '@moonshot-ai/agent-core-v2/llm-adapter/model/catalog';
 import type {
   ModelRequestInput,
   ModelRequester,
-} from '@moonshot-ai/agent-core-v2/llm-adapter/model/model-requester';
+} from '@moonshot-ai/agent-core-v2';
 import { ModelRequesterImpl } from '@moonshot-ai/agent-core-v2/llm-adapter/model/model-requester-impl';
 import { ProtocolAdapterRegistry } from '@moonshot-ai/agent-core-v2/llm-adapter/protocol/protocolAdapterRegistry';
 

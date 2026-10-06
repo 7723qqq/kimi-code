@@ -8,27 +8,27 @@
  * (`turn.*`, `assistant.delta`, `tool.call.*`, `prompt.completed`, …).
  */
 
-import type { IAgentCommandService } from '@moonshot-ai/agent-core-v2/agent/command/agentCommand';
-import type { IAgentContextMemoryService } from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextMemory';
-import type { IAgentMcpService } from '@moonshot-ai/agent-core-v2/agent/mcp/mcp';
-import type { IAgentRuntimeBindingService } from '@moonshot-ai/agent-core-v2/agent/runtimeBinding/runtimeBinding';
+import type { IAgentCommandService } from '@moonshot-ai/agent-core-v2';
+import type { IAgentContextMemoryService } from '@moonshot-ai/agent-core-v2';
+import type { IAgentMcpService } from '@moonshot-ai/agent-core-v2';
+import type { IAgentRuntimeBindingService } from '@moonshot-ai/agent-core-v2';
 
-import type { ISessionTokenCountingService } from '@moonshot-ai/agent-core-v2/session/tokenCounting/sessionTokenCounting';
-import type { IAgentPlanService } from '@moonshot-ai/agent-core-v2/features/plan/plan';
-import type { IAgentProfileService } from '@moonshot-ai/agent-core-v2/agent/profile/profile';
-import type { IAgentShellCommandService } from '@moonshot-ai/agent-core-v2/agent/shellCommand/shellCommand';
-import type { IAgentSkillService } from '@moonshot-ai/agent-core-v2/features/skill/skillService';
-import type { IAgentTaskService } from '@moonshot-ai/agent-core-v2/agent/task/task';
-import type { ISessionUsageService } from '@moonshot-ai/agent-core-v2/session/usage/sessionUsage';
-import type { ContentPart } from '@moonshot-ai/agent-core-v2/human/llm/message';
-import type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
+import type { ISessionTokenCountingService } from '@moonshot-ai/agent-core-v2';
+import type { IAgentPlanService } from '@moonshot-ai/agent-core-v2';
+import type { IAgentProfileService } from '@moonshot-ai/agent-core-v2';
+import type { IAgentShellCommandService } from '@moonshot-ai/agent-core-v2';
+import type { IAgentSkillService } from '@moonshot-ai/agent-core-v2';
+import type { IAgentTaskService } from '@moonshot-ai/agent-core-v2';
+import type { ISessionUsageService } from '@moonshot-ai/agent-core-v2';
+import type { ContentPart } from '@moonshot-ai/agent-core-v2';
+import type { PermissionMode } from '@moonshot-ai/agent-core-v2/contract';
 
 import type { ScopeRef } from '../channel.js';
 import type { ScopedCaller } from './session.js';
 
 // Wire-type aliases derived through the engine service interfaces (keeps
 // klient free of protocol-package imports).
-export type PromptLaunchResult = import('@moonshot-ai/agent-core-v2/agent/loop/loop').PromptLaunchResult | undefined;
+export type PromptLaunchResult = import('@moonshot-ai/agent-core-v2').PromptLaunchResult | undefined;
 export type PromptWithSkillsInput = Parameters<IAgentSkillService['promptWithSkills']>[0];
 export type PromptWithSkillsResult = Awaited<ReturnType<IAgentSkillService['promptWithSkills']>>;
 export type ShellCommandResult = Awaited<ReturnType<IAgentShellCommandService['run']>>;

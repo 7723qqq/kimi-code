@@ -75,6 +75,31 @@ Plan mode is a constrained working state: once entered, `Write` and `Edit` are r
 
 **`ExitPlanMode`** reads the current plan file, presents the plan to the user for approval, then exits Plan mode. The optional `options` parameter lets the Agent offer 1–3 alternative approaches (each with a `label` and `description`; `label` max 80 characters) for the user to choose from during approval. Labels must be unique and cannot use reserved words such as `Approve`, `Reject`, `Reject and Exit`, or `Revise`.
 
+## Spec Mode
+
+| Tool | Default Approval | Description |
+| --- | --- | --- |
+| `EnterSpecMode` | Auto-allow | Enter Spec mode |
+| `ExitSpecMode` | Auto-allow (requires user to confirm the spec) | Exit Spec mode and submit the spec |
+
+Spec mode agrees a written contract before any code changes. It differs from Plan mode in what it leaves behind: a plan is a per-session scratch file, while a spec is a set of documents written into `specs/<id>/` **inside your repository**, so they are committed with the code and read again by later sessions and teammates.
+
+Spec mode is a constrained working state: once entered, writes are restricted to the current spec directory, and `TaskStop`, `CronCreate` and `CronDelete` are blocked entirely, because they would mutate work that outlives the spec. All other tools (including `Bash`) are still governed by the current permission rules. Writes that resolve outside the spec directory — including through a symlink — are rejected.
+
+Spec mode requires three documents, and `ExitSpecMode` is rejected while any of them is missing or blank:
+
+- `requirements.md` — what to build: the goal, who it is for, the boundaries, and what is explicitly out of scope.
+- `design.md` — how to build it: the concrete approach, the constraints, and the alternatives rejected.
+- `tasks.md` — how to verify it: work split small enough to finish and to check, each task carrying acceptance criteria.
+
+A fourth file, `progress.md`, is a working note that records implementation progress after approval. It is optional and never gates `ExitSpecMode`; it is meant for whoever reads the spec next.
+
+**`EnterSpecMode`** accepts no parameters; upon success it returns workflow guidance and the spec directory path. Entering while spec mode is already active is rejected.
+
+**`ExitSpecMode`** reads the three documents from the spec directory, presents them to the user for approval, then exits Spec mode. Rejecting the review keeps spec mode active so the Agent can revise; "Reject and Exit" deactivates spec mode without approval. The optional `options` parameter works exactly as it does for `ExitPlanMode` — 1–3 alternative approaches the user picks between, with the same uniqueness and reserved-word rules. The selected approach is carried into the Agent's instructions so only that approach is executed.
+
+In Never Ask mode the spec is submitted without an interactive review; the Agent is told explicitly that the user has not approved it.
+
 ## State Management
 
 | Tool | Default Approval | Description |

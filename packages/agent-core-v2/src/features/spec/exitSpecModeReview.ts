@@ -7,7 +7,7 @@ import type {
   BeforeExecuteDecision,
   ResolvedToolExecutionHookContext,
 } from '#/agent/toolExecutor/toolHooks';
-import type { SpecResolvedEvent, SpecSubmittedEvent } from '#/app/telemetry/events';
+import type { SpecResolvedEvent } from '#/app/telemetry/events';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
@@ -29,9 +29,6 @@ export class ExitSpecModeReview {
     const display = context.execution.display;
     if (display?.kind !== 'spec_review') return undefined;
     if (display.documents.length === 0) return undefined;
-    this.telemetry.track2('spec_submitted', {
-      file_count: display.documents.length,
-    } as SpecSubmittedEvent);
     return this.toolApproval.requestToolApproval(
       context,
       {
@@ -66,7 +63,7 @@ export class ExitSpecModeReview {
       kind: 'result',
       result: {
         isError: false,
-        output: `Exited spec mode. ${optionPrefix}Spec saved to: ${display.dir}\n\nWork through ${display.dir}/tasks.md.`,
+        output: `Exited spec mode. ${optionPrefix}Spec saved to: ${display.dir}\n\nWork through ${display.dir}/tasks.md, recording progress in ${display.dir}/progress.md as you go.`,
       },
     };
   }

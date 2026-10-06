@@ -1,0 +1,48 @@
+# Package scripts nothing in the repository invokes.
+#
+# One entry per script: the `package.json` path, a colon, then the script name.
+#
+# A script here is one a maintainer types by hand. That is a legitimate shape —
+# `bun run e2e`, the prompt benchmark, the native packaging steps — so absence
+# from the call graph is not by itself a defect. Listing it records that someone
+# looked and decided it stays manual. A script NOT listed that nothing invokes
+# is reported, so a new orphan is a decision rather than an accident.
+#
+# These entries were reviewed and are deliberately manual:
+#   * `dev:*` / `e2e` — a developer runs them at a terminal, CI cannot.
+#   * `bench:*` / `smoke:*` / `stress:*` — measurement and probing tools.
+#   * native `build:*` / `produce:*` / `release:*` — stepped packaging a human
+#     sequences; the release workflow drives the composite scripts instead.
+#   * editor-specific `vscode:*` — the VS Code host fires them, not a shell.
+#
+# Removing a script from its package.json, or wiring it into a gate, makes its
+# entry stale and the check reports it so the ledger cannot rot.
+#
+# Regenerate with:
+#   ./tools/review/zig-out/bin/review --check=scripts-wiring --json
+
+apps/kimi-code/package.json:build:native:js
+apps/kimi-code/package.json:catalog:update
+apps/kimi-code/package.json:dev:cli-only
+apps/kimi-code/package.json:dev:plugin-marketplace
+apps/kimi-code/package.json:dev:prod
+apps/kimi-code/package.json:dev:server:restart
+apps/kimi-code/package.json:e2e
+apps/kimi-code/package.json:e2e:real
+apps/kimi-code/package.json:produce:native:manifest
+apps/kimi-code/package.json:release:native:resolve
+apps/vis/package.json:start
+apps/vscode/package.json:dev:extension
+apps/vscode/package.json:dev:webview
+apps/vscode/package.json:vscode:prepublish
+docs/package.json:preview
+packages/kap-server/package.json:test:bench
+packages/kimi-native-tools/package.json:artifacts
+packages/kimi-native-tools/package.json:build:debug
+packages/kimi-native-tools/package.json:test:js
+packages/klient/package.json:docker:e2e
+packages/klient/package.json:smoke:boundary
+packages/klient/package.json:smoke:select-tools
+packages/klient/package.json:stress:kosong-config
+packages/minidb/package.json:bench:cluster
+packages/minidb/package.json:bench:open

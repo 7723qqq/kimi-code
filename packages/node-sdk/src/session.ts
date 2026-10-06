@@ -1,4 +1,4 @@
-import type { SwarmModeTrigger } from '@moonshot-ai/agent-core-v2/features/swarm/agent/swarm';
+import type { SwarmModeTrigger } from '@moonshot-ai/agent-core-v2';
 
 import type { AgentContextData } from '#/context';
 import { ErrorCodes, KimiError, type KimiErrorCode } from '#/errors';

@@ -13,11 +13,11 @@ export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '@moonshot-ai/agent-core
 
 export type { AgentStatusUpdatedEvent } from '@moonshot-ai/agent-core-v2/agent/usage/usageEvents';
 export type { SessionMetaUpdatedEvent } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetaEvents';
-export type { GoalUpdatedEvent } from '@moonshot-ai/agent-core-v2/features/goal/goalOps';
+export type { GoalUpdatedEvent } from '@moonshot-ai/agent-core-v2';
 export type { SkillActivatedEvent } from '@moonshot-ai/agent-core-v2/features/skill/skillOps';
-export type { PluginCommandActivatedEvent } from '@moonshot-ai/agent-core-v2/agent/pluginCommand/pluginCommand';
-export type { ErrorEvent, WarningEvent } from '@moonshot-ai/agent-core-v2/errors';
-export type { UsageStatus } from '@moonshot-ai/agent-core-v2/agent/usage/usage';
+export type { PluginCommandActivatedEvent } from '@moonshot-ai/agent-core-v2';
+export type { ErrorEvent, WarningEvent } from '@moonshot-ai/agent-core-v2';
+export type { UsageStatus } from '@moonshot-ai/agent-core-v2';
 
 export type {
   TurnStartedEvent,
@@ -26,15 +26,15 @@ export type {
   TurnStepRetryingEvent,
   TurnStepInterruptedEvent,
   TurnEndReason,
-} from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+} from '@moonshot-ai/agent-core-v2/contract';
 export type { TurnEndedEvent } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 
 export type {
   AssistantDeltaEvent,
   ThinkingDeltaEvent,
-} from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+} from '@moonshot-ai/agent-core-v2/contract';
 
-export type { HookResultEvent } from '@moonshot-ai/agent-core-v2/features/externalHooks/agent/agentExternalHooksService';
+export type { HookResultEvent } from '@moonshot-ai/agent-core-v2';
 
 export type {
   ToolCallStartedEvent,
@@ -42,7 +42,7 @@ export type {
   ToolProgressEvent,
 } from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
 
-export type { ToolUpdate } from '@moonshot-ai/agent-core-v2/tool/toolContract';
+export type { ToolUpdate } from '@moonshot-ai/agent-core-v2';
 export type { McpOAuthAuthorizationUrlUpdateData } from '@moonshot-ai/agent-core-v2/agent/mcp/tools/auth';
 
 export type { ToolCallRequest, ToolCallResponse } from '#/interaction';
@@ -54,7 +54,7 @@ export type {
 export type {
   ToolListUpdatedReason,
   McpServerStatusPayload,
-} from '@moonshot-ai/agent-core-v2/agent/mcp/mcpEvents';
+} from '@moonshot-ai/agent-core-v2/contract';
 
 export type { ApprovalRequest, ApprovalScope } from '#/interaction';
 export type { ApprovalDecision, ApprovalResponse } from '#/interaction';
@@ -77,23 +77,23 @@ export type {
   SubagentCompletedEvent,
   SubagentFailedEvent,
   SubagentCancelledEvent,
-} from '@moonshot-ai/agent-core-v2/session/subagent/mirrorAgentRun';
-export type { SubagentSuspendedEvent } from '@moonshot-ai/agent-core-v2/features/swarm/session/sessionSwarmService';
+} from '@moonshot-ai/agent-core-v2';
+export type { SubagentSuspendedEvent } from '@moonshot-ai/agent-core-v2';
 
 export type {
   CompactionStartedEvent,
   CompactionBlockedEvent,
   CompactionCancelledEvent,
   CompactionCompletedEvent,
-} from '@moonshot-ai/agent-core-v2/agent/fullCompaction/compactionOps';
+} from '@moonshot-ai/agent-core-v2';
 export type { CompactionResult } from '@moonshot-ai/agent-core-v2/agent/fullCompaction/types';
 
 export type {
   BackgroundTaskStartedEvent,
   BackgroundTaskTerminatedEvent,
-} from '@moonshot-ai/agent-core-v2/agent/task/types';
+} from '@moonshot-ai/agent-core-v2/contract';
 
-export type { CronFiredEvent } from '@moonshot-ai/agent-core-v2/features/cron/cronOps';
+export type { CronFiredEvent } from '@moonshot-ai/agent-core-v2';
 
 export type MaybePromise<T> = T | Promise<T>;
 

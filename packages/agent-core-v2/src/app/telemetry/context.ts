@@ -8,7 +8,12 @@ export interface SessionTelemetryContext {
 
 export interface AgentTelemetryContext {
   readonly agent_id: string;
-  readonly mode: 'agent' | 'plan';
+  /**
+   * Which review mode the agent was in. `spec` is distinct from `plan`: the two
+   * are separate modes with separate write guards, and reporting a spec as a
+   * plan made the two indistinguishable downstream.
+   */
+  readonly mode: 'agent' | 'plan' | 'spec';
   readonly provider_type?: string;
   readonly protocol?: string;
 }

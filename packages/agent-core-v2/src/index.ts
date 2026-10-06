@@ -345,6 +345,7 @@ export * from '#/features/promptOptimizer/promptOptimizer';
 export * from '#/features/promptOptimizer/promptOptimizerService';
 import '#/features/promptOptimizer/promptOptimizerFeature';
 export * from '#/features/spec/spec';
+export * from '#/features/spec/specOps';
 export * from '#/features/spec/specService';
 import '#/features/spec/specFeature';
 import '#/features/plan/profile/plan';

@@ -1315,6 +1315,7 @@ export interface AgentStateSnapshot {
     readonly active: boolean;
     readonly id?: string;
     readonly revisionCount?: Readonly<Record<string, number>>;
+    readonly lastTransition?: 'cancel' | 'exit';
   };
   // src/features/spec/injection/specModeInjection.ts
   'spec.wasActive': boolean;
@@ -1324,6 +1325,7 @@ export interface AgentStateSnapshot {
     readonly active: boolean;
     readonly id?: string;
     readonly revisionCount?: Readonly<Record<string, number>>;
+    readonly lastTransition?: 'cancel' | 'exit';
   };
   // src/features/swarm/swarmOps.ts
   // replayable · durable — folds: SwarmModeEnter, SwarmModeExit

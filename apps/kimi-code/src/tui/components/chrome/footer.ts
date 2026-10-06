@@ -597,6 +597,12 @@ export class FooterComponent implements Component {
       if (state.swarmMode) modes.push(chalk.hex(colors.accent).bold('swarm'));
     }
     if (state.towerMode) modes.push(chalk.hex(colors.accent).bold('tower'));
+    if (state.specMode) {
+      const stage = state.specStage;
+      modes.push(
+        chalk.hex(colors.accent).bold(stage === undefined ? 'spec' : `spec:${stage}`),
+      );
+    }
     if (modes.length > 0) slots['mode'] = [modes.join(' ')];
 
     const goalBadge = formatGoalBadge(state.goal, colors, this.goalWallClockMs(state.goal));
@@ -672,6 +678,9 @@ export class FooterComponent implements Component {
       gitBranch: this.gitCache.getStatus()?.branch ?? null,
       permissionMode: state.permissionMode,
       planMode: state.planMode,
+      specMode: state.specMode,
+      swarmMode: state.swarmMode,
+      towerMode: state.towerMode,
       contextUsage: state.contextUsage,
       contextTokens: state.contextTokens,
       maxContextTokens: state.maxContextTokens,

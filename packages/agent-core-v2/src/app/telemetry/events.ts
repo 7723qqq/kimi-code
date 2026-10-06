@@ -1,3 +1,4 @@
+import type { AgentTelemetryContext } from './context';
 import type { TelemetryPrimitive } from './telemetry';
 
 export interface TelemetryEventMeta {
@@ -54,7 +55,7 @@ export type StrictPropertyCheck<T, E> = string extends keyof T
 
 export interface TurnStartedEvent {
   turn_id: number;
-  mode: 'agent' | 'plan';
+  mode: AgentTelemetryContext['mode'];
   provider_type?: string;
   protocol?: string;
   thinking_effort?: string;
@@ -64,7 +65,7 @@ export interface TurnStartedEvent {
 export interface TurnInterruptedEvent {
   turn_id: number;
   at_step: number;
-  mode: 'agent' | 'plan';
+  mode: AgentTelemetryContext['mode'];
   interrupt_reason: 'user_cancelled' | 'aborted' | 'max_steps' | 'error' | 'filtered' | 'blocked';
   provider_type?: string;
   protocol?: string;
@@ -76,7 +77,7 @@ export interface TurnEndedEvent {
   turn_id: number;
   reason: 'completed' | 'cancelled' | 'failed';
   duration_ms: number;
-  mode: 'agent' | 'plan';
+  mode: AgentTelemetryContext['mode'];
   error_type?: string;
   provider_type?: string;
   protocol?: string;
@@ -211,7 +212,13 @@ export interface SpecSubmittedEvent {
 }
 
 export interface SpecResolvedEvent {
-  readonly outcome: 'approved' | 'dismissed' | 'rejected' | 'revise' | 'rejected_and_exited';
+  readonly outcome:
+    | 'approved'
+    | 'dismissed'
+    | 'rejected'
+    | 'revise'
+    | 'rejected_and_exited'
+    | 'approved_without_review';
   readonly has_feedback?: boolean;
 }
 

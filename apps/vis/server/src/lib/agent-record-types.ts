@@ -60,6 +60,10 @@ import type {
   SubagentFailed,
   SubagentSpawned,
   SubagentStarted,
+  SpecModeCancel,
+  SpecModeEnter,
+  SpecModeExit,
+  SpecRevision,
   TaskStarted,
   TaskTerminated,
   TaskWaitDelivered,
@@ -77,10 +81,10 @@ import type {
   ContextClear,
   ContextUndo,
 } from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextEvents';
-import type { TurnCancel, TurnEnded, TurnPrompt, TurnSteer } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
-import type { TurnStepInterrupted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
-import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
-import type { UsageRecord } from '@moonshot-ai/agent-core-v2/agent/usage/usageOps';
+import type { TurnCancel, TurnEnded, TurnPrompt, TurnSteer } from '@moonshot-ai/agent-core-v2/contract';
+import type { TurnStepInterrupted } from '@moonshot-ai/agent-core-v2/contract';
+import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/contract';
+import type { UsageRecord } from '@moonshot-ai/agent-core-v2/contract';
 import type {
   ConfigUpdate,
   ProfileBind,
@@ -90,9 +94,9 @@ import type {
 import type { PermissionSetMode } from '@moonshot-ai/agent-core-v2/agent/permissionMode/permissionModeOps';
 import type { PermissionRecordApprovalResult } from '@moonshot-ai/agent-core-v2/agent/permissionRules/permissionRulesOps';
 import type { RuntimeSetBinding } from '@moonshot-ai/agent-core-v2/agent/runtimeBinding/runtimeBindingOps';
-import type { SwarmModeEnter, SwarmModeExit } from '@moonshot-ai/agent-core-v2/features/swarm/swarmOps';
-import type { TowerModeEnter, TowerModeExit } from '@moonshot-ai/agent-core-v2/features/tower/towerOps';
-import type { ToolsUpdateStore } from '@moonshot-ai/agent-core-v2/features/todo/todoOps';
+import type { SwarmModeEnter, SwarmModeExit } from '@moonshot-ai/agent-core-v2/contract';
+import type { TowerModeEnter, TowerModeExit } from '@moonshot-ai/agent-core-v2/contract';
+import type { ToolsUpdateStore } from '@moonshot-ai/agent-core-v2/contract';
 
 /** A wire record with v2's literal `type` discriminant restored. v2 declares
  *  records as Event2 class + payload interface mergings whose `type` field is
@@ -232,6 +236,10 @@ export type AgentRecord =
   | WireRecordOf<'subagent.started', SubagentStarted>
   | WireRecordOf<'swarm_mode.enter', SwarmModeEnter>
   | WireRecordOf<'swarm_mode.exit', SwarmModeExit>
+  | WireRecordOf<'spec_mode.cancel', SpecModeCancel>
+  | WireRecordOf<'spec_mode.enter', SpecModeEnter>
+  | WireRecordOf<'spec_mode.exit', SpecModeExit>
+  | WireRecordOf<'spec.revision', SpecRevision>
   | WireRecordOf<'task.started', TaskStarted>
   | WireRecordOf<'task.terminated', TaskTerminated>
   | WireRecordOf<'task.waitDelivered', TaskWaitDelivered>

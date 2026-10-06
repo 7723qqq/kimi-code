@@ -61,15 +61,15 @@ import { bootstrap, logSeed, resolveLoggingConfig } from '@moonshot-ai/agent-cor
 import { IConfigService } from '@moonshot-ai/agent-core-v2/app/config/config';
 import { renderLoadableToolsAnnouncement } from '@moonshot-ai/agent-core-v2/agent/toolSelect/dynamicTools';
 import { UNKNOWN_CAPABILITY } from '@moonshot-ai/agent-core-v2/llm-adapter/contract/capability';
-import type { Message } from '@moonshot-ai/agent-core-v2/llm-adapter/contract/message';
-import type { ToolDescription as Tool } from '@moonshot-ai/agent-core-v2/human/llm/message';
+import type { Message } from '@moonshot-ai/agent-core-v2/contract';
+import type { Tool } from '@moonshot-ai/agent-core-v2';
 import { createStaticCredentialProvider } from '@moonshot-ai/agent-core-v2/human/credentials/credentials';
-import type { Model } from '@moonshot-ai/agent-core-v2/llm-adapter/model/catalog';
+import type { Model } from '@moonshot-ai/agent-core-v2';
 import { IModelCatalog } from '@moonshot-ai/agent-core-v2/llm-adapter/model/catalog';
 import type {
   ModelRequestInput,
   ModelRequester,
-} from '@moonshot-ai/agent-core-v2/llm-adapter/model/model-requester';
+} from '@moonshot-ai/agent-core-v2';
 import { ModelRequesterImpl } from '@moonshot-ai/agent-core-v2/llm-adapter/model/model-requester-impl';
 import { IProtocolAdapterRegistry } from '@moonshot-ai/agent-core-v2/llm-adapter/protocol/protocol';
 import { ProtocolAdapterRegistry } from '@moonshot-ai/agent-core-v2/llm-adapter/protocol/protocolAdapterRegistry';

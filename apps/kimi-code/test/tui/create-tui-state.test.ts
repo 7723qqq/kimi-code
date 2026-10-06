@@ -75,6 +75,7 @@ describe('createTUIState', () => {
     expect(state.todoPanel).toBeDefined();
     expect(state.notifyPanelContainer).toBeDefined();
     expect(state.notifyPanel).toBeDefined();
+    expect(state.panelsRow).toBeDefined();
     expect(state.theme.palette).toBeDefined();
 
     // App state is cloned from initialAppState, not reused by reference.
@@ -132,17 +133,24 @@ describe('createTUIState', () => {
     expect(state.ui).toBeInstanceOf(TuiAltScreen);
     expect(state.ui.mode).toBe('fullscreen');
 
-    // The chrome docks below the transcript ScrollView, in z-order.
+    // The chrome docks below the transcript ScrollView, in z-order. The todo
+    // list and the updates share one row, so the dock sees a single entry for
+    // both rather than two stacked ones.
     const dock = state.dockContainer;
     expect(dock).toBeDefined();
     expect(dock?.children).toEqual([
       state.activityContainer,
-      state.todoPanelContainer,
-      state.notifyPanelContainer,
+      state.panelsRow,
       state.queueContainer,
       state.btwPanelContainer,
       state.surveyContainer,
       state.editorContainer,
+    ]);
+
+    // Left third to the todo list, right two thirds to the updates.
+    expect(state.panelsRow.children).toEqual([
+      state.todoPanelContainer,
+      state.notifyPanelContainer,
     ]);
 
     // The layout root is mounted and the root children list stays empty.

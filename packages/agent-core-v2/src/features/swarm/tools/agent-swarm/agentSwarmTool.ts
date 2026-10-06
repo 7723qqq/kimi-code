@@ -6,6 +6,7 @@ import {
 } from '#/tool/toolContract';
 import { Error2, ErrorCodes } from '#/errors';
 import { toInputJsonSchema } from '#/tool/input-schema';
+import { IAgentModeMutexService } from '#/agent/modeMutex/modeMutex';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
 import { ISessionSwarmService, type SessionSwarmTask } from '#/features/swarm/session/sessionSwarm';
@@ -88,6 +89,7 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     @ISessionSwarmService private readonly swarmService: ISessionSwarmService,
     @IAgentScopeContext scopeContext: IAgentScopeContext,
     @IAgentSwarmService private readonly swarmMode: IAgentSwarmService,
+    @IAgentModeMutexService private readonly mutex: IAgentModeMutexService,
     @IConfigService private readonly config: IConfigService,
     @IFlagService private readonly flags: IFlagService,
     @ISessionSubagentService private readonly subagents: ISessionSubagentService,
@@ -125,7 +127,7 @@ export class AgentSwarmTool implements IAgentSwarmTool {
     context: ExecutableToolContext,
   ): Promise<ExecutableToolResult> {
     try {
-      this.swarmMode.enter('tool');
+      await this.mutex.switchTo('swarm');
       const result = await this.runSwarm(args, context.signal, context.toolCallId);
       return {
         output: result,

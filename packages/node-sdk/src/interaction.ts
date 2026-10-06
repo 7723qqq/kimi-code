@@ -1,10 +1,10 @@
-import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/tool/toolInputDisplay';
+import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/contract';
 import type { ContentPart } from '@moonshot-ai/kosong';
 
 export type {
   ApprovalDecision,
   ApprovalResponse,
-} from '@moonshot-ai/agent-core-v2/agent/interaction/approval';
+} from '@moonshot-ai/agent-core-v2/contract';
 export type {
   QuestionAnswerMethod,
   QuestionAnswers,
@@ -13,7 +13,7 @@ export type {
   QuestionRequest,
   QuestionResponse,
   QuestionResult,
-} from '@moonshot-ai/agent-core-v2/agent/interaction/question';
+} from '@moonshot-ai/agent-core-v2/contract';
 
 export type ApprovalScope = 'session';
 

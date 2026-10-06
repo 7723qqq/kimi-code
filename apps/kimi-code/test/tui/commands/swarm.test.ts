@@ -23,11 +23,17 @@ function makeHost(
     hasSession?: boolean;
     permissionMode?: 'manual' | 'auto' | 'yolo';
     swarmMode?: boolean;
+    /** The engine refuses the switch, so status never reflects the request. */
+    engineRefuses?: boolean;
   } = {},
 ) {
+  let engineMode = overrides.swarmMode ?? false;
   const session = {
     setPermission: vi.fn(async () => {}),
-    setSwarmMode: vi.fn(async () => {}),
+    setSwarmMode: vi.fn(async (enabled: boolean) => {
+      if (!overrides.engineRefuses) engineMode = enabled;
+    }),
+    getStatus: vi.fn(async () => ({ swarmMode: engineMode })),
   };
   const hasSession = overrides.hasSession ?? true;
   const host = {
@@ -343,5 +349,28 @@ describe('handleSwarmCommand', () => {
     );
     expect(markerAddChild(host)).not.toHaveBeenCalled();
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+  });
+
+  it('reports an error when the engine refuses to enable swarm mode', async () => {
+    const { host } = makeHost({ model: '', engineRefuses: true });
+
+    await handleSwarmCommand(host, 'on');
+
+    // The engine stayed off, so claiming success would desync the footer.
+    expect(host.showError).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to enable swarm mode'),
+    );
+    expect(host.state.appState.swarmMode).toBe(false);
+  });
+
+  it('reports an error when the engine refuses to disable swarm mode', async () => {
+    const { host } = makeHost({ model: '', swarmMode: true, engineRefuses: true });
+
+    await handleSwarmCommand(host, 'off');
+
+    expect(host.showError).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to disable swarm mode'),
+    );
+    expect(host.state.appState.swarmMode).toBe(true);
   });
 });

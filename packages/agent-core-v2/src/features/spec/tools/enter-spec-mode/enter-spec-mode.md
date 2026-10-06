@@ -21,3 +21,4 @@ Getting sign-off on a written spec before implementation prevents wasted effort:
 **Constraints:**
 - Writes are restricted to the spec directory until the user approves the spec; other edits are rejected. Call ExitSpecMode when the documents are ready.
 - Do not create `progress.md` while in spec mode — it records implementation progress later, and the file list is fixed at the three documents above.
+- Plan, spec, swarm and tower modes are mutually exclusive. Entering spec mode leaves whichever of the others was active; the result names it, if any. You do not need to exit the other mode yourself.

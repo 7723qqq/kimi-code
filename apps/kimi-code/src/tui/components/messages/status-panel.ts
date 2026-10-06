@@ -47,6 +47,8 @@ export interface StatusReportOptions {
   readonly permissionMode: PermissionMode;
   readonly planMode: boolean;
   readonly towerMode: boolean;
+  readonly specMode: boolean;
+  readonly swarmMode: boolean;
   /** Whether the tower experiment is enabled on engine v2 — gates the Tower mode row. */
   readonly towerAvailable: boolean;
   readonly contextUsage: number;
@@ -112,12 +114,16 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
   const permission = options.status?.permission ?? options.permissionMode;
   const planMode = options.status?.planMode ?? options.planMode;
   const towerMode = options.status?.towerMode ?? options.towerMode;
+  const specMode = options.status?.specMode ?? options.specMode;
+  const swarmMode = options.status?.swarmMode ?? options.swarmMode;
   const sessionId = options.sessionId.trim().length > 0 ? options.sessionId : 'none';
   const rows: FieldRow[] = [
     { label: 'Model', value: formatModelStatus(options) },
     { label: 'Directory', value: options.workDir },
     { label: 'Permissions', value: PERMISSION_MODE_DISPLAY_NAMES[permission] },
     { label: t('tui.messages.statusPanel.planModeLabel'), value: planMode ? 'on' : 'off' },
+    { label: t('tui.messages.statusPanel.specModeLabel'), value: specMode ? 'on' : 'off' },
+    { label: t('tui.messages.statusPanel.swarmModeLabel'), value: swarmMode ? 'on' : 'off' },
   ];
   if (options.towerAvailable) {
     rows.push({

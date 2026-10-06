@@ -596,7 +596,7 @@ MCP server 的声明配置写在 `~/.kimi-code/mcp.json` 或项目内 `.kimi-cod
 <details>
 <summary>command 的 stdin 输入</summary>
 
-model、cwd、git 分支、permission 模式、plan 模式、上下文用量、session id、版本。
+model、cwd、git 分支、permission 模式、plan 模式、spec 模式、swarm 模式、tower 模式、上下文用量、session id、版本。
 
 </details>
 

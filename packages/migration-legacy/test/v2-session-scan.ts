@@ -5,7 +5,7 @@ import {
   listSessionIds,
   readSessionSummary,
 } from '@moonshot-ai/agent-core-v2/app/sessionIndex/sessionIndexSource';
-import type { SessionSummary } from '@moonshot-ai/agent-core-v2/app/sessionIndex/sessionIndex';
+import type { SessionSummary } from '@moonshot-ai/agent-core-v2';
 
 export async function listSessionsV2(homeDir: string): Promise<readonly SessionSummary[]> {
   const storage = new FileStorageService(homeDir);

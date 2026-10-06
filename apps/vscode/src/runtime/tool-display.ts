@@ -30,10 +30,19 @@ export function describeToolDisplay(display: ToolInputDisplay): string {
       return display.task_description;
     case "plan_review":
       return display.plan;
+    case "spec_review":
+      return `Spec for review in ${display.dir}`;
     case "goal_start":
       return display.objective;
     case "generic":
       return display.summary;
+    default: {
+      // Exhaustiveness gate: a kind added upstream must fail the build here
+      // rather than silently fall back.
+      const _exhaustive: never = display;
+      void _exhaustive;
+      return "Tool call";
+    }
   }
 }
 
@@ -72,9 +81,15 @@ export function toLegacyDisplay(display: ToolInputDisplay): DisplayBlock[] {
     case "task":
     case "task_stop":
     case "plan_review":
+    case "spec_review":
     case "goal_start":
     case "generic":
       return [{ type: "brief", text: describeToolDisplay(display) }];
+    default: {
+      const _exhaustive: never = display;
+      void _exhaustive;
+      return [];
+    }
   }
 }
 

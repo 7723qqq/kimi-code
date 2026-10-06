@@ -77,20 +77,20 @@ import {
   shouldEnableTelemetry,
   shutdownTelemetry,
 } from '@moonshot-ai/kimi-telemetry';
-import type { GoalUpdated } from '@moonshot-ai/agent-core-v2/features/goal/goalOps';
-import type { TurnEnded } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+import type { GoalUpdated } from '@moonshot-ai/agent-core-v2';
+import type { TurnEnded } from '@moonshot-ai/agent-core-v2/contract';
 import type {
   AssistantDelta,
   ThinkingDelta,
   ToolCallDelta,
-} from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
-import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+} from '@moonshot-ai/agent-core-v2/contract';
+import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/contract';
 import type {
   ToolCallStarted,
   ToolProgress,
   ToolResultEvent,
 } from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
-import type { HookResult } from '@moonshot-ai/agent-core-v2/features/externalHooks/agent/agentExternalHooksService';
+import type { HookResult } from '@moonshot-ai/agent-core-v2';
 import { resolve } from 'pathe';
 
 import {

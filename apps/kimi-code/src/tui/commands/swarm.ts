@@ -156,8 +156,24 @@ async function setSwarmMode(
   enabled: boolean,
   trigger: 'manual' | 'task',
 ): Promise<boolean> {
+  const session = host.requireSession();
   try {
-    await host.requireSession().setSwarmMode(enabled, trigger);
+    await session.setSwarmMode(enabled, trigger);
+    // The engine may refuse (a conflicting mode it cannot leave), so confirm
+    // the mode actually took before reporting success, like `/tower` does.
+    const status = await session.getStatus().catch(() => null);
+    const effective = status?.swarmMode ?? enabled;
+    if (effective !== enabled) {
+      host.setAppState({ swarmMode: effective });
+      host.state.swarmModeEntry = effective ? trigger : undefined;
+      host.showError(
+        t('tui.messages.swarmToggleFailed', {
+          action: enabled ? t('tui.messages.swarmEnable') : t('tui.messages.swarmDisable'),
+          error: 'the engine did not change swarm mode',
+        }),
+      );
+      return false;
+    }
   } catch (error) {
     host.showError(
       t('tui.messages.swarmToggleFailed', {

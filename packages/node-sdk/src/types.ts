@@ -2,7 +2,7 @@ import type { HostUiCapability } from '@moonshot-ai/agent-core-v2';
 import type {
   ExportSessionManifest,
   ShellEnvironment,
-} from '@moonshot-ai/agent-core-v2/app/sessionExport/sessionExport';
+} from '@moonshot-ai/agent-core-v2';
 import type { Kaos } from '@moonshot-ai/kaos';
 import type { KimiHostIdentity, OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
 import type { ContentPart } from '@moonshot-ai/kosong';
@@ -75,7 +75,7 @@ export type {
   ExperimentalFeatureState,
   ExperimentalFlagMap,
   ExperimentalFlagSource,
-} from '@moonshot-ai/agent-core-v2/app/flag/flag';
+} from '@moonshot-ai/agent-core-v2';
 export type {
   GoalBudgetLimits,
   GoalBudgetReport,
@@ -84,7 +84,7 @@ export type {
   GoalSnapshot,
   GoalStatus,
   GoalToolResult,
-} from '@moonshot-ai/agent-core-v2/features/goal/types';
+} from '@moonshot-ai/agent-core-v2/contract';
 export type {
   PluginCommandDef,
   PluginGithubMetadata,
@@ -94,13 +94,13 @@ export type {
   PluginSource,
   PluginSummary,
   ReloadSummary,
-} from '@moonshot-ai/agent-core-v2/app/plugin/types';
-export type { SkillSummary } from '@moonshot-ai/agent-core-v2/features/skill/catalog/types';
+} from '@moonshot-ai/agent-core-v2';
+export type { SkillSummary } from '@moonshot-ai/agent-core-v2';
 export type { ToolInfo } from '#/tool';
 export type {
   ExportSessionManifest,
   ShellEnvironment,
-} from '@moonshot-ai/agent-core-v2/app/sessionExport/sessionExport';
+} from '@moonshot-ai/agent-core-v2';
 
 export interface CronTaskSnapshot {
   readonly id: string;
@@ -123,7 +123,7 @@ export type { TelemetryClient, TelemetryContextPatch, TelemetryProperties };
 export type { ContentPart, Role, ThinkingEffort, ToolCall } from '@moonshot-ai/kosong';
 // Contributed commands are an agent-core-v2 seam; the type is re-exported
 // from the v2 engine (v1 sessions report an empty command set).
-export type { AgentCommandInfo } from '@moonshot-ai/agent-core-v2/agent/command/agentCommand';
+export type { AgentCommandInfo } from '@moonshot-ai/agent-core-v2';
 
 export type { PermissionMode };
 
@@ -187,7 +187,7 @@ export interface SuggestFilesResult {
 }
 
 /** Metadata of one upload in the engine's daemon file store. */
-export type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
+export type { FileMeta } from '@moonshot-ai/agent-core-v2';
 
 /** Input for `uploadFile`: the upload's display name and MIME type. */
 export interface UploadFileOptions {
@@ -407,9 +407,14 @@ export interface SpecSnapshot {
   readonly id: string;
   readonly dir: string;
   readonly documents: readonly SpecDocument[];
+  /**
+   * Contents of the spec's `progress.md` working note, or the empty string when
+   * it has not been written. Never gates completion.
+   */
+  readonly progress?: string;
   readonly missing: readonly string[];
   readonly complete: boolean;
-  readonly stage: 'specify' | 'plan' | 'tasks' | 'implement';
+  readonly stage: SpecStage;
 }
 
 export type SessionTodoStatus = 'pending' | 'in_progress' | 'done';
@@ -432,12 +437,16 @@ export interface SessionUsage {
   readonly total?: TokenUsage | undefined;
 }
 
+export type SpecStage = 'specify' | 'plan' | 'tasks' | 'implement';
+
 export interface SessionStatus {
   readonly model?: string;
   readonly thinkingEffort: string;
   readonly permission: PermissionMode;
   readonly planMode: boolean;
   readonly specMode?: boolean;
+  /** Which spec stage is in progress, when spec mode is active. */
+  readonly specStage?: SpecStage;
   readonly swarmMode?: boolean;
   readonly towerMode?: boolean;
   readonly contextTokens: number;

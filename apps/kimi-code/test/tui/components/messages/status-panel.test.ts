@@ -18,6 +18,8 @@ describe('status panel report lines', () => {
       permissionMode: 'manual',
       planMode: false,
       towerMode: false,
+      specMode: false,
+      swarmMode: false,
       towerAvailable: true,
       contextUsage: 0.25,
       contextTokens: 2500,
@@ -80,6 +82,8 @@ describe('status panel report lines', () => {
       permissionMode: 'manual',
       planMode: false,
       towerMode: false,
+      specMode: false,
+      swarmMode: false,
       towerAvailable: true,
       contextUsage: 0,
       contextTokens: 0,
@@ -91,6 +95,8 @@ describe('status panel report lines', () => {
         permission: 'manual',
         planMode: false,
         towerMode: true,
+        specMode: false,
+        swarmMode: false,
         contextTokens: 0,
         maxContextTokens: 0,
         contextUsage: 0,
@@ -111,6 +117,8 @@ describe('status panel report lines', () => {
       permissionMode: 'manual',
       planMode: false,
       towerMode: false,
+      specMode: false,
+      swarmMode: false,
       towerAvailable: false,
       contextUsage: 0,
       contextTokens: 0,
@@ -132,6 +140,8 @@ describe('status panel report lines', () => {
       permissionMode: 'manual',
       planMode: false,
       towerMode: false,
+      specMode: false,
+      swarmMode: false,
       towerAvailable: true,
       contextUsage: 0,
       contextTokens: 0,
@@ -171,6 +181,8 @@ describe('status panel report lines', () => {
       permissionMode: 'manual',
       planMode: false,
       towerMode: false,
+      specMode: false,
+      swarmMode: false,
       towerAvailable: true,
       contextUsage: 0,
       contextTokens: 0,
@@ -184,5 +196,66 @@ describe('status panel report lines', () => {
     expect(output).toContain('Session      none');
     expect(output).toContain('Warning      No active session');
     expect(output).toContain('No context window data available.');
+  });
+
+  it('reports spec and swarm mode alongside plan mode', () => {
+    const lines = buildStatusReportLines({
+      version: '1.2.3',
+      model: 'k2',
+      workDir: '/tmp/project',
+      sessionId: 'ses-1',
+      sessionTitle: null,
+      thinkingEffort: 'off',
+      permissionMode: 'manual',
+      planMode: false,
+      towerMode: false,
+      specMode: true,
+      swarmMode: false,
+      towerAvailable: false,
+      contextUsage: 0,
+      contextTokens: 0,
+      maxContextTokens: 0,
+      availableModels: {},
+    }).map(strip);
+
+    // `/status` must not report `Plan mode: off` while the footer shows a spec
+    // badge — every mode the footer renders is visible here too.
+    expect(lines.join('\n')).toContain('Spec mode    on');
+  });
+
+  it('lets live status override the mode snapshot', () => {
+    const lines = buildStatusReportLines({
+      version: '1.2.3',
+      model: 'k2',
+      workDir: '/tmp/project',
+      sessionId: 'ses-1',
+      sessionTitle: null,
+      thinkingEffort: 'off',
+      permissionMode: 'manual',
+      planMode: true,
+      towerMode: false,
+      specMode: true,
+      swarmMode: true,
+      towerAvailable: false,
+      contextUsage: 0,
+      contextTokens: 0,
+      maxContextTokens: 0,
+      availableModels: {},
+      status: {
+        model: 'k2',
+        thinkingEffort: 'off',
+        permission: 'manual',
+        planMode: true,
+        specMode: false,
+        swarmMode: true,
+        contextTokens: 0,
+        maxContextTokens: 0,
+        contextUsage: 0,
+      },
+    }).map(strip);
+
+    const output = lines.join('\n');
+    expect(output).toContain('Spec mode    off');
+    expect(output).toContain('Swarm mode   on');
   });
 });

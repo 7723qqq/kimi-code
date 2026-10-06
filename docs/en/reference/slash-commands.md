@@ -52,12 +52,14 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/auto` | — | Open the permission mode list with Never Ask preselected; press `Enter` to confirm. In this mode, Kimi never interrupts you; everything runs and is decided automatically | Yes |
 | `/plan [on\|off]` | — | Toggle Plan mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. Simply toggling does not create an empty plan file | Yes |
 | `/plan clear` | — | Clear the current plan | No |
-| `/effort` | `/thinking` | Switch thinking effort | Yes |
+| `/spec [on\|off]` | — | Toggle Spec mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. Unlike Plan mode, the spec is written into your repository as a lasting artifact — see [Built-in tools](./tools.md#spec-mode) | Yes || `/effort` | `/thinking` | Switch thinking effort | Yes |
 | `/swarm on\|off` | — | Turn swarm mode on or off without sending a prompt. | Yes |
 | `/swarm <task>` | — | Turn swarm mode on, then send `<task>` as a normal prompt. If the turn completes normally, swarm mode turns off automatically. In `manual` permission mode, Kimi Code asks whether to switch to Ask When Needed or Never Ask mode before starting. | No |
 | `/team <topic>` | — | Start a Team discussion among multiple agents | No |
 | `/workflow <name> [<args>...]` | — | Run or manage workflows (list, status, cancel, or run by name) | Yes |
 | `/goal [...]` | — | Start or manage an autonomous goal | See below |
+
+Plan, Spec, Swarm and Tower modes are mutually exclusive: turning one on leaves whichever of the others was active. Plan and Swarm may run together. `Shift-Tab` leaves the current mode, or enters Plan when none is active.
 
 ::: warning
 `/yolo` skips approval for regular tool calls. Please make sure you understand the potential risks before enabling it. Plan mode exit approval is not bypassed by `/yolo`; `Bash` inside Plan mode is still subject to the regular `/yolo` allow rules.

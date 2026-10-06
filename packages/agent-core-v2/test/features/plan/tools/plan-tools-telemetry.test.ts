@@ -2,6 +2,10 @@ import type { ToolCall } from '#human/llm/message';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import type {
+  IAgentModeMutexService,
+  ExclusiveReviewMode,
+} from '#/agent/modeMutex/modeMutex';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { IAgentPlanService, PlanData } from '#/features/plan/plan';
@@ -57,8 +61,27 @@ function recordingTelemetry(): {
   };
 }
 
-function permissionMode(): IAgentPermissionModeService {
+/**
+ * A mutex stub that actually drives the plan service, so these telemetry tests
+ * exercise the real entry path now that the tool routes through the mutex.
+ */
+function mutexStub(plan: IAgentPlanService): IAgentModeMutexService {
+  let active: ExclusiveReviewMode | null = null;
   return {
+    _serviceBrand: undefined,
+    activeMode: () => active,
+    switchTo: async (target: ExclusiveReviewMode) => {
+      active = target;
+      if (target === 'plan') await plan.enter();
+    },
+    leave: async () => {
+      active = null;
+      plan.exit();
+    },
+  };
+}
+
+function permissionMode(): IAgentPermissionModeService {  return {
     _serviceBrand: undefined,
     mode: 'auto',
     setMode: () => {},
@@ -90,7 +113,8 @@ function planService({
 describe('EnterPlanModeTool telemetry', () => {
   it('has name, description, parameters, and a stable execution description', async () => {
     const { telemetry } = recordingTelemetry();
-    const tool = new EnterPlanModeTool(planService({ status: null }), telemetry);
+    const planMode = planService({ status: null });
+    const tool = new EnterPlanModeTool(planMode, mutexStub(planMode), telemetry);
 
     expect(tool.name).toBe('EnterPlanMode');
     expect(tool.description).toContain('EnterPlanMode');
@@ -108,8 +132,8 @@ describe('EnterPlanModeTool telemetry', () => {
 
   it('returns an error when plan mode is already active', async () => {
     const { telemetry } = recordingTelemetry();
-
-    const result = await executeTool(new EnterPlanModeTool(planService(), telemetry), {
+    const planMode = planService();
+    const result = await executeTool(new EnterPlanModeTool(planMode, mutexStub(planMode), telemetry), {
       turnId: 0,
       toolCallId: 'call_enter_plan',
       args: {},
@@ -130,7 +154,7 @@ describe('EnterPlanModeTool telemetry', () => {
     vi.mocked(planMode.status).mockResolvedValue(null);
     const { telemetry } = recordingTelemetry();
 
-    const result = await executeTool(new EnterPlanModeTool(planMode, telemetry), {
+    const result = await executeTool(new EnterPlanModeTool(planMode, mutexStub(planMode), telemetry), {
       turnId: 0,
       toolCallId: 'call_enter_plan',
       args: {},
@@ -153,7 +177,7 @@ describe('EnterPlanModeTool telemetry', () => {
     vi.mocked(planMode.status).mockImplementation(async () => (active ? ACTIVE_PLAN : null));
     const { telemetry } = recordingTelemetry();
 
-    const result = await executeTool(new EnterPlanModeTool(planMode, telemetry), {
+    const result = await executeTool(new EnterPlanModeTool(planMode, mutexStub(planMode), telemetry), {
       turnId: 0,
       toolCallId: 'call_enter_plan',
       args: {},
@@ -167,17 +191,15 @@ describe('EnterPlanModeTool telemetry', () => {
 
   it('returns an error when entering plan mode fails', async () => {
     const { telemetry } = recordingTelemetry();
+    const planMode = planService({
+      status: null,
+      enter: vi.fn(async () => {
+        throw new Error('cannot prepare plan directory');
+      }),
+    });
 
     const result = await executeTool(
-      new EnterPlanModeTool(
-        planService({
-          status: null,
-          enter: vi.fn(async () => {
-            throw new Error('cannot prepare plan directory');
-          }),
-        }),
-        telemetry,
-      ),
+      new EnterPlanModeTool(planMode, mutexStub(planMode), telemetry),
       {
         turnId: 0,
         toolCallId: 'call_enter_plan',
@@ -203,7 +225,7 @@ describe('EnterPlanModeTool telemetry', () => {
     vi.mocked(planMode.status).mockImplementation(async () => (active ? ACTIVE_PLAN : null));
     const { telemetry, track2 } = recordingTelemetry();
 
-    const result = await executeTool(new EnterPlanModeTool(planMode, telemetry), {
+    const result = await executeTool(new EnterPlanModeTool(planMode, mutexStub(planMode), telemetry), {
       turnId: 0,
       toolCallId: 'call_enter_plan',
       args: {},

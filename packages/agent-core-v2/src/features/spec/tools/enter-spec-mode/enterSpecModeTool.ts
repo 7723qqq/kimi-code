@@ -1,3 +1,4 @@
+import { IAgentModeMutexService } from '#/agent/modeMutex/modeMutex';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentSpecService, SPEC_REQUIRED_FILES } from '#/features/spec/spec';
 import { toInputJsonSchema } from '#/tool/input-schema';
@@ -15,6 +16,7 @@ export class EnterSpecModeTool implements IEnterSpecModeTool {
 
   constructor(
     @IAgentSpecService private readonly spec: IAgentSpecService,
+    @IAgentModeMutexService private readonly mutex: IAgentModeMutexService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {}
 
@@ -31,8 +33,9 @@ export class EnterSpecModeTool implements IEnterSpecModeTool {
           };
         }
 
+        const previous = this.mutex.activeMode();
         try {
-          await this.spec.enter();
+          await this.mutex.switchTo('spec');
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Failed to enter spec mode.';
           return { isError: true, output: `Failed to enter spec mode: ${message}` };
@@ -40,15 +43,18 @@ export class EnterSpecModeTool implements IEnterSpecModeTool {
 
         this.telemetry.track2('spec_enter_resolved', { outcome: 'accepted' });
         const after = await this.spec.status();
-        return { output: enteredSpecModeMessage(after?.dir ?? null) };
+        return { output: enteredSpecModeMessage(after?.dir ?? null, previous) };
       },
     };
   }
 }
 
-function enteredSpecModeMessage(specDir: string | null): string {
+function enteredSpecModeMessage(specDir: string | null, evicted: string | null): string {
+  const eviction = evicted === null ? [] : [`Left ${evicted} mode to enter spec mode.`, ''];
+
   if (specDir === null) {
     return [
+      ...eviction,
       'Spec mode is now active.',
       '',
       'Write the requirements, design and tasks documents, then call ExitSpecMode for approval.',
@@ -57,6 +63,7 @@ function enteredSpecModeMessage(specDir: string | null): string {
   }
 
   return [
+    ...eviction,
     'Spec mode is now active. Your workflow:',
     '',
     `Spec directory: ${specDir}`,

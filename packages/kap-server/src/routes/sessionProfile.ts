@@ -6,7 +6,7 @@ import {
   resumeSessionById,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import type { SessionWireFields } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionLegacy';
+import type { SessionWireFields } from '@moonshot-ai/agent-core-v2';
 import type { UpdateSessionProfileRequest } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
 
 export async function updateSessionProfile(

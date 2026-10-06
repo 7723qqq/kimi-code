@@ -42,7 +42,7 @@ export class ExitSpecModeTool implements IExitSpecModeTool {
     }
     if (data === null || !data.complete) return undefined;
     try {
-      await this.spec.recordRevision();
+      await this.spec.recordRevision(data);
     } catch {}
     const display: ToolInputDisplay = {
       kind: 'spec_review',
@@ -75,23 +75,27 @@ export class ExitSpecModeTool implements IExitSpecModeTool {
       };
     }
 
-    this.telemetry.track2('spec_submitted', { file_count: SPEC_REQUIRED_FILES.length } as SpecSubmittedEvent);
+    this.telemetry.track2('spec_submitted', {
+      file_count: SPEC_REQUIRED_FILES.filter(
+        (name) => (status.files[name] ?? '').trim().length > 0,
+      ).length,
+    } as SpecSubmittedEvent);
 
     const failed = this.exitSpecMode();
     if (failed !== undefined) return failed;
 
     if (this.permissionMode.mode === 'auto') {
-      this.telemetry.track2('spec_resolved', { outcome: 'approved' });
+      this.telemetry.track2('spec_resolved', { outcome: 'approved_without_review' });
       return {
         isError: false,
-        output: `Exited spec mode. Spec saved to: ${status.dir}\nNote: this spec was auto-approved without user review — the user has NOT explicitly approved it. Follow the user's original instructions on whether to proceed with execution; if they asked you to stop, wait, or only summarize, do not start executing.`,
+        output: `Exited spec mode. Spec saved to: ${status.dir} — work through ${status.dir}/tasks.md, recording progress in ${status.dir}/progress.md as you go.\nNote: this spec was auto-approved without user review — the user has NOT explicitly approved it. Follow the user's original instructions on whether to proceed with execution; if they asked you to stop, wait, or only summarize, do not start executing.`,
       };
     }
 
     this.telemetry.track2('spec_resolved', { outcome: 'approved' });
     return {
       isError: false,
-      output: `Exited spec mode. Spec saved to: ${status.dir}\n\nWork through ${status.dir}/tasks.md.`,
+      output: `Exited spec mode. Spec saved to: ${status.dir}\n\nWork through ${status.dir}/tasks.md, recording progress in ${status.dir}/progress.md as you go.`,
     };
   }
 

@@ -1,4 +1,4 @@
-import type { ITelemetryService } from '@moonshot-ai/agent-core-v2/app/telemetry/telemetry';
+import type { ITelemetryService } from '@moonshot-ai/agent-core-v2';
 import {
   MAX_IMAGE_EDGE_PX,
   READ_IMAGE_BYTE_BUDGET,

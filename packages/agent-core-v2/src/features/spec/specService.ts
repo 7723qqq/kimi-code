@@ -9,10 +9,7 @@ import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import type {
-  BeforeToolExecuteEvent,
-  ResolvedToolExecutionHookContext,
-} from '#/agent/toolExecutor/toolHooks';
+import type { BeforeToolExecuteEvent } from '#/agent/toolExecutor/toolHooks';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { Error2 } from '#/errors';
@@ -24,7 +21,7 @@ import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { ContextUndone } from '#/agent/undo/undoService';
 import { defaultPathClass } from '#/agent/permissionPolicy/policies/path-utils';
-import { isWithinDirectory } from '#/tool/path-access';
+import { isWithinDirectoryResolved } from '#/tool/path-access';
 import type { ToolFileAccess } from '#/tool/toolContract';
 
 import { SpecErrors } from './errors';
@@ -32,7 +29,9 @@ import { ExitSpecModeReview } from './exitSpecModeReview';
 import { SpecModeInjection } from './injection/specModeInjection';
 import {
   IAgentSpecService,
+  SPEC_ALL_FILES,
   SPEC_DIR_NAME,
+  SPEC_PROGRESS_FILE,
   SPEC_REQUIRED_FILES,
   type SpecData,
   type SpecStage,
@@ -90,7 +89,7 @@ export class AgentSpecService extends Service implements IAgentSpecService {
   }
 
   private restoreTelemetryMode(): void {
-    this.telemetry.setContext({ mode: this.isActive ? 'plan' : 'agent' });
+    this.telemetry.setContext({ mode: this.isActive ? 'spec' : 'agent' });
   }
 
   private createSpecId(): string {
@@ -112,14 +111,15 @@ export class AgentSpecService extends Service implements IAgentSpecService {
       throw new Error2(SpecErrors.codes.SPEC_MODE_INVALID, 'Already in spec mode');
     }
     const dir = this.specDirPathFor(id);
-    let enterRecorded = false;
+    // Fails before anything is observable, so there is nothing to roll back.
+    await this.hostFs.mkdir(dir, { recursive: true });
+    await this.dispatcher.dispatch(new SpecModeEnter({ agentId: this.agentCtx.agentId, id }));
+    // From here spec mode is observable, so a later failure must be undone
+    // rather than reported as a plain failure.
     try {
-      await this.hostFs.mkdir(dir, { recursive: true });
-      await this.dispatcher.dispatch(new SpecModeEnter({ agentId: this.agentCtx.agentId, id }));
-      this.telemetry.setContext({ mode: 'plan' });
-      enterRecorded = true;
+      this.telemetry.setContext({ mode: 'spec' });
     } catch (error) {
-      if (enterRecorded) this.cancel(id);
+      this.cancel(id);
       throw error;
     }
   }
@@ -137,20 +137,24 @@ export class AgentSpecService extends Service implements IAgentSpecService {
   async clear(): Promise<void> {
     const dir = this.activeSpecDir();
     if (dir === null) return;
-    for (const name of SPEC_REQUIRED_FILES) {
-      await this.hostFs.writeText(join(dir, name), '');
+    for (const name of SPEC_ALL_FILES) {
+      try {
+        await this.hostFs.remove(join(dir, name));
+      } catch {
+        // A document that was never written is already cleared.
+      }
     }
   }
 
-  async recordRevision(): Promise<void> {
+  async recordRevision(data?: SpecData): Promise<void> {
     const state = this.agentState.get(specKey);
     if (!state.active || state.id === undefined) return;
     const id = state.id;
-    const dir = this.specDirPathFor(id);
+    const current = data ?? (await this.documentData(id));
+    if (current === null) return;
     const parts: string[] = [];
     for (const name of SPEC_REQUIRED_FILES) {
-      const content = await this.readSpecFile(dir, name);
-      parts.push(`# ${name}\n\n${content}`);
+      parts.push(`# ${name}\n\n${current.files[name] ?? ''}`);
     }
     const bytes = Buffer.from(parts.join('\n\n'), 'utf8');
     const version = (state.revisionCount?.[id] ?? 0) + 1;
@@ -171,7 +175,14 @@ export class AgentSpecService extends Service implements IAgentSpecService {
   async status(): Promise<SpecData | null> {
     const state = this.agentState.get(specKey);
     if (!state.active || state.id === undefined) return null;
-    const dir = this.specDirPathFor(state.id);
+    return this.documentData(state.id);
+  }
+
+  /** Read all spec documents once and derive the spec's completeness. */
+  private async documentData(id: string): Promise<SpecData | null> {
+    const state = this.agentState.get(specKey);
+    if (!state.active || state.id !== id) return null;
+    const dir = this.specDirPathFor(id);
     const files: Record<string, string> = {};
     const missing: string[] = [];
     for (const name of SPEC_REQUIRED_FILES) {
@@ -179,10 +190,14 @@ export class AgentSpecService extends Service implements IAgentSpecService {
       files[name] = content;
       if (content.trim().length === 0) missing.push(name);
     }
+    // The progress file is a working note, not a deliverable: it is read for
+    // whoever asked, but it never gates completion.
+    const progress = await this.readSpecFile(dir, SPEC_PROGRESS_FILE);
     return {
-      id: state.id,
+      id,
       dir,
       files,
+      progress,
       missing: missing as SpecData['missing'],
       complete: missing.length === 0,
       stage: stageFor(missing),
@@ -220,24 +235,37 @@ export class AgentSpecService extends Service implements IAgentSpecService {
       return;
     }
 
-    const writes = writeAccesses(event);
-    if (writes.length === 0) return;
-
-    if (writes.every((access) => isWithinDirectory(access.path, dir, pathClassFor()))) {
-      event.allow();
+    const accesses = event.execution.accesses ?? [];
+    const unidentified = accesses.filter((access) => access.kind !== 'file');
+    if (unidentified.length > 0) {
+      // An access kind the guard cannot inspect (`all`, or a kind added to the
+      // contract later) must not read as "nothing to check" — fail closed.
+      event.veto(denyToolExecution(this.toolApproval.formatDenyMessage(this.writeDenied)));
       return;
     }
 
-    event.veto(denyToolExecution(this.toolApproval.formatDenyMessage(this.writeDenied)));
-  }
-}
+    const writes = accesses.filter(
+      (access): access is ToolFileAccess =>
+        access.kind === 'file' &&
+        (access.operation === 'write' || access.operation === 'readwrite'),
+    );
+    if (writes.length === 0) return;
 
-function writeAccesses(context: ResolvedToolExecutionHookContext): ToolFileAccess[] {
-  return (context.execution.accesses ?? []).filter(
-    (access): access is ToolFileAccess =>
-      access.kind === 'file' &&
-      (access.operation === 'write' || access.operation === 'readwrite'),
-  );
+    event.waitUntil(async () => {
+      for (const access of writes) {
+        const contained = await isWithinDirectoryResolved(
+          access.path,
+          dir,
+          this.hostFs,
+          pathClassFor(),
+        );
+        if (contained !== true) {
+          return { veto: denyToolExecution(this.toolApproval.formatDenyMessage(this.writeDenied)) };
+        }
+      }
+      return { executionMetadata: undefined };
+    });
+  }
 }
 
 function pathClassFor(): ReturnType<typeof defaultPathClass> {

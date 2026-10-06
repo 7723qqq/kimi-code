@@ -7,8 +7,8 @@ import {
   parseImageDataUrl,
   persistOriginalImage,
 } from '@moonshot-ai/agent-core-v2';
-import type { ToolResultEvent } from '@moonshot-ai/agent-core-v2/events';
-import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/tool/toolInputDisplay';
+import type { ToolResultEvent } from '@moonshot-ai/agent-core-v2/contract';
+import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/contract';
 
 import { log } from './log';
 import { isHideOutputMarker } from './marker';

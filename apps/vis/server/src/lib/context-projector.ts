@@ -587,6 +587,10 @@ export function projectContext(
       case 'cron.cursor':
       case 'cron.delete':
       case 'plan.revision':
+      case 'spec_mode.cancel':
+      case 'spec_mode.enter':
+      case 'spec_mode.exit':
+      case 'spec.revision':
       case 'plugin.session_start':
       case 'runtime.set_binding':
       case 'staleGuard.recorded':

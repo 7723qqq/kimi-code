@@ -85,6 +85,8 @@ export interface EditorKeyboardHost {
   stop(exitCode?: number): Promise<void>;
   ensureSession(): Promise<Session | undefined>;
   handlePlanToggle(next: boolean): void;
+  /** Leave whichever exclusive review mode is active (spec/swarm/tower/plan). */
+  handleExclusiveModeLeave(mode: ActiveExclusiveMode): void;
   handleInputModeChange(mode: 'prompt' | 'bash'): void;
   clearQueuedMessages(): void;
   setExternalEditorRunning(running: boolean): void;
@@ -273,7 +275,16 @@ export class EditorKeyboardController {
     };
 
     editor.onShiftTab = () => {
-      const togglePlan = (): void => {
+      // Shift-Tab is the "review mode" toggle: when a session is already in one
+      // of the exclusive modes it leaves that mode, otherwise it enters plan.
+      // Leaving first is what keeps the modes from stacking.
+      const active = activeExclusiveMode(host.state.appState);
+      const apply = (): void => {
+        if (active !== null) {
+          host.track('shortcut_mode_leave', { from_mode: active });
+          host.handleExclusiveModeLeave(active);
+          return;
+        }
         const next = !host.state.appState.planMode;
         host.track('shortcut_plan_toggle', { enabled: next });
         host.track('shortcut_mode_switch', { to_mode: next ? 'plan' : 'agent' });
@@ -283,11 +294,11 @@ export class EditorKeyboardController {
         // v2 session-less: lazy-create the session, then toggle — the same
         // path /plan takes.
         void host.ensureSession().then((session) => {
-          if (session !== undefined) togglePlan();
+          if (session !== undefined) apply();
         });
         return;
       }
-      togglePlan();
+      apply();
     };
 
     editor.onInputModeChange = (mode) => {
@@ -891,4 +902,26 @@ function parseExpiry(meta: FileMeta | undefined): number | undefined {
   if (meta?.expires_at === undefined) return undefined;
   const value = Date.parse(meta.expires_at);
   return Number.isFinite(value) ? value : undefined;
+}
+
+/** The review modes Shift-Tab can leave. Mirrors the SDK's exclusive-mode set. */
+export type ActiveExclusiveMode = 'swarm' | 'tower' | 'spec' | 'plan';
+
+/**
+ * The exclusive mode the session is in, or null. `plan` is checked last because
+ * it is the one mode that may legally pair with another (swarm); when both are
+ * set the narrower `swarm` is returned so Shift-Tab peels them apart one press
+ * at a time instead of stranding the user in plan.
+ */
+function activeExclusiveMode(appState: {
+  readonly specMode: boolean;
+  readonly swarmMode: boolean;
+  readonly towerMode: boolean;
+  readonly planMode: boolean;
+}): ActiveExclusiveMode | null {
+  if (appState.specMode) return 'spec';
+  if (appState.swarmMode) return 'swarm';
+  if (appState.towerMode) return 'tower';
+  if (appState.planMode) return 'plan';
+  return null;
 }

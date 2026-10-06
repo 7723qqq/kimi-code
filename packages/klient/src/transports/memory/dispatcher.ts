@@ -14,8 +14,8 @@
  * memory behave identically by construction.
  */
 
-import type { ServiceIdentifier } from '@moonshot-ai/agent-core-v2/_base/di/instantiation';
-import type { IAgentScopeHandle } from '@moonshot-ai/agent-core-v2/_base/di/scope';
+import type { ServiceIdentifier } from '@moonshot-ai/agent-core-v2';
+import type { IAgentScopeHandle } from '@moonshot-ai/agent-core-v2';
 import { IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2/workspace/workspaceInstance/workspaceInstanceManager';
 import { ISessionManager } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionManager';
 import { getLiveSessionById } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionLookup';
@@ -32,19 +32,19 @@ import {
 } from '@moonshot-ai/agent-core-v2/human/interaction/interaction';
 import { interactions } from '@moonshot-ai/agent-core-v2/human/interaction/facade';
 import { IAgentLoopService } from '@moonshot-ai/agent-core-v2/agent/loop/loop';
-import type { SkillActivationOrigin } from '@moonshot-ai/agent-core-v2/agent/contextMemory/types';
+import type { SkillActivationOrigin } from '@moonshot-ai/agent-core-v2';
 import { ITelemetryService } from '@moonshot-ai/agent-core-v2/app/telemetry/telemetry';
 import type {
   PromptWithSkillsInput,
   SkillActivationInput,
-} from '@moonshot-ai/agent-core-v2/features/skill/skill';
+} from '@moonshot-ai/agent-core-v2/contract';
 import { IAgentSkillService } from '@moonshot-ai/agent-core-v2/features/skill/skillService';
 import { IEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
 import type {
   FileMeta,
   GetResult,
   SaveOptions,
-} from '@moonshot-ai/agent-core-v2/app/file/fileService';
+} from '@moonshot-ai/agent-core-v2';
 import { FileErrors } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 import { Error2, ErrorCodes } from '@moonshot-ai/agent-core-v2/errors';
 

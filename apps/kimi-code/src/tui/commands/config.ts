@@ -185,6 +185,24 @@ export async function handleSpecCommand(host: SlashCommandHost, args: string): P
 
   try {
     await session.setSpecMode(enabled);
+    // The engine may refuse the switch (a conflicting mode it cannot leave, a
+    // spec directory it cannot create), so confirm the mode actually took
+    // before claiming success — the same check `/tower` performs.
+    const status = await session.getStatus().catch(() => null);
+    const effective = status?.specMode ?? enabled;
+    if (effective !== enabled) {
+      host.setAppState({ specMode: effective });
+      host.showError(
+        enabled
+          ? t('tui.statusMessages.failedToSetSpecMode', {
+              msg: 'the engine did not enter spec mode',
+            })
+          : t('tui.statusMessages.failedToSetSpecMode', {
+              msg: 'the engine did not leave spec mode',
+            }),
+      );
+      return;
+    }
     host.setAppState({ specMode: enabled });
     if (!enabled) {
       host.showNotice(t('tui.statusMessages.specModeOff'));

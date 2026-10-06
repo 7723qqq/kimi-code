@@ -52,12 +52,15 @@
 | `/auto` | — | 打开权限模式列表并预选 "Never Ask"，按 `Enter` 确认开启。该模式下完全不打断，所有操作和判断自动完成 | 是 |
 | `/plan [on\|off]` | — | 切换 Plan 模式。不带参数时翻转；显式传 `on`/`off` 时强制设置。单纯切换不会创建空计划文件 | 是 |
 | `/plan clear` | — | 清除当前 plan 方案 | 否 |
+| `/spec [on\|off]` | — | 切换 Spec 模式。不带参数时翻转；显式传 `on`/`off` 时强制设置。与 Plan 模式不同，spec 会作为长期产物写入你的仓库——见[内置工具](./tools.md#spec-模式) | 是 |
 | `/effort` | `/thinking` | 切换思考模式 | 是 |
 | `/swarm on\|off` | — | 开启或关闭 swarm mode，但不发送提示词。 | 是 |
 | `/swarm <task>` | — | 先开启 swarm mode，再把 `<task>` 作为普通提示词发送。如果该轮次正常完成，swarm mode 会自动关闭。若当前是 `manual` 权限模式，启动前会提示是否切换到「必要时询问」或「完全自动」模式。 | 否 |
 | `/team <topic>` | — | 启动多 Agent 团队讨论 | 否 |
 | `/workflow <name> [<args>...]` | — | 运行或管理工作流（列表、状态、取消或按名称运行） | 是 |
 | `/goal [...]` | — | 开始或管理目标模式 | 见下文 |
+
+Plan、Spec、Swarm、Tower 四种模式互斥：开启其中一种会退出当时处于开启状态的其他几种。Plan 与 Swarm 可以同时开启。`Shift-Tab` 会退出当前模式；若当前没有开启任何模式，则进入 Plan。
 
 ::: warning 注意
 `/yolo` 会跳过普通工具调用的审批确认，使用前请确保了解可能的风险。Plan 模式的退出审批不会被 `/yolo` 跳过；Plan 模式下的 `Bash` 也按 `/yolo` 的普通放行规则处理。

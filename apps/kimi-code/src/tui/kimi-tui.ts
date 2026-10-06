@@ -99,7 +99,10 @@ import { BtwPanelController } from './controllers/btw-panel';
 import { CacheHintController } from './controllers/cache-hint-controller';
 import { ClipboardImageHintController } from './controllers/clipboard-image-hint';
 import { DialogHostController } from './controllers/dialog-host';
-import { EditorKeyboardController } from './controllers/editor-keyboard';
+import {
+  EditorKeyboardController,
+  type ActiveExclusiveMode,
+} from './controllers/editor-keyboard';
 import { MessageDispatchController } from './controllers/message-dispatch';
 import { PromptOptimizerController } from './controllers/prompt-optimizer';
 import { SessionEventHandler } from './controllers/session-event-handler';
@@ -193,6 +196,26 @@ type TurnEndedEvent = Extract<Event, { type: 'turn.ended' }>;
 
 function sameStringArrays(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+/**
+ * Whether the editor border renders in the highlighted style. Any mode that
+ * constrains what may be written counts, not just plan, so the editor signals
+ * spec/swarm/tower sessions too.
+ */
+export function editorBorderHighlighted(
+  appState: Pick<AppState, 'planMode' | 'specMode' | 'swarmMode' | 'towerMode' | 'inputMode'>,
+  isBash: boolean,
+  trimmedText: string,
+): boolean {
+  return (
+    appState.planMode ||
+    appState.specMode ||
+    appState.swarmMode ||
+    appState.towerMode ||
+    isBash ||
+    trimmedText.startsWith('/')
+  );
 }
 
 type MutableCreateSessionOptions = {
@@ -1105,8 +1128,7 @@ export class KimiTUI {
     ui.clear();
     ui.addChild(this.state.transcriptContainer);
     ui.addChild(this.state.activityContainer);
-    ui.addChild(this.state.todoPanelContainer);
-    ui.addChild(this.state.notifyPanelContainer);
+    ui.addChild(this.state.panelsRow);
     ui.addChild(this.state.queueContainer);
     ui.addChild(this.state.btwPanelContainer);
     ui.addChild(this.state.surveyContainer);
@@ -1146,8 +1168,7 @@ export class KimiTUI {
     const main = new TuiMainScreen(ui.terminal);
     main.addChild(this.state.transcriptContainer);
     main.addChild(this.state.activityContainer);
-    main.addChild(this.state.todoPanelContainer);
-    main.addChild(this.state.notifyPanelContainer);
+    main.addChild(this.state.panelsRow);
     main.addChild(this.state.queueContainer);
     main.addChild(this.state.btwPanelContainer);
     main.addChild(this.state.surveyContainer);
@@ -1167,6 +1188,25 @@ export class KimiTUI {
 
   handlePlanToggle(next: boolean): void {
     void slashCommands.handlePlanCommand(this, next ? 'on' : 'off');
+  }
+
+  handleExclusiveModeLeave(mode: ActiveExclusiveMode): void {
+    // Route through the same slash-command surface the mode was entered by, so
+    // Shift-Tab and `/spec off` cannot drift apart.
+    switch (mode) {
+      case 'plan':
+        void slashCommands.handlePlanCommand(this, 'off');
+        return;
+      case 'spec':
+        void slashCommands.handleSpecCommand(this, 'off');
+        return;
+      case 'swarm':
+        void slashCommands.handleSwarmCommand(this, 'off');
+        return;
+      case 'tower':
+        void slashCommands.handleTowerCommand(this, 'off');
+        return;
+    }
   }
 
   handleInputModeChange(mode: 'prompt' | 'bash'): void {
@@ -1523,8 +1563,10 @@ export class KimiTUI {
       'additionalDirs' in patch &&
       !sameStringArrays(this.state.appState.additionalDirs, patch.additionalDirs ?? []);
     const busyChanged = 'streamingPhase' in patch || 'isCompacting' in patch;
+    const reviewModeChanged =
+      'planMode' in patch || 'specMode' in patch || 'swarmMode' in patch || 'towerMode' in patch;
     Object.assign(this.state.appState, patch);
-    if ('planMode' in patch) this.updateEditorBorderHighlight();
+    if (reviewModeChanged) this.updateEditorBorderHighlight();
     this.state.footer.setState(this.state.appState);
     this.updateActivityPane();
     if (busyChanged) {
@@ -1768,6 +1810,7 @@ export class KimiTUI {
       permissionMode: status.permission,
       planMode: status.planMode,
       specMode: status.specMode ?? false,
+      specStage: status.specStage,
       swarmMode: status.swarmMode ?? false,
       towerMode: status.towerMode ?? false,
       contextTokens: status.contextTokens,
@@ -2445,9 +2488,11 @@ export class KimiTUI {
   updateEditorBorderHighlight(text?: string): void {
     const trimmed = (text ?? this.state.editor.getText()).trimStart();
     const isBash = this.state.appState.inputMode === 'bash';
-    const highlighted = this.state.appState.planMode || isBash || trimmed.startsWith('/');
+    // Every mode that constrains what may be written highlights the border, not
+    // just plan — otherwise spec/swarm/tower sessions give no visual signal.
+    const highlighted = editorBorderHighlighted(this.state.appState, isBash, trimmed);
     this.state.editor.borderHighlighted = highlighted;
-    // Shell mode gets its own hue; plan-mode and slash context stay primary.
+    // Shell mode gets its own hue; review-mode and slash context stay primary.
     const borderToken = isBash ? 'shellMode' : highlighted ? 'primary' : 'border';
     this.state.editor.borderColor = (s: string) => currentTheme.fg(borderToken, s);
     this.state.ui.requestRender();

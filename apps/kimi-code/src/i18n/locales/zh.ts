@@ -1773,6 +1773,8 @@ export default {
         directoryLabel: '目录',
         permissionsLabel: '权限',
         planModeLabel: '计划模式',
+        specModeLabel: '规格模式',
+        swarmModeLabel: '集群模式',
         sessionLabel: '会话',
         titleLabel: '标题',
         warningLabel: '警告',

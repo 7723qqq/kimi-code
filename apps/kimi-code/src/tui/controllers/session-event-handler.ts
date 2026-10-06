@@ -878,6 +878,7 @@ export class SessionEventHandler {
       patch.contextUsage = max > 0 ? tokens / max : 0;
     }
     if (event.planMode !== undefined) patch.planMode = event.planMode;
+    if (event.specMode !== undefined) patch.specMode = event.specMode;
     if (event.swarmMode !== undefined) patch.swarmMode = event.swarmMode;
     if (event.towerMode !== undefined) patch.towerMode = event.towerMode;
     if (event.permission !== undefined) {

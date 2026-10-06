@@ -18,6 +18,10 @@ Permission mode notes:
 - In auto permission mode, ExitPlanMode exits plan mode without asking the user.
 - Use EnterPlanMode only when planning itself adds value.
 
+Mode exclusivity:
+- Plan, spec, swarm and tower modes are mutually exclusive — except plan and swarm, which may run together.
+- Entering plan mode leaves spec, swarm or tower mode. The result names the mode it left, if any.
+
 When NOT to use:
 - Single-line or few-line fixes (typos, obvious bugs, small tweaks)
 - User gave very specific, detailed instructions

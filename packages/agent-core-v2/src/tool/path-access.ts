@@ -178,6 +178,74 @@ export function isWithinDirectory(
   return comparableCandidate.startsWith(prefix);
 }
 
+export interface PathRealpathResolver {
+  realpath(path: string): Promise<string>;
+}
+
+/**
+ * Containment test that survives symlinks: the lexical check must pass AND the
+ * resolved form of the candidate's deepest existing ancestor must resolve
+ * inside the resolved base. A path that does not exist yet (a document about to
+ * be written) resolves its parent instead of failing.
+ *
+ * `undefined` means containment could not be decided at all — the base itself
+ * is unresolvable. A candidate that simply does not exist yet still resolves to
+ * `true`/`false`.
+ */
+export async function isWithinDirectoryResolved(
+  candidate: string,
+  base: string,
+  resolver: PathRealpathResolver,
+  pathClass: PathClass = DEFAULT_PATH_CLASS,
+): Promise<boolean | undefined> {
+  if (!isWithinDirectory(candidate, base, pathClass)) return false;
+
+  const resolvedBase = await resolveExisting(resolver, pathe.normalize(base));
+  if (resolvedBase === undefined) return undefined;
+
+  const resolvedCandidate = await resolveDeepestExisting(resolver, pathe.normalize(candidate));
+  if (resolvedCandidate === undefined) return undefined;
+
+  return isWithinDirectory(resolvedCandidate, resolvedBase, pathClass);
+}
+
+async function resolveExisting(
+  resolver: PathRealpathResolver,
+  path: string,
+): Promise<string | undefined> {
+  try {
+    return await resolver.realpath(path);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Resolve the deepest ancestor of `path` that exists, then re-append the
+ * missing tail lexically. Writing a new file inside the base therefore still
+ * resolves to a path inside it.
+ */
+async function resolveDeepestExisting(
+  resolver: PathRealpathResolver,
+  path: string,
+): Promise<string | undefined> {
+  const missing: string[] = [];
+  let current = path;
+  for (;;) {
+    const resolved = await resolveExisting(resolver, current);
+    if (resolved !== undefined) {
+      return missing.length === 0 ? resolved : pathe.join(resolved, ...missing.toReversed());
+    }
+    const parent = pathe.dirname(current);
+    if (parent === current) return undefined;
+    missing.push(pathe.basename(current));
+    if (missing.length > MAX_RESOLVE_DEPTH) return undefined;
+    current = parent;
+  }
+}
+
+const MAX_RESOLVE_DEPTH = 64;
+
 export function isWithinWorkspace(
   candidate: string,
   config: WorkspaceConfig,

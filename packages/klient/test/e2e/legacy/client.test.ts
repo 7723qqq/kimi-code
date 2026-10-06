@@ -15,11 +15,11 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
+import type { FileMeta } from '@moonshot-ai/agent-core-v2';
 import type {
   ModelCatalogItem,
   ProviderCatalogItem,
-} from '@moonshot-ai/agent-core-v2/llm-adapter/model/catalog';
+} from '@moonshot-ai/agent-core-v2';
 import { ErrorCode } from '@moonshot-ai/kap-server/protocol/error-codes';
 import type { Message } from '@moonshot-ai/kap-server/protocol/message';
 import type { SessionStatusResponse } from '@moonshot-ai/kap-server/protocol/rest-session';

@@ -1,3 +1,4 @@
+import { IAgentModeMutexService } from '#/agent/modeMutex/modeMutex';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { toInputJsonSchema } from '#/tool/input-schema';
@@ -15,6 +16,7 @@ export class EnterPlanModeTool implements IEnterPlanModeTool {
 
   constructor(
     @IAgentPlanService private readonly planMode: IAgentPlanService,
+    @IAgentModeMutexService private readonly mutex: IAgentModeMutexService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {}
 
@@ -31,8 +33,9 @@ export class EnterPlanModeTool implements IEnterPlanModeTool {
           };
         }
 
+        const previous = this.mutex.activeMode();
         try {
-          await this.planMode.enter();
+          await this.mutex.switchTo('plan');
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Failed to enter plan mode.';
           return { isError: true, output: `Failed to enter plan mode: ${message}` };
@@ -42,15 +45,18 @@ export class EnterPlanModeTool implements IEnterPlanModeTool {
           outcome: 'auto_approved',
         });
         const after = await this.planMode.status();
-        return { output: enteredPlanModeMessage(after?.path ?? null) };
+        return { output: enteredPlanModeMessage(after?.path ?? null, previous) };
       },
     };
   }
 }
 
-function enteredPlanModeMessage(planPath: string | null): string {
+function enteredPlanModeMessage(planPath: string | null, evicted: string | null): string {
+  const eviction = evicted === null ? [] : [`Left ${evicted} mode to enter plan mode.`, ''];
+
   if (planPath === null) {
     return [
+      ...eviction,
       'Plan mode is now active. Your workflow:',
       '',
       '1. Use read-only tools (Read, Grep, Glob) to investigate the codebase. Use Bash only when needed.',
@@ -63,6 +69,7 @@ function enteredPlanModeMessage(planPath: string | null): string {
   }
 
   return [
+    ...eviction,
     'Plan mode is now active. Your workflow:',
     '',
     `Plan file: ${planPath}`,
