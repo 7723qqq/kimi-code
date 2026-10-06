@@ -1853,10 +1853,9 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * without touching the documents, which stay in the repository for review.
    */
   override async setSpecMode(input: SetSessionSpecModeRpcInput): Promise<void> {
-    const session = this.requireLiveSession(input.sessionId);
-    await this.materializeMainAgent(session);
     this.requireSpecFlag();
-    const service = session.accessor.get(IAgentSpecService);
+    const agent = await this.agentScope(input.sessionId);
+    const service = agent.accessor.get(IAgentSpecService);
     const status = await service.status();
     if (status === null) {
       if (input.enabled) await service.enter();
@@ -1871,9 +1870,9 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   override async getSpec(input: SessionIdRpcInput): Promise<SpecSnapshot | null> {
-    const session = this.requireLiveSession(input.sessionId);
     if (!this.engineAccessor.get(IFlagService).enabled(SPEC_MODE_FLAG_ID)) return null;
-    const service = session.accessor.get(IAgentSpecService);
+    const agent = await this.agentScope(input.sessionId);
+    const service = agent.accessor.get(IAgentSpecService);
     const data = await service.status();
     if (data === null) return null;
     return {
