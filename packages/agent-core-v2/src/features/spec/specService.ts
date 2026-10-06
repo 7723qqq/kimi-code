@@ -58,7 +58,7 @@ export class AgentSpecService extends Service implements IAgentSpecService {
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentStateService private readonly agentState: IAgentStateService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
-    reminder: IAgentReminderService,
+    @IAgentReminderService reminder: IAgentReminderService,
   ) {
     super();
     this.review = new ExitSpecModeReview(this, this.toolApproval, this.telemetry);
