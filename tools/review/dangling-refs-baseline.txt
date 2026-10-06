@@ -1,0 +1,14 @@
+# Tool names a list mentions that no tool registers.
+#
+# One entry per name. A name here is a list entry that matches no registered
+# tool: the policy never approves anything, the profile never offers the tool.
+# Nothing fails at runtime, which is exactly why the entry survives a rename.
+# Listing it here records that someone looked and decided to keep it.
+#
+# Regenerate with:
+#   ./tools/review/zig-out/bin/review --check=dangling-refs --json
+
+# The v1 name for TodoList. apps/vscode maps TodoList onto it when replaying
+# legacy wire events, and old sessions still carry tool calls under it, so the
+# approve list keeps it on purpose.
+SetTodoList

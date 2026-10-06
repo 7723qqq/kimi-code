@@ -1,0 +1,40 @@
+# Files upstream carries that this fork deliberately does not.
+#
+# `upstream-drift` reports anything deleted relative to upstream/main that is
+# not listed here, so an accidental drop during a merge stands out instead of
+# blending into the intentional removals. One path per line; `#` starts a
+# comment. Add an entry only after confirming the removal was deliberate.
+
+# pnpm / Node toolchain retired in favour of Bun
+.npmrc
+.nvmrc
+pnpm-lock.yaml
+pnpm-workspace.yaml
+
+# Renamed to DEVELOP.md
+AGENTS.md
+CLAUDE.md
+
+# Node SEA build chain retired; Bun compiles the release binary now
+apps/kimi-code/scripts/native/02-sea-blob.mjs
+apps/kimi-code/scripts/native/03-inject.mjs
+apps/kimi-code/scripts/native/build.mjs
+
+# Superseded by the global __kimi_getNativePackageRoot resolver in
+# apps/kimi-code/src/native/native-assets.ts
+apps/kimi-code/src/native/module-hook.ts
+
+# Media reads folded into the Read tool (see .changeset/read-folds-in-media.md)
+packages/agent-core-v2/src/agent/media/mediaTools.ts
+packages/agent-core-v2/src/agent/media/mediaToolsRegistrar.ts
+packages/agent-core-v2/src/agent/media/registerMediaTools.ts
+packages/agent-core-v2/src/agent/tools/read-media-file/readMediaFileTool.ts
+
+# Moved to packages/agent-core-v2/src/os/backends/host/hostTerminalService.ts
+packages/agent-core-v2/src/os/backends/node-local/hostTerminalService.ts
+
+# Renamed to resume-contract.test.ts
+packages/migration-legacy/test/resume.integration.test.ts
+
+# node-pty dropped in favour of Bun's built-in terminal support
+scripts/fix-node-pty-perms.mjs

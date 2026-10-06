@@ -1,0 +1,106 @@
+# Exported functions that only their own test calls.
+#
+# One entry per symbol: the name, then the file it is defined in. These are
+# exported, referenced by no production code, and kept alive by a test. Each
+# one is either public API surface or a function nothing wires up; listing it
+# here records that someone looked. A symbol that stops being an orphan is
+# reported so the entry can be removed.
+#
+# Two groups dominate the list and are worth reading before adding more:
+#   * `*ForTest` / `*ForTests` helpers, which exist to be called from tests;
+#   * accessors a package exposes for consumers it does not have yet.
+#
+# Regenerate with:
+#   ./tools/review/zig-out/bin/review --check=orphan-exports --json
+
+__resetRootLoggerForTest  packages/node-sdk/src/logging/logger.ts
+_clearAgentToolContributionsForTests  packages/agent-core-v2/src/agent/toolRegistry/toolContribution.ts
+_clearFeatureRecipesForTests  packages/agent-core-v2/src/features/featureRegistry.ts
+_clearScopedRegistryForTests  packages/agent-core-v2/src/_base/di/scope.ts
+_setTowerFeatureAssembledForTests  packages/agent-core-v2/src/features/tower/towerFeature.ts
+applyContextCompactionRecord  packages/agent-core-v2/src/agent/contextMemory/contextOps.ts
+backendIncompatibility  packages/agent-core-v2/src/session/subagent/backend/backendCompat.ts
+buildHookSpawnOptions  packages/agent-core-v2/src/features/externalHooks/internal/runHook.ts
+collapsePrompt  apps/kimi-web/src/lib/cronHumanize.ts
+connectPlugins  packages/agent-core-v2/src/human/plugin.ts
+containsUsableMessage  packages/migration-legacy/src/sessions/translator.ts
+createCompactionController  packages/agent-core-v2/src/human/compaction/controller.ts
+createKimiOAuthCredentialProvider  packages/agent-core-v2/src/human/credentials/kimi-oauth.ts
+createMediaDegradeRecovery  packages/agent-core-v2/src/human/llm/media/degrade.ts
+createMediaRefResolver  packages/agent-core-v2/src/human/llm/media/resolver.ts
+createMemoryMediaSource  packages/agent-core-v2/src/human/llm/media/source.ts
+createMemoryMediaUploadCache  packages/agent-core-v2/src/human/llm/media/cache.ts
+createMemoryProviderCatalogStore  packages/agent-core-v2/src/human/llm/provider-catalog.ts
+createNode  packages/tree-sitter-bash/src/node.ts
+createProviderCatalog  packages/agent-core-v2/src/human/llm/provider-catalog.ts
+createScopedTestHost  packages/agent-core-v2/src/_base/di/test.ts
+createTimingPlugin  packages/agent-core-v2/src/human/timing/plugin.ts
+createTodoPlugin  packages/agent-core-v2/src/human/todo/plugin.ts
+createToolSelectMessageResolver  packages/agent-core-v2/src/human/tool-select/resolver.ts
+createToolSelectPlugin  packages/agent-core-v2/src/human/tool-select/plugin.ts
+createToolSelectState  packages/agent-core-v2/src/human/tool-select/state.ts
+createUsagePlugin  packages/agent-core-v2/src/human/usage/plugin.ts
+decodeBatchOps  packages/minidb/src/codec.ts
+deferTool  packages/agent-core-v2/src/human/tool-select/tool.ts
+deleteImported  apps/vis/server/src/lib/import-store.ts
+descendantsOfType  packages/tree-sitter-bash/src/node.ts
+dispatchTools  packages/agent-core-v2/src/human/agent/machine.ts
+extendWorkspaceWithSkillRoots  packages/agent-core-v2/src/tool/path-access.ts
+extractFromWireLine  packages/kap-server/src/search/wireExtract.ts
+fetchWorkspaceSnapshot  apps/kimi-inspect/src/snapshots/api.ts
+findAltScreenSearchMatches  packages/pi-tui/src/alt-screen-search.ts
+flushTelemetrySync  packages/telemetry/src/index.ts
+followWorkspaceHandlers  packages/agent-core-v2/src/app/sessionManager/sessionLookup.ts
+formatGitBadge  apps/kimi-code/src/utils/git/git-status.ts
+fromLlmMessage  packages/agent-core-v2/src/llm-adapter/contract/message.ts
+getRainbowDanceView  apps/kimi-code/src/tui/easter-eggs/dance.ts
+getRootLogger  packages/node-sdk/src/logging/logger.ts
+groupTrajectoryVirtualRows  apps/kimi-web/src/lib/trajectory/virtualRows.ts
+hasProviderDefinition  packages/agent-core-v2/src/llm-adapter/provider/provider-definition.ts
+hasTerminalThemeReport  apps/kimi-code/src/tui/utils/terminal-theme.ts
+initServerAuth  apps/kimi-web/src/api/daemon/serverAuth.ts
+isAppendOnly  packages/transcript/src/granularity/filterOps.ts
+isConfigStubOrMissing  packages/migration-legacy/src/stub-detect.ts
+isSafeCronId  apps/vis/server/src/lib/cron-store.ts
+isSandboxBackendAvailable  packages/agent-core-v2/src/workspace/sandbox/sandbox.ts
+loadAgentsMd  packages/agent-core-v2/src/agent/profile/context.ts
+makeSessionContext  packages/agent-core-v2/src/session/sessionContext/sessionContext.ts
+matchMediaPathTagText  packages/transcript/src/contract/mediaRef.ts
+ngramTerm  packages/minidb/src/trigram.ts
+normalizeAppleTerminalInput  packages/pi-tui/src/terminal.ts
+onAuthRequired  apps/kimi-web/src/api/daemon/serverAuth.ts
+openSessionStore  packages/agent-core-v2/src/human/persist/open.ts
+overrideAgentToolService  packages/agent-core-v2/src/agent/toolRegistry/toolContribution.ts
+peekRecommendedEffortConfig  apps/kimi-code/src/utils/recommended-effort-config.ts
+pickForegroundTask  apps/kimi-code/src/tui/utils/foreground-task.ts
+readCompoundIndexImage  packages/minidb/src/gen-codec.ts
+readSecondaryIndexImage  packages/minidb/src/gen-codec.ts
+readStdinText  apps/kimi-code/src/utils/process/stdin.ts
+readTextDocsImage  packages/minidb/src/gen-codec.ts
+refreshCacheHintConfigInBackground  apps/kimi-code/src/utils/cache-hint-config.ts
+renderDiffLines  apps/kimi-code/src/tui/components/media/diff-preview.ts
+renderHeaderContent  apps/kimi-code/src/tui/components/messages/truncated-header-line.ts
+replayRecordTurnCount  apps/vscode/src/runtime/replay-adapter.ts
+replayToWebviewEvents  apps/vscode/src/runtime/replay-adapter.ts
+resetCacheHintConfigCache  apps/kimi-code/src/utils/cache-hint-config.ts
+resetDefaultTelemetryClientForTests  packages/telemetry/src/client.ts
+resetH3States  packages/agent-core-v2/src/app/auth/webSearch/engines/http3.ts
+resetModelsDevUpstreamForTest  packages/agent-core-v2/src/app/kosongConfig/modelsDevUpstream.ts
+resetRecommendedEffortConfigCache  apps/kimi-code/src/utils/recommended-effort-config.ts
+resetSurveyPopupConfigCache  apps/kimi-code/src/utils/survey-popup-config.ts
+resetTextBuildWorkerRuntime  packages/minidb/src/worker-runtime.ts
+runCommandAsync  apps/kimi-code/src/utils/clipboard/clipboard-common.ts
+sandboxWriteGuard  packages/agent-core-v2/src/workspace/sandbox/sandbox.ts
+selectPassiveUpdateTarget  apps/kimi-code/src/cli/update/rollout.ts
+setModelsDevUpstreamForTest  packages/agent-core-v2/src/app/kosongConfig/modelsDevUpstream.ts
+setRenderCacheEnabled  apps/kimi-code/src/tui/utils/render-cache.ts
+snipLargeToolResults  packages/agent-core-v2/src/agent/fullCompaction/compactionUtils.ts
+stagedExeFileName  apps/kimi-code/src/cli/update/native-stage.ts
+stripSubagentBackendParameter  packages/agent-core-v2/src/session/subagent/backend/configSection.ts
+stubPair  packages/agent-core-v2/src/_base/di/test.ts
+tryConvertPlanToTodos  packages/agent-core-v2/src/features/plan/planToTodoConverter.ts
+tryNativeEscapeXml  packages/agent-core-v2/src/_base/native-tools.ts
+tryNativeListDirectory  packages/agent-core-v2/src/_base/native-tools.ts
+tryNativeRead  packages/agent-core-v2/src/_base/native-tools.ts
+usesTraitDrivenThinking  packages/agent-core-v2/src/llm-adapter/model/thinking.ts
+verifyFileIntegritySync  packages/minidb/src/gen-codec.ts
