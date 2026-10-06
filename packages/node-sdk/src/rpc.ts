@@ -133,6 +133,10 @@ export interface SetSessionPlanModeRpcInput extends SessionIdRpcInput {
   readonly enabled: boolean;
 }
 
+export interface SetSessionSpecModeRpcInput extends SessionIdRpcInput {
+  readonly enabled: boolean;
+}
+
 export type SetSessionSwarmModeRpcInput =
   | (SessionIdRpcInput & { readonly enabled: true; readonly trigger: SwarmModeTrigger })
   | (SessionIdRpcInput & { readonly enabled: false });
@@ -371,6 +375,8 @@ export abstract class SDKRpcClientBase {
   abstract updateSessionMetadata(input: UpdateSessionMetadataRpcInput): Promise<void>;
 
   abstract setPlanMode(input: SetSessionPlanModeRpcInput): Promise<void>;
+
+  abstract setSpecMode(input: SetSessionSpecModeRpcInput): Promise<void>;
 
   abstract setSwarmMode(input: SetSessionSwarmModeRpcInput): Promise<void>;
 

@@ -17,6 +17,7 @@ export interface AgentStatusUpdatedEvent {
   readonly maxContextTokens?: number;
   readonly contextUsage?: number;
   readonly planMode?: boolean;
+  readonly specMode?: boolean;
   readonly swarmMode?: boolean;
   readonly towerMode?: boolean;
   readonly permission?: PermissionMode;

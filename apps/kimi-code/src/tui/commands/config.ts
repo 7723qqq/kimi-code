@@ -164,6 +164,43 @@ async function applyPlanMode(
   }
 }
 
+export async function handleSpecCommand(host: SlashCommandHost, args: string): Promise<void> {
+  const session = host.session;
+  if (session === undefined) {
+    host.showError(getNoActiveSessionMessage());
+    return;
+  }
+
+  const subcmd = args.trim().toLowerCase();
+  if (subcmd !== '' && subcmd !== 'on' && subcmd !== 'off') {
+    host.showError(t('tui.messages.configUnknownSpecSubcommand', { subcmd }));
+    return;
+  }
+
+  const enabled = subcmd === '' ? !host.state.appState.specMode : subcmd === 'on';
+  if (host.state.appState.specMode === enabled) {
+    host.showNotice(`Spec mode is already ${enabled ? 'on' : 'off'}`);
+    return;
+  }
+
+  try {
+    await session.setSpecMode(enabled);
+    host.setAppState({ specMode: enabled });
+    if (!enabled) {
+      host.showNotice(t('tui.statusMessages.specModeOff'));
+      return;
+    }
+    const spec = await session.getSpec().catch(() => null);
+    host.showNotice(
+      t('tui.statusMessages.specModeOn'),
+      spec?.dir !== undefined ? t('tui.messages.configSpecPath', { path: spec.dir }) : undefined,
+    );
+  } catch (error) {
+    const msg = formatErrorMessage(error);
+    host.showError(t('tui.statusMessages.failedToSetSpecMode', { msg }));
+  }
+}
+
 export async function handleCompactCommand(host: SlashCommandHost, args: string): Promise<void> {
   const session = host.session;
   if (session === undefined) {

@@ -32,6 +32,7 @@ export interface AppState {
   sessionId: string;
   permissionMode: PermissionMode;
   planMode: boolean;
+  specMode: boolean;
   /** Resolved profile name from --agent/--agent-file, carried to the
    * lazy-created first session when the TUI starts session-less. */
   agentProfile?: string;

@@ -375,6 +375,11 @@ export class Session {
     return this.rpc.getSpec({ sessionId: this.id });
   }
 
+  async setSpecMode(enabled: boolean): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.setSpecMode({ sessionId: this.id, enabled });
+  }
+
   async clearPlan(): Promise<void> {
     this.ensureOpen();
     await this.rpc.clearPlan({ sessionId: this.id });

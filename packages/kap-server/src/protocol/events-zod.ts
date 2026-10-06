@@ -550,6 +550,7 @@ export const agentStatusUpdatedEventSchema = z.object({
   maxContextTokens: z.number().optional(),
   contextUsage: z.number().optional(),
   planMode: z.boolean().optional(),
+  specMode: z.boolean().optional(),
   swarmMode: z.boolean().optional(),
   towerMode: z.boolean().optional(),
   permission: permissionModeSchema.optional(),

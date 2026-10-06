@@ -40,6 +40,7 @@ export default {
       yolo: 'Automatically approve all actions.',
       auto: 'Start in auto permission mode.',
       plan: 'Start in plan mode.',
+      spec: 'Write a spec for the change before implementing it.',
       model:
         'LLM model alias to use for this invocation. Defaults to default_model in config.toml.',
       prompt: 'Run one prompt non-interactively and print the response.',
@@ -1177,6 +1178,9 @@ export default {
       planModeOn: 'Plan mode: ON',
       planModeOff: 'Plan mode: OFF',
       failedToSetPlanMode: 'Failed to set plan mode: {{msg}}',
+      specModeOn: 'Spec mode: ON',
+      specModeOff: 'Spec mode: OFF',
+      failedToSetSpecMode: 'Failed to set spec mode: {{msg}}',
       noModelSelected: 'No model selected. Run /model to select one first.',
       unknownTheme: 'Unknown theme: {{theme}}',
       unsupportedEffort:
@@ -1909,6 +1913,8 @@ export default {
       // tui/commands/config.ts
       configUnknownPlanSubcommand: 'Unknown plan subcommand: {{subcmd}}',
       configPlanPath: 'Plan will be created here: {{path}}',
+      configUnknownSpecSubcommand: 'Unknown spec subcommand: {{subcmd}}',
+      configSpecPath: 'Spec will be written here: {{path}}',
       configUnknownModelAlias: 'Unknown model alias: {{alias}}',
       configUnsupportedEffort:
         'Unsupported thinking effort "{{arg}}" for {{alias}}. Available: {{segments}}',

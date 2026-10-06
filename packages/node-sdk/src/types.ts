@@ -239,6 +239,7 @@ export interface CreateSessionOptions {
   readonly thinking?: string | undefined;
   readonly permission?: PermissionMode | undefined;
   readonly planMode?: boolean;
+  readonly specMode?: boolean;
   readonly metadata?: JsonObject | undefined;
   readonly kaos?: Kaos | undefined;
   readonly persistenceKaos?: Kaos | undefined;
@@ -436,6 +437,7 @@ export interface SessionStatus {
   readonly thinkingEffort: string;
   readonly permission: PermissionMode;
   readonly planMode: boolean;
+  readonly specMode?: boolean;
   readonly swarmMode?: boolean;
   readonly towerMode?: boolean;
   readonly contextTokens: number;

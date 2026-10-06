@@ -35,6 +35,7 @@ const appState: AppState = {
   locale: 'en',
   stepRetry: null,
   planMode: false,
+    specMode: false,
   inputMode: 'prompt',
   swarmMode: false,
   towerMode: false,

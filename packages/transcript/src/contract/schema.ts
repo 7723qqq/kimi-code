@@ -243,6 +243,7 @@ export const goalMetaSchema = z.object({
 
 export const modesMetaSchema = z.object({
   plan: z.object({ reviewPath: z.string().optional(), version: z.number().optional() }).optional(),
+  spec: z.object({ dir: z.string().optional() }).optional(),
   swarm: z.object({ trigger: z.string().optional() }).optional(),
   tower: z.object({}).optional(),
 });
@@ -252,6 +253,7 @@ export const modesMetaMergeSchema = z.object({
     .object({ reviewPath: z.string().optional(), version: z.number().optional() })
     .nullable()
     .optional(),
+  spec: z.object({ dir: z.string().optional() }).nullable().optional(),
   swarm: z.object({ trigger: z.string().optional() }).nullable().optional(),
   tower: z.object({}).nullable().optional(),
 });

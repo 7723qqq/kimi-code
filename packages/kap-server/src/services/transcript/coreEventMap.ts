@@ -1326,6 +1326,7 @@ export class AgentTranscriptProjector {
 
   private onAgentStatusUpdated(event: {
     planMode?: boolean;
+    specMode?: boolean;
     swarmMode?: boolean;
     towerMode?: boolean;
     model?: string;
@@ -1349,11 +1350,18 @@ export class AgentTranscriptProjector {
       modes.plan = null;
       this.planModeActive = false;
     }
+    if (event.specMode === true) modes.spec = {};
+    else if (event.specMode === false) modes.spec = null;
     if (event.swarmMode === true) modes.swarm = {};
     else if (event.swarmMode === false) modes.swarm = null;
     if (event.towerMode === true) modes.tower = {};
     else if (event.towerMode === false) modes.tower = null;
-    if (modes.plan !== undefined || modes.swarm !== undefined || modes.tower !== undefined) {
+    if (
+      modes.plan !== undefined ||
+      modes.spec !== undefined ||
+      modes.swarm !== undefined ||
+      modes.tower !== undefined
+    ) {
       ops.push({ op: 'meta.merge', meta: { modes } });
     }
     const agent: {

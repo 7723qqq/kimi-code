@@ -262,6 +262,7 @@ import {
   type SetSessionModelRpcResult,
   type SetSessionPermissionRpcInput,
   type SetSessionPlanModeRpcInput,
+  type SetSessionSpecModeRpcInput,
   type SetSessionSwarmModeRpcInput,
   type SetSessionThinkingRpcInput,
   type SetSessionTowerModeRpcInput,
@@ -1834,6 +1835,22 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return agent.enterPlan();
   }
 
+  /**
+   * Entering spec mode creates the spec directory; leaving it ends the mode
+   * without touching the documents, which stay in the repository for review.
+   */
+  override async setSpecMode(input: SetSessionSpecModeRpcInput): Promise<void> {
+    const session = this.requireLiveSession(input.sessionId);
+    await this.materializeMainAgent(session);
+    const service = session.accessor.get(IAgentSpecService);
+    const status = await service.status();
+    if (status === null) {
+      if (input.enabled) await service.enter();
+      return;
+    }
+    if (!input.enabled) service.exit();
+  }
+
   override async getPlan(input: SessionIdRpcInput): Promise<SessionPlan> {
     const agent = await this.agentFacade(input.sessionId);
     return agent.getPlan();
@@ -1920,6 +1937,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       facade.getPlan(),
       facade.getUsage(),
     ]);
+    const spec = await agent.accessor.get(IAgentSpecService).status();
     const profile = agent.accessor.get(IAgentProfileService).data();
     const capability = profile.modelCapabilities;
     const maxContextTokens = capability.max_input_tokens ?? capability.max_context_tokens;
@@ -1934,6 +1952,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       thinkingEffort: profile.thinkingLevel,
       permission: agent.accessor.get(IAgentPermissionModeService).mode,
       planMode: plan !== null,
+      specMode: spec !== null,
       swarmMode: agent.accessor.get(IAgentSwarmService).isActive,
       towerMode: agent.accessor.get(IAgentTowerService).isActive,
       contextTokens,
