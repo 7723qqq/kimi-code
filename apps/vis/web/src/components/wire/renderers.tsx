@@ -987,6 +987,66 @@ export const WIRE_RENDERERS: RendererMap = {
     }),
   },
 
+  'spec_mode.enter': {
+    tone: 'lifecycle',
+    label: 'spec↻',
+    headline: (r) => ({
+      main: (
+        <span className="flex items-center gap-2">
+          <Pill tone="lifecycle" variant="soft">
+            {t('wireRenderer.enter')}
+          </Pill>
+          <Mono>{r.id}</Mono>
+        </span>
+      ),
+    }),
+  },
+
+  'spec_mode.cancel': {
+    tone: 'warning',
+    label: 'spec×',
+    headline: (r) => ({
+      main: (
+        <span className="flex items-center gap-2">
+          <Pill tone="warning" variant="soft">
+            {t('wireRenderer.cancel')}
+          </Pill>
+          <Mono>{r.id ?? t('wireRenderer.latest')}</Mono>
+        </span>
+      ),
+    }),
+  },
+
+  'spec_mode.exit': {
+    tone: 'success',
+    label: 'spec✓',
+    headline: (r) => ({
+      main: (
+        <span className="flex items-center gap-2">
+          <Pill tone="success" variant="soft">
+            {t('wireRenderer.exit')}
+          </Pill>
+          <Mono>{r.id ?? t('wireRenderer.latest')}</Mono>
+        </span>
+      ),
+    }),
+  },
+
+  'spec.revision': {
+    tone: 'lifecycle',
+    label: 'spec·rev',
+    headline: (r) => ({
+      main: (
+        <span className="flex items-center gap-2 min-w-0">
+          <Mono>
+            spec {r.id} · v{r.version}
+          </Mono>
+          <Dim>{r.bytes}b</Dim>
+        </span>
+      ),
+    }),
+  },
+
   'swarm_mode.enter': {
     tone: 'subagent',
     label: 'swarm↻',
