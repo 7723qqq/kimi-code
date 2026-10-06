@@ -66,6 +66,12 @@ export type ToolInputDisplay =
       options?: readonly { label: string; description: string }[] | undefined;
     }
   | {
+      kind: 'spec_review';
+      dir: string;
+      documents: readonly { readonly name: string; readonly content: string }[];
+      options?: readonly { label: string; description: string }[] | undefined;
+    }
+  | {
       kind: 'goal_start';
       objective: string;
       completionCriterion?: string | undefined;

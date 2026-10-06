@@ -202,6 +202,19 @@ export interface PlanEnterResolvedEvent {
   outcome: 'auto_approved';
 }
 
+export interface SpecEnterResolvedEvent {
+  outcome: 'accepted';
+}
+
+export interface SpecSubmittedEvent {
+  readonly file_count: number;
+}
+
+export interface SpecResolvedEvent {
+  readonly outcome: 'approved' | 'dismissed' | 'rejected' | 'revise' | 'rejected_and_exited';
+  readonly has_feedback?: boolean;
+}
+
 export interface PlanToTodoConvertedEvent {
   item_count: number;
 }
@@ -824,6 +837,28 @@ export const telemetryEventDefinitions = {
     comment: 'A request to enter plan mode is resolved.',
     properties: {
       outcome: 'How the request was resolved',
+    },
+  }),
+  spec_enter_resolved: defineAgentTelemetryEvent<SpecEnterResolvedEvent>({
+    owner: 'kimi-code',
+    comment: 'A request to enter spec mode is resolved.',
+    properties: {
+      outcome: 'How the request was resolved',
+    },
+  }),
+  spec_submitted: defineAgentTelemetryEvent<SpecSubmittedEvent>({
+    owner: 'kimi-code',
+    comment: 'A spec is submitted for review.',
+    properties: {
+      file_count: 'Number of spec documents presented',
+    },
+  }),
+  spec_resolved: defineAgentTelemetryEvent<SpecResolvedEvent>({
+    owner: 'kimi-code',
+    comment: 'A submitted spec is resolved by the user.',
+    properties: {
+      outcome: 'How the spec was resolved',
+      has_feedback: 'Whether the user attached revision feedback',
     },
   }),
   plan_to_todo_converted: defineAgentTelemetryEvent<PlanToTodoConvertedEvent>({
