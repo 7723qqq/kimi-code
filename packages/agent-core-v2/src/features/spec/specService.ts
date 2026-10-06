@@ -20,6 +20,7 @@ import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { ContextUndone } from '#/agent/undo/undoService';
 import { defaultPathClass } from '#/agent/permissionPolicy/policies/path-utils';
@@ -27,6 +28,8 @@ import { isWithinDirectory } from '#/tool/path-access';
 import type { ToolFileAccess } from '#/tool/toolContract';
 
 import { SpecErrors } from './errors';
+import { ExitSpecModeReview } from './exitSpecModeReview';
+import { SpecModeInjection } from './injection/specModeInjection';
 import {
   IAgentSpecService,
   SPEC_DIR_NAME,
@@ -39,6 +42,7 @@ import { SpecModeCancel, SpecModeEnter, SpecModeExit, SpecRevision, specKey } fr
 export class AgentSpecService extends Service implements IAgentSpecService {
   declare readonly _serviceBrand: undefined;
 
+  private readonly review: ExitSpecModeReview;
   private readonly writeDenied: string;
 
   constructor(
@@ -54,8 +58,10 @@ export class AgentSpecService extends Service implements IAgentSpecService {
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentStateService private readonly agentState: IAgentStateService,
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
+    reminder: IAgentReminderService,
   ) {
     super();
+    this.review = new ExitSpecModeReview(this, this.toolApproval, this.telemetry);
     this.agentState.contributeState(specKey);
     this.writeDenied =
       'Spec mode is active. You may only write inside the current spec directory. ' +
@@ -76,6 +82,7 @@ export class AgentSpecService extends Service implements IAgentSpecService {
       }),
     );
     this._register(toolExecutor.onBeforeExecuteTool((event) => this.guardToolExecution(event)));
+    this._register(new SpecModeInjection(reminder, this, this.context, this.agentState));
   }
 
   private get isActive(): boolean {
@@ -195,7 +202,12 @@ export class AgentSpecService extends Service implements IAgentSpecService {
     if (dir === null) return;
 
     const toolName = event.toolCall.name;
-    if (toolName === 'ExitSpecMode') return;
+    if (toolName === 'ExitSpecMode') {
+      if (this.modeService.mode !== 'auto') {
+        event.waitUntil(() => this.review.requestApproval(event));
+      }
+      return;
+    }
 
     if (toolName === 'TaskStop' || toolName === 'CronCreate' || toolName === 'CronDelete') {
       event.veto(
