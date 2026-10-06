@@ -1,6 +1,6 @@
 /**
  * CI check: verify every `t('namespace.key')` call in source code has a
- * corresponding entry in the main i18n locale files.
+ * corresponding entry in the locale file that source tree is translated from.
  *
  * Usage: node scripts/check-t-call-coverage.mjs
  * Exit code: 0 if all keys are covered, 1 if any key is missing.
@@ -16,12 +16,22 @@ const ROOT = resolve(__dirname, '..');
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
-const LOCALE_FILE = 'packages/i18n/src/locales/en.ts';
-const SOURCE_DIRS = [
-  'packages/agent-core-v2/src',
-  'packages/kap-server/src',
-  'packages/klient/src',
+// Each source names the directory trees it owns and the locale module those
+// trees are translated from. `apps/kimi-code` keeps its own locale file, so it
+// is checked against that rather than against packages/i18n.
+const SOURCES = [
+  {
+    name: 'agent-core-v2 + kap-server + klient',
+    localeFile: 'packages/i18n/src/locales/en.ts',
+    sourceDirs: ['packages/agent-core-v2/src', 'packages/kap-server/src', 'packages/klient/src'],
+  },
+  {
+    name: 'kimi-code',
+    localeFile: 'apps/kimi-code/src/i18n/locales/en.ts',
+    sourceDirs: ['apps/kimi-code/src'],
+  },
 ];
+
 
 // ── Simple recursive file walker ─────────────────────────────────────────────
 
@@ -60,17 +70,18 @@ function collectLeafKeys(obj, prefix = '') {
   return keys;
 }
 
-let localeKeys;
-async function loadLocaleKeys() {
-  if (localeKeys) return localeKeys;
-  const fullPath = resolve(ROOT, LOCALE_FILE);
+const localeKeyCache = new Map();
+async function loadLocaleKeys(localeFile) {
+  if (localeKeyCache.has(localeFile)) return localeKeyCache.get(localeFile);
+  const fullPath = resolve(ROOT, localeFile);
   try {
     const mod = await import(pathToFileURL(fullPath).href);
     const data = mod.default || mod;
-    localeKeys = collectLeafKeys(data);
-    return localeKeys;
+    const keys = collectLeafKeys(data);
+    localeKeyCache.set(localeFile, keys);
+    return keys;
   } catch (error) {
-    console.error(`Cannot load locale file ${LOCALE_FILE}: ${error.message}`);
+    console.error(`Cannot load locale file ${localeFile}: ${error.message}`);
     process.exit(1);
   }
 }
@@ -92,51 +103,62 @@ function scanFile(filePath) {
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  const localeKeySet = await loadLocaleKeys();
-  const allCalls = new Map(); // key -> [file1, file2, ...]
-  const files = [];
-
-  for (const dir of SOURCE_DIRS) {
-    const fullDir = resolve(ROOT, dir);
-    for (const filePath of walkFiles(fullDir)) {
-      const relPath = relative(ROOT, filePath);
-      files.push(relPath);
-      const calls = scanFile(filePath);
-      for (const key of calls) {
-        if (!allCalls.has(key)) allCalls.set(key, []);
-        allCalls.get(key).push(relPath);
-      }
-    }
-  }
-
   let hasErrors = false;
-  const missing = [];
+  let totalFiles = 0;
+  let totalKeys = 0;
 
-  for (const [key, callFiles] of allCalls) {
-    if (!localeKeySet.has(key)) {
-      missing.push({ key, files: callFiles });
+  for (const source of SOURCES) {
+    const localeKeySet = await loadLocaleKeys(source.localeFile);
+    const allCalls = new Map(); // key -> [file1, file2, ...]
+    let files = 0;
+
+    for (const dir of source.sourceDirs) {
+      const fullDir = resolve(ROOT, dir);
+      for (const filePath of walkFiles(fullDir)) {
+        const relPath = relative(ROOT, filePath);
+        files++;
+        const calls = scanFile(filePath);
+        for (const key of calls) {
+          if (!allCalls.has(key)) allCalls.set(key, []);
+          allCalls.get(key).push(relPath);
+        }
+      }
+    }
+
+    totalFiles += files;
+    totalKeys += allCalls.size;
+
+    const missing = [];
+    for (const [key, callFiles] of allCalls) {
+      if (!localeKeySet.has(key)) {
+        missing.push({ key, files: callFiles });
+      }
+    }
+
+    console.log(
+      `\n${missing.length === 0 ? '✓' : '✗'} ${source.name}: ${files} files, ${allCalls.size} unique t() keys, ${localeKeySet.size} locale keys`,
+    );
+
+    if (missing.length > 0) {
+      hasErrors = true;
+      console.error(`  Found ${missing.length} t() call(s) without matching locale key:\n`);
+      for (const { key, files: callFiles } of missing) {
+        const uniqueFiles = [...new Set(callFiles)];
+        console.error(`  - ${key}`);
+        for (const f of uniqueFiles.slice(0, 5)) {
+          console.error(`      ${String(f)}`);
+        }
+        if (uniqueFiles.length > 5) {
+          console.error(`      ... and ${uniqueFiles.length - 5} more files`);
+        }
+      }
     }
   }
 
-  if (missing.length > 0) {
-    hasErrors = true;
-    console.error(`\n✗ Found ${missing.length} t() call(s) without matching locale key:\n`);
-    for (const { key, files } of missing) {
-      const uniqueFiles = [...new Set(files)];
-      console.error(`  - ${key}`);
-      for (const f of uniqueFiles.slice(0, 5)) {
-        console.error(`      ${String(f)}`);
-      }
-      if (uniqueFiles.length > 5) {
-        console.error(`      ... and ${uniqueFiles.length - 5} more files`);
-      }
-    }
-  }
-
-  console.log(`\nChecked ${files.length} files, ${allCalls.size} unique t() keys.`);
+  console.log(`\nChecked ${totalFiles} files, ${totalKeys} unique t() keys.`);
   if (hasErrors) {
     console.error(
-      '\n❌ Some t() calls have no matching locale key — add them to packages/i18n/src/locales/{en,zh}.ts\n',
+      '\n❌ Some t() calls have no matching locale key — add them to the locale file named above.\n',
     );
     process.exit(1);
   } else {

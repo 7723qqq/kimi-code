@@ -61,8 +61,8 @@ export class PromptOptimizePanelComponent extends Container implements Focusable
     const theme = currentTheme;
     const lines: string[] = [
       theme.fg('primary', '─'.repeat(Math.max(1, width))),
-      theme.boldFg('primary', t('tui.promptOptimize.title')),
-      theme.fg('textMuted', t('tui.promptOptimize.hint', { accept: 'Enter', discard: 'Esc' })),
+      theme.boldFg('primary', t('tui.dialogs.promptOptimize.title')),
+      theme.fg('textMuted', t('tui.dialogs.promptOptimize.hint', { accept: 'Enter', discard: 'Esc' })),
       '',
     ];
     for (const line of renderDiffLinesClustered(this.opts.original, this.opts.optimized, '', {
@@ -82,7 +82,9 @@ export class PromptOptimizePanelComponent extends Container implements Focusable
   private choiceLine(choice: PromptOptimizeChoice, width: number): string {
     const theme = currentTheme;
     const label =
-      choice === 'accept' ? t('tui.promptOptimize.accept') : t('tui.promptOptimize.discard');
+      choice === 'accept'
+        ? t('tui.dialogs.promptOptimize.accept')
+        : t('tui.dialogs.promptOptimize.discard');
     const isSelected = this.selected === choice;
     const pointer = isSelected ? SELECT_POINTER : '  ';
     const text = isSelected ? theme.boldFg('primary', label) : theme.fg('text', label);

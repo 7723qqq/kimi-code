@@ -176,10 +176,12 @@ jobs:
       # layering check (`lint:imports`) runs separately once its four
       # pre-existing violations are resolved — see the task report.
       - run: bun --bun run check:deep-imports
-      # Locale consistency: en/zh key parity, placeholder validity, and JSON
-      # freshness (regenerate, then fail if tracked JSON drifted from the TS sources).
+      # Locale consistency: en/zh key parity, placeholder validity, call-site
+      # coverage, and JSON freshness (regenerate, then fail if tracked JSON
+      # drifted from the TS sources).
       - run: bun scripts/check-locale-keys.mjs
       - run: bun scripts/check-locale-placeholders.cjs
+      - run: bun scripts/check-t-call-coverage.mjs
       - run: bun scripts/generate-locale-json.cjs && git diff --exit-code -- '**/locales/*.json'
 
   # Structural review (tools/review): a Zig program that reads the repository

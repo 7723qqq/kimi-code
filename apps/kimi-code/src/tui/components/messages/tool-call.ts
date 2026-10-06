@@ -2051,7 +2051,7 @@ export class ToolCallComponent extends Container {
         break;
       }
       case 'failed':
-        parts.push(currentTheme.fg('error', t('tui.messages.toolCall.failed')));
+        parts.push(currentTheme.fg('error', t('tui.messages.toolCall.phaseFailed')));
         break;
       case 'backgrounded':
         parts.push(t('tui.messages.agentGroup.backgrounded'));

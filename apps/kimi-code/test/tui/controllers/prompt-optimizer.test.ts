@@ -8,12 +8,12 @@ import {
 vi.mock('#/i18n', () => ({
   t: (key: string, params?: Record<string, string | number>): string => {
     const translations: Record<string, string> = {
-      'tui.promptOptimize.failed': 'Could not rewrite the prompt: {{error}}',
-      'tui.promptOptimize.noSession': 'Start a session before rewriting a prompt.',
-      'tui.promptOptimize.title': 'Rewrite this prompt',
-      'tui.promptOptimize.hint': '{{accept}} accept · {{discard}} discard',
-      'tui.promptOptimize.accept': 'Accept rewrite',
-      'tui.promptOptimize.discard': 'Keep original',
+      'tui.dialogs.promptOptimize.failed': 'Could not rewrite the prompt: {{error}}',
+      'tui.dialogs.promptOptimize.noSession': 'Start a session before rewriting a prompt.',
+      'tui.dialogs.promptOptimize.title': 'Rewrite this prompt',
+      'tui.dialogs.promptOptimize.hint': '{{accept}} accept · {{discard}} discard',
+      'tui.dialogs.promptOptimize.accept': 'Accept rewrite',
+      'tui.dialogs.promptOptimize.discard': 'Keep original',
     };
     const msg = translations[key] ?? key;
     if (params === undefined) return msg;

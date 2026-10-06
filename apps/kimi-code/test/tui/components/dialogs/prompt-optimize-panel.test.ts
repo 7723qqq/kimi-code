@@ -5,10 +5,10 @@ import { PromptOptimizePanelComponent } from '#/tui/components/dialogs/prompt-op
 vi.mock('#/i18n', () => ({
   t: (key: string, params?: Record<string, string | number>): string => {
     const translations: Record<string, string> = {
-      'tui.promptOptimize.title': 'Rewrite this prompt',
-      'tui.promptOptimize.hint': '{{accept}} accept · {{discard}} discard',
-      'tui.promptOptimize.accept': 'Accept rewrite',
-      'tui.promptOptimize.discard': 'Keep original',
+      'tui.dialogs.promptOptimize.title': 'Rewrite this prompt',
+      'tui.dialogs.promptOptimize.hint': '{{accept}} accept · {{discard}} discard',
+      'tui.dialogs.promptOptimize.accept': 'Accept rewrite',
+      'tui.dialogs.promptOptimize.discard': 'Keep original',
     };
     const msg = translations[key] ?? key;
     if (params === undefined) return msg;

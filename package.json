@@ -48,6 +48,7 @@
     "clean": "bun run --workspaces clean",
     "generate:locale-json": "bun scripts/generate-locale-json.cjs",
     "check:locale-keys": "bun scripts/check-locale-keys.mjs",
+    "check:t-coverage": "bun scripts/check-t-call-coverage.mjs",
     "scan:hardcoded": "bun scripts/scan-hardcoded-v2.mjs",
     "changeset": "changeset",
     "version": "changeset version",

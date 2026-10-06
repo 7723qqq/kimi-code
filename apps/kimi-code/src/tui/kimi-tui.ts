@@ -102,6 +102,7 @@ import { DialogHostController } from './controllers/dialog-host';
 import {
   EditorKeyboardController,
   type ActiveExclusiveMode,
+  type ReviewCycleMode,
 } from './controllers/editor-keyboard';
 import { MessageDispatchController } from './controllers/message-dispatch';
 import { PromptOptimizerController } from './controllers/prompt-optimizer';
@@ -1192,7 +1193,8 @@ export class KimiTUI {
 
   handleExclusiveModeLeave(mode: ActiveExclusiveMode): void {
     // Route through the same slash-command surface the mode was entered by, so
-    // Shift-Tab and `/spec off` cannot drift apart.
+    // Shift-Tab and `/spec off` cannot drift apart. Swarm and tower are absent
+    // by type: the cycle never leaves them, `/swarm off` and `/tower off` do.
     switch (mode) {
       case 'plan':
         void slashCommands.handlePlanCommand(this, 'off');
@@ -1200,11 +1202,18 @@ export class KimiTUI {
       case 'spec':
         void slashCommands.handleSpecCommand(this, 'off');
         return;
-      case 'swarm':
-        void slashCommands.handleSwarmCommand(this, 'off');
+    }
+  }
+
+  handleExclusiveModeSwitch(mode: ReviewCycleMode): void {
+    // Same routing rule as the leave path: the cycle reuses the slash-command
+    // surface, so the engine keeps the final say on whether the mode is entered.
+    switch (mode) {
+      case 'plan':
+        void slashCommands.handlePlanCommand(this, 'on');
         return;
-      case 'tower':
-        void slashCommands.handleTowerCommand(this, 'off');
+      case 'spec':
+        void slashCommands.handleSpecCommand(this, 'on');
         return;
     }
   }
@@ -2730,19 +2739,19 @@ export class KimiTUI {
     });
     this.state.activeDialog = null;
     if (choice === 'install') {
-      const spinner = this.showProgressSpinner(t('tui.msys2Prompt.installing'));
+      const spinner = this.showProgressSpinner(t('tui.dialogs.msys2Prompt.installing'));
       const result = await installMsys2(deps);
       if (result.ok && result.bashPath !== undefined) {
         const switched = setUserShellPath(result.bashPath, deps);
-        spinner.stop({ ok: true, label: t('tui.msys2Prompt.installSuccess') });
+        spinner.stop({ ok: true, label: t('tui.dialogs.msys2Prompt.installSuccess') });
         this.showStatus(
-          switched ? t('tui.msys2Prompt.restartHint') : t('tui.msys2Prompt.installSuccessNoSwitch'),
+          switched ? t('tui.dialogs.msys2Prompt.restartHint') : t('tui.dialogs.msys2Prompt.installSuccessNoSwitch'),
         );
         await markPrompted(deps);
       } else {
-        spinner.stop({ ok: false, label: t('tui.msys2Prompt.installFailed') });
-        this.showError(result.error ?? t('tui.msys2Prompt.installFailed'));
-        this.showStatus(t('tui.msys2Prompt.manualInstallHint'));
+        spinner.stop({ ok: false, label: t('tui.dialogs.msys2Prompt.installFailed') });
+        this.showError(result.error ?? t('tui.dialogs.msys2Prompt.installFailed'));
+        this.showStatus(t('tui.dialogs.msys2Prompt.manualInstallHint'));
       }
     } else {
       await markPrompted(deps);

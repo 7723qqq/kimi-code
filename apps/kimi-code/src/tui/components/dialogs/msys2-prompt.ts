@@ -23,18 +23,18 @@ export class Msys2PromptComponent extends ChoicePickerComponent {
     const options: readonly ChoiceOption[] = [
       {
         value: 'install',
-        label: t('tui.msys2Prompt.install'),
-        description: t('tui.msys2Prompt.installDescription'),
+        label: t('tui.dialogs.msys2Prompt.install'),
+        description: t('tui.dialogs.msys2Prompt.installDescription'),
       },
       {
         value: 'skip',
-        label: t('tui.msys2Prompt.skip'),
-        description: t('tui.msys2Prompt.skipDescription'),
+        label: t('tui.dialogs.msys2Prompt.skip'),
+        description: t('tui.dialogs.msys2Prompt.skipDescription'),
       },
     ];
     super({
-      title: t('tui.msys2Prompt.title'),
-      hint: t('tui.msys2Prompt.hint'),
+      title: t('tui.dialogs.msys2Prompt.title'),
+      hint: t('tui.dialogs.msys2Prompt.hint'),
       options,
       onSelect: (value) => opts.onSelect(value as Msys2PromptChoice),
       onCancel: opts.onCancel,

@@ -32,7 +32,7 @@ export class PromptOptimizerController {
 
     const session = host.session ?? (await host.ensureSession());
     if (session === undefined) {
-      host.showError(t('tui.promptOptimize.noSession'));
+      host.showError(t('tui.dialogs.promptOptimize.noSession'));
       return;
     }
 
@@ -47,7 +47,7 @@ export class PromptOptimizerController {
       await this.confirm(draft, optimized);
     } catch (error) {
       host.track('prompt_optimize_failed');
-      host.showError(t('tui.promptOptimize.failed', { error: formatErrorMessage(error) }));
+      host.showError(t('tui.dialogs.promptOptimize.failed', { error: formatErrorMessage(error) }));
     } finally {
       this.inFlight = false;
     }

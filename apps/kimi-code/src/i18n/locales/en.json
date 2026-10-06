@@ -217,6 +217,7 @@
       "permission": "Select permission mode",
       "settings": "Open TUI settings",
       "plan": "Toggle plan mode",
+      "spec": "Write a spec for the change before implementing it",
       "swarm": "Toggle swarm mode or run one task in swarm mode",
       "workflow": "Run or manage workflows (list, status, cancel, or run by name)",
       "workflowHelp": {

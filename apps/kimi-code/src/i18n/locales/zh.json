@@ -217,6 +217,7 @@
       "permission": "选择权限模式",
       "settings": "打开 TUI 设置",
       "plan": "切换计划模式",
+      "spec": "先为这次改动写一份规格文档，再开始实现",
       "swarm": "切换 Swarm 模式或运行一个 swarm 任务",
       "workflow": "运行或管理工作流（列表、状态、取消或按名称运行）",
       "workflowHelp": {

@@ -219,7 +219,7 @@ export default {
         helpCommands: '/help：显示命令',
         compactContext: '/compact 在上下文变长时进行压缩',
         ctrlOToolOutput: 'ctrl-o 在简洁聊天视图与完整执行详情之间切换工具输出的显示',
-        shiftTabPlanMode: 'shift-tab 进入计划模式，在 Kimi 编辑文件前审阅方案',
+        shiftTabPlanMode: 'shift-tab 循环切换审阅模式：计划 → 规范 → 关闭',
         modelSwitch: '/model：切换模型',
       },
     },
@@ -229,6 +229,7 @@ export default {
       permission: '选择权限模式',
       settings: '打开 TUI 设置',
       plan: '切换计划模式',
+      spec: '先为这次改动写一份规格文档，再开始实现',
       swarm: '切换 Swarm 模式或运行一个 swarm 任务',
       workflow: '运行或管理工作流（列表、状态、取消或按名称运行）',
       workflowHelp: {
@@ -491,7 +492,7 @@ export default {
         slashCommands: '斜杠命令',
         showing: ' 显示 {{from}}-{{to}} / 共 {{total}} 项',
         shortcuts: {
-          shiftTab: '切换计划模式',
+          shiftTab: '循环切换审阅模式（计划 → 规范 → 关闭）',
           ctrlG: '在外部编辑器中编辑（$VISUAL / $EDITOR）',
           ctrlO: '切换工具输出 / 压缩摘要展开',
           ctrlT: '展开 / 收起待办列表（截断时）',

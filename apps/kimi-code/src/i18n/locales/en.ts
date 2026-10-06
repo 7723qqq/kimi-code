@@ -226,7 +226,7 @@ export default {
         compactContext: '/compact compresses context when it gets long',
         ctrlOToolOutput:
           'ctrl-o to hide or reveal tool output switching between a clean chat view and full execution details',
-        shiftTabPlanMode: 'shift-tab to Plan mode to review the approach before Kimi edits files.',
+        shiftTabPlanMode: 'shift-tab to cycle review modes: Plan, then Spec, then off.',
         modelSwitch: '/model: switch model',
       },
     },
@@ -236,6 +236,7 @@ export default {
       permission: 'Select permission mode',
       settings: 'Open TUI settings',
       plan: 'Toggle plan mode',
+      spec: 'Write a spec for the change before implementing it',
       swarm: 'Toggle swarm mode or run one task in swarm mode',
       workflow: 'Run or manage workflows (list, status, cancel, or run by name)',
       workflowHelp: {
@@ -503,7 +504,7 @@ export default {
         slashCommands: 'Slash commands',
         showing: ' showing {{from}}-{{to}} of {{total}}',
         shortcuts: {
-          shiftTab: 'Toggle plan mode',
+          shiftTab: 'Cycle review modes (Plan → Spec → off)',
           ctrlG: 'Edit in external editor ($VISUAL / $EDITOR)',
           ctrlO: 'Toggle tool output / compaction summary expansion',
           ctrlT: 'Expand / collapse the todo list (when truncated)',
