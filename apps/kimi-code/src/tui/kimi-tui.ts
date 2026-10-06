@@ -101,6 +101,7 @@ import { ClipboardImageHintController } from './controllers/clipboard-image-hint
 import { DialogHostController } from './controllers/dialog-host';
 import { EditorKeyboardController } from './controllers/editor-keyboard';
 import { MessageDispatchController } from './controllers/message-dispatch';
+import { PromptOptimizerController } from './controllers/prompt-optimizer';
 import { SessionEventHandler } from './controllers/session-event-handler';
 import { SessionReplayRenderer } from './controllers/session-replay';
 import { StagingLeaseTracker } from './controllers/staging-leases';
@@ -325,6 +326,7 @@ export class KimiTUI {
   readonly sessionReplay: SessionReplayRenderer;
   readonly tasksBrowserController: TasksBrowserController;
   readonly surveyController: SurveyController;
+  readonly promptOptimizer: PromptOptimizerController;
   readonly editorKeyboard: EditorKeyboardController;
   readonly messageDispatch: MessageDispatchController;
   readonly transcriptRenderer: TranscriptRendererController;
@@ -432,6 +434,7 @@ export class KimiTUI {
       accessToken: () => this.harness.auth.getCachedAccessToken(),
       telemetryDisabled: () => isTelemetryDisabledByEnv() || this.telemetryDisabled,
     });
+    this.promptOptimizer = new PromptOptimizerController(this);
     this.editorKeyboard = new EditorKeyboardController(this, this.imageStore);
     this.editorKeyboard.install();
     this.messageDispatch = new MessageDispatchController(this, this.staging, this.imageStore);

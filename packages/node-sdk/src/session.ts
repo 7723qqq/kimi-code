@@ -237,6 +237,15 @@ export class Session {
     return this.rpc.startBtw({ sessionId: this.id });
   }
 
+  async optimizePrompt(text: string, options?: { recentTurns?: string }): Promise<string> {
+    this.ensureOpen();
+    return this.rpc.optimizePrompt({
+      sessionId: this.id,
+      text,
+      recentTurns: options?.recentTurns,
+    });
+  }
+
   async cancel(): Promise<void> {
     this.ensureOpen();
     await this.rpc.cancel({ sessionId: this.id });

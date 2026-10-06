@@ -15,8 +15,8 @@
     "contextWindowUsage": "上下文窗口使用率",
     "totalInputTokens": "输入 Token 总数",
     "outputTokens": "输出 Token 数",
-    "retry": "重试 {next}/{max}",
-    "retryingIn": "{seconds} 秒后重试：{message}"
+    "retry": "重试 {{next}}/{{max}}",
+    "retryingIn": "{{seconds}} 秒后重试：{{message}}"
   },
   "thinking": {
     "thinking": "思考中"

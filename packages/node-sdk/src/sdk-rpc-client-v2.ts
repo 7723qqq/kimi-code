@@ -177,6 +177,7 @@ import {
   IProviderService,
   ISessionBtwService,
   ISessionContext,
+  ISessionPromptOptimizerService,
   ISessionExportService,
   ISessionIndex,
   ISessionIndexMirror,
@@ -247,6 +248,7 @@ import {
   type ActivatePluginCommandRpcInput,
   type ActivateSkillRpcInput,
   type ImportContextRpcInput,
+  type OptimizePromptRpcInput,
   type ReconnectMcpServerRpcInput,
   type ReloadSessionRpcInput,
   type RunCommandRpcInput,
@@ -2198,6 +2200,21 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     const session = this.requireLiveSession(input.sessionId);
     await this.materializeMainAgent(session);
     return session.accessor.get(ISessionBtwService).start();
+  }
+
+  /**
+   * Through the session scope (`ISessionPromptOptimizerService.optimize`).
+   * The engine forks a throwaway child of the main agent, denies every tool it
+   * could call, and returns the child's final assistant text; the child is
+   * removed before the call resolves, so nothing lands in session history.
+   */
+  override async optimizePrompt(input: OptimizePromptRpcInput): Promise<string> {
+    const session = this.requireLiveSession(input.sessionId);
+    await this.materializeMainAgent(session);
+    return session.accessor.get(ISessionPromptOptimizerService).optimize(input.text, {
+      cwd: session.accessor.get(ISessionContext).cwd,
+      recentTurns: input.recentTurns,
+    });
   }
 
   /**

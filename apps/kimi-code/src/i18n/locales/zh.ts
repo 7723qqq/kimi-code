@@ -495,6 +495,7 @@ export default {
           ctrlO: '切换工具输出 / 压缩摘要展开',
           ctrlT: '展开 / 收起待办列表（截断时）',
           ctrlS: '干预——在流式输出中注入后续指令',
+          ctrlP: '用 AI 重写输入框中的提示词',
           shiftEnter: '插入换行',
           ctrlC: '中断流式输出 / 清空输入',
           ctrlD: '退出（输入为空时）',
@@ -1031,6 +1032,14 @@ export default {
         closeHint: 'Esc 关闭 ',
         scrollHint: 'Esc 关闭 · ↑↓ 滚动 ',
         questionPrefix: 'Q: ',
+      },
+      promptOptimize: {
+        title: '重写这段提示词',
+        hint: '{{accept}} 接受 · {{discard}} 放弃',
+        accept: '接受重写',
+        discard: '保留原文',
+        failed: '提示词重写失败：{{error}}',
+        noSession: '请先开始一个会话再重写提示词。',
       },
       updatePreferenceSelector: {
         title: '自动更新',

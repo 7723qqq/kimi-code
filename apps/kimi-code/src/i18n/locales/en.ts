@@ -507,6 +507,7 @@ export default {
           ctrlO: 'Toggle tool output / compaction summary expansion',
           ctrlT: 'Expand / collapse the todo list (when truncated)',
           ctrlS: 'Steer — inject a follow-up during streaming',
+          ctrlP: 'Rewrite the drafted prompt with AI',
           shiftEnter: 'Insert newline',
           ctrlC: 'Interrupt stream / clear input',
           ctrlD: 'Exit (on empty input)',
@@ -1056,6 +1057,14 @@ export default {
         closeHint: 'Esc close ',
         scrollHint: 'Esc close · ↑↓ scroll ',
         questionPrefix: 'Q: ',
+      },
+      promptOptimize: {
+        title: 'Rewrite this prompt',
+        hint: '{{accept}} accept · {{discard}} discard',
+        accept: 'Accept rewrite',
+        discard: 'Keep original',
+        failed: 'Could not rewrite the prompt: {{error}}',
+        noSession: 'Start a session before rewriting a prompt.',
       },
       updatePreferenceSelector: {
         title: 'Automatic updates',

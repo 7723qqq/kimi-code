@@ -15,8 +15,8 @@
     "contextWindowUsage": "Context Window Usage",
     "totalInputTokens": "Total Input Tokens",
     "outputTokens": "Output Tokens",
-    "retry": "Retry {next}/{max}",
-    "retryingIn": "Retrying in {seconds}s: {message}"
+    "retry": "Retry {{next}}/{{max}}",
+    "retryingIn": "Retrying in {{seconds}}s: {{message}}"
   },
   "thinking": {
     "thinking": "Thinking"

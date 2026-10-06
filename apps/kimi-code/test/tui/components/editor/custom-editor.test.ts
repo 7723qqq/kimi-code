@@ -629,6 +629,29 @@ describe('CustomEditor shortcut telemetry hooks', () => {
     expect(onUndo).toHaveBeenCalledOnce();
   });
 
+  it('invokes onOptimizePrompt on Ctrl+P without changing the draft', () => {
+    const editor = makeEditor();
+    const onOptimizePrompt = vi.fn();
+    editor.onOptimizePrompt = onOptimizePrompt;
+    editor.setText('fix the parser');
+    const cursor = editor.getCursor();
+
+    editor.handleInput('\u0010');
+
+    expect(onOptimizePrompt).toHaveBeenCalledOnce();
+    expect(editor.getText()).toBe('fix the parser');
+    expect(editor.getCursor()).toEqual(cursor);
+  });
+
+  it('leaves Ctrl+P to the editor default when no optimizer is wired', () => {
+    const editor = makeEditor();
+    const baseline = makeEditor();
+    for (const instance of [editor, baseline]) instance.setText('first\nsecond');
+    editor.handleInput('\u0010');
+    baseline.handleInput('\u0010');
+    expect(editor.getText()).toBe(baseline.getText());
+  });
+
   it('invokes onToggleTodoExpand on Ctrl+T', () => {
     const editor = makeEditor();
     const onToggleTodoExpand = vi.fn().mockReturnValue(true);

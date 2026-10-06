@@ -15,6 +15,7 @@ interface Harness {
   readonly cancelCompaction: ReturnType<typeof vi.fn>;
   readonly btwCancelRunning: ReturnType<typeof vi.fn>;
   readonly btwCloseOrCancel: ReturnType<typeof vi.fn>;
+  readonly promptOptimizer: { optimize: ReturnType<typeof vi.fn> };
   readonly survey: {
     readonly handlePreInput: ReturnType<typeof vi.fn<(data: string) => boolean>>;
     readonly handleSubmit: ReturnType<typeof vi.fn<(text: string) => boolean>>;
@@ -42,6 +43,7 @@ function createHarness(options: { streamingPhase?: string; isCompacting?: boolea
     notifyDisplaced: vi.fn<() => void>(() => {}),
   };
   const session = { cancel: vi.fn(async () => {}), cancelCompaction };
+  const promptOptimizer = { optimize: vi.fn(async () => {}) };
 
   const host = {
     state: {
@@ -58,6 +60,7 @@ function createHarness(options: { streamingPhase?: string; isCompacting?: boolea
     session,
     btwPanelController: { cancelRunning: btwCancelRunning, closeOrCancel: btwCloseOrCancel },
     surveyController: survey,
+    promptOptimizer,
     openUndoSelector,
     cancelRunningShellCommand,
     updateEditorBorderHighlight: vi.fn(),
@@ -83,6 +86,7 @@ function createHarness(options: { streamingPhase?: string; isCompacting?: boolea
     cancelCompaction,
     btwCancelRunning,
     btwCloseOrCancel,
+    promptOptimizer,
     survey,
   };
 }
@@ -667,5 +671,17 @@ describe('EditorKeyboardController survey wiring', () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe('EditorKeyboardController Ctrl+P prompt optimization', () => {
+  it('starts an optimization and records the shortcut', () => {
+    const { editor, host, promptOptimizer } = createHarness();
+    const onOptimizePrompt = editor['onOptimizePrompt'] as unknown as () => void;
+
+    onOptimizePrompt();
+
+    expect(promptOptimizer.optimize).toHaveBeenCalledOnce();
+    expect(host.track).toHaveBeenCalledWith('shortcut_optimize_prompt');
   });
 });

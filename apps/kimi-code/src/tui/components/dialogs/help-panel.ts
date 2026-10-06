@@ -39,6 +39,7 @@ export function getDefaultKeyboardShortcuts(): readonly KeyboardShortcut[] {
     { keys: 'Ctrl-O', description: t('tui.dialogs.helpPanel.shortcuts.ctrlO') },
     { keys: 'Ctrl-T', description: t('tui.dialogs.helpPanel.shortcuts.ctrlT') },
     { keys: 'Ctrl-S', description: t('tui.dialogs.helpPanel.shortcuts.ctrlS') },
+    { keys: 'Ctrl-P', description: t('tui.dialogs.helpPanel.shortcuts.ctrlP') },
     { keys: 'Shift-Enter / Ctrl-J', description: t('tui.dialogs.helpPanel.shortcuts.shiftEnter') },
     { keys: 'Ctrl-C', description: t('tui.dialogs.helpPanel.shortcuts.ctrlC') },
     { keys: 'Ctrl-D', description: t('tui.dialogs.helpPanel.shortcuts.ctrlD') },

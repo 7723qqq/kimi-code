@@ -153,6 +153,7 @@ export class CustomEditor extends Editor {
   public onToggleToolExpand?: () => void;
   public onOpenExternalEditor?: () => void;
   public onCtrlS?: () => void;
+  public onOptimizePrompt?: () => void;
   /** Return `true` to consume Ctrl+B; return `false`/`undefined` to fall through to the editor default (cursor-left). */
   public onCtrlB?: () => boolean;
   /** Return `true` to consume Ctrl+T (the todo list had overflow to toggle); return `false`/`undefined` to fall through to the editor default. */
@@ -504,6 +505,15 @@ export class CustomEditor extends Editor {
     if (matchesKey(normalized, Key.ctrl('s'))) {
       this.onCtrlS?.();
       return;
+    }
+
+    if (matchesKey(normalized, Key.ctrl('p'))) {
+      // Only consume the key when the host actually wires an optimizer;
+      // otherwise fall through so the editor default stays available.
+      if (this.onOptimizePrompt !== undefined) {
+        this.onOptimizePrompt();
+        return;
+      }
     }
 
     if (matchesKey(normalized, Key.ctrl('b'))) {

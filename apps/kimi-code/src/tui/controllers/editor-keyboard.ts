@@ -38,6 +38,7 @@ import { extractInlineSkillActivations } from '../utils/inline-skill-tokens';
 import type { PendingExit, QueuedMessage, SteerInputItem } from '../types';
 import type { TUIState } from '../tui-state';
 import type { BtwPanelController } from './btw-panel';
+import type { PromptOptimizerController } from './prompt-optimizer';
 import type { SurveyController } from './survey-controller';
 
 export interface EditorKeyboardHost {
@@ -54,6 +55,7 @@ export interface EditorKeyboardHost {
   handleUserInput(text: string): void;
   readonly btwPanelController: BtwPanelController;
   readonly surveyController: SurveyController;
+  readonly promptOptimizer: PromptOptimizerController;
   readonly skillCommandMap: Map<string, string>;
   steerMessage(session: Session, input: readonly SteerInputItem[]): void;
   steerSkillActivation(session: Session, skillName: string, skillArgs: string): void;
@@ -324,6 +326,11 @@ export class EditorKeyboardController {
 
     editor.onCtrlS = (): void => {
       void this.steerWithEditorDraft();
+    };
+
+    editor.onOptimizePrompt = (): void => {
+      host.track('shortcut_optimize_prompt');
+      void host.promptOptimizer.optimize();
     };
 
     editor.onCtrlB = (): boolean => {

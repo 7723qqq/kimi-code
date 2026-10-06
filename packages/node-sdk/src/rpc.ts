@@ -93,6 +93,11 @@ export interface SessionIdRpcInput {
   readonly sessionId: string;
 }
 
+export interface OptimizePromptRpcInput extends SessionIdRpcInput {
+  readonly text: string;
+  readonly recentTurns?: string;
+}
+
 export interface ImportContextRpcInput extends SessionIdRpcInput {
   readonly content: string;
   readonly source: string;
@@ -347,6 +352,8 @@ export abstract class SDKRpcClientBase {
   abstract addAdditionalDir(input: AddAdditionalDirInput): Promise<AddAdditionalDirResult>;
 
   abstract startBtw(input: SessionIdRpcInput): Promise<string>;
+
+  abstract optimizePrompt(input: OptimizePromptRpcInput): Promise<string>;
 
   abstract cancel(input: SessionIdRpcInput): Promise<void>;
 
