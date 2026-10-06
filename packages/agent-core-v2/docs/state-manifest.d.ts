@@ -27,7 +27,7 @@
 // references become '(circular)', and class instances collapse to a '(ClassName)'
 // marker — the wire shape of an entry is the JSON projection of the type here.
 //
-// Index (App: 0 keys · Workspace: 6 keys · Session: 9 keys · Agent: 73 keys)
+// Index (App: 0 keys · Workspace: 6 keys · Session: 9 keys · Agent: 75 keys)
 //   App
 //   Workspace
 //     workspaceDirs.ephemeralDirs          src/workspace/workspaceDirs/workspaceDirsService.ts
@@ -94,6 +94,8 @@
 //     runtime.binding                                 src/agent/runtimeBinding/runtimeBindingService.ts
 //     runtimeBinding                                  src/agent/runtimeBinding/runtimeBindingOps.ts
 //     shellCommand.tasks                              src/agent/shellCommand/shellCommandService.ts
+//     spec                                            src/features/spec/specOps.ts
+//     spec.wasActive                                  src/features/spec/injection/specModeInjection.ts
 //     swarm                                           src/features/swarm/swarmOps.ts
 //     task                                            src/agent/task/taskOps.ts
 //     task.activeTaskReminderPending                  src/agent/task/taskService.ts
@@ -921,6 +923,17 @@ export interface AgentStateSnapshot {
         description: string;
       }[];
     } | {
+      kind: 'spec_review';
+      dir: string;
+      documents: readonly {
+        readonly name: string;
+        readonly content: string;
+      }[];
+      options?: readonly {
+        label: string;
+        description: string;
+      }[];
+    } | {
       kind: 'goal_start';
       objective: string;
       completionCriterion?: string;
@@ -1299,6 +1312,15 @@ export interface AgentStateSnapshot {
   // src/features/plan/planOps.ts
   // replayable · durable · undoable — folds: PlanModeEnter, PlanModeCancel, PlanModeExit, PlanRevision
   'plan': /* PlanState — packages/agent-core-v2/src/features/plan/planOps.ts */ {
+    readonly active: boolean;
+    readonly id?: string;
+    readonly revisionCount?: Readonly<Record<string, number>>;
+  };
+  // src/features/spec/injection/specModeInjection.ts
+  'spec.wasActive': boolean;
+  // src/features/spec/specOps.ts
+  // replayable · durable · undoable — folds: SpecModeEnter, SpecModeCancel, SpecModeExit, SpecRevision
+  'spec': /* SpecState — packages/agent-core-v2/src/features/spec/specOps.ts */ {
     readonly active: boolean;
     readonly id?: string;
     readonly revisionCount?: Readonly<Record<string, number>>;

@@ -46,6 +46,9 @@ export const FOLD_RELEVANT_WIRE_TYPES: ReadonlySet<string> = new Set([
   'plan_mode.enter',
   'plan_mode.cancel',
   'plan_mode.exit',
+  'spec_mode.enter',
+  'spec_mode.cancel',
+  'spec_mode.exit',
   'config.update',
   'permission.set_mode',
   'permission.record_approval_result',
@@ -166,6 +169,13 @@ class WireReplayFoldState {
       case 'plan_mode.cancel':
       case 'plan_mode.exit':
         this.push({ type: 'plan_updated', enabled: false }, time);
+        return;
+      case 'spec_mode.enter':
+        this.push({ type: 'spec_updated', enabled: true }, time);
+        return;
+      case 'spec_mode.cancel':
+      case 'spec_mode.exit':
+        this.push({ type: 'spec_updated', enabled: false }, time);
         return;
       case 'config.update':
         this.updateConfig(record, time);

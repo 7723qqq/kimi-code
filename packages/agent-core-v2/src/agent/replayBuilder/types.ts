@@ -38,6 +38,7 @@ export type AgentReplayRecordPayload =
       change: GoalChange | { readonly kind: 'created' };
     }
   | { type: 'plan_updated'; enabled: boolean }
+  | { type: 'spec_updated'; enabled: boolean }
   | { type: 'config_updated'; config: AgentConfigUpdateData }
   | { type: 'permission_updated'; mode: PermissionMode }
   | { type: 'approval_result'; record: PermissionApprovalResultRecord };
