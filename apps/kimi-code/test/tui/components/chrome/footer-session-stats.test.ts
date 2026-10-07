@@ -60,54 +60,71 @@ describe('FooterComponent — session stats line', () => {
     cacheMissTokens: 120,
     cacheOtherTokens: 0,
     tokenSpeed: 107,
+    tokenSpeedAverage: 95,
     contextUsage: 0.11,
     contextTokens: 106_000,
     maxContextTokens: 977_000,
   });
 
   it('renders the full stats bar followed by context on a wide terminal', () => {
-    const out = line2(statsState, 160);
+    const out = line2(statsState, 170);
     expect(out).toContain('4 turns · 8 steps');
     expect(out).toContain('LLM 3m6s');
     expect(out).toContain('tools 0.9s');
     expect(out).toContain('first token avg 1.8s');
-    expect(out).toContain('107 tok/s');
+    expect(out).toContain('107 tok/s now');
+    expect(out).toContain('95 tok/s avg');
     expect(out).toContain('cache hit 88%');
     expect(out).toContain('in 172k tok · out 18.3k tok');
     expect(out).toContain('context: 11% (104k/954k)');
   });
 
-  it('keeps tok/s longest and drops the session totals first', () => {
-    // The rate answers a question only the present moment can answer, so it
-    // outlives every cumulative reading. Widest first: all seven items.
-    const wide = line2(statsState, 160);
+  it('drops the session totals before the rates, and never splits the pair', () => {
+    // The rates answer a question only the moment can answer, so they outlive
+    // every cumulative reading. Widest first.
+    const wide = line2(statsState, 170);
     expect(wide).toContain('4 turns · 8 steps');
-    expect(wide).toContain('107 tok/s');
+    expect(wide).toContain('107 tok/s now');
+    expect(wide).toContain('95 tok/s avg');
 
-    // 110: the turn/step counters (priority 1) and the cumulative timings
-    // (priority 2) have gone; every reading that describes the reply in
-    // flight is still there.
-    const withTotals = line2(statsState, 110);
+    // 95: the turn/step counters and the cumulative timings have gone; every
+    // reading describing the reply in flight is still there.
+    const withTotals = line2(statsState, 95);
     expect(withTotals).not.toContain('turns ·');
     expect(withTotals).not.toContain('LLM 3m6s');
     expect(withTotals).not.toContain('tools 0.9s');
     expect(withTotals).toContain('first token avg 1.8s');
-    expect(withTotals).toContain('107 tok/s');
-    expect(withTotals).toContain('in 172k tok');
+    expect(withTotals).toContain('107 tok/s now');
+    expect(withTotals).toContain('95 tok/s avg');
 
-    // 88: LLM time and tools time join them; the rate and first-token avg hold.
+    // 88: first-token latency goes; the rates are the last optional item left.
     const mid = line2(statsState, 88);
-    expect(mid).not.toContain('LLM 3m6s');
-    expect(mid).not.toContain('tools 0.9s');
-    expect(mid).toContain('107 tok/s');
-    expect(mid).toContain('first token avg 1.8s');
+    expect(mid).not.toContain('first token avg');
+    expect(mid).toContain('107 tok/s now');
+    expect(mid).toContain('95 tok/s avg');
 
-    // 62: first-token latency goes; the rate is the last optional item left.
-    const narrow = line2(statsState, 62);
-    expect(narrow).not.toContain('first token avg');
-    expect(narrow).toContain('107 tok/s');
-    expect(narrow).toContain('cache hit 88%');
-    expect(narrow).toContain('context:');
+    // 70: the rates go as one item. The two figures are read together or not
+    // at all — a width that drops one must drop the other, or the survivor
+    // reads like the only answer. Pinned at the boundary and below it.
+    for (const width of [70, 62]) {
+      const narrow = line2(statsState, width);
+      expect(narrow).not.toContain('tok/s now');
+      expect(narrow).not.toContain('tok/s avg');
+      expect(narrow).toContain('cache hit 88%');
+      expect(narrow).toContain('context:');
+    }
+  });
+
+  it('shows one label when only one figure has a reading', () => {
+    // The first step of a session has a step rate before it has an average,
+    // and an unavailable figure is omitted rather than shown as a zero.
+    const stepOnly = line2(baseState({ ...statsState, tokenSpeed: 107, tokenSpeedAverage: 0 }), 88);
+    expect(stepOnly).toContain('107 tok/s now');
+    expect(stepOnly).not.toContain('tok/s avg');
+
+    const averageOnly = line2(baseState({ ...statsState, tokenSpeed: 0, tokenSpeedAverage: 95 }), 88);
+    expect(averageOnly).not.toContain('tok/s now');
+    expect(averageOnly).toContain('95 tok/s avg');
   });
 
   it('falls back to the plain context readout before any session traffic', () => {

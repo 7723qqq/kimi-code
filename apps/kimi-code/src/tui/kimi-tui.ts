@@ -248,6 +248,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     cacheMissTokens: 0,
     cacheOtherTokens: 0,
     tokenSpeed: 0,
+    tokenSpeedAverage: 0,
     sessionStats: createEmptySessionStats(),
     outputTokens: 0,
     locale: getLocale(),
@@ -2593,8 +2594,9 @@ export class KimiTUI {
   /**
    * Per-step cache-hit accounting for the footer readout, and the close of the
    * step's decode window. Cache hit/miss input tokens accumulate for the live
-   * hit rate; the speed sample is `usage.output` over the window the engine
-   * measured between the step's first and last token-bearing parts.
+   * hit rate; the two speed samples — the step just closed and the session so
+   * far — come from `usage.output` over the window the engine measured between
+   * the step's first and last token-bearing parts.
    */
   noteStepCacheStats(
     usage: TokenUsage | undefined,
@@ -2619,14 +2621,15 @@ export class KimiTUI {
         patch.cacheOtherTokens = this.state.appState.cacheOtherTokens + (usage.inputOther ?? 0);
       }
     }
-    const next = this.tokenSpeed.addStep(
+    const readout = this.tokenSpeed.addStep(
       window.llmFirstTokenOffsetMs,
       window.llmLastTokenOffsetMs,
       usage?.output ?? 0,
     );
-    if (next !== null) {
-      patch.tokenSpeed = next;
-    }
+    // Patched unconditionally so a step that could not be measured leaves both
+    // figures where they were, rather than blanking one of them.
+    patch.tokenSpeed = readout.step ?? 0;
+    patch.tokenSpeedAverage = readout.average ?? 0;
     if (Object.keys(patch).length > 0) {
       this.setAppState(patch);
     }
@@ -2637,7 +2640,7 @@ export class KimiTUI {
    *  rather than blending the new session's first step into the previous one. */
   resetTokenSpeed(): void {
     this.tokenSpeed.reset();
-    this.setAppState({ tokenSpeed: 0 });
+    this.setAppState({ tokenSpeed: 0, tokenSpeedAverage: 0 });
   }
 
   /** Session turn counter for the footer stats (user-facing turns only; the

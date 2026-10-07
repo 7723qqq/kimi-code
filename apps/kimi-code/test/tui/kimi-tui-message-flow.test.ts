@@ -4121,7 +4121,7 @@ command = "vim"
     expect(driver.state.queuedMessages).toEqual([]);
   });
 
-  it('folds the engine-reported window into a cumulative rate', async () => {
+  it('folds the engine-reported window into a step rate and a session average', async () => {
     const { driver } = await makeDriver();
     const tui = driver as unknown as {
       noteStepCacheStats(
@@ -4135,14 +4135,19 @@ command = "vim"
       llmFirstTokenOffsetMs: 4_000,
       llmLastTokenOffsetMs: 4_800,
     });
+    // The first step is both figures: nothing else has been averaged yet.
     expect(driver.state.appState.tokenSpeed).toBeCloseTo(123.75, 6);
+    expect(driver.state.appState.tokenSpeedAverage).toBeCloseTo(123.75, 6);
 
-    // A second step averages in rather than replacing the reading.
+    // A slower second step drops the average toward it while the step figure
+    // reports that step alone — the two answer different questions.
     tui.noteStepCacheStats({ output: 100 }, {
       llmFirstTokenOffsetMs: 0,
-      llmLastTokenOffsetMs: 800,
+      llmLastTokenOffsetMs: 8_000,
     });
-    expect(driver.state.appState.tokenSpeed).toBeCloseTo(123.75, 6);
+    expect(driver.state.appState.tokenSpeed).toBeCloseTo(12.375, 6);
+    expect(driver.state.appState.tokenSpeedAverage).toBeGreaterThan(12.375);
+    expect(driver.state.appState.tokenSpeedAverage).toBeLessThan(123.75);
   });
 
   it('ignores a step the engine reported no window for', async () => {
@@ -4172,9 +4177,14 @@ command = "vim"
 
     (driver as unknown as { resetSessionRuntime(): void }).resetSessionRuntime();
     expect(driver.state.appState.tokenSpeed).toBe(0);
+    expect(driver.state.appState.tokenSpeedAverage).toBe(0);
 
-    tui.noteStepCacheStats({ output: 100 }, { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 400 });
-    expect(driver.state.appState.tokenSpeed).toBeCloseTo(247.5, 6);
+    // The step after the reset reports its own rate, not one blended with the
+    // previous session's history. The window is above MIN_STEP_WINDOW_MS so the
+    // assertion is about the reset rather than about the gate.
+    tui.noteStepCacheStats({ output: 100 }, { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 800 });
+    expect(driver.state.appState.tokenSpeed).toBeCloseTo(123.75, 6);
+    expect(driver.state.appState.tokenSpeedAverage).toBeCloseTo(123.75, 6);
   });
 
   it('resets the token-speed readout on a /undo context cut', async () => {
@@ -4192,6 +4202,7 @@ command = "vim"
 
     tui.noteContextCut();
     expect(driver.state.appState.tokenSpeed).toBe(0);
+    expect(driver.state.appState.tokenSpeedAverage).toBe(0);
   });
 
   it('leaves the readout untouched when a step reports no tokens', async () => {
@@ -4204,10 +4215,31 @@ command = "vim"
     };
 
     tui.noteStepCacheStats({ output: 100 }, { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 800 });
-    const settled = driver.state.appState.tokenSpeed;
-    expect(settled).toBeCloseTo(123.75, 6);
+    const settledStep = driver.state.appState.tokenSpeed;
+    const settledAverage = driver.state.appState.tokenSpeedAverage;
+    expect(settledStep).toBeCloseTo(123.75, 6);
 
     tui.noteStepCacheStats(undefined, {});
+    expect(driver.state.appState.tokenSpeed).toBe(settledStep);
+    expect(driver.state.appState.tokenSpeedAverage).toBe(settledAverage);
+  });
+
+  it('keeps the step rate when a step reports a single token', async () => {
+    const { driver } = await makeDriver();
+    const tui = driver as unknown as {
+      noteStepCacheStats(
+        usage: unknown,
+        window: { llmFirstTokenOffsetMs?: number; llmLastTokenOffsetMs?: number },
+      ): void;
+    };
+
+    tui.noteStepCacheStats({ output: 100 }, { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 800 });
+    const settled = driver.state.appState.tokenSpeed;
+
+    // One token spans no interval, so the step has no rate of its own. Blanking
+    // the figure would be worse than holding it: the reply it describes is
+    // still the most recent measured one.
+    tui.noteStepCacheStats({ output: 1 }, { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 800 });
     expect(driver.state.appState.tokenSpeed).toBe(settled);
   });
 

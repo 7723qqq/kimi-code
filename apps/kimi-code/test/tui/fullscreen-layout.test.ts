@@ -58,6 +58,7 @@ function fakeInitialAppState(): AppState {
     cacheMissTokens: 0,
     cacheOtherTokens: 0,
     tokenSpeed: 0,
+    tokenSpeedAverage: 0,
     sessionStats: createEmptySessionStats(),
     outputTokens: 0,
     locale: 'en',

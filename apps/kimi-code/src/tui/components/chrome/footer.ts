@@ -241,14 +241,17 @@ function formatCacheHitRate(
  * phase indicator has already carried the user through. `tok/s` is the one item
  * that keeps moving as the session continues — it is what the user watches
  * while a reply streams — so it is the last optional item to go. A narrow pane
- * that keeps `context` and a stale token total while dropping the rate has kept
- * the decorations and lost the measurement. (It is a session average, not an
- * instantaneous reading: see `utils/token-speed.ts`.)
+ * that keeps `context` and a stale token total while dropping the rates has kept
+ * the decorations and lost the measurement. The step rate and the session
+ * average share one slot and one priority: they only mean anything side by side,
+ * and either alone reads like the whole answer. Neither is instantaneous — the
+ * step rate is the step that just closed; see `utils/token-speed.ts`.
  */
 function buildSessionStatSegments(
   stats: AppState['sessionStats'],
   hitRateText: string | null,
-  speedText: string | null,
+  speedStepText: string | null,
+  speedAverageText: string | null,
   contextText: string,
 ): SessionStatsGroup[] {
   const groups: SessionStatsGroup[] = [];
@@ -293,8 +296,14 @@ function buildSessionStatSegments(
       priority: 4,
     });
   }
-  if (speedText !== null) {
-    latencySpeed.push({ text: speedText, priority: 5 });
+  // The two rates share one drop slot: they are only meaningful read together,
+  // and dropping one would leave the survivor looking like the only answer. So
+  // they are emitted as a single segment — `fitSessionStatsText` drops items,
+  // not halves of one, and two items at the same priority would be dropped one
+  // at a time and split the pair.
+  const speedText = [speedStepText, speedAverageText].filter((s) => s !== null);
+  if (speedText.length > 0) {
+    latencySpeed.push({ text: speedText.join(' · '), priority: 5 });
   }
   if (latencySpeed.length > 0) groups.push({ items: latencySpeed });
 
@@ -508,9 +517,18 @@ export class FooterComponent implements Component {
       state.cacheMissTokens,
       state.cacheOtherTokens,
     );
-    const speedText =
-      (state.tokenSpeed ?? 0) > 0
-        ? t('tui.chrome.footer.tokenSpeed', { speed: formatTokenSpeed(state.tokenSpeed ?? 0) })
+    // Both figures come from the same sampler and the same token source; each
+    // is simply absent until it has a reading, so a short first step shows one
+    // label rather than a placeholder for the other.
+    const stepSpeed = state.tokenSpeed ?? 0;
+    const averageSpeed = state.tokenSpeedAverage ?? 0;
+    const speedStepText =
+      stepSpeed > 0
+        ? t('tui.chrome.footer.tokenSpeedStep', { speed: formatTokenSpeed(stepSpeed) })
+        : null;
+    const speedAverageText =
+      averageSpeed > 0
+        ? t('tui.chrome.footer.tokenSpeedAverage', { speed: formatTokenSpeed(averageSpeed) })
         : null;
     const contextText = formatContextStatus(
       state.contextUsage,
@@ -520,7 +538,8 @@ export class FooterComponent implements Component {
     const segments = buildSessionStatSegments(
       state.sessionStats,
       hitRateText,
-      speedText,
+      speedStepText,
+      speedAverageText,
       contextText,
     );
     // The context group is always present; when nothing else exists there is

@@ -74,8 +74,14 @@ export interface AppState {
    * "命中占总输入比例"（否则 read/(read+0) 恒为 100%）。
    */
   cacheOtherTokens: number;
-  /** 最近一步的模型输出速度（tokens/秒）。 */
+  /**
+   * 最近一步的模型输出速度（tokens/秒），即"这一步多快"；0 表示尚无读数。
+   * 与 `tokenSpeedAverage` 同源（都取 provider 上报的输出 token 数与引擎
+   * 测得的 token part 窗口），两者只差覆盖哪些步，不差怎么计数。
+   */
   tokenSpeed: number;
+  /** 会话累计输出速度（tokens/秒），即"这场会话平均多快"；0 表示尚无读数。 */
+  tokenSpeedAverage: number;
   /** 会话级累计统计（轮次/步数/耗时/token），footer 第二行展示；TUI 生命周期内有效。 */
   sessionStats: SessionStats;
   cumulativeTokens?: number;

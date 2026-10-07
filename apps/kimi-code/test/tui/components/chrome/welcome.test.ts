@@ -24,6 +24,7 @@ const appState: AppState = {
   cacheMissTokens: 0,
   cacheOtherTokens: 0,
   tokenSpeed: 0,
+  tokenSpeedAverage: 0,
   sessionStats: createEmptySessionStats(),
   contextTokens: 0,
   maxContextTokens: 0,

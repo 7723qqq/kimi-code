@@ -186,7 +186,7 @@ describe('FooterComponent · live cache hit rate and token speed', () => {
       baseState({ cacheReadTokens: 1_792, cacheMissTokens: 99, tokenSpeed: 12.345 }),
     );
     const out = strip(fc.render(200).join(''));
-    expect(out).toMatch(/12\.3 tok\/s \| cache hit 95%/);
+    expect(out).toMatch(/12\.3 tok\/s now \| cache hit 95%/);
   });
 
   it('falls back to the total-input share when cache writes are never reported', () => {
