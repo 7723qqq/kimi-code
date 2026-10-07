@@ -123,6 +123,13 @@ export function formatOneDecimal(v: number): string {
  * Footer speed readout: one decimal below 100 tok/s ("49.3"), integer at and
  * above ("4957") — a trailing decimal on a four-digit rate is false
  * precision. Non-finite / non-positive input renders "0".
+ *
+ * The web status panel formats the same unit differently (one decimal below
+ * 10, integer above) because it rounds a mid-range reading more finely than a
+ * footer that has to survive a narrow pane. Both report the same quantity: the
+ * session-cumulative ratio from `apps/kimi-web/src/lib/sessionStats.ts`'s
+ * `tokensPerSecond` and the TUI sampler agree on a reply, and differ only in
+ * these rounding thresholds.
  */
 export function formatTokenSpeed(speed: number): string {
   if (!Number.isFinite(speed) || speed <= 0) return '0';

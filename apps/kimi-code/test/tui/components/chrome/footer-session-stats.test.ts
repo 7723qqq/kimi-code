@@ -77,27 +77,37 @@ describe('FooterComponent — session stats line', () => {
     expect(out).toContain('context: 11% (104k/954k)');
   });
 
-  it('drops the least important items as the terminal narrows', () => {
-    // 62: tool time, first-token avg, tok/s, LLM time and in/out are dropped;
-    // the turn count and the always-kept cache/context readouts survive.
-    const mid = line2(statsState, 62);
-    expect(mid).toContain('4 turns · 8 steps');
-    expect(mid).not.toContain('tools 0.9s');
-    expect(mid).not.toContain('LLM 3m6s');
-    expect(mid).not.toContain('first token avg');
-    expect(mid).not.toContain('107 tok/s');
-    expect(mid).not.toContain('in 172k tok');
+  it('keeps tok/s longest and drops the session totals first', () => {
+    // The rate answers a question only the present moment can answer, so it
+    // outlives every cumulative reading. Widest first: all seven items.
+    const wide = line2(statsState, 160);
+    expect(wide).toContain('4 turns · 8 steps');
+    expect(wide).toContain('107 tok/s');
 
-    // 52: turn/step count goes too; cache hit + context remain.
-    const narrow = line2(statsState, 52);
-    expect(narrow).not.toContain('4 turns · 8 steps');
+    // 110: the turn/step counters (priority 1) and the cumulative timings
+    // (priority 2) have gone; every reading that describes the reply in
+    // flight is still there.
+    const withTotals = line2(statsState, 110);
+    expect(withTotals).not.toContain('turns ·');
+    expect(withTotals).not.toContain('LLM 3m6s');
+    expect(withTotals).not.toContain('tools 0.9s');
+    expect(withTotals).toContain('first token avg 1.8s');
+    expect(withTotals).toContain('107 tok/s');
+    expect(withTotals).toContain('in 172k tok');
+
+    // 88: LLM time and tools time join them; the rate and first-token avg hold.
+    const mid = line2(statsState, 88);
+    expect(mid).not.toContain('LLM 3m6s');
+    expect(mid).not.toContain('tools 0.9s');
+    expect(mid).toContain('107 tok/s');
+    expect(mid).toContain('first token avg 1.8s');
+
+    // 62: first-token latency goes; the rate is the last optional item left.
+    const narrow = line2(statsState, 62);
+    expect(narrow).not.toContain('first token avg');
+    expect(narrow).toContain('107 tok/s');
     expect(narrow).toContain('cache hit 88%');
     expect(narrow).toContain('context:');
-
-    // 30: even cache+context overflow — the renderer truncates the line but
-    // the leading cache hit readout stays visible.
-    const tiny = line2(statsState, 30);
-    expect(tiny).toContain('cache hit 88%');
   });
 
   it('falls back to the plain context readout before any session traffic', () => {

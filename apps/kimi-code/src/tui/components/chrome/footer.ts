@@ -227,9 +227,23 @@ function formatCacheHitRate(
  * join with ` · `, groups with ` | `). Display order: turns/steps, LLM time ·
  * tool time, first-token avg · tok/s, cache hit, input/output, context. The
  * cache-hit and context readouts carry `Infinity` priority and only disappear
- * when their data is absent entirely. Item drop priority (lower = dropped
- * first when the terminal narrows): tool time → first-token avg → tok/s →
- * LLM time → input/output → turns/steps.
+ * when their data is absent entirely.
+ *
+ * Item drop priority (lower = dropped first when the terminal narrows):
+ * turn/step counters (1) → tools time (2) → LLM time (2) → input/output (2) →
+ * first-token avg (4) → tok/s (5), with cache hit and context never dropped.
+ *
+ * The rule behind that order: information a later render cannot reconstruct
+ * outranks information that is merely decorative, and live information outranks
+ * both. The counters and the cumulative timings are session totals that keep
+ * growing on screen whether or not they are shown right now, so they go first.
+ * First-token latency describes the reply that already started, which the
+ * phase indicator has already carried the user through. `tok/s` is the one item
+ * that keeps moving as the session continues — it is what the user watches
+ * while a reply streams — so it is the last optional item to go. A narrow pane
+ * that keeps `context` and a stale token total while dropping the rate has kept
+ * the decorations and lost the measurement. (It is a session average, not an
+ * instantaneous reading: see `utils/token-speed.ts`.)
  */
 function buildSessionStatSegments(
   stats: AppState['sessionStats'],
@@ -251,7 +265,7 @@ function buildSessionStatSegments(
       items: [
         {
           text: t('tui.chrome.footer.turnsSteps', { turns: turnText, steps: stepText }),
-          priority: 6,
+          priority: 1,
         },
       ],
     });
@@ -260,13 +274,13 @@ function buildSessionStatSegments(
   if (stats.llmTotalMs > 0) {
     llmTool.push({
       text: t('tui.chrome.footer.llmTime', { time: formatStatDuration(stats.llmTotalMs) }),
-      priority: 4,
+      priority: 2,
     });
   }
   if (stats.toolTotalMs > 0) {
     llmTool.push({
       text: t('tui.chrome.footer.toolTime', { time: formatStatDuration(stats.toolTotalMs) }),
-      priority: 1,
+      priority: 2,
     });
   }
   if (llmTool.length > 0) groups.push({ items: llmTool });
@@ -276,11 +290,11 @@ function buildSessionStatSegments(
   if (firstToken !== null) {
     latencySpeed.push({
       text: t('tui.chrome.footer.firstTokenAvg', { time: formatStatDuration(firstToken) }),
-      priority: 2,
+      priority: 4,
     });
   }
   if (speedText !== null) {
-    latencySpeed.push({ text: speedText, priority: 3 });
+    latencySpeed.push({ text: speedText, priority: 5 });
   }
   if (latencySpeed.length > 0) groups.push({ items: latencySpeed });
 
@@ -295,7 +309,7 @@ function buildSessionStatSegments(
             input: formatTokenCount(stats.inputTokens),
             output: formatTokenCount(stats.outputTokens),
           }),
-          priority: 5,
+          priority: 2,
         },
       ],
     });
