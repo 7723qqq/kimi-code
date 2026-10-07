@@ -18,6 +18,7 @@
         "pkg-pr-new": "0.0.75",
         "publint": "0.3.18",
         "sherif": "1.11.1",
+        "simple-git-hooks": "2.13.1",
         "tsdown": "0.22.0",
         "tsx": "^4.21.0",
         "typescript": "6.0.2",
@@ -465,9 +466,10 @@
     },
   },
   "trustedDependencies": [
+    "protobufjs",
     "esbuild",
     "ssh2",
-    "protobufjs",
+    "simple-git-hooks",
   ],
   "patchedDependencies": {
     "ssh2@1.17.0": "patches/ssh2@1.17.0.patch",
@@ -3462,6 +3464,8 @@
     "simple-concat": ["simple-concat@1.0.1", "https://registry.npmmirror.com/simple-concat/-/simple-concat-1.0.1.tgz", {}, "sha512-cSFtAPtRhljv69IK0hTVZQ+OfE9nePi/rtJmw5UjHeVyVroEqJXP1sFztKUy1qU+xvz3u/sfYJLa947b7nAN2Q=="],
 
     "simple-get": ["simple-get@4.0.1", "https://registry.npmmirror.com/simple-get/-/simple-get-4.0.1.tgz", { "dependencies": { "decompress-response": "6.0.0", "once": "1.4.0", "simple-concat": "1.0.1" } }, "sha512-brv7p5WgH0jmQJr1ZDDfKDOSeWWg+OVypG99A/5vYGPqJ6pxiaHLy8nxtFjBA7oMa01ebA9gfh1uMCFqOuXxvA=="],
+
+    "simple-git-hooks": ["simple-git-hooks@2.13.1", "https://registry.npmmirror.com/simple-git-hooks/-/simple-git-hooks-2.13.1.tgz", { "bin": { "simple-git-hooks": "cli.js" } }, "sha512-WszCLXwT4h2k1ufIXAgsbiTOazqqevFCIncOuUBZJ91DdvWcC5+OFkluWRQPrcuSYd8fjq+o2y1QfWqYMoAToQ=="],
 
     "simple-invariant": ["simple-invariant@2.0.1", "https://registry.npmmirror.com/simple-invariant/-/simple-invariant-2.0.1.tgz", {}, "sha512-1sbhsxqI+I2tqlmjbz99GXNmZtr6tKIyEgGGnJw/MKGblalqk/XoOYYFJlBzTKZCxx8kLaD3FD5s9BEEjx5Pyg=="],
 
