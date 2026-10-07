@@ -246,6 +246,9 @@ jobs:
           # the payload stay reachable by the caller; returning them through a
           # command substitution would run this in a subshell and lose both.
           RETRY_BODY="$(mktemp)"
+          # A caller that treats a 404 as "nothing to do" sets QUIET_404 and
+          # still gets a non-zero return; without it the expected miss would
+          # surface as a red error annotation on an otherwise green run.
           api_retry() {
             local attempt=1 delay=5
             : > "$RETRY_BODY"
@@ -255,7 +258,9 @@ jobs:
                 return 0
               fi
               if [[ "$HTTP_STATUS" != 5* && "$HTTP_STATUS" != 429 ]]; then
-                echo "::error::HTTP $HTTP_STATUS: $(cat "$RETRY_BODY")"
+                if [[ "$HTTP_STATUS" != 404 || -z "${QUIET_404:-}" ]]; then
+                  echo "::error::HTTP $HTTP_STATUS: $(cat "$RETRY_BODY")"
+                fi
                 return 1
               fi
               if [[ $attempt -ge 5 ]]; then
@@ -272,11 +277,9 @@ jobs:
           # A Release for this tag may already exist: deleting a tag turns its
           # Release into a draft rather than removing it, and re-running this
           # workflow must not die on that leftover. Edit it when present so the
-          # run is idempotent, and create it otherwise. A 404 simply means
-          # there is nothing to update.
-          # A 404 here means there is nothing to update, not a failure.
+          # run is idempotent, and create it otherwise.
           release_id=""
-          if api_retry "$RELEASE_API/tags/$TAG" 2>/dev/null; then
+          if QUIET_404=1 api_retry "$RELEASE_API/tags/$TAG"; then
             release_id="$(jq -r '.id // empty' < "$RETRY_BODY")"
           fi
 
