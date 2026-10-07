@@ -50,6 +50,8 @@ const HUMAN_VOCABULARY = new Set([
   'llm/response-format',
   'llm/media/upload',
   'llm/media/image-formats',
+  'llm/media/pathTag',
+  'llm/media/imageCompressionCaption',
   'llm/requester/requester',
   'llm/toolCallIdNormalizer',
   'llm-kimi/trait',

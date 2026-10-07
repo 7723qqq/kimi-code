@@ -3,55 +3,31 @@ import { EventEmitter } from 'node:events';
 
 import { createControlledPromise } from '@antfu/utils';
 
-import { Disposable, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { IInstantiationService } from '#/_base/di/instantiation';
-import { LifecycleScope } from '#/app/scopes';
+import { Disposable, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { defineState } from '#/state/state';
-import { abortError, isAbortError, isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import { toErrorMessage } from '#/_base/errors/errorMessage';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
+import {
+  abortError,
+  isAbortError,
+  isUserCancellation,
+  userCancellationReason,
+} from '#/_base/utils/abort';
 import { retryErrorFields } from '#/_base/utils/retry';
-import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
-import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
-import type { ModelRequestTiming } from '#/llm-adapter/model/model-requester';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { abortedToolOutput } from '#/agent/toolExecutor/toolExecutorService';
-import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
-import type { ExecutableToolResult } from '#/tool/toolContract';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { IConfigService } from '#/app/config/config';
-import { AgentErrorEvent } from '#/agent/mcp/mcpEvents';
-import { type FinishReason } from '#human/llm/finish-reason';
-import { mergeInPlace } from '#/llm-adapter/contract/message';
-import type { ContentPart, UserMessage } from '#human/llm/message';
-import { emptyUsage, type TokenUsage } from '#human/llm/usage';
-import { BugIndicatingError, ErrorCodes, Error2, isError2, toKimiErrorPayload } from '#/errors';
-import { OrderedHookSlot } from '#/hooks';
-
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { isVacuousContentPart } from '#/agent/contextMemory/vacuousContent';
 import { markInTurnOrigin } from '#/agent/contextMemory/conversationTime';
+import { isUserPromptSubmitHookPart } from '#/agent/contextMemory/hookParts';
 import { newMessageId } from '#/agent/contextMemory/messageId';
 import { type ContextMessage, type PromptOrigin } from '#/agent/contextMemory/types';
+import { isVacuousContentPart } from '#/agent/contextMemory/vacuousContent';
+import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
+import { AgentErrorEvent } from '#/agent/mcp/mcpEvents';
 import { gateImageFormatParts } from '#/agent/media/image-compress';
 import { daemonFileRefFromPart } from '#/agent/media/mediaRef';
 import { materializePromptDaemonRefs } from '#/agent/media/promptMediaIntake';
 import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { IFileService } from '#/app/file/fileService';
-import { IPluginService } from '#/app/plugin/plugin';
-import type {
-  TurnEndedEvent as TurnEndedTelemetryEvent,
-  TurnInterruptedEvent,
-  TurnStartedEvent as TurnStartedTelemetryEvent,
-} from '#/app/telemetry/events';
-import type { AgentTelemetryContext } from '#/app/telemetry/context';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IEventDispatcher } from '#/state/eventDispatcher';
-import { IWireService } from '#/wire/wire';
 import {
   PromptAborted,
   PromptCompleted,
@@ -60,6 +36,37 @@ import {
   PromptSteered,
   PromptSubmitted,
 } from '#/agent/prompt/promptEvents';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { abortedToolOutput } from '#/agent/toolExecutor/toolExecutorService';
+import type { ToolDidExecuteContext } from '#/agent/toolExecutor/toolHooks';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IConfigService } from '#/app/config/config';
+import { IFileService } from '#/app/file/fileService';
+import { IPluginService } from '#/app/plugin/plugin';
+import { LifecycleScope } from '#/app/scopes';
+import type { AgentTelemetryContext } from '#/app/telemetry/context';
+import type {
+  TurnEndedEvent as TurnEndedTelemetryEvent,
+  TurnInterruptedEvent,
+  TurnStartedEvent as TurnStartedTelemetryEvent,
+} from '#/app/telemetry/events';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { BugIndicatingError, ErrorCodes, Error2, isError2, toKimiErrorPayload } from '#/errors';
+import { OrderedHookSlot } from '#/hooks';
+import { mergeInPlace } from '#/llm-adapter/contract/message';
+import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
+import type { ModelRequestTiming } from '#/llm-adapter/model/model-requester';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { defineState } from '#/state/state';
+import type { ExecutableToolResult } from '#/tool/toolContract';
+import { IWireService } from '#/wire/wire';
+import { mergeSteerMessages, stripBundledSkillBlocks } from '#human/agent/origin';
+import { type FinishReason } from '#human/llm/finish-reason';
+import type { ContentPart, UserMessage } from '#human/llm/message';
+import { emptyUsage, type TokenUsage } from '#human/llm/usage';
+
 import { LOOP_CONTROL_SECTION, type LoopControl } from './configSection';
 import {
   createMaxStepsExceededError,
@@ -84,9 +91,25 @@ import {
   type Turn,
   type TurnResult,
 } from './loop';
-import { mergeSteerMessages, stripBundledSkillBlocks } from '#human/agent/origin';
-import { isUserPromptSubmitHookPart } from '#/agent/contextMemory/hookParts';
-import { createUserEntry, type UserEntry } from '#human/agent/turn';
+import {
+  attachMachineEngine,
+  createUserEntry,
+  EMPTY_MACHINE_PROMPT,
+  ENGINE_JOURNAL_DOMAIN,
+  engineJournal,
+  historyFromContext,
+  MACHINE_LOOP_MODEL,
+  machineEngineAttachBundle,
+  wireStoreJournal,
+  type CreateMachineEngineOptions,
+  type MachineEngine,
+  type MachineEngineAttachBundle,
+  type MachineEngineAttachRef,
+  type MachineEngineEvent,
+  type MachineTurnOutcome,
+  type PromptGateVerdict,
+  type UserEntry,
+} from './machine';
 import {
   AssistantDelta,
   isDisplayablePromptOrigin,
@@ -102,23 +125,6 @@ import {
   type TurnInterruptReason,
 } from './turnEvents';
 import { TurnCancel, TurnEnded, turnKey, TurnPrompt, TurnSteer } from './turnOps';
-import {
-  attachMachineEngine,
-  EMPTY_MACHINE_PROMPT,
-  ENGINE_JOURNAL_DOMAIN,
-  engineJournal,
-  historyFromContext,
-  MACHINE_LOOP_MODEL,
-  machineEngineAttachBundle,
-  wireStoreJournal,
-  type CreateMachineEngineOptions,
-  type MachineEngine,
-  type MachineEngineAttachBundle,
-  type MachineEngineAttachRef,
-  type MachineEngineEvent,
-  type MachineTurnOutcome,
-  type PromptGateVerdict,
-} from './machine';
 
 export type LoopInterruptReason = 'aborted' | 'max_steps' | 'error';
 
@@ -175,10 +181,13 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     this.states.contributeState(turnKey);
     this.states.contributeState(loopLastRequestTraceIdKey);
     this.states.contributeState(loopDisposingKey);
-    this.toolExecutor.hooks.onDidExecuteTool.register('prompt-service-delivery', async (ctx, next) => {
-      await this.deliverToolResult(ctx);
-      await next();
-    });
+    this.toolExecutor.hooks.onDidExecuteTool.register(
+      'prompt-service-delivery',
+      async (ctx, next) => {
+        await this.deliverToolResult(ctx);
+        await next();
+      },
+    );
   }
 
   private get lastRequestTraceId(): string | undefined {
@@ -238,17 +247,24 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     }
     this.engine = attachMachineEngine(ref, bundle, this.engineOptions());
     if (this.dispatcher.restorePhase === 'new') {
-      const hook = this.dispatcher.hooks.onDidRestore.register('loop.engineRefold', async (_ctx, next) => {
-        hook.dispose();
-        try {
-          if (!this.disposing && this.active === undefined && this.pendingMachineTurn === undefined) {
-            await this.machineEngine().resetJournal(this.freshEngineJournal());
+      const hook = this.dispatcher.hooks.onDidRestore.register(
+        'loop.engineRefold',
+        async (_ctx, next) => {
+          hook.dispose();
+          try {
+            if (
+              !this.disposing &&
+              this.active === undefined &&
+              this.pendingMachineTurn === undefined
+            ) {
+              await this.machineEngine().resetJournal(this.freshEngineJournal());
+            }
+          } catch (error) {
+            onUnexpectedError(error);
           }
-        } catch (error) {
-          onUnexpectedError(error);
-        }
-        await next();
-      });
+          await next();
+        },
+      );
     }
     this.rebuildRestoredRecords();
     if (this.quiescenceDepth > 0) {
@@ -383,7 +399,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     }
     if (
       this.active !== active ||
-      ![...ids].every((id) => new Set(engine.snapshot().queue.map((item) => item.meta?.promptId)).has(id))
+      ![...ids].every((id) =>
+        new Set(engine.snapshot().queue.map((item) => item.meta?.promptId)).has(id),
+      )
     ) {
       throw new Error2(ErrorCodes.PROMPT_NOT_FOUND, 'one or more prompts are no longer pending');
     }
@@ -427,9 +445,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     if (pending?.queueItemId === id && pending.entry !== undefined) {
       return projectionFromEntry(pending.entry);
     }
-    const queued = this.engine
-      ?.snapshot()
-      .queue.find((item) => item.meta?.promptId === id);
+    const queued = this.engine?.snapshot().queue.find((item) => item.meta?.promptId === id);
     if (queued !== undefined) return projectionFromEntry(queued);
     const parked = this.pendingSubmissions.find((item) => item.meta?.promptId === id);
     if (parked !== undefined) return projectionFromEntry(parked);
@@ -578,7 +594,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     const entry =
       queueItemId === undefined
         ? undefined
-        : this.machineEngine().snapshot().queue.find((item) => item.meta?.promptId === queueItemId);
+        : this.machineEngine()
+            .snapshot()
+            .queue.find((item) => item.meta?.promptId === queueItemId);
     if (waiter === undefined || entry?.meta?.tracked !== true) {
       return false;
     }
@@ -638,7 +656,6 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     this.maybeSettle();
   }
 
-
   private async deliverToolResult(ctx: ToolDidExecuteContext): Promise<void> {
     const delivery = ctx.result.delivery;
     if (delivery === undefined) return;
@@ -653,7 +670,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     }
   }
 
-  private publishPromptCompleted(promptId: string, reason: 'completed' | 'failed' | 'blocked'): void {
+  private publishPromptCompleted(
+    promptId: string,
+    reason: 'completed' | 'failed' | 'blocked',
+  ): void {
     void this.dispatcher.dispatch(
       new PromptCompleted({
         agentId: this.scopeContext.agentId,
@@ -856,9 +876,14 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       return;
     }
     if (pending.queueItemId === undefined) {
-      const seeded = this.nudges.slice(this.nudgeCursor).find(
-        (nudge) => !nudge.dropped && nudge.contextMessage !== undefined && nudge.contextMessage.content.length > 0,
-      );
+      const seeded = this.nudges
+        .slice(this.nudgeCursor)
+        .find(
+          (nudge) =>
+            !nudge.dropped &&
+            nudge.contextMessage !== undefined &&
+            nudge.contextMessage.content.length > 0,
+        );
       if (seeded === undefined) {
         this.consumeDrainedNudges();
         return;
@@ -931,7 +956,8 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       this.active !== undefined ||
       this.pendingMachineTurn !== undefined ||
       this.hasPendingRequests()
-    ) return;
+    )
+      return;
     if (this.settleWaiters.length === 0) return;
     const waiters = this.settleWaiters.splice(0);
     for (const resolve of waiters) resolve();
@@ -942,7 +968,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     options: LoopErrorHandlerRegistrationOptions = {},
   ): IDisposable {
     if (options.before !== undefined && options.after !== undefined) {
-      throw new BugIndicatingError('Loop error handler registration cannot specify both before and after');
+      throw new BugIndicatingError(
+        'Loop error handler registration cannot specify both before and after',
+      );
     }
     this.deleteErrorHandler(handler.id);
     const target = options.before ?? options.after;
@@ -988,12 +1016,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     if (turn.toolStopRequested && consumed.live === 0) return { type: 'fail' };
     const stepOrdinal = Math.max(this.engine?.currentStep() ?? 0, turn.steps + 1);
     const maxSteps = this.config.get<LoopControl>(LOOP_CONTROL_SECTION)?.maxStepsPerTurn;
-    if (
-      maxSteps !== undefined &&
-      maxSteps > 0 &&
-      stepOrdinal > maxSteps &&
-      !consumed.bypass
-    ) {
+    if (maxSteps !== undefined && maxSteps > 0 && stepOrdinal > maxSteps && !consumed.bypass) {
       turn.maxStepsError = createMaxStepsExceededError(maxSteps);
       return { type: 'fail' };
     }
@@ -1021,16 +1044,13 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     this.telemetry.setContext({ trace_id: undefined });
     EventEmitter.setMaxListeners(MAX_STEP_SIGNAL_LISTENERS, turn.controller.signal);
     try {
-
       await this.hooks.onWillBeginStep.run({
         turnId: turn.id,
         step: stepOrdinal,
         firstStepOfTurn: stepOrdinal === 1,
         signal: step.signal,
       });
-
     } catch (error) {
-
       return this.failMachineGate(turn, step, error);
     }
     if (step.signal.aborted) {
@@ -1085,9 +1105,14 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       this.settlePromptLaunched(waiter, boundTurn);
       return true;
     }
-    const seeded = this.nudges.slice(this.nudgeCursor).find(
-      (nudge) => !nudge.dropped && nudge.contextMessage !== undefined && nudge.contextMessage.content.length > 0,
-    );
+    const seeded = this.nudges
+      .slice(this.nudgeCursor)
+      .find(
+        (nudge) =>
+          !nudge.dropped &&
+          nudge.contextMessage !== undefined &&
+          nudge.contextMessage.content.length > 0,
+      );
     if (seeded === undefined) {
       this.machineTurnSuppressed = true;
       return false;
@@ -1276,7 +1301,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     return { live, bypass };
   }
 
-  private mirrorConsumedNudges(turn: ActiveTurn): { readonly live: number; readonly bypass: boolean } {
+  private mirrorConsumedNudges(turn: ActiveTurn): {
+    readonly live: number;
+    readonly bypass: boolean;
+  } {
     const consumed = this.consumeDrainedNudges();
     turn.nudgeCursor = this.nudgeCursor;
     return consumed;
@@ -1304,7 +1332,8 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       case 'promptSteered': {
         const active = this.active;
         if (active === undefined) return;
-        const children: { readonly waiter: PromptWaiter; readonly projection: SteeredPrompt }[] = [];
+        const children: { readonly waiter: PromptWaiter; readonly projection: SteeredPrompt }[] =
+          [];
         for (const entry of event.entries) {
           const id = entry.meta?.promptId;
           if (id === undefined) continue;
@@ -1372,9 +1401,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
             activePromptId: active.prompt.id,
             promptIds,
             messageId,
-            content: children.flatMap((child) =>
-              stripBundledSkillBlocks(child.projection.message),
-            ),
+            content: children.flatMap((child) => stripBundledSkillBlocks(child.projection.message)),
             steeredAt: new Date().toISOString(),
           }),
         );
@@ -1434,7 +1461,11 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           case 'assistant':
             this.accumulateMachinePart(turn, { type: 'text', text: delta.delta });
             void this.dispatcher.dispatch(
-              new AssistantDelta({ agentId: this.scopeContext.agentId, turnId: turn.id, delta: delta.delta }),
+              new AssistantDelta({
+                agentId: this.scopeContext.agentId,
+                turnId: turn.id,
+                delta: delta.delta,
+              }),
             );
             return;
           case 'thinking': {
@@ -1448,7 +1479,11 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
             });
             if (part?.type === 'think' && part.hidden === true) return;
             void this.dispatcher.dispatch(
-              new ThinkingDelta({ agentId: this.scopeContext.agentId, turnId: turn.id, delta: delta.delta }),
+              new ThinkingDelta({
+                agentId: this.scopeContext.agentId,
+                turnId: turn.id,
+                delta: delta.delta,
+              }),
             );
             return;
           }
@@ -1492,7 +1527,11 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         const toolCalls = event.entry.message.toolCalls;
         if (toolCalls.length === 0) {
           const finishReason = step.providerFinishReason ?? 'completed';
-          this.endOrInterruptMachineStep(turn, step, finishReason === 'tool_calls' ? 'other' : finishReason);
+          this.endOrInterruptMachineStep(
+            turn,
+            step,
+            finishReason === 'tool_calls' ? 'other' : finishReason,
+          );
         } else {
           step.pendingToolIds = new Set(toolCalls.map((call) => call.id));
         }
@@ -1504,7 +1543,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         if (turn === undefined || step === undefined) return;
         const callUuid = randomUUID();
         step.toolCallUuids.set(event.toolCallId, callUuid);
-        const extras = step.entry?.message.toolCalls.find((call) => call.id === event.toolCallId)?.extras;
+        const extras = step.entry?.message.toolCalls.find(
+          (call) => call.id === event.toolCallId,
+        )?.extras;
         this.context.appendLoopEvent({
           type: 'tool.call',
           uuid: callUuid,
@@ -1528,13 +1569,21 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
           turn.afterChain = turn.afterChain.then(async () => {
             await this.executeUnknownToolCall(turn, step, event.toolCallId);
             if (turn.current === step && step.pendingToolIds.size === 0) {
-              this.endOrInterruptMachineStep(turn, step, step.toolStopTurn ? 'completed' : 'tool_calls');
+              this.endOrInterruptMachineStep(
+                turn,
+                step,
+                step.toolStopTurn ? 'completed' : 'tool_calls',
+              );
             }
           });
           return;
         }
         if (step.pendingToolIds.size === 0) {
-          this.endOrInterruptMachineStep(turn, step, step.toolStopTurn ? 'completed' : 'tool_calls');
+          this.endOrInterruptMachineStep(
+            turn,
+            step,
+            step.toolStopTurn ? 'completed' : 'tool_calls',
+          );
         }
         return;
       }
@@ -1552,7 +1601,11 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         step.resolvedToolIds.add(event.toolCallId);
         step.pendingToolIds.delete(event.toolCallId);
         if (step.pendingToolIds.size === 0) {
-          this.endOrInterruptMachineStep(turn, step, step.toolStopTurn ? 'completed' : 'tool_calls');
+          this.endOrInterruptMachineStep(
+            turn,
+            step,
+            step.toolStopTurn ? 'completed' : 'tool_calls',
+          );
         }
         return;
       }
@@ -1699,8 +1752,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   private accumulateMachinePart(turn: ActiveTurn, part: ContentPart): ContentPart | undefined {
     const last = turn.partials.at(-1);
-    if (part.type === 'think' && last?.type === 'text' && isVacuousContentPart(part)) return undefined;
-    if (!turn.forceContentPartBoundary && last !== undefined && mergeInPlace(last, part)) return last;
+    if (part.type === 'think' && last?.type === 'text' && isVacuousContentPart(part))
+      return undefined;
+    if (!turn.forceContentPartBoundary && last !== undefined && mergeInPlace(last, part))
+      return last;
     turn.forceContentPartBoundary = false;
     turn.partials.push({ ...part });
     return turn.partials.at(-1);
@@ -1790,7 +1845,11 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     this.endMachineStep(turn, step, finishReason);
   }
 
-  private endMachineStep(turn: ActiveTurn, step: MachineStepState, finishReason: FinishReason): void {
+  private endMachineStep(
+    turn: ActiveTurn,
+    step: MachineStepState,
+    finishReason: FinishReason,
+  ): void {
     const normalized = normalizeFinishReason(finishReason);
     const usage = step.usage ?? emptyUsage();
     turn.lastStopReason = finishReason;
@@ -1873,9 +1932,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       await this.hooks.onDidFinishStep.run(context);
     } catch (error) {
       if (isAbortError(error) || step.signal.aborted) {
-        turn.abortReason = turn.controller.signal.aborted
-          ? turn.controller.signal.reason
-          : error;
+        turn.abortReason = turn.controller.signal.aborted ? turn.controller.signal.reason : error;
         return;
       }
     }
@@ -1897,7 +1954,11 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       await this.recoverOrFailMachineRun(turn);
       return;
     }
-    if (turn.abortReason !== undefined || turn.controller.signal.aborted || outcome.outcome === 'aborted') {
+    if (
+      turn.abortReason !== undefined ||
+      turn.controller.signal.aborted ||
+      outcome.outcome === 'aborted'
+    ) {
       const reason =
         turn.abortReason ??
         (turn.controller.signal.aborted ? turn.controller.signal.reason : undefined) ??
@@ -1910,10 +1971,14 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       await this.endTurn(turn, {
         type: 'failed',
         steps: turn.steps,
-        error: new Error2(ErrorCodes.PROVIDER_FILTERED, 'Provider safety policy blocked the response.', {
-          name: 'ProviderFilteredError',
-          details: { finishReason: 'filtered' },
-        }),
+        error: new Error2(
+          ErrorCodes.PROVIDER_FILTERED,
+          'Provider safety policy blocked the response.',
+          {
+            name: 'ProviderFilteredError',
+            details: { finishReason: 'filtered' },
+          },
+        ),
       });
       return;
     }
@@ -1972,7 +2037,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
         }
       } catch (handlerError) {
         if (isAbortError(handlerError) || turn.controller.signal.aborted) {
-          const reason = turn.controller.signal.aborted ? turn.controller.signal.reason : handlerError;
+          const reason = turn.controller.signal.aborted
+            ? turn.controller.signal.reason
+            : handlerError;
           this.interruptMachineRunForCancel(turn, reason);
           await this.endTurn(turn, { type: 'cancelled', steps: turn.steps, reason });
           return;
@@ -1989,7 +2056,9 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   private failMachineStep(turn: ActiveTurn, step: number | undefined, error: unknown): void {
     const reason: LoopInterruptReason = isMaxStepsExceededError(error) ? 'max_steps' : 'error';
     const interruptedError =
-      isError2(error) && error.code === ErrorCodes.INTERNAL && error.cause !== undefined ? error.cause : error;
+      isError2(error) && error.code === ErrorCodes.INTERNAL && error.cause !== undefined
+        ? error.cause
+        : error;
     this.emitStepInterrupted(turn.id, step, reason, toErrorMessage(interruptedError));
   }
 
@@ -2111,7 +2180,11 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       enabled_plugins: this.plugins.enabledPluginIds()?.join(','),
     };
     this.telemetry.track2('turn_ended', ended);
-    this.telemetry.setContext({ turn_id: undefined, trace_id: undefined, thinking_effort: undefined });
+    this.telemetry.setContext({
+      turn_id: undefined,
+      trace_id: undefined,
+      thinking_effort: undefined,
+    });
     this.activeRequestTrace = undefined;
     this.lastRequestTraceId = undefined;
     turn.result.resolve(result);

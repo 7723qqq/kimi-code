@@ -16,6 +16,7 @@ import {
 import type { FinishReason } from '#human/llm/finish-reason';
 
 export {
+  errorStatusCode,
   isAbortError,
   parseRetryAfterMs,
   sanitizeStatusErrorMessage,

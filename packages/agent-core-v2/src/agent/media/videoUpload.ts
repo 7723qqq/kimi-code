@@ -1,8 +1,7 @@
-import { VideoUploadUnsupportedError } from '#/llm-adapter/contract/errors';
-import { errorStatusCode } from '#human/llm/errors';
-import type { VideoURLPart } from '#human/llm/message';
-import type { Protocol } from '#/llm-adapter/protocol/protocol';
+import { VideoUploadUnsupportedError, errorStatusCode } from '#/llm-adapter/contract/errors';
 import { ProtocolErrors } from '#/llm-adapter/protocol/errors';
+import type { Protocol } from '#/llm-adapter/protocol/protocol';
+import type { VideoURLPart } from '#human/llm/message';
 
 export function isMediaUploadAuthError(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;
@@ -11,7 +10,9 @@ export function isMediaUploadAuthError(error: unknown): boolean {
   return status === 401 || status === 403;
 }
 
-export function isVideoUploadUnsupportedError(error: unknown): error is VideoUploadUnsupportedError {
+export function isVideoUploadUnsupportedError(
+  error: unknown,
+): error is VideoUploadUnsupportedError {
   return error instanceof VideoUploadUnsupportedError;
 }
 

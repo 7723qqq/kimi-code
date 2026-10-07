@@ -1,7 +1,7 @@
-import type { ContentPart } from '#human/llm/message';
 import type { ImageCompressEvent, ImageCropEvent } from '#/app/telemetry/events';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import { DEFAULT_INLINE_IMAGE_BYTE_BUDGET } from '#human/llm/media/image-formats';
+import type { ContentPart } from '#human/llm/message';
 
 import { sniffImageDimensions } from './file-type';
 import {
@@ -36,8 +36,7 @@ export const READ_IMAGE_BYTE_BUDGET = 256 * 1024;
 let configuredReadImageByteBudget: number | undefined;
 
 export function setConfiguredReadImageByteBudget(value: number | undefined): void {
-  configuredReadImageByteBudget =
-    value !== undefined && isPositiveInt(value) ? value : undefined;
+  configuredReadImageByteBudget = value !== undefined && isPositiveInt(value) ? value : undefined;
 }
 
 export function resolveReadImageByteBudget(): number {
@@ -339,7 +338,11 @@ export async function compressImageContentParts(
     if (part.type === 'image_url') {
       const parsed = parseImageDataUrl(part.imageUrl.url);
       if (parsed !== null) {
-        const result = await compressBase64ForModel(parsed.base64, parsed.mimeType, compressOptions);
+        const result = await compressBase64ForModel(
+          parsed.base64,
+          parsed.mimeType,
+          compressOptions,
+        );
         signal?.throwIfAborted();
         if (result.changed) {
           if (annotate !== undefined) {
@@ -435,7 +438,11 @@ export async function cropImageForModel(
   const normalizedMime = normalizeImageMime(mimeType);
 
   const fail = (errorKind: CropErrorKind, error: string): CropImageFailure => {
-    reportCropEvent(options.telemetry, options.telemetrySource, { startedAt, ok: false, errorKind });
+    reportCropEvent(options.telemetry, options.telemetrySource, {
+      startedAt,
+      ok: false,
+      errorKind,
+    });
     return { ok: false, error };
   };
   const succeed = (result: CropImageSuccess): CropImageSuccess => {
@@ -455,9 +462,7 @@ export async function cropImageForModel(
   if (normalizedMime === 'image/webp' && isAnimatedWebp(bytes)) {
     return fail('unsupported_format', 'Cropping is not supported for animated WebP images.');
   }
-  if (
-    ![region.x, region.y, region.width, region.height].every((value) => Number.isFinite(value))
-  ) {
+  if (![region.x, region.y, region.width, region.height].every((value) => Number.isFinite(value))) {
     return fail(
       'region_invalid',
       `Region coordinates must be finite numbers; got x=${String(region.x)}, ` +
@@ -482,7 +487,14 @@ export async function cropImageForModel(
 
     const x = Math.floor(region.x);
     const y = Math.floor(region.y);
-    if (x < 0 || y < 0 || x >= originalWidth || y >= originalHeight || region.width < 1 || region.height < 1) {
+    if (
+      x < 0 ||
+      y < 0 ||
+      x >= originalWidth ||
+      y >= originalHeight ||
+      region.width < 1 ||
+      region.height < 1
+    ) {
       return fail(
         'out_of_bounds',
         `Region (x=${String(region.x)}, y=${String(region.y)}, width=${String(region.width)}, ` +
@@ -581,24 +593,10 @@ export function buildImageCompressionCaption(input: ImageCompressionCaptionInput
   return `<system>${sentences.join(' ')}</system>`;
 }
 
-const CAPTION_OPENING = '<system>Image compressed to fit model limits:';
-
-const CAPTION_PATTERN = /<system>(Image compressed to fit model limits:[\s\S]*?)<\/system>/g;
-
-export interface ImageCompressionCaptionExtraction {
-  readonly captions: readonly string[];
-  readonly text: string;
-}
-
-export function extractImageCompressionCaptions(text: string): ImageCompressionCaptionExtraction {
-  if (!text.includes(CAPTION_OPENING)) return { captions: [], text };
-  const captions: string[] = [];
-  const remainder = text.replace(CAPTION_PATTERN, (_match, body: string) => {
-    captions.push(body);
-    return '';
-  });
-  return { captions, text: remainder };
-}
+export {
+  extractImageCompressionCaptions,
+  type ImageCompressionCaptionExtraction,
+} from '#human/llm/media/imageCompressionCaption';
 
 function describeImageVariant(variant: ImageVariantDescription): string {
   const size = `${variant.mimeType} (${formatByteSize(variant.byteLength)})`;
@@ -756,8 +754,7 @@ function reportCompressEvent(
       duration_ms: Date.now() - input.startedAt,
     };
     telemetry.track2('image_compress', event);
-  } catch {
-  }
+  } catch {}
 }
 
 function reportCropEvent(
@@ -773,8 +770,7 @@ function reportCropEvent(
   if (telemetry === undefined || source === undefined) return;
   try {
     const { result } = input;
-    const originalPixels =
-      result === undefined ? 0 : result.originalWidth * result.originalHeight;
+    const originalPixels = result === undefined ? 0 : result.originalWidth * result.originalHeight;
     const event: ImageCropEvent = {
       source,
       ok: input.ok,
@@ -790,6 +786,5 @@ function reportCropEvent(
       duration_ms: Date.now() - input.startedAt,
     };
     telemetry.track2('image_crop', event);
-  } catch {
-  }
+  } catch {}
 }
