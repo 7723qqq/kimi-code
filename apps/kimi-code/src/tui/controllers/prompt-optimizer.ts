@@ -2,9 +2,12 @@ import type { Session } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
 
-import { PromptOptimizePanelComponent, type PromptOptimizeChoice } from '../components/dialogs/prompt-optimize-panel';
-import { formatErrorMessage } from '../utils/event-payload';
+import {
+  PromptOptimizePanelComponent,
+  type PromptOptimizeChoice,
+} from '../components/dialogs/prompt-optimize-panel';
 import type { TUIState } from '../tui-state';
+import { formatErrorMessage } from '../utils/event-payload';
 
 const MAX_RECENT_TURNS = 6;
 const MAX_RECENT_TURN_CHARS = 400;

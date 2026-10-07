@@ -48,9 +48,7 @@ export function listNetworkAddresses(): NetworkAddress[] {
  * interface) are collapsed. The result is IPv4 first, then IPv6, preserving
  * order within each family.
  */
-export function filterDisplayAddresses(
-  addrs: readonly NetworkAddress[],
-): NetworkAddress[] {
+export function filterDisplayAddresses(addrs: readonly NetworkAddress[]): NetworkAddress[] {
   const seen = new Set<string>();
   const kept: NetworkAddress[] = [];
   for (const addr of addrs) {
@@ -63,10 +61,7 @@ export function filterDisplayAddresses(
     seen.add(addr.address);
     kept.push(addr);
   }
-  return [
-    ...kept.filter((a) => a.family === 'IPv4'),
-    ...kept.filter((a) => a.family === 'IPv6'),
-  ];
+  return [...kept.filter((a) => a.family === 'IPv4'), ...kept.filter((a) => a.family === 'IPv6')];
 }
 
 /** True for IPv6 link-local addresses (`fe80::/10`, i.e. `fe80::`–`febf::`). */

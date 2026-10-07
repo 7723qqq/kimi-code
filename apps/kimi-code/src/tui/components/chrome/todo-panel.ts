@@ -108,9 +108,8 @@ export function computePanelProgress(todos: readonly TodoItem[]): TodoProgressRe
     byId.set(keyOf(milestone), value);
     milestoneValues.push(value);
   }
-  const done = todos.filter(
-    (item) =>
-      item.kind === 'milestone' ? (byId.get(keyOf(item)) ?? 0) >= 100 : item.status === 'done',
+  const done = todos.filter((item) =>
+    item.kind === 'milestone' ? (byId.get(keyOf(item)) ?? 0) >= 100 : item.status === 'done',
   ).length;
   return { overall: mean(milestoneValues), done, total: todos.length, byId };
 }
@@ -276,10 +275,8 @@ export class TodoPanelComponent implements Component {
     const activeRoot = roots.find(
       (node) =>
         node.item.kind === 'milestone' &&
-        effectiveStatus(
-          node.item,
-          report.byId.get(node.item.id ?? node.item.title) ?? 0,
-        ) === 'in_progress',
+        effectiveStatus(node.item, report.byId.get(node.item.id ?? node.item.title) ?? 0) ===
+          'in_progress',
     );
     const activeChildren = activeRoot?.children.slice(0, MAX_ACTIVE_CHILD_ROWS) ?? [];
 
@@ -347,11 +344,7 @@ function renderHeader(report: TodoProgressReport, c: ColorPalette): string {
   );
 }
 
-function renderMilestoneRow(
-  node: TodoNode,
-  report: TodoProgressReport,
-  c: ColorPalette,
-): string[] {
+function renderMilestoneRow(node: TodoNode, report: TodoProgressReport, c: ColorPalette): string[] {
   const key = node.item.id ?? node.item.title;
   const progress = report.byId.get(key) ?? 0;
   const status = effectiveStatus(node.item, progress);

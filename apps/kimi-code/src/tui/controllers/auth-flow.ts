@@ -10,6 +10,7 @@ import {
 import { createKimiCodeUserAgent } from '#/cli/version';
 
 import { getOauthLoginRequiredStartupNotice } from '../constant/kimi-tui';
+import type { AppState, KimiTUIOptions } from '../types';
 import {
   refreshAllProviderModels,
   type RefreshProviderHost,
@@ -17,7 +18,6 @@ import {
   type RefreshResult,
 } from '../utils/refresh-providers';
 import { thinkingEffortFromConfig } from '../utils/thinking-config';
-import type { AppState, KimiTUIOptions } from '../types';
 
 export interface AuthFlowHost {
   session: Session | undefined;

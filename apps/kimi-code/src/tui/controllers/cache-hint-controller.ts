@@ -13,6 +13,7 @@ import { t } from '#/i18n';
 import type { ColorToken } from '#/tui/theme';
 import { getCacheHintConfig, peekCacheHintConfig } from '#/utils/cache-hint-config';
 import { formatTokenCount } from '#/utils/usage/usage-format';
+
 import { currentTuiConfig } from '../commands/config';
 import {
   CacheHintDialogComponent,
@@ -200,9 +201,7 @@ export class CacheHintController {
     const baseline = this.breakBaseline;
     if (baseline === undefined) return undefined;
     const total =
-      baseline.usage.inputOther +
-      baseline.usage.inputCacheRead +
-      baseline.usage.inputCacheCreation;
+      baseline.usage.inputOther + baseline.usage.inputCacheRead + baseline.usage.inputCacheCreation;
     return total > 0 ? total : undefined;
   }
 

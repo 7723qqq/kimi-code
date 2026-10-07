@@ -305,8 +305,14 @@ export class SessionPickerComponent extends Container implements Focusable {
     const label = singleLine(
       formatSessionLabel({ title: rawTitle, metadata: state.session.metadata }),
     );
-    const prefix = state.phase === 'confirm' ? 'Delete session "' : 'Deleting session "';
-    const suffix = state.phase === 'confirm' ? '"? [y/N]' : '"…';
+    const prefix =
+      state.phase === 'confirm'
+        ? t('tui.dialogs.sessionPicker.deletePrefix')
+        : t('tui.dialogs.sessionPicker.deletingPrefix');
+    const suffix =
+      state.phase === 'confirm'
+        ? t('tui.dialogs.sessionPicker.deleteConfirmSuffix')
+        : t('tui.dialogs.sessionPicker.deletingSuffix');
     const labelBudget = Math.max(0, width - visibleWidth(prefix) - visibleWidth(suffix));
     const shown = truncateToWidth(label, labelBudget, ELLIPSIS);
     // The suffix carries the confirm/cancel keys: it survives by truncating
@@ -386,7 +392,7 @@ export class SessionPickerComponent extends Container implements Focusable {
       ...(view.query.length > 0 ? [t('tui.dialogs.modelSelector.hintBackspace')] : []),
       t('tui.dialogs.modelSelector.hintNavigate'),
       scopeHint,
-      ...(this.onDeleteRequest !== undefined ? ['Ctrl+X delete'] : []),
+      ...(this.onDeleteRequest !== undefined ? [t('tui.dialogs.sessionPicker.hintDelete')] : []),
       t('tui.dialogs.modelSelector.hintSelect'),
       t('tui.dialogs.modelSelector.hintCancel'),
     ].filter((item): item is string => item !== undefined);
@@ -444,11 +450,11 @@ export class SessionPickerComponent extends Container implements Focusable {
     ) {
       lines.push('');
       const moreSuffix = this.loadingMore
-        ? ' · loading more…'
+        ? ` · ${t('tui.dialogs.sessionPicker.moreLoading')}`
         : this.hasMore
           ? view.query.length > 0
-            ? ' · searching all…'
-            : ' · scroll for more'
+            ? ` · ${t('tui.dialogs.sessionPicker.moreSearching')}`
+            : ` · ${t('tui.dialogs.sessionPicker.moreScroll')}`
           : '';
       const totalSuffix =
         view.query.length > 0

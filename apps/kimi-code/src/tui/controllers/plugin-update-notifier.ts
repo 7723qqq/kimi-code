@@ -1,6 +1,7 @@
 import type { PluginSummary } from '@moonshot-ai/kimi-code-sdk';
 
 import { kimiCodePluginMarketplaceUrl } from '#/constant/app';
+import { t } from '#/i18n';
 import {
   computeUpdateStatus,
   loadPluginMarketplace,
@@ -180,8 +181,10 @@ export class PluginUpdateNotifier {
       const state = await readPluginUpdateNoticeState(this.deps.stateFile);
       if (state.notified[pluginId] === status.latest) return;
       this.deps.notify(
-        `Update detected: ${installed.displayName} ${status.latest} is available. ` +
-          'Run /plugins to install the latest version from the Official Marketplace.',
+        t('tui.messages.pluginUpdateDetected', {
+          name: installed.displayName,
+          version: status.latest,
+        }),
       );
       await writePluginUpdateNoticeState(
         { ...state, notified: { ...state.notified, [pluginId]: status.latest } },

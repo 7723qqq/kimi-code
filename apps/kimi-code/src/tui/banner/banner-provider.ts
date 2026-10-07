@@ -215,7 +215,9 @@ function pickCandidates(
         subText: item.banner_subtext,
         display,
         ttlHours:
-          display === 'cooldown' ? parseBannerDisplayTtlHours(item.banner_display_ttl_hours) : undefined,
+          display === 'cooldown'
+            ? parseBannerDisplayTtlHours(item.banner_display_ttl_hours)
+            : undefined,
       }),
     );
   }
@@ -235,7 +237,9 @@ function parseShownAt(value: string | undefined): Date | null {
 }
 
 function getCooldownTtlHours(banner: BannerState): number {
-  return typeof banner.ttlHours === 'number' && Number.isFinite(banner.ttlHours) && banner.ttlHours > 0
+  return typeof banner.ttlHours === 'number' &&
+    Number.isFinite(banner.ttlHours) &&
+    banner.ttlHours > 0
     ? banner.ttlHours
     : DEFAULT_COOLDOWN_TTL_HOURS;
 }
@@ -253,7 +257,8 @@ export function shouldDisplayBanner(
 }
 
 export function selectBannerState(args: SelectBannerStateArgs): BannerState | null {
-  const typed = typeof args.json === 'object' && args.json !== null ? (args.json as BannerTipsJson) : {};
+  const typed =
+    typeof args.json === 'object' && args.json !== null ? (args.json as BannerTipsJson) : {};
   return pickRandomCandidate(
     pickCandidates(typed, args.clientVersion, args.now, args.audience, args.system),
     args.random,
@@ -261,10 +266,15 @@ export function selectBannerState(args: SelectBannerStateArgs): BannerState | nu
 }
 
 export function selectDisplayableBanner(args: SelectDisplayableBannerArgs): BannerState | null {
-  const typed = typeof args.json === 'object' && args.json !== null ? (args.json as BannerTipsJson) : {};
-  const candidates = pickCandidates(typed, args.clientVersion, args.now, args.audience, args.system).filter(
-    (candidate) => shouldDisplayBanner(candidate, args.state, args.now),
-  );
+  const typed =
+    typeof args.json === 'object' && args.json !== null ? (args.json as BannerTipsJson) : {};
+  const candidates = pickCandidates(
+    typed,
+    args.clientVersion,
+    args.now,
+    args.audience,
+    args.system,
+  ).filter((candidate) => shouldDisplayBanner(candidate, args.state, args.now));
   return pickRandomCandidate(candidates, args.random);
 }
 

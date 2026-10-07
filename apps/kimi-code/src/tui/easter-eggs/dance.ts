@@ -123,7 +123,7 @@ export function renderDanceWelcomeHeader(
   const logoWidth = Math.max(...logo.map((row) => visibleWidth(row)));
   const gap = '  ';
   const rightRow0 = truncateToWidth(
-    rainbowText('Welcome to Kimi Code!', palette, phase + 2, true),
+    rainbowText(t('tui.chrome.welcome.title'), palette, phase + 2, true),
     textWidth,
     '…',
   );

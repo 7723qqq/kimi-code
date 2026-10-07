@@ -161,7 +161,7 @@ async function readQueueFile(session: GoalQueueSession): Promise<GoalQueueFile> 
   if (!isRecord(parsed)) {
     throw new KimiError(
       ErrorCodes.CONFIG_INVALID,
-      `Goal queue file has an unexpected shape: ${filePath}`,
+      t('tui.messages.goalQueueUnexpectedShape', { path: filePath }),
     );
   }
   if (parsed['version'] !== GOAL_QUEUE_VERSION) {
@@ -169,7 +169,10 @@ async function readQueueFile(session: GoalQueueSession): Promise<GoalQueueFile> 
     // to the user. Fail loudly and leave the file untouched instead.
     throw new KimiError(
       ErrorCodes.CONFIG_INVALID,
-      `Unsupported goal queue version ${String(parsed['version'])} in ${filePath}`,
+      t('tui.messages.goalQueueUnsupportedVersion', {
+        version: String(parsed['version']),
+        path: filePath,
+      }),
     );
   }
   // Drop only the entries that fail validation; a single corrupted goal

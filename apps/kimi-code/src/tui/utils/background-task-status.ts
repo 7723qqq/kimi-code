@@ -88,7 +88,7 @@ function detailFor(info: BackgroundTaskInfo): string | undefined {
   }
   if (info.status === 'timed_out') parts.push(t('tui.dialogs.tasksBrowser.statusTimedOut'));
   if (info.status === 'lost') {
-    parts.push('session restarted before completion');
+    parts.push(t('tui.messages.bgTaskSessionRestarted'));
   }
 
   return parts.length > 0 ? parts.join(' · ') : undefined;

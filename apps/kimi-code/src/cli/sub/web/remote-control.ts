@@ -1,9 +1,11 @@
+import type { RemoteControlStatus } from '@moonshot-ai/remote-control';
 import chalk from 'chalk';
 
-import { getVersion } from '../../version';
+import { t } from '#/i18n';
+
 import { darkColors } from '../../../tui/theme/colors';
 import { supportsHyperlinks, toTerminalHyperlink } from '../../../utils/terminal-hyperlink';
-import type { RemoteControlStatus } from '@moonshot-ai/remote-control';
+import { getVersion } from '../../version';
 import { buildOpenableUrl, splitTokenFragment } from './access-urls';
 
 export {
@@ -48,30 +50,36 @@ export function formatRemoteControlOutput(options: RemoteControlOutputOptions): 
   const status = (text: string): string => chalk.hex(darkColors.success)(text);
   const link = (url: string): string =>
     supportsHyperlinks() ? toTerminalHyperlink(accent(url), url) : accent(url);
-  const docs = toTerminalHyperlink('docs', 'https://kimi.com/code/docs/remote-control');
-  const feedback = toTerminalHyperlink('feedback', 'https://kimi.com/code/feedback');
+  const docs = toTerminalHyperlink(
+    t('tui.statusMessages.rcDocsLabel'),
+    'https://kimi.com/code/docs/remote-control',
+  );
+  const feedback = toTerminalHyperlink(
+    t('tui.statusMessages.rcFeedbackLabel'),
+    'https://kimi.com/code/feedback',
+  );
   const [localBase, localFrag] = splitTokenFragment(
     buildOpenableUrl(options.localOrigin, options.localServerToken),
   );
   return [
     '',
-    `  ${title('Kimi Remote Control ready')}  ${muted(getVersion())}`,
-    `  ${muted('Use Kimi Code on this machine from your phone or another computer.')}`,
+    `  ${title(t('tui.statusMessages.rcReadyTitle'))}  ${muted(getVersion())}`,
+    `  ${muted(t('tui.statusMessages.rcReadySubtitle'))}`,
     '',
-    `  ${label('1.')} Scan the QR code, or open ${link(options.url)}`,
-    `  ${label('2.')} Log in with your Kimi account`,
-    `  ${label('3.')} Start chatting — sessions run on this machine`,
+    `  ${label('1.')} ${t('tui.statusMessages.rcStepScan', { url: link(options.url) })}`,
+    `  ${label('2.')} ${t('tui.statusMessages.rcStepLogin')}`,
+    `  ${label('3.')} ${t('tui.statusMessages.rcStepChat')}`,
     '',
-    `  ${status('✓')} ${muted(`Connected to ${new URL(options.url).host}, waiting for remote devices…`)}`,
-    `  ${label('This device: ')}${muted(options.deviceName)}`,
-    `  ${status('⚠')} ${muted('This link grants control of this machine. Do not share it.')}`,
+    `  ${status('✓')} ${muted(t('tui.statusMessages.rcConnectedWaiting', { host: new URL(options.url).host }))}`,
+    `  ${label(t('tui.statusMessages.rcDeviceLabel'))}${muted(options.deviceName)}`,
+    `  ${status('⚠')} ${muted(t('tui.statusMessages.rcLinkWarning'))}`,
     '',
     options.qrCode.trimEnd().replaceAll(/^/gm, '    '),
-    `  ${label('QR code PNG: ')}${options.pngPath} ${muted('(open this if the QR above does not scan)')}`,
-    `  ${label('Local UI: ')}${accent(localBase)}${dim(localFrag)} ${muted('(LAN: --host)')}`,
+    `  ${label(t('tui.statusMessages.rcQrPngLabel'))}${options.pngPath} ${muted(t('tui.statusMessages.rcQrPngHint'))}`,
+    `  ${label(t('tui.statusMessages.rcLocalUiLabel'))}${accent(localBase)}${dim(localFrag)} ${muted(t('tui.statusMessages.rcLanHint'))}`,
     '',
     `  ${docs} ${muted('·')} ${feedback}`,
-    `  ${label('Logs: ')}${muted('off (--log-level info)')} ${muted('·')} ${label('Stop: ')}${muted('Ctrl+C')}`,
+    `  ${label(t('tui.statusMessages.rcLogsLabel'))}${muted(t('tui.statusMessages.rcLogsOff'))} ${muted('·')} ${label(t('tui.statusMessages.rcStopLabel'))}${muted('Ctrl+C')}`,
     '',
   ].join('\n');
 }
@@ -81,12 +89,12 @@ export function formatRemoteControlStatus(status: RemoteControlStatus): string {
   const value = (text: string): string => chalk.hex(darkColors.success)(text);
   switch (status) {
     case 'relay_connected':
-      return `  ${value('✓')} ${label('Connected to relay, waiting for remote devices…')}\n`;
+      return `  ${value('✓')} ${label(t('tui.statusMessages.rcStatusRelayConnected'))}\n`;
     case 'relay_disconnected':
-      return `  ${value('!')} ${label('Relay disconnected; reconnecting…')}\n`;
+      return `  ${value('!')} ${label(t('tui.statusMessages.rcStatusRelayDisconnected'))}\n`;
     case 'device_connected':
-      return `  ${value('✓')} ${label('Remote device connected (1 active session)')}\n`;
+      return `  ${value('✓')} ${label(t('tui.statusMessages.rcStatusDeviceConnected'))}\n`;
     case 'device_disconnected':
-      return `  ${value('→')} ${label('Remote device disconnected')}\n`;
+      return `  ${value('→')} ${label(t('tui.statusMessages.rcStatusDeviceDisconnected'))}\n`;
   }
 }

@@ -16,6 +16,10 @@ vi.mock('#/i18n', () => ({
       'tui.statusMessages.experimentalUpdatedSessionReloaded':
         'Experimental features updated. Session reloaded.',
       'tui.statusMessages.experimentalUpdated': 'Experimental features updated.',
+      'tui.messages.experimentalTowerRestart':
+        'Tower mode takes effect after restarting Kimi Code.',
+      'tui.messages.experimentalNotifyUserNewSession':
+        'Start a new session to use Updates if this session was created with the feature disabled.',
     };
     return translations[key] ?? key;
   },

@@ -1,5 +1,10 @@
+import {
+  NOTIFY_USER_DELIVERED_OUTPUT,
+  NOTIFY_USER_SUPPRESSED_OUTPUT,
+} from '@moonshot-ai/agent-core-v2';
+
 export function notifyResultState(output: unknown): 'displayed' | 'suppressed' | undefined {
-  if (output === 'Update shown to the user.') return 'displayed';
-  if (output === 'Notifications are disabled; the update was not displayed.') return 'suppressed';
+  if (output === NOTIFY_USER_DELIVERED_OUTPUT) return 'displayed';
+  if (output === NOTIFY_USER_SUPPRESSED_OUTPUT) return 'suppressed';
   return undefined;
 }

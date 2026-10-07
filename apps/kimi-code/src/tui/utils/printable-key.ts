@@ -43,7 +43,7 @@ export function isPrintableChar(ch: string): boolean {
  */
 export function isPrintableText(text: string): boolean {
   if (text.length === 0) return false;
-  for (let i = 0; i < text.length; ) {
+  for (let i = 0; i < text.length;) {
     const code = text.codePointAt(i);
     if (code === undefined) return false;
     if (code < 0x20 || code === 0x7f || (code >= 0x80 && code <= 0x9f)) return false;

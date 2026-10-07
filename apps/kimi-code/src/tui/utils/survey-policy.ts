@@ -1,4 +1,3 @@
-
 import type { SurveyPopupConfig } from '#/utils/survey-popup-config';
 
 import {

@@ -16,7 +16,7 @@ import {
 import { PRODUCT_NAME } from '#/constant/app';
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
-import { PERMISSION_MODE_DISPLAY_NAMES } from '#/tui/utils/permission-mode';
+import { permissionModeDisplayName } from '#/tui/utils/permission-mode';
 import {
   formatTokenCount,
   ratioSeverity,
@@ -116,26 +116,40 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
   const towerMode = options.status?.towerMode ?? options.towerMode;
   const specMode = options.status?.specMode ?? options.specMode;
   const swarmMode = options.status?.swarmMode ?? options.swarmMode;
-  const sessionId = options.sessionId.trim().length > 0 ? options.sessionId : 'none';
+  const sessionId =
+    options.sessionId.trim().length > 0
+      ? options.sessionId
+      : t('tui.messages.statusPanel.sessionNone');
+  const onOff = (flag: boolean | undefined): string =>
+    flag === true ? t('tui.messages.statusPanel.on') : t('tui.messages.statusPanel.off');
   const rows: FieldRow[] = [
-    { label: 'Model', value: formatModelStatus(options) },
-    { label: 'Directory', value: options.workDir },
-    { label: 'Permissions', value: PERMISSION_MODE_DISPLAY_NAMES[permission] },
-    { label: t('tui.messages.statusPanel.planModeLabel'), value: planMode ? 'on' : 'off' },
-    { label: t('tui.messages.statusPanel.specModeLabel'), value: specMode ? 'on' : 'off' },
-    { label: t('tui.messages.statusPanel.swarmModeLabel'), value: swarmMode ? 'on' : 'off' },
+    { label: t('tui.messages.statusPanel.modelLabel'), value: formatModelStatus(options) },
+    { label: t('tui.messages.statusPanel.directoryLabel'), value: options.workDir },
+    {
+      label: t('tui.messages.statusPanel.permissionsLabel'),
+      value: permissionModeDisplayName(permission),
+    },
+    { label: t('tui.messages.statusPanel.planModeLabel'), value: onOff(planMode) },
+    { label: t('tui.messages.statusPanel.specModeLabel'), value: onOff(specMode) },
+    { label: t('tui.messages.statusPanel.swarmModeLabel'), value: onOff(swarmMode) },
   ];
   if (options.towerAvailable) {
     rows.push({
       label: t('tui.dialogs.experimentsSelector.features.tower.title'),
-      value: towerMode ? 'on' : 'off',
+      value: onOff(towerMode),
     });
   }
-  rows.push({ label: 'Session', value: sessionId });
+  rows.push({ label: t('tui.messages.statusPanel.sessionLabel'), value: sessionId });
   const title = options.sessionTitle?.trim();
-  if (title !== undefined && title.length > 0) rows.push({ label: 'Title', value: title });
+  if (title !== undefined && title.length > 0) {
+    rows.push({ label: t('tui.messages.statusPanel.titleLabel'), value: title });
+  }
   if (options.statusError !== undefined) {
-    rows.push({ label: 'Warning', value: options.statusError, severity: 'error' });
+    rows.push({
+      label: t('tui.messages.statusPanel.warningLabel'),
+      value: options.statusError,
+      severity: 'error',
+    });
   }
 
   const lines: string[] = [`${accent(`>_ ${PRODUCT_NAME}`)} ${muted(`(v${options.version})`)}`, ''];
@@ -143,7 +157,7 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
 
   const { ratio, tokens, maxTokens } = contextValues(options);
   lines.push('');
-  lines.push(accent('Context window'));
+  lines.push(accent(t('tui.messages.statusPanel.contextWindow')));
   if (maxTokens > 0) {
     const safeRatio = safeUsageRatio(ratio);
     const bar = renderProgressBar(safeRatio, 20);

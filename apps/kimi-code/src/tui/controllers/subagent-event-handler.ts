@@ -130,11 +130,9 @@ export class SubAgentEventHandler {
         event.update.kind === 'status') &&
       event.update.text !== undefined
     ) {
-      toolCall.appendSubToolLiveOutput(
-        `${childAgentId}:${event.toolCallId}`,
-        event.update.text,
-        { replace: event.update.replace === true },
-      );
+      toolCall.appendSubToolLiveOutput(`${childAgentId}:${event.toolCallId}`, event.update.text, {
+        replace: event.update.replace === true,
+      });
     } else if (event.type === 'tool.result') {
       toolCall.finishSubToolCall({
         tool_call_id: `${childAgentId}:${event.toolCallId}`,
@@ -358,9 +356,7 @@ export class SubAgentEventHandler {
     this.handleForegroundSubagentFailed(event, info);
   }
 
-  private handleSubagentCancelled(
-    event: SubagentLifecycleEventOf<'subagent.cancelled'>,
-  ): void {
+  private handleSubagentCancelled(event: SubagentLifecycleEventOf<'subagent.cancelled'>): void {
     this.activityStore.markFailed(event.subagentId);
     this.pruneForegroundOnlyRecord(event.subagentId);
     const backgroundMeta = this.backgroundAgentMetadata.get(event.subagentId);
@@ -620,16 +616,18 @@ export class SubAgentEventHandler {
     info: SubagentInfo,
   ): void {
     const { parentToolCallId } = info;
-    if (this.updateAgentSwarmProgress(parentToolCallId, (progress) => {
-      progress.markCancelled(event.subagentId);
-    })) {
+    if (
+      this.updateAgentSwarmProgress(parentToolCallId, (progress) => {
+        progress.markCancelled(event.subagentId);
+      })
+    ) {
       this.host.streamingUI.removeToolComponentIfInactive(parentToolCallId);
       return;
     }
 
     const tc = this.host.streamingUI.getToolComponent(parentToolCallId);
     if (tc === undefined) return;
-    tc.onSubagentFailed({ error: 'Aborted by the user' });
+    tc.onSubagentFailed({ error: t('tui.statusMessages.subagentAbortedByUser') });
     this.host.streamingUI.removeToolComponentIfInactive(parentToolCallId);
   }
 
@@ -724,11 +722,7 @@ export class SubAgentEventHandler {
     const terminalRows = state.ui.terminal.rows;
     const terminalColumns = state.ui.terminal.columns;
     const frame = this.agentSwarmGridHeightFrame;
-    if (
-      frame !== undefined &&
-      frame.columns === terminalColumns &&
-      frame.rows === terminalRows
-    ) {
+    if (frame !== undefined && frame.columns === terminalColumns && frame.rows === terminalRows) {
       return frame.value;
     }
     const entry = {

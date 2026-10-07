@@ -1,6 +1,309 @@
 import type { LocaleMessages } from './types';
 
 export default {
+  errorCodes: {
+    // agent.already_exists
+    agentAlreadyExists: '智能体 "{{agentId}}" 已存在',
+    // goal.already_exists
+    goalAlreadyExists: '目标已存在',
+    goalAlreadyExistsAction: '请使用 "/goal replace <objective>" 替换当前目标。',
+    // goal.not_found
+    goalNotFound: '未找到目标',
+    goalNotFoundAction: '请先使用 "/goal <objective>" 启动一个目标。',
+    // goal.objective_empty
+    goalObjectiveEmpty: '目标描述为空',
+    goalObjectiveEmptyAction: '请提供非空的目标描述。',
+    // goal.objective_too_long
+    goalObjectiveTooLong: '目标描述过长',
+    goalObjectiveTooLongAction: '请将目标描述控制在 4000 字符以内；长内容请通过文件路径引用。',
+    // goal.status_invalid
+    goalStatusInvalid: '无效的目标状态转换',
+    goalStatusInvalidAction: '只能暂停活跃的目标；已阻塞的目标请使用 "/goal resume" 恢复。',
+    // goal.metadata_reserved
+    goalMetadataReserved: '目标元数据为保留字段',
+    goalMetadataReservedAction: '请勿直接写入 metadata.custom.goal；请使用目标生命周期方法。',
+    // goal.not_resumable
+    goalNotResumable: '目标不可恢复',
+    goalNotResumableAction: '仅暂停或阻塞的目标可以恢复。',
+    // goal.unsupported_agent
+    goalUnsupportedAgent: '子 Agent 不支持目标',
+    goalUnsupportedAgentAction: '请在主 Agent 上运行目标生命周期命令。',
+    // model.not_found
+    modelNotFound: '未找到模型',
+    modelNotFoundAction: '请检查模型别名或先配置模型。',
+    // auth.login_required
+    authLoginRequired: '需要登录',
+    authLoginRequiredAction: '请运行 /login 使用 OAuth 供应商进行认证。',
+    // auth.provisioning_required
+    authProvisioningRequired: '需要配置供应商',
+    authProvisioningRequiredAction: '请通过 /login 或供应商端点配置供应商。',
+    // auth.token_missing
+    authTokenMissing: '供应商凭据缺失',
+    authTokenMissingAction: '请为供应商配置 API 密钥或完成 OAuth 登录。',
+    // auth.token_unauthorized
+    authTokenUnauthorized: '供应商凭据未授权',
+    authTokenUnauthorizedAction: '请重新通过 OAuth 供应商进行认证。',
+    // auth.model_not_resolved
+    authModelNotResolved: '模型未解析',
+    authModelNotResolvedAction: '请设置默认模型或配置请求的模型别名。',
+    // context.overflow
+    contextOverflow: '上下文溢出',
+    contextOverflowAction: '请压缩对话或用更少的令牌重试。',
+    // loop.max_steps_exceeded
+    loopMaxStepsExceeded: '循环超出最大步数',
+    // provider.filtered
+    providerFiltered: '供应商过滤了响应',
+    providerFilteredAction: '请修改提示词或模型配置以避免供应商安全过滤。',
+    // provider.rate_limit
+    providerRateLimit: '供应商速率限制',
+    providerRateLimitAction: '请在供应商速率限制重置后重试。',
+    // provider.auth_error
+    providerAuthError: '供应商认证失败',
+    providerAuthErrorAction: '请检查供应商凭据和认证配置。',
+    // provider.overloaded
+    providerOverloaded: '供应商过载',
+    providerOverloadedAction: '请在供应商恢复后重试。',
+    // provider.not_found
+    providerNotFound: '未找到供应商',
+    providerNotFoundAction: '请检查供应商 ID 或先配置供应商。',
+    // file.not_found
+    fileNotFound: '未找到文件',
+    fileNotFoundAction: '请检查 file_id 或重新上传文件。',
+    // file.too_large
+    fileTooLarge: '上传文件过大',
+    fileTooLargeAction: '请上传较小的文件（限制为 50 MiB）。',
+    // storage.not_found
+    storageNotFound: '存储值未找到',
+    // storage.decode_failed
+    storageDecodeFailed: '存储数据已损坏',
+    storageDecodeFailedAction: '请检查存储的文档；其格式无效。',
+    // storage.corrupted
+    storageCorrupted: '存储数据已损坏',
+    storageCorruptedAction: '请检查后端存储；损坏的条目需要修复或删除。',
+    // storage.io_failed
+    storageIoFailed: '存储 I/O 失败',
+    // storage.locked
+    storageLocked: '存储已被锁定',
+    storageLockedAction: '另一个进程持有该存储；请关闭它或稍后重试。',
+    // wire.duplicate_op
+    wireDuplicateOp: '重复的 wire 操作类型',
+    wireDuplicateOpAction: '两个操作注册了相同的类型；请重命名其中一个。这是构建时的错误。',
+    // wire.cycle
+    wireCycle: 'Wire 调度循环',
+    wireCycleAction: 'onChange 处理程序无限重新调度；请打破操作循环。',
+    // wire.unknown_record
+    wireUnknownRecord: '未知的 wire 记录',
+    wireUnknownRecordAction: '该记录由更新的版本写入；请升级或删除它。',
+    // not_implemented
+    notImplemented: '未实现',
+    // internal
+    internal: '内部错误',
+    // config.*
+    configInvalid: '配置无效',
+    configInvalidAction: '请修复 config.toml 中报告的问题，然后运行 "/reload"。',
+    configPersistBlocked: '配置写入被阻止',
+    configPersistBlockedAction: '请修复 config.toml 使其可读，然后运行 "/reload" 再写入。',
+    // session.*
+    sessionNotFound: '未找到会话',
+    sessionNotFoundAction: '请检查会话 ID 或新建会话。',
+    sessionAlreadyExists: '会话已存在',
+    sessionAlreadyExistsAction: '请使用其他会话 ID 或打开已有会话。',
+    sessionIdInvalid: '会话 ID 无效',
+    sessionIdRequired: '需要会话 ID',
+    sessionIdRequiredAction: '请提供会话 ID。',
+    sessionIdEmpty: '会话 ID 为空',
+    sessionIdEmptyAction: '请提供非空的会话 ID。',
+    sessionTitleEmpty: '会话标题为空',
+    sessionTitleEmptyAction: '请提供非空的标题。',
+    sessionStateNotFound: '会话状态缺失',
+    sessionStateInvalid: '会话状态无效',
+    sessionForkActiveTurn: '活动轮次期间无法分叉会话',
+    sessionForkActiveTurnAction: '请等待当前轮次结束后再分叉会话。',
+    sessionUndoUnavailable: '无法撤销',
+    sessionUndoUnavailableAction: '请减少撤销的轮次数；部分请求的轮次已无法撤销。',
+    sessionExportNotFound: '会话导出目录缺失',
+    sessionExportNotFoundAction: '请在导出前确认会话已有存储数据。',
+    sessionExportMissingVersion: '缺少导出版本号',
+    sessionExportOutputConflict: '导出输出与会话源文件冲突',
+    sessionExportOutputConflictAction: '请选择会话数据目录之外的输出路径。',
+    sessionExportTooLarge: '文件过大，无法导出',
+    sessionClosed: '会话已关闭',
+    sessionClosedAction: '请新建会话以继续。',
+    sessionPermissionModeInvalid: '权限模式无效',
+    sessionPermissionModeInvalidAction: '请使用受支持的权限模式：yolo、manual 或 auto。',
+    sessionThinkingEmpty: '思考值为空',
+    sessionThinkingEmptyAction: '请提供非空的思考值。',
+    sessionModelEmpty: '模型为空',
+    sessionModelEmptyAction: '请提供非空的模型 ID。',
+    sessionPlanModeInvalid: '计划模式无效',
+    sessionPlanModeInvalidAction: '请先退出计划模式再重新进入。',
+    sessionApprovalHandlerError: '审批处理程序失败',
+    sessionQuestionHandlerError: '提问处理程序失败',
+    sessionInitFailed: '会话初始化失败',
+    sessionBusy: '会话正忙',
+    sessionBusyAction: '请等待当前轮次或压缩结束后重试。',
+    // agent.*
+    agentNotFound: '未找到 Agent',
+    agentNotFoundAction: '请检查 Agent ID。',
+    agentAlreadyRunning: 'Agent 已在运行',
+    agentAlreadyRunningAction: '请等待 Agent 结束或先停止它。',
+    agentNotASubagent: 'Agent 不是子代理',
+    agentNotASubagentAction: '请在子代理上运行此操作。',
+    agentNotOwned: 'Agent 不属于当前会话',
+    agentNotOwnedAction: '请使用当前会话创建的 Agent。',
+    agentTypeNotAllowed: '不允许的 Agent 类型',
+    agentTypeNotAllowedAction: '请使用当前配置允许的 Agent 类型。',
+    agentMaxTokensExceeded: 'Agent 超出令牌上限',
+    agentMaxTokensExceededAction: '请提高 max_tokens 上限或缩短任务。',
+    // turn.*
+    turnAgentBusy: 'Agent 正忙',
+    turnAgentBusyAction: '请等待当前轮次结束后重试。',
+    // model.*
+    modelNotConfigured: '未配置模型',
+    modelNotConfiguredAction: '请设置默认模型或使用 "/model" 配置模型。',
+    modelConfigInvalid: '模型配置无效',
+    modelConfigInvalidAction: '请检查 config.toml 中的模型配置。',
+    // profile.*
+    profileThinkingAliasConflict: '思考设置冲突',
+    profileThinkingAliasConflictAction: '请只设置 thinkingEffort 或 thinkingLevel 其中之一。',
+    profileUnknown: '未知的 Agent 配置',
+    profileUnknownAction: '请检查配置名称或先定义它。',
+    profileAlreadyBound: 'Agent 配置已绑定',
+    profileAlreadyBoundAction: '请新建会话以切换配置。',
+    profileNotBound: 'Agent 配置未绑定',
+    profileNotBoundAction: '请先为 Agent 绑定配置。',
+    // provider.*
+    providerConnectionError: '供应商连接错误',
+    providerConnectionErrorAction: '请检查网络连接后重试。',
+    // skill.*
+    skillNotFound: '未找到 Skill',
+    skillNotFoundAction: '请检查 Skill 名称或先安装该 Skill。',
+    skillTypeUnsupported: '不支持的 Skill 类型',
+    skillNameEmpty: 'Skill 名称为空',
+    skillNameEmptyAction: '请提供非空的 Skill 名称。',
+    skillParseFailed: 'Skill 解析失败',
+    skillParseFailedAction: '请修复 Skill 文件后重试。',
+    skillNestedTooDeep: 'Skill 嵌套层级过深',
+    skillNestedTooDeepAction: '请减少 Skill 调用的嵌套层级。',
+    // records.*
+    recordsWriteFailed: '写入 wire 日志失败',
+    // compaction.*
+    compactionFailed: '压缩失败',
+    compactionFailedAction: '请重试压缩或新建会话。',
+    compactionUnable: '无法压缩',
+    // task.*
+    taskTaskIdEmpty: '后台任务 ID 为空',
+    taskTaskIdEmptyAction: '请提供非空的任务 ID。',
+    taskLimitExceeded: '后台任务数量超限',
+    taskLimitExceededAction: '请等待运行中的任务结束或停止部分任务。',
+    // usage.*
+    usageTurnIdConflict: '轮次 ID 冲突',
+    // mcp.*
+    mcpServerNotFound: '未找到 MCP server',
+    mcpServerNotFoundAction: '请检查 server 名称或将其添加到 MCP 配置中。',
+    mcpServerDisabled: 'MCP server 已禁用',
+    mcpServerDisabledAction: '请在 MCP 配置中启用该 server。',
+    mcpStartupFailed: 'MCP server 启动失败',
+    mcpStartupFailedAction: '请检查 server 命令及其日志。',
+    mcpToolNameCollision: 'MCP 工具名称冲突',
+    mcpToolNameCollisionAction: '请重命名冲突的工具或禁用其中一个 server。',
+    mcpOauthFailed: 'MCP OAuth 失败',
+    mcpOauthFailedAction: '请重新向 MCP server 进行认证。',
+    // message.*
+    messageNotFound: '未找到消息',
+    messageNotFoundAction: '请检查消息 ID。',
+    // plugin.*
+    pluginNotFound: '未找到插件',
+    pluginNotFoundAction: '请检查插件名称或先安装该插件。',
+    pluginLoadFailed: '插件状态加载失败',
+    pluginLoadFailedAction: '请检查插件文件后重试。',
+    // request.*
+    requestInvalid: '无效请求',
+    requestWorkDirRequired: '需要工作目录',
+    requestWorkDirRequiredAction: '请为请求提供工作目录。',
+    requestPromptInputEmpty: '提示输入为空',
+    requestPromptInputEmptyAction: '请提供非空的提示。',
+    // prompt.*
+    promptIdConflict: '提示 ID 冲突',
+    promptNotFound: '未找到提示',
+    promptNotFoundAction: '请检查提示 ID 或新建提示。',
+    // prompt_optimizer.*
+    promptOptimizerDisabled: '提示词优化器已禁用',
+    promptOptimizerDisabledAction: '请开启 prompt_optimizer 实验性开关后再使用。',
+    promptOptimizerEmptyDraft: '提示词草稿为空',
+    promptOptimizerEmptyDraftAction: '请提供要优化的提示词草稿。',
+    promptOptimizerNoOutput: '提示词优化器未返回内容',
+    promptOptimizerNoOutputAction: '请重试优化。',
+    // spec.*
+    specModeInvalid: '规格模式无效',
+    specModeInvalidAction: '请先退出规格模式再重新进入。',
+    specIncomplete: '规格文档不完整',
+    specWriteDenied: '规格模式写入被拒绝',
+    // shell.*
+    shellGitBashNotFound: '未找到 Git Bash',
+    shellGitBashNotFoundAction: '请安装 Git for Windows，以便 shell 命令在 Git Bash 下运行。',
+    // workspace.*
+    workspaceNotFound: '未找到工作区',
+    workspaceNotFoundAction: '请检查工作区路径或打开已有的工作区。',
+    // terminal.*
+    terminalNotFound: '未找到终端',
+    terminalNotFoundAction: '请检查终端 ID 或新建终端。',
+    // fs.*
+    fsPathNotFound: '未找到路径',
+    fsPathNotFoundAction: '请检查路径后重试。',
+    fsPermissionDenied: '权限被拒绝',
+    fsPermissionDeniedAction: '请检查目标路径的文件权限。',
+    fsPathEscapes: '路径超出工作区',
+    fsPathEscapesAction: '请使用工作区内的路径。',
+    fsIsDirectory: '路径是目录',
+    fsIsDirectoryAction: '请使用文件路径而不是目录。',
+    fsIsBinary: '文件为二进制',
+    fsIsBinaryAction: '请使用文本文件；二进制文件无法按文本读取。',
+    fsTooLarge: '文件过大',
+    fsTooLargeAction: '请读取更小的范围或改用其他文件。',
+    fsAlreadyExists: '路径已存在',
+    fsAlreadyExistsAction: '请选择其他路径或删除已有条目。',
+    fsTooManyResults: '结果过多',
+    fsTooManyResultsAction: '请缩小搜索模式或路径范围。',
+    fsGrepTimeout: '搜索超时',
+    fsGrepTimeoutAction: '请缩小搜索模式或路径范围后重试。',
+    fsGitUnavailable: 'Git 不可用',
+    fsGitUnavailableAction: '请安装 Git 并确保其在 PATH 中。',
+    // os.fs.*
+    osFsNotFound: '未找到路径',
+    osFsIsDirectory: '路径是目录',
+    osFsNotDirectory: '路径不是目录',
+    osFsAlreadyExists: '路径已存在',
+    osFsPermissionDenied: '权限被拒绝',
+    osFsPermissionDeniedAction: '请检查目标路径的文件权限。',
+    osFsNotEmpty: '目录不为空',
+    osFsUnavailable: '文件系统不可用',
+    osFsUnknown: '文件系统错误',
+    // os.process.*
+    osProcessSpawnFailed: '启动进程失败',
+    osProcessSpawnFailedAction: '请确认命令存在且可执行。',
+    osProcessKillFailed: '终止进程失败',
+    // storage.*
+    storagePermissionDenied: '存储权限被拒绝',
+    storagePermissionDeniedAction: '请检查存储目录的权限。',
+    storageDiskFull: '存储磁盘已满',
+    storageDiskFullAction: '请释放磁盘空间后重试。',
+    // wire.*
+    wireMigrationMissing: '缺少 wire 迁移',
+    wireMigrationMissingAction: '该 wire 文件早于受支持的迁移链；请新建会话。',
+    // cron.*
+    cronExpressionInvalid: 'cron 表达式无效',
+    cronExpressionInvalidAction: '请使用 5 段 cron 表达式：分 时 日 月 周。',
+    // web.*
+    webInvalidUrl: 'URL 无效',
+    webInvalidUrlAction: '请提供有效的 http 或 https URL。',
+    webPrivateAddress: '已阻止私有地址',
+    webPrivateAddressAction: '请抓取公网 URL；不允许私有地址和回环地址。',
+    webFetchFailed: '网页抓取失败',
+    webFetchFailedAction: '请检查 URL 和网络连接后重试。',
+    // validation.*
+    validationFailed: '校验失败',
+  },
   common: {
     ok: '确定',
     cancel: '取消',
@@ -18,7 +321,7 @@ export default {
     commandDescriptions: {
       login: '通过设备码流程登录 Kimi Code CLI。',
       upgrade: '将 Kimi Code 升级到最新版本。',
-      provider: '非交互式管理 LLM 提供商。',
+      provider: '非交互式管理 LLM 供应商。',
       web: '运行本地 Kimi 服务器并打开 Web UI。',
       server: '已弃用 — 请改用 `kimi web`。',
       exportCmd: '将会话导出为 ZIP 归档。',
@@ -28,12 +331,19 @@ export default {
       vis: '打开可视化服务。',
       migrate: '运行数据迁移，然后退出。',
       serverRotateToken: '生成新的持久化服务器令牌；旧令牌立即失效。',
-      providerAdd: '导入自定义注册表（api.json）中的所有提供商。',
-      providerRemove: '移除提供商及所有引用它的模型别名。',
-      providerList: '显示已配置的提供商及其模型数量。',
-      providerCatalog: '从公共 models.dev 目录发现并导入提供商。',
-      providerCatalogList: '列出目录中的提供商，或指定 providerId 时列出其模型。',
-      providerCatalogAdd: '按 ID 从目录中导入已知提供商。',
+      providerAdd: '导入自定义注册表（api.json）中的所有供应商。',
+      providerRemove: '移除供应商及所有引用它的模型别名。',
+      providerList: '显示已配置的供应商及其模型数量。',
+      providerCatalog: '从公共 models.dev 目录发现并导入供应商。',
+      providerCatalogList: '列出目录中的供应商，或指定 providerId 时列出其模型。',
+      providerCatalogAdd: '按 ID 从目录中导入已知供应商。',
+      acp: '以 Agent Client Protocol（ACP）服务器方式运行 kimi-code，通过 stdio 通信。',
+      installDesktop: '打印 Kimi Code 桌面应用页面并在浏览器中打开。',
+      session: '非交互式管理会话。',
+      sessionList: '列出会话，最近更新的排在最前。',
+      rc: '运行本地 Kimi 服务器，并通过 Remote Control 打开 Web UI。',
+      serverKill:
+        '已弃用 — 停止 0.28.0 之前版本启动的服务器（记录在旧版服务器锁文件中）。由 `kimi web` 启动的服务器在前台运行 — 请用 Ctrl+C 停止。',
     },
     optionDescriptions: {
       session: '恢复会话。带 ID：恢复该会话；不带 ID：交互式选择。',
@@ -78,18 +388,36 @@ export default {
       serverRunOptionAllowRemoteTerminals:
         '在非回环绑定上保持 PTY /api/v1/terminals/* 路由启用（默认：禁用 → 404）。远程 Shell 具有高风险。',
       serverRunOptionDangerousBypassAuth:
-        '禁用所有 REST 和 WebSocket 路由的 Bearer 令牌认证，并通过 /api/v1/meta 广播此状态。仅可在受信任的网络或自有认证代理后使用。',
+        '禁用所有 REST 和 WebSocket 路由的 Bearer 令牌认证，并通过 /api/v1/meta 广播此状态，使 web UI 无需令牌即可连接。仅可在受信任的网络或自有认证代理后使用。',
       serverRunOptionLogLevel: '服务器日志级别：{{levels}}。省略则关闭日志。',
       serverRunOptionDebugEndpoints:
         '挂载 /api/v1/debug/* 路由用于测试自省。默认关闭；生产环境请勿启用。',
       serverRunOptionNoOpen: '不在默认浏览器中打开 Web UI。',
       providerApiKey: '注册表 API 密钥。回退到 KIMI_REGISTRY_API_KEY；公开注册表可省略。',
-      providerListJson: '以 JSON 格式输出原始提供商/模型配置。',
+      providerListJson: '以 JSON 格式输出原始供应商/模型配置。',
       providerCatalogFilter: '不区分大小写的 ID/名称子串过滤器。',
       providerCatalogJson: '以 JSON 格式输出匹配的目录片段。',
-      providerCatalogApiKey: '提供商的 API 密钥。回退到 KIMI_REGISTRY_API_KEY。',
+      providerCatalogApiKey: '供应商的 API 密钥。回退到 KIMI_REGISTRY_API_KEY。',
       providerCatalogDefaultModel: '将导入的模型标记为默认模型。',
       providerCatalogBaseUrl: '覆盖目录端点。当目录未声明端点（或包含环境变量占位符）时必须提供。',
+      providerCatalogUrl: '覆盖目录 URL。默认为 {{url}}。',
+      upgradeYes: '跳过确认提示，直接安装更新。',
+      updateDownloadManual: '该阶段用于响应用户主动发起的升级',
+      acpRegion: '与 --login 搭配使用的登录区域："mainland-cn"（kimi.com）或 "global"（kimi.ai）。',
+      loginRegion: '登录区域："mainland-cn"（kimi.com）或 "global"（kimi.ai）。',
+      loginProvider: '登录方式："kimi"（默认）或 "google" / "gemini"。',
+      sessionListCwd: '列出该工作目录下的会话。默认为当前目录。',
+      sessionListAll: '列出所有工作区中的会话。',
+      sessionListArchived: '包含已归档的会话。',
+      sessionListLimit: '最多打印 n 个会话。',
+      sessionListJson: '以 JSON 格式输出会话摘要。',
+      serverRunOptionWebTitle:
+        '为此 Web UI 实例设置自定义浏览器标签页标题（默认："<workspace dir> | Kimi Code"）。',
+      serverRunOptionRemoteControl: '通过 Kimi Remote Control 暴露 Web UI。',
+      migrateRun:
+        '以非交互方式运行迁移并打印逐步日志。除非同时指定 --config-only，否则迁移全部内容。',
+      migrateConfigOnly:
+        '与 --run 搭配：迁移配置、MCP 服务器、REPL 历史和 skills，但跳过聊天会话。',
     },
     errors: {
       unknownCommand: "未知命令 '{{command}}'。参见 '{{cliName}} --help'。",
@@ -106,9 +434,9 @@ export default {
       agentFileOnlyOnce: '--agent-file 只能指定一次。',
       agentEmpty: 'Agent 不能为空。',
       agentFilePathEmpty: 'Agent 文件路径不能为空。',
-    },
-    msys2Prompt: {
-      notice: '未检测到 MSYS2（完整 Linux 命令行环境）。可运行 winget install MSYS2.MSYS2 安装',
+      cannotCombineAgentAndAgentFile: '--agent 不能与 --agent-file 同时使用。',
+      cannotCombineAgentAndSession:
+        '--agent/--agent-file 不能与 --session/--continue 同时使用：智能体在创建会话时绑定，恢复会话时会自动还原所绑定的智能体。',
     },
   },
   startup: {
@@ -120,7 +448,7 @@ export default {
       upgrade: '升级',
     },
     error: {
-      failedTo: '错误：无法 {{operation}}：{{message}}',
+      failedTo: '错误：无法{{operation}}：{{message}}',
       title: '错误：{{title}}',
       messageLabel: '消息：',
       seeLog: '查看日志：{{path}}',
@@ -157,7 +485,7 @@ export default {
         plan: 'plan',
         swarm: 'swarm',
         swarmPlan: 'swarm-plan',
-        turns: 'turns',
+        turns: '轮',
       },
       welcome: {
         title: '欢迎使用 Kimi Code！',
@@ -248,7 +576,7 @@ export default {
       multiLlm: '配置 MultiLLM 并发提供方（Rust 引擎）',
       model: '切换 LLM 模型',
       effort: '切换思考模式',
-      provider: '管理 AI 提供商（添加/删除/刷新）',
+      provider: '管理 AI 供应商（添加/删除/刷新）',
       btw: '向分叉的侧代理提问',
       help: '显示可用命令和快捷键',
       new: '在当前工作区开始新会话',
@@ -271,7 +599,7 @@ export default {
       undo: '从记录中撤回最后一条提示',
       editor: '设置外部编辑器（Ctrl-G）',
       theme: '设置终端 UI 主题',
-      logout: '登出已配置的提供商',
+      logout: '登出已配置的供应商',
       login: '选择一个平台并进行身份验证',
       exportMd: '将会话导出为 Markdown 文件',
       exportDebugZip: '将会话导出为调试 ZIP 归档',
@@ -354,34 +682,34 @@ export default {
         noModelsAvailable: '该平台没有可用模型。',
         setupComplete: '设置完成：{{name}} · {{model}}',
         oauthLogin: 'OAuth 登录',
-        nothingToLogout: '没有可登出的提供商。',
+        nothingToLogout: '没有可登出的供应商。',
         loggedOutFrom: '已登出 {{provider}}。',
       },
       provider: {
-        addTitle: '添加提供商',
-        addFailed: '添加提供商失败：{{error}}',
-        removeFailed: '移除提供商失败：{{error}}',
-        deleteFailed: '删除提供商 {{id}} 失败：{{error}}',
+        addTitle: '添加供应商',
+        addFailed: '添加供应商失败：{{error}}',
+        removeFailed: '移除供应商失败：{{error}}',
+        deleteFailed: '删除供应商 {{id}} 失败：{{error}}',
         fetchingCatalog: '正在从 {{url}} 获取目录',
         aborted: '已中止。',
         fetchCatalogFailed: '获取目录失败：{{error}}',
         fetchCatalogFailedWithStatus: '获取目录失败（HTTP {{status}}）：{{error}}',
-        noUsableModels: '提供商 "{{id}}" 在此目录中没有可用模型。',
+        noUsableModels: '供应商 "{{id}}" 在此目录中没有可用模型。',
         unsupportedProtocol:
-          '提供商 "{{id}}" 在目录中声明了 "{{type}}" 协议，当前客户端版本不支持。',
+          '供应商 "{{id}}" 在目录中声明了 "{{type}}" 协议，当前客户端版本不支持。',
         proprietarySdk:
-          '提供商 "{{id}}" 使用了当前客户端无法对接的专有 SDK（如 Amazon Bedrock 或 Cohere），无法从目录导入。',
-        added: '已添加提供商：{{name}}',
+          '供应商 "{{id}}" 使用了当前客户端无法对接的专有 SDK（如 Amazon Bedrock 或 Cohere），无法从目录导入。',
+        added: '已添加供应商：{{name}}',
         protocolGuessed:
           '已将 {{id}} 的协议猜测为 "openai" — 如果请求失败，请编辑 config.toml 中的 "type"。',
         setDefaultModelFailed: '设置默认模型失败：{{error}}',
         defaultModelSet: '默认模型已设为 {{model}}，思考：{{effort}}。',
         importRegistryFailed: '导入注册表失败：{{error}}',
         applyRegistryFailed: '应用注册表失败：{{error}}',
-        registryEmpty: '注册表中没有提供商。',
+        registryEmpty: '注册表中没有供应商。',
         registryAuthRequired: '该注册表需要认证——请粘贴其 Bearer token。',
-        importedOne: '已从注册表导入 1 个提供商。',
-        importedMany: '已从注册表导入 {{count}} 个提供商。',
+        importedOne: '已从注册表导入 1 个供应商。',
+        importedMany: '已从注册表导入 {{count}} 个供应商。',
       },
     },
     approvalLabels: {
@@ -443,7 +771,7 @@ export default {
         tipPrefix: ' · 提示：{{tip}}',
       },
       customRegistryImport: {
-        title: '导入自定义提供商注册表',
+        title: '导入自定义供应商注册表',
         subtitleDefault: '粘贴 api.json URL；Bearer token 可选。',
         subtitleUrlEmpty: '注册表 URL 不能为空。',
         footerNotLast: 'Tab / ↑↓ 切换 · Enter 下一项 · Esc 取消',
@@ -520,13 +848,16 @@ export default {
         restartHint: '请重启 kimi-code 以使用 MSYS2 shell。',
         installSuccessNoSwitch: 'MSYS2 已安装，但 shell 切换失败。请手动设置 KIMI_SHELL_PATH。',
         manualInstallHint: '请从 https://www.msys2.org/ 手动安装 MSYS2',
+        installErrorWingetNotFound: '未找到 winget',
+        installErrorWingetExit: 'winget 退出，代码 {{code}}',
+        installErrorBashNotFound: 'MSYS2 已安装，但未找到 bash.exe',
       },
       modelSelector: {
         title: '选择模型',
         secondaryTitle: ' 选择辅助模型（子代理）',
         searchHint: '（输入以搜索）',
         searchLabel: '搜索：',
-        hintTab: 'Tab 切换提供商',
+        hintTab: 'Tab 切换供应商',
         hintNavigate: '↑↓ 导航',
         hintBackspace: 'Backspace 清除',
         hintSelect: 'Enter 选择',
@@ -607,12 +938,6 @@ export default {
       },
       permissionSelector: {
         title: '选择权限模式',
-        manual: '手动',
-        manualDesc: '自行审批每个操作。',
-        auto: '自动',
-        autoDesc: '自动运行所有操作（包括有风险的操作）。',
-        yolo: 'YOLO',
-        yoloDesc: 'AI 决定哪些操作需要你的审批。',
       },
       localeSelector: {
         title: '选择语言 / Select language',
@@ -681,7 +1006,8 @@ export default {
           },
           persistence_minidb_readmodel: {
             title: 'minidb 读模型',
-            description: '使用基于 minidb 的 IQueryStore 作为派生读模型，用于会话索引和 wire 回放。',
+            description:
+              '使用基于 minidb 的 IQueryStore 作为派生读模型，用于会话索引和 wire 回放。',
           },
           'remote-control': {
             title: '远程控制',
@@ -715,7 +1041,8 @@ export default {
           },
           tower: {
             title: 'Tower 模式',
-            description: '启用 tower 模式：让多个 agent 围绕同一目标协同工作，通过 /tower 命令切换。',
+            description:
+              '启用 tower 模式：让多个 agent 围绕同一目标协同工作，通过 /tower 命令切换。',
           },
           xunfei_coding_plan: {
             title: 'Astron（讯飞编程套餐）',
@@ -741,6 +1068,14 @@ export default {
         footerLoaded: '已加载 {{count}} 个',
         footerSessions: '{{count}} 个会话',
         footerLoadedSessions: '已加载 {{loaded}} / 共 {{total}} 个会话',
+        deletePrefix: '删除会话 "',
+        deletingPrefix: '正在删除会话 "',
+        deleteConfirmSuffix: '"? [y/N]',
+        deletingSuffix: '"…',
+        hintDelete: 'Ctrl+X 删除',
+        moreLoading: '加载中…',
+        moreSearching: '搜索全部…',
+        moreScroll: '滚动查看更多',
       },
       goalStartPermissionPrompt: {
         titleYolo: '以「必要时询问」模式启动目标？',
@@ -852,12 +1187,12 @@ export default {
         neverLabel: '不再询问',
       },
       providerManager: {
-        title: '提供商',
+        title: '供应商',
         headerHint: '↑↓ 导航 · D 删除 · Esc 取消',
         addRowLabel: '[ 添加新平台 ]',
-        empty: '未配置任何提供商。',
+        empty: '未配置任何供应商。',
         deleteConfirmSingle: '删除平台 "{{label}}"？',
-        deleteConfirmMultiple: '删除平台 "{{label}}" 及其 {{count}} 个提供商？',
+        deleteConfirmMultiple: '删除平台 "{{label}}" 及其 {{count}} 个供应商？',
         page: '第 {{page}}/{{pageCount}} 页',
       },
       platformSelector: {
@@ -1068,11 +1403,11 @@ export default {
     },
     statusMessages: {
       failedToSyncMcp: '同步 MCP 服务器状态失败：{{message}}',
-      turnStoppedFiltered: '本轮已停止：提供商安全策略拦截了响应。',
+      turnStoppedFiltered: '本轮已停止：供应商安全策略拦截了响应。',
       turnStoppedBlocked: '本轮已停止：提示词钩子拦截了请求。',
       retryingStep: '重试中（{{attempt}}/{{maxAttempts}}）{{delayS}}秒后 — {{errorName}}',
       retryingStepAttempt: '重试中（{{attempt}}/{{maxAttempts}}）— {{errorName}}',
-      policyBlocked: '提供商安全策略拦截了响应。',
+      policyBlocked: '供应商安全策略拦截了响应。',
       outputFiltered: '模型输出已被过滤（{{reason}}）。',
       maxTokensTruncated: '模型达到 max_tokens — 工具调用在运行前被截断。',
       maxTokensNoToolCall: '模型达到 max_tokens — 未发出工具调用。',
@@ -1084,6 +1419,7 @@ export default {
       goalBlocked: '目标已阻塞。',
       goalBlockedDetail: '下一个排队的任务将在当前目标完成后启动。',
       warningPrefix: '警告：{{message}}',
+      errorPrefix: '错误：{{message}}',
       cacheBreakDetected: '提示缓存已失效，约 {{tokens}} token 已按全价重新处理。',
       cacheHintPreferenceSaveFailed: '无法保存缓存提示偏好设置。',
       cacheCompactFailed: '压缩失败：{{error}}',
@@ -1101,6 +1437,8 @@ export default {
       startingNow: '没有活动目标，立即开始此目标。',
       provideObjective: '请提供目标描述，例如：`/goal 实现功能 X`。',
       objectiveTooLong: '目标描述过长（最多 {{max}} 个字符）。请通过文件路径引用详细内容。',
+      objectiveTooLongLive:
+        '目标描述过长（{{length}}/{{max}} 个字符）；请将长内容写入文件并引用文件路径。',
       provideNextObjective:
         '请提供下一个目标描述，例如：`/goal next 实现功能 X`，或使用 `/goal next manage`。',
       failedToInspectGoal: '检查当前目标失败：{{error}}',
@@ -1125,6 +1463,7 @@ export default {
       // auth.ts
       loggedIn: '登录成功。',
       loginCancelled: '登录已取消。',
+      loginCancelledWithError: '登录已取消：{{error}}',
       loginFailed: '登录失败。',
       googleLoginFailed: 'Google 登录失败。',
       authSuccessButConfigFailed: '认证成功，但刷新配置失败：{{error}}',
@@ -1144,9 +1483,15 @@ export default {
       planCleared: '计划已清除',
       planModeOn: '计划模式：开',
       planModeOff: '计划模式：关',
+      planModeAlreadyOn: '计划模式已开启',
+      planModeAlreadyOff: '计划模式已关闭',
       failedToSetPlanMode: '设置计划模式失败：{{msg}}',
       specModeOn: '规格模式：开',
       specModeOff: '规格模式：关',
+      specModeAlreadyOn: '规格模式已开启',
+      specModeAlreadyOff: '规格模式已关闭',
+      specModeDidNotEnter: '引擎未进入规格模式',
+      specModeDidNotLeave: '引擎未退出规格模式',
       failedToSetSpecMode: '设置规格模式失败：{{msg}}',
       noModelSelected: '未选择模型。请运行 /model 选择模型。',
       unknownTheme: '未知主题：{{theme}}',
@@ -1166,13 +1511,17 @@ export default {
       // kimi-tui.ts
       warningLabel: '警告：{{warning}}',
       noSessionsToContinue: '在 "{{workDir}}" 下没有可继续的会话，正在开始新会话。',
+      resumeOtherWorkDir: '当前会话位于不同的工作目录。\n  如需恢复，请运行：{{command}}',
       cannotSendWhileReplaying: '在回放会话历史时无法发送输入。',
       noActiveSessionShell: '没有活动的会话可执行 shell 命令。',
       shellCommandFailed: 'Shell 命令失败：{{message}}',
+      failedToCancelShellCommand: '取消 Shell 命令失败：{{error}}',
       modelNoImageInput: '当前模型不支持图片输入。',
       modelNoVideoInput: '当前模型不支持视频输入。',
       permissionModeChanged: '权限模式：{{mode}}',
+      permissionModeUnchanged: '权限模式未更改：{{mode}}。',
       skillFailed: '技能 "{{name}}" 执行失败：{{error}}',
+      skillActivationFailed: '技能激活失败：{{error}}',
       failedToPrepareMediaAttachment: '准备媒体附件失败：{{error}}',
       alreadyOnSession: '已在此会话上。',
       cannotSwitchWhileStreaming: '无法在流式传输时切换会话——请先按 Esc 或 Ctrl-C。',
@@ -1187,6 +1536,16 @@ export default {
       taskAlreadyFinished_other: '任务已完成。',
       movedOneTaskToBackground: '已将 1 个任务移至后台。',
       failedToApplyStartupFlags: '应用启动标志失败：{{message}}',
+      providerModelsAdded_one: '{{provider}} · 新增 {{count}} 个模型。',
+      providerModelsAdded_other: '{{provider}} · 新增 {{count}} 个模型。',
+      failedToStartSession: '启动会话失败：{{message}}',
+      postCreateSetupFailed: '创建会话后的初始化失败：{{message}}',
+      failedToResumeSession: '恢复会话 {{sessionId}} 失败：{{message}}',
+      failedToStartNewSession: '启动新会话失败：{{message}}',
+      startedNewSession: '已启动新会话（{{sessionId}}）。',
+      resumedSession: '已恢复会话（{{sessionId}}）。',
+      failedToSteer: '引导失败：{{error}}',
+      failedToSend: '发送失败：{{error}}',
       startupSessionNotInit: '启动会话尚未初始化。',
       compactionCancelled: '压缩已取消',
       compactionComplete: '压缩完成',
@@ -1206,7 +1565,7 @@ export default {
       replaySkillActivated: '已激活技能：{{skillName}}',
       replayFeedback: '反馈：{{feedback}}',
       noModelsConfigured: '未配置模型',
-      noModelsConfiguredSub: '运行 /login 登录 Kimi，或 /provider 从模型目录中添加另一个提供商。',
+      noModelsConfiguredSub: '运行 /login 登录 Kimi，或 /provider 从模型目录中添加另一个供应商。',
       experimentalUpdated: '实验功能已更新。',
       experimentalUpdatedSessionReloaded: '实验功能已更新。会话已重新加载。',
       // commands/session.ts
@@ -1235,6 +1594,7 @@ export default {
       pluginsInstallCancelledLabel: '安装已取消：{{label}}。',
       pluginsInstallingFrom: '正在从 {{source}} 安装插件…',
       pluginsInstallFinished: '安装完成——详见下方详情。',
+      pluginsInstallResult: '{{action}}（{{id}}）。{{hint}}',
       pluginsInstallFailed: '安装失败：{{error}}',
       pluginsInstallingOrUpdating: '正在从市场安装或更新 {{label}}…',
       pluginsFailedToInstall: '安装 {{label}} 失败：{{error}}',
@@ -1297,6 +1657,7 @@ export default {
       undoSkillUnknown: '技能：未知',
       // commands/web.ts
       failedToStartServer: '启动服务器失败：{{error}}',
+      failedToStartRemoteControl: '启动远程控制失败：{{error}}',
       webOpenUrl: '打开 {{url}}',
       copyNoMessage: '没有可复制的助手消息。',
       copyNative: '已复制到剪贴板（{{count}} 个字符）。',
@@ -1317,6 +1678,14 @@ export default {
       unableToReadServerToken: '无法读取本地服务器令牌。',
       rcRequiresLocalServerAuth: 'Remote Control 需要本地服务器认证。',
       rcRequiresKimiLogin: 'Remote Control 需要 Kimi 登录。请先运行 `kimi login`。',
+      serverDangerStopHint: '如果不确定，请立即用 {{key}} 停止该进程。',
+      serverReadyLinePrefix: 'Kimi 服务器：',
+      serverFeatureOff: '关闭',
+      serverNetworkOffHint: '  用 --host 开启',
+      serverTokenLabel: '令牌：    ',
+      serverLogsLabel: '日志：    ',
+      serverLogsOffHint: '  用 --log-level info 开启',
+      serverStopLabel: '停止：    ',
       // sub/server/kill.ts
       serverKillFailedPermissions: '停止旧版 Kimi 服务器（PID {{pid}}）失败；权限不足？',
       // sub/server/daemon.ts
@@ -1338,57 +1707,79 @@ export default {
       loginCodeExpires: '验证码将在 {{seconds}} 秒后过期。',
       loginWaiting: '等待授权完成…',
       loginSuccess: '已登录到 {{provider}}。',
+      loginActiveUser: '当前用户',
       loginFailedMsg: '登录失败：{{message}}',
+      loginInvalidRegion: '无效的 --region "{{value}}"（应为 "mainland-cn" 或 "global"）。',
+      loginAntigravityFound: '发现已有的 Google Antigravity 登录（{{email}}）。正在检查凭据…',
+      loginAntigravityUsingSynced: '使用已同步的 Google Antigravity 凭据。',
+      loginAntigravityExpired: '已存储的 Google 凭据已过期或无法刷新。回退到浏览器登录。',
+      loginCancelledMsg: '登录已取消。',
+      loginCancelledWithErrorMsg: '登录已取消：{{message}}',
+      googleLoginFailedMsg: 'Google 登录失败：{{message}}',
+      loginGoogleOpeningBrowser: '正在打开浏览器进行 Google Gemini 授权：{{url}}',
+      loginGooglePasteUrl: '如果浏览器未打开，请将上方 URL 粘贴到浏览器中。',
+      loginGoogleSuccess: '已登录到 Google Gemini（{{provider}}）。默认模型已设为 {{model}}。',
+      loginAntigravityNoCreds: '未在 ~/.gemini/oauth_creds.json 找到 Google Antigravity 凭据。',
+      loginAntigravityImportFailed: '从 ~/.gemini/oauth_creds.json 导入 Google 凭据失败。',
+      loginAntigravitySynced:
+        '已同步 Google Antigravity 账号（{{email}}）。默认模型已设为 {{model}}。',
       // sub/provider.ts
       providerUrlRequired: '注册表 URL 不能为空。',
       providerFetchFailed: '获取注册表失败{{suffix}}：{{error}}',
-      providerAuthRequired: '该注册表需要认证——请传入 --api-key <key> 或设置 KIMI_REGISTRY_API_KEY。',
-      providerNoUsable: '{{url}} 上的注册表不包含可用的提供商。',
-      providerNotFound: '未找到提供商"{{id}}"。',
-      providerRemoved: '已移除提供商"{{id}}"。',
-      providerNoneConfigured: '未配置任何提供商。',
+      providerAuthRequired:
+        '该注册表需要认证——请传入 --api-key <key> 或设置 KIMI_REGISTRY_API_KEY。',
+      providerNoUsable: '{{url}} 上的注册表不包含可用的供应商。',
+      providerNotFound: '未找到供应商"{{id}}"。',
+      providerRemoved: '已移除供应商"{{id}}"。',
+      providerNoneConfigured: '未配置任何供应商。',
       providerDefaultModel: '默认模型：{{model}}',
-      providerCatalogNoMatch: '目录中没有匹配"{{filter}}"的提供商。',
+      providerCatalogNoMatch: '目录中没有匹配"{{filter}}"的供应商。',
       providerCatalogEmpty: '目录为空。',
       providerCatalogModelNotInProvider:
-        '模型"{{model}}"不在提供商"{{id}}"中。运行"kimi provider catalog list {{id}}"查看可用 ID。',
+        '模型"{{model}}"不在供应商"{{id}}"中。运行"kimi provider catalog list {{id}}"查看可用 ID。',
       providerImported: '已从 {{url}} 导入 {{name}}（{{id}}），包含 {{count}} 个模型。',
       providerProtocolGuessedNote:
         '注意：目录未为"{{providerId}}"声明协议；已猜定为 "openai"。若请求失败，请在 config.toml 中修改 "type"。',
-      providerMultipleImported: '已从 {{url}} 导入 {{count}} 个提供商（{{modelCount}} 个模型）：',
+      providerMultipleImported: '已从 {{url}} 导入 {{count}} 个供应商（{{modelCount}} 个模型）：',
       providerDefaultSet: '默认模型已设置为 {{id}}/{{model}}。',
       providerCatalogFetchFailed: '从 {{url}} 获取目录失败{{suffix}}：{{error}}',
       providerCatalogFallbackWarning:
         '警告：无法访问 {{url}}；正在使用内置的 models.dev 目录快照。',
+      providerCatalogNotFound: '在 {{url}} 的目录中未找到供应商"{{id}}"。',
+      providerCatalogNoUsableModels: '供应商"{{id}}"在该目录中没有可用的模型。',
+      providerCatalogMissingApiKey:
+        '缺少 API 密钥。请传入 --api-key <key> 或设置 KIMI_REGISTRY_API_KEY。',
+      providerCredentialEnvHint:
+        '供应商"{{id}}"声明了凭据环境变量"{{env}}"——请在 config.toml 中设置 api_key_env 以使用它',
       // tui/commands/provider.ts
-      addProviderTitle: '添加第三方提供商',
-      selectProviderTitle: '选择提供商',
-      knownThirdPartyProvider: '常用第三方提供商',
+      addProviderTitle: '添加第三方供应商',
+      selectProviderTitle: '选择供应商',
+      knownThirdPartyProvider: '常用第三方供应商',
       customRegistryOption: '自定义注册表 (api.json)',
       catalogLoaded: '目录已加载。',
       aborted: '已中止。',
       catalogFromBuiltIn: '已从内置快照加载目录（models.dev 不可达）。',
       catalogFailedToLoad: '目录加载失败。',
-      catalogNoSupportedProviders: '目录中没有受支持的提供商。',
-      importedOneProvider: '已导入 1 个提供商。',
-      importedProviders: '已导入 {{count}} 个提供商。',
-      registryNoProviders: '注册表没有提供商。',
-      addProviderFailed: '添加提供商失败：{{error}}',
-      removeProviderFailedGeneric: '移除提供商失败：{{error}}',
-      removeProviderFailed: '移除提供商"{{providerId}}"失败：{{error}}',
+      catalogNoSupportedProviders: '目录中没有受支持的供应商。',
+      importedOneProvider: '已导入 1 个供应商。',
+      importedProviders: '已导入 {{count}} 个供应商。',
+      registryNoProviders: '注册表没有供应商。',
+      addProviderFailed: '添加供应商失败：{{error}}',
+      removeProviderFailedGeneric: '移除供应商失败：{{error}}',
+      removeProviderFailed: '移除供应商"{{providerId}}"失败：{{error}}',
       fetchingCatalog: '正在从 {{url}} 获取目录…',
       catalogFetchFailed: '获取目录失败{{hint}}：{{error}}',
-      providerNoUsableModels: '提供商"{{providerId}}"没有可用模型。',
-      providerAdded: '已添加提供商"{{providerName}}"。',
+      providerNoUsableModels: '供应商"{{providerId}}"没有可用模型。',
+      providerAdded: '已添加供应商"{{providerName}}"。',
       protocolGuessed:
         '已为 {{providerId}} 猜定为 "openai" 协议——若请求失败，请在 config.toml 中修改 "type"。',
       defaultModelSet: '默认模型已设置为 {{alias}}（思考 {{effort}}）。',
       failedToImportRegistry: '导入注册表失败：{{error}}',
       failedToApplyRegistry: '应用注册表失败：{{error}}',
       providerCatalogUnsupportedProtocol:
-        '提供商"{{providerId}}"在目录中声明了协议"{{type}}"，此客户端版本不支持该协议。',
+        '供应商"{{providerId}}"在目录中声明了协议"{{type}}"，此客户端版本不支持该协议。',
       providerCatalogProprietarySdk:
-        '提供商"{{providerId}}"使用了此客户端无法通信的专有 SDK（例如 Amazon Bedrock 或 Cohere），无法从目录导入。',
+        '供应商"{{providerId}}"使用了此客户端无法通信的专有 SDK（例如 Amazon Bedrock 或 Cohere），无法从目录导入。',
       providerCatalogEmptyBaseUrl: '--base-url 不能为空。',
       providerCatalogPlaceholderBaseUrl: 'Base URL 包含环境变量占位符或为空。请输入解析后的 URL。',
       providerCatalogPlaceholderBaseUrlWithValue:
@@ -1396,7 +1787,10 @@ export default {
       providerCatalogBaseUrlRequired:
         '目录未为"{{providerId}}"声明端点。请通过 --base-url <url> 传入地址（例如厂商的 OpenAI 兼容 Base URL）。',
       // tui/commands/prompts.ts
-      selectProviderToLogout: '选择要登出的提供商',
+      selectProviderToLogout: '选择要登出的供应商',
+      promptBaseUrlMissingEndpoint: '目录未为此供应商声明端点 — 请输入其 Base URL。',
+      promptBaseUrlTitle: '输入 {{provider}} 的 Base URL',
+      promptBaseUrlEmpty: 'Base URL 不能为空。',
       feedbackNoAttachment: '不附加额外数据',
       feedbackNoAttachmentDesc: '仅发送此聊天消息和反馈。',
       feedbackLogsOnly: '日志',
@@ -1417,6 +1811,11 @@ export default {
       exportNoSession: '没有可导出的上一个会话。',
       exportCancelled: '导出已取消。',
       exportConfirmPrompt: '导出上一个会话"{{title}}"？[Y/n] ',
+      // sub/fork.ts
+      forkNoSession: '没有可派生的上一个会话。',
+      forkCancelled: '派生已取消。',
+      forkedTo: '已派生到 {{id}}{{title}}，耗时 {{elapsedMs}}ms',
+      forkConfirmPrompt: '派生上一个会话"{{title}}"？[Y/n] ',
       // sub/doctor.ts
       doctorFileNotExist: '文件不存在。',
       doctorFileNotExistDefaults: '文件不存在；将使用内置默认值。',
@@ -1425,8 +1824,22 @@ export default {
       doctorFoundIssues: 'Kimi 诊断发现了 {{count}} 个问题。',
       doctorInvalidConfig: '{{path}} 中的配置无效。',
       doctorValidationIssues: '验证问题：',
+      // sub/session.ts
+      sessionListEmpty: '未找到会话。',
+      sessionListArchivedSuffix: ' [已归档]',
+      sessionListLimitInvalid: '--limit 必须为正整数，收到 "{{value}}"',
       // update/preflight.ts
       updateUnsupportedManager: '不受支持的包管理器或布局。',
+      updateSourceNative: '原生安装包',
+      updateInstallExited: '更新安装进程退出：{{detail}}',
+      updateManualNewerAvailable: '{{package}} 有新版本可用（{{current}} -> {{target}}）。',
+      updateManualDetectedSource: '检测到的安装来源：{{source}}',
+      updateManualRunCommand: '如需手动更新，请运行：{{command}}',
+      updateManualThirdPartyNote:
+        '注意：第三方来源可能滞后于官方发布。\n如需获取最新版本，请使用官方安装方式：{{url}}',
+      updateInstallSuccess: '已将 {{package}} 更新到 {{version}}。重启 CLI 即可使用新版本。',
+      updateBackgroundSuccessNotice: 'Kimi Code 已更新到 {{version}}\n更新日志：{{url}}',
+      updateInstallFailedWarning: '警告：安装 {{package}}@{{version}} 失败：{{error}}',
       // update/prompt.ts
       updatePromptInstallNow: '立即安装更新',
       updatePromptContinue: '继续使用当前版本',
@@ -1438,9 +1851,31 @@ export default {
       updatePromptSource: '来源 ',
       updatePromptCommand: '命令',
       updatePromptNavHint: '↑↓ 选择 · Enter 确认 · Esc 继续',
+      // sub/update-download.ts
+      updateDownloadNativeOnly: '错误：更新下载仅在原生构建中可用',
+      updateDownloadInProgress: 'Kimi Code {{version}} 的下载已在进行中；正在等待其完成…',
+      updateDownloadStaged: 'Kimi Code {{version}} 已下载完成；将在下次启动时应用。',
+      updateDownloadAlreadyStaged: 'Kimi Code {{version}} 已经下载完成；将在下次启动时应用。',
+      updateDownloadOtherInProgress: '错误：另一个更新（{{version}}）正在下载中',
+      updateDownloadUnknownVersion: '未知版本',
+      updateDownloadLabel: '正在下载 Kimi Code {{version}}（{{platform}}-{{arch}}）…',
+      updateDownloadFailed: '错误：下载更新 {{version}} 失败：{{message}}',
       // run-prompt.ts
       promptBlocked: '提示词钩子拦截了请求。',
       promptTurnCannotStart: '提示轮次无法启动',
+      // v2/run-v2-print.ts
+      printTurnWaitCeiling: 'print 轮次等待已达上限（{{seconds}}s），即将结束',
+      printGoalWaitCeiling: 'print 目标等待已达上限（{{seconds}}s），即将结束',
+      printSteerCeiling: 'print 引导等待已达上限（{{seconds}}s），即将结束',
+      printSteerMaxTurns: 'print 引导轮次已达上限（{{maxTurns}}），即将结束',
+      printCronWedged:
+        'print cron 等待：下次触发时间停留在过去；cron 定时器似乎已卡死，放弃等待 cron',
+      printBackgroundPolicyFailed: '警告：print 后台策略执行失败：{{error}}',
+      promptTurnEndedReason: '提示轮次结束，原因：{{reason}}',
+      mcpTrustGatedWarning:
+        '警告：此文件夹未受信任；已跳过 {{count}} 个项目级 MCP 服务器：{{list}}。',
+      mcpTrustGatedHint:
+        '  在此目录运行 `kimi` 并选择"信任此文件夹"，或设置 KIMI_CODE_TRUST_WORKSPACE=1，即可启用它们。',
       // run-shell.ts
       shellNothingToMigrate: '  没有需要从 ~/.kimi/ 迁移的内容。',
       shellBye: '再见！',
@@ -1456,16 +1891,65 @@ export default {
       serverStopCmd: 'kimi server kill',
       legacyKillNoRunning: '没有正在运行的旧版 Kimi 服务器。',
       legacyKillOutcome: '旧版 Kimi 服务器（pid {{pid}}）{{outcome}}。',
+      // sub/web/remote-control.ts
+      rcReadyTitle: 'Kimi Remote Control 已就绪',
+      rcReadySubtitle: '在手机或另一台电脑上使用本机的 Kimi Code。',
+      rcStepScan: '扫描二维码，或打开 {{url}}',
+      rcStepLogin: '使用你的 Kimi 账号登录',
+      rcStepChat: '开始对话 — 会话在本机运行',
+      rcConnectedWaiting: '已连接到 {{host}}，等待远程设备…',
+      rcDeviceLabel: '本设备：',
+      rcLinkWarning: '此链接可控制本机。请勿分享。',
+      rcQrPngLabel: '二维码 PNG：',
+      rcQrPngHint: '（若上方二维码无法扫描，请打开此文件）',
+      rcLocalUiLabel: '本地 UI：',
+      rcLanHint: '（局域网：--host）',
+      rcDocsLabel: '文档',
+      rcFeedbackLabel: '反馈',
+      rcLogsLabel: '日志：',
+      rcLogsOff: '关闭（--log-level info）',
+      rcStopLabel: '停止：',
+      rcStatusRelayConnected: '已连接到中继，等待远程设备…',
+      rcStatusRelayDisconnected: '中继连接断开，正在重连…',
+      rcStatusDeviceConnected: '远程设备已连接（1 个活动会话）',
+      rcStatusDeviceDisconnected: '远程设备已断开',
+      // sub/web/run.ts
+      rcCannotCombineWithBypassAuth: '--remote-control 不能与 --dangerous-bypass-auth 同时使用。',
+      rcRequiresLoopbackHost: '--remote-control 需要回环主机。',
+      // sub/web/deprecated-server.ts
+      deprecatedServerNotice:
+        '`kimi server` 已弃用，不再可用。\n请改用 `kimi web` — 它会在前台运行本地服务器并打开 Web UI（加 `--no-open` 可跳过）。\n如需停止 0.28.0 之前版本启动的服务器，请使用 `{{stopCmd}}`。\n本提示将在 Kimi Code 的下一个主版本中移除。\n',
+      // sub/web/legacy-kill.ts
+      deprecatedKillNotice:
+        '`{{stopCmd}}` 已弃用：它只能停止 0.28.0 之前版本启动的服务器。由 `kimi web` 启动的服务器在前台运行 — 请用 Ctrl+C 停止。\n',
       // sub/plugin-run-node.ts
       pluginRootRequired: '运行插件节点入口需要设置 KIMI_PLUGIN_ROOT。',
       pluginEntryOutsideRoot: '插件节点入口必须在 KIMI_PLUGIN_ROOT 内：{{entry}}',
       // sub/acp.ts
+      acpFatalError: 'acp 服务器：致命错误：{{error}}',
+      // v2/validate-config.ts
+      configUnknownTopLevelKey: 'v2 引擎忽略了未知的顶层键：{{keys}}。',
+      configUnknownTopLevelKeys: 'v2 引擎忽略了未知的顶层键：{{keys}}。',
+      configDeprecatedEnvVar: '环境变量 {{deprecated}} 已弃用；请改用 {{primary}}。',
+      // agent-selection.ts
+      agentFileReadFailed: '读取智能体文件"{{path}}"失败：{{message}}',
+      agentFileInvalid: '智能体文件"{{path}}"无效：{{message}}',
+      // goal-prompt.ts
+      goalSummaryHeadline: '目标 [{{status}}]',
+      goalSummaryCounts: '{{summary}}（{{turns}} 轮，{{tokens}} tokens）',
+      // prompt-render.ts
+      hookResultTitle: '{{event}} 钩子',
+      hookResultTitleBlocked: '{{event}} 钩子已阻止',
+      hookResultEmpty: '（空）',
       // tool-renderers/chip.ts — 工具头部标签
       chipNoMatches: '无匹配',
       chipMatches: '{{count}} {{label}}',
+      chipMoreLine_one: '行已省略',
+      chipMoreLine_other: '行已省略',
       chipNoFiles: '无文件',
       chipNoResults: '无结果',
       chipWebResult: '网页结果',
+      chipNoGoal: '无目标',
       // tool-renderers/truncated.ts — 截断输出提示
       truncatedEarlierLines: '…（上方省略 {{remaining}} 行）',
       truncatedMoreLines: '…（下方省略 {{remaining}} 行）',
@@ -1473,9 +1957,10 @@ export default {
       // controllers/btw-panel.ts
       btwBusyNotice: '请等待 /btw 完成后再发送其他问题。',
       btwInterrupted: '用户中断',
-      btwFiltered: '提供商安全策略拦截了响应。',
+      btwFiltered: '供应商安全策略拦截了响应。',
       // subagent-event-handler.ts
       subagentRun: '运行 {{name}} 智能体',
+      subagentAbortedByUser: '已被用户中止',
       // config.ts
       invalidTuiConfig: '无效的 TUI 配置（~/.kimi-code/tui.toml），已使用默认值。',
 
@@ -1681,6 +2166,13 @@ export default {
         verbTruncated: '已截断',
         verbUsing: '正在使用',
         hiddenSubCall: '还有 {{n}} 个工具调用…',
+        updateCutOff: '更新被截断',
+        updateArgumentsTruncated: '（参数被 max_tokens 截断）',
+        updateCouldNotSend: '无法向你发送更新',
+        updateSent: '已向你发送更新',
+        updateNotDisplayed: '更新未显示',
+        updateCompleted: '更新已完成',
+        updateSending: '正在向你发送更新',
         singleSubagent: {
           completed: '已完成',
           failed: '失败',
@@ -1781,8 +2273,8 @@ export default {
         titleLabel: '标题',
         warningLabel: '警告',
         modelNotSet: '未设置',
-        planModeOn: '开',
-        planModeOff: '关',
+        on: '开',
+        off: '关',
         sessionNone: '无',
         nativeToolsLabel: '原生工具',
         nativeToolsRust: 'rust',
@@ -1807,6 +2299,8 @@ export default {
         contextWindow: '上下文窗口',
         planUsage: '套餐用量',
         noUsageData: '无可用用量数据。',
+        reset: '已重置',
+        resetsIn: '{{duration}} 后重置',
         extraUsage: '额外用量',
         usedThisMonth: '本月已用',
         limit5h: '5 小时上限',
@@ -1859,6 +2353,9 @@ export default {
       configGithubTokenInput: '输入你的 GitHub Personal Access Token（经典版）。',
       configGithubTokenSaved: 'GitHub Token 已保存。',
       configGithubTokenSaveFailed: '保存 GitHub Token 失败：{{error}}',
+      experimentalNotifyUserNewSession:
+        '如果本会话创建时该功能处于关闭状态，请新建会话后再使用 Updates。',
+      experimentalTowerRestart: 'tower 模式将在重启 Kimi Code 后生效。',
       // tui/commands/dispatch.ts
       configInvalidSlashCommand: '无效的斜杠命令：/{{name}}',
       configVersionDisplay: 'Kimi Code v{{version}}',
@@ -1872,6 +2369,23 @@ export default {
       configUnsupportedEffort: '不支持的思考强度 "{{arg}}"（{{alias}}）。可用：{{segments}}',
       configCannotSwitchWhileStreaming: '无法在流式传输时切换模型——请先按 Esc 或 Ctrl-C。',
       configModelSwitchedSaveFailed: '已切换到 {{name}}，但保存默认设置失败：{{msg}}',
+      configSecondaryModelSaveFailed: '保存辅助模型失败：{{error}}',
+      configSecondaryModelSet: '辅助模型已设置为 {{model}}。新生成的子代理将默认使用它。',
+      configSurveyAlreadyEnabled: '反馈调查已启用。',
+      configSurveyAlreadyDisabled: '反馈调查已禁用。',
+      configSurveyEnabled: '反馈调查已启用。',
+      configSurveyDisabled: '反馈调查已禁用。',
+      configSurveySaveFailed: '保存会话评分设置失败：{{error}}',
+      configMermaidAlreadyEnabled: 'Mermaid 图表已启用。',
+      configMermaidAlreadyDisabled: 'Mermaid 图表已禁用。',
+      configMermaidEnabled: 'Mermaid 图表已启用。',
+      configMermaidDisabled: 'Mermaid 图表已禁用。',
+      configMermaidSaveFailed: '保存 Mermaid 图表设置失败：{{error}}',
+      configTuiModeAlreadyRegular: 'TUI 模式已是常规模式。',
+      configTuiModeAlreadyFullscreen: 'TUI 模式已是全屏模式。',
+      configTuiModeSetRegular: 'TUI 模式已设置为常规模式。',
+      configTuiModeSetFullscreen: 'TUI 模式已设置为全屏模式。',
+      configTuiModeSaveFailed: '保存 TUI 模式失败：{{error}}',
       // tui/commands/resolve.ts
       resolveCannotWhileStreaming: '流式传输时无法使用 /{{name}}——请先按 Esc 或 Ctrl-C。',
       resolveCannotWhileCompacting: '压缩时无法使用 /{{name}}——请等待压缩完成。',
@@ -1883,9 +2397,16 @@ export default {
       infoMcpLoadFailed: '加载 MCP 服务器失败：{{error}}',
       // tui/commands/session.ts
       sessionInitFailed: '初始化失败：{{msg}}',
+      sessionForkReleaseFailed: '会话已复刻（{{forkId}}），但释放其运行时失败：{{message}}',
+      sessionForkCommandCopied: '命令已复制到剪贴板',
+      sessionForkCommandCopiedUnverified: '命令已通过终端转义序列复制（未验证）',
+      sessionForkCommandCopyFailed: '复制命令到剪贴板失败',
+      sessionForkedNotice:
+        '会话已复刻（{{forkId}}）。仍停留在原会话；可通过 /sessions 切换到该复刻会话。\n  要在新进程中进入该复刻会话，请运行：{{command}}\n  {{clipboardNote}}',
       // tui/commands/swarm.ts
       swarmPermissionFailed: '设置权限模式失败：{{error}}',
       swarmToggleFailed: '{{action}}集群模式失败：{{error}}',
+      swarmModeDidNotChange: '引擎未更改集群模式',
       swarmEnable: '启用',
       swarmDisable: '禁用',
       // tui/controllers/btw-panel.ts
@@ -1904,6 +2425,7 @@ export default {
       tasksStopFailed: '停止失败：{{message}}',
       tasksCannotOpenOutput: '无法打开输出：{{message}}',
       tasksAlreadyTerminal: '{{taskId}} 已处于终止状态 — 无需停止。',
+      tasksStopReasonUserInitiated: '用户主动停止',
       // tui/controllers/clipboard-image-hint.ts
       clipboardImageHint: '剪贴板中有图片 · {{shortcut}} 粘贴',
       // tui/controllers/cache-hint-controller.ts
@@ -1912,6 +2434,20 @@ export default {
       // tui/kimi-tui.ts
       kimiTuiApprovalRequired: 'Kimi Code 需要你的批准',
       kimiTuiNeedsAnswer: 'Kimi Code 需要你的回答',
+      kimiTuiNoShellCommand: '没有正在运行的 shell 命令。',
+      kimiTuiCommandStarting: '命令仍在启动中 — 请重试。',
+      kimiTuiCommandFinished: '命令已结束。',
+      kimiTuiMoveToBackgroundFailed: '移到后台失败：{{error}}',
+      kimiTuiMovedToBackground: '已移到后台。使用 /tasks 查看。',
+      kimiTuiListTasksFailed: '列出任务失败：{{error}}',
+      kimiTuiNoForegroundTask: '没有正在运行的前台任务。',
+      kimiTuiDetachFailed: '分离 {{taskId}} 失败：{{error}}',
+      kimiTuiMovedTasksToBackground: '已将 {{count}} 个任务移到后台。',
+      kimiTuiMovedSomeTasksToBackground: '已将 {{count}}/{{total}} 个任务移到后台。',
+      kimiTuiTasksToView: '{{hint}} 使用 /tasks 查看。',
+      kimiTuiCouldNotInspectSettings: '无法检查项目设置。',
+      kimiTuiSessionDeleted: '会话已删除。',
+      kimiTuiDeleteSessionFailed: '删除会话 {{sessionId}} 失败：{{error}}',
       // tui/easter-eggs/dance.ts
       danceOn: '跳舞中——使用 {{cmd}} 关闭。',
       danceOff: '使用 {{cmd}} 保持彩虹效果。',
@@ -1934,7 +2470,7 @@ export default {
       goalCompleteTurns: '{{count}} 轮',
       goalCompleteSummary: '在 {{elapsed}} 内完成了 {{turns}}，使用了 {{tokens}} 个 token。',
       // tui/utils/event-payload.ts
-      eventFilteredResponse: '提供商在可见输出之前过滤了响应（finishReason={{reason}}{{raw}}）。',
+      eventFilteredResponse: '供应商在可见输出之前过滤了响应（finishReason={{reason}}{{raw}}）。',
       // tui/utils/background-task-status.ts
       bgTaskAgent: '智能体任务',
       bgTaskQuestion: '问题任务',
@@ -1946,6 +2482,7 @@ export default {
       bgTaskStopped: '{{subject}} 已停止',
       bgTaskLost: '{{subject}} 已丢失',
       bgTaskStoppedReason: '已停止——{{reason}}',
+      bgTaskSessionRestarted: '会话在完成前重启',
       // tui/utils/background-agent-status.ts
       bgAgentStarted: '{{subject}} 已在后台启动',
       bgAgentCompleted: '{{subject}} 已在后台完成',
@@ -1979,6 +2516,8 @@ export default {
       goalQueueObjectiveEmpty: '目标描述不能为空',
       goalQueueObjectiveTooLong: '目标描述不能超过 {{max}} 个字符',
       goalQueueNotFound: '未找到排队的目标',
+      goalQueueUnexpectedShape: '目标队列文件结构异常：{{path}}',
+      goalQueueUnsupportedVersion: '不支持的目标队列版本 {{version}}：{{path}}',
       // tui/commands/registry.ts
       registryGoalShow: '显示当前目标',
       registryGoalPause: '暂停活动目标',
@@ -1994,6 +2533,8 @@ export default {
       registryTowerTeardown: '拆解 tower',
       registryTowerOn: '开启 tower 模式',
       registryTowerOff: '关闭 tower 模式',
+      registryDesktop: '在浏览器中打开 Kimi Code 桌面版页面',
+      desktopOpenedInBrowser: '{{url}} — 已在浏览器中打开',
       // tui/commands/team.ts
       teamUsage: '用法：/team [--debate] <话题> with <角色1>[:立场],<角色2>[:立场],...',
       teamNeedTopic: '请提供讨论话题。',
@@ -2006,6 +2547,61 @@ export default {
       workflowCancelHintPattern: '使用 Workflow 工具取消工作流运行 "{{runId}}"。',
       workflowRunHintPattern:
         '使用 Workflow 工具运行 "{{name}}" 工作流。请提供工作流定义中所需的所有参数。',
+      // tui/commands/tower.ts
+      towerBaseSet: 'tower 基线：{{base}}',
+      towerModeOnWithBase: 'tower 模式：开启（基线：{{base}}）',
+      towerModeAlreadyOn: 'tower 模式已开启。',
+      towerModeAlreadyOff: 'tower 模式已关闭。',
+      towerModeOn: 'tower 模式：开启',
+      towerModeOff: 'tower 模式：关闭',
+      towerEnableFailed:
+        '无法开启 tower 模式 — 另一个会话占用了此工作区的 tower，或该实验功能已关闭／刚开启需要重启。',
+      towerDisableFailed: '无法关闭 tower 模式。',
+      towerEnableError: '开启 tower 模式失败：{{error}}',
+      towerDisableError: '关闭 tower 模式失败：{{error}}',
+      // tui/components/chrome/notify-panel.ts
+      notifyPanelTurnEnded: '轮次已结束',
+      notifyPanelHintFocused: '← → 切换 agent · ↑ ↓ 切换更新 · esc 关闭',
+      notifyPanelHintUnfocused: 'ctrl+n 翻页',
+      // tui/components/markdown/mermaid-art.ts
+      mermaidCouldNotDraw: '无法绘制此 mermaid 图表',
+      mermaidUnsupportedDiagram: '终端不支持绘制 {{identifier}} 图表',
+      mermaidTooWide: 'mermaid 图表过宽，无法渲染（需要 {{columns}} 列）',
+      mermaidCopySource: '[复制源码]',
+      mermaidCopied: '[已复制]',
+      mermaidCopyFailed: '[复制失败]',
+      // tui/components/messages/shell-run.ts
+      shellRunOutputTruncated: '…（输出已截断）',
+      shellRunOutputUnavailable: '（输出不可用）',
+      // tui/components/messages/tool-renderers/wait-for.ts
+      waitForAnyTask: '等待任意后台任务',
+      waitForTask: '等待后台任务',
+      waitForCouldNotWait: '无法等待后台任务',
+      waitForTimedOut: '等待超时',
+      waitForNoTasks: '没有正在运行的后台任务',
+      waitForInterrupted: '等待被新输入打断',
+      waitForAnyTaskDone: '已等待一个后台任务',
+      waitForTaskDone: '已等待后台任务',
+      // tui/constant/survey.ts
+      surveyQuestion: 'Kimi 本次会话表现如何？（可选）',
+      surveyOptionBad: '1: 差',
+      surveyOptionFine: '2: 一般',
+      surveyOptionGood: '3: 好',
+      surveyOptionDismiss: '0: 忽略',
+      // tui/components/panes/survey-panel.ts
+      surveyResponseBad: '差',
+      surveyResponseFine: '一般',
+      surveyResponseGood: '好',
+      surveyFeedbackStatus: '反馈：{{label}} · [escape: 撤销]',
+      surveyThanks: '感谢你的反馈！',
+      // tui/controllers/plugin-update-notifier.ts
+      pluginUpdateDetected:
+        '检测到更新：{{name}} {{version}} 已可用。运行 /plugins 从官方市场安装最新版本。',
+      // tui/controllers/session-replay.ts
+      replayAskWhenNeededOn: '「必要时询问」模式：开启',
+      replayAskWhenNeededOnDetail: '日常编辑与命令自动执行；有风险的操作、提问和计划仍会询问。',
+      replayAskWhenNeededOff: '「必要时询问」模式：关闭',
+      replayPermissionMode: '权限模式：{{mode}}',
     },
     diffPreview: {
       moreChangesHidden: '还有 {{n}} 处变更已隐藏（ctrl+o 展开）',
@@ -2017,6 +2613,21 @@ export default {
     },
     labels: {
       current: '← 当前',
+      jumpToBottom: ' ↓ 跳到末尾 ',
+    },
+    permissionMode: {
+      manual: '始终询问',
+      manualDesc: '仅自动放行只读操作，其余操作都需要你先确认。',
+      yolo: '必要时询问',
+      yoloDesc: '日常编辑与命令自动执行；有风险的操作、提问和计划仍会询问。',
+      auto: '完全自动',
+      autoDesc: '不再打断你；所有操作自动运行并自动决策。',
+    },
+    tmux: {
+      extendedKeysOff:
+        'tmux 的 extended-keys 未开启，修改键（如 Shift+Enter）可能无法生效。请在 ~/.tmux.conf 中加入 `set -g extended-keys on` 并重启 tmux。',
+      extendedKeysFormatXterm:
+        'tmux 的 extended-keys-format 为 xterm。Kimi Code 在 csi-u 下表现最佳，请在 ~/.tmux.conf 中加入 `set -g extended-keys-format csi-u` 并重启 tmux。',
     },
     approvalPanel: {
       shellCwd: '工作目录：{{dir}}',

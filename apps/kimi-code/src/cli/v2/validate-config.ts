@@ -23,14 +23,7 @@
  *    warning rule.
  */
 
-import { parse as parseToml } from 'smol-toml';
-import { z } from 'zod';
-
-import {
-  ConfigRegistry,
-  type AnyEnvBindings,
-  type EnvBinding,
-} from '@moonshot-ai/agent-core-v2';
+import { ConfigRegistry, type AnyEnvBindings, type EnvBinding } from '@moonshot-ai/agent-core-v2';
 import { collectKeyDeprecations } from '@moonshot-ai/agent-core-v2/app/config/deprecations';
 import {
   camelToSnake,
@@ -38,6 +31,10 @@ import {
   isPlainObject,
   transformTomlData,
 } from '@moonshot-ai/agent-core-v2/app/config/toml';
+import { parse as parseToml } from 'smol-toml';
+import { z } from 'zod';
+
+import { t } from '#/i18n';
 
 /**
  * Top-level domains the v2 engine reads via `IConfigService.get` / `inspect`
@@ -130,8 +127,11 @@ export function validateConfigTomlV2(
   }
   warnings.push(...collectEnvDeprecations(registry, getEnv));
   if (unknownKeys.length > 0) {
+    const keys = unknownKeys.join(', ');
     warnings.push(
-      `Unknown top-level ${unknownKeys.length === 1 ? 'key' : 'keys'} ignored by the v2 engine: ${unknownKeys.join(', ')}.`,
+      unknownKeys.length === 1
+        ? t('tui.statusMessages.configUnknownTopLevelKey', { keys })
+        : t('tui.statusMessages.configUnknownTopLevelKeys', { keys }),
     );
   }
   return warnings.length > 0 ? warnings.join('\n') : undefined;
@@ -162,7 +162,10 @@ function collectEnvDeprecations(
       if (deprecated === undefined) return;
       if (binding.parse !== undefined && binding.parse(deprecated) === undefined) return;
       warnings.add(
-        `Environment variable ${binding.deprecatedEnv} is deprecated; use ${binding.env} instead.`,
+        t('tui.statusMessages.configDeprecatedEnvVar', {
+          deprecated: binding.deprecatedEnv,
+          primary: binding.env,
+        }),
       );
     });
   }
@@ -173,10 +176,7 @@ function isEnvBinding(value: AnyEnvBindings): value is EnvBinding {
   return typeof value === 'string' || (isPlainObject(value) && 'env' in value);
 }
 
-function walkEnvBindings(
-  bindings: AnyEnvBindings,
-  visit: (binding: EnvBinding) => void,
-): void {
+function walkEnvBindings(bindings: AnyEnvBindings, visit: (binding: EnvBinding) => void): void {
   if (isEnvBinding(bindings)) {
     visit(bindings);
     return;

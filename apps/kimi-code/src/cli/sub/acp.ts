@@ -31,9 +31,9 @@ import { parseRegionFlag, runLoginFlow } from './login-flow';
 export function registerAcpCommand(parent: Command): void {
   parent
     .command('acp')
-    .description('Run kimi-code as an Agent Client Protocol (ACP) server over stdio.')
+    .description(t('cli.commandDescriptions.acp'))
     .option('--login', t('cli.optionDescriptions.acpLogin'), false)
-    .option('--region <region>', 'Login region used together with --login: "mainland-cn" (kimi.com) or "global" (kimi.ai).')
+    .option('--region <region>', t('cli.optionDescriptions.acpRegion'))
     .action(async (opts: { login?: boolean; region?: string }) => {
       if (opts.login === true) {
         await runLoginFlow({
@@ -65,7 +65,9 @@ export function registerAcpCommand(parent: Command): void {
         });
         process.exit(0);
       } catch (error) {
-        process.stderr.write(`acp server: fatal error: ${String(error)}\n`);
+        process.stderr.write(
+          t('tui.statusMessages.acpFatalError', { error: String(error) }) + '\n',
+        );
         process.exit(1);
       }
     });

@@ -3,6 +3,8 @@ import { homedir } from 'node:os';
 
 import { parseAgentFileText, resolveAgentPath } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
+
 import type { CLIOptions } from './options';
 
 /**
@@ -27,7 +29,10 @@ export async function resolveAgentProfileSelection(
     text = await readFile(path, 'utf8');
   } catch (error) {
     throw new Error(
-      `Failed to read agent file "${path}": ${error instanceof Error ? error.message : String(error)}`,
+      t('tui.statusMessages.agentFileReadFailed', {
+        path,
+        message: error instanceof Error ? error.message : String(error),
+      }),
       { cause: error },
     );
   }
@@ -35,7 +40,10 @@ export async function resolveAgentProfileSelection(
     return parseAgentFileText({ path, source: 'explicit', text }).name;
   } catch (error) {
     throw new Error(
-      `Invalid agent file "${path}": ${error instanceof Error ? error.message : String(error)}`,
+      t('tui.statusMessages.agentFileInvalid', {
+        path,
+        message: error instanceof Error ? error.message : String(error),
+      }),
       { cause: error },
     );
   }

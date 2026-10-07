@@ -1,5 +1,5 @@
-import { hyperlink } from '@moonshot-ai/pi-tui';
 import { isDaemonFileUrl } from '@moonshot-ai/kimi-code-sdk';
+import { hyperlink } from '@moonshot-ai/pi-tui';
 
 export type MediaUrlKind = 'audio' | 'image' | 'video';
 

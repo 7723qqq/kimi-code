@@ -565,7 +565,9 @@ export const BUILTIN_SLASH_COMMANDS = [
   {
     name: 'desktop',
     aliases: ['install-desktop'],
-    description: 'Open the Kimi Code desktop app page in your browser',
+    get description() {
+      return t('tui.messages.registryDesktop');
+    },
     priority: 40,
     availability: 'always',
   },

@@ -79,7 +79,9 @@ export class AgentSwarmProgressEstimator {
   private readonly unfinishedProgressCap: number;
   private readonly maxBoostGain: number;
   private samplesVersion = 0;
-  private priorCache: { readonly version: number; readonly prior: EstimatePrior | undefined } | undefined;
+  private priorCache:
+    | { readonly version: number; readonly prior: EstimatePrior | undefined }
+    | undefined;
 
   constructor(options: AgentSwarmProgressEstimatorOptions = {}) {
     this.rateWindowMs = positiveOrDefault(options.rateWindowMs, DEFAULT_RATE_WINDOW_MS);

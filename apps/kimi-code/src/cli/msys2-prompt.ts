@@ -14,11 +14,10 @@ import { join } from 'node:path';
 
 import { resolveKimiHome } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
-export const MSYS2_BASH_CANDIDATES: readonly string[] = [
-  'C:\\msys64\\usr\\bin\\bash.exe',
-];
+export const MSYS2_BASH_CANDIDATES: readonly string[] = ['C:\\msys64\\usr\\bin\\bash.exe'];
 
 export const MSYS2_PROMPT_MARKER = 'msys2-prompted';
 
@@ -114,7 +113,7 @@ export interface InstallMsys2Result {
 export async function installMsys2(deps: Msys2PromptDeps): Promise<InstallMsys2Result> {
   const winget = deps.resolveCommand('winget');
   if (winget === undefined) {
-    return { ok: false, error: 'winget not found' };
+    return { ok: false, error: t('tui.dialogs.msys2Prompt.installErrorWingetNotFound') };
   }
   const exitCode = await deps.runCommand(winget, [
     'install',
@@ -124,14 +123,17 @@ export async function installMsys2(deps: Msys2PromptDeps): Promise<InstallMsys2R
     '--disable-interactivity',
   ]);
   if (exitCode !== 0) {
-    return { ok: false, error: `winget exited with code ${String(exitCode)}` };
+    return {
+      ok: false,
+      error: t('tui.dialogs.msys2Prompt.installErrorWingetExit', { code: String(exitCode) }),
+    };
   }
   for (const candidate of MSYS2_BASH_CANDIDATES) {
     if (await deps.isFile(candidate)) {
       return { ok: true, bashPath: candidate };
     }
   }
-  return { ok: false, error: 'MSYS2 installed but bash.exe was not found' };
+  return { ok: false, error: t('tui.dialogs.msys2Prompt.installErrorBashNotFound') };
 }
 
 /**

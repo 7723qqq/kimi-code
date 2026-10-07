@@ -1,10 +1,9 @@
 import { diagramKind, render, type DiagramKind, type MermaidArt, type Role } from 'lovely-mermaid';
 
+import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 
-export type MermaidDrawResult =
-  | { status: 'ok'; art: MermaidArt | null }
-  | { status: 'error' };
+export type MermaidDrawResult = { status: 'ok'; art: MermaidArt | null } | { status: 'error' };
 
 export function drawMermaid(source: string): MermaidDrawResult {
   try {
@@ -14,14 +13,16 @@ export function drawMermaid(source: string): MermaidDrawResult {
   }
 }
 
-export const COULD_NOT_DRAW_MESSAGE = 'could not draw this mermaid diagram';
+export function couldNotDrawMessage(): string {
+  return t('tui.messages.mermaidCouldNotDraw');
+}
 
 export function undrawnDiagramReason(source: string): string {
-  if (safeDiagramKind(source) !== null) return COULD_NOT_DRAW_MESSAGE;
+  if (safeDiagramKind(source) !== null) return couldNotDrawMessage();
   const identifier = firstDiagramIdentifier(source);
   return identifier === undefined
-    ? COULD_NOT_DRAW_MESSAGE
-    : `${identifier} diagrams are not drawn in the terminal`;
+    ? couldNotDrawMessage()
+    : t('tui.messages.mermaidUnsupportedDiagram', { identifier });
 }
 
 function safeDiagramKind(source: string): DiagramKind | null {

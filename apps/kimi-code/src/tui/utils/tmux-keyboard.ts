@@ -1,12 +1,16 @@
 import { spawn } from 'node:child_process';
 
+import { t } from '#/i18n';
+
 const TMUX_QUERY_TIMEOUT_MS = 2000;
 
-export const TMUX_EXTENDED_KEYS_OFF_WARNING =
-  'tmux extended-keys is off. Modified Enter keys may not work. Add `set -g extended-keys on` to ~/.tmux.conf and restart tmux.';
+export function tmuxExtendedKeysOffWarning(): string {
+  return t('tui.tmux.extendedKeysOff');
+}
 
-export const TMUX_EXTENDED_KEYS_FORMAT_XTERM_WARNING =
-  'tmux extended-keys-format is xterm. Kimi Code works best with csi-u. Add `set -g extended-keys-format csi-u` to ~/.tmux.conf and restart tmux.';
+export function tmuxExtendedKeysFormatXtermWarning(): string {
+  return t('tui.tmux.extendedKeysFormatXterm');
+}
 
 export type TmuxOptionReader = (option: string) => Promise<string | undefined>;
 
@@ -25,11 +29,11 @@ export async function detectTmuxKeyboardWarning(
     if (extendedKeys === undefined) return undefined;
 
     if (extendedKeys !== 'on' && extendedKeys !== 'always') {
-      return TMUX_EXTENDED_KEYS_OFF_WARNING;
+      return tmuxExtendedKeysOffWarning();
     }
 
     if (extendedKeysFormat === 'xterm') {
-      return TMUX_EXTENDED_KEYS_FORMAT_XTERM_WARNING;
+      return tmuxExtendedKeysFormatXtermWarning();
     }
   } catch {
     return undefined;

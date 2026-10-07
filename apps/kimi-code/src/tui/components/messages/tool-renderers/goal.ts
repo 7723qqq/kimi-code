@@ -80,7 +80,7 @@ function formatGoalBudgetArg(args: Record<string, unknown>): string | undefined 
 export function goalStatusChip(output: string): string {
   const goal = parseGoalValue(output);
   if (goal === undefined) return '';
-  if (goal === null) return 'no goal';
+  if (goal === null) return t('tui.statusMessages.chipNoGoal');
   return stringField(goal, 'status') ?? '';
 }
 

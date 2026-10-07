@@ -1,10 +1,7 @@
 import type { PermissionMode } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
-import {
-  PERMISSION_MODE_DESCRIPTIONS,
-  PERMISSION_MODE_DISPLAY_NAMES,
-} from '#/tui/utils/permission-mode';
+import { permissionModeDescription, permissionModeDisplayName } from '#/tui/utils/permission-mode';
 
 import { ChoicePickerComponent, type ChoiceOption } from './choice-picker';
 
@@ -12,18 +9,18 @@ function permissionOptions(): readonly ChoiceOption[] {
   return [
     {
       value: 'manual',
-      label: PERMISSION_MODE_DISPLAY_NAMES.manual,
-      description: PERMISSION_MODE_DESCRIPTIONS.manual,
+      label: permissionModeDisplayName('manual'),
+      description: permissionModeDescription('manual'),
     },
     {
       value: 'yolo',
-      label: PERMISSION_MODE_DISPLAY_NAMES.yolo,
-      description: PERMISSION_MODE_DESCRIPTIONS.yolo,
+      label: permissionModeDisplayName('yolo'),
+      description: permissionModeDescription('yolo'),
     },
     {
       value: 'auto',
-      label: PERMISSION_MODE_DISPLAY_NAMES.auto,
-      description: PERMISSION_MODE_DESCRIPTIONS.auto,
+      label: permissionModeDisplayName('auto'),
+      description: permissionModeDescription('auto'),
     },
   ];
 }

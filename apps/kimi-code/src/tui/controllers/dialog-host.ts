@@ -249,7 +249,11 @@ export class DialogHostController {
       onSelect: (session: SessionRow) =>
         this.handleSessionPickerSelect(session, options.applyStartupModes === true).catch(
           (error) => {
-            this.host.showError(`Failed to apply startup flags: ${formatErrorMessage(error)}`);
+            this.host.showError(
+              t('tui.statusMessages.failedToApplyStartupFlags', {
+                message: formatErrorMessage(error),
+              }),
+            );
           },
         ),
       onCancel: options.onCancel,

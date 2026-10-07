@@ -10,8 +10,8 @@
 import { Container, matchesKey, Key, truncateToWidth, type Focusable } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
-import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
+import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 
 export type PromptOptimizeChoice = 'accept' | 'discard';
@@ -62,7 +62,10 @@ export class PromptOptimizePanelComponent extends Container implements Focusable
     const lines: string[] = [
       theme.fg('primary', '─'.repeat(Math.max(1, width))),
       theme.boldFg('primary', t('tui.dialogs.promptOptimize.title')),
-      theme.fg('textMuted', t('tui.dialogs.promptOptimize.hint', { accept: 'Enter', discard: 'Esc' })),
+      theme.fg(
+        'textMuted',
+        t('tui.dialogs.promptOptimize.hint', { accept: 'Enter', discard: 'Esc' }),
+      ),
       '',
     ];
     for (const line of renderDiffLinesClustered(this.opts.original, this.opts.optimized, '', {

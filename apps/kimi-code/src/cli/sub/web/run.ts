@@ -124,46 +124,39 @@ export function buildWebCommand(
   const withServerOptions = cmd
     .option(
       '--port <port>',
-      `Bind port (default ${DEFAULT_SERVER_PORT})`,
+      t('cli.optionDescriptions.serverRunOptionPort', { port: String(DEFAULT_SERVER_PORT) }),
       String(DEFAULT_SERVER_PORT),
     )
     .option(
       '--host [host]',
-      `Bind host. Omit to bind ${DEFAULT_SERVER_HOST} (this machine only); pass --host to bind ${DEFAULT_LAN_HOST} (all interfaces), or --host <host> for a specific host. The bearer token is printed at startup.`,
+      t('cli.optionDescriptions.serverRunOptionHost', {
+        host: DEFAULT_SERVER_HOST,
+        lanHost: DEFAULT_LAN_HOST,
+      }),
     )
-    .option(
-      '--allowed-host <host...>',
-      'Extra Host header value to allow through the DNS-rebinding check. Repeat or comma-separate; a leading dot matches a domain suffix (e.g. .example.com).',
-    )
+    .option('--allowed-host <host...>', t('cli.optionDescriptions.serverRunOptionAllowedHost'))
     .option('--insecure-no-tls', t('cli.optionDescriptions.serverRunOptionInsecureNoTls'), true)
     .option(
       '--allow-remote-shutdown',
-      'On a non-loopback bind, keep POST /api/v1/shutdown enabled (default: route is disabled → 404).',
+      t('cli.optionDescriptions.serverRunOptionAllowRemoteShutdown'),
       false,
     )
     .option(
       '--dangerous-bypass-auth',
-      'Disable bearer-token auth on every REST and WebSocket route, and advertise it via /api/v1/meta so the web UI connects without a token. Only use on a trusted network or behind your own authenticating proxy.',
+      t('cli.optionDescriptions.serverRunOptionDangerousBypassAuth'),
       false,
     )
     .option(
       '--log-level <level>',
-      `Server log level: ${VALID_LOG_LEVELS.join('|')}. Omit to keep logs off.`,
+      t('cli.optionDescriptions.serverRunOptionLogLevel', { levels: VALID_LOG_LEVELS.join('|') }),
     )
-    .option(
-      '--debug-endpoints',
-      'Mount /api/v1/debug/* routes for test introspection. OFF by default; production callers leave this unset.',
-      false,
-    )
-    .option(
-      '--web-title <title>',
-      'Set a custom browser tab title for this web UI instance (default: "<workspace dir> | Kimi Code").',
-    );
+    .option('--debug-endpoints', t('cli.optionDescriptions.serverRunOptionDebugEndpoints'), false)
+    .option('--web-title <title>', t('cli.optionDescriptions.serverRunOptionWebTitle'));
   if (!forceRemoteControl) {
     withServerOptions.addOption(
       new Option(
         '--rc, --remote-control',
-        'Expose the web UI through Kimi Remote Control.',
+        t('cli.optionDescriptions.serverRunOptionRemoteControl'),
       ).default(false),
     );
   }
@@ -185,10 +178,10 @@ export async function handleWebCommand(
 ): Promise<void> {
   const parsed = parseServerOptions(opts);
   if (opts.remoteControl === true && parsed.dangerousBypassAuth) {
-    throw new Error('--remote-control cannot be combined with --dangerous-bypass-auth.');
+    throw new Error(t('tui.statusMessages.rcCannotCombineWithBypassAuth'));
   }
   if (opts.remoteControl === true && !isLoopbackHost(parsed.host)) {
-    throw new Error('--remote-control requires a loopback host.');
+    throw new Error(t('tui.statusMessages.rcRequiresLoopbackHost'));
   }
   const run = deps.startServerForeground ?? startServerForeground;
   let remoteControl: RemoteControlHandle | undefined;
@@ -265,7 +258,7 @@ function formatReadyLine(
   dangerousBypassAuth = false,
 ): string {
   const notice = dangerousBypassAuth ? `${formatDangerNoticeLines().join('\n')}\n` : '';
-  return `${notice}Kimi server: ${buildOpenableUrl(origin, token)}\n`;
+  return `${notice}${t('tui.statusMessages.serverReadyLinePrefix')}${buildOpenableUrl(origin, token)}\n`;
 }
 
 /**
@@ -276,10 +269,12 @@ function formatReadyLine(
 function formatDangerNoticeLines(): string[] {
   const danger = (text: string): string => chalk.hex(darkColors.error)(text);
   const dangerBold = (text: string): string => chalk.bold.hex(darkColors.error)(text);
+  const stopHint = t('tui.statusMessages.serverDangerStopHint');
+  const [stopHintBefore = stopHint, stopHintAfter = ''] = stopHint.split('{{key}}');
   return [
     `  ${dangerBold(t('tui.statusMessages.serverDangerAuthDisabled'))}`,
     `  ${danger(t('tui.statusMessages.serverDangerAnyoneAccess'))}`,
-    `  ${danger('If you are unsure, stop this process now with ')}${dangerBold('Ctrl+C')}${danger('.')}`,
+    `  ${danger(stopHintBefore)}${dangerBold('Ctrl+C')}${danger(stopHintAfter)}`,
   ];
 }
 
@@ -487,20 +482,26 @@ export function formatReadyBanner(
   }
   // On a loopback bind there is no network URL; show how to enable one.
   if (isLoopbackHost(host)) {
-    lines.push(`  ${label('Network:  ')}${muted('off')}${dim('  use --host to enable')}`);
+    const network = label(t('tui.statusMessages.serverAccessNetwork'));
+    const off = muted(t('tui.statusMessages.serverFeatureOff'));
+    const hint = dim(t('tui.statusMessages.serverNetworkOffHint'));
+    lines.push(`  ${network}${off}${hint}`);
   }
   if (opts.token !== undefined) {
     // Set the token off with surrounding whitespace rather than color, so it is
     // easy to spot without being highlighted.
     lines.push('');
-    lines.push(`  ${label('Token:    ')}${opts.token}`);
+    lines.push(`  ${label(t('tui.statusMessages.serverTokenLabel'))}${opts.token}`);
     lines.push('');
   }
 
   // Auxiliary controls last.
-  lines.push(`  ${label('Logs:     ')}${muted('off')}${dim('  use --log-level info to enable')}`);
+  const logs = label(t('tui.statusMessages.serverLogsLabel'));
+  const logsOff = muted(t('tui.statusMessages.serverFeatureOff'));
+  const logsHint = dim(t('tui.statusMessages.serverLogsOffHint'));
+  lines.push(`  ${logs}${logsOff}${logsHint}`);
   // The server always runs in the foreground attached to this terminal.
-  lines.push(`  ${label('Stop:     ')}${muted('Ctrl+C')}`);
+  lines.push(`  ${label(t('tui.statusMessages.serverStopLabel'))}${muted('Ctrl+C')}`);
   lines.push('');
   return lines.join('\n');
 }

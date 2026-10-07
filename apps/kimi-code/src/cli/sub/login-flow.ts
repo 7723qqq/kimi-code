@@ -24,7 +24,7 @@ import { persistedKimiOAuthRef, regionForBareLogin } from '#/utils/region';
 /** Parse a `--region` CLI flag; exits with an actionable message on bad input. */
 export function parseRegionFlag(value: string): KimiRegion {
   if (value !== 'mainland-cn' && value !== 'global') {
-    process.stderr.write(`Invalid --region "${value}" (expected "mainland-cn" or "global").\n`);
+    process.stderr.write(t('tui.statusMessages.loginInvalidRegion', { value }) + '\n');
     process.exit(1);
   }
   return value;
@@ -40,7 +40,9 @@ export async function runLoginFlow(
     const antigravity = GoogleOAuthManager.detectAntigravityCredentials();
     if (antigravity.available) {
       process.stderr.write(
-        `Found existing Google Antigravity login (${antigravity.email ?? 'active user'}). Checking credentials...\n`,
+        t('tui.statusMessages.loginAntigravityFound', {
+          email: antigravity.email ?? t('tui.statusMessages.loginActiveUser'),
+        }) + '\n',
       );
       // Import alone proves nothing: validate that the token is usable
       // (unexpired or refreshable) before committing to the sync path.
@@ -48,12 +50,10 @@ export async function runLoginFlow(
         .getValidAccessToken()
         .catch(() => undefined);
       if (accessToken !== undefined && accessToken.length > 0) {
-        process.stderr.write('Using the synced Google Antigravity credentials.\n');
+        process.stderr.write(t('tui.statusMessages.loginAntigravityUsingSynced') + '\n');
         return runAntigravitySyncFlow();
       }
-      process.stderr.write(
-        'Stored Google credentials are expired or not refreshable. Falling back to browser login.\n',
-      );
+      process.stderr.write(t('tui.statusMessages.loginAntigravityExpired') + '\n');
     }
     return runGoogleLoginFlow();
   }
@@ -83,10 +83,10 @@ export async function runLoginFlow(
         process.stderr.write(
           [
             '',
-            `Opening browser for Kimi device login: ${url}`,
-            `If the browser did not open, paste the URL above and enter code: ${data.userCode}`,
+            t('tui.statusMessages.loginOpeningBrowser', { url }),
+            t('tui.statusMessages.loginPasteUrl', { code: data.userCode }),
             data.expiresIn !== null && data.expiresIn !== undefined
-              ? `Code expires in ${data.expiresIn}s.`
+              ? t('tui.statusMessages.loginCodeExpires', { seconds: data.expiresIn })
               : undefined,
             t('tui.statusMessages.loginWaiting'),
             '',
@@ -101,17 +101,19 @@ export async function runLoginFlow(
         }
       },
     });
-    process.stderr.write(`Logged in to ${result.providerName}.\n`);
+    process.stderr.write(
+      t('tui.statusMessages.loginSuccess', { provider: result.providerName }) + '\n',
+    );
     process.exit(0);
   } catch (error) {
     if (controller.signal.aborted) {
-      process.stderr.write('Login cancelled.\n');
+      process.stderr.write(t('tui.statusMessages.loginCancelledMsg') + '\n');
     } else if (error instanceof OAuthAccessDeniedError) {
       const message = error instanceof Error ? error.message : String(error);
-      process.stderr.write(`Login cancelled: ${message}\n`);
+      process.stderr.write(t('tui.statusMessages.loginCancelledWithErrorMsg', { message }) + '\n');
     } else {
       const message = error instanceof Error ? error.message : String(error);
-      process.stderr.write(`Login failed: ${message}\n`);
+      process.stderr.write(t('tui.statusMessages.loginFailedMsg', { message }) + '\n');
     }
     process.exit(1);
   }
@@ -136,8 +138,8 @@ export async function runGoogleLoginFlow(): Promise<never> {
         process.stderr.write(
           [
             '',
-            `Opening browser for Google Gemini authorization: ${data.authUrl}`,
-            `If the browser did not open, paste the URL above into your browser.`,
+            t('tui.statusMessages.loginGoogleOpeningBrowser', { url: data.authUrl }),
+            t('tui.statusMessages.loginGooglePasteUrl'),
             t('tui.statusMessages.loginWaiting'),
             '',
           ].join('\n'),
@@ -151,7 +153,7 @@ export async function runGoogleLoginFlow(): Promise<never> {
     });
 
     const config = await harness.getConfig();
-    applyGoogleGeminiConfig(config as ManagedKimiConfigShape, {
+    const applied = applyGoogleGeminiConfig(config as ManagedKimiConfigShape, {
       authType: 'oauth',
       selectedModel: GOOGLE_GEMINI_DEFAULT_MODEL_ID,
       thinking: true,
@@ -166,15 +168,18 @@ export async function runGoogleLoginFlow(): Promise<never> {
     });
 
     process.stderr.write(
-      `Logged in to Google Gemini (${result.providerName}). Default model set to ${config.defaultModel}.\n`,
+      t('tui.statusMessages.loginGoogleSuccess', {
+        provider: result.providerName,
+        model: applied.defaultModel,
+      }) + '\n',
     );
     process.exit(0);
   } catch (error) {
     if (controller.signal.aborted) {
-      process.stderr.write('Login cancelled.\n');
+      process.stderr.write(t('tui.statusMessages.loginCancelledMsg') + '\n');
     } else {
       const message = error instanceof Error ? error.message : String(error);
-      process.stderr.write(`Google login failed: ${message}\n`);
+      process.stderr.write(t('tui.statusMessages.googleLoginFailedMsg', { message }) + '\n');
     }
     process.exit(1);
   }
@@ -190,20 +195,18 @@ export async function runAntigravitySyncFlow(): Promise<never> {
 
   const detection = GoogleOAuthManager.detectAntigravityCredentials();
   if (!detection.available) {
-    process.stderr.write(
-      'No Google Antigravity credentials found at ~/.gemini/oauth_creds.json.\n',
-    );
+    process.stderr.write(t('tui.statusMessages.loginAntigravityNoCreds') + '\n');
     process.exit(1);
   }
 
   const token = await manager.importAntigravityCredentials();
   if (!token) {
-    process.stderr.write('Failed to import Google credentials from ~/.gemini/oauth_creds.json.\n');
+    process.stderr.write(t('tui.statusMessages.loginAntigravityImportFailed') + '\n');
     process.exit(1);
   }
 
   const config = await harness.getConfig();
-  applyGoogleGeminiConfig(config as ManagedKimiConfigShape, {
+  const applied = applyGoogleGeminiConfig(config as ManagedKimiConfigShape, {
     authType: 'oauth',
     selectedModel: GOOGLE_GEMINI_DEFAULT_MODEL_ID,
     thinking: true,
@@ -218,7 +221,10 @@ export async function runAntigravitySyncFlow(): Promise<never> {
   });
 
   process.stderr.write(
-    `Synced Google Antigravity account (${detection.email ?? 'active user'}). Default model set to ${config.defaultModel}.\n`,
+    t('tui.statusMessages.loginAntigravitySynced', {
+      email: detection.email ?? t('tui.statusMessages.loginActiveUser'),
+      model: applied.defaultModel,
+    }) + '\n',
   );
   process.exit(0);
 }

@@ -1,13 +1,14 @@
 import type { Component } from '@moonshot-ai/pi-tui';
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
+
 import {
   SURVEY_MIN_OPTIONS_WIDTH,
   SURVEY_OPTION_GAP,
-  SURVEY_OPTION_LABELS,
-  SURVEY_QUESTION,
+  surveyOptionLabels,
+  surveyQuestion,
 } from '../../constant/survey';
-
 import { currentTheme } from '../../theme';
 import type { SurveyResponse } from '../../utils/survey-policy';
 
@@ -23,12 +24,13 @@ const DOT = '●';
 const DOT_PREFIX_WIDTH = 2;
 const OPTION_INDENT = '  ';
 
-const RESPONSE_LABELS: Record<Exclude<SurveyResponse, 'dismissed'>, string> = {
-  bad: 'Bad',
-  fine: 'Fine',
-  good: 'Good',
-};
-const THANKS = 'Thanks for your feedback!';
+function responseLabels(): Record<Exclude<SurveyResponse, 'dismissed'>, string> {
+  return {
+    bad: t('tui.messages.surveyResponseBad'),
+    fine: t('tui.messages.surveyResponseFine'),
+    good: t('tui.messages.surveyResponseGood'),
+  };
+}
 
 export class SurveyPanelComponent implements Component {
   constructor(private readonly view: SurveyPanelView) {}
@@ -41,17 +43,22 @@ export class SurveyPanelComponent implements Component {
       case 'open':
         return this.renderOpen(width);
       case 'pending': {
-        const label =
-          this.view.response === undefined ? '' : RESPONSE_LABELS[this.view.response];
-        return this.renderStatusLine(width, currentTheme.fg('textDim', `Feedback: ${label} · [escape: undo]`));
+        const label = this.view.response === undefined ? '' : responseLabels()[this.view.response];
+        return this.renderStatusLine(
+          width,
+          currentTheme.fg('textDim', t('tui.messages.surveyFeedbackStatus', { label })),
+        );
       }
       case 'thanks':
-        return this.renderStatusLine(width, currentTheme.fg('success', THANKS));
+        return this.renderStatusLine(
+          width,
+          currentTheme.fg('success', t('tui.messages.surveyThanks')),
+        );
     }
   }
 
   private renderOpen(width: number): string[] {
-    const title = wrapTextWithAnsi(SURVEY_QUESTION, Math.max(1, width - DOT_PREFIX_WIDTH)).map(
+    const title = wrapTextWithAnsi(surveyQuestion(), Math.max(1, width - DOT_PREFIX_WIDTH)).map(
       (line, index) =>
         (index === 0 ? this.dotPrefix() : ' '.repeat(DOT_PREFIX_WIDTH)) +
         currentTheme.boldFg('textStrong', line),
@@ -61,10 +68,7 @@ export class SurveyPanelComponent implements Component {
       return [...title, optionsLine];
     }
     if (width >= SURVEY_MIN_OPTIONS_WIDTH) {
-      return [
-        ...title,
-        ...this.styledOptionsPerLine().map((option) => OPTION_INDENT + option),
-      ];
+      return [...title, ...this.styledOptionsPerLine().map((option) => OPTION_INDENT + option)];
     }
     return title;
   }
@@ -78,13 +82,13 @@ export class SurveyPanelComponent implements Component {
   }
 
   private styledOptions(): string {
-    return SURVEY_OPTION_LABELS.map((label, index) => this.styleOption(label, index)).join(
-      ' '.repeat(SURVEY_OPTION_GAP),
-    );
+    return surveyOptionLabels()
+      .map((label, index) => this.styleOption(label, index))
+      .join(' '.repeat(SURVEY_OPTION_GAP));
   }
 
   private styledOptionsPerLine(): string[] {
-    return SURVEY_OPTION_LABELS.map((label, index) => this.styleOption(label, index));
+    return surveyOptionLabels().map((label, index) => this.styleOption(label, index));
   }
 
   private styleOption(label: string, index: number): string {

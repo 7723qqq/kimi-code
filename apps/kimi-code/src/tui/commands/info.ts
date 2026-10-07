@@ -2,6 +2,7 @@ import { release as osRelease, type as osType } from 'node:os';
 
 import type { McpServerInfo, SessionStatus, SessionUsage } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
 import { openUrl } from '#/utils/open-url';
 import { quotaUsageRows } from '#/utils/usage/usage-format';
 
@@ -216,7 +217,7 @@ export async function showMcpServers(host: SlashCommandHost): Promise<void> {
       servers = await host.harness.listWorkspaceMcpServers(host.state.appState.workDir);
     }
   } catch (error) {
-    host.showError(`Failed to load MCP servers: ${formatErrorMessage(error)}`);
+    host.showError(t('tui.messages.infoMcpLoadFailed', { error: formatErrorMessage(error) }));
     return;
   }
 

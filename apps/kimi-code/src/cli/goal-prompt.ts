@@ -98,7 +98,11 @@ export function goalSummaryJson(goal: GoalSnapshot | null): GoalSummary {
 
 export function formatGoalSummaryText(goal: GoalSnapshot | null): string {
   if (goal === null) return t('tui.statusMessages.goalNoGoalFound');
-  const parts = [`Goal [${goal.status}]`];
+  const parts = [t('tui.statusMessages.goalSummaryHeadline', { status: goal.status })];
   if (goal.terminalReason !== undefined) parts.push(goal.terminalReason);
-  return `${parts.join(': ')} (turns: ${goal.turnsUsed}, tokens: ${goal.tokensUsed})`;
+  return t('tui.statusMessages.goalSummaryCounts', {
+    summary: parts.join(': '),
+    turns: goal.turnsUsed,
+    tokens: goal.tokensUsed,
+  });
 }

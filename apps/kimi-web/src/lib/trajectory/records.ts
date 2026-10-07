@@ -5,7 +5,11 @@
 // (input/output/thinking/tokens/timing) for the inspector, plus single-line
 // summaries for the ledger rows.
 
+import { i18n } from '../../i18n';
+
 import type { LedgerFrame } from './ledger';
+
+const t = i18n.global.t;
 
 export type TrajectoryRecordKind =
   | 'system'
@@ -243,7 +247,9 @@ function settleAssistant(b: Builder, finishedAt: number | null): void {
   pushRecord(b, turn, stepGroup(a.step), {
     id: `assistant\u0000step\u0000${turn}\u0000${a.step}`,
     kind: 'assistant',
-    text: singleLine(a.text) || (a.interrupted ? '(interrupted)' : '(empty)'),
+    text:
+      singleLine(a.text) ||
+      (a.interrupted ? t('trajectory.interrupted') : t('trajectory.emptyContent')),
     outputDetail: a.text === '' ? undefined : a.text,
     thinkingDetail: a.thinking === '' ? undefined : a.thinking,
     timeSeconds: durationSeconds(a.startedAt, finishedAt ?? a.finishedAt),
@@ -322,7 +328,7 @@ export function deriveTrajectoryLayout(
           kind: 'user',
           sourceSeq: frame.seq,
           opensTurn: true,
-          text: singleLine(content) || '(empty prompt)',
+          text: singleLine(content) || t('trajectory.emptyPrompt'),
           inputDetail: content === '' ? undefined : content,
           timeSeconds: 0,
           startedAt: time,
@@ -396,7 +402,7 @@ export function deriveTrajectoryLayout(
           const record: Omit<TrajectoryRecord, 'index' | 'turn' | 'group'> = {
             id: `assistant\u0000step\u0000${b.currentTurn ?? b.nextTurn - 1}\u0000${a.step}`,
             kind: 'assistant',
-            text: singleLine(a.text) || '(empty)',
+            text: singleLine(a.text) || t('trajectory.emptyContent'),
             outputDetail: a.text === '' ? undefined : a.text,
             thinkingDetail: a.thinking === '' ? undefined : a.thinking,
             timeSeconds: durationSeconds(a.startedAt, time),

@@ -4,6 +4,7 @@ import { isManagedKimiCodeBaseUrl } from '@moonshot-ai/kimi-code-oauth';
 import { isTelemetryDisabledByEnv } from '@moonshot-ai/kimi-telemetry';
 import { Key, matchesKey, Spacer } from '@moonshot-ai/pi-tui';
 
+import { currentKimiRegion } from '#/utils/region';
 import {
   getSurveyPopupConfig,
   peekSurveyPopupConfig,
@@ -11,11 +12,9 @@ import {
   type SurveyPopupConfig,
 } from '#/utils/survey-popup-config';
 import { readSurveyLastShownTime, writeSurveyLastShownTime } from '#/utils/survey-state-store';
-import { currentKimiRegion } from '#/utils/region';
 
 import { SurveyPanelComponent, type SurveyPanelView } from '../components/panes/survey-panel';
 import { CHROME_GUTTER } from '../constant/rendering';
-import { printableChar } from '../utils/printable-key';
 import {
   SURVEY_DIGIT_DEBOUNCE_MS,
   SURVEY_IDLE_EVALUATION_DELAY_MS,
@@ -32,6 +31,7 @@ import {
   SURVEY_THANKS_DURATION_MS,
 } from '../constant/survey';
 import type { TUIState } from '../tui-state';
+import { printableChar } from '../utils/printable-key';
 import {
   buildSurveyEventProperties,
   evaluateSurveyGate,
@@ -502,7 +502,9 @@ export class SurveyController {
             : this.userTurnCount - this.userTurnsAtLastShown,
         sample: this.currentSample(),
         msSinceGlobalLastShown:
-          this.globalLastShownAt === undefined ? undefined : this.wallNow() - this.globalLastShownAt,
+          this.globalLastShownAt === undefined
+            ? undefined
+            : this.wallNow() - this.globalLastShownAt,
       },
       longContext: {
         ...shared,
@@ -567,9 +569,7 @@ export class SurveyController {
     if (survey !== 'session') return;
     this.globalLastShownAt = this.wallNow();
     try {
-      (this.deps.writeGlobalLastShown ?? defaultDeps.writeGlobalLastShown)(
-        this.globalLastShownAt,
-      );
+      (this.deps.writeGlobalLastShown ?? defaultDeps.writeGlobalLastShown)(this.globalLastShownAt);
     } catch {}
   }
 
@@ -684,7 +684,9 @@ export class SurveyController {
     const current = this.view.hoverIndex;
     this.view.hoverIndex =
       current === undefined
-        ? (delta > 0 ? 0 : SURVEY_OPTION_COUNT - 1)
+        ? delta > 0
+          ? 0
+          : SURVEY_OPTION_COUNT - 1
         : (current + delta + SURVEY_OPTION_COUNT) % SURVEY_OPTION_COUNT;
     this.host.state.ui.requestRender();
   }

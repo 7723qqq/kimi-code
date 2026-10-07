@@ -84,6 +84,22 @@ vi.mock('#/i18n', () => {
     'tui.messages.toolCall.verbTruncated': 'Truncated',
     'tui.messages.toolCall.verbUsing': 'Using',
     'tui.messages.toolCall.hiddenSubCall': '{{n}} more tool call(s) …',
+    'tui.messages.toolCall.updateCutOff': 'Update cut off',
+    'tui.messages.toolCall.updateArgumentsTruncated': '(arguments truncated by max_tokens)',
+    'tui.messages.toolCall.updateCouldNotSend': 'Could not send you an update',
+    'tui.messages.toolCall.updateSent': 'Sent you an update',
+    'tui.messages.toolCall.updateNotDisplayed': 'Update not displayed',
+    'tui.messages.toolCall.updateCompleted': 'Update completed',
+    'tui.messages.toolCall.updateSending': 'Sending you an update',
+    // ── wait-for.ts ──
+    'tui.messages.waitForAnyTask': 'Waiting for any background task',
+    'tui.messages.waitForTask': 'Waiting for background task',
+    'tui.messages.waitForCouldNotWait': 'Could not wait for background task',
+    'tui.messages.waitForTimedOut': 'Wait timed out',
+    'tui.messages.waitForNoTasks': 'No background tasks running',
+    'tui.messages.waitForInterrupted': 'Wait interrupted by new input',
+    'tui.messages.waitForAnyTaskDone': 'Waited for a background task',
+    'tui.messages.waitForTaskDone': 'Waited for background task',
     // ── goal.ts (tool-renderers/goal.ts) ──
     'tui.messages.goalToolNoGoal': '  No current goal.',
     'tui.messages.goalToolStatus': 'Goal {{status}}: {{objective}}',
@@ -101,6 +117,8 @@ vi.mock('#/i18n', () => {
     'tui.messages.goalToolReporting': 'Reporting goal{{suffix}}',
     // ── chip.ts ──
     'tui.statusMessages.chipMatches': '{{count}} {{label}}',
+    'tui.statusMessages.chipMoreLine_one': 'more line',
+    'tui.statusMessages.chipMoreLine_other': 'more lines',
     'tui.statusMessages.chipNoMatches': 'no matches',
     'tui.statusMessages.chipNoFiles': 'no files',
     'tui.statusMessages.chipNoResults': 'no results',
@@ -282,7 +300,10 @@ describe('ToolCallComponent', () => {
 
     // Collapsed: the header (command + hidden-line chip) plus one outcome row
     // holding the last output line, marked as standing in for the rest.
-    const collapsedLines = component.render(100).map(strip).filter((line) => line.trim().length > 0);
+    const collapsedLines = component
+      .render(100)
+      .map(strip)
+      .filter((line) => line.trim().length > 0);
     expect(collapsedLines).toHaveLength(2);
     expect(collapsedLines[0]).toContain('Ran a command');
     expect(collapsedLines[0]).toContain('$ printf output');
@@ -298,7 +319,7 @@ describe('ToolCallComponent', () => {
     expect(expanded).not.toContain('ctrl+o to expand');
   });
 
-  it('keeps a failing command\'s output visible while collapsed', () => {
+  it("keeps a failing command's output visible while collapsed", () => {
     const component = new ToolCallComponent(
       {
         id: 'call_shell_err',
@@ -335,7 +356,10 @@ describe('ToolCallComponent', () => {
     // Collapsed: the header plus the newest live line as the outcome row,
     // marked as standing in for the lines above it; the whole live tail waits
     // for ctrl+o.
-    const rows = component.render(100).map(strip).filter((line) => line.trim().length > 0);
+    const rows = component
+      .render(100)
+      .map(strip)
+      .filter((line) => line.trim().length > 0);
     expect(rows).toHaveLength(2);
     expect(rows[0]).toContain('Running a command');
     expect(rows[0]).toContain('$ printf output');
@@ -382,7 +406,10 @@ describe('ToolCallComponent', () => {
         undefined,
       );
 
-      const collapsed = component.render(100).map(strip).filter((line) => line.trim().length > 0);
+      const collapsed = component
+        .render(100)
+        .map(strip)
+        .filter((line) => line.trim().length > 0);
       expect(collapsed).toHaveLength(1);
       expect(collapsed[0]).toContain('Running a command');
       expect(collapsed[0]).toContain('$ echo step1…');
@@ -407,7 +434,10 @@ describe('ToolCallComponent', () => {
         is_error: false,
       });
 
-      const collapsed = component.render(100).map(strip).filter((line) => line.trim().length > 0);
+      const collapsed = component
+        .render(100)
+        .map(strip)
+        .filter((line) => line.trim().length > 0);
       expect(collapsed).toHaveLength(2);
       expect(collapsed[0]).toContain('Ran a command');
       expect(collapsed[0]).toContain('$ echo step1…');
@@ -432,7 +462,10 @@ describe('ToolCallComponent', () => {
         { tool_call_id: 'call_bash_empty', output: '', is_error: false },
       );
 
-      const collapsed = component.render(100).map(strip).filter((line) => line.trim().length > 0);
+      const collapsed = component
+        .render(100)
+        .map(strip)
+        .filter((line) => line.trim().length > 0);
       expect(collapsed).toHaveLength(1);
       expect(collapsed[0]).toContain('Ran a command');
       expect(collapsed[0]).toContain('$ mkdir -p a/b/c…');
@@ -455,7 +488,10 @@ describe('ToolCallComponent', () => {
         { tool_call_id: 'call_notify', output: 'Update shown to the user.', is_error: false },
       );
 
-      const collapsed = component.render(100).map(strip).filter((line) => line.trim().length > 0);
+      const collapsed = component
+        .render(100)
+        .map(strip)
+        .filter((line) => line.trim().length > 0);
       expect(collapsed).toHaveLength(1);
       expect(collapsed[0]).toContain('Sent you an update');
       expect(collapsed[0]).toContain('Login module is clean.');
@@ -491,21 +527,24 @@ describe('ToolCallComponent', () => {
       expect(component.hasHiddenContent()).toBe(false);
     });
 
-    it.each([true, false])('preserves a suppressed result when rendering history, enabled: %s', (enabled) => {
-      setExperimentalFeatures([{ id: 'notify_user', enabled }]);
-      const output = 'Notifications are disabled; the update was not displayed.';
-      const component = new ToolCallComponent(
-        { id: 'suppressed', name: 'NotifyUser', args: { message } },
-        { tool_call_id: 'suppressed', output, is_error: false },
-      );
-      for (const expanded of [false, true]) {
-        component.setExpanded(expanded);
-        const rendered = strip(component.render(150).join('\n'));
-        expect(rendered).not.toContain('Sent you an update');
-        expect(rendered).toContain(output);
-        if (enabled) expect(rendered).toContain('Update not displayed');
-      }
-    });
+    it.each([true, false])(
+      'preserves a suppressed result when rendering history, enabled: %s',
+      (enabled) => {
+        setExperimentalFeatures([{ id: 'notify_user', enabled }]);
+        const output = 'Notifications are disabled; the update was not displayed.';
+        const component = new ToolCallComponent(
+          { id: 'suppressed', name: 'NotifyUser', args: { message } },
+          { tool_call_id: 'suppressed', output, is_error: false },
+        );
+        for (const expanded of [false, true]) {
+          component.setExpanded(expanded);
+          const rendered = strip(component.render(150).join('\n'));
+          expect(rendered).not.toContain('Sent you an update');
+          expect(rendered).toContain(output);
+          if (enabled) expect(rendered).toContain('Update not displayed');
+        }
+      },
+    );
 
     it('does not claim an unknown successful result was displayed', () => {
       const component = new ToolCallComponent(
@@ -544,7 +583,10 @@ describe('ToolCallComponent', () => {
         { tool_call_id: 'call_bash_narrow', output: 'ok', is_error: false },
       );
       for (const width of [40, 60, 80]) {
-        const rows = component.render(width).map(strip).filter((line) => line.trim().length > 0);
+        const rows = component
+          .render(width)
+          .map(strip)
+          .filter((line) => line.trim().length > 0);
         // Header plus the outcome row holding the command's output ("ok").
         expect(rows).toHaveLength(2);
         expect(visibleWidth(rows[0]!)).toBeLessThanOrEqual(width);
@@ -561,9 +603,16 @@ describe('ToolCallComponent', () => {
           name: 'NotifyUser',
           args: { message: `Plan: ${'inspect the parser, '.repeat(8)}then run the suite.` },
         },
-        { tool_call_id: 'call_notify_narrow', output: 'Update shown to the user.', is_error: false },
+        {
+          tool_call_id: 'call_notify_narrow',
+          output: 'Update shown to the user.',
+          is_error: false,
+        },
       );
-      const rows = component.render(50).map(strip).filter((line) => line.trim().length > 0);
+      const rows = component
+        .render(50)
+        .map(strip)
+        .filter((line) => line.trim().length > 0);
       expect(rows).toHaveLength(1);
       expect(visibleWidth(rows[0]!)).toBeLessThanOrEqual(50);
       expect(rows[0]).toContain('Sent you an update');
@@ -599,12 +648,18 @@ describe('ToolCallComponent', () => {
       );
       // The command is the flexible middle segment: on a wide terminal it is
       // shown in full, on a narrow one it is cut with an ellipsis before the chip.
-      const wide = component.render(160).map(strip).filter((line) => line.trim().length > 0);
+      const wide = component
+        .render(160)
+        .map(strip)
+        .filter((line) => line.trim().length > 0);
       expect(wide).toHaveLength(2);
       expect(wide[0]).toContain(`$ ${command}`);
       expect(wide[0]).not.toContain('…');
 
-      const narrow = component.render(70).map(strip).filter((line) => line.trim().length > 0);
+      const narrow = component
+        .render(70)
+        .map(strip)
+        .filter((line) => line.trim().length > 0);
       expect(narrow).toHaveLength(2);
       expect(visibleWidth(narrow[0]!)).toBeLessThanOrEqual(70);
       // The command is cut to the remaining width; the hidden-line chip survives.
@@ -618,7 +673,10 @@ describe('ToolCallComponent', () => {
         { id: 'call_read_narrow', name: 'Read', args: { path } },
         { tool_call_id: 'call_read_narrow', output: '1\ta\n2\tb', is_error: false },
       );
-      const rows = component.render(60).map(strip).filter((line) => line.trim().length > 0);
+      const rows = component
+        .render(60)
+        .map(strip)
+        .filter((line) => line.trim().length > 0);
       expect(rows).toHaveLength(1);
       expect(visibleWidth(rows[0]!)).toBeLessThanOrEqual(60);
       expect(rows[0]).toContain('(…');
@@ -2360,7 +2418,8 @@ describe('ToolCallComponent', () => {
         },
         {
           tool_call_id: 'call_wait_timeout',
-          output: 'wait_status: timed_out\ntask_id: question-80w0h7nw\nwaited_ms: 1000\ntimeout_ms: 1000',
+          output:
+            'wait_status: timed_out\ntask_id: question-80w0h7nw\nwaited_ms: 1000\ntimeout_ms: 1000',
           is_error: false,
         },
       );
@@ -2589,14 +2648,22 @@ describe('ToolCallComponent hasHiddenContent', () => {
     // Two changed rows far apart: context rows and the inter-hunk separator
     // push the clustered preview past the cap even though added+removed is 2.
     expect(
-      card('Edit', { file_path: 'a.ts', old_string: oldStr, new_string: distant.join('\n') }, 'ok').hasHiddenContent(),
+      card(
+        'Edit',
+        { file_path: 'a.ts', old_string: oldStr, new_string: distant.join('\n') },
+        'ok',
+      ).hasHiddenContent(),
     ).toBe(true);
 
     const nearby = [...lines];
     nearby[0] = 'line1 changed';
     nearby[1] = 'line2 changed';
     expect(
-      card('Edit', { file_path: 'a.ts', old_string: oldStr, new_string: nearby.join('\n') }, 'ok').hasHiddenContent(),
+      card(
+        'Edit',
+        { file_path: 'a.ts', old_string: oldStr, new_string: nearby.join('\n') },
+        'ok',
+      ).hasHiddenContent(),
     ).toBe(false);
   });
 });
@@ -2642,9 +2709,14 @@ describe('ToolCallComponent hasHiddenContent for width-cut and background result
       'next_step: Use TaskStop only to cancel.',
       'human_shell_hint: The pending question is also visible in /tasks.',
     ].join('\n');
-    expect(card('AskUserQuestion', { background: true }, legacyBlock).hasHiddenContent()).toBe(true);
-    const shortBlock = 'task_id: question-aaaaaaaa\nstatus: running\nnext_step: Continue your work.';
-    expect(card('AskUserQuestion', { background: true }, shortBlock).hasHiddenContent()).toBe(false);
+    expect(card('AskUserQuestion', { background: true }, legacyBlock).hasHiddenContent()).toBe(
+      true,
+    );
+    const shortBlock =
+      'task_id: question-aaaaaaaa\nstatus: running\nnext_step: Continue your work.';
+    expect(card('AskUserQuestion', { background: true }, shortBlock).hasHiddenContent()).toBe(
+      false,
+    );
     expect(card('AskUserQuestion', {}, legacyBlock).hasHiddenContent()).toBe(false);
   });
 
@@ -2683,7 +2755,10 @@ describe('ToolCallComponent with spilled tool output', () => {
       { id: 'call_read_big', name: 'Read', args: { path: 'big.log' } },
       { tool_call_id: 'call_read_big', output: envelope, is_error: false },
     );
-    const rows = component.render(120).map(strip).filter((line) => line.trim().length > 0);
+    const rows = component
+      .render(120)
+      .map(strip)
+      .filter((line) => line.trim().length > 0);
     expect(rows[0]).toContain('Used Read (big.log)');
     expect(rows[0]).not.toContain('lines');
     expect(rows[1]).toContain('Tool output exceeded 50000 characters');
@@ -2742,13 +2817,13 @@ describe('ToolCallComponent hasHiddenContent for goal cards', () => {
     const snapshot = JSON.stringify(
       {
         goal: {
-        goalId: 'g1',
-        objective: 'Ship the feature',
-        status: 'active',
-        turnsUsed: 3,
-        tokensUsed: 100,
-        wallClockMs: 1000,
-        budget: { tokenBudget: null, turnBudget: null, wallClockBudgetMs: null },
+          goalId: 'g1',
+          objective: 'Ship the feature',
+          status: 'active',
+          turnsUsed: 3,
+          tokensUsed: 100,
+          wallClockMs: 1000,
+          budget: { tokenBudget: null, turnBudget: null, wallClockBudgetMs: null },
         },
       },
       null,
@@ -2775,7 +2850,11 @@ describe('ToolCallComponent hasHiddenContent at the Edit preview cap', () => {
     const oldStr = Array.from({ length: lineCount }, (_, i) => `old ${String(i + 1)}`).join('\n');
     const newStr = Array.from({ length: lineCount }, (_, i) => `new ${String(i + 1)}`).join('\n');
     return new ToolCallComponent(
-      { id: 'call_edit', name: 'Edit', args: { path: 'a.ts', old_string: oldStr, new_string: newStr } },
+      {
+        id: 'call_edit',
+        name: 'Edit',
+        args: { path: 'a.ts', old_string: oldStr, new_string: newStr },
+      },
       { tool_call_id: 'call_edit', output: 'Edited a.ts', is_error: false },
     );
   }
@@ -2820,14 +2899,22 @@ describe('ToolCallComponent hasHiddenContent for a search cut short before any r
   it('is false, since the notice renders the same way in both states', () => {
     const glob = new ToolCallComponent(
       { id: 'call_glob', name: 'Glob', args: { pattern: '**/*.ts' } },
-      { tool_call_id: 'call_glob', output: 'Glob timed out after 60s; partial results returned.', is_error: false },
+      {
+        tool_call_id: 'call_glob',
+        output: 'Glob timed out after 60s; partial results returned.',
+        is_error: false,
+      },
     );
     expect(glob.hasHiddenContent()).toBe(false);
     glob.dispose();
 
     const grep = new ToolCallComponent(
       { id: 'call_grep', name: 'Grep', args: { pattern: 'foo' } },
-      { tool_call_id: 'call_grep', output: 'a.ts\nGrep timed out after 30s; partial results returned.', is_error: false },
+      {
+        tool_call_id: 'call_grep',
+        output: 'a.ts\nGrep timed out after 30s; partial results returned.',
+        is_error: false,
+      },
     );
     expect(grep.hasHiddenContent()).toBe(true);
     grep.dispose();

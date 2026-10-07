@@ -65,7 +65,7 @@ export async function handleForkCommand(host: SlashCommandHost, args: string): P
       await forked.close();
     } catch (error) {
       const msg = formatErrorMessage(error);
-      host.showError(`Session forked (${forkId}), but failed to release its runtime: ${msg}`);
+      host.showError(t('tui.messages.sessionForkReleaseFailed', { forkId, message: msg }));
       return;
     }
     // Stay in the source session: switching to the fork would close the
@@ -81,16 +81,12 @@ export async function handleForkCommand(host: SlashCommandHost, args: string): P
       // (same wording convention as /copy).
       clipboardNote =
         method === 'native'
-          ? 'Command copied to clipboard'
-          : 'Command copied via terminal escape sequence (unverified)';
+          ? t('tui.messages.sessionForkCommandCopied')
+          : t('tui.messages.sessionForkCommandCopiedUnverified');
     } catch {
-      clipboardNote = 'Failed to copy command to clipboard';
+      clipboardNote = t('tui.messages.sessionForkCommandCopyFailed');
     }
-    host.showStatus(
-      `Session forked (${forkId}). Still in the original session; switch to the fork via /sessions.\n` +
-        `  To enter the fork in a new process, run: ${command}\n` +
-        `  ${clipboardNote}`,
-    );
+    host.showStatus(t('tui.messages.sessionForkedNotice', { forkId, command, clipboardNote }));
   } catch (error) {
     const msg = formatErrorMessage(error);
     host.showError(t('tui.statusMessages.sessionFailedToFork', { message: msg }));

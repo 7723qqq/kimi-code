@@ -1,4 +1,9 @@
-import { log, type QuestionHandler, type QuestionRequest, type QuestionResult } from '@moonshot-ai/kimi-code-sdk';
+import {
+  log,
+  type QuestionHandler,
+  type QuestionRequest,
+  type QuestionResult,
+} from '@moonshot-ai/kimi-code-sdk';
 
 import type { QuestionPanelData, QuestionPanelResponse } from '#/tui/reverse-rpc/types';
 

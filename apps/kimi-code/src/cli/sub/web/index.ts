@@ -19,16 +19,11 @@ import { registerRotateTokenCommand } from './rotate-token';
 import { buildWebCommand } from './run';
 
 export function registerWebCommand(program: Command): void {
-  const web = buildWebCommand(
-    program.command('web').description(t('cli.commandDescriptions.web')),
-  );
+  const web = buildWebCommand(program.command('web').description(t('cli.commandDescriptions.web')));
   registerRotateTokenCommand(web);
   registerDeprecatedServerCommand(program);
   buildWebCommand(
-    program
-      .command('rc')
-      .alias('remote')
-      .description('Run the local Kimi server and open the web UI through Remote Control.'),
+    program.command('rc').alias('remote').description(t('cli.commandDescriptions.rc')),
     { forceRemoteControl: true },
   );
 }

@@ -75,9 +75,9 @@ import type {
   TranscriptEntry,
 } from '../types';
 import { formatBackgroundTaskTranscript } from '../utils/background-task-status';
+import { formatLocalizedError } from '../utils/error-display';
 import {
   argsRecord,
-  formatErrorPayload,
   formatErrorMessage,
   normalizeTodoItems,
   serializeToolResultOutput,
@@ -94,11 +94,11 @@ import {
 } from '../utils/mcp-server-status';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
+import { NotifyController } from './notify';
 import { isPluginMcpToolName, PluginUpdateNotifier } from './plugin-update-notifier';
 import type { StreamingUIController } from './streaming-ui';
-import type { SurveyController } from './survey-controller';
-import { NotifyController } from './notify';
 import { SubAgentEventHandler } from './subagent-event-handler';
+import type { SurveyController } from './survey-controller';
 import type { TasksBrowserController } from './tasks-browser';
 
 export interface SessionEventHost {
@@ -403,7 +403,8 @@ export class SessionEventHandler {
         break;
       case 'subagent.spawned':
         this.host.surveyController.notifySubagentSpawned(event);
-        this.subAgentEventHandler.handleLifecycleEvent(event); break;
+        this.subAgentEventHandler.handleLifecycleEvent(event);
+        break;
       case 'subagent.started':
       case 'subagent.suspended':
       case 'subagent.completed':
@@ -1154,7 +1155,7 @@ export class SessionEventHandler {
       this.host.showError(getOauthLoginRequiredStartupNotice());
       return;
     }
-    const formatted = formatErrorPayload(event);
+    const formatted = formatLocalizedError(event);
     if (formatted.length > 0) {
       this.host.showError(formatted);
     }

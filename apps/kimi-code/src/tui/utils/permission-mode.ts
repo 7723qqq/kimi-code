@@ -1,13 +1,25 @@
 import type { PermissionMode } from '@moonshot-ai/kimi-code-sdk';
 
-export const PERMISSION_MODE_DISPLAY_NAMES: Readonly<Record<PermissionMode, string>> = {
-  manual: 'Always Ask',
-  yolo: 'Ask When Needed',
-  auto: 'Never Ask',
-};
+import { t } from '#/i18n';
 
-export const PERMISSION_MODE_DESCRIPTIONS: Readonly<Record<PermissionMode, string>> = {
-  manual: 'Auto-read only; everything else needs your approval first.',
-  yolo: 'Routine edits and commands run automatically; risky actions, questions, and plans still ask.',
-  auto: 'Never interrupts you; everything runs and is decided automatically.',
-};
+export function permissionModeDisplayName(mode: PermissionMode): string {
+  switch (mode) {
+    case 'manual':
+      return t('tui.permissionMode.manual');
+    case 'yolo':
+      return t('tui.permissionMode.yolo');
+    case 'auto':
+      return t('tui.permissionMode.auto');
+  }
+}
+
+export function permissionModeDescription(mode: PermissionMode): string {
+  switch (mode) {
+    case 'manual':
+      return t('tui.permissionMode.manualDesc');
+    case 'yolo':
+      return t('tui.permissionMode.yoloDesc');
+    case 'auto':
+      return t('tui.permissionMode.autoDesc');
+  }
+}

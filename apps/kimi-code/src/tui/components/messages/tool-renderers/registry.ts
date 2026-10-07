@@ -14,7 +14,6 @@
 import { shellExecutionResultRenderer } from '../shell-execution';
 import { goalSummary } from './goal';
 import { parseReadMediaOutput, readMediaSummary } from './media';
-import { waitForSummary } from './wait-for';
 import {
   fetchSummary,
   fileChangeSummary,
@@ -26,6 +25,7 @@ import {
 } from './summary';
 import { renderTruncated } from './truncated';
 import type { ResultRenderer } from './types';
+import { waitForSummary } from './wait-for';
 
 /**
  * True when a tool has no dedicated renderer and falls back to the generic

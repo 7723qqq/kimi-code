@@ -8,6 +8,7 @@ import {
   type TUI,
 } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
 import { TranscriptView } from '#/tui/components/messages/transcript-view';
 import { clipboard } from '#/utils/clipboard/clipboard-native';
 import { openUrl } from '#/utils/open-url';
@@ -135,7 +136,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
           },
           // Clickable pill centered on the transcript's last row while it is
           // scrolled away from the end.
-          scrollToEndIndicator: () => currentTheme.fg('primary', ' ↓ Jump to bottom '),
+          scrollToEndIndicator: () => currentTheme.fg('primary', t('tui.labels.jumpToBottom')),
         })
       : new TuiMainScreen(terminal);
 

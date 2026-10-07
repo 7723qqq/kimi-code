@@ -17,7 +17,7 @@ import {
   updateGoalQueueItem,
 } from '#/tui/goal-queue-store';
 import { getBuiltInPalette } from '#/tui/theme';
-import { PERMISSION_MODE_DESCRIPTIONS } from '#/tui/utils/permission-mode';
+import { permissionModeDescription } from '#/tui/utils/permission-mode';
 
 vi.mock('#/tui/goal-queue-store', () => ({
   appendGoalQueueItem: vi.fn(async () => ({
@@ -298,7 +298,7 @@ describe('handleGoalCommand', () => {
     expect(s.setPermission).toHaveBeenCalledWith('auto');
     expect(manualHost.setAppState).toHaveBeenCalledWith({ permissionMode: 'auto' });
     expect(manualHost.showNotice).toHaveBeenCalledWith('Permission mode: Never Ask');
-    expect(manualHost.showStatus).toHaveBeenCalledWith(PERMISSION_MODE_DESCRIPTIONS.auto, 'warning');
+    expect(manualHost.showStatus).toHaveBeenCalledWith(permissionModeDescription('auto'), 'warning');
     expect(manualHost.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
   });
 
@@ -318,7 +318,7 @@ describe('handleGoalCommand', () => {
     });
     expect(s.setPermission).not.toHaveBeenCalled();
     expect(manualHost.showNotice).not.toHaveBeenCalled();
-    expect(manualHost.showStatus).not.toHaveBeenCalledWith(PERMISSION_MODE_DESCRIPTIONS.auto, 'warning');
+    expect(manualHost.showStatus).not.toHaveBeenCalledWith(permissionModeDescription('auto'), 'warning');
     expect(manualHost.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
   });
 
@@ -338,7 +338,7 @@ describe('handleGoalCommand', () => {
     expect(s.setPermission).toHaveBeenCalledWith('yolo');
     expect(manualHost.setAppState).toHaveBeenCalledWith({ permissionMode: 'yolo' });
     expect(manualHost.showNotice).toHaveBeenCalledWith('Permission mode: Ask When Needed');
-    expect(manualHost.showStatus).toHaveBeenCalledWith(PERMISSION_MODE_DESCRIPTIONS.yolo, 'warning');
+    expect(manualHost.showStatus).toHaveBeenCalledWith(permissionModeDescription('yolo'), 'warning');
   });
 
   it('restores the previous permission mode when the goal fails to start', async () => {
@@ -361,7 +361,7 @@ describe('handleGoalCommand', () => {
     // The permissive-mode notice is deferred until the goal starts, so a failed
     // start leaves no stale notice behind.
     expect(manualHost.showNotice).not.toHaveBeenCalled();
-    expect(manualHost.showStatus).not.toHaveBeenCalledWith(PERMISSION_MODE_DESCRIPTIONS.yolo, 'warning');
+    expect(manualHost.showStatus).not.toHaveBeenCalledWith(permissionModeDescription('yolo'), 'warning');
   });
 
   it('returns the command to the input box when a Manual-mode goal start is cancelled', async () => {

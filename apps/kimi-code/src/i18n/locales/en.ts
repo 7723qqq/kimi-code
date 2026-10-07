@@ -1,4 +1,319 @@
 export default {
+  errorCodes: {
+    // agent.already_exists
+    agentAlreadyExists: 'Agent "{{agentId}}" already exists',
+    // goal.already_exists
+    goalAlreadyExists: 'A goal is already active',
+    goalAlreadyExistsAction: 'Use "/goal replace <objective>" to replace the current goal.',
+    // goal.not_found
+    goalNotFound: 'No goal found',
+    goalNotFoundAction: 'Start a goal with "/goal <objective>" first.',
+    // goal.objective_empty
+    goalObjectiveEmpty: 'Goal objective is empty',
+    goalObjectiveEmptyAction: 'Provide a non-empty objective.',
+    // goal.objective_too_long
+    goalObjectiveTooLong: 'Goal objective is too long',
+    goalObjectiveTooLongAction:
+      'Keep the objective under 4000 characters; reference long details by file path.',
+    // goal.status_invalid
+    goalStatusInvalid: 'Invalid goal status transition',
+    goalStatusInvalidAction:
+      'Only an active goal can be paused; resume a blocked goal with "/goal resume".',
+    // goal.metadata_reserved
+    goalMetadataReserved: 'Goal metadata is reserved',
+    goalMetadataReservedAction:
+      'Do not write metadata.custom.goal directly; use the goal lifecycle methods.',
+    // goal.not_resumable
+    goalNotResumable: 'Goal is not resumable',
+    goalNotResumableAction: 'Only paused or blocked goals can be resumed.',
+    // goal.unsupported_agent
+    goalUnsupportedAgent: 'Goals are unavailable for subagents',
+    goalUnsupportedAgentAction: 'Run goal lifecycle commands on the main agent.',
+    // model.not_found
+    modelNotFound: 'Model not found',
+    modelNotFoundAction: 'Check the model alias or configure the model first.',
+    // auth.login_required
+    authLoginRequired: 'Login required',
+    authLoginRequiredAction: 'Run /login to authenticate with the OAuth provider.',
+    // auth.provisioning_required
+    authProvisioningRequired: 'Provider provisioning required',
+    authProvisioningRequiredAction: 'Configure a provider via /login or the providers endpoint.',
+    // auth.token_missing
+    authTokenMissing: 'Provider credential missing',
+    authTokenMissingAction: 'Configure an API key or complete OAuth login for the provider.',
+    // auth.token_unauthorized
+    authTokenUnauthorized: 'Provider credential unauthorized',
+    authTokenUnauthorizedAction: 'Re-authenticate with the OAuth provider.',
+    // auth.model_not_resolved
+    authModelNotResolved: 'Model not resolved',
+    authModelNotResolvedAction: 'Set a default model or configure the requested model alias.',
+    // context.overflow
+    contextOverflow: 'Context overflow',
+    contextOverflowAction: 'Compact the conversation or retry with fewer tokens.',
+    // loop.max_steps_exceeded
+    loopMaxStepsExceeded: 'Loop max steps exceeded',
+    // provider.filtered
+    providerFiltered: 'Provider filtered response',
+    providerFilteredAction:
+      'Revise the prompt or model configuration to avoid provider safety filtering.',
+    // provider.rate_limit
+    providerRateLimit: 'Provider rate limit',
+    providerRateLimitAction: 'Retry after the provider rate limit resets.',
+    // provider.auth_error
+    providerAuthError: 'Provider authentication failed',
+    providerAuthErrorAction: 'Check provider credentials and authentication configuration.',
+    // provider.overloaded
+    providerOverloaded: 'Provider overloaded',
+    providerOverloadedAction: 'Retry after the provider recovers from overload.',
+    // provider.not_found
+    providerNotFound: 'Provider not found',
+    providerNotFoundAction: 'Check the provider id or configure the provider first.',
+    // file.not_found
+    fileNotFound: 'File not found',
+    fileNotFoundAction: 'Check the file_id or upload the file again.',
+    // file.too_large
+    fileTooLarge: 'Upload too large',
+    fileTooLargeAction: 'Upload a smaller file (limit is 50 MiB).',
+    // storage.not_found
+    storageNotFound: 'Stored value not found',
+    // storage.decode_failed
+    storageDecodeFailed: 'Stored data is corrupted',
+    storageDecodeFailedAction:
+      'Inspect the stored document; it is not valid for its declared format.',
+    // storage.corrupted
+    storageCorrupted: 'Stored data is corrupted',
+    storageCorruptedAction:
+      'Inspect the backing store; the corrupted entry must be repaired or dropped.',
+    // storage.io_failed
+    storageIoFailed: 'Storage I/O failed',
+    // storage.locked
+    storageLocked: 'Storage is locked',
+    storageLockedAction: 'Another process holds the store; close it or retry later.',
+    // wire.duplicate_op
+    wireDuplicateOp: 'Duplicate wire op type',
+    wireDuplicateOpAction:
+      'Two ops registered the same type; rename one. This is a build-time bug.',
+    // wire.cycle
+    wireCycle: 'Wire dispatch cycle',
+    wireCycleAction: 'An onChange handler re-dispatches endlessly; break the op cycle.',
+    // wire.unknown_record
+    wireUnknownRecord: 'Unknown wire record',
+    wireUnknownRecordAction: 'The record was written by a newer version; upgrade or drop it.',
+    // not_implemented
+    notImplemented: 'Not implemented',
+    // internal
+    internal: 'Internal error',
+    // config.*
+    configInvalid: 'Invalid configuration',
+    configInvalidAction: 'Fix the reported fields in config.toml, then run "/reload".',
+    configPersistBlocked: 'Configuration write blocked',
+    configPersistBlockedAction:
+      'Fix config.toml so it can be read, then run "/reload" before writing.',
+    // session.*
+    sessionNotFound: 'Session not found',
+    sessionNotFoundAction: 'Check the session id or start a new session.',
+    sessionAlreadyExists: 'Session already exists',
+    sessionAlreadyExistsAction: 'Use a different session id or open the existing session.',
+    sessionIdInvalid: 'Invalid session id',
+    sessionIdRequired: 'Session id required',
+    sessionIdRequiredAction: 'Provide a session id.',
+    sessionIdEmpty: 'Session id is empty',
+    sessionIdEmptyAction: 'Provide a non-empty session id.',
+    sessionTitleEmpty: 'Session title is empty',
+    sessionTitleEmptyAction: 'Provide a non-empty title.',
+    sessionStateNotFound: 'Session state missing',
+    sessionStateInvalid: 'Session state invalid',
+    sessionForkActiveTurn: 'Cannot fork session during active turn',
+    sessionForkActiveTurnAction: 'Wait for the current turn to finish, then fork the session.',
+    sessionUndoUnavailable: 'Undo unavailable',
+    sessionUndoUnavailableAction:
+      'Request fewer turns; some of the requested turns are no longer undoable.',
+    sessionExportNotFound: 'Session export directory missing',
+    sessionExportNotFoundAction: 'Check that the session has stored data before exporting.',
+    sessionExportMissingVersion: 'Export version is missing',
+    sessionExportOutputConflict: 'Export output conflicts with a session source file',
+    sessionExportOutputConflictAction: 'Choose an output path outside the session data directory.',
+    sessionExportTooLarge: 'File is too large to export',
+    sessionClosed: 'Session is closed',
+    sessionClosedAction: 'Start a new session to continue.',
+    sessionPermissionModeInvalid: 'Invalid permission mode',
+    sessionPermissionModeInvalidAction:
+      'Use one of the supported permission modes: yolo, manual, or auto.',
+    sessionThinkingEmpty: 'Thinking value is empty',
+    sessionThinkingEmptyAction: 'Provide a non-empty thinking value.',
+    sessionModelEmpty: 'Model is empty',
+    sessionModelEmptyAction: 'Provide a non-empty model id.',
+    sessionPlanModeInvalid: 'Invalid plan mode',
+    sessionPlanModeInvalidAction: 'Exit plan mode before entering it again.',
+    sessionApprovalHandlerError: 'Approval handler failed',
+    sessionQuestionHandlerError: 'Question handler failed',
+    sessionInitFailed: 'Session initialization failed',
+    sessionBusy: 'Session is busy',
+    sessionBusyAction: 'Wait for the current turn or compaction to finish, then retry.',
+    // agent.*
+    agentNotFound: 'Agent not found',
+    agentNotFoundAction: 'Check the agent id.',
+    agentAlreadyRunning: 'Agent is already running',
+    agentAlreadyRunningAction: 'Wait for the agent to finish or stop it first.',
+    agentNotASubagent: 'Agent is not a subagent',
+    agentNotASubagentAction: 'Run this operation on a subagent.',
+    agentNotOwned: 'Agent is not owned by this session',
+    agentNotOwnedAction: 'Use an agent created by the current session.',
+    agentTypeNotAllowed: 'Agent type not allowed',
+    agentTypeNotAllowedAction: 'Use an agent type allowed by the current profile.',
+    agentMaxTokensExceeded: 'Agent exceeded its token limit',
+    agentMaxTokensExceededAction: 'Raise the max_tokens limit or shorten the task.',
+    // turn.*
+    turnAgentBusy: 'Agent is busy',
+    turnAgentBusyAction: 'Wait for the current turn to finish, then retry.',
+    // model.*
+    modelNotConfigured: 'No model configured',
+    modelNotConfiguredAction: 'Set a default model or configure one with "/model".',
+    modelConfigInvalid: 'Invalid model configuration',
+    modelConfigInvalidAction: 'Check the model entry in config.toml.',
+    // profile.*
+    profileThinkingAliasConflict: 'Conflicting thinking settings',
+    profileThinkingAliasConflictAction: 'Set only one of thinkingEffort or thinkingLevel.',
+    profileUnknown: 'Unknown agent profile',
+    profileUnknownAction: 'Check the profile name or define it first.',
+    profileAlreadyBound: 'Agent profile already bound',
+    profileAlreadyBoundAction: 'Start a new session to switch profiles.',
+    profileNotBound: 'Agent profile not bound',
+    profileNotBoundAction: 'Bind a profile to the agent first.',
+    // provider.*
+    providerConnectionError: 'Provider connection error',
+    providerConnectionErrorAction: 'Check the network connection and retry.',
+    // skill.*
+    skillNotFound: 'Skill not found',
+    skillNotFoundAction: 'Check the skill name or install the skill first.',
+    skillTypeUnsupported: 'Skill type not supported',
+    skillNameEmpty: 'Skill name is empty',
+    skillNameEmptyAction: 'Provide a non-empty skill name.',
+    skillParseFailed: 'Skill parse failed',
+    skillParseFailedAction: 'Fix the skill file and retry.',
+    skillNestedTooDeep: 'Nested skill depth exceeded',
+    skillNestedTooDeepAction: 'Reduce the nesting depth of skill invocations.',
+    // records.*
+    recordsWriteFailed: 'Wire journal write failed',
+    // compaction.*
+    compactionFailed: 'Compaction failed',
+    compactionFailedAction: 'Retry the compaction or start a new session.',
+    compactionUnable: 'Unable to compact',
+    // task.*
+    taskTaskIdEmpty: 'Background task id is empty',
+    taskTaskIdEmptyAction: 'Provide a non-empty task id.',
+    taskLimitExceeded: 'Background task limit exceeded',
+    taskLimitExceededAction: 'Wait for running tasks to finish or stop some of them.',
+    // usage.*
+    usageTurnIdConflict: 'Turn id conflict',
+    // mcp.*
+    mcpServerNotFound: 'MCP server not found',
+    mcpServerNotFoundAction: 'Check the server name or add it to the MCP configuration.',
+    mcpServerDisabled: 'MCP server is disabled',
+    mcpServerDisabledAction: 'Enable the server in the MCP configuration.',
+    mcpStartupFailed: 'MCP server startup failed',
+    mcpStartupFailedAction: 'Check the server command and its logs.',
+    mcpToolNameCollision: 'MCP tool name collision',
+    mcpToolNameCollisionAction: 'Rename the conflicting tool or disable one of the servers.',
+    mcpOauthFailed: 'MCP OAuth failed',
+    mcpOauthFailedAction: 'Re-authenticate with the MCP server.',
+    // message.*
+    messageNotFound: 'Message not found',
+    messageNotFoundAction: 'Check the message id.',
+    // plugin.*
+    pluginNotFound: 'Plugin not found',
+    pluginNotFoundAction: 'Check the plugin name or install it first.',
+    pluginLoadFailed: 'Plugin state failed to load',
+    pluginLoadFailedAction: 'Check the plugin files and retry.',
+    // request.*
+    requestInvalid: 'Invalid request',
+    requestWorkDirRequired: 'Working directory required',
+    requestWorkDirRequiredAction: 'Provide a working directory for the request.',
+    requestPromptInputEmpty: 'Prompt input is empty',
+    requestPromptInputEmptyAction: 'Provide a non-empty prompt.',
+    // prompt.*
+    promptIdConflict: 'Prompt id conflict',
+    promptNotFound: 'Prompt not found',
+    promptNotFoundAction: 'Check the prompt id or start a new prompt.',
+    // prompt_optimizer.*
+    promptOptimizerDisabled: 'Prompt optimizer is disabled',
+    promptOptimizerDisabledAction: 'Turn on the prompt_optimizer experimental flag to use it.',
+    promptOptimizerEmptyDraft: 'Prompt draft is empty',
+    promptOptimizerEmptyDraftAction: 'Provide a prompt draft to optimize.',
+    promptOptimizerNoOutput: 'Prompt optimizer returned no output',
+    promptOptimizerNoOutputAction: 'Retry the optimization.',
+    // spec.*
+    specModeInvalid: 'Invalid spec mode',
+    specModeInvalidAction: 'Exit spec mode before entering it again.',
+    specIncomplete: 'Spec is incomplete',
+    specWriteDenied: 'Spec write denied',
+    // shell.*
+    shellGitBashNotFound: 'Git Bash not found',
+    shellGitBashNotFoundAction: 'Install Git for Windows so shell commands can run under Git Bash.',
+    // workspace.*
+    workspaceNotFound: 'Workspace not found',
+    workspaceNotFoundAction: 'Check the workspace path or open an existing workspace.',
+    // terminal.*
+    terminalNotFound: 'Terminal not found',
+    terminalNotFoundAction: 'Check the terminal id or start a new terminal.',
+    // fs.*
+    fsPathNotFound: 'Path not found',
+    fsPathNotFoundAction: 'Check the path and retry.',
+    fsPermissionDenied: 'Permission denied',
+    fsPermissionDeniedAction: 'Check the file permissions of the target path.',
+    fsPathEscapes: 'Path escapes the workspace',
+    fsPathEscapesAction: 'Use a path inside the workspace.',
+    fsIsDirectory: 'Path is a directory',
+    fsIsDirectoryAction: 'Use a file path instead of a directory.',
+    fsIsBinary: 'File is binary',
+    fsIsBinaryAction: 'Use a text file; binary files cannot be read as text.',
+    fsTooLarge: 'File is too large',
+    fsTooLargeAction: 'Read a smaller range or use a different file.',
+    fsAlreadyExists: 'Path already exists',
+    fsAlreadyExistsAction: 'Choose a different path or remove the existing entry.',
+    fsTooManyResults: 'Too many results',
+    fsTooManyResultsAction: 'Narrow the search pattern or path.',
+    fsGrepTimeout: 'Search timed out',
+    fsGrepTimeoutAction: 'Narrow the search pattern or path, then retry.',
+    fsGitUnavailable: 'Git is unavailable',
+    fsGitUnavailableAction: 'Install Git and make sure it is on PATH.',
+    // os.fs.*
+    osFsNotFound: 'Path not found',
+    osFsIsDirectory: 'Path is a directory',
+    osFsNotDirectory: 'Path is not a directory',
+    osFsAlreadyExists: 'Path already exists',
+    osFsPermissionDenied: 'Permission denied',
+    osFsPermissionDeniedAction: 'Check the file permissions of the target path.',
+    osFsNotEmpty: 'Directory not empty',
+    osFsUnavailable: 'Filesystem unavailable',
+    osFsUnknown: 'Filesystem error',
+    // os.process.*
+    osProcessSpawnFailed: 'Failed to spawn process',
+    osProcessSpawnFailedAction: 'Check that the command exists and is executable.',
+    osProcessKillFailed: 'Failed to kill process',
+    // storage.*
+    storagePermissionDenied: 'Storage permission denied',
+    storagePermissionDeniedAction: 'Check the permissions of the storage directory.',
+    storageDiskFull: 'Storage disk full',
+    storageDiskFullAction: 'Free up disk space and retry.',
+    // wire.*
+    wireMigrationMissing: 'Wire migration missing',
+    wireMigrationMissingAction:
+      'The wire file predates the supported migration chain; start a new session.',
+    // cron.*
+    cronExpressionInvalid: 'Invalid cron expression',
+    cronExpressionInvalidAction:
+      'Use a 5-field cron expression: minute hour day-of-month month day-of-week.',
+    // web.*
+    webInvalidUrl: 'Invalid URL',
+    webInvalidUrlAction: 'Provide a valid http or https URL.',
+    webPrivateAddress: 'Private address blocked',
+    webPrivateAddressAction: 'Fetch a public URL; private and loopback addresses are not allowed.',
+    webFetchFailed: 'Web fetch failed',
+    webFetchFailedAction: 'Check the URL and network connection, then retry.',
+    // validation.*
+    validationFailed: 'Validation failed',
+  },
   common: {
     ok: 'OK',
     cancel: 'Cancel',
@@ -33,6 +348,13 @@ export default {
       providerCatalog: 'Discover and import providers from the public models.dev catalog.',
       providerCatalogList: 'List providers in the catalog, or models when a providerId is given.',
       providerCatalogAdd: 'Import a known provider from the catalog by id.',
+      acp: 'Run kimi-code as an Agent Client Protocol (ACP) server over stdio.',
+      installDesktop: 'Print the Kimi Code desktop app page and open it in your browser.',
+      session: 'Manage sessions non-interactively.',
+      sessionList: 'List sessions, most recently updated first.',
+      rc: 'Run the local Kimi server and open the web UI through Remote Control.',
+      serverKill:
+        'Deprecated — stop a server started by a version before 0.28.0 (recorded in the legacy server lock). Servers started by `kimi web` run in the foreground — stop them with Ctrl+C.',
     },
     optionDescriptions: {
       session: 'Resume a session. With ID: resume that session. Without ID: interactively pick.',
@@ -80,7 +402,7 @@ export default {
       serverRunOptionAllowRemoteTerminals:
         'On a non-loopback bind, keep PTY /api/v1/terminals/* routes enabled (default: disabled → 404). Remote shell is high risk.',
       serverRunOptionDangerousBypassAuth:
-        'Disable bearer-token auth on all REST and WebSocket routes, and advertise it via /api/v1/meta. Only use on a trusted network or behind your own authenticating proxy.',
+        'Disable bearer-token auth on every REST and WebSocket route, and advertise it via /api/v1/meta so the web UI connects without a token. Only use on a trusted network or behind your own authenticating proxy.',
       serverRunOptionLogLevel: 'Server log level: {{levels}}. Omit to keep logs off.',
       serverRunOptionDebugEndpoints:
         'Mount /api/v1/debug/* routes for test introspection. OFF by default; production callers leave this unset.',
@@ -94,6 +416,25 @@ export default {
       providerCatalogDefaultModel: 'Mark the imported model as default_model after import.',
       providerCatalogBaseUrl:
         'Override the catalog endpoint. Required when the catalog declares none (or an env placeholder).',
+      providerCatalogUrl: 'Override catalog URL. Defaults to {{url}}.',
+      upgradeYes: 'Skip the confirmation prompt and install the update directly.',
+      updateDownloadManual: 'the stage answers an explicit user-initiated upgrade',
+      acpRegion:
+        'Login region used together with --login: "mainland-cn" (kimi.com) or "global" (kimi.ai).',
+      loginRegion: 'Login region: "mainland-cn" (kimi.com) or "global" (kimi.ai).',
+      loginProvider: 'Login provider: "kimi" (default) or "google" / "gemini".',
+      sessionListCwd: 'List sessions of this working directory. Defaults to the current directory.',
+      sessionListAll: 'List sessions across every workspace.',
+      sessionListArchived: 'Include archived sessions.',
+      sessionListLimit: 'Print at most n sessions.',
+      sessionListJson: 'Emit the session summaries as JSON.',
+      serverRunOptionWebTitle:
+        'Set a custom browser tab title for this web UI instance (default: "<workspace dir> | Kimi Code").',
+      serverRunOptionRemoteControl: 'Expose the web UI through Kimi Remote Control.',
+      migrateRun:
+        'Run the migration non-interactively and print step-by-step logs. Migrates everything unless --config-only is also given.',
+      migrateConfigOnly:
+        'With --run: migrate config, MCP servers, REPL history and skills, but skip chat sessions.',
     },
     errors: {
       unknownCommand: "unknown command '{{command}}'. See '{{cliName}} --help'.",
@@ -110,10 +451,9 @@ export default {
       agentFileOnlyOnce: '--agent-file may only be specified once.',
       agentEmpty: 'Agent cannot be empty.',
       agentFilePathEmpty: 'Agent file path cannot be empty.',
-    },
-    msys2Prompt: {
-      notice:
-        'MSYS2 (full Linux command-line environment) not detected. Install it with: winget install MSYS2.MSYS2',
+      cannotCombineAgentAndAgentFile: 'Cannot combine --agent with --agent-file.',
+      cannotCombineAgentAndSession:
+        'Cannot combine --agent/--agent-file with --session/--continue: the agent is bound at session creation and the bound agent is restored automatically on resume.',
     },
   },
   startup: {
@@ -534,6 +874,9 @@ export default {
         installSuccessNoSwitch:
           'MSYS2 installed, but the shell switch failed. Set KIMI_SHELL_PATH manually.',
         manualInstallHint: 'Install MSYS2 manually from https://www.msys2.org/',
+        installErrorWingetNotFound: 'winget not found',
+        installErrorWingetExit: 'winget exited with code {{code}}',
+        installErrorBashNotFound: 'MSYS2 installed but bash.exe was not found',
       },
       modelSelector: {
         title: 'Select a model',
@@ -600,7 +943,7 @@ export default {
       tuiModeSelector: {
         title: 'TUI mode',
         regular: 'Regular',
-        regularDesc: 'Render into the terminal\'s native scrollback.',
+        regularDesc: "Render into the terminal's native scrollback.",
         fullscreen: 'Fullscreen (experimental)',
         fullscreenDesc: 'Alternate screen with in-app scrolling, selection, and transcript search.',
       },
@@ -621,12 +964,6 @@ export default {
       },
       permissionSelector: {
         title: 'Select permission mode',
-        manual: 'Manual',
-        manualDesc: 'Approve every action yourself.',
-        auto: 'Auto',
-        autoDesc: 'Run all actions automatically, including risky ones.',
-        yolo: 'YOLO',
-        yoloDesc: 'AI decides which actions need your approval.',
       },
       approvalPanel: {
         headerForBash: 'Run this command?',
@@ -750,6 +1087,14 @@ export default {
         footerLoaded: '{{count}} loaded',
         footerSessions: '{{count}} sessions',
         footerLoadedSessions: '{{loaded}} loaded / {{total}} sessions',
+        deletePrefix: 'Delete session "',
+        deletingPrefix: 'Deleting session "',
+        deleteConfirmSuffix: '"? [y/N]',
+        deletingSuffix: '"…',
+        hintDelete: 'Ctrl+X delete',
+        moreLoading: 'loading more…',
+        moreSearching: 'searching all…',
+        moreScroll: 'scroll for more',
       },
       goalStartPermissionPrompt: {
         titleYolo: 'Start a goal in Ask When Needed mode?',
@@ -1109,6 +1454,7 @@ export default {
       goalBlocked: 'Goal blocked.',
       goalBlockedDetail: 'The next queued goal will start only after this goal is complete.',
       warningPrefix: 'Warning: {{message}}',
+      errorPrefix: 'Error: {{message}}',
       cacheBreakDetected:
         'Prompt cache invalidated — about {{tokens}} tokens were reprocessed at full price.',
       cacheHintPreferenceSaveFailed: 'Could not save the cache-hint preference.',
@@ -1128,6 +1474,8 @@ export default {
       provideObjective: 'Provide a goal objective, e.g. `/goal Ship feature X`.',
       objectiveTooLong:
         'Goal objective is too long (max {{max}} characters). Reference long details by file path.',
+      objectiveTooLongLive:
+        'Goal objective is too long ({{length}}/{{max}} characters); put long content in a file and reference the file path.',
       provideNextObjective:
         'Provide an upcoming goal objective, e.g. `/goal next Ship feature X`, or use `/goal next manage`.',
       failedToInspectGoal: 'Failed to inspect current goal: {{error}}',
@@ -1158,6 +1506,7 @@ export default {
       // auth.ts
       loggedIn: 'Logged in.',
       loginCancelled: 'Login cancelled.',
+      loginCancelledWithError: 'Login cancelled: {{error}}',
       loginFailed: 'Login failed.',
       googleLoginFailed: 'Google login failed.',
       authSuccessButConfigFailed:
@@ -1179,9 +1528,15 @@ export default {
       planCleared: 'Plan cleared',
       planModeOn: 'Plan mode: ON',
       planModeOff: 'Plan mode: OFF',
+      planModeAlreadyOn: 'Plan mode is already on',
+      planModeAlreadyOff: 'Plan mode is already off',
       failedToSetPlanMode: 'Failed to set plan mode: {{msg}}',
       specModeOn: 'Spec mode: ON',
       specModeOff: 'Spec mode: OFF',
+      specModeAlreadyOn: 'Spec mode is already on',
+      specModeAlreadyOff: 'Spec mode is already off',
+      specModeDidNotEnter: 'the engine did not enter spec mode',
+      specModeDidNotLeave: 'the engine did not leave spec mode',
       failedToSetSpecMode: 'Failed to set spec mode: {{msg}}',
       noModelSelected: 'No model selected. Run /model to select one first.',
       unknownTheme: 'Unknown theme: {{theme}}',
@@ -1203,13 +1558,18 @@ export default {
       warningLabel: 'Warning: {{warning}}',
       noSessionsToContinue:
         'No sessions to continue under "{{workDir}}"; starting a fresh session.',
+      resumeOtherWorkDir:
+        'Current session is in a different working directory.\n  To resume, run: {{command}}',
       cannotSendWhileReplaying: 'Cannot send input while session history is replaying.',
       noActiveSessionShell: 'No active session for shell command.',
       shellCommandFailed: 'Shell command failed: {{message}}',
+      failedToCancelShellCommand: 'Failed to cancel shell command: {{error}}',
       modelNoImageInput: 'Current model does not support image input.',
       modelNoVideoInput: 'Current model does not support video input.',
       permissionModeChanged: 'Permission mode: {{mode}}',
+      permissionModeUnchanged: 'Permission mode unchanged: {{mode}}.',
       skillFailed: 'Skill "{{name}}" failed: {{error}}',
+      skillActivationFailed: 'Skill activation failed: {{error}}',
       failedToPrepareMediaAttachment: 'Failed to prepare media attachment: {{error}}',
       alreadyOnSession: 'Already on this session.',
       cannotSwitchWhileStreaming:
@@ -1225,6 +1585,16 @@ export default {
       taskAlreadyFinished_other: 'Tasks already finished.',
       movedOneTaskToBackground: 'Moved 1 task to background.',
       failedToApplyStartupFlags: 'Failed to apply startup flags: {{message}}',
+      providerModelsAdded_one: '{{provider}} · +{{count}} model.',
+      providerModelsAdded_other: '{{provider}} · +{{count}} models.',
+      failedToStartSession: 'Failed to start a session: {{message}}',
+      postCreateSetupFailed: 'Post-create setup failed: {{message}}',
+      failedToResumeSession: 'Failed to resume session {{sessionId}}: {{message}}',
+      failedToStartNewSession: 'Failed to start a new session: {{message}}',
+      startedNewSession: 'Started a new session ({{sessionId}}).',
+      resumedSession: 'Resumed session ({{sessionId}}).',
+      failedToSteer: 'Failed to steer: {{error}}',
+      failedToSend: 'Failed to send: {{error}}',
       startupSessionNotInit: 'Startup session was not initialized.',
       compactionCancelled: 'Compaction cancelled',
       compactionComplete: 'Compaction complete',
@@ -1275,6 +1645,7 @@ export default {
       pluginsInstallCancelledLabel: 'Install cancelled: {{label}}.',
       pluginsInstallingFrom: 'Installing plugin from {{source}}…',
       pluginsInstallFinished: 'Install finished — see details below.',
+      pluginsInstallResult: '{{action}} ({{id}}).{{hint}}',
       pluginsInstallFailed: 'Install failed: {{error}}',
       pluginsInstallingOrUpdating: 'Installing or updating {{label}} from marketplace…',
       pluginsFailedToInstall: 'Failed to install {{label}}: {{error}}',
@@ -1343,6 +1714,7 @@ export default {
       undoSkillUnknown: 'Skill: unknown',
       // commands/web.ts
       failedToStartServer: 'Failed to start server: {{error}}',
+      failedToStartRemoteControl: 'Failed to start Remote Control: {{error}}',
       webOpenUrl: 'open {{url}}',
       copyNoMessage: 'No assistant message to copy.',
       copyNative: 'Copied to clipboard ({{count}} characters).',
@@ -1358,6 +1730,14 @@ export default {
       unableToReadServerToken: 'Unable to read the local server token.',
       rcRequiresLocalServerAuth: 'Remote Control requires local server authentication.',
       rcRequiresKimiLogin: 'Remote Control requires a Kimi login. Run `kimi login` first.',
+      serverDangerStopHint: 'If you are unsure, stop this process now with {{key}}.',
+      serverReadyLinePrefix: 'Kimi server: ',
+      serverFeatureOff: 'off',
+      serverNetworkOffHint: '  use --host to enable',
+      serverTokenLabel: 'Token:    ',
+      serverLogsLabel: 'Logs:     ',
+      serverLogsOffHint: '  use --log-level info to enable',
+      serverStopLabel: 'Stop:     ',
       // sub/server/kill.ts
       serverKillFailedPermissions:
         'Failed to stop legacy Kimi server (pid {{pid}}); insufficient permissions?',
@@ -1382,7 +1762,27 @@ export default {
       loginCodeExpires: 'Code expires in {{seconds}}s.',
       loginWaiting: 'Waiting for authorization to complete…',
       loginSuccess: 'Logged in to {{provider}}.',
+      loginActiveUser: 'active user',
       loginFailedMsg: 'Login failed: {{message}}',
+      loginInvalidRegion: 'Invalid --region "{{value}}" (expected "mainland-cn" or "global").',
+      loginAntigravityFound:
+        'Found existing Google Antigravity login ({{email}}). Checking credentials...',
+      loginAntigravityUsingSynced: 'Using the synced Google Antigravity credentials.',
+      loginAntigravityExpired:
+        'Stored Google credentials are expired or not refreshable. Falling back to browser login.',
+      loginCancelledMsg: 'Login cancelled.',
+      loginCancelledWithErrorMsg: 'Login cancelled: {{message}}',
+      googleLoginFailedMsg: 'Google login failed: {{message}}',
+      loginGoogleOpeningBrowser: 'Opening browser for Google Gemini authorization: {{url}}',
+      loginGooglePasteUrl: 'If the browser did not open, paste the URL above into your browser.',
+      loginGoogleSuccess:
+        'Logged in to Google Gemini ({{provider}}). Default model set to {{model}}.',
+      loginAntigravityNoCreds:
+        'No Google Antigravity credentials found at ~/.gemini/oauth_creds.json.',
+      loginAntigravityImportFailed:
+        'Failed to import Google credentials from ~/.gemini/oauth_creds.json.',
+      loginAntigravitySynced:
+        'Synced Google Antigravity account ({{email}}). Default model set to {{model}}.',
       // sub/provider.ts
       providerUrlRequired: 'Registry URL is required.',
       providerFetchFailed: 'Failed to fetch registry{{suffix}}: {{error}}',
@@ -1406,6 +1806,12 @@ export default {
       providerCatalogFetchFailed: 'Failed to fetch catalog from {{url}}{{suffix}}: {{error}}',
       providerCatalogFallbackWarning:
         'Warning: failed to reach {{url}}; using the built-in models.dev catalog snapshot.',
+      providerCatalogNotFound: 'Provider "{{id}}" not found in catalog at {{url}}.',
+      providerCatalogNoUsableModels: 'Provider "{{id}}" lists no usable models in this catalog.',
+      providerCatalogMissingApiKey:
+        'Missing API key. Pass --api-key <key> or set KIMI_REGISTRY_API_KEY.',
+      providerCredentialEnvHint:
+        'provider "{{id}}" declares credential env var "{{env}}" — set api_key_env in config.toml to use it',
       // tui/commands/provider.ts
       addProviderTitle: 'Add a Third-party Provider',
       selectProviderTitle: 'Select a provider',
@@ -1444,6 +1850,10 @@ export default {
         'The catalog does not declare an endpoint for "{{providerId}}". Pass --base-url <url> (e.g. the vendor\'s OpenAI-compatible base URL).',
       // tui/commands/prompts.ts
       selectProviderToLogout: 'Select a provider to log out',
+      promptBaseUrlMissingEndpoint:
+        'The catalog declares no endpoint for this provider — enter its base URL.',
+      promptBaseUrlTitle: 'Enter base URL for {{provider}}',
+      promptBaseUrlEmpty: 'Base URL cannot be empty.',
       feedbackNoAttachment: 'No extra data',
       feedbackNoAttachmentDesc: 'Send only this chat message and feedback.',
       feedbackLogsOnly: 'Logs',
@@ -1465,6 +1875,11 @@ export default {
       exportNoSession: 'No previous session found to export.',
       exportCancelled: 'Export cancelled.',
       exportConfirmPrompt: 'Export previous session "{{title}}"? [Y/n] ',
+      // sub/fork.ts
+      forkNoSession: 'No previous session found to fork.',
+      forkCancelled: 'Fork cancelled.',
+      forkedTo: 'Forked to {{id}}{{title}} in {{elapsedMs}}ms',
+      forkConfirmPrompt: 'Fork previous session "{{title}}"? [Y/n] ',
       // sub/doctor.ts
       doctorFileNotExist: 'File does not exist.',
       doctorFileNotExistDefaults: 'File does not exist; built-in defaults will apply.',
@@ -1473,8 +1888,24 @@ export default {
       doctorFoundIssues: 'Kimi doctor found {{count}} issue{{plural}}.',
       doctorInvalidConfig: 'Invalid configuration in {{path}}.',
       doctorValidationIssues: 'Validation issues:',
+      // sub/session.ts
+      sessionListEmpty: 'No sessions found.',
+      sessionListArchivedSuffix: ' [archived]',
+      sessionListLimitInvalid: '--limit must be a positive integer, got "{{value}}"',
       // update/preflight.ts
       updateUnsupportedManager: 'unsupported package manager or layout.',
+      updateSourceNative: 'native installer',
+      updateInstallExited: 'update install exited with {{detail}}',
+      updateManualNewerAvailable:
+        'A newer version of {{package}} is available ({{current}} -> {{target}}).',
+      updateManualDetectedSource: 'Detected install source: {{source}}',
+      updateManualRunCommand: 'To update manually, run: {{command}}',
+      updateManualThirdPartyNote:
+        'Note: Third-party sources may lag behind the official release.\nFor the latest updates, use the official installer: {{url}}',
+      updateInstallSuccess:
+        'Updated {{package}} to {{version}}. Restart the CLI to use the new version.',
+      updateBackgroundSuccessNotice: 'Kimi Code updated to {{version}}\nChangelog: {{url}}',
+      updateInstallFailedWarning: 'warning: failed to install {{package}}@{{version}}: {{error}}',
       // update/prompt.ts
       updatePromptInstallNow: 'Install update now',
       updatePromptContinue: 'Continue with current version',
@@ -1486,9 +1917,33 @@ export default {
       updatePromptSource: 'Source ',
       updatePromptCommand: 'Command',
       updatePromptNavHint: '↑↓ choose · Enter confirm · Esc continue',
+      // sub/update-download.ts
+      updateDownloadNativeOnly: 'error: update download is only available in the native build',
+      updateDownloadInProgress:
+        'A download of Kimi Code {{version}} is already in progress; waiting for it to finish…',
+      updateDownloadStaged: 'Kimi Code {{version}} is downloaded; it applies on the next start.',
+      updateDownloadAlreadyStaged:
+        'Kimi Code {{version}} is already downloaded; it applies on the next start.',
+      updateDownloadOtherInProgress: 'error: another update ({{version}}) is already downloading',
+      updateDownloadUnknownVersion: 'unknown version',
+      updateDownloadLabel: 'Downloading Kimi Code {{version}} ({{platform}}-{{arch}})…',
+      updateDownloadFailed: 'error: failed to download update {{version}}: {{message}}',
       // run-prompt.ts
       promptBlocked: 'Prompt hook blocked the request.',
       promptTurnCannotStart: 'Prompt turn could not be started',
+      // v2/run-v2-print.ts
+      printTurnWaitCeiling: 'print turn wait ceiling reached ({{seconds}}s), finishing',
+      printGoalWaitCeiling: 'print goal wait ceiling reached ({{seconds}}s), finishing',
+      printSteerCeiling: 'print steer ceiling reached ({{seconds}}s), finishing',
+      printSteerMaxTurns: 'print steer max turns reached ({{maxTurns}}), finishing',
+      printCronWedged:
+        'print cron wait: next fire time stuck in the past; cron tick appears wedged, giving up on cron',
+      printBackgroundPolicyFailed: 'Warning: print background policy failed: {{error}}',
+      promptTurnEndedReason: 'Prompt turn ended with reason: {{reason}}',
+      mcpTrustGatedWarning:
+        'Warning: this folder is not trusted; skipped {{count}} project-level MCP server{{plural}}: {{list}}.',
+      mcpTrustGatedHint:
+        '  Run `kimi` here and choose "Trust this folder", or set KIMI_CODE_TRUST_WORKSPACE=1, to enable them.',
       // run-shell.ts
       shellNothingToMigrate: '  Nothing to migrate from ~/.kimi/.',
       shellBye: 'Bye!',
@@ -1504,16 +1959,67 @@ export default {
       serverStopCmd: 'kimi server kill',
       legacyKillNoRunning: 'No running legacy Kimi server.',
       legacyKillOutcome: 'Legacy Kimi server (pid {{pid}}) {{outcome}}.',
+      // sub/web/remote-control.ts
+      rcReadyTitle: 'Kimi Remote Control ready',
+      rcReadySubtitle: 'Use Kimi Code on this machine from your phone or another computer.',
+      rcStepScan: 'Scan the QR code, or open {{url}}',
+      rcStepLogin: 'Log in with your Kimi account',
+      rcStepChat: 'Start chatting — sessions run on this machine',
+      rcConnectedWaiting: 'Connected to {{host}}, waiting for remote devices…',
+      rcDeviceLabel: 'This device: ',
+      rcLinkWarning: 'This link grants control of this machine. Do not share it.',
+      rcQrPngLabel: 'QR code PNG: ',
+      rcQrPngHint: '(open this if the QR above does not scan)',
+      rcLocalUiLabel: 'Local UI: ',
+      rcLanHint: '(LAN: --host)',
+      rcDocsLabel: 'docs',
+      rcFeedbackLabel: 'feedback',
+      rcLogsLabel: 'Logs: ',
+      rcLogsOff: 'off (--log-level info)',
+      rcStopLabel: 'Stop: ',
+      rcStatusRelayConnected: 'Connected to relay, waiting for remote devices…',
+      rcStatusRelayDisconnected: 'Relay disconnected; reconnecting…',
+      rcStatusDeviceConnected: 'Remote device connected (1 active session)',
+      rcStatusDeviceDisconnected: 'Remote device disconnected',
+      // sub/web/run.ts
+      rcCannotCombineWithBypassAuth:
+        '--remote-control cannot be combined with --dangerous-bypass-auth.',
+      rcRequiresLoopbackHost: '--remote-control requires a loopback host.',
+      // sub/web/deprecated-server.ts
+      deprecatedServerNotice:
+        '`kimi server` has been deprecated and no longer works.\nUse `kimi web` instead — it runs the local server in the foreground and opens the web UI (`--no-open` to skip).\nTo stop a server started by a version before 0.28.0, use `{{stopCmd}}`.\nThis notice will be removed in the next major version of Kimi Code.\n',
+      // sub/web/legacy-kill.ts
+      deprecatedKillNotice:
+        '`{{stopCmd}}` is deprecated: it only stops servers started by a version before 0.28.0. Servers started by `kimi web` run in the foreground — stop them with Ctrl+C.\n',
       // sub/plugin-run-node.ts
       pluginRootRequired: 'KIMI_PLUGIN_ROOT is required to run a plugin node entry.',
       pluginEntryOutsideRoot: 'Plugin node entry must be inside KIMI_PLUGIN_ROOT: {{entry}}',
       // sub/acp.ts
+      acpFatalError: 'acp server: fatal error: {{error}}',
+      // v2/validate-config.ts
+      configUnknownTopLevelKey: 'Unknown top-level key ignored by the v2 engine: {{keys}}.',
+      configUnknownTopLevelKeys: 'Unknown top-level keys ignored by the v2 engine: {{keys}}.',
+      configDeprecatedEnvVar:
+        'Environment variable {{deprecated}} is deprecated; use {{primary}} instead.',
+      // agent-selection.ts
+      agentFileReadFailed: 'Failed to read agent file "{{path}}": {{message}}',
+      agentFileInvalid: 'Invalid agent file "{{path}}": {{message}}',
+      // goal-prompt.ts
+      goalSummaryHeadline: 'Goal [{{status}}]',
+      goalSummaryCounts: '{{summary}} (turns: {{turns}}, tokens: {{tokens}})',
+      // prompt-render.ts
+      hookResultTitle: '{{event}} hook',
+      hookResultTitleBlocked: '{{event}} hook blocked',
+      hookResultEmpty: '(empty)',
       // tool-renderers/chip.ts — tool header chips
       chipNoMatches: 'no matches',
       chipMatches: '{{count}} {{label}}',
+      chipMoreLine_one: 'more line',
+      chipMoreLine_other: 'more lines',
       chipNoFiles: 'no files',
       chipNoResults: 'no results',
       chipWebResult: 'web result',
+      chipNoGoal: 'no goal',
       // tool-renderers/truncated.ts — truncated output hints
       truncatedEarlierLines: '… ({{remaining}} earlier lines)',
       truncatedMoreLines: '… ({{remaining}} more lines)',
@@ -1524,6 +2030,7 @@ export default {
       btwFiltered: 'Provider safety policy blocked the response.',
       // subagent-event-handler.ts
       subagentRun: 'Run {{name}} agent',
+      subagentAbortedByUser: 'Aborted by the user',
       // config.ts
       invalidTuiConfig: 'Invalid TUI config in ~/.kimi-code/tui.toml; using defaults.',
 
@@ -1547,8 +2054,7 @@ export default {
       // utils/process/fd-detect.ts
       fdDownloadEmptyResponse: 'Failed to download fd: empty response body',
       // main.ts
-      bunRuntimeRequired:
-        '@moonshot-ai/kimi-code requires Bun >= 1.4. Install Bun: https://bun.sh',
+      bunRuntimeRequired: '@moonshot-ai/kimi-code requires Bun >= 1.4. Install Bun: https://bun.sh',
     },
     messages: {
       agentGroup: {
@@ -1731,6 +2237,13 @@ export default {
         verbTruncated: 'Truncated',
         verbUsing: 'Using',
         hiddenSubCall: '{{n}} more tool call(s) …',
+        updateCutOff: 'Update cut off',
+        updateArgumentsTruncated: '(arguments truncated by max_tokens)',
+        updateCouldNotSend: 'Could not send you an update',
+        updateSent: 'Sent you an update',
+        updateNotDisplayed: 'Update not displayed',
+        updateCompleted: 'Update completed',
+        updateSending: 'Sending you an update',
         singleSubagent: {
           completed: 'Completed',
           failed: 'Failed',
@@ -1831,8 +2344,8 @@ export default {
         titleLabel: 'Title',
         warningLabel: 'Warning',
         modelNotSet: 'not set',
-        planModeOn: 'on',
-        planModeOff: 'off',
+        on: 'on',
+        off: 'off',
         sessionNone: 'none',
         nativeToolsLabel: 'Native tools',
         nativeToolsRust: 'rust',
@@ -1857,6 +2370,8 @@ export default {
         contextWindow: 'Context window',
         planUsage: 'Plan usage',
         noUsageData: 'No usage data available.',
+        reset: 'reset',
+        resetsIn: 'resets in {{duration}}',
         extraUsage: 'Extra Usage',
         usedThisMonth: 'Used this month',
         limit5h: '5h limit',
@@ -1910,6 +2425,9 @@ export default {
       configGithubTokenInput: 'Enter your GitHub personal access token (classic).',
       configGithubTokenSaved: 'GitHub token saved.',
       configGithubTokenSaveFailed: 'Failed to save GitHub token: {{error}}',
+      experimentalNotifyUserNewSession:
+        'Start a new session to use Updates if this session was created with the feature disabled.',
+      experimentalTowerRestart: 'Tower mode takes effect after restarting Kimi Code.',
       // tui/commands/dispatch.ts
       configInvalidSlashCommand: 'Invalid slash command: /{{name}}',
       configVersionDisplay: 'Kimi Code v{{version}}',
@@ -1925,6 +2443,24 @@ export default {
       configCannotSwitchWhileStreaming:
         'Cannot switch models while streaming — press Esc or Ctrl-C first.',
       configModelSwitchedSaveFailed: 'Switched to {{name}}, but failed to save default: {{msg}}',
+      configSecondaryModelSaveFailed: 'Failed to save secondary model: {{error}}',
+      configSecondaryModelSet:
+        'Secondary model set to {{model}}. Newly spawned subagents will use it by default.',
+      configSurveyAlreadyEnabled: 'Feedback survey already enabled.',
+      configSurveyAlreadyDisabled: 'Feedback survey already disabled.',
+      configSurveyEnabled: 'Feedback survey enabled.',
+      configSurveyDisabled: 'Feedback survey disabled.',
+      configSurveySaveFailed: 'Failed to save session rating setting: {{error}}',
+      configMermaidAlreadyEnabled: 'Mermaid diagrams already enabled.',
+      configMermaidAlreadyDisabled: 'Mermaid diagrams already disabled.',
+      configMermaidEnabled: 'Mermaid diagrams enabled.',
+      configMermaidDisabled: 'Mermaid diagrams disabled.',
+      configMermaidSaveFailed: 'Failed to save mermaid diagram setting: {{error}}',
+      configTuiModeAlreadyRegular: 'TUI mode already regular.',
+      configTuiModeAlreadyFullscreen: 'TUI mode already fullscreen.',
+      configTuiModeSetRegular: 'TUI mode set to regular.',
+      configTuiModeSetFullscreen: 'TUI mode set to fullscreen.',
+      configTuiModeSaveFailed: 'Failed to save TUI mode: {{error}}',
       // tui/commands/resolve.ts
       resolveCannotWhileStreaming: 'Cannot /{{name}} while streaming — press Esc or Ctrl-C first.',
       resolveCannotWhileCompacting:
@@ -1937,9 +2473,18 @@ export default {
       infoMcpLoadFailed: 'Failed to load MCP servers: {{error}}',
       // tui/commands/session.ts
       sessionInitFailed: 'Init failed: {{msg}}',
+      sessionForkReleaseFailed:
+        'Session forked ({{forkId}}), but failed to release its runtime: {{message}}',
+      sessionForkCommandCopied: 'Command copied to clipboard',
+      sessionForkCommandCopiedUnverified:
+        'Command copied via terminal escape sequence (unverified)',
+      sessionForkCommandCopyFailed: 'Failed to copy command to clipboard',
+      sessionForkedNotice:
+        'Session forked ({{forkId}}). Still in the original session; switch to the fork via /sessions.\n  To enter the fork in a new process, run: {{command}}\n  {{clipboardNote}}',
       // tui/commands/swarm.ts
       swarmPermissionFailed: 'Failed to set permission mode: {{error}}',
       swarmToggleFailed: 'Failed to {{action}} swarm mode: {{error}}',
+      swarmModeDidNotChange: 'the engine did not change swarm mode',
       swarmEnable: 'enable',
       swarmDisable: 'disable',
       // tui/controllers/btw-panel.ts
@@ -1958,6 +2503,7 @@ export default {
       tasksStopFailed: 'Stop failed: {{message}}',
       tasksCannotOpenOutput: 'Cannot open output: {{message}}',
       tasksAlreadyTerminal: '{{taskId}} is already terminal — nothing to stop.',
+      tasksStopReasonUserInitiated: 'User initiated stop',
       // tui/controllers/clipboard-image-hint.ts
       clipboardImageHint: 'Image in clipboard · {{shortcut}} to paste',
       // tui/controllers/cache-hint-controller.ts
@@ -1966,6 +2512,20 @@ export default {
       // tui/kimi-tui.ts
       kimiTuiApprovalRequired: 'Kimi Code approval required',
       kimiTuiNeedsAnswer: 'Kimi Code needs your answer',
+      kimiTuiNoShellCommand: 'No shell command running.',
+      kimiTuiCommandStarting: 'Command is still starting — try again.',
+      kimiTuiCommandFinished: 'Command already finished.',
+      kimiTuiMoveToBackgroundFailed: 'Failed to move to background: {{error}}',
+      kimiTuiMovedToBackground: 'Moved to background. /tasks to view.',
+      kimiTuiListTasksFailed: 'Failed to list tasks: {{error}}',
+      kimiTuiNoForegroundTask: 'No foreground task running.',
+      kimiTuiDetachFailed: 'Failed to detach {{taskId}}: {{error}}',
+      kimiTuiMovedTasksToBackground: 'Moved {{count}} tasks to background.',
+      kimiTuiMovedSomeTasksToBackground: 'Moved {{count}} of {{total}} tasks to background.',
+      kimiTuiTasksToView: '{{hint}} /tasks to view.',
+      kimiTuiCouldNotInspectSettings: 'Could not inspect project settings.',
+      kimiTuiSessionDeleted: 'Session deleted.',
+      kimiTuiDeleteSessionFailed: 'Failed to delete session {{sessionId}}: {{error}}',
       // tui/easter-eggs/dance.ts
       danceOn: 'Dancing — use {{cmd}} to turn it off.',
       danceOff: 'Use {{cmd}} to keep the rainbow on.',
@@ -2002,6 +2562,7 @@ export default {
       bgTaskStopped: '{{subject}} stopped',
       bgTaskLost: '{{subject}} lost',
       bgTaskStoppedReason: 'stopped — {{reason}}',
+      bgTaskSessionRestarted: 'session restarted before completion',
       // tui/utils/background-agent-status.ts
       bgAgentStarted: '{{subject}} started in background',
       bgAgentCompleted: '{{subject}} completed in background',
@@ -2035,6 +2596,8 @@ export default {
       goalQueueObjectiveEmpty: 'Goal objective cannot be empty',
       goalQueueObjectiveTooLong: 'Goal objective cannot exceed {{max}} characters',
       goalQueueNotFound: 'No queued goal found',
+      goalQueueUnexpectedShape: 'Goal queue file has an unexpected shape: {{path}}',
+      goalQueueUnsupportedVersion: 'Unsupported goal queue version {{version}} in {{path}}',
       // tui/commands/registry.ts
       registryGoalShow: 'Show the current goal',
       registryGoalPause: 'Pause the active goal',
@@ -2050,6 +2613,8 @@ export default {
       registryTowerTeardown: 'Tear down the tower',
       registryTowerOn: 'Turn tower mode on',
       registryTowerOff: 'Turn tower mode off',
+      registryDesktop: 'Open the Kimi Code desktop app page in your browser',
+      desktopOpenedInBrowser: '{{url}} — opened in your browser',
       // tui/commands/team.ts
       teamUsage: 'Usage: /team [--debate] <topic> with <role1>[:stance],<role2>[:stance],...',
       teamNeedTopic: 'Please provide a discussion topic.',
@@ -2063,6 +2628,62 @@ export default {
       workflowCancelHintPattern: 'Use the Workflow tool to cancel workflow run "{{runId}}".',
       workflowRunHintPattern:
         'Use the Workflow tool to run the "{{name}}" workflow. Provide all required parameters from the workflow definition.',
+      // tui/commands/tower.ts
+      towerBaseSet: 'Tower base: {{base}}',
+      towerModeOnWithBase: 'Tower mode: ON (base: {{base}})',
+      towerModeAlreadyOn: 'Tower mode is already on.',
+      towerModeAlreadyOff: 'Tower mode is already off.',
+      towerModeOn: 'Tower mode: ON',
+      towerModeOff: 'Tower mode: OFF',
+      towerEnableFailed:
+        'Tower mode could not be enabled — another session owns this workspace tower, or the experiment is off / was just turned on and needs a restart.',
+      towerDisableFailed: 'Tower mode could not be disabled.',
+      towerEnableError: 'Failed to enable tower mode: {{error}}',
+      towerDisableError: 'Failed to disable tower mode: {{error}}',
+      // tui/components/chrome/notify-panel.ts
+      notifyPanelTurnEnded: 'turn ended',
+      notifyPanelHintFocused: '← → agent · ↑ ↓ update · esc close',
+      notifyPanelHintUnfocused: 'ctrl+n page',
+      // tui/components/markdown/mermaid-art.ts
+      mermaidCouldNotDraw: 'could not draw this mermaid diagram',
+      mermaidUnsupportedDiagram: '{{identifier}} diagrams are not drawn in the terminal',
+      mermaidTooWide: 'mermaid diagram too wide to render (needs {{columns}} columns)',
+      mermaidCopySource: '[Copy Source]',
+      mermaidCopied: '[Copied]',
+      mermaidCopyFailed: '[Copy failed]',
+      // tui/components/messages/shell-run.ts
+      shellRunOutputTruncated: '… (output truncated)',
+      shellRunOutputUnavailable: '(output unavailable)',
+      // tui/components/messages/tool-renderers/wait-for.ts
+      waitForAnyTask: 'Waiting for any background task',
+      waitForTask: 'Waiting for background task',
+      waitForCouldNotWait: 'Could not wait for background task',
+      waitForTimedOut: 'Wait timed out',
+      waitForNoTasks: 'No background tasks running',
+      waitForInterrupted: 'Wait interrupted by new input',
+      waitForAnyTaskDone: 'Waited for a background task',
+      waitForTaskDone: 'Waited for background task',
+      // tui/constant/survey.ts
+      surveyQuestion: 'How is Kimi doing this session? (optional)',
+      surveyOptionBad: '1: Bad',
+      surveyOptionFine: '2: Fine',
+      surveyOptionGood: '3: Good',
+      surveyOptionDismiss: '0: Dismiss',
+      // tui/components/panes/survey-panel.ts
+      surveyResponseBad: 'Bad',
+      surveyResponseFine: 'Fine',
+      surveyResponseGood: 'Good',
+      surveyFeedbackStatus: 'Feedback: {{label}} · [escape: undo]',
+      surveyThanks: 'Thanks for your feedback!',
+      // tui/controllers/plugin-update-notifier.ts
+      pluginUpdateDetected:
+        'Update detected: {{name}} {{version}} is available. Run /plugins to install the latest version from the Official Marketplace.',
+      // tui/controllers/session-replay.ts
+      replayAskWhenNeededOn: 'Ask When Needed mode: ON',
+      replayAskWhenNeededOnDetail:
+        'Routine edits and commands run automatically; risky actions, questions, and plans still ask.',
+      replayAskWhenNeededOff: 'Ask When Needed mode: OFF',
+      replayPermissionMode: 'Permission mode: {{mode}}',
     },
     diffPreview: {
       moreChangesHidden: '{{n}} more change(s) hidden (ctrl+o to expand)',
@@ -2074,6 +2695,22 @@ export default {
     },
     labels: {
       current: '← current',
+      jumpToBottom: ' ↓ Jump to bottom ',
+    },
+    permissionMode: {
+      manual: 'Always Ask',
+      manualDesc: 'Auto-read only; everything else needs your approval first.',
+      yolo: 'Ask When Needed',
+      yoloDesc:
+        'Routine edits and commands run automatically; risky actions, questions, and plans still ask.',
+      auto: 'Never Ask',
+      autoDesc: 'Never interrupts you; everything runs and is decided automatically.',
+    },
+    tmux: {
+      extendedKeysOff:
+        'tmux extended-keys is off. Modified Enter keys may not work. Add `set -g extended-keys on` to ~/.tmux.conf and restart tmux.',
+      extendedKeysFormatXterm:
+        'tmux extended-keys-format is xterm. Kimi Code works best with csi-u. Add `set -g extended-keys-format csi-u` to ~/.tmux.conf and restart tmux.',
     },
     approvalPanel: {
       shellCwd: 'cwd: {{dir}}',

@@ -9,7 +9,11 @@
 
 import type { Component } from '@moonshot-ai/pi-tui';
 
-import { OUTCOME_MAX_LINES, OUTCOME_ROW_INDENT, TRUNCATION_ELLIPSIS } from '#/tui/constant/rendering';
+import {
+  OUTCOME_MAX_LINES,
+  OUTCOME_ROW_INDENT,
+  TRUNCATION_ELLIPSIS,
+} from '#/tui/constant/rendering';
 import { currentTheme } from '#/tui/theme';
 import { sanitizeShellOutput } from '#/tui/utils/shell-output';
 

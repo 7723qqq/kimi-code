@@ -15,8 +15,8 @@ import type {
   SteerInputItem,
   TranscriptEntry,
 } from '../types';
-import { formatErrorMessage } from '../utils/event-payload';
 import { hasDispose } from '../utils/component-capabilities';
+import { formatErrorMessage } from '../utils/event-payload';
 import type { ImageAttachmentStore } from '../utils/image-attachment-store';
 import {
   extractMediaAttachments,
@@ -132,11 +132,8 @@ export class MessageDispatchController {
       // yields when a path actually has to be read.
       const extracted =
         preExtracted ??
-        extractMediaAttachments(
-          text,
-          this.imageStore,
-          (attachment, bytes, mime, width, height) =>
-            this.host.editorKeyboard.prepareImageAttachment(attachment, bytes, mime, width, height),
+        extractMediaAttachments(text, this.imageStore, (attachment, bytes, mime, width, height) =>
+          this.host.editorKeyboard.prepareImageAttachment(attachment, bytes, mime, width, height),
         );
       extraction = extracted instanceof Promise ? await extracted : extracted;
       if (preExtracted !== undefined) {
@@ -150,7 +147,11 @@ export class MessageDispatchController {
     } catch (error) {
       // A pasted video's daemon upload was unusable (still in flight,
       // failed, expired); nothing was dispatched.
-      this.host.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
+      this.host.showError(
+        t('tui.statusMessages.failedToPrepareMediaAttachment', {
+          error: formatErrorMessage(error),
+        }),
+      );
       return;
     }
     // Create the staging lease right after extraction, so every exit below
@@ -222,15 +223,16 @@ export class MessageDispatchController {
     try {
       const extracted =
         preExtracted ??
-        extractMediaAttachments(
-          text,
-          this.imageStore,
-          (attachment, bytes, mime, width, height) =>
-            this.host.editorKeyboard.prepareImageAttachment(attachment, bytes, mime, width, height),
+        extractMediaAttachments(text, this.imageStore, (attachment, bytes, mime, width, height) =>
+          this.host.editorKeyboard.prepareImageAttachment(attachment, bytes, mime, width, height),
         );
       extraction = extracted instanceof Promise ? await extracted : extracted;
     } catch (error) {
-      this.host.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
+      this.host.showError(
+        t('tui.statusMessages.failedToPrepareMediaAttachment', {
+          error: formatErrorMessage(error),
+        }),
+      );
       return;
     }
     if (!this.validateMediaCapabilities(extraction)) return;
@@ -267,7 +269,9 @@ export class MessageDispatchController {
     this.beginSessionRequest();
     void this.runInlineSkillActivations(session, text, activations, extraction).catch(
       (error: unknown) => {
-        this.failSessionRequest(`Skill activation failed: ${formatErrorMessage(error)}`);
+        this.failSessionRequest(
+          t('tui.statusMessages.skillActivationFailed', { error: formatErrorMessage(error) }),
+        );
       },
     );
   }
@@ -469,7 +473,9 @@ export class MessageDispatchController {
           item.videoAttachmentIds !== undefined ? [...item.videoAttachmentIds] : [],
         imageSnapshots: [],
       }).catch((error: unknown) => {
-        this.failSessionRequest(`Skill activation failed: ${formatErrorMessage(error)}`);
+        this.failSessionRequest(
+          t('tui.statusMessages.skillActivationFailed', { error: formatErrorMessage(error) }),
+        );
       });
       return;
     }
@@ -556,7 +562,9 @@ export class MessageDispatchController {
         // TUI to the waiting phase, and no turn events may follow a failed
         // steer (e.g. the session is gone), which would leave the UI stuck
         // queueing input behind a request that never completes.
-        this.failSessionRequest(`Failed to steer: ${formatErrorMessage(error)}`);
+        this.failSessionRequest(
+          t('tui.statusMessages.failedToSteer', { error: formatErrorMessage(error) }),
+        );
       });
       return;
     }
@@ -564,7 +572,9 @@ export class MessageDispatchController {
       stagingLease,
       session.prompt(sdkInput, { promptId: submissionId }),
       (error) => {
-        this.failSessionRequest(`Failed to send: ${formatErrorMessage(error)}`);
+        this.failSessionRequest(
+          t('tui.statusMessages.failedToSend', { error: formatErrorMessage(error) }),
+        );
       },
     );
   }
@@ -580,7 +590,11 @@ export class MessageDispatchController {
     } catch (error) {
       // Cache copy failed (unwritable cache dir, vanished video source…);
       // nothing has been dispatched yet, so just report and keep the input.
-      this.host.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
+      this.host.showError(
+        t('tui.statusMessages.failedToPrepareMediaAttachment', {
+          error: formatErrorMessage(error),
+        }),
+      );
       return;
     }
     if (!this.validateMediaCapabilities(rewrite)) {
@@ -643,7 +657,11 @@ export class MessageDispatchController {
     try {
       rewrite = rewriteMediaPlaceholders(args, this.imageStore, 'tag');
     } catch (error) {
-      this.host.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
+      this.host.showError(
+        t('tui.statusMessages.failedToPrepareMediaAttachment', {
+          error: formatErrorMessage(error),
+        }),
+      );
       return;
     }
     const stagingLease = this.staging.create(
@@ -878,7 +896,9 @@ export class MessageDispatchController {
         this.removeTranscriptEntries(steeredEntries);
         onSettled(false);
       }
-      this.host.showError(`Failed to steer: ${formatErrorMessage(error)}`);
+      this.host.showError(
+        t('tui.statusMessages.failedToSteer', { error: formatErrorMessage(error) }),
+      );
     });
   }
 

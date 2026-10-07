@@ -42,15 +42,15 @@ import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { appendInputHistory, loadInputHistory } from '#/utils/history/input-history';
 import { openUrl } from '#/utils/open-url';
 import { getInputHistoryFile } from '#/utils/paths';
+import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { applyRecommendedEffort } from '#/utils/recommended-effort';
 import { getRecommendedEffortConfig } from '#/utils/recommended-effort-config';
-import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { quoteShellArg } from '#/utils/shell-quote';
 import { startupTrace } from '#/utils/startup-trace';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
 
-import { BannerProvider } from './banner/banner-provider';
 import { resolveBannerAudienceContext, type BannerAudienceContext } from './banner/audience';
+import { BannerProvider } from './banner/banner-provider';
 import { readBannerDisplayState, writeBannerDisplayState } from './banner/state';
 import {
   BUILTIN_SLASH_COMMANDS,
@@ -428,9 +428,7 @@ export class KimiTUI {
     this.startupNotice = startupInput.startupNotice;
     this.state = createTUIState(tuiOptions);
     this.state.footer.setExpandHintProvider(() => this.toolOutputExpandHint());
-    this.state.transcriptContainer.setUnhandledClick((index) =>
-      this.toggleClickedFoldBlock(index),
-    );
+    this.state.transcriptContainer.setUnhandledClick((index) => this.toggleClickedFoldBlock(index));
     this.uninstallRainbowDance = installRainbowDance(() => {
       this.state.ui.requestRender();
     });
@@ -803,10 +801,23 @@ export class KimiTUI {
       const result = await this.authFlow.refreshProviderModels();
       for (const c of result.changed) {
         if (c.added <= 0) continue;
-        this.showStatus(`${c.providerName} · +${String(c.added)} model${c.added > 1 ? 's' : ''}.`);
+        this.showStatus(
+          t(
+            c.added > 1
+              ? 'tui.statusMessages.providerModelsAdded_other'
+              : 'tui.statusMessages.providerModelsAdded_one',
+            { provider: c.providerName, count: c.added },
+          ),
+        );
       }
       for (const f of result.failed) {
-        this.showStatus(`Skipped refreshing ${f.provider}: ${f.reason}`, 'warning');
+        this.showStatus(
+          t('tui.messages.configSkippedRefreshing', {
+            provider: f.provider,
+            reason: f.reason,
+          }),
+          'warning',
+        );
       }
     } catch {
       // Best-effort: startup must not crash on background refresh failures.
@@ -834,7 +845,10 @@ export class KimiTUI {
     const resumeState = this.session?.getResumeState();
     this.surveyController.seedFromResumedAgents(resumeState?.sessionMetadata.agents ?? {});
     if (resumeState?.warning !== undefined) {
-      this.showStatus(`Warning: ${resumeState.warning}`, 'warning');
+      this.showStatus(
+        t('tui.statusMessages.warningPrefix', { message: resumeState.warning }),
+        'warning',
+      );
     }
     if (this.session !== undefined) {
       this.sessionEventHandler.startSubscription();
@@ -857,7 +871,10 @@ export class KimiTUI {
       if (this.session !== session) return;
       for (const warning of warnings) {
         const severity = warning.severity === 'error' ? 'error' : 'warning';
-        this.showStatus(`Warning: ${warning.message}`, severity);
+        this.showStatus(
+          t('tui.statusMessages.warningPrefix', { message: warning.message }),
+          severity,
+        );
       }
     } catch {
       // Best-effort: startup must not block on warning retrieval.
@@ -946,7 +963,7 @@ export class KimiTUI {
             session = await this.harness.createSession(createSessionOptions);
             this.startupNotice = combineStartupNotice(
               this.startupNotice,
-              `No sessions to continue under "${workDir}"; starting a fresh session.`,
+              t('tui.statusMessages.noSessionsToContinue', { workDir }),
             );
           }
         }
@@ -1317,7 +1334,7 @@ export class KimiTUI {
       (error: unknown) => {
         const message = formatErrorMessage(error);
         this.finishShellOutput(commandId, '', message, true);
-        this.showError(`Shell command failed: ${message}`);
+        this.showError(t('tui.statusMessages.shellCommandFailed', { message }));
       },
     );
   }
@@ -1341,7 +1358,9 @@ export class KimiTUI {
     if (session === undefined) return;
     for (const commandId of this.shellOutputStreams.keys()) {
       void session.cancelShellCommand(commandId).catch((error: unknown) => {
-        this.showError(`Failed to cancel shell command: ${formatErrorMessage(error)}`);
+        this.showError(
+          t('tui.statusMessages.failedToCancelShellCommand', { error: formatErrorMessage(error) }),
+        );
       });
     }
   }
@@ -1763,7 +1782,7 @@ export class KimiTUI {
       session = await this.createSessionFromCurrentState(true);
     } catch (error) {
       const msg = formatErrorMessage(error);
-      this.showError(`Failed to start a session: ${msg}`);
+      this.showError(t('tui.statusMessages.failedToStartSession', { message: msg }));
       return undefined;
     }
     this.resetSessionRuntime();
@@ -1775,7 +1794,7 @@ export class KimiTUI {
     } catch (error) {
       this.sessionEventHandler.startSubscription();
       const msg = formatErrorMessage(error);
-      this.showError(`Post-create setup failed: ${msg}`);
+      this.showError(t('tui.statusMessages.postCreateSetupFailed', { message: msg }));
       return undefined;
     }
     try {
@@ -1827,8 +1846,7 @@ export class KimiTUI {
       contextTokens: status.contextTokens,
       maxContextTokens: status.maxContextTokens,
       contextUsage: status.contextUsage,
-      cumulativeTokens:
-        status.usage?.total === undefined ? 0 : sumTokenUsage(status.usage.total),
+      cumulativeTokens: status.usage?.total === undefined ? 0 : sumTokenUsage(status.usage.total),
       sessionTitle: session.summary?.title ?? null,
       goal: goalResult.goal,
     });
@@ -2050,12 +2068,12 @@ export class KimiTUI {
   async showResumeOtherWorkDirHint(session: SessionRow): Promise<void> {
     this.hideSessionPicker();
     const command = `cd ${quoteShellArg(session.work_dir)} && kimi --resume ${quoteShellArg(session.id)}`;
-    const message = `Current session is in a different working directory.\n  To resume, run: ${command}`;
+    const message = t('tui.statusMessages.resumeOtherWorkDir', { command });
     try {
       await copyTextToClipboard(command);
-      this.showStatus(`${message}\n  Command copied to clipboard`, 'warning');
+      this.showStatus(`${message}\n  ${t('tui.messages.sessionForkCommandCopied')}`, 'warning');
     } catch {
-      this.showStatus(`${message}\n  Failed to copy command to clipboard`, 'warning');
+      this.showStatus(`${message}\n  ${t('tui.messages.sessionForkCommandCopyFailed')}`, 'warning');
     }
   }
 
@@ -2085,11 +2103,19 @@ export class KimiTUI {
       });
     } catch (error) {
       const msg = formatErrorMessage(error);
-      this.showError(`Failed to resume session ${targetSessionId}: ${msg}`);
+      this.showError(
+        t('tui.statusMessages.failedToResumeSession', {
+          sessionId: targetSessionId,
+          message: msg,
+        }),
+      );
       return false;
     }
 
-    await this.switchToSession(session, `Resumed session (${session.id}).`);
+    await this.switchToSession(
+      session,
+      t('tui.statusMessages.resumedSession', { sessionId: session.id }),
+    );
     return true;
   }
 
@@ -2109,14 +2135,17 @@ export class KimiTUI {
       await this.sessionReplay.hydrateFromReplay(session);
     } catch (error) {
       const msg = formatErrorMessage(error);
-      this.showError(`Failed to replay session history: ${msg}`);
+      this.showError(t('tui.statusMessages.replayFailed', { message: msg }));
     } finally {
       this.sessionEventHandler.startSubscription();
     }
     const resumeState = session.getResumeState();
     this.surveyController.seedFromResumedAgents(resumeState?.sessionMetadata.agents ?? {});
     if (resumeState?.warning !== undefined) {
-      this.showStatus(`Warning: ${resumeState.warning}`, 'warning');
+      this.showStatus(
+        t('tui.statusMessages.warningPrefix', { message: resumeState.warning }),
+        'warning',
+      );
     }
     this.showStatus(statusMessage);
     void this.showSessionWarnings(session);
@@ -2148,7 +2177,10 @@ export class KimiTUI {
     const resumeState = session.getResumeState();
     this.surveyController.seedFromResumedAgents(resumeState?.sessionMetadata.agents ?? {});
     if (resumeState?.warning !== undefined) {
-      this.showStatus(`Warning: ${resumeState.warning}`, 'warning');
+      this.showStatus(
+        t('tui.statusMessages.warningPrefix', { message: resumeState.warning }),
+        'warning',
+      );
     }
     this.showStatus(statusMessage);
     void this.showSessionWarnings(session);
@@ -2165,7 +2197,7 @@ export class KimiTUI {
       session = await this.createSessionFromCurrentState();
     } catch (error) {
       const msg = formatErrorMessage(error);
-      this.showError(`Failed to start a new session: ${msg}`);
+      this.showError(t('tui.statusMessages.failedToStartNewSession', { message: msg }));
       return;
     }
 
@@ -2178,7 +2210,7 @@ export class KimiTUI {
     } catch (error) {
       this.sessionEventHandler.startSubscription();
       const msg = formatErrorMessage(error);
-      this.showError(`Post-create setup failed: ${msg}`);
+      this.showError(t('tui.statusMessages.postCreateSetupFailed', { message: msg }));
       return;
     }
     try {
@@ -2189,7 +2221,7 @@ export class KimiTUI {
     }
     this.sessionEventHandler.startSubscription();
     this.transcriptRenderer.clearTranscriptAndRedraw();
-    this.showStatus(`Started a new session (${session.id}).`);
+    this.showStatus(t('tui.statusMessages.startedNewSession', { sessionId: session.id }));
     void this.showSessionWarnings(session);
     void this.showConfigWarningsIfAny();
   }
@@ -2237,7 +2269,7 @@ export class KimiTUI {
   }
 
   showError(message: string): void {
-    this.showStatus(`Error: ${message}`, 'error');
+    this.showStatus(t('tui.statusMessages.errorPrefix', { message }), 'error');
   }
 
   showLoginProgressSpinner(label: string): LoginProgressSpinnerHandle {
@@ -2388,12 +2420,12 @@ export class KimiTUI {
     // Only one `!` command runs at a time (input is queued while busy).
     const next = this.shellOutputStreams.entries().next();
     if (next.done) {
-      this.showDetachHint('No shell command running.');
+      this.showDetachHint(t('tui.messages.kimiTuiNoShellCommand'));
       return;
     }
     const [commandId, stream] = next.value;
     if (stream.taskId === undefined) {
-      this.showDetachHint('Command is still starting — try again.');
+      this.showDetachHint(t('tui.messages.kimiTuiCommandStarting'));
       return;
     }
     const session = this.session;
@@ -2401,11 +2433,15 @@ export class KimiTUI {
     try {
       const info = await session.detachBackgroundTask(stream.taskId);
       if (info === undefined) {
-        this.showDetachHint('Command already finished.');
+        this.showDetachHint(t('tui.messages.kimiTuiCommandFinished'));
         return;
       }
     } catch (error) {
-      this.showError(`Failed to move to background: ${formatErrorMessage(error)}`);
+      this.showError(
+        t('tui.messages.kimiTuiMoveToBackgroundFailed', {
+          error: formatErrorMessage(error),
+        }),
+      );
       return;
     }
     // Finalize the card as backgrounded and drop the stream so the eventual
@@ -2417,7 +2453,7 @@ export class KimiTUI {
     // The backgrounded command's notification turn (started by the engine via
     // appendSystemReminderAndNotify) owns the streaming phase and drains the
     // queue when it completes, so we intentionally leave both untouched here.
-    this.showDetachHint('Moved to background. /tasks to view.');
+    this.showDetachHint(t('tui.messages.kimiTuiMovedToBackground'));
   }
 
   async detachCurrentForegroundTask(): Promise<void> {
@@ -2439,13 +2475,15 @@ export class KimiTUI {
       // and therefore included. We filter to `detached === false` ourselves.
       tasks = await session.listBackgroundTasks();
     } catch (error) {
-      this.showError(`Failed to list tasks: ${formatErrorMessage(error)}`);
+      this.showError(
+        t('tui.messages.kimiTuiListTasksFailed', { error: formatErrorMessage(error) }),
+      );
       return;
     }
 
     const targets = pickForegroundTasks(tasks);
     if (targets.length === 0) {
-      this.showDetachHint('No foreground task running.');
+      this.showDetachHint(t('tui.messages.kimiTuiNoForegroundTask'));
       return;
     }
 
@@ -2457,7 +2495,12 @@ export class KimiTUI {
         if (info === undefined) alreadyFinished++;
         else detached++;
       } catch (error) {
-        this.showError(`Failed to detach ${target.taskId}: ${formatErrorMessage(error)}`);
+        this.showError(
+          t('tui.messages.kimiTuiDetachFailed', {
+            taskId: target.taskId,
+            error: formatErrorMessage(error),
+          }),
+        );
       }
     }
 
@@ -2471,11 +2514,14 @@ export class KimiTUI {
       hint =
         detached === 1
           ? t('tui.statusMessages.movedOneTaskToBackground')
-          : `Moved ${detached} tasks to background.`;
+          : t('tui.messages.kimiTuiMovedTasksToBackground', { count: String(detached) });
     } else {
-      hint = `Moved ${detached} of ${targets.length} tasks to background.`;
+      hint = t('tui.messages.kimiTuiMovedSomeTasksToBackground', {
+        count: String(detached),
+        total: String(targets.length),
+      });
     }
-    if (detached > 0) hint = `${hint} /tasks to view.`;
+    if (detached > 0) hint = t('tui.messages.kimiTuiTasksToView', { hint });
     this.showDetachHint(hint);
   }
 
@@ -2756,7 +2802,9 @@ export class KimiTUI {
         const switched = setUserShellPath(result.bashPath, deps);
         spinner.stop({ ok: true, label: t('tui.dialogs.msys2Prompt.installSuccess') });
         this.showStatus(
-          switched ? t('tui.dialogs.msys2Prompt.restartHint') : t('tui.dialogs.msys2Prompt.installSuccessNoSwitch'),
+          switched
+            ? t('tui.dialogs.msys2Prompt.restartHint')
+            : t('tui.dialogs.msys2Prompt.installSuccessNoSwitch'),
         );
         await markPrompted(deps);
       } else {
@@ -2782,7 +2830,7 @@ export class KimiTUI {
         gatedMcpServers: [],
         gatedAdditionalDirs: [],
         additionalDirSources: [],
-        warnings: ['Could not inspect project settings.'],
+        warnings: [t('tui.messages.kimiTuiCouldNotInspectSettings')],
         instructionSources: { agentsMdPaths: [], skills: [], agentProfiles: [], paths: [] },
       };
     }
@@ -2816,8 +2864,7 @@ export class KimiTUI {
     this.restoreEditor();
     try {
       await this.harness.trustWorkspace(workDir);
-    } catch {
-    }
+    } catch {}
     return true;
   }
 
@@ -2852,9 +2899,14 @@ export class KimiTUI {
       if (requestToken !== this.dialogController.sessionPickerRequestToken) return;
       if (this.state.activeDialog !== 'session-picker') return;
       this.dialogController.remountSessionPicker();
-      this.showStatus('Session deleted.');
+      this.showStatus(t('tui.messages.kimiTuiSessionDeleted'));
     } catch (error) {
-      this.showError(`Failed to delete session ${session.id}: ${formatErrorMessage(error)}`);
+      this.showError(
+        t('tui.messages.kimiTuiDeleteSessionFailed', {
+          sessionId: session.id,
+          error: formatErrorMessage(error),
+        }),
+      );
     }
   }
 
@@ -2869,13 +2921,19 @@ export class KimiTUI {
       // The engine aborts a failed delete and keeps the session: reattach,
       // falling back to a fresh session if it is gone. showError runs after
       // the switch because switchToSession clears the transcript.
-      const message = `Failed to delete session ${session.id}: ${formatErrorMessage(error)}`;
+      const message = t('tui.messages.kimiTuiDeleteSessionFailed', {
+        sessionId: session.id,
+        error: formatErrorMessage(error),
+      });
       try {
         const resumed = await this.harness.resumeSession({
           id: session.id,
           replayTurnLimit: REPLAY_TURN_LIMIT,
         });
-        await this.switchToSession(resumed, `Resumed session (${resumed.id}).`);
+        await this.switchToSession(
+          resumed,
+          t('tui.statusMessages.resumedSession', { sessionId: resumed.id }),
+        );
       } catch {
         // Reattach failed and the session is already unloaded: detach before
         // the fallback create so a failed create leaves no ghost UI behind.

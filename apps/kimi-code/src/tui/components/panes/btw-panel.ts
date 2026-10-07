@@ -3,12 +3,13 @@ import { Text, truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
 import { t } from '#/i18n';
-import { Markdown } from '../markdown/markdown';
+
 import { THINKING_PREVIEW_LINES } from '../../constant/rendering';
 import { currentTheme } from '../../theme';
 import type { KimiMarkdownTheme } from '../../theme/pi-tui-theme';
 import type { InlineSkillActivation } from '../../types';
 import { createMarkdownOptions } from '../../utils/markdown-options';
+import { Markdown } from '../markdown/markdown';
 
 type BtwPanelPhase = 'running' | 'done' | 'failed';
 
@@ -163,8 +164,7 @@ export class BtwPanelComponent implements Component {
   private fitBodyLines(lines: string[]): BtwBodyRender {
     const bodyLimit = this.collapsedBodyLimit();
     const targetUncapped = Math.max(this.minBodyLines, lines.length);
-    const target =
-      bodyLimit === undefined ? targetUncapped : Math.min(bodyLimit, targetUncapped);
+    const target = bodyLimit === undefined ? targetUncapped : Math.min(bodyLimit, targetUncapped);
     this.minBodyLines = Math.max(this.minBodyLines, target);
 
     if (lines.length > target) {
@@ -211,9 +211,11 @@ export class BtwPanelComponent implements Component {
         ...new Markdown(answer, 0, 0, theme, undefined, createMarkdownOptions()).render(width),
       );
     } else if (thinking.length > 0) {
-      const thinkingLines = new Text(chalk.hex(currentTheme.palette.textDim)(thinking), 0, 0).render(
-        width,
-      );
+      const thinkingLines = new Text(
+        chalk.hex(currentTheme.palette.textDim)(thinking),
+        0,
+        0,
+      ).render(width);
       const visibleThinking =
         thinkingLines.length > THINKING_PREVIEW_LINES
           ? thinkingLines.slice(thinkingLines.length - THINKING_PREVIEW_LINES)
@@ -256,9 +258,7 @@ export class BtwPanelComponent implements Component {
     if (this.maxScrollTop <= 0) return false;
     const current = this.followTail ? this.maxScrollTop : this.scrollTop;
     const next =
-      direction === 'up'
-        ? Math.max(0, current - 1)
-        : Math.min(this.maxScrollTop, current + 1);
+      direction === 'up' ? Math.max(0, current - 1) : Math.min(this.maxScrollTop, current + 1);
     this.scrollTop = next;
     this.followTail = next === this.maxScrollTop;
     return true;

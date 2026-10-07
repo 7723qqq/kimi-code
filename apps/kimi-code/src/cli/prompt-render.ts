@@ -336,12 +336,14 @@ function formatHookResultPlain(event: HookResultEventLike): string {
 }
 
 function formatHookResultTitle(event: HookResultEventLike): string {
-  return `${event.hookEvent} hook${event.blocked === true ? ' blocked' : ''}`;
+  return event.blocked === true
+    ? t('tui.statusMessages.hookResultTitleBlocked', { event: event.hookEvent })
+    : t('tui.statusMessages.hookResultTitle', { event: event.hookEvent });
 }
 
 function formatHookResultBody(event: HookResultEventLike): string {
   const content = event.content.trim();
-  return content.length === 0 ? '(empty)' : content;
+  return content.length === 0 ? t('tui.statusMessages.hookResultEmpty') : content;
 }
 
 function stringifyJsonValue(value: unknown): string {

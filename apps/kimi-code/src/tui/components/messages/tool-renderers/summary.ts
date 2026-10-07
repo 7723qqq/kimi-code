@@ -13,7 +13,6 @@ import type { Component } from '@moonshot-ai/pi-tui';
 import { Text } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
-
 import { OUTCOME_GLANCE_SAMPLES, OUTCOME_ROW_INDENT } from '#/tui/constant/rendering';
 import { currentTheme } from '#/tui/theme';
 

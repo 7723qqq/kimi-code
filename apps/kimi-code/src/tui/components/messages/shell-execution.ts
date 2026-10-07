@@ -4,10 +4,10 @@ import { Container, Text } from '@moonshot-ai/pi-tui';
 import { currentTheme } from '#/tui/theme';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 
-import type { ResultRenderer } from './tool-renderers/types';
-import { isSpilledToolOutput, PREVIEW_LINES } from './tool-renderers/types';
 import { outcomeRows } from './tool-renderers/outcome';
 import { TruncatedOutputComponent } from './tool-renderers/truncated';
+import type { ResultRenderer } from './tool-renderers/types';
+import { isSpilledToolOutput, PREVIEW_LINES } from './tool-renderers/types';
 
 export interface ShellExecutionOptions {
   readonly command?: string;

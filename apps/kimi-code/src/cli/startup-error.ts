@@ -1,4 +1,9 @@
-import { isKimiError, KIMI_ERROR_INFO, type KimiErrorCode, type KimiErrorInfo } from '@moonshot-ai/kimi-code-sdk';
+import {
+  isKimiError,
+  KIMI_ERROR_INFO,
+  type KimiErrorCode,
+  type KimiErrorInfo,
+} from '@moonshot-ai/kimi-code-sdk';
 import { chalkStderr } from 'chalk';
 
 import { STARTUP_ERROR_COLOR } from '#/constant/startup-error';

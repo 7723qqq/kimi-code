@@ -102,7 +102,13 @@ const bashChip: ChipProvider = (_toolCall, result) => {
   // Counted the way the outcome rows are, so whitespace-only rows neither
   // count as hidden nor leave the chip claiming more than the card holds.
   const lines = nonEmptyLines(result.output).length;
-  return lines <= OUTCOME_MAX_LINES ? '' : pluralize(lines - 1, 'more line');
+  return lines <= OUTCOME_MAX_LINES
+    ? ''
+    : pluralize(
+        lines - 1,
+        t('tui.statusMessages.chipMoreLine_one'),
+        t('tui.statusMessages.chipMoreLine_other'),
+      );
 };
 
 // Grep's default mode lists files, so the chip counts what the mode

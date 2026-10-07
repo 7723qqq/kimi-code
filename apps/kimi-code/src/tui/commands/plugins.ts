@@ -10,10 +10,9 @@ import {
 } from '@moonshot-ai/kimi-code-sdk';
 import { Spacer } from '@moonshot-ai/pi-tui';
 
-import { Markdown } from '#/tui/components/markdown/markdown';
-
 import { KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV, QUOTA_CONSUMING_PLUGIN_IDS } from '#/constant/app';
 import { t } from '#/i18n';
+import { Markdown } from '#/tui/components/markdown/markdown';
 import { openUrl } from '#/utils/open-url';
 import {
   loadPluginMarketplace,
@@ -39,8 +38,8 @@ import {
   buildPluginsListLines,
 } from '../components/messages/plugins-status-panel';
 import { UsagePanelComponent } from '../components/messages/usage-panel';
-import { formatErrorMessage } from '../utils/event-payload';
 import { createMarkdownTheme } from '../theme/pi-tui-theme';
+import { formatErrorMessage } from '../utils/event-payload';
 import { createMarkdownOptions } from '../utils/markdown-options';
 import {
   formatPluginSourceLabel,
@@ -615,14 +614,10 @@ async function installCapabilityFromPanel(
     host.showNotice(t('tui.commands.plugins.installed', { label }));
     host.state.transcriptContainer.addChild(new Spacer(1));
     host.state.transcriptContainer.addChild(
-      new Markdown(
-        webbridgePostInstallMarkdown(),
-        2,
-        0,
-        createMarkdownTheme(),
-        undefined,
-        { ...createMarkdownOptions(), copySource: true },
-      ),
+      new Markdown(webbridgePostInstallMarkdown(), 2, 0, createMarkdownTheme(), undefined, {
+        ...createMarkdownOptions(),
+        copySource: true,
+      }),
     );
     host.state.ui.requestRender();
     return;
@@ -878,7 +873,13 @@ function showPluginInstallResult(
         )
       : '';
   const action = describeInstallAction(previous, summary);
-  host.showStatus(`${action} (${summary.id}).${mcpHint}`);
+  host.showStatus(
+    t('tui.statusMessages.pluginsInstallResult', {
+      action,
+      id: summary.id,
+      hint: mcpHint,
+    }),
+  );
   host.showStatus(pluginReloadHint(), 'warning');
   // Gate on provenance, not just the id: a local/GitHub fork whose manifest
   // reuses a billed plugin's id is not the official quota-consuming build.

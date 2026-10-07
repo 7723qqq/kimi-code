@@ -6,7 +6,6 @@
  * and formats rows.
  */
 
-import { setTelemetryContext, track, withTelemetryContext } from '@moonshot-ai/kimi-telemetry';
 import {
   createKimiHarness,
   type KimiHarness,
@@ -14,10 +13,12 @@ import {
   type SessionSummary,
   type TelemetryClient,
 } from '@moonshot-ai/kimi-code-sdk';
+import { setTelemetryContext, track, withTelemetryContext } from '@moonshot-ai/kimi-telemetry';
 import type { Command } from 'commander';
 
 import { createCliTelemetryBootstrap } from '#/cli/telemetry';
 import { createKimiCodeHostIdentity } from '#/cli/version';
+import { t } from '#/i18n';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -54,7 +55,7 @@ export async function handleSessionList(
     return;
   }
   if (limited.length === 0) {
-    deps.stdout.write('No sessions found.\n');
+    deps.stdout.write(`${t('tui.statusMessages.sessionListEmpty')}\n`);
     return;
   }
   for (const summary of limited) {
@@ -63,33 +64,41 @@ export async function handleSessionList(
 }
 
 export function registerSessionCommand(parent: Command, deps?: Partial<SessionListDeps>): void {
-  const session = parent.command('session').description('Manage sessions non-interactively.');
+  const session = parent.command('session').description(t('cli.commandDescriptions.session'));
 
   session
     .command('list')
-    .description('List sessions, most recently updated first.')
-    .option('--cwd <path>', 'List sessions of this working directory. Defaults to the current directory.')
-    .option('--all', 'List sessions across every workspace.', false)
-    .option('--archived', 'Include archived sessions.', false)
-    .option('--limit <n>', 'Print at most n sessions.', parseLimitOption)
-    .option('--json', 'Emit the session summaries as JSON.', false)
-    .action(async (options: { cwd?: string; all?: boolean; archived?: boolean; limit?: number; json?: boolean }) => {
-      const resolved = createDefaultSessionListDeps(deps);
-      try {
-        await handleSessionList(resolved, {
-          all: options.all === true,
-          archived: options.archived === true,
-          cwd: options.cwd,
-          limit: options.limit,
-          json: options.json === true,
-        });
-      } catch (error) {
-        resolved.stderr.write(`${errorMessage(error)}\n`);
-        resolved.exit(1);
-      } finally {
-        await resolved.close();
-      }
-    });
+    .description(t('cli.commandDescriptions.sessionList'))
+    .option('--cwd <path>', t('cli.optionDescriptions.sessionListCwd'))
+    .option('--all', t('cli.optionDescriptions.sessionListAll'), false)
+    .option('--archived', t('cli.optionDescriptions.sessionListArchived'), false)
+    .option('--limit <n>', t('cli.optionDescriptions.sessionListLimit'), parseLimitOption)
+    .option('--json', t('cli.optionDescriptions.sessionListJson'), false)
+    .action(
+      async (options: {
+        cwd?: string;
+        all?: boolean;
+        archived?: boolean;
+        limit?: number;
+        json?: boolean;
+      }) => {
+        const resolved = createDefaultSessionListDeps(deps);
+        try {
+          await handleSessionList(resolved, {
+            all: options.all === true,
+            archived: options.archived === true,
+            cwd: options.cwd,
+            limit: options.limit,
+            json: options.json === true,
+          });
+        } catch (error) {
+          resolved.stderr.write(`${errorMessage(error)}\n`);
+          resolved.exit(1);
+        } finally {
+          await resolved.close();
+        }
+      },
+    );
 }
 
 function createDefaultSessionListDeps(
@@ -125,7 +134,8 @@ function createDefaultSessionListDeps(
 }
 
 function formatRow(summary: SessionSummary, showWorkDir: boolean): string {
-  const archived = summary.archived === true ? ' [archived]' : '';
+  const archived =
+    summary.archived === true ? t('tui.statusMessages.sessionListArchivedSuffix') : '';
   const title = sanitizeField(summary.title ?? summary.lastPrompt ?? '');
   const base = `${formatTimestamp(summary.updatedAt)}  ${summary.id}  ${title}${archived}`;
   return showWorkDir ? `${base}  ${sanitizeField(summary.workDir)}` : base;
@@ -144,7 +154,7 @@ function formatTimestamp(epochMs: number): string {
 function parseLimitOption(value: string): number {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`--limit must be a positive integer, got "${value}"`);
+    throw new Error(t('tui.statusMessages.sessionListLimitInvalid', { value }));
   }
   return parsed;
 }

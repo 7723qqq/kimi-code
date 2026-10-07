@@ -270,9 +270,7 @@ interface BundledSkillActivationRef {
   readonly activationId: string;
 }
 
-export function withoutUserPromptSubmitHookParts(
-  content: readonly ContentPart[],
-): ContentPart[] {
+export function withoutUserPromptSubmitHookParts(content: readonly ContentPart[]): ContentPart[] {
   return content.filter((part) => !isUserPromptSubmitHookPart(part));
 }
 
@@ -327,10 +325,9 @@ export function bundledSkillsFromOrigin(
  * (one per bundled activation) are annotated first, then filtered out.
  */
 export function stripBundledSkillParts(message: ContextMessage): readonly ContentPart[] {
-  return annotateBundledSkillParts(
-    message.content,
-    bundledSkillsFromOrigin(message.origin),
-  ).filter((part) => !isSkillActivationPart(part));
+  return annotateBundledSkillParts(message.content, bundledSkillsFromOrigin(message.origin)).filter(
+    (part) => !isSkillActivationPart(part),
+  );
 }
 
 export function skillActivationFromOrigin(

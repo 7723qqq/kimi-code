@@ -33,6 +33,7 @@ import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { printableChar } from '#/tui/utils/printable-key';
 import { sanitizeShellOutput } from '#/tui/utils/shell-output';
+
 import { modelDisplayName } from './model-selector';
 
 const ELLIPSIS = '…';

@@ -349,7 +349,9 @@ export class TasksBrowserController {
 
     this.flash(t('tui.messages.tasksStopping', { taskId }), 1500);
     try {
-      await session.stopBackgroundTask(taskId, { reason: 'User initiated stop' });
+      await session.stopBackgroundTask(taskId, {
+        reason: t('tui.messages.tasksStopReasonUserInitiated'),
+      });
       await this.refresh({ silent: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

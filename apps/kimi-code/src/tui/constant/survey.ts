@@ -1,3 +1,5 @@
+import { t } from '#/i18n';
+
 export const SURVEY_IDLE_EVALUATION_DELAY_MS = 2000;
 
 export const SURVEY_IDLE_STABILITY_MS = 2000;
@@ -14,9 +16,18 @@ export const SURVEY_CONFIG_REFRESH_INTERVAL_MS = 3_600_000;
 
 export const SURVEY_MIN_OPTIONS_WIDTH = 12;
 
-export const SURVEY_QUESTION = 'How is Kimi doing this session? (optional)';
+export function surveyQuestion(): string {
+  return t('tui.messages.surveyQuestion');
+}
 
-export const SURVEY_OPTION_LABELS = ['1: Bad', '2: Fine', '3: Good', '0: Dismiss'] as const;
+export function surveyOptionLabels(): readonly string[] {
+  return [
+    t('tui.messages.surveyOptionBad'),
+    t('tui.messages.surveyOptionFine'),
+    t('tui.messages.surveyOptionGood'),
+    t('tui.messages.surveyOptionDismiss'),
+  ];
+}
 
 export const SURVEY_OPTION_GAP = 2;
 
@@ -28,10 +39,11 @@ const SURVEY_FOOTER_MIN_ROWS = 1;
 
 export function surveyMinTotalHeight(contentWidth: number): number {
   const innerWidth = Math.max(1, contentWidth - SURVEY_PANEL_HORIZONTAL_CHROME);
+  const labels = surveyOptionLabels();
   const inlineWidth =
-    SURVEY_OPTION_LABELS.reduce((total, label) => total + label.length, 0) +
-    SURVEY_OPTION_GAP * (SURVEY_OPTION_LABELS.length - 1);
-  const optionsRows = innerWidth >= inlineWidth ? 1 : SURVEY_OPTION_LABELS.length;
+    labels.reduce((total, label) => total + label.length, 0) +
+    SURVEY_OPTION_GAP * (labels.length - 1);
+  const optionsRows = innerWidth >= inlineWidth ? 1 : labels.length;
   return (
     SURVEY_SPACER_ROWS +
     surveyQuestionRows(innerWidth) +
@@ -45,7 +57,7 @@ export function surveyMinTotalHeight(contentWidth: number): number {
 function surveyQuestionRows(width: number): number {
   let rows = 1;
   let lineLength = 0;
-  for (const word of SURVEY_QUESTION.split(' ')) {
+  for (const word of surveyQuestion().split(' ')) {
     if (lineLength > 0 && lineLength + 1 + word.length > width) {
       rows += 1;
       lineLength = word.length;

@@ -97,15 +97,13 @@ export function validateOptions(
     throw new OptionConflictError(t('cli.errors.agentFilePathEmpty'));
   }
   if (opts.agent !== undefined && opts.agentFiles.length > 0) {
-    throw new OptionConflictError('Cannot combine --agent with --agent-file.');
+    throw new OptionConflictError(t('cli.errors.cannotCombineAgentAndAgentFile'));
   }
   if (
     (opts.agent !== undefined || opts.agentFiles.length > 0) &&
     (opts.session !== undefined || opts.continue)
   ) {
-    throw new OptionConflictError(
-      'Cannot combine --agent/--agent-file with --session/--continue: the agent is bound at session creation and the bound agent is restored automatically on resume.',
-    );
+    throw new OptionConflictError(t('cli.errors.cannotCombineAgentAndSession'));
   }
   if (promptMode && opts.session === '') {
     throw new OptionConflictError(t('cli.errors.sessionWithoutIdInPromptMode'));

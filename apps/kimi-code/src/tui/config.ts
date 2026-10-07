@@ -205,7 +205,9 @@ export async function loadTuiConfig(
   if (!existsSync(filePath)) {
     const envTuiMode = legacyFullscreenEnvMode();
     const config: TuiConfig =
-      envTuiMode === undefined ? DEFAULT_TUI_CONFIG : { ...DEFAULT_TUI_CONFIG, tuiMode: envTuiMode };
+      envTuiMode === undefined
+        ? DEFAULT_TUI_CONFIG
+        : { ...DEFAULT_TUI_CONFIG, tuiMode: envTuiMode };
     try {
       await saveTuiConfig(config, filePath);
     } catch {
@@ -242,10 +244,7 @@ function parseTuiConfigShape(tomlText: string): TuiConfigFileShape {
   return TuiConfigFileSchema.parse(raw);
 }
 
-export function parseTuiConfig(
-  tomlText: string,
-  warn?: (message: string) => void,
-): TuiConfig {
+export function parseTuiConfig(tomlText: string, warn?: (message: string) => void): TuiConfig {
   return normalizeTuiConfig(parseTuiConfigShape(tomlText), warn);
 }
 

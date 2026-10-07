@@ -139,10 +139,7 @@ async function undoByCount(host: SlashCommandHost, count: number): Promise<boole
   }
   const preservedEntries = entries.filter(
     (entry, index) =>
-      !(
-        (index >= lastUserIndex || groupEntryIndices.has(index)) &&
-        isUndoContextEntry(entry)
-      ),
+      !((index >= lastUserIndex || groupEntryIndices.has(index)) && isUndoContextEntry(entry)),
   );
   entries.splice(0, entries.length, ...preservedEntries);
 

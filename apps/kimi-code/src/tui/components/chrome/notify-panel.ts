@@ -17,8 +17,8 @@ import type { Component } from '@moonshot-ai/pi-tui';
 import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
+import { t } from '#/i18n';
 import { Markdown } from '#/tui/components/markdown/markdown';
-
 import { MAIN_AGENT_ID } from '#/tui/constant/kimi-tui';
 import { currentTheme } from '#/tui/theme';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
@@ -287,7 +287,8 @@ export class NotifyPanelComponent implements Component {
     const preview = this.stubPreviewText();
     if (preview !== undefined) {
       const budget = width - visibleWidth(head) - visibleWidth(tail) - 3;
-      if (budget >= 12) return `${head} ${dim('·')} ${dim(truncateToWidth(preview, budget))}${tail}`;
+      if (budget >= 12)
+        return `${head} ${dim('·')} ${dim(truncateToWidth(preview, budget))}${tail}`;
     }
     if (visibleWidth(head) + visibleWidth(tail) <= width) return `${head}${tail}`;
     return ` ${marker} ${dim(`${String(total)} ${noun} · ctrl+n`)}`;
@@ -317,8 +318,10 @@ export class NotifyPanelComponent implements Component {
     const c = currentTheme.palette;
     const ch = this.activeChannel();
     const page = `${String(ch.page + 1)}/${String(ch.entries.length)}`;
-    const state = this.ended ? ' · turn ended' : '';
-    const hint = this.focused ? ' · ← → agent · ↑ ↓ update · esc close' : ' · ctrl+n page';
+    const state = this.ended ? ` · ${t('tui.messages.notifyPanelTurnEnded')}` : '';
+    const hint = this.focused
+      ? ` · ${t('tui.messages.notifyPanelHintFocused')}`
+      : ` · ${t('tui.messages.notifyPanelHintUnfocused')}`;
     const paintTitle = this.ended ? chalk.hex(c.textDim).bold : chalk.hex(c.primary).bold;
     const tabs = this.channels
       .map((channel) => this.renderTab(channel, channel.key === this.activeKey))

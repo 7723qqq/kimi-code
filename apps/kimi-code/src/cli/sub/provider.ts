@@ -119,7 +119,7 @@ export async function handleProviderAdd(
   }
   for (const [id, envName] of Object.entries(result.credentialEnv)) {
     deps.stdout.write(
-      `provider "${id}" declares credential env var "${envName}" — set api_key_env in config.toml to use it\n`,
+      t('tui.statusMessages.providerCredentialEnvHint', { id, env: envName }) + '\n',
     );
   }
 }
@@ -200,7 +200,9 @@ export async function handleCatalogList(
   if (providerId !== undefined) {
     const entry = catalog[providerId];
     if (entry === undefined) {
-      deps.stderr.write(`Provider "${providerId}" not found in catalog at ${url}.\n`);
+      deps.stderr.write(
+        t('tui.statusMessages.providerCatalogNotFound', { id: providerId, url }) + '\n',
+      );
       deps.exit(1);
     }
     const models = catalogProviderModels(entry);
@@ -211,7 +213,9 @@ export async function handleCatalogList(
       return;
     }
     if (models.length === 0) {
-      deps.stdout.write(`Provider "${providerId}" lists no usable models in this catalog.\n`);
+      deps.stdout.write(
+        t('tui.statusMessages.providerCatalogNoUsableModels', { id: providerId }) + '\n',
+      );
       return;
     }
     deps.stdout.write(`${entry.name ?? providerId} (${providerId})\n`);
@@ -282,7 +286,7 @@ export async function handleCatalogAdd(
 ): Promise<void> {
   const apiKey = resolveApiKey(opts.apiKey, deps.env);
   if (apiKey === undefined) {
-    deps.stderr.write('Missing API key. Pass --api-key <key> or set KIMI_REGISTRY_API_KEY.\n');
+    deps.stderr.write(t('tui.statusMessages.providerCatalogMissingApiKey') + '\n');
     deps.exit(1);
   }
 
@@ -291,7 +295,9 @@ export async function handleCatalogAdd(
 
   const entry = catalog[providerId];
   if (entry === undefined) {
-    deps.stderr.write(`Provider "${providerId}" not found in catalog at ${url}.\n`);
+    deps.stderr.write(
+      t('tui.statusMessages.providerCatalogNotFound', { id: providerId, url }) + '\n',
+    );
     deps.exit(1);
   }
 
@@ -334,7 +340,9 @@ export async function handleCatalogAdd(
 
   const models = catalogProviderModels(entry);
   if (models.length === 0) {
-    deps.stderr.write(`Provider "${providerId}" lists no usable models in this catalog.\n`);
+    deps.stderr.write(
+      t('tui.statusMessages.providerCatalogNoUsableModels', { id: providerId }) + '\n',
+    );
     deps.exit(1);
   }
 
@@ -502,7 +510,10 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
     .command('list [providerId]')
     .description(t('cli.commandDescriptions.providerCatalogList'))
     .option('--filter <substring>', t('cli.optionDescriptions.providerCatalogFilter'))
-    .option('--url <url>', `Override catalog URL. Defaults to ${DEFAULT_CATALOG_URL}.`)
+    .option(
+      '--url <url>',
+      t('cli.optionDescriptions.providerCatalogUrl', { url: DEFAULT_CATALOG_URL }),
+    )
     .option('--json', t('cli.optionDescriptions.providerCatalogJson'), false)
     .action(
       async (
@@ -526,7 +537,10 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
     .option('--api-key <key>', t('cli.optionDescriptions.providerCatalogApiKey'))
     .option('--default-model <modelId>', t('cli.optionDescriptions.providerCatalogDefaultModel'))
     .option('--base-url <url>', t('cli.optionDescriptions.providerCatalogBaseUrl'))
-    .option('--url <url>', `Override catalog URL. Defaults to ${DEFAULT_CATALOG_URL}.`)
+    .option(
+      '--url <url>',
+      t('cli.optionDescriptions.providerCatalogUrl', { url: DEFAULT_CATALOG_URL }),
+    )
     .action(
       async (
         providerId: string,

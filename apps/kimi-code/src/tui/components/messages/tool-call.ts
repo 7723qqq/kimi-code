@@ -10,6 +10,7 @@ import { Container, Spacer, Text, truncateToWidth, visibleWidth } from '@moonsho
 import type { Component, TUI } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
+import { isExperimentalFlagEnabled } from '#/tui/commands/experimental-flags';
 import { Markdown } from '#/tui/components/markdown/markdown';
 import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
@@ -31,26 +32,25 @@ import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 import { appendStreamingArgsPreview } from '#/tui/utils/event-payload';
 import { createMarkdownOptions } from '#/tui/utils/markdown-options';
-import { notifyResultState } from '#/tui/utils/notify-result';
-import { isExperimentalFlagEnabled } from '#/tui/commands/experimental-flags';
 import { decodeMcpToolName } from '#/tui/utils/mcp-tool-name';
+import { notifyResultState } from '#/tui/utils/notify-result';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
 import { formatTokenCount } from '#/utils/usage/usage-format';
 
 import { agentSwarmResultSummaryFromOutput } from './agent-swarm-progress';
 import { PlanBoxComponent } from './plan-box';
-import { TruncatedHeaderLine, type HeaderContent } from './truncated-header-line';
 import { ShellExecutionComponent } from './shell-execution';
 import { countNonEmptyLines, pickChip } from './tool-renderers/chip';
+import { computeWriteStats } from './tool-renderers/chip';
 import { buildGoalToolHeader, parseGoalToolOutput } from './tool-renderers/goal';
 import { searchNoticeOnly } from './tool-renderers/grep-output';
 import { parseReadMediaOutput } from './tool-renderers/media';
-import { computeWriteStats } from './tool-renderers/chip';
 import { nonEmptyLines, outcomeLine, outcomeRows } from './tool-renderers/outcome';
+import { isGenericToolResult, pickResultRenderer } from './tool-renderers/registry';
 import { TruncatedOutputComponent } from './tool-renderers/truncated';
 import { isSpilledToolOutput } from './tool-renderers/types';
-import { isGenericToolResult, pickResultRenderer } from './tool-renderers/registry';
 import { buildWaitForHeader, parseWaitForOutput } from './tool-renderers/wait-for';
+import { TruncatedHeaderLine, type HeaderContent } from './truncated-header-line';
 
 const MAX_ARG_LENGTH = 60;
 const MAX_SUB_TOOL_CALLS_SHOWN = 4;
@@ -484,7 +484,7 @@ export function extractKeyArgumentDetail(
       summary += ` · ${makeWorkspaceRelativePath(path, workspaceDir)}`;
     }
     if (args['include_ignored'] === true) {
-      summary += ' · include ignored';
+      summary += ` · ${t('tui.messages.toolCall.includeIgnored')}`;
     }
     return { text: summary, keep: 'head' };
   }
@@ -755,16 +755,13 @@ export class ToolCallComponent extends Container {
       this.truncatedAtLastRender = this.children.some(
         (child, index) =>
           (child instanceof TruncatedHeaderLine &&
-            (index !== 1 ||
-              (this.toolCall.name === 'Bash' && this.toolCall.truncated !== true)) &&
+            (index !== 1 || (this.toolCall.name === 'Bash' && this.toolCall.truncated !== true)) &&
             child.wasTruncated()) ||
-          ((child instanceof TruncatedOutputComponent || child instanceof ShellExecutionComponent) &&
+          ((child instanceof TruncatedOutputComponent ||
+            child instanceof ShellExecutionComponent) &&
             child.wasTruncated()),
       );
-    } else if (
-      !this.truncatedAtLastRender &&
-      this.collapsedOutcomeClips(width)
-    ) {
+    } else if (!this.truncatedAtLastRender && this.collapsedOutcomeClips(width)) {
       this.truncatedAtLastRender = true;
     }
 
@@ -1746,18 +1743,18 @@ export class ToolCallComponent extends Container {
       if (isTruncated) {
         // max_tokens cut the arguments short: the call never ran and the
         // panel entry was dropped, so the card must not read as in flight.
-        return `${bullet}${currentTheme.boldFg('error', 'Update cut off')}${currentTheme.dim(' (arguments truncated by max_tokens)')}`;
+        return `${bullet}${currentTheme.boldFg('error', t('tui.messages.toolCall.updateCutOff'))}${currentTheme.dim(` ${t('tui.messages.toolCall.updateArgumentsTruncated')}`)}`;
       }
       const delivery = notifyResultState(result?.output);
       const label = isFinished
         ? isError
-          ? 'Could not send you an update'
+          ? t('tui.messages.toolCall.updateCouldNotSend')
           : delivery === 'displayed'
-            ? 'Sent you an update'
+            ? t('tui.messages.toolCall.updateSent')
             : delivery === 'suppressed'
-              ? 'Update not displayed'
-              : 'Update completed'
-        : 'Sending you an update';
+              ? t('tui.messages.toolCall.updateNotDisplayed')
+              : t('tui.messages.toolCall.updateCompleted')
+        : t('tui.messages.toolCall.updateSending');
       const tone = isError ? 'error' : 'primary';
       const preview = extractKeyArgumentDetail(toolCall.name, toolCall.args, this.workspaceDir);
       const head = `${bullet}${currentTheme.boldFg(tone, label)}`;
@@ -2599,34 +2596,52 @@ export class ToolCallComponent extends Container {
       segments.push(
         currentTheme.fg(
           'success',
-          `${SUCCESS_MARK.trimEnd()} ${String(summary.completed)} completed`,
+          `${SUCCESS_MARK.trimEnd()} ${t('tui.messages.toolCall.completedStatus', { count: String(summary.completed) })}`,
         ),
       );
     }
     if (summary.failed > 0) {
       segments.push(
-        currentTheme.fg('error', `${FAILURE_MARK.trimEnd()} ${String(summary.failed)} failed`),
+        currentTheme.fg(
+          'error',
+          `${FAILURE_MARK.trimEnd()} ${t('tui.messages.toolCall.failedStatus', { count: String(summary.failed) })}`,
+        ),
       );
     }
     if (summary.aborted > 0) {
       segments.push(
-        currentTheme.fg('warning', `${ABORTED_MARK} ${String(summary.aborted)} aborted`),
+        currentTheme.fg(
+          'warning',
+          `${ABORTED_MARK} ${t('tui.messages.toolCall.abortedStatus', { count: String(summary.aborted) })}`,
+        ),
       );
     }
 
     if (segments.length > 0) {
-      this.addChild(new Text(`${dim('Agent swarm: ')}${segments.join(dim(' · '))}`, 2, 0));
+      this.addChild(
+        new Text(
+          `${dim(t('tui.messages.toolCall.agentSwarmLabel'))}${segments.join(dim(' · '))}`,
+          2,
+          0,
+        ),
+      );
       return;
     }
 
     const isAborted = result.is_error === true && /\b(?:aborted|cancelled)\b/i.test(result.output);
     const colorToken = isAborted ? 'warning' : result.is_error === true ? 'error' : 'success';
     const label = isAborted
-      ? `${ABORTED_MARK} Aborted.`
+      ? `${ABORTED_MARK} ${t('tui.messages.toolCall.abortedPeriod')}`
       : result.is_error === true
-        ? `${FAILURE_MARK.trimEnd()} Failed.`
-        : `${SUCCESS_MARK.trimEnd()} Completed.`;
-    this.addChild(new Text(`${dim('Agent swarm: ')}${currentTheme.fg(colorToken, label)}`, 2, 0));
+        ? `${FAILURE_MARK.trimEnd()} ${t('tui.messages.toolCall.failedPeriod')}`
+        : `${SUCCESS_MARK.trimEnd()} ${t('tui.messages.toolCall.completedPeriod')}`;
+    this.addChild(
+      new Text(
+        `${dim(t('tui.messages.toolCall.agentSwarmLabel'))}${currentTheme.fg(colorToken, label)}`,
+        2,
+        0,
+      ),
+    );
   }
 
   /**

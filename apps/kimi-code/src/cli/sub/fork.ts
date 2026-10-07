@@ -1,22 +1,22 @@
 import { createInterface } from 'node:readline/promises';
 
 import {
-  setTelemetryContext,
-  shutdownTelemetry,
-  track,
-  withTelemetryContext,
-} from '@moonshot-ai/kimi-telemetry';
-import {
   createKimiHarness,
   type KimiHarness,
   type SessionSummary,
   type TelemetryClient,
 } from '@moonshot-ai/kimi-code-sdk';
+import {
+  setTelemetryContext,
+  shutdownTelemetry,
+  track,
+  withTelemetryContext,
+} from '@moonshot-ai/kimi-telemetry';
 import type { Command } from 'commander';
 
-import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from '#/cli/telemetry';
 import { createKimiCodeHostIdentity } from '#/cli/version';
+import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
 import { t } from '#/i18n';
 
 interface WritableLike {
@@ -53,13 +53,13 @@ export async function handleFork(
     const sessions = await deps.listSessions(opts.cwd ?? deps.cwd());
     const latest = sessions[0];
     if (latest === undefined) {
-      deps.stderr.write('No previous session found to fork.\n');
+      deps.stderr.write(t('tui.statusMessages.forkNoSession') + '\n');
       deps.exit(1);
     }
     if (!opts.yes) {
       const confirmed = await deps.confirmPreviousSession(latest);
       if (!confirmed) {
-        deps.stdout.write('Fork cancelled.\n');
+        deps.stdout.write(t('tui.statusMessages.forkCancelled') + '\n');
         return;
       }
     }
@@ -71,7 +71,7 @@ export async function handleFork(
     const forked = await deps.forkSession(resolvedId);
     const elapsedMs = Date.now() - startedAt;
     const title = forked.title === undefined ? '' : ` ("${forked.title}")`;
-    deps.stdout.write(`Forked to ${forked.id}${title} in ${elapsedMs}ms\n`);
+    deps.stdout.write(t('tui.statusMessages.forkedTo', { id: forked.id, title, elapsedMs }) + '\n');
   } catch (error) {
     deps.stderr.write(`${errorMessage(error)}\n`);
     deps.exit(1);
@@ -182,7 +182,7 @@ async function confirmPreviousSession(summary: SessionSummary): Promise<boolean>
   const rl = createInterface({ input: process.stdin, output: process.stderr });
   try {
     const title = summary.title === undefined ? summary.id : `${summary.title} (${summary.id})`;
-    const answer = await rl.question(`Fork previous session "${title}"? [Y/n] `);
+    const answer = await rl.question(t('tui.statusMessages.forkConfirmPrompt', { title }));
     const trimmed = answer.trim().toLowerCase();
     return trimmed === '' || trimmed === 'y' || trimmed === 'yes';
   } finally {

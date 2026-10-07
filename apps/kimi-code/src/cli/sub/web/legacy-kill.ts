@@ -50,7 +50,11 @@ const POLL_INTERVAL_MS = 100;
 export const LEGACY_SERVER_MAX_VERSION = '0.28.0';
 
 /** Deprecation notice printed on every legacy kill run. */
-export const DEPRECATED_KILL_NOTICE = `\`${t('tui.statusMessages.serverStopCmd')}\` is deprecated: it only stops servers started by a version before 0.28.0. Servers started by \`kimi web\` run in the foreground — stop them with Ctrl+C.\n`;
+export function deprecatedKillNotice(): string {
+  return t('tui.statusMessages.deprecatedKillNotice', {
+    stopCmd: t('tui.statusMessages.serverStopCmd'),
+  });
+}
 
 /**
  * The fields of the legacy `<home>/server/lock` this command needs. The full
@@ -82,9 +86,7 @@ export interface LegacyKillDeps {
 export function registerLegacyKillCommand(server: Command): void {
   server
     .command('kill')
-    .description(
-      'Deprecated — stop a server started by a version before 0.28.0 (recorded in the legacy server lock). Servers started by `kimi web` run in the foreground — stop them with Ctrl+C.',
-    )
+    .description(t('cli.commandDescriptions.serverKill'))
     // Swallow legacy argument shapes (`kimi server kill <serverId>`, flags):
     // the legacy lock records a single server, so they carry no meaning here.
     .allowUnknownOption(true)
@@ -100,7 +102,7 @@ export function registerLegacyKillCommand(server: Command): void {
 }
 
 export async function handleLegacyKillCommand(deps: LegacyKillDeps): Promise<void> {
-  deps.stderr.write(DEPRECATED_KILL_NOTICE);
+  deps.stderr.write(deprecatedKillNotice());
 
   const lock = await deps.readLock();
   if (lock === undefined) {
@@ -156,9 +158,7 @@ async function killLegacyServer(
     return 'killed';
   }
 
-  throw new Error(
-    t('tui.statusMessages.serverKillFailedPermissions', { pid: String(pid) }),
-  );
+  throw new Error(t('tui.statusMessages.serverKillFailedPermissions', { pid: String(pid) }));
 }
 
 async function waitForExit(

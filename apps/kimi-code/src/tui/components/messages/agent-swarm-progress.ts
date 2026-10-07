@@ -419,7 +419,8 @@ export class AgentSwarmProgressComponent implements Component {
     const member =
       this.findMemberByAgentId(input.agentId) ??
       this.findMemberForSubagent(input.agentId, input.swarmIndex);
-    if (member === undefined || member.phase === 'completed' || member.phase === 'cancelled') return;
+    if (member === undefined || member.phase === 'completed' || member.phase === 'cancelled')
+      return;
     this.assignMemberAgentId(member, input.agentId);
     this.progressEstimator.markQueued(member.id, Date.now());
     member.phase = 'suspended';
@@ -518,13 +519,7 @@ export class AgentSwarmProgressComponent implements Component {
     let lines: string[];
     if (this.members.length === 0) {
       lines = this.indentLines(
-        [
-          '',
-          this.renderHeader(innerWidth, undefined),
-          '',
-          this.renderStatusLine(innerWidth),
-          '',
-        ],
+        ['', this.renderHeader(innerWidth, undefined), '', this.renderStatusLine(innerWidth), ''],
         outerWidth,
       );
     } else {
@@ -541,12 +536,7 @@ export class AgentSwarmProgressComponent implements Component {
           '',
           this.renderHeader(innerWidth, summary),
           '',
-          ...this.renderGrid(
-            innerWidth,
-            gridHeight,
-            snapshots,
-            nowMs,
-          ),
+          ...this.renderGrid(innerWidth, gridHeight, snapshots, nowMs),
           '',
           this.renderStatusLine(innerWidth),
           '',
@@ -889,17 +879,14 @@ export class AgentSwarmProgressComponent implements Component {
     ) {
       return true;
     }
-    return this.members.some((member) =>
-      (
-        member.phase === 'completed' &&
-        member.completedAtMs !== undefined &&
-        now - member.completedAtMs < COMPLETE_FILL_MS
-      ) ||
-      (
-        member.phase === 'failed' &&
-        member.failedAtMs !== undefined &&
-        now - member.failedAtMs < COMPLETE_FILL_MS
-      ),
+    return this.members.some(
+      (member) =>
+        (member.phase === 'completed' &&
+          member.completedAtMs !== undefined &&
+          now - member.completedAtMs < COMPLETE_FILL_MS) ||
+        (member.phase === 'failed' &&
+          member.failedAtMs !== undefined &&
+          now - member.failedAtMs < COMPLETE_FILL_MS),
     );
   }
 

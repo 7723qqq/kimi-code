@@ -1,11 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 
-import type {
-  FileMeta,
-  KimiHarness,
-  Session,
-} from '@moonshot-ai/kimi-code-sdk';
+import type { FileMeta, KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
 import { compressImageForModel } from '@moonshot-ai/kimi-code-sdk';
 import { Key, matchesKey } from '@moonshot-ai/pi-tui';
 
@@ -26,6 +22,8 @@ import {
   getLlmNotSetMessage,
 } from '../constant/kimi-tui';
 import { MEDIA_STAGING_TTL_SECONDS } from '../constant/media';
+import type { TUIState } from '../tui-state';
+import type { PendingExit, QueuedMessage, SteerInputItem } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
 import type {
   ImageAttachment,
@@ -35,8 +33,6 @@ import type {
 import { extractMediaAttachments, imageExtensionForMime } from '../utils/image-placeholder';
 import type { ExtractionResult } from '../utils/image-placeholder';
 import { extractInlineSkillActivations } from '../utils/inline-skill-tokens';
-import type { PendingExit, QueuedMessage, SteerInputItem } from '../types';
-import type { TUIState } from '../tui-state';
 import type { BtwPanelController } from './btw-panel';
 import type { PromptOptimizerController } from './prompt-optimizer';
 import type { SurveyController } from './survey-controller';
@@ -385,7 +381,8 @@ export class EditorKeyboardController {
 
     editor.onUpArrowEmpty = () => {
       if (host.btwPanelController.scroll('up')) return true;
-      if (host.state.appState.streamingPhase === 'idle' && !host.state.appState.isCompacting) return false;
+      if (host.state.appState.streamingPhase === 'idle' && !host.state.appState.isCompacting)
+        return false;
       const recalled = host.recallLastQueued();
       if (recalled !== undefined) {
         editor.setText(recalled.text);
@@ -704,12 +701,7 @@ export class EditorKeyboardController {
     // typing never waits on compression or the daemon upload. Submit gives a
     // pending ingestion a bounded wait (`pendingImageIngestions`) and falls
     // back to the inline form when it has not finished.
-    const attachment = this.imageStore.addImage(
-      media.bytes,
-      meta.mime,
-      meta.width,
-      meta.height,
-    );
+    const attachment = this.imageStore.addImage(media.bytes, meta.mime, meta.width, meta.height);
     this.host.state.editor.insertTextAtCursor?.(`${attachment.placeholder} `);
     this.host.state.ui.requestRender();
     this.host.track('shortcut_paste', { kind: 'image' });
@@ -837,9 +829,7 @@ export class EditorKeyboardController {
    * without a `fileId` — submit-time expansion then refuses the submission,
    * since a video has no inline fallback form.
    */
-  private async uploadVideoToDaemonFileStore(
-    media: ClipboardVideo,
-  ): Promise<FileMeta | undefined> {
+  private async uploadVideoToDaemonFileStore(media: ClipboardVideo): Promise<FileMeta | undefined> {
     const harness = this.host.harness;
     if (harness === undefined) return undefined;
     let bytes: Uint8Array;

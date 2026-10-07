@@ -60,10 +60,24 @@ import {
   type PrintBackgroundMode,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
+import type { GoalUpdated } from '@moonshot-ai/agent-core-v2';
+import type { HookResult } from '@moonshot-ai/agent-core-v2';
+import type {
+  ToolCallStarted,
+  ToolProgress,
+  ToolResultEvent,
+} from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
 import {
   loadMcpServersDetailed,
   resolveMcpJsonPaths,
 } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configLoader';
+import type { TurnEnded } from '@moonshot-ai/agent-core-v2/contract';
+import type {
+  AssistantDelta,
+  ThinkingDelta,
+  ToolCallDelta,
+} from '@moonshot-ai/agent-core-v2/contract';
+import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/contract';
 import {
   createKimiDefaultHeaders,
   createKimiDeviceId,
@@ -77,20 +91,6 @@ import {
   shouldEnableTelemetry,
   shutdownTelemetry,
 } from '@moonshot-ai/kimi-telemetry';
-import type { GoalUpdated } from '@moonshot-ai/agent-core-v2';
-import type { TurnEnded } from '@moonshot-ai/agent-core-v2/contract';
-import type {
-  AssistantDelta,
-  ThinkingDelta,
-  ToolCallDelta,
-} from '@moonshot-ai/agent-core-v2/contract';
-import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/contract';
-import type {
-  ToolCallStarted,
-  ToolProgress,
-  ToolResultEvent,
-} from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
-import type { HookResult } from '@moonshot-ai/agent-core-v2';
 import { resolve } from 'pathe';
 
 import {
@@ -201,7 +201,7 @@ export async function runV2Print(
   const telemetryEnabled = shouldEnableTelemetry({ enabled: configTelemetryEnabled });
   for (const diagnostic of configService.diagnostics()) {
     if (diagnostic.severity === 'warning') {
-      stderr.write(`Warning: ${diagnostic.message}\n`);
+      stderr.write(t('tui.statusMessages.warningPrefix', { message: diagnostic.message }) + '\n');
     }
   }
 
@@ -295,7 +295,10 @@ export async function runV2Print(
     };
     flushWires = () => flushSessionWires(resolved.session, resolved.agent);
 
-    telemetryService.setContext({ session_id: resolved.session.id, model: resolved.telemetryModel });
+    telemetryService.setContext({
+      session_id: resolved.session.id,
+      model: resolved.telemetryModel,
+    });
     setTelemetryContext({ sessionId: resolved.session.id });
     setTelemetryModel(resolved.telemetryModel);
     setCrashPhase('runtime');
@@ -370,7 +373,10 @@ async function resolveNativeSession(
       agentFileText = await readFile(agentFilePath, 'utf8');
     } catch (error) {
       throw new Error(
-        `Failed to read agent file "${agentFilePath}": ${error instanceof Error ? error.message : String(error)}`,
+        t('tui.statusMessages.agentFileReadFailed', {
+          path: agentFilePath,
+          message: error instanceof Error ? error.message : String(error),
+        }),
         { cause: error },
       );
     }
@@ -382,7 +388,10 @@ async function resolveNativeSession(
       }).name;
     } catch (error) {
       throw new Error(
-        `Invalid agent file "${agentFilePath}": ${error instanceof Error ? error.message : String(error)}`,
+        t('tui.statusMessages.agentFileInvalid', {
+          path: agentFilePath,
+          message: error instanceof Error ? error.message : String(error),
+        }),
         { cause: error },
       );
     }
@@ -466,7 +475,7 @@ async function resolveNativeSession(
         goalModel: configuredModel(opts.model, currentModel),
       };
     }
-    stderr.write(`No sessions to continue under "${workDir}"; starting a fresh session.\n`);
+    stderr.write(`${t('tui.statusMessages.noSessionsToContinue', { workDir })}\n`);
   }
 
   const model = requireConfiguredModel(opts.model, defaultModel);
@@ -523,11 +532,17 @@ export async function listTrustGatedMcpServers(
 }
 
 export function formatTrustGatedMcpWarning(servers: readonly TrustGatedMcpServer[]): string {
-  const noun = servers.length === 1 ? 'server' : 'servers';
+  const plural = servers.length === 1 ? '' : 's';
   const list = servers.map((server) => `${server.name} (${server.target})`).join(', ');
   return (
-    `Warning: this folder is not trusted; skipped ${servers.length} project-level MCP ${noun}: ${list}.\n` +
-    '  Run `kimi` here and choose "Trust this folder", or set KIMI_CODE_TRUST_WORKSPACE=1, to enable them.\n\n'
+    t('tui.statusMessages.mcpTrustGatedWarning', {
+      count: servers.length,
+      plural,
+      list,
+    }) +
+    '\n' +
+    t('tui.statusMessages.mcpTrustGatedHint') +
+    '\n\n'
   );
 }
 
@@ -606,7 +621,8 @@ async function runNativeTurn(
           drain: () => drainBackgroundTasks(session, taskConfig?.printWaitCeilingS),
           turnEndings,
           skipTurnId,
-          warn: (message) => stderr.write(`Warning: ${message}\n`),
+          warn: (message) =>
+            stderr.write(t('tui.statusMessages.warningPrefix', { message }) + '\n'),
           now: () => Date.now(),
           goalActive: () => goalService.getGoal().goal?.status === 'active',
           cronNextFireAt: () => cronService.getNextFireTime(),
@@ -621,9 +637,9 @@ async function runNativeTurn(
           throw error;
         }
         stderr.write(
-          `Warning: print background policy failed: ${
-            error instanceof Error ? error.message : String(error)
-          }\n`,
+          t('tui.statusMessages.printBackgroundPolicyFailed', {
+            error: error instanceof Error ? error.message : String(error),
+          }) + '\n',
         );
       }
       writer.finish();
@@ -894,7 +910,7 @@ export async function applyPrintBackgroundPolicy(input: PrintBackgroundPolicyInp
         throw new PrintSteeredTurnFailedError(formatTurnEndingFailure(ended));
       }
       if (ended === null) {
-        input.warn(`print turn wait ceiling reached (${input.ceilingS}s), finishing`);
+        input.warn(t('tui.statusMessages.printTurnWaitCeiling', { seconds: input.ceilingS }));
         return;
       }
       continue;
@@ -912,7 +928,7 @@ export async function applyPrintBackgroundPolicy(input: PrintBackgroundPolicyInp
         input.skipTurnId,
       );
       if (ended === null && input.now() >= deadline) {
-        input.warn(`print goal wait ceiling reached (${input.ceilingS}s), finishing`);
+        input.warn(t('tui.statusMessages.printGoalWaitCeiling', { seconds: input.ceilingS }));
         return;
       }
     }
@@ -925,9 +941,7 @@ export async function applyPrintBackgroundPolicy(input: PrintBackgroundPolicyInp
       if (fireAt !== null) {
         if (fireAt <= input.now() && lastPastFireAt === fireAt) {
           cronWedged = true;
-          input.warn(
-            'print cron wait: next fire time stuck in the past; cron tick appears wedged, giving up on cron',
-          );
+          input.warn(t('tui.statusMessages.printCronWedged'));
         } else {
           if (fireAt <= input.now()) lastPastFireAt = fireAt;
           const ended = await input.turnEndings.next(
@@ -954,11 +968,11 @@ export async function applyPrintBackgroundPolicy(input: PrintBackgroundPolicyInp
     // 'steer'
     turns += 1;
     if (input.now() >= deadline) {
-      input.warn(`print steer ceiling reached (${input.ceilingS}s), finishing`);
+      input.warn(t('tui.statusMessages.printSteerCeiling', { seconds: input.ceilingS }));
       return;
     }
     if (turns > input.maxTurns) {
-      input.warn(`print steer max turns reached (${input.maxTurns}), finishing`);
+      input.warn(t('tui.statusMessages.printSteerMaxTurns', { maxTurns: input.maxTurns }));
       return;
     }
     if (input.countPending() === 0) return;
@@ -978,7 +992,7 @@ function formatTurnEndingFailure(ending: PrintTurnEnding): string {
   if (ending.reason === 'blocked') {
     return t('tui.statusMessages.promptBlocked');
   }
-  return `Prompt turn ended with reason: ${ending.reason}`;
+  return t('tui.statusMessages.promptTurnEndedReason', { reason: ending.reason });
 }
 
 function countPendingBackgroundTasks(session: ISessionScopeHandle): number {
@@ -1144,5 +1158,5 @@ function formatNativeTurnFailure(result: LoopRunResult): string {
       return result.error.message;
     }
   }
-  return `Prompt turn ended with reason: ${result.type}`;
+  return t('tui.statusMessages.promptTurnEndedReason', { reason: result.type });
 }

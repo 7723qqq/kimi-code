@@ -102,7 +102,7 @@ async function handleKimiCodeOAuthLogin(host: SlashCommandHost, region: KimiRegi
     if (cancelled) return;
     const message = formatErrorMessage(error);
     if (denied) {
-      host.showError(`Login cancelled: ${message}`);
+      host.showError(t('tui.statusMessages.loginCancelledWithError', { error: message }));
       return;
     }
     log.warn('login failed', {
@@ -179,9 +179,7 @@ async function handleOpenPlatformLogin(
     selectedModel: selection.model,
     thinking: selection.thinking !== 'off',
     effort:
-      selection.thinking !== 'off' && selection.thinking !== 'on'
-        ? selection.thinking
-        : undefined,
+      selection.thinking !== 'off' && selection.thinking !== 'on' ? selection.thinking : undefined,
     credential: { apiKey },
   });
 

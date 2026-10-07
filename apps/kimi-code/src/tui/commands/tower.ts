@@ -1,6 +1,12 @@
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
 
-import { getLlmNotSetMessage, TOWER_STATUS_PROMPT, TOWER_TEARDOWN_PROMPT } from '../constant/kimi-tui';
+import { t } from '#/i18n';
+
+import {
+  getLlmNotSetMessage,
+  TOWER_STATUS_PROMPT,
+  TOWER_TEARDOWN_PROMPT,
+} from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { SlashCommandHost } from './dispatch';
 
@@ -43,7 +49,11 @@ async function startTowerWithBase(host: SlashCommandHost, base: string): Promise
   // The engine's enter is idempotent, so never let the cached state skip the
   // mutation: it may be stale (mode changed elsewhere or an unlanded event).
   if (!(await setTowerMode(host, true, base))) return;
-  host.showNotice(wasActive ? `Tower base: ${base}` : `Tower mode: ON (base: ${base})`);
+  host.showNotice(
+    wasActive
+      ? t('tui.messages.towerBaseSet', { base })
+      : t('tui.messages.towerModeOnWithBase', { base }),
+  );
 }
 
 async function applyTowerMode(host: SlashCommandHost, enabled: boolean): Promise<void> {
@@ -52,10 +62,12 @@ async function applyTowerMode(host: SlashCommandHost, enabled: boolean): Promise
   // must not leave the authoritative mode unchanged.
   if (!(await setTowerMode(host, enabled))) return;
   if (wasActive === enabled) {
-    host.showStatus(`Tower mode is already ${enabled ? 'on' : 'off'}.`);
+    host.showStatus(
+      enabled ? t('tui.messages.towerModeAlreadyOn') : t('tui.messages.towerModeAlreadyOff'),
+    );
     return;
   }
-  host.showNotice(enabled ? 'Tower mode: ON' : 'Tower mode: OFF');
+  host.showNotice(enabled ? t('tui.messages.towerModeOn') : t('tui.messages.towerModeOff'));
 }
 
 async function setTowerMode(
@@ -79,15 +91,16 @@ async function setTowerMode(
     if (reported !== undefined && reported !== enabled) {
       host.setAppState({ towerMode: reported });
       host.showError(
-        enabled
-          ? 'Tower mode could not be enabled — another session owns this workspace tower, or the experiment is off / was just turned on and needs a restart.'
-          : 'Tower mode could not be disabled.',
+        enabled ? t('tui.messages.towerEnableFailed') : t('tui.messages.towerDisableFailed'),
       );
       return false;
     }
   } catch (error) {
+    const message = formatErrorMessage(error);
     host.showError(
-      `Failed to ${enabled ? 'enable' : 'disable'} tower mode: ${formatErrorMessage(error)}`,
+      enabled
+        ? t('tui.messages.towerEnableError', { error: message })
+        : t('tui.messages.towerDisableError', { error: message }),
     );
     return false;
   }

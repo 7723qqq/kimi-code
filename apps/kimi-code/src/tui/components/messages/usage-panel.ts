@@ -33,8 +33,8 @@ function usageRowResetHint(row: QuotaUsageRow): string | undefined {
   const parsed = Date.parse(resetAt);
   if (!Number.isFinite(parsed)) return undefined;
   const diffSec = Math.floor((parsed - Date.now()) / 1000);
-  if (diffSec <= 0) return 'reset';
-  return `resets in ${formatDuration(diffSec)}`;
+  if (diffSec <= 0) return t('tui.messages.usagePanel.reset');
+  return t('tui.messages.usagePanel.resetsIn', { duration: formatDuration(diffSec) });
 }
 
 export interface BoosterWalletInfo {
@@ -153,7 +153,9 @@ function buildManagedUsageSection(
     if (breakdown !== undefined) {
       const kimi = Math.round(safeUsageRatio(breakdown.kimiRatio) * 100);
       const code = Math.round(safeUsageRatio(breakdown.codeRatio) * 100);
-      out.push(`  ${' '.repeat(labelWidth)}  ${muted(`kimi ${String(kimi)}% · code ${String(code)}%`)}`);
+      out.push(
+        `  ${' '.repeat(labelWidth)}  ${muted(`kimi ${String(kimi)}% · code ${String(code)}%`)}`,
+      );
     }
   }
   return out;

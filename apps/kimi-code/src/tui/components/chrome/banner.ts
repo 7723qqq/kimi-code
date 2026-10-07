@@ -47,7 +47,11 @@ export class BannerComponent implements Component {
     // Body lines (continuations of the main text) indent to match the first
     // line's main-text column, which starts right after the tag display. When
     // the tag is on its own line, the main text aligns with the tag text.
-    const bodyIndent = inlineTag ? ' '.repeat(tagWidth) : tagOnOwnLine ? ' '.repeat(hangingWidth) : '';
+    const bodyIndent = inlineTag
+      ? ' '.repeat(tagWidth)
+      : tagOnOwnLine
+        ? ' '.repeat(hangingWidth)
+        : '';
 
     const mainSegments = this.state.mainText === null ? [] : this.state.mainText.split('\n');
     const subSegments = this.state.subText ? this.state.subText.split('\n') : [];
@@ -55,8 +59,7 @@ export class BannerComponent implements Component {
     // width instead of being dropped when too long.
     const titleOnly = mainSegments.length === 0;
     const tagRendered = titleOnly ? tagStyled.length > 0 : showTag;
-    const bodyContentWidth =
-      width - (inlineTag ? tagWidth : tagOnOwnLine ? hangingWidth : 0);
+    const bodyContentWidth = width - (inlineTag ? tagWidth : tagOnOwnLine ? hangingWidth : 0);
     const descContentWidth = width - (tagRendered ? hangingWidth : 0);
     // Descriptive subtext lines (the second line in the design) start at the
     // column after the leading star + space, aligning with the tag text itself.

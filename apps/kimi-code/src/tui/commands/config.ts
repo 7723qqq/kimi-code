@@ -39,11 +39,18 @@ import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model
 import { ThemeSelectorComponent } from '../components/dialogs/theme-selector';
 import { TuiModeSelectorComponent } from '../components/dialogs/tui-mode-selector';
 import { UpdatePreferenceSelectorComponent } from '../components/dialogs/update-preference-selector';
-import { DEFAULT_MARKDOWN_CONFIG, DEFAULT_TUI_CONFIG, saveTuiConfig, type MarkdownConfig, type TuiConfig, type TuiMode } from '../config';
+import {
+  DEFAULT_MARKDOWN_CONFIG,
+  DEFAULT_TUI_CONFIG,
+  saveTuiConfig,
+  type MarkdownConfig,
+  type TuiConfig,
+  type TuiMode,
+} from '../config';
 import { getNoActiveSessionMessage, getTuiModeRestartNotice } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import { setMarkdownMermaidMode, type MermaidRenderMode } from '../utils/markdown-options';
-import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
+import { permissionModeDescription, permissionModeDisplayName } from '../utils/permission-mode';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
 import type { SlashCommandHost } from './dispatch';
 import { setExperimentalFeatures } from './experimental-flags';
@@ -132,7 +139,9 @@ export async function handlePlanCommand(host: SlashCommandHost, args: string): P
   // The session may already be in the requested mode (e.g. it was created
   // with config.defaultPlanMode applied), and re-entering plan mode throws.
   if (host.state.appState.planMode === enabled) {
-    host.showNotice(`Plan mode is already ${enabled ? 'on' : 'off'}`);
+    host.showNotice(
+      t(enabled ? 'tui.statusMessages.planModeAlreadyOn' : 'tui.statusMessages.planModeAlreadyOff'),
+    );
     return;
   }
 
@@ -179,7 +188,9 @@ export async function handleSpecCommand(host: SlashCommandHost, args: string): P
 
   const enabled = subcmd === '' ? !host.state.appState.specMode : subcmd === 'on';
   if (host.state.appState.specMode === enabled) {
-    host.showNotice(`Spec mode is already ${enabled ? 'on' : 'off'}`);
+    host.showNotice(
+      t(enabled ? 'tui.statusMessages.specModeAlreadyOn' : 'tui.statusMessages.specModeAlreadyOff'),
+    );
     return;
   }
 
@@ -200,10 +211,10 @@ export async function handleSpecCommand(host: SlashCommandHost, args: string): P
       host.showError(
         enabled
           ? t('tui.statusMessages.failedToSetSpecMode', {
-              msg: 'the engine did not enter spec mode',
+              msg: t('tui.statusMessages.specModeDidNotEnter'),
             })
           : t('tui.statusMessages.failedToSetSpecMode', {
-              msg: 'the engine did not leave spec mode',
+              msg: t('tui.statusMessages.specModeDidNotLeave'),
             }),
       );
       return;
@@ -297,7 +308,7 @@ export async function handleSecondaryModelCommand(
     return;
   }
   if (alias.length > 0 && models[alias] === undefined) {
-    host.showError(`Unknown model alias: ${alias}`);
+    host.showError(t('tui.messages.configUnknownModelAlias', { alias }));
     return;
   }
   const secondary = (await host.harness.getConfig()).secondaryModel;
@@ -703,13 +714,14 @@ async function performSecondaryModelSave(host: SlashCommandHost, alias: string):
     }
     await host.harness.setConfig({ secondaryModel: patch });
   } catch (error) {
-    host.showError(`Failed to save secondary model: ${formatErrorMessage(error)}`);
+    host.showError(
+      t('tui.messages.configSecondaryModelSaveFailed', {
+        error: formatErrorMessage(error),
+      }),
+    );
     return;
   }
-  host.showStatus(
-    `Secondary model set to ${displayName}. Newly spawned subagents will use it by default.`,
-    'success',
-  );
+  host.showStatus(t('tui.messages.configSecondaryModelSet', { model: displayName }), 'success');
 }
 
 function showThemePicker(host: SlashCommandHost): void {
@@ -953,15 +965,13 @@ export async function applyExperimentalFeatureChanges(
       host.session !== undefined &&
       changes.some((change) => change.id === 'notify_user' && change.enabled)
     ) {
-      host.showNotice(
-        'Start a new session to use Updates if this session was created with the feature disabled.',
-      );
+      host.showNotice(t('tui.messages.experimentalNotifyUserNewSession'));
     }
     if (changes.some((change) => change.id === 'tower')) {
       // TowerFeature assembles its tool/profile contributions once at App
       // scope construction, so a live flag flip cannot install or retract
       // them; only the mode machinery (enter/injection/guards) reacts live.
-      host.showNotice('Tower mode takes effect after restarting Kimi Code.');
+      host.showNotice(t('tui.messages.experimentalTowerRestart'));
     }
     host.track('experimental_features_apply', {
       changed: changes.length,
@@ -1049,7 +1059,9 @@ export async function applyUpdatePreferenceChoice(
 
 async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMode): Promise<void> {
   if (mode === host.state.appState.permissionMode) {
-    host.showStatus(`Permission mode unchanged: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}.`);
+    host.showStatus(
+      t('tui.statusMessages.permissionModeUnchanged', { mode: permissionModeDisplayName(mode) }),
+    );
     return;
   }
 
@@ -1066,9 +1078,11 @@ async function applyPermissionChoice(host: SlashCommandHost, mode: PermissionMod
   }
 
   host.setAppState({ permissionMode: mode });
-  host.showNotice(`Permission mode: ${PERMISSION_MODE_DISPLAY_NAMES[mode]}`);
+  host.showNotice(
+    t('tui.statusMessages.permissionModeChanged', { mode: permissionModeDisplayName(mode) }),
+  );
   if (mode !== 'manual') {
-    host.showStatus(PERMISSION_MODE_DESCRIPTIONS[mode], 'warning');
+    host.showStatus(permissionModeDescription(mode), 'warning');
   }
 }
 
@@ -1094,9 +1108,7 @@ type SurveyPreferenceHost = {
       'theme' | 'editorCommand' | 'notifications' | 'upgrade' | 'disableFeedbackSurvey'
     >;
   };
-  setAppState(
-    patch: Pick<SlashCommandHost['state']['appState'], 'disableFeedbackSurvey'>,
-  ): void;
+  setAppState(patch: Pick<SlashCommandHost['state']['appState'], 'disableFeedbackSurvey'>): void;
   showStatus(msg: string, color?: string): void;
 };
 
@@ -1106,7 +1118,13 @@ export async function applySurveyPreferenceChoice(
 ): Promise<void> {
   const disableFeedbackSurvey = !enabled;
   if (disableFeedbackSurvey === (host.state.appState.disableFeedbackSurvey === true)) {
-    host.showStatus(`Feedback survey already ${enabled ? 'enabled' : 'disabled'}.`);
+    host.showStatus(
+      t(
+        enabled
+          ? 'tui.messages.configSurveyAlreadyEnabled'
+          : 'tui.messages.configSurveyAlreadyDisabled',
+      ),
+    );
     return;
   }
 
@@ -1117,14 +1135,16 @@ export async function applySurveyPreferenceChoice(
     });
   } catch (error) {
     host.showStatus(
-      `Failed to save session rating setting: ${formatErrorMessage(error)}`,
+      t('tui.messages.configSurveySaveFailed', { error: formatErrorMessage(error) }),
       'error',
     );
     return;
   }
 
   host.setAppState({ disableFeedbackSurvey });
-  host.showStatus(`Feedback survey ${enabled ? 'enabled' : 'disabled'}.`);
+  host.showStatus(
+    t(enabled ? 'tui.messages.configSurveyEnabled' : 'tui.messages.configSurveyDisabled'),
+  );
 }
 
 export function showMermaidPreferencePicker(host: SlashCommandHost): void {
@@ -1161,7 +1181,13 @@ export async function applyMermaidPreferenceChoice(
 ): Promise<void> {
   const mermaid: MermaidRenderMode = enabled ? 'final' : 'off';
   if (mermaid === (host.state.appState.markdown?.mermaid ?? DEFAULT_MARKDOWN_CONFIG.mermaid)) {
-    host.showStatus(`Mermaid diagrams already ${enabled ? 'enabled' : 'disabled'}.`);
+    host.showStatus(
+      t(
+        enabled
+          ? 'tui.messages.configMermaidAlreadyEnabled'
+          : 'tui.messages.configMermaidAlreadyDisabled',
+      ),
+    );
     return;
   }
 
@@ -1173,7 +1199,7 @@ export async function applyMermaidPreferenceChoice(
     });
   } catch (error) {
     host.showStatus(
-      `Failed to save mermaid diagram setting: ${formatErrorMessage(error)}`,
+      t('tui.messages.configMermaidSaveFailed', { error: formatErrorMessage(error) }),
       'error',
     );
     return;
@@ -1183,7 +1209,9 @@ export async function applyMermaidPreferenceChoice(
   host.setAppState({ markdown });
   host.state.transcriptContainer.invalidate();
   host.state.ui.requestRender(true);
-  host.showStatus(`Mermaid diagrams ${enabled ? 'enabled' : 'disabled'}.`);
+  host.showStatus(
+    t(enabled ? 'tui.messages.configMermaidEnabled' : 'tui.messages.configMermaidDisabled'),
+  );
 }
 
 export function showTuiModePicker(host: SlashCommandHost): void {
@@ -1213,7 +1241,13 @@ type TuiModeHost = {
 
 export async function applyTuiModeChoice(host: TuiModeHost, tuiMode: TuiMode): Promise<void> {
   if (tuiMode === (host.state.appState.tuiMode ?? 'regular')) {
-    host.showStatus(`TUI mode already ${tuiMode}.`);
+    host.showStatus(
+      t(
+        tuiMode === 'fullscreen'
+          ? 'tui.messages.configTuiModeAlreadyFullscreen'
+          : 'tui.messages.configTuiModeAlreadyRegular',
+      ),
+    );
     return;
   }
 
@@ -1223,12 +1257,22 @@ export async function applyTuiModeChoice(host: TuiModeHost, tuiMode: TuiMode): P
       tuiMode,
     });
   } catch (error) {
-    host.showStatus(`Failed to save TUI mode: ${formatErrorMessage(error)}`, 'error');
+    host.showStatus(
+      t('tui.messages.configTuiModeSaveFailed', { error: formatErrorMessage(error) }),
+      'error',
+    );
     return;
   }
 
   host.setAppState({ tuiMode });
-  host.showStatus(`TUI mode set to ${tuiMode}.`, 'success');
+  host.showStatus(
+    t(
+      tuiMode === 'fullscreen'
+        ? 'tui.messages.configTuiModeSetFullscreen'
+        : 'tui.messages.configTuiModeSetRegular',
+    ),
+    'success',
+  );
   if (tuiMode !== host.state.ui.mode) {
     host.showNotice(getTuiModeRestartNotice());
   }

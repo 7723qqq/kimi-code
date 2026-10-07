@@ -110,11 +110,15 @@ async function createLockFile(
   request: UpdateInstallLockRequest,
 ): Promise<UpdateInstallLockHandle | null> {
   const now = request.now ?? new Date();
-  const content = `${JSON.stringify({
-    version: request.version,
-    pid: process.pid,
-    startedAt: now.toISOString(),
-  }, null, 2)}\n`;
+  const content = `${JSON.stringify(
+    {
+      version: request.version,
+      pid: process.pid,
+      startedAt: now.toISOString(),
+    },
+    null,
+    2,
+  )}\n`;
   // Publish atomically and only into a still-free path (EEXIST propagates to
   // the caller's inspection flow). The lock file is never observable empty
   // on filesystems with hard links; elsewhere the exclusive-create fallback

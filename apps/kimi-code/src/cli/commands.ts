@@ -116,7 +116,7 @@ export function createProgram(
     .command('upgrade')
     .alias('update')
     .description(t('cli.commandDescriptions.upgrade'))
-    .option('-y, --yes', 'Skip the confirmation prompt and install the update directly.', false)
+    .option('-y, --yes', t('cli.optionDescriptions.upgradeYes'), false)
     .action(async (options: { yes?: boolean }) => {
       await onUpgrade(options.yes === true);
     });

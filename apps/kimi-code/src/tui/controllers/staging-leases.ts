@@ -289,9 +289,11 @@ export class StagingLeaseTracker {
   /** Track an in-flight staging-related promise so {@link drain} can await it. */
   track(cleanup: Promise<void>): void {
     let tracked!: Promise<void>;
-    tracked = cleanup.catch(() => undefined).finally(() => {
-      this.cleanups.delete(tracked);
-    });
+    tracked = cleanup
+      .catch(() => undefined)
+      .finally(() => {
+        this.cleanups.delete(tracked);
+      });
     this.cleanups.add(tracked);
   }
 

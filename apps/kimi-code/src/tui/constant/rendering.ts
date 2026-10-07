@@ -30,7 +30,8 @@ export const TRUNCATION_ELLIPSIS = '…';
 // ANSI escape sequences (CSI, OSC) — tool output can carry them — that a
 // width-aware cut must treat as zero-width atomic units: never counted toward
 // the budget, never split in half.
-export const ANSI_ESCAPE_PATTERN = /\u001B(?:\[[0-9;?]*[ -/]*[@-~]|\][^\u0007\u001B]*(?:\u0007|\u001B\\))/g;
+export const ANSI_ESCAPE_PATTERN =
+  /\u001B(?:\[[0-9;?]*[ -/]*[@-~]|\][^\u0007\u001B]*(?:\u0007|\u001B\\))/g;
 // Code units a single terminal cell may hold before a tail-preserving cut's
 // window can no longer see it: a ZWJ family emoji is about eleven per two
 // cells, and combining sequences run longer.

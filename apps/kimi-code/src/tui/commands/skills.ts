@@ -36,17 +36,20 @@ function getSkillSlashCommandGroup(source: SkillSummary['source']): number {
 export function buildSkillSlashCommands(skills: readonly SkillSummary[]): SkillSlashCommands {
   const commandMap = new Map<string, string>();
   const sortedSkills = [...skills].toSorted(compareSkillSlashCommands);
-  const commands = sortedSkills.filter(isUserActivatableSkill).filter(isVisibleOnTui).map((skill) => {
-    const commandName =
-      skill.source === 'builtin' || skill.isSubSkill === true
-        ? skill.name
-        : `skill:${skill.name}`;
-    commandMap.set(commandName, skill.name);
-    return {
-      name: commandName,
-      aliases: [],
-      description: skill.description ?? '',
-    };
-  });
+  const commands = sortedSkills
+    .filter(isUserActivatableSkill)
+    .filter(isVisibleOnTui)
+    .map((skill) => {
+      const commandName =
+        skill.source === 'builtin' || skill.isSubSkill === true
+          ? skill.name
+          : `skill:${skill.name}`;
+      commandMap.set(commandName, skill.name);
+      return {
+        name: commandName,
+        aliases: [],
+        description: skill.description ?? '',
+      };
+    });
   return { commands, commandMap };
 }

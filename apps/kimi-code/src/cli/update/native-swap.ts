@@ -21,14 +21,15 @@ import { readdir, readFile, rename, rmdir, stat, unlink, utimes } from 'node:fs/
 import { constants as osConstants } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
-import { gt } from 'semver';
-
 import { log } from '@moonshot-ai/kimi-code-sdk';
+import { gt } from 'semver';
 
 import {
   KIMI_CODE_NATIVE_STAGED_STATE_FILE_NAME,
   KIMI_CODE_UPDATE_REEXEC_ENV,
 } from '#/constant/app';
+import { getNativeStagedStateFile, getNativeStagingDir } from '#/utils/paths';
+import { createFileIfAbsent } from '#/utils/persistence';
 
 import { readUpdateInstallState, writeUpdateInstallState } from './install-state';
 import {
@@ -39,8 +40,6 @@ import {
   type StagedNativeUpdate,
 } from './native-stage';
 import { isAutoUpdateDisabledByEnv, shouldAutoInstallUpdates } from './preflight';
-import { getNativeStagedStateFile, getNativeStagingDir } from '#/utils/paths';
-import { createFileIfAbsent } from '#/utils/persistence';
 
 export interface NativeSwapDeps {
   readonly exePath: string;
@@ -55,7 +54,10 @@ export interface NativeSwapDeps {
 export interface SpawnedChild {
   once(event: 'error', listener: (error: Error) => void): void;
   once(event: 'exit', listener: (code: number | null, signal: NodeJS.Signals | null) => void): void;
-  once(event: 'close', listener: (code: number | null, signal: NodeJS.Signals | null) => void): void;
+  once(
+    event: 'close',
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void,
+  ): void;
 }
 
 function isTruthy(value: string | undefined): boolean {
@@ -111,8 +113,7 @@ function logSwap(message: string, payload: Record<string, unknown>): void {
 async function recordSwapFailure(version: string): Promise<void> {
   try {
     const state = await readUpdateInstallState();
-    const attempts =
-      (state.lastFailure?.version === version ? state.lastFailure.attempts : 0) + 1;
+    const attempts = (state.lastFailure?.version === version ? state.lastFailure.attempts : 0) + 1;
     await writeUpdateInstallState({
       ...state,
       active: null,
@@ -145,7 +146,10 @@ function smokeCheck(
     };
     let child: SpawnedChild & { readonly stdout?: NodeJS.ReadableStream | null; kill(): void };
     try {
-      child = spawnImpl(exePath, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }) as unknown as typeof child;
+      child = spawnImpl(exePath, ['--version'], {
+        stdio: ['ignore', 'pipe', 'ignore'],
+        windowsHide: true,
+      }) as unknown as typeof child;
     } catch {
       finish(false);
       return;
@@ -199,8 +203,7 @@ async function claimStagedUpdate(exePath: string): Promise<ClaimedStaged | null>
   const claimedPath = `${stateFile}.swap-${process.pid}`;
   // Capture the record's age BEFORE the stamp below rewrites it.
   const before = await stat(stateFile).catch(() => null);
-  const youngAtClaim =
-    before === null || Date.now() - before.mtimeMs <= STAGED_PUBLISH_GRACE_MS;
+  const youngAtClaim = before === null || Date.now() - before.mtimeMs <= STAGED_PUBLISH_GRACE_MS;
   try {
     // The metadata's mtime can be arbitrarily old — the download may have
     // finished hours before this launch. Stamp it BEFORE the rename so the
@@ -412,9 +415,7 @@ async function sweepStaleNativeUpdateArtifacts(exePath: string): Promise<boolean
     // A live swap critical section holds the mutex: same deference. (Only a
     // snapshot, but the swap re-checks the mutex after claiming, so a
     // freshly-started swap is never entered concurrently.)
-    const mutexInfo = await stat(join(getNativeStagingDir(exePath), 'swap.lock')).catch(
-      () => null,
-    );
+    const mutexInfo = await stat(join(getNativeStagingDir(exePath), 'swap.lock')).catch(() => null);
     if (mutexInfo !== null && Date.now() - mutexInfo.mtimeMs <= SWAP_MUTEX_STALE_MS) {
       return true;
     }
@@ -431,9 +432,7 @@ async function sweepStaleNativeUpdateArtifacts(exePath: string): Promise<boolean
  * itself failed — the caller then continues startup with the old in-memory
  * code; the binary on disk is already the new version.
  */
-function reexec(
-  deps: NativeSwapDeps & { readonly spawnImpl: typeof spawn },
-): Promise<boolean> {
+function reexec(deps: NativeSwapDeps & { readonly spawnImpl: typeof spawn }): Promise<boolean> {
   return new Promise((resolve) => {
     let child: SpawnedChild;
     try {
@@ -473,9 +472,7 @@ function reexec(
  * continue startup — the exit handler fires once the child exits). Every
  * other outcome returns false so startup proceeds untouched.
  */
-export async function maybeRelaunchWithStagedNativeUpdate(
-  deps: NativeSwapDeps,
-): Promise<boolean> {
+export async function maybeRelaunchWithStagedNativeUpdate(deps: NativeSwapDeps): Promise<boolean> {
   if (!deps.isNative) return false;
   const swapInProgress = await sweepStaleNativeUpdateArtifacts(deps.exePath);
   if (isTruthy(deps.env[KIMI_CODE_UPDATE_REEXEC_ENV])) {

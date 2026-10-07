@@ -27,9 +27,9 @@ import {
   type GoalQueueSnapshot,
 } from '../goal-queue-store';
 import { formatErrorMessage } from '../utils/event-payload';
-import { PERMISSION_MODE_DESCRIPTIONS, PERMISSION_MODE_DISPLAY_NAMES } from '../utils/permission-mode';
-import { canRestoreSubmittedInput } from './resolve';
+import { permissionModeDescription, permissionModeDisplayName } from '../utils/permission-mode';
 import type { SlashCommandHost } from './dispatch';
+import { canRestoreSubmittedInput } from './resolve';
 
 const MAX_GOAL_OBJECTIVE_LENGTH = 4000;
 
@@ -418,10 +418,10 @@ async function startGoalWithPermission(
   if (switched) {
     host.showNotice(
       t('tui.statusMessages.permissionModeChanged', {
-        mode: PERMISSION_MODE_DISPLAY_NAMES[choice],
+        mode: permissionModeDisplayName(choice),
       }),
     );
-    host.showStatus(PERMISSION_MODE_DESCRIPTIONS[choice], 'warning');
+    host.showStatus(permissionModeDescription(choice), 'warning');
   }
 }
 
@@ -449,7 +449,10 @@ async function startGoal(
       replace: parsed.replace,
     });
   } catch (error) {
-    if (isKimiError(error) && (error as { readonly code: string }).code === ErrorCodes.GOAL_ALREADY_EXISTS) {
+    if (
+      isKimiError(error) &&
+      (error as { readonly code: string }).code === ErrorCodes.GOAL_ALREADY_EXISTS
+    ) {
       host.showError(t('tui.statusMessages.goalAlreadyActive'));
       return false;
     }
@@ -475,7 +478,10 @@ async function pauseGoal(host: SlashCommandHost): Promise<void> {
     await session.pauseGoal();
     if (isStreaming(host)) await session.cancel();
   } catch (error) {
-    if (isKimiError(error) && (error as { readonly code: string }).code === ErrorCodes.GOAL_NOT_FOUND) {
+    if (
+      isKimiError(error) &&
+      (error as { readonly code: string }).code === ErrorCodes.GOAL_NOT_FOUND
+    ) {
       host.showStatus(t('tui.statusMessages.noGoalToPause'));
       return;
     }
@@ -495,7 +501,10 @@ async function resumeGoal(host: SlashCommandHost): Promise<void> {
   try {
     await host.requireSession().resumeGoal();
   } catch (error) {
-    if (isKimiError(error) && (error as { readonly code: string }).code === ErrorCodes.GOAL_NOT_FOUND) {
+    if (
+      isKimiError(error) &&
+      (error as { readonly code: string }).code === ErrorCodes.GOAL_NOT_FOUND
+    ) {
       host.showStatus(t('tui.statusMessages.noGoalToResume'));
       return;
     }
@@ -512,7 +521,10 @@ async function cancelGoal(host: SlashCommandHost): Promise<void> {
     await session.cancelGoal();
     if (isStreaming(host)) await session.cancel();
   } catch (error) {
-    if (isKimiError(error) && (error as { readonly code: string }).code === ErrorCodes.GOAL_NOT_FOUND) {
+    if (
+      isKimiError(error) &&
+      (error as { readonly code: string }).code === ErrorCodes.GOAL_NOT_FOUND
+    ) {
       host.showStatus(t('tui.statusMessages.noGoalToCancel'));
       return;
     }
@@ -559,7 +571,10 @@ export function goalObjectiveLengthWarning(text: string): string | undefined {
   if (args.length > 0 && args.charAt(0) !== ' ') return undefined;
   const objective = extractGoalObjective(args);
   if (objective === undefined || objective.length <= MAX_GOAL_OBJECTIVE_LENGTH) return undefined;
-  return `Goal objective is too long (${objective.length}/${MAX_GOAL_OBJECTIVE_LENGTH} characters); put long content in a file and reference the file path.`;
+  return t('tui.statusMessages.objectiveTooLongLive', {
+    length: objective.length,
+    max: MAX_GOAL_OBJECTIVE_LENGTH,
+  });
 }
 
 /**

@@ -13,11 +13,9 @@ const TIMER_INTERVAL_MS = 1000;
 // grow memory without bound or make every render re-strip a multi-MB string.
 // Only affects the transient running tail; the final view uses the full
 // captured stdout/stderr passed to finish(). When the cap drops older output,
-// the expanded running view says so via TRUNCATED_RUNNING_NOTICE.
+// the expanded running view says so via the truncation notice.
 const MAX_COMBINED_CHARS = 256 * 1024;
 const KEEP_COMBINED_CHARS = 64 * 1024;
-
-const TRUNCATED_RUNNING_NOTICE = '… (output truncated)';
 
 /**
  * Live view for a user-initiated `!` shell command. Two phases:
@@ -187,7 +185,9 @@ export class ShellRunComponent extends Container {
       if (trimmed.length === 0) {
         body = `  ${dim('Running…')}`;
       } else if (this.expanded) {
-        const notice = this.combinedTruncated ? `  ${dim(TRUNCATED_RUNNING_NOTICE)}\n` : '';
+        const notice = this.combinedTruncated
+          ? `  ${dim(t('tui.messages.shellRunOutputTruncated'))}\n`
+          : '';
         body =
           notice +
           trimmed
@@ -204,7 +204,7 @@ export class ShellRunComponent extends Container {
       const hint = `  ${dim(t('tui.messages.shellRun.hint'))}`;
       return `${body}\n${timing}\n${hint}`;
     } catch {
-      return '  (output unavailable)';
+      return `  ${t('tui.messages.shellRunOutputUnavailable')}`;
     }
   }
 }

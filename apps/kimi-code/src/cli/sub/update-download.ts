@@ -21,6 +21,7 @@ import {
   stageNativeUpdate,
 } from '#/cli/update/native-stage';
 import { detectNativeInstall } from '#/cli/update/source';
+import { t } from '#/i18n';
 
 const LOCK_HELD_POLL_INTERVAL_MS = 2_000;
 
@@ -87,7 +88,7 @@ export async function runUpdateDownloadCommand(
 ): Promise<number> {
   const install = detectNativeInstall();
   if (!install.native) {
-    process.stderr.write('error: update download is only available in the native build\n');
+    process.stderr.write(t('tui.statusMessages.updateDownloadNativeOnly') + '\n');
     return 1;
   }
   const out = process.stdout;
@@ -97,12 +98,10 @@ export async function runUpdateDownloadCommand(
     if (holderVersion === version) {
       // Another worker is already downloading this exact version: wait for it
       // and adopt its verified result instead of exiting on a maybe.
-      out.write(
-        `A download of Kimi Code ${version} is already in progress; waiting for it to finish…\n`,
-      );
+      out.write(t('tui.statusMessages.updateDownloadInProgress', { version }) + '\n');
       const wait = await waitForStagedUpdate(version, process.execPath, manual);
       if (wait.status === 'staged') {
-        out.write(`Kimi Code ${version} is downloaded; it applies on the next start.\n`);
+        out.write(t('tui.statusMessages.updateDownloadStaged', { version }) + '\n');
         return 0;
       }
       // The holder finished without staging (failed or died): take over. The
@@ -115,12 +114,18 @@ export async function runUpdateDownloadCommand(
     }
     if (lock === null) {
       process.stderr.write(
-        `error: another update (${holderVersion ?? 'unknown version'}) is already downloading\n`,
+        t('tui.statusMessages.updateDownloadOtherInProgress', {
+          version: holderVersion ?? t('tui.statusMessages.updateDownloadUnknownVersion'),
+        }) + '\n',
       );
       return 1;
     }
   }
-  const label = `Downloading Kimi Code ${version} (${process.platform}-${process.arch})…`;
+  const label = t('tui.statusMessages.updateDownloadLabel', {
+    version,
+    platform: process.platform,
+    arch: process.arch,
+  });
   const onProgress = createDownloadProgress(out, label);
   try {
     const result = await stageNativeUpdate({
@@ -132,13 +137,13 @@ export async function runUpdateDownloadCommand(
     });
     if (out.isTTY) out.write('\n');
     if (result.status === 'already-staged') {
-      out.write(`Kimi Code ${version} is already downloaded; it applies on the next start.\n`);
+      out.write(t('tui.statusMessages.updateDownloadAlreadyStaged', { version }) + '\n');
     }
     return 0;
   } catch (error) {
     if (out.isTTY) out.write('\n');
     const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`error: failed to download update ${version}: ${message}\n`);
+    process.stderr.write(t('tui.statusMessages.updateDownloadFailed', { version, message }) + '\n');
     log.warn('native update download failed', { version, error: message });
     return 1;
   } finally {

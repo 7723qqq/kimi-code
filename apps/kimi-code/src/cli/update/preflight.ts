@@ -14,7 +14,11 @@ import { resolveCommandPath } from '#/utils/process/resolve-command';
 
 import { readUpdateCache } from './cache';
 import { tryAcquireUpdateInstallLock } from './install-lock';
-import { emptyUpdateInstallState, readUpdateInstallState, writeUpdateInstallState } from './install-state';
+import {
+  emptyUpdateInstallState,
+  readUpdateInstallState,
+  writeUpdateInstallState,
+} from './install-state';
 import {
   CHANGELOG_URL,
   promptForInstallChoice,
@@ -117,9 +121,15 @@ export function spawnForSource(
 ): SpawnCommand {
   switch (source) {
     case 'npm-global':
-      return { cmd: withCmdSuffix('npm', platform), args: ['install', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
+      return {
+        cmd: withCmdSuffix('npm', platform),
+        args: ['install', '-g', `${NPM_PACKAGE_NAME}@${version}`],
+      };
     case 'yarn-global':
-      return { cmd: withCmdSuffix('yarn', platform), args: ['global', 'add', `${NPM_PACKAGE_NAME}@${version}`] };
+      return {
+        cmd: withCmdSuffix('yarn', platform),
+        args: ['global', 'add', `${NPM_PACKAGE_NAME}@${version}`],
+      };
     case 'bun-global':
       return { cmd: bunCommand(platform), args: ['add', '-g', `${NPM_PACKAGE_NAME}@${version}`] };
     case 'homebrew':
@@ -168,12 +178,18 @@ function resolveInstallSpawn(
   version: string,
   platform: NodeJS.Platform,
   options?: { readonly manual?: boolean },
-): { readonly resolvedCmd: string; readonly args: readonly string[]; readonly shell: boolean } | undefined {
+):
+  | { readonly resolvedCmd: string; readonly args: readonly string[]; readonly shell: boolean }
+  | undefined {
   const { cmd, args } = spawnForSource(source, version, platform);
   if (source === 'native') {
     // A user-confirmed install marks the stage as manual so the startup swap
     // applies it even when automatic updates are opted out via env.
-    return { resolvedCmd: cmd, args: options?.manual === true ? [...args, '--manual'] : args, shell: false };
+    return {
+      resolvedCmd: cmd,
+      args: options?.manual === true ? [...args, '--manual'] : args,
+      shell: false,
+    };
   }
   const resolvedCmd = resolveSpawnCommand(cmd, platform);
   if (resolvedCmd === undefined) return undefined;
@@ -183,8 +199,9 @@ function resolveInstallSpawn(
 // Built per call: the official-installer URL follows the current region.
 function thirdPartySourceNote(): string {
   return (
-    '\nNote: Third-party sources may lag behind the official release.\n' +
-    `For the latest updates, use the official installer: ${kimiCodeOfficialInstallUrl()}\n`
+    '\n' +
+    t('tui.statusMessages.updateManualThirdPartyNote', { url: kimiCodeOfficialInstallUrl() }) +
+    '\n'
   );
 }
 
@@ -205,28 +222,44 @@ export function renderManualUpdateMessage(
       sourceDesc = 'homebrew';
       break;
     case 'native':
-      sourceDesc = 'native installer';
+      sourceDesc = t('tui.statusMessages.updateSourceNative');
       break;
     case 'unsupported':
       sourceDesc = t('tui.statusMessages.updateUnsupportedManager');
       break;
   }
   return (
-    `A newer version of ${NPM_PACKAGE_NAME} is available ` +
-    `(${currentVersion} -> ${target.version}).\n` +
-    `Detected install source: ${sourceDesc}\n` +
-    `To update manually, run: ${installCommand}\n` +
+    t('tui.statusMessages.updateManualNewerAvailable', {
+      package: NPM_PACKAGE_NAME,
+      current: currentVersion,
+      target: target.version,
+    }) +
+    '\n' +
+    t('tui.statusMessages.updateManualDetectedSource', { source: sourceDesc }) +
+    '\n' +
+    t('tui.statusMessages.updateManualRunCommand', { command: installCommand }) +
+    '\n' +
     (source === 'homebrew' ? thirdPartySourceNote() : '')
   );
 }
 
 export function renderInstallSuccessMessage(target: UpdateTarget): string {
-  return `Updated ${NPM_PACKAGE_NAME} to ${target.version}. Restart the CLI to use the new version.\n`;
+  return (
+    t('tui.statusMessages.updateInstallSuccess', {
+      package: NPM_PACKAGE_NAME,
+      version: target.version,
+    }) + '\n'
+  );
 }
 
 function renderBackgroundInstallSuccessNotice(version: string): string {
   const displayVersion = version.startsWith('v') ? version : `v${version}`;
-  return `Kimi Code updated to ${displayVersion}\nChangelog: ${CHANGELOG_URL}\n`;
+  return (
+    t('tui.statusMessages.updateBackgroundSuccessNotice', {
+      version: displayVersion,
+      url: CHANGELOG_URL,
+    }) + '\n'
+  );
 }
 
 function refreshInBackground(): void {
@@ -303,7 +336,13 @@ function refreshAndMaybeInstallInBackground(
       new Date(),
       bypassRollout,
     );
-    logRolloutDecision('background-refresh', currentVersion, refreshed.latest, refreshed.manifest, decision);
+    logRolloutDecision(
+      'background-refresh',
+      currentVersion,
+      refreshed.latest,
+      refreshed.manifest,
+      decision,
+    );
     const target = decision.target;
     if (target === null) return;
     const source = await detectInstallSource().catch(() => 'unsupported' as const);
@@ -348,7 +387,13 @@ async function refreshUserVisibleUpdateTarget(
           new Date(),
           bypassRollout,
         );
-        logRolloutDecision('prompt-refresh', currentVersion, refreshed.latest, refreshed.manifest, decision);
+        logRolloutDecision(
+          'prompt-refresh',
+          currentVersion,
+          refreshed.latest,
+          refreshed.manifest,
+          decision,
+        );
         return {
           target: decision.target,
           manifest: refreshed.manifest,
@@ -546,7 +591,11 @@ function trackUpdateEvent(
   }
 }
 
-function logUpdateInfo(logger: UpdateLogger, message: string, payload: Record<string, unknown>): void {
+function logUpdateInfo(
+  logger: UpdateLogger,
+  message: string,
+  payload: Record<string, unknown>,
+): void {
   try {
     logger.info(message, payload);
   } catch {
@@ -554,7 +603,11 @@ function logUpdateInfo(logger: UpdateLogger, message: string, payload: Record<st
   }
 }
 
-function logUpdateWarn(logger: UpdateLogger, message: string, payload: Record<string, unknown>): void {
+function logUpdateWarn(
+  logger: UpdateLogger,
+  message: string,
+  payload: Record<string, unknown>,
+): void {
   try {
     logger.warn(message, payload);
   } catch {
@@ -607,7 +660,7 @@ export async function installUpdate(
         return;
       }
       const detail = signal !== null ? `signal ${signal}` : `code ${String(code)}`;
-      reject(new Error(`update install exited with ${detail}`));
+      reject(new Error(t('tui.statusMessages.updateInstallExited', { detail })));
     });
   });
 }
@@ -672,24 +725,24 @@ async function startBackgroundInstall(
 
       const nextState: UpdateInstallState = succeeded
         ? {
-          ...startedState,
-          active: null,
-          lastFailure: null,
-          lastSuccess: {
-            version: target.version,
-            installedAt: nowIso(),
-            notifiedAt: null,
-          },
-        }
+            ...startedState,
+            active: null,
+            lastFailure: null,
+            lastSuccess: {
+              version: target.version,
+              installedAt: nowIso(),
+              notifiedAt: null,
+            },
+          }
         : {
-          ...startedState,
-          active: null,
-          lastFailure: {
-            version: target.version,
-            failedAt: nowIso(),
-            attempts,
-          },
-        };
+            ...startedState,
+            active: null,
+            lastFailure: {
+              version: target.version,
+              failedAt: nowIso(),
+              attempts,
+            },
+          };
       void writeUpdateInstallState(nextState).catch(() => {});
       if (succeeded) {
         trackUpdateEvent(track, 'update_background_install_succeeded', {
@@ -730,8 +783,12 @@ async function startBackgroundInstall(
       // the silent updater stays silent.
       windowsHide: platform === 'win32' ? true : undefined,
     });
-    child.once('error', () => { finish(false); });
-    child.once('exit', (code) => { finish(code === 0); });
+    child.once('error', () => {
+      finish(false);
+    });
+    child.once('exit', (code) => {
+      finish(code === 0);
+    });
     child.unref();
   } finally {
     await lock.release().catch(() => {});
@@ -793,8 +850,7 @@ export async function runUpdatePreflight(
   }
 
   try {
-    const isInteractive =
-      options.isTTY ?? (process.stdin.isTTY && process.stdout.isTTY);
+    const isInteractive = options.isTTY ?? (process.stdin.isTTY && process.stdout.isTTY);
     const deviceId = resolveUpdateDeviceId();
     const bypassRollout = isRolloutBypassedByExperimentalEnv();
     let installState = await readUpdateInstallState().catch(() => emptyUpdateInstallState());
@@ -818,7 +874,13 @@ export async function runUpdatePreflight(
       new Date(),
       bypassRollout,
     );
-    logRolloutDecision('startup-cache', currentVersion, cache?.latest ?? null, cachedManifest, cachedDecision);
+    logRolloutDecision(
+      'startup-cache',
+      currentVersion,
+      cache?.latest ?? null,
+      cachedManifest,
+      cachedDecision,
+    );
     const target = cachedDecision.target;
     if (target === null) {
       refreshAndMaybeInstallInBackground(
@@ -834,10 +896,9 @@ export async function runUpdatePreflight(
       return 'continue';
     }
 
-    const source: InstallSource =
-      !isInteractive
-        ? 'unsupported'
-        : await detectInstallSource().catch(() => 'unsupported' as const);
+    const source: InstallSource = !isInteractive
+      ? 'unsupported'
+      : await detectInstallSource().catch(() => 'unsupported' as const);
 
     const decision = decideUpdateAction(target, isInteractive, source, platform);
     if (decision === 'none') {
@@ -892,15 +953,19 @@ export async function runUpdatePreflight(
     }
 
     const installCommand = installCommandFor(source, userVisibleTarget.version, platform);
-    trackUpdatePrompted(options.track, currentVersion, userVisibleTarget, source, decision, userVisibleRollout);
+    trackUpdatePrompted(
+      options.track,
+      currentVersion,
+      userVisibleTarget,
+      source,
+      decision,
+      userVisibleRollout,
+    );
 
     if (decision === 'manual-command') {
-      stdout.write(renderManualUpdateMessage(
-        currentVersion,
-        userVisibleTarget,
-        source,
-        installCommand,
-      ));
+      stdout.write(
+        renderManualUpdateMessage(currentVersion, userVisibleTarget, source, installCommand),
+      );
       return 'continue';
     }
 
@@ -913,8 +978,11 @@ export async function runUpdatePreflight(
       return 'exit';
     } catch (error) {
       stderr.write(
-        `warning: failed to install ${NPM_PACKAGE_NAME}@${userVisibleTarget.version}: ` +
-          `${formatErrorMessage(error)}\n`,
+        t('tui.statusMessages.updateInstallFailedWarning', {
+          package: NPM_PACKAGE_NAME,
+          version: userVisibleTarget.version,
+          error: formatErrorMessage(error),
+        }) + '\n',
       );
       return 'continue';
     }

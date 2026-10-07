@@ -8,19 +8,19 @@ import {
   type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
 
-import { currentTheme } from '#/tui/theme';
+import { t } from '#/i18n';
 import type { KimiMarkdownOptions } from '#/tui/components/markdown/markdown';
-import {
-  isMarkdownAltScreenActive,
-  requestMarkdownRender,
-} from '#/tui/utils/markdown-options';
+import { currentTheme } from '#/tui/theme';
+import { isMarkdownAltScreenActive, requestMarkdownRender } from '#/tui/utils/markdown-options';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 
-import { colorMermaidArt, COULD_NOT_DRAW_MESSAGE, drawMermaid, undrawnDiagramReason } from './mermaid-art';
+import {
+  colorMermaidArt,
+  couldNotDrawMessage,
+  drawMermaid,
+  undrawnDiagramReason,
+} from './mermaid-art';
 
-const COPY_SOURCE_LABEL = '[Copy Source]';
-const COPIED_LABEL = '[Copied]';
-const COPY_FAILED_LABEL = '[Copy failed]';
 const COPIED_REVERT_MS = 1500;
 
 type CopyState = 'idle' | 'copied' | 'failed';
@@ -73,12 +73,19 @@ export class MermaidBlock implements Component {
     } else {
       const reason =
         draw.status === 'error'
-          ? COULD_NOT_DRAW_MESSAGE
+          ? couldNotDrawMessage()
           : draw.art !== null
-            ? `mermaid diagram too wide to render (needs ${draw.art.width} columns)`
+            ? t('tui.messages.mermaidTooWide', { columns: String(draw.art.width) })
             : undrawnDiagramReason(this.fenceBody);
       content.push(currentTheme.fg('warning', truncateToWidth(reason, contentWidth, '…')));
-      this.codeMarkdown ??= new PiMarkdown(this.fenceRaw, 0, 0, this.theme, undefined, this.options);
+      this.codeMarkdown ??= new PiMarkdown(
+        this.fenceRaw,
+        0,
+        0,
+        this.theme,
+        undefined,
+        this.options,
+      );
       content.push(...this.codeMarkdown.render(contentWidth));
     }
     if (showButton) {
@@ -100,7 +107,11 @@ export class MermaidBlock implements Component {
     if (!this.showsCopyButton()) return undefined;
     const lines = this.render(event.width);
     if (lines.length === 0) return undefined;
-    const label = truncateToWidth(this.copyLabel(), Math.max(1, event.width - this.paddingX * 2), '…');
+    const label = truncateToWidth(
+      this.copyLabel(),
+      Math.max(1, event.width - this.paddingX * 2),
+      '…',
+    );
     const x = event.x - this.paddingX;
     const onLabel = event.y === lines.length - 1 && x >= 0 && x < visibleWidth(label);
 
@@ -141,9 +152,9 @@ export class MermaidBlock implements Component {
   }
 
   private copyLabel(): string {
-    if (this.copyState === 'copied') return COPIED_LABEL;
-    if (this.copyState === 'failed') return COPY_FAILED_LABEL;
-    return COPY_SOURCE_LABEL;
+    if (this.copyState === 'copied') return t('tui.messages.mermaidCopied');
+    if (this.copyState === 'failed') return t('tui.messages.mermaidCopyFailed');
+    return t('tui.messages.mermaidCopySource');
   }
 
   private copySource(): void {

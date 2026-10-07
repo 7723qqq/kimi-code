@@ -254,7 +254,8 @@ describe('native release artifacts', () => {
       };
       for (const target of SUPPORTED_TARGETS) {
         const entry = manifest.bun[target];
-        expect(entry['filename']).toBe(`kimi-code-bun-${target}.zip`);
+        expect(entry).toBeDefined();
+        expect(entry?.['filename']).toBe(`kimi-code-bun-${target}.zip`);
         expect(entry).not.toHaveProperty('compressed');
         expect(entry).not.toHaveProperty('zstd');
       }

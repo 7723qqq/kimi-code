@@ -67,8 +67,8 @@ import {
   sessionMediaOriginalsDir,
 } from '@moonshot-ai/kimi-code-sdk';
 
-import { getCacheDir } from '#/utils/paths';
 import { parseImageMeta } from '#/utils/image/image-mime';
+import { getCacheDir } from '#/utils/paths';
 
 import { MEDIA_FILE_REF_MIN_REMAINING_MS } from '../constant/media';
 import type {

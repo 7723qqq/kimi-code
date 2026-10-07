@@ -1,3 +1,4 @@
+import type { WorkspaceTrustInfo } from '@moonshot-ai/kimi-code-sdk';
 import {
   Key,
   matchesKey,
@@ -6,10 +7,8 @@ import {
   type Component,
   type Focusable,
 } from '@moonshot-ai/pi-tui';
-import type { WorkspaceTrustInfo } from '@moonshot-ai/kimi-code-sdk';
 
 import { t } from '#/i18n';
-
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme, type ColorToken } from '#/tui/theme';
 import { pageView } from '#/tui/utils/paging';

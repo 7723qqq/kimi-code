@@ -78,6 +78,10 @@ export class NoticeMessageComponent extends Container {
   // prefixing the whole string once would only indent the first line and leave
   // the rest at column 0 (same handling as StatusMessageComponent).
   private renderDetail(detail: string): string {
-    return currentTheme.fg('textDim', detail).split('\n').map((line) => `  ${line}`).join('\n');
+    return currentTheme
+      .fg('textDim', detail)
+      .split('\n')
+      .map((line) => `  ${line}`)
+      .join('\n');
   }
 }

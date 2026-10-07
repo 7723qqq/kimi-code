@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   detectTmuxKeyboardWarning,
-  TMUX_EXTENDED_KEYS_FORMAT_XTERM_WARNING,
-  TMUX_EXTENDED_KEYS_OFF_WARNING,
+  tmuxExtendedKeysFormatXtermWarning,
+  tmuxExtendedKeysOffWarning,
   type TmuxOptionReader,
 } from '#/tui/utils/tmux-keyboard';
 
@@ -39,7 +39,7 @@ describe('tmux keyboard setup detection', () => {
 
     await expect(
       detectTmuxKeyboardWarning({ TMUX: '/tmp/tmux/default,123,0' }, readOption),
-    ).resolves.toBe(TMUX_EXTENDED_KEYS_OFF_WARNING);
+    ).resolves.toBe(tmuxExtendedKeysOffWarning());
   });
 
   it('warns when extended-keys-format is xterm', async () => {
@@ -50,7 +50,7 @@ describe('tmux keyboard setup detection', () => {
 
     await expect(
       detectTmuxKeyboardWarning({ TMUX: '/tmp/tmux/default,123,0' }, readOption),
-    ).resolves.toBe(TMUX_EXTENDED_KEYS_FORMAT_XTERM_WARNING);
+    ).resolves.toBe(tmuxExtendedKeysFormatXtermWarning());
   });
 
   it('accepts on and always with csi-u or absent format', async () => {

@@ -121,7 +121,8 @@ export function createI18n<M extends Record<Locale, MessageValue>>(
 
   function useLocale(): { locale: Locale; set: (l: Locale) => void } {
     // Dynamic hook resolution — works when React is available.
-    const { useState, useEffect, useCallback } = (globalThis as { React?: ReactGlobal }).React ?? {};
+    const { useState, useEffect, useCallback } =
+      (globalThis as { React?: ReactGlobal }).React ?? {};
     if (!useState || !useEffect || !useCallback) {
       // Non-React environment: return a static snapshot.
       return { locale: currentLocale, set: setLocale };

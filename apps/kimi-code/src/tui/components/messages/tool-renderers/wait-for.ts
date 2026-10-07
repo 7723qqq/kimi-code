@@ -9,6 +9,7 @@
 
 import { Text, type Component } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
@@ -57,30 +58,31 @@ export function buildWaitForHeader(options: {
   const { toolCall, result, bullet, chip } = options;
   if (toolCall.name !== 'WaitFor') return undefined;
 
-  const taskId = typeof toolCall.args['task_id'] === 'string' ? toolCall.args['task_id'] : undefined;
-  const argText =
-    taskId === undefined ? '' : currentTheme.dimFg('textDim', ` (${taskId})`);
+  const taskId =
+    typeof toolCall.args['task_id'] === 'string' ? toolCall.args['task_id'] : undefined;
+  const argText = taskId === undefined ? '' : currentTheme.dimFg('textDim', ` (${taskId})`);
 
   if (result === undefined) {
     const label =
-      taskId === undefined ? 'Waiting for any background task' : 'Waiting for background task';
+      taskId === undefined ? t('tui.messages.waitForAnyTask') : t('tui.messages.waitForTask');
     return `${bullet}${currentTheme.boldFg('primary', label)}${argText}`;
   }
   if (result.is_error === true) {
-    return `${bullet}${currentTheme.boldFg('error', 'Could not wait for background task')}${argText}`;
+    return `${bullet}${currentTheme.boldFg('error', t('tui.messages.waitForCouldNotWait'))}${argText}`;
   }
 
   const status = parseWaitForOutput(result.output)?.status;
   if (status === 'timed_out') {
-    return `${currentTheme.fg('warning', STATUS_BULLET)}${currentTheme.boldFg('warning', 'Wait timed out')}${argText}${chip}`;
+    return `${currentTheme.fg('warning', STATUS_BULLET)}${currentTheme.boldFg('warning', t('tui.messages.waitForTimedOut'))}${argText}${chip}`;
   }
   if (status === 'no_tasks') {
-    return `${bullet}${currentTheme.boldFg('primary', 'No background tasks running')}${chip}`;
+    return `${bullet}${currentTheme.boldFg('primary', t('tui.messages.waitForNoTasks'))}${chip}`;
   }
   if (status === 'interrupted') {
-    return `${bullet}${currentTheme.boldFg('primary', 'Wait interrupted by new input')}${argText}${chip}`;
+    return `${bullet}${currentTheme.boldFg('primary', t('tui.messages.waitForInterrupted'))}${argText}${chip}`;
   }
-  const label = taskId === undefined ? 'Waited for a background task' : 'Waited for background task';
+  const label =
+    taskId === undefined ? t('tui.messages.waitForAnyTaskDone') : t('tui.messages.waitForTaskDone');
   return `${bullet}${currentTheme.boldFg('primary', label)}${argText}${chip}`;
 }
 
@@ -140,7 +142,8 @@ export function parseWaitForOutput(output: string): WaitForResultView | undefine
   const finished = section(output, 'finished');
   const duringWait = section(output, 'completed_during_wait');
   const stillRunning = section(output, 'still_running');
-  const runningCount = stillRunning === undefined ? 0 : countField(stillRunning, 'active_background_tasks');
+  const runningCount =
+    stillRunning === undefined ? 0 : countField(stillRunning, 'active_background_tasks');
   return {
     status,
     waitedMs: Number.isFinite(waitedMs) ? waitedMs : 0,

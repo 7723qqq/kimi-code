@@ -156,15 +156,15 @@ export function promptBaseUrl(
   return new Promise((resolve) => {
     const dialog = new ApiKeyInputDialogComponent(
       platformName,
-      ['The catalog declares no endpoint for this provider — enter its base URL.'],
+      [t('tui.statusMessages.promptBaseUrlMissingEndpoint')],
       (result: ApiKeyInputResult) => {
         host.restoreEditor();
         resolve(result.kind === 'ok' ? result.value : undefined);
       },
       {
-        title: `Enter base URL for ${platformName}`,
+        title: t('tui.statusMessages.promptBaseUrlTitle', { provider: platformName }),
         mask: false,
-        emptyHint: 'Base URL cannot be empty.',
+        emptyHint: t('tui.statusMessages.promptBaseUrlEmpty'),
       },
     );
     host.mountEditorReplacement(dialog);
