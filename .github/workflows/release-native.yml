@@ -152,15 +152,22 @@ jobs:
           fi
 
           for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 win32-x64; do
-            zip="dist-native-release/kimi-code-bun-${target}.zip"
-            if [[ ! -f "$zip" ]]; then
-              echo "::error::Missing release asset $zip"
-              exit 1
-            fi
-            # Re-derive each checksum from the archive itself. The .sha256
-            # files travel in the same upload, so comparing them to each other
-            # would prove nothing about the bytes users download.
-            (cd dist-native-release && sha256sum -c "$(basename "$zip").sha256")
+            # Every published form is checked, not just the zip: the tar.gz and
+            # zst are built here from the same binary but by separate tools, so
+            # a checksum mismatch in either is possible and would reach users.
+            for artifact in \
+              "kimi-code-bun-${target}.zip" \
+              "kimi-code-${target}.tar.gz" \
+              "kimi-code-${target}.zst"; do
+              if [[ ! -f "dist-native-release/$artifact" ]]; then
+                echo "::error::Missing release asset $artifact"
+                exit 1
+              fi
+              # Re-derive each checksum from the artifact itself. The .sha256
+              # files travel in the same upload, so comparing them to each
+              # other would prove nothing about the bytes users download.
+              (cd dist-native-release && sha256sum -c "$artifact.sha256")
+            done
           done
 
           # An empty or partial manifest would publish successfully and only
