@@ -285,10 +285,18 @@ jobs:
           # Release into a draft rather than removing it, and re-running this
           # workflow must not die on that leftover. Edit it when present so the
           # run is idempotent, and create it otherwise.
-          release_id=""
-          if QUIET_404=1 api_retry "$RELEASE_API/tags/$TAG"; then
-            release_id="$(jq -r '.id // empty' < "$RETRY_BODY")"
-          fi
+          #
+          # Look the release up through the listing, not /releases/tags/<tag>:
+          # that endpoint returns an arbitrary match when a tag has both a
+          # published release and a leftover draft, and picking the draft by
+          # accident would leave the run updating an invisible release.
+          # Prefer the published one, then any draft, then create.
+          release_id="$(api_retry "$RELEASE_API?per_page=100" \
+            | jq -r --arg tag "$TAG" '
+                map(select(.tag_name == $tag))
+                | sort_by(.draft)
+                | first
+                | .id // empty')"
 
           # jq builds the payload so the changelog body is escaped correctly;
           # hand-writing JSON around arbitrary markdown would break on quotes.
