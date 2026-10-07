@@ -703,6 +703,9 @@ export class AgentTranscriptProjector {
     llmServerDecodeMs?: number;
     llmClientConsumeMs?: number;
     llmClientBlockedMs?: number;
+    llmFirstTokenOffsetMs?: number;
+    llmLastTokenOffsetMs?: number;
+    llmWindowOnFrameClock?: boolean;
   }): TranscriptOperation[] {
     const ops: TranscriptOperation[] = [];
     this.flushOpenFrames(ops);
@@ -732,6 +735,9 @@ export class AgentTranscriptProjector {
         llmServerDecodeMs: event.llmServerDecodeMs,
         llmClientConsumeMs: event.llmClientConsumeMs,
         llmClientBlockedMs: event.llmClientBlockedMs,
+        llmFirstTokenOffsetMs: event.llmFirstTokenOffsetMs,
+        llmLastTokenOffsetMs: event.llmLastTokenOffsetMs,
+        llmWindowOnFrameClock: event.llmWindowOnFrameClock,
       },
     };
     ops.push({ op: 'step.upsert', turnId, step: this.currentStep });

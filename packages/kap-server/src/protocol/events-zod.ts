@@ -785,6 +785,14 @@ export const turnStepCompletedEventSchema = z.object({
   llmServerDecodeMs: z.number().optional(),
   llmClientConsumeMs: z.number().optional(),
   llmClientBlockedMs: z.number().optional(),
+  /** Epoch ms of the first and last streamed parts carrying generated tokens.
+   *  They bracket what `usage.output` counts — the interval a throughput figure
+   *  divides by. Their difference is the window; the absolute values let a
+   *  consumer in another process sanity-check that both endpoints share the
+   *  clock its frame timestamps are on. */
+  llmFirstTokenOffsetMs: z.number().optional(),
+  llmLastTokenOffsetMs: z.number().optional(),
+  llmWindowOnFrameClock: z.boolean().optional(),
   providerFinishReason: finishReasonSchema.optional(),
   rawFinishReason: z.string().optional(),
 }) satisfies z.ZodType<TurnStepCompletedPayload>;

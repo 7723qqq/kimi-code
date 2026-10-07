@@ -1637,6 +1637,11 @@ export class DaemonKimiWebApi implements KimiWebApi {
         // message list.
         if (snapshot.inFlightTurn === null) {
           projector.reset(sessionId);
+          // The stats accumulator is reset beside the projector, as it is on
+          // resync: a session re-seeded from a snapshot carries different steps
+          // from the ones already folded in, and leaving the old totals would
+          // keep reporting them.
+          statsBySession.delete(sessionId);
           return;
         }
         const appEvents = projector.seedInFlight(sessionId, snapshot.inFlightTurn);

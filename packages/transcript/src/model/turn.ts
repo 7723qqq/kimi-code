@@ -36,6 +36,13 @@ export interface StepTiming {
   readonly llmServerDecodeMs?: number;
   readonly llmClientConsumeMs?: number;
   readonly llmClientBlockedMs?: number;
+  /** Epoch ms of the first and last streamed parts carrying generated tokens,
+   *  bracketing what `usage.output` counts. Persisted as-is: the pair stays
+   *  comparable after it is replayed into another process. */
+  readonly llmFirstTokenOffsetMs?: number;
+  readonly llmLastTokenOffsetMs?: number;
+  /** Whether the offsets above share the clock the frame timestamps use. */
+  readonly llmWindowOnFrameClock?: boolean;
 }
 
 export interface StepRetry {

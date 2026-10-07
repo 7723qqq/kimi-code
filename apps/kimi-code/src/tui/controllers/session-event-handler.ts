@@ -120,10 +120,13 @@ export interface SessionEventHost {
   track(event: string, props?: Record<string, unknown>): void;
   recordSessionActivity(): void;
   noteStepUsage(usage: TokenUsage | undefined): void;
+  /** Folds one completed step into the readout. The decode window comes from
+   *  the engine (first and last token-bearing part) rather than from a clock
+   *  read here: only `llm.streaming.part` sees every part, including the
+   *  tool-call argument deltas that never reach the host event stream. */
   noteStepCacheStats(
     usage: TokenUsage | undefined,
-    streamDurationMs: number | undefined,
-    serverDecodeMs: number | undefined,
+    window: { llmFirstTokenOffsetMs?: number; llmLastTokenOffsetMs?: number },
   ): void;
   noteSessionTurnStarted(): void;
   noteSessionStepCompleted(
@@ -546,7 +549,10 @@ export class SessionEventHandler {
     this.host.streamingUI.flushNow();
     this.clearStepRetry();
     this.host.noteStepUsage(event.usage);
-    this.host.noteStepCacheStats(event.usage, event.llmStreamDurationMs, event.llmServerDecodeMs);
+    this.host.noteStepCacheStats(event.usage, {
+      llmFirstTokenOffsetMs: event.llmFirstTokenOffsetMs,
+      llmLastTokenOffsetMs: event.llmLastTokenOffsetMs,
+    });
     this.host.noteSessionStepCompleted(
       event.usage,
       event.llmStreamDurationMs,

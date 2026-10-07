@@ -4121,6 +4121,96 @@ command = "vim"
     expect(driver.state.queuedMessages).toEqual([]);
   });
 
+  it('folds the engine-reported window into a cumulative rate', async () => {
+    const { driver } = await makeDriver();
+    const tui = driver as unknown as {
+      noteStepCacheStats(
+        usage: unknown,
+        window: { llmFirstTokenOffsetMs?: number; llmLastTokenOffsetMs?: number },
+      ): void;
+    };
+
+    // 99 tokens (100 output tokens span 99 gaps) over an 800 ms window.
+    tui.noteStepCacheStats({ output: 100 }, {
+      llmFirstTokenOffsetMs: 4_000,
+      llmLastTokenOffsetMs: 4_800,
+    });
+    expect(driver.state.appState.tokenSpeed).toBeCloseTo(123.75, 6);
+
+    // A second step averages in rather than replacing the reading.
+    tui.noteStepCacheStats({ output: 100 }, {
+      llmFirstTokenOffsetMs: 0,
+      llmLastTokenOffsetMs: 800,
+    });
+    expect(driver.state.appState.tokenSpeed).toBeCloseTo(123.75, 6);
+  });
+
+  it('ignores a step the engine reported no window for', async () => {
+    const { driver } = await makeDriver();
+    const tui = driver as unknown as {
+      noteStepCacheStats(
+        usage: unknown,
+        window: { llmFirstTokenOffsetMs?: number; llmLastTokenOffsetMs?: number },
+      ): void;
+    };
+
+    tui.noteStepCacheStats({ output: 500 }, {});
+    expect(driver.state.appState.tokenSpeed).toBe(0);
+  });
+
+  it('resets the token-speed readout on a session switch', async () => {
+    const { driver } = await makeDriver();
+    const tui = driver as unknown as {
+      noteStepCacheStats(
+        usage: unknown,
+        window: { llmFirstTokenOffsetMs?: number; llmLastTokenOffsetMs?: number },
+      ): void;
+    };
+
+    tui.noteStepCacheStats({ output: 100 }, { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 800 });
+    expect(driver.state.appState.tokenSpeed).toBeCloseTo(123.75, 6);
+
+    (driver as unknown as { resetSessionRuntime(): void }).resetSessionRuntime();
+    expect(driver.state.appState.tokenSpeed).toBe(0);
+
+    tui.noteStepCacheStats({ output: 100 }, { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 400 });
+    expect(driver.state.appState.tokenSpeed).toBeCloseTo(247.5, 6);
+  });
+
+  it('resets the token-speed readout on a /undo context cut', async () => {
+    const { driver } = await makeDriver();
+    const tui = driver as unknown as {
+      noteStepCacheStats(
+        usage: unknown,
+        window: { llmFirstTokenOffsetMs?: number; llmLastTokenOffsetMs?: number },
+      ): void;
+      noteContextCut(): void;
+    };
+
+    tui.noteStepCacheStats({ output: 100 }, { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 800 });
+    expect(driver.state.appState.tokenSpeed).toBeCloseTo(123.75, 6);
+
+    tui.noteContextCut();
+    expect(driver.state.appState.tokenSpeed).toBe(0);
+  });
+
+  it('leaves the readout untouched when a step reports no tokens', async () => {
+    const { driver } = await makeDriver();
+    const tui = driver as unknown as {
+      noteStepCacheStats(
+        usage: unknown,
+        window: { llmFirstTokenOffsetMs?: number; llmLastTokenOffsetMs?: number },
+      ): void;
+    };
+
+    tui.noteStepCacheStats({ output: 100 }, { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 800 });
+    const settled = driver.state.appState.tokenSpeed;
+    expect(settled).toBeCloseTo(123.75, 6);
+
+    tui.noteStepCacheStats(undefined, {});
+    expect(driver.state.appState.tokenSpeed).toBe(settled);
+  });
+
   it('drops failed WaitFor input when the session changed meanwhile', async () => {
     const steer = pendingSteer();
     const { driver } = await makeDriver(steer.session);

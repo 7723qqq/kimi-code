@@ -94,6 +94,9 @@ export interface SessionReplayHost {
   showError(msg: string): void;
   appendTranscriptEntry(entry: TranscriptEntry): void;
   mergeAllTurnSteps(): void;
+  /** A replayed session starts the footer's speed readout over: the pre-replay
+   *  process may have measured a different session. */
+  resetTokenSpeed(): void;
 }
 
 function extractBashTag(
@@ -122,6 +125,7 @@ export class SessionReplayRenderer {
 
   async hydrateFromReplay(session: Session): Promise<boolean> {
     this.host.setAppState({ isReplaying: true });
+    this.host.resetTokenSpeed();
     try {
       const main = session.getResumeState()?.agents['main'];
       if (main === undefined) {

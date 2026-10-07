@@ -29,7 +29,7 @@ import {
   traceIdFromHeadersRecord,
   VideoUploadUnsupportedError,
 } from '../contract/errors';
-import { fromLlmAssistantMessage, toLlmMessage, type Tool } from '../contract/message';
+import { fromLlmAssistantMessage, toLlmMessage, type StreamedMessagePart, type Tool } from '../contract/message';
 import { mergeUsagePatch } from '#human/llm/usage';
 
 import type { Model } from './catalog';
@@ -169,6 +169,17 @@ export class ModelRequesterImpl implements ModelRequester {
     let requestSentAt: number | undefined;
     let firstChunkAt: number | undefined;
     let streamEndedAt: number | undefined;
+    // The token-bearing-part window is reported in epoch milliseconds even
+    // though its endpoints are read from `performance.now()`: the two differ by
+    // a constant captured once here, so the interval between them is exactly
+    // the monotonic one — a wall-clock step mid-stream cancels out — while the
+    // absolute value stays comparable with the frame timestamps that carry it
+    // to another process. `performance.now()` on its own shares no epoch with
+    // anything outside this process, which is why the values are named
+    // `...OffsetMs` rather than `...AtMs`.
+    const epochOffset = Date.now() - performance.now();
+    let firstTokenAt: number | undefined;
+    let lastTokenAt: number | undefined;
     let serverDecodeMs = 0;
     let clientConsumeMs = 0;
     let lastResumeAt = 0;
@@ -232,6 +243,17 @@ export class ModelRequesterImpl implements ModelRequester {
                 decodeBlocking?.begin();
               } else {
                 serverDecodeMs += arrivedAt - lastResumeAt;
+              }
+              // The throughput window is bracketed by the parts that carry
+              // generated tokens — text, thinking and streamed tool-call
+              // arguments, which are what `usage.output` counts. Media parts
+              // describe the input side and never delimit it. This is the only
+              // place every part is visible; the host-facing event stream
+              // drops the tool-call-argument parts that precede any text.
+              if (carriesOutputTokens(event.part)) {
+                const outputPartAt = epochOffset + performance.now();
+                if (firstTokenAt === undefined) firstTokenAt = outputPartAt;
+                lastTokenAt = outputPartAt;
               }
               accumulator.push(event.part);
               queue.push({ type: 'part', part: event.part });
@@ -307,10 +329,19 @@ export class ModelRequesterImpl implements ModelRequester {
             serverDecodeMs,
             clientConsumeMs,
           }),
+          { firstTokenAt, lastTokenAt },
         ),
       });
     }
   }
+}
+
+/** True for streamed parts whose content is counted in `usage.output`: visible
+ *  text, reasoning, and tool-call argument deltas. Media parts carry input.
+ *  Kept next to the throughput window it defines, since the window is only
+ *  meaningful as long as this predicate matches the provider's accounting. */
+export function carriesOutputTokens(part: StreamedMessagePart): boolean {
+  return part.type === 'text' || part.type === 'think' || part.type === 'tool_call_part';
 }
 
 function finalizeDecodeStats(
@@ -399,12 +430,27 @@ export function buildStreamTiming(
   firstChunkAt: number,
   streamEndedAt: number | undefined,
   decodeStats: StreamDecodeStats | undefined,
+  outputParts: { firstTokenAt: number | undefined; lastTokenAt: number | undefined } = {
+    firstTokenAt: undefined,
+    lastTokenAt: undefined,
+  },
 ): ModelRequestTiming {
   const outputEndedAt = streamEndedAt ?? Date.now();
   const timing: MutableModelRequestTiming = {
     firstTokenLatencyMs: Math.max(0, firstChunkAt - requestStartedAt),
     streamDurationMs: Math.max(0, outputEndedAt - firstChunkAt),
   };
+  if (outputParts.firstTokenAt !== undefined) {
+    timing.llmFirstTokenOffsetMs = outputParts.firstTokenAt;
+  }
+  if (outputParts.lastTokenAt !== undefined) {
+    timing.llmLastTokenOffsetMs = outputParts.lastTokenAt;
+  }
+  if (outputParts.firstTokenAt !== undefined && outputParts.lastTokenAt !== undefined) {
+    // The caller derived both from this process's epoch base, so they are on
+    // the clock `Date.now()` — and therefore the frame timestamps — uses.
+    timing.llmWindowOnFrameClock = true;
+  }
   if (requestSentAt !== undefined) {
     const sentAt = Math.min(Math.max(requestSentAt, requestStartedAt), firstChunkAt);
     timing.requestBuildMs = sentAt - requestStartedAt;

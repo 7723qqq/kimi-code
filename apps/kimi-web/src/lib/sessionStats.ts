@@ -28,7 +28,9 @@ export interface SessionStats {
   readonly ttftMs: number;
   /** Steps that recorded a first-token latency. */
   readonly ttftSteps: number;
-  /** Summed decode wall time over steps that also report output tokens, ms. */
+  /** Summed decode wall time over steps that also report output tokens, ms.
+   *  Measured across the token-bearing parts — first to last — so it covers the
+   *  interval the `decodeTokens` beside it were produced in. */
   readonly decodeMs: number;
   /** Summed output tokens over the same decode-timed steps. */
   readonly decodeTokens: number;
@@ -96,6 +98,48 @@ function numOrNull(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+/** Whether a step's decode endpoints may be used, given the frame that carried
+ *  them. A frame that declares `llmWindowOnFrameClock` asserts its endpoints
+ *  share the clock its own `timestamp` is on, which makes them checkable — and
+ *  the check is deliberately loose. It exists to reject a pair that is not on
+ *  this clock at all: an endpoint straight from another process's monotonic
+ *  reading, or one left behind by an earlier session. Either would add a huge
+ *  bogus interval to the decode total and drag the average toward zero.
+ *  An implausible window is dropped exactly like a missing one rather than
+ *  clamped — a silently wrong reading is worse than none. Frames that carry no
+ *  such claim keep the older contract, where only the difference is meaningful
+ *  and no absolute band applies. */
+function windowMatchesFrameClock(
+  payload: Record<string, unknown> | null,
+  timestamp: string,
+  firstPartMs: number | null,
+  lastPartMs: number | null,
+): boolean {
+  if (payload?.['llmWindowOnFrameClock'] !== true) return true;
+  const arrivedAtMs = parseFrameTime(timestamp);
+  if (arrivedAtMs === null) return true;
+  if (firstPartMs === null || lastPartMs === null) return true;
+  return (
+    lastPartMs <= arrivedAtMs + MAX_WINDOW_SKEW_MS && lastPartMs >= arrivedAtMs - MAX_WINDOW_AGE_MS
+  );
+}
+
+/** How far the decode endpoints may sit from the frame's own arrival and still
+ *  be believed, ms, once the frame has declared that its endpoints share the
+ *  frame's clock. The upper bound covers clock skew between the process that
+ *  read the endpoint and the one that stamped the frame plus the delivery lag
+ *  of the completion frame; the lower bound covers a replayed session whose
+ *  frames are stamped with their original arrival while its endpoints were
+ *  sampled live. */
+const MAX_WINDOW_SKEW_MS = 60_000;
+const MAX_WINDOW_AGE_MS = 24 * 60 * 60 * 1000;
+
+/** Steps below this token count contribute no rate. A single token has no
+ *  interval to be decoded over, and the serving specs record its time per
+ *  output token as undefined rather than zero — the TUI sampler skips the same
+ *  steps, so both readouts ignore the same ones. */
+const MIN_DECODE_TOKENS = 2;
+
 /** Subagent / side-channel frames (payload.agentId set and not 'main') are not counted. */
 function isMainAgent(payload: Record<string, unknown> | null): boolean {
   const agentId = payload?.['agentId'];
@@ -139,9 +183,40 @@ export function feedSessionStats(
       const stream = numOrNull(payload?.['llmStreamDurationMs']);
       const usage = normalizeUsage(payload?.['usage']);
       const llmMs = stats.llmMs + build + (ttft ?? 0) + (stream ?? 0);
+      // The throughput denominator is the span between the first and last
+      // streamed parts that carry generated tokens — the only interval that
+      // brackets what `usage.output` counts. `llmStreamDurationMs` runs from
+      // the first frame to stream close, so its tail (usage frame, finish
+      // frame, close) is inside the denominator but produced no tokens and
+      // every rate reads low. A step missing either endpoint is skipped as a
+      // pair: counting its tokens without its time would bias the average.
+      //
+      // The numerator is `output - 1`: `n` tokens are separated by `n - 1`
+      // gaps, so the interval the endpoints bracket holds that many. Counting
+      // `n` over it would read `1/(n-1)` high — small, but it is the difference
+      // between the rate the stream achieved and one that merely looks precise.
+      // The TUI's sampler takes the same view, so the two readouts agree.
+      const firstPartMs = numOrNull(payload?.['llmFirstTokenOffsetMs']);
+      const lastPartMs = numOrNull(payload?.['llmLastTokenOffsetMs']);
+      const windowFitsFrame = windowMatchesFrameClock(
+        payload,
+        frame.timestamp,
+        firstPartMs,
+        lastPartMs,
+      );
+      const decodeWindowMs =
+        firstPartMs !== null &&
+        lastPartMs !== null &&
+        lastPartMs > firstPartMs &&
+        windowFitsFrame
+          ? lastPartMs - firstPartMs
+          : null;
       const decode =
-        stream !== null && usage.output > 0
-          ? { decodeMs: stats.decodeMs + stream, decodeTokens: stats.decodeTokens + usage.output }
+        decodeWindowMs !== null && usage.output >= MIN_DECODE_TOKENS
+          ? {
+              decodeMs: stats.decodeMs + decodeWindowMs,
+              decodeTokens: stats.decodeTokens + (usage.output - 1),
+            }
           : { decodeMs: stats.decodeMs, decodeTokens: stats.decodeTokens };
       return {
         ...state,
@@ -214,7 +289,13 @@ export function averageTtftMs(stats: SessionStats): number | null {
   return stats.ttftSteps === 0 ? null : stats.ttftMs / stats.ttftSteps;
 }
 
-/** Decode throughput in tokens/s; null when no decode time was recorded. */
+/** Decode throughput in tokens/s; null when no decode time was recorded.
+ *
+ * This is a session-cumulative ratio, the same quantity the TUI footer shows
+ * (`apps/kimi-code/src/tui/utils/token-speed.ts`). Both divide summed decode
+ * time into the tokens produced in it and both subtract the token a step's
+ * window cannot span, so the two agree on a given reply and differ only in the
+ * rounding thresholds below. */
 export function tokensPerSecond(stats: SessionStats): number | null {
   return stats.decodeMs === 0 ? null : (stats.decodeTokens / stats.decodeMs) * 1000;
 }

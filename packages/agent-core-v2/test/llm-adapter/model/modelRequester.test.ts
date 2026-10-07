@@ -28,6 +28,7 @@ import type { ModelRequestEvent } from '#/llm-adapter/model/model-requester';
 import { effectiveMaxCompletionTokens } from '#/llm-adapter/model/model-requester';
 import {
   buildStreamTiming,
+  carriesOutputTokens,
   ModelRequesterImpl,
   type ModelLlmGateway,
 } from '#/llm-adapter/model/model-requester-impl';
@@ -452,12 +453,46 @@ describe('effectiveMaxCompletionTokens', () => {
   });
 });
 
+describe('carriesOutputTokens', () => {
+  it('accepts the part kinds counted in usage.output', () => {
+    expect(carriesOutputTokens({ type: 'text', text: 'x' })).toBe(true);
+    expect(carriesOutputTokens({ type: 'think', think: 'x' })).toBe(true);
+    expect(carriesOutputTokens({ type: 'tool_call_part', argumentsPart: '{}' })).toBe(true);
+  });
+
+  it('rejects media parts, which describe the input side', () => {
+    expect(carriesOutputTokens({ type: 'image_url', imageUrl: { url: 'kimi-file://a' } })).toBe(false);
+    expect(carriesOutputTokens({ type: 'audio_url', audioUrl: { url: 'kimi-file://b' } })).toBe(false);
+    expect(carriesOutputTokens({ type: 'video_url', videoUrl: { url: 'kimi-file://c' } })).toBe(false);
+  });
+});
+
 describe('buildStreamTiming', () => {
   it('returns base TTFT and stream duration only', () => {
     expect(buildStreamTiming(100, undefined, 250, 400, undefined)).toEqual({
       firstTokenLatencyMs: 150,
       streamDurationMs: 150,
     });
+  });
+
+  it('carries the token-bearing-part window when the stream reported one', () => {
+    const timing = buildStreamTiming(100, undefined, 250, 4_000, undefined, {
+      firstTokenAt: 1_000,
+      lastTokenAt: 1_800,
+    });
+    // The window (800 ms) is distinct from and shorter than the stream span
+    // (3 750 ms): it excludes the head wait and the tail.
+    expect(timing.llmFirstTokenOffsetMs).toBe(1_000);
+    expect(timing.llmLastTokenOffsetMs).toBe(1_800);
+  });
+
+  it('omits the window when no token-bearing part was seen', () => {
+    const timing = buildStreamTiming(100, undefined, 250, 400, undefined, {
+      firstTokenAt: undefined,
+      lastTokenAt: undefined,
+    });
+    expect(timing.llmFirstTokenOffsetMs).toBeUndefined();
+    expect(timing.llmLastTokenOffsetMs).toBeUndefined();
   });
 
   it('splits TTFT across the request-sent boundary', () => {

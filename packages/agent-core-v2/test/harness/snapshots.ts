@@ -361,6 +361,9 @@ function isVolatileDurationKey(key: string): boolean {
     key === 'llmServerDecodeMs' ||
     key === 'llmClientConsumeMs' ||
     key === 'llmClientBlockedMs' ||
+    key === 'llmFirstTokenOffsetMs' ||
+    key === 'llmLastTokenOffsetMs' ||
+    key === 'llmWindowOnFrameClock' ||
     key === 'durationMs'
   );
 }

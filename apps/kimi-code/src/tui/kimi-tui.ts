@@ -163,7 +163,7 @@ import { installTerminalFocusTracking } from './utils/terminal-focus';
 import { installTerminalThemeTracking } from './utils/terminal-theme';
 import { thinkingEffortFromConfig } from './utils/thinking-config';
 import { detectTmuxKeyboardWarning } from './utils/tmux-keyboard';
-import { computeSmoothedTokenSpeed, pickDecodeMs } from './utils/token-speed';
+import { TokenSpeedSampler } from './utils/token-speed';
 import { markTranscriptComponent } from './utils/transcript-component-metadata';
 import { nextTranscriptId } from './utils/transcript-id';
 import { expandCutoffIndex, TRANSCRIPT_EXPAND_TURNS } from './utils/transcript-window';
@@ -314,7 +314,8 @@ export class KimiTUI {
   private pluginCommands: readonly KimiSlashCommand[] = [];
   readonly pluginCommandMap = new Map<string, string>();
   private readonly imageStore = new ImageAttachmentStore();
-  private tokenSpeedEma: number | null = null;
+  /** Owns the decode-rate state and its lifetime; see utils/token-speed.ts. */
+  private readonly tokenSpeed = new TokenSpeedSampler();
   // Detected lazily in startBackgroundFdAutocomplete() — detection spawns
   // `fd --version`, which must not happen before the workspace trust gate:
   // on Windows a bare command name resolves into the (untrusted) cwd first.
@@ -2025,6 +2026,7 @@ export class KimiTUI {
   resetSessionRuntime(): void {
     this.aborted = false;
     this.cacheHint.resetRuntime();
+    this.resetTokenSpeed();
     this.surveyController.reset();
     this.streamingUI.discardPending();
     this.clearQueuedMessages();
@@ -2589,15 +2591,14 @@ export class KimiTUI {
   }
 
   /**
-   * Per-step cache-hit and output-speed accounting for the footer readout:
-   * accumulate cache hit/miss input tokens for the live hit rate, and fold
-   * the step's decode-window + output-token count into the EMA that backs
-   * `appState.tokenSpeed`.
+   * Per-step cache-hit accounting for the footer readout, and the close of the
+   * step's decode window. Cache hit/miss input tokens accumulate for the live
+   * hit rate; the speed sample is `usage.output` over the window the engine
+   * measured between the step's first and last token-bearing parts.
    */
   noteStepCacheStats(
     usage: TokenUsage | undefined,
-    streamDurationMs: number | undefined,
-    serverDecodeMs: number | undefined,
+    window: { llmFirstTokenOffsetMs?: number; llmLastTokenOffsetMs?: number },
   ): void {
     const patch: Partial<AppState> = {};
     if (usage !== undefined) {
@@ -2618,20 +2619,25 @@ export class KimiTUI {
         patch.cacheOtherTokens = this.state.appState.cacheOtherTokens + (usage.inputOther ?? 0);
       }
     }
-    // Prefer the provider-reported decode window over the wall-clock stream
-    // duration: a batched SSE response (or prompt-cache hit) collapses the
-    // wall-clock between first and last event to a few ms and would otherwise
-    // surface thousands of tok/s. Fall back to the stream duration only when
-    // the provider stream omitted the decode accounting split.
-    const decodeMs = pickDecodeMs(serverDecodeMs, streamDurationMs);
-    const next = computeSmoothedTokenSpeed(this.tokenSpeedEma, usage?.output ?? 0, decodeMs);
+    const next = this.tokenSpeed.addStep(
+      window.llmFirstTokenOffsetMs,
+      window.llmLastTokenOffsetMs,
+      usage?.output ?? 0,
+    );
     if (next !== null) {
-      this.tokenSpeedEma = next;
       patch.tokenSpeed = next;
     }
     if (Object.keys(patch).length > 0) {
       this.setAppState(patch);
     }
+  }
+
+  /** The speed readout is session-scoped, like the stats beside it: a new
+   *  session, a `/undo` context cut and a replay hydration all start it over
+   *  rather than blending the new session's first step into the previous one. */
+  resetTokenSpeed(): void {
+    this.tokenSpeed.reset();
+    this.setAppState({ tokenSpeed: 0 });
   }
 
   /** Session turn counter for the footer stats (user-facing turns only; the
@@ -2671,9 +2677,11 @@ export class KimiTUI {
     this.cacheHint.resetCacheBreakBaseline();
   }
 
-  /** /undo cut the context — the next step's cache drop is expected. */
+  /** /undo cut the context — the next step's cache drop is expected, and the
+   *  speed readout restarts rather than blending the pre-undo rate in. */
   noteContextCut(): void {
     this.cacheHint.resetCacheBreakBaseline();
+    this.resetTokenSpeed();
   }
 
   private async runMigrationScreen(plan: MigrationPlan): Promise<MigrationScreenResult> {
