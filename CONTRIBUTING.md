@@ -257,6 +257,14 @@ Every push to `main` runs the Release workflow: the changesets action opens or u
 - The workflow requires the repo setting **Actions → General → "Allow GitHub Actions to create and approve pull requests"** to be enabled. If Release fails with `GitHub Actions is not permitted to create or approve pull requests`, flip that toggle (or via API: `PUT /repos/{owner}/{repo}/actions/permissions/workflow` with `can_approve_pull_request_reviews: true`).
 - Before an intentional release, preview the user-facing changelog with the `pre-changelog` skill, then prune accumulated non-user-facing changesets from `main`.
 
+### Publishing binaries
+
+`release-native.yml` builds and publishes the CLI binaries for all six targets. Push a version tag (`v2.1.1` or `@moonshot-ai/kimi-code@2.1.1`) to trigger it, or run the workflow manually with an existing tag.
+
+- The tag's version must match `apps/kimi-code/package.json`; the run fails before publishing otherwise, so bump the version and merge it before tagging.
+- Release notes come from the matching section of `apps/kimi-code/CHANGELOG.md`. When that section is missing the release body falls back to a generic one instead of failing.
+- Without the Apple or Azure secrets the build still succeeds and publishes unsigned binaries. See DEVELOP → "Native release".
+
 ## Pull Requests
 
 Every PR opens with the [PR template](.github/pull_request_template.md). PR titles must follow [Conventional Commits](#commit-convention); CI runs `bun run lint`, `bun run typecheck`, and `bun --bun run test` on every PR. Update user-facing docs in `docs/` when behavior changes — use the `gen-docs` skill when working with coding agents.

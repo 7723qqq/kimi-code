@@ -53,6 +53,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # All six labels are standard GitHub-hosted runners, not larger/self-hosted
+        # ones. Note that windows-2025-vs2026 appears only in the public-repository
+        # runner table: if this repo is ever made private, win32-x64 must switch to
+        # a label from the private table (windows-latest / windows-2025 / windows-2022).
         include:
           - os: ubuntu-24.04
             target: linux-x64

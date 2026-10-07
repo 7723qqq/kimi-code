@@ -1,0 +1,237 @@
+name: Release Native
+
+# Push a version tag (v2.1.1 or @moonshot-ai/kimi-code@2.1.1) to build the
+# native deliverables on all six targets and publish them as a GitHub Release.
+# This fork never publishes to npm, so the tag — not a changesets run — is the
+# release trigger. _native-build.yml owns the per-target build, including
+# signing and notarization when the Apple secrets are present.
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - '@moonshot-ai/kimi-code@*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and release (e.g. v2.1.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  resolve-release:
+    name: Resolve release tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      commit: ${{ steps.resolve.outputs.commit }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag and version
+        id: resolve
+        env:
+          # workflow_dispatch reads the input; push uses the tag that triggered
+          # the run. `inputs` is empty on push, so both paths need one lookup.
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          tag="${INPUT_TAG:-$REF_NAME}"
+          echo "Resolved tag: $tag"
+
+          # Both tag forms carry the version: `@moonshot-ai/kimi-code@2.1.1`
+          # and `v2.1.1`. Normalize before validating so the manifest and the
+          # Release title agree on one spelling.
+          version="${tag#@moonshot-ai/kimi-code@}"
+          version="${version#v}"
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag '$tag' does not carry a semver version (got '$version'). Expected vX.Y.Z or @moonshot-ai/kimi-code@X.Y.Z."
+            exit 1
+          fi
+
+          # The tag drives every downstream step, but the checkout is still at
+          # the branch tip on a push event, so verify the tag exists in this
+          # clone and pin the build to the commit it points at.
+          commit="$(git rev-list -n 1 "$tag")"
+          echo "Tag '$tag' resolves to commit $commit"
+
+          # A tag object existing locally is not enough: the Release the next
+          # job creates is matched by commit, so confirm the tag is on the
+          # remote before spending six build runners on it.
+          if ! gh api "repos/$REPO/git/ref/tags/$tag" >/dev/null 2>&1; then
+            echo "::error::Tag '$tag' does not exist on $REPO. Push the tag first, or pass an existing tag."
+            exit 1
+          fi
+
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "commit=$commit"
+          } >> "$GITHUB_OUTPUT"
+
+  native:
+    name: Native artifacts
+    needs: resolve-release
+    uses: ./.github/workflows/_native-build.yml
+    with:
+      upload-artifact-prefix: kimi-code-native-release
+      retention-days: 3
+      sign-macos: true
+      sign-windows: true
+    secrets:
+      APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_NOTARIZATION_KEY_P8: ${{ secrets.APPLE_NOTARIZATION_KEY_P8 }}
+      APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
+      APPLE_NOTARIZATION_ISSUER_ID: ${{ secrets.APPLE_NOTARIZATION_ISSUER_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+
+  publish:
+    name: Publish GitHub Release
+    needs:
+      - resolve-release
+      - native
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # Build the Release from the tagged commit, not the branch tip.
+          ref: ${{ needs.resolve-release.outputs.commit }}
+
+      - name: Setup Bun (package manager)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Download native artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: kimi-code-native-release-*
+          path: dist-native-release
+          merge-multiple: true
+
+      - name: Produce manifest.json
+        env:
+          RELEASE_TAG: ${{ needs.resolve-release.outputs.tag }}
+        # produce-manifest.mjs fails when any of the six targets is missing: a
+        # partial manifest would strand clients on the absent platforms.
+        run: bun apps/kimi-code/scripts/native/produce-manifest.mjs dist-native-release "$RELEASE_TAG"
+
+      - name: Verify release assets
+        env:
+          VERSION: ${{ needs.resolve-release.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          # The release guard below compares against the packaged binary, so a
+          # mismatch means the tag was cut from a commit whose version was
+          # never bumped — shipping that would mislabel every download.
+          actual="$(bun -e 'console.log((await Bun.file("apps/kimi-code/package.json").json()).version)')"
+          if [[ "$actual" != "$VERSION" ]]; then
+            echo "::error::apps/kimi-code/package.json is at $actual but the tag says $VERSION. Bump the version before tagging."
+            exit 1
+          fi
+
+          for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-arm64 win32-x64; do
+            zip="dist-native-release/kimi-code-bun-${target}.zip"
+            if [[ ! -f "$zip" ]]; then
+              echo "::error::Missing release asset $zip"
+              exit 1
+            fi
+            # Re-derive each checksum from the archive itself. The .sha256
+            # files travel in the same upload, so comparing them to each other
+            # would prove nothing about the bytes users download.
+            (cd dist-native-release && sha256sum -c "$(basename "$zip").sha256")
+          done
+
+          # An empty or partial manifest would publish successfully and only
+          # fail later, inside the client's self-update path.
+          bun -e '
+            const manifest = await Bun.file("dist-native-release/manifest.json").json();
+            const targets = Object.keys(manifest.bun ?? {});
+            if (targets.length !== 6) {
+              console.error(`manifest.json carries ${targets.length} bun targets, expected 6`);
+              process.exit(1);
+            }
+            console.log(`manifest.json ok: ${targets.sort().join(", ")}`);
+          '
+
+      - name: Extract changelog section
+        id: changelog
+        env:
+          VERSION: ${{ needs.resolve-release.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          # apps/kimi-code/CHANGELOG.md is written by changesets and released
+          # without an entry, so a missing section must degrade to a generic
+          # body rather than fail an otherwise complete release.
+          notes="$(mktemp)"
+          awk -v version="$VERSION" '
+            $0 ~ "^## " version "([[:space:]]|$)" { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' apps/kimi-code/CHANGELOG.md > "$notes"
+
+          if [[ -s "$notes" ]]; then
+            echo "Found CHANGELOG section for $VERSION"
+          else
+            echo "::warning::No CHANGELOG section for $VERSION; using a generic release body."
+            {
+              echo "Native release $VERSION."
+              echo
+              echo "See [the full changelog](https://github.com/${{ github.repository }}/blob/${{ needs.resolve-release.outputs.tag }}/apps/kimi-code/CHANGELOG.md) for details."
+            } > "$notes"
+          fi
+
+          echo "path=$notes" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve-release.outputs.tag }}
+          VERSION: ${{ needs.resolve-release.outputs.version }}
+          NOTES: ${{ steps.changelog.outputs.path }}
+          TARGET: ${{ needs.resolve-release.outputs.commit }}
+        run: |
+          set -euo pipefail
+
+          # `--verify-tag` makes gh fail on a tag that is not on the remote
+          # instead of silently creating a Release that points at nothing.
+          gh release create "$TAG" \
+            --title "Kimi Code $VERSION" \
+            --notes-file "$NOTES" \
+            --target "$TARGET" \
+            --verify-tag
+
+          gh release upload "$TAG" dist-native-release/* --clobber
+
+      - name: Summarize release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve-release.outputs.tag }}
+        run: |
+          {
+            echo "### Native release $TAG"
+            echo
+            gh release view "$TAG" --json assets --jq '.assets[] | "- `\(.name)` (\(.size) bytes)"'
+          } >> "$GITHUB_STEP_SUMMARY"

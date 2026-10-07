@@ -347,11 +347,17 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job install
 7. **review** — `zig build` in `tools/review` (Zig installed via `mlugg/setup-zig`), then the structural checks described under "Structural review" above.
 8. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
 
-Additional workflows: `_native-build.yml`, `codeql.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release.yml`.
+Additional workflows: `_native-build.yml`, `codeql.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release-native.yml`, `release.yml`.
 
 ### Release flow (fork)
 
 Pushes to `main` run `release.yml`: the changesets action opens/updates a **"ci: release packages"** PR that bumps versions and assembles the changelog. **Never merge it** — this fork follows upstream versions; close the PR (its description keeps the changelog preview). Requires the repo setting *Actions → General → "Allow GitHub Actions to create and approve pull requests"* to stay enabled. See CONTRIBUTING → "Release flow on this fork".
+
+### Native release
+
+`release-native.yml` publishes the CLI binaries. It runs on a push of a version tag (`v2.1.1` or `@moonshot-ai/kimi-code@2.1.1`), or manually via `workflow_dispatch` with an existing tag. It resolves and validates the tag, invokes `_native-build.yml` for all six targets, then aggregates the per-target `.zip`/`.sha256` artifacts into `manifest.json` and creates the GitHub Release. Publishing is gated on three checks that fail the run rather than ship a bad release: `apps/kimi-code/package.json` must match the tag's version, every archive must pass `sha256sum -c` against its own checksum file, and `manifest.json` must carry all six targets. The release body is the matching section of `apps/kimi-code/CHANGELOG.md`, falling back to a generic body when the section is absent.
+
+The macOS and Windows signing steps degrade safely when their secrets are unset: `_native-build.yml` warns and builds the unsigned local profile. Note that its `windows-2025-vs2026` runner label is only offered on **public** repositories — if this repo is ever made private, `win32-x64` needs a label from the private-runner table.
 
 ### Nix build maintenance
 
