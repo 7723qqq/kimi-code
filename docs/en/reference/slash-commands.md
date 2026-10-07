@@ -18,7 +18,7 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/model` | — | Switch the LLM model used in the current session | Yes |
 | `/secondary-model` | `/subagent-model` | Pick the default model for subagents (writes `[secondary_model] default_model`; see the [subagent model pool](../configuration/config-files.md#subagent-model-pool)) | Yes |
 | `/settings` | `/config` | Open the settings panel inside the TUI | Yes |
-| `/experiments` | `/experimental` | Open the experimental feature panel | Yes |
+| `/experiments` | `/experimental` | Open the experimental feature panel | No |
 | `/permission` | — | Select a permission mode | Yes |
 | `/editor` | — | Configure the external editor launched by `Ctrl-G` | Yes |
 | `/theme` | — | Switch the terminal UI color theme | Yes |
@@ -43,6 +43,7 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/add-dir [<path>]` | — | Add an extra workspace directory to the current session. Run without a path (or with `list`) to list configured directories. When adding, choose whether to remember the directory for the project in `.kimi-code/local.toml` | No |
 | `/web` | — | Open the current session in the web UI: pick a running server to connect to, or start a new foreground server after the TUI exits. See [`kimi web`](./kimi-command.md#kimi-web) | Yes |
 | `/desktop` | `/install-desktop` | Open the Kimi Code desktop app page in your browser (URL follows the active region: `https://www.kimi.com/code` or `https://www.kimi.ai/code`). See [`kimi install-desktop`](./kimi-command.md#kimi-install-desktop) | Yes |
+| `/remote-control` | `/rc` | Open the current session through Kimi Remote Control. See [Remote Control](../guides/remote-control.md) | Yes |
 
 ## Modes & Run Control
 
@@ -52,8 +53,9 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/auto` | — | Open the permission mode list with Never Ask preselected; press `Enter` to confirm. In this mode, Kimi never interrupts you; everything runs and is decided automatically | Yes |
 | `/plan [on\|off]` | — | Toggle Plan mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. Simply toggling does not create an empty plan file | Yes |
 | `/plan clear` | — | Clear the current plan | No |
-| `/spec [on\|off]` | — | Toggle Spec mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. Unlike Plan mode, the spec is written into your repository as a lasting artifact — see [Built-in tools](./tools.md#spec-mode) | Yes || `/effort` | `/thinking` | Switch thinking effort | Yes |
-| `/swarm on\|off` | — | Turn swarm mode on or off without sending a prompt. | Yes |
+| `/spec [on\|off]` | — | Toggle Spec mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. Unlike Plan mode, the spec is written into your repository as a lasting artifact — see [Built-in tools](./tools.md#spec-mode) | No |
+| `/effort` | `/thinking` | Switch thinking effort | Yes |
+| `/swarm on\|off` | — | Turn swarm mode on or off without sending a prompt. | No |
 | `/swarm <task>` | — | Turn swarm mode on, then send `<task>` as a normal prompt. If the turn completes normally, swarm mode turns off automatically. In `manual` permission mode, Kimi Code asks whether to switch to Ask When Needed or Never Ask mode before starting. | No |
 | `/team <topic>` | — | Start a Team discussion among multiple agents | No |
 | `/workflow <name> [<args>...]` | — | Run or manage workflows (list, status, cancel, or run by name) | Yes |
@@ -134,6 +136,7 @@ Kimi Code CLI ships with a set of built-in Skills that appear directly as `/<nam
 | `/check-kimi-code-docs` | Answer Kimi Code product questions (CLI usage, configuration, membership, error codes) against the official docs |
 | `/import-from-cc-codex` | Import Claude Code and Codex instructions, skills, and MCP settings into Kimi Code |
 | `/sub-skill` | Discover and reorganize the local skill inventory into hierarchical sub-skill bundles. Includes `/sub-skill.review` (read-only proposal) and `/sub-skill.consolidate` (apply the reorganization) |
+| `/write-goal` | Help craft a well-specified `/goal` objective — a completion contract with a finish line, proof, boundaries, and a stop rule. See [Goal mode](../guides/interaction.md#goal-mode) |
 
 All built-in Skill commands are only available in the idle state.
 
@@ -141,7 +144,7 @@ All built-in Skill commands are only available in the idle state.
 
 Activated external Skills are automatically registered as slash commands. Ordinary external Skills use the `skill:` namespace prefix:
 
-```
+```text
 /skill:<name> [extra text]
 ```
 
@@ -149,7 +152,7 @@ For example, `/skill:code-style` loads the Skill named `code-style` and sends it
 
 External sub-skills appear directly in the slash command panel with dotted names:
 
-```
+```text
 /<parent-skill>.<sub-skill> [extra text]
 ```
 

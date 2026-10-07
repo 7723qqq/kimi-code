@@ -11,7 +11,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **Author**: Moonshot AI
 - **License**: MIT
 - **Homepage**: https://github.com/MoonshotAI/kimi-code
-- **Version**: `@moonshot-ai/kimi-code` 0.38.0 (the main CLI app)
+- **Version**: `@moonshot-ai/kimi-code` 2.1.1 (the main CLI app)
 
 > **Note**: This repository is a personal experimental fork of MoonshotAI/kimi-code. Not affiliated with Moonshot AI. Use at your own risk — do not submit PRs from this fork to upstream.
 
@@ -21,8 +21,8 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **Team** — Multi-agent discussion and collaboration tool; agents can debate, cross-review, and reach consensus before output.
 - **Rust Native Tools** — Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as a native Node addon, significantly faster than JS.
 - **Windows launchers** — `start-native.bat` builds the native Rust tools if needed and launches the CLI in dev mode (`bun run dev:cli`, Bun executing `src/main.ts` directly); `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
-- **Bun toolchain & packaging** — Bun is both the package manager (hoisted workspace, `bun.lock`) and the sole native-binary packaging engine (`bun build --compile` via `build-bun.mjs`); the former pnpm workspace setup and the Node SEA build chain were retired. Install, build, lint, typecheck, the native build pipeline, and the vitest suites (`bun --bun run test`) all run on Bun; CI installs no Node. Self-update remains engine-aware for legacy SEA installs.
-- **DeepSeek Harness capability fusion** — Selected capabilities ported from [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (MIT): MCP auto-reconnect with bounded exponential backoff (`mcpCore/connection-manager.ts`). Ported modules carry a source note in their header; capability selection and comparison notes live in the session report.
+- **Bun toolchain & packaging** — Bun is both the package manager (hoisted workspace, `bun.lock`) and the sole native-binary packaging engine (`bun build --compile` via `apps/kimi-code/scripts/native/build-bun.mjs`); the former pnpm workspace setup and the Node SEA build chain were retired. Install, build, lint, typecheck, the native build pipeline, and the vitest suites (`bun --bun run test`) all run on Bun; CI installs no Node. Self-update remains engine-aware for legacy SEA installs.
+- **DeepSeek Harness capability fusion** — Selected capabilities ported from [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (MIT): subagent delegation-depth accounting (`session/agentLifecycle/subagentMetadata.ts`), the eval-mode code-runtime worker (`features/codeRuntime/codeWorkerSource.ts`), and the session-query record types (`features/sessionQuery/types.ts`). Ported modules carry a source note in their header; capability selection and comparison notes live in the session report.
 
 > For a user-facing summary of these additions, see `README.md` → "What's Different in This Fork" (and its Chinese mirror `README.zh-CN.md` → "本 Fork 新增特性").
 
@@ -37,7 +37,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 | Primary language | **TypeScript** 6.0.2 (strict mode) |
 | Module system | ESM (`"type": "module"` in every package) |
 | Dev runtime | **Bun** >= 1.4 — install, build, lint, typecheck, and the vitest suites (`bun --bun run test`) all run through bun |
-| Published CLI runtime | **Node.js** >= 22.19.0 (`engines` floor of the published package; unchanged by the dev-toolchain migration) |
+| Published CLI runtime | **Bun** >= 1.4.0 (`engines` floor of the published package) |
 | Native code | **Rust** (via napi-rs for Node addon, pure Rust CLI tools) |
 | Web UI (peer) | **Vue 3** + **Vite** |
 | VS Code extension | **React 19** + **TailwindCSS 4** + **shadcn/ui** |
@@ -93,14 +93,14 @@ src/
   cli/                — CLI mode (headless)
     commands.ts       — CLI command definitions
     options.ts        — CLI option parsing
-    sub/              — Subcommands (acp, doctor, export, login, provider, upgrade, vis, web)
+    sub/              — Subcommands (acp, doctor, export, fork, install-desktop, login, provider, session, upgrade, vis, web)
     v2/               — V2 command implementation
     update/           — Self-update mechanism
   tui/                — Terminal UI mode
     kimi-tui.ts       — TUI initialization and main loop
     config.ts         — TUI configuration
     banner/           — Startup banner
-    commands/         — Slash command handlers (43 commands)
+    commands/         — Slash command handlers (46 commands)
     components/       — UI components (panes, messages, dialogs, editor, media)
     controllers/      — UI controllers (auth-flow, session, streaming, keyboard, etc.)
     theme/            — Theme system
@@ -114,9 +114,9 @@ src/
   generated/          — Generated asset references
 ```
 
-**CLI subcommands:** `acp`, `doctor`, `export`, `login`, `migrate`, `provider`, `upgrade`, `vis`, `web` (plus the hidden `__plugin_run_node` for plugin execution)
+**CLI subcommands:** `acp`, `doctor`, `export`, `fork`, `install-desktop`, `login`, `migrate`, `provider`, `session`, `upgrade`, `vis`, `web` (plus the hidden `install-app`, `__update_download`, and `__plugin_run_node`)
 
-**TUI slash commands (43 built-in, see `src/tui/commands/registry.ts`):** `yolo`, `auto`, `permission`, `settings`, `plan`, `swarm`, `tower`, `model`, `secondary-model`, `effort`, `provider`, `multi-llm`, `btw`, `help`, `new`, `sessions`, `tasks`, `mcp`, `plugins`, `add-dir`, `experiments`, `reload`, `reload-tui`, `compact`, `goal`, `init`, `fork`, `title`, `usage`, `status`, `feedback`, `workflow`, `undo`, `editor`, `theme`, `logout`, `login`, `export-md`, `export-debug-zip`, `copy`, `web`, `exit`, `version`
+**TUI slash commands (46 built-in, see `src/tui/commands/registry.ts`):** `yolo`, `auto`, `permission`, `settings`, `plan`, `spec`, `swarm`, `team`, `workflow`, `tower`, `model`, `secondary-model`, `effort`, `provider`, `btw`, `help`, `new`, `sessions`, `tasks`, `mcp`, `plugins`, `add-dir`, `experiments`, `reload`, `reload-tui`, `compact`, `goal`, `init`, `fork`, `title`, `usage`, `status`, `feedback`, `undo`, `editor`, `theme`, `logout`, `login`, `export-md`, `export-debug-zip`, `copy`, `web`, `desktop`, `remote-control`, `exit`, `version`
 
 **Build output:**
 | Output | Path |
@@ -169,7 +169,7 @@ packages/
   node-sdk/            — Public TypeScript SDK (@moonshot-ai/kimi-code-sdk)
   oauth/               — Kimi OAuth and managed auth utilities
   pi-tui/              — Terminal UI framework (upstream dependency, node:test suite)
-  protocol/            — Shared REST + WS protocol schemas (Zod types)
+  remote-control/      — Kimi Remote Control tunnel client (relay registration + HTTP/WS forwarding)
   telemetry/           — Shared client-side telemetry infrastructure
   transcript/          — Isomorphic transcript rendering data layer
   tree-sitter-bash/    — Pure-TypeScript bash parser (deterministic budget)
@@ -266,7 +266,7 @@ not run.
 
 - **Bun**: `>= 1.4` — required. Package manager, script runner, and dev-toolchain runtime (`bun.lock` is the lockfile, specified via `bunVersion` in `flake.nix`); build, lint, typecheck, locale checks, and the vitest suites (`bun --bun run test`) all run through bun.
 - **Node.js**: no longer required for any development workflow — build, lint, typecheck, the native pipeline, and the test suites all run under Bun (pi-tui's node:test suite included). CI installs no Node.
-- **Published package engines**: 发布包的 engines 有意保持 >=22.19.0 的宽松下限（上游一致的消费者契约），不随本次开发工具链迁移变化。
+- **Published package engines**: the published package declares `"bun": ">=1.4.0"` — the same floor the dev toolchain requires.
 - **Rust** (optional, for native tools): Stable toolchain, MSVC on Windows.
 - **Git for Windows** (Windows only): Optional; used as the POSIX shell fallback when PowerShell is unavailable. Set `KIMI_SHELL_PATH` to pin a specific shell.
 
@@ -340,14 +340,18 @@ To run a local build inside `~/.kimi-code/` instead of the released binary (Powe
 GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job installs Bun via `oven-sh/setup-bun`; no job installs Node:
 1. **build** — Install, build, smoke test CLI bundle
 2. **test** — `bun --bun run test` (vitest under the Bun runtime) split across 5 parallel shards on Ubuntu
-3. **test-pi-tui** — `pi-tui` suite (uses node:test via Bun's node:test shim)
-4. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), and locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
-5. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
-6. **native bundle** — Built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-native-tools && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test.
-7. **review** — `zig build` in `tools/review` (Zig installed via `mlugg/setup-zig`), then the structural checks described under "Structural review" above.
-8. **codeql** — `codeql.yml` scans js/ts on PRs, pushes to `main`, and weekly. A branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
+3. **test-pi-tui** — `pi-tui` suite (dispatches to `bun test` under Bun, `node --test` under Node)
+4. **test-minidb** — `minidb` suite, which the root vitest projects exclude
+5. **test-kimi-web** — `apps/kimi-web` typecheck, tests, and style check (the app sits outside the root workspace)
+6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), and locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
+7. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
+8. **review** — `zig build` in `tools/review` (Zig installed via `mlugg/setup-zig`), then the structural checks described under "Structural review" above.
 
-Additional workflows: `_native-build.yml`, `codeql.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release-native.yml`, `release.yml`.
+`ci.yml` also carries a `test-windows` job (the full suite on Windows). It is parked with `if: false` while Windows tests are stabilized, so it is not part of the pre-merge pipeline.
+
+Two more jobs run outside `ci.yml`. **native bundle** is built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-native-tools && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test. **codeql** (`codeql.yml`) scans js/ts on pushes to `main` and on a weekly schedule; a branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
+
+Additional workflows: `_native-build.yml`, `codeql.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release-native.yml`, `release.yml`, `vscode-publish.yml`.
 
 ### Release flow (fork)
 
@@ -440,13 +444,12 @@ The macOS and Windows signing steps degrade safely when their secrets are unset:
 
 Defined in root `vitest.config.ts`. Projects:
 ```
-packages/*
+packages/* (excluding packages/minidb)
 apps/kimi-code
-apps/kimi-web
 apps/kimi-inspect
 apps/vis/server
 apps/vis/web
-apps/vscode
+apps/vscode (from apps/vscode/vitest.projects.ts)
 ```
 
 Coverage includes `packages/*/src/**/*.ts` and `apps/*/src/**/*.ts`, excludes test files and dist directories.
@@ -520,7 +523,7 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 ## Experimental Features
 
 - Gate a not-yet-public feature behind an experimental flag. Register the flag from the owning domain's own module (definitions are contributed **decentrally** — each domain calls `registerFlagDefinition` at its module's top level, e.g. `packages/agent-core-v2/src/features/tower/flag.ts`; there is no central catalog to edit by hand), then check it with `flags.enabled('my-feature')`.
-- Flags are env-driven; precedence is per-flag env > `[experimental]` config > master env > the flag's `default`; the `default` is chosen per flag as needed (e.g. the tower flag defaults to `false`, and `persistence_minidb_readmodel` / `search_worker` default to `true`):
+- Flags are env-driven; precedence is per-flag env > `[experimental]` config > master env > the flag's `default`; the `default` is chosen per flag as needed (e.g. the tower flag defaults to `false`, while `tool_select`, `wait_for`, and `xunfei_coding_plan` default to `true`):
   - `KIMI_CODE_EXPERIMENTAL_<NAME>` toggles one
   - `KIMI_CODE_EXPERIMENTAL_FLAG` enables all
 - Release by flipping the flag's `default` to `true`.

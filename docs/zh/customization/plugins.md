@@ -55,7 +55,7 @@ Plugins 把可复用的 Kimi Code CLI 能力打包成可安装单元：可以添
 
 - 安装、启用/禁用、移除 plugin 后，当前会话不会更新，运行 `/reload` 或 `/new` 后生效。
 - 本地安装会被拷贝到 `$KIMI_CODE_HOME/plugins/managed/<id>/`，CLI 始终从这份托管副本运行。安装后编辑原始源目录不会生效，需重新安装。
-- 移除 plugin 只会删除安装记录，托管副本和原始源文件仍保留在磁盘上。
+- 移除 plugin 会删除安装记录和 `$KIMI_CODE_HOME/plugins/managed/<id>/` 下的托管副本；本地安装的原始源目录不受影响。
 - Plugin 目前按用户安装，对所有项目生效，暂不支持项目级安装范围。
 
 ### 自定义 marketplace JSON
@@ -223,6 +223,8 @@ Kimi Computer Use 让 AI 直接操作你的桌面应用，可以完成点击、�
 </div>
 
 #### Windows 版注意事项
+
+Windows 版（WinCU）的安装方式与 macOS 版不同：在 Kimi Code 中运行 `/plugins install https://cdn.kimi.com/kimi-computer-use-windows/latest/kimi-cu-win-plugin.zip`，安装完成后重启。使用前有几点需要注意：
 
 - **会短暂占用键鼠**：Windows 版无法像 macOS 版那样稳定地全程后台输入，执行操作时可能短暂激活目标窗口并使用你的鼠标键盘
 - **系统要求**：Windows 10 version 1903（Build 18362）或更新版本 / Windows 11，x64；需要真实交互式桌面会话，Windows Server 需要 Desktop Experience

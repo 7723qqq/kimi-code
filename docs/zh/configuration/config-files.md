@@ -62,7 +62,7 @@ keep = "all"
 max_attempts_per_step = 10
 reserved_context_size = 50000
 
-[background]
+[task]
 max_running_tasks = 4
 keep_alive_on_exit = false
 
@@ -106,12 +106,24 @@ timeout = 5
 | `auto_session_title` | `boolean` | `true` | 是否允许客户端自动生成会话标题；显式设为 `false` 时关闭 |
 | [`providers`](#providers) | `table` | `{}` | API 供应商表 |
 | [`models`](#models) | `table` | — | 模型别名表 |
+| [`secondary_model`](#secondary-model) | `table` | — | subagent 模型池与默认绑定 |
 | [`thinking`](#thinking) | `table` | — | Thinking 模式默认参数 |
-| [`loop_control`](#loop_control) | `table` | — | Agent 循环控制参数 |
-| [`background`](#background) | `table` | — | 后台任务运行参数 |
+| [`loop_control`](#loop-control) | `table` | — | Agent 循环控制参数 |
+| [`token_counting`](#token-counting) | `table` | — | 对外上报的上下文 token 计数策略 |
+| [`task`](#task) | `table` | — | 后台任务运行参数（旧名 `[background]`） |
+| [`subagent`](#subagent) | `table` | — | `Agent` subagent 运行参数 |
+| [`swarm`](#swarm) | `table` | — | `AgentSwarm` subagent 运行参数 |
+| [`mcp`](#mcp) | `table` | — | MCP 全局连接与工具调用超时 |
 | [`tools`](#tools) | `table` | — | 全局工具开关 |
 | [`image`](#image) | `table` | — | 图片压缩参数 |
+| [`read`](#read) | `table` | — | `Read` 工具字符额度 |
+| [`database`](#database) | `table` | — | 会话索引与搜索背后的嵌入式存储引擎 |
+| [`watch`](#watch) | `table` | — | 配置与工作区文件的文件系统 watch |
+| [`llm_requester`](#llm-requester) | `table` | — | 单次 LLM 请求体的字节预算 |
+| [`model_catalog`](#model-catalog) | `table` | — | 供应商模型目录的刷新计划 |
+| [`experimental`](#experimental) | `table` | — | 实验功能 flag 的持久化覆盖 |
 | [`services`](#services) | `table` | — | 内置外部服务配置 |
+| [`github`](#github) | `table` | — | 内置 GitHub 工具 |
 | [`permission`](#permission) | `table` | — | 初始权限规则 |
 | [`hooks`](../customization/hooks.md) | `array<table>` | — | 生命周期 hook |
 | [`identity`](#identity) | `table` | — | 自定义 Agent 身份 |
@@ -123,12 +135,15 @@ timeout = 5
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `type` | `string` | 是 | 供应商类型：`kimi`、`anthropic`、`openai`、`openai_responses`、`google-genai`、`vertexai` |
+| `model_source` | `string` | 否 | 该供应商的模型列表来源：`static`、`discover` 或 `oauth-catalog`。由 CLI 在添加供应商时写入，通常无需手写 |
 | `api_key` | `string` | 否 | API 密钥，明文写在配置文件里 |
 | `api_key_env` | `string` | 否 | 指定一个 shell 环境变量名，从该变量读取 API 密钥，密钥不写入配置文件；每次请求时读取。与 `api_key`、`oauth` 互斥；变量未设置或为空时请求报错并指明变量名 |
 | `base_url` | `string` | 否 | API 基础 URL |
-| `oauth` | `table` | 否 | OAuth 凭据引用（`storage`、`key` 两个字段），由登录流程自动注入，通常无需手写 |
+| `default_model` | `string` | 否 | 该供应商默认选用的模型别名。由 CLI 在添加供应商时写入 |
+| `oauth` | `table` | 否 | OAuth 凭据引用（`storage`、`key`，以及可选的 `oauth_host`），由登录流程自动注入，通常无需手写 |
 | `env` | `table<string, string>` | 否 | 供应商凭证的备用来源，见 `env` 子表 |
 | `custom_headers` | `table<string, string>` | 否 | 每次请求附加的自定义 HTTP 头 |
+| `source` | `table` | 否 | 从自定义 registry 导入的供应商的记账信息（registry 地址等），由 CLI 写入，不应手动编辑 |
 
 **`env` 子表**：可以把供应商惯用的键名（如 `KIMI_API_KEY`）写在 `[providers.<name>.env]` 里，作为 `api_key` / `base_url` 的备用来源。这个子表**只在配置文件里读取**，不会修改 shell 环境：
 
@@ -146,19 +161,26 @@ KIMI_BASE_URL = "https://api.moonshot.ai/v1"
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
+| `provider_id` | `string` | 否 | 该模型所属的供应商 id，是 `provider` 的另一种写法，由 catalog 导入写入 |
 | `provider` | `string` | 是 | 使用的供应商名称，必须在 `providers` 中定义 |
 | `model` | `string` | 是 | 调用 API 时实际传给服务端的模型 ID |
+| `name` | `string` | 否 | 线上发送的模型名，未设时回退到 `model` |
+| `aliases` | `array<string>` | 否 | 同样能解析到本条目的其他名称 |
+| `api_key` | `string` | 否 | 模型级 API 密钥，覆盖供应商的密钥；与 `oauth` 互斥 |
+| `oauth` | `table` | 否 | 模型级 OAuth 凭据引用，结构同 `providers.*.oauth` |
+| `protocol` | `string` | 否 | 与端点通信所用的协议：`anthropic`、`openai`、`openai_responses`、`google-genai` 或 `antigravity`。模型未声明 `provider` 时必填 |
 | `max_context_size` | `integer` | 是 | 最大上下文长度（token 数），必须 ≥ 1 |
 | `max_input_size` | `integer` | 否 | 模型声明的单次请求输入上限；压缩、溢出检查与用量比率优先使用它，补全预算仍用总窗口 |
-| `max_output_size` | `integer` | 否 | 单次请求的输出 token 上限（对应 `max_tokens`），目前仅 `anthropic` 供应商读取 |
+| `max_output_size` | `integer` | 否 | 单次请求的输出 token 上限（对应 `max_tokens`），所有协议都会把它作为单次输出上限编码到线上 |
 | `capabilities` | `array<string>` | 否 | 显式追加的能力标签：`thinking`、`always_thinking`、`image_in`、`video_in`、`audio_in`、`tool_use`、`dynamically_loaded_tools`，只能追加不能移除 |
 | `support_efforts` | `array<string>` | 否 | 模型接受的 Thinking 档位；解析时配置值不受支持会回落到模型的 `default_effort` 并同步给 UI；选列表外的值会报错，managed 刷新会改写（固定请用 overrides） |
 | `default_effort` | `string` | 否 | 模型的默认 Thinking 档位；managed/open-platform 刷新可能改写，固定请用 [模型覆盖项](#模型覆盖项) |
 | `off_effort` | `string` | 否 | 关闭 Thinking 时在线上传输的 effort 编码（如 xai grok 的 `none`）；对默认就会推理的模型，这是真正关闭推理的唯一方式 |
-| `base_url` | `string` | 否 | 模型级端点覆盖（catalog 导入网关模型时写入）；解析时优先于供应商的 `base_url`，仅与 `protocol` 配合时生效 |
+| `base_url` | `string` | 否 | 模型级端点覆盖（catalog 导入网关模型时写入）；解析时优先于供应商的 `base_url`。模型未声明 `provider` 时必须同时给出 `protocol` |
 | `display_name` | `string` | 否 | UI 中显示的名称，未设时回退到 `model` |
 | `reasoning_key` | `string` | 否 | 仅 `openai` 供应商；网关用非标准字段名返回推理内容时才需要设置，默认自动识别 `reasoning_content` 等 |
 | `adaptive_thinking` | `boolean` | 否 | 仅 `anthropic` 供应商；强制开关 adaptive thinking，省略时按模型名自动推断（Claude ≥ 4.6 用 adaptive） |
+| `beta_api` | `boolean` | 否 | 仅 `anthropic` 协议；把请求发往 beta Messages API 基地址。涉及保留思考时会自动启用 |
 
 别名中含 `.` 时需要加引号：
 
@@ -184,9 +206,9 @@ max_context_size = 131072
 display_name = "Kimi for Coding (custom)"
 ```
 
-`[models."<alias>".overrides]` 接受普通模型字段，例如 `max_context_size`、`max_input_size`、`max_output_size`、`capabilities`、`display_name`、`reasoning_key`、`adaptive_thinking`、`support_efforts`、`default_effort` 和 `off_effort`。不接受身份 / 路由字段：`provider`、`model`、`protocol`、`beta_api` 和 `base_url`。
+`[models."<alias>".overrides]` 接受普通模型字段，例如 `max_context_size`、`max_input_size`、`max_output_size`、`capabilities`、`display_name`、`reasoning_key`、`adaptive_thinking`、`support_efforts`、`default_effort` 和 `off_effort`。不接受身份 / 路由字段：`provider_id`、`provider`、`model`、`name`、`aliases`、`protocol`、`beta_api`、`base_url`、`api_key` 和 `oauth`。
 
-无需修改配置文件也可以临时切换模型：通过 `KIMI_MODEL_*` 环境变量在内存里合成一个临时供应商，详见[用环境变量定义模型](./env-vars.md#用环境变量定义模型kimi_model_)。
+无需修改配置文件也可以临时切换模型：通过 `KIMI_MODEL_*` 环境变量在内存里合成一个临时供应商，详见[用环境变量定义模型](./env-vars.md#用环境变量定义模型-kimi-model)。
 
 ## `secondary_model`
 
@@ -206,9 +228,12 @@ default_model = "kimi-code/kimi-for-coding-highspeed"
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `default_model` | `string` | — | subagent 的默认模型 |
+| `model` | `string` | — | `default_model` 的旧别名，未设 `default_model` 时作为回退读取 |
 | `models` | `table<string, string>` | — | subagent 模型池；key 为 [`[models]`](#models) 条目别名，value 为挑选提示 |
 | `force` | `boolean` | `false` | 把所有 subagent 固定到 `default_model`，收回 main agent 的选择权 |
 | `default_effort` | `string` | — | 每次派生的 subagent 绑定的 Thinking 档位，优先于所绑定模型自带的 `default_effort` |
+
+本节与 legacy 引擎共用：legacy 引擎的 `[secondary_model]` 配方把 `model` 当作指针，其余模型字段（`max_context_size`、`max_input_size`、`max_output_size`、`capabilities`、`display_name`、`reasoning_key`、`adaptive_thinking`、`support_efforts`、`off_effort`）是仅作用于 subagent 的补丁。v2 引擎接受这些字段但不应用它们，实际生效的只有上表列出的键。
 
 字段之间的约束：
 
@@ -325,7 +350,9 @@ k3-max = "同一模型的 max Thinking 档位。适合最难的子任务。"
 | --- | --- | --- | --- |
 | `max_steps_per_turn` | `integer` | — | 单轮最大步数；不设或设为 `0` 则无上限 |
 | `max_attempts_per_step` | `integer` | `10` | 单步失败后的最大总尝试次数（含首次尝试） |
+| `max_ralph_iterations` | `integer` | — | schema 接受该键，但 v2 引擎不消费它；`-1` 表示无上限 |
 | `reserved_context_size` | `integer` | — | 预留给模型输出的 token 数；上下文窗口剩余量低于此值时触发自动压缩 |
+| `compaction_trigger_ratio` | `number` | `0.85` | 触发自动压缩的上下文窗口占比，取值必须在 `0.5` 到 `0.99` 之间 |
 | `compaction_max_attempts` | `integer` | `5` | 压缩请求失败后的最大总尝试次数（含首次尝试） |
 
 `max_steps_per_turn` 可被环境变量 `KIMI_LOOP_MAX_STEPS_PER_TURN` 覆盖，`max_attempts_per_step` 可被 `KIMI_LOOP_MAX_ATTEMPTS_PER_STEP` 覆盖，优先级均高于配置文件。旧的 `KIMI_LOOP_MAX_RETRIES_PER_STEP` 已废弃，但在新变量未设置时仍生效（启动时会给出警告）。
@@ -342,9 +369,9 @@ k3-max = "同一模型的 max Thinking 档位。适合最难的子任务。"
 
 `strategy` 可被环境变量 `KIMI_TOKEN_COUNTING_STRATEGY` 覆盖，优先级高于 `config.toml`。
 
-## `background`
+## `task`
 
-`background` 控制后台任务（通过 `Bash` 工具或 `Agent` 工具的 `run_in_background=true` 参数启动）的并发数。
+`task` 控制后台任务（通过 `Bash` 工具或 `Agent` 工具的 `run_in_background=true` 参数启动）的并发数。`[background]` 是本节的旧名：仍然接受，两者同时存在时按键合并，`[task]` 优先。
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
@@ -469,8 +496,10 @@ max_chars = 500000
 | --- | --- | --- | --- |
 | `base` | `boolean` | `true` | 会话索引使用基于 minidb 的读模型；`false` 回退为直接读取会话元数据 |
 | `search` | `boolean` | `true` | 在独立 worker 线程中运行全局搜索索引；`false` 在服务器进程内运行 |
+| `search_sync_session_cap` | `integer` | `500` | 单次同步写入搜索索引的会话数上限，其余留给后续同步 |
+| `search_sync_debounce_ms` | `integer` | `2000` | 待处理的搜索索引同步开始前的防抖时间（毫秒） |
 
-`base` 可被环境变量 `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` 覆盖，`search` 可被 `KIMI_CODE_SEARCH_WORKER` 覆盖，优先级均高于配置文件。
+`base` 可被环境变量 `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` 覆盖，`search` 可被 `KIMI_CODE_SEARCH_WORKER` 覆盖，`search_sync_session_cap` 可被 `KIMI_CODE_SEARCH_SYNC_SESSION_CAP` 覆盖，`search_sync_debounce_ms` 可被 `KIMI_CODE_SEARCH_SYNC_DEBOUNCE_MS` 覆盖，优先级均高于配置文件。
 
 ## `watch`
 
@@ -482,15 +511,34 @@ max_chars = 500000
 
 `enabled` 可被环境变量 `KIMI_CODE_WATCH` 覆盖，优先级高于配置文件。
 
-<!--
-## `experimental`
+## `llm_requester`
 
-`experimental` 存放实验功能 flag 的持久化覆盖。目前 `micro_compaction` 是唯一用户可见的字段，默认值为 `false`；如需自动清理较旧的大型工具结果，把它设为 `true`。
+`llm_requester` 限制单次 LLM 请求体的大小。当组装出的请求超出预算时，会在发送前裁剪较早的内容。
 
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `micro_compaction` | `boolean` | `false` | 清理较旧的大型工具结果内容，同时保留最近对话 |
--->
+| `request_byte_budget` | `number` | `33554432`（32 MB） | 单次请求体的字节预算；必须为正整数 |
+
+`request_byte_budget` 可被 `KIMI_LLM_REQUEST_BYTE_BUDGET` 环境变量覆盖，该变量优先级高于 `config.toml`。
+
+## `model_catalog`
+
+`model_catalog` 控制供应商模型目录的刷新方式，由服务端进程（`kimi web`）读取。
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `refresh_interval_ms` | `number` | `21600000`（6 小时） | 模型目录的刷新间隔（毫秒）；`0` 关闭定时刷新 |
+| `refresh_on_start` | `boolean` | `true` | 启动时是否刷新模型目录 |
+
+两个字段均可被 `KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS` 与 `KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START` 覆盖，优先级高于 `config.toml`。
+
+## `experimental`
+
+`experimental` 存放实验功能 flag 的持久化覆盖，以 flag id 为 key。每项是一个布尔值，对所有会话生效；交互式入口是 `/experiments` 命令（也可从 `/settings` 进入）。没有对应已注册 flag 的 key 不会生效。
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `micro_compaction` | `boolean` | `false` | 提示词缓存未命中后，把出站请求里较旧的大型工具结果替换为标记，让重建的前缀保持较小 |
 
 ## `services`
 
@@ -507,11 +555,11 @@ max_chars = 500000
 
 ```toml
 [services.moonshot_search]
-base_url = "https://api.moonshot.cn/v1/search"
+base_url = "https://api.kimi.com/coding/v1/search"
 api_key = "sk-xxx"
 
 [services.moonshot_fetch]
-base_url = "https://api.moonshot.cn/v1/fetch"
+base_url = "https://api.kimi.com/coding/v1/fetch"
 api_key = "sk-xxx"
 ```
 
@@ -590,8 +638,15 @@ MCP server 的声明配置写在 `~/.kimi-code/mcp.json` 或项目内 `.kimi-cod
 | `[notifications].enabled` | `boolean` | `true` | 是否发送桌面通知 |
 | `[notifications].notification_condition` | `string` | `unfocused` | 何时通知：`unfocused`（仅终端失去焦点时）或 `always`（总是） |
 | `[upgrade].auto_install` | `boolean` | `true` | 是否自动安装新版本 |
-| `[status_line].items` | `string[]` | `[]` | 底部状态栏第一行的内置槽位及顺序：`mode`、`goal`、`model`、`tasks`、`cwd`、`git`、`tips`，未知 id 跳过并告警 |
-| `[status_line].command` | `string` | `""` | 自定义状态栏命令：stdout 首行替换状态栏，stdin 收 JSON 快照；上限 300ms、每秒一次，失败回退内置布局 |
+| `[astron].stream` | `boolean` | `true` | Astron 供应商：流式返回 |
+| `[astron].temperature` | `number` | `1.0` | Astron 供应商：采样温度，取值 `0`–`2` |
+| `[astron].max_tokens` | `number` | `32768` | Astron 供应商：最大输出 token 数，至少为 `1` |
+| `[astron].search_disable` | `boolean` | `true` | Astron 供应商：关闭网页搜索 |
+| `[markdown].mermaid` | `string` | `final` | 在终端里把 Mermaid 代码块画成图：`final` 在代码块结束后渲染，`off` 保留高亮源码 |
+| `[status_line].items` | `string[] \| null` | `null` | 底部状态栏第一行的内置槽位及顺序：`mode`、`goal`、`model`、`tasks`、`cwd`、`git`、`tips`；`null` 表示沿用内置布局，未知 id 跳过并告警 |
+| `[status_line].command` | `string \| null` | `null` | 自定义状态栏命令：stdout 首行替换状态栏，stdin 收 JSON 快照；`null` 表示关闭。上限 300ms、每秒一次，失败回退内置布局 |
+
+`[astron]` 存放 Astron 供应商的采样设置；`/settings` 的 Astron 面板改的是 `config.toml` 里同名的 `[providers.astron]` 字段。
 
 <details>
 <summary>command 的 stdin 输入</summary>
@@ -618,6 +673,15 @@ notification_condition = "unfocused" # "unfocused" | "always"
 
 [upgrade]
 auto_install = true
+
+[astron]
+stream = true
+temperature = 1.0
+max_tokens = 32768
+search_disable = true
+
+# [markdown]
+# mermaid = "final" # "final" | "off"
 
 # [status_line]
 # items = ["mode", "goal", "model", "tasks", "cwd", "git", "tips"]

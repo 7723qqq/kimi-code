@@ -19,7 +19,7 @@ kimi <subcommand> [options]
 | `--continue` | `-c` | 继续当前工作目录下最近一次的会话，无需手动指定 ID |
 | `--model <model>` | `-m` | 为本次启动指定模型别名。省略时新会话使用配置文件中的 `default_model` |
 | `--prompt <prompt>` | `-p` | 非交互执行单次 prompt，并把 Assistant 输出流式写到 stdout。该模式不会打开 TUI |
-| `--output-format <format>` | | 设置非交互输出格式，支持 `text` 与 `stream-json`。仅可与 `--prompt` 一起使用，默认 `text` |
+| `--output-format <format>` | | 设置非交互输出格式，支持 `text` 与 `stream-json`。仅可与 `--prompt` 一起使用，默认 `text`；设置了 `KIMI_MODEL_OUTPUT_FORMAT` 环境变量时以该变量为默认值（命令行参数优先） |
 | `--yolo` | `-y` | 以 "Ask When Needed" 模式启动：常规修改和命令自动完成；高危操作、提问和计划仍会问你 |
 | `--auto` | | 以 "Never Ask" 模式启动：完全不打断，所有操作和判断自动完成 |
 | `--plan` | | 以 Plan 模式启动新会话，AI 会优先使用只读工具进行探索和规划 |
@@ -28,7 +28,7 @@ kimi <subcommand> [options]
 | `--agent-file <path>` | | 从 Markdown 文件加载自定义 Agent 并为新会话选中它。不可重复传入，也不能与 `--agent`、`--session` 或 `--continue` 同时使用 |
 | `--add-dir <dir>` | | 为本次会话添加额外的工作目录。相对路径按当前工作目录解析。可重复传入 |
 
-`-r` / `--resume` 是 `--session` 的隐藏别名；`--yes` 和 `--auto-approve` 是 `--yolo` 的隐藏别名，在帮助信息中不显示。
+`-r` / `--resume` 是 `--session` 的隐藏别名；`-C` 是 `--continue` 的隐藏别名；`--yes` 和 `--auto-approve` 是 `--yolo` 的隐藏别名，均不在帮助信息中显示。
 
 ::: warning 注意
 `--yolo` 会跳过普通工具调用的人工确认，包括文件写入和 Shell 命令执行，请只在受信任的工作目录下使用。Plan 模式的退出审批不会被 `--yolo` 跳过；Plan 模式下的 `Bash` 按普通放行规则处理。
@@ -38,7 +38,7 @@ kimi <subcommand> [options]
 
 以下组合会在启动时被拒绝：
 
-- `--continue` 与 `--session` 互斥——两者都表示"恢复历史会话"
+- `--continue` 与 `--session` 互斥——两者都表示 "恢复历史会话"
 - `--yolo` 和 `--auto` 互斥——两种权限模式互斥
 - `--prompt` 不能与 `--yolo`、`--auto` 或 `--plan` 同时使用——非交互模式固定使用 `auto` 权限
 - `--output-format` 只能与 `--prompt` 一起使用
@@ -115,7 +115,7 @@ kimi -p --agent reviewer "审查这个分支上的改动"
 kimi -p "Summarize the current repository status"
 ```
 
-输出采用 transcript 样式：thinking 内容和 Assistant 正文都以 `• ` 开头，换行后两个空格缩进。Assistant 正文输出到 stdout；thinking、工具进度和"恢复会话"提示输出到 stderr。`-p` 模式不会请求人工审批，普通工具调用按 `auto` 权限策略处理，静态 deny 规则仍然生效。
+输出采用 transcript 样式：thinking 内容和 Assistant 正文都以 `• ` 开头，换行后两个空格缩进。Assistant 正文输出到 stdout；thinking、工具进度和 "恢复会话" 提示输出到 stderr。`-p` 模式不会请求人工审批，普通工具调用按 `auto` 权限策略处理，静态 deny 规则仍然生效。
 
 临时切换模型：
 
@@ -133,7 +133,7 @@ kimi -p "List changed files" --output-format stream-json
 
 ## 子命令
 
-`kimi` 提供以下子命令：`login`（非交互式登录）、`acp`（ACP IDE 模式）、`web`（前台运行本地 REST/WebSocket/web 服务并打开 web UI）、`doctor`（校验配置文件）、`export`（导出会话）、`migrate`（迁移旧版数据）、`upgrade`（检查更新）、`provider`（管理供应商）。
+`kimi` 提供以下子命令：`login`（非交互式登录）、`acp`（ACP IDE 模式）、`web`（前台运行本地 REST/WebSocket/web 服务并打开 web UI）、`doctor`（校验配置文件）、`export`（导出会话）、`fork`（fork 会话）、`session`（非交互式列出会话）、`migrate`（迁移旧版数据）、`upgrade`（检查更新）、`provider`（管理供应商）、`vis`（打开会话可视化工具）、`install-desktop`（打开桌面端页面）。
 
 ### `kimi login`
 
@@ -143,7 +143,12 @@ kimi -p "List changed files" --output-format stream-json
 kimi login
 ```
 
-该子命令没有任何 flag。在轮询期间随时按 `Ctrl-C` 可取消登录；取消或失败时退出码为 `1`，成功为 `0`。
+| 选项 | 说明 |
+| --- | --- |
+| `--region <region>` | 登录区域：`mainland-cn`（kimi.com）或 `global`（kimi.ai） |
+| `--provider <provider>` | 登录供应商：`kimi`（默认），或 `google` / `gemini` |
+
+在轮询期间随时按 `Ctrl-C` 可取消登录；取消或失败时退出码为 `1`，成功为 `0`。
 
 ### `kimi acp`
 
@@ -152,6 +157,11 @@ kimi login
 ```sh
 kimi acp
 ```
+
+| 选项 | 说明 |
+| --- | --- |
+| `--login` | 运行设备码登录流程后退出（ACP 终端认证的入口点） |
+| `--region <region>` | 与 `--login` 搭配使用的登录区域：`mainland-cn`（kimi.com）或 `global`（kimi.ai） |
 
 ### `kimi web`
 
@@ -172,21 +182,28 @@ kimi web --port 58628    # 指定绑定端口
 | `--port <port>` | 绑定端口；默认 `58627`；被占用时自动 +1 重试 |
 | `--host [host]` | 绑定地址；缺省 `127.0.0.1`（仅本机），裸 `--host` 绑 `0.0.0.0`（所有网卡） |
 | `--allowed-host <host...>` | DNS 重绑定检查额外允许的 Host 头，可重复或逗号分隔 |
+| `--insecure-no-tls` | 允许非回环绑定不使用 TLS 反向代理；默认为 `true`，仅对非回环绑定有效 |
+| `--allow-remote-shutdown` | 在非回环绑定上保持 `POST /api/v1/shutdown` 启用（默认：该路由被禁用并返回 404） |
 | `--log-level <level>` | 按所选级别开启服务日志；默认不输出 |
 | `--debug-endpoints` | 挂载 `/api/v1/debug/*` 调试路由（默认关闭） |
 | `--dangerous-bypass-auth` | 关闭所有 REST 与 WebSocket 路由的 bearer token 鉴权，使 web UI 无需 token 即可连接；仅用于可信网络或自有鉴权代理之后 |
-| `--web-title <title>` | 自定义 web UI 的浏览器标签页标题；默认为工作区目录名 |
+| `--web-title <title>` | 自定义 web UI 的浏览器标签页标题；默认为 `<工作区目录> \| Kimi Code` |
+| `--rc, --remote-control` | 通过 Kimi Remote Control 暴露 web UI |
 | `--no-open` | 就绪后不自动打开浏览器 |
 
 `kimi web` 默认只绑定本机 loopback 地址，并在启动横幅中打印 bearer token；web UI 通过 URL 的 `#token=` 片段自动完成鉴权。
 
-::: info 提示
+::: info 说明
 `kimi server` 命令树已废弃：任何 `kimi server …` 调用（含全部旧子命令）只会打印弃用提示并以退出码 1 结束，请改用 `kimi web`。唯一的例外是 `kimi server kill`，它仍然可用，仅用于停止 0.28.0 之前版本启动的服务。该提示将在 Kimi Code 下个大版本移除。
 :::
 
 ::: danger 警告
 `--dangerous-bypass-auth` 会彻底关闭鉴权。任何能访问该端口的人都能完全控制你的会话、文件系统和 shell。请仅在可信网络或自有鉴权反向代理之后使用，用完后按 `Ctrl+C` 停止服务。
 :::
+
+#### `kimi web rc`
+
+运行本地 Kimi 服务并通过 Kimi Remote Control 打开 web UI —— 与 `kimi web` 是同一个服务，但会向中转服务注册，使会话可以从其他设备访问。`kimi rc` 是它的别名。参见[远程控制](../guides/remote-control.md)。
 
 #### `kimi server kill`
 
@@ -259,6 +276,52 @@ kimi export 01HZ...XYZ -o ./bug-report.zip
 
 # 排除全局诊断日志
 kimi export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
+```
+
+### `kimi fork`
+
+把一个会话复刻为新会话，原会话保持不变。
+
+```sh
+kimi fork [sessionId] [options]
+```
+
+| 参数 / 选项 | 简写 | 说明 |
+| --- | --- | --- |
+| `sessionId` | | 要复刻的会话 ID。省略时使用当前工作目录下最近一次的会话 |
+| `--cwd <path>` | | 用于查找最近一次会话的工作目录。默认为当前目录 |
+| `--yes` | `-y` | 跳过对上一次会话的确认 |
+
+```sh
+# 复刻当前工作目录最近一次会话，跳过确认
+kimi fork -y
+
+# 复刻指定会话
+kimi fork 01HZ...XYZ
+```
+
+### `kimi session`
+
+不进入 TUI 管理会话。目前只提供 `kimi session list`。
+
+```sh
+kimi session list [options]
+```
+
+| 选项 | 说明 |
+| --- | --- |
+| `--cwd <path>` | 列出该工作目录下的会话。默认为当前目录 |
+| `--all` | 列出所有工作区的会话 |
+| `--archived` | 包含已归档的会话 |
+| `--limit <n>` | 最多打印 n 条会话 |
+| `--json` | 以 JSON 输出会话摘要 |
+
+```sh
+# 列出当前目录下的会话
+kimi session list
+
+# 以 JSON 列出所有工作区的会话
+kimi session list --all --json
 ```
 
 ### `kimi migrate`

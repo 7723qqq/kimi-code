@@ -62,7 +62,7 @@ arguments:
 | --- | --- |
 | `name` | Skill 名称，大小写不敏感。目录型 `SKILL.md` 必填；扁平 `.md` 省略时取文件名（不含 `.md` 扩展名） |
 | `description` | 一行总结，模型用它判断何时使用。目录型必填，扁平 `.md` 省略时取正文第一行非空内容（截至 240 字符） |
-| `type` | 类型：`prompt`（默认）、`inline`（同 `prompt`）、`flow`（仅手动调用）。其他值被跳过 |
+| `type` | 类型：`prompt`（默认）、`inline`（同 `prompt`）、`flow`（仅手动调用）、`reference`（仅供内部引用，不可手动调用）。其他值被跳过 |
 | `whenToUse` | 触发场景描述，也接受 `when-to-use`、`when_to_use` 写法 |
 | `disableModelInvocation` | 设为 true 禁止模型自动调用，也接受 `disable-model-invocation`、`disable_model_invocation` 写法 |
 | `arguments` | 命名参数列表，字符串数组或空白分隔字符串（如 `arguments: target mode`）。声明后正文可用 `$<name>` 读取 |
@@ -108,7 +108,7 @@ extra_skill_dirs = ["~/team-skills", ".agents/team-skills"]
 
 用户通过斜杠命令主动调用：
 
-```
+```text
 /skill:code-style
 /skill:git-commits 修复登录接口的并发问题
 ```

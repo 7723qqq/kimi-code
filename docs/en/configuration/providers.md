@@ -11,7 +11,7 @@ The `type` field in the `providers` table determines which protocol implementati
 | [`kimi`](#kimi) | OpenAI-compatible | Kimi Code managed service, Kimi Platform API key |
 | [`anthropic`](#anthropic) | Anthropic Messages | Claude model family |
 | [`openai`](#openai) | OpenAI Chat Completions | OpenAI and compatible services, DeepSeek, Qwen, etc. |
-| [`openai_responses`](#openai_responses) | OpenAI Responses API | OpenAI's newer Responses interface |
+| [`openai_responses`](#openai-responses) | OpenAI Responses API | OpenAI's newer Responses interface |
 | [`google-genai`](#google-genai) | Google GenAI | Gemini API |
 | [`vertexai`](#vertexai) | Google GenAI on Vertex | Google Cloud Vertex AI |
 

@@ -25,7 +25,7 @@ export KIMI_CODE_HOME="$HOME/.config/kimi-code"
 
 ## 目录结构
 
-```
+```text
 $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 ├── config.toml             # 用户配置
 ├── tui.toml                # 终端界面偏好（含自动更新开关）
@@ -36,6 +36,8 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 │   ├── installed.json      # 已安装 plugin 记录与启用状态
 │   └── managed/            # zip/本地路径安装的 plugin 副本
 ├── session_index.jsonl     # 会话索引
+├── feedback-survey-state.json      # 会话评分提示的状态
+├── recommended-effort-state.json   # 「推荐档位」提示的状态
 ├── credentials/            # OAuth 凭据（目录 0700，文件 0600）
 │   ├── <name>.json
 │   └── mcp/
@@ -45,13 +47,18 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 ├── bin/
 │   ├── rg                  # Grep 使用的托管 ripgrep 二进制（Windows 为 rg.exe）
 │   └── fd                  # 文件引用使用的托管 fd 二进制（Windows 为 fd.exe）
+├── cache/                  # 可随时删除的客户端缓存
+│   └── banner/
+│       └── state.json      # 横幅展示状态
 ├── logs/
 │   └── kimi-code.log       # 全局诊断日志
+├── telemetry/              # 发送失败的遥测事件，之后会重试
 ├── updates/
 │   ├── latest.json
 │   ├── install.json
 │   ├── install.lock
-│   └── rollout.log
+│   ├── rollout.log
+│   └── plugin-notices.json # plugin 更新提示状态
 └── user-history/
     └── <md5(workDir)>.jsonl
 ```
@@ -67,6 +74,8 @@ $KIMI_CODE_HOME  （默认 ~/.kimi-code）
 - **`skills/`**：Kimi 专属用户级 Skills。该目录会随 `KIMI_CODE_HOME` 移动；跨工具通用 Skills 仍可放在 `~/.agents/skills/`。详见 [Agent Skills](../customization/skills.md)。
 - **`plugins/installed.json`**：记录已安装的 plugin、每个 plugin 的启用状态，以及通过 `/plugins` 或 `/plugins mcp disable|enable` 修改的 MCP server 能力状态。本地路径和 zip URL 安装的文件会复制到 `plugins/managed/<id>/`。详见 [Plugins](../customization/plugins.md)。
 - **`credentials/`**：OAuth 凭据目录，权限 `0o700`（目录）/ `0o600`（文件），仅当前用户可读写。托管供应商凭据存为 `credentials/<name>.json`，MCP server 凭据存在 `credentials/mcp/` 子目录下。凭据写入使用原子流程（tmp → fsync → rename）防止写损。
+
+其余条目是 CLI 自行维护的内部状态：`cache/` 存放可随时删除的客户端数据（目前是横幅展示状态），`telemetry/` 存放发送失败、之后会重试的遥测事件，`feedback-survey-state.json`、`recommended-effort-state.json` 和 `updates/plugin-notices.json` 则记录某个提示是否已经展示过，避免重复打扰。
 
 ## 会话数据
 

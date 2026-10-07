@@ -7,4 +7,4 @@ head:
 
 # Kimi Datasource
 
-本页已迁移到 [Plugins：Kimi Datasource](./plugins.md#kimi-datasource)。
+本页已迁移到 [Plugins: Kimi Datasource](./plugins.md#kimi-datasource)。

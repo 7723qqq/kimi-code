@@ -67,13 +67,13 @@ You can manage sessions without leaving the terminal. The following slash comman
 
 As a conversation grows, Kimi Code CLI automatically compresses the message history when the context approaches the window limit, freeing up token space. You can also trigger compression manually at any time:
 
-```
+```sh
 /compact
 ```
 
 You can pass a hint to tell the model what to prioritize when compressing:
 
-```
+```sh
 /compact Keep the discussion about database migrations
 ```
 
@@ -81,7 +81,7 @@ You can pass a hint to tell the model what to prioritize when compressing:
 
 To explore a new direction without disrupting the current conversation, use `/fork`:
 
-```
+```sh
 /fork
 ```
 

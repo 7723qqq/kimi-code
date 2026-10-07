@@ -18,18 +18,19 @@ Kimi Code CLI supports three MCP server connection methods:
 
 ## Configuration
 
-MCP server configuration is written in `mcp.json`, at two levels:
+MCP server configuration is written in `mcp.json`, at three levels:
 
 - **User level**: `~/.kimi-code/mcp.json` (or `$KIMI_CODE_HOME/mcp.json`), shared across projects
+- **Project root level**: `.mcp.json` at the project root (the nearest directory containing `.git`, searching upward from the working directory), shared by everyone working in that repository; stdio entries run with the project root as their working directory
 - **Project level**: `.kimi-code/mcp.json` in the working directory, effective only for the current repository
 
-Entries with the same name: the project-level entry takes precedence and overrides the user-level entry.
+Entries with the same name are overridden in the order user → project root → project, so the project-level entry wins.
 
 Run `/mcp-config` in the TUI to interactively add, edit, or delete servers without manually editing the JSON file. Run `/mcp` to view the connection status of all current servers.
 
 Deleting a server from the configuration does not interrupt open sessions: the server stays listed in `/mcp` as `removed`, its tools remain visible there, and calls to them fail with a removal notice, while new sessions do not register the tools at all. Conversely, a server added mid-session by editing `mcp.json` or installing a plugin is not registered in already-open sessions; it only joins sessions created later.
 
-When Kimi Code finds project-level MCP servers in an untrusted folder, it shows each server's transport and launch target in the workspace trust prompt. The prompt defaults to `Trust this folder`; review the listed command and arguments or remote URL before confirming. Trusting the folder enables the project-level MCP servers for that workspace.
+When Kimi Code finds project-level MCP servers in an untrusted folder, the workspace trust prompt shows how many MCP servers are waiting to start and the paths of the configuration files they come from. The prompt offers `Trust and continue` and `Exit`; choosing `Trust and continue` enables the project-level MCP servers for that workspace.
 
 Headless runs (for example `kimi -p` in CI) cannot show the trust prompt, so project-level MCP servers stay disabled there unless the workspace is already trusted. Set [`KIMI_CODE_TRUST_WORKSPACE`](../configuration/env-vars.md#runtime-switches) to `1` to trust the workspace for that process.
 
@@ -74,10 +75,10 @@ You do not have to set the connection timeout or the single tool-call timeout pe
 
 HTTP and SSE servers support providing static credentials via `headers` or `bearerTokenEnvVar`. When OAuth is needed, run `/mcp-config login <server-name>` to complete browser-based authorization.
 
-Plugins can also declare MCP servers in their manifest. Servers declared by a plugin are enabled by default and can be disabled or re-enabled in `/plugins`: disabling or removing one makes calls from open sessions fail with a removal notice, and adding or enabling a server connects it in open sessions right away. See [Plugins](./plugins.md#mcp-servers-in-plugins) for details.
+Plugins can also declare MCP servers in their manifest. Servers declared by a plugin are enabled by default and can be disabled or re-enabled in `/plugins`: disabling or removing one makes calls from open sessions fail with a removal notice, while adding or enabling a server only takes effect in sessions created afterwards. See [Plugins](./plugins.md#mcp-servers-in-plugins) for details.
 
 ::: warning Note
-stdio entries in a project-level `.kimi-code/mcp.json` execute local commands when a session starts. Only enable these in repositories you trust.
+stdio entries in a project-level `.mcp.json` or `.kimi-code/mcp.json` execute local commands when a session starts. Only enable these in repositories you trust.
 :::
 
 ## Loading tools on demand
@@ -86,7 +87,7 @@ By default, every tool of a server goes straight into the model's top-level tool
 
 Loading tools on demand is experimental and takes effect only when both prerequisites are met:
 
-- The `tool-select` experimental flag is on: set `KIMI_CODE_EXPERIMENTAL_TOOL_SELECT=1`, or write `tool-select = true` under `[experimental]` in `config.toml`; the master switch `KIMI_CODE_EXPERIMENTAL_FLAG=1` enables it too.
+- The `tool-select` experimental flag is on. It is enabled by default; set `KIMI_CODE_EXPERIMENTAL_TOOL_SELECT=0` (or write `tool-select = false` under `[experimental]` in `config.toml`) to turn it off.
 - The current model declares the `dynamically_loaded_tools` capability: official models declare it automatically; for other models, add it to `capabilities` in `config.toml` — see [Configuration files](../configuration/config-files.md#models).
 
 With both prerequisites met, set `deferred: true` on the server entry in `mcp.json`:

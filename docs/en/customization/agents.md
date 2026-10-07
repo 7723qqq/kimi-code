@@ -128,7 +128,7 @@ Unknown fields are ignored, so newer files stay readable by older versions. Fiel
 A file with invalid content discovered in a directory is skipped with a warning and does not affect other files. A file passed explicitly via `--agent-file` must be valid, otherwise the CLI reports the error and exits.
 
 ::: warning Note
-`tools` and `disallowedTools` shape the tools shown to the model and are enforced again before execution. `subagents` works the same way: the `Agent` tool lists only the sub-agent types the caller may delegate to, and both `Agent` and `AgentSwarm` re-check the allowlist before dispatching; resuming an existing sub-agent is exempt. Permission rules remain a separate control for operations that require approval.
+`tools` and `disallowedTools` shape the tools shown to the model and are enforced again before execution. `subagents` works the same way: the `Agent` tool lists only the sub-agent types the caller may delegate to, and `Agent`, `AgentSwarm`, and `Team` all re-check the allowlist before dispatching; resuming an existing sub-agent is exempt. Permission rules remain a separate control for operations that require approval.
 :::
 
 Custom agents delegated as sub-agents run without the built-in sub-agent framing ("your final message is the entire handoff"). If you write an agent meant for delegation, state in the body that its last message should be the complete, self-contained result for the caller.
@@ -175,7 +175,6 @@ Like the body of a regular agent file, SYSTEM.md is rendered as a template each 
 | `${cwd_listing}` | Listing of the working directory |
 | `${os}` | Operating system kind |
 | `${shell}` | Shell name and path, for example `bash (\`/bin/bash\`)` |
-| `${now}` | Current time (ISO format) |
 | `${additional_dirs_info}` | Additional directories added to the workspace; empty when there are none |
 | `${base_prompt}` | The default system prompt. Inside `SYSTEM.md` itself this is the built-in default; inside an agent file it is the effective default (the built-in default, or your `SYSTEM.md` override when present) |
 | `${plugin_sections}` | A complete Plugin Instructions block contributed by enabled plugins; empty when no enabled plugin contributes instructions |

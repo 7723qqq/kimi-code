@@ -25,7 +25,7 @@ Once set, **all** Kimi Code data lands under the new path: config, sessions, log
 
 ## Directory layout
 
-```
+```text
 $KIMI_CODE_HOME  (default: ~/.kimi-code)
 ├── config.toml             # User configuration
 ├── tui.toml                # Terminal UI preferences (including auto-update toggle)
@@ -36,6 +36,8 @@ $KIMI_CODE_HOME  (default: ~/.kimi-code)
 │   ├── installed.json      # Installed plugin records and enabled state
 │   └── managed/            # Plugin copies installed from zip/local paths
 ├── session_index.jsonl     # Session index
+├── feedback-survey-state.json      # Session rating prompt state
+├── recommended-effort-state.json   # "Recommended effort" hint state
 ├── credentials/            # OAuth credentials (dir 0700, files 0600)
 │   ├── <name>.json
 │   └── mcp/
@@ -45,13 +47,18 @@ $KIMI_CODE_HOME  (default: ~/.kimi-code)
 ├── bin/
 │   ├── rg                  # managed ripgrep binary for Grep (rg.exe on Windows)
 │   └── fd                  # managed fd binary for file references (fd.exe on Windows)
+├── cache/                  # Disposable client-side cache
+│   └── banner/
+│       └── state.json      # Banner display state
 ├── logs/
 │   └── kimi-code.log       # Global diagnostic log
+├── telemetry/              # Telemetry events that failed to send, retried later
 ├── updates/
 │   ├── latest.json
 │   ├── install.json
 │   ├── install.lock
-│   └── rollout.log
+│   ├── rollout.log
+│   └── plugin-notices.json # Plugin update notice state
 └── user-history/
     └── <md5(workDir)>.jsonl
 ```
@@ -67,6 +74,8 @@ Each top-level file under the data root serves a specific purpose; most are mana
 - **`skills/`**: Kimi-specific user-level Skills. This directory moves with `KIMI_CODE_HOME`; generic cross-tool Skills can still live under `~/.agents/skills/`. See [Agent Skills](../customization/skills.md).
 - **`plugins/installed.json`**: records installed plugins, each plugin's enabled state, and MCP server capability state changes made via `/plugins` or `/plugins mcp disable|enable`. Files installed from local paths or zip URLs are copied to `plugins/managed/<id>/`. See [Plugins](../customization/plugins.md).
 - **`credentials/`**: OAuth credential directory, with permissions `0o700` (directory) / `0o600` (files), readable and writable only by the current user. Managed provider credentials are stored as `credentials/<name>.json`; MCP server credentials are stored under `credentials/mcp/`. Credentials are written using an atomic flow (tmp → fsync → rename) to prevent corruption.
+
+The remaining entries are internal state the CLI maintains on its own: `cache/` holds disposable client-side data (the banner display state today) and can be deleted at any time, `telemetry/` holds telemetry events that failed to send and are retried on later runs, and `feedback-survey-state.json`, `recommended-effort-state.json`, and `updates/plugin-notices.json` remember whether a prompt has already been shown so it is not repeated.
 
 ## Session data
 

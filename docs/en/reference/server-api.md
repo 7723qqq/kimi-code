@@ -68,7 +68,7 @@ Error codes are grouped by band:
 | `409xx` | State conflict | `40901` session busy, `40902` approval already resolved, `40922` page conditions mismatch `page_token` |
 | `410xx` | Expired | `41001` approval timed out, `41002` question timed out, `41003` temporary file expired |
 | `413xx` | Size or boundary exceeded | `41302` file read over 10 MB, `41304` path escapes the session directory |
-| `429xx` | Rate limited | `42901` auth-failure ban, `42902` too many fs watches |
+| `429xx` | Rate limited | `42901` auth-failure ban |
 | `500xx` | Server internal error | `50001` uncaught exception, `50003` persistence failure |
 | `6xxxx` / `7xxxx` / `8xxxx` | Tool runtime / LLM provider / MCP passthrough errors; `msg` carries the upstream text | |
 
@@ -284,7 +284,7 @@ On success, `data` is the config object; its fields mirror the top-level domains
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `providers` | object | Map of provider id → `{ type, base_url?, default_model?, has_api_key }` |
+| `providers` | object | Map of provider id → `{ type, base_url?, default_model?, api_key_env?, has_api_key }` |
 | `default_provider` | string | Global default provider id |
 | `default_model` | string | Global default model alias |
 | `models` | object | Map of model alias → model record |
@@ -807,7 +807,7 @@ Realtime status rollup of the main agent; reading it resumes the session if it i
 | --- | --- | --- | --- |
 | `session_id` | path | string | **Required.** Session id |
 
-On success, `data` is `{ busy, model?, thinking_level, permission, plan_mode, swarm_mode, context_tokens, max_context_tokens?, context_usage? }`: `busy` reports an active turn, `model` / `thinking_level` / `permission` are the effective agent settings, `plan_mode` / `swarm_mode` are the mode flags, and `context_tokens` with `max_context_tokens` and `context_usage` (0–1) describe context-window consumption.
+On success, `data` is `{ busy, model?, thinking_level, permission, plan_mode, swarm_mode, tower_mode?, context_tokens, max_context_tokens?, context_usage? }`: `busy` reports an active turn, `model` / `thinking_level` / `permission` are the effective agent settings, `plan_mode` / `swarm_mode` / `tower_mode` are the mode flags, and `context_tokens` with `max_context_tokens` and `context_usage` (0–1) describe context-window consumption.
 
 - `40401`: session not found
 
@@ -2349,13 +2349,14 @@ The only endpoint is `ws://<host>:<port>/api/v1/ws`; authentication happens at t
   "payload": {
     "ws_connection_id": "conn_01JZX4...",
     "protocol_version": 2,
+    "heartbeat_ms": 10000,
     "max_event_buffer_size": 1000,
     "capabilities": { "event_batching": false, "compression": false }
   }
 }
 ```
 
-Note that the server never sends heartbeats and never disconnects an idle connection — keepalive and reconnection are the client's job.
+The server sends a `ping` frame every `heartbeat_ms` (10000 ms by default) and the client must answer with a `pong`. If no inbound frame arrives within two heartbeat intervals — about 20 seconds — the server closes the connection with code `1001` and reason `heartbeat timeout`. Reconnection is still the client's job.
 
 ### Control frames
 
@@ -2382,7 +2383,7 @@ Event frames look like `{ "type", "seq", "epoch"?, "volatile"?, "offset"?, "sess
 | Streaming text | `assistant.delta`, `thinking.delta` (carry `offset` for alignment) |
 | Tool calls | `tool.call.started`, `tool.call.delta`, `tool.progress`, `tool.result` |
 | Interactions | `event.approval.requested` / `resolved`, `event.question.requested` / `answered` / `dismissed` |
-| Subagents | `subagent.spawned` / `started` / `suspended` / `completed` / `failed` |
+| Subagents | `subagent.spawned` / `started` / `suspended` / `completed` / `failed` / `cancelled` |
 | Background | `task.started` / `terminated`, `shell.started` / `output` / `completed` |
 | Misc | `compaction.*`, `skill.activated`, `goal.updated`, `prompt.*`, `error`, `warning` |
 

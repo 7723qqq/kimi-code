@@ -47,7 +47,7 @@ Add a `.json` file to the themes directory:
 - `~/.kimi-code/themes/`
 - or `$KIMI_CODE_HOME/themes/` when the `KIMI_CODE_HOME` environment variable is set
 
-Create the directory if it does not exist. **The filename is the theme name**: `ember.json` appears in `/theme` as `Custom: ember`.
+Create the directory if it does not exist. **The filename is the theme name**: `ember.json` appears in `/theme` as `Custom: ember`. The names `dark`, `light`, and `auto` are reserved for the built-in palettes, so a `.json` file with one of those names is not listed in `/theme`.
 
 A minimal theme only sets the colors you want to change; the rest fall back to the **base palette** (`dark` by default):
 
@@ -98,7 +98,7 @@ Custom themes are designed to never get in your way:
 
 - **An invalid color value** (not `#` followed by 6 hex digits): that one entry is silently skipped and falls back to the selected base palette; the rest of the colors still apply.
 - **An unrecognized token**: ignored, with no effect on other colors.
-- **A missing custom theme file or malformed JSON**: silently falls back to the built-in `dark` palette. It does not retry `auto`.
+- **A missing custom theme file or malformed JSON**: selecting it in `/theme` reports an error and keeps the current theme; when the theme is loaded from `tui.toml`, it silently falls back to the built-in `dark` palette instead. It does not retry `auto`.
 
 ## Editing the active theme
 

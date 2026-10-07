@@ -68,7 +68,7 @@ HTTP 状态码几乎总是 200，业务结果以 `code` 为准。例外情况：
 | `409xx` | 状态冲突 | `40901` 会话忙、`40902` 审批已解决、`40922` 分页条件与 `page_token` 不符 |
 | `410xx` | 资源已过期 | `41001` 审批超时、`41002` 提问超时、`41003` 临时文件过期 |
 | `413xx` | 体积或边界超限 | `41302` 读取文件超 10 MB、`41304` 路径越出会话目录 |
-| `429xx` | 限流 | `42901` 鉴权失败封禁、`42902` 文件监听数超限 |
+| `429xx` | 限流 | `42901` 鉴权失败封禁 |
 | `500xx` | 服务端内部错误 | `50001` 未捕获异常、`50003` 持久化失败 |
 | `6xxxx` / `7xxxx` / `8xxxx` | 工具运行时 / LLM 供应商 / MCP 透传错误，`msg` 保留上游原文 | |
 
@@ -284,7 +284,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `providers` | object | 供应商 id → `{ type, base_url?, default_model?, has_api_key }` 的映射 |
+| `providers` | object | 供应商 id → `{ type, base_url?, default_model?, api_key_env?, has_api_key }` 的映射 |
 | `default_provider` | string | 全局默认供应商 id |
 | `default_model` | string | 全局默认模型别名 |
 | `models` | object | 模型别名 → 模型记录的映射 |
@@ -807,7 +807,7 @@ main agent 的实时状态汇总；读取它会在会话为冷态时将其恢复
 | --- | --- | --- | --- |
 | `session_id` | path | string | **必填。** 会话 id |
 
-成功时，`data` 为 `{ busy, model?, thinking_level, permission, plan_mode, swarm_mode, context_tokens, max_context_tokens?, context_usage? }`：`busy` 表示是否有进行中的轮次，`model` / `thinking_level` / `permission` 为当前生效的 Agent 设置，`plan_mode` / `swarm_mode` 为模式标志，`context_tokens` 与 `max_context_tokens`、`context_usage`（0–1）描述上下文窗口的占用情况。
+成功时，`data` 为 `{ busy, model?, thinking_level, permission, plan_mode, swarm_mode, tower_mode?, context_tokens, max_context_tokens?, context_usage? }`：`busy` 表示是否有进行中的轮次，`model` / `thinking_level` / `permission` 为当前生效的 Agent 设置，`plan_mode` / `swarm_mode` / `tower_mode` 为模式标志，`context_tokens` 与 `max_context_tokens`、`context_usage`（0–1）描述上下文窗口的占用情况。
 
 - `40401`：会话不存在
 
@@ -2349,13 +2349,14 @@ locator 寻址的目录（脱敏配置），外加对每个 OAuth 候选的批�
   "payload": {
     "ws_connection_id": "conn_01JZX4...",
     "protocol_version": 2,
+    "heartbeat_ms": 10000,
     "max_event_buffer_size": 1000,
     "capabilities": { "event_batching": false, "compression": false }
   }
 }
 ```
 
-注意服务端不发送心跳，也不会主动断开空闲连接——保活与重连由客户端自己负责。
+服务端每 `heartbeat_ms`（默认 10000 毫秒）发送一个 `ping` 帧，客户端必须回以 `pong`。若两个心跳间隔内（约 20 秒）没有收到任何入站帧，服务端会以 `1001` 关闭连接，原因为 `heartbeat timeout`。重连仍由客户端负责。
 
 ### 控制帧
 
@@ -2382,7 +2383,7 @@ locator 寻址的目录（脱敏配置），外加对每个 OAuth 候选的批�
 | 流式文本 | `assistant.delta`、`thinking.delta`（带 `offset` 用于对齐） |
 | 工具调用 | `tool.call.started`、`tool.call.delta`、`tool.progress`、`tool.result` |
 | 交互 | `event.approval.requested` / `resolved`、`event.question.requested` / `answered` / `dismissed` |
-| subagent | `subagent.spawned` / `started` / `suspended` / `completed` / `failed` |
+| subagent | `subagent.spawned` / `started` / `suspended` / `completed` / `failed` / `cancelled` |
 | 后台 | `task.started` / `terminated`、`shell.started` / `output` / `completed` |
 | 其他 | `compaction.*`、`skill.activated`、`goal.updated`、`prompt.*`、`error`、`warning` |
 

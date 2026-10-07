@@ -62,7 +62,7 @@ keep = "all"
 max_attempts_per_step = 10
 reserved_context_size = 50000
 
-[background]
+[task]
 max_running_tasks = 4
 keep_alive_on_exit = false
 
@@ -106,12 +106,24 @@ Fields in the config file fall into two categories: **top-level scalars** that d
 | `auto_session_title` | `boolean` | `true` | Whether clients may automatically generate session titles; disabled only when explicitly set to `false` |
 | [`providers`](#providers) | `table` | `{}` | API provider table |
 | [`models`](#models) | `table` | — | Model alias table |
+| [`secondary_model`](#secondary-model) | `table` | — | Subagent model pool and default binding |
 | [`thinking`](#thinking) | `table` | — | Default parameters for Thinking mode |
-| [`loop_control`](#loop_control) | `table` | — | Agent loop control parameters |
-| [`background`](#background) | `table` | — | Background task runtime parameters |
+| [`loop_control`](#loop-control) | `table` | — | Agent loop control parameters |
+| [`token_counting`](#token-counting) | `table` | — | Which context token count is reported externally |
+| [`task`](#task) | `table` | — | Background task runtime parameters (legacy name: `[background]`) |
+| [`subagent`](#subagent) | `table` | — | `Agent` subagent runtime parameters |
+| [`swarm`](#swarm) | `table` | — | `AgentSwarm` subagent runtime parameters |
+| [`mcp`](#mcp) | `table` | — | Global MCP connection and tool-call timeouts |
 | [`tools`](#tools) | `table` | — | Global tool switch |
 | [`image`](#image) | `table` | — | Image compression parameters |
+| [`read`](#read) | `table` | — | `Read` tool character budgets |
+| [`database`](#database) | `table` | — | Embedded storage engines behind session indexing and search |
+| [`watch`](#watch) | `table` | — | Filesystem watchers for config and workspace files |
+| [`llm_requester`](#llm-requester) | `table` | — | Byte budget for a single LLM request body |
+| [`model_catalog`](#model-catalog) | `table` | — | Provider-model catalog refresh schedule |
+| [`experimental`](#experimental) | `table` | — | Persistent overrides for experimental-feature flags |
 | [`services`](#services) | `table` | — | Built-in external service configuration |
+| [`github`](#github) | `table` | — | Built-in GitHub tools |
 | [`permission`](#permission) | `table` | — | Initial permission rules |
 | [`hooks`](../customization/hooks.md) | `array<table>` | — | Lifecycle hooks |
 | [`identity`](#identity) | `table` | — | Custom agent identity |
@@ -123,12 +135,15 @@ Each entry in the `providers` table defines an API provider, keyed by a unique n
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `type` | `string` | Yes | Provider type: `kimi`, `anthropic`, `openai`, `openai_responses`, `google-genai`, `vertexai` |
+| `model_source` | `string` | No | Where the provider's model list comes from: `static`, `discover`, or `oauth-catalog`. Written by the CLI when the provider is added; you rarely set it by hand |
 | `api_key` | `string` | No | API key, written in plain text in the config file |
 | `api_key_env` | `string` | No | Name of a shell environment variable to read the API key from instead of storing it in the config file; re-read on every request. Mutually exclusive with `api_key` and `oauth`; an unset or empty variable fails the request with an error naming the variable |
 | `base_url` | `string` | No | API base URL |
-| `oauth` | `table` | No | OAuth credential reference (`storage` and `key` fields); injected automatically by the login flow, so you normally never write this by hand |
+| `default_model` | `string` | No | Model alias this provider selects by default. Written by the CLI when the provider is added |
+| `oauth` | `table` | No | OAuth credential reference (`storage`, `key`, and an optional `oauth_host`); injected automatically by the login flow, so you normally never write this by hand |
 | `env` | `table<string, string>` | No | Fallback source for provider credentials; see the `env` sub-table |
 | `custom_headers` | `table<string, string>` | No | Custom HTTP headers attached to each request |
+| `source` | `table` | No | Bookkeeping for providers imported from a custom registry (registry URL and so on), written by the CLI; not meant to be edited by hand |
 
 **`env` sub-table**: You can write provider-conventional key names (such as `KIMI_API_KEY`) inside `[providers.<name>.env]` as a fallback source for `api_key` / `base_url`. This sub-table is **read only from the config file** and does not modify the shell environment:
 
@@ -146,19 +161,26 @@ Each entry in the `models` table defines a model alias (the name used in `defaul
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
+| `provider_id` | `string` | No | Provider id this model belongs to; an alternative to `provider`, written by catalog imports |
 | `provider` | `string` | Yes | Name of the provider to use; must be defined in `providers` |
 | `model` | `string` | Yes | Model identifier sent to the server when calling the API |
+| `name` | `string` | No | Model name sent on the wire; falls back to `model` |
+| `aliases` | `array<string>` | No | Extra names that also resolve to this entry |
+| `api_key` | `string` | No | Per-model API key, overriding the provider's; mutually exclusive with `oauth` |
+| `oauth` | `table` | No | Per-model OAuth credential reference, same structure as `providers.*.oauth` |
+| `protocol` | `string` | No | Protocol spoken to the endpoint: `anthropic`, `openai`, `openai_responses`, `google-genai`, or `antigravity`. Required when the model declares no `provider` |
 | `max_context_size` | `integer` | Yes | Maximum context length in tokens; must be at least 1 |
 | `max_input_size` | `integer` | No | Declared per-request input limit; compaction, context-overflow checks, and usage ratios prefer it, completion budgeting keeps the total window |
-| `max_output_size` | `integer` | No | Per-request output token cap (maps to `max_tokens`); currently only the `anthropic` provider reads it |
+| `max_output_size` | `integer` | No | Per-request output token cap (maps to `max_tokens`); every protocol encodes it as the single-request output ceiling |
 | `capabilities` | `array<string>` | No | Capability tags added explicitly: `thinking`, `always_thinking`, `image_in`, `video_in`, `audio_in`, `tool_use`, `dynamically_loaded_tools`; only ever added, never removed |
 | `support_efforts` | `array<string>` | No | Thinking effort levels the model accepts; unsupported values fall back to `default_effort`, out-of-list values fail; managed refreshes may rewrite it (pin via overrides) |
 | `default_effort` | `string` | No | Default thinking effort for the model; managed and open-platform refreshes may rewrite it. Pin via [model overrides](#model-overrides) |
 | `off_effort` | `string` | No | Effort value sent on the wire to disable thinking (e.g. `none` for xai grok); the only way to actually stop reasoning on models that reason by default |
-| `base_url` | `string` | No | Per-model endpoint override (written by catalog imports); takes precedence over the provider's `base_url`, only effective together with `protocol` |
+| `base_url` | `string` | No | Per-model endpoint override (written by catalog imports); takes precedence over the provider's `base_url`. A model that declares no `provider` must also set `protocol` |
 | `display_name` | `string` | No | Name shown in the UI; falls back to `model` when unset |
 | `reasoning_key` | `string` | No | `openai` provider only; set when the gateway returns reasoning content under a non-standard field name (`reasoning_content` and friends are auto-detected) |
 | `adaptive_thinking` | `boolean` | No | `anthropic` provider only; force adaptive thinking on or off, omit to infer from the model name (Claude ≥ 4.6 uses adaptive) |
+| `beta_api` | `boolean` | No | `anthropic` protocol only; route requests to the beta Messages API base URL. Set automatically when preserved thinking is in play |
 
 When an alias contains `.`, use a quoted key:
 
@@ -184,9 +206,9 @@ max_context_size = 131072
 display_name = "Kimi for Coding (custom)"
 ```
 
-`[models."<alias>".overrides]` accepts ordinary model fields such as `max_context_size`, `max_input_size`, `max_output_size`, `capabilities`, `display_name`, `reasoning_key`, `adaptive_thinking`, `support_efforts`, `default_effort`, and `off_effort`. It does not accept identity / routing fields: `provider`, `model`, `protocol`, `beta_api`, and `base_url`.
+`[models."<alias>".overrides]` accepts ordinary model fields such as `max_context_size`, `max_input_size`, `max_output_size`, `capabilities`, `display_name`, `reasoning_key`, `adaptive_thinking`, `support_efforts`, `default_effort`, and `off_effort`. It does not accept identity / routing fields: `provider_id`, `provider`, `model`, `name`, `aliases`, `protocol`, `beta_api`, `base_url`, `api_key`, and `oauth`.
 
-You can also switch models temporarily without touching the config file: setting `KIMI_MODEL_*` environment variables synthesizes a temporary provider in memory that does not persist after restart. See [Define a model from environment variables](./env-vars.md#define-a-model-from-environment-variables-kimi_model_).
+You can also switch models temporarily without touching the config file: setting `KIMI_MODEL_*` environment variables synthesizes a temporary provider in memory that does not persist after restart. See [Define a model from environment variables](./env-vars.md#define-a-model-from-environment-variables-kimi-model).
 
 ## `secondary_model`
 
@@ -206,9 +228,12 @@ default_model = "kimi-code/kimi-for-coding-highspeed"
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `default_model` | `string` | — | The default model for subagents |
+| `model` | `string` | — | Legacy alias for `default_model`, read as a fallback when `default_model` is unset |
 | `models` | `table<string, string>` | — | Subagent model pool; each key is the alias of a configured [`[models]`](#models) entry, each value a selection hint |
 | `force` | `boolean` | `false` | Pin every subagent to `default_model`, taking the choice away from the main agent |
 | `default_effort` | `string` | — | The thinking effort every spawned subagent binds with; outranks the bound model entry's own `default_effort` |
+
+The section is shared with the legacy engine, whose `[secondary_model]` recipe reads `model` as the pointer and treats every other model field (`max_context_size`, `max_input_size`, `max_output_size`, `capabilities`, `display_name`, `reasoning_key`, `adaptive_thinking`, `support_efforts`, `off_effort`) as a subagent-only patch. The v2 engine accepts those fields but does not apply them; only the keys above take effect.
 
 Constraints between the fields:
 
@@ -264,8 +289,7 @@ Binding a pool alias lands the subagent on the bound model's default effort. You
 2. List both the original alias and the variant alias in the pool.
 
 ```toml
-# "kimi-code/k3" is provisioned by /login (default: high); this registers
-# a max-effort variant of the same model
+# "kimi-code/k3" is provisioned by /login (default: high); this registers a max-effort variant of the same model
 [models.k3-max]
 provider = "managed:kimi-code"
 model = "k3"
@@ -326,7 +350,9 @@ Configuration errors fail loudly instead of falling back silently. Session creat
 | --- | --- | --- | --- |
 | `max_steps_per_turn` | `integer` | — | Maximum steps per turn; unset or `0` means unlimited |
 | `max_attempts_per_step` | `integer` | `10` | Maximum total attempts for a failing step, including the initial attempt |
+| `max_ralph_iterations` | `integer` | — | Accepted by the schema but not consumed by the v2 engine; `-1` means unlimited |
 | `reserved_context_size` | `integer` | — | Number of tokens reserved for model output; automatic compaction is triggered when the remaining context window falls below this value |
+| `compaction_trigger_ratio` | `number` | `0.85` | Fraction of the context window at which automatic compaction triggers; must be between `0.5` and `0.99` |
 | `compaction_max_attempts` | `integer` | `5` | Maximum total attempts for a failing compaction request, including the initial attempt |
 
 `max_steps_per_turn` can be overridden by the `KIMI_LOOP_MAX_STEPS_PER_TURN` environment variable, and `max_attempts_per_step` by `KIMI_LOOP_MAX_ATTEMPTS_PER_STEP`; both take higher priority than the config file. The former `KIMI_LOOP_MAX_RETRIES_PER_STEP` variable is deprecated but still honored (with a startup warning) when the new one is unset.
@@ -343,9 +369,9 @@ Retries only apply to transient failures: connection errors, timeouts, HTTP 429 
 
 `strategy` can be overridden by the `KIMI_TOKEN_COUNTING_STRATEGY` environment variable, which takes higher priority than `config.toml`.
 
-## `background`
+## `task`
 
-`background` controls the concurrency behavior of background tasks (launched via the `Bash` tool or the `Agent` tool's `run_in_background=true` parameter).
+`task` controls the concurrency behavior of background tasks (launched via the `Bash` tool or the `Agent` tool's `run_in_background=true` parameter). `[background]` is the legacy name of this section: it is still accepted, and when both are present their keys are merged with `[task]` winning.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -470,8 +496,10 @@ Both values must be positive integers. A call's `max_chars` overrides the defaul
 | --- | --- | --- | --- |
 | `base` | `boolean` | `true` | Use the minidb-backed read model for session indexing; `false` falls back to reading session metadata directly |
 | `search` | `boolean` | `true` | Run the global search index in a dedicated worker thread; `false` runs it in the server process |
+| `search_sync_session_cap` | `integer` | `500` | Maximum number of sessions synced into the search index in one pass; the rest are picked up by a later pass |
+| `search_sync_debounce_ms` | `integer` | `2000` | Debounce (milliseconds) before a pending search-index sync runs |
 
-`base` can be overridden by the `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` environment variable and `search` by `KIMI_CODE_SEARCH_WORKER`; both take higher priority than `config.toml`.
+`base` can be overridden by the `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` environment variable, `search` by `KIMI_CODE_SEARCH_WORKER`, `search_sync_session_cap` by `KIMI_CODE_SEARCH_SYNC_SESSION_CAP`, and `search_sync_debounce_ms` by `KIMI_CODE_SEARCH_SYNC_DEBOUNCE_MS`; all take higher priority than `config.toml`.
 
 ## `watch`
 
@@ -483,15 +511,34 @@ Both values must be positive integers. A call's `max_chars` overrides the defaul
 
 `enabled` can be overridden by the `KIMI_CODE_WATCH` environment variable, which takes higher priority than `config.toml`.
 
-<!--
-## `experimental`
+## `llm_requester`
 
-`experimental` stores persistent overrides for experimental-feature flags. Currently, `micro_compaction` is the only user-facing entry and defaults to `false`; set it to `true` to enable automatic trimming of older large tool results.
+`llm_requester` bounds the size of a single LLM request body. When the assembled request exceeds the budget, older content is trimmed before the request is sent.
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `micro_compaction` | `boolean` | `false` | Trim older large tool results from context while preserving recent conversation |
--->
+| `request_byte_budget` | `number` | `33554432` (32 MB) | Byte budget for a single request body; must be a positive integer |
+
+`request_byte_budget` can be overridden by the `KIMI_LLM_REQUEST_BYTE_BUDGET` environment variable, which takes higher priority than `config.toml`.
+
+## `model_catalog`
+
+`model_catalog` controls how the provider-model catalog is refreshed. It is read by the server process (`kimi web`).
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `refresh_interval_ms` | `number` | `21600000` (6 hours) | How often to refresh the catalog, in milliseconds; `0` disables the interval refresh |
+| `refresh_on_start` | `boolean` | `true` | Whether to refresh the catalog at startup |
+
+Both fields can be overridden by `KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS` and `KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START`, which take higher priority than `config.toml`.
+
+## `experimental`
+
+`experimental` stores persistent overrides for experimental-feature flags, keyed by flag id. Each entry is a boolean that turns the feature on or off for every session; the interactive entry point is the `/experiments` command, also reachable from `/settings`. A key that does not name a registered flag has no effect.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `micro_compaction` | `boolean` | `false` | After a prompt-cache miss, replace old oversized tool results in the outgoing request with a marker so the rebuilt prefix stays small |
 
 ## `services`
 
@@ -508,11 +555,11 @@ Both values must be positive integers. A call's `max_chars` overrides the defaul
 
 ```toml
 [services.moonshot_search]
-base_url = "https://api.moonshot.cn/v1/search"
+base_url = "https://api.kimi.com/coding/v1/search"
 api_key = "sk-xxx"
 
 [services.moonshot_fetch]
-base_url = "https://api.moonshot.cn/v1/fetch"
+base_url = "https://api.kimi.com/coding/v1/fetch"
 api_key = "sk-xxx"
 ```
 
@@ -591,8 +638,15 @@ Alongside `config.toml`, the CLI keeps terminal-UI and client preferences in a c
 | `[notifications].enabled` | `boolean` | `true` | Whether desktop notifications are sent |
 | `[notifications].notification_condition` | `string` | `unfocused` | When to notify: `unfocused` (only when the terminal is not focused) or `always` |
 | `[upgrade].auto_install` | `boolean` | `true` | Whether new versions are installed automatically |
-| `[status_line].items` | `string[]` | `[]` | Built-in slots on the first footer line and their order: `mode`, `goal`, `model`, `tasks`, `cwd`, `git`, `tips`; unknown ids are skipped with a warning |
-| `[status_line].command` | `string` | `""` | Custom status line command: its first stdout line replaces the footer, and a JSON snapshot is passed on stdin; capped at 300ms, throttled to once per second, failures fall back to the built-in layout |
+| `[astron].stream` | `boolean` | `true` | Astron provider: stream responses |
+| `[astron].temperature` | `number` | `1.0` | Astron provider: sampling temperature, `0`–`2` |
+| `[astron].max_tokens` | `number` | `32768` | Astron provider: maximum output tokens, at least `1` |
+| `[astron].search_disable` | `boolean` | `true` | Astron provider: disable web search |
+| `[markdown].mermaid` | `string` | `final` | Draw Mermaid code blocks as diagrams in the terminal: `final` renders them once the block is complete, `off` keeps the highlighted source |
+| `[status_line].items` | `string[] \| null` | `null` | Built-in slots on the first footer line and their order: `mode`, `goal`, `model`, `tasks`, `cwd`, `git`, `tips`; `null` keeps the built-in layout, unknown ids are skipped with a warning |
+| `[status_line].command` | `string \| null` | `null` | Custom status line command: its first stdout line replaces the footer, and a JSON snapshot is passed on stdin; `null` disables it. Capped at 300ms, throttled to once per second, failures fall back to the built-in layout |
+
+The `[astron]` block holds the Astron provider's sampling settings; the `/settings` Astron panel edits the same fields under `[providers.astron]` in `config.toml`.
 
 <details>
 <summary>Fields in the stdin JSON snapshot</summary>
@@ -619,6 +673,15 @@ notification_condition = "unfocused" # "unfocused" | "always"
 
 [upgrade]
 auto_install = true
+
+[astron]
+stream = true
+temperature = 1.0
+max_tokens = 32768
+search_disable = true
+
+# [markdown]
+# mermaid = "final" # "final" | "off"
 
 # [status_line]
 # items = ["mode", "goal", "model", "tasks", "cwd", "git", "tips"]

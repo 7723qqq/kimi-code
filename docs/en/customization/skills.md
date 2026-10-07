@@ -62,7 +62,7 @@ Please handle code according to the following guidelines:
 | --- | --- |
 | `name` | Skill name (case-insensitive). Required in directory-form `SKILL.md`; flat `.md` falls back to the filename without the `.md` extension |
 | `description` | One-line summary the model uses to decide when to invoke. Required in directory-form `SKILL.md`; flat `.md` falls back to the first non-empty body line (up to 240 characters) |
-| `type` | Skill type: `prompt` (default), `inline` (same as `prompt`), `flow` (manual invocation only). Other values are skipped |
+| `type` | Skill type: `prompt` (default), `inline` (same as `prompt`), `flow` (manual invocation only), `reference` (internal reference only, cannot be invoked manually). Other values are skipped |
 | `whenToUse` | Description of when the Skill should be triggered. Also accepts `when-to-use` and `when_to_use` |
 | `disableModelInvocation` | If `true`, blocks automatic model invocation. Also accepts `disable-model-invocation`, `disable_model_invocation` |
 | `arguments` | Named parameters; a string array or whitespace-separated string (e.g., `arguments: target mode`). Once declared, readable in the body as `$<name>` |
@@ -108,7 +108,7 @@ extra_skill_dirs = ["~/team-skills", ".agents/team-skills"]
 
 Users can invoke a Skill manually with a slash command:
 
-```
+```text
 /skill:code-style
 /skill:git-commits fix concurrency issue in login endpoint
 ```

@@ -19,7 +19,7 @@ All flags are optional — run `kimi` directly to enter an interactive session:
 | `--continue` | `-c` | Continue the most recent session in the current working directory, without specifying an ID manually |
 | `--model <model>` | `-m` | Specify a model alias for this launch. When omitted, new sessions use `default_model` from the config file |
 | `--prompt <prompt>` | `-p` | Run a single prompt non-interactively and stream the Assistant output to stdout. This mode does not open the TUI |
-| `--output-format <format>` | | Set the non-interactive output format; supports `text` and `stream-json`. Can only be used with `--prompt`; defaults to `text` |
+| `--output-format <format>` | | Set the non-interactive output format; supports `text` and `stream-json`. Can only be used with `--prompt`; defaults to `text`, or to the `KIMI_MODEL_OUTPUT_FORMAT` environment variable when it is set (the flag wins) |
 | `--yolo` | `-y` | Start in Ask When Needed mode: routine edits and commands run automatically; risky actions, questions, and plans still ask |
 | `--auto` | | Start in Never Ask mode: never interrupts you; everything runs and is decided automatically |
 | `--plan` | | Start a new session in Plan mode — the AI will prioritize read-only tools for exploration and planning |
@@ -28,7 +28,7 @@ All flags are optional — run `kimi` directly to enter an interactive session:
 | `--agent-file <path>` | | Load a custom agent from a Markdown file for the new session and select it. Cannot be repeated or combined with `--agent`, `--session`, or `--continue` |
 | `--add-dir <dir>` | | Add an extra workspace directory for this session. Relative paths resolve against the current working directory. Can be repeated |
 
-`-r` / `--resume` is a hidden alias for `--session`; `--yes` and `--auto-approve` are hidden aliases for `--yolo` and are not shown in help output.
+`-r` / `--resume` is a hidden alias for `--session`; `-C` is a hidden alias for `--continue`; `--yes` and `--auto-approve` are hidden aliases for `--yolo`. None of them are shown in help output.
 
 ::: warning
 `--yolo` skips human approval for regular tool calls, including file writes and shell command execution. Use it only in trusted working directories. Plan mode exit approval is not bypassed by `--yolo`; `Bash` inside Plan mode is handled under the regular allow rules.
@@ -133,7 +133,7 @@ In `stream-json` mode, regular replies produce an Assistant message; when the mo
 
 ## Subcommands
 
-`kimi` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `web` (run the local REST/WebSocket/web service in the foreground and open the web UI), `doctor` (validate configuration files), `export` (export a session), `migrate` (migrate legacy data), `upgrade` (check for updates), and `provider` (manage providers).
+`kimi` provides the following subcommands: `login` (non-interactive login), `acp` (ACP IDE mode), `web` (run the local REST/WebSocket/web service in the foreground and open the web UI), `doctor` (validate configuration files), `export` (export a session), `fork` (fork a session), `session` (list sessions non-interactively), `migrate` (migrate legacy data), `upgrade` (check for updates), `provider` (manage providers), `vis` (open the session visualizer), and `install-desktop` (open the desktop app page).
 
 ### `kimi login`
 
@@ -143,7 +143,12 @@ Log in to Kimi Code OAuth via the RFC 8628 device-code flow, without entering th
 kimi login
 ```
 
-This subcommand has no flags. Press `Ctrl-C` at any time during polling to cancel; the exit code is `1` on cancellation or failure, and `0` on success.
+| Option | Description |
+| --- | --- |
+| `--region <region>` | Login region: `mainland-cn` (kimi.com) or `global` (kimi.ai) |
+| `--provider <provider>` | Login provider: `kimi` (default), or `google` / `gemini` |
+
+Press `Ctrl-C` at any time during polling to cancel; the exit code is `1` on cancellation or failure, and `0` on success.
 
 ### `kimi acp`
 
@@ -152,6 +157,11 @@ Switch Kimi Code CLI to ACP (Agent Client Protocol) mode, communicating with an 
 ```sh
 kimi acp
 ```
+
+| Option | Description |
+| --- | --- |
+| `--login` | Run the device-code login flow then exit (entry point for ACP terminal-auth) |
+| `--region <region>` | Login region used together with `--login`: `mainland-cn` (kimi.com) or `global` (kimi.ai) |
 
 ### `kimi web`
 
@@ -172,10 +182,13 @@ Multiple instances can share one home directory: each registers itself under `~/
 | `--port <port>` | Bind port; defaults to `58627`; a busy port is retried with `+1` |
 | `--host [host]` | Bind host; omit for `127.0.0.1` (this machine only), pass a bare `--host` for `0.0.0.0` (all interfaces) |
 | `--allowed-host <host...>` | Extra Host header values allowed through the DNS-rebinding check; repeatable or comma-separated |
+| `--insecure-no-tls` | Allow a non-loopback bind without a TLS-terminating reverse proxy; defaults to `true` and only matters for non-loopback binds |
+| `--allow-remote-shutdown` | On a non-loopback bind, keep `POST /api/v1/shutdown` enabled (default: the route is disabled and returns 404) |
 | `--log-level <level>` | Enable server logs at the selected level; omitted by default |
 | `--debug-endpoints` | Mount `/api/v1/debug/*` routes (off by default) |
 | `--dangerous-bypass-auth` | Disable bearer-token auth on all REST and WebSocket routes so the web UI connects without a token; only for trusted networks or behind an authenticating proxy |
-| `--web-title <title>` | Custom browser tab title for the web UI; defaults to the workspace directory name |
+| `--web-title <title>` | Custom browser tab title for the web UI; defaults to `<workspace dir> \| Kimi Code` |
+| `--rc, --remote-control` | Expose the web UI through Kimi Remote Control |
 | `--no-open` | Do not open the browser once the server is ready |
 
 `kimi web` binds to local loopback only by default and prints the bearer token in the startup banner; the web UI authenticates automatically via the `#token=` URL fragment.
@@ -187,6 +200,10 @@ The `kimi server` command tree is deprecated: any `kimi server …` invocation (
 ::: danger
 `--dangerous-bypass-auth` disables authentication entirely. Anyone who can reach the port gets full access to your sessions, filesystem, and shell. Only use it on a trusted network or behind your own authenticating reverse proxy, and stop the server with `Ctrl+C` when you are done.
 :::
+
+#### `kimi web rc`
+
+Run the local Kimi server and open the web UI through Kimi Remote Control — the same server as `kimi web`, but registered with the relay so the session can be reached from another device. `kimi rc` is an alias. See [Remote Control](../guides/remote-control.md).
 
 #### `kimi server kill`
 
@@ -259,6 +276,52 @@ kimi export 01HZ...XYZ -o ./bug-report.zip
 
 # Exclude the global diagnostic log
 kimi export 01HZ...XYZ -o ./bug-report.zip --no-include-global-log
+```
+
+### `kimi fork`
+
+Fork a session into a new session, leaving the original untouched.
+
+```sh
+kimi fork [sessionId] [options]
+```
+
+| Parameter / Option | Short | Description |
+| --- | --- | --- |
+| `sessionId` | | The ID of the session to fork. When omitted, the most recent session in the current working directory is used |
+| `--cwd <path>` | | Working directory used to find the most recent session to fork. Defaults to the current directory |
+| `--yes` | `-y` | Skip the previous-session confirmation |
+
+```sh
+# Fork the most recent session in the current directory, skipping confirmation
+kimi fork -y
+
+# Fork a specific session
+kimi fork 01HZ...XYZ
+```
+
+### `kimi session`
+
+Manage sessions without entering the TUI. Only `kimi session list` is available.
+
+```sh
+kimi session list [options]
+```
+
+| Option | Description |
+| --- | --- |
+| `--cwd <path>` | List sessions of this working directory. Defaults to the current directory |
+| `--all` | List sessions across every workspace |
+| `--archived` | Include archived sessions |
+| `--limit <n>` | Print at most n sessions |
+| `--json` | Emit the session summaries as JSON |
+
+```sh
+# List sessions in the current directory
+kimi session list
+
+# List every session across all workspaces, as JSON
+kimi session list --all --json
 ```
 
 ### `kimi migrate`

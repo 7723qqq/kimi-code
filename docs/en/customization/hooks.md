@@ -99,7 +99,7 @@ You can also return a JSON object via stdout to block:
 }
 ```
 
-::: info Which events support blocking?
+::: info Note
 Only **blockable events** (`PreToolUse`, `Stop`, `UserPromptSubmit`) have return values that affect the main flow. All other events are **observation-only events**: they fire and forget, and the main flow is unaffected regardless of what the script returns.
 :::
 

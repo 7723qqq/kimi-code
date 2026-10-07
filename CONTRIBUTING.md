@@ -29,8 +29,8 @@ This is a Bun monorepo. The most relevant entry points are:
 - `apps/vscode` — VS Code extension
 - `apps/vis` — session debug visualizer
 - `packages/node-sdk` — public TypeScript SDK (`@moonshot-ai/kimi-code-sdk`)
-- `packages/agent-core-v2` — the agent engine (v2, DI Scope architecture); `packages/agent-core` is v1 and being phased out
-- `packages/klient`, `kap-server`, `protocol`, `transcript`, `kosong`, `kaos`, `oauth`, `telemetry` — internal engine packages
+- `packages/agent-core-v2` — the agent engine (v2, DI Scope architecture); the v1 `packages/agent-core` is deleted in this fork (see "Syncing upstream" below)
+- `packages/klient`, `kap-server`, `remote-control`, `transcript`, `kosong`, `kaos`, `oauth`, `telemetry` — internal engine packages
 - `docs/` — VitePress bilingual docs site
 
 For the full project map, see [DEVELOP.md](DEVELOP.md).

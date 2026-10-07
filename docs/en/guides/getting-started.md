@@ -83,7 +83,7 @@ kimi -c
 
 On first launch you need to configure an API source. In the interactive UI, enter `/login` to begin the login flow:
 
-```
+```sh
 /login
 ```
 
@@ -117,7 +117,7 @@ Add a function in src/utils that converts any string to kebab-case, and add a un
 Kimi Code CLI plans the steps, modifies the code, runs the tests, and tells you what it did at each step.
 
 ::: tip Not sure what to do? Type `/help`
-Type `/help` at any time to open the built-in command and keyboard shortcut panel. Use `↑`/`↓` to browse and `Esc` to close. To exit, type `/exit`, press `Ctrl-C` twice, or press `Ctrl-D` with the input box empty.
+Type `/help` at any time to open the built-in command and keyboard shortcut panel. Use `↑`/`↓` to browse and `Esc` to close. To exit, type `/exit`, press `Ctrl-C` twice, or press `Ctrl-D` twice with the input box empty.
 :::
 
 ## Common commands and keyboard shortcuts

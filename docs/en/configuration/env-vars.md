@@ -2,10 +2,10 @@
 
 Kimi Code CLI uses environment variables to control a small number of runtime behaviors: relocating the data directory, turning off telemetry, and temporarily switching models without touching the config file.
 
-::: warning Important: API keys are not configured here
-Credential variables such as `KIMI_API_KEY`, `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY` are **not** read automatically from shell environment variables. Running `export KIMI_API_KEY=xxx` in the terminal does not give any provider its key. They must be written in `config.toml` under `[providers.<name>]` or the `[providers.<name>.env]` sub-table.
+::: warning
+Credential variables such as `KIMI_API_KEY`, `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY` are **not** configured here: they are **not** read automatically from shell environment variables. Running `export KIMI_API_KEY=xxx` in the terminal does not give any provider its key. They must be written in `config.toml` under `[providers.<name>]` or the `[providers.<name>.env]` sub-table.
 
-The only exceptions are the `KIMI_MODEL_*` family and a provider's `api_key_env` field, two explicit channels that *do* read credentials from the shell. See [Define a model from environment variables](#define-a-model-from-environment-variables-kimi_model_) and [Provider credential key names](#provider-credential-key-names-written-in-configtoml).
+The only exceptions are the `KIMI_MODEL_*` family and a provider's `api_key_env` field, two explicit channels that *do* read credentials from the shell. See [Define a model from environment variables](#define-a-model-from-environment-variables-kimi-model) and [Provider credential key names](#provider-credential-key-names-written-in-config-toml).
 
 For background, see [Config overrides: provider credentials](./overrides.md#provider-credentials).
 :::
@@ -26,7 +26,7 @@ For the complete data directory structure, see [Data locations](./data-locations
 
 ### `KIMI_DISABLE_TELEMETRY`
 
-Set to `1` to turn off anonymous telemetry reporting (also accepts `true`, `yes`, `y`, case-insensitive):
+Set to `1` to turn off anonymous telemetry reporting (also accepts `true`, `t`, `yes`, `y`, case-insensitive):
 
 ```sh
 export KIMI_DISABLE_TELEMETRY=1
@@ -34,7 +34,7 @@ export KIMI_DISABLE_TELEMETRY=1
 
 ### `KIMI_MODEL_*` family
 
-Switch models temporarily without modifying `config.toml`: when `KIMI_MODEL_NAME` is set, the CLI synthesizes a temporary provider in memory, and the change does not persist after restart. See [Define a model from environment variables](#define-a-model-from-environment-variables-kimi_model_).
+Switch models temporarily without modifying `config.toml`: when `KIMI_MODEL_NAME` is set, the CLI synthesizes a temporary provider in memory, and the change does not persist after restart. See [Define a model from environment variables](#define-a-model-from-environment-variables-kimi-model).
 
 ### `KIMI_CODE_CUSTOM_HEADERS`
 
@@ -150,11 +150,11 @@ Switches that control the behavior of subsystems such as telemetry, background t
 
 | Variable | Purpose | Valid values |
 | --- | --- | --- |
-| `KIMI_DISABLE_TELEMETRY` | Disable anonymous telemetry reporting | `1`, `true`, `yes`, `y` (case-insensitive) |
+| `KIMI_DISABLE_TELEMETRY` | Disable anonymous telemetry reporting | `1`, `true`, `t`, `yes`, `y` (case-insensitive) |
 | `KIMI_LANG` | Pin the auto-detected UI language of the terminal at startup; only the detection step reads it, so a `locale` written in `tui.toml` still wins | `zh`, `en` |
 | `KIMI_CODE_PASSWORD` | Set a parallel auth credential for the `kimi web` local server, valid alongside the bearer token; recommended when binding the server beyond loopback — see [Using Kimi Code in the browser: Security notes](../guides/web.md#security-notes) | Any non-empty string; when unset, only the token is valid |
 | `KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT` | Whether to keep background tasks when the session closes; takes higher priority than `config.toml`. The default is to stop them on exit | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
-| `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` | Cap on concurrently running background tasks; takes higher priority than `[background] max_running_tasks` in `config.toml` (unset means no cap) | Positive integer; invalid values are ignored |
+| `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` | Cap on concurrently running background tasks; takes higher priority than `[task] max_running_tasks` in `config.toml` (unset means no cap) | Positive integer; invalid values are ignored |
 | `KIMI_CODE_BACKGROUND_BASH_TASK_TIMEOUT_S` | Default timeout (seconds) for background `Bash` tasks, also used to re-arm foreground commands moved to the background; higher priority than `[task] bash_task_timeout_s` (`0` = no timeout) | Non-negative integer; invalid values are ignored |
 | `KIMI_CODE_BACKGROUND_PRINT_BACKGROUND_MODE` | What `kimi -p` does while background tasks are still pending after the main turn; higher priority than `[task] print_background_mode` | `exit`, `drain`, or `steer`; invalid values are ignored |
 | `KIMI_CODE_BACKGROUND_PRINT_WAIT_CEILING_S` | Wall-clock ceiling (seconds) for the print-mode drain/steer wait; higher priority than `[task] print_wait_ceiling_s` | Positive integer; invalid values are ignored |
@@ -178,8 +178,9 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_CODE_WATCH` | Attach filesystem watchers that reload config and workspace files; higher priority than `[watch] enabled` (default `true`) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `KIMI_CODE_SEARCH_WORKER` | Run the global search index in a dedicated worker thread; higher priority than `[database] search` (default `true`) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` | Use the minidb-backed read model for session indexing; higher priority than `[database] base` (default `true`) | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
+| `KIMI_MCP_STARTUP_TIMEOUT_MS` | Global default connection (startup + tool discovery) timeout (ms) for all MCP servers; takes higher priority than `[mcp] startup_timeout_ms` in `config.toml`, but a per-server `startupTimeoutMs` in `mcp.json` still wins (default `30000`) | Integer from `1` to `2147483647`; invalid values are ignored |
 | `KIMI_MCP_TOOL_TIMEOUT_MS` | Global default single tool-call timeout (ms) for all MCP servers; takes higher priority than `[mcp] tool_timeout_ms` in `config.toml`, but a per-server `toolTimeoutMs` in `mcp.json` still wins (default `60000`) | Integer from `1` to `2147483647`; invalid values are ignored |
-| `KIMI_CODE_TRUST_WORKSPACE` | Mark the current workspace as trusted, equivalent to choosing "Trust this folder" at the interactive trust prompt; takes effect per process and does not write a persistent trust record | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
+| `KIMI_CODE_TRUST_WORKSPACE` | Mark the current workspace as trusted, equivalent to choosing "Trust and continue" at the interactive trust prompt; takes effect per process and does not write a persistent trust record | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
 | `KIMI_LOOP_MAX_STEPS_PER_TURN` | Maximum Agent steps per turn; takes higher priority than `[loop_control] max_steps_per_turn` in `config.toml` (unset or `0` means unlimited) | Non-negative integer; invalid values are ignored |
 | `KIMI_LOOP_MAX_ATTEMPTS_PER_STEP` | Maximum total attempts for a failing step (including the initial attempt); takes higher priority than `[loop_control] max_attempts_per_step` in `config.toml` (default `10`). The deprecated `KIMI_LOOP_MAX_RETRIES_PER_STEP` is still honored with a warning when this variable is unset | Non-negative integer; invalid values are ignored |
 | `KIMI_CODE_INFINITE_RETRY` | Retry every failed LLM request indefinitely — turn steps and background operations such as compaction alike — instead of failing the task; waits use exponential backoff (capped at 32 s) and honor the server's `Retry-After` header, and aborting still cancels immediately. Intended for long-running unattended evaluations against endpoints that may fail temporarily | Truthy: `1`/`true`/`yes`/`on`; falsy: `0`/`false`/`no`/`off` |
@@ -197,6 +198,20 @@ Switches that control the behavior of subsystems such as telemetry, background t
 | `KIMI_MODEL_THINKING_KEEP` | Preserved-thinking passthrough: `thinking.keep` on `kimi`, a `clear_thinking_20251015` edit on `anthropic`; overrides `[thinking] keep` | A value the API accepts, e.g. `all`; an off-value (`false`/`0`/`no`/`off`/`none`/`null`) disables it |
 | `KIMI_CODE_NO_AUTO_UPDATE` | Fully disable the update preflight: no check, background install, or prompt. Legacy alias `KIMI_CLI_NO_AUTO_UPDATE` also honored | Truthy: `1`/`true`/`yes`/`on` |
 | `KIMI_DISABLE_CRON` | Disable the scheduled-task tool (`CronCreate` rejects new schedules; existing tasks do not fire) | `1` to disable |
+| `KIMI_CRON_DEBUG` | Write cron scheduler diagnostics to stderr | `1` enables it |
+| `KIMI_CRON_NO_JITTER` | Disable the anti-herd jitter applied to scheduled fire times | `1` disables it |
+| `KIMI_CRON_NO_STALE` | Never treat a recurring task as stale, so it does not auto-expire after 7 days | `1` disables staleness |
+| `KIMI_CRON_MANUAL_TICK` | Drive the scheduler from an external tick instead of its own timer | `1` enables it |
+| `KIMI_CRON_CLOCK` | Replace the scheduler's wall clock; `system` (the default) uses the real clock, `file:<path>` reads a Unix epoch millisecond timestamp from the file's first line | `system` or `file:<path>`; anything else falls back to the system clock |
+| `KIMI_CRON_POLL_INTERVAL_MS` | Scheduler poll interval in milliseconds (default `1000`); `null` or `0` disables polling | Non-negative integer or `null`; invalid values are ignored |
+| `KIMI_CODE_DANGEROUS_COMMAND_GUARD` | Turn the built-in dangerous-command policy on or off; takes higher priority than `[permission] dangerous_command_guard` in `config.toml` (default `true`) | `true` or `false`; any other value is ignored |
+| `KIMI_CODE_SEARCH_SYNC_SESSION_CAP` | Maximum number of sessions synced into the search index in one pass; takes higher priority than `[database] search_sync_session_cap` in `config.toml` (default `500`) | Integer; invalid values are ignored |
+| `KIMI_CODE_SEARCH_SYNC_DEBOUNCE_MS` | Debounce (ms) before a pending search-index sync runs; takes higher priority than `[database] search_sync_debounce_ms` in `config.toml` (default `2000`) | Integer; invalid values are ignored |
+| `KIMI_LLM_REQUEST_BYTE_BUDGET` | Byte budget for a single LLM request body; takes higher priority than `[llm_requester] request_byte_budget` in `config.toml` (default `33554432`, i.e. 32 MB) | Positive integer; invalid values are ignored |
+| `KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS` | How often the provider-model catalog is refreshed, in milliseconds; takes higher priority than `[model_catalog] refresh_interval_ms` in `config.toml` (default `21600000`, i.e. 6 hours); `0` disables the interval refresh. Read by the server process (`kimi web`) | Non-negative number; invalid values fall back to the config or default |
+| `KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START` | Whether to refresh the provider-model catalog at startup; takes higher priority than `[model_catalog] refresh_on_start` (default enabled). Read by the server process (`kimi web`) | `1`, `true`, or `yes` to enable; anything else disables it |
+
+`[task]` is the current name of the background-task section; `[background]` is still accepted as its legacy name (see [Configuration files](./config-files.md#task)).
 
 The `KIMI_CODE_INFINITE_RETRY`, `KIMI_CODE_IDENTITY_*`, `KIMI_CODE_BUILTIN_PRODUCT_SKILLS`, and `KIMI_CODE_PERMISSION_MODE_REMINDER` variables are read by the `agent-core-v2` engine.
 

@@ -24,9 +24,9 @@ Kimi Code Web 是 Kimi Code CLI 内置的浏览器图形界面：在终端运行
 启动横幅会打印访问地址，浏览器没有自动打开时，手动复制这行地址打开即可：
 
 ```text
-Local:   http://127.0.0.1:58627/#token=...
-Token:   ...
-Stop:    Ctrl+C
+本地：    http://127.0.0.1:58627/#token=...
+Token:    ...
+Stop:     Ctrl+C
 ```
 
 ::: warning 注意
@@ -52,7 +52,6 @@ Stop:    Ctrl+C
 | `/compact` | 压缩当前会话上下文 |
 | `/tower` | Tower 多 Agent 协作（实验功能），`/tower <base-branch>` 指定基准分支 |
 | `/export` | 导出会话内容与故障排查日志为 ZIP |
-| `/remote-control` | 开启远程控制，从远程访问本地 Web 会话 |
 
 
 ## 与 CLI 的关系

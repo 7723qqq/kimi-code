@@ -29,8 +29,8 @@ Kimi Code 对 CLI/TUI 行为、agent 工作流和公开 API 已有自己的主�
 - `apps/vscode` — VS Code 插件
 - `apps/vis` — 会话调试可视化工具
 - `packages/node-sdk` — 公开 TypeScript SDK（`@moonshot-ai/kimi-code-sdk`）
-- `packages/agent-core-v2` — 当前的 agent 引擎（v2，DI Scope 架构）；`packages/agent-core` 为 v1，正在逐步废弃
-- `packages/klient`、`kap-server`、`protocol`、`transcript`、`kosong`、`kaos`、`oauth`、`telemetry` — 内部引擎包
+- `packages/agent-core-v2` — 当前的 agent 引擎（v2，DI Scope 架构）；v1 的 `packages/agent-core` 在本 fork 中已整体删除（见下文「同步上游须知」）
+- `packages/klient`、`kap-server`、`remote-control`、`transcript`、`kosong`、`kaos`、`oauth`、`telemetry` — 内部引擎包
 - `docs/` — VitePress 双语文档站
 
 完整项目地图见 [DEVELOP.md](DEVELOP.md)。
@@ -40,7 +40,7 @@ Kimi Code 对 CLI/TUI 行为、agent 工作流和公开 API 已有自己的主�
 前置要求：Bun >= 1.4、Git。任何开发流程都不再需要 Node.js——vitest 测试套件在 Bun 运行时下执行（`bun --bun run test`；本机装有 Node 时，普通 `bun run test` 依旧可用）。
 
 ```sh
-git clone https://github.com/MoonshotAI/kimi-code.git
+git clone https://github.com/7723qqq/kimi-code.git
 cd kimi-code
 bun install
 ```
@@ -67,16 +67,117 @@ bun install
 - `bun run lint:fix` — oxlint 自动修复
 - `bun run build` — 构建全部包
 
+## 构建与本地部署
+
+改动完成后，构建整个项目：
+
+```sh
+bun run build
+```
+
+如果只改了 `apps/kimi-code` 下的代码，也可以只构建该包：
+
+```sh
+cd apps/kimi-code && bun run build
+```
+
+构建产物如下：
+
+| 产物 | 路径 |
+|--------|------|
+| CLI 入口（ESM） | `apps/kimi-code/dist/main.mjs` |
+| Web UI 资源 | `apps/kimi-code/dist-web/` |
+| 原生预编译产物 | `apps/kimi-code/native/` |
+
+### 部署到本地 `.kimi-code` 进行测试
+
+想用本地构建代替已发布的二进制：
+
+1. **同步 dist 文件**到 Kimi Code home 目录：
+
+```powershell
+# 删除旧的 dist
+Remove-Item -Recurse -Force "$env:USERPROFILE\.kimi-code\dist" -ErrorAction SilentlyContinue
+# 新建目录并复制内容
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.kimi-code\dist"
+Copy-Item -Recurse -Force apps/kimi-code/dist/* "$env:USERPROFILE\.kimi-code\dist\"
+
+# 同步 web 资源
+Remove-Item -Recurse -Force "$env:USERPROFILE\.kimi-code\dist-web" -ErrorAction SilentlyContinue
+Copy-Item -Recurse -Force apps/kimi-code/dist-web "$env:USERPROFILE\.kimi-code\dist-web"
+```
+
+2. **复制原生 `.node` 文件**到 `dist/chunks/`（ESM bundle 会从 chunk 文件所在目录解析相对 require）：
+
+```powershell
+Copy-Item -Force packages/kimi-native-tools/kimi-native-tools.win32-x64-msvc.node `
+    "$env:USERPROFILE\.kimi-code\dist\chunks\"
+```
+
+3. **带语言设置运行**（设 `KIMI_LANG=zh` 使用中文界面）：
+
+```powershell
+$env:KIMI_LANG="zh"
+node $env:USERPROFILE\.kimi-code\dist\main.mjs
+```
+
+要让 `kimi` 命令使用本地构建，先把 CDN 二进制改名，再创建一个启动器：
+
+```powershell
+Rename-Item "$env:USERPROFILE\.kimi-code\bin\kimi.exe" "kimi.cdn.exe"
+```
+
+创建 `$env:USERPROFILE\.kimi-code\bin\kimi.cmd`：
+
+```bat
+@echo off
+setlocal
+if "%KIMI_LANG%"=="" (
+    for /f "tokens=2 delims== " %%a in (
+        'type "%USERPROFILE%\.kimi-code\tui.toml" 2^>nul ^| findstr /r "^locale"'
+    ) do set KIMI_LANG=%%~a
+)
+set KIMI_CODE_HOME=%USERPROFILE%\.kimi-code
+node "%KIMI_CODE_HOME%\dist\main.mjs" %*
+```
+
 ### 原生构建（自包含二进制）
 
 原生构建用 Bun 把 CLI 编译为单文件可执行文件。需要 Bun >= 1.4（`curl -fsSL https://bun.sh/install | bash`；详见 [bun.sh](https://bun.sh)），构建脚本本身也运行在 Bun 上；Rust 工具链必需，因为要嵌入 `kimi-native-tools` 的 `.node` 二进制。
 
-在 `apps/kimi-code` 下运行：
+Windows（x64）：
 
 ```sh
-bun scripts/native/build-bun.mjs
-bun run test:native:smoke
+cd apps/kimi-code && bun run build:native:bun:release
 ```
+
+产物：`apps/kimi-code/dist-native/bin/win32-x64/kimi.exe`
+
+Linux（x64）：
+
+```sh
+cd apps/kimi-code
+bun run build:native:bun
+```
+
+`build:native:bun` 脚本已经用 `local` profile 跑过 JS bundle 步骤。
+
+产物：`apps/kimi-code/dist-native/bin/linux-x64/kimi`（约 160 MB）
+
+部署到本地 `.kimi-code`：
+
+```bash
+cp apps/kimi-code/dist-native/bin/linux-x64/kimi ~/.kimi-code/bin/kimi
+```
+
+如果正在运行的 `kimi` 进程已占用该二进制（Text file busy）：
+
+```bash
+cp apps/kimi-code/dist-native/bin/linux-x64/kimi ~/.kimi-code/bin/kimi-new
+mv ~/.kimi-code/bin/kimi-new ~/.kimi-code/bin/kimi
+```
+
+> **注意**：原生构建要求 `@moonshot-ai/kimi-native-tools` 出现在 `apps/kimi-code/package.json` 的依赖中，并在 `apps/kimi-code/scripts/native/native-deps.mjs` 中登记。已知坑见[常见问题](#常见问题)。
 
 `--profile=release`（`bun run build:native:bun:release`）会生成内置目录，macOS 上用 `APPLE_SIGNING_IDENTITY` 签名并运行 codesign 自检。CI 通过 `_native-build.yml` 的 `native-bundle-bun` job 构建全部六个目标（经 `KIMI_CODE_NATIVE_ENGINE=bun` 打包为 `kimi-code-bun-<target>.zip`）。
 
@@ -105,6 +206,19 @@ bun scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
 - 沙箱中没有 `/usr/bin/env`——请用 `node <js入口>` 调用 node-gyp 和 napi CLI，不要用它们的 bin 启动器。
 - FOD 输出不得包含 `/nix/store/...` 字符串：绝不让 `cargo vendor` 把它建议的配置写进输出，也不要把 store 路径插值进安装脚本。
 - 改动 `bun.lock` 或任一 `Cargo.lock` 后，会有一次哈希不匹配轮次：把失败日志中的 `got:` 哈希（PR 上由 nix-build bot 自动贴出）填回 `flake.nix` 的 `outputHash`。
+
+### 常见问题
+
+| 现象 | 原因 | 处理 |
+|---------|-------|-----|
+| `Cannot find module '@moonshot-ai/i18n-shared'` | workspace 链接失效；新增包后 `bun install` 尚未重新链接 | 运行 `bun install` |
+| `ERR_MODULE_NOT_FOUND` 指向 `.kimi-code/node_modules` 里的 `src/index.ts` | 部署后的 package.json exports 仍指向源码文件 | 把 exports 改为指向 `dist/*.mjs` |
+| `Failed to load kimi-native-tools binding` | `dist/chunks/` 里缺 `.node` 文件（ESM bundle 从 chunk 目录解析） | 把 `.node` 文件直接复制进 `dist/chunks/` |
+| 打包产物报 `ERR_UNKNOWN_BUILTIN_MODULE: @moonshot-ai/kimi-native-tools` | 原生模块未在 `native-deps.mjs` 中登记 | 在 `nativeDeps` 数组里加一条，`collect: 'native-files'` |
+| `packages/i18n-shared` 构建报 `UNRESOLVED_ENTRY` | 缺 `src/index.ts` | 新建 `src/index.ts`，重新导出 types、core 与 detect 模块 |
+| CDN 下载的 `kimi.exe` 在 `locale=zh` 下仍显示英文 | CDN 二进制只包含打包时的语言；下载日期决定版本 | 本地构建，或等下一次 CDN 发布 |
+| `bun run` 下出现意料之外的环境变量 | Bun 会自动加载 `.env`（pnpm 时代的开发流程不会） | 删除或重命名该文件，或用 `bun --no-env-file` 运行 |
+| Nix 构建报 `hash mismatch in fixed-output derivation '...bun-deps...'` | `bun.lock` 或某个 `Cargo.lock` 变了，vendored 依赖的 FOD 输出随之改变 | 把 `flake.nix` 的 `outputHash` 设为 `lib.fakeSha256`，推送后把失败日志里的 `got:` 哈希填回去（PR 上由 nix-build bot 自动贴出） |
 
 ## 提交规范
 
@@ -142,9 +256,17 @@ PR 标题由 `pr-title-checker` 工作流强制校验——不合规的标题会
 - 该工作流依赖仓库设置 **Actions → General → "Allow GitHub Actions to create and approve pull requests"** 处于开启状态。若 Release 失败并报 `GitHub Actions is not permitted to create or approve pull requests`，打开该开关（或经 API：`PUT /repos/{owner}/{repo}/actions/permissions/workflow`，`can_approve_pull_request_reviews: true`）。
 - 有意发版前，用 `pre-changelog` 技能预览面向用户的 changelog，并从 `main` 清理掉累积的非用户向 changesets。
 
+### 发布二进制
+
+`release-native.yml` 为全部六个目标构建并发布 CLI 二进制。推送版本 tag（`v2.1.1` 或 `@moonshot-ai/kimi-code@2.1.1`）即可触发，也可以用已有 tag 手动运行该工作流。
+
+- tag 的版本必须与 `apps/kimi-code/package.json` 一致；不一致时会在发布前直接失败，因此请先升版本并合入，再打 tag。
+- 发布说明取自 `apps/kimi-code/CHANGELOG.md` 中对应版本的小节。该小节缺失时，发布正文会回退为通用文案，而不是报错失败。
+- 未配置 Apple 或 Azure 密钥时构建仍会成功，只是发布未签名的二进制。参见 DEVELOP → "Native release"。
+
 ## Pull Requests
 
-PR 会自动套用 [PR 模板](.github/pull_request_template.md)。PR 标题必须遵循 [Conventional Commits](#提交规范)；每个 PR 的 CI 会运行 `bun run lint`、`bun run typecheck` 和 `bun run test`。行为变更时请同步更新 `docs/` 下的用户文档——使用编程 agent 时使用 `gen-docs` 技能。
+PR 会自动套用 [PR 模板](.github/pull_request_template.md)。PR 标题必须遵循 [Conventional Commits](#提交规范)；每个 PR 的 CI 会运行 `bun run lint`、`bun run typecheck` 和 `bun --bun run test`。行为变更时请同步更新 `docs/` 下的用户文档——使用编程 agent 时使用 `gen-docs` 技能。
 
 ## 代码风格
 

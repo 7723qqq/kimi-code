@@ -26,7 +26,7 @@ Kimi Code CLI 内置三种 subagent，开箱即用，分别面向不同任务形
 
 subagent 由 main agent 自动调度：根据任务复杂度、上下文消耗和子任务的独立性，在适当时机派发，无需用户手动指定。
 
-每次派发都会在终端以审批请求的形式呈现，方便你审视任务描述，除非你已用 allow 规则放行或处于 YOLO 模式。你也可以在对话中直接指示 main agent 使用特定 subagent，例如"先用 explore 把相关文件梳理一遍再动手"。
+每次派发都会在终端以审批请求的形式呈现，方便你审视任务描述，除非你已用 allow 规则放行或处于必要时询问模式。你也可以在对话中直接指示 main agent 使用特定 subagent，例如"先用 explore 把相关文件梳理一遍再动手"。
 
 subagent 支持在后台运行：完成后结果自动回到 main agent，无需手动轮询。也可以唤回已有的 subagent 实例继续推进同一任务。
 
@@ -132,7 +132,7 @@ disallowedTools:
 目录中发现的非法文件会被跳过并告警，不影响其他文件。通过 `--agent-file` 显式传入的文件必须合法，否则 CLI 会报错并退出。
 
 ::: warning 注意
-`tools` 与 `disallowedTools` 不仅决定模型能"看到"哪些工具，还会在执行前再次强制检查。`subagents` 同样双重生效：`Agent` 工具的类型列表只包含允许委派的 subagent，`Agent` 与 `AgentSwarm` 在实际派发前都会强制校验；唤回已有 subagent 不受此限制。权限规则仍是独立的控制层，用于决定哪些操作需要审批。
+`tools` 与 `disallowedTools` 不仅决定模型能"看到"哪些工具，还会在执行前再次强制检查。`subagents` 同样双重生效：`Agent` 工具的类型列表只包含允许委派的 subagent，`Agent`、`AgentSwarm` 与 `Team` 在实际派发前都会强制校验；唤回已有 subagent 不受此限制。权限规则仍是独立的控制层，用于决定哪些操作需要审批。
 :::
 
 作为 subagent 委派的自定义 Agent 不会携带内置 subagent 的角色框架（"你的最后一条消息就是完整交付"）。如果编写的 Agent 用于委派，请在正文中说明：其最后一条消息应当是交付给调用方的完整、自包含的结果。
@@ -179,7 +179,6 @@ SYSTEM.md 是纯 Markdown 正文，不需要也不读取 Frontmatter。文件缺
 | `${cwd_listing}` | 工作目录的文件列表 |
 | `${os}` | 操作系统类型 |
 | `${shell}` | Shell 名称与路径，例如 `bash (\`/bin/bash\`)` |
-| `${now}` | 当前时间（ISO 格式） |
 | `${additional_dirs_info}` | 加入工作区的额外目录信息；没有时为空 |
 | `${base_prompt}` | 默认系统提示词。在 `SYSTEM.md` 中指内置默认提示词；在 Agent 文件中指有效默认提示词（内置默认，或存在时的 `SYSTEM.md` 覆盖） |
 | `${plugin_sections}` | 已启用 plugin 提供的完整 Plugin Instructions 块；没有已启用 plugin 提供指令时为空 |

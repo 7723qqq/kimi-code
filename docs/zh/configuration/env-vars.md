@@ -2,10 +2,10 @@
 
 Kimi Code CLI 通过环境变量控制少数运行时行为：迁移数据目录、关闭遥测、不改配置文件临时切换模型。
 
-::: warning 重要：API 密钥不在这里配置
-`KIMI_API_KEY`、`ANTHROPIC_API_KEY`、`OPENAI_API_KEY` 等密钥变量**不会**从 shell 环境变量自动读取。在终端里 `export KIMI_API_KEY=xxx` 不会让任何供应商获得密钥。密钥必须写在 `config.toml` 的 `[providers.<name>]` 段或 `[providers.<name>.env]` 子表里。
+::: warning 注意
+`KIMI_API_KEY`、`ANTHROPIC_API_KEY`、`OPENAI_API_KEY` 等密钥变量不在这里配置：它们**不会**从 shell 环境变量自动读取。在终端里 `export KIMI_API_KEY=xxx` 不会让任何供应商获得密钥。密钥必须写在 `config.toml` 的 `[providers.<name>]` 段或 `[providers.<name>.env]` 子表里。
 
-例外有两处：`KIMI_MODEL_*` 系列和供应商的 `api_key_env` 字段，这两个显式通道*确实*会从 shell 读取凭证。详见[用环境变量定义模型](#用环境变量定义模型kimi_model_)和[供应商凭证键](#供应商凭证键写在-configtoml-里)。
+例外有两处：`KIMI_MODEL_*` 系列和供应商的 `api_key_env` 字段，这两个显式通道*确实*会从 shell 读取凭证。详见[用环境变量定义模型](#用环境变量定义模型-kimi-model)和[供应商凭证键](#供应商凭证键-写在-config-toml-里)。
 
 背景说明见[配置覆盖：供应商凭证](./overrides.md#供应商凭证)。
 :::
@@ -26,7 +26,7 @@ export KIMI_CODE_HOME="/path/to/custom/kimi-code"
 
 ### `KIMI_DISABLE_TELEMETRY`
 
-设为 `1` 关闭匿名遥测上报（也接受 `true`/`yes`/`y`，不区分大小写）：
+设为 `1` 关闭匿名遥测上报（也接受 `true`/`t`/`yes`/`y`，不区分大小写）：
 
 ```sh
 export KIMI_DISABLE_TELEMETRY=1
@@ -34,7 +34,7 @@ export KIMI_DISABLE_TELEMETRY=1
 
 ### `KIMI_MODEL_*` 系列
 
-不修改 `config.toml` 临时切换模型：设置 `KIMI_MODEL_NAME` 后，CLI 在内存里合成一个临时供应商，重启后失效。详见[用环境变量定义模型](#用环境变量定义模型kimi_model_)。
+不修改 `config.toml` 临时切换模型：设置 `KIMI_MODEL_NAME` 后，CLI 在内存里合成一个临时供应商，重启后失效。详见[用环境变量定义模型](#用环境变量定义模型-kimi-model)。
 
 ### `KIMI_CODE_CUSTOM_HEADERS`
 
@@ -150,11 +150,11 @@ kimi
 
 | 环境变量 | 用途 | 合法值 |
 | --- | --- | --- |
-| `KIMI_DISABLE_TELEMETRY` | 关闭匿名遥测上报 | `1`、`true`、`yes`、`y`（不区分大小写） |
+| `KIMI_DISABLE_TELEMETRY` | 关闭匿名遥测上报 | `1`、`true`、`t`、`yes`、`y`（不区分大小写） |
 | `KIMI_LANG` | 固定启动时自动探测的终端界面语言；只有探测这一步读它，`tui.toml` 里写了 `locale` 时仍以文件为准 | `zh`、`en` |
 | `KIMI_CODE_PASSWORD` | 为 `kimi web` 本地服务设置并列鉴权密码，与 bearer token 同时有效；把服务绑定到非本机地址时建议设置，见 [在网页中使用：安全注意](../guides/web.md#安全注意) | 任意非空字符串；未设置时仅 token 有效 |
 | `KIMI_CODE_BACKGROUND_KEEP_ALIVE_ON_EXIT` | 会话关闭时是否保留后台任务，优先级高于 `config.toml`。默认会在退出时停止后台任务 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
-| `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` | 同时运行的后台任务数上限，优先级高于 `config.toml` 的 `[background] max_running_tasks`；不设置表示无上限 | 正整数；非法值被忽略 |
+| `KIMI_CODE_BACKGROUND_MAX_RUNNING_TASKS` | 同时运行的后台任务数上限，优先级高于 `config.toml` 的 `[task] max_running_tasks`；不设置表示无上限 | 正整数；非法值被忽略 |
 | `KIMI_CODE_BACKGROUND_BASH_TASK_TIMEOUT_S` | 后台 `Bash` 任务的默认超时（秒），也用于前台命令转入后台后的重新计时，优先级高于 `[task] bash_task_timeout_s`；`0` 表示无超时 | 非负整数；非法值被忽略 |
 | `KIMI_CODE_BACKGROUND_PRINT_BACKGROUND_MODE` | `kimi -p` 主轮次结束后仍有后台任务待处理时的行为，优先级高于 `[task] print_background_mode` | `exit`、`drain` 或 `steer`；非法值被忽略 |
 | `KIMI_CODE_BACKGROUND_PRINT_WAIT_CEILING_S` | print 模式 drain/steer 等待的时长上限（秒），优先级高于 `[task] print_wait_ceiling_s` | 正整数；非法值被忽略 |
@@ -180,7 +180,7 @@ kimi
 | `KIMI_CODE_PERSISTENCE_MINIDB_READMODEL` | 会话索引使用基于 minidb 的读模型，优先级高于 `[database] base`（默认 `true`） | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_MCP_STARTUP_TIMEOUT_MS` | MCP server 全局默认连接超时（毫秒）；优先级高于配置文件，低于 `mcp.json` 的 `startupTimeoutMs` | `1` 到 `2147483647` 的整数；非法值被忽略 |
 | `KIMI_MCP_TOOL_TIMEOUT_MS` | MCP server 全局默认单次工具调用超时（毫秒）；优先级高于配置文件，低于 `mcp.json` 的 `toolTimeoutMs` | `1` 到 `2147483647` 的整数；非法值被忽略 |
-| `KIMI_CODE_TRUST_WORKSPACE` | 将当前工作区标记为受信任，等效于在交互式信任提示中选择 "Trust this folder"；按进程生效，不写入持久化的信任记录 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
+| `KIMI_CODE_TRUST_WORKSPACE` | 将当前工作区标记为受信任，等效于在交互式信任提示中选择 "信任并继续"；按进程生效，不写入持久化的信任记录 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
 | `KIMI_LOOP_MAX_STEPS_PER_TURN` | Agent 单轮最大步数，优先级高于 `config.toml` 的 `[loop_control] max_steps_per_turn`；`0` 表示无上限 | 非负整数；非法值被忽略 |
 | `KIMI_LOOP_MAX_ATTEMPTS_PER_STEP` | 单步失败后的最大总尝试次数（含首次尝试），优先级高于 `config.toml` 的 `[loop_control] max_attempts_per_step` | 非负整数；非法值被忽略 |
 | `KIMI_CODE_INFINITE_RETRY` | 让所有失败的 LLM 请求无限重试而不是终止任务；指数退避（32 秒封顶）并尊重 `Retry-After`，等待期间中断仍生效 | 真值：`1`/`true`/`yes`/`on`；假值：`0`/`false`/`no`/`off` |
@@ -198,6 +198,20 @@ kimi
 | `KIMI_MODEL_THINKING_KEEP` | 保留思考透传；`kimi` 以 `thinking.keep` 发送，`anthropic` 以 `clear_thinking_20251015` 编辑发送；覆盖 `[thinking] keep` | API 接受的值，如 `all`；传入关值（`false`/`0`/`no`/`off`/`none`/`null`）可禁用 |
 | `KIMI_CODE_NO_AUTO_UPDATE` | 完全禁用更新预检：不检查、不后台安装、不提示。同时兼容旧名 `KIMI_CLI_NO_AUTO_UPDATE` | 真值：`1`/`true`/`yes`/`on` |
 | `KIMI_DISABLE_CRON` | 禁用定时任务工具（`CronCreate` 拒绝新计划，已有任务不触发） | `1` 表示禁用 |
+| `KIMI_CRON_DEBUG` | 把 cron 调度器诊断信息写到 stderr | `1` 开启 |
+| `KIMI_CRON_NO_JITTER` | 关闭计划触发时间上的防拥挤抖动 | `1` 关闭 |
+| `KIMI_CRON_NO_STALE` | 不把重复任务标记为过期，使其不会在 7 天后自动失效 | `1` 关闭过期判定 |
+| `KIMI_CRON_MANUAL_TICK` | 由外部 tick 驱动调度器，而不是用它自带的定时器 | `1` 开启 |
+| `KIMI_CRON_CLOCK` | 替换调度器的墙钟；`system`（默认）用真实时钟，`file:<path>` 从文件首行读取 Unix 毫秒时间戳 | `system` 或 `file:<path>`；其他值回退系统时钟 |
+| `KIMI_CRON_POLL_INTERVAL_MS` | 调度器轮询间隔（毫秒，默认 `1000`）；`null` 或 `0` 关闭轮询 | 非负整数或 `null`；非法值被忽略 |
+| `KIMI_CODE_DANGEROUS_COMMAND_GUARD` | 开关内置危险命令策略，优先级高于 `config.toml` 的 `[permission] dangerous_command_guard`（默认 `true`） | `true` 或 `false`；其他值被忽略 |
+| `KIMI_CODE_SEARCH_SYNC_SESSION_CAP` | 单次同步写入搜索索引的会话数上限，优先级高于 `config.toml` 的 `[database] search_sync_session_cap`（默认 `500`） | 整数；非法值被忽略 |
+| `KIMI_CODE_SEARCH_SYNC_DEBOUNCE_MS` | 待处理的搜索索引同步开始前的防抖时间（毫秒），优先级高于 `config.toml` 的 `[database] search_sync_debounce_ms`（默认 `2000`） | 整数；非法值被忽略 |
+| `KIMI_LLM_REQUEST_BYTE_BUDGET` | 单次 LLM 请求体的字节预算，优先级高于 `config.toml` 的 `[llm_requester] request_byte_budget`（默认 `33554432`，即 32 MB） | 正整数；非法值被忽略 |
+| `KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS` | 供应商模型目录的刷新间隔（毫秒），优先级高于 `config.toml` 的 `[model_catalog] refresh_interval_ms`（默认 `21600000`，即 6 小时）；`0` 关闭定时刷新。由服务端进程（`kimi web`）读取 | 非负数字；非法值回退到配置或默认值 |
+| `KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START` | 启动时是否刷新供应商模型目录，优先级高于 `[model_catalog] refresh_on_start`（默认开启）。由服务端进程（`kimi web`）读取 | `1`、`true` 或 `yes` 开启；其他值关闭 |
+
+`[task]` 是后台任务配置节的当前名称，`[background]` 作为旧名仍然接受（见[配置文件](./config-files.md#task)）。
 
 `KIMI_CODE_INFINITE_RETRY`、`KIMI_CODE_IDENTITY_*`、`KIMI_CODE_BUILTIN_PRODUCT_SKILLS` 和 `KIMI_CODE_PERMISSION_MODE_REMINDER` 这几个变量由 `agent-core-v2` 引擎读取。
 

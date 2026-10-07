@@ -18,7 +18,7 @@
 | `/model` | — | 切换当前会话使用的 LLM 模型 | 是 |
 | `/secondary-model` | `/subagent-model` | 选择 subagent 的默认模型（写入 `[secondary_model] default_model`，详见[subagent 模型池](../configuration/config-files.md#subagent-模型池)） | 是 |
 | `/settings` | `/config` | 打开 TUI 内的设置面板 | 是 |
-| `/experiments` | `/experimental` | 打开实验功能面板 | 是 |
+| `/experiments` | `/experimental` | 打开实验功能面板 | 否 |
 | `/permission` | — | 选择权限模式 | 是 |
 | `/editor` | — | 配置 `Ctrl-G` 调起的外部编辑器 | 是 |
 | `/theme` | — | 切换终端 UI 配色主题 | 是 |
@@ -43,6 +43,7 @@
 | `/add-dir [<path>]` | — | 为当前会话添加额外的工作目录。不带路径（或传入 `list`）运行时列出已配置的目录。添加时可选择是否将目录记入项目的 `.kimi-code/local.toml` | 否 |
 | `/web` | — | 在 web UI 中打开当前会话：选择一个运行中的实例进行连接，或在 TUI 退出后新开一个前台服务器。参见 [`kimi web`](./kimi-command.md#kimi-web) | 是 |
 | `/desktop` | `/install-desktop` | 在浏览器中打开 Kimi Code 桌面端页面（地址随当前区域而定：`https://www.kimi.com/code` 或 `https://www.kimi.ai/code`）。参见 [`kimi install-desktop`](./kimi-command.md#kimi-install-desktop) | 是 |
+| `/remote-control` | `/rc` | 通过 Kimi Remote Control 打开当前会话。参见[远程控制](../guides/remote-control.md) | 是 |
 
 ## 模式与运行控制
 
@@ -52,9 +53,9 @@
 | `/auto` | — | 打开权限模式列表并预选 "Never Ask"，按 `Enter` 确认开启。该模式下完全不打断，所有操作和判断自动完成 | 是 |
 | `/plan [on\|off]` | — | 切换 Plan 模式。不带参数时翻转；显式传 `on`/`off` 时强制设置。单纯切换不会创建空计划文件 | 是 |
 | `/plan clear` | — | 清除当前 plan 方案 | 否 |
-| `/spec [on\|off]` | — | 切换 Spec 模式。不带参数时翻转；显式传 `on`/`off` 时强制设置。与 Plan 模式不同，spec 会作为长期产物写入你的仓库——见[内置工具](./tools.md#spec-模式) | 是 |
+| `/spec [on\|off]` | — | 切换 Spec 模式。不带参数时翻转；显式传 `on`/`off` 时强制设置。与 Plan 模式不同，spec 会作为长期产物写入你的仓库——见[内置工具](./tools.md#spec-模式) | 否 |
 | `/effort` | `/thinking` | 切换思考模式 | 是 |
-| `/swarm on\|off` | — | 开启或关闭 swarm mode，但不发送提示词。 | 是 |
+| `/swarm on\|off` | — | 开启或关闭 swarm mode，但不发送提示词。 | 否 |
 | `/swarm <task>` | — | 先开启 swarm mode，再把 `<task>` 作为普通提示词发送。如果该轮次正常完成，swarm mode 会自动关闭。若当前是 `manual` 权限模式，启动前会提示是否切换到「必要时询问」或「完全自动」模式。 | 否 |
 | `/team <topic>` | — | 启动多 Agent 团队讨论 | 否 |
 | `/workflow <name> [<args>...]` | — | 运行或管理工作流（列表、状态、取消或按名称运行） | 是 |
@@ -135,6 +136,7 @@ Kimi Code CLI 随包内置了一组 Skill，直接以 `/<name>` 形式出现在�
 | `/check-kimi-code-docs` | 依据官方文档回答 Kimi Code 产品问题（CLI 用法、配置、会员、错误码） |
 | `/import-from-cc-codex` | 从 Claude Code 和 Codex 导入 instructions、skills 和 MCP 设置 |
 | `/sub-skill` | 发现并将本地 skill 库存重组为分层子 skill 包。包含 `/sub-skill.review`（只读提案）和 `/sub-skill.consolidate`（执行重组） |
+| `/write-goal` | 帮助把粗略意图整理成规范的 `/goal` 目标——一份包含完成线、验证证据、边界与停止规则的完成契约。参见[目标模式](../guides/interaction.md#目标模式) |
 
 所有内置 Skill 命令仅在空闲状态下可用。
 
@@ -142,7 +144,7 @@ Kimi Code CLI 随包内置了一组 Skill，直接以 `/<name>` 形式出现在�
 
 已激活的外部 Skill 会自动注册为斜杠命令。普通外部 Skill 以 `skill:` 作为命名空间前缀：
 
-```
+```text
 /skill:<name> [附加文本]
 ```
 
@@ -150,7 +152,7 @@ Kimi Code CLI 随包内置了一组 Skill，直接以 `/<name>` 形式出现在�
 
 外部子 Skill 会直接以点分名称出现在斜杠命令面板中：
 
-```
+```text
 /<parent-skill>.<sub-skill> [附加文本]
 ```
 

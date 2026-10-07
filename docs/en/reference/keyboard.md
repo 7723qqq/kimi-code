@@ -1,6 +1,6 @@
 # Keyboard Shortcuts
 
-Kimi Code CLI's TUI interactive mode supports a set of keyboard shortcuts. The shortcuts are organized into five groups by usage context: general input, mode switching, during streaming, tool output control, the approval panel, and popup navigation. Type `/help` in the TUI at any time to open the built-in shortcut reference.
+Kimi Code CLI's TUI interactive mode supports a set of keyboard shortcuts. The shortcuts are organized into seven groups by usage context: general input, mode switching, input and editing, during streaming, tool output control, the approval panel, and popup navigation. Type `/help` in the TUI at any time to open the built-in shortcut reference.
 
 ## General Shortcuts
 
@@ -15,8 +15,8 @@ The following keys are always available in the input box:
 | `Ctrl-C` | Interrupt the current streaming output, or clear the input box |
 | `Ctrl-D` | Exit Kimi Code CLI when the input box is empty |
 | `Ctrl-T` | Expand or collapse the todo list when it is truncated |
-| `Ctrl-P` | Previous page in the experimental `Updates` panel when it has multiple pages |
-| `Ctrl-N` | Next page in the experimental `Updates` panel when it has multiple pages |
+| `Ctrl-P` | Rewrite the drafted prompt with AI |
+| `Ctrl-N` | Focus or release the experimental `Updates` panel |
 
 Pressing `Ctrl-C` **during streaming** cancels immediately — no second confirmation needed.
 
@@ -26,10 +26,10 @@ Pressing `Ctrl-C` **during streaming** cancels immediately — no second confirm
 
 | Shortcut | Function |
 | --- | --- |
-| `Shift-Tab` | Toggle Plan mode |
+| `Shift-Tab` | Cycle review modes (Plan → Spec → off) |
 | `!` | Enter shell mode (in an empty input box) |
 
-Press `Shift-Tab` to enable or disable Plan mode. When enabled, the Agent prioritizes read-only tools for research and planning and can write to the current plan file; `Bash` is subject to the current permission mode and regular rules, without any additional separate approval triggered by Plan mode. Simply toggling does not create an empty plan file. Press `Shift-Tab` again to exit Plan mode.
+Press `Shift-Tab` to cycle through the review modes: Plan, then Spec, then off. In Plan mode, the Agent prioritizes read-only tools for research and planning and can write to the current plan file; `Bash` is subject to the current permission mode and regular rules, without any additional separate approval triggered by Plan mode. Simply toggling does not create an empty plan file. See [Slash Commands](./slash-commands.md#modes--run-control) for the full mode model.
 
 Type `!` in an empty input box to enter shell mode and run terminal commands directly; while a command is running, press `Ctrl+B` to move it to a background task. See [Interaction and input](../guides/interaction.md#shell-mode).
 

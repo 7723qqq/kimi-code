@@ -55,7 +55,7 @@ Network requests only go through `github.com` redirects and `codeload.github.com
 
 - Plugin changes apply after `/reload` or in new sessions. After installing, enabling/disabling, or removing a plugin, run `/reload` or `/new`; the current session will not update.
 - Local installations are copied to `$KIMI_CODE_HOME/plugins/managed/<id>/`, and the CLI always runs from this managed copy. Editing the original source directory after installation has no effect; you must reinstall.
-- Removing a plugin only deletes the installation record; the managed copy and original source files remain on disk.
+- Removing a plugin deletes the installation record and the managed copy under `$KIMI_CODE_HOME/plugins/managed/<id>/`; the original source directory of a local installation is left untouched.
 - Plugins are currently installed per-user and apply to all projects; project-level installation scope is not yet supported.
 
 ### Custom marketplace JSON
@@ -168,7 +168,7 @@ Look up national (GB), industry, local, and association standards by number or t
 
 ### Kimi Browser Extension <Badge type="tip" text="v2.0.11" />
 
-Kimi Browser Extension lets AI drive your browser directly: not an emulator, not a crawler, but the browser you use every day, with your login sessions and cookies. AI can open pages, read content, click buttons, fill in forms, and take screenshots just like you do, taking repetitive web operations off your hands. See the [Kimi Browser Extension site](https://www.kimi.com/en/products/kimi-browser-extension) for a product overview.
+Kimi Browser Extension lets AI drive your browser directly: not an emulator, not a crawler, but the browser you use every day, with your login sessions and cookies. AI can open pages, read content, click buttons, fill in forms, and take screenshots just like you do, taking repetitive web operations off your hands. See the [Kimi Browser Extension site](https://www.kimi.com/products/kimi-browser-extension) for a product overview.
 
 #### Install the browser extension
 
